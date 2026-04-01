@@ -1,0 +1,50 @@
+{
+  "name": "@moltzap/openclaw-channel",
+  "version": "2026.329.0",
+  "description": "OpenClaw channel plugin for MoltZap messaging",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/chughtapan/moltzap"
+  },
+  "type": "module",
+  "files": [
+    "dist",
+    "!dist/__tests__",
+    "!dist/test-utils",
+    "openclaw.plugin.json"
+  ],
+  "main": "./dist/channel.js",
+  "types": "./dist/channel.d.ts",
+  "exports": {
+    ".": "./dist/channel.js",
+    "./test-utils": "./src/test-utils/container-core.ts"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts"
+  },
+  "dependencies": {
+    "@moltzap/protocol": "workspace:*",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@testcontainers/postgresql": "^10.18.0",
+    "@types/pg": "^8.11.0",
+    "@types/ws": "^8.5.0",
+    "openai": "^6.26.0",
+    "pg": "^8.13.0",
+    "testcontainers": "^10.18.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.0.0"
+  },
+  "openclaw": {
+    "extensions": [
+      "./dist/openclaw-entry.js"
+    ]
+  }
+}

@@ -1,0 +1,121 @@
+name: Publish to npm
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  publish:
+    # Skip if this push is a version commit from a previous run
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      !startsWith(github.event.head_commit.message, 'chore(release):')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/create-github-app-token@v2
+        id: app-token
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      # Use App token for checkout so git push uses it automatically
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - run: npm install -g npm@latest
+      - run: pnpm install --frozen-lockfile
+
+      - name: Detect changed packages and compute versions
+        id: versions
+        run: |
+          # Find the last release commit, or use empty tree if none (bootstrap)
+          BASE=$(git log --grep="^chore(release):" --format="%H" -1 2>/dev/null || true)
+          if [ -z "$BASE" ]; then
+            echo "No previous release commit found — bootstrapping (all packages)"
+            BASE=$(git hash-object -t tree /dev/null)
+          fi
+
+          CHANGED=""
+          for pkg in protocol server-core cli openclaw-channel; do
+            if git diff --name-only "$BASE"..HEAD -- "packages/$pkg/src/" | grep -q .; then
+              VERSION=$(scripts/compute-next-version.sh "$pkg")
+              echo "${pkg}_version=$VERSION" >> "$GITHUB_OUTPUT"
+              CHANGED="$CHANGED $pkg"
+              echo "Package $pkg changed — next version: $VERSION"
+
+              # Write version to package.json
+              jq --arg v "$VERSION" '.version = $v' "packages/$pkg/package.json" > tmp.json && mv tmp.json "packages/$pkg/package.json"
+
+              # If protocol, also update PROTOCOL_VERSION
+              if [ "$pkg" = "protocol" ]; then
+                sed -i "s/PROTOCOL_VERSION = \".*\"/PROTOCOL_VERSION = \"$VERSION\"/" packages/protocol/src/version.ts
+                grep -q "PROTOCOL_VERSION = \"$VERSION\"" packages/protocol/src/version.ts || {
+                  echo "ERROR: Failed to update PROTOCOL_VERSION in version.ts"
+                  exit 1
+                }
+              fi
+            else
+              echo "Package $pkg — no src/ changes, skipping"
+            fi
+          done
+
+          CHANGED=$(echo "$CHANGED" | xargs)
+          echo "changed=$CHANGED" >> "$GITHUB_OUTPUT"
+
+      - name: Commit and push version bump
+        if: steps.versions.outputs.changed != ''
+        run: |
+          # Build commit message from package.json versions
+          MSG="chore(release):"
+          for pkg in ${{ steps.versions.outputs.changed }}; do
+            VER=$(node -p "require('./packages/$pkg/package.json').version")
+            MSG="$MSG @moltzap/${pkg}@${VER}"
+          done
+
+          # Update lockfile with new versions (skip scripts — full build happens in next step)
+          pnpm install --no-frozen-lockfile --ignore-scripts
+
+          # Build all packages so pre-commit typecheck passes
+          pnpm -r build
+
+          git config user.name "moltzap-release[bot]"
+          git config user.email "moltzap-release[bot]@users.noreply.github.com"
+          git add packages/*/package.json packages/protocol/src/version.ts pnpm-lock.yaml
+          if git diff --cached --quiet; then
+            echo "No version changes to commit — versions already up to date"
+          else
+            git commit -m "$MSG"
+            # If push fails (race condition), bail — next run catches up
+            git push --atomic origin main
+          fi
+
+      - name: Pack and publish
+        if: steps.versions.outputs.changed != ''
+        run: |
+          for pkg in ${{ steps.versions.outputs.changed }}; do
+            VER=$(node -p "require('./packages/$pkg/package.json').version")
+            # Skip if this version is already on the registry
+            if npm view "@moltzap/${pkg}@${VER}" version 2>/dev/null | grep -q "$VER"; then
+              echo "@moltzap/${pkg}@${VER} already published — skipping"
+              continue
+            fi
+            echo "Publishing @moltzap/${pkg}@${VER}..."
+            cd "packages/$pkg"
+            TARBALL=$(pnpm pack --pack-gzip-level 9 | tail -1)
+            [ -f "$TARBALL" ] || { echo "ERROR: pack failed, tarball not found"; exit 1; }
+            npm publish "$TARBALL" --access public
+            cd ../..
+          done

@@ -1,0 +1,73 @@
+{
+  "name": "@moltzap/protocol",
+  "version": "2026.330.0",
+  "description": "Protocol types and validators for MoltZap messaging",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/chughtapan/moltzap"
+  },
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./schemas": {
+      "types": "./dist/schema/index.d.ts",
+      "import": "./dist/schema/index.js"
+    },
+    "./phone-hash": {
+      "types": "./dist/phone-hash.d.ts",
+      "import": "./dist/phone-hash.js"
+    },
+    "./test-client": {
+      "types": "./dist/test-client.d.ts",
+      "import": "./dist/test-client.js"
+    },
+    "./test-fixtures/phone-hashes": {
+      "types": "./dist/test-fixtures/phone-hashes.d.ts",
+      "import": "./dist/test-fixtures/phone-hashes.js"
+    },
+    "./contact-events": {
+      "types": "./dist/optional/contact-events.d.ts",
+      "import": "./dist/optional/contact-events.js"
+    },
+    "./contact-methods": {
+      "types": "./dist/optional/contact-methods.d.ts",
+      "import": "./dist/optional/contact-methods.js"
+    }
+  },
+  "peerDependencies": {
+    "ws": "^8.0.0"
+  },
+  "peerDependenciesMeta": {
+    "ws": {
+      "optional": true
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "generate-schema": "tsx scripts/generate-json-schema.ts"
+  },
+  "dependencies": {
+    "@sinclair/typebox": "^0.34.0",
+    "ajv": "^8.17.0",
+    "ajv-formats": "^3.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "@types/ws": "^8.5.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0",
+    "ws": "^8.18.0"
+  }
+}
