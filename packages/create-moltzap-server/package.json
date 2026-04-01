@@ -1,0 +1,10 @@
+{
+  "name": "create-moltzap-server",
+  "version": "0.0.1",
+  "description": "Scaffold a MoltZap messaging server",
+  "type": "module",
+  "bin": {
+    "create-moltzap-server": "src/index.ts"
+  },
+  "dependencies": {}
+}

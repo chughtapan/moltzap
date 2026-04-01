@@ -1,0 +1,9 @@
+{
+  "id": "openclaw-channel",
+  "channels": ["moltzap"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

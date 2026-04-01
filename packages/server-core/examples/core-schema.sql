@@ -1,0 +1,146 @@
+-- @moltzap/server-core — core schema (no phone, no Supabase, no contacts)
+-- This file is the single source of truth for:
+--   1. kysely-codegen (generates src/db/database.generated.ts)
+--   2. Example server schema setup (applied via pg client)
+--   3. Integration test DB setup
+
+-- Enum types (core only — no contact_status, invite_type/status, push_platform)
+CREATE TYPE participant_type AS ENUM ('user', 'agent');
+CREATE TYPE user_status AS ENUM ('active', 'deactivated');
+CREATE TYPE agent_status AS ENUM ('pending_claim', 'active', 'suspended');
+CREATE TYPE conversation_type AS ENUM ('dm', 'group');
+CREATE TYPE participant_role AS ENUM ('owner', 'admin', 'member');
+CREATE TYPE delivery_status AS ENUM ('sent', 'delivered', 'read');
+CREATE TYPE encryption_key_status AS ENUM ('active', 'deprecated', 'revoked');
+
+-- Shared trigger for updated_at columns
+CREATE OR REPLACE FUNCTION public.update_updated_at()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = ''
+AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$;
+
+-- Users (minimal — no phone, no supabase_uid)
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  display_name TEXT,
+  status user_status NOT NULL DEFAULT 'active',
+  last_seen_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TRIGGER users_updated_at BEFORE UPDATE ON users
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+-- AI agents
+-- Auth: Key ID + Secret format (moltzap_agent_<keyId>_<secret>)
+CREATE TABLE agents (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  owner_user_id UUID REFERENCES users(id),
+  name TEXT UNIQUE NOT NULL
+    CHECK (name ~ '^[a-z0-9][a-z0-9_-]{1,30}[a-z0-9]$'),
+  display_name TEXT,
+  description TEXT,
+  api_key_id CHAR(16) NOT NULL,
+  api_key_secret_hash CHAR(64) NOT NULL,
+  claim_token TEXT UNIQUE NOT NULL,
+  status agent_status NOT NULL DEFAULT 'pending_claim',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_agents_owner ON agents(owner_user_id);
+CREATE UNIQUE INDEX idx_agents_api_key_id ON agents(api_key_id);
+CREATE TRIGGER agents_updated_at BEFORE UPDATE ON agents
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+-- Conversations
+CREATE TABLE conversations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  type conversation_type NOT NULL,
+  name TEXT,
+  created_by_type participant_type NOT NULL,
+  created_by_id UUID NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TRIGGER conversations_updated_at BEFORE UPDATE ON conversations
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+-- Conversation participants (polymorphic: user or agent)
+CREATE TABLE conversation_participants (
+  conversation_id UUID NOT NULL REFERENCES conversations(id),
+  participant_type participant_type NOT NULL,
+  participant_id UUID NOT NULL,
+  role participant_role NOT NULL DEFAULT 'member',
+  joined_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_read_seq BIGINT NOT NULL DEFAULT 0,
+  muted_until TIMESTAMPTZ,
+  PRIMARY KEY (conversation_id, participant_type, participant_id)
+);
+CREATE INDEX idx_participants_lookup
+  ON conversation_participants(participant_type, participant_id, conversation_id);
+
+-- Messages (encrypted at rest via envelope encryption, or plaintext when no Encryptor)
+-- seq: snowflake ID = Date.now() * 1000 + monotonicCounter
+CREATE TABLE messages (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  conversation_id UUID NOT NULL REFERENCES conversations(id),
+  sender_type participant_type NOT NULL,
+  sender_id UUID NOT NULL,
+  seq BIGINT NOT NULL,
+  reply_to_id UUID REFERENCES messages(id),
+  parts_encrypted BYTEA NOT NULL,
+  parts_iv BYTEA NOT NULL,
+  parts_tag BYTEA NOT NULL,
+  dek_version INT NOT NULL DEFAULT 1,
+  kek_version INT NOT NULL,
+  is_deleted BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(conversation_id, seq)
+);
+CREATE INDEX idx_messages_conversation_seq ON messages(conversation_id, seq);
+
+-- Message delivery status (per-message per-recipient)
+CREATE TABLE message_delivery (
+  message_id UUID NOT NULL REFERENCES messages(id),
+  participant_type participant_type NOT NULL,
+  participant_id UUID NOT NULL,
+  status delivery_status NOT NULL DEFAULT 'sent',
+  delivered_at TIMESTAMPTZ,
+  read_at TIMESTAMPTZ,
+  PRIMARY KEY (message_id, participant_type, participant_id)
+);
+
+-- Reactions
+CREATE TABLE reactions (
+  message_id UUID NOT NULL REFERENCES messages(id),
+  participant_type participant_type NOT NULL,
+  participant_id UUID NOT NULL,
+  emoji TEXT NOT NULL CHECK (length(emoji) <= 32),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (message_id, participant_type, participant_id, emoji)
+);
+
+-- Key Encryption Keys (envelope encryption)
+CREATE TABLE encryption_keys (
+  version INT PRIMARY KEY,
+  encrypted_key TEXT NOT NULL,
+  status encryption_key_status NOT NULL DEFAULT 'active',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  rotated_at TIMESTAMPTZ
+);
+
+-- Per-conversation Data Encryption Keys
+CREATE TABLE conversation_keys (
+  conversation_id UUID NOT NULL REFERENCES conversations(id),
+  dek_version INT NOT NULL DEFAULT 1,
+  wrapped_dek TEXT NOT NULL,
+  kek_version INT NOT NULL REFERENCES encryption_keys(version),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (conversation_id, dek_version)
+);
