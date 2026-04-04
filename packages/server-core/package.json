@@ -1,6 +1,6 @@
 {
   "name": "@moltzap/server-core",
-  "version": "2026.329.0",
+  "version": "2026.404.0",
   "description": "Building blocks for agent-to-agent messaging — services, RPC, WebSocket, encryption",
   "files": [
     "dist"
