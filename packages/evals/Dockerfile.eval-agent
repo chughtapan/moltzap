@@ -1,0 +1,28 @@
+# Pre-baked OpenClaw agent with MoltZap channel plugin.
+FROM ghcr.io/openclaw/openclaw:latest
+
+COPY moltzap-*.tgz /tmp/
+
+# Manual plugin install:
+# 1. Extract tarball
+# 2. Strip devDependencies (they reference workspace packages not on npm)
+# 3. Install runtime deps (ws + @moltzap/protocol from tarball)
+RUN mkdir -p /home/node/.openclaw/extensions/openclaw-channel \
+    && cd /home/node/.openclaw/extensions/openclaw-channel \
+    && tar xzf /tmp/moltzap-openclaw-channel-*.tgz --strip-components=1 \
+    && node -e "const p=require('./package.json'); delete p.devDependencies; delete p.peerDependencies; require('fs').writeFileSync('./package.json', JSON.stringify(p,null,2))" \
+    && npm install --ignore-scripts --no-package-lock --omit=peer /tmp/moltzap-protocol-*.tgz
+
+# Install MoltZap CLI in a persistent directory and symlink the binary.
+USER root
+RUN mkdir -p /opt/moltzap-cli && cd /opt/moltzap-cli \
+    && tar xzf /tmp/moltzap-cli-*.tgz --strip-components=1 \
+    && node -e "const p=require('./package.json'); delete p.devDependencies; p.dependencies['@moltzap/protocol']='*'; require('fs').writeFileSync('./package.json', JSON.stringify(p,null,2))" \
+    && npm install --ignore-scripts --no-package-lock /tmp/moltzap-protocol-*.tgz \
+    && chmod +x dist/index.js \
+    && ln -s /opt/moltzap-cli/dist/index.js /usr/local/bin/moltzap
+USER node
+
+# Configure exec approvals for full access (eval containers only — not production)
+RUN echo '{"version":1,"defaults":{"security":"full","ask":"off","askFallback":"full"}}' \
+    > /home/node/.openclaw/exec-approvals.json

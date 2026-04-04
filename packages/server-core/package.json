@@ -12,6 +12,9 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./test-utils": {
+      "import": "./src/test-utils/index.ts"
     }
   },
   "scripts": {
