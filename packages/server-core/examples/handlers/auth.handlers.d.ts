@@ -6,12 +6,12 @@ import type { ConnectionManager } from "../../src/ws/connection.js";
 import type { Broadcaster } from "../../src/ws/broadcaster.js";
 import type { Db } from "../../src/db/client.js";
 export declare function createCoreAuthHandlers(deps: {
-    authService: AuthService;
-    conversationService: ConversationService;
-    presenceService: PresenceService;
-    broadcaster: Broadcaster;
-    connections: ConnectionManager;
-    db: Db;
-    getConnId: () => string;
+  authService: AuthService;
+  conversationService: ConversationService;
+  presenceService: PresenceService;
+  broadcaster: Broadcaster;
+  connections: ConnectionManager;
+  db: Db;
+  getConnId: () => string;
 }): RpcMethodRegistry;
 //# sourceMappingURL=auth.handlers.d.ts.map

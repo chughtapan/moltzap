@@ -27,9 +27,7 @@ export { registerAndConnect, registerOnly, setupAgentPair, setupAgentGroup };
 /**
  * Start the core test server using the shared Postgres from globalSetup.
  */
-export async function startTestServer(_opts?: {
-  devMode?: boolean;
-}): Promise<{
+export async function startTestServer(_opts?: { devMode?: boolean }): Promise<{
   baseUrl: string;
   wsUrl: string;
 }> {

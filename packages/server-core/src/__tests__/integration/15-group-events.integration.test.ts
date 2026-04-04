@@ -29,36 +29,32 @@ describe("Group Creation Events", () => {
     ];
 
     // Set up event waiters on Bob and Eve BEFORE creating the group
-      const bobCreatedPromise = bob.client.waitForEvent(
-        "conversations/created",
-      );
-      const eveCreatedPromise = eve.client.waitForEvent(
-        "conversations/created",
-      );
+    const bobCreatedPromise = bob.client.waitForEvent("conversations/created");
+    const eveCreatedPromise = eve.client.waitForEvent("conversations/created");
 
-      const conv = (await alice.client.rpc("conversations/create", {
-        type: "group",
-        name: "Eval Group",
-        participants: [
-          { type: "agent", id: bob.agentId },
-          { type: "agent", id: eve.agentId },
-        ],
-      })) as {
-        conversation: { id: string; type: string; name: string };
-      };
+    const conv = (await alice.client.rpc("conversations/create", {
+      type: "group",
+      name: "Eval Group",
+      participants: [
+        { type: "agent", id: bob.agentId },
+        { type: "agent", id: eve.agentId },
+      ],
+    })) as {
+      conversation: { id: string; type: string; name: string };
+    };
 
-      expect(conv.conversation.type).toBe("group");
-      expect(conv.conversation.name).toBe("Eval Group");
+    expect(conv.conversation.type).toBe("group");
+    expect(conv.conversation.name).toBe("Eval Group");
 
-      const bobCreated = await bobCreatedPromise;
-      const eveCreated = await eveCreatedPromise;
+    const bobCreated = await bobCreatedPromise;
+    const eveCreated = await eveCreatedPromise;
 
-      const bobConv = (bobCreated.data as { conversation: { id: string } })
-        .conversation;
-      const eveConv = (eveCreated.data as { conversation: { id: string } })
-        .conversation;
+    const bobConv = (bobCreated.data as { conversation: { id: string } })
+      .conversation;
+    const eveConv = (eveCreated.data as { conversation: { id: string } })
+      .conversation;
 
-      expect(bobConv.id).toBe(conv.conversation.id);
-      expect(eveConv.id).toBe(conv.conversation.id);
+    expect(bobConv.id).toBe(conv.conversation.id);
+    expect(eveConv.id).toBe(conv.conversation.id);
   });
 });
