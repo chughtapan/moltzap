@@ -33,15 +33,23 @@ export async function registerAndConnect(
 }
 
 /** Register an agent without connecting (for tests that need the raw client). */
-export async function registerOnly(
-  name: string,
-): Promise<{ client: MoltZapTestClient; agentId: string; apiKey: string; claimToken: string }> {
+export async function registerOnly(name: string): Promise<{
+  client: MoltZapTestClient;
+  agentId: string;
+  apiKey: string;
+  claimToken: string;
+}> {
   const baseUrl = getBaseUrl();
   const wsUrl = getWsUrl();
   const client = new MoltZapTestClient(baseUrl, wsUrl);
   openClients.push(client);
   const reg = await client.register(name);
-  return { client, agentId: reg.agentId, apiKey: reg.apiKey, claimToken: reg.claimToken };
+  return {
+    client,
+    agentId: reg.agentId,
+    apiKey: reg.apiKey,
+    claimToken: reg.claimToken,
+  };
 }
 
 /** Create two agents, both connected. No contacts needed (core has open access). */

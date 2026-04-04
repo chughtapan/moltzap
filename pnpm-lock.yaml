@@ -11,6 +11,9 @@ importers:
       husky:
         specifier: ^9.0.0
         version: 9.1.7
+      oxfmt:
+        specifier: ^0.7.0
+        version: 0.7.0
       oxlint:
         specifier: ^0.16.0
         version: 0.16.12
@@ -1566,6 +1569,46 @@ packages:
     engines: {node: '>=14'}
     peerDependencies:
       '@opentelemetry/api': ^1.1.0
+
+  '@oxfmt/darwin-arm64@0.7.0':
+    resolution: {integrity: sha512-By831Cju71Etl3VetSrL1DrYcUwYIaKlOt0Icss5zUBUMGy8g2/C6iImVTpccDkPDJEsr1N67adhGqUHisBxqA==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@oxfmt/darwin-x64@0.7.0':
+    resolution: {integrity: sha512-n6zapQJAbEUQ7SDnJSCVdT9/R47EXE9vvuoDHgIG0+YYcQiRImz4vamoJzfKDPzqPYdxm8ZV6heGeQR9sRwR3w==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@oxfmt/linux-arm64-gnu@0.7.0':
+    resolution: {integrity: sha512-Ft0RodFP283zpiB8Qy9Bc3WNTOHAmXaoivreuN5Rg4D8sYpDIPKqfSXtplokVJAgH4oKe62gbiZAgJnKnNpgJA==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@oxfmt/linux-arm64-musl@0.7.0':
+    resolution: {integrity: sha512-fUjWweHP9HCXmLJGKHL2sTjZic8kZZobb5AdohaME27TernYR9dizkPTsQSTlCXYjIaELtHMBh9EyQNG0u2a/A==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@oxfmt/linux-x64-gnu@0.7.0':
+    resolution: {integrity: sha512-aYo/wc4UzUcMM8p0ilKUyJGhf3ek+FO9+TS87u3oGGPX8mdyzd/5F1aqEiDw5fWO9hN5UIP5So9yiwImGbLSPQ==}
+    cpu: [x64]
+    os: [linux]
+
+  '@oxfmt/linux-x64-musl@0.7.0':
+    resolution: {integrity: sha512-TjUltCTLT4k2MxSmQj84n7L6JJgryn4xG3dxUNSWysi2jxl2SWWerbTECAcAMm6uwCrghj3CrEvAcHbnum3vgQ==}
+    cpu: [x64]
+    os: [linux]
+
+  '@oxfmt/win32-arm64@0.7.0':
+    resolution: {integrity: sha512-HuqidvSIQCyMeo4du+rxnamuNgMJQFZs5yQd1eAcSq1HqjKjC5kkn5ZmOZShThj8MbeBv1iJgRy4187pgwkWNQ==}
+    cpu: [arm64]
+    os: [win32]
+
+  '@oxfmt/win32-x64@0.7.0':
+    resolution: {integrity: sha512-5XYLd92vJ56PitPuSqxo9uhxHC/FMBQRlenvhoW61UojZ+zjK5u3brIpuK7h7TvqdtSDgyLavvZWl9HIumHfuA==}
+    cpu: [x64]
+    os: [win32]
 
   '@oxlint/darwin-arm64@0.16.12':
     resolution: {integrity: sha512-G7phYhlIA4ke2nW7tHLl+E5+rvdzgGA6830D+e+y1RGllT0w2ONGdKcVTj+2pXGCw6yPmCC5fDsDEn2+RPTfxg==}
@@ -3739,6 +3782,11 @@ packages:
   osc-progress@0.3.0:
     resolution: {integrity: sha512-4/8JfsetakdeEa4vAYV45FW20aY+B/+K8NEXp5Eiar3wR8726whgHrbSg5Ar/ZY1FLJ/AGtUqV7W2IVF+Gvp9A==}
     engines: {node: '>=20'}
+
+  oxfmt@0.7.0:
+    resolution: {integrity: sha512-f9e9EO6iA93hNog2EDUlxqguYSzO+Y0axgu9JJTGgt1ocE8Bp6shdZ8PuI+ePepSOYmYO9UPvZLGKcvzz8BBow==}
+    engines: {node: ^20.19.0 || >=22.12.0}
+    hasBin: true
 
   oxlint@0.16.12:
     resolution: {integrity: sha512-1oN3P9bzE90zkbjLTc+uICVLwSR+eQaDaYVipS0BtmtmEd3ccQue0y7npCinb35YqKzIv1LZxhoU9nm5fgmQuw==}
@@ -6676,6 +6724,30 @@ snapshots:
       '@opentelemetry/core': 1.25.1(@opentelemetry/api@1.9.1)
     optional: true
 
+  '@oxfmt/darwin-arm64@0.7.0':
+    optional: true
+
+  '@oxfmt/darwin-x64@0.7.0':
+    optional: true
+
+  '@oxfmt/linux-arm64-gnu@0.7.0':
+    optional: true
+
+  '@oxfmt/linux-arm64-musl@0.7.0':
+    optional: true
+
+  '@oxfmt/linux-x64-gnu@0.7.0':
+    optional: true
+
+  '@oxfmt/linux-x64-musl@0.7.0':
+    optional: true
+
+  '@oxfmt/win32-arm64@0.7.0':
+    optional: true
+
+  '@oxfmt/win32-x64@0.7.0':
+    optional: true
+
   '@oxlint/darwin-arm64@0.16.12':
     optional: true
 
@@ -9130,6 +9202,17 @@ snapshots:
     optional: true
 
   osc-progress@0.3.0: {}
+
+  oxfmt@0.7.0:
+    optionalDependencies:
+      '@oxfmt/darwin-arm64': 0.7.0
+      '@oxfmt/darwin-x64': 0.7.0
+      '@oxfmt/linux-arm64-gnu': 0.7.0
+      '@oxfmt/linux-arm64-musl': 0.7.0
+      '@oxfmt/linux-x64-gnu': 0.7.0
+      '@oxfmt/linux-x64-musl': 0.7.0
+      '@oxfmt/win32-arm64': 0.7.0
+      '@oxfmt/win32-x64': 0.7.0
 
   oxlint@0.16.12:
     optionalDependencies:

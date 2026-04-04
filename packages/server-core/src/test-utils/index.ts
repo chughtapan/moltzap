@@ -42,7 +42,10 @@ export async function startCoreTestServer(opts?: {
   pgHost?: string;
   pgPort?: number;
 }): Promise<CoreTestServer> {
-  if (coreApp) throw new Error("Test server already running. Call stopCoreTestServer() first.");
+  if (coreApp)
+    throw new Error(
+      "Test server already running. Call stopCoreTestServer() first.",
+    );
 
   let pgHost = opts?.pgHost;
   let pgPort = opts?.pgPort;
@@ -59,7 +62,13 @@ export async function startCoreTestServer(opts?: {
     pgPort = container.getMappedPort(5432);
 
     // Apply core schema to the template DB
-    const schemaPath = join(__dirname, "..", "..", "examples", "core-schema.sql");
+    const schemaPath = join(
+      __dirname,
+      "..",
+      "..",
+      "examples",
+      "core-schema.sql",
+    );
     const schema = readFileSync(schemaPath, "utf-8");
     const setupPool = new pg.Pool({
       host: pgHost,
@@ -84,12 +93,16 @@ export async function startCoreTestServer(opts?: {
     database: "postgres",
     max: 2,
   });
-  await adminPool.query(`CREATE DATABASE "${dbName}" TEMPLATE moltzap_template`);
+  await adminPool.query(
+    `CREATE DATABASE "${dbName}" TEMPLATE moltzap_template`,
+  );
 
   const connString = `postgresql://test:test@${pgHost}:${pgPort}/${dbName}`;
 
   resetPool = new pg.Pool({ connectionString: connString, max: 2 });
-  resetDb = new Kysely<Database>({ dialect: new PostgresDialect({ pool: resetPool }) });
+  resetDb = new Kysely<Database>({
+    dialect: new PostgresDialect({ pool: resetPool }),
+  });
 
   const envelope = new EnvelopeEncryption(masterSecret);
   await seedInitialKek(resetDb, envelope);
@@ -142,14 +155,19 @@ export async function stopCoreTestServer(): Promise<void> {
     await admin.end();
   }
 
-  if (container && typeof (container as { stop: () => Promise<void> }).stop === "function") {
+  if (
+    container &&
+    typeof (container as { stop: () => Promise<void> }).stop === "function"
+  ) {
     await (container as { stop: () => Promise<void> }).stop();
   }
 }
 
 export async function resetCoreTestDb(): Promise<void> {
   if (!resetPool || !resetDb || !masterSecret) {
-    throw new Error("Test server not running. Call startCoreTestServer() first.");
+    throw new Error(
+      "Test server not running. Call startCoreTestServer() first.",
+    );
   }
   await resetPool.query(`
     TRUNCATE TABLE
@@ -163,7 +181,10 @@ export async function resetCoreTestDb(): Promise<void> {
 }
 
 export function getCoreDb(): Kysely<Database> {
-  if (!resetDb) throw new Error("Test server not running. Call startCoreTestServer() first.");
+  if (!resetDb)
+    throw new Error(
+      "Test server not running. Call startCoreTestServer() first.",
+    );
   return resetDb;
 }
 
