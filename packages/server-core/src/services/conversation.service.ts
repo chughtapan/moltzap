@@ -246,7 +246,7 @@ export class ConversationService {
       .selectFrom("conversation_participants as cp")
       .leftJoin("agents as a", (join) =>
         join.on(
-          sql`cp.participant_type = 'agent' AND cp.participant_id = a.id::text`,
+          sql`cp.participant_type = 'agent' AND cp.participant_id::text = a.id::text`,
         ),
       )
       .select([
