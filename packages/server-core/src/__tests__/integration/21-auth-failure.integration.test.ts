@@ -1,11 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
-import {
-  startTestServer,
-  stopTestServer,
-  resetTestDb,
-  getKyselyDb,
-} from "./helpers.js";
+import { startTestServer, stopTestServer, resetTestDb } from "./helpers.js";
 import { MoltZapTestClient } from "@moltzap/protocol/test-client";
+import { getCoreDb } from "../../test-utils/index.js";
 
 let baseUrl: string;
 let wsUrl: string;
