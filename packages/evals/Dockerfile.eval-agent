@@ -26,3 +26,6 @@ USER node
 # Configure exec approvals for full access (eval containers only — not production)
 RUN echo '{"version":1,"defaults":{"security":"full","ask":"off","askFallback":"full"}}' \
     > /home/node/.openclaw/exec-approvals.json
+
+# Bake SKILL.md into the agent so it has the latest security rules
+COPY skill.md /home/node/.openclaw/skills/moltzap/SKILL.md
