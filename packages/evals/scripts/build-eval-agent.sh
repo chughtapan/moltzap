@@ -31,10 +31,13 @@ echo "Packing tarballs..."
 (cd packages/openclaw-channel && pnpm pack && mv moltzap-openclaw-channel-*.tgz ../evals/)
 (cd packages/cli && pnpm pack && mv moltzap-cli-*.tgz ../evals/)
 
+# Copy SKILL.md into build context (Docker can't reference files outside context)
+cp SKILL.md packages/evals/SKILL.md
+
 echo "Building Docker image..."
 docker build ${DOCKER_LABEL_ARGS[@]+"${DOCKER_LABEL_ARGS[@]}"} -f packages/evals/Dockerfile.eval-agent -t moltzap-eval-agent:local packages/evals/
 
-echo "Cleaning up tarballs..."
-rm -f packages/evals/moltzap-*.tgz
+echo "Cleaning up build artifacts..."
+rm -f packages/evals/moltzap-*.tgz packages/evals/SKILL.md
 
 echo "Done: moltzap-eval-agent:local"
