@@ -28,4 +28,4 @@ RUN echo '{"version":1,"defaults":{"security":"full","ask":"off","askFallback":"
     > /home/node/.openclaw/exec-approvals.json
 
 # Bake SKILL.md into the agent so it has the latest security rules
-COPY skill.md /home/node/.openclaw/skills/moltzap/SKILL.md
+COPY SKILL.md /home/node/.openclaw/skills/moltzap/SKILL.md
