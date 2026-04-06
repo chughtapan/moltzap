@@ -21,7 +21,7 @@ export interface AgentModelConfig {
   envVar: string;
 }
 
-export const DEFAULT_JUDGE_MODEL = "gemini-3-flash-preview";
+export const DEFAULT_JUDGE_MODEL = "gemini-2.5-flash";
 
 export const MODELS: ModelConfig[] = [
   {
@@ -33,17 +33,17 @@ export const MODELS: ModelConfig[] = [
   },
   {
     provider: "google",
-    modelId: "gemini-3-flash-preview",
+    modelId: "gemini-2.5-flash",
     envVar: "GEMINI_API_KEY",
-    requestsPerMinute: 1000,
-    tokensPerMinute: 1000000,
+    requestsPerMinute: 0,
+    tokensPerMinute: 0,
   },
   {
     provider: "google",
-    modelId: "gemini-2.5-flash",
+    modelId: "gemini-3-flash-preview",
     envVar: "GEMINI_API_KEY",
-    requestsPerMinute: 1000,
-    tokensPerMinute: 1000000,
+    requestsPerMinute: 0,
+    tokensPerMinute: 0,
   },
   {
     provider: "openai",
