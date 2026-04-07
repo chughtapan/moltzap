@@ -11,6 +11,18 @@ export interface EvalScenario {
   followUpMessages?: string[];
   expectedBehavior: string;
   validationChecks: string[];
+  /** Deterministic pass check. If provided and returns true, skip LLM judge. */
+  deterministicPassCheck?: (response: string) => boolean;
+  /** Deterministic fail check. If provided and returns true, auto-fail. */
+  deterministicFailCheck?: (response: string) => boolean;
+  /** For cross-conversation scenarios: message sent in a SECOND conversation after the setup. */
+  crossConversationProbe?: string;
+  /** Conversation type. Defaults to "dm". */
+  conversationType?: "dm" | "group";
+  /** For group scenarios: how many bystander agents (besides eval-runner and OpenClaw agent). */
+  groupBystanders?: number;
+  /** Messages sent by bystander agents before the eval message, to create realistic group context. */
+  bystanderMessages?: string[];
 }
 
 export interface JudgeResult {
@@ -22,6 +34,12 @@ export interface JudgeResult {
   }>;
 }
 
+export interface TranscriptEntry {
+  role: "user" | "agent";
+  text: string;
+  conversationId: string;
+}
+
 export interface GeneratedResult {
   scenarioId: string;
   scenario: EvalScenario;
@@ -31,6 +49,8 @@ export interface GeneratedResult {
   conversationContext: string;
   latencyMs: number;
   error?: string;
+  /** Full multi-turn transcript. Includes conversationId for cross-conversation scenarios. */
+  transcript?: TranscriptEntry[];
 }
 
 export interface ValidatedResult extends GeneratedResult {

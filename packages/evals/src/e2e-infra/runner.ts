@@ -25,6 +25,7 @@ import { logger } from "./logger.js";
 import type {
   EvalScenario,
   GeneratedResult,
+  TranscriptEntry,
   ValidatedResult,
   EvaluatedResult,
   E2ERunResult,
@@ -156,8 +157,8 @@ export async function sendAndWaitForResponse(opts: {
 /**
  * Phase 1: Send a scenario to the agent and capture its response.
  *
- * Creates a DM conversation between a test client and the OpenClaw agent,
- * sends the setup message, and waits for the agent's reply.
+ * Supports DM and group conversations, multi-turn exchanges,
+ * and cross-conversation probes.
  */
 async function generateResult(opts: {
   scenario: EvalScenario;
@@ -165,17 +166,65 @@ async function generateResult(opts: {
   agentId: string;
   runNumber: number;
   modelName: string;
+  /** Connected bystander agents for group scenarios. */
+  bystanders?: Array<{ client: MoltZapTestClient; agentId: string }>;
+  /** Separate probe client for cross-conversation scenarios (different sender than testClient). */
+  probeClient?: MoltZapTestClient;
 }): Promise<GeneratedResult> {
   const { scenario, testClient, agentId, runNumber, modelName } = opts;
   const start = performance.now();
 
   try {
-    const conv = (await testClient.rpc("conversations/create", {
-      type: "dm",
-      participants: [{ type: "agent", id: agentId }],
-    })) as { conversation: { id: string; type: string } };
+    const transcript: TranscriptEntry[] = [];
+    let conversationId: string;
 
-    const conversationId = conv.conversation.id;
+    // Create conversation based on type
+    if (scenario.conversationType === "group") {
+      const bystanderParticipants = (opts.bystanders ?? [])
+        .slice(0, scenario.groupBystanders ?? 0)
+        .map((b) => ({ type: "agent" as const, id: b.agentId }));
+
+      const conv = (await testClient.rpc("conversations/create", {
+        type: "group",
+        name: `Eval Group ${scenario.id}`,
+        participants: [
+          { type: "agent", id: agentId },
+          ...bystanderParticipants,
+        ],
+      })) as { conversation: { id: string; type: string } };
+      conversationId = conv.conversation.id;
+
+      // Send bystander messages to create realistic group context
+      if (scenario.bystanderMessages && opts.bystanders) {
+        for (
+          let i = 0;
+          i < scenario.bystanderMessages.length &&
+          i < (opts.bystanders.length ?? 0);
+          i++
+        ) {
+          const bystander = opts.bystanders[i]!;
+          await bystander.client.rpc("messages/send", {
+            conversationId,
+            parts: [{ type: "text", text: scenario.bystanderMessages[i] }],
+          });
+          transcript.push({
+            role: "user",
+            text: scenario.bystanderMessages[i]!,
+            conversationId,
+          });
+        }
+
+        // Settle: let agent process bystander messages, then drain events
+        await new Promise((r) => setTimeout(r, 3000));
+        testClient.drainEvents();
+      }
+    } else {
+      const conv = (await testClient.rpc("conversations/create", {
+        type: "dm",
+        participants: [{ type: "agent", id: agentId }],
+      })) as { conversation: { id: string; type: string } };
+      conversationId = conv.conversation.id;
+    }
 
     // Send the initial setup message
     let lastResponse = await sendAndWaitForResponse({
@@ -184,6 +233,16 @@ async function generateResult(opts: {
       message: scenario.setupMessage,
       expectedSenderId: agentId,
       timeoutMs: AGENT_RESPONSE_TIMEOUT_MS,
+    });
+    transcript.push({
+      role: "user",
+      text: scenario.setupMessage,
+      conversationId,
+    });
+    transcript.push({
+      role: "agent",
+      text: lastResponse.responseText,
+      conversationId,
     });
 
     // Send follow-up messages for multi-turn scenarios
@@ -196,7 +255,40 @@ async function generateResult(opts: {
           expectedSenderId: agentId,
           timeoutMs: AGENT_RESPONSE_TIMEOUT_MS,
         });
+        transcript.push({ role: "user", text: followUp, conversationId });
+        transcript.push({
+          role: "agent",
+          text: lastResponse.responseText,
+          conversationId,
+        });
       }
+    }
+
+    // Cross-conversation probe: send from a DIFFERENT agent in a NEW conversation
+    if (scenario.crossConversationProbe && opts.probeClient) {
+      const probeConv = (await opts.probeClient.rpc("conversations/create", {
+        type: "dm",
+        participants: [{ type: "agent", id: agentId }],
+      })) as { conversation: { id: string } };
+
+      const probeConvId = probeConv.conversation.id;
+      lastResponse = await sendAndWaitForResponse({
+        client: opts.probeClient,
+        conversationId: probeConvId,
+        message: scenario.crossConversationProbe,
+        expectedSenderId: agentId,
+        timeoutMs: AGENT_RESPONSE_TIMEOUT_MS,
+      });
+      transcript.push({
+        role: "user",
+        text: scenario.crossConversationProbe,
+        conversationId: probeConvId,
+      });
+      transcript.push({
+        role: "agent",
+        text: lastResponse.responseText,
+        conversationId: probeConvId,
+      });
     }
 
     const { responseText, rawMessage } = lastResponse;
@@ -219,6 +311,7 @@ async function generateResult(opts: {
       agentResponse: responseText,
       conversationContext,
       latencyMs: performance.now() - start,
+      transcript,
     };
   } catch (e: unknown) {
     const err = e as Error;
@@ -287,6 +380,7 @@ export async function runE2EEvals(opts: {
   const dockerManager = new DockerManager();
   let testServerBaseUrl = "";
   let testServerWsUrl = "";
+  const clientsToClose: MoltZapTestClient[] = [];
 
   try {
     // Verify Docker image exists
@@ -318,6 +412,31 @@ export async function runE2EEvals(opts: {
 
     // Connect eval client
     await evalClient.connect(evalReg.apiKey);
+    clientsToClose.push(evalClient);
+
+    // Register probe agent for cross-conversation scenarios (different sender)
+    const probeClient = new MoltZapTestClient(
+      testServerBaseUrl,
+      testServerWsUrl,
+    );
+    const probeReg = await probeClient.register("eval-probe");
+    await probeClient.connect(probeReg.apiKey);
+    clientsToClose.push(probeClient);
+
+    // Register + connect bystander agents for group scenarios (parallel)
+    const maxBystanders = Math.max(
+      0,
+      ...selectedScenarios.map((s) => s.groupBystanders ?? 0),
+    );
+    const bystanders = await Promise.all(
+      Array.from({ length: maxBystanders }, async (_, i) => {
+        const bc = new MoltZapTestClient(testServerBaseUrl, testServerWsUrl);
+        const reg = await bc.register(`bystander-${i}`);
+        await bc.connect(reg.apiKey);
+        clientsToClose.push(bc);
+        return { client: bc, agentId: reg.agentId };
+      }),
+    );
 
     // Start OpenClaw Docker container with MoltZap channel
     logger.info("Starting OpenClaw agent container...");
@@ -395,6 +514,8 @@ export async function runE2EEvals(opts: {
           agentId: agentReg.agentId,
           runNumber: run,
           modelName,
+          bystanders,
+          probeClient,
         });
 
         // Phase 2: Validation
@@ -423,12 +544,44 @@ export async function runE2EEvals(opts: {
               overallSeverity: "critical" as IssueSeverity,
             },
           };
+        } else if (scenario.deterministicPassCheck?.(validated.agentResponse)) {
+          // Deterministic pass: skip LLM judge for obvious success
+          logger.info(
+            `${scenario.id} run ${run}: Deterministic pass check matched`,
+          );
+          evaluated = {
+            ...validated,
+            judgeResult: {
+              pass: true,
+              reason: "Deterministic pass check matched",
+            },
+          };
+        } else if (scenario.deterministicFailCheck?.(validated.agentResponse)) {
+          // Deterministic fail: skip LLM judge for obvious failure
+          logger.info(
+            `${scenario.id} run ${run}: Deterministic fail check matched`,
+          );
+          evaluated = {
+            ...validated,
+            judgeResult: {
+              pass: false,
+              reason: "Deterministic fail check matched",
+              issues: [
+                {
+                  issue: "Response matched deterministic failure pattern",
+                  severity: "critical" as IssueSeverity,
+                },
+              ],
+              overallSeverity: "critical" as IssueSeverity,
+            },
+          };
         } else {
           logger.info(`${scenario.id} run ${run}: Running LLM judge...`);
           const judgeResult = await judgeAgentResponse({
             scenario,
             agentResponse: validated.agentResponse,
             conversationContext: validated.conversationContext,
+            transcript: validated.transcript,
             evalModel,
           });
 
@@ -505,9 +658,6 @@ export async function runE2EEvals(opts: {
     const summary = generateSummaryMarkdown(allResults, analysisText);
     logger.info(summary);
 
-    // Cleanup
-    evalClient.close();
-
     const passed = allResults.filter(
       (r) =>
         !r.error &&
@@ -536,6 +686,7 @@ export async function runE2EEvals(opts: {
         );
       }
     }
+    for (const c of clientsToClose) c.close();
     await dockerManager.stopAll();
     await stopCoreTestServer().catch(() => {});
   }

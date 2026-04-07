@@ -308,14 +308,14 @@ export async function waitForChannel(
   containerId: string,
   timeoutMs = 180_000,
 ): Promise<void> {
-  await waitForLogMatch(containerId, ["[moltzap]", "connected"], timeoutMs);
+  await waitForLogMatch(containerId, ["[moltzap]", "connected as"], timeoutMs);
 }
 
 /** Wait for both gateway and channel to be ready (single log stream). */
 export async function waitForReady(containerId: string): Promise<void> {
   await waitForLogMatch(
     containerId,
-    ["[gateway]", "[moltzap]", "connected"],
+    ["[gateway]", "[moltzap]", "connected as"],
     180_000,
   );
 }
