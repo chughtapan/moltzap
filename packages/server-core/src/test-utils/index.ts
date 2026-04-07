@@ -128,7 +128,7 @@ export async function stopCoreTestServer(): Promise<void> {
   const app = coreApp;
   const db = resetDb;
   const admin = adminPool;
-  const reset = resetPool;
+  const _reset = resetPool;
   const name = dbName;
   const container = pgContainer;
 
