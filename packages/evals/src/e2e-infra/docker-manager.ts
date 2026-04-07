@@ -8,12 +8,15 @@
  */
 
 import { execSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
 import {
   buildOpenClawConfig,
   startRawContainer,
   waitForGateway,
   getLogs,
   stopContainer as stopRawContainer,
+  OPENCLAW_STATE_DIR,
   type ContainerModelConfig,
   type OpenClawContainer,
 } from "@moltzap/openclaw-channel/test-utils";
@@ -58,6 +61,7 @@ export class DockerManager {
     moltzapApiKey?: string;
     configOverride?: Record<string, unknown>;
     extraEnv?: Record<string, string>;
+    workspaceFiles?: Array<{ relativePath: string; content: string }>;
   }): Promise<AgentContainer> {
     let openclawConfig: Record<string, unknown>;
 
@@ -97,6 +101,20 @@ export class DockerManager {
       agentName: opts.name,
       envVars,
     });
+
+    // Write custom workspace files into the container after creation.
+    if (opts.workspaceFiles) {
+      for (const file of opts.workspaceFiles) {
+        const filePath = path.join(raw.tmpDir, "workspace", file.relativePath);
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
+        fs.writeFileSync(filePath, file.content);
+      }
+      // Copy updated workspace into the running container and fix ownership.
+      execSync(`docker cp ${raw.tmpDir}/workspace/. ${raw.containerId}:${OPENCLAW_STATE_DIR}/workspace/`);
+      execSync(
+        `docker exec -u root ${raw.containerId} sh -lc "chown -R node:node ${OPENCLAW_STATE_DIR}/workspace"`,
+      );
+    }
 
     await waitForGateway(raw.containerId, 60_000);
 
