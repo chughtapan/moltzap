@@ -110,7 +110,9 @@ export class DockerManager {
         fs.writeFileSync(filePath, file.content);
       }
       // Copy updated workspace into the running container and fix ownership.
-      execSync(`docker cp ${raw.tmpDir}/workspace/. ${raw.containerId}:${OPENCLAW_STATE_DIR}/workspace/`);
+      execSync(
+        `docker cp ${raw.tmpDir}/workspace/. ${raw.containerId}:${OPENCLAW_STATE_DIR}/workspace/`,
+      );
       execSync(
         `docker exec -u root ${raw.containerId} sh -lc "chown -R node:node ${OPENCLAW_STATE_DIR}/workspace"`,
       );

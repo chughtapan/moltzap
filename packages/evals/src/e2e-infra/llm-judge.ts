@@ -202,7 +202,11 @@ async function runJudge(opts: {
   agentResponse: string;
   conversationContext: string;
   evalModel: string;
-  buildPrompt?: (opts: { scenario: EvalScenario; agentResponse: string; conversationContext: string }) => string;
+  buildPrompt?: (opts: {
+    scenario: EvalScenario;
+    agentResponse: string;
+    conversationContext: string;
+  }) => string;
 }): Promise<JudgeResult> {
   if (opts.buildPrompt) {
     const evalPrompt = opts.buildPrompt({
@@ -259,7 +263,11 @@ export async function judgeAgentResponse(opts: {
   agentResponse: string;
   conversationContext: string;
   evalModel?: string;
-  buildPrompt?: (opts: { scenario: EvalScenario; agentResponse: string; conversationContext: string }) => string;
+  buildPrompt?: (opts: {
+    scenario: EvalScenario;
+    agentResponse: string;
+    conversationContext: string;
+  }) => string;
 }): Promise<JudgeResult> {
   const evalModel = opts.evalModel ?? DEFAULT_JUDGE_MODEL;
 
