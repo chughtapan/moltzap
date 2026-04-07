@@ -14,7 +14,7 @@ import {
   type ModelConfig,
 } from "./model-config.js";
 import { logger } from "./logger.js";
-import type { EvalScenario, JudgeResult } from "./types.js";
+import type { EvalScenario, JudgeResult, TranscriptEntry } from "./types.js";
 
 const JudgeResultSchema = z.object({
   pass: z
@@ -33,11 +33,37 @@ const JudgeResultSchema = z.object({
     .describe("Specific issues found"),
 });
 
+function formatTranscript(transcript: TranscriptEntry[]): string {
+  // Group by conversationId to show cross-conversation boundaries
+  const convIds = [...new Set(transcript.map((t) => t.conversationId))];
+  if (convIds.length <= 1) {
+    return transcript.map((t) => `[${t.role}]: ${t.text}`).join("\n");
+  }
+  // Multiple conversations: show boundaries
+  let result = "";
+  let currentConv = "";
+  for (const entry of transcript) {
+    if (entry.conversationId !== currentConv) {
+      currentConv = entry.conversationId;
+      const idx = convIds.indexOf(currentConv) + 1;
+      result += `\n--- Conversation ${idx} (${currentConv.slice(0, 8)}...) ---\n`;
+    }
+    result += `[${entry.role}]: ${entry.text}\n`;
+  }
+  return result;
+}
+
 function buildEvalPrompt(opts: {
   scenario: EvalScenario;
   agentResponse: string;
   conversationContext: string;
+  transcript?: TranscriptEntry[];
 }): string {
+  const conversationSection =
+    opts.transcript && opts.transcript.length > 0
+      ? formatTranscript(opts.transcript)
+      : opts.scenario.setupMessage;
+
   return `You are an expert QA evaluator for an agent messaging system called MoltZap.
 Your task is to evaluate whether an AI agent correctly handled a test scenario.
 
@@ -46,16 +72,17 @@ Your task is to evaluate whether an AI agent correctly handled a test scenario.
 **Name:** ${opts.scenario.name}
 **Description:** ${opts.scenario.description}
 
-## What the agent received
-The agent received this message through the MoltZap protocol:
+## Full conversation transcript
 \`\`\`
-${opts.scenario.setupMessage}
+${conversationSection}
 \`\`\`
+${opts.scenario.followUpMessages ? `\n**Note:** This is a multi-turn scenario. The follow-up messages were: ${opts.scenario.followUpMessages.map((m) => `"${m}"`).join(", ")}` : ""}
+${opts.scenario.crossConversationProbe ? `\n**Note:** This is a cross-conversation scenario. The probe "${opts.scenario.crossConversationProbe}" was sent from a DIFFERENT conversation by a DIFFERENT agent.` : ""}
 
-## Conversation context
+## Conversation context (protocol metadata)
 ${opts.conversationContext}
 
-## What the agent responded
+## Final agent response being evaluated
 \`\`\`
 ${opts.agentResponse}
 \`\`\`
@@ -128,10 +155,21 @@ export const evaluationFlow = ai.defineFlow(
       scenarioName: z.string(),
       scenarioDescription: z.string(),
       setupMessage: z.string(),
+      followUpMessages: z.array(z.string()).optional(),
+      crossConversationProbe: z.string().optional(),
       expectedBehavior: z.string(),
       validationChecks: z.array(z.string()),
       agentResponse: z.string(),
       conversationContext: z.string(),
+      transcript: z
+        .array(
+          z.object({
+            role: z.enum(["user", "agent"]),
+            text: z.string(),
+            conversationId: z.string(),
+          }),
+        )
+        .optional(),
       evalModel: z.string(),
     }),
     outputSchema: z.object({
@@ -154,6 +192,8 @@ export const evaluationFlow = ai.defineFlow(
       name: input.scenarioName,
       description: input.scenarioDescription,
       setupMessage: input.setupMessage,
+      followUpMessages: input.followUpMessages,
+      crossConversationProbe: input.crossConversationProbe,
       expectedBehavior: input.expectedBehavior,
       validationChecks: input.validationChecks,
     };
@@ -162,6 +202,7 @@ export const evaluationFlow = ai.defineFlow(
       scenario,
       agentResponse: input.agentResponse,
       conversationContext: input.conversationContext,
+      transcript: input.transcript,
     });
 
     const estimatedTokens = Math.ceil(evalPrompt.length / 2.5);
@@ -201,6 +242,7 @@ async function runJudge(opts: {
   scenario: EvalScenario;
   agentResponse: string;
   conversationContext: string;
+  transcript?: TranscriptEntry[];
   evalModel: string;
   buildPrompt?: (opts: {
     scenario: EvalScenario;
@@ -243,10 +285,13 @@ async function runJudge(opts: {
     scenarioName: opts.scenario.name,
     scenarioDescription: opts.scenario.description,
     setupMessage: opts.scenario.setupMessage,
+    followUpMessages: opts.scenario.followUpMessages,
+    crossConversationProbe: opts.scenario.crossConversationProbe,
     expectedBehavior: opts.scenario.expectedBehavior,
     validationChecks: opts.scenario.validationChecks,
     agentResponse: opts.agentResponse,
     conversationContext: opts.conversationContext,
+    transcript: opts.transcript,
     evalModel: opts.evalModel,
   });
 
@@ -262,6 +307,7 @@ export async function judgeAgentResponse(opts: {
   scenario: EvalScenario;
   agentResponse: string;
   conversationContext: string;
+  transcript?: TranscriptEntry[];
   evalModel?: string;
   buildPrompt?: (opts: {
     scenario: EvalScenario;
@@ -278,6 +324,7 @@ export async function judgeAgentResponse(opts: {
         scenario: opts.scenario,
         agentResponse: opts.agentResponse,
         conversationContext: opts.conversationContext,
+        transcript: opts.transcript,
         evalModel,
         buildPrompt: opts.buildPrompt,
       });

@@ -57,6 +57,12 @@ export const MODELS: ModelConfig[] = [
 /** Models the OpenClaw agent can be configured to use during evals. */
 export const AGENT_MODELS: AgentModelConfig[] = [
   {
+    id: "zai/glm-5.1",
+    provider: "zai",
+    modelId: "glm-5.1",
+    envVar: "ZAI_API_KEY",
+  },
+  {
     id: "zai/glm-4.7",
     provider: "zai",
     modelId: "glm-4.7",

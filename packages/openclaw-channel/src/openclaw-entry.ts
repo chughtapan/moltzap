@@ -382,7 +382,7 @@ export const moltzapChannelPlugin = {
                         BodyForAgent: envelope.text,
                         From: envelope.peer.id,
                         To: account.agentName ?? accountId,
-                        SessionKey: `agent:main:moltzap:dm:${envelope.conversationId}`,
+                        SessionKey: `agent:main:moltzap:${envelope.chatType === "group" ? "group" : "dm"}:${envelope.conversationId}`,
                         AccountId: accountId,
                         Provider: CHANNEL_ID,
                         Surface: CHANNEL_ID,
