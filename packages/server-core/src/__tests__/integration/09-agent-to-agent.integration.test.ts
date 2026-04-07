@@ -6,13 +6,13 @@ import {
   registerAndConnect,
 } from "./helpers.js";
 
-let baseUrl: string;
-let wsUrl: string;
+let _baseUrl: string;
+let _wsUrl: string;
 
 beforeAll(async () => {
   const server = await startTestServer();
-  baseUrl = server.baseUrl;
-  wsUrl = server.wsUrl;
+  _baseUrl = server.baseUrl;
+  _wsUrl = server.wsUrl;
 }, 60_000);
 
 afterAll(async () => {
