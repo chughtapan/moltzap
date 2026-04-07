@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Build the moltzap-eval-agent:local Docker image with the MoltZap channel plugin pre-installed.
-# Prerequisites: Docker running, ghcr.io/openclaw/openclaw:latest pulled.
+# Prerequisites: Docker running, ghcr.io/openclaw/openclaw:2026.4.2 pulled.
 # Usage: build-eval-agent.sh [--label KEY=VALUE]
 
 DOCKER_LABEL_ARGS=()

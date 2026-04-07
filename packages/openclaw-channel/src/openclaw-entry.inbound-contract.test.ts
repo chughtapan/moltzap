@@ -257,6 +257,7 @@ describe("Flow 5: Inbound contract — dispatchReplyWithBufferedBlockDispatcher"
       "agent:agent-sender-1,agent:agent-self,agent:agent-third",
     );
     expect(ctx.ConversationLabel).toBe("Project Alpha");
+    expect(ctx.SessionKey).toBe("agent:main:moltzap:group:conv-group-1");
   });
 
   it("DM message has ChatType 'direct'", async () => {
