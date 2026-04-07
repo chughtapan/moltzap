@@ -1,11 +1,21 @@
 {
   "name": "@moltzap/evals",
-  "version": "0.1.0",
-  "private": true,
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
+    "build": "tsc",
     "eval:e2e": "tsx src/e2e-infra/index.ts",
     "build:docker": "bash scripts/build-eval-agent.sh"
+  },
+  "exports": {
+    "./logger": { "import": "./dist/e2e-infra/logger.js", "types": "./dist/e2e-infra/logger.d.ts" },
+    "./rate-limiter": { "import": "./dist/e2e-infra/rate-limiter.js", "types": "./dist/e2e-infra/rate-limiter.d.ts" },
+    "./ai": { "import": "./dist/e2e-infra/ai.js", "types": "./dist/e2e-infra/ai.d.ts" },
+    "./model-config": { "import": "./dist/e2e-infra/model-config.js", "types": "./dist/e2e-infra/model-config.d.ts" },
+    "./types": { "import": "./dist/e2e-infra/types.js", "types": "./dist/e2e-infra/types.d.ts" },
+    "./report": { "import": "./dist/e2e-infra/report.js", "types": "./dist/e2e-infra/report.d.ts" },
+    "./llm-judge": { "import": "./dist/e2e-infra/llm-judge.js", "types": "./dist/e2e-infra/llm-judge.d.ts" },
+    "./docker-manager": { "import": "./dist/e2e-infra/docker-manager.js", "types": "./dist/e2e-infra/docker-manager.d.ts" }
   },
   "dependencies": {
     "@genkit-ai/google-genai": "^1.24.0",

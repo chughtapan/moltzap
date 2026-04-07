@@ -196,35 +196,83 @@ export const evaluationFlow = ai.defineFlow(
   },
 );
 
+/** Run a single judge evaluation with a custom or default prompt. */
+async function runJudge(opts: {
+  scenario: EvalScenario;
+  agentResponse: string;
+  conversationContext: string;
+  evalModel: string;
+  buildPrompt?: (opts: { scenario: EvalScenario; agentResponse: string; conversationContext: string }) => string;
+}): Promise<JudgeResult> {
+  if (opts.buildPrompt) {
+    const evalPrompt = opts.buildPrompt({
+      scenario: opts.scenario,
+      agentResponse: opts.agentResponse,
+      conversationContext: opts.conversationContext,
+    });
+
+    const estimatedTokens = Math.ceil(evalPrompt.length / 2.5);
+    const judgeModel = resolveJudgeModel(opts.evalModel);
+
+    await rateLimiter.acquirePermit(judgeModel, estimatedTokens);
+
+    const response = await ai.generate({
+      prompt: evalPrompt,
+      model: `googleai/${opts.evalModel}`,
+      output: { schema: JudgeResultSchema },
+    });
+
+    const result = response.output;
+    if (!result) {
+      throw new Error("No output from judge model");
+    }
+
+    return {
+      pass: result.pass,
+      reason: result.reason || "No reason provided",
+      issues: result.issues || [],
+    };
+  }
+
+  const result = await evaluationFlow({
+    scenarioId: opts.scenario.id,
+    scenarioName: opts.scenario.name,
+    scenarioDescription: opts.scenario.description,
+    setupMessage: opts.scenario.setupMessage,
+    expectedBehavior: opts.scenario.expectedBehavior,
+    validationChecks: opts.scenario.validationChecks,
+    agentResponse: opts.agentResponse,
+    conversationContext: opts.conversationContext,
+    evalModel: opts.evalModel,
+  });
+
+  return {
+    pass: result.pass,
+    reason: result.reason,
+    issues: result.issues,
+  };
+}
+
 /** Evaluate a single agent response using the LLM judge. */
 export async function judgeAgentResponse(opts: {
   scenario: EvalScenario;
   agentResponse: string;
   conversationContext: string;
   evalModel?: string;
+  buildPrompt?: (opts: { scenario: EvalScenario; agentResponse: string; conversationContext: string }) => string;
 }): Promise<JudgeResult> {
   const evalModel = opts.evalModel ?? DEFAULT_JUDGE_MODEL;
 
   const maxRetries = 3;
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
-      const result = await evaluationFlow({
-        scenarioId: opts.scenario.id,
-        scenarioName: opts.scenario.name,
-        scenarioDescription: opts.scenario.description,
-        setupMessage: opts.scenario.setupMessage,
-        expectedBehavior: opts.scenario.expectedBehavior,
-        validationChecks: opts.scenario.validationChecks,
+      return await runJudge({
+        scenario: opts.scenario,
         agentResponse: opts.agentResponse,
         conversationContext: opts.conversationContext,
         evalModel,
+        buildPrompt: opts.buildPrompt,
       });
-
-      return {
-        pass: result.pass,
-        reason: result.reason,
-        issues: result.issues,
-      };
     } catch (e: unknown) {
       if (attempt === maxRetries - 1) {
         const err = e as Error;
