@@ -13,15 +13,14 @@ export const IMAGE_NAME = "moltzap-eval-agent:local";
 export const OPENCLAW_STATE_DIR = "/home/node/.openclaw";
 
 export type ContainerModelConfig = {
-  provider: string;
-  modelId: string;
   modelString: string;
   providerConfig?: {
+    provider: string;
+    modelId: string;
     baseUrl: string;
     api: string;
     apiKey: string;
   };
-  envVar?: string;
 };
 
 export type OpenClawContainer = {
@@ -90,8 +89,6 @@ export function buildOpenClawConfig(opts: {
         ],
       },
     },
-    heartbeat: { enabled: false },
-    healthMonitor: { enabled: false },
     gateway: {
       mode: "local",
       controlUi: {
@@ -107,13 +104,14 @@ export function buildOpenClawConfig(opts: {
   };
 
   if (opts.model.providerConfig) {
+    const pc = opts.model.providerConfig;
     (config as Record<string, Record<string, unknown>>).models = {
       providers: {
-        [opts.model.provider]: {
-          baseUrl: opts.model.providerConfig.baseUrl,
-          api: opts.model.providerConfig.api,
-          apiKey: opts.model.providerConfig.apiKey,
-          models: [{ id: opts.model.modelId, name: opts.model.modelId }],
+        [pc.provider]: {
+          baseUrl: pc.baseUrl,
+          api: pc.api,
+          apiKey: pc.apiKey,
+          models: [{ id: pc.modelId, name: pc.modelId }],
         },
       },
     };
