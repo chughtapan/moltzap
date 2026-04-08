@@ -3,6 +3,7 @@
 /** CLI entry point for the E2E eval runner. */
 
 import { config } from "dotenv";
+import { execSync } from "node:child_process";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -21,6 +22,31 @@ import {
   resolveAllAgentModels,
 } from "./model-config.js";
 import { setupLogger, logger } from "./logger.js";
+
+// --- Signal handling: ensure eval containers are cleaned up on exit ---
+const shutdownController = new AbortController();
+let shuttingDown = false;
+
+for (const sig of ["SIGINT", "SIGTERM"] as const) {
+  process.on(sig, () => {
+    if (shuttingDown) process.exit(1); // second signal = hard exit
+    shuttingDown = true;
+    console.error(`\nReceived ${sig}, shutting down eval containers...`);
+    shutdownController.abort();
+    // Fallback: force-kill labeled containers if graceful shutdown hangs
+    setTimeout(() => {
+      try {
+        execSync(
+          'docker ps -q --filter "label=moltzap-eval=true" | xargs -r docker rm -f',
+          { stdio: "pipe" },
+        );
+      } catch {
+        // best effort
+      }
+      process.exit(1);
+    }, 10_000).unref();
+  });
+}
 
 async function main(): Promise<void> {
   const argv = await yargs(hideBin(process.argv))
@@ -109,6 +135,7 @@ async function main(): Promise<void> {
         resultsDir,
         cleanResults: argv["clean-results"],
         logLevel: argv["log-level"],
+        signal: shutdownController.signal,
       });
 
       logger.info(
