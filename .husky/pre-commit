@@ -1,10 +1,11 @@
 #!/usr/bin/env sh
 
-# Auto-fix formatting on staged files, then re-stage them
-STAGED=$(git diff --cached --name-only --diff-filter=ACMR -- '*.ts' '*.tsx' '*.js' '*.jsx' '*.json')
-if [ -n "$STAGED" ]; then
-  echo "$STAGED" | xargs pnpm exec oxfmt
-  echo "$STAGED" | xargs git add
+echo "[pre-commit] running oxfmt..."
+pnpm exec oxfmt .
+if ! git diff --quiet; then
+  echo ""
+  echo "[pre-commit] oxfmt fixed formatting. Run: git add -u && git commit"
+  exit 1
 fi
 
 pnpm check
