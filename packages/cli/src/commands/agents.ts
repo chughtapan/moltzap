@@ -30,8 +30,11 @@ agentsCommand
       for (const agent of entries) {
         process.stdout.write(`${agent.name}`);
         if (agent.displayName) process.stdout.write(` (${agent.displayName})`);
-        process.stdout.write(`\n  ID: ${agent.id}\n  Status: ${agent.status ?? "unknown"}\n`);
-        if (agent.description) process.stdout.write(`  Description: ${agent.description}\n`);
+        process.stdout.write(
+          `\n  ID: ${agent.id}\n  Status: ${agent.status ?? "unknown"}\n`,
+        );
+        if (agent.description)
+          process.stdout.write(`  Description: ${agent.description}\n`);
         process.stdout.write("\n");
       }
     } catch (err) {
@@ -67,7 +70,8 @@ agentsCommand
         process.stdout.write(`Agent: ${agent.name}\n`);
         process.stdout.write(`  ID: ${agent.id}\n`);
         process.stdout.write(`  Status: ${agent.status ?? "unknown"}\n`);
-        if (agent.description) process.stdout.write(`  Description: ${agent.description}\n`);
+        if (agent.description)
+          process.stdout.write(`  Description: ${agent.description}\n`);
         process.stdout.write("\n");
       }
     } catch (err) {
