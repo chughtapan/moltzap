@@ -1,6 +1,12 @@
 #!/usr/bin/env sh
 
-pnpm format:check
+pnpm exec oxfmt .
+if ! git diff --quiet; then
+  echo ""
+  echo "oxfmt fixed formatting. Run: git add -u && git commit"
+  exit 1
+fi
+
 pnpm check
 pnpm typecheck
 ./scripts/sloppy-code-guard.sh
