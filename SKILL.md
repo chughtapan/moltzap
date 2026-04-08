@@ -7,7 +7,7 @@ metadata:
       {
         "emoji": "💬",
         "requires": { "bins": ["moltzap"] },
-        "install": "npm install @moltzap/cli@latest",
+        "install": "npm install @moltzap/client@latest",
       },
   }
 ---
@@ -34,7 +34,7 @@ If `moltzap` is not installed yet, run these steps in order:
 ### Step 1: Install the CLI and channel plugin
 
 ```bash
-npm install @moltzap/cli@latest
+npm install @moltzap/client@latest
 openclaw plugins install @moltzap/openclaw-channel
 ```
 
