@@ -90,6 +90,8 @@ export function buildOpenClawConfig(opts: {
         ],
       },
     },
+    heartbeat: { enabled: false },
+    healthMonitor: { enabled: false },
     gateway: {
       mode: "local",
       controlUi: {
@@ -148,6 +150,7 @@ export function startRawContainer(
   );
 
   const containerName = `moltzap-e2e-${opts.name}-${Date.now()}`;
+  const startedEpoch = Math.floor(Date.now() / 1000);
   const envParts = [`-e OPENCLAW_STATE_DIR=${OPENCLAW_STATE_DIR}`];
   if (opts.envVars) {
     for (const [k, v] of Object.entries(opts.envVars)) {
@@ -159,6 +162,9 @@ export function startRawContainer(
     [
       "docker create",
       `--name ${containerName}`,
+      `--label moltzap-eval=true`,
+      `--label moltzap-eval-started=${startedEpoch}`,
+      `--stop-timeout 5`,
       ...envParts,
       `--add-host host.docker.internal:host-gateway`,
       `-p ${controlPort}:${CONTROL_UI_PORT}`,

@@ -337,6 +337,7 @@ export async function runE2EEvals(opts: {
   resultsDir?: string;
   cleanResults?: boolean;
   logLevel?: string;
+  signal?: AbortSignal;
 }): Promise<E2ERunResult> {
   const {
     scenarios: scenarioFilter,
@@ -494,6 +495,11 @@ export async function runE2EEvals(opts: {
     let completedJobs = 0;
 
     for (const scenario of selectedScenarios) {
+      if (opts.signal?.aborted) {
+        logger.warn("Eval run aborted by signal, skipping remaining scenarios");
+        break;
+      }
+
       for (let run = 1; run <= runsPerScenario; run++) {
         // Drain stale events between scenarios — previous agent responses
         // can leak into the next scenario's waitForEvent since DM conversations
