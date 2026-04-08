@@ -1,5 +1,6 @@
 #!/usr/bin/env sh
 
+pnpm format:check
 pnpm check
 pnpm typecheck
 ./scripts/sloppy-code-guard.sh
