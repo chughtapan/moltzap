@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { request } from "../socket-client.js";
+import { request, action } from "../socket-client.js";
 import type { Contact } from "@moltzap/protocol";
 
 export const contactsCommand = new Command("contacts").description(
@@ -11,8 +11,8 @@ contactsCommand
   .description("List contacts")
   .option("--status <status>", "Filter by status (pending, accepted, blocked)")
   .option("--json", "Output as JSON")
-  .action(async (opts: { status?: string; json?: boolean }) => {
-    try {
+  .action(
+    action(async (opts: { status?: string; json?: boolean }) => {
       const params: Record<string, unknown> = {};
       if (opts.status) params.status = opts.status;
 
@@ -33,20 +33,15 @@ contactsCommand
         const target = c.targetName ?? c.targetPhone ?? c.targetId;
         console.log(`  ${c.id}  ${c.status}  ${requester} -> ${target}`);
       }
-    } catch (err) {
-      console.error(
-        `Failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      process.exit(1);
-    }
-  });
+    }),
+  );
 
 contactsCommand
   .command("add")
   .description("Add a contact by phone number or user ID")
   .argument("<identifier>", "Phone number (+E.164) or user ID")
-  .action(async (identifier: string) => {
-    try {
+  .action(
+    action(async (identifier: string) => {
       const params: Record<string, string> = {};
       if (identifier.startsWith("+")) {
         params.phone = identifier;
@@ -60,60 +55,40 @@ contactsCommand
       console.log(
         `Contact request sent (id: ${result.contactId}, status: ${result.status})`,
       );
-    } catch (err) {
-      console.error(
-        `Failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      process.exit(1);
-    }
-  });
+    }),
+  );
 
 contactsCommand
   .command("accept")
   .description("Accept a contact request")
   .argument("<contactId>", "Contact ID to accept")
-  .action(async (contactId: string) => {
-    try {
+  .action(
+    action(async (contactId: string) => {
       const result = (await request("contacts/accept", { contactId })) as {
         contact: Contact;
       };
       console.log(`Contact accepted: ${result.contact.id}`);
-    } catch (err) {
-      console.error(
-        `Failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      process.exit(1);
-    }
-  });
+    }),
+  );
 
 contactsCommand
   .command("block")
   .description("Block a contact")
   .argument("<contactId>", "Contact ID to block")
-  .action(async (contactId: string) => {
-    try {
+  .action(
+    action(async (contactId: string) => {
       await request("contacts/block", { contactId });
       console.log(`Contact ${contactId} blocked.`);
-    } catch (err) {
-      console.error(
-        `Failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      process.exit(1);
-    }
-  });
+    }),
+  );
 
 contactsCommand
   .command("remove")
   .description("Remove a contact")
   .argument("<contactId>", "Contact ID to remove")
-  .action(async (contactId: string) => {
-    try {
+  .action(
+    action(async (contactId: string) => {
       await request("contacts/remove", { contactId });
       console.log(`Contact ${contactId} removed.`);
-    } catch (err) {
-      console.error(
-        `Failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      process.exit(1);
-    }
-  });
+    }),
+  );

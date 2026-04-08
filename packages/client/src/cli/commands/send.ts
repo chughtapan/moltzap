@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { request } from "../socket-client.js";
+import { request, action } from "../socket-client.js";
 
 export const sendCommand = new Command("send")
   .description("Send a message to a conversation or DM")
@@ -7,8 +7,8 @@ export const sendCommand = new Command("send")
   .argument("<message>", "Message text")
   .option("--reply-to <messageId>", "Reply to a specific message")
   .action(
-    async (target: string, message: string, opts: { replyTo?: string }) => {
-      try {
+    action(
+      async (target: string, message: string, opts: { replyTo?: string }) => {
         const params: Record<string, unknown> = {
           parts: [{ type: "text", text: message }],
         };
@@ -23,11 +23,6 @@ export const sendCommand = new Command("send")
           message: { id: string };
         };
         console.log(`Message sent (id: ${result.message.id})`);
-      } catch (err) {
-        console.error(
-          `Failed: ${err instanceof Error ? err.message : String(err)}`,
-        );
-        process.exit(1);
-      }
-    },
+      },
+    ),
   );
