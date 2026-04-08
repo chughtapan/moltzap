@@ -29,18 +29,6 @@
 
 ## Client
 
-### Batch agent name resolution in history handler
-
-**Priority:** P3
-
-Sequential `resolveAgentName()` calls in the `history` handler make one RPC per unknown agent. The server's `agents/lookup` RPC already accepts an `agentIds` array, so all unknowns could be resolved in a single call. Also, `messages/list` and `conversations/get` are independent and could run concurrently with `Promise.all`.
-
-**Why:** Each `history` request currently does `1 + N + 1` serial RPCs (messages, N agent lookups, conversation metadata) where it could do `1 + 1` (batch lookup with messages, concurrent conversation fetch). Matters when conversations have many unique senders.
-
-**Files:** `packages/client/src/service.ts` (handleSocketRequest, `history` case)
-
-**Depends on:** Nothing.
-
 ### Socket server: unbounded buffer and missing idle timeout
 
 **Priority:** P4
@@ -54,6 +42,12 @@ The socket server accumulates `buffer += chunk.toString()` with no max size. A c
 **Depends on:** Nothing.
 
 ## Completed
+
+### Batch agent name resolution in history handler
+
+**Completed:** 2026-04-08
+
+Single batch `agents/lookup` call instead of N sequential RPCs. `conversations/get` now runs concurrently via `Promise.all`.
 
 ### Socket server: input validation at the socket boundary
 
