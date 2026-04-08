@@ -372,11 +372,6 @@ export async function runE2EEvals(opts: {
     }
   }
 
-  const zaiApiKey = process.env["ZAI_API_KEY"];
-  if (!zaiApiKey) {
-    throw new Error("ZAI_API_KEY env var required for agent LLM");
-  }
-
   const dockerManager = new DockerManager();
   let testServerBaseUrl = "";
   let testServerWsUrl = "";
@@ -449,7 +444,6 @@ export async function runE2EEvals(opts: {
       name: "openclaw-eval-agent",
       moltzapServerUrl: testServerWsUrl,
       moltzapApiKey: agentReg.apiKey,
-      zaiApiKey,
       agentModel: opts.agentModel,
       contextAdapter: needsContextAwareness
         ? { type: "cross-conversation" }
