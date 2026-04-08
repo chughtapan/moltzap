@@ -248,19 +248,37 @@ export class MoltZapService {
           ...(beforeSeq !== undefined ? { beforeSeq } : {}),
         })) as { messages: Message[]; hasMore: boolean };
 
-        // Resolve agent names
-        const agentIds = [
+        // Resolve agent names (batch) + fetch conversation metadata (concurrent)
+        const unknownAgentIds = [
           ...new Set(
             result.messages
               .filter((m) => m.sender.type === "agent")
               .map((m) => m.sender.id),
           ),
-        ];
-        for (const id of agentIds) {
-          if (!this.agentNames.has(id)) {
-            await this.resolveAgentName(id);
-          }
-        }
+        ].filter((id) => !this.agentNames.has(id));
+
+        const [, convMeta] = await Promise.all([
+          unknownAgentIds.length > 0
+            ? this.sendRpc("agents/lookup", { agentIds: unknownAgentIds }).then(
+                (res) => {
+                  for (const a of (
+                    res as { agents: Array<{ id: string; name: string }> }
+                  ).agents) {
+                    this.agentNames.set(a.id, a.name);
+                  }
+                },
+              )
+            : Promise.resolve(),
+          this.sendRpc("conversations/get", { conversationId: convId })
+            .then(
+              (res) =>
+                (res as { conversation: { type: string; name?: string } })
+                  .conversation,
+            )
+            .catch(
+              () => undefined as { type: string; name?: string } | undefined,
+            ),
+        ]);
 
         // Determine what's "new" using lastRead (not lastNotified).
         // lastNotified is advanced by getContext() (system-reminder).
@@ -301,15 +319,6 @@ export class MoltZapService {
             this.lastRead.get(sessionKey)!.set(convId, maxSeq);
           }
         }
-
-        // Get conversation metadata
-        let convMeta: { type: string; name?: string } | undefined;
-        try {
-          const convResult = (await this.sendRpc("conversations/get", {
-            conversationId: convId,
-          })) as { conversation: { type: string; name?: string } };
-          convMeta = convResult.conversation;
-        } catch {}
 
         return {
           messages,
