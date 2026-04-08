@@ -8,9 +8,8 @@
  * Config:        channels.moltzap.accounts[].{apiKey, serverUrl, agentName}
  */
 
-import { MoltZapWsClient } from "./ws-client.js";
+import { MoltZapService, type ContextOptions } from "@moltzap/client";
 import {
-  extractMessage,
   extractReadReceipt,
   extractReaction,
   extractDelivery,
@@ -23,7 +22,7 @@ import {
   extractTypingIndicator,
   mapMessageToEnvelope,
 } from "./mapping.js";
-import type { EventFrame, Message } from "@moltzap/protocol";
+import { EventNames, type EventFrame, type Message } from "@moltzap/protocol";
 
 const DEFAULT_ACCOUNT_ID = "default";
 const CHANNEL_ID = "moltzap" as const;
@@ -42,6 +41,11 @@ type MoltZapAccount = {
   serverUrl: string;
   agentName: string;
   enabled?: boolean;
+  contextAdapter?: {
+    type: "cross-conversation";
+    maxConversations?: number;
+    maxMessagesPerConv?: number;
+  };
 };
 
 type OpenClawConfig = Record<string, unknown> & {
@@ -70,7 +74,7 @@ function resolveAccount(
   );
 }
 
-const activeClients = new Map<string, MoltZapWsClient>();
+const activeClients = new Map<string, MoltZapService>();
 
 /** Cache: accountId → (agentName → conversationId) for auto-created DM conversations. */
 export const agentConversationCache = new Map<string, Map<string, string>>();
@@ -135,10 +139,10 @@ export const moltzapChannelPlugin = {
       query?: string | null;
       limit?: number | null;
     }) {
-      const client = activeClients.get(params.accountId ?? DEFAULT_ACCOUNT_ID);
-      if (!client) return [];
+      const service = activeClients.get(params.accountId ?? DEFAULT_ACCOUNT_ID);
+      if (!service) return [];
       try {
-        const { contacts } = (await client.sendRpc("contacts/list", {
+        const { contacts } = (await service.sendRpc("contacts/list", {
           status: "accepted",
         })) as {
           contacts: Array<{
@@ -150,7 +154,7 @@ export const moltzapChannelPlugin = {
           (c.agents ?? []).map((a) => a.id),
         );
         if (agentIds.length === 0) return [];
-        const { agents } = (await client.sendRpc("agents/lookup", {
+        const { agents } = (await service.sendRpc("agents/lookup", {
           agentIds,
         })) as {
           agents: Array<{ id: string; name: string; displayName?: string }>;
@@ -170,10 +174,10 @@ export const moltzapChannelPlugin = {
       query?: string | null;
       limit?: number | null;
     }) {
-      const client = activeClients.get(params.accountId ?? DEFAULT_ACCOUNT_ID);
-      if (!client) return [];
+      const service = activeClients.get(params.accountId ?? DEFAULT_ACCOUNT_ID);
+      if (!service) return [];
       try {
-        const { conversations } = (await client.sendRpc(
+        const { conversations } = (await service.sendRpc(
           "conversations/list",
           {},
         )) as {
@@ -259,92 +263,38 @@ export const moltzapChannelPlugin = {
         `MoltZap: connecting as ${account.agentName} to ${account.serverUrl}`,
       );
 
-      const senderNameCache = new Map<string, string>();
-      const conversationMetaCache = new Map<
-        string,
-        { type: string; name?: string; participants: string[] }
-      >();
+      const service = new MoltZapService({
+        serverUrl: account.serverUrl,
+        agentKey: account.apiKey,
+        logger: log
+          ? {
+              info: log.info ?? (() => {}),
+              warn: log.warn ?? (() => {}),
+              error: log.error ?? (() => {}),
+            }
+          : undefined,
+      });
 
-      async function lookupSenderName(
-        client: MoltZapWsClient,
-        agentId: string,
-      ): Promise<string> {
-        const cached = senderNameCache.get(agentId);
-        if (cached) return cached;
-        try {
-          const result = (await client.sendRpc("agents/lookup", {
-            agentIds: [agentId],
-          })) as { agents: Array<{ id: string; name: string }> };
-          const agent = result.agents[0];
-          if (agent) {
-            senderNameCache.set(agentId, agent.name);
-            return agent.name;
+      const contextConfig: ContextOptions | null = account.contextAdapter
+        ? {
+            type: "cross-conversation" as const,
+            maxConversations: account.contextAdapter.maxConversations,
+            maxMessagesPerConv: account.contextAdapter.maxMessagesPerConv,
           }
-        } catch {
-          log?.warn?.(`MoltZap: agents/lookup failed for ${agentId}`);
-        }
-        return agentId;
-      }
-
-      async function getConversationMeta(
-        client: MoltZapWsClient,
-        conversationId: string,
-      ): Promise<
-        { type: string; name?: string; participants: string[] } | undefined
-      > {
-        const cached = conversationMetaCache.get(conversationId);
-        if (cached) return cached;
-        try {
-          const result = (await client.sendRpc("conversations/get", {
-            conversationId,
-          })) as {
-            conversation: { type: string; name?: string };
-            participants: Array<{
-              participant: { type: string; id: string };
-            }>;
-          };
-          const meta = {
-            type: result.conversation.type,
-            name: result.conversation.name,
-            participants: result.participants.map(
-              (p) => `${p.participant.type}:${p.participant.id}`,
-            ),
-          };
-          conversationMetaCache.set(conversationId, meta);
-          return meta;
-        } catch {
-          log?.warn?.(
-            `MoltZap: conversations/get failed for ${conversationId}`,
-          );
-          return undefined;
-        }
-      }
+        : null;
 
       // Serialize dispatches — OpenClaw's workspace-state writer can't handle
       // concurrent writes within the same process.
       let dispatchChain = Promise.resolve();
-      let ownAgentId: string | undefined;
 
-      function dispatchMessage(
-        message: Message,
-        client: MoltZapWsClient,
-      ): void {
-        // Skip messages sent by this agent (avoid echo loops)
-        if (
-          ownAgentId &&
-          message.sender.type === "agent" &&
-          message.sender.id === ownAgentId
-        ) {
-          return;
-        }
+      // Handle inbound messages from other agents
+      service.on("message", (message) => {
         dispatchChain = dispatchChain
           .then(async () => {
-            const [senderName, convMeta] = await Promise.all([
-              message.sender.type === "agent"
-                ? lookupSenderName(client, message.sender.id)
-                : Promise.resolve(undefined),
-              getConversationMeta(client, message.conversationId),
-            ]);
+            const senderName =
+              service.getAgentName(message.sender.id) ??
+              (await service.resolveAgentName(message.sender.id));
+            const convMeta = service.getConversation(message.conversationId);
 
             const envelope = mapMessageToEnvelope(message, {
               senderName,
@@ -369,6 +319,14 @@ export const moltzapChannelPlugin = {
               lastEventAt: Date.now(),
             });
 
+            // Cross-conversation context injection
+            const crossConvContext = contextConfig
+              ? service.getContext(message.conversationId, contextConfig)
+              : null;
+            const bodyForAgent = crossConvContext
+              ? `${crossConvContext}\n\n${envelope.text}`
+              : envelope.text;
+
             if (
               ctx.channelRuntime?.reply
                 ?.dispatchReplyWithBufferedBlockDispatcher
@@ -379,7 +337,7 @@ export const moltzapChannelPlugin = {
                     {
                       ctx: {
                         Body: envelope.text,
-                        BodyForAgent: envelope.text,
+                        BodyForAgent: bodyForAgent,
                         From: envelope.peer.id,
                         To: account.agentName ?? accountId,
                         SessionKey: `agent:main:moltzap:${envelope.chatType === "group" ? "group" : "dm"}:${envelope.conversationId}`,
@@ -416,10 +374,7 @@ export const moltzapChannelPlugin = {
                           if (!text) return true;
 
                           try {
-                            await client.sendRpc("messages/send", {
-                              conversationId: envelope.conversationId,
-                              parts: [{ type: "text", text }],
-                            });
+                            await service.send(envelope.conversationId, text);
                             log?.info?.(
                               `MoltZap: outbound reply to ${envelope.conversationId}: ${text.slice(0, 80)}`,
                             );
@@ -447,234 +402,138 @@ export const moltzapChannelPlugin = {
           .catch((err: unknown) => {
             log?.error?.(`MoltZap: dispatch chain error: ${err}`);
           });
-      }
-
-      async function fetchMissedMessages(
-        client: MoltZapWsClient,
-        helloOk: unknown,
-      ): Promise<void> {
-        const hello = helloOk as {
-          unreadCounts?: Record<string, number>;
-        } | null;
-        const unreadCounts = hello?.unreadCounts;
-        if (!unreadCounts) return;
-
-        const sorted = Object.entries(unreadCounts)
-          .filter(([, count]) => count > 0)
-          .sort(([, a], [, b]) => b - a)
-          .slice(0, 5);
-
-        let totalFetched = 0;
-        for (const [conversationId] of sorted) {
-          try {
-            const result = (await client.sendRpc("messages/list", {
-              conversationId,
-              limit: 50,
-            })) as { messages: Message[] };
-            for (const msg of result.messages) {
-              dispatchMessage(msg, client);
-            }
-            totalFetched += result.messages.length;
-          } catch {
-            log?.warn?.(
-              `MoltZap: failed to fetch missed messages for ${conversationId}`,
-            );
-          }
-        }
-        if (totalFetched > 0) {
-          log?.info?.(
-            `MoltZap: fetched ${totalFetched} missed messages from ${sorted.length} conversations`,
-          );
-        }
-      }
-
-      const eventHandlers: Record<string, (event: EventFrame) => void> = {
-        "messages/received": (event) => {
-          const message = extractMessage(event);
-          if (message) dispatchMessage(message, client);
-        },
-        "messages/read": (event) => {
-          const receipt = extractReadReceipt(event);
-          if (receipt) {
-            log?.debug?.(
-              `MoltZap: read receipt from ${receipt.participant.id} in ${receipt.conversationId} up to seq ${receipt.seq}`,
-            );
-            setStatus({ accountId, lastEventAt: Date.now() });
-          }
-        },
-        "messages/delivered": (event) => {
-          const delivery = extractDelivery(event);
-          if (delivery) {
-            log?.debug?.(
-              `MoltZap: delivery for ${delivery.messageId} in ${delivery.conversationId}`,
-            );
-            setStatus({ accountId, lastEventAt: Date.now() });
-          }
-        },
-        "messages/reacted": (event) => {
-          const reaction = extractReaction(event);
-          if (reaction) {
-            log?.debug?.(
-              `MoltZap: reaction ${reaction.action} ${reaction.emoji} on ${reaction.messageId}`,
-            );
-            setStatus({ accountId, lastEventAt: Date.now() });
-          }
-        },
-        "messages/deleted": (event) => {
-          const deletion = extractDeletion(event);
-          if (deletion) {
-            log?.debug?.(
-              `MoltZap: message ${deletion.messageId} deleted in ${deletion.conversationId}`,
-            );
-            setStatus({ accountId, lastEventAt: Date.now() });
-          }
-        },
-        "conversations/created": (event) => {
-          const created = extractConversationCreated(event);
-          if (created) {
-            conversationMetaCache.set(created.conversation.id, {
-              type: created.conversation.type,
-              name: created.conversation.name,
-              participants: [],
-            });
-            log?.debug?.(
-              `MoltZap: conversation created ${created.conversation.id}`,
-            );
-            setStatus({ accountId, lastEventAt: Date.now() });
-          }
-        },
-        "conversations/updated": (event) => {
-          const updated = extractConversationUpdated(event);
-          if (updated) {
-            const existing = conversationMetaCache.get(updated.conversation.id);
-            conversationMetaCache.set(updated.conversation.id, {
-              type: updated.conversation.type,
-              name: updated.conversation.name,
-              participants: existing?.participants ?? [],
-            });
-            log?.debug?.(
-              `MoltZap: conversation updated ${updated.conversation.id}`,
-            );
-            setStatus({ accountId, lastEventAt: Date.now() });
-          }
-        },
-        "contact/request": (event) => {
-          const contact = extractContactRequest(event);
-          if (contact) {
-            log?.debug?.(
-              `MoltZap: contact request from ${contact.contact.requesterId}`,
-            );
-            setStatus({ accountId, lastEventAt: Date.now() });
-          }
-        },
-        "contact/accepted": (event) => {
-          const contact = extractContactAccepted(event);
-          if (contact) {
-            log?.debug?.(`MoltZap: contact accepted ${contact.contact.id}`);
-            setStatus({ accountId, lastEventAt: Date.now() });
-          }
-        },
-        "presence/changed": (event) => {
-          const presence = extractPresenceChanged(event);
-          if (presence) {
-            log?.debug?.(
-              `MoltZap: ${presence.participant.id} is now ${presence.status}`,
-            );
-            setStatus({ accountId, lastEventAt: Date.now() });
-          }
-        },
-        "typing/indicator": (event) => {
-          const typing = extractTypingIndicator(event);
-          if (typing) {
-            log?.debug?.(
-              `MoltZap: typing in ${typing.conversationId} by ${typing.participant.id}`,
-            );
-          }
-        },
-      };
-
-      const client = new MoltZapWsClient({
-        serverUrl: account.serverUrl,
-        agentKey: account.apiKey,
-        logger: log
-          ? {
-              info: log.info ?? (() => {}),
-              warn: log.warn ?? (() => {}),
-              error: log.error ?? (() => {}),
-            }
-          : undefined,
-        onEvent: (event: EventFrame) => {
-          const handler = eventHandlers[event.event];
-          if (handler) {
-            handler(event);
-          } else {
-            log?.debug?.(`MoltZap: unhandled event type: ${event.event}`);
-          }
-        },
-        onDisconnect: () => {
-          log?.warn?.("MoltZap: disconnected");
-          setStatus({
-            accountId,
-            connected: false,
-            lastDisconnect: { at: Date.now() },
-          });
-        },
-        onReconnect: (helloOk: unknown) => {
-          log?.info?.("MoltZap: reconnected");
-          setStatus({
-            accountId,
-            connected: true,
-            lastConnectedAt: Date.now(),
-          });
-          populateConversationCache(helloOk);
-          void fetchMissedMessages(client, helloOk);
-        },
       });
 
-      function populateConversationCache(helloOk: unknown): void {
-        const hello = helloOk as {
-          conversations?: Array<{
-            id: string;
-            type: string;
-            name?: string;
-            participants?: Array<{ type: string; id: string }>;
-          }>;
-        } | null;
-        if (!hello?.conversations) return;
-        for (const conv of hello.conversations) {
-          conversationMetaCache.set(conv.id, {
-            type: conv.type,
-            name: conv.name,
-            participants: (conv.participants ?? []).map(
-              (p) => `${p.type}:${p.id}`,
-            ),
-          });
+      // Forward non-message events for status/logging
+      service.on("rawEvent", (event) => {
+        switch (event.event) {
+          case EventNames.MessageRead: {
+            const receipt = extractReadReceipt(event);
+            if (receipt) {
+              log?.debug?.(`MoltZap: read receipt from ${receipt.participant.id} in ${receipt.conversationId} up to seq ${receipt.seq}`);
+              setStatus({ accountId, lastEventAt: Date.now() });
+            }
+            break;
+          }
+          case EventNames.MessageDelivered: {
+            const delivery = extractDelivery(event);
+            if (delivery) {
+              log?.debug?.(`MoltZap: delivery for ${delivery.messageId} in ${delivery.conversationId}`);
+              setStatus({ accountId, lastEventAt: Date.now() });
+            }
+            break;
+          }
+          case EventNames.MessageReacted: {
+            const reaction = extractReaction(event);
+            if (reaction) {
+              log?.debug?.(`MoltZap: reaction ${reaction.action} ${reaction.emoji} on ${reaction.messageId}`);
+              setStatus({ accountId, lastEventAt: Date.now() });
+            }
+            break;
+          }
+          case EventNames.MessageDeleted: {
+            const deletion = extractDeletion(event);
+            if (deletion) {
+              log?.debug?.(`MoltZap: message ${deletion.messageId} deleted in ${deletion.conversationId}`);
+              setStatus({ accountId, lastEventAt: Date.now() });
+            }
+            break;
+          }
+          case EventNames.ConversationCreated: {
+            const created = extractConversationCreated(event);
+            if (created) {
+              log?.debug?.(`MoltZap: conversation created ${created.conversation.id}`);
+              setStatus({ accountId, lastEventAt: Date.now() });
+            }
+            break;
+          }
+          case EventNames.ConversationUpdated: {
+            const updated = extractConversationUpdated(event);
+            if (updated) {
+              log?.debug?.(`MoltZap: conversation updated ${updated.conversation.id}`);
+              setStatus({ accountId, lastEventAt: Date.now() });
+            }
+            break;
+          }
+          case "contact/request": {
+            const contact = extractContactRequest(event);
+            if (contact) {
+              log?.debug?.(`MoltZap: contact request from ${contact.contact.requesterId}`);
+              setStatus({ accountId, lastEventAt: Date.now() });
+            }
+            break;
+          }
+          case "contact/accepted": {
+            const contact = extractContactAccepted(event);
+            if (contact) {
+              log?.debug?.(`MoltZap: contact accepted ${contact.contact.id}`);
+              setStatus({ accountId, lastEventAt: Date.now() });
+            }
+            break;
+          }
+          case EventNames.PresenceChanged: {
+            const presence = extractPresenceChanged(event);
+            if (presence) {
+              log?.debug?.(`MoltZap: ${presence.participant.id} is now ${presence.status}`);
+              setStatus({ accountId, lastEventAt: Date.now() });
+            }
+            break;
+          }
+          case EventNames.TypingIndicator: {
+            const typing = extractTypingIndicator(event);
+            if (typing) {
+              log?.debug?.(`MoltZap: typing in ${typing.conversationId} by ${typing.participant.id}`);
+            }
+            break;
+          }
         }
-      }
+      });
 
-      activeClients.set(accountId, client);
+      service.on("disconnect", () => {
+        log?.warn?.("MoltZap: disconnected");
+        setStatus({
+          accountId,
+          connected: false,
+          lastDisconnect: { at: Date.now() },
+        });
+      });
+
+      service.on("reconnect", () => {
+        log?.info?.("MoltZap: reconnected");
+        setStatus({
+          accountId,
+          connected: true,
+          lastConnectedAt: Date.now(),
+        });
+      });
+
+      activeClients.set(accountId, service);
+
+      if (abortSignal.aborted) {
+        service.close();
+        activeClients.delete(accountId);
+        return;
+      }
 
       abortSignal.addEventListener(
         "abort",
         () => {
-          client.close();
+          service.close();
           activeClients.delete(accountId);
         },
         { once: true },
       );
 
       try {
-        const helloOk = await client.connect();
-        ownAgentId = (helloOk as { agentId?: string })?.agentId;
+        const helloOk = await service.connect();
         log?.info?.(
-          `MoltZap: connected as ${account.agentName} (${ownAgentId})`,
+          `MoltZap: connected as ${account.agentName} (${service.ownAgentId})`,
         );
         setStatus({
           accountId,
           connected: true,
           lastConnectedAt: Date.now(),
         });
-        populateConversationCache(helloOk);
 
         // Keep the gateway task alive until abort.
         await new Promise<void>((resolve) => {
@@ -692,10 +551,10 @@ export const moltzapChannelPlugin = {
       accountId: string;
       log?: { info?: (...args: unknown[]) => void };
     }) {
-      const client = activeClients.get(ctx.accountId);
-      if (client) {
+      const service = activeClients.get(ctx.accountId);
+      if (service) {
         ctx.log?.info?.("MoltZap: stopping");
-        client.close();
+        service.close();
         activeClients.delete(ctx.accountId);
         agentConversationCache.delete(ctx.accountId);
       }
@@ -734,8 +593,8 @@ export const moltzapChannelPlugin = {
       replyToId?: string;
     }) {
       const accountId = ctx.accountId ?? DEFAULT_ACCOUNT_ID;
-      const client = activeClients.get(accountId);
-      if (!client) {
+      const service = activeClients.get(accountId);
+      if (!service) {
         return {
           ok: false as const,
           error: new Error("MoltZap client not connected"),
@@ -752,11 +611,11 @@ export const moltzapChannelPlugin = {
           conversationId = accountCache.get(agentName);
 
           if (!conversationId) {
-            const lookupResult = (await client.sendRpc("agents/lookupByName", {
+            const lookupResult = (await service.sendRpc("agents/lookupByName", {
               name: agentName,
             })) as { agent: { id: string } };
 
-            const createResult = (await client.sendRpc("conversations/create", {
+            const createResult = (await service.sendRpc("conversations/create", {
               type: "dm",
               participants: [{ type: "agent", id: lookupResult.agent.id }],
             })) as { conversation: { id: string } };
@@ -771,10 +630,8 @@ export const moltzapChannelPlugin = {
           conversationId = ctx.to;
         }
 
-        await client.sendRpc("messages/send", {
-          conversationId,
-          parts: [{ type: "text", text: ctx.text }],
-          ...(ctx.replyToId ? { replyToId: ctx.replyToId } : {}),
+        await service.send(conversationId!, ctx.text, {
+          replyTo: ctx.replyToId,
         });
         return { ok: true as const };
       } catch (err) {
