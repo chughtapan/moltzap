@@ -544,6 +544,7 @@ export const moltzapChannelPlugin = {
 
       try {
         const helloOk = await service.connect();
+        service.startSocketServer();
         log?.info?.(
           `MoltZap: connected as ${account.agentName} (${service.ownAgentId})`,
         );
