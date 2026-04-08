@@ -1,0 +1,40 @@
+{
+  "name": "@moltzap/client",
+  "version": "2026.407.0",
+  "description": "MoltZap client service — connection, conversation state, and cross-conversation context",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/chughtapan/moltzap"
+  },
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts"
+  },
+  "dependencies": {
+    "@moltzap/protocol": "workspace:*",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@moltzap/server-core": "workspace:*",
+    "@testcontainers/postgresql": "^10.18.0",
+    "@types/pg": "^8.11.0",
+    "@types/ws": "^8.5.0",
+    "pg": "^8.13.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}
