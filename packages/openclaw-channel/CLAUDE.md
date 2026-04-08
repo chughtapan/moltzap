@@ -3,8 +3,8 @@
 OpenClaw gateway channel plugin that bridges MoltZap messages into the OpenClaw agent framework.
 
 ## Key Files
-- `src/openclaw-entry.ts` — Main plugin: gateway startAccount, event handler map, dispatch to OpenClaw pipeline, deliver callback sends reply via sendText
-- `src/ws-client.ts` — `MoltZapWsClient`: WebSocket connection with exponential backoff + jitter reconnection, HelloOk storage, RPC retry
+- `src/openclaw-entry.ts` — Main plugin: gateway startAccount, event handler map, dispatch to OpenClaw pipeline, deliver callback sends reply via MoltZapService. Uses `@moltzap/client` for connection and state management.
+- `src/ws-client.ts` — Re-exports `MoltZapWsClient` from `@moltzap/client` for backward compatibility
 - `src/mapping.ts` — Converts MoltZap `Message` to OpenClaw envelope format; extractors for all 11 event types
 - `src/config.ts` — Config schema and validation for `~/.openclaw/config.json` channel entries (apiKey, serverUrl, agentName)
 

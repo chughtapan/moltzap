@@ -1,7 +1,7 @@
 {
-  "name": "@moltzap/openclaw-channel",
+  "name": "@moltzap/client",
   "version": "2026.407.0",
-  "description": "OpenClaw channel plugin for MoltZap messaging",
+  "description": "MoltZap client service — connection, conversation state, and cross-conversation context",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -9,17 +9,14 @@
   },
   "type": "module",
   "files": [
-    "dist",
-    "!dist/__tests__",
-    "openclaw.plugin.json"
+    "dist"
   ],
-  "main": "./dist/channel.js",
-  "types": "./dist/channel.d.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./dist/channel.js",
-    "./test-utils": {
-      "import": "./dist/test-utils/container-core.js",
-      "types": "./dist/test-utils/container-core.d.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
     }
   },
   "scripts": {
@@ -28,26 +25,16 @@
     "test:integration": "vitest run --config vitest.integration.config.ts"
   },
   "dependencies": {
-    "@moltzap/client": "workspace:*",
     "@moltzap/protocol": "workspace:*",
     "ws": "^8.18.0"
   },
   "devDependencies": {
+    "@moltzap/server-core": "workspace:*",
     "@testcontainers/postgresql": "^10.18.0",
     "@types/pg": "^8.11.0",
     "@types/ws": "^8.5.0",
-    "openai": "^6.26.0",
     "pg": "^8.13.0",
-    "testcontainers": "^10.18.0",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
-  },
-  "peerDependencies": {
-    "openclaw": ">=2026.0.0"
-  },
-  "openclaw": {
-    "extensions": [
-      "./dist/openclaw-entry.js"
-    ]
   }
 }

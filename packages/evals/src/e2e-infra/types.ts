@@ -23,6 +23,8 @@ export interface EvalScenario {
   groupBystanders?: number;
   /** Messages sent by bystander agents before the eval message, to create realistic group context. */
   bystanderMessages?: string[];
+  /** Whether the OpenClaw container must have contextAdapter enabled. Defaults to false. */
+  requiresContextAwareness?: boolean;
 }
 
 export interface JudgeResult {

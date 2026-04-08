@@ -62,6 +62,11 @@ export class DockerManager {
     configOverride?: Record<string, unknown>;
     extraEnv?: Record<string, string>;
     workspaceFiles?: Array<{ relativePath: string; content: string }>;
+    contextAdapter?: {
+      type: string;
+      maxConversations?: number;
+      maxMessagesPerConv?: number;
+    };
   }): Promise<AgentContainer> {
     let openclawConfig: Record<string, unknown>;
 
@@ -82,6 +87,7 @@ export class DockerManager {
         serverUrl: opts.moltzapServerUrl!,
         agentApiKey: opts.moltzapApiKey!,
         agentName: opts.name,
+        contextAdapter: opts.contextAdapter,
       });
     }
 
