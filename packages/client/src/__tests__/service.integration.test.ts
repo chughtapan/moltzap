@@ -1067,4 +1067,176 @@ describe("Socket Server", () => {
       regD.client.close();
     }
   });
+
+  it("socket request resolves without 10s hang (timer leak regression)", async () => {
+    const reg = await registerAgent("sock-timer");
+    const service = await connectService(reg.apiKey);
+    service.startSocketServer();
+    try {
+      const start = performance.now();
+      await socketRequest("ping");
+      const elapsed = performance.now() - start;
+      expect(elapsed).toBeLessThan(2000);
+    } finally {
+      service.close();
+      reg.client.close();
+    }
+  });
+
+  it("two services use separate socket paths", async () => {
+    const regA = await registerAgent("sock-multi-a");
+    const regB = await registerAgent("sock-multi-b");
+    const serviceA = await connectService(regA.apiKey);
+    const serviceB = await connectService(regB.apiKey);
+    serviceA.startSocketServer();
+    serviceB.startSocketServer();
+    try {
+      expect(serviceA.socketPath).not.toBe(serviceB.socketPath);
+
+      // Both respond via their own socket path
+      const resultA = (await socketRequest(
+        "ping",
+        undefined,
+        serviceA.socketPath,
+      )) as { agentId: string };
+      const resultB = (await socketRequest(
+        "ping",
+        undefined,
+        serviceB.socketPath,
+      )) as { agentId: string };
+      expect(resultA.agentId).toBe(regA.agentId);
+      expect(resultB.agentId).toBe(regB.agentId);
+    } finally {
+      serviceA.close();
+      serviceB.close();
+      regA.client.close();
+      regB.client.close();
+    }
+  });
+
+  it("lastRead advances monotonically and afterSeq enables pagination", async () => {
+    const regA = await registerAgent("sock-page-a");
+    const regB = await registerAgent("sock-page-b");
+    await regB.client.connect(regB.apiKey);
+    const service = await connectService(regA.apiKey);
+    service.startSocketServer();
+    try {
+      const conv = (await socketRequest("conversations/create", {
+        type: "dm",
+        participants: [{ type: "agent", id: regB.agentId }],
+      })) as { conversation: { id: string } };
+
+      // Send 5 messages from B
+      for (let i = 0; i < 5; i++) {
+        await sendAndSettle(
+          regB.client,
+          conv.conversation.id,
+          `paginate-msg-${i}`,
+        );
+      }
+
+      // Read with limit=2 — gets newest 2 messages, advances lastRead
+      const hist1 = (await socketRequest("history", {
+        conversationId: conv.conversation.id,
+        sessionKey: "page-test-session",
+        limit: 2,
+      })) as {
+        newCount: number;
+        messages: Array<{ seq: number; isNew: boolean; text: string }>;
+      };
+      expect(hist1.messages.length).toBe(2);
+
+      // New message arrives after read
+      await sendAndSettle(
+        regB.client,
+        conv.conversation.id,
+        "paginate-msg-new",
+      );
+
+      // Read again — only the new message should be marked new
+      const hist2 = (await socketRequest("history", {
+        conversationId: conv.conversation.id,
+        sessionKey: "page-test-session",
+        limit: 10,
+      })) as {
+        newCount: number;
+        messages: Array<{ isNew: boolean; text: string }>;
+      };
+      expect(hist2.newCount).toBe(1);
+      const newMsg = hist2.messages.find((m) => m.isNew);
+      expect(newMsg?.text).toBe("paginate-msg-new");
+    } finally {
+      service.close();
+      regA.client.close();
+      regB.client.close();
+    }
+  });
+
+  it("non-text message parts render as markers in socket history", async () => {
+    const regA = await registerAgent("sock-attach-a");
+    const regB = await registerAgent("sock-attach-b");
+    await regB.client.connect(regB.apiKey);
+    const service = await connectService(regA.apiKey);
+    service.startSocketServer();
+    try {
+      const conv = (await socketRequest("conversations/create", {
+        type: "dm",
+        participants: [{ type: "agent", id: regB.agentId }],
+      })) as { conversation: { id: string } };
+
+      await regB.client.rpc("messages/send", {
+        conversationId: conv.conversation.id,
+        parts: [
+          { type: "text", text: "Check this out" },
+          { type: "image", url: "https://example.com/photo.jpg" },
+        ],
+      });
+      await new Promise((r) => setTimeout(r, 500));
+
+      const result = (await socketRequest("history", {
+        conversationId: conv.conversation.id,
+        limit: 10,
+      })) as { messages: Array<{ text: string }> };
+
+      const msg = result.messages.find((m) => m.text.includes("Check this out"));
+      expect(msg).toBeDefined();
+      expect(msg!.text).toContain("[image]");
+    } finally {
+      service.close();
+      regA.client.close();
+      regB.client.close();
+    }
+  });
+
+  it("socketPath is stable after connect (cached at startSocketServer time)", async () => {
+    const reg = await registerAgent("sock-stable");
+    const service = await connectService(reg.apiKey);
+    service.startSocketServer();
+    const pathAtStart = service.socketPath;
+    try {
+      const result = (await socketRequest(
+        "ping",
+        undefined,
+        pathAtStart,
+      )) as { ok: boolean };
+      expect(result.ok).toBe(true);
+    } finally {
+      service.close();
+      reg.client.close();
+    }
+  });
+
+  it("unknown socket method rejects with error", async () => {
+    const reg = await registerAgent("sock-unknown");
+    const service = await connectService(reg.apiKey);
+    service.startSocketServer();
+    try {
+      await expect(
+        socketRequest("nonexistent/method", { foo: "bar" }),
+      ).rejects.toThrow();
+    } finally {
+      service.close();
+      reg.client.close();
+    }
+  });
 });

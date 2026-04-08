@@ -9,10 +9,20 @@ import { MoltZapService } from "../service.js";
 export async function request(
   method: string,
   params?: Record<string, unknown>,
+  socketPath?: string,
 ): Promise<unknown> {
+  const sockPath = socketPath ?? MoltZapService.SOCKET_PATH;
   return new Promise((resolve, reject) => {
-    const conn = net.createConnection(MoltZapService.SOCKET_PATH);
+    const conn = net.createConnection(sockPath);
     let buffer = "";
+    let settled = false;
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      conn.destroy();
+      reject(new Error("Socket request timed out"));
+    }, 10_000);
 
     conn.on("connect", () => {
       conn.write(JSON.stringify({ method, params }) + "\n");
@@ -24,26 +34,31 @@ export async function request(
       if (idx !== -1) {
         const line = buffer.slice(0, idx);
         conn.end();
-        const response = JSON.parse(line) as {
-          result?: unknown;
-          error?: string;
-        };
-        if (response.error) {
-          reject(new Error(response.error));
-        } else {
-          resolve(response.result);
+        clearTimeout(timer);
+        if (settled) return;
+        settled = true;
+        try {
+          const response = JSON.parse(line) as {
+            result?: unknown;
+            error?: string;
+          };
+          if (response.error) {
+            reject(new Error(response.error));
+          } else {
+            resolve(response.result);
+          }
+        } catch {
+          reject(new Error("Malformed response from service"));
         }
       }
     });
 
     conn.on("error", (err) => {
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-        reject(
-          new Error(
-            "MoltZap service is not running. Start the OpenClaw channel plugin first.",
-          ),
-        );
-      } else if ((err as NodeJS.ErrnoException).code === "ECONNREFUSED") {
+      clearTimeout(timer);
+      if (settled) return;
+      settled = true;
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === "ENOENT" || code === "ECONNREFUSED") {
         reject(
           new Error(
             "MoltZap service is not running. Start the OpenClaw channel plugin first.",
@@ -53,11 +68,6 @@ export async function request(
         reject(err);
       }
     });
-
-    setTimeout(() => {
-      conn.destroy();
-      reject(new Error("Socket request timed out"));
-    }, 10_000);
   });
 }
 
