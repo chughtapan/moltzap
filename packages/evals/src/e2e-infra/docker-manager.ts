@@ -62,7 +62,11 @@ export class DockerManager {
     configOverride?: Record<string, unknown>;
     extraEnv?: Record<string, string>;
     workspaceFiles?: Array<{ relativePath: string; content: string }>;
-    contextAdapter?: { type: string; maxConversations?: number; maxMessagesPerConv?: number };
+    contextAdapter?: {
+      type: string;
+      maxConversations?: number;
+      maxMessagesPerConv?: number;
+    };
   }): Promise<AgentContainer> {
     let openclawConfig: Record<string, unknown>;
 

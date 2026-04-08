@@ -1,4 +1,12 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach, inject } from "vitest";
+import {
+  describe,
+  it,
+  expect,
+  beforeAll,
+  afterAll,
+  beforeEach,
+  inject,
+} from "vitest";
 import {
   startCoreTestServer,
   stopCoreTestServer,
@@ -106,7 +114,11 @@ describe("Connection & Core API", () => {
     const received: unknown[] = [];
     service.on("message", (msg) => received.push(msg));
 
-    await sendAndSettle(regSender.client, conv.conversation.id, "Hello receiver");
+    await sendAndSettle(
+      regSender.client,
+      conv.conversation.id,
+      "Hello receiver",
+    );
 
     expect(received.length).toBe(1);
     const msg = received[0] as { parts: Array<{ text: string }> };
@@ -198,7 +210,8 @@ describe("Connection & Core API", () => {
     await service.send(conv.conversation.id, "Hello from service");
 
     const event = await regB.client.waitForEvent("messages/received", 5000);
-    const msg = (event.data as { message: { parts: Array<{ text: string }> } }).message;
+    const msg = (event.data as { message: { parts: Array<{ text: string }> } })
+      .message;
     expect(msg.parts[0]!.text).toBe("Hello from service");
 
     service.close();
@@ -503,7 +516,10 @@ describe("Cross-Conversation Context", () => {
     }
 
     // Limit to 2 conversations
-    const ctx = service.getContext(convs[0]!, { type: "cross-conversation", maxConversations: 2 })!;
+    const ctx = service.getContext(convs[0]!, {
+      type: "cross-conversation",
+      maxConversations: 2,
+    })!;
     const lines = ctx.split("\n").filter((l) => l.startsWith("@"));
     expect(lines.length).toBe(2);
 
@@ -636,7 +652,10 @@ describe("Cross-Conversation Context", () => {
 
     // Oldest messages should have been evicted
     const texts = history.map((m) =>
-      m.parts.filter((p) => p.type === "text").map((p) => (p as { text: string }).text).join(""),
+      m.parts
+        .filter((p) => p.type === "text")
+        .map((p) => (p as { text: string }).text)
+        .join(""),
     );
     expect(texts).not.toContain("msg-0");
     expect(texts).toContain("msg-24");

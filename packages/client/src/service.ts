@@ -169,10 +169,7 @@ export class MoltZapService {
    * Each conversation has its own view of what's "new" — markers are tracked
    * per viewing conversation and advanced after notification.
    */
-  getContext(
-    currentConvId: string,
-    opts?: ContextOptions,
-  ): string | null {
+  getContext(currentConvId: string, opts?: ContextOptions): string | null {
     const maxConvs = opts?.maxConversations ?? 5;
     const maxMsgsPerConv = opts?.maxMessagesPerConv ?? 3;
     const viewMarkers =
@@ -193,9 +190,7 @@ export class MoltZapService {
       const senderName = this.resolveSenderLabel(last.sender.id);
       const ago = Math.max(
         0,
-        Math.round(
-          (Date.now() - new Date(last.createdAt).getTime()) / 60_000,
-        ),
+        Math.round((Date.now() - new Date(last.createdAt).getTime()) / 60_000),
       );
       const text = last.parts
         .filter((p) => p.type === "text" && "text" in p)
@@ -264,9 +259,7 @@ export class MoltZapService {
         id: conv.id,
         type: conv.type,
         name: conv.name,
-        participants: (conv.participants ?? []).map(
-          (p) => `${p.type}:${p.id}`,
-        ),
+        participants: (conv.participants ?? []).map((p) => `${p.type}:${p.id}`),
       });
     }
   }
@@ -279,7 +272,10 @@ export class MoltZapService {
         const msg = (event.data as { message: Message }).message;
         this.storeMessage(msg);
         // Resolve sender name in background
-        if (msg.sender.type === "agent" && !this.agentNames.has(msg.sender.id)) {
+        if (
+          msg.sender.type === "agent" &&
+          !this.agentNames.has(msg.sender.id)
+        ) {
           void this.resolveAgentName(msg.sender.id);
         }
         // Emit to external handlers (only non-own messages)

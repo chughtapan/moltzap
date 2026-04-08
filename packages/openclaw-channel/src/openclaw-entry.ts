@@ -410,7 +410,9 @@ export const moltzapChannelPlugin = {
           case EventNames.MessageRead: {
             const receipt = extractReadReceipt(event);
             if (receipt) {
-              log?.debug?.(`MoltZap: read receipt from ${receipt.participant.id} in ${receipt.conversationId} up to seq ${receipt.seq}`);
+              log?.debug?.(
+                `MoltZap: read receipt from ${receipt.participant.id} in ${receipt.conversationId} up to seq ${receipt.seq}`,
+              );
               setStatus({ accountId, lastEventAt: Date.now() });
             }
             break;
@@ -418,7 +420,9 @@ export const moltzapChannelPlugin = {
           case EventNames.MessageDelivered: {
             const delivery = extractDelivery(event);
             if (delivery) {
-              log?.debug?.(`MoltZap: delivery for ${delivery.messageId} in ${delivery.conversationId}`);
+              log?.debug?.(
+                `MoltZap: delivery for ${delivery.messageId} in ${delivery.conversationId}`,
+              );
               setStatus({ accountId, lastEventAt: Date.now() });
             }
             break;
@@ -426,7 +430,9 @@ export const moltzapChannelPlugin = {
           case EventNames.MessageReacted: {
             const reaction = extractReaction(event);
             if (reaction) {
-              log?.debug?.(`MoltZap: reaction ${reaction.action} ${reaction.emoji} on ${reaction.messageId}`);
+              log?.debug?.(
+                `MoltZap: reaction ${reaction.action} ${reaction.emoji} on ${reaction.messageId}`,
+              );
               setStatus({ accountId, lastEventAt: Date.now() });
             }
             break;
@@ -434,7 +440,9 @@ export const moltzapChannelPlugin = {
           case EventNames.MessageDeleted: {
             const deletion = extractDeletion(event);
             if (deletion) {
-              log?.debug?.(`MoltZap: message ${deletion.messageId} deleted in ${deletion.conversationId}`);
+              log?.debug?.(
+                `MoltZap: message ${deletion.messageId} deleted in ${deletion.conversationId}`,
+              );
               setStatus({ accountId, lastEventAt: Date.now() });
             }
             break;
@@ -442,7 +450,9 @@ export const moltzapChannelPlugin = {
           case EventNames.ConversationCreated: {
             const created = extractConversationCreated(event);
             if (created) {
-              log?.debug?.(`MoltZap: conversation created ${created.conversation.id}`);
+              log?.debug?.(
+                `MoltZap: conversation created ${created.conversation.id}`,
+              );
               setStatus({ accountId, lastEventAt: Date.now() });
             }
             break;
@@ -450,7 +460,9 @@ export const moltzapChannelPlugin = {
           case EventNames.ConversationUpdated: {
             const updated = extractConversationUpdated(event);
             if (updated) {
-              log?.debug?.(`MoltZap: conversation updated ${updated.conversation.id}`);
+              log?.debug?.(
+                `MoltZap: conversation updated ${updated.conversation.id}`,
+              );
               setStatus({ accountId, lastEventAt: Date.now() });
             }
             break;
@@ -458,7 +470,9 @@ export const moltzapChannelPlugin = {
           case "contact/request": {
             const contact = extractContactRequest(event);
             if (contact) {
-              log?.debug?.(`MoltZap: contact request from ${contact.contact.requesterId}`);
+              log?.debug?.(
+                `MoltZap: contact request from ${contact.contact.requesterId}`,
+              );
               setStatus({ accountId, lastEventAt: Date.now() });
             }
             break;
@@ -474,7 +488,9 @@ export const moltzapChannelPlugin = {
           case EventNames.PresenceChanged: {
             const presence = extractPresenceChanged(event);
             if (presence) {
-              log?.debug?.(`MoltZap: ${presence.participant.id} is now ${presence.status}`);
+              log?.debug?.(
+                `MoltZap: ${presence.participant.id} is now ${presence.status}`,
+              );
               setStatus({ accountId, lastEventAt: Date.now() });
             }
             break;
@@ -482,7 +498,9 @@ export const moltzapChannelPlugin = {
           case EventNames.TypingIndicator: {
             const typing = extractTypingIndicator(event);
             if (typing) {
-              log?.debug?.(`MoltZap: typing in ${typing.conversationId} by ${typing.participant.id}`);
+              log?.debug?.(
+                `MoltZap: typing in ${typing.conversationId} by ${typing.participant.id}`,
+              );
             }
             break;
           }
@@ -615,10 +633,13 @@ export const moltzapChannelPlugin = {
               name: agentName,
             })) as { agent: { id: string } };
 
-            const createResult = (await service.sendRpc("conversations/create", {
-              type: "dm",
-              participants: [{ type: "agent", id: lookupResult.agent.id }],
-            })) as { conversation: { id: string } };
+            const createResult = (await service.sendRpc(
+              "conversations/create",
+              {
+                type: "dm",
+                participants: [{ type: "agent", id: lookupResult.agent.id }],
+              },
+            )) as { conversation: { id: string } };
 
             conversationId = createResult.conversation.id;
             accountCache.set(agentName, conversationId);
