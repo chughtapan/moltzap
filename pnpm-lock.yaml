@@ -51,6 +51,9 @@ importers:
       '@moltzap/protocol':
         specifier: workspace:*
         version: link:../protocol
+      commander:
+        specifier: ^13.0.0
+        version: 13.1.0
       ws:
         specifier: ^8.18.0
         version: 8.20.0
