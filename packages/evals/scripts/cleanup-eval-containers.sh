@@ -14,18 +14,22 @@ while IFS= read -r line; do
   if [ -n "$started" ] && [ "$((NOW - started))" -gt "$MAX_AGE" ]; then
     age=$((NOW - started))
     echo "Killing stale container $id (age: ${age}s)"
-    docker rm -f "$id" 2>/dev/null
-    KILLED=$((KILLED + 1))
+    docker rm -f "$id" 2>/dev/null && KILLED=$((KILLED + 1))
   fi
 done < <(docker ps --filter "label=moltzap-eval=true" --format '{{.ID}} {{.Label "moltzap-eval-started"}}' 2>/dev/null)
 
-# Name-based fallback for pre-label containers
-while IFS= read -r id; do
-  [ -z "$id" ] && continue
-  echo "Killing old container $id (matched by name pattern)"
-  docker rm -f "$id" 2>/dev/null
-  KILLED=$((KILLED + 1))
-done < <(docker ps --filter "name=moltzap-e2e-" --format '{{.ID}} {{.RunningFor}}' 2>/dev/null | grep -E 'hours|days' | awk '{print $1}')
+# Name-based fallback for pre-label containers: use creation timestamp
+while IFS= read -r line; do
+  [ -z "$line" ] && continue
+  id=$(echo "$line" | awk '{print $1}')
+  created=$(echo "$line" | awk '{print $2}')
+  [ -z "$created" ] && continue
+  created_epoch=$(date -j -f "%Y-%m-%dT%H:%M:%S" "${created%%.*}" +%s 2>/dev/null || date -d "${created%%.*}" +%s 2>/dev/null || continue)
+  if [ "$((NOW - created_epoch))" -gt "$MAX_AGE" ]; then
+    echo "Killing old container $id (matched by name pattern)"
+    docker rm -f "$id" 2>/dev/null && KILLED=$((KILLED + 1))
+  fi
+done < <(docker ps --filter "name=moltzap-e2e-" --format '{{.ID}} {{.CreatedAt}}' 2>/dev/null)
 
 if [ "$KILLED" -gt 0 ]; then
   echo "Cleaned up $KILLED stale eval container(s)"
