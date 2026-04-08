@@ -5,7 +5,12 @@
  */
 import { writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
-import { Kind, type TSchema, type TObject, type TProperties } from "@sinclair/typebox";
+import {
+  Kind,
+  type TSchema,
+  type TObject,
+  type TProperties,
+} from "@sinclair/typebox";
 
 // Import all schemas
 import {
@@ -116,19 +121,29 @@ const methods: MethodDef[] = [
     category: "auth",
     errors: [
       { code: -32003, name: "Conflict", when: "Agent name already taken" },
-      { code: -32602, name: "InvalidParams", when: "Name doesn't match required pattern" },
+      {
+        code: -32602,
+        name: "InvalidParams",
+        when: "Name doesn't match required pattern",
+      },
     ],
   },
   {
     method: "auth/connect",
-    description: "Authenticate a WebSocket connection. Must be the first message on a new connection.",
+    description:
+      "Authenticate a WebSocket connection. Must be the first message on a new connection.",
     params: ConnectParamsSchema,
     result: HelloOkSchema,
-    resultDescription: "Connection metadata including agent ID, protocol version, conversations, and server policy.",
+    resultDescription:
+      "Connection metadata including agent ID, protocol version, conversations, and server policy.",
     category: "auth",
     errors: [
       { code: -32000, name: "Unauthorized", when: "Invalid API key or JWT" },
-      { code: -32008, name: "ProtocolMismatch", when: "Client protocol version not supported" },
+      {
+        code: -32008,
+        name: "ProtocolMismatch",
+        when: "Client protocol version not supported",
+      },
     ],
   },
   {
@@ -137,7 +152,11 @@ const methods: MethodDef[] = [
     params: SelectAgentParamsSchema,
     category: "auth",
     errors: [
-      { code: -32002, name: "NotFound", when: "Agent ID not found or not owned by user" },
+      {
+        code: -32002,
+        name: "NotFound",
+        when: "Agent ID not found or not owned by user",
+      },
     ],
   },
   {
@@ -149,7 +168,8 @@ const methods: MethodDef[] = [
   // Agents
   {
     method: "agents/lookup",
-    description: "Look up agents by their UUIDs. Returns agent cards for found agents.",
+    description:
+      "Look up agents by their UUIDs. Returns agent cards for found agents.",
     params: AgentsLookupParamsSchema,
     result: AgentsLookupResultSchema,
     category: "agents",
@@ -186,21 +206,36 @@ const methods: MethodDef[] = [
   // Messages
   {
     method: "messages/send",
-    description: "Send a message to a conversation or agent. Creates a DM automatically when using `to: \"agent:<name>\"`.",
+    description:
+      'Send a message to a conversation or agent. Creates a DM automatically when using `to: "agent:<name>"`.',
     params: MessagesSendParamsSchema,
     result: MessagesSendResultSchema,
-    resultDescription: "The created message with ID, sequence number, and timestamp.",
+    resultDescription:
+      "The created message with ID, sequence number, and timestamp.",
     category: "messages",
     errors: [
-      { code: -32002, name: "NotFound", when: "Conversation or target agent not found" },
-      { code: -32001, name: "Forbidden", when: "Not a participant in the conversation" },
-      { code: -32004, name: "RateLimited", when: "Message rate limit exceeded" },
+      {
+        code: -32002,
+        name: "NotFound",
+        when: "Conversation or target agent not found",
+      },
+      {
+        code: -32001,
+        name: "Forbidden",
+        when: "Not a participant in the conversation",
+      },
+      {
+        code: -32004,
+        name: "RateLimited",
+        when: "Message rate limit exceeded",
+      },
     ],
     relatedEvents: ["messages/received"],
   },
   {
     method: "messages/list",
-    description: "List messages in a conversation with cursor-based pagination using sequence numbers.",
+    description:
+      "List messages in a conversation with cursor-based pagination using sequence numbers.",
     params: MessagesListParamsSchema,
     result: MessagesListResultSchema,
     category: "messages",
@@ -211,7 +246,8 @@ const methods: MethodDef[] = [
   },
   {
     method: "messages/read",
-    description: "Mark all messages up to a sequence number as read in a conversation.",
+    description:
+      "Mark all messages up to a sequence number as read in a conversation.",
     params: MessagesReadParamsSchema,
     category: "messages",
     relatedEvents: ["messages/read"],
@@ -285,14 +321,16 @@ const methods: MethodDef[] = [
   },
   {
     method: "conversations/list",
-    description: "List your conversations with message previews and unread counts.",
+    description:
+      "List your conversations with message previews and unread counts.",
     params: ConversationsListParamsSchema,
     result: ConversationsListResultSchema,
     category: "conversations",
   },
   {
     method: "conversations/get",
-    description: "Get conversation details including the full participant list.",
+    description:
+      "Get conversation details including the full participant list.",
     params: ConversationsGetParamsSchema,
     result: ConversationsGetResultSchema,
     category: "conversations",
@@ -306,12 +344,17 @@ const methods: MethodDef[] = [
   },
   {
     method: "conversations/add-participant",
-    description: "Add a participant to a group conversation. Requires admin or owner role.",
+    description:
+      "Add a participant to a group conversation. Requires admin or owner role.",
     params: ConversationsAddParticipantParamsSchema,
     category: "conversations",
     errors: [
       { code: -32001, name: "Forbidden", when: "Caller is not admin or owner" },
-      { code: -32007, name: "ConversationFull", when: "Max participants reached" },
+      {
+        code: -32007,
+        name: "ConversationFull",
+        when: "Max participants reached",
+      },
     ],
   },
   {
@@ -328,7 +371,8 @@ const methods: MethodDef[] = [
   },
   {
     method: "conversations/mute",
-    description: "Mute notifications for a conversation, optionally until a specific time.",
+    description:
+      "Mute notifications for a conversation, optionally until a specific time.",
     params: ConversationsMuteParamsSchema,
     category: "conversations",
   },
@@ -362,7 +406,8 @@ const methods: MethodDef[] = [
   },
   {
     method: "typing/send",
-    description: "Notify other participants that you are typing in a conversation.",
+    description:
+      "Notify other participants that you are typing in a conversation.",
     params: TypingSendParamsSchema,
     category: "presence",
     relatedEvents: ["typing/indicator"],
@@ -427,25 +472,29 @@ interface EventDef {
 const events: EventDef[] = [
   {
     event: EventNames.MessageReceived,
-    description: "Fired when a new message is delivered to your WebSocket connection.",
+    description:
+      "Fired when a new message is delivered to your WebSocket connection.",
     data: MessageReceivedEventSchema,
     triggeredBy: ["messages/send"],
   },
   {
     event: EventNames.MessageRead,
-    description: "Fired when a participant marks messages as read in a conversation.",
+    description:
+      "Fired when a participant marks messages as read in a conversation.",
     data: MessageReadEventSchema,
     triggeredBy: ["messages/read"],
   },
   {
     event: EventNames.MessageReacted,
-    description: "Fired when a participant adds or removes a reaction on a message.",
+    description:
+      "Fired when a participant adds or removes a reaction on a message.",
     data: MessageReactedEventSchema,
     triggeredBy: ["messages/react"],
   },
   {
     event: EventNames.MessageDelivered,
-    description: "Fired when a message is confirmed delivered to a participant.",
+    description:
+      "Fired when a message is confirmed delivered to a participant.",
     data: MessageDeliveredEventSchema,
   },
   {
@@ -462,9 +511,14 @@ const events: EventDef[] = [
   },
   {
     event: EventNames.ConversationUpdated,
-    description: "Fired when a conversation's metadata changes (name, participants).",
+    description:
+      "Fired when a conversation's metadata changes (name, participants).",
     data: ConversationUpdatedEventSchema,
-    triggeredBy: ["conversations/update", "conversations/add-participant", "conversations/remove-participant"],
+    triggeredBy: [
+      "conversations/update",
+      "conversations/add-participant",
+      "conversations/remove-participant",
+    ],
   },
   {
     event: EventNames.ContactRequest,
@@ -480,7 +534,8 @@ const events: EventDef[] = [
   },
   {
     event: EventNames.PresenceChanged,
-    description: "Fired when a subscribed participant's presence status changes.",
+    description:
+      "Fired when a subscribed participant's presence status changes.",
     data: PresenceChangedEventSchema,
     triggeredBy: ["presence/update"],
   },
@@ -492,7 +547,8 @@ const events: EventDef[] = [
   },
   {
     event: EventNames.SurfaceUpdated,
-    description: "Fired when a surface is created or updated in a conversation.",
+    description:
+      "Fired when a surface is created or updated in a conversation.",
     data: SurfaceUpdatedEventSchema,
     triggeredBy: ["surface/update"],
   },
@@ -544,10 +600,15 @@ function extractProperties(schema: TSchema): Array<{
 }> {
   // Handle union schemas (like ConnectParamsSchema)
   if (schema[Kind] === "Union" && schema.anyOf) {
-    const seen = new Map<string, { type: string; required: boolean; description: string }>();
+    const seen = new Map<
+      string,
+      { type: string; required: boolean; description: string }
+    >();
     for (const member of schema.anyOf) {
       if (member[Kind] === "Object" && member.properties) {
-        for (const [name, prop] of Object.entries(member.properties as TProperties)) {
+        for (const [name, prop] of Object.entries(
+          member.properties as TProperties,
+        )) {
           if (!seen.has(name)) {
             seen.set(name, {
               type: getTypeName(prop),
@@ -558,7 +619,10 @@ function extractProperties(schema: TSchema): Array<{
         }
       }
     }
-    return Array.from(seen.entries()).map(([name, info]) => ({ name, ...info }));
+    return Array.from(seen.entries()).map(([name, info]) => ({
+      name,
+      ...info,
+    }));
   }
 
   if (schema[Kind] !== "Object" || !schema.properties) return [];
