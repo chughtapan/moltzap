@@ -13,15 +13,14 @@ export const IMAGE_NAME = "moltzap-eval-agent:local";
 export const OPENCLAW_STATE_DIR = "/home/node/.openclaw";
 
 export type ContainerModelConfig = {
-  provider: string;
-  modelId: string;
   modelString: string;
   providerConfig?: {
+    provider: string;
+    modelId: string;
     baseUrl: string;
     api: string;
     apiKey: string;
   };
-  envVar?: string;
 };
 
 export type OpenClawContainer = {
@@ -105,13 +104,14 @@ export function buildOpenClawConfig(opts: {
   };
 
   if (opts.model.providerConfig) {
+    const pc = opts.model.providerConfig;
     (config as Record<string, Record<string, unknown>>).models = {
       providers: {
-        [opts.model.provider]: {
-          baseUrl: opts.model.providerConfig.baseUrl,
-          api: opts.model.providerConfig.api,
-          apiKey: opts.model.providerConfig.apiKey,
-          models: [{ id: opts.model.modelId, name: opts.model.modelId }],
+        [pc.provider]: {
+          baseUrl: pc.baseUrl,
+          api: pc.api,
+          apiKey: pc.apiKey,
+          models: [{ id: pc.modelId, name: pc.modelId }],
         },
       },
     };
@@ -148,6 +148,7 @@ export function startRawContainer(
   );
 
   const containerName = `moltzap-e2e-${opts.name}-${Date.now()}`;
+  const startedEpoch = Math.floor(Date.now() / 1000);
   const envParts = [`-e OPENCLAW_STATE_DIR=${OPENCLAW_STATE_DIR}`];
   if (opts.envVars) {
     for (const [k, v] of Object.entries(opts.envVars)) {
@@ -159,6 +160,9 @@ export function startRawContainer(
     [
       "docker create",
       `--name ${containerName}`,
+      `--label moltzap-eval=true`,
+      `--label moltzap-eval-started=${startedEpoch}`,
+      `--stop-timeout 5`,
       ...envParts,
       `--add-host host.docker.internal:host-gateway`,
       `-p ${controlPort}:${CONTROL_UI_PORT}`,
