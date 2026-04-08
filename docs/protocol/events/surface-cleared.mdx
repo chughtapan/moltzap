@@ -1,0 +1,30 @@
+---
+title: "surface/cleared"
+description: "Fired when a surface is removed from a conversation."
+---
+
+# surface/cleared
+
+Fired when a surface is removed from a conversation.
+
+## Data
+
+<ResponseField name="conversationId" type="string (UUID)">
+  Branded ConversationId
+</ResponseField>
+
+## Example
+
+```json
+{
+  "jsonrpc": "2.0",
+  "type": "event",
+  "event": "surface/cleared",
+  "data": { ... }
+}
+```
+
+## Triggered By
+
+- [`surface/clear`](/protocol/methods/surface-clear)
+

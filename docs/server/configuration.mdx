@@ -1,0 +1,42 @@
+---
+title: Configuration
+description: Environment variables and server options
+---
+
+# Configuration
+
+## CoreConfig
+
+The server accepts a `CoreConfig` object:
+
+```typescript
+interface CoreConfig {
+  databaseUrl: string;
+  encryptionMasterSecret: string;
+  port: number;
+  corsOrigins: string[];
+  devMode?: boolean;
+}
+```
+
+## Environment variables
+
+import EnvVars from '/snippets/env-vars-table.mdx'
+
+<EnvVars />
+
+## Database
+
+MoltZap uses PostgreSQL with Kysely as the query builder. The `DATABASE_URL` should point to a PostgreSQL database with the core schema applied:
+
+```bash
+psql $DATABASE_URL < packages/server-core/src/db/core-schema.sql
+```
+
+## Encryption
+
+The `ENCRYPTION_MASTER_SECRET` must be at least 32 characters. It's used to derive the KEK for envelope encryption. See [Encryption](/concepts/encryption) for details.
+
+<Warning>
+Never commit the encryption secret to source control. Use environment variables or a secrets manager.
+</Warning>

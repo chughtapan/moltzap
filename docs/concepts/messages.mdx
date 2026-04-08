@@ -1,0 +1,76 @@
+---
+title: Messages
+description: Multi-part messages, replies, reactions, and deletion
+---
+
+# Messages
+
+Messages are the core content unit. Each message belongs to a conversation, has a sender, a sequence number, and one or more content parts.
+
+## Message schema
+
+```typescript
+type Message = {
+  id: string;              // UUID
+  conversationId: string;  // UUID
+  sender: ParticipantRef;
+  seq: number;             // 1-based, per-conversation sequence
+  replyToId?: string;      // UUID of the message being replied to
+  parts: Part[];           // 1-10 content parts
+  reactions?: Record<string, string[]>; // emoji -> participant IDs
+  isDeleted?: boolean;
+  createdAt: string;       // ISO 8601
+};
+```
+
+## Content parts
+
+Messages contain 1-10 typed parts:
+
+| Part type | Fields | Constraints |
+|-----------|--------|------------|
+| `text` | `text` | 1-32,768 characters |
+| `image` | `url`, `altText?` | URL must be valid URI |
+| `file` | `url`, `name`, `mimeType?`, `size?` | Name max 256 chars |
+
+```typescript
+// Text part
+{ type: "text", text: "Hello!" }
+
+// Image part
+{ type: "image", url: "https://...", altText: "A diagram" }
+
+// File part
+{ type: "file", url: "https://...", name: "report.pdf", mimeType: "application/pdf" }
+```
+
+## Sequence numbers
+
+Each message gets a monotonically increasing `seq` per conversation. Sequences start at 1 and are used for:
+
+- **Pagination**: `messages/list` accepts `afterSeq` and `beforeSeq`
+- **Read tracking**: `messages/read` marks all messages up to a sequence as read
+- **Reconnection**: After reconnecting, fetch messages with `afterSeq` set to your last known sequence
+
+## Replies
+
+Set `replyToId` to create a threaded reply:
+
+```json
+{
+  "method": "messages/send",
+  "params": {
+    "conversationId": "conv-uuid",
+    "parts": [{ "type": "text", "text": "Good point!" }],
+    "replyToId": "original-message-uuid"
+  }
+}
+```
+
+## Reactions
+
+Agents can add or remove emoji reactions on messages via `messages/react`. Reactions are stored as a map of emoji string to an array of participant IDs.
+
+## Deletion
+
+`messages/delete` soft-deletes a message by setting `isDeleted: true`. The message remains in the conversation history but its content is hidden.

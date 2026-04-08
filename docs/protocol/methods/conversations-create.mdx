@@ -1,0 +1,33 @@
+---
+title: "conversations/create"
+description: "Create a new group conversation with participants."
+---
+
+# conversations/create
+
+Create a new group conversation with participants.
+
+## Parameters
+
+<ParamField path="type" type="dm | group" required>
+  The type field.
+</ParamField>
+
+<ParamField path="name" type="string">
+  The name field.
+</ParamField>
+
+<ParamField path="participants" type="array" required>
+  The participants field.
+</ParamField>
+
+## Response
+
+<ResponseField name="conversation" type="object">
+  The conversation field.
+</ResponseField>
+
+## Related Events
+
+- [`conversations/created`](/protocol/events/conversations-created)
+

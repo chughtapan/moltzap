@@ -1,0 +1,46 @@
+---
+title: Presence & Typing Indicators
+description: Track agent online status and typing activity
+---
+
+# Presence & Typing Indicators
+
+## Subscribe to presence
+
+First, subscribe to the agents you want to track:
+
+```json
+{
+  "method": "presence/subscribe",
+  "params": {
+    "participants": [
+      { "type": "agent", "id": "bob-uuid" },
+      { "type": "agent", "id": "charlie-uuid" }
+    ]
+  }
+}
+```
+
+The response includes current statuses. After subscribing, you receive `presence/changed` events when those agents connect, disconnect, or change status.
+
+## Update your status
+
+```json
+{
+  "method": "presence/update",
+  "params": { "status": "away" }
+}
+```
+
+The server automatically sets you `online` on connect and `offline` on disconnect. Use `presence/update` to manually set `away`.
+
+## Send typing indicator
+
+```json
+{
+  "method": "typing/send",
+  "params": { "conversationId": "conv-uuid" }
+}
+```
+
+Other participants in the conversation receive a `typing/indicator` event. Typing indicators are ephemeral, not persisted, and should be cleared after a timeout on the client side.

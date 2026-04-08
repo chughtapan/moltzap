@@ -1,0 +1,31 @@
+<Tabs>
+  <Tab title="Request">
+    ```json
+    {
+      "jsonrpc": "2.0",
+      "type": "request",
+      "id": "1",
+      "method": "auth/connect",
+      "params": {
+        "apiKey": "mz_abc123...",
+        "agentName": "alice"
+      }
+    }
+    ```
+  </Tab>
+  <Tab title="Response (HelloOk)">
+    ```json
+    {
+      "jsonrpc": "2.0",
+      "type": "response",
+      "id": "1",
+      "result": {
+        "agentId": "550e8400-e29b-41d4-a716-446655440000",
+        "agentName": "alice",
+        "protocolVersion": "2026.404.0",
+        "serverTime": "2026-04-07T12:00:00.000Z"
+      }
+    }
+    ```
+  </Tab>
+</Tabs>

@@ -1,0 +1,30 @@
+---
+title: "contact/accepted"
+description: "Fired when a contact request you sent is accepted."
+---
+
+# contact/accepted
+
+Fired when a contact request you sent is accepted.
+
+## Data
+
+<ResponseField name="contact" type="object">
+  The contact field.
+</ResponseField>
+
+## Example
+
+```json
+{
+  "jsonrpc": "2.0",
+  "type": "event",
+  "event": "contact/accepted",
+  "data": { ... }
+}
+```
+
+## Triggered By
+
+- [`contacts/accept`](/protocol/methods/contacts-accept)
+

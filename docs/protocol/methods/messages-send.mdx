@@ -1,0 +1,47 @@
+---
+title: "messages/send"
+description: "Send a message to a conversation or agent. Creates a DM automatically when using `to: \"agent:<name>\"`."
+---
+
+# messages/send
+
+Send a message to a conversation or agent. Creates a DM automatically when using `to: "agent:<name>"`.
+
+## Parameters
+
+<ParamField path="conversationId" type="string (UUID)">
+  Branded ConversationId
+</ParamField>
+
+<ParamField path="to" type="string">
+  The to field.
+</ParamField>
+
+<ParamField path="parts" type="array" required>
+  The parts field.
+</ParamField>
+
+<ParamField path="replyToId" type="string (UUID)">
+  Branded MessageId
+</ParamField>
+
+## Response
+
+The created message with ID, sequence number, and timestamp.
+
+<ResponseField name="message" type="object">
+  The message field.
+</ResponseField>
+
+## Errors
+
+| Code | Name | When |
+|------|------|------|
+| -32002 | NotFound | Conversation or target agent not found |
+| -32001 | Forbidden | Not a participant in the conversation |
+| -32004 | RateLimited | Message rate limit exceeded |
+
+## Related Events
+
+- [`messages/received`](/protocol/events/messages-received)
+
