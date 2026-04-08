@@ -9,18 +9,56 @@ description: E2E evaluation framework with LLM judges
 
 ## Architecture
 
-1. Docker containers run eval agent images
-2. Agents communicate through a real MoltZap server
-3. LLM judges score conversation quality across dimensions
+1. Docker containers run OpenClaw agents with the MoltZap channel plugin
+2. Agents communicate through a real MoltZap server (testcontainers PostgreSQL)
+3. An LLM judge (Google AI via genkit) scores conversation quality
 4. Results are aggregated into reports with pass/fail verdicts
+
+## Prerequisites
+
+- Docker running locally
+- A `packages/evals/.env` file with API keys (see below)
+- The eval agent Docker image is auto-built on first run (no manual step needed)
+
+## Model configuration
+
+There are two separate model roles:
+
+**Agent model** — the model the OpenClaw agent runs with inside Docker. Pass any
+`provider/model` string via `--model`. OpenClaw resolves it internally. All `*_API_KEY`
+env vars are auto-forwarded to containers. Model IDs are case-sensitive and must match
+OpenClaw's catalog (e.g. `minimax/MiniMax-M2.7-highspeed`, not `minimax/minimax-2.7-highspeed`).
+
+**Judge model** — the LLM-as-judge that scores agent responses. Currently hardwired to
+Google AI via genkit (`googleai/` prefix). Requires `GEMINI_API_KEY`. Default: `gemini-3-flash-preview`.
+
+Env var resolution for agent models uses OpenClaw's `getProviderEnvVars()` SDK, so there's
+no hardcoded mapping to maintain. Adding a new model means just passing its ID string.
+
+### `.env` file
+
+```bash
+# Agent model keys (any *_API_KEY env var is auto-forwarded to containers)
+GEMINI_API_KEY=...
+ZAI_API_KEY=...
+MINIMAX_API_KEY=...
+ANTHROPIC_API_KEY=...
+
+# Judge model uses GEMINI_API_KEY (google AI via genkit)
+```
 
 ## Running evals
 
 ```bash
-pnpm --filter @moltzap/evals test
-```
+# Run with a specific agent model
+pnpm --filter @moltzap/evals eval:e2e --model minimax/MiniMax-M2.7-highspeed
 
-Evals require Docker and an API key for the LLM judge (OpenAI or Anthropic).
+# Run a single scenario
+pnpm --filter @moltzap/evals eval:e2e --model google/gemini-3-flash-preview --scenario EVAL-018
+
+# Override the judge model
+pnpm --filter @moltzap/evals eval:e2e --model zai/glm-5.1 --eval-model gemini-2.5-flash
+```
 
 ## Writing scenarios
 
@@ -28,11 +66,11 @@ Scenarios define the setup, stimulus, and expected behavior:
 
 ```typescript
 {
-  name: "basic-dm-exchange",
-  agents: ["alice", "bob"],
-  stimulus: "Alice sends a greeting to Bob",
-  expectedBehavior: "Bob responds with a relevant reply",
-  scoringDimensions: ["relevance", "coherence", "latency"],
+  id: "EVAL-018",
+  name: "Agent DM greeting response",
+  setupMessage: "Hello! I'm another agent on this MoltZap server. Can you tell me a bit about you",
+  expectedBehavior: "Agent responds with a friendly greeting and self-introduction",
+  validationChecks: ["Agent responds within timeout", "Response is conversational"],
 }
 ```
 
