@@ -20,7 +20,11 @@ import {
   type ContainerModelConfig,
   type OpenClawContainer,
 } from "@moltzap/openclaw-channel/test-utils";
-import type { AgentModelConfig } from "./model-config.js";
+import {
+  type AgentModelConfig,
+  resolveAgentModel,
+  DEFAULT_AGENT_MODEL_ID,
+} from "./model-config.js";
 import { logger } from "./logger.js";
 
 const DEFAULT_EVAL_AGENT_IMAGE = "moltzap-eval-agent:local";
@@ -55,7 +59,6 @@ export class DockerManager {
 
   async startAgent(opts: {
     name: string;
-    zaiApiKey: string;
     agentModel?: AgentModelConfig;
     moltzapServerUrl?: string;
     moltzapApiKey?: string;
@@ -91,13 +94,11 @@ export class DockerManager {
       });
     }
 
-    const envVars: Record<string, string> = {
-      ZAI_API_KEY: opts.zaiApiKey,
-      ...opts.extraEnv,
-    };
-    if (opts.agentModel && opts.agentModel.envVar !== "ZAI_API_KEY") {
-      const apiKey = process.env[opts.agentModel.envVar];
-      if (apiKey) envVars[opts.agentModel.envVar] = apiKey;
+    const envVars: Record<string, string> = { ...opts.extraEnv };
+    for (const [key, value] of Object.entries(process.env)) {
+      if (key.endsWith("_API_KEY") && value) {
+        envVars[key] = value;
+      }
     }
 
     logger.info(`Starting agent container "${opts.name}"`);
@@ -156,4 +157,36 @@ export class DockerManager {
   getContainerLogs(agent: AgentContainer): string {
     return getLogs(agent.containerId);
   }
+}
+
+/** Start N agent containers with model resolution and API key forwarding. */
+export async function setupAgentContainers(opts: {
+  agentCredentials: Array<{ name: string; apiKey: string }>;
+  serverPort: number;
+  modelId?: string;
+  workspaceFiles?: (
+    name: string,
+  ) => Array<{ relativePath: string; content: string }>;
+}): Promise<{
+  dockerManager: DockerManager;
+  containers: AgentContainer[];
+}> {
+  const modelId = opts.modelId ?? DEFAULT_AGENT_MODEL_ID;
+  const agentModel = resolveAgentModel(modelId);
+  const dockerManager = new DockerManager();
+  await dockerManager.verifyImage();
+
+  const containers: AgentContainer[] = [];
+  for (const cred of opts.agentCredentials) {
+    const container = await dockerManager.startAgent({
+      name: cred.name,
+      moltzapServerUrl: `ws://127.0.0.1:${opts.serverPort}`,
+      moltzapApiKey: cred.apiKey,
+      agentModel,
+      workspaceFiles: opts.workspaceFiles?.(cred.name),
+    });
+    containers.push(container);
+  }
+
+  return { dockerManager, containers };
 }
