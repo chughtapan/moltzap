@@ -21,8 +21,7 @@ import {
   type OpenClawContainer,
 } from "@moltzap/openclaw-channel/test-utils";
 import {
-  type AgentModelConfig,
-  resolveAgentModel,
+  validateAgentModelEnv,
   DEFAULT_AGENT_MODEL_ID,
 } from "./model-config.js";
 import { logger } from "./logger.js";
@@ -35,6 +34,24 @@ export interface AgentContainer {
   name: string;
 }
 
+/** Find the monorepo root by walking up from this file looking for the build script. */
+function findMonorepoRoot(): string | null {
+  let dir = path.resolve(new URL(import.meta.url).pathname, "../../../..");
+  for (let i = 0; i < 10; i++) {
+    if (
+      fs.existsSync(
+        path.join(dir, "packages/evals/scripts/build-eval-agent.sh"),
+      )
+    ) {
+      return dir;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+}
+
 export class DockerManager {
   private containers: Array<AgentContainer & { _raw: OpenClawContainer }> = [];
   private readonly imageName: string;
@@ -43,23 +60,49 @@ export class DockerManager {
     this.imageName = opts?.imageName ?? DEFAULT_EVAL_AGENT_IMAGE;
   }
 
-  async verifyImage(): Promise<void> {
+  /** Ensure the eval agent Docker image exists, auto-building if missing. */
+  async ensureImage(): Promise<void> {
     try {
       execSync(`docker image inspect ${this.imageName}`, { stdio: "pipe" });
+      logger.info(`Docker image "${this.imageName}" verified`);
+      return;
     } catch {
+      // Image missing, try to auto-build
+    }
+
+    logger.info(
+      `Docker image "${this.imageName}" not found, attempting auto-build...`,
+    );
+    const root = findMonorepoRoot();
+    if (!root) {
       throw new Error(
-        `Docker image "${this.imageName}" not found.\n` +
-          `Build it:\n` +
+        `Docker image "${this.imageName}" not found and could not locate monorepo root to auto-build.\n` +
+          `Build manually:\n` +
           `  cd <monorepo-root>\n` +
           `  bash packages/evals/scripts/build-eval-agent.sh`,
       );
     }
-    logger.info(`Docker image "${this.imageName}" verified`);
+
+    try {
+      execSync("bash packages/evals/scripts/build-eval-agent.sh", {
+        cwd: root,
+        stdio: "inherit",
+      });
+      logger.info(`Auto-built Docker image "${this.imageName}"`);
+    } catch (err) {
+      throw new Error(
+        `Failed to auto-build Docker image "${this.imageName}".\n` +
+          `Try building manually:\n` +
+          `  cd ${root}\n` +
+          `  bash packages/evals/scripts/build-eval-agent.sh\n` +
+          `Error: ${err instanceof Error ? err.message : err}`,
+      );
+    }
   }
 
   async startAgent(opts: {
     name: string;
-    agentModel?: AgentModelConfig;
+    agentModelId?: string;
     moltzapServerUrl?: string;
     moltzapApiKey?: string;
     configOverride?: Record<string, unknown>;
@@ -76,14 +119,9 @@ export class DockerManager {
     if (opts.configOverride) {
       openclawConfig = opts.configOverride;
     } else {
-      const containerModel: ContainerModelConfig = opts.agentModel
-        ? {
-            provider: opts.agentModel.provider,
-            modelId: opts.agentModel.modelId,
-            modelString: opts.agentModel.id,
-            envVar: opts.agentModel.envVar,
-          }
-        : { provider: "zai", modelId: "glm-4.7", modelString: "zai/glm-4.7" };
+      const containerModel: ContainerModelConfig = {
+        modelString: opts.agentModelId ?? DEFAULT_AGENT_MODEL_ID,
+      };
 
       openclawConfig = buildOpenClawConfig({
         model: containerModel,
@@ -172,20 +210,25 @@ export async function setupAgentContainers(opts: {
   containers: AgentContainer[];
 }> {
   const modelId = opts.modelId ?? DEFAULT_AGENT_MODEL_ID;
-  const agentModel = resolveAgentModel(modelId);
+  validateAgentModelEnv(modelId);
   const dockerManager = new DockerManager();
-  await dockerManager.verifyImage();
+  await dockerManager.ensureImage();
 
   const containers: AgentContainer[] = [];
-  for (const cred of opts.agentCredentials) {
-    const container = await dockerManager.startAgent({
-      name: cred.name,
-      moltzapServerUrl: `ws://127.0.0.1:${opts.serverPort}`,
-      moltzapApiKey: cred.apiKey,
-      agentModel,
-      workspaceFiles: opts.workspaceFiles?.(cred.name),
-    });
-    containers.push(container);
+  try {
+    for (const cred of opts.agentCredentials) {
+      const container = await dockerManager.startAgent({
+        name: cred.name,
+        moltzapServerUrl: `ws://127.0.0.1:${opts.serverPort}`,
+        moltzapApiKey: cred.apiKey,
+        agentModelId: modelId,
+        workspaceFiles: opts.workspaceFiles?.(cred.name),
+      });
+      containers.push(container);
+    }
+  } catch (err) {
+    await dockerManager.stopAll();
+    throw err;
   }
 
   return { dockerManager, containers };
