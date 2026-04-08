@@ -32,3 +32,65 @@ The CLI runs as a subprocess (via OpenClaw's exec tool) so it can't access the i
 4. Run EVAL-008 with `contextAdapter` disabled (separate container config for isolation-only vs awareness scenarios)
 
 **Why it matters:** Cross-conversation awareness is only useful if the agent can use information strategically without leaking it verbatim. The evals are correctly catching the gap between "has the info" and "uses it wisely."
+
+## Socket server: batch agent name resolution in history handler
+
+Sequential `resolveAgentName()` calls in the `history` handler make one RPC per unknown agent. The server's `agents/lookup` RPC already accepts an `agentIds` array, so all unknowns could be resolved in a single call. Also, `messages/list` and `conversations/get` are independent and could run concurrently with `Promise.all`.
+
+**Why:** Each `history` request currently does `1 + N + 1` serial RPCs (messages, N agent lookups, conversation metadata) where it could do `1 + 1` (batch lookup with messages, concurrent conversation fetch). Matters when conversations have many unique senders.
+
+**Files:** `packages/client/src/service.ts` (handleSocketRequest, `history` case around line 230)
+
+**Depends on:** Nothing.
+
+## Socket server: symlink race conditions in multi-account mode
+
+When multiple `MoltZapService` instances call `startSocketServer()` concurrently, they race on the default symlink (`~/.moltzap/service.sock`). Last writer wins silently. `stopSocketServer()` has a TOCTOU race where `readlinkSync` + conditional `unlinkSync` could delete another instance's symlink.
+
+**Why:** Multi-account configs (OpenClaw channel with multiple accounts) will have multiple services running. The current symlink-based discovery is last-write-wins with no coordination.
+
+**Options:** Lock file, explicit CLI `--account` flag, or a registry file listing all active sockets.
+
+**Files:** `packages/client/src/service.ts` (startSocketServer, stopSocketServer)
+
+**Depends on:** Nothing, but low priority since multi-account is rare.
+
+## Socket server: input validation at the socket boundary
+
+The socket server accepts `params` as `Record<string, unknown>` with no runtime validation. Callers can pass wrong types (e.g., `conversationId: 42` instead of a string) that silently propagate to the MoltZap server RPC.
+
+**Why:** The protocol layer uses AJV validators for RPC params, but the socket server bypasses that layer. Adding lightweight type checks (`typeof convId !== 'string'`) or reusing the existing AJV validators at the socket boundary would catch bugs earlier.
+
+**Files:** `packages/client/src/service.ts` (handleSocketRequest)
+
+**Depends on:** Nothing.
+
+## Socket server: unbounded buffer and missing idle timeout
+
+The socket server accumulates `buffer += chunk.toString()` with no max size. A client sending data without newlines grows memory without bound. There's also no idle timeout on connections.
+
+**Why:** Low risk since the socket is local (Unix domain socket), but defense-in-depth for long-running services.
+
+**Files:** `packages/client/src/service.ts` (startSocketServer, line ~134)
+
+**Depends on:** Nothing.
+
+## CLI: extract shared error handling wrapper
+
+Every CLI command repeats the same `try { ... } catch (err) { console.error(...); process.exit(1); }` pattern (~26 times across 10 files). The deleted `withService()` wrapper had centralized this.
+
+**Why:** DRY. A `wrapAction(fn)` utility would eliminate 26 identical catch blocks and ensure consistent error formatting.
+
+**Files:** `packages/client/src/cli/commands/*.ts`
+
+**Depends on:** Nothing.
+
+## CLI: extract shared participant resolution
+
+The `resolveParticipant()` logic (UUID check + `agents/lookupByName` fallback) is inlined 3 times in `conversations.ts` (create, addParticipant, removeParticipant). The original `resolve.ts` was deleted when the CLI was refactored to use the socket client.
+
+**Why:** DRY. Same UUID regex and lookup logic repeated 3 times. Extract to a utility that takes a `request` function parameter.
+
+**Files:** `packages/client/src/cli/commands/conversations.ts` (lines ~54, ~171, ~216)
+
+**Depends on:** Nothing.

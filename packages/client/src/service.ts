@@ -2,7 +2,12 @@ import * as net from "node:net";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import { type EventFrame, type Message, EventNames } from "@moltzap/protocol";
+import {
+  type EventFrame,
+  type Message,
+  type Part,
+  EventNames,
+} from "@moltzap/protocol";
 import { MoltZapWsClient, type WsClientLogger } from "./ws-client.js";
 
 export interface ConversationMeta {
@@ -38,6 +43,19 @@ interface HelloOk {
 }
 
 const MAX_MESSAGES_PER_CONV = 20;
+
+function renderPart(p: Part): string {
+  switch (p.type) {
+    case "text":
+      return p.text;
+    case "image":
+      return "[image]";
+    case "file":
+      return `[file: ${p.name}]`;
+    default:
+      return `[${(p as { type: string }).type}]`;
+  }
+}
 
 /**
  * Stateful MoltZap client that manages connection, conversation tracking,
@@ -107,17 +125,28 @@ export class MoltZapService {
   // --- Socket Server ---
 
   private socketServer: net.Server | null = null;
+  private activeSocketPath: string | null = null;
+
+  /** Default socket path for CLI discovery. Per-instance path uses agentId. */
   static readonly SOCKET_PATH = path.join(
     os.homedir(),
     ".moltzap",
     "service.sock",
   );
 
+  /** Per-instance socket path based on connected agentId. */
+  get socketPath(): string {
+    const id = this.ownAgentId ?? "default";
+    return path.join(os.homedir(), ".moltzap", `service-${id}.sock`);
+  }
+
   startSocketServer(): void {
+    const sockPath = this.socketPath;
+    this.activeSocketPath = sockPath;
     try {
-      fs.unlinkSync(MoltZapService.SOCKET_PATH);
+      fs.unlinkSync(sockPath);
     } catch {}
-    fs.mkdirSync(path.dirname(MoltZapService.SOCKET_PATH), { recursive: true });
+    fs.mkdirSync(path.dirname(sockPath), { recursive: true });
 
     this.socketServer = net.createServer((conn) => {
       let buffer = "";
@@ -131,14 +160,29 @@ export class MoltZapService {
         }
       });
     });
-    this.socketServer.listen(MoltZapService.SOCKET_PATH);
+    this.socketServer.listen(sockPath);
+
+    // Symlink default path to this instance for CLI discovery
+    try {
+      fs.unlinkSync(MoltZapService.SOCKET_PATH);
+    } catch {}
+    try {
+      fs.symlinkSync(sockPath, MoltZapService.SOCKET_PATH);
+    } catch {}
   }
 
   stopSocketServer(): void {
     this.socketServer?.close();
     this.socketServer = null;
+    const sockPath = this.activeSocketPath ?? this.socketPath;
+    this.activeSocketPath = null;
     try {
-      fs.unlinkSync(MoltZapService.SOCKET_PATH);
+      fs.unlinkSync(sockPath);
+    } catch {}
+    // Remove default symlink if it points to this instance
+    try {
+      const target = fs.readlinkSync(MoltZapService.SOCKET_PATH);
+      if (target === sockPath) fs.unlinkSync(MoltZapService.SOCKET_PATH);
     } catch {}
   }
 
@@ -184,10 +228,14 @@ export class MoltZapService {
         const convId = params.conversationId as string;
         const limit = (params.limit as number) ?? 10;
         const sessionKey = params.sessionKey as string | undefined;
+        const afterSeq = params.afterSeq as number | undefined;
+        const beforeSeq = params.beforeSeq as number | undefined;
 
         const result = (await this.sendRpc("messages/list", {
           conversationId: convId,
           limit,
+          ...(afterSeq !== undefined ? { afterSeq } : {}),
+          ...(beforeSeq !== undefined ? { beforeSeq } : {}),
         })) as { messages: Message[]; hasMore: boolean };
 
         // Resolve agent names
@@ -215,10 +263,7 @@ export class MoltZapService {
         const lastReadSeq = readMarkers?.get(convId) ?? 0;
 
         const messages = result.messages.map((m) => {
-          const text = m.parts
-            .filter((p) => p.type === "text" && "text" in p)
-            .map((p) => (p as { text: string }).text)
-            .join(" ");
+          const text = m.parts.map(renderPart).join(" ");
           return {
             seq: m.seq,
             senderId: m.sender.id,
@@ -233,13 +278,18 @@ export class MoltZapService {
           };
         });
 
-        // Advance lastRead marker for this session → this conversation
+        // Advance lastRead to the highest seq in the returned page.
+        // The agent has seen these messages; older ones (if paginated) remain
+        // accessible via afterSeq/beforeSeq cursors.
         if (sessionKey && result.messages.length > 0) {
           const maxSeq = Math.max(...result.messages.map((m) => m.seq));
           if (!this.lastRead.has(sessionKey)) {
             this.lastRead.set(sessionKey, new Map());
           }
-          this.lastRead.get(sessionKey)!.set(convId, maxSeq);
+          const current = this.lastRead.get(sessionKey)!.get(convId) ?? 0;
+          if (maxSeq > current) {
+            this.lastRead.get(sessionKey)!.set(convId, maxSeq);
+          }
         }
 
         // Get conversation metadata
@@ -360,10 +410,7 @@ export class MoltZapService {
         0,
         Math.round((Date.now() - new Date(last.createdAt).getTime()) / 60_000),
       );
-      const text = last.parts
-        .filter((p) => p.type === "text" && "text" in p)
-        .map((p) => (p as { text: string }).text)
-        .join(" ");
+      const text = last.parts.map(renderPart).join(" ");
 
       updates.push(
         `@${senderName} (${ago}m ago): (${reportable.length} new) "${text.slice(0, 120)}"`,
