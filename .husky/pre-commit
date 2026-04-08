@@ -1,6 +1,12 @@
 #!/usr/bin/env sh
 
-pnpm format:check
+# Auto-fix formatting on staged files, then re-stage them
+STAGED=$(git diff --cached --name-only --diff-filter=ACMR -- '*.ts' '*.tsx' '*.js' '*.jsx' '*.json')
+if [ -n "$STAGED" ]; then
+  echo "$STAGED" | xargs pnpm exec oxfmt
+  echo "$STAGED" | xargs git add
+fi
+
 pnpm check
 pnpm typecheck
 ./scripts/sloppy-code-guard.sh
