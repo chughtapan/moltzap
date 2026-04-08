@@ -21,13 +21,15 @@ done
 
 cd "$(dirname "$0")/../../.."
 
-echo "Building protocol + channel plugin..."
+echo "Building protocol + client + channel plugin..."
 pnpm --filter @moltzap/protocol build
+pnpm --filter @moltzap/client build
 pnpm --filter @moltzap/openclaw-channel build
 pnpm --filter @moltzap/cli build
 
 echo "Packing tarballs..."
 (cd packages/protocol && pnpm pack && mv moltzap-protocol-*.tgz ../evals/)
+(cd packages/client && pnpm pack && mv moltzap-client-*.tgz ../evals/)
 (cd packages/openclaw-channel && pnpm pack && mv moltzap-openclaw-channel-*.tgz ../evals/)
 (cd packages/cli && pnpm pack && mv moltzap-cli-*.tgz ../evals/)
 

@@ -46,6 +46,37 @@ importers:
         specifier: ^3.0.0
         version: 3.2.4(@types/node@25.5.0)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3)
 
+  packages/client:
+    dependencies:
+      '@moltzap/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      ws:
+        specifier: ^8.18.0
+        version: 8.20.0
+    devDependencies:
+      '@moltzap/server-core':
+        specifier: workspace:*
+        version: link:../server-core
+      '@testcontainers/postgresql':
+        specifier: ^10.18.0
+        version: 10.28.0
+      '@types/pg':
+        specifier: ^8.11.0
+        version: 8.20.0
+      '@types/ws':
+        specifier: ^8.5.0
+        version: 8.18.1
+      pg:
+        specifier: ^8.13.0
+        version: 8.20.0
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.4(@types/node@25.5.0)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3)
+
   packages/create-moltzap-server: {}
 
   packages/evals:
@@ -117,6 +148,9 @@ importers:
 
   packages/openclaw-channel:
     dependencies:
+      '@moltzap/client':
+        specifier: workspace:*
+        version: link:../client
       '@moltzap/protocol':
         specifier: workspace:*
         version: link:../protocol

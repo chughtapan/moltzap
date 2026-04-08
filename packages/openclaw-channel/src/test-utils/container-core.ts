@@ -45,6 +45,11 @@ export function buildOpenClawConfig(opts: {
   serverUrl: string;
   agentApiKey: string;
   agentName: string;
+  contextAdapter?: {
+    type: string;
+    maxConversations?: number;
+    maxMessagesPerConv?: number;
+  };
 }): Record<string, unknown> {
   const serverUrl = opts.serverUrl
     .replace(/\/ws$/, "")
@@ -78,6 +83,9 @@ export function buildOpenClawConfig(opts: {
             apiKey: opts.agentApiKey,
             serverUrl,
             agentName: opts.agentName,
+            ...(opts.contextAdapter
+              ? { contextAdapter: opts.contextAdapter }
+              : {}),
           },
         ],
       },
