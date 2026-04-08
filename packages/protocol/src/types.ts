@@ -1,4 +1,9 @@
-export type { ParticipantRef, User, Agent } from "./schema/identity.js";
+export type {
+  ParticipantRef,
+  User,
+  Agent,
+  AgentCard,
+} from "./schema/identity.js";
 export type { Contact } from "./schema/contacts.js";
 export type {
   Conversation,
@@ -35,6 +40,8 @@ export type {
   AgentsLookupResult,
   AgentsLookupByNameParams,
   AgentsLookupByNameResult,
+  AgentsListParams,
+  AgentsListResult,
   UsersLookupParams,
   UsersLookupResult,
   UsersUpdateProfileParams,
