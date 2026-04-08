@@ -25,7 +25,8 @@ vi.mock("@moltzap/client", () => ({
     sendRpc: mockSendRpc,
     send: mockSend,
     on: vi.fn().mockImplementation((event: string, handler: Function) => {
-      if (event === "message") capturedOnMessage = handler as typeof capturedOnMessage;
+      if (event === "message")
+        capturedOnMessage = handler as typeof capturedOnMessage;
     }),
   })),
 }));
@@ -188,7 +189,11 @@ describe("Flow 6: Outbound delivery — deliver callback + sendText", () => {
     });
 
     expect(result.ok).toBe(true);
-    expect(mockSend).toHaveBeenCalledWith("conv-outbound-1", "Hello from outbound", { replyTo: undefined });
+    expect(mockSend).toHaveBeenCalledWith(
+      "conv-outbound-1",
+      "Hello from outbound",
+      { replyTo: undefined },
+    );
   });
 
   it("sendText includes replyToId when present", async () => {
@@ -201,7 +206,9 @@ describe("Flow 6: Outbound delivery — deliver callback + sendText", () => {
     });
 
     expect(result.ok).toBe(true);
-    expect(mockSend).toHaveBeenCalledWith("conv-reply-1", "Reply content", { replyTo: "msg-original-1" });
+    expect(mockSend).toHaveBeenCalledWith("conv-reply-1", "Reply content", {
+      replyTo: "msg-original-1",
+    });
   });
 
   it("sendText omits replyToId when not provided", async () => {
@@ -212,7 +219,9 @@ describe("Flow 6: Outbound delivery — deliver callback + sendText", () => {
       accountId: "delivery-test",
     });
 
-    expect(mockSend).toHaveBeenCalledWith("conv-no-reply", "No reply ref", { replyTo: undefined });
+    expect(mockSend).toHaveBeenCalledWith("conv-no-reply", "No reply ref", {
+      replyTo: undefined,
+    });
   });
 
   it("resolveTarget accepts any non-empty string", () => {
@@ -241,11 +250,15 @@ describe("Flow 6: Outbound delivery — deliver callback + sendText", () => {
 
   it("sendText with agent: target auto-creates DM conversation", async () => {
     mockSendRpc.mockImplementation(async (method: string) => {
-      if (method === "agents/lookupByName") return { agent: { id: "agent-nova-id" } };
-      if (method === "conversations/create") return { conversation: { id: "conv-auto-created" } };
+      if (method === "agents/lookupByName")
+        return { agent: { id: "agent-nova-id" } };
+      if (method === "conversations/create")
+        return { conversation: { id: "conv-auto-created" } };
       if (method === "messages/send") return { message: { id: "sent-1" } };
-      if (method === "agents/lookup") return { agents: [{ id: "agent-sender-1", name: "Atlas" }] };
-      if (method === "conversations/get") return { conversation: { type: "dm" }, participants: [] };
+      if (method === "agents/lookup")
+        return { agents: [{ id: "agent-sender-1", name: "Atlas" }] };
+      if (method === "conversations/get")
+        return { conversation: { type: "dm" }, participants: [] };
       return {};
     });
 
@@ -258,24 +271,34 @@ describe("Flow 6: Outbound delivery — deliver callback + sendText", () => {
 
     expect(result.ok).toBe(true);
 
-    const lookupCall = mockSendRpc.mock.calls.find((c) => c[0] === "agents/lookupByName");
+    const lookupCall = mockSendRpc.mock.calls.find(
+      (c) => c[0] === "agents/lookupByName",
+    );
     expect(lookupCall![1]).toEqual({ name: "nova" });
 
-    const createCall = mockSendRpc.mock.calls.find((c) => c[0] === "conversations/create");
+    const createCall = mockSendRpc.mock.calls.find(
+      (c) => c[0] === "conversations/create",
+    );
     expect(createCall![1]).toEqual({
       type: "dm",
       participants: [{ type: "agent", id: "agent-nova-id" }],
     });
 
-    expect(mockSend).toHaveBeenCalledWith("conv-auto-created", "Hello nova", { replyTo: undefined });
+    expect(mockSend).toHaveBeenCalledWith("conv-auto-created", "Hello nova", {
+      replyTo: undefined,
+    });
   });
 
   it("sendText with agent: target reuses cached conversation on second call", async () => {
     mockSendRpc.mockImplementation(async (method: string) => {
-      if (method === "agents/lookupByName") return { agent: { id: "agent-nova-id" } };
-      if (method === "conversations/create") return { conversation: { id: "conv-cached" } };
-      if (method === "agents/lookup") return { agents: [{ id: "agent-sender-1", name: "Atlas" }] };
-      if (method === "conversations/get") return { conversation: { type: "dm" }, participants: [] };
+      if (method === "agents/lookupByName")
+        return { agent: { id: "agent-nova-id" } };
+      if (method === "conversations/create")
+        return { conversation: { id: "conv-cached" } };
+      if (method === "agents/lookup")
+        return { agents: [{ id: "agent-sender-1", name: "Atlas" }] };
+      if (method === "conversations/get")
+        return { conversation: { type: "dm" }, participants: [] };
       return {};
     });
 
@@ -289,8 +312,12 @@ describe("Flow 6: Outbound delivery — deliver callback + sendText", () => {
     mockSendRpc.mockClear();
     mockSend.mockClear();
     mockSendRpc.mockImplementation(async (method: string) => {
-      if (method === "agents/lookupByName") throw new Error("Should not call lookupByName on cached target");
-      if (method === "conversations/create") throw new Error("Should not call conversations/create on cached target");
+      if (method === "agents/lookupByName")
+        throw new Error("Should not call lookupByName on cached target");
+      if (method === "conversations/create")
+        throw new Error(
+          "Should not call conversations/create on cached target",
+        );
       return {};
     });
 
@@ -303,7 +330,9 @@ describe("Flow 6: Outbound delivery — deliver callback + sendText", () => {
 
     expect(result.ok).toBe(true);
     expect(mockSend).toHaveBeenCalledOnce();
-    expect(mockSend).toHaveBeenCalledWith("conv-cached", "Second message", { replyTo: undefined });
+    expect(mockSend).toHaveBeenCalledWith("conv-cached", "Second message", {
+      replyTo: undefined,
+    });
   });
 
   it("sendText returns error when client is not connected", async () => {
