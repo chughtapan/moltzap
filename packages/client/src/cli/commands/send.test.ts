@@ -3,9 +3,13 @@ import { sendCommand } from "./send.js";
 
 const mockRequest = vi.fn().mockResolvedValue({ message: { id: "msg-123" } });
 
-vi.mock("../socket-client.js", () => ({
-  request: (...args: unknown[]) => mockRequest(...args),
-}));
+vi.mock("../socket-client.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../socket-client.js")>();
+  return {
+    ...actual,
+    request: (...args: unknown[]) => mockRequest(...args),
+  };
+});
 
 describe("send command", () => {
   const originalExit = process.exit;
