@@ -10,6 +10,8 @@ import type {
   ConnectParams,
   AgentsLookupParams,
   AgentsLookupByNameParams,
+  AgentsListParams,
+  AgentCard,
 } from "@moltzap/protocol";
 import type { ConnectionManager } from "../../src/ws/connection.js";
 import type { Broadcaster } from "../../src/ws/broadcaster.js";
@@ -94,7 +96,7 @@ export function createCoreAuthHandlers(deps: {
       handler: async (params) => {
         const rows = await deps.db
           .selectFrom("agents")
-          .select(["id", "name", "display_name", "status", "owner_user_id"])
+          .select(["id", "name", "display_name", "description", "status", "owner_user_id"])
           .where("id", "in", params.agentIds)
           .execute();
         return {
@@ -102,6 +104,7 @@ export function createCoreAuthHandlers(deps: {
             id: r.id,
             name: r.name,
             displayName: r.display_name ?? undefined,
+            description: r.description ?? undefined,
             status: r.status,
             ownerUserId: r.owner_user_id ?? undefined,
           })),
@@ -114,7 +117,7 @@ export function createCoreAuthHandlers(deps: {
       handler: async (params) => {
         const rows = await deps.db
           .selectFrom("agents")
-          .select(["id", "name", "display_name", "status", "owner_user_id"])
+          .select(["id", "name", "display_name", "description", "status", "owner_user_id"])
           .where("name", "in", params.names)
           .where("status", "=", "active")
           .execute();
@@ -123,10 +126,52 @@ export function createCoreAuthHandlers(deps: {
             id: r.id,
             name: r.name,
             displayName: r.display_name ?? undefined,
+            description: r.description ?? undefined,
             status: r.status,
             ownerUserId: r.owner_user_id ?? undefined,
           })),
         };
+      },
+    }),
+
+    "agents/list": defineMethod<AgentsListParams>({
+      validator: validators.agentsListParams,
+      requiresActive: true,
+      handler: async (_params, ctx) => {
+        if (ctx.kind !== "agent") {
+          throw new RpcError(ErrorCodes.Forbidden, "Agent authentication required");
+        }
+        const rows = await deps.db
+          .selectFrom("conversation_participants as cp")
+          .innerJoin("agents as a", "a.id", "cp.participant_id")
+          .select(["a.id", "a.name", "a.display_name", "a.description", "a.status", "a.owner_user_id"])
+          .where("cp.participant_type", "=", "agent")
+          .where("cp.participant_id", "!=", ctx.agentId)
+          .where((eb) =>
+            eb.exists(
+              eb
+                .selectFrom("conversation_participants as cp2")
+                .select("cp2.conversation_id")
+                .whereRef("cp2.conversation_id", "=", "cp.conversation_id")
+                .where("cp2.participant_type", "=", "agent")
+                .where("cp2.participant_id", "=", ctx.agentId),
+            ),
+          )
+          .distinct()
+          .execute();
+
+        const agents: Record<string, AgentCard> = {};
+        for (const row of rows) {
+          agents[row.id] = {
+            id: row.id,
+            name: row.name,
+            displayName: row.display_name ?? undefined,
+            description: row.description ?? undefined,
+            status: row.status,
+            ownerUserId: row.owner_user_id ?? undefined,
+          };
+        }
+        return { agents };
       },
     }),
   };

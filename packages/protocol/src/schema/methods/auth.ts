@@ -1,17 +1,9 @@
 import { Type, type Static } from "@sinclair/typebox";
 import { AgentId, UserId } from "../primitives.js";
-import { stringEnum } from "../../helpers.js";
 import { ConversationSummarySchema } from "../conversations.js";
+import { AgentCardSchema } from "../identity.js";
 
-export const OwnedAgentSchema = Type.Object(
-  {
-    id: AgentId,
-    name: Type.String(),
-    displayName: Type.Optional(Type.String()),
-    status: stringEnum(["pending_claim", "active", "suspended"]),
-  },
-  { additionalProperties: false },
-);
+export const OwnedAgentSchema = AgentCardSchema;
 
 export const SelectAgentParamsSchema = Type.Object(
   {
@@ -112,18 +104,7 @@ export const AgentsLookupParamsSchema = Type.Object(
 
 export const AgentsLookupResultSchema = Type.Object(
   {
-    agents: Type.Array(
-      Type.Object(
-        {
-          id: AgentId,
-          name: Type.String(),
-          displayName: Type.Optional(Type.String()),
-          status: stringEnum(["pending_claim", "active", "suspended"]),
-          ownerUserId: Type.Optional(Type.String()),
-        },
-        { additionalProperties: false },
-      ),
-    ),
+    agents: Type.Array(AgentCardSchema),
   },
   { additionalProperties: false },
 );
@@ -166,18 +147,7 @@ export const AgentsLookupByNameParamsSchema = Type.Object(
 
 export const AgentsLookupByNameResultSchema = Type.Object(
   {
-    agents: Type.Array(
-      Type.Object(
-        {
-          id: AgentId,
-          name: Type.String(),
-          displayName: Type.Optional(Type.String()),
-          status: stringEnum(["pending_claim", "active", "suspended"]),
-          ownerUserId: Type.Optional(Type.String()),
-        },
-        { additionalProperties: false },
-      ),
-    ),
+    agents: Type.Array(AgentCardSchema),
   },
   { additionalProperties: false },
 );
@@ -193,6 +163,12 @@ export const UsersUpdateProfileResultSchema = Type.Object(
   {
     displayName: Type.String(),
   },
+  { additionalProperties: false },
+);
+
+export const AgentsListParamsSchema = Type.Object({}, { additionalProperties: false });
+export const AgentsListResultSchema = Type.Object(
+  { agents: Type.Record(AgentId, AgentCardSchema) },
   { additionalProperties: false },
 );
 
@@ -219,3 +195,5 @@ export type UsersUpdateProfileParams = Static<
 export type UsersUpdateProfileResult = Static<
   typeof UsersUpdateProfileResultSchema
 >;
+export type AgentsListParams = Static<typeof AgentsListParamsSchema>;
+export type AgentsListResult = Static<typeof AgentsListResultSchema>;
