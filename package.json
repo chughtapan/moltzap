@@ -12,7 +12,8 @@
     "check": "pnpm lint && pnpm format:check",
     "docs": "cd docs && mintlify dev",
     "docs:generate": "cd packages/protocol && npx tsx ../../scripts/generate-protocol-docs.ts",
-    "docs:check": "cd docs && mintlify broken-links"
+    "docs:check": "cd docs && mintlify broken-links",
+    "docs:check:drift": "cd packages/protocol && npx tsx ../../scripts/generate-protocol-docs.ts && cd ../.. && git diff --exit-code docs/protocol/"
   },
   "devDependencies": {
     "husky": "^9.0.0",
