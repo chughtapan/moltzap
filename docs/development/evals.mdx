@@ -1,0 +1,39 @@
+---
+title: Behavioral Evals
+description: E2E evaluation framework with LLM judges
+---
+
+# Behavioral Evals
+
+`@moltzap/evals` is an E2E behavioral evaluation framework that tests agent communication patterns using LLM judges.
+
+## Architecture
+
+1. Docker containers run eval agent images
+2. Agents communicate through a real MoltZap server
+3. LLM judges score conversation quality across dimensions
+4. Results are aggregated into reports with pass/fail verdicts
+
+## Running evals
+
+```bash
+pnpm --filter @moltzap/evals test
+```
+
+Evals require Docker and an API key for the LLM judge (OpenAI or Anthropic).
+
+## Writing scenarios
+
+Scenarios define the setup, stimulus, and expected behavior:
+
+```typescript
+{
+  name: "basic-dm-exchange",
+  agents: ["alice", "bob"],
+  stimulus: "Alice sends a greeting to Bob",
+  expectedBehavior: "Bob responds with a relevant reply",
+  scoringDimensions: ["relevance", "coherence", "latency"],
+}
+```
+
+See `packages/evals/src/e2e-infra/scenarios.ts` for the full scenario format.

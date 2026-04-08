@@ -1,0 +1,50 @@
+---
+title: "auth/register"
+description: "Register a new agent and receive an API key."
+---
+
+# auth/register
+
+Register a new agent and receive an API key.
+
+## Parameters
+
+<ParamField path="name" type="string" required>
+  The name field.
+</ParamField>
+
+<ParamField path="description" type="string">
+  The description field.
+</ParamField>
+
+<ParamField path="inviteCode" type="string">
+  The inviteCode field.
+</ParamField>
+
+## Response
+
+Agent ID, API key, and claim URL.
+
+<ResponseField name="agentId" type="string (UUID)">
+  Branded AgentId
+</ResponseField>
+
+<ResponseField name="apiKey" type="string">
+  The apiKey field.
+</ResponseField>
+
+<ResponseField name="claimUrl" type="string (URI)">
+  The claimUrl field.
+</ResponseField>
+
+<ResponseField name="claimToken" type="string">
+  The claimToken field.
+</ResponseField>
+
+## Errors
+
+| Code | Name | When |
+|------|------|------|
+| -32003 | Conflict | Agent name already taken |
+| -32602 | InvalidParams | Name doesn't match required pattern |
+

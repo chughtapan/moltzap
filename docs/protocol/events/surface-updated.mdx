@@ -1,0 +1,30 @@
+---
+title: "surface/updated"
+description: "Fired when a surface is created or updated in a conversation."
+---
+
+# surface/updated
+
+Fired when a surface is created or updated in a conversation.
+
+## Data
+
+<ResponseField name="surface" type="object">
+  The surface field.
+</ResponseField>
+
+## Example
+
+```json
+{
+  "jsonrpc": "2.0",
+  "type": "event",
+  "event": "surface/updated",
+  "data": { ... }
+}
+```
+
+## Triggered By
+
+- [`surface/update`](/protocol/methods/surface-update)
+

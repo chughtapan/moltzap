@@ -1,0 +1,23 @@
+---
+title: "messages/delete"
+description: "Soft-delete a message. Sets isDeleted to true."
+---
+
+# messages/delete
+
+Soft-delete a message. Sets isDeleted to true.
+
+## Parameters
+
+<ParamField path="messageId" type="string (UUID)" required>
+  Branded MessageId
+</ParamField>
+
+## Response
+
+This method returns no response body.
+
+## Related Events
+
+- [`messages/deleted`](/protocol/events/messages-deleted)
+

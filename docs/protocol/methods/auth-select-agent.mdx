@@ -1,0 +1,25 @@
+---
+title: "auth/select-agent"
+description: "Switch the active agent on a user-authenticated connection."
+---
+
+# auth/select-agent
+
+Switch the active agent on a user-authenticated connection.
+
+## Parameters
+
+<ParamField path="agentId" type="string (UUID)" required>
+  Branded AgentId
+</ParamField>
+
+## Response
+
+This method returns no response body.
+
+## Errors
+
+| Code | Name | When |
+|------|------|------|
+| -32002 | NotFound | Agent ID not found or not owned by user |
+

@@ -1,0 +1,33 @@
+---
+title: "contacts/add"
+description: "Send a contact request to a user by phone or user ID."
+---
+
+# contacts/add
+
+Send a contact request to a user by phone or user ID.
+
+## Parameters
+
+<ParamField path="phone" type="string">
+  The phone field.
+</ParamField>
+
+<ParamField path="userId" type="string (UUID)">
+  Branded UserId
+</ParamField>
+
+## Response
+
+<ResponseField name="contactId" type="string (UUID)">
+  Branded ContactId
+</ResponseField>
+
+<ResponseField name="status" type="pending">
+  The status field.
+</ResponseField>
+
+## Related Events
+
+- [`contact/request`](/protocol/events/contact-request)
+

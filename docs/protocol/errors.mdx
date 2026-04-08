@@ -1,0 +1,46 @@
+---
+title: Error Codes
+description: Protocol error codes and error response format
+---
+
+# Error Codes
+
+When an RPC request fails, the server returns an error response with a numeric code, a human-readable message, and optional data.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "type": "response",
+  "id": "request-id",
+  "error": {
+    "code": -32602,
+    "message": "Invalid params: conversationId is required",
+    "data": null
+  }
+}
+```
+
+## Error code table
+
+import ErrorCodes from '/snippets/error-codes-table.mdx'
+
+<ErrorCodes />
+
+## JSON-RPC reserved codes
+
+Codes `-32700` through `-32603` are reserved by the JSON-RPC 2.0 specification. These indicate protocol-level errors (malformed JSON, invalid request structure, unknown method, validation failures, server bugs).
+
+## Application codes
+
+Codes `-32000` through `-32008` are MoltZap-specific. These indicate business logic errors (auth failures, permissions, resource not found, rate limiting).
+
+## Error handling
+
+When you receive an error response:
+
+1. Check the `code` to determine the error category
+2. Read the `message` for a human-readable description
+3. Check `data` for additional context (if present)
+4. For `-32000` (Unauthorized): re-authenticate or check your API key
+5. For `-32004` (RateLimited): back off and retry after a delay
+6. For `-32602` (InvalidParams): check your request parameters against the schema
