@@ -1,3 +1,7 @@
+import * as net from "node:net";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import * as os from "node:os";
 import { type EventFrame, type Message, EventNames } from "@moltzap/protocol";
 import { MoltZapWsClient, type WsClientLogger } from "./ws-client.js";
 
@@ -47,6 +51,7 @@ export class MoltZapService {
   private messages = new Map<string, Message[]>();
   private agentNames = new Map<string, string>();
   private lastNotified = new Map<string, Map<string, number>>();
+  private lastRead = new Map<string, Map<string, number>>();
 
   private messageHandlers: EventHandler<Message>[] = [];
   private rawEventHandlers: EventHandler<EventFrame>[] = [];
@@ -89,12 +94,175 @@ export class MoltZapService {
 
   close(): void {
     this._connected = false;
+    this.stopSocketServer();
     this.client?.close();
     this.client = null;
     this.conversations.clear();
     this.messages.clear();
     this.agentNames.clear();
     this.lastNotified.clear();
+    this.lastRead.clear();
+  }
+
+  // --- Socket Server ---
+
+  private socketServer: net.Server | null = null;
+  static readonly SOCKET_PATH = path.join(
+    os.homedir(),
+    ".moltzap",
+    "service.sock",
+  );
+
+  startSocketServer(): void {
+    try {
+      fs.unlinkSync(MoltZapService.SOCKET_PATH);
+    } catch {}
+    fs.mkdirSync(path.dirname(MoltZapService.SOCKET_PATH), { recursive: true });
+
+    this.socketServer = net.createServer((conn) => {
+      let buffer = "";
+      conn.on("data", (chunk) => {
+        buffer += chunk.toString();
+        const lines = buffer.split("\n");
+        buffer = lines.pop()!;
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          void this.handleSocketLine(line, conn);
+        }
+      });
+    });
+    this.socketServer.listen(MoltZapService.SOCKET_PATH);
+  }
+
+  stopSocketServer(): void {
+    this.socketServer?.close();
+    this.socketServer = null;
+    try {
+      fs.unlinkSync(MoltZapService.SOCKET_PATH);
+    } catch {}
+  }
+
+  private async handleSocketLine(
+    line: string,
+    conn: net.Socket,
+  ): Promise<void> {
+    try {
+      const req = JSON.parse(line) as {
+        method: string;
+        params?: Record<string, unknown>;
+      };
+      const result = await this.handleSocketRequest(
+        req.method,
+        req.params ?? {},
+      );
+      conn.write(JSON.stringify({ result }) + "\n");
+    } catch (err) {
+      conn.write(
+        JSON.stringify({
+          error: err instanceof Error ? err.message : String(err),
+        }) + "\n",
+      );
+    }
+  }
+
+  private async handleSocketRequest(
+    method: string,
+    params: Record<string, unknown>,
+  ): Promise<unknown> {
+    switch (method) {
+      case "ping":
+        return { ok: true, agentId: this.ownAgentId };
+
+      case "status":
+        return {
+          agentId: this.ownAgentId,
+          connected: this._connected,
+          conversations: this.getConversations().length,
+        };
+
+      case "history": {
+        const convId = params.conversationId as string;
+        const limit = (params.limit as number) ?? 10;
+        const sessionKey = params.sessionKey as string | undefined;
+
+        const result = (await this.sendRpc("messages/list", {
+          conversationId: convId,
+          limit,
+        })) as { messages: Message[]; hasMore: boolean };
+
+        // Resolve agent names
+        const agentIds = [
+          ...new Set(
+            result.messages
+              .filter((m) => m.sender.type === "agent")
+              .map((m) => m.sender.id),
+          ),
+        ];
+        for (const id of agentIds) {
+          if (!this.agentNames.has(id)) {
+            await this.resolveAgentName(id);
+          }
+        }
+
+        // Determine what's "new" using lastRead (not lastNotified).
+        // lastNotified is advanced by getContext() (system-reminder).
+        // lastRead is advanced here when the agent explicitly reads history.
+        // This means messages stay "new" until the agent reads them via history,
+        // even if the system-reminder already notified about them.
+        const readMarkers = sessionKey
+          ? (this.lastRead.get(sessionKey) ?? new Map<string, number>())
+          : null;
+        const lastReadSeq = readMarkers?.get(convId) ?? 0;
+
+        const messages = result.messages.map((m) => {
+          const text = m.parts
+            .filter((p) => p.type === "text" && "text" in p)
+            .map((p) => (p as { text: string }).text)
+            .join(" ");
+          return {
+            seq: m.seq,
+            senderId: m.sender.id,
+            senderName:
+              m.sender.id === this.ownAgentId
+                ? "you"
+                : (this.agentNames.get(m.sender.id) ?? m.sender.id),
+            isOwn: m.sender.id === this.ownAgentId,
+            text,
+            createdAt: m.createdAt,
+            isNew: sessionKey ? m.seq > lastReadSeq : false,
+          };
+        });
+
+        // Advance lastRead marker for this session → this conversation
+        if (sessionKey && result.messages.length > 0) {
+          const maxSeq = Math.max(...result.messages.map((m) => m.seq));
+          if (!this.lastRead.has(sessionKey)) {
+            this.lastRead.set(sessionKey, new Map());
+          }
+          this.lastRead.get(sessionKey)!.set(convId, maxSeq);
+        }
+
+        // Get conversation metadata
+        let convMeta: { type: string; name?: string } | undefined;
+        try {
+          const convResult = (await this.sendRpc("conversations/get", {
+            conversationId: convId,
+          })) as { conversation: { type: string; name?: string } };
+          convMeta = convResult.conversation;
+        } catch {}
+
+        return {
+          messages,
+          hasMore: result.hasMore,
+          conversationMeta: convMeta,
+          newCount: messages.filter((m) => m.isNew).length,
+        };
+      }
+
+      default:
+        // Passthrough: forward any other method to the MoltZap server via RPC
+        return this.sendRpc(method, params);
+    }
   }
 
   // --- Conversations ---

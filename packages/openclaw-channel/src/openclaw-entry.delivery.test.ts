@@ -24,6 +24,8 @@ vi.mock("@moltzap/client", () => ({
     getContext: vi.fn().mockReturnValue(null),
     sendRpc: mockSendRpc,
     send: mockSend,
+    startSocketServer: vi.fn(),
+    stopSocketServer: vi.fn(),
     on: vi.fn().mockImplementation((event: string, handler: Function) => {
       if (event === "message")
         capturedOnMessage = handler as typeof capturedOnMessage;

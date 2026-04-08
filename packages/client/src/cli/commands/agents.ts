@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { withService } from "../with-service.js";
+import { request } from "../socket-client.js";
 import type { AgentCard } from "@moltzap/protocol";
 
 export const agentsCommand = new Command("agents").description(
@@ -9,8 +9,8 @@ export const agentsCommand = new Command("agents").description(
 agentsCommand
   .option("--json", "Output as JSON")
   .action(async (opts: { json?: boolean }) => {
-    await withService(async (service) => {
-      const result = (await service.sendRpc("agents/list", {})) as {
+    try {
+      const result = (await request("agents/list", {})) as {
         agents: Record<string, AgentCard>;
       };
       const entries = Object.values(result.agents);
@@ -29,7 +29,12 @@ agentsCommand
         if (agent.description) line += `\n  Description: ${agent.description}`;
         console.log(line + "\n");
       }
-    });
+    } catch (err) {
+      console.error(
+        `Failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      process.exit(1);
+    }
   });
 
 agentsCommand
@@ -37,20 +42,23 @@ agentsCommand
   .description("Look up agents by name")
   .argument("<names...>", "Agent names to look up")
   .action(async (names: string[]) => {
-    await withService(async (service) => {
-      const result = (await service.sendRpc("agents/lookupByName", {
-        names,
-      })) as { agents: AgentCard[] };
-
+    try {
+      const result = (await request("agents/lookupByName", { names })) as {
+        agents: AgentCard[];
+      };
       if (result.agents.length === 0) {
         console.log("No agents found.");
         return;
       }
-
       for (const agent of result.agents) {
         let line = `Agent: ${agent.name}\n  ID: ${agent.id}\n  Status: ${agent.status}`;
         if (agent.description) line += `\n  Description: ${agent.description}`;
         console.log(line + "\n");
       }
-    });
+    } catch (err) {
+      console.error(
+        `Failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      process.exit(1);
+    }
   });

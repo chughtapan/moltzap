@@ -1,17 +1,22 @@
 import { Command } from "commander";
-import { withService } from "../with-service.js";
+import { request } from "../socket-client.js";
 
 export const statusCommand = new Command("status")
   .description("Show agent connection status and conversation summary")
   .action(async () => {
-    await withService(async (service, hello) => {
-      const totalUnread = Object.values(hello.unreadCounts ?? {}).reduce(
-        (sum: number, n: number) => sum + n,
-        0,
+    try {
+      const result = (await request("status")) as {
+        agentId: string;
+        connected: boolean;
+        conversations: number;
+      };
+      console.log(`Agent ID:       ${result.agentId ?? "none"}`);
+      console.log(`Connected:      ${result.connected}`);
+      console.log(`Conversations:  ${result.conversations}`);
+    } catch (err) {
+      console.error(
+        `Failed: ${err instanceof Error ? err.message : String(err)}`,
       );
-
-      console.log(`Agent ID:       ${service.ownAgentId ?? "none"}`);
-      console.log(`Conversations:  ${service.getConversations().length}`);
-      console.log(`Unread total:   ${totalUnread}`);
-    });
+      process.exit(1);
+    }
   });
