@@ -54,6 +54,9 @@ Outbound messages go through OpenClaw's target resolution before reaching `outbo
 
 See `docs/openclaw-architecture.md` for detailed flow diagrams, dispatch context field reference, event handler map, and caching strategy.
 
+## Design Decisions
+- **Single agent per service.** Each `MoltZapService` instance maps to exactly one agent. Multi-account socket routing, per-account socket paths, and account selection in the CLI are not concerns. The socket server at `~/.moltzap/service.sock` always belongs to the one running agent.
+
 ## Conventions
 - Channel ID is always `"moltzap"`
 - Reconnection uses exponential backoff: `1s, 2s, 4s, ... max 30s` with random jitter
