@@ -1240,4 +1240,27 @@ describe("Socket Server", () => {
       reg.client.close();
     }
   });
+
+  it("history rejects when conversationId is missing or wrong type", async () => {
+    const reg = await registerAgent("sock-validate");
+    const service = await connectService(reg.apiKey);
+    service.startSocketServer();
+    try {
+      await expect(socketRequest("history", {})).rejects.toThrow(
+        "conversationId is required",
+      );
+      await expect(
+        socketRequest("history", { conversationId: 123 }),
+      ).rejects.toThrow("conversationId is required");
+      await expect(
+        socketRequest("history", {
+          conversationId: "abc",
+          limit: "not-a-number",
+        }),
+      ).rejects.toThrow("limit must be a number");
+    } finally {
+      service.close();
+      reg.client.close();
+    }
+  });
 });
