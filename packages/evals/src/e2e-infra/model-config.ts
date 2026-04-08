@@ -81,9 +81,7 @@ export function validateAgentModelEnv(modelId: string): void {
   const provider = modelId.slice(0, slash);
   const envVars = getProviderEnvVars(provider);
   if (!envVars.length)
-    throw new Error(
-      `Unknown provider "${provider}" in model "${modelId}"`,
-    );
+    throw new Error(`Unknown provider "${provider}" in model "${modelId}"`);
   if (!envVars.some((v) => process.env[v])) {
     throw new Error(
       `No API key for provider "${provider}". Set one of: ${envVars.join(", ")}`,
