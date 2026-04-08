@@ -1,0 +1,27 @@
+---
+title: "conversations/update"
+description: "Update conversation metadata (name)."
+---
+
+# conversations/update
+
+Update conversation metadata (name).
+
+## Parameters
+
+<ParamField path="conversationId" type="string (UUID)" required>
+  Branded ConversationId
+</ParamField>
+
+<ParamField path="name" type="string">
+  The name field.
+</ParamField>
+
+## Response
+
+This method returns no response body.
+
+## Related Events
+
+- [`conversations/updated`](/protocol/events/conversations-updated)
+

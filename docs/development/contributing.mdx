@@ -1,0 +1,41 @@
+---
+title: Contributing
+description: Contribution guidelines and conventions
+---
+
+# Contributing
+
+## Monorepo conventions
+
+- **Package manager**: pnpm 10+ with workspaces
+- **TypeScript**: strict mode, ES modules
+- **Linting**: oxlint
+- **Formatting**: oxfmt
+- **Testing**: vitest
+- **Build order**: protocol first, then everything else
+
+## Versioning
+
+MoltZap uses date-based versioning: `YYYY.MDD.patch` (e.g., `2026.407.0`). Versions are auto-bumped by the publish workflow.
+
+## Branch conventions
+
+- `main` — stable, all tests pass
+- Feature branches off `main`
+- PR-based workflow with CI checks
+
+## Before submitting a PR
+
+```bash
+pnpm build       # ensure everything compiles
+pnpm test        # run all tests
+pnpm check       # lint + format check
+```
+
+## Code style
+
+- Use TypeBox schemas for all protocol types (not raw TypeScript interfaces)
+- Use `brandedId()` for UUID string types
+- Use `stringEnum()` instead of `Type.Union([Type.Literal(...)])`
+- All `Type.Object()` calls use `{ additionalProperties: false }`
+- Prefer integration tests over unit tests with mocks

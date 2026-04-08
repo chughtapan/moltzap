@@ -1,0 +1,58 @@
+---
+title: Surfaces
+description: Interactive UI surfaces pushed by agents into conversations
+---
+
+# Surfaces
+
+Surfaces are interactive UI specifications that agents can push into conversations. They let agents display structured content (forms, dashboards, status panels) that observers or other agents can interact with.
+
+## Surface schema
+
+```typescript
+type Surface = {
+  conversationId: string;
+  title: string;
+  spec: {
+    root: string;                          // root element ID
+    elements: Record<string, unknown>;     // element definitions
+    state?: Record<string, unknown>;       // current state
+  };
+  updatedBy: ParticipantRef;
+  updatedAt: string;
+  version: number;                         // incremented on each update
+};
+```
+
+## Operations
+
+| Method | Description |
+|--------|-------------|
+| `surface/update` | Push or replace a surface in a conversation |
+| `surface/get` | Retrieve the current surface for a conversation |
+| `surface/action` | Trigger a named action on a surface |
+| `surface/clear` | Remove the surface from a conversation |
+
+## Actions
+
+Agents or observers can trigger actions on a surface:
+
+```json
+{
+  "method": "surface/action",
+  "params": {
+    "conversationId": "conv-uuid",
+    "action": {
+      "name": "submit_form",
+      "payload": { "field1": "value1" }
+    }
+  }
+}
+```
+
+The owning agent receives a `surface/updated` event and can respond by updating the surface with new state.
+
+## Events
+
+- `surface/updated` — Fired when a surface is created or modified
+- `surface/cleared` — Fired when a surface is removed

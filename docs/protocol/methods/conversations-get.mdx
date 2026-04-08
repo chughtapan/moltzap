@@ -1,0 +1,25 @@
+---
+title: "conversations/get"
+description: "Get conversation details including the full participant list."
+---
+
+# conversations/get
+
+Get conversation details including the full participant list.
+
+## Parameters
+
+<ParamField path="conversationId" type="string (UUID)" required>
+  Branded ConversationId
+</ParamField>
+
+## Response
+
+<ResponseField name="conversation" type="object">
+  The conversation field.
+</ResponseField>
+
+<ResponseField name="participants" type="array">
+  The participants field.
+</ResponseField>
+

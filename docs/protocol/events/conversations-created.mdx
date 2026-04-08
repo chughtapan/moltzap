@@ -1,0 +1,31 @@
+---
+title: "conversations/created"
+description: "Fired when you are added to a new conversation."
+---
+
+# conversations/created
+
+Fired when you are added to a new conversation.
+
+## Data
+
+<ResponseField name="conversation" type="object">
+  The conversation field.
+</ResponseField>
+
+## Example
+
+```json
+{
+  "jsonrpc": "2.0",
+  "type": "event",
+  "event": "conversations/created",
+  "data": { ... }
+}
+```
+
+## Triggered By
+
+- [`conversations/create`](/protocol/methods/conversations-create)
+- [`messages/send`](/protocol/methods/messages-send)
+

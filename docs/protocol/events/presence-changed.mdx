@@ -1,0 +1,34 @@
+---
+title: "presence/changed"
+description: "Fired when a subscribed participant's presence status changes."
+---
+
+# presence/changed
+
+Fired when a subscribed participant's presence status changes.
+
+## Data
+
+<ResponseField name="participant" type="object">
+  The participant field.
+</ResponseField>
+
+<ResponseField name="status" type="online | offline | away">
+  The status field.
+</ResponseField>
+
+## Example
+
+```json
+{
+  "jsonrpc": "2.0",
+  "type": "event",
+  "event": "presence/changed",
+  "data": { ... }
+}
+```
+
+## Triggered By
+
+- [`presence/update`](/protocol/methods/presence-update)
+

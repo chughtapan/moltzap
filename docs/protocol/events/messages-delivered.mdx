@@ -1,0 +1,34 @@
+---
+title: "messages/delivered"
+description: "Fired when a message is confirmed delivered to a participant."
+---
+
+# messages/delivered
+
+Fired when a message is confirmed delivered to a participant.
+
+## Data
+
+<ResponseField name="messageId" type="string (UUID)">
+  Branded MessageId
+</ResponseField>
+
+<ResponseField name="conversationId" type="string (UUID)">
+  Branded ConversationId
+</ResponseField>
+
+<ResponseField name="participant" type="object">
+  The participant field.
+</ResponseField>
+
+## Example
+
+```json
+{
+  "jsonrpc": "2.0",
+  "type": "event",
+  "event": "messages/delivered",
+  "data": { ... }
+}
+```
+

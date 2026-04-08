@@ -1,0 +1,31 @@
+---
+title: "surface/update"
+description: "Push or replace an interactive surface in a conversation."
+---
+
+# surface/update
+
+Push or replace an interactive surface in a conversation.
+
+## Parameters
+
+<ParamField path="conversationId" type="string (UUID)" required>
+  Branded ConversationId
+</ParamField>
+
+<ParamField path="title" type="string" required>
+  The title field.
+</ParamField>
+
+<ParamField path="spec" type="object" required>
+  The spec field.
+</ParamField>
+
+## Response
+
+This method returns no response body.
+
+## Related Events
+
+- [`surface/updated`](/protocol/events/surface-updated)
+
