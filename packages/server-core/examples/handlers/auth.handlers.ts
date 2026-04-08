@@ -10,6 +10,8 @@ import type {
   ConnectParams,
   AgentsLookupParams,
   AgentsLookupByNameParams,
+  AgentsListParams,
+  AgentCard,
 } from "@moltzap/protocol";
 import type { ConnectionManager } from "../../src/ws/connection.js";
 import type { Broadcaster } from "../../src/ws/broadcaster.js";
@@ -17,6 +19,24 @@ import type { Db } from "../../src/db/client.js";
 import { PROTOCOL_VERSION, ErrorCodes, validators } from "@moltzap/protocol";
 import { ParticipantService } from "../../src/services/participant.service.js";
 import { RpcError } from "../../src/rpc/router.js";
+
+function toAgentCard(row: {
+  id: string;
+  name: string;
+  display_name: string | null;
+  description: string | null;
+  status: string;
+  owner_user_id: string | null;
+}): AgentCard {
+  return {
+    id: row.id,
+    name: row.name,
+    displayName: row.display_name ?? undefined,
+    description: row.description ?? undefined,
+    status: row.status as AgentCard["status"],
+    ownerUserId: row.owner_user_id ?? undefined,
+  };
+}
 
 export function createCoreAuthHandlers(deps: {
   authService: AuthService;
@@ -94,18 +114,17 @@ export function createCoreAuthHandlers(deps: {
       handler: async (params) => {
         const rows = await deps.db
           .selectFrom("agents")
-          .select(["id", "name", "display_name", "status", "owner_user_id"])
+          .select([
+            "id",
+            "name",
+            "display_name",
+            "description",
+            "status",
+            "owner_user_id",
+          ])
           .where("id", "in", params.agentIds)
           .execute();
-        return {
-          agents: rows.map((r) => ({
-            id: r.id,
-            name: r.name,
-            displayName: r.display_name ?? undefined,
-            status: r.status,
-            ownerUserId: r.owner_user_id ?? undefined,
-          })),
-        };
+        return { agents: rows.map(toAgentCard) };
       },
     }),
 
@@ -114,19 +133,62 @@ export function createCoreAuthHandlers(deps: {
       handler: async (params) => {
         const rows = await deps.db
           .selectFrom("agents")
-          .select(["id", "name", "display_name", "status", "owner_user_id"])
+          .select([
+            "id",
+            "name",
+            "display_name",
+            "description",
+            "status",
+            "owner_user_id",
+          ])
           .where("name", "in", params.names)
           .where("status", "=", "active")
           .execute();
-        return {
-          agents: rows.map((r) => ({
-            id: r.id,
-            name: r.name,
-            displayName: r.display_name ?? undefined,
-            status: r.status,
-            ownerUserId: r.owner_user_id ?? undefined,
-          })),
-        };
+        return { agents: rows.map(toAgentCard) };
+      },
+    }),
+
+    "agents/list": defineMethod<AgentsListParams>({
+      validator: validators.agentsListParams,
+      requiresActive: true,
+      handler: async (_params, ctx) => {
+        if (ctx.kind !== "agent") {
+          throw new RpcError(
+            ErrorCodes.Forbidden,
+            "Agent authentication required",
+          );
+        }
+        const rows = await deps.db
+          .selectFrom("conversation_participants as cp")
+          .innerJoin("agents as a", "a.id", "cp.participant_id")
+          .select([
+            "a.id",
+            "a.name",
+            "a.display_name",
+            "a.description",
+            "a.status",
+            "a.owner_user_id",
+          ])
+          .where("cp.participant_type", "=", "agent")
+          .where("cp.participant_id", "!=", ctx.agentId)
+          .where((eb) =>
+            eb.exists(
+              eb
+                .selectFrom("conversation_participants as cp2")
+                .select("cp2.conversation_id")
+                .whereRef("cp2.conversation_id", "=", "cp.conversation_id")
+                .where("cp2.participant_type", "=", "agent")
+                .where("cp2.participant_id", "=", ctx.agentId),
+            ),
+          )
+          .distinct()
+          .execute();
+
+        const agents: Record<string, AgentCard> = {};
+        for (const row of rows) {
+          agents[row.id] = toAgentCard(row);
+        }
+        return { agents };
       },
     }),
   };
