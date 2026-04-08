@@ -23,6 +23,8 @@ export interface AgentModelConfig {
 
 export const DEFAULT_JUDGE_MODEL = "gemini-2.5-flash";
 
+export const DEFAULT_AGENT_MODEL_ID = "minimax/minimax-2.7-highspeed";
+
 export const MODELS: ModelConfig[] = [
   {
     provider: "anthropic",
@@ -85,6 +87,12 @@ export const AGENT_MODELS: AgentModelConfig[] = [
     provider: "openai",
     modelId: "gpt-5-mini",
     envVar: "OPENAI_API_KEY",
+  },
+  {
+    id: "minimax/minimax-2.7-highspeed",
+    provider: "minimax",
+    modelId: "minimax-2.7-highspeed",
+    envVar: "MINIMAX_API_KEY",
   },
 ];
 
