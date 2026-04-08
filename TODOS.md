@@ -41,18 +41,6 @@ Sequential `resolveAgentName()` calls in the `history` handler make one RPC per 
 
 **Depends on:** Nothing.
 
-### Socket server: input validation at the socket boundary
-
-**Priority:** P3
-
-The socket server accepts `params` as `Record<string, unknown>` with no runtime validation. Callers can pass wrong types (e.g., `conversationId: 42` instead of a string) that silently propagate to the MoltZap server RPC.
-
-**Why:** The protocol layer uses AJV validators for RPC params, but the socket server bypasses that layer. Adding lightweight type checks or reusing the existing AJV validators at the socket boundary would catch bugs earlier.
-
-**Files:** `packages/client/src/service.ts` (handleSocketRequest)
-
-**Depends on:** Nothing.
-
 ### Socket server: unbounded buffer and missing idle timeout
 
 **Priority:** P4
@@ -66,6 +54,12 @@ The socket server accumulates `buffer += chunk.toString()` with no max size. A c
 **Depends on:** Nothing.
 
 ## Completed
+
+### Socket server: input validation at the socket boundary
+
+**Completed:** 2026-04-08
+
+Added runtime type checks for `method`, `params`, `conversationId`, and `limit` at the socket boundary. Malformed requests now return clear error messages instead of silently propagating wrong types.
 
 ### `moltzap updates` CLI command
 
