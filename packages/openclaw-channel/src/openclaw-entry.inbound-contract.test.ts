@@ -16,7 +16,9 @@ const mockGetContext = vi.fn();
 vi.mock("@moltzap/client", () => ({
   MoltZapService: vi.fn().mockImplementation(() => {
     const service = {
-      connect: vi.fn().mockResolvedValue({ conversations: [], unreadCounts: {} }),
+      connect: vi
+        .fn()
+        .mockResolvedValue({ conversations: [], unreadCounts: {} }),
       close: mockClose,
       ownAgentId: "agent-self",
       connected: true,
@@ -27,9 +29,12 @@ vi.mock("@moltzap/client", () => ({
       sendRpc: mockSendRpc,
       send: mockSend,
       on: vi.fn().mockImplementation((event: string, handler: Function) => {
-        if (event === "message") capturedOnMessage = handler as typeof capturedOnMessage;
-        if (event === "rawEvent") capturedOnRawEvent = handler as typeof capturedOnRawEvent;
-        if (event === "reconnect") capturedOnReconnect = handler as typeof capturedOnReconnect;
+        if (event === "message")
+          capturedOnMessage = handler as typeof capturedOnMessage;
+        if (event === "rawEvent")
+          capturedOnRawEvent = handler as typeof capturedOnRawEvent;
+        if (event === "reconnect")
+          capturedOnReconnect = handler as typeof capturedOnReconnect;
       }),
     };
     return service;
@@ -85,7 +90,9 @@ describe("Flow 5: Inbound contract — dispatchReplyWithBufferedBlockDispatcher"
 
     // Default mock returns
     mockGetAgentName.mockImplementation((id: string) => `name-of-${id}`);
-    mockResolveAgentName.mockImplementation(async (id: string) => `name-of-${id}`);
+    mockResolveAgentName.mockImplementation(
+      async (id: string) => `name-of-${id}`,
+    );
     mockGetConversation.mockReturnValue({
       id: "conv-200",
       type: "dm",
@@ -151,7 +158,9 @@ describe("Flow 5: Inbound contract — dispatchReplyWithBufferedBlockDispatcher"
       expect(mockDispatch).toHaveBeenCalledOnce();
     });
 
-    const ctx = (mockDispatch.mock.calls[0]![0] as { ctx: Record<string, unknown> }).ctx;
+    const ctx = (
+      mockDispatch.mock.calls[0]![0] as { ctx: Record<string, unknown> }
+    ).ctx;
     expect(ctx.Body).toBe("Test body content");
     expect(ctx.BodyForAgent).toBe("Test body content");
     expect(ctx.From).toBe("agent:agent-sender-1");
@@ -169,7 +178,9 @@ describe("Flow 5: Inbound contract — dispatchReplyWithBufferedBlockDispatcher"
       expect(mockDispatch).toHaveBeenCalledOnce();
     });
 
-    const ctx = (mockDispatch.mock.calls[0]![0] as { ctx: Record<string, unknown> }).ctx;
+    const ctx = (
+      mockDispatch.mock.calls[0]![0] as { ctx: Record<string, unknown> }
+    ).ctx;
     expect(ctx.OriginatingChannel).toBe("moltzap");
   });
 
@@ -180,7 +191,9 @@ describe("Flow 5: Inbound contract — dispatchReplyWithBufferedBlockDispatcher"
       expect(mockDispatch).toHaveBeenCalledOnce();
     });
 
-    const ctx = (mockDispatch.mock.calls[0]![0] as { ctx: Record<string, unknown> }).ctx;
+    const ctx = (
+      mockDispatch.mock.calls[0]![0] as { ctx: Record<string, unknown> }
+    ).ctx;
     expect(ctx.OriginatingTo).toBe("conv-xyz");
   });
 
@@ -189,7 +202,11 @@ describe("Flow 5: Inbound contract — dispatchReplyWithBufferedBlockDispatcher"
       id: "conv-group-1",
       type: "group",
       name: "Project Alpha",
-      participants: ["agent:agent-sender-1", "agent:agent-self", "agent:agent-third"],
+      participants: [
+        "agent:agent-sender-1",
+        "agent:agent-self",
+        "agent:agent-third",
+      ],
     });
 
     capturedOnMessage!(makeMessage({ conversationId: "conv-group-1" }));
@@ -198,7 +215,9 @@ describe("Flow 5: Inbound contract — dispatchReplyWithBufferedBlockDispatcher"
       expect(mockDispatch).toHaveBeenCalledOnce();
     });
 
-    const ctx = (mockDispatch.mock.calls[0]![0] as { ctx: Record<string, unknown> }).ctx;
+    const ctx = (
+      mockDispatch.mock.calls[0]![0] as { ctx: Record<string, unknown> }
+    ).ctx;
     expect(ctx.ChatType).toBe("group");
     expect(ctx.GroupSubject).toBe("Project Alpha");
     expect(ctx.GroupMembers).toBe(
@@ -222,7 +241,9 @@ describe("Flow 5: Inbound contract — dispatchReplyWithBufferedBlockDispatcher"
       expect(mockDispatch).toHaveBeenCalledOnce();
     });
 
-    const ctx = (mockDispatch.mock.calls[0]![0] as { ctx: Record<string, unknown> }).ctx;
+    const ctx = (
+      mockDispatch.mock.calls[0]![0] as { ctx: Record<string, unknown> }
+    ).ctx;
     expect(ctx.ChatType).toBe("direct");
   });
 
@@ -235,7 +256,9 @@ describe("Flow 5: Inbound contract — dispatchReplyWithBufferedBlockDispatcher"
       expect(mockDispatch).toHaveBeenCalledOnce();
     });
 
-    const ctx = (mockDispatch.mock.calls[0]![0] as { ctx: Record<string, unknown> }).ctx;
+    const ctx = (
+      mockDispatch.mock.calls[0]![0] as { ctx: Record<string, unknown> }
+    ).ctx;
     expect(ctx.SenderName).toBe("Atlas-Prime");
   });
 
@@ -259,7 +282,9 @@ describe("Flow 5: Inbound contract — dispatchReplyWithBufferedBlockDispatcher"
       expect(mockDispatch).toHaveBeenCalledOnce();
     });
 
-    const dispatchArgs = mockDispatch.mock.calls[0]![0] as { cfg: Record<string, unknown> };
+    const dispatchArgs = mockDispatch.mock.calls[0]![0] as {
+      cfg: Record<string, unknown>;
+    };
     expect(dispatchArgs.cfg).toEqual(makeCfg());
   });
 
@@ -328,7 +353,9 @@ describe("Flow 5: Inbound contract — dispatchReplyWithBufferedBlockDispatcher"
       expect(mockDispatch).toHaveBeenCalledOnce();
     });
 
-    const ctx = (mockDispatch.mock.calls[0]![0] as { ctx: Record<string, unknown> }).ctx;
+    const ctx = (
+      mockDispatch.mock.calls[0]![0] as { ctx: Record<string, unknown> }
+    ).ctx;
     expect(ctx.Body).toBe("Line 1\nLine 2\nLine 3");
     expect(ctx.BodyForAgent).toBe("Line 1\nLine 2\nLine 3");
   });
@@ -361,22 +388,30 @@ describe("Flow 5: Inbound contract — dispatchReplyWithBufferedBlockDispatcher"
 
     await vi.waitFor(() => expect(capturedOnMessage).not.toBeNull());
 
-    capturedOnMessage!(makeMessage({ parts: [{ type: "text", text: "What should I offer?" }] }));
+    capturedOnMessage!(
+      makeMessage({ parts: [{ type: "text", text: "What should I offer?" }] }),
+    );
 
     await vi.waitFor(() => expect(mockDispatch).toHaveBeenCalledOnce());
 
-    const ctx = (mockDispatch.mock.calls[0]![0] as { ctx: Record<string, unknown> }).ctx;
+    const ctx = (
+      mockDispatch.mock.calls[0]![0] as { ctx: Record<string, unknown> }
+    ).ctx;
     expect(ctx.Body).toBe("What should I offer?");
     expect(ctx.BodyForAgent).toContain("<system-reminder>");
     expect(ctx.BodyForAgent).toContain("What should I offer?");
   });
 
   it("BodyForAgent equals Body when no contextAdapter configured", async () => {
-    capturedOnMessage!(makeMessage({ parts: [{ type: "text", text: "Plain message" }] }));
+    capturedOnMessage!(
+      makeMessage({ parts: [{ type: "text", text: "Plain message" }] }),
+    );
 
     await vi.waitFor(() => expect(mockDispatch).toHaveBeenCalledOnce());
 
-    const ctx = (mockDispatch.mock.calls[0]![0] as { ctx: Record<string, unknown> }).ctx;
+    const ctx = (
+      mockDispatch.mock.calls[0]![0] as { ctx: Record<string, unknown> }
+    ).ctx;
     expect(ctx.Body).toBe("Plain message");
     expect(ctx.BodyForAgent).toBe("Plain message");
     expect(mockGetContext).not.toHaveBeenCalled();
