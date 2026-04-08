@@ -191,14 +191,15 @@ export class MoltZapService {
     conn: net.Socket,
   ): Promise<void> {
     try {
-      const req = JSON.parse(line) as {
-        method: string;
-        params?: Record<string, unknown>;
-      };
-      const result = await this.handleSocketRequest(
-        req.method,
-        req.params ?? {},
-      );
+      const req = JSON.parse(line) as Record<string, unknown>;
+      if (typeof req.method !== "string" || !req.method) {
+        throw new Error("method is required and must be a string");
+      }
+      const params =
+        req.params != null && typeof req.params === "object"
+          ? (req.params as Record<string, unknown>)
+          : {};
+      const result = await this.handleSocketRequest(req.method, params);
       conn.write(JSON.stringify({ result }) + "\n");
     } catch (err) {
       conn.write(
@@ -225,7 +226,16 @@ export class MoltZapService {
         };
 
       case "history": {
-        const convId = params.conversationId as string;
+        if (
+          typeof params.conversationId !== "string" ||
+          !params.conversationId
+        ) {
+          throw new Error("conversationId is required and must be a string");
+        }
+        if (params.limit !== undefined && typeof params.limit !== "number") {
+          throw new Error("limit must be a number");
+        }
+        const convId = params.conversationId;
         const limit = (params.limit as number) ?? 10;
         const sessionKey = params.sessionKey as string | undefined;
         const afterSeq = params.afterSeq as number | undefined;
