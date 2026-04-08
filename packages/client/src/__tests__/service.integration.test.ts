@@ -1198,7 +1198,9 @@ describe("Socket Server", () => {
         limit: 10,
       })) as { messages: Array<{ text: string }> };
 
-      const msg = result.messages.find((m) => m.text.includes("Check this out"));
+      const msg = result.messages.find((m) =>
+        m.text.includes("Check this out"),
+      );
       expect(msg).toBeDefined();
       expect(msg!.text).toContain("[image]");
     } finally {
@@ -1214,11 +1216,9 @@ describe("Socket Server", () => {
     service.startSocketServer();
     const pathAtStart = service.socketPath;
     try {
-      const result = (await socketRequest(
-        "ping",
-        undefined,
-        pathAtStart,
-      )) as { ok: boolean };
+      const result = (await socketRequest("ping", undefined, pathAtStart)) as {
+        ok: boolean;
+      };
       expect(result.ok).toBe(true);
     } finally {
       service.close();
