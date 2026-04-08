@@ -31,10 +31,7 @@ beforeEach(async () => {
 });
 
 /** Register an agent with custom options (e.g. description), tracked for cleanup. */
-async function registerWithOpts(
-  name: string,
-  opts: { description?: string },
-) {
+async function registerWithOpts(name: string, opts: { description?: string }) {
   const client = new MoltZapTestClient(baseUrl, wsUrl);
   trackClient(client);
   const reg = await client.register(name, opts);
