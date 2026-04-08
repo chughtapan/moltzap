@@ -1,6 +1,23 @@
-/** Model configuration for E2E evals, mirroring OpenClaw's models.ts pattern. */
+/**
+ * Model configuration for E2E evals.
+ *
+ * Two separate model roles:
+ *
+ *   Agent model — the model the OpenClaw agent runs with inside Docker.
+ *     Pass any "provider/model" string via --model. OpenClaw resolves it
+ *     internally; env var lookup uses openclaw/plugin-sdk/provider-env-vars.
+ *     Model IDs are case-sensitive and must match OpenClaw's catalog exactly
+ *     (e.g. "minimax/MiniMax-M2.7-highspeed", not "minimax/minimax-2.7-highspeed").
+ *     All *_API_KEY env vars are auto-forwarded to containers.
+ *
+ *   Judge model — the LLM-as-judge used to score agent responses.
+ *     Currently hardwired to Google AI via genkit (googleai/ prefix).
+ *     Requires GEMINI_API_KEY.
+ */
 
-/** Judge/eval model configuration (used for LLM-as-judge scoring). */
+import { getProviderEnvVars } from "openclaw/plugin-sdk/provider-env-vars";
+
+/** Judge/eval model configuration (used for LLM-as-judge scoring via genkit). */
 export interface ModelConfig {
   provider: string;
   modelId: string;
@@ -9,21 +26,9 @@ export interface ModelConfig {
   tokensPerMinute: number;
 }
 
-/** Agent model configuration (the model the OpenClaw agent runs with). */
-export interface AgentModelConfig {
-  /** OpenClaw provider/model format, e.g. "zai/glm-4.7" */
-  id: string;
-  /** OpenClaw provider name for config injection */
-  provider: string;
-  /** Model ID within the provider */
-  modelId: string;
-  /** Environment variable that must contain the API key */
-  envVar: string;
-}
+export const DEFAULT_JUDGE_MODEL = "gemini-3-flash-preview";
 
-export const DEFAULT_JUDGE_MODEL = "gemini-2.5-flash";
-
-export const DEFAULT_AGENT_MODEL_ID = "minimax/minimax-2.7-highspeed";
+export const DEFAULT_AGENT_MODEL_ID = "minimax/MiniMax-M2.7-highspeed";
 
 export const MODELS: ModelConfig[] = [
   {
@@ -56,46 +61,6 @@ export const MODELS: ModelConfig[] = [
   },
 ];
 
-/** Models the OpenClaw agent can be configured to use during evals. */
-export const AGENT_MODELS: AgentModelConfig[] = [
-  {
-    id: "zai/glm-5.1",
-    provider: "zai",
-    modelId: "glm-5.1",
-    envVar: "ZAI_API_KEY",
-  },
-  {
-    id: "zai/glm-4.7",
-    provider: "zai",
-    modelId: "glm-4.7",
-    envVar: "ZAI_API_KEY",
-  },
-  {
-    id: "anthropic/claude-sonnet-4-20250514",
-    provider: "anthropic",
-    modelId: "claude-sonnet-4-20250514",
-    envVar: "ANTHROPIC_API_KEY",
-  },
-  {
-    id: "google/gemini-2.5-flash",
-    provider: "google",
-    modelId: "gemini-2.5-flash",
-    envVar: "GEMINI_API_KEY",
-  },
-  {
-    id: "openai/gpt-5-mini",
-    provider: "openai",
-    modelId: "gpt-5-mini",
-    envVar: "OPENAI_API_KEY",
-  },
-  {
-    id: "minimax/minimax-2.7-highspeed",
-    provider: "minimax",
-    modelId: "minimax-2.7-highspeed",
-    envVar: "MINIMAX_API_KEY",
-  },
-];
-
 export function getModelConfig(): ModelConfig {
   const provider = process.env["EVAL_LLM_PROVIDER"] ?? "anthropic";
 
@@ -106,35 +71,22 @@ export function getModelConfig(): ModelConfig {
   return MODELS[0]!;
 }
 
-/** Resolve and validate an agent model by ID. Crashes if the required API key is missing. */
-export function resolveAgentModel(modelId: string): AgentModelConfig {
-  const model = AGENT_MODELS.find((m) => m.id === modelId);
-  if (!model) {
+/** Pre-flight: crash early if the API key for this model's provider isn't set. */
+export function validateAgentModelEnv(modelId: string): void {
+  const slash = modelId.indexOf("/");
+  if (slash < 1)
     throw new Error(
-      `Unknown agent model "${modelId}". Available: ${AGENT_MODELS.map((m) => m.id).join(", ")}`,
+      `Invalid model ID "${modelId}" — expected "provider/model"`,
+    );
+  const provider = modelId.slice(0, slash);
+  const envVars = getProviderEnvVars(provider);
+  if (!envVars.length)
+    throw new Error(
+      `Unknown provider "${provider}" in model "${modelId}"`,
+    );
+  if (!envVars.some((v) => process.env[v])) {
+    throw new Error(
+      `No API key for provider "${provider}". Set one of: ${envVars.join(", ")}`,
     );
   }
-
-  const apiKey = process.env[model.envVar];
-  if (!apiKey) {
-    throw new Error(`${model.envVar} required for model ${model.id}`);
-  }
-
-  return model;
-}
-
-/** Resolve all agent models. Crashes if ANY required API key is missing. */
-export function resolveAllAgentModels(): AgentModelConfig[] {
-  const missing: string[] = [];
-  for (const model of AGENT_MODELS) {
-    if (!process.env[model.envVar]) {
-      missing.push(`${model.envVar} required for model ${model.id}`);
-    }
-  }
-  if (missing.length > 0) {
-    throw new Error(
-      `Missing API keys for --all-models:\n  ${missing.join("\n  ")}`,
-    );
-  }
-  return AGENT_MODELS;
 }
