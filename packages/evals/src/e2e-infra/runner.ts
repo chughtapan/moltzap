@@ -438,6 +438,11 @@ export async function runE2EEvals(opts: {
       }),
     );
 
+    // Enable cross-conversation context if any selected scenario requires it
+    const needsContextAwareness = selectedScenarios.some(
+      (s) => s.requiresContextAwareness,
+    );
+
     // Start OpenClaw Docker container with MoltZap channel
     logger.info("Starting OpenClaw agent container...");
     const agentContainer = await dockerManager.startAgent({
@@ -446,6 +451,9 @@ export async function runE2EEvals(opts: {
       moltzapApiKey: agentReg.apiKey,
       zaiApiKey,
       agentModel: opts.agentModel,
+      contextAdapter: needsContextAwareness
+        ? { type: "cross-conversation" }
+        : undefined,
     });
 
     // Wait for the agent's channel plugin to actually connect via WebSocket.
