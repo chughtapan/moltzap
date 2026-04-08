@@ -19,8 +19,7 @@ import { DockerManager } from "./docker-manager.js";
 import { TIER5_SCENARIOS } from "./scenarios.js";
 import { judgeAgentResponse, analysisFlow } from "./llm-judge.js";
 import { generateReport, generateSummaryMarkdown } from "./report.js";
-import { getModelConfig, DEFAULT_JUDGE_MODEL } from "./model-config.js";
-import type { AgentModelConfig } from "./model-config.js";
+import { DEFAULT_JUDGE_MODEL, DEFAULT_AGENT_MODEL_ID } from "./model-config.js";
 import { logger } from "./logger.js";
 import type {
   EvalScenario,
@@ -330,13 +329,13 @@ async function generateResult(opts: {
 
 export async function runE2EEvals(opts: {
   scenarios?: string[];
-  model?: string;
-  agentModel?: AgentModelConfig;
+  agentModelId?: string;
   runsPerScenario?: number;
   evalModel?: string;
   resultsDir?: string;
   cleanResults?: boolean;
   logLevel?: string;
+  signal?: AbortSignal;
 }): Promise<E2ERunResult> {
   const {
     scenarios: scenarioFilter,
@@ -346,8 +345,7 @@ export async function runE2EEvals(opts: {
     cleanResults = false,
   } = opts;
 
-  const modelConfig = getModelConfig();
-  const modelName = opts.model ?? modelConfig.modelId;
+  const modelName = opts.agentModelId ?? DEFAULT_AGENT_MODEL_ID;
 
   // Filter scenarios
   let selectedScenarios = TIER5_SCENARIOS;
@@ -379,7 +377,7 @@ export async function runE2EEvals(opts: {
 
   try {
     // Verify Docker image exists
-    await dockerManager.verifyImage();
+    await dockerManager.ensureImage();
 
     // Phase 0: Start test infrastructure
     logger.info("Starting MoltZap core test server (testcontainers)...");
@@ -444,7 +442,7 @@ export async function runE2EEvals(opts: {
       name: "openclaw-eval-agent",
       moltzapServerUrl: testServerWsUrl,
       moltzapApiKey: agentReg.apiKey,
-      agentModel: opts.agentModel,
+      agentModelId: opts.agentModelId,
       contextAdapter: needsContextAwareness
         ? { type: "cross-conversation" }
         : undefined,
@@ -494,6 +492,11 @@ export async function runE2EEvals(opts: {
     let completedJobs = 0;
 
     for (const scenario of selectedScenarios) {
+      if (opts.signal?.aborted) {
+        logger.warn("Eval run aborted by signal, skipping remaining scenarios");
+        break;
+      }
+
       for (let run = 1; run <= runsPerScenario; run++) {
         // Drain stale events between scenarios — previous agent responses
         // can leak into the next scenario's waitForEvent since DM conversations
