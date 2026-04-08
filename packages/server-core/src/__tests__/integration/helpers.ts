@@ -14,6 +14,7 @@ import {
   setupAgentPair,
   setupAgentGroup,
   closeAllClients,
+  trackClient,
   type ConnectedAgent,
 } from "../../test-utils/helpers.js";
 import { MoltZapTestClient } from "@moltzap/protocol/test-client";
@@ -22,7 +23,13 @@ import type { Kysely } from "kysely";
 
 export type { ConnectedAgent } from "../../test-utils/helpers.js";
 export { MoltZapTestClient } from "@moltzap/protocol/test-client";
-export { registerAndConnect, registerOnly, setupAgentPair, setupAgentGroup };
+export {
+  registerAndConnect,
+  registerOnly,
+  setupAgentPair,
+  setupAgentGroup,
+  trackClient,
+};
 
 /**
  * Start the core test server using the shared Postgres from globalSetup.

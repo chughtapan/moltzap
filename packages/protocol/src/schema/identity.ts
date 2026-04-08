@@ -42,6 +42,11 @@ export const AgentSchema = Type.Object(
   { additionalProperties: false },
 );
 
+export const AgentCardSchema = Type.Omit(AgentSchema, ["createdAt"], {
+  additionalProperties: false,
+});
+
 export type ParticipantRef = Static<typeof ParticipantRefSchema>;
 export type User = Static<typeof UserSchema>;
 export type Agent = Static<typeof AgentSchema>;
+export type AgentCard = Static<typeof AgentCardSchema>;
