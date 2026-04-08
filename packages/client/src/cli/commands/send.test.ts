@@ -1,21 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { sendCommand } from "./send.js";
 
-const mockSendRpc = vi.fn().mockResolvedValue({ message: { id: "msg-123" } });
-const mockConnect = vi.fn().mockResolvedValue({});
-const mockClose = vi.fn();
+const mockRequest = vi.fn().mockResolvedValue({ message: { id: "msg-123" } });
 
-vi.mock("../../service.js", () => ({
-  MoltZapService: vi.fn().mockImplementation(() => ({
-    connect: mockConnect,
-    sendRpc: mockSendRpc,
-    close: mockClose,
-  })),
-}));
-
-vi.mock("../config.js", () => ({
-  resolveAuth: vi.fn().mockReturnValue({ agentKey: "test-key" }),
-  getServerUrl: vi.fn().mockReturnValue("ws://localhost:9999"),
+vi.mock("../socket-client.js", () => ({
+  request: (...args: unknown[]) => mockRequest(...args),
 }));
 
 describe("send command", () => {
@@ -23,7 +12,7 @@ describe("send command", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockSendRpc.mockResolvedValue({ message: { id: "msg-123" } });
+    mockRequest.mockResolvedValue({ message: { id: "msg-123" } });
     process.exit = vi.fn() as never;
   });
 
@@ -39,7 +28,7 @@ describe("send command", () => {
       "Hello world",
     ]);
 
-    expect(mockSendRpc).toHaveBeenCalledWith("messages/send", {
+    expect(mockRequest).toHaveBeenCalledWith("messages/send", {
       conversationId: "abc-123",
       parts: [{ type: "text", text: "Hello world" }],
     });
@@ -48,7 +37,7 @@ describe("send command", () => {
   it("sends to agent target without conv: prefix", async () => {
     await sendCommand.parseAsync(["node", "test", "agent:alice", "Hi Alice"]);
 
-    expect(mockSendRpc).toHaveBeenCalledWith("messages/send", {
+    expect(mockRequest).toHaveBeenCalledWith("messages/send", {
       to: "agent:alice",
       parts: [{ type: "text", text: "Hi Alice" }],
     });
@@ -64,7 +53,7 @@ describe("send command", () => {
       "msg-original",
     ]);
 
-    expect(mockSendRpc).toHaveBeenCalledWith("messages/send", {
+    expect(mockRequest).toHaveBeenCalledWith("messages/send", {
       conversationId: "abc-123",
       parts: [{ type: "text", text: "Reply text" }],
       replyToId: "msg-original",

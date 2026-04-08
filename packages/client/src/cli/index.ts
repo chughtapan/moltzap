@@ -4,7 +4,6 @@ import { Command } from "commander";
 import { registerCommand } from "./commands/register.js";
 import { whoamiCommand } from "./commands/whoami.js";
 import { sendCommand } from "./commands/send.js";
-import { listenCommand } from "./commands/listen.js";
 import { contactsCommand } from "./commands/contacts.js";
 import {
   conversationsCommand,
@@ -31,7 +30,6 @@ program
 program.addCommand(registerCommand);
 program.addCommand(whoamiCommand);
 program.addCommand(sendCommand);
-program.addCommand(listenCommand);
 program.addCommand(contactsCommand);
 program.addCommand(conversationsCommand);
 program.addCommand(historyCommand);

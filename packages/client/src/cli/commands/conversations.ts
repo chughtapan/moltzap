@@ -1,8 +1,6 @@
 import { Command } from "commander";
-import { withService } from "../with-service.js";
-import { resolveParticipant } from "../resolve.js";
-import type { MoltZapService } from "../../service.js";
-import type { ConversationSummary, Message } from "@moltzap/protocol";
+import { request } from "../socket-client.js";
+import type { ConversationSummary } from "@moltzap/protocol";
 
 export const conversationsCommand = new Command("conversations").description(
   "Manage conversations",
@@ -14,8 +12,8 @@ conversationsCommand
   .option("--limit <n>", "Max conversations to list", "20")
   .option("--json", "Output as JSON")
   .action(async (opts: { limit: string; json?: boolean }) => {
-    await withService(async (service) => {
-      const result = (await service.sendRpc("conversations/list", {
+    try {
+      const result = (await request("conversations/list", {
         limit: parseInt(opts.limit, 10),
       })) as { conversations: ConversationSummary[] };
 
@@ -35,7 +33,12 @@ conversationsCommand
           console.log(`    Last: ${c.lastMessagePreview}`);
         }
       }
-    });
+    } catch (err) {
+      console.error(
+        `Failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      process.exit(1);
+    }
   });
 
 conversationsCommand
@@ -46,12 +49,34 @@ conversationsCommand
   .option("--type <type>", "Conversation type: dm or group")
   .action(
     async (name: string, participants: string[], opts: { type?: string }) => {
-      await withService(async (service) => {
+      try {
+        // Resolve participant names to IDs via the service
         const parsed = await Promise.all(
-          participants.map((p) => resolveParticipant(service, p)),
+          participants.map(async (p) => {
+            const colon = p.indexOf(":");
+            if (colon === -1)
+              throw new Error(`Invalid: "${p}". Use agent:name`);
+            const type = p.slice(0, colon);
+            const value = p.slice(colon + 1);
+            if (
+              /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+                value,
+              )
+            ) {
+              return { type, id: value };
+            }
+            if (type !== "agent") throw new Error(`Cannot resolve "${p}"`);
+            const result = (await request("agents/lookupByName", {
+              names: [value],
+            })) as { agents: Array<{ id: string }> };
+            if (result.agents.length === 0)
+              throw new Error(`Agent "${value}" not found`);
+            return { type: "agent", id: result.agents[0]!.id };
+          }),
         );
+
         const convType = opts.type ?? (parsed.length === 1 ? "dm" : "group");
-        const result = (await service.sendRpc("conversations/create", {
+        const result = (await request("conversations/create", {
           type: convType,
           name,
           participants: parsed,
@@ -59,7 +84,12 @@ conversationsCommand
         console.log(
           `Conversation created: ${result.conversation.id} (${result.conversation.type})`,
         );
-      });
+      } catch (err) {
+        console.error(
+          `Failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        process.exit(1);
+      }
     },
   );
 
@@ -68,10 +98,15 @@ conversationsCommand
   .description("Leave a conversation")
   .argument("<conversationId>", "Conversation ID")
   .action(async (conversationId: string) => {
-    await withService(async (service) => {
-      await service.sendRpc("conversations/leave", { conversationId });
+    try {
+      await request("conversations/leave", { conversationId });
       console.log(`Left conversation ${conversationId}.`);
-    });
+    } catch (err) {
+      console.error(
+        `Failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      process.exit(1);
+    }
   });
 
 conversationsCommand
@@ -80,16 +115,21 @@ conversationsCommand
   .argument("<conversationId>", "Conversation ID")
   .option("--until <datetime>", "Mute until ISO datetime")
   .action(async (conversationId: string, opts: { until?: string }) => {
-    await withService(async (service) => {
+    try {
       const params: Record<string, string> = { conversationId };
       if (opts.until) params.until = opts.until;
-      await service.sendRpc("conversations/mute", params);
+      await request("conversations/mute", params);
       console.log(
         opts.until
           ? `Conversation ${conversationId} muted until ${opts.until}.`
           : `Conversation ${conversationId} muted.`,
       );
-    });
+    } catch (err) {
+      console.error(
+        `Failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      process.exit(1);
+    }
   });
 
 conversationsCommand
@@ -97,10 +137,15 @@ conversationsCommand
   .description("Unmute a conversation")
   .argument("<conversationId>", "Conversation ID")
   .action(async (conversationId: string) => {
-    await withService(async (service) => {
-      await service.sendRpc("conversations/unmute", { conversationId });
+    try {
+      await request("conversations/unmute", { conversationId });
       console.log(`Conversation ${conversationId} unmuted.`);
-    });
+    } catch (err) {
+      console.error(
+        `Failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      process.exit(1);
+    }
   });
 
 conversationsCommand
@@ -109,15 +154,20 @@ conversationsCommand
   .argument("<conversationId>", "Conversation ID")
   .requiredOption("--name <name>", "New conversation name")
   .action(async (conversationId: string, opts: { name: string }) => {
-    await withService(async (service) => {
-      const result = (await service.sendRpc("conversations/update", {
+    try {
+      const result = (await request("conversations/update", {
         conversationId,
         name: opts.name,
       })) as { conversation: { id: string; name: string } };
       console.log(
         `Conversation updated: ${result.conversation.id} (name: ${result.conversation.name})`,
       );
-    });
+    } catch (err) {
+      console.error(
+        `Failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      process.exit(1);
+    }
   });
 
 conversationsCommand
@@ -126,14 +176,38 @@ conversationsCommand
   .argument("<conversationId>", "Conversation ID")
   .argument("<participant>", "Participant (e.g. agent:bob)")
   .action(async (conversationId: string, participant: string) => {
-    await withService(async (service) => {
-      const ref = await resolveParticipant(service, participant);
-      await service.sendRpc("conversations/addParticipant", {
+    try {
+      // Inline resolve (same as create)
+      const colon = participant.indexOf(":");
+      if (colon === -1) throw new Error(`Invalid: "${participant}"`);
+      const type = participant.slice(0, colon);
+      const value = participant.slice(colon + 1);
+      let ref: { type: string; id: string };
+      if (
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          value,
+        )
+      ) {
+        ref = { type, id: value };
+      } else {
+        const result = (await request("agents/lookupByName", {
+          names: [value],
+        })) as { agents: Array<{ id: string }> };
+        if (result.agents.length === 0)
+          throw new Error(`Agent "${value}" not found`);
+        ref = { type: "agent", id: result.agents[0]!.id };
+      }
+      await request("conversations/addParticipant", {
         conversationId,
         participant: ref,
       });
       console.log(`Added ${participant} to ${conversationId}.`);
-    });
+    } catch (err) {
+      console.error(
+        `Failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      process.exit(1);
+    }
   });
 
 conversationsCommand
@@ -142,44 +216,64 @@ conversationsCommand
   .argument("<conversationId>", "Conversation ID")
   .argument("<participant>", "Participant (e.g. agent:bob)")
   .action(async (conversationId: string, participant: string) => {
-    await withService(async (service) => {
-      const ref = await resolveParticipant(service, participant);
-      await service.sendRpc("conversations/removeParticipant", {
+    try {
+      const colon = participant.indexOf(":");
+      if (colon === -1) throw new Error(`Invalid: "${participant}"`);
+      const type = participant.slice(0, colon);
+      const value = participant.slice(colon + 1);
+      let ref: { type: string; id: string };
+      if (
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          value,
+        )
+      ) {
+        ref = { type, id: value };
+      } else {
+        const result = (await request("agents/lookupByName", {
+          names: [value],
+        })) as { agents: Array<{ id: string }> };
+        if (result.agents.length === 0)
+          throw new Error(`Agent "${value}" not found`);
+        ref = { type: "agent", id: result.agents[0]!.id };
+      }
+      await request("conversations/removeParticipant", {
         conversationId,
         participant: ref,
       });
       console.log(`Removed ${participant} from ${conversationId}.`);
-    });
+    } catch (err) {
+      console.error(
+        `Failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      process.exit(1);
+    }
   });
 
-async function resolveAgentNames(
-  service: MoltZapService,
-  agentIds: string[],
-): Promise<Map<string, string>> {
-  const nameMap = new Map<string, string>();
-  if (agentIds.length === 0) return nameMap;
-  try {
-    const result = (await service.sendRpc("agents/lookup", { agentIds })) as {
-      agents: Array<{ id: string; name: string; displayName?: string }>;
-    };
-    for (const agent of result.agents) {
-      nameMap.set(agent.id, agent.displayName ?? agent.name);
-    }
-  } catch {
-    // Fall back to truncated IDs
-  }
-  return nameMap;
+interface HistoryMessage {
+  seq: number;
+  senderId: string;
+  senderName: string;
+  isOwn: boolean;
+  text: string;
+  createdAt: string;
+  isNew: boolean;
 }
 
 async function showHistory(
   conversationId: string,
-  opts: { limit: string; json?: boolean },
+  opts: { limit: string; json?: boolean; sessionKey?: string },
 ): Promise<void> {
-  await withService(async (service) => {
-    const result = (await service.sendRpc("messages/list", {
+  try {
+    const result = (await request("history", {
       conversationId,
       limit: parseInt(opts.limit, 10),
-    })) as { messages: Message[]; hasMore: boolean };
+      sessionKey: opts.sessionKey,
+    })) as {
+      messages: HistoryMessage[];
+      hasMore: boolean;
+      conversationMeta?: { type: string; name?: string };
+      newCount: number;
+    };
 
     if (opts.json) {
       console.log(JSON.stringify(result, null, 2));
@@ -190,37 +284,33 @@ async function showHistory(
       return;
     }
 
-    const agentIds = [
-      ...new Set(
-        result.messages
-          .filter((m) => m.sender.type === "agent")
-          .map((m) => m.sender.id),
-      ),
-    ];
-    const nameMap = await resolveAgentNames(service, agentIds);
+    if (opts.sessionKey && result.conversationMeta) {
+      const label =
+        result.conversationMeta.name ?? result.conversationMeta.type;
+      console.log(
+        `Conversation: ${label} (${conversationId}) | ${result.newCount} new`,
+      );
+      console.log("");
+    }
 
     for (const m of result.messages) {
-      const sender =
-        m.sender.type === "agent"
-          ? (nameMap.get(m.sender.id) ?? `agent:${m.sender.id.slice(0, 8)}`)
-          : `${m.sender.type}:${m.sender.id.slice(0, 8)}`;
-      const text = m.parts
-        .map((p) => {
-          if (p.type === "text") return p.text;
-          if (p.type === "image")
-            return `[image${p.altText ? `: ${p.altText}` : ""}]`;
-          if (p.type === "file") return `[file: ${p.name}]`;
-          return "[unknown]";
-        })
-        .join(" ");
-      const deleted = m.isDeleted ? " [deleted]" : "";
-      console.log(`  [${m.createdAt}] ${sender}: ${text}${deleted}`);
+      const ago = Math.max(
+        0,
+        Math.round((Date.now() - new Date(m.createdAt).getTime()) / 60_000),
+      );
+      const newMarker = m.isNew ? " *" : "";
+      console.log(`  [${ago}m ago] ${m.senderName}: ${m.text}${newMarker}`);
     }
 
     if (result.hasMore) {
       console.log("  ... more messages available");
     }
-  });
+  } catch (err) {
+    console.error(
+      `Failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    process.exit(1);
+  }
 }
 
 conversationsCommand
@@ -229,6 +319,7 @@ conversationsCommand
   .argument("<conversationId>", "Conversation ID")
   .option("--limit <n>", "Max messages to show", "50")
   .option("--json", "Output as JSON")
+  .option("--session-key <key>", "Session key for cross-conversation context")
   .action(showHistory);
 
 export const historyCommand = new Command("history")
@@ -236,4 +327,5 @@ export const historyCommand = new Command("history")
   .argument("<conversationId>", "Conversation ID")
   .option("--limit <n>", "Max messages to show", "50")
   .option("--json", "Output as JSON")
+  .option("--session-key <key>", "Session key for cross-conversation context")
   .action(showHistory);
