@@ -5,12 +5,7 @@
  */
 import { writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
-import {
-  Kind,
-  type TSchema,
-  type TObject,
-  type TProperties,
-} from "@sinclair/typebox";
+import { Kind, type TSchema, type TProperties } from "@sinclair/typebox";
 
 // Import all schemas
 import {
@@ -588,10 +583,6 @@ function getTypeName(schema: TSchema): string {
   return kind?.toLowerCase() ?? "unknown";
 }
 
-function isRequired(schema: TSchema): boolean {
-  return schema[Kind] !== "Optional" && schema[Kind] !== "Undefined";
-}
-
 function extractProperties(schema: TSchema): Array<{
   name: string;
   type: string;
@@ -643,22 +634,6 @@ function extractProperties(schema: TSchema): Array<{
 
 function slugify(method: string): string {
   return method.replace(/\//g, "-");
-}
-
-function iconFor(category: string): string {
-  const icons: Record<string, string> = {
-    auth: "key",
-    agents: "robot",
-    users: "user",
-    messages: "message",
-    contacts: "address-book",
-    conversations: "comments",
-    invites: "envelope",
-    presence: "signal",
-    push: "bell",
-    surfaces: "window-maximize",
-  };
-  return icons[category] ?? "code";
 }
 
 function escapeFrontmatter(s: string): string {

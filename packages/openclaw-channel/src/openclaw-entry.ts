@@ -22,7 +22,7 @@ import {
   extractTypingIndicator,
   mapMessageToEnvelope,
 } from "./mapping.js";
-import { EventNames, type EventFrame, type Message } from "@moltzap/protocol";
+import { EventNames } from "@moltzap/protocol";
 
 const DEFAULT_ACCOUNT_ID = "default";
 const CHANNEL_ID = "moltzap" as const;
@@ -543,7 +543,7 @@ export const moltzapChannelPlugin = {
       );
 
       try {
-        const helloOk = await service.connect();
+        await service.connect();
         service.startSocketServer();
         log?.info?.(
           `MoltZap: connected as ${account.agentName} (${service.ownAgentId})`,

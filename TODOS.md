@@ -65,32 +65,6 @@ The socket server accumulates `buffer += chunk.toString()` with no max size. A c
 
 **Depends on:** Nothing.
 
-## CLI
-
-### Extract shared error handling wrapper
-
-**Priority:** P3
-
-Every CLI command repeats the same `try { ... } catch (err) { console.error(...); process.exit(1); }` pattern (~26 times across 10 files). The deleted `withService()` wrapper had centralized this.
-
-**Why:** DRY. A `wrapAction(fn)` utility would eliminate 26 identical catch blocks and ensure consistent error formatting.
-
-**Files:** `packages/client/src/cli/commands/*.ts`
-
-**Depends on:** Nothing.
-
-### Extract shared participant resolution
-
-**Priority:** P3
-
-The `resolveParticipant()` logic (UUID check + `agents/lookupByName` fallback) is inlined 3 times in `conversations.ts` (create, addParticipant, removeParticipant). The original `resolve.ts` was deleted when the CLI was refactored to use the socket client.
-
-**Why:** DRY. Same UUID regex and lookup logic repeated 3 times. Extract to a utility that takes a `request` function parameter.
-
-**Files:** `packages/client/src/cli/commands/conversations.ts`
-
-**Depends on:** Nothing.
-
 ## Completed
 
 ### `moltzap updates` CLI command
@@ -98,3 +72,15 @@ The `resolveParticipant()` logic (UUID check + `agents/lookupByName` fallback) i
 **Completed:** 2026-04-08
 
 Implemented as `moltzap history <convId> --session-key <key>` in the socket client refactor. The agent reads full messages from other conversations via the history command with session-key tracking for *NEW* markers.
+
+### Extract shared error handling wrapper
+
+**Completed:** 2026-04-08
+
+Extracted `action()` wrapper in `socket-client.ts`. Eliminated 20 identical try/catch blocks across CLI commands.
+
+### Extract shared participant resolution
+
+**Completed:** 2026-04-08
+
+Extracted `resolveParticipant()` in `socket-client.ts`. Replaced 3 identical inline UUID-or-lookup patterns in `conversations.ts`.
