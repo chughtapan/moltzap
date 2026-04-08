@@ -32,7 +32,12 @@ describe("send command", () => {
   });
 
   it("sends to conversation by conv: prefix", async () => {
-    await sendCommand.parseAsync(["node", "test", "conv:abc-123", "Hello world"]);
+    await sendCommand.parseAsync([
+      "node",
+      "test",
+      "conv:abc-123",
+      "Hello world",
+    ]);
 
     expect(mockSendRpc).toHaveBeenCalledWith("messages/send", {
       conversationId: "abc-123",
