@@ -666,3 +666,405 @@ describe("Cross-Conversation Context", () => {
     regC.client.close();
   });
 });
+
+// ─── Group 3: History with Session Key ───────────────────────────────────────
+
+describe("History with session key", () => {
+  it("messages/list returns both own and other agent messages", async () => {
+    const regA = await registerAgent("hist-a");
+    const regB = await registerAgent("hist-b");
+
+    await regB.client.connect(regB.apiKey);
+    const service = await connectService(regA.apiKey);
+
+    // Create DM between A and B
+    const conv = (await service.sendRpc("conversations/create", {
+      type: "dm",
+      participants: [{ type: "agent", id: regB.agentId }],
+    })) as { conversation: { id: string } };
+
+    // A sends a message
+    await service.send(conv.conversation.id, "Hello from A");
+    await new Promise((r) => setTimeout(r, 500));
+
+    // B sends a message
+    await sendAndSettle(regB.client, conv.conversation.id, "Hello from B");
+
+    // A sends another message
+    await service.send(conv.conversation.id, "Follow up from A");
+    await new Promise((r) => setTimeout(r, 500));
+
+    // Fetch history via RPC (same as CLI moltzap history would do)
+    const result = (await service.sendRpc("messages/list", {
+      conversationId: conv.conversation.id,
+      limit: 10,
+    })) as {
+      messages: Array<{
+        sender: { type: string; id: string };
+        parts: Array<{ type: string; text?: string }>;
+      }>;
+    };
+
+    // Should contain messages from BOTH agents
+    expect(result.messages.length).toBeGreaterThanOrEqual(3);
+
+    const senderIds = result.messages.map((m) => m.sender.id);
+    expect(senderIds).toContain(regA.agentId); // own messages
+    expect(senderIds).toContain(regB.agentId); // other's messages
+
+    // Verify own messages are identifiable via ownAgentId
+    const ownMessages = result.messages.filter(
+      (m) => m.sender.id === service.ownAgentId,
+    );
+    expect(ownMessages.length).toBeGreaterThanOrEqual(2);
+
+    const otherMessages = result.messages.filter(
+      (m) => m.sender.id === regB.agentId,
+    );
+    expect(otherMessages.length).toBeGreaterThanOrEqual(1);
+
+    service.close();
+    regA.client.close();
+    regB.client.close();
+  });
+
+  it("group conversation history shows all participants", async () => {
+    const regA = await registerAgent("grp-a");
+    const regB = await registerAgent("grp-b");
+    const regC = await registerAgent("grp-c");
+
+    await regB.client.connect(regB.apiKey);
+    await regC.client.connect(regC.apiKey);
+    const service = await connectService(regA.apiKey);
+
+    // Create group
+    const conv = (await service.sendRpc("conversations/create", {
+      type: "group",
+      name: "Test Group",
+      participants: [
+        { type: "agent", id: regB.agentId },
+        { type: "agent", id: regC.agentId },
+      ],
+    })) as { conversation: { id: string } };
+
+    // Each agent sends a message
+    await service.send(conv.conversation.id, "Agent A here");
+    await new Promise((r) => setTimeout(r, 500));
+    await sendAndSettle(regB.client, conv.conversation.id, "Agent B here");
+    await sendAndSettle(regC.client, conv.conversation.id, "Agent C here");
+
+    // Fetch history
+    const result = (await service.sendRpc("messages/list", {
+      conversationId: conv.conversation.id,
+      limit: 10,
+    })) as {
+      messages: Array<{
+        sender: { type: string; id: string };
+        parts: Array<{ type: string; text?: string }>;
+      }>;
+    };
+
+    // All 3 agents should appear
+    const senderIds = new Set(result.messages.map((m) => m.sender.id));
+    expect(senderIds.size).toBe(3);
+    expect(senderIds).toContain(regA.agentId);
+    expect(senderIds).toContain(regB.agentId);
+    expect(senderIds).toContain(regC.agentId);
+
+    service.close();
+    regA.client.close();
+    regB.client.close();
+    regC.client.close();
+  });
+});
+
+// ─── Group 4: Socket Server ──────────────────────────────────────────────────
+
+describe("Socket Server", () => {
+  let socketRequest: typeof import("../cli/socket-client.js").request;
+
+  beforeAll(async () => {
+    const mod = await import("../cli/socket-client.js");
+    socketRequest = mod.request;
+  });
+
+  it("ping responds with agentId", async () => {
+    const reg = await registerAgent("sock-ping");
+    const service = await connectService(reg.apiKey);
+    service.startSocketServer();
+    try {
+      const result = (await socketRequest("ping")) as {
+        ok: boolean;
+        agentId: string;
+      };
+      expect(result.ok).toBe(true);
+      expect(result.agentId).toBe(reg.agentId);
+    } finally {
+      service.close();
+      reg.client.close();
+    }
+  });
+
+  it("status returns connection info", async () => {
+    const reg = await registerAgent("sock-status");
+    const service = await connectService(reg.apiKey);
+    service.startSocketServer();
+    try {
+      const result = (await socketRequest("status")) as {
+        agentId: string;
+        connected: boolean;
+      };
+      expect(result.agentId).toBe(reg.agentId);
+      expect(result.connected).toBe(true);
+    } finally {
+      service.close();
+      reg.client.close();
+    }
+  });
+
+  it("passthrough RPC works via socket", async () => {
+    const regA = await registerAgent("sock-rpc-a");
+    const regB = await registerAgent("sock-rpc-b");
+    await regB.client.connect(regB.apiKey);
+    const service = await connectService(regA.apiKey);
+    service.startSocketServer();
+    try {
+      const conv = (await socketRequest("conversations/create", {
+        type: "dm",
+        participants: [{ type: "agent", id: regB.agentId }],
+      })) as { conversation: { id: string } };
+      expect(conv.conversation.id).toBeDefined();
+
+      const msg = (await socketRequest("messages/send", {
+        conversationId: conv.conversation.id,
+        parts: [{ type: "text", text: "via socket" }],
+      })) as { message: { id: string } };
+      expect(msg.message.id).toBeDefined();
+    } finally {
+      service.close();
+      regA.client.close();
+      regB.client.close();
+    }
+  });
+
+  it("history via socket returns messages with isOwn labels", async () => {
+    const regA = await registerAgent("sock-hist-a");
+    const regB = await registerAgent("sock-hist-b");
+    await regB.client.connect(regB.apiKey);
+    const service = await connectService(regA.apiKey);
+    service.startSocketServer();
+    try {
+      const conv = (await socketRequest("conversations/create", {
+        type: "dm",
+        participants: [{ type: "agent", id: regB.agentId }],
+      })) as { conversation: { id: string } };
+
+      await socketRequest("messages/send", {
+        conversationId: conv.conversation.id,
+        parts: [{ type: "text", text: "Hello from A" }],
+      });
+      await new Promise((r) => setTimeout(r, 500));
+      await sendAndSettle(regB.client, conv.conversation.id, "Hello from B");
+
+      const result = (await socketRequest("history", {
+        conversationId: conv.conversation.id,
+        limit: 10,
+      })) as {
+        messages: Array<{ senderName: string; isOwn: boolean; text: string }>;
+      };
+
+      expect(result.messages.length).toBeGreaterThanOrEqual(2);
+      const ownMsgs = result.messages.filter((m) => m.isOwn);
+      expect(ownMsgs.length).toBeGreaterThanOrEqual(1);
+      expect(ownMsgs[0]!.senderName).toBe("you");
+      const otherMsgs = result.messages.filter((m) => !m.isOwn);
+      expect(otherMsgs.length).toBeGreaterThanOrEqual(1);
+      expect(otherMsgs[0]!.senderName).toBe("sock-hist-b");
+    } finally {
+      service.close();
+      regA.client.close();
+      regB.client.close();
+    }
+  });
+
+  it("messages stay *NEW* after getContext notification until history is read", async () => {
+    const regA = await registerAgent("wm-a");
+    const regB = await registerAgent("wm-b");
+    const regC = await registerAgent("wm-c");
+    await regB.client.connect(regB.apiKey);
+    await regC.client.connect(regC.apiKey);
+    const service = await connectService(regA.apiKey);
+    service.startSocketServer();
+    try {
+      const convB = (await service.sendRpc("conversations/create", {
+        type: "dm",
+        participants: [{ type: "agent", id: regB.agentId }],
+      })) as { conversation: { id: string } };
+      const convC = (await service.sendRpc("conversations/create", {
+        type: "dm",
+        participants: [{ type: "agent", id: regC.agentId }],
+      })) as { conversation: { id: string } };
+
+      // Seller sends message in conv C
+      await sendAndSettle(regC.client, convC.conversation.id, "Price is $4000");
+
+      // System-reminder fires for conv B → advances lastNotified
+      const reminder = service.getContext(convB.conversation.id, {
+        type: "cross-conversation",
+      });
+      expect(reminder).toContain("(1 new)");
+
+      // System-reminder won't repeat (lastNotified advanced)
+      const reminder2 = service.getContext(convB.conversation.id, {
+        type: "cross-conversation",
+      });
+      expect(reminder2).toBeNull();
+
+      // BUT history via socket still shows *NEW* (lastRead not advanced yet)
+      const hist1 = (await socketRequest("history", {
+        conversationId: convC.conversation.id,
+        sessionKey: convB.conversation.id,
+        limit: 10,
+      })) as {
+        newCount: number;
+        messages: Array<{ isNew: boolean; text: string }>;
+      };
+      expect(hist1.newCount).toBe(1);
+      expect(hist1.messages[0]!.isNew).toBe(true);
+      expect(hist1.messages[0]!.text).toBe("Price is $4000");
+
+      // After reading, lastRead advances → second fetch shows 0 new
+      const hist2 = (await socketRequest("history", {
+        conversationId: convC.conversation.id,
+        sessionKey: convB.conversation.id,
+        limit: 10,
+      })) as { newCount: number };
+      expect(hist2.newCount).toBe(0);
+    } finally {
+      service.close();
+      regA.client.close();
+      regB.client.close();
+      regC.client.close();
+    }
+  });
+
+  it("new messages after history read are marked *NEW*", async () => {
+    const regA = await registerAgent("wm2-a");
+    const regB = await registerAgent("wm2-b");
+    const regC = await registerAgent("wm2-c");
+    await regB.client.connect(regB.apiKey);
+    await regC.client.connect(regC.apiKey);
+    const service = await connectService(regA.apiKey);
+    service.startSocketServer();
+    try {
+      const convB = (await service.sendRpc("conversations/create", {
+        type: "dm",
+        participants: [{ type: "agent", id: regB.agentId }],
+      })) as { conversation: { id: string } };
+      const convC = (await service.sendRpc("conversations/create", {
+        type: "dm",
+        participants: [{ type: "agent", id: regC.agentId }],
+      })) as { conversation: { id: string } };
+
+      // First message
+      await sendAndSettle(regC.client, convC.conversation.id, "First");
+      service.getContext(convB.conversation.id, { type: "cross-conversation" });
+
+      // Read history → advances lastRead
+      const hist1 = (await socketRequest("history", {
+        conversationId: convC.conversation.id,
+        sessionKey: convB.conversation.id,
+        limit: 10,
+      })) as { newCount: number };
+      expect(hist1.newCount).toBe(1); // first read: 1 new
+
+      // Second read → 0 new (already read)
+      const hist2 = (await socketRequest("history", {
+        conversationId: convC.conversation.id,
+        sessionKey: convB.conversation.id,
+        limit: 10,
+      })) as { newCount: number };
+      expect(hist2.newCount).toBe(0);
+
+      // New message arrives AFTER read
+      await sendAndSettle(regC.client, convC.conversation.id, "Second");
+
+      // Third read → 1 new (the new message)
+      const hist3 = (await socketRequest("history", {
+        conversationId: convC.conversation.id,
+        sessionKey: convB.conversation.id,
+        limit: 10,
+      })) as {
+        newCount: number;
+        messages: Array<{ isNew: boolean; text: string }>;
+      };
+      expect(hist3.newCount).toBe(1);
+      const newMsgs = hist3.messages.filter((m) => m.isNew);
+      expect(newMsgs[0]!.text).toBe("Second");
+    } finally {
+      service.close();
+      regA.client.close();
+      regB.client.close();
+      regC.client.close();
+    }
+  });
+
+  it("different sessions have independent read markers", async () => {
+    const regA = await registerAgent("wm3-a");
+    const regB = await registerAgent("wm3-b");
+    const regC = await registerAgent("wm3-c");
+    const regD = await registerAgent("wm3-d");
+    await regB.client.connect(regB.apiKey);
+    await regC.client.connect(regC.apiKey);
+    await regD.client.connect(regD.apiKey);
+    const service = await connectService(regA.apiKey);
+    service.startSocketServer();
+    try {
+      const convB = (await service.sendRpc("conversations/create", {
+        type: "dm",
+        participants: [{ type: "agent", id: regB.agentId }],
+      })) as { conversation: { id: string } };
+      const convC = (await service.sendRpc("conversations/create", {
+        type: "dm",
+        participants: [{ type: "agent", id: regC.agentId }],
+      })) as { conversation: { id: string } };
+      const convD = (await service.sendRpc("conversations/create", {
+        type: "dm",
+        participants: [{ type: "agent", id: regD.agentId }],
+      })) as { conversation: { id: string } };
+
+      // Message in conv C
+      await sendAndSettle(regC.client, convC.conversation.id, "Shared update");
+
+      // Conv B reads history → advances lastRead for convB→convC
+      const histB = (await socketRequest("history", {
+        conversationId: convC.conversation.id,
+        sessionKey: convB.conversation.id,
+        limit: 10,
+      })) as { newCount: number };
+      expect(histB.newCount).toBe(1); // first read
+
+      // Conv B reads again → 0 new
+      const histB2 = (await socketRequest("history", {
+        conversationId: convC.conversation.id,
+        sessionKey: convB.conversation.id,
+        limit: 10,
+      })) as { newCount: number };
+      expect(histB2.newCount).toBe(0);
+
+      // Conv D reads same conversation → still 1 new (independent markers)
+      const histD = (await socketRequest("history", {
+        conversationId: convC.conversation.id,
+        sessionKey: convD.conversation.id,
+        limit: 10,
+      })) as { newCount: number };
+      expect(histD.newCount).toBe(1);
+    } finally {
+      service.close();
+      regA.client.close();
+      regB.client.close();
+      regC.client.close();
+      regD.client.close();
+    }
+  });
+});

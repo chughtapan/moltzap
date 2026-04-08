@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { withService } from "../with-service.js";
+import { request } from "../socket-client.js";
 
 export const presenceCommand = new Command("presence")
   .description("Update or show presence status (online, offline, away)")
@@ -18,8 +18,13 @@ export const presenceCommand = new Command("presence")
       process.exit(1);
     }
 
-    await withService(async (service) => {
-      await service.sendRpc("presence/update", { status });
+    try {
+      await request("presence/update", { status });
       console.log(`Presence set to ${status}.`);
-    });
+    } catch (err) {
+      console.error(
+        `Failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      process.exit(1);
+    }
   });
