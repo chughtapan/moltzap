@@ -96,7 +96,14 @@ export function createCoreAuthHandlers(deps: {
       handler: async (params) => {
         const rows = await deps.db
           .selectFrom("agents")
-          .select(["id", "name", "display_name", "description", "status", "owner_user_id"])
+          .select([
+            "id",
+            "name",
+            "display_name",
+            "description",
+            "status",
+            "owner_user_id",
+          ])
           .where("id", "in", params.agentIds)
           .execute();
         return {
@@ -117,7 +124,14 @@ export function createCoreAuthHandlers(deps: {
       handler: async (params) => {
         const rows = await deps.db
           .selectFrom("agents")
-          .select(["id", "name", "display_name", "description", "status", "owner_user_id"])
+          .select([
+            "id",
+            "name",
+            "display_name",
+            "description",
+            "status",
+            "owner_user_id",
+          ])
           .where("name", "in", params.names)
           .where("status", "=", "active")
           .execute();
@@ -139,12 +153,22 @@ export function createCoreAuthHandlers(deps: {
       requiresActive: true,
       handler: async (_params, ctx) => {
         if (ctx.kind !== "agent") {
-          throw new RpcError(ErrorCodes.Forbidden, "Agent authentication required");
+          throw new RpcError(
+            ErrorCodes.Forbidden,
+            "Agent authentication required",
+          );
         }
         const rows = await deps.db
           .selectFrom("conversation_participants as cp")
           .innerJoin("agents as a", "a.id", "cp.participant_id")
-          .select(["a.id", "a.name", "a.display_name", "a.description", "a.status", "a.owner_user_id"])
+          .select([
+            "a.id",
+            "a.name",
+            "a.display_name",
+            "a.description",
+            "a.status",
+            "a.owner_user_id",
+          ])
           .where("cp.participant_type", "=", "agent")
           .where("cp.participant_id", "!=", ctx.agentId)
           .where((eb) =>

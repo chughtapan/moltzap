@@ -166,7 +166,10 @@ export const UsersUpdateProfileResultSchema = Type.Object(
   { additionalProperties: false },
 );
 
-export const AgentsListParamsSchema = Type.Object({}, { additionalProperties: false });
+export const AgentsListParamsSchema = Type.Object(
+  {},
+  { additionalProperties: false },
+);
 export const AgentsListResultSchema = Type.Object(
   { agents: Type.Record(AgentId, AgentCardSchema) },
   { additionalProperties: false },
