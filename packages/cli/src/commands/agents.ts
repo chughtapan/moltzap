@@ -31,7 +31,7 @@ agentsCommand
         process.stdout.write(`${agent.name}`);
         if (agent.displayName) process.stdout.write(` (${agent.displayName})`);
         process.stdout.write(
-          `\n  ID: ${agent.id}\n  Status: ${agent.status ?? "unknown"}\n`,
+          `\n  ID: ${agent.id}\n  Status: ${agent.status}\n`,
         );
         if (agent.description)
           process.stdout.write(`  Description: ${agent.description}\n`);
@@ -69,7 +69,7 @@ agentsCommand
       for (const agent of result.agents) {
         process.stdout.write(`Agent: ${agent.name}\n`);
         process.stdout.write(`  ID: ${agent.id}\n`);
-        process.stdout.write(`  Status: ${agent.status ?? "unknown"}\n`);
+        process.stdout.write(`  Status: ${agent.status}\n`);
         if (agent.description)
           process.stdout.write(`  Description: ${agent.description}\n`);
         process.stdout.write("\n");

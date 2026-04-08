@@ -42,19 +42,9 @@ export const AgentSchema = Type.Object(
   { additionalProperties: false },
 );
 
-export const AgentCardSchema = Type.Object(
-  {
-    id: AgentId,
-    name: Type.String({
-      pattern: "^[a-z0-9][a-z0-9_-]{1,30}[a-z0-9]$",
-      minLength: 8,
-      maxLength: 8,
-    }),
-    displayName: Type.Optional(Type.String()),
-    description: Type.Optional(Type.String()),
-    status: Type.Optional(Type.String()),
-    ownerUserId: Type.Optional(UserId),
-  },
+export const AgentCardSchema = Type.Omit(
+  AgentSchema,
+  ["createdAt"],
   { additionalProperties: false },
 );
 
