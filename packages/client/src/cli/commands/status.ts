@@ -1,10 +1,10 @@
 import { Command } from "commander";
-import { request } from "../socket-client.js";
+import { request, action } from "../socket-client.js";
 
 export const statusCommand = new Command("status")
   .description("Show agent connection status and conversation summary")
-  .action(async () => {
-    try {
+  .action(
+    action(async () => {
       const result = (await request("status")) as {
         agentId: string;
         connected: boolean;
@@ -13,10 +13,5 @@ export const statusCommand = new Command("status")
       console.log(`Agent ID:       ${result.agentId ?? "none"}`);
       console.log(`Connected:      ${result.connected}`);
       console.log(`Conversations:  ${result.conversations}`);
-    } catch (err) {
-      console.error(
-        `Failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      process.exit(1);
-    }
-  });
+    }),
+  );

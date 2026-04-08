@@ -629,10 +629,11 @@ describe("Cross-Conversation Context", () => {
     await regC.client.connect(regC.apiKey);
     const service = await connectService(regA.apiKey);
 
-    const convB = (await service.sendRpc("conversations/create", {
+    // convB created to establish the conversation but not referenced directly
+    await service.sendRpc("conversations/create", {
       type: "dm",
       participants: [{ type: "agent", id: regB.agentId }],
-    })) as { conversation: { id: string } };
+    });
     const convC = (await service.sendRpc("conversations/create", {
       type: "dm",
       participants: [{ type: "agent", id: regC.agentId }],
