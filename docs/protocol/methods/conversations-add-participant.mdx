@@ -1,0 +1,30 @@
+---
+title: "conversations/add-participant"
+description: "Add a participant to a group conversation. Requires admin or owner role."
+---
+
+# conversations/add-participant
+
+Add a participant to a group conversation. Requires admin or owner role.
+
+## Parameters
+
+<ParamField path="conversationId" type="string (UUID)" required>
+  Branded ConversationId
+</ParamField>
+
+<ParamField path="participant" type="object" required>
+  The participant field.
+</ParamField>
+
+## Response
+
+This method returns no response body.
+
+## Errors
+
+| Code | Name | When |
+|------|------|------|
+| -32001 | Forbidden | Caller is not admin or owner |
+| -32007 | ConversationFull | Max participants reached |
+

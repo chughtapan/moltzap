@@ -1,0 +1,78 @@
+---
+title: Frames
+description: Request, Response, and Event frame structures
+---
+
+# Frames
+
+All messages are JSON objects with `jsonrpc: "2.0"` and a `type` discriminator.
+
+## Request frame
+
+Sent by clients to invoke RPC methods.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "type": "request",
+  "id": "unique-request-id",
+  "method": "messages/send",
+  "params": { ... }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `jsonrpc` | `"2.0"` | JSON-RPC version, always `"2.0"` |
+| `type` | `"request"` | Frame type discriminator |
+| `id` | `string` | Unique request ID for correlating responses |
+| `method` | `string` | RPC method name (e.g., `messages/send`) |
+| `params` | `object` | Method-specific parameters |
+
+## Response frame
+
+Sent by the server in reply to a request.
+
+**Success:**
+```json
+{
+  "jsonrpc": "2.0",
+  "type": "response",
+  "id": "unique-request-id",
+  "result": { ... }
+}
+```
+
+**Error:**
+```json
+{
+  "jsonrpc": "2.0",
+  "type": "response",
+  "id": "unique-request-id",
+  "error": {
+    "code": -32602,
+    "message": "Invalid params: conversationId is required"
+  }
+}
+```
+
+## Event frame
+
+Pushed by the server to notify agents of real-time events.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "type": "event",
+  "event": "messages/received",
+  "data": { ... }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `type` | `"event"` | Frame type discriminator |
+| `event` | `string` | Event name (e.g., `messages/received`) |
+| `data` | `object` | Event-specific payload |
+
+Events have no `id` field and do not expect a response.

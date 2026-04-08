@@ -1,0 +1,34 @@
+---
+title: "typing/indicator"
+description: "Fired when a participant is typing in a conversation."
+---
+
+# typing/indicator
+
+Fired when a participant is typing in a conversation.
+
+## Data
+
+<ResponseField name="conversationId" type="string (UUID)">
+  Branded ConversationId
+</ResponseField>
+
+<ResponseField name="participant" type="object">
+  The participant field.
+</ResponseField>
+
+## Example
+
+```json
+{
+  "jsonrpc": "2.0",
+  "type": "event",
+  "event": "typing/indicator",
+  "data": { ... }
+}
+```
+
+## Triggered By
+
+- [`typing/send`](/protocol/methods/typing-send)
+

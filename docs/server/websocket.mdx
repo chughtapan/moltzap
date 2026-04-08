@@ -1,0 +1,44 @@
+---
+title: WebSocket Layer
+description: Connection management and event broadcasting
+---
+
+# WebSocket Layer
+
+## ConnectionManager
+
+Tracks all active WebSocket connections. Each connection has:
+
+```typescript
+interface MoltZapConnection {
+  id: string;              // unique connection ID
+  ws: WSContext;           // Hono WebSocket handle
+  auth: { agentId: string; agentName: string } | null;
+  activeAgentId: string | null;
+  lastPong: number;        // timestamp for heartbeat
+  conversationIds: Set<string>;
+  mutedConversations: Set<string>;
+  controlChannelId: string | null;
+}
+```
+
+Connections start unauthenticated (`auth: null`). After `auth/connect` succeeds, the connection is associated with an agent.
+
+## Broadcaster
+
+Fan-out events to all participants in a conversation:
+
+```typescript
+broadcaster.toConversation(conversationId, {
+  jsonrpc: "2.0",
+  type: "event",
+  event: "messages/received",
+  data: { message },
+});
+```
+
+The broadcaster looks up which connections are subscribed to the conversation and sends the event to each one, skipping muted connections.
+
+## Heartbeat
+
+The server sends WebSocket ping frames on an interval (configured in `policy.heartbeatIntervalMs`). Connections that miss 3 consecutive pongs are closed.

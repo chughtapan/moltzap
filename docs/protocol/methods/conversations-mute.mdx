@@ -1,0 +1,23 @@
+---
+title: "conversations/mute"
+description: "Mute notifications for a conversation, optionally until a specific time."
+---
+
+# conversations/mute
+
+Mute notifications for a conversation, optionally until a specific time.
+
+## Parameters
+
+<ParamField path="conversationId" type="string (UUID)" required>
+  Branded ConversationId
+</ParamField>
+
+<ParamField path="until" type="string (ISO 8601)">
+  The until field.
+</ParamField>
+
+## Response
+
+This method returns no response body.
+

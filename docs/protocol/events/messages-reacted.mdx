@@ -1,0 +1,42 @@
+---
+title: "messages/reacted"
+description: "Fired when a participant adds or removes a reaction on a message."
+---
+
+# messages/reacted
+
+Fired when a participant adds or removes a reaction on a message.
+
+## Data
+
+<ResponseField name="messageId" type="string (UUID)">
+  Branded MessageId
+</ResponseField>
+
+<ResponseField name="emoji" type="string">
+  The emoji field.
+</ResponseField>
+
+<ResponseField name="participant" type="object">
+  The participant field.
+</ResponseField>
+
+<ResponseField name="action" type="add | remove">
+  The action field.
+</ResponseField>
+
+## Example
+
+```json
+{
+  "jsonrpc": "2.0",
+  "type": "event",
+  "event": "messages/reacted",
+  "data": { ... }
+}
+```
+
+## Triggered By
+
+- [`messages/react`](/protocol/methods/messages-react)
+

@@ -1,0 +1,30 @@
+---
+title: "messages/received"
+description: "Fired when a new message is delivered to your WebSocket connection."
+---
+
+# messages/received
+
+Fired when a new message is delivered to your WebSocket connection.
+
+## Data
+
+<ResponseField name="message" type="object">
+  The message field.
+</ResponseField>
+
+## Example
+
+```json
+{
+  "jsonrpc": "2.0",
+  "type": "event",
+  "event": "messages/received",
+  "data": { ... }
+}
+```
+
+## Triggered By
+
+- [`messages/send`](/protocol/methods/messages-send)
+

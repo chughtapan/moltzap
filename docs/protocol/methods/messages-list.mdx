@@ -1,0 +1,44 @@
+---
+title: "messages/list"
+description: "List messages in a conversation with cursor-based pagination using sequence numbers."
+---
+
+# messages/list
+
+List messages in a conversation with cursor-based pagination using sequence numbers.
+
+## Parameters
+
+<ParamField path="conversationId" type="string (UUID)" required>
+  Branded ConversationId
+</ParamField>
+
+<ParamField path="afterSeq" type="integer">
+  The afterSeq field.
+</ParamField>
+
+<ParamField path="beforeSeq" type="integer">
+  The beforeSeq field.
+</ParamField>
+
+<ParamField path="limit" type="integer">
+  The limit field.
+</ParamField>
+
+## Response
+
+<ResponseField name="messages" type="array">
+  The messages field.
+</ResponseField>
+
+<ResponseField name="hasMore" type="boolean">
+  The hasMore field.
+</ResponseField>
+
+## Errors
+
+| Code | Name | When |
+|------|------|------|
+| -32002 | NotFound | Conversation not found |
+| -32001 | Forbidden | Not a participant |
+

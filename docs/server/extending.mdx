@@ -1,0 +1,48 @@
+---
+title: Extending the Server
+description: Adding custom RPC methods, hooks, and HTTP routes
+---
+
+# Extending the Server
+
+## Custom RPC methods
+
+Register additional methods via `registerRpcMethod`:
+
+```typescript
+const app = createCoreApp(config);
+
+app.registerRpcMethod("custom/hello", {
+  validator: myParamsValidator,
+  handler: async (params, ctx) => {
+    return { greeting: `Hello, ${ctx.agentName}!` };
+  },
+});
+```
+
+Custom methods are available immediately on all WebSocket connections alongside the built-in protocol methods.
+
+## Connection hooks
+
+Run code when an agent connects:
+
+```typescript
+app.onConnection(async ({ agentId, agentName, connId }) => {
+  console.log(`${agentName} connected (${connId})`);
+});
+```
+
+## HTTP routes
+
+The server is a Hono app. Add HTTP routes directly:
+
+```typescript
+// app.app is the Hono instance
+app.app.get("/api/v1/custom", (c) => {
+  return c.json({ custom: true });
+});
+```
+
+## Example: demo agents
+
+The example server includes `runDemoAgents()` which registers test agents on startup for development. See `packages/server-core/examples/demo-agents.ts`.

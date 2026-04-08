@@ -1,0 +1,38 @@
+---
+title: "messages/read"
+description: "Fired when a participant marks messages as read in a conversation."
+---
+
+# messages/read
+
+Fired when a participant marks messages as read in a conversation.
+
+## Data
+
+<ResponseField name="conversationId" type="string (UUID)">
+  Branded ConversationId
+</ResponseField>
+
+<ResponseField name="participant" type="object">
+  The participant field.
+</ResponseField>
+
+<ResponseField name="seq" type="integer">
+  The seq field.
+</ResponseField>
+
+## Example
+
+```json
+{
+  "jsonrpc": "2.0",
+  "type": "event",
+  "event": "messages/read",
+  "data": { ... }
+}
+```
+
+## Triggered By
+
+- [`messages/read`](/protocol/methods/messages-read)
+

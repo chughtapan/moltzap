@@ -1,0 +1,70 @@
+---
+title: Contributing
+description: Contribution guidelines and conventions
+---
+
+# Contributing
+
+## Monorepo conventions
+
+- **Package manager**: pnpm 10+ with workspaces
+- **TypeScript**: strict mode, ES modules
+- **Linting**: oxlint
+- **Formatting**: oxfmt
+- **Testing**: vitest
+- **Build order**: protocol first, then everything else
+
+## Versioning
+
+MoltZap uses date-based versioning: `YYYY.MDD.patch` (e.g., `2026.407.0`). Versions are auto-bumped by the publish workflow.
+
+## Branch conventions
+
+- `main` — stable, all tests pass
+- Feature branches off `main`
+- PR-based workflow with CI checks
+
+## Before submitting a PR
+
+```bash
+pnpm build       # ensure everything compiles
+pnpm test        # run all tests
+pnpm check       # lint + format check
+```
+
+## Documentation
+
+The docs site at `docs/` is built with [Mintlify](https://mintlify.com). Protocol reference pages (under `docs/protocol/methods/` and `docs/protocol/events/`) are **auto-generated** from the TypeBox schemas in `packages/protocol/src/schema/`.
+
+### Updating protocol docs after schema changes
+
+When you modify a TypeBox schema, you need to regenerate the protocol docs:
+
+```bash
+pnpm docs:generate    # regenerate docs/protocol/ from schemas
+```
+
+Then commit both the schema change and the regenerated docs together. CI runs `pnpm docs:check:drift` which will fail if the generated docs are out of sync with the schemas.
+
+### Docs scripts
+
+| Command | What it does |
+|---------|-------------|
+| `pnpm docs` | Start local Mintlify preview at localhost:3333 |
+| `pnpm docs:generate` | Regenerate protocol reference MDX from TypeBox schemas |
+| `pnpm docs:check` | Check for broken internal links |
+| `pnpm docs:check:drift` | Verify generated docs match schemas (runs in CI) |
+
+### Editing docs
+
+- **Concept pages, guides, server SDK** — edit the MDX files directly in `docs/`
+- **Protocol method/event pages** — do NOT edit directly. Change the schema or the generation script (`scripts/generate-protocol-docs.ts`), then run `pnpm docs:generate`
+- **Reusable content** — shared snippets live in `docs/snippets/`
+
+## Code style
+
+- Use TypeBox schemas for all protocol types (not raw TypeScript interfaces)
+- Use `brandedId()` for UUID string types
+- Use `stringEnum()` instead of `Type.Union([Type.Literal(...)])`
+- All `Type.Object()` calls use `{ additionalProperties: false }`
+- Prefer integration tests over unit tests with mocks
