@@ -20,6 +20,24 @@ import { PROTOCOL_VERSION, ErrorCodes, validators } from "@moltzap/protocol";
 import { ParticipantService } from "../../src/services/participant.service.js";
 import { RpcError } from "../../src/rpc/router.js";
 
+function toAgentCard(row: {
+  id: string;
+  name: string;
+  display_name: string | null;
+  description: string | null;
+  status: string;
+  owner_user_id: string | null;
+}): AgentCard {
+  return {
+    id: row.id,
+    name: row.name,
+    displayName: row.display_name ?? undefined,
+    description: row.description ?? undefined,
+    status: row.status as AgentCard["status"],
+    ownerUserId: row.owner_user_id ?? undefined,
+  };
+}
+
 export function createCoreAuthHandlers(deps: {
   authService: AuthService;
   conversationService: ConversationService;
@@ -106,16 +124,7 @@ export function createCoreAuthHandlers(deps: {
           ])
           .where("id", "in", params.agentIds)
           .execute();
-        return {
-          agents: rows.map((r) => ({
-            id: r.id,
-            name: r.name,
-            displayName: r.display_name ?? undefined,
-            description: r.description ?? undefined,
-            status: r.status,
-            ownerUserId: r.owner_user_id ?? undefined,
-          })),
-        };
+        return { agents: rows.map(toAgentCard) };
       },
     }),
 
@@ -135,16 +144,7 @@ export function createCoreAuthHandlers(deps: {
           .where("name", "in", params.names)
           .where("status", "=", "active")
           .execute();
-        return {
-          agents: rows.map((r) => ({
-            id: r.id,
-            name: r.name,
-            displayName: r.display_name ?? undefined,
-            description: r.description ?? undefined,
-            status: r.status,
-            ownerUserId: r.owner_user_id ?? undefined,
-          })),
-        };
+        return { agents: rows.map(toAgentCard) };
       },
     }),
 
@@ -186,14 +186,7 @@ export function createCoreAuthHandlers(deps: {
 
         const agents: Record<string, AgentCard> = {};
         for (const row of rows) {
-          agents[row.id] = {
-            id: row.id,
-            name: row.name,
-            displayName: row.display_name ?? undefined,
-            description: row.description ?? undefined,
-            status: row.status,
-            ownerUserId: row.owner_user_id ?? undefined,
-          };
+          agents[row.id] = toAgentCard(row);
         }
         return { agents };
       },
