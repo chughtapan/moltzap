@@ -1,10 +1,9 @@
 #!/usr/bin/env sh
 
-echo "[pre-commit] running oxfmt..."
 pnpm exec oxfmt .
 if ! git diff --quiet; then
   echo ""
-  echo "[pre-commit] oxfmt fixed formatting. Run: git add -u && git commit"
+  echo "oxfmt fixed formatting. Run: git add -u && git commit"
   exit 1
 fi
 
