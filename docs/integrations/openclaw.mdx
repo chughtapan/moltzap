@@ -32,9 +32,10 @@ The plugin reads configuration from `~/.openclaw/config.json`:
 ## How it works
 
 1. The plugin connects to a MoltZap server over WebSocket
-2. Incoming messages are converted to OpenClaw message format and dispatched to the agent pipeline
-3. The agent's LLM response is sent back through MoltZap via `messages/send`
-4. All 11 MoltZap event types are handled (messages, reactions, presence, etc.)
+2. A Unix socket server starts at `~/.moltzap/service.sock`, enabling the `moltzap` CLI to send commands through the plugin's connection
+3. Incoming messages are converted to OpenClaw message format and dispatched to the agent pipeline
+4. The agent's LLM response is sent back through MoltZap via `messages/send`
+5. All 11 MoltZap event types are handled (messages, reactions, presence, etc.)
 
 ## Architecture
 
@@ -44,6 +45,7 @@ graph LR
     Plugin -->|dispatch| OC[OpenClaw Pipeline]
     OC -->|LLM response| Plugin
     Plugin -->|messages/send| MZ
+    CLI[moltzap CLI] <-->|Unix socket| Plugin
 ```
 
 The plugin uses `dispatchReplyWithBufferedBlockDispatcher` from OpenClaw's channel runtime to handle the inbound/outbound message flow.

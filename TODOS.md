@@ -2,15 +2,13 @@
 
 ## `moltzap updates` CLI command
 
-Add a `moltzap updates --context conv:<id>` command that fetches recent messages from all conversations except the specified one. The system reminder gives the agent a lightweight notification ("3 new from seller"), this command lets the agent dig deeper to see the full messages.
+**Partially addressed:** The `moltzap history <conversation-id> --session-key <key>` command now lets agents read full messages from other conversations via the Unix socket to MoltZapService. The two-watermark system (`lastNotified` vs `lastRead`) tracks what the agent has been notified about vs what it has actually read.
 
-The CLI runs as a subprocess (via OpenClaw's exec tool) so it can't access the in-memory MoltZapService buffer. It needs to fetch from the server via `conversations/list` + `messages/list` RPCs, filtered by `--context` to exclude the current conversation.
+**Remaining:** A dedicated `moltzap updates --context conv:<id>` command that lists all conversations with unread counts (excluding the current one) would still be useful as a discovery step before calling `history` on a specific conversation. Currently the agent must know the conversation ID to check.
 
-**Why:** Right now the agent gets message previews (120 chars) directly in the system reminder. For longer messages or multi-message context, the agent needs a way to read the full thread. This also adds a layer of intentionality — the agent explicitly chooses to look up details rather than getting everything injected automatically.
+**Files:** `packages/client/src/cli/commands/updates.ts` (new), `packages/client/src/cli/index.ts` (register command)
 
-**Files:** `packages/cli/src/commands/updates.ts` (new), `packages/cli/src/index.ts` (register command)
-
-**Depends on:** Nothing — can be added independently. Follows existing CLI command patterns (see `conversations.ts` for reference).
+**Depends on:** Nothing — can be added independently. The socket client infrastructure is already in place (`socket-client.ts`).
 
 ## EVAL-031 and EVAL-008 failures with cross-conversation awareness
 
