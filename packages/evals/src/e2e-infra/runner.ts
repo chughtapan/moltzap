@@ -17,7 +17,7 @@ import {
 import { MoltZapTestClient } from "@moltzap/protocol/test-client";
 import { DockerManager } from "./docker-manager.js";
 import { TIER5_SCENARIOS } from "./scenarios.js";
-import { judgeAgentResponse, analysisFlow } from "./llm-judge.js";
+import { judgeAgentResponse, analyzeFailures } from "./llm-judge.js";
 import { generateReport, generateSummaryMarkdown } from "./report.js";
 import { DEFAULT_JUDGE_MODEL, DEFAULT_AGENT_MODEL_ID } from "./model-config.js";
 import { logger } from "./logger.js";
@@ -588,6 +588,7 @@ export async function runE2EEvals(opts: {
             conversationContext: validated.conversationContext,
             transcript: validated.transcript,
             evalModel,
+            abortSignal: opts.signal,
           });
 
           let overallSeverity: IssueSeverity | undefined;
@@ -631,7 +632,7 @@ export async function runE2EEvals(opts: {
         `Running failure analysis on ${failures.length} failure(s)...`,
       );
       try {
-        analysisText = await analysisFlow({
+        analysisText = await analyzeFailures({
           failures: failures.map((f) => ({
             scenarioId: f.scenarioId,
             runNumber: f.runNumber,
@@ -647,6 +648,7 @@ export async function runE2EEvals(opts: {
           })),
           numRuns: allResults.length,
           evalModel,
+          abortSignal: opts.signal,
         });
       } catch (e: unknown) {
         const err = e as Error;

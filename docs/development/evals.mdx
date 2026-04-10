@@ -11,13 +11,15 @@ description: E2E evaluation framework with LLM judges
 
 1. Docker containers run OpenClaw agents with the MoltZap channel plugin
 2. Agents communicate through a real MoltZap server (testcontainers PostgreSQL)
-3. An LLM judge (Google AI via genkit) scores conversation quality
+3. An LLM judge (Claude, via `@anthropic-ai/claude-agent-sdk`) scores conversation quality
 4. Results are aggregated into reports with pass/fail verdicts
 
 ## Prerequisites
 
 - Docker running locally
-- A `packages/evals/.env` file with API keys (see below)
+- A `packages/evals/.env` file with agent-model API keys (see below)
+- Claude auth for the judge — either `ANTHROPIC_API_KEY` in your environment or
+  a local `claude login` (the SDK picks up either)
 - The eval agent Docker image is auto-built on first run (no manual step needed)
 
 ## Model configuration
@@ -29,11 +31,13 @@ There are two separate model roles:
 env vars are auto-forwarded to containers. Model IDs are case-sensitive and must match
 OpenClaw's catalog (e.g. `minimax/MiniMax-M2.7-highspeed`, not `minimax/minimax-2.7-highspeed`).
 
-**Judge model** — the LLM-as-judge that scores agent responses. Currently hardwired to
-Google AI via genkit (`googleai/` prefix). Requires `GEMINI_API_KEY`. Default: `gemini-3-flash-preview`.
+**Judge model** — the LLM-as-judge that scores agent responses. Hard-forked to Claude
+via `@anthropic-ai/claude-agent-sdk`. Default: `claude-opus-4-6`. Override with
+`--eval-model claude-sonnet-4-6` or `--eval-model claude-haiku-4-5`. Non-Claude judge
+models (Gemini, GPT) are no longer supported here — use the SDK directly if you need them.
 
 Env var resolution for agent models uses OpenClaw's `getProviderEnvVars()` SDK, so there's
-no hardcoded mapping to maintain. Adding a new model means just passing its ID string.
+no hardcoded mapping to maintain. Adding a new agent model means just passing its ID string.
 
 ### `.env` file
 
@@ -44,20 +48,31 @@ ZAI_API_KEY=...
 MINIMAX_API_KEY=...
 ANTHROPIC_API_KEY=...
 
-# Judge model uses GEMINI_API_KEY (google AI via genkit)
+# Judge: Claude Agent SDK reads ANTHROPIC_API_KEY automatically, or uses
+# `claude login` subscription auth if no env var is set.
 ```
 
 ## Running evals
 
 ```bash
-# Run with a specific agent model
+# Run with a specific agent model (judge defaults to claude-opus-4-6)
 pnpm --filter @moltzap/evals eval:e2e --model minimax/MiniMax-M2.7-highspeed
 
 # Run a single scenario
-pnpm --filter @moltzap/evals eval:e2e --model google/gemini-3-flash-preview --scenario EVAL-018
+pnpm --filter @moltzap/evals eval:e2e --model google/gemini-2.5-flash --scenario EVAL-018
 
 # Override the judge model
-pnpm --filter @moltzap/evals eval:e2e --model zai/glm-5.1 --eval-model gemini-2.5-flash
+pnpm --filter @moltzap/evals eval:e2e --model anthropic/claude-sonnet-4-5 --eval-model claude-sonnet-4-6
+```
+
+## Tests
+
+```bash
+# Unit tests (golden snapshot of prompt construction + judge wiring stubs)
+pnpm --filter @moltzap/evals test
+
+# Real-Claude integration test (requires Claude auth)
+pnpm --filter @moltzap/evals test:integration
 ```
 
 ## Writing scenarios
