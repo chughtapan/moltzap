@@ -163,7 +163,7 @@ export class DockerManager {
       );
     }
 
-    await waitForGateway(raw.containerId, 60_000);
+    await waitForGateway(raw.containerId, 180_000);
 
     const agent: AgentContainer & { _raw: OpenClawContainer } = {
       containerId: raw.containerId,
