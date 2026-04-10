@@ -214,18 +214,19 @@ export async function setupAgentContainers(opts: {
   const dockerManager = new DockerManager();
   await dockerManager.ensureImage();
 
-  const containers: AgentContainer[] = [];
+  let containers: AgentContainer[];
   try {
-    for (const cred of opts.agentCredentials) {
-      const container = await dockerManager.startAgent({
-        name: cred.name,
-        moltzapServerUrl: `ws://127.0.0.1:${opts.serverPort}`,
-        moltzapApiKey: cred.apiKey,
-        agentModelId: modelId,
-        workspaceFiles: opts.workspaceFiles?.(cred.name),
-      });
-      containers.push(container);
-    }
+    containers = await Promise.all(
+      opts.agentCredentials.map((cred) =>
+        dockerManager.startAgent({
+          name: cred.name,
+          moltzapServerUrl: `ws://127.0.0.1:${opts.serverPort}`,
+          moltzapApiKey: cred.apiKey,
+          agentModelId: modelId,
+          workspaceFiles: opts.workspaceFiles?.(cred.name),
+        }),
+      ),
+    );
   } catch (err) {
     await dockerManager.stopAll();
     throw err;
