@@ -1,45 +1,33 @@
-/**
- * LLM-as-judge for E2E evals, mirroring OpenClaw's evaluation_flow.ts.
- *
- * Uses Genkit to call a judge model (default: gemini-2.5-flash) that evaluates
- * whether the agent handled a scenario correctly.
- */
-
-import { z } from "genkit";
-import { ai } from "./ai.js";
-import { rateLimiter } from "./rate-limiter.js";
-import {
-  MODELS,
-  DEFAULT_JUDGE_MODEL,
-  type ModelConfig,
-} from "./model-config.js";
+import { query, type Options } from "@anthropic-ai/claude-agent-sdk";
+import { Type } from "@sinclair/typebox";
+import { Value } from "@sinclair/typebox/value";
+import { stringEnum } from "@moltzap/protocol";
+import { DEFAULT_JUDGE_MODEL } from "./model-config.js";
 import { logger } from "./logger.js";
 import type { EvalScenario, JudgeResult, TranscriptEntry } from "./types.js";
 
-const JudgeResultSchema = z.object({
-  pass: z
-    .boolean()
-    .describe("Whether the agent handled the scenario correctly"),
-  reason: z.string().describe("Summary explanation of the verdict"),
-  issues: z
-    .array(
-      z.object({
-        issue: z.string().describe("Description of the issue"),
-        severity: z
-          .enum(["minor", "significant", "critical"])
-          .describe("Severity of the issue"),
-      }),
-    )
-    .describe("Specific issues found"),
-});
+const JudgeResultSchema = Type.Object(
+  {
+    pass: Type.Boolean(),
+    reason: Type.String(),
+    issues: Type.Array(
+      Type.Object(
+        {
+          issue: Type.String(),
+          severity: stringEnum(["minor", "significant", "critical"]),
+        },
+        { additionalProperties: false },
+      ),
+    ),
+  },
+  { additionalProperties: false },
+);
 
-function formatTranscript(transcript: TranscriptEntry[]): string {
-  // Group by conversationId to show cross-conversation boundaries
+export function formatTranscript(transcript: TranscriptEntry[]): string {
   const convIds = [...new Set(transcript.map((t) => t.conversationId))];
   if (convIds.length <= 1) {
     return transcript.map((t) => `[${t.role}]: ${t.text}`).join("\n");
   }
-  // Multiple conversations: show boundaries
   let result = "";
   let currentConv = "";
   for (const entry of transcript) {
@@ -53,7 +41,7 @@ function formatTranscript(transcript: TranscriptEntry[]): string {
   return result;
 }
 
-function buildEvalPrompt(opts: {
+export function buildEvalPrompt(opts: {
   scenario: EvalScenario;
   agentResponse: string;
   conversationContext: string;
@@ -131,175 +119,100 @@ Return a JSON object matching this schema:
 `;
 }
 
-function resolveJudgeModel(evalModel: string): ModelConfig {
-  const match = MODELS.find(
-    (m) => m.modelId === evalModel || m.provider === evalModel,
-  );
-  if (match) return match;
-
+/** Bridges an external AbortSignal into a fresh AbortController; returns a disposer for cleanup. */
+function linkAbort(signal: AbortSignal | undefined): {
+  controller: AbortController;
+  dispose: () => void;
+} {
+  const controller = new AbortController();
+  if (!signal) return { controller, dispose: () => {} };
+  if (signal.aborted) {
+    controller.abort();
+    return { controller, dispose: () => {} };
+  }
+  const onAbort = () => controller.abort();
+  signal.addEventListener("abort", onAbort, { once: true });
   return {
-    provider: "google",
-    modelId: evalModel,
-    envVar: "GEMINI_API_KEY",
-    requestsPerMinute: 60,
-    tokensPerMinute: 100000,
+    controller,
+    dispose: () => signal.removeEventListener("abort", onAbort),
   };
 }
 
-/** Evaluation flow defined via Genkit. */
-export const evaluationFlow = ai.defineFlow(
-  {
-    name: "e2eEvaluationFlow",
-    inputSchema: z.object({
-      scenarioId: z.string(),
-      scenarioName: z.string(),
-      scenarioDescription: z.string(),
-      setupMessage: z.string(),
-      followUpMessages: z.array(z.string()).optional(),
-      crossConversationProbe: z.string().optional(),
-      expectedBehavior: z.string(),
-      validationChecks: z.array(z.string()),
-      agentResponse: z.string(),
-      conversationContext: z.string(),
-      transcript: z
-        .array(
-          z.object({
-            role: z.enum(["user", "agent"]),
-            text: z.string(),
-            conversationId: z.string(),
-          }),
-        )
-        .optional(),
-      evalModel: z.string(),
-    }),
-    outputSchema: z.object({
-      pass: z.boolean(),
-      reason: z.string(),
-      issues: z
-        .array(
-          z.object({
-            issue: z.string(),
-            severity: z.enum(["minor", "significant", "critical"]),
-          }),
-        )
-        .optional(),
-      evalPrompt: z.string().optional(),
-    }),
-  },
-  async (input) => {
-    const scenario: EvalScenario = {
-      id: input.scenarioId,
-      name: input.scenarioName,
-      description: input.scenarioDescription,
-      setupMessage: input.setupMessage,
-      followUpMessages: input.followUpMessages,
-      crossConversationProbe: input.crossConversationProbe,
-      expectedBehavior: input.expectedBehavior,
-      validationChecks: input.validationChecks,
-    };
-
-    const evalPrompt = buildEvalPrompt({
-      scenario,
-      agentResponse: input.agentResponse,
-      conversationContext: input.conversationContext,
-      transcript: input.transcript,
-    });
-
-    const estimatedTokens = Math.ceil(evalPrompt.length / 2.5);
-    const judgeModel = resolveJudgeModel(input.evalModel);
-
-    await rateLimiter.acquirePermit(judgeModel, estimatedTokens);
-
-    try {
-      const response = await ai.generate({
-        prompt: evalPrompt,
-        model: `googleai/${input.evalModel}`,
-        output: { schema: JudgeResultSchema },
-      });
-
-      const result = response.output;
-      if (!result) {
-        throw new Error("No output from judge model");
-      }
-
-      return {
-        pass: result.pass,
-        reason: result.reason || "No reason provided",
-        issues: result.issues || [],
-        evalPrompt,
-      };
-    } catch (e: unknown) {
-      const err = e as Error;
-      logger.error(`Error during evaluation: ${err.message}`);
-      rateLimiter.reportError(judgeModel, e);
-      throw e;
-    }
-  },
-);
-
-/** Run a single judge evaluation with a custom or default prompt. */
-async function runJudge(opts: {
-  scenario: EvalScenario;
-  agentResponse: string;
-  conversationContext: string;
-  transcript?: TranscriptEntry[];
-  evalModel: string;
-  buildPrompt?: (opts: {
-    scenario: EvalScenario;
-    agentResponse: string;
-    conversationContext: string;
-  }) => string;
-}): Promise<JudgeResult> {
-  if (opts.buildPrompt) {
-    const evalPrompt = opts.buildPrompt({
-      scenario: opts.scenario,
-      agentResponse: opts.agentResponse,
-      conversationContext: opts.conversationContext,
-    });
-
-    const estimatedTokens = Math.ceil(evalPrompt.length / 2.5);
-    const judgeModel = resolveJudgeModel(opts.evalModel);
-
-    await rateLimiter.acquirePermit(judgeModel, estimatedTokens);
-
-    const response = await ai.generate({
-      prompt: evalPrompt,
-      model: `googleai/${opts.evalModel}`,
-      output: { schema: JudgeResultSchema },
-    });
-
-    const result = response.output;
-    if (!result) {
-      throw new Error("No output from judge model");
-    }
-
-    return {
-      pass: result.pass,
-      reason: result.reason || "No reason provided",
-      issues: result.issues || [],
-    };
-  }
-
-  const result = await evaluationFlow({
-    scenarioId: opts.scenario.id,
-    scenarioName: opts.scenario.name,
-    scenarioDescription: opts.scenario.description,
-    setupMessage: opts.scenario.setupMessage,
-    followUpMessages: opts.scenario.followUpMessages,
-    crossConversationProbe: opts.scenario.crossConversationProbe,
-    expectedBehavior: opts.scenario.expectedBehavior,
-    validationChecks: opts.scenario.validationChecks,
-    agentResponse: opts.agentResponse,
-    conversationContext: opts.conversationContext,
-    transcript: opts.transcript,
-    evalModel: opts.evalModel,
-  });
-
+/** Common SDK option baseline for both judge calls. */
+function buildJudgeQueryOptions(opts: {
+  model: string;
+  controller: AbortController;
+  maxTurns: number;
+  outputFormat?: Options["outputFormat"];
+}): Options {
   return {
-    pass: result.pass,
-    reason: result.reason,
-    issues: result.issues,
+    model: opts.model,
+    // Suppress the SDK's default Claude Code persona — judge persona is inline in the user prompt.
+    systemPrompt: "",
+    // With outputFormat the SDK uses a synthesis turn after the model response, so 1 is too tight.
+    maxTurns: opts.maxTurns,
+    settingSources: [],
+    persistSession: false,
+    tools: [],
+    abortController: opts.controller,
+    ...(opts.outputFormat ? { outputFormat: opts.outputFormat } : {}),
   };
+}
+
+const JUDGE_OUTPUT_FORMAT: Options["outputFormat"] = {
+  type: "json_schema",
+  schema: JudgeResultSchema as Record<string, unknown>,
+};
+
+async function callJudgeWithSdk(opts: {
+  userPrompt: string;
+  model: string;
+  abortSignal?: AbortSignal;
+}): Promise<JudgeResult> {
+  const { controller, dispose } = linkAbort(opts.abortSignal);
+  try {
+    const stream = query({
+      prompt: opts.userPrompt,
+      options: buildJudgeQueryOptions({
+        model: opts.model,
+        controller,
+        maxTurns: 5,
+        outputFormat: JUDGE_OUTPUT_FORMAT,
+      }),
+    });
+
+    for await (const msg of stream) {
+      if (msg.type !== "result") continue;
+      if (msg.subtype === "success") {
+        const so = msg.structured_output;
+        if (so === undefined || so === null) {
+          throw new Error("Judge success result missing structured_output");
+        }
+        const parsed = Value.Parse(JudgeResultSchema, so);
+        return {
+          pass: parsed.pass,
+          reason: parsed.reason || "No reason provided",
+          issues: parsed.issues,
+        };
+      }
+      const errs = (msg.errors ?? []).join("; ");
+      throw new Error(`Judge ${msg.subtype}${errs ? `: ${errs}` : ""}`);
+    }
+
+    throw new Error("Judge stream ended without a result message");
+  } finally {
+    dispose();
+  }
+}
+
+/** Errors that should bypass the retry loop — retrying is guaranteed to fail. */
+function isFatal(err: Error): boolean {
+  const msg = err.message;
+  return (
+    msg.includes("aborted") ||
+    msg.includes("Expected") || // TypeBox Value.Parse errors
+    msg.includes("missing structured_output")
+  );
 }
 
 /** Evaluate a single agent response using the LLM judge. */
@@ -309,30 +222,37 @@ export async function judgeAgentResponse(opts: {
   conversationContext: string;
   transcript?: TranscriptEntry[];
   evalModel?: string;
-  buildPrompt?: (opts: {
-    scenario: EvalScenario;
-    agentResponse: string;
-    conversationContext: string;
-  }) => string;
+  abortSignal?: AbortSignal;
+  buildPrompt?: typeof buildEvalPrompt;
 }): Promise<JudgeResult> {
   const evalModel = opts.evalModel ?? DEFAULT_JUDGE_MODEL;
+  const userPrompt = (opts.buildPrompt ?? buildEvalPrompt)({
+    scenario: opts.scenario,
+    agentResponse: opts.agentResponse,
+    conversationContext: opts.conversationContext,
+    transcript: opts.transcript,
+  });
 
   const maxRetries = 3;
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
+  let attempt = 0;
+  while (true) {
+    if (opts.abortSignal?.aborted) {
+      throw new Error("Judge aborted before attempt");
+    }
     try {
-      return await runJudge({
-        scenario: opts.scenario,
-        agentResponse: opts.agentResponse,
-        conversationContext: opts.conversationContext,
-        transcript: opts.transcript,
-        evalModel,
-        buildPrompt: opts.buildPrompt,
+      return await callJudgeWithSdk({
+        userPrompt,
+        model: evalModel,
+        abortSignal: opts.abortSignal,
       });
     } catch (e: unknown) {
-      if (attempt === maxRetries - 1) {
-        const err = e as Error;
+      const err = e as Error;
+      const isLast = attempt === maxRetries - 1;
+      if (isFatal(err) || isLast) {
         logger.warn(
-          `Evaluation failed after ${maxRetries} attempts: ${err.message}`,
+          isLast
+            ? `Evaluation failed after ${maxRetries} attempts: ${err.message}`
+            : `Evaluation failed (fatal, no retry): ${err.message}`,
         );
         return {
           pass: false,
@@ -345,53 +265,49 @@ export async function judgeAgentResponse(opts: {
           ],
         };
       }
+      attempt++;
       await new Promise((resolve) =>
-        setTimeout(resolve, 1000 * Math.pow(2, attempt)),
+        setTimeout(resolve, 1000 * Math.pow(2, attempt - 1)),
       );
     }
   }
-
-  // Unreachable, but satisfies TypeScript
-  throw new Error("Unreachable: retry loop exited without returning");
 }
 
-/** Analysis flow for summarizing failure patterns across scenarios. */
-export const analysisFlow = ai.defineFlow(
-  {
-    name: "e2eAnalysisFlow",
-    inputSchema: z.object({
-      failures: z.array(
-        z.object({
-          scenarioId: z.string(),
-          runNumber: z.number(),
-          failureType: z.string(),
-          reason: z.string(),
-          issues: z.array(z.string()).optional(),
-        }),
-      ),
-      numRuns: z.number(),
-      evalModel: z.string(),
-    }),
-    outputSchema: z.string(),
-  },
-  async ({ failures, numRuns, evalModel }) => {
-    const failureDetails = failures
-      .map((f) => {
-        let details = `Scenario: ${f.scenarioId} (Run ${f.runNumber})\nType: ${f.failureType}\nReason: ${f.reason}`;
-        if (f.issues && f.issues.length > 0) {
-          details += `\nIssues:\n- ${f.issues.join("\n- ")}`;
-        }
-        return details;
-      })
-      .join("\n\n---\n\n");
+/** Summarize failure patterns from an eval run. Plain-text Claude output. */
+export async function analyzeFailures(opts: {
+  failures: Array<{
+    scenarioId: string;
+    runNumber: number;
+    failureType: string;
+    reason: string;
+    issues?: string[];
+  }>;
+  numRuns: number;
+  evalModel?: string;
+  abortSignal?: AbortSignal;
+}): Promise<string> {
+  if (opts.failures.length === 0) {
+    return "No failures to analyze.";
+  }
+  const evalModel = opts.evalModel ?? DEFAULT_JUDGE_MODEL;
 
-    const analysisPrompt = `You are an expert AI analyst.
+  const failureDetails = opts.failures
+    .map((f) => {
+      let details = `Scenario: ${f.scenarioId} (Run ${f.runNumber})\nType: ${f.failureType}\nReason: ${f.reason}`;
+      if (f.issues && f.issues.length > 0) {
+        details += `\nIssues:\n- ${f.issues.join("\n- ")}`;
+      }
+      return details;
+    })
+    .join("\n\n---\n\n");
+
+  const analysisPrompt = `You are an expert AI analyst.
 Analyze the following failures from a MoltZap agent messaging eval run.
 
-${failures.length} failures out of ${numRuns} total runs.
-${failures.filter((f) => f.failureType === "Schema Validation").length} schema validation failures.
-${failures.filter((f) => f.failureType === "Evaluation Failure").length} evaluation failures.
-${numRuns - failures.length} successful runs.
+${opts.failures.length} failures out of ${opts.numRuns} total runs.
+${opts.failures.filter((f) => f.failureType === "Schema Validation").length} schema validation failures.
+${opts.failures.filter((f) => f.failureType === "Evaluation Failure").length} evaluation failures.
+${opts.numRuns - opts.failures.length} successful runs.
 
 Failures:
 ${failureDetails}
@@ -405,28 +321,30 @@ Output Format:
 Return a short Markdown-formatted summary with headers and bullet points.
 `;
 
-    const estimatedTokens = Math.ceil(analysisPrompt.length / 2.5);
-    const judgeModel = resolveJudgeModel(evalModel);
+  const { controller, dispose } = linkAbort(opts.abortSignal);
+  try {
+    const stream = query({
+      prompt: analysisPrompt,
+      options: buildJudgeQueryOptions({
+        model: evalModel,
+        controller,
+        maxTurns: 1,
+      }),
+    });
 
-    await rateLimiter.acquirePermit(judgeModel, estimatedTokens);
-
-    try {
-      const response = await ai.generate({
-        prompt: analysisPrompt,
-        model: `googleai/${evalModel}`,
-        output: { format: "text" },
-      });
-
-      const output = response.output;
-      if (!output || typeof output !== "string") {
-        return "Analysis failed: Output was not a string.";
+    for await (const msg of stream) {
+      if (msg.type !== "result") continue;
+      if (msg.subtype === "success") {
+        return msg.result || "Analysis returned no text.";
       }
-      return output;
-    } catch (e: unknown) {
-      const err = e as Error;
-      logger.error(`Error during analysis: ${err.message}`);
-      rateLimiter.reportError(judgeModel, e);
-      return `Analysis failed: ${err.message}`;
+      return `Analysis failed: ${msg.subtype}`;
     }
-  },
-);
+    return "Analysis failed: stream ended without result.";
+  } catch (e: unknown) {
+    const err = e as Error;
+    logger.error(`Error during analysis: ${err.message}`);
+    return `Analysis failed: ${err.message}`;
+  } finally {
+    dispose();
+  }
+}
