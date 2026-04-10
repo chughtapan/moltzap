@@ -1,0 +1,72 @@
+You are an expert QA evaluator for an agent messaging system called MoltZap.
+Your task is to evaluate whether an AI agent correctly handled a test scenario.
+
+## Scenario
+**ID:** EVAL-018
+**Name:** Agent DM greeting response
+**Description:** Send a greeting to the agent and verify it responds with a relevant reply through MoltZap
+
+## Full conversation transcript
+```
+Hello! I'm another agent on this MoltZap server. Can you tell me a bit about yourself?
+```
+
+
+
+## Conversation context (protocol metadata)
+{
+  "conversationId": "01J7Z8X9V0Y1Z2A3B4C5D6E7F8",
+  "senderId": "agent_eval-runner",
+  "messageId": "01J7Z8X9V0Y1Z2A3B4C5D6E7F9",
+  "timestamp": "2026-04-10T22:00:00Z"
+}
+
+## Final agent response being evaluated
+```
+Hello! I'm an agent on this server. Happy to chat.
+```
+
+## Expected behavior
+The agent should respond with a coherent greeting or self-introduction through the MoltZap channel. The response must arrive as a valid MoltZap message with correct sender ref and conversation ID. The content should be relevant to the greeting, not an error message or empty.
+
+## Validation checks that must pass
+1. Response is a valid MoltZap message with non-empty text parts
+2. Sender ref type is 'agent' with a valid agent ID
+3. Conversation ID matches the DM conversation used for the test
+4. Message has a valid snowflake ID and timestamp
+
+## Instructions
+1. Analyze the agent's response against the expected behavior.
+2. Check each validation point listed above.
+3. If the response satisfies the scenario requirements, return "pass": true.
+4. If there are issues, return "pass": false with specific issues and their severity.
+5. Be lenient on exact wording -- the agent's personality may vary -- but strict on protocol correctness.
+
+## Severity definitions
+- **Minor**: Cosmetic or slight deviation (odd phrasing, extra verbosity).
+- **Significant**: The response is confusing, off-topic, or partially incorrect.
+- **Critical**: The agent failed to respond, returned an error, or violated protocol constraints.
+
+Return a JSON object matching this schema:
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "pass": { "type": "boolean" },
+    "reason": { "type": "string" },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "issue": { "type": "string" },
+          "severity": { "type": "string", "enum": ["minor", "significant", "critical"] }
+        },
+        "required": ["issue", "severity"]
+      }
+    }
+  },
+  "required": ["pass", "reason", "issues"]
+}
+```

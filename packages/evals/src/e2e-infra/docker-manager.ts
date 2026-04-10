@@ -20,10 +20,7 @@ import {
   type ContainerModelConfig,
   type OpenClawContainer,
 } from "@moltzap/openclaw-channel/test-utils";
-import {
-  validateAgentModelEnv,
-  DEFAULT_AGENT_MODEL_ID,
-} from "./model-config.js";
+import { DEFAULT_AGENT_MODEL_ID } from "./model-config.js";
 import { logger } from "./logger.js";
 
 const DEFAULT_EVAL_AGENT_IMAGE = "moltzap-eval-agent:local";
@@ -215,7 +212,6 @@ export async function setupAgentContainers(opts: {
   containers: AgentContainer[];
 }> {
   const modelId = opts.modelId ?? DEFAULT_AGENT_MODEL_ID;
-  validateAgentModelEnv(modelId);
   const dockerManager = new DockerManager();
   await dockerManager.ensureImage();
 

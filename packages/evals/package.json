@@ -5,23 +5,36 @@
   "scripts": {
     "build": "tsc",
     "eval:e2e": "tsx src/e2e-infra/index.ts",
+    "test": "vitest run --passWithNoTests",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
     "build:docker": "bash scripts/build-eval-agent.sh"
   },
   "exports": {
-    "./logger": { "import": "./dist/e2e-infra/logger.js", "types": "./dist/e2e-infra/logger.d.ts" },
-    "./rate-limiter": { "import": "./dist/e2e-infra/rate-limiter.js", "types": "./dist/e2e-infra/rate-limiter.d.ts" },
-    "./ai": { "import": "./dist/e2e-infra/ai.js", "types": "./dist/e2e-infra/ai.d.ts" },
-    "./model-config": { "import": "./dist/e2e-infra/model-config.js", "types": "./dist/e2e-infra/model-config.d.ts" },
-    "./types": { "import": "./dist/e2e-infra/types.js", "types": "./dist/e2e-infra/types.d.ts" },
-    "./report": { "import": "./dist/e2e-infra/report.js", "types": "./dist/e2e-infra/report.d.ts" },
-    "./llm-judge": { "import": "./dist/e2e-infra/llm-judge.js", "types": "./dist/e2e-infra/llm-judge.d.ts" },
-    "./docker-manager": { "import": "./dist/e2e-infra/docker-manager.js", "types": "./dist/e2e-infra/docker-manager.d.ts" }
+    "./logger": {
+      "import": "./dist/e2e-infra/logger.js",
+      "types": "./dist/e2e-infra/logger.d.ts"
+    },
+    "./types": {
+      "import": "./dist/e2e-infra/types.js",
+      "types": "./dist/e2e-infra/types.d.ts"
+    },
+    "./report": {
+      "import": "./dist/e2e-infra/report.js",
+      "types": "./dist/e2e-infra/report.d.ts"
+    },
+    "./llm-judge": {
+      "import": "./dist/e2e-infra/llm-judge.js",
+      "types": "./dist/e2e-infra/llm-judge.d.ts"
+    },
+    "./docker-manager": {
+      "import": "./dist/e2e-infra/docker-manager.js",
+      "types": "./dist/e2e-infra/docker-manager.d.ts"
+    }
   },
   "dependencies": {
-    "@genkit-ai/google-genai": "^1.24.0",
+    "@anthropic-ai/claude-agent-sdk": "^0.2.101",
+    "@sinclair/typebox": "^0.34.0",
     "dotenv": "^16.0.0",
-    "genkit": "^1.24.0",
-    "genkitx-anthropic": "^0.25.0",
     "js-yaml": "^4.0.0",
     "pg": "^8.13.0",
     "winston": "^3.0.0",
@@ -36,11 +49,12 @@
     "@types/pg": "^8.11.0",
     "@types/ws": "^8.5.0",
     "@types/yargs": "^17.0.0",
-    "openclaw": "2026.3.31",
     "kysely": "^0.27.0",
+    "openclaw": "2026.3.31",
     "testcontainers": "^10.18.0",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
+    "vitest": "^3.0.0",
     "ws": "^8.18.0"
   }
 }

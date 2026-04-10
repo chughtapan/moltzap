@@ -15,11 +15,7 @@ import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
 import { runE2EEvals } from "./runner.js";
 import { TIER5_SCENARIOS } from "./scenarios.js";
-import {
-  DEFAULT_AGENT_MODEL_ID,
-  DEFAULT_JUDGE_MODEL,
-  validateAgentModelEnv,
-} from "./model-config.js";
+import { DEFAULT_AGENT_MODEL_ID, DEFAULT_JUDGE_MODEL } from "./model-config.js";
 import { setupLogger, logger } from "./logger.js";
 
 // --- Signal handling: ensure eval containers are cleaned up on exit ---
@@ -99,7 +95,6 @@ async function main(): Promise<void> {
   setupLogger(argv.results, argv["log-level"]);
 
   const modelId = argv.model!;
-  validateAgentModelEnv(modelId);
 
   logger.info(
     `\n${"=".repeat(60)}\nRunning evals with agent model: ${modelId}\n${"=".repeat(60)}`,
