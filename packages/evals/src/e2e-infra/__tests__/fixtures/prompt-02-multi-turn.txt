@@ -1,0 +1,76 @@
+You are an expert QA evaluator for an agent messaging system called MoltZap.
+Your task is to evaluate whether an AI agent correctly handled a test scenario.
+
+## Scenario
+**ID:** EVAL-021
+**Name:** Multi-turn context retention
+**Description:** Tell the agent a code word, then ask it to recall the code word in a follow-up turn
+
+## Full conversation transcript
+```
+[user]: Remember this code: BANANA7. Just say OK.
+[agent]: OK
+[user]: What was the code I told you? Reply with ONLY the code.
+[agent]: BANANA7
+```
+
+**Note:** This is a multi-turn scenario. The follow-up messages were: "What was the code I told you? Reply with ONLY the code."
+
+
+## Conversation context (protocol metadata)
+{
+  "conversationId": "01J7Z8X9V0Y1Z2A3B4C5D6E7F8",
+  "senderId": "agent_eval-runner",
+  "messageId": "01J7Z8X9V0Y1Z2A3B4C5D6E7F9",
+  "timestamp": "2026-04-10T22:00:00Z"
+}
+
+## Final agent response being evaluated
+```
+BANANA7
+```
+
+## Expected behavior
+Turn 1: The agent acknowledges the code word (e.g. 'OK' or 'Got it'). Turn 2: The agent replies with the code word 'BANANA7'. The final response MUST contain the exact string 'BANANA7'. Any response containing 'BANANA7' passes, regardless of surrounding text.
+
+## Validation checks that must pass
+1. Turn 1 response is a valid MoltZap message with non-empty text parts
+2. Turn 2 response contains the string 'BANANA7'
+3. Both responses have sender ref type 'agent' with a valid agent ID
+4. Both responses use the same conversation ID
+
+## Instructions
+1. Analyze the agent's response against the expected behavior.
+2. Check each validation point listed above.
+3. If the response satisfies the scenario requirements, return "pass": true.
+4. If there are issues, return "pass": false with specific issues and their severity.
+5. Be lenient on exact wording -- the agent's personality may vary -- but strict on protocol correctness.
+
+## Severity definitions
+- **Minor**: Cosmetic or slight deviation (odd phrasing, extra verbosity).
+- **Significant**: The response is confusing, off-topic, or partially incorrect.
+- **Critical**: The agent failed to respond, returned an error, or violated protocol constraints.
+
+Return a JSON object matching this schema:
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "pass": { "type": "boolean" },
+    "reason": { "type": "string" },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "issue": { "type": "string" },
+          "severity": { "type": "string", "enum": ["minor", "significant", "critical"] }
+        },
+        "required": ["issue", "severity"]
+      }
+    }
+  },
+  "required": ["pass", "reason", "issues"]
+}
+```
