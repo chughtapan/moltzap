@@ -205,6 +205,11 @@ export async function setupAgentContainers(opts: {
   workspaceFiles?: (
     name: string,
   ) => Array<{ relativePath: string; content: string }>;
+  contextAdapter?: {
+    type: string;
+    maxConversations?: number;
+    maxMessagesPerConv?: number;
+  };
 }): Promise<{
   dockerManager: DockerManager;
   containers: AgentContainer[];
@@ -224,6 +229,7 @@ export async function setupAgentContainers(opts: {
           moltzapApiKey: cred.apiKey,
           agentModelId: modelId,
           workspaceFiles: opts.workspaceFiles?.(cred.name),
+          contextAdapter: opts.contextAdapter,
         }),
       ),
     );
