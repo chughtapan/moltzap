@@ -23,6 +23,45 @@ export interface ContextOptions {
   maxMessagesPerConv?: number;
 }
 
+/** Structured summary of recent activity in one other conversation. */
+export interface CrossConversationEntry {
+  conversationId: string;
+  conversationName?: string;
+  senderName: string;
+  text: string;
+  minutesAgo: number;
+  /** Messages in this summary (capped by maxMessagesPerConv). */
+  count: number;
+}
+
+/** Escape `<`, `>`, `&` so sender content can't escape a `<system-reminder>` block. */
+export function sanitizeForSystemReminder(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/**
+ * Format CrossConversationEntry[] as a `<system-reminder>` block. Adapters
+ * that inline context into prompt text (nanoclaw) and `MoltZapService.getContext`
+ * share this formatter so sanitization and line shape stay in one place.
+ */
+export function formatCrossConversationBlock(
+  entries: CrossConversationEntry[],
+  opts: { header: string },
+): string | null {
+  if (entries.length === 0) return null;
+  const lines = entries.map((e) => {
+    const safeSender = sanitizeForSystemReminder(e.senderName);
+    const safeText = sanitizeForSystemReminder(e.text.slice(0, 120));
+    return `@${safeSender} (${e.minutesAgo}m ago): (${e.count} new) "${safeText}"`;
+  });
+  return [
+    "<system-reminder>",
+    opts.header,
+    ...lines,
+    "</system-reminder>",
+  ].join("\n");
+}
+
 export interface ServiceOptions {
   serverUrl: string;
   agentKey: string;
@@ -429,16 +468,35 @@ export class MoltZapService {
    * per viewing conversation and advanced after notification.
    */
   getContext(currentConvId: string, opts?: ContextOptions): string | null {
+    const { entries, commit } = this.peekContextEntries(currentConvId, opts);
+    if (entries.length === 0) return null;
+    commit();
+    return formatCrossConversationBlock(entries, {
+      header: `Recent updates (you are in conv:${currentConvId}):`,
+    });
+  }
+
+  /**
+   * Return recent activity in other conversations without advancing any state.
+   * Call `commit()` on the result to mark the returned messages as seen so
+   * subsequent peeks return only what's new. A caller that reads without
+   * committing can re-peek idempotently.
+   */
+  peekContextEntries(
+    currentConvId: string,
+    opts?: { maxConversations?: number; maxMessagesPerConv?: number },
+  ): { entries: CrossConversationEntry[]; commit: () => void } {
     const maxConvs = opts?.maxConversations ?? 5;
     const maxMsgsPerConv = opts?.maxMessagesPerConv ?? 3;
     const viewMarkers =
       this.lastNotified.get(currentConvId) ?? new Map<string, number>();
 
-    const updates: string[] = [];
+    const entries: CrossConversationEntry[] = [];
+    const pendingAdvances: Array<[string, number]> = [];
 
     for (const [convId, msgs] of this.messages) {
       if (convId === currentConvId || msgs.length === 0) continue;
-      if (updates.length >= maxConvs) break;
+      if (entries.length >= maxConvs) break;
 
       const lastSeenSeq = viewMarkers.get(convId) ?? 0;
       const newMsgs = msgs.filter((m) => m.seq > lastSeenSeq);
@@ -447,29 +505,32 @@ export class MoltZapService {
       const reportable = newMsgs.slice(-maxMsgsPerConv);
       const last = reportable[reportable.length - 1]!;
       const senderName = this.resolveSenderLabel(last.sender.id);
-      const ago = Math.max(
+      const minutesAgo = Math.max(
         0,
         Math.round((Date.now() - new Date(last.createdAt).getTime()) / 60_000),
       );
       const text = last.parts.map(renderPart).join(" ");
 
-      updates.push(
-        `@${senderName} (${ago}m ago): (${reportable.length} new) "${text.slice(0, 120)}"`,
-      );
+      entries.push({
+        conversationId: convId,
+        conversationName: this.conversations.get(convId)?.name,
+        senderName,
+        text,
+        minutesAgo,
+        count: reportable.length,
+      });
 
-      viewMarkers.set(convId, last.seq);
+      pendingAdvances.push([convId, last.seq]);
     }
 
-    this.lastNotified.set(currentConvId, viewMarkers);
+    const commit = (): void => {
+      for (const [convId, seq] of pendingAdvances) {
+        viewMarkers.set(convId, seq);
+      }
+      this.lastNotified.set(currentConvId, viewMarkers);
+    };
 
-    if (updates.length === 0) return null;
-
-    return [
-      "<system-reminder>",
-      `Recent updates (you are in conv:${currentConvId}):`,
-      ...updates,
-      "</system-reminder>",
-    ].join("\n");
+    return { entries, commit };
   }
 
   // --- Events ---

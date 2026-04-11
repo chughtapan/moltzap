@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { Message } from "@moltzap/protocol";
+import type { CrossConversationEntry } from "@moltzap/client";
 
 // Capture handlers registered via service.on()
 let capturedOnMessage: ((msg: Message) => void) | null = null;
@@ -11,11 +12,20 @@ const mockClose = vi.fn();
 const mockGetAgentName = vi.fn();
 const mockResolveAgentName = vi.fn();
 const mockGetConversation = vi.fn();
-const mockGetContext = vi.fn();
+const mockPeekContextEntries =
+  vi.fn<
+    (convId: string) => {
+      entries: CrossConversationEntry[];
+      commit: () => void;
+    }
+  >();
 
-vi.mock("@moltzap/client", () => ({
-  MoltZapService: vi.fn().mockImplementation(() => {
-    const service = {
+vi.mock("@moltzap/client", async () => {
+  const actual =
+    await vi.importActual<typeof import("@moltzap/client")>("@moltzap/client");
+  return {
+    ...actual,
+    MoltZapService: vi.fn().mockImplementation(() => ({
       connect: vi
         .fn()
         .mockResolvedValue({ conversations: [], unreadCounts: {} }),
@@ -25,7 +35,7 @@ vi.mock("@moltzap/client", () => ({
       getAgentName: mockGetAgentName,
       resolveAgentName: mockResolveAgentName,
       getConversation: mockGetConversation,
-      getContext: mockGetContext,
+      peekContextEntries: mockPeekContextEntries,
       sendRpc: mockSendRpc,
       send: mockSend,
       startSocketServer: vi.fn(),
@@ -38,10 +48,9 @@ vi.mock("@moltzap/client", () => ({
         if (event === "reconnect")
           capturedOnReconnect = handler as typeof capturedOnReconnect;
       }),
-    };
-    return service;
-  }),
-}));
+    })),
+  };
+});
 
 import { moltzapChannelPlugin } from "./openclaw-entry.js";
 
@@ -101,7 +110,7 @@ describe("Flow 5: Inbound contract — dispatchReplyWithBufferedBlockDispatcher"
       name: undefined,
       participants: ["agent:agent-sender-1", "agent:agent-self"],
     });
-    mockGetContext.mockReturnValue(null);
+    mockPeekContextEntries.mockReturnValue({ entries: [], commit: vi.fn() });
 
     // Start the plugin's gateway
     void moltzapChannelPlugin.gateway.startAccount({
@@ -362,33 +371,19 @@ describe("Flow 5: Inbound contract — dispatchReplyWithBufferedBlockDispatcher"
     expect(ctx.BodyForAgent).toBe("Line 1\nLine 2\nLine 3");
   });
 
-  it("BodyForAgent includes cross-conversation context when getContext returns a value", async () => {
-    mockGetContext.mockReturnValue(
-      '<system-reminder>\nRecent updates:\n@seller (2m ago): (1 new) "Min $4000"\n</system-reminder>',
-    );
-
-    // Need to restart with contextAdapter configured
-    abortController.abort();
-    abortController = new AbortController();
-    mockDispatch.mockClear();
-    capturedOnMessage = null;
-
-    void moltzapChannelPlugin.gateway.startAccount({
-      cfg: makeCfg(),
-      accountId: "test-account",
-      account: {
-        ...makeAccount(),
-        contextAdapter: { type: "cross-conversation" as const },
-      },
-      abortSignal: abortController.signal,
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
-      setStatus: vi.fn(),
-      channelRuntime: {
-        reply: { dispatchReplyWithBufferedBlockDispatcher: mockDispatch },
-      },
+  it("BodyForAgent includes cross-conversation context when peekContextEntries returns entries", async () => {
+    mockPeekContextEntries.mockReturnValue({
+      entries: [
+        {
+          conversationId: "conv-other",
+          senderName: "seller",
+          text: "Min $4000",
+          minutesAgo: 2,
+          count: 1,
+        },
+      ],
+      commit: vi.fn(),
     });
-
-    await vi.waitFor(() => expect(capturedOnMessage).not.toBeNull());
 
     capturedOnMessage!(
       makeMessage({ parts: [{ type: "text", text: "What should I offer?" }] }),
@@ -401,10 +396,13 @@ describe("Flow 5: Inbound contract — dispatchReplyWithBufferedBlockDispatcher"
     ).ctx;
     expect(ctx.Body).toBe("What should I offer?");
     expect(ctx.BodyForAgent).toContain("<system-reminder>");
+    expect(ctx.BodyForAgent).toContain("seller");
+    expect(ctx.BodyForAgent).toContain("Min $4000");
     expect(ctx.BodyForAgent).toContain("What should I offer?");
   });
 
-  it("BodyForAgent equals Body when no contextAdapter configured", async () => {
+  it("BodyForAgent equals Body when peekContextEntries returns empty", async () => {
+    // Default mock setup in beforeEach already returns { entries: [], commit }
     capturedOnMessage!(
       makeMessage({ parts: [{ type: "text", text: "Plain message" }] }),
     );
@@ -416,6 +414,5 @@ describe("Flow 5: Inbound contract — dispatchReplyWithBufferedBlockDispatcher"
     ).ctx;
     expect(ctx.Body).toBe("Plain message");
     expect(ctx.BodyForAgent).toBe("Plain message");
-    expect(mockGetContext).not.toHaveBeenCalled();
   });
 });

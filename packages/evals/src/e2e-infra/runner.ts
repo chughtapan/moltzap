@@ -448,11 +448,6 @@ export async function runE2EEvals(opts: {
       }),
     );
 
-    // Enable cross-conversation context if any selected scenario requires it
-    const needsContextAwareness = selectedScenarios.some(
-      (s) => s.requiresContextAwareness,
-    );
-
     // Start the agent runtime (openclaw container OR nanoclaw subprocess).
     if (runtime === "openclaw") {
       logger.info("Starting OpenClaw agent container...");
@@ -461,9 +456,6 @@ export async function runE2EEvals(opts: {
         moltzapServerUrl: testServerWsUrl,
         moltzapApiKey: agentReg.apiKey,
         agentModelId: opts.agentModelId,
-        contextAdapter: needsContextAwareness
-          ? { type: "cross-conversation" }
-          : undefined,
       });
 
       // Wait for the agent's channel plugin to actually connect via WebSocket.
@@ -510,9 +502,6 @@ export async function runE2EEvals(opts: {
       nanoclawHandle = await startNanoclawSmoke({
         apiKey: agentReg.apiKey,
         serverUrl: testServerWsUrl,
-        contextAdapter: needsContextAwareness
-          ? { type: "cross-conversation" }
-          : undefined,
       });
       // Give the server a moment to register the connection
       await new Promise((r) => setTimeout(r, 2000));

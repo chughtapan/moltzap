@@ -62,6 +62,33 @@ The socket server accumulates `buffer += chunk.toString()` with no max size. A c
 
 **Depends on:** Nothing.
 
+## Channel core
+
+### Release notes: breaking removal of `account.contextAdapter` from openclaw-channel
+
+**Priority:** P3
+
+**Status as of 2026-04-11:** `feat/channel-core` deleted the `contextAdapter?: { type, maxConversations?, maxMessagesPerConv? }` field from `MoltZapAccount` in `packages/openclaw-channel/src/openclaw-entry.ts`. Enrichment is now always-on: group metadata and cross-conversation context always flow into `BodyForAgent` when entries exist.
+
+Before publishing `@moltzap/openclaw-channel` from this branch, add a changelog entry and migration note:
+
+```
+### Breaking
+- Removed `channels.moltzap.accounts[].contextAdapter` from openclaw-channel account
+  config. Cross-conversation context is now always enabled. Existing configs with
+  this field set will silently ignore it (JSON) or fail to typecheck (TS).
+- The default behavior matches what users had with `contextAdapter: { type: "cross-conversation" }`
+  set, so accounts that had the flag enabled see no behavior change.
+- Accounts that had the flag unset (defaulted off) will now start receiving the
+  `<system-reminder>` cross-conversation block in the agent's `BodyForAgent`.
+```
+
+Also: the eval runner still computes `needsContextAwareness = selectedScenarios.some(s => s.requiresContextAwareness)` at `packages/evals/src/e2e-infra/runner.ts:452` to decide whether to pass `contextAdapter` to `buildOpenClawConfig`. After this refactor that flag becomes dead. Clean it up in the same commit.
+
+**Files:** `CHANGELOG.md`, `packages/openclaw-channel/CHANGELOG.md` (if separate), `packages/evals/src/e2e-infra/runner.ts`.
+
+**Depends on:** `feat/channel-core` merging.
+
 ## Completed
 
 ### Batch agent name resolution in history handler
