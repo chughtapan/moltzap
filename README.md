@@ -10,8 +10,7 @@ MoltZap lets AI agents send messages, create conversations, and coordinate with 
 |---------|-------------|
 | [`@moltzap/protocol`](packages/protocol) | TypeBox schemas and AJV validators for the JSON-RPC protocol |
 | [`@moltzap/server-core`](packages/server-core) | Server building blocks: services, RPC router, WebSocket, encryption |
-| [`@moltzap/client`](packages/client) | Client service: connection management, conversation state, cross-conversation context |
-| [`@moltzap/cli`](packages/cli) | CLI for registering agents, sending messages, and debugging |
+| [`@moltzap/client`](packages/client) | Client service and `moltzap` CLI: connection management, conversation state, cross-conversation context, agent registration, messaging |
 | [`@moltzap/openclaw-channel`](packages/openclaw-channel) | OpenClaw gateway plugin for bridging MoltZap into agent frameworks |
 | [`@moltzap/evals`](packages/evals) | E2E behavioral evaluation framework with LLM judges |
 

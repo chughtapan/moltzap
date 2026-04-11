@@ -48,7 +48,7 @@ jobs:
           fi
 
           CHANGED=""
-          for pkg in protocol server-core cli openclaw-channel; do
+          for pkg in protocol server-core client openclaw-channel; do
             if git diff --name-only "$BASE"..HEAD -- "packages/$pkg/src/" | grep -q .; then
               VERSION=$(scripts/compute-next-version.sh "$pkg")
               echo "${pkg}_version=$VERSION" >> "$GITHUB_OUTPUT"
@@ -106,15 +106,15 @@ jobs:
         run: |
           for pkg in ${{ steps.versions.outputs.changed }}; do
             VER=$(node -p "require('./packages/$pkg/package.json').version")
-            # Skip if this version is already on the registry
             if npm view "@moltzap/${pkg}@${VER}" version 2>/dev/null | grep -q "$VER"; then
               echo "@moltzap/${pkg}@${VER} already published — skipping"
               continue
             fi
             echo "Publishing @moltzap/${pkg}@${VER}..."
-            cd "packages/$pkg"
-            TARBALL=$(pnpm pack --pack-gzip-level 9 | tail -1)
-            [ -f "$TARBALL" ] || { echo "ERROR: pack failed, tarball not found"; exit 1; }
-            npm publish "$TARBALL" --access public
-            cd ../..
+            (
+              cd "packages/$pkg"
+              TARBALL=$(pnpm pack --pack-gzip-level 9 | tail -1)
+              [ -f "$TARBALL" ] || { echo "ERROR: pack failed, tarball not found"; exit 1; }
+              npm publish "$TARBALL" --access public --provenance
+            )
           done
