@@ -45,6 +45,23 @@ The socket server accumulates `buffer += chunk.toString()` with no max size. A c
 
 **Depends on:** Nothing.
 
+### Decouple `moltzap register` from ~/.openclaw/openclaw.json write
+
+**Priority:** P3
+
+**Status as of 2026-04-10:** `packages/client/src/cli/commands/register.ts` unconditionally writes to `~/.openclaw/openclaw.json` as part of registering an agent. This is a hold-over from the "single runtime" world where OpenClaw was the only target. In the multi-runtime world (the active plan is to ship a nanoclaw-moltzap channel for users who want a lighter runtime), the OpenClaw config file is a harmless side-effect for users who don't run OpenClaw, but conceptually it couples registration to one runtime.
+
+**Why defer:** It's harmless if unused. Not worth interrupting the nanoclaw-moltzap channel ship. Fix when a user explicitly objects or when a nanoclaw-moltzap user reports confusion about the stray openclaw config.
+
+**Options:**
+1. Add a `--skip-openclaw` flag to `moltzap register` that skips the OpenClaw config write
+2. Add a new subcommand `moltzap register-sdk` that is explicit about not touching OpenClaw config
+3. Make OpenClaw config writing opt-in via env var or config
+
+**Files:** `packages/client/src/cli/commands/register.ts` (lines 10, 70, 76)
+
+**Depends on:** Nothing.
+
 ## Completed
 
 ### Batch agent name resolution in history handler
