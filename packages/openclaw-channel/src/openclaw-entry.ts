@@ -76,9 +76,6 @@ function resolveAccount(
 
 const activeClients = new Map<string, MoltZapService>();
 
-/** Cache: accountId → (agentName → conversationId) for auto-created DM conversations. */
-export const agentConversationCache = new Map<string, Map<string, string>>();
-
 export const moltzapChannelPlugin = {
   id: CHANNEL_ID,
 
@@ -575,7 +572,6 @@ export const moltzapChannelPlugin = {
         ctx.log?.info?.("MoltZap: stopping");
         service.close();
         activeClients.delete(ctx.accountId);
-        agentConversationCache.delete(ctx.accountId);
       }
     },
   },
@@ -621,40 +617,19 @@ export const moltzapChannelPlugin = {
       }
 
       try {
-        let conversationId: string | undefined;
-
         if (ctx.to.startsWith(TARGET_PREFIX_AGENT)) {
           const agentName = ctx.to.slice(TARGET_PREFIX_AGENT.length);
-          const accountCache =
-            agentConversationCache.get(accountId) ?? new Map<string, string>();
-          conversationId = accountCache.get(agentName);
-
-          if (!conversationId) {
-            const lookupResult = (await service.sendRpc("agents/lookupByName", {
-              name: agentName,
-            })) as { agent: { id: string } };
-
-            const createResult = (await service.sendRpc(
-              "conversations/create",
-              {
-                type: "dm",
-                participants: [{ type: "agent", id: lookupResult.agent.id }],
-              },
-            )) as { conversation: { id: string } };
-
-            conversationId = createResult.conversation.id;
-            accountCache.set(agentName, conversationId);
-            agentConversationCache.set(accountId, accountCache);
-          }
-        } else if (ctx.to.startsWith(TARGET_PREFIX_CONV)) {
-          conversationId = ctx.to.slice(TARGET_PREFIX_CONV.length);
+          await service.sendToAgent(agentName, ctx.text, {
+            replyTo: ctx.replyToId,
+          });
         } else {
-          conversationId = ctx.to;
+          const conversationId = ctx.to.startsWith(TARGET_PREFIX_CONV)
+            ? ctx.to.slice(TARGET_PREFIX_CONV.length)
+            : ctx.to;
+          await service.send(conversationId, ctx.text, {
+            replyTo: ctx.replyToId,
+          });
         }
-
-        await service.send(conversationId!, ctx.text, {
-          replyTo: ctx.replyToId,
-        });
         return { ok: true as const };
       } catch (err) {
         return {
