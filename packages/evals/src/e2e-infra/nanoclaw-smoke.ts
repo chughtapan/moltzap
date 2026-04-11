@@ -163,10 +163,33 @@ function resolveSkillMdPath(): string {
   return path.join(current, "SKILL.md");
 }
 
+/**
+ * Re-sync the channel file into the warm cache when it has drifted from the
+ * source of truth in packages/nanoclaw-channel/. Skips a full reinstall (which
+ * takes 3–5 min) and just recompiles nanoclaw so the new channel.ts lands in
+ * dist/. Called from ensureNanoclawInstalled when the ready marker exists.
+ */
+async function syncChannelFileIntoCache(): Promise<void> {
+  const src = resolveChannelFilePath();
+  const dst = path.join(NANOCLAW_CACHE, "src/channels/moltzap.ts");
+  if (!fs.existsSync(src) || !fs.existsSync(dst)) return;
+
+  const [srcContent, dstContent] = await Promise.all([
+    fsp.readFile(src, "utf8"),
+    fsp.readFile(dst, "utf8"),
+  ]);
+  if (srcContent === dstContent) return;
+
+  logger.info("Channel file drift detected — syncing + rebuilding nanoclaw");
+  await fsp.writeFile(dst, srcContent);
+  await exec("npm run build", { cwd: NANOCLAW_CACHE, timeout: 120_000 });
+}
+
 export async function ensureNanoclawInstalled(): Promise<void> {
   const readyMarker = path.join(NANOCLAW_CACHE, ".ready");
   if (fs.existsSync(readyMarker)) {
     logger.info(`Nanoclaw smoke cache found at ${NANOCLAW_CACHE}`);
+    await syncChannelFileIntoCache();
     return;
   }
 
@@ -267,6 +290,7 @@ export async function ensureNanoclawInstalled(): Promise<void> {
 export async function startNanoclawSmoke(opts: {
   apiKey: string;
   serverUrl: string;
+  contextAdapter?: { type: "cross-conversation" };
 }): Promise<NanoclawSmokeHandle> {
   const dataDir = await fsp.mkdtemp(
     path.join(os.tmpdir(), "moltzap-nanoclaw-smoke-"),
@@ -284,21 +308,26 @@ export async function startNanoclawSmoke(opts: {
   await ensureOnecliRunning();
 
   logger.info(
-    `Starting nanoclaw subprocess (dataDir: ${dataDir}, server: ${normalizedServerUrl})`,
+    `Starting nanoclaw subprocess (dataDir: ${dataDir}, server: ${normalizedServerUrl}, contextAdapter: ${opts.contextAdapter?.type ?? "none"})`,
   );
+
+  const childEnv: Record<string, string> = {
+    ...(process.env as Record<string, string>),
+    MOLTZAP_API_KEY: opts.apiKey,
+    MOLTZAP_SERVER_URL: normalizedServerUrl,
+    MOLTZAP_EVAL_MODE: "1",
+    DATA_DIR: dataDir,
+    CONTAINER_RUNTIME: "docker",
+    ONECLI_URL: ONECLI_URL,
+    LOG_LEVEL: "info",
+  };
+  if (opts.contextAdapter?.type === "cross-conversation") {
+    childEnv.MOLTZAP_CONTEXT_ADAPTER = "cross-conversation";
+  }
 
   const proc = spawn("node", ["dist/index.js"], {
     cwd: NANOCLAW_CACHE,
-    env: {
-      ...process.env,
-      MOLTZAP_API_KEY: opts.apiKey,
-      MOLTZAP_SERVER_URL: normalizedServerUrl,
-      MOLTZAP_EVAL_MODE: "1",
-      DATA_DIR: dataDir,
-      CONTAINER_RUNTIME: "docker",
-      ONECLI_URL: ONECLI_URL,
-      LOG_LEVEL: "info",
-    },
+    env: childEnv,
     stdio: ["ignore", "pipe", "pipe"],
   });
 

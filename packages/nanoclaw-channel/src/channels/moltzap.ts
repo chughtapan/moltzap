@@ -8,6 +8,18 @@ import { registerChannel, type ChannelOpts } from "./registry.js";
 const MOLTZAP_JID_PREFIX = "mz:";
 const DEFAULT_SERVER_URL = "wss://api.moltzap.xyz";
 
+export interface ContextAdapterConfig {
+  type: "cross-conversation";
+  maxConversations?: number;
+  maxMessagesPerConv?: number;
+}
+
+export interface ConversationMetaLike {
+  type: string;
+  name?: string;
+  participants?: string[];
+}
+
 export interface MoltZapServiceLike {
   on(event: "message", handler: (msg: Message) => void): void;
   on(event: "disconnect", handler: () => void): void;
@@ -15,9 +27,10 @@ export interface MoltZapServiceLike {
   connect(): Promise<unknown>;
   close(): void;
   send(conversationId: string, text: string): Promise<void>;
-  getConversation(convId: string): { type: string; name?: string } | undefined;
+  getConversation(convId: string): ConversationMetaLike | undefined;
   getAgentName(agentId: string): string | undefined;
   resolveAgentName(agentId: string): Promise<string>;
+  getContext(convId: string, opts: ContextAdapterConfig): string | null;
   readonly ownAgentId: string | undefined;
 }
 
@@ -39,6 +52,18 @@ function extractTextContent(parts: Message["parts"]): string {
     .join("\n");
 }
 
+function buildGroupContextBlock(convMeta: ConversationMetaLike): string {
+  const participants = convMeta.participants ?? [];
+  const lines = [
+    "<system-reminder>",
+    "This is a group conversation.",
+    `Group name: ${convMeta.name ?? "(unnamed)"}`,
+    `Participants (${participants.length}): ${participants.join(", ") || "(none listed)"}`,
+    "</system-reminder>",
+  ];
+  return lines.join("\n");
+}
+
 export class MoltZapChannel implements Channel {
   readonly name = "moltzap";
   private connected = false;
@@ -48,6 +73,7 @@ export class MoltZapChannel implements Channel {
     private readonly opts: ChannelOpts,
     private readonly service: MoltZapServiceLike,
     private readonly evalMode: boolean = false,
+    private readonly contextAdapter?: ContextAdapterConfig,
   ) {
     this.service.on("message", (message) => {
       this.dispatchChain = this.dispatchChain
@@ -140,7 +166,28 @@ export class MoltZapChannel implements Channel {
         .resolveAgentName(message.sender.id)
         .catch(() => message.sender.id));
 
-    const content = extractTextContent(message.parts);
+    const rawContent = extractTextContent(message.parts);
+
+    // Context enrichment: prepend system-reminder blocks ahead of the raw
+    // message text. Nanoclaw's router formats NewMessage.content verbatim into
+    // the prompt XML, so this lands in front of the agent with no upstream
+    // changes. Cross-conversation context is opt-in (contextAdapter config);
+    // group metadata is always attached when the conversation is a group.
+    const contextBlocks: string[] = [];
+    if (this.contextAdapter) {
+      const crossConv = this.service.getContext(
+        message.conversationId,
+        this.contextAdapter,
+      );
+      if (crossConv) contextBlocks.push(crossConv);
+    }
+    if (convMeta?.type === "group") {
+      contextBlocks.push(buildGroupContextBlock(convMeta));
+    }
+    const content =
+      contextBlocks.length > 0
+        ? `${contextBlocks.join("\n\n")}\n\n${rawContent}`
+        : rawContent;
 
     const isFromMe =
       this.service.ownAgentId !== undefined &&
@@ -175,6 +222,10 @@ registerChannel("moltzap", (opts: ChannelOpts): Channel | null => {
   const apiKey = process.env.MOLTZAP_API_KEY;
   const serverUrl = process.env.MOLTZAP_SERVER_URL ?? DEFAULT_SERVER_URL;
   const evalMode = process.env.MOLTZAP_EVAL_MODE === "1";
+  const contextAdapter: ContextAdapterConfig | undefined =
+    process.env.MOLTZAP_CONTEXT_ADAPTER === "cross-conversation"
+      ? { type: "cross-conversation" }
+      : undefined;
 
   if (!apiKey) {
     return null;
@@ -193,5 +244,5 @@ registerChannel("moltzap", (opts: ChannelOpts): Channel | null => {
     },
   });
 
-  return new MoltZapChannel(opts, service, evalMode);
+  return new MoltZapChannel(opts, service, evalMode, contextAdapter);
 });

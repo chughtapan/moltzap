@@ -508,6 +508,37 @@ export class MoltZapService {
 
   // --- Internals ---
 
+  /**
+   * Fetch full conversation details (including participants) via RPC and merge
+   * into the local cache. Called on ConversationCreated events because the
+   * event schema omits the participants list — see protocol/events.ts.
+   */
+  private async refreshConversationParticipants(
+    conversationId: string,
+  ): Promise<void> {
+    try {
+      const res = (await this.sendRpc("conversations/get", {
+        conversationId,
+      })) as {
+        conversation: { id: string; type: string; name?: string };
+        participants: Array<{ participant: { type: string; id: string } }>;
+      };
+      const existing = this.conversations.get(conversationId);
+      this.conversations.set(conversationId, {
+        id: res.conversation.id,
+        type: res.conversation.type,
+        name: res.conversation.name,
+        participants: res.participants.map(
+          (p) => `${p.participant.type}:${p.participant.id}`,
+        ),
+        // Preserve any fields the existing entry had that we don't overwrite.
+        ...(existing ? {} : {}),
+      });
+    } catch {
+      // Best-effort refresh. Leave the existing entry in place on failure.
+    }
+  }
+
   private populateFromHello(hello: HelloOk): void {
     if (!hello.conversations) return;
     for (const conv of hello.conversations) {
@@ -552,6 +583,14 @@ export class MoltZapService {
           name: data.conversation.name,
           participants: existing?.participants ?? [],
         });
+        // The ConversationCreated event schema doesn't carry participants
+        // (protocol/schema/events.ts: ConversationSchema is id/type/name/
+        // createdBy/timestamps only). Fetch full details asynchronously so
+        // downstream code that reads getConversation(id).participants sees
+        // a populated list within a round-trip of the event.
+        if (event.event === EventNames.ConversationCreated) {
+          void this.refreshConversationParticipants(data.conversation.id);
+        }
         break;
       }
     }

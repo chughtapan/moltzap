@@ -1,7 +1,12 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Message } from "@moltzap/protocol";
 
-import { MoltZapChannel, type MoltZapServiceLike } from "./moltzap.js";
+import {
+  MoltZapChannel,
+  type ContextAdapterConfig,
+  type ConversationMetaLike,
+  type MoltZapServiceLike,
+} from "./moltzap.js";
 import type { NewMessage, RegisteredGroup } from "../types.js";
 import type { ChannelOpts } from "./registry.js";
 
@@ -16,7 +21,10 @@ class FakeMoltZapService implements MoltZapServiceLike {
   connectCalled = 0;
   closeCalled = 0;
   ownAgentId: string | undefined = "agent-self";
-  private conversations = new Map<string, { type: string; name?: string }>();
+  getContext = vi.fn(
+    (_convId: string, _opts: ContextAdapterConfig): string | null => null,
+  );
+  private conversations = new Map<string, ConversationMetaLike>();
   private agentNames = new Map<string, string>();
   private resolveCalls: string[] = [];
 
@@ -45,7 +53,7 @@ class FakeMoltZapService implements MoltZapServiceLike {
     this.sent.push({ convId: conversationId, text });
   }
 
-  getConversation(convId: string): { type: string; name?: string } | undefined {
+  getConversation(convId: string): ConversationMetaLike | undefined {
     return this.conversations.get(convId);
   }
 
@@ -58,7 +66,7 @@ class FakeMoltZapService implements MoltZapServiceLike {
     return this.agentNames.get(agentId) ?? agentId;
   }
 
-  setConversation(id: string, meta: { type: string; name?: string }): void {
+  setConversation(id: string, meta: ConversationMetaLike): void {
     this.conversations.set(id, meta);
   }
 
@@ -442,6 +450,168 @@ describe("MoltZapChannel", () => {
         "already-here",
       );
       expect(localOpts.groupsMap["mz:conv-existing"]!.trigger).toBe("@Andy");
+    });
+  });
+
+  describe("context adapter — group metadata injection", () => {
+    it("prepends group metadata for group conversations", async () => {
+      service.setConversation("conv-1", {
+        type: "group",
+        name: "devs",
+        participants: ["agent:alice", "agent:bob", "agent:self"],
+      });
+      service.setAgentName("agent-alice", "Alice");
+
+      service.emitMessage(
+        buildMessage({ parts: [{ type: "text", text: "Hi team" }] }),
+      );
+      await flushDispatchChain();
+
+      const content = opts.received[0]!.msg.content;
+      expect(content).toContain("<system-reminder>");
+      expect(content).toContain("This is a group conversation.");
+      expect(content).toContain("Group name: devs");
+      expect(content).toContain(
+        "Participants (3): agent:alice, agent:bob, agent:self",
+      );
+      expect(content).toContain("</system-reminder>");
+      // Original message content preserved after the block.
+      expect(content).toMatch(/<\/system-reminder>\n\nHi team$/);
+    });
+
+    it("does NOT prepend group metadata for DM conversations", async () => {
+      service.setConversation("conv-1", { type: "dm", name: "alice-dm" });
+      service.setAgentName("agent-alice", "Alice");
+
+      service.emitMessage(
+        buildMessage({ parts: [{ type: "text", text: "just a dm" }] }),
+      );
+      await flushDispatchChain();
+
+      const content = opts.received[0]!.msg.content;
+      expect(content).toBe("just a dm");
+      expect(content).not.toContain("<system-reminder>");
+    });
+
+    it("handles groups with zero known participants gracefully", async () => {
+      service.setConversation("conv-1", {
+        type: "group",
+        name: "empty-group",
+        // No participants field at all
+      });
+      service.setAgentName("agent-alice", "Alice");
+
+      service.emitMessage(
+        buildMessage({ parts: [{ type: "text", text: "hello" }] }),
+      );
+      await flushDispatchChain();
+
+      const content = opts.received[0]!.msg.content;
+      expect(content).toContain("Participants (0): (none listed)");
+      expect(content).toContain("Group name: empty-group");
+    });
+  });
+
+  describe("context adapter — cross-conversation injection", () => {
+    const crossConvAdapter: ContextAdapterConfig = {
+      type: "cross-conversation",
+      maxConversations: 5,
+      maxMessagesPerConv: 3,
+    };
+
+    it("calls service.getContext and prepends when contextAdapter is configured", async () => {
+      const svc = new FakeMoltZapService();
+      svc.setConversation("conv-1", { type: "dm" });
+      svc.setAgentName("agent-alice", "Alice");
+      svc.getContext.mockReturnValue(
+        '<system-reminder>\nRecent updates (you are in conv:conv-1):\n@Bob (2m ago): (1 new) "capital of Freedonia is Zenda"\n</system-reminder>',
+      );
+
+      const localOpts = createRecordedOpts();
+      new MoltZapChannel(localOpts, svc, false, crossConvAdapter);
+
+      svc.emitMessage(
+        buildMessage({
+          conversationId: "conv-1",
+          parts: [{ type: "text", text: "probe" }],
+        }),
+      );
+      await flushDispatchChain();
+
+      expect(svc.getContext).toHaveBeenCalledWith("conv-1", crossConvAdapter);
+      const content = localOpts.received[0]!.msg.content;
+      expect(content).toContain("Recent updates (you are in conv:conv-1)");
+      expect(content).toContain("Zenda");
+      expect(content).toMatch(/<\/system-reminder>\n\nprobe$/);
+    });
+
+    it("does NOT call getContext when contextAdapter is undefined", async () => {
+      const svc = new FakeMoltZapService();
+      svc.setConversation("conv-1", { type: "dm" });
+      svc.setAgentName("agent-alice", "Alice");
+
+      const localOpts = createRecordedOpts();
+      new MoltZapChannel(localOpts, svc, false);
+
+      svc.emitMessage(buildMessage({ conversationId: "conv-1" }));
+      await flushDispatchChain();
+
+      expect(svc.getContext).not.toHaveBeenCalled();
+      expect(localOpts.received[0]!.msg.content).toBe("hello");
+    });
+
+    it("handles getContext returning null (no other conversations active)", async () => {
+      const svc = new FakeMoltZapService();
+      svc.setConversation("conv-1", { type: "dm" });
+      svc.setAgentName("agent-alice", "Alice");
+      svc.getContext.mockReturnValue(null);
+
+      const localOpts = createRecordedOpts();
+      new MoltZapChannel(localOpts, svc, false, crossConvAdapter);
+
+      svc.emitMessage(
+        buildMessage({
+          conversationId: "conv-1",
+          parts: [{ type: "text", text: "solo" }],
+        }),
+      );
+      await flushDispatchChain();
+
+      expect(svc.getContext).toHaveBeenCalled();
+      expect(localOpts.received[0]!.msg.content).toBe("solo");
+    });
+
+    it("orders cross-conv context before group metadata before original content", async () => {
+      const svc = new FakeMoltZapService();
+      svc.setConversation("conv-1", {
+        type: "group",
+        name: "devs",
+        participants: ["agent:alice", "agent:self"],
+      });
+      svc.setAgentName("agent-alice", "Alice");
+      svc.getContext.mockReturnValue(
+        "<system-reminder>\nCROSS_CONV_BLOCK\n</system-reminder>",
+      );
+
+      const localOpts = createRecordedOpts();
+      new MoltZapChannel(localOpts, svc, false, crossConvAdapter);
+
+      svc.emitMessage(
+        buildMessage({
+          conversationId: "conv-1",
+          parts: [{ type: "text", text: "actual message" }],
+        }),
+      );
+      await flushDispatchChain();
+
+      const content = localOpts.received[0]!.msg.content;
+      const crossConvIdx = content.indexOf("CROSS_CONV_BLOCK");
+      const groupIdx = content.indexOf("This is a group conversation.");
+      const msgIdx = content.indexOf("actual message");
+
+      expect(crossConvIdx).toBeGreaterThanOrEqual(0);
+      expect(groupIdx).toBeGreaterThan(crossConvIdx);
+      expect(msgIdx).toBeGreaterThan(groupIdx);
     });
   });
 });

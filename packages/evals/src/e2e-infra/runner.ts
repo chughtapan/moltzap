@@ -510,6 +510,9 @@ export async function runE2EEvals(opts: {
       nanoclawHandle = await startNanoclawSmoke({
         apiKey: agentReg.apiKey,
         serverUrl: testServerWsUrl,
+        contextAdapter: needsContextAwareness
+          ? { type: "cross-conversation" }
+          : undefined,
       });
       // Give the server a moment to register the connection
       await new Promise((r) => setTimeout(r, 2000));
