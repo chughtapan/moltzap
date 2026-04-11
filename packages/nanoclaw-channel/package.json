@@ -1,0 +1,29 @@
+{
+  "name": "@moltzap/nanoclaw-channel",
+  "version": "0.0.0",
+  "description": "Nanoclaw channel for MoltZap — smoke test package, not published",
+  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/chughtapan/moltzap"
+  },
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "main": "./dist/moltzap.js",
+  "types": "./dist/moltzap.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@moltzap/client": "workspace:*",
+    "@moltzap/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}
