@@ -1,6 +1,6 @@
 {
   "name": "@moltzap/client",
-  "version": "2026.407.0",
+  "version": "2026.411.0",
   "description": "MoltZap client service — connection, conversation state, and cross-conversation context",
   "license": "MIT",
   "repository": {
