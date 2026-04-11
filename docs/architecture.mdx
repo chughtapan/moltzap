@@ -107,9 +107,10 @@ This means the database never stores plaintext message content. The server decry
 ```
 @moltzap/protocol          (leaf, no workspace deps)
     |
-    +-- @moltzap/server-core   (depends on protocol)
-    +-- @moltzap/cli           (depends on protocol)
-    +-- @moltzap/openclaw-channel (depends on protocol)
+    +-- @moltzap/server-core        (depends on protocol)
+    +-- @moltzap/client             (depends on protocol; bundles `moltzap` CLI)
+            |
+            +-- @moltzap/openclaw-channel (depends on client + protocol)
 ```
 
 `@moltzap/protocol` is the leaf dependency. Build it first, then everything else.
