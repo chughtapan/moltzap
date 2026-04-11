@@ -12,11 +12,11 @@
  */
 import { spawn, type ChildProcess } from "node:child_process";
 import { exec as execCb } from "node:child_process";
+import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as fsp from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
@@ -163,26 +163,80 @@ function resolveSkillMdPath(): string {
   return path.join(current, "SKILL.md");
 }
 
-/**
- * Re-sync the channel file into the warm cache when it has drifted from the
- * source of truth in packages/nanoclaw-channel/. Skips a full reinstall (which
- * takes 3–5 min) and just recompiles nanoclaw so the new channel.ts lands in
- * dist/. Called from ensureNanoclawInstalled when the ready marker exists.
- */
-async function syncChannelFileIntoCache(): Promise<void> {
+function resolveClientDistPath(): string {
+  const here = fileURLToPath(import.meta.url);
+  let current = path.dirname(here);
+  while (current !== path.parse(current).root) {
+    if (path.basename(current) === "packages") break;
+    current = path.dirname(current);
+  }
+  return path.join(current, "client/dist");
+}
+
+async function sha1OfFile(filePath: string): Promise<string> {
+  const buf = await fsp.readFile(filePath);
+  return createHash("sha1").update(buf).digest("hex");
+}
+
+async function channelFileDrift(): Promise<{
+  src: string;
+  dst: string;
+  content: string;
+} | null> {
   const src = resolveChannelFilePath();
   const dst = path.join(NANOCLAW_CACHE, "src/channels/moltzap.ts");
-  if (!fs.existsSync(src) || !fs.existsSync(dst)) return;
-
+  if (!fs.existsSync(src) || !fs.existsSync(dst)) return null;
   const [srcContent, dstContent] = await Promise.all([
     fsp.readFile(src, "utf8"),
     fsp.readFile(dst, "utf8"),
   ]);
-  if (srcContent === dstContent) return;
+  return srcContent === dstContent ? null : { src, dst, content: srcContent };
+}
 
-  logger.info("Channel file drift detected — syncing + rebuilding nanoclaw");
-  await fsp.writeFile(dst, srcContent);
-  await exec("npm run build", { cwd: NANOCLAW_CACHE, timeout: 120_000 });
+async function clientDistDrift(): Promise<{
+  src: string;
+  dst: string;
+} | null> {
+  const src = resolveClientDistPath();
+  const dst = path.join(NANOCLAW_CACHE, "node_modules/@moltzap/client/dist");
+  if (!fs.existsSync(src) || !fs.existsSync(dst)) return null;
+  const srcCoreJs = path.join(src, "channel-core.js");
+  const dstCoreJs = path.join(dst, "channel-core.js");
+  if (!fs.existsSync(dstCoreJs)) return { src, dst };
+  const [srcHash, dstHash] = await Promise.all([
+    sha1OfFile(srcCoreJs),
+    sha1OfFile(dstCoreJs),
+  ]);
+  return srcHash === dstHash ? null : { src, dst };
+}
+
+/**
+ * Re-sync workspace channel file + @moltzap/client dist into the warm cache
+ * when either has drifted, then rebuild nanoclaw. Caller must ensure the
+ * workspace @moltzap/client has been freshly built.
+ */
+async function syncChannelFileIntoCache(): Promise<void> {
+  const [chDrift, clDrift] = await Promise.all([
+    channelFileDrift(),
+    clientDistDrift(),
+  ]);
+
+  if (chDrift) {
+    logger.info("Channel file drift detected — syncing");
+    await fsp.writeFile(chDrift.dst, chDrift.content);
+  }
+
+  if (clDrift) {
+    logger.info(
+      "@moltzap/client dist drift detected — syncing compiled tree into cache",
+    );
+    await fsp.cp(clDrift.src, clDrift.dst, { recursive: true });
+  }
+
+  if (chDrift || clDrift) {
+    logger.info("Rebuilding nanoclaw after sync");
+    await exec("npm run build", { cwd: NANOCLAW_CACHE, timeout: 120_000 });
+  }
 }
 
 export async function ensureNanoclawInstalled(): Promise<void> {
@@ -290,7 +344,6 @@ export async function ensureNanoclawInstalled(): Promise<void> {
 export async function startNanoclawSmoke(opts: {
   apiKey: string;
   serverUrl: string;
-  contextAdapter?: { type: "cross-conversation" };
 }): Promise<NanoclawSmokeHandle> {
   const dataDir = await fsp.mkdtemp(
     path.join(os.tmpdir(), "moltzap-nanoclaw-smoke-"),
@@ -308,26 +361,21 @@ export async function startNanoclawSmoke(opts: {
   await ensureOnecliRunning();
 
   logger.info(
-    `Starting nanoclaw subprocess (dataDir: ${dataDir}, server: ${normalizedServerUrl}, contextAdapter: ${opts.contextAdapter?.type ?? "none"})`,
+    `Starting nanoclaw subprocess (dataDir: ${dataDir}, server: ${normalizedServerUrl})`,
   );
-
-  const childEnv: Record<string, string> = {
-    ...(process.env as Record<string, string>),
-    MOLTZAP_API_KEY: opts.apiKey,
-    MOLTZAP_SERVER_URL: normalizedServerUrl,
-    MOLTZAP_EVAL_MODE: "1",
-    DATA_DIR: dataDir,
-    CONTAINER_RUNTIME: "docker",
-    ONECLI_URL: ONECLI_URL,
-    LOG_LEVEL: "info",
-  };
-  if (opts.contextAdapter?.type === "cross-conversation") {
-    childEnv.MOLTZAP_CONTEXT_ADAPTER = "cross-conversation";
-  }
 
   const proc = spawn("node", ["dist/index.js"], {
     cwd: NANOCLAW_CACHE,
-    env: childEnv,
+    env: {
+      ...process.env,
+      MOLTZAP_API_KEY: opts.apiKey,
+      MOLTZAP_SERVER_URL: normalizedServerUrl,
+      MOLTZAP_EVAL_MODE: "1",
+      DATA_DIR: dataDir,
+      CONTAINER_RUNTIME: "docker",
+      ONECLI_URL: ONECLI_URL,
+      LOG_LEVEL: "info",
+    },
     stdio: ["ignore", "pipe", "pipe"],
   });
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, inject } from "vitest";
 import { MoltZapTestClient } from "@moltzap/protocol/test-client";
-import { MoltZapWsClient } from "../ws-client.js";
+import { MoltZapWsClient } from "@moltzap/client";
 import type { EventFrame, Message } from "@moltzap/protocol";
 import { EventNames } from "@moltzap/protocol";
 import {

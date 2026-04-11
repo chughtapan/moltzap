@@ -8,7 +8,12 @@
  * Config:        channels.moltzap.accounts[].{apiKey, serverUrl, agentName}
  */
 
-import { MoltZapService, type ContextOptions } from "@moltzap/client";
+import {
+  MoltZapChannelCore,
+  MoltZapService,
+  formatCrossConversationBlock,
+  type WsClientLogger,
+} from "@moltzap/client";
 import {
   extractReadReceipt,
   extractReaction,
@@ -20,7 +25,6 @@ import {
   extractContactAccepted,
   extractPresenceChanged,
   extractTypingIndicator,
-  mapMessageToEnvelope,
 } from "./mapping.js";
 import { EventNames } from "@moltzap/protocol";
 
@@ -41,11 +45,6 @@ type MoltZapAccount = {
   serverUrl: string;
   agentName: string;
   enabled?: boolean;
-  contextAdapter?: {
-    type: "cross-conversation";
-    maxConversations?: number;
-    maxMessagesPerConv?: number;
-  };
 };
 
 type OpenClawConfig = Record<string, unknown> & {
@@ -260,145 +259,113 @@ export const moltzapChannelPlugin = {
         `MoltZap: connecting as ${account.agentName} to ${account.serverUrl}`,
       );
 
+      const wsLogger: WsClientLogger | undefined = log
+        ? {
+            info: log.info ?? (() => {}),
+            warn: log.warn ?? (() => {}),
+            error: log.error ?? (() => {}),
+          }
+        : undefined;
+
       const service = new MoltZapService({
         serverUrl: account.serverUrl,
         agentKey: account.apiKey,
-        logger: log
-          ? {
-              info: log.info ?? (() => {}),
-              warn: log.warn ?? (() => {}),
-              error: log.error ?? (() => {}),
-            }
-          : undefined,
+        logger: wsLogger,
       });
 
-      const contextConfig: ContextOptions | null = account.contextAdapter
-        ? {
-            type: "cross-conversation" as const,
-            maxConversations: account.contextAdapter.maxConversations,
-            maxMessagesPerConv: account.contextAdapter.maxMessagesPerConv,
-          }
-        : null;
+      const core = new MoltZapChannelCore({ service, logger: wsLogger });
 
-      // Serialize dispatches — OpenClaw's workspace-state writer can't handle
-      // concurrent writes within the same process.
-      let dispatchChain = Promise.resolve();
+      core.onInbound(async (enriched) => {
+        const chatType =
+          enriched.conversationMeta?.type === "group" ? "group" : "direct";
+        const fromId = `${enriched.sender.type}:${enriched.sender.id}`;
 
-      // Handle inbound messages from other agents
-      service.on("message", (message) => {
-        dispatchChain = dispatchChain
-          .then(async () => {
-            const senderName =
-              service.getAgentName(message.sender.id) ??
-              (await service.resolveAgentName(message.sender.id));
-            const convMeta = service.getConversation(message.conversationId);
+        log?.info?.(
+          `MoltZap: inbound from ${fromId}: ${enriched.text.slice(0, 80)}`,
+        );
 
-            const envelope = mapMessageToEnvelope(message, {
-              senderName,
-              chatType:
-                convMeta?.type === "group"
-                  ? "group"
-                  : convMeta?.type === "dm"
-                    ? "direct"
-                    : undefined,
-              groupSubject: convMeta?.name,
-              groupMembers: convMeta?.participants.join(","),
-              conversationLabel: convMeta?.name,
-            });
+        setStatus({
+          accountId,
+          lastInboundAt: Date.now(),
+          lastEventAt: Date.now(),
+        });
 
-            log?.info?.(
-              `MoltZap: inbound from ${envelope.peer.id}: ${envelope.text.slice(0, 80)}`,
+        const crossConvBlock = formatCrossConversationBlock(
+          enriched.contextBlocks.crossConversation ?? [],
+          {
+            header: `Recent updates (you are in conv:${enriched.conversationId}):`,
+          },
+        );
+        const bodyForAgent = crossConvBlock
+          ? `${crossConvBlock}\n\n${enriched.text}`
+          : enriched.text;
+
+        if (
+          !ctx.channelRuntime?.reply?.dispatchReplyWithBufferedBlockDispatcher
+        ) {
+          return;
+        }
+
+        const groupSubject = enriched.conversationMeta?.name;
+        const groupMembers =
+          enriched.conversationMeta?.type === "group"
+            ? enriched.conversationMeta.participants.join(",")
+            : undefined;
+
+        try {
+          const result =
+            await ctx.channelRuntime.reply.dispatchReplyWithBufferedBlockDispatcher(
+              {
+                ctx: {
+                  Body: enriched.text,
+                  BodyForAgent: bodyForAgent,
+                  From: fromId,
+                  To: account.agentName ?? accountId,
+                  SessionKey: `agent:main:moltzap:${chatType === "group" ? "group" : "dm"}:${enriched.conversationId}`,
+                  AccountId: accountId,
+                  Provider: CHANNEL_ID,
+                  Surface: CHANNEL_ID,
+                  OriginatingChannel: CHANNEL_ID,
+                  OriginatingTo: enriched.conversationId,
+                  ChatType: chatType,
+                  ...(groupSubject ? { GroupSubject: groupSubject } : {}),
+                  ...(groupMembers ? { GroupMembers: groupMembers } : {}),
+                  ...(enriched.conversationMeta?.name
+                    ? { ConversationLabel: enriched.conversationMeta.name }
+                    : {}),
+                  SenderName: enriched.sender.name,
+                },
+                cfg: ctx.cfg,
+                dispatcherOptions: {
+                  deliver: async (
+                    payload: { text?: string; body?: string },
+                    info?: { kind?: string },
+                  ) => {
+                    if (info?.kind !== "final") return true;
+                    const text = payload.text ?? payload.body;
+                    if (!text) return true;
+                    try {
+                      await core.sendReply(enriched.conversationId, text);
+                      log?.info?.(
+                        `MoltZap: outbound reply to ${enriched.conversationId}: ${text.slice(0, 80)}`,
+                      );
+                      return true;
+                    } catch (sendErr) {
+                      log?.error?.(`MoltZap: failed to send reply: ${sendErr}`);
+                      return false;
+                    }
+                  },
+                },
+              },
             );
-
-            setStatus({
-              accountId,
-              lastInboundAt: Date.now(),
-              lastEventAt: Date.now(),
-            });
-
-            // Cross-conversation context injection
-            const crossConvContext = contextConfig
-              ? service.getContext(message.conversationId, contextConfig)
-              : null;
-            const bodyForAgent = crossConvContext
-              ? `${crossConvContext}\n\n${envelope.text}`
-              : envelope.text;
-
-            if (
-              ctx.channelRuntime?.reply
-                ?.dispatchReplyWithBufferedBlockDispatcher
-            ) {
-              try {
-                const result =
-                  await ctx.channelRuntime.reply.dispatchReplyWithBufferedBlockDispatcher(
-                    {
-                      ctx: {
-                        Body: envelope.text,
-                        BodyForAgent: bodyForAgent,
-                        From: envelope.peer.id,
-                        To: account.agentName ?? accountId,
-                        SessionKey: `agent:main:moltzap:${envelope.chatType === "group" ? "group" : "dm"}:${envelope.conversationId}`,
-                        AccountId: accountId,
-                        Provider: CHANNEL_ID,
-                        Surface: CHANNEL_ID,
-                        OriginatingChannel: CHANNEL_ID,
-                        OriginatingTo: envelope.conversationId,
-                        ...(envelope.chatType
-                          ? { ChatType: envelope.chatType }
-                          : {}),
-                        ...(envelope.groupSubject
-                          ? { GroupSubject: envelope.groupSubject }
-                          : {}),
-                        ...(envelope.groupMembers
-                          ? { GroupMembers: envelope.groupMembers }
-                          : {}),
-                        ...(envelope.conversationLabel
-                          ? { ConversationLabel: envelope.conversationLabel }
-                          : {}),
-                        ...(envelope.senderName
-                          ? { SenderName: envelope.senderName }
-                          : {}),
-                      },
-                      cfg: ctx.cfg,
-                      dispatcherOptions: {
-                        deliver: async (
-                          payload: { text?: string; body?: string },
-                          info?: { kind?: string },
-                        ) => {
-                          if (info?.kind !== "final") return true;
-
-                          const text = payload.text ?? payload.body;
-                          if (!text) return true;
-
-                          try {
-                            await service.send(envelope.conversationId, text);
-                            log?.info?.(
-                              `MoltZap: outbound reply to ${envelope.conversationId}: ${text.slice(0, 80)}`,
-                            );
-                            return true;
-                          } catch (sendErr) {
-                            log?.error?.(
-                              `MoltZap: failed to send reply: ${sendErr}`,
-                            );
-                            return false;
-                          }
-                        },
-                      },
-                    },
-                  );
-                if (!result.queuedFinal) {
-                  log?.debug?.(
-                    `MoltZap: dispatch completed without final reply for ${envelope.conversationId}`,
-                  );
-                }
-              } catch (err: unknown) {
-                log?.error?.(`MoltZap: dispatch error: ${err}`);
-              }
-            }
-          })
-          .catch((err: unknown) => {
-            log?.error?.(`MoltZap: dispatch chain error: ${err}`);
-          });
+          if (!result.queuedFinal) {
+            log?.debug?.(
+              `MoltZap: dispatch completed without final reply for ${enriched.conversationId}`,
+            );
+          }
+        } catch (err: unknown) {
+          log?.error?.(`MoltZap: dispatch error: ${err}`);
+        }
       });
 
       // Forward non-message events for status/logging
