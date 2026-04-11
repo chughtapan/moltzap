@@ -127,6 +127,22 @@ importers:
         specifier: ^8.18.0
         version: 8.20.0
 
+  packages/nanoclaw-channel:
+    dependencies:
+      '@moltzap/client':
+        specifier: workspace:*
+        version: link:../client
+      '@moltzap/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+    devDependencies:
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.4(@types/debug@4.1.13)(@types/node@25.5.0)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3)
+
   packages/openclaw-channel:
     dependencies:
       '@moltzap/client':
