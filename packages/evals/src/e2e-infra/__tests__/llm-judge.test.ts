@@ -40,6 +40,20 @@ const SUCCESS = {
   usage: { input_tokens: 100, output_tokens: 50 },
 };
 
+const FAIL_WITH_ISSUES = {
+  type: "result" as const,
+  subtype: "success" as const,
+  structured_output: {
+    pass: false,
+    reason: "Missing required command.",
+    issues: [
+      { issue: "Agent did not produce /vote", severity: "critical" as const },
+      { issue: "Response was wordy", severity: "minor" as const },
+    ],
+  },
+  usage: { input_tokens: 120, output_tokens: 80 },
+};
+
 const ERROR_RESULT = {
   type: "result" as const,
   subtype: "error_during_execution" as const,
@@ -71,6 +85,24 @@ describe("judgeAgentResponse", () => {
     expect(call.options.maxTurns).toBeGreaterThanOrEqual(2);
     // Persona must stay inline in user prompt, not lifted to systemPrompt.
     expect(call.prompt).toContain("You are an expert QA evaluator");
+  });
+
+  it("parses a fail verdict with populated issues (severity walk)", async () => {
+    mockQuery.mockReset();
+    mockQuery.mockReturnValueOnce(asyncIter([FAIL_WITH_ISSUES]));
+
+    const result = await judgeAgentResponse({
+      scenario: SCENARIO,
+      agentResponse: "hi",
+      conversationContext: "{}",
+      evalModel: "claude-opus-4-6",
+    });
+
+    expect(result.pass).toBe(false);
+    expect(result.reason).toBe("Missing required command.");
+    expect(result.issues).toHaveLength(2);
+    expect(result.issues?.[0]?.severity).toBe("critical");
+    expect(result.issues?.[1]?.severity).toBe("minor");
   });
 
   it("retries on transient SDK errors and eventually succeeds", async () => {
