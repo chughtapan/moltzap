@@ -68,6 +68,7 @@ export class MoltZapService {
   private conversations = new Map<string, ConversationMeta>();
   private messages = new Map<string, Message[]>();
   private agentNames = new Map<string, string>();
+  private agentConversationCache = new Map<string, string>();
   private lastNotified = new Map<string, Map<string, number>>();
   private lastRead = new Map<string, Map<string, number>>();
 
@@ -118,6 +119,7 @@ export class MoltZapService {
     this.conversations.clear();
     this.messages.clear();
     this.agentNames.clear();
+    this.agentConversationCache.clear();
     this.lastNotified.clear();
     this.lastRead.clear();
   }
@@ -397,6 +399,26 @@ export class MoltZapService {
       parts: [{ type: "text", text }],
       ...(opts?.replyTo ? { replyToId: opts.replyTo } : {}),
     });
+  }
+
+  async sendToAgent(
+    agentName: string,
+    text: string,
+    opts?: { replyTo?: string },
+  ): Promise<void> {
+    let conversationId = this.agentConversationCache.get(agentName);
+    if (!conversationId) {
+      const lookupResult = (await this.sendRpc("agents/lookupByName", {
+        name: agentName,
+      })) as { agent: { id: string } };
+      const createResult = (await this.sendRpc("conversations/create", {
+        type: "dm",
+        participants: [{ type: "agent", id: lookupResult.agent.id }],
+      })) as { conversation: { id: string } };
+      conversationId = createResult.conversation.id;
+      this.agentConversationCache.set(agentName, conversationId);
+    }
+    await this.send(conversationId, text, opts);
   }
 
   // --- Cross-Conversation Context ---
