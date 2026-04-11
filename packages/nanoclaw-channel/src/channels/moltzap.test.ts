@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { Message } from "@moltzap/protocol";
 
 import { MoltZapChannel, type MoltZapServiceLike } from "./moltzap.js";
-import type { NewMessage, RegisteredGroup } from "./types.js";
+import type { NewMessage, RegisteredGroup } from "../types.js";
 import type { ChannelOpts } from "./registry.js";
 
 type MessageHandler = (msg: Message) => void;

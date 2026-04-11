@@ -1,8 +1,8 @@
 import { MoltZapService } from "@moltzap/client";
 import type { Message } from "@moltzap/protocol";
 
-import type { Channel, NewMessage, RegisteredGroup } from "./types.js";
-import { logger } from "./logger.js";
+import type { Channel, NewMessage, RegisteredGroup } from "../types.js";
+import { logger } from "../logger.js";
 import { registerChannel, type ChannelOpts } from "./registry.js";
 
 const MOLTZAP_JID_PREFIX = "mz:";
