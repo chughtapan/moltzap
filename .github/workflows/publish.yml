@@ -48,7 +48,9 @@ jobs:
           fi
 
           CHANGED=""
-          for pkg in protocol server-core cli openclaw-channel; do
+          # Dependency order: protocol → server-core → client → cli → openclaw-channel.
+          # The loop publishes in this order so dependents see updated prerequisites.
+          for pkg in protocol server-core client cli openclaw-channel; do
             if git diff --name-only "$BASE"..HEAD -- "packages/$pkg/src/" | grep -q .; then
               VERSION=$(scripts/compute-next-version.sh "$pkg")
               echo "${pkg}_version=$VERSION" >> "$GITHUB_OUTPUT"
@@ -101,6 +103,19 @@ jobs:
             git push --atomic origin main
           fi
 
+      # OIDC trusted publishing to npm.
+      #
+      # This step uses GitHub Actions OIDC tokens (via `id-token: write`
+      # permission above) to authenticate with the npm registry. No
+      # long-lived NPM_TOKEN secret is required. Each publish produces a
+      # provenance attestation linking the package back to this exact
+      # workflow run for supply chain verification.
+      #
+      # Prerequisite (one-time, per package): each @moltzap/* package must
+      # have a Trusted Publisher configured on npmjs.org pointing at
+      # chughtapan/moltzap and this publish.yml workflow. Without that
+      # config, OIDC publishes fail with 403. See PR description for setup
+      # steps.
       - name: Pack and publish
         if: steps.versions.outputs.changed != ''
         run: |
@@ -112,9 +127,10 @@ jobs:
               continue
             fi
             echo "Publishing @moltzap/${pkg}@${VER}..."
-            cd "packages/$pkg"
-            TARBALL=$(pnpm pack --pack-gzip-level 9 | tail -1)
-            [ -f "$TARBALL" ] || { echo "ERROR: pack failed, tarball not found"; exit 1; }
-            npm publish "$TARBALL" --access public
-            cd ../..
+            (
+              cd "packages/$pkg"
+              TARBALL=$(pnpm pack --pack-gzip-level 9 | tail -1)
+              [ -f "$TARBALL" ] || { echo "ERROR: pack failed, tarball not found"; exit 1; }
+              npm publish "$TARBALL" --access public --provenance
+            )
           done
