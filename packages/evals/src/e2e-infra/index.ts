@@ -88,6 +88,13 @@ async function main(): Promise<void> {
       default: "info",
       choices: ["debug", "info", "warn", "error"],
     })
+    .option("runtime", {
+      type: "string",
+      description:
+        "Agent runtime to spin up: openclaw (default, containerized) or nanoclaw (host subprocess, smoke test only)",
+      default: "openclaw",
+      choices: ["openclaw", "nanoclaw"],
+    })
     .help()
     .alias("h", "help")
     .strict().argv;
@@ -116,6 +123,7 @@ async function main(): Promise<void> {
       cleanResults: argv["clean-results"],
       logLevel: argv["log-level"],
       signal: shutdownController.signal,
+      runtime: argv.runtime as "openclaw" | "nanoclaw",
     });
 
     logger.info(
