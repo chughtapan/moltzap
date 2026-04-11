@@ -5,6 +5,7 @@ import type { Message } from "@moltzap/protocol";
 let capturedOnMessage: ((msg: Message) => void) | null = null;
 const mockSendRpc = vi.fn();
 const mockSend = vi.fn();
+const mockSendToAgent = vi.fn();
 const mockClose = vi.fn();
 
 vi.mock("@moltzap/client", () => ({
@@ -24,6 +25,7 @@ vi.mock("@moltzap/client", () => ({
     getContext: vi.fn().mockReturnValue(null),
     sendRpc: mockSendRpc,
     send: mockSend,
+    sendToAgent: mockSendToAgent,
     startSocketServer: vi.fn(),
     stopSocketServer: vi.fn(),
     on: vi.fn().mockImplementation((event: string, handler: Function) => {
@@ -33,10 +35,7 @@ vi.mock("@moltzap/client", () => ({
   })),
 }));
 
-import {
-  moltzapChannelPlugin,
-  agentConversationCache,
-} from "./openclaw-entry.js";
+import { moltzapChannelPlugin } from "./openclaw-entry.js";
 
 function makeMessage(overrides: Partial<Message> = {}): Message {
   return {
@@ -75,7 +74,6 @@ describe("Flow 6: Outbound delivery — deliver callback + sendText", () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
-    agentConversationCache.clear();
     capturedOnMessage = null;
     abortController = new AbortController();
     mockDispatch = vi.fn().mockResolvedValue({ queuedFinal: true });
@@ -250,19 +248,8 @@ describe("Flow 6: Outbound delivery — deliver callback + sendText", () => {
     expect(result.ok).toBe(false);
   });
 
-  it("sendText with agent: target auto-creates DM conversation", async () => {
-    mockSendRpc.mockImplementation(async (method: string) => {
-      if (method === "agents/lookupByName")
-        return { agent: { id: "agent-nova-id" } };
-      if (method === "conversations/create")
-        return { conversation: { id: "conv-auto-created" } };
-      if (method === "messages/send") return { message: { id: "sent-1" } };
-      if (method === "agents/lookup")
-        return { agents: [{ id: "agent-sender-1", name: "Atlas" }] };
-      if (method === "conversations/get")
-        return { conversation: { type: "dm" }, participants: [] };
-      return {};
-    });
+  it("sendText with agent: target delegates to service.sendToAgent", async () => {
+    mockSendToAgent.mockResolvedValue(undefined);
 
     const result = await moltzapChannelPlugin.outbound.sendText({
       cfg: makeCfg(),
@@ -272,69 +259,41 @@ describe("Flow 6: Outbound delivery — deliver callback + sendText", () => {
     });
 
     expect(result.ok).toBe(true);
-
-    const lookupCall = mockSendRpc.mock.calls.find(
-      (c) => c[0] === "agents/lookupByName",
-    );
-    expect(lookupCall![1]).toEqual({ name: "nova" });
-
-    const createCall = mockSendRpc.mock.calls.find(
-      (c) => c[0] === "conversations/create",
-    );
-    expect(createCall![1]).toEqual({
-      type: "dm",
-      participants: [{ type: "agent", id: "agent-nova-id" }],
-    });
-
-    expect(mockSend).toHaveBeenCalledWith("conv-auto-created", "Hello nova", {
+    expect(mockSendToAgent).toHaveBeenCalledWith("nova", "Hello nova", {
       replyTo: undefined,
     });
+    expect(mockSend).not.toHaveBeenCalled();
   });
 
-  it("sendText with agent: target reuses cached conversation on second call", async () => {
-    mockSendRpc.mockImplementation(async (method: string) => {
-      if (method === "agents/lookupByName")
-        return { agent: { id: "agent-nova-id" } };
-      if (method === "conversations/create")
-        return { conversation: { id: "conv-cached" } };
-      if (method === "agents/lookup")
-        return { agents: [{ id: "agent-sender-1", name: "Atlas" }] };
-      if (method === "conversations/get")
-        return { conversation: { type: "dm" }, participants: [] };
-      return {};
-    });
-
-    await moltzapChannelPlugin.outbound.sendText({
-      cfg: makeCfg(),
-      to: "agent:nova",
-      text: "First message",
-      accountId: "delivery-test",
-    });
-
-    mockSendRpc.mockClear();
-    mockSend.mockClear();
-    mockSendRpc.mockImplementation(async (method: string) => {
-      if (method === "agents/lookupByName")
-        throw new Error("Should not call lookupByName on cached target");
-      if (method === "conversations/create")
-        throw new Error(
-          "Should not call conversations/create on cached target",
-        );
-      return {};
-    });
+  it("sendText with agent: target forwards replyToId to sendToAgent", async () => {
+    mockSendToAgent.mockResolvedValue(undefined);
 
     const result = await moltzapChannelPlugin.outbound.sendText({
       cfg: makeCfg(),
       to: "agent:nova",
-      text: "Second message",
+      text: "Reply text",
       accountId: "delivery-test",
+      replyToId: "msg-parent-1",
     });
 
     expect(result.ok).toBe(true);
-    expect(mockSend).toHaveBeenCalledOnce();
-    expect(mockSend).toHaveBeenCalledWith("conv-cached", "Second message", {
-      replyTo: undefined,
+    expect(mockSendToAgent).toHaveBeenCalledWith("nova", "Reply text", {
+      replyTo: "msg-parent-1",
     });
+  });
+
+  it("sendText with agent: target returns error when sendToAgent throws", async () => {
+    mockSendToAgent.mockRejectedValue(new Error("lookup failed"));
+
+    const result = await moltzapChannelPlugin.outbound.sendText({
+      cfg: makeCfg(),
+      to: "agent:nova",
+      text: "Hello nova",
+      accountId: "delivery-test",
+    });
+
+    expect(result.ok).toBe(false);
+    expect((result as { error: Error }).error.message).toBe("lookup failed");
   });
 
   it("sendText returns error when client is not connected", async () => {
