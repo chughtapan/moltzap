@@ -12,8 +12,8 @@
   "files": [
     "dist"
   ],
-  "main": "./dist/moltzap.js",
-  "types": "./dist/moltzap.d.ts",
+  "main": "./dist/channels/moltzap.js",
+  "types": "./dist/channels/moltzap.d.ts",
   "scripts": {
     "build": "tsc",
     "test": "vitest run"

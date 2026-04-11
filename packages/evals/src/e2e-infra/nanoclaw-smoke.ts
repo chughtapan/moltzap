@@ -24,6 +24,15 @@ import { logger } from "./logger.js";
 
 const exec = promisify(execCb);
 
+// OneCLI gateway — nanoclaw's container-runner calls this for per-container
+// credential injection. Running locally from ~/.onecli/docker-compose.yml,
+// dashboard on 10254, gateway on 10255. Install: curl -fsSL https://onecli.sh/install | sh
+const ONECLI_URL = "http://127.0.0.1:10254";
+const ONECLI_COMPOSE_PATH = path.join(
+  os.homedir(),
+  ".onecli/docker-compose.yml",
+);
+
 // Pinned to qwibitai/nanoclaw@934f063 (2026-04-10). Bump deliberately.
 const NANOCLAW_SHA = "934f063aff5c30e7b49ce58b53b41901d3472a3e";
 const NANOCLAW_URL = `https://github.com/qwibitai/nanoclaw/archive/${NANOCLAW_SHA}.tar.gz`;
@@ -46,6 +55,56 @@ export interface NanoclawSmokeHandle {
   proc: ChildProcess;
   dataDir: string;
   capturedLogs: string[];
+}
+
+async function isOnecliReachable(): Promise<boolean> {
+  try {
+    const res = await fetch(`${ONECLI_URL}/api/container-config`, {
+      signal: AbortSignal.timeout(2_000),
+    });
+    // Any HTTP response means the dashboard is listening. A 401/403 is fine —
+    // nanoclaw's SDK handles auth. We only care that the port is open.
+    return res.status > 0;
+  } catch {
+    return false;
+  }
+}
+
+async function ensureOnecliRunning(): Promise<void> {
+  if (await isOnecliReachable()) {
+    logger.info(`OneCLI gateway already running at ${ONECLI_URL}`);
+    return;
+  }
+
+  if (!fs.existsSync(ONECLI_COMPOSE_PATH)) {
+    throw new Error(
+      `OneCLI gateway not running and not installed at ${ONECLI_COMPOSE_PATH}. ` +
+        `Nanoclaw requires OneCLI to inject credentials into agent subcontainers. ` +
+        `Install once with:\n\n  curl -fsSL https://onecli.sh/install | sh\n\n` +
+        `Then open http://127.0.0.1:10254 and add your Anthropic credentials.`,
+    );
+  }
+
+  logger.info("Starting OneCLI gateway (docker compose up)...");
+  await exec(
+    `docker compose -p onecli -f "${ONECLI_COMPOSE_PATH}" up -d --wait`,
+    { timeout: 120_000 },
+  );
+
+  // `--wait` returns when healthchecks pass, but give the HTTP listener a
+  // moment to bind before the first real request.
+  for (let i = 0; i < 20; i++) {
+    if (await isOnecliReachable()) {
+      logger.info(`OneCLI gateway ready at ${ONECLI_URL}`);
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+
+  throw new Error(
+    `OneCLI gateway started but not reachable at ${ONECLI_URL} after 10s. ` +
+      `Check: docker compose -p onecli -f ${ONECLI_COMPOSE_PATH} logs`,
+  );
 }
 
 async function preflightDocker(): Promise<void> {
@@ -78,19 +137,30 @@ async function downloadTarball(url: string, destDir: string): Promise<void> {
 
 function resolveChannelFilePath(): string {
   // When compiled: packages/evals/dist/e2e-infra/nanoclaw-smoke.js
-  // We want:       packages/nanoclaw-channel/src/moltzap.ts
-  // Adjust relative path accordingly.
+  // When running via tsx: packages/evals/src/e2e-infra/nanoclaw-smoke.ts
+  // We want:       packages/nanoclaw-channel/src/channels/moltzap.ts
   const here = fileURLToPath(import.meta.url);
-  // .../packages/evals/dist/e2e-infra/nanoclaw-smoke.js → .../packages/
-  const packagesDir = path.resolve(here, "../../../..");
-  return path.join(packagesDir, "nanoclaw-channel/src/moltzap.ts");
+  // Walk up to the packages/ directory regardless of dist/ vs src/ location.
+  let current = path.dirname(here);
+  while (current !== path.parse(current).root) {
+    if (path.basename(current) === "packages") break;
+    current = path.dirname(current);
+  }
+  return path.join(current, "nanoclaw-channel/src/channels/moltzap.ts");
 }
 
 function resolveSkillMdPath(): string {
   const here = fileURLToPath(import.meta.url);
-  // .../packages/evals/dist/e2e-infra/nanoclaw-smoke.js → repo root
-  const repoRoot = path.resolve(here, "../../../../..");
-  return path.join(repoRoot, "SKILL.md");
+  // Walk up to the repo root (one level above packages/)
+  let current = path.dirname(here);
+  while (current !== path.parse(current).root) {
+    if (path.basename(current) === "packages") {
+      current = path.dirname(current);
+      break;
+    }
+    current = path.dirname(current);
+  }
+  return path.join(current, "SKILL.md");
 }
 
 export async function ensureNanoclawInstalled(): Promise<void> {
@@ -162,11 +232,14 @@ export async function ensureNanoclawInstalled(): Promise<void> {
     { cwd: tmpDir, timeout: 120_000 },
   );
 
-  // Install nanoclaw's own deps
+  // Install nanoclaw's own deps. Do NOT use --ignore-scripts here: nanoclaw's
+  // better-sqlite3 is a native module that must run its build script to compile
+  // bindings against the host's node version. The smoke test accepts the supply
+  // chain risk of lifecycle scripts running; the SHA pin bounds the exposure.
   logger.info("Installing nanoclaw dependencies...");
-  await exec("npm install --no-package-lock --ignore-scripts", {
+  await exec("npm install --no-package-lock", {
     cwd: tmpDir,
-    timeout: 180_000,
+    timeout: 300_000,
   });
 
   // Compile nanoclaw + the injected channel file
@@ -199,17 +272,31 @@ export async function startNanoclawSmoke(opts: {
     path.join(os.tmpdir(), "moltzap-nanoclaw-smoke-"),
   );
 
-  logger.info(`Starting nanoclaw subprocess (dataDir: ${dataDir})`);
+  // @moltzap/client's MoltZapWsClient appends "/ws" and rewrites http→ws itself.
+  // The eval runner hands us the already-expanded wsUrl (ws://host:port/ws),
+  // so strip the suffix and flip the scheme to match what the client expects
+  // as input — otherwise the client produces /ws/ws and the upgrade fails.
+  const normalizedServerUrl = opts.serverUrl
+    .replace(/\/ws$/, "")
+    .replace(/^ws:/, "http:")
+    .replace(/^wss:/, "https:");
+
+  await ensureOnecliRunning();
+
+  logger.info(
+    `Starting nanoclaw subprocess (dataDir: ${dataDir}, server: ${normalizedServerUrl})`,
+  );
 
   const proc = spawn("node", ["dist/index.js"], {
     cwd: NANOCLAW_CACHE,
     env: {
       ...process.env,
       MOLTZAP_API_KEY: opts.apiKey,
-      MOLTZAP_SERVER_URL: opts.serverUrl,
+      MOLTZAP_SERVER_URL: normalizedServerUrl,
       MOLTZAP_EVAL_MODE: "1",
       DATA_DIR: dataDir,
       CONTAINER_RUNTIME: "docker",
+      ONECLI_URL: ONECLI_URL,
       LOG_LEVEL: "info",
     },
     stdio: ["ignore", "pipe", "pipe"],
