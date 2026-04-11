@@ -1,7 +1,6 @@
 import { query, type Options } from "@anthropic-ai/claude-agent-sdk";
 import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
-import { stringEnum } from "@moltzap/protocol";
 import { DEFAULT_JUDGE_MODEL } from "./model-config.js";
 import { logger } from "./logger.js";
 import type { EvalScenario, JudgeResult, TranscriptEntry } from "./types.js";
@@ -14,7 +13,11 @@ const JudgeResultSchema = Type.Object(
       Type.Object(
         {
           issue: Type.String(),
-          severity: stringEnum(["minor", "significant", "critical"]),
+          severity: Type.Union([
+            Type.Literal("minor"),
+            Type.Literal("significant"),
+            Type.Literal("critical"),
+          ]),
         },
         { additionalProperties: false },
       ),
