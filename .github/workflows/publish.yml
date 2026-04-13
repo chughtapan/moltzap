@@ -29,14 +29,13 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
 
       - uses: pnpm/action-setup@v4
+      # Node 24 ships npm 11.x which supports OIDC trusted publishing.
+      # Node 22 ships npm 10.x which does not.
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
           registry-url: https://registry.npmjs.org
-
-      # npm trusted publishing (OIDC) requires npm >=11.5.1. Node 22 ships npm 10.x.
-      - run: npm install -g npm@latest
 
       - run: pnpm install --frozen-lockfile
 
