@@ -104,13 +104,18 @@ jobs:
             git push --atomic origin main
           fi
 
+      - name: Build all packages
+        run: pnpm -r build
+
       - name: Pack and publish
-        if: steps.versions.outputs.changed != ''
         run: |
-          for pkg in ${{ steps.versions.outputs.changed }}; do
+          # Publish any package whose local version is not yet on npm.
+          # This covers both newly bumped versions AND versions from prior
+          # runs where the bump committed but the publish failed.
+          for pkg in protocol server-core client openclaw-channel; do
             VER=$(node -p "require('./packages/$pkg/package.json').version")
             if npm view "@moltzap/${pkg}@${VER}" version 2>/dev/null | grep -q "$VER"; then
-              echo "@moltzap/${pkg}@${VER} already published — skipping"
+              echo "@moltzap/${pkg}@${VER} already on npm — skipping"
               continue
             fi
             echo "Publishing @moltzap/${pkg}@${VER}..."
