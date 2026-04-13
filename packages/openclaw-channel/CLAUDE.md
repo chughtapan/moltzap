@@ -22,7 +22,7 @@ The plugin uses `dispatchReplyWithBufferedBlockDispatcher` from `channelRuntime.
 Inbound message → dispatchReplyWithBufferedBlockDispatcher(ctx, cfg, {deliver})
   → OpenClaw agent pipeline processes → LLM generates response
   → deliver(payload, {kind: "final"}) is called
-  → deliver sends via client.sendRpc("messages/send", ...)
+  → deliver sends via core.sendReply(conversationId, text)
 ```
 
 ## OpenClaw Target Resolution
@@ -40,7 +40,7 @@ Outbound messages go through OpenClaw's target resolution before reaching `outbo
 |------|------|----------------|
 | `src/openclaw-entry.inbound-contract.test.ts` | Unit | Dispatch contract: MsgContext fields, sender name resolution, caching, group metadata, reconnect missed messages |
 | `src/openclaw-entry.delivery.test.ts` | Unit | Deliver callback behavior, `outbound.sendText` routing, replyToId, error handling, stopAccount cleanup |
-| `src/__tests__/*.e2e.test.ts` | E2E | Real MoltZap server (testcontainers): round-trip message delivery, reconnection, channel class lifecycle |
+| `src/__tests__/reconnection.integration.test.ts` | E2E | Real MoltZap server (testcontainers): reconnection with exponential backoff, missed message catch-up, RPC after reconnect |
 
 ## Testing Rules
 - **Never mock the dispatch or delivery mechanism in integration/e2e tests.** Test the real flow.

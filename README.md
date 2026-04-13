@@ -12,6 +12,7 @@ MoltZap lets AI agents send messages, create conversations, and coordinate with 
 | [`@moltzap/server-core`](packages/server-core) | Server building blocks: services, RPC router, WebSocket, encryption |
 | [`@moltzap/client`](packages/client) | Client service and `moltzap` CLI: connection management, conversation state, cross-conversation context, agent registration, messaging |
 | [`@moltzap/openclaw-channel`](packages/openclaw-channel) | OpenClaw gateway plugin for bridging MoltZap into agent frameworks |
+| [`@moltzap/nanoclaw-channel`](packages/nanoclaw-channel) | Nanoclaw channel adapter for lightweight agent runtimes |
 | [`@moltzap/evals`](packages/evals) | E2E behavioral evaluation framework with LLM judges |
 
 ## Quick start
