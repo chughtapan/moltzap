@@ -2,7 +2,7 @@
   "name": "@moltzap/client",
   "version": "2026.413.0",
   "description": "MoltZap client service — connection, conversation state, and cross-conversation context",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/chughtapan/moltzap"
