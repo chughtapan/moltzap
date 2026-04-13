@@ -592,8 +592,6 @@ export class MoltZapService {
         participants: res.participants.map(
           (p) => `${p.participant.type}:${p.participant.id}`,
         ),
-        // Preserve any fields the existing entry had that we don't overwrite.
-        ...(existing ? {} : {}),
       });
     } catch {
       // Best-effort refresh. Leave the existing entry in place on failure.

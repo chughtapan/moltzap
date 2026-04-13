@@ -431,7 +431,7 @@ export const moltzapChannelPlugin = {
             }
             break;
           }
-          case "contact/request": {
+          case EventNames.ContactRequest: {
             const contact = extractContactRequest(event);
             if (contact) {
               log?.debug?.(
@@ -441,7 +441,7 @@ export const moltzapChannelPlugin = {
             }
             break;
           }
-          case "contact/accepted": {
+          case EventNames.ContactAccepted: {
             const contact = extractContactAccepted(event);
             if (contact) {
               log?.debug?.(`MoltZap: contact accepted ${contact.contact.id}`);
@@ -471,7 +471,7 @@ export const moltzapChannelPlugin = {
         }
       });
 
-      service.on("disconnect", () => {
+      core.onDisconnect(() => {
         log?.warn?.("MoltZap: disconnected");
         setStatus({
           accountId,
@@ -480,7 +480,7 @@ export const moltzapChannelPlugin = {
         });
       });
 
-      service.on("reconnect", () => {
+      core.onReconnect(() => {
         log?.info?.("MoltZap: reconnected");
         setStatus({
           accountId,
@@ -492,7 +492,7 @@ export const moltzapChannelPlugin = {
       activeClients.set(accountId, service);
 
       if (abortSignal.aborted) {
-        service.close();
+        await core.disconnect();
         activeClients.delete(accountId);
         return;
       }
@@ -500,14 +500,14 @@ export const moltzapChannelPlugin = {
       abortSignal.addEventListener(
         "abort",
         () => {
-          service.close();
+          void core.disconnect();
           activeClients.delete(accountId);
         },
         { once: true },
       );
 
       try {
-        await service.connect();
+        await core.connect();
         service.startSocketServer();
         log?.info?.(
           `MoltZap: connected as ${account.agentName} (${service.ownAgentId})`,
