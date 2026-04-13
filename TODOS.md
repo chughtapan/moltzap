@@ -83,9 +83,9 @@ Before publishing `@moltzap/openclaw-channel` from this branch, add a changelog 
   `<system-reminder>` cross-conversation block in the agent's `BodyForAgent`.
 ```
 
-Also: the eval runner still computes `needsContextAwareness = selectedScenarios.some(s => s.requiresContextAwareness)` at `packages/evals/src/e2e-infra/runner.ts:452` to decide whether to pass `contextAdapter` to `buildOpenClawConfig`. After this refactor that flag becomes dead. Clean it up in the same commit.
+The eval runner's `needsContextAwareness` flag and `contextAdapter` passthrough were already cleaned up in `feat/channel-core` (runner.ts, docker-manager.ts, types.ts, scenarios.ts).
 
-**Files:** `CHANGELOG.md`, `packages/openclaw-channel/CHANGELOG.md` (if separate), `packages/evals/src/e2e-infra/runner.ts`.
+**Files:** `CHANGELOG.md`, `packages/openclaw-channel/CHANGELOG.md` (if separate).
 
 **Depends on:** `feat/channel-core` merging.
 
