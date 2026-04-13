@@ -1,53 +1,6 @@
 import type { Message, EventFrame } from "@moltzap/protocol";
 import { EventNames } from "@moltzap/protocol";
 
-/**
- * MoltZap message -> OpenClaw InboundEnvelope mapping:
- *
- *   MoltZap                    ->  OpenClaw
- *   ------------------------------------------
- *   message.sender.type        ->  peer.kind ("user"|"bot")
- *   message.sender.id          ->  peer.id
- *   message.conversationId     ->  session context
- *   message.parts[].text       ->  text (joined with newlines)
- *   message.replyToId          ->  replyToId
- *   message.id                 ->  messageId
- */
-export function mapMessageToEnvelope(
-  message: Message,
-  opts?: {
-    senderName?: string;
-    chatType?: "direct" | "group";
-    groupSubject?: string;
-    groupMembers?: string;
-    conversationLabel?: string;
-  },
-) {
-  return {
-    channel: "moltzap" as const,
-    accountId: "default",
-    peer: {
-      kind:
-        message.sender.type === "user" ? ("user" as const) : ("bot" as const),
-      id: `${message.sender.type}:${message.sender.id}`,
-    },
-    text: message.parts
-      .filter((p): p is { type: "text"; text: string } => p.type === "text")
-      .map((p) => p.text)
-      .join("\n"),
-    conversationId: message.conversationId,
-    messageId: message.id,
-    replyToId: message.replyToId ?? undefined,
-    ...(opts?.senderName ? { senderName: opts.senderName } : {}),
-    ...(opts?.chatType ? { chatType: opts.chatType } : {}),
-    ...(opts?.groupSubject ? { groupSubject: opts.groupSubject } : {}),
-    ...(opts?.groupMembers ? { groupMembers: opts.groupMembers } : {}),
-    ...(opts?.conversationLabel
-      ? { conversationLabel: opts.conversationLabel }
-      : {}),
-  };
-}
-
 export function isMessageEvent(frame: EventFrame): boolean {
   return frame.event === EventNames.MessageReceived;
 }

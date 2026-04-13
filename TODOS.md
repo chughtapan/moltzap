@@ -22,12 +22,13 @@
 1. Shorten the preview further or strip numbers/sensitive patterns before injection
 2. Strengthen the SKILL.md rule 6 wording with explicit examples
 3. Remove previews from the system reminder entirely, agent uses `moltzap history --session-key` to actively fetch details
-4. Run EVAL-008 with `contextAdapter` disabled (separate container config for isolation-only vs awareness scenarios)
-5. Make the deterministic-fail check in `scenarios.ts` semantic instead of literal-string (catch `$4K`, `4 thousand`, etc.)
+4. Make the deterministic-fail check in `scenarios.ts` semantic instead of literal-string (catch `$4K`, `4 thousand`, etc.)
+
+Note: `contextAdapter` was removed in `feat/channel-core` (PR #32). Cross-conv context is now always-on, so option "disable contextAdapter per-scenario" is no longer available. Isolation-only scenarios must solve this at the prompt/SKILL.md level instead.
 
 **EVAL-010:** Likely a real "addressing failure" — agent collapses to summarize-last-message when uncertain whether it's being directly addressed. Investigate the agent's name-resolution prompt path.
 
-**Files:** `packages/client/src/service.ts` (getContext), `packages/evals/src/e2e-infra/scenarios.ts`
+**Files:** `packages/client/src/service.ts` (peekContextEntries), `packages/evals/src/e2e-infra/scenarios.ts`
 
 **Depends on:** Nothing.
 
@@ -62,7 +63,50 @@ The socket server accumulates `buffer += chunk.toString()` with no max size. A c
 
 **Depends on:** Nothing.
 
+## Channel core
+
+### Release notes: breaking removal of `account.contextAdapter` from openclaw-channel
+
+**Priority:** P3
+
+**Status as of 2026-04-11:** `feat/channel-core` deleted the `contextAdapter?: { type, maxConversations?, maxMessagesPerConv? }` field from `MoltZapAccount` in `packages/openclaw-channel/src/openclaw-entry.ts`. Enrichment is now always-on: group metadata and cross-conversation context always flow into `BodyForAgent` when entries exist.
+
+Before publishing `@moltzap/openclaw-channel` from this branch, add a changelog entry and migration note:
+
+```
+### Breaking
+- Removed `channels.moltzap.accounts[].contextAdapter` from openclaw-channel account
+  config. Cross-conversation context is now always enabled. Existing configs with
+  this field set will silently ignore it (JSON) or fail to typecheck (TS).
+- The default behavior matches what users had with `contextAdapter: { type: "cross-conversation" }`
+  set, so accounts that had the flag enabled see no behavior change.
+- Accounts that had the flag unset (defaulted off) will now start receiving the
+  `<system-reminder>` cross-conversation block in the agent's `BodyForAgent`.
+```
+
+The eval runner's `needsContextAwareness` flag and `contextAdapter` passthrough were already cleaned up in `feat/channel-core` (runner.ts, docker-manager.ts, types.ts, scenarios.ts).
+
+**Files:** `CHANGELOG.md`, `packages/openclaw-channel/CHANGELOG.md` (if separate).
+
+**Depends on:** `feat/channel-core` merging (PR #32).
+
+### Deferred: early commit in enrichMessage
+
+**Priority:** P4
+
+**Status as of 2026-04-13:** Fixed in PR #32. `enrichMessage()` now returns `{ enriched, commitContext }` and `handleInbound()` calls `commitContext()` only after the inbound handler succeeds. If dispatch throws, entries stay unmarked and resurface on the next message.
+
+Found by Codex adversarial review (gpt-5.4). Previously, `commit()` was called inside `enrichMessage()` before the handler ran, which meant a failed dispatch permanently consumed cross-conv entries.
+
+**Files:** `packages/client/src/channel-core.ts` (enrichMessage, handleInbound)
+
 ## Completed
+
+### Extract MoltZapChannelCore + migrate channels
+
+**Completed:** 2026-04-13 (PR #32)
+
+Extracted shared `MoltZapChannelCore` into `@moltzap/client`. Both openclaw-channel and nanoclaw-channel migrated to use it. Deleted 7 dead files from openclaw-channel (channel.ts, config.ts, ws-client.ts + tests). Added peek/commit context API with explicit marker advancement. Dropped `contextAdapter` feature gate. 202 tests green, 3/3 openclaw E2E evals pass with minimax.
 
 ### Batch agent name resolution in history handler
 
