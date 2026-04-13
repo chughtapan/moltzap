@@ -529,7 +529,8 @@ describe("MoltZapChannelCore", () => {
         parts: [{ type: "text", text: "static enrichment" }],
       });
 
-      const staticResult = await MoltZapChannelCore.enrichMessage(service, msg);
+      const { enriched: staticResult, commitContext } =
+        await MoltZapChannelCore.enrichMessage(service, msg);
 
       expect(staticResult).toMatchObject({
         id: "msg-static",
@@ -540,6 +541,7 @@ describe("MoltZapChannelCore", () => {
       });
       expect(staticResult.contextBlocks.groupMetadata?.name).toBe("devs");
       expect(staticResult.contextBlocks.crossConversation).toHaveLength(1);
+      expect(commitContext).toBeTypeOf("function");
     });
 
     it("static helper tolerates resolveAgentName throwing (disconnected service)", async () => {
@@ -551,7 +553,7 @@ describe("MoltZapChannelCore", () => {
         new Error("Not connected"),
       );
 
-      const result = await MoltZapChannelCore.enrichMessage(
+      const { enriched: result } = await MoltZapChannelCore.enrichMessage(
         fake.service,
         buildMessage({ sender: { type: "agent", id: "agent-unknown" } }),
       );

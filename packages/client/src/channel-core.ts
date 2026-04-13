@@ -163,7 +163,10 @@ export class MoltZapChannelCore {
   static async enrichMessage(
     service: ChannelService,
     message: Message,
-  ): Promise<EnrichedInboundMessage> {
+  ): Promise<{
+    enriched: EnrichedInboundMessage;
+    commitContext?: () => void;
+  }> {
     const convMeta = service.getConversation(message.conversationId);
 
     const senderName =
@@ -197,32 +200,35 @@ export class MoltZapChannelCore {
     );
     if (entries.length > 0) {
       contextBlocks.crossConversation = entries;
-      commit();
     }
 
     return {
-      id: message.id,
-      conversationId: message.conversationId,
-      sender: {
-        type: message.sender.type === "user" ? "user" : "agent",
-        id: message.sender.id,
-        name: senderName,
+      enriched: {
+        id: message.id,
+        conversationId: message.conversationId,
+        sender: {
+          type: message.sender.type === "user" ? "user" : "agent",
+          id: message.sender.id,
+          name: senderName,
+        },
+        text,
+        isFromMe,
+        createdAt: message.createdAt,
+        replyToId: message.replyToId,
+        conversationMeta,
+        contextBlocks,
       },
-      text,
-      isFromMe,
-      createdAt: message.createdAt,
-      replyToId: message.replyToId,
-      conversationMeta,
-      contextBlocks,
+      commitContext: entries.length > 0 ? commit : undefined,
     };
   }
 
   private async handleInbound(message: Message): Promise<void> {
     if (!this.inboundHandler) return;
-    const enriched = await MoltZapChannelCore.enrichMessage(
+    const { enriched, commitContext } = await MoltZapChannelCore.enrichMessage(
       this.service,
       message,
     );
     await this.inboundHandler(enriched);
+    commitContext?.();
   }
 }
