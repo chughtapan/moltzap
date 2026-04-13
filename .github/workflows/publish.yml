@@ -33,10 +33,10 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+          registry-url: https://registry.npmjs.org
 
-      # Set npm registry without writing a NODE_AUTH_TOKEN reference to .npmrc.
-      # OIDC trusted publishing (id-token: write) handles auth — no npm token needed.
-      - run: npm config set registry https://registry.npmjs.org
+      # npm trusted publishing (OIDC) requires npm >=11.5.1. Node 22 ships npm 10.x.
+      - run: npm install -g npm@latest
 
       - run: pnpm install --frozen-lockfile
 
@@ -108,7 +108,12 @@ jobs:
         run: pnpm -r build
 
       - name: Pack and publish
+        env:
+          # Clear NODE_AUTH_TOKEN so npm uses OIDC trusted publishing (id-token: write)
+          # instead of the stale classic token from repo secrets.
+          NODE_AUTH_TOKEN: ''
         run: |
+          echo "npm version: $(npm --version)"
           # Publish any package whose local version is not yet on npm.
           # This covers both newly bumped versions AND versions from prior
           # runs where the bump committed but the publish failed.
