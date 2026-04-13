@@ -2,7 +2,7 @@
   "name": "@moltzap/openclaw-channel",
   "version": "2026.413.0",
   "description": "OpenClaw channel plugin for MoltZap messaging",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/chughtapan/moltzap"
