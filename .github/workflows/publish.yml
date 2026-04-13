@@ -29,13 +29,13 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
 
       - uses: pnpm/action-setup@v4
-      # Node 24 ships npm 11.x which supports OIDC trusted publishing.
-      # Node 22 ships npm 10.x which does not.
+      # Node 24 ships npm >=11.5 which supports OIDC trusted publishing.
+      # Do NOT set registry-url — it writes a NODE_AUTH_TOKEN reference to
+      # .npmrc that takes priority over OIDC and breaks trusted publishing.
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: pnpm
-          registry-url: https://registry.npmjs.org
 
       - run: pnpm install --frozen-lockfile
 
@@ -107,12 +107,13 @@ jobs:
         run: pnpm -r build
 
       - name: Pack and publish
+        env:
+          # Clear any residual NODE_AUTH_TOKEN so npm uses OIDC trusted
+          # publishing via id-token: write. See:
+          # https://github.com/orgs/community/discussions/176761
+          NODE_AUTH_TOKEN: ""
         run: |
           echo "npm version: $(npm --version)"
-          # Remove token-based auth so npm uses OIDC trusted publishing.
-          # actions/setup-node writes _authToken=${NODE_AUTH_TOKEN} to .npmrc
-          # which can interfere with OIDC even when empty.
-          npm config delete "//registry.npmjs.org/:_authToken" 2>/dev/null || true
           # Publish any package whose local version is not yet on npm.
           # This covers both newly bumped versions AND versions from prior
           # runs where the bump committed but the publish failed.
