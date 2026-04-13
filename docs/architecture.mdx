@@ -108,9 +108,12 @@ This means the database never stores plaintext message content. The server decry
 @moltzap/protocol          (leaf, no workspace deps)
     |
     +-- @moltzap/server-core        (depends on protocol)
-    +-- @moltzap/client             (depends on protocol; bundles `moltzap` CLI)
+    +-- @moltzap/client             (depends on protocol; bundles `moltzap` CLI, MoltZapChannelCore)
             |
-            +-- @moltzap/openclaw-channel (depends on client + protocol)
+            +-- @moltzap/openclaw-channel   (depends on client + protocol)
+            +-- @moltzap/nanoclaw-channel   (depends on client + protocol)
 ```
+
+Both channel adapters use `MoltZapChannelCore` from `@moltzap/client` for shared message enrichment (sender name resolution, cross-conversation context, group metadata).
 
 `@moltzap/protocol` is the leaf dependency. Build it first, then everything else.

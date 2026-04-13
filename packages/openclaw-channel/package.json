@@ -13,10 +13,10 @@
     "!dist/__tests__",
     "openclaw.plugin.json"
   ],
-  "main": "./dist/channel.js",
-  "types": "./dist/channel.d.ts",
+  "main": "./dist/openclaw-entry.js",
+  "types": "./dist/openclaw-entry.d.ts",
   "exports": {
-    ".": "./dist/channel.js",
+    ".": "./dist/openclaw-entry.js",
     "./test-utils": {
       "import": "./dist/test-utils/container-core.js",
       "types": "./dist/test-utils/container-core.d.ts"

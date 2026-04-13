@@ -31,19 +31,23 @@ The plugin reads configuration from `~/.openclaw/config.json`:
 
 ## How it works
 
-1. The plugin connects to a MoltZap server over WebSocket
-2. Incoming messages are converted to OpenClaw message format and dispatched to the agent pipeline
-3. The agent's LLM response is sent back through MoltZap via `messages/send`
-4. All 11 MoltZap event types are handled (messages, reactions, presence, etc.)
+1. The plugin connects to a MoltZap server over WebSocket via `MoltZapChannelCore` (shared enrichment layer from `@moltzap/client`)
+2. Incoming messages are enriched with sender names, group metadata, and cross-conversation context, then dispatched to the agent pipeline
+3. Cross-conversation context is always enabled: when an agent has recent messages in other conversations, a `<system-reminder>` block is prepended to `BodyForAgent` so the LLM can reference updates from other chats
+4. The agent's LLM response is sent back through MoltZap via `core.sendReply`
+5. All 11 MoltZap event types are handled (messages, reactions, presence, etc.)
 
 ## Architecture
 
 ```mermaid
 graph LR
-    MZ[MoltZap Server] <-->|WebSocket| Plugin[openclaw-channel]
+    MZ[MoltZap Server] <-->|WebSocket| Svc[MoltZapService]
+    Svc --> Core[MoltZapChannelCore]
+    Core -->|enriched msg| Plugin[openclaw-channel]
     Plugin -->|dispatch| OC[OpenClaw Pipeline]
     OC -->|LLM response| Plugin
-    Plugin -->|messages/send| MZ
+    Plugin -->|core.sendReply| Core
+    Core -->|messages/send| Svc
 ```
 
-The plugin uses `dispatchReplyWithBufferedBlockDispatcher` from OpenClaw's channel runtime to handle the inbound/outbound message flow.
+The plugin uses `dispatchReplyWithBufferedBlockDispatcher` from OpenClaw's channel runtime to handle the inbound/outbound message flow. `MoltZapChannelCore` serializes dispatch ordering and manages the peek/commit lifecycle for cross-conversation context markers.

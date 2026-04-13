@@ -8,32 +8,41 @@ const mockSend = vi.fn();
 const mockSendToAgent = vi.fn();
 const mockClose = vi.fn();
 
-vi.mock("@moltzap/client", () => ({
-  MoltZapService: vi.fn().mockImplementation(() => ({
-    connect: vi.fn().mockResolvedValue({ conversations: [], unreadCounts: {} }),
-    close: mockClose,
-    ownAgentId: "agent-self",
-    connected: true,
-    getAgentName: vi.fn().mockReturnValue("Atlas"),
-    resolveAgentName: vi.fn().mockResolvedValue("Atlas"),
-    getConversation: vi.fn().mockReturnValue({
-      id: "conv-400",
-      type: "dm",
-      name: undefined,
-      participants: ["agent:agent-sender-1", "agent:agent-self"],
-    }),
-    getContext: vi.fn().mockReturnValue(null),
-    sendRpc: mockSendRpc,
-    send: mockSend,
-    sendToAgent: mockSendToAgent,
-    startSocketServer: vi.fn(),
-    stopSocketServer: vi.fn(),
-    on: vi.fn().mockImplementation((event: string, handler: Function) => {
-      if (event === "message")
-        capturedOnMessage = handler as typeof capturedOnMessage;
-    }),
-  })),
-}));
+vi.mock("@moltzap/client", async () => {
+  const actual =
+    await vi.importActual<typeof import("@moltzap/client")>("@moltzap/client");
+  return {
+    ...actual,
+    MoltZapService: vi.fn().mockImplementation(() => ({
+      connect: vi
+        .fn()
+        .mockResolvedValue({ conversations: [], unreadCounts: {} }),
+      close: mockClose,
+      ownAgentId: "agent-self",
+      connected: true,
+      getAgentName: vi.fn().mockReturnValue("Atlas"),
+      resolveAgentName: vi.fn().mockResolvedValue("Atlas"),
+      getConversation: vi.fn().mockReturnValue({
+        id: "conv-400",
+        type: "dm",
+        name: undefined,
+        participants: ["agent:agent-sender-1", "agent:agent-self"],
+      }),
+      peekContextEntries: vi
+        .fn()
+        .mockReturnValue({ entries: [], commit: vi.fn() }),
+      sendRpc: mockSendRpc,
+      send: mockSend,
+      sendToAgent: mockSendToAgent,
+      startSocketServer: vi.fn(),
+      stopSocketServer: vi.fn(),
+      on: vi.fn().mockImplementation((event: string, handler: Function) => {
+        if (event === "message")
+          capturedOnMessage = handler as typeof capturedOnMessage;
+      }),
+    })),
+  };
+});
 
 import { moltzapChannelPlugin } from "./openclaw-entry.js";
 
