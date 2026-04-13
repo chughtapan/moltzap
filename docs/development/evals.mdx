@@ -54,9 +54,14 @@ ANTHROPIC_API_KEY=...
 
 ## Running evals
 
+Two runtimes are supported: `openclaw` (Docker container with the channel plugin) and `nanoclaw` (host subprocess with OneCLI gateway for Claude OAuth).
+
 ```bash
-# Run with a specific agent model (judge defaults to claude-opus-4-6)
+# OpenClaw runtime (default) — runs agent in Docker
 pnpm --filter @moltzap/evals eval:e2e --model minimax/MiniMax-M2.7-highspeed
+
+# Nanoclaw runtime — runs agent as host subprocess
+pnpm --filter @moltzap/evals eval:e2e --runtime nanoclaw --scenario EVAL-018
 
 # Run a single scenario
 pnpm --filter @moltzap/evals eval:e2e --model google/gemini-2.5-flash --scenario EVAL-018
@@ -64,6 +69,14 @@ pnpm --filter @moltzap/evals eval:e2e --model google/gemini-2.5-flash --scenario
 # Override the judge model
 pnpm --filter @moltzap/evals eval:e2e --model anthropic/claude-sonnet-4-5 --eval-model claude-sonnet-4-6
 ```
+
+When testing changes to `@moltzap/openclaw-channel`, rebuild the Docker image first:
+
+```bash
+bash packages/evals/scripts/build-eval-agent.sh
+```
+
+The nanoclaw runtime loads channel code from pnpm workspace symlinks, so source changes are picked up without any rebuild step.
 
 ## Tests
 
