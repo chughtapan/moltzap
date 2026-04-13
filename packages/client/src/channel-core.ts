@@ -125,7 +125,7 @@ export class MoltZapChannelCore {
     });
   }
 
-  /** Register the inbound handler. Replaces any previous handler. */
+  /** Replaces any previous handler. */
   onInbound(handler: InboundHandler): void {
     this.inboundHandler = handler;
   }
