@@ -1,16 +1,40 @@
 import {
   MoltZapChannelCore,
   MoltZapService,
-  formatCrossConversationBlock,
   sanitizeForSystemReminder,
+  type CrossConvMessage,
   type EnrichedConversationMeta,
   type EnrichedInboundMessage,
   type WsClientLogger,
 } from "@moltzap/client";
 
-import type { Channel, NewMessage, RegisteredGroup } from "../types.js";
+import type { Channel } from "../types.js";
 import { logger } from "../logger.js";
 import { registerChannel, type ChannelOpts } from "./registry.js";
+
+/**
+ * Format cross-conversation messages using nanoclaw's native XML `<message>`
+ * structure (matching the upstream `formatMessages()` in router.ts), wrapped
+ * in `<system-reminder>` for containment. Adds a `conversation` attribute
+ * to identify the source conversation.
+ */
+function formatCrossConvNanoclaw(
+  messages: CrossConvMessage[],
+  opts: { ownAgentId: string },
+): string {
+  const lines = messages.map((m) => {
+    const sender = sanitizeForSystemReminder(
+      m.senderId === opts.ownAgentId ? "You" : m.senderName,
+    );
+    const conv = sanitizeForSystemReminder(
+      m.conversationName ?? `DM with @${m.senderName}`,
+    );
+    const text = sanitizeForSystemReminder(m.text);
+    const time = sanitizeForSystemReminder(m.timestamp);
+    return `<message sender="${sender}" conversation="${conv}" time="${time}">${text}</message>`;
+  });
+  return ["<messages>", ...lines, "</messages>"].join("\n");
+}
 
 const MOLTZAP_JID_PREFIX = "mz:";
 const DEFAULT_SERVER_URL = "wss://api.moltzap.xyz";
@@ -44,6 +68,7 @@ export class MoltZapChannel implements Channel {
   constructor(
     private readonly opts: ChannelOpts,
     private readonly core: MoltZapChannelCore,
+    private readonly ownAgentId: string,
     private readonly evalMode: boolean = false,
   ) {
     core.onInbound((msg) => this.handleInbound(msg));
@@ -97,12 +122,13 @@ export class MoltZapChannel implements Channel {
     );
 
     const blocks: string[] = [];
-    if (enriched.contextBlocks.crossConversation) {
-      const xconv = formatCrossConversationBlock(
-        enriched.contextBlocks.crossConversation,
-        { header: "Recent updates in other conversations:" },
+    if (enriched.contextBlocks.crossConversationMessages?.length) {
+      blocks.push(
+        formatCrossConvNanoclaw(
+          enriched.contextBlocks.crossConversationMessages,
+          { ownAgentId: this.ownAgentId },
+        ),
       );
-      if (xconv) blocks.push(xconv);
     }
     if (enriched.contextBlocks.groupMetadata) {
       blocks.push(formatGroupBlock(enriched.contextBlocks.groupMetadata));
@@ -164,5 +190,5 @@ registerChannel("moltzap", (opts: ChannelOpts): Channel | null => {
 
   const core = new MoltZapChannelCore({ service, logger: wsLogger });
 
-  return new MoltZapChannel(opts, core, evalMode);
+  return new MoltZapChannel(opts, core, service.ownAgentId ?? "", evalMode);
 });

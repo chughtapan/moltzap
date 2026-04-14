@@ -19,12 +19,13 @@
       "types": "./dist/index.d.ts"
     },
     "./test-utils": {
-      "import": "./src/test-utils/index.ts"
+      "import": "./dist/test-utils/index.js",
+      "types": "./dist/test-utils/index.d.ts"
     }
   },
   "scripts": {
     "build": "tsc",
-    "dev": "tsx watch examples/server.ts",
+    "dev": "tsx watch src/app/dev.ts",
     "db:generate": "kysely-codegen --out-file src/db/database.generated.ts",
     "test": "vitest run",
     "test:integration": "vitest run -c vitest.integration.config.ts"

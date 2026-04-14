@@ -181,6 +181,8 @@ export function generateReport(
       runNumber: result.runNumber,
       modelName: result.modelName,
       latencyMs: result.latencyMs,
+      agentResponse: result.agentResponse,
+      ...(result.transcript ? { transcript: result.transcript } : {}),
     };
 
     if (result.error) {
@@ -212,6 +214,26 @@ export function generateReport(
     }
   }
 
+  // Write transcript for ALL results (pass or fail) for observability
+  for (const result of results) {
+    const baseName = `${result.scenarioId}.${result.runNumber}`;
+    const passed =
+      !result.error &&
+      result.validationErrors.length === 0 &&
+      (!result.judgeResult || result.judgeResult.pass);
+    const suffix = passed ? "passed" : "failed";
+    const transcriptData: Record<string, unknown> = {
+      scenarioId: result.scenarioId,
+      result: suffix,
+      agentResponse: result.agentResponse,
+      ...(result.transcript ? { transcript: result.transcript } : {}),
+    };
+    fs.writeFileSync(
+      path.join(detailsDir, `${baseName}.${suffix}.transcript.yaml`),
+      yaml.dump(transcriptData),
+    );
+  }
+
   const failureCount = results.filter(
     (r) =>
       r.error ||
@@ -220,7 +242,7 @@ export function generateReport(
   ).length;
 
   logger.info(
-    `Report: ${failureCount} failure detail(s) written to ${detailsDir}`,
+    `Report: ${failureCount} failure detail(s), ${results.length} transcript(s) written to ${detailsDir}`,
   );
 }
 

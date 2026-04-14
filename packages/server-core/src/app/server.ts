@@ -5,42 +5,57 @@ import { serve } from "@hono/node-server";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { Kysely, PostgresDialect } from "kysely";
 import pg from "pg";
-import { logger } from "../src/logger.js";
-import { ConnectionManager } from "../src/ws/connection.js";
-import { Broadcaster } from "../src/ws/broadcaster.js";
-import { createRpcRouter, RpcError } from "../src/rpc/router.js";
+import { logger } from "../logger.js";
+import { ConnectionManager } from "../ws/connection.js";
+import { Broadcaster } from "../ws/broadcaster.js";
+import { createRpcRouter, RpcError } from "../rpc/router.js";
+import type {
+  AuthenticatedContext,
+  RpcMethodRegistry,
+} from "../rpc/context.js";
+import type { RequestFrame } from "@moltzap/protocol";
 import { ErrorCodes, validators } from "@moltzap/protocol";
-import { EnvelopeEncryption } from "../src/crypto/envelope.js";
-import { ParticipantService } from "../src/services/participant.service.js";
+import { EnvelopeEncryption } from "../crypto/envelope.js";
+import type { Database } from "../db/database.js";
+import { ParticipantService } from "../services/participant.service.js";
+
 // Services
-import { AuthService } from "../src/services/auth.service.js";
-import { ConversationService } from "../src/services/conversation.service.js";
-import { MessageService } from "../src/services/message.service.js";
-import { DeliveryService } from "../src/services/delivery.service.js";
-import { PresenceService } from "../src/services/presence.service.js";
+import { AuthService } from "../services/auth.service.js";
+import { ConversationService } from "../services/conversation.service.js";
+import { MessageService } from "../services/message.service.js";
+import { DeliveryService } from "../services/delivery.service.js";
+import { PresenceService } from "../services/presence.service.js";
+
 // Handlers
 import { createCoreAuthHandlers } from "./handlers/auth.handlers.js";
 import { createConversationHandlers } from "./handlers/conversations.handlers.js";
 import { createMessageHandlers } from "./handlers/messages.handlers.js";
 import { createPresenceHandlers } from "./handlers/presence.handlers.js";
+
+import type { CoreConfig, CoreApp, ConnectionHook } from "./types.js";
 import { runDemoAgents } from "./demo-agents.js";
-export function createCoreApp(config) {
+
+export function createCoreApp(config: CoreConfig): CoreApp {
   // Database pool
   const pool = new pg.Pool({
     connectionString: config.databaseUrl,
     max: 20,
     idleTimeoutMillis: 30000,
   });
+
   pool.on("error", (err) => {
     logger.error({ err }, "Unexpected database pool error");
   });
-  const db = new Kysely({
+
+  const db = new Kysely<Database>({
     dialect: new PostgresDialect({ pool }),
   });
+
   // Infrastructure
   const connections = new ConnectionManager();
   const broadcaster = new Broadcaster(connections);
   const envelope = new EnvelopeEncryption(config.encryptionMasterSecret);
+
   // Services
   const authService = new AuthService(db, logger);
   const participantService = new ParticipantService(db);
@@ -59,12 +74,15 @@ export function createCoreApp(config) {
     envelope,
     deliveryService,
   );
+
   // Per-request connection context for concurrent WebSocket RPC dispatches
-  const connIdContext = new AsyncLocalStorage();
+  const connIdContext = new AsyncLocalStorage<string>();
+
   // Connection hooks
-  const connectionHooks = [];
+  const connectionHooks: ConnectionHook[] = [];
+
   // Mutable RPC method registry — core handlers + extension methods from @moltzap/server
-  const methods = {
+  const methods: RpcMethodRegistry = {
     ...createCoreAuthHandlers({
       authService,
       conversationService,
@@ -95,10 +113,13 @@ export function createCoreApp(config) {
       getConnId: () => connIdContext.getStore() ?? "",
     }),
   };
+
   const dispatch = createRpcRouter(methods);
+
   // Hono app
   const app = new Hono();
   const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
+
   app.use(
     "*",
     cors({
@@ -110,9 +131,11 @@ export function createCoreApp(config) {
       },
     }),
   );
+
   app.get("/health", (c) =>
     c.json({ status: "ok", connections: connections.size }),
   );
+
   // Agent registration (no rate limiting, no invite code validation)
   app.post("/api/v1/auth/register", async (c) => {
     const body = await c.req.json();
@@ -131,11 +154,13 @@ export function createCoreApp(config) {
       return c.json({ error: "Registration failed" }, 500);
     }
   });
+
   // WebSocket endpoint
   app.get(
     "/ws",
     upgradeWebSocket(() => {
-      let connId;
+      let connId: string;
+
       return {
         onOpen(_evt, ws) {
           connId = crypto.randomUUID();
@@ -151,10 +176,12 @@ export function createCoreApp(config) {
           });
           logger.info({ connId }, "WebSocket connected");
         },
+
         async onMessage(evt, ws) {
           const conn = connections.get(connId);
           if (!conn) return;
-          let frame;
+
+          let frame: RequestFrame;
           try {
             const data =
               typeof evt.data === "string" ? evt.data : evt.data.toString();
@@ -173,6 +200,7 @@ export function createCoreApp(config) {
             );
             return;
           }
+
           if (
             !frame.jsonrpc ||
             frame.jsonrpc !== "2.0" ||
@@ -191,6 +219,7 @@ export function createCoreApp(config) {
             );
             return;
           }
+
           if (frame.method !== "auth/connect" && !conn.auth) {
             ws.send(
               JSON.stringify({
@@ -205,11 +234,13 @@ export function createCoreApp(config) {
             );
             return;
           }
-          const ctx = conn.auth ?? {};
+
+          const ctx = conn.auth ?? ({} as AuthenticatedContext);
           const response = await connIdContext.run(connId, async () =>
             dispatch(frame, ctx),
           );
           ws.send(JSON.stringify(response));
+
           // Fire connection hooks after successful auth/connect
           if (frame.method === "auth/connect" && conn.auth?.kind === "agent") {
             const agentId = conn.auth.agentId;
@@ -228,6 +259,7 @@ export function createCoreApp(config) {
             }
           }
         },
+
         async onClose() {
           const conn = connections.get(connId);
           if (conn?.auth) {
@@ -245,32 +277,45 @@ export function createCoreApp(config) {
       };
     }),
   );
+
   let actualPort = config.port;
   const server = serve({ fetch: app.fetch, port: config.port }, (info) => {
     actualPort = info.port;
     logger.info({ port: info.port }, "MoltZap core server listening");
   });
+
   injectWebSocket(server);
+
   if (config.devMode) {
     runDemoAgents({ db, authService, conversationService }).catch((err) =>
       logger.error(err, "Demo agent setup failed"),
     );
   }
+
   return {
     app,
     get port() {
       return actualPort;
     },
-    registerRpcMethod(name, def) {
+    registerRpcMethod(name: string, def) {
       methods[name] = def;
     },
-    onConnection(hook) {
+    onConnection(hook: ConnectionHook) {
       connectionHooks.push(hook);
     },
     async close() {
+      // Close all WebSocket connections first so in-flight RPCs finish
+      for (const conn of connections.all()) {
+        try {
+          conn.ws.close();
+        } catch {
+          // best effort
+        }
+      }
+      // Give in-flight handlers a moment to settle
+      await new Promise((r) => setTimeout(r, 500));
       server.close();
       await db.destroy();
     },
   };
 }
-//# sourceMappingURL=server.js.map

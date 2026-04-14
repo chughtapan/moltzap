@@ -494,6 +494,71 @@ describe("MoltZapChannelCore", () => {
 
       expect(commitSpy).not.toHaveBeenCalled();
     });
+
+    it("attaches crossConversationMessages when peekFullMessages returns non-empty", async () => {
+      fake.state.setConversation("conv-1", { type: "dm", participants: [] });
+      fake.state.setAgentName("agent-alice", "Alice");
+      fake.state.setFullMessages("conv-1", [
+        {
+          conversationId: "conv-other",
+          conversationName: "other-dm",
+          senderName: "Bob",
+          senderId: "agent-bob",
+          text: "full message text here",
+          timestamp: "2026-04-13T22:00:00Z",
+        },
+      ]);
+
+      fake.emit.message(buildMessage());
+      await flushDispatchChain();
+
+      const msgs = inbound[0]!.contextBlocks.crossConversationMessages;
+      expect(msgs).toHaveLength(1);
+      expect(msgs![0]).toMatchObject({
+        conversationId: "conv-other",
+        senderName: "Bob",
+        text: "full message text here",
+        timestamp: "2026-04-13T22:00:00Z",
+      });
+    });
+
+    it("does NOT attach crossConversationMessages when peekFullMessages returns empty", async () => {
+      fake.state.setConversation("conv-1", { type: "dm", participants: [] });
+      fake.state.setAgentName("agent-alice", "Alice");
+
+      fake.emit.message(buildMessage());
+      await flushDispatchChain();
+
+      expect(
+        inbound[0]!.contextBlocks.crossConversationMessages,
+      ).toBeUndefined();
+    });
+
+    it("commits full message markers after inbound handler succeeds", async () => {
+      fake.state.setConversation("conv-1", { type: "dm", participants: [] });
+      fake.state.setAgentName("agent-alice", "Alice");
+      fake.state.setFullMessages("conv-1", [
+        {
+          conversationId: "conv-other",
+          senderName: "Bob",
+          senderId: "agent-bob",
+          text: "first",
+          timestamp: "2026-04-13T22:00:00Z",
+        },
+      ]);
+
+      fake.emit.message(buildMessage({ id: "msg-1" }));
+      await flushDispatchChain();
+      expect(inbound[0]!.contextBlocks.crossConversationMessages).toHaveLength(
+        1,
+      );
+
+      fake.emit.message(buildMessage({ id: "msg-2" }));
+      await flushDispatchChain();
+      expect(
+        inbound[1]!.contextBlocks.crossConversationMessages,
+      ).toBeUndefined();
+    });
   });
 
   describe("sendReply", () => {
