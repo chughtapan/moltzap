@@ -29,6 +29,10 @@
     "./docker-manager": {
       "import": "./dist/e2e-infra/docker-manager.js",
       "types": "./dist/e2e-infra/docker-manager.d.ts"
+    },
+    "./nanoclaw-smoke": {
+      "import": "./dist/e2e-infra/nanoclaw-smoke.js",
+      "types": "./dist/e2e-infra/nanoclaw-smoke.d.ts"
     }
   },
   "dependencies": {
