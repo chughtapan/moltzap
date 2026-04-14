@@ -31,6 +31,9 @@ vi.mock("@moltzap/client", async () => {
       peekContextEntries: vi
         .fn()
         .mockReturnValue({ entries: [], commit: vi.fn() }),
+      peekFullMessages: vi
+        .fn()
+        .mockReturnValue({ messages: [], commit: vi.fn() }),
       sendRpc: mockSendRpc,
       send: mockSend,
       sendToAgent: mockSendToAgent,
