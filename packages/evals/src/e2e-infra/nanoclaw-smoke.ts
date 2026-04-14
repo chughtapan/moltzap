@@ -37,7 +37,7 @@ const ONECLI_COMPOSE_PATH = path.join(
 const NANOCLAW_SHA = "934f063aff5c30e7b49ce58b53b41901d3472a3e";
 const NANOCLAW_URL = `https://github.com/qwibitai/nanoclaw/archive/${NANOCLAW_SHA}.tar.gz`;
 
-const NANOCLAW_CACHE = path.join(
+export const NANOCLAW_CACHE = path.join(
   os.homedir(),
   ".cache/moltzap-evals/nanoclaw",
   NANOCLAW_SHA.slice(0, 12),

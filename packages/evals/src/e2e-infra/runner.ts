@@ -8,21 +8,13 @@
  *   4. Analysis  — aggregate failures, identify patterns
  */
 
-import { execSync } from "node:child_process";
 import {
   startCoreTestServer,
   stopCoreTestServer,
   resetCoreTestDb,
 } from "@moltzap/server-core/test-utils";
 import { MoltZapTestClient } from "@moltzap/protocol/test-client";
-import { DockerManager } from "./docker-manager.js";
-import {
-  ensureNanoclawInstalled,
-  startNanoclawSmoke,
-  stopNanoclawSmoke,
-  getNanoclawLogs,
-  type NanoclawSmokeHandle,
-} from "./nanoclaw-smoke.js";
+import { launchFleet, type AgentFleet, type AgentRuntime } from "./agent-fleet.js";
 import { TIER5_SCENARIOS } from "./scenarios.js";
 import { judgeAgentResponse, analyzeFailures } from "./llm-judge.js";
 import { generateReport, generateSummaryMarkdown } from "./report.js";
@@ -334,7 +326,7 @@ async function generateResult(opts: {
   }
 }
 
-export type AgentRuntime = "openclaw" | "nanoclaw";
+export { type AgentRuntime } from "./agent-fleet.js";
 
 export async function runE2EEvals(opts: {
   scenarios?: string[];
@@ -381,21 +373,12 @@ export async function runE2EEvals(opts: {
   }
 
   const runtime: AgentRuntime = opts.runtime ?? "openclaw";
-  const dockerManager = new DockerManager();
-  let nanoclawHandle: NanoclawSmokeHandle | null = null;
+  let fleet: AgentFleet | null = null;
   let testServerBaseUrl = "";
   let testServerWsUrl = "";
   const clientsToClose: MoltZapTestClient[] = [];
 
   try {
-    if (runtime === "openclaw") {
-      // Verify Docker image exists
-      await dockerManager.ensureImage();
-    } else {
-      // Nanoclaw smoke test: vendor upstream source, inject channel, build.
-      await ensureNanoclawInstalled();
-    }
-
     // Phase 0: Start test infrastructure
     logger.info("Starting MoltZap core test server (testcontainers)...");
     const server = await startCoreTestServer();
@@ -448,65 +431,14 @@ export async function runE2EEvals(opts: {
       }),
     );
 
-    // Start the agent runtime (openclaw container OR nanoclaw subprocess).
-    if (runtime === "openclaw") {
-      logger.info("Starting OpenClaw agent container...");
-      const agentContainer = await dockerManager.startAgent({
-        name: "openclaw-eval-agent",
-        moltzapServerUrl: testServerWsUrl,
-        moltzapApiKey: agentReg.apiKey,
-        agentModelId: opts.agentModelId,
-      });
-
-      // Wait for the agent's channel plugin to actually connect via WebSocket.
-      // Poll container logs for "[moltzap] connected as" which confirms the plugin's
-      // auth/connect RPC succeeded.
-      logger.info("Waiting for agent to connect via MoltZap channel...");
-      const connectDeadline = Date.now() + 90_000;
-      let agentConnected = false;
-      while (Date.now() < connectDeadline) {
-        await new Promise((r) => setTimeout(r, 2000));
-        // Check container is still running
-        try {
-          const status = execSync(
-            `docker inspect ${agentContainer.containerId} --format='{{.State.Status}}'`,
-            { encoding: "utf-8" },
-          ).trim();
-          if (status !== "running") {
-            const logs = dockerManager.getContainerLogs(agentContainer);
-            throw new Error(`Agent container exited. Logs:\n${logs}`);
-          }
-        } catch (err) {
-          if (err instanceof Error && err.message.includes("container exited"))
-            throw err;
-        }
-        // Check container logs for successful MoltZap connection
-        const logs = dockerManager.getContainerLogs(agentContainer);
-        if (logs.includes("[moltzap] connected as")) {
-          agentConnected = true;
-          // Give the server a moment to register the connection
-          await new Promise((r) => setTimeout(r, 2000));
-          break;
-        }
-      }
-      if (!agentConnected) {
-        const logs = dockerManager.getContainerLogs(agentContainer);
-        throw new Error(
-          `Agent channel plugin did not connect within 90s. Container logs:\n${logs}`,
-        );
-      }
-      logger.info("Agent channel plugin connected. Starting eval scenarios...");
-    } else {
-      // Nanoclaw smoke: spawn the host subprocess, wait for connected marker.
-      logger.info("Starting nanoclaw subprocess...");
-      nanoclawHandle = await startNanoclawSmoke({
-        apiKey: agentReg.apiKey,
-        serverUrl: testServerWsUrl,
-      });
-      // Give the server a moment to register the connection
-      await new Promise((r) => setTimeout(r, 2000));
-      logger.info("Nanoclaw connected. Starting eval scenarios...");
-    }
+    // Start the agent runtime via fleet API (blocks until connected).
+    fleet = await launchFleet({
+      runtime,
+      agents: [{ name: "openclaw-eval-agent", apiKey: agentReg.apiKey }],
+      serverUrl: testServerWsUrl,
+      modelId: opts.agentModelId,
+    });
+    logger.info("Agent connected. Starting eval scenarios...");
 
     const allResults: EvaluatedResult[] = [];
     const totalJobs = selectedScenarios.length * runsPerScenario;
@@ -705,24 +637,7 @@ export async function runE2EEvals(opts: {
       },
     };
   } finally {
-    if (runtime === "openclaw") {
-      // Capture container logs before stopping (helps debug failures)
-      for (const c of dockerManager["containers"]) {
-        const logs = dockerManager.getContainerLogs(c);
-        if (logs && logs !== "(no logs available)") {
-          logger.info(`Container "${c.name}" logs:\n${logs}`);
-        }
-      }
-      await dockerManager.stopAll();
-    } else if (nanoclawHandle) {
-      const logs = getNanoclawLogs(nanoclawHandle);
-      if (logs) {
-        logger.info(
-          `Nanoclaw logs (last 20 lines):\n${logs.split("\n").slice(-20).join("\n")}`,
-        );
-      }
-      await stopNanoclawSmoke(nanoclawHandle);
-    }
+    if (fleet) await fleet.stopAll();
     for (const c of clientsToClose) c.close();
     await stopCoreTestServer().catch(() => {});
   }
