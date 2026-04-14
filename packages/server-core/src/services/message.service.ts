@@ -1,6 +1,6 @@
 import type { Db } from "../db/client.js";
 import type { Logger } from "../logger.js";
-import type { Message, ParticipantRef, Part } from "@moltzap/protocol";
+import type { Message, Part } from "@moltzap/protocol";
 import { ErrorCodes, EventNames, eventFrame } from "@moltzap/protocol";
 import { RpcError } from "../rpc/router.js";
 import { nextSnowflakeId } from "../db/snowflake.js";
@@ -19,6 +19,12 @@ import {
 } from "../crypto/serialization.js";
 import { sql } from "kysely";
 import type { MessageRow } from "../db/database.js";
+
+/** Internal participant reference used by the DB layer. */
+export interface ParticipantRef {
+  type: "user" | "agent";
+  id: string;
+}
 
 export class MessageService {
   constructor(
@@ -59,7 +65,7 @@ export class MessageService {
       .insertInto("messages")
       .values({
         conversation_id: conversationId,
-        sender_type: senderRef.type,
+        sender_type: senderRef.type as "agent" | "user",
         sender_id: senderRef.id,
         seq: seq.toString(),
         reply_to_id: replyToId ?? null,
@@ -108,10 +114,7 @@ export class MessageService {
       }
     }
 
-    this.logger.info(
-      { conversationId, messageId: message.id, seq: message.seq },
-      "Message sent",
-    );
+    this.logger.info({ conversationId, messageId: message.id }, "Message sent");
 
     return message;
   }
@@ -120,8 +123,6 @@ export class MessageService {
     conversationId: string,
     requesterRef: ParticipantRef,
     options: {
-      afterSeq?: number;
-      beforeSeq?: number;
       limit?: number;
     } = {},
   ): Promise<{ messages: Message[]; hasMore: boolean }> {
@@ -129,20 +130,13 @@ export class MessageService {
 
     const limit = Math.min(options.limit ?? 50, 100);
 
-    let query = this.db
+    const query = this.db
       .selectFrom("messages")
       .selectAll()
       .where("conversation_id", "=", conversationId)
-      .where("is_deleted", "=", false);
-
-    if (options.afterSeq !== undefined) {
-      query = query.where("seq", ">", options.afterSeq.toString());
-    }
-    if (options.beforeSeq !== undefined) {
-      query = query.where("seq", "<", options.beforeSeq.toString());
-    }
-
-    query = query.orderBy("seq", "desc").limit(limit + 1);
+      .where("is_deleted", "=", false)
+      .orderBy("seq", "desc")
+      .limit(limit + 1);
 
     const rows = await query.execute();
 
@@ -157,145 +151,10 @@ export class MessageService {
       }),
     );
 
-    // Load reactions for all messages
-    if (messages.length > 0) {
-      const messageIds = messages.map((m) => m.id);
-      const reactionRows = await this.db
-        .selectFrom("reactions")
-        .select(["message_id", "emoji", "participant_type", "participant_id"])
-        .where("message_id", "in", messageIds)
-        .execute();
-
-      const reactionMap = new Map<string, Record<string, string[]>>();
-      for (const r of reactionRows) {
-        if (!reactionMap.has(r.message_id)) reactionMap.set(r.message_id, {});
-        const reactions = reactionMap.get(r.message_id)!;
-        if (!reactions[r.emoji]) reactions[r.emoji] = [];
-        reactions[r.emoji]!.push(`${r.participant_type}:${r.participant_id}`);
-      }
-
-      for (const msg of messages) {
-        const reactions = reactionMap.get(msg.id);
-        if (reactions && Object.keys(reactions).length > 0) {
-          msg.reactions = reactions;
-        }
-      }
-    }
-
     // Return in ascending order
     messages.reverse();
 
     return { messages, hasMore };
-  }
-
-  async read(
-    conversationId: string,
-    seq: number,
-    participantRef: ParticipantRef,
-  ): Promise<void> {
-    const result = await this.db
-      .updateTable("conversation_participants")
-      .set({ last_read_seq: sql`GREATEST(last_read_seq, ${seq.toString()})` })
-      .where("conversation_id", "=", conversationId)
-      .where("participant_type", "=", participantRef.type)
-      .where("participant_id", "=", participantRef.id)
-      .executeTakeFirst();
-
-    if (result.numUpdatedRows === 0n) {
-      throw new RpcError(ErrorCodes.NotFound, "Not a participant");
-    }
-
-    // Delivery tracking
-    if (await this.delivery.shouldTrack(conversationId)) {
-      await this.delivery.recordRead(
-        conversationId,
-        BigInt(seq),
-        participantRef,
-      );
-    }
-
-    // Notify other participants
-    const event = eventFrame(EventNames.MessageRead, {
-      conversationId,
-      participant: participantRef,
-      seq,
-    });
-    this.broadcaster.broadcastToConversation(conversationId, event);
-  }
-
-  async react(
-    messageId: string,
-    emoji: string,
-    action: "add" | "remove",
-    participantRef: ParticipantRef,
-  ): Promise<void> {
-    // Verify message exists and participant is in the conversation
-    const msg = await this.db
-      .selectFrom("messages")
-      .select("conversation_id")
-      .where("id", "=", messageId)
-      .executeTakeFirst();
-
-    if (!msg) {
-      throw new RpcError(ErrorCodes.NotFound, "Message not found");
-    }
-    const conversationId = msg.conversation_id;
-    await this.conversations.requireParticipant(conversationId, participantRef);
-
-    if (action === "add") {
-      await this.db
-        .insertInto("reactions")
-        .values({
-          message_id: messageId,
-          participant_type: participantRef.type,
-          participant_id: participantRef.id,
-          emoji,
-        })
-        .onConflict((oc) => oc.doNothing())
-        .execute();
-    } else {
-      await this.db
-        .deleteFrom("reactions")
-        .where("message_id", "=", messageId)
-        .where("participant_type", "=", participantRef.type)
-        .where("participant_id", "=", participantRef.id)
-        .where("emoji", "=", emoji)
-        .execute();
-    }
-
-    const event = eventFrame(EventNames.MessageReacted, {
-      messageId,
-      emoji,
-      participant: participantRef,
-      action,
-    });
-    this.broadcaster.broadcastToConversation(conversationId, event);
-  }
-
-  async delete(messageId: string, senderRef: ParticipantRef): Promise<void> {
-    const row = await this.db
-      .updateTable("messages")
-      .set({ is_deleted: true })
-      .where("id", "=", messageId)
-      .where("sender_type", "=", senderRef.type)
-      .where("sender_id", "=", senderRef.id)
-      .where("is_deleted", "=", false)
-      .returning("conversation_id")
-      .executeTakeFirst();
-
-    if (!row) {
-      throw new RpcError(
-        ErrorCodes.NotFound,
-        "Message not found or not owned by sender",
-      );
-    }
-
-    const conversationId = row.conversation_id;
-    const event = eventFrame(EventNames.MessageDeleted, {
-      messageId,
-      conversationId,
-    });
-    this.broadcaster.broadcastToConversation(conversationId, event);
   }
 
   private async encryptParts(
@@ -447,14 +306,9 @@ export class MessageService {
     return {
       id: row.id,
       conversationId: row.conversation_id,
-      sender: {
-        type: row.sender_type,
-        id: row.sender_id,
-      },
-      seq: Number(row.seq),
+      senderId: row.sender_id,
       replyToId: row.reply_to_id ?? undefined,
       parts,
-      isDeleted: row.is_deleted || undefined,
       createdAt: row.created_at.toISOString(),
     };
   }

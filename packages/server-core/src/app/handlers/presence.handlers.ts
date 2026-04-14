@@ -5,7 +5,6 @@ import { defineMethod } from "../../rpc/context.js";
 import type {
   PresenceUpdateParams,
   PresenceSubscribeParams,
-  TypingSendParams,
 } from "@moltzap/protocol";
 import { validators, EventNames, eventFrame } from "@moltzap/protocol";
 import { ParticipantService } from "../../services/participant.service.js";
@@ -55,27 +54,6 @@ export function createPresenceHandlers(deps: {
         deps.presenceService.subscribe(connId, params.participants);
         const statuses = deps.presenceService.getMany(params.participants);
         return { statuses };
-      },
-    }),
-
-    "typing/send": defineMethod<TypingSendParams>({
-      validator: validators.typingSendParams,
-      requiresActive: true,
-      handler: async (params, ctx) => {
-        const senderRef = ParticipantService.refFromContext(ctx);
-        await deps.conversationService.requireParticipant(
-          params.conversationId,
-          senderRef,
-        );
-        deps.broadcaster.broadcastToConversation(
-          params.conversationId,
-          eventFrame(EventNames.TypingIndicator, {
-            conversationId: params.conversationId,
-            participant: senderRef,
-          }),
-          deps.getConnId(),
-        );
-        return {};
       },
     }),
   };

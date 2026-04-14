@@ -18,7 +18,7 @@ export type {
   Message,
 } from "./schema/messages.js";
 export type { Invite } from "./schema/invites.js";
-export type { PresenceEntry, TypingIndicator } from "./schema/presence.js";
+export type { PresenceEntry } from "./schema/presence.js";
 export type { DeliveryEntry } from "./schema/delivery.js";
 export type {
   RequestFrame,
@@ -54,9 +54,6 @@ export type {
   MessagesSendResult,
   MessagesListParams,
   MessagesListResult,
-  MessagesReadParams,
-  MessagesReactParams,
-  MessagesDeleteParams,
 } from "./schema/methods/messages.js";
 
 // Contacts method types
@@ -102,7 +99,6 @@ export type {
   PresenceUpdateParams,
   PresenceSubscribeParams,
   PresenceSubscribeResult,
-  TypingSendParams,
 } from "./schema/methods/presence.js";
 
 // Push method types

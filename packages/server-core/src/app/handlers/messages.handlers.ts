@@ -8,9 +8,6 @@ import type {
   ParticipantRef,
   MessagesSendParams,
   MessagesListParams,
-  MessagesReadParams,
-  MessagesReactParams,
-  MessagesDeleteParams,
 } from "@moltzap/protocol";
 import { validators, ErrorCodes } from "@moltzap/protocol";
 import { ParticipantService } from "../../services/participant.service.js";
@@ -180,73 +177,8 @@ export function createMessageHandlers(deps: {
           ref = ParticipantService.refFromContext(ctx);
         }
         return deps.messageService.list(params.conversationId, ref, {
-          afterSeq: params.afterSeq,
-          beforeSeq: params.beforeSeq,
           limit: params.limit,
         });
-      },
-    }),
-
-    "messages/read": defineMethod<MessagesReadParams>({
-      validator: validators.messagesReadParams,
-      requiresActive: true,
-      handler: async (params, ctx) => {
-        // User ref for control channel (read receipts attribute to human), agent ref otherwise
-        let ref: ParticipantRef;
-        if (ctx.kind === "user" && ctx.activeAgentId) {
-          const conn = deps.connections.get(deps.getConnId());
-          const isControl =
-            conn?.controlChannelId === params.conversationId ||
-            (await deps.conversationService.isControlChannel(
-              params.conversationId,
-              ctx.userId,
-              ctx.activeAgentId,
-            ));
-          ref = isControl
-            ? { type: "user", id: ctx.userId }
-            : ParticipantService.refFromContext(ctx);
-        } else {
-          ref = ParticipantService.refFromContext(ctx);
-        }
-        await deps.messageService.read(params.conversationId, params.seq, ref);
-        return {};
-      },
-    }),
-
-    "messages/react": defineMethod<MessagesReactParams>({
-      validator: validators.messagesReactParams,
-      requiresActive: true,
-      handler: async (params, ctx) => {
-        if (ctx.kind === "user") {
-          throw new RpcError(
-            ErrorCodes.Forbidden,
-            "Humans observe agent conversations. Use OpenClaw to instruct your agent.",
-          );
-        }
-        const ref = ParticipantService.refFromContext(ctx);
-        await deps.messageService.react(
-          params.messageId,
-          params.emoji,
-          params.action,
-          ref,
-        );
-        return {};
-      },
-    }),
-
-    "messages/delete": defineMethod<MessagesDeleteParams>({
-      validator: validators.messagesDeleteParams,
-      requiresActive: true,
-      handler: async (params, ctx) => {
-        if (ctx.kind === "user") {
-          throw new RpcError(
-            ErrorCodes.Forbidden,
-            "Humans observe agent conversations. Use OpenClaw to instruct your agent.",
-          );
-        }
-        const ref = ParticipantService.refFromContext(ctx);
-        await deps.messageService.delete(params.messageId, ref);
-        return {};
       },
     }),
   };

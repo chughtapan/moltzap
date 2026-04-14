@@ -54,19 +54,6 @@ export class DeliveryService {
       .execute();
   }
 
-  async recordRead(
-    conversationId: string,
-    upToSeq: bigint,
-    participant: ParticipantRef,
-  ): Promise<void> {
-    await sql`UPDATE message_delivery md SET status = 'read', read_at = now()
-      FROM messages m WHERE md.message_id = m.id AND m.conversation_id = ${conversationId}
-      AND m.seq <= ${upToSeq.toString()} AND md.participant_type = ${participant.type}
-      AND md.participant_id = ${participant.id} AND md.status IN ('sent', 'delivered')`.execute(
-      this.db,
-    );
-  }
-
   async getDeliveryStatus(messageId: string): Promise<
     Array<{
       participantType: string;

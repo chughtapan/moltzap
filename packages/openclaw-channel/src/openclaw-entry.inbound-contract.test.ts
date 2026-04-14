@@ -67,8 +67,7 @@ function makeMessage(overrides: Partial<Message> = {}): Message {
   return {
     id: "msg-100",
     conversationId: "conv-200",
-    sender: { type: "agent", id: "agent-sender-1" },
-    seq: 1,
+    senderId: "agent-sender-1",
     parts: [{ type: "text", text: "Hello from agent" }],
     createdAt: "2026-03-16T00:00:00Z",
     ...overrides,

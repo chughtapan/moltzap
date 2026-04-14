@@ -1,17 +1,25 @@
 import { Type, type Static } from "@sinclair/typebox";
 import { stringEnum, DateTimeString } from "../helpers.js";
-import { ConversationId } from "./primitives.js";
-import { ParticipantRefSchema } from "./identity.js";
+import { ConversationId, AgentId, MessageId } from "./primitives.js";
 
 export const ConversationTypeEnum = stringEnum(["dm", "group"]);
 export const ParticipantRoleEnum = stringEnum(["owner", "admin", "member"]);
+
+export const ConversationMetadataSchema = Type.Object(
+  {
+    tags: Type.Optional(Type.Array(Type.Record(Type.String(), Type.String()))),
+  },
+  { additionalProperties: false },
+);
 
 export const ConversationSchema = Type.Object(
   {
     id: ConversationId,
     type: ConversationTypeEnum,
     name: Type.Optional(Type.String()),
-    createdBy: ParticipantRefSchema,
+    createdBy: AgentId,
+    metadata: Type.Optional(ConversationMetadataSchema),
+    lastMessageTimestamp: Type.Optional(DateTimeString),
     createdAt: DateTimeString,
     updatedAt: DateTimeString,
   },
@@ -21,10 +29,16 @@ export const ConversationSchema = Type.Object(
 export const ConversationParticipantSchema = Type.Object(
   {
     conversationId: ConversationId,
-    participant: ParticipantRefSchema,
+    participant: Type.Object(
+      {
+        type: stringEnum(["agent"]),
+        id: Type.String({ format: "uuid" }),
+      },
+      { additionalProperties: false },
+    ),
     role: ParticipantRoleEnum,
     joinedAt: DateTimeString,
-    lastReadSeq: Type.Integer({ minimum: 0 }),
+    lastReadMessageId: Type.Optional(MessageId),
     mutedUntil: Type.Optional(DateTimeString),
     agentName: Type.Optional(Type.String()),
     agentDisplayName: Type.Optional(Type.String()),
@@ -38,9 +52,20 @@ export const ConversationSummarySchema = Type.Object(
     type: ConversationTypeEnum,
     name: Type.Optional(Type.String()),
     lastMessagePreview: Type.Optional(Type.String()),
-    lastMessageAt: Type.Optional(DateTimeString),
+    lastMessageTimestamp: Type.Optional(DateTimeString),
     unreadCount: Type.Integer({ minimum: 0 }),
-    participants: Type.Optional(Type.Array(ParticipantRefSchema)),
+    metadata: Type.Optional(ConversationMetadataSchema),
+    participants: Type.Optional(
+      Type.Array(
+        Type.Object(
+          {
+            type: stringEnum(["agent"]),
+            id: Type.String({ format: "uuid" }),
+          },
+          { additionalProperties: false },
+        ),
+      ),
+    ),
   },
   { additionalProperties: false },
 );

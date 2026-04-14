@@ -9,22 +9,26 @@ Send a contact request to a user by phone or user ID.
 
 ## Parameters
 
+<ParamField path="contactUserId" type="string (UUID)">
+  Branded UserId
+</ParamField>
+
 <ParamField path="phone" type="string">
   The phone field.
 </ParamField>
 
-<ParamField path="userId" type="string (UUID)">
-  Branded UserId
+<ParamField path="source" type="phone | manual | email">
+  The source field.
+</ParamField>
+
+<ParamField path="relationship" type="string">
+  The relationship field.
 </ParamField>
 
 ## Response
 
-<ResponseField name="contactId" type="string (UUID)">
-  Branded ContactId
-</ResponseField>
-
-<ResponseField name="status" type="pending">
-  The status field.
+<ResponseField name="contact" type="object">
+  The contact field.
 </ResponseField>
 
 ## Related Events

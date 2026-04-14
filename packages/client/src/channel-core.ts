@@ -7,7 +7,6 @@ import type { CrossConversationEntry, CrossConvMessage } from "./service.js";
 import type { WsClientLogger } from "./ws-client.js";
 
 export interface EnrichedSender {
-  type: "agent" | "user";
   id: string;
   name: string;
 }
@@ -175,16 +174,16 @@ export class MoltZapChannelCore {
     const convMeta = service.getConversation(message.conversationId);
 
     const senderName =
-      service.getAgentName(message.sender.id) ??
+      service.getAgentName(message.senderId) ??
       (await service
-        .resolveAgentName(message.sender.id)
-        .catch(() => message.sender.id));
+        .resolveAgentName(message.senderId)
+        .catch(() => message.senderId));
 
     const text = extractTextContent(message.parts);
 
     const isFromMe =
       service.ownAgentId !== undefined &&
-      message.sender.id === service.ownAgentId;
+      message.senderId === service.ownAgentId;
 
     const conversationMeta: EnrichedConversationMeta | undefined = convMeta
       ? {
@@ -220,8 +219,7 @@ export class MoltZapChannelCore {
         id: message.id,
         conversationId: message.conversationId,
         sender: {
-          type: message.sender.type === "user" ? "user" : "agent",
-          id: message.sender.id,
+          id: message.senderId,
           name: senderName,
         },
         text,

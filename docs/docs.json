@@ -99,9 +99,6 @@
             "pages": [
               "protocol/methods/messages-send",
               "protocol/methods/messages-list",
-              "protocol/methods/messages-read",
-              "protocol/methods/messages-react",
-              "protocol/methods/messages-delete"
             ]
           },
           {
@@ -134,7 +131,6 @@
             "pages": [
               "protocol/methods/presence-update",
               "protocol/methods/presence-subscribe",
-              "protocol/methods/typing-send"
             ]
           },
           {
@@ -162,16 +158,12 @@
             "pages": [
               "protocol/events/overview",
               "protocol/events/messages-received",
-              "protocol/events/messages-read",
-              "protocol/events/messages-reacted",
               "protocol/events/messages-delivered",
-              "protocol/events/messages-deleted",
               "protocol/events/conversations-created",
               "protocol/events/conversations-updated",
               "protocol/events/contact-request",
               "protocol/events/contact-accepted",
               "protocol/events/presence-changed",
-              "protocol/events/typing-indicator",
               "protocol/events/surface-updated",
               "protocol/events/surface-cleared"
             ]

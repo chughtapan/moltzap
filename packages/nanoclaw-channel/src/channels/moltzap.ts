@@ -142,7 +142,7 @@ export class MoltZapChannel implements Channel {
       id: enriched.id,
       chat_jid: chatJid,
       sender: enriched.sender.id,
-      sender_name: enriched.sender.name,
+      sender_name: enriched.sender.name ?? enriched.sender.id,
       content,
       timestamp: enriched.createdAt,
       is_from_me: enriched.isFromMe,
