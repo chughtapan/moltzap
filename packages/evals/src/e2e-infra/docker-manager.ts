@@ -14,6 +14,7 @@ import {
   buildOpenClawConfig,
   startRawContainer,
   waitForGateway,
+  waitForChannel,
   getLogs,
   stopContainer as stopRawContainer,
   OPENCLAW_STATE_DIR,
@@ -167,6 +168,23 @@ export class DockerManager {
       `Agent "${opts.name}" started (container: ${raw.containerId.slice(0, 12)}, port: ${raw.controlPort})`,
     );
     return agent;
+  }
+
+  async startAgentAndWait(opts: {
+    name: string;
+    agentModelId?: string;
+    moltzapServerUrl?: string;
+    moltzapApiKey?: string;
+    extraEnv?: Record<string, string>;
+    workspaceFiles?: Array<{ relativePath: string; content: string }>;
+    connectTimeoutMs?: number;
+  }): Promise<AgentContainer> {
+    const container = await this.startAgent(opts);
+    await waitForChannel(
+      container.containerId,
+      opts.connectTimeoutMs ?? 180_000,
+    );
+    return container;
   }
 
   async stopAgent(agent: AgentContainer): Promise<void> {

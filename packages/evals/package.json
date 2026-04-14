@@ -29,6 +29,18 @@
     "./docker-manager": {
       "import": "./dist/e2e-infra/docker-manager.js",
       "types": "./dist/e2e-infra/docker-manager.d.ts"
+    },
+    "./nanoclaw-smoke": {
+      "import": "./dist/e2e-infra/nanoclaw-smoke.js",
+      "types": "./dist/e2e-infra/nanoclaw-smoke.d.ts"
+    },
+    "./agent-fleet": {
+      "import": "./dist/e2e-infra/agent-fleet.js",
+      "types": "./dist/e2e-infra/agent-fleet.d.ts"
+    },
+    "./nanoclaw-manager": {
+      "import": "./dist/e2e-infra/nanoclaw-manager.js",
+      "types": "./dist/e2e-infra/nanoclaw-manager.d.ts"
     }
   },
   "dependencies": {
