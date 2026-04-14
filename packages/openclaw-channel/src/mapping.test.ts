@@ -4,9 +4,7 @@ import { EventNames } from "@moltzap/protocol";
 import {
   isMessageEvent,
   extractMessage,
-  extractReaction,
   extractDelivery,
-  extractDeletion,
   extractConversationCreated,
   extractConversationUpdated,
   extractContactRequest,
@@ -78,48 +76,6 @@ describe("extractMessage", () => {
   });
 });
 
-describe("extractReaction", () => {
-  it("extracts reaction from valid frame", () => {
-    const result = extractReaction(
-      makeEventFrame(EventNames.MessageReacted, {
-        messageId: "msg-1",
-        emoji: "thumbsup",
-        agentId: "a-1",
-        action: "add",
-      }),
-    );
-    expect(result).toEqual({
-      messageId: "msg-1",
-      emoji: "thumbsup",
-      agentId: "a-1",
-      action: "add",
-    });
-  });
-
-  it("returns null for wrong event type", () => {
-    expect(
-      extractReaction(
-        makeEventFrame(EventNames.MessageReceived, {
-          messageId: "msg-1",
-          emoji: "thumbsup",
-          agentId: "a-1",
-          action: "add",
-        }),
-      ),
-    ).toBeNull();
-  });
-
-  it("returns null when data is incomplete", () => {
-    expect(
-      extractReaction(
-        makeEventFrame(EventNames.MessageReacted, {
-          messageId: "msg-1",
-        }),
-      ),
-    ).toBeNull();
-  });
-});
-
 describe("extractDelivery", () => {
   it("extracts delivery from valid frame", () => {
     const result = extractDelivery(
@@ -148,37 +104,6 @@ describe("extractDelivery", () => {
         makeEventFrame(EventNames.MessageDelivered, {
           messageId: "msg-1",
           conversationId: "conv-1",
-        }),
-      ),
-    ).toBeNull();
-  });
-});
-
-describe("extractDeletion", () => {
-  it("extracts deletion from valid frame", () => {
-    const result = extractDeletion(
-      makeEventFrame(EventNames.MessageDeleted, {
-        messageId: "msg-1",
-        conversationId: "conv-1",
-      }),
-    );
-    expect(result).toEqual({
-      messageId: "msg-1",
-      conversationId: "conv-1",
-    });
-  });
-
-  it("returns null for wrong event type", () => {
-    expect(
-      extractDeletion(makeEventFrame(EventNames.MessageReceived)),
-    ).toBeNull();
-  });
-
-  it("returns null when missing conversationId", () => {
-    expect(
-      extractDeletion(
-        makeEventFrame(EventNames.MessageDeleted, {
-          messageId: "msg-1",
         }),
       ),
     ).toBeNull();

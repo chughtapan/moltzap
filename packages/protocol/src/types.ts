@@ -54,8 +54,6 @@ export type {
   MessagesSendResult,
   MessagesListParams,
   MessagesListResult,
-  MessagesReactParams,
-  MessagesDeleteParams,
 } from "./schema/methods/messages.js";
 
 // Contacts method types

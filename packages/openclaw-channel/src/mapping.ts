@@ -13,31 +13,6 @@ export function extractMessage(frame: EventFrame): Message | null {
 
 // --- Event extractors ---
 
-export function extractReaction(frame: EventFrame): {
-  messageId: string;
-  emoji: string;
-  agentId: string;
-  action: string;
-} | null {
-  if (frame.event !== EventNames.MessageReacted) return null;
-  const data = frame.data as
-    | {
-        messageId?: string;
-        emoji?: string;
-        agentId?: string;
-        action?: string;
-      }
-    | undefined;
-  if (!data?.messageId || !data.emoji || !data.agentId || !data.action)
-    return null;
-  return {
-    messageId: data.messageId,
-    emoji: data.emoji,
-    agentId: data.agentId,
-    action: data.action,
-  };
-}
-
 export function extractDelivery(frame: EventFrame): {
   messageId: string;
   conversationId: string;
@@ -57,17 +32,6 @@ export function extractDelivery(frame: EventFrame): {
     conversationId: data.conversationId,
     agentId: data.agentId,
   };
-}
-
-export function extractDeletion(
-  frame: EventFrame,
-): { messageId: string; conversationId: string } | null {
-  if (frame.event !== EventNames.MessageDeleted) return null;
-  const data = frame.data as
-    | { messageId?: string; conversationId?: string }
-    | undefined;
-  if (!data?.messageId || !data.conversationId) return null;
-  return { messageId: data.messageId, conversationId: data.conversationId };
 }
 
 export function extractConversationCreated(frame: EventFrame): {

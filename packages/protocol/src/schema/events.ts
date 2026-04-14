@@ -1,5 +1,4 @@
 import { Type } from "@sinclair/typebox";
-import { stringEnum } from "../helpers.js";
 import { MessageSchema } from "./messages.js";
 import { ConversationSchema } from "./conversations.js";
 import { ContactSchema } from "./contacts.js";
@@ -9,9 +8,7 @@ import { SurfaceSchema } from "./surfaces.js";
 
 export const EventNames = {
   MessageReceived: "messages/received",
-  MessageReacted: "messages/reacted",
   MessageDelivered: "messages/delivered",
-  MessageDeleted: "messages/deleted",
   ConversationCreated: "conversations/created",
   ConversationUpdated: "conversations/updated",
   ContactRequest: "contact/request",
@@ -26,27 +23,12 @@ export const MessageReceivedEventSchema = Type.Object(
   { additionalProperties: false },
 );
 
-export const MessageReactedEventSchema = Type.Object(
-  {
-    messageId: MessageId,
-    emoji: Type.String(),
-    agentId: AgentId,
-    action: stringEnum(["add", "remove"]),
-  },
-  { additionalProperties: false },
-);
-
 export const MessageDeliveredEventSchema = Type.Object(
   {
     messageId: MessageId,
     conversationId: ConversationId,
     agentId: AgentId,
   },
-  { additionalProperties: false },
-);
-
-export const MessageDeletedEventSchema = Type.Object(
-  { messageId: MessageId, conversationId: ConversationId },
   { additionalProperties: false },
 );
 
