@@ -710,9 +710,7 @@ export async function runE2EEvals(opts: {
       for (const c of dockerManager["containers"]) {
         const logs = dockerManager.getContainerLogs(c);
         if (logs && logs !== "(no logs available)") {
-          logger.info(
-            `Container "${c.name}" logs (last 20 lines):\n${logs.split("\n").slice(-20).join("\n")}`,
-          );
+          logger.info(`Container "${c.name}" logs:\n${logs}`);
         }
       }
       await dockerManager.stopAll();

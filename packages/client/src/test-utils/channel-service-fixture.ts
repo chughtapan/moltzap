@@ -1,7 +1,11 @@
 /** Test fixture factory for ChannelService-shaped objects. */
 
 import type { Message } from "@moltzap/protocol";
-import type { ChannelService, CrossConversationEntry } from "../index.js";
+import type {
+  ChannelService,
+  CrossConversationEntry,
+  CrossConvMessage,
+} from "../index.js";
 
 type MessageHandler = (msg: Message) => void;
 type VoidHandler = () => void;
@@ -26,6 +30,7 @@ export interface ChannelServiceState {
     currentConvId: string,
     entries: CrossConversationEntry[],
   ): void;
+  setFullMessages(currentConvId: string, messages: CrossConvMessage[]): void;
   setResolveAgentNameFailure(agentId: string, err: Error): void;
   setConnectResult(result: unknown): void;
   readonly sent: ReadonlyArray<{ convId: string; text: string }>;
@@ -54,6 +59,7 @@ export function createFakeChannelService(
   const conversations = new Map<string, FixtureConversationMeta>();
   const agentNames = new Map<string, string>();
   const contextEntriesByConv = new Map<string, CrossConversationEntry[]>();
+  const fullMessagesByConv = new Map<string, CrossConvMessage[]>();
   const resolveFailures = new Map<string, Error>();
   const resolveCalls: string[] = [];
   const sent: Array<{ convId: string; text: string }> = [];
@@ -117,6 +123,14 @@ export function createFakeChannelService(
       };
       return { entries, commit };
     },
+
+    peekFullMessages(currentConvId: string) {
+      const messages = fullMessagesByConv.get(currentConvId) ?? [];
+      const commit = (): void => {
+        fullMessagesByConv.set(currentConvId, []);
+      };
+      return { messages, commit };
+    },
   };
 
   const emit: ChannelServiceEmit = {
@@ -140,6 +154,9 @@ export function createFakeChannelService(
     },
     setContextEntries(currentConvId, entries) {
       contextEntriesByConv.set(currentConvId, entries);
+    },
+    setFullMessages(currentConvId, messages) {
+      fullMessagesByConv.set(currentConvId, messages);
     },
     setResolveAgentNameFailure(agentId, err) {
       resolveFailures.set(agentId, err);

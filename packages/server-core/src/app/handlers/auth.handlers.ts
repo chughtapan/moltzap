@@ -1,9 +1,9 @@
-import type { AuthService } from "../../src/services/auth.service.js";
-import type { ConversationService } from "../../src/services/conversation.service.js";
-import type { PresenceService } from "../../src/services/presence.service.js";
-import { defineMethod } from "../../src/rpc/context.js";
+import type { AuthService } from "../../services/auth.service.js";
+import type { ConversationService } from "../../services/conversation.service.js";
+import type { PresenceService } from "../../services/presence.service.js";
+import { defineMethod } from "../../rpc/context.js";
 import { sql } from "kysely";
-import type { RpcMethodRegistry } from "../../src/rpc/context.js";
+import type { RpcMethodRegistry } from "../../rpc/context.js";
 import type {
   HelloOk,
   ParticipantRef,
@@ -13,12 +13,12 @@ import type {
   AgentsListParams,
   AgentCard,
 } from "@moltzap/protocol";
-import type { ConnectionManager } from "../../src/ws/connection.js";
-import type { Broadcaster } from "../../src/ws/broadcaster.js";
-import type { Db } from "../../src/db/client.js";
+import type { ConnectionManager } from "../../ws/connection.js";
+import type { Broadcaster } from "../../ws/broadcaster.js";
+import type { Db } from "../../db/client.js";
 import { PROTOCOL_VERSION, ErrorCodes, validators } from "@moltzap/protocol";
-import { ParticipantService } from "../../src/services/participant.service.js";
-import { RpcError } from "../../src/rpc/router.js";
+import { ParticipantService } from "../../services/participant.service.js";
+import { RpcError } from "../../rpc/router.js";
 
 function toAgentCard(row: {
   id: string;
