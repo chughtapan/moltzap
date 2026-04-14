@@ -28,7 +28,9 @@ export interface LaunchFleetOpts {
   serverUrl: string;
   modelId?: string;
   /** Only applies to openclaw runtime. Nanoclaw uses cached workspace from ensureNanoclawInstalled. */
-  workspaceFiles?: (name: string) => Array<{ relativePath: string; content: string }>;
+  workspaceFiles?: (
+    name: string,
+  ) => Array<{ relativePath: string; content: string }>;
   /** Timeout for each agent to connect. Defaults to 180_000 (180s). */
   connectTimeoutMs?: number;
 }
