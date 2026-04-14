@@ -1,11 +1,9 @@
 import { Type, type Static } from "@sinclair/typebox";
 import { ContactId, UserId } from "../primitives.js";
-import { ContactSchema, ContactStatusEnum } from "../contacts.js";
+import { ContactSchema, ContactSourceEnum } from "../contacts.js";
 
 export const ContactsListParamsSchema = Type.Object(
-  {
-    status: Type.Optional(ContactStatusEnum),
-  },
+  {},
   { additionalProperties: false },
 );
 
@@ -18,16 +16,17 @@ export const ContactsListResultSchema = Type.Object(
 
 export const ContactsAddParamsSchema = Type.Object(
   {
+    contactUserId: Type.Optional(UserId),
     phone: Type.Optional(Type.String()),
-    userId: Type.Optional(UserId),
+    source: Type.Optional(ContactSourceEnum),
+    relationship: Type.Optional(Type.String()),
   },
   { additionalProperties: false },
 );
 
 export const ContactsAddResultSchema = Type.Object(
   {
-    contactId: ContactId,
-    status: Type.Literal("pending"),
+    contact: ContactSchema,
   },
   { additionalProperties: false },
 );

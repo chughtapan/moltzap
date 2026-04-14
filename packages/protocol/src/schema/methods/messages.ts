@@ -21,8 +21,6 @@ export const MessagesSendResultSchema = Type.Object(
 export const MessagesListParamsSchema = Type.Object(
   {
     conversationId: ConversationId,
-    afterSeq: Type.Optional(Type.Integer({ minimum: 0 })),
-    beforeSeq: Type.Optional(Type.Integer({ minimum: 0 })),
     limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
   },
   { additionalProperties: false },
@@ -32,14 +30,6 @@ export const MessagesListResultSchema = Type.Object(
   {
     messages: Type.Array(MessageSchema),
     hasMore: Type.Boolean(),
-  },
-  { additionalProperties: false },
-);
-
-export const MessagesReadParamsSchema = Type.Object(
-  {
-    conversationId: ConversationId,
-    seq: Type.Integer({ minimum: 0 }),
   },
   { additionalProperties: false },
 );
@@ -62,6 +52,5 @@ export type MessagesSendParams = Static<typeof MessagesSendParamsSchema>;
 export type MessagesSendResult = Static<typeof MessagesSendResultSchema>;
 export type MessagesListParams = Static<typeof MessagesListParamsSchema>;
 export type MessagesListResult = Static<typeof MessagesListResultSchema>;
-export type MessagesReadParams = Static<typeof MessagesReadParamsSchema>;
 export type MessagesReactParams = Static<typeof MessagesReactParamsSchema>;
 export type MessagesDeleteParams = Static<typeof MessagesDeleteParamsSchema>;

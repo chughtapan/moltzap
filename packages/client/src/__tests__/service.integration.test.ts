@@ -701,7 +701,7 @@ describe("History with session key", () => {
       limit: 10,
     })) as {
       messages: Array<{
-        sender: { type: string; id: string };
+        senderId: string;
         parts: Array<{ type: string; text?: string }>;
       }>;
     };
@@ -709,18 +709,18 @@ describe("History with session key", () => {
     // Should contain messages from BOTH agents
     expect(result.messages.length).toBeGreaterThanOrEqual(3);
 
-    const senderIds = result.messages.map((m) => m.sender.id);
+    const senderIds = result.messages.map((m) => m.senderId);
     expect(senderIds).toContain(regA.agentId); // own messages
     expect(senderIds).toContain(regB.agentId); // other's messages
 
     // Verify own messages are identifiable via ownAgentId
     const ownMessages = result.messages.filter(
-      (m) => m.sender.id === service.ownAgentId,
+      (m) => m.senderId === service.ownAgentId,
     );
     expect(ownMessages.length).toBeGreaterThanOrEqual(2);
 
     const otherMessages = result.messages.filter(
-      (m) => m.sender.id === regB.agentId,
+      (m) => m.senderId === regB.agentId,
     );
     expect(otherMessages.length).toBeGreaterThanOrEqual(1);
 
@@ -760,13 +760,13 @@ describe("History with session key", () => {
       limit: 10,
     })) as {
       messages: Array<{
-        sender: { type: string; id: string };
+        senderId: string;
         parts: Array<{ type: string; text?: string }>;
       }>;
     };
 
     // All 3 agents should appear
-    const senderIds = new Set(result.messages.map((m) => m.sender.id));
+    const senderIds = new Set(result.messages.map((m) => m.senderId));
     expect(senderIds.size).toBe(3);
     expect(senderIds).toContain(regA.agentId);
     expect(senderIds).toContain(regB.agentId);
@@ -1115,7 +1115,7 @@ describe("Socket Server", () => {
     }
   });
 
-  it("lastRead advances monotonically and afterSeq enables pagination", async () => {
+  it("lastRead tracks seen message IDs across reads", async () => {
     const regA = await registerAgent("sock-page-a");
     const regB = await registerAgent("sock-page-b");
     await regB.client.connect(regB.apiKey);
@@ -1127,37 +1127,33 @@ describe("Socket Server", () => {
         participants: [{ type: "agent", id: regB.agentId }],
       })) as { conversation: { id: string } };
 
-      // Send 5 messages from B
-      for (let i = 0; i < 5; i++) {
+      // Send 3 messages from B
+      for (let i = 0; i < 3; i++) {
         await sendAndSettle(
           regB.client,
           conv.conversation.id,
-          `paginate-msg-${i}`,
+          `track-msg-${i}`,
         );
       }
 
-      // Read with limit=2 — gets newest 2 messages, advances lastRead
+      // First read marks all 3 as seen
       const hist1 = (await socketRequest("history", {
         conversationId: conv.conversation.id,
-        sessionKey: "page-test-session",
-        limit: 2,
+        sessionKey: "track-test-session",
+        limit: 10,
       })) as {
         newCount: number;
-        messages: Array<{ seq: number; isNew: boolean; text: string }>;
+        messages: Array<{ isNew: boolean; text: string }>;
       };
-      expect(hist1.messages.length).toBe(2);
+      expect(hist1.messages.length).toBe(3);
 
       // New message arrives after read
-      await sendAndSettle(
-        regB.client,
-        conv.conversation.id,
-        "paginate-msg-new",
-      );
+      await sendAndSettle(regB.client, conv.conversation.id, "track-msg-new");
 
       // Read again — only the new message should be marked new
       const hist2 = (await socketRequest("history", {
         conversationId: conv.conversation.id,
-        sessionKey: "page-test-session",
+        sessionKey: "track-test-session",
         limit: 10,
       })) as {
         newCount: number;
@@ -1165,7 +1161,7 @@ describe("Socket Server", () => {
       };
       expect(hist2.newCount).toBe(1);
       const newMsg = hist2.messages.find((m) => m.isNew);
-      expect(newMsg?.text).toBe("paginate-msg-new");
+      expect(newMsg?.text).toBe("track-msg-new");
     } finally {
       service.close();
       regA.client.close();

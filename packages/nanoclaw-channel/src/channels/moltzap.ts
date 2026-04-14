@@ -8,7 +8,7 @@ import {
   type WsClientLogger,
 } from "@moltzap/client";
 
-import type { Channel, NewMessage, RegisteredGroup } from "../types.js";
+import type { Channel } from "../types.js";
 import { logger } from "../logger.js";
 import { registerChannel, type ChannelOpts } from "./registry.js";
 
@@ -116,7 +116,7 @@ export class MoltZapChannel implements Channel {
       id: enriched.id,
       chat_jid: chatJid,
       sender: enriched.sender.id,
-      sender_name: enriched.sender.name,
+      sender_name: enriched.sender.name ?? enriched.sender.id,
       content,
       timestamp: enriched.createdAt,
       is_from_me: enriched.isFromMe,

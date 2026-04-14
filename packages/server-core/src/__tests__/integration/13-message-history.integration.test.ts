@@ -18,8 +18,8 @@ beforeEach(async () => {
   await resetTestDb();
 });
 
-describe("Message History Pagination", () => {
-  it("paginated message listing returns correct pages with no gaps or duplicates", async () => {
+describe("Message History", () => {
+  it("message listing returns messages in ascending order with hasMore", async () => {
     const { alice, bob } = await setupAgentPair();
 
     const conv = (await alice.client.rpc("conversations/create", {
@@ -28,76 +28,53 @@ describe("Message History Pagination", () => {
     })) as { conversation: { id: string } };
     const conversationId = conv.conversation.id;
 
-    // Send 25 messages
-    const sentSeqs: number[] = [];
-    for (let i = 1; i <= 25; i++) {
-      const result = (await alice.client.rpc("messages/send", {
+    // Send 15 messages
+    for (let i = 1; i <= 15; i++) {
+      await alice.client.rpc("messages/send", {
         conversationId,
         parts: [{ type: "text", text: `Message ${i}` }],
-      })) as { message: { seq: number } };
-      sentSeqs.push(result.message.seq);
+      });
     }
 
-    // First page: most recent 10
+    // List with limit=10 — should get newest 10 and hasMore=true
     const page1 = (await alice.client.rpc("messages/list", {
       conversationId,
       limit: 10,
     })) as {
-      messages: Array<{ seq: number; parts: Array<{ text: string }> }>;
+      messages: Array<{
+        id: string;
+        senderId: string;
+        parts: Array<{ text: string }>;
+      }>;
       hasMore: boolean;
     };
     expect(page1.messages).toHaveLength(10);
     expect(page1.hasMore).toBe(true);
 
-    const page1Seqs = page1.messages.map((m) => m.seq);
+    // Messages are returned in ascending order (oldest first in page)
+    const texts = page1.messages.map((m) => m.parts[0]!.text);
+    // Newest 10 = Message 6 through Message 15
+    expect(texts[0]).toBe("Message 6");
+    expect(texts[9]).toBe("Message 15");
 
-    // Verify ascending order within page
-    for (let i = 1; i < page1Seqs.length; i++) {
-      expect(page1Seqs[i]!).toBeGreaterThan(page1Seqs[i - 1]!);
+    // All messages have createdBy set to alice's agent ID
+    for (const m of page1.messages) {
+      expect(m.senderId).toBe(alice.agentId);
     }
 
-    // Second page using beforeSeq of the first message in page1
-    const page2 = (await alice.client.rpc("messages/list", {
+    // No duplicate IDs
+    const ids = page1.messages.map((m) => m.id);
+    expect(new Set(ids).size).toBe(10);
+
+    // List all — should get all 15
+    const all = (await alice.client.rpc("messages/list", {
       conversationId,
-      limit: 10,
-      beforeSeq: page1Seqs[0],
+      limit: 100,
     })) as {
-      messages: Array<{ seq: number; parts: Array<{ text: string }> }>;
+      messages: Array<{ id: string; parts: Array<{ text: string }> }>;
       hasMore: boolean;
     };
-    expect(page2.messages).toHaveLength(10);
-    expect(page2.hasMore).toBe(true);
-
-    const page2Seqs = page2.messages.map((m) => m.seq);
-
-    for (let i = 1; i < page2Seqs.length; i++) {
-      expect(page2Seqs[i]!).toBeGreaterThan(page2Seqs[i - 1]!);
-    }
-
-    // Third page: remaining 5
-    const page3 = (await alice.client.rpc("messages/list", {
-      conversationId,
-      limit: 10,
-      beforeSeq: page2Seqs[0],
-    })) as {
-      messages: Array<{ seq: number; parts: Array<{ text: string }> }>;
-      hasMore: boolean;
-    };
-    expect(page3.messages).toHaveLength(5);
-    expect(page3.hasMore).toBe(false);
-
-    // Verify no duplicates across all pages
-    const allSeqs = [
-      ...page3.messages.map((m) => m.seq),
-      ...page2Seqs,
-      ...page1Seqs,
-    ];
-    const uniqueSeqs = new Set(allSeqs);
-    expect(uniqueSeqs.size).toBe(25);
-
-    // Verify overall ascending seq order (page3 oldest, page1 newest)
-    for (let i = 1; i < allSeqs.length; i++) {
-      expect(allSeqs[i]!).toBeGreaterThan(allSeqs[i - 1]!);
-    }
+    expect(all.messages).toHaveLength(15);
+    expect(all.hasMore).toBe(false);
   });
 });

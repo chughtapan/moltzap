@@ -1,23 +1,27 @@
 import { Type, type Static } from "@sinclair/typebox";
-import { stringEnum, DateTimeString } from "../helpers.js";
+import { stringEnum } from "../helpers.js";
 import { ContactId, UserId } from "./primitives.js";
-import { AgentCardSchema } from "./identity.js";
 
-export const ContactStatusEnum = stringEnum(["pending", "accepted", "blocked"]);
+export const ContactSourceEnum = stringEnum(["phone", "manual", "email"]);
+
+export const RelationshipType = Type.String();
 
 export const ContactSchema = Type.Object(
   {
     id: ContactId,
-    requesterId: UserId,
-    targetId: UserId,
-    status: ContactStatusEnum,
-    createdAt: DateTimeString,
-    requesterName: Type.Optional(Type.String()),
-    requesterPhone: Type.Optional(Type.String()),
-    targetName: Type.Optional(Type.String()),
-    targetPhone: Type.Optional(Type.String()),
-    agents: Type.Optional(Type.Array(AgentCardSchema)),
-    lastSeenAt: Type.Optional(Type.String({ format: "date-time" })),
+    contactUserId: UserId,
+    source: ContactSourceEnum,
+    relationship: Type.Optional(RelationshipType),
+    metadata: Type.Optional(
+      Type.Object(
+        {
+          tags: Type.Optional(
+            Type.Array(Type.Record(Type.String(), Type.String())),
+          ),
+        },
+        { additionalProperties: false },
+      ),
+    ),
   },
   { additionalProperties: false },
 );

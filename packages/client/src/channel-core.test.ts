@@ -111,7 +111,7 @@ describe("MoltZapChannelCore", () => {
         buildMessage({
           id: "msg-abc",
           conversationId: "conv-1",
-          sender: { type: "agent", id: "agent-alice" },
+          senderId: "agent-alice",
           parts: [{ type: "text", text: "hi there" }],
           createdAt: "2026-04-10T13:00:00.000Z",
         }),
@@ -124,7 +124,7 @@ describe("MoltZapChannelCore", () => {
       expect(enriched).toMatchObject({
         id: "msg-abc",
         conversationId: "conv-1",
-        sender: { type: "agent", id: "agent-alice", name: "Alice" },
+        sender: { id: "agent-alice", name: "Alice" },
         text: "hi there",
         isFromMe: false,
         createdAt: "2026-04-10T13:00:00.000Z",
@@ -164,9 +164,7 @@ describe("MoltZapChannelCore", () => {
       forceResolveAgentNamePath(fake);
       fake.state.setConversation("conv-1", { type: "dm", participants: [] });
 
-      fake.emit.message(
-        buildMessage({ sender: { type: "agent", id: "agent-unknown" } }),
-      );
+      fake.emit.message(buildMessage({ senderId: "agent-unknown" }));
       await flushDispatchChain();
 
       expect(received[0]!.sender.name).toBe("agent-unknown");
@@ -181,9 +179,7 @@ describe("MoltZapChannelCore", () => {
         new Error("network down"),
       );
 
-      fake.emit.message(
-        buildMessage({ sender: { type: "agent", id: "agent-broken" } }),
-      );
+      fake.emit.message(buildMessage({ senderId: "agent-broken" }));
       await flushDispatchChain();
 
       expect(received[0]!.sender.name).toBe("agent-broken");
@@ -226,9 +222,7 @@ describe("MoltZapChannelCore", () => {
     it("sets isFromMe=true when sender matches ownAgentId", async () => {
       fake.state.setConversation("conv-1", { type: "dm", participants: [] });
 
-      fake.emit.message(
-        buildMessage({ sender: { type: "agent", id: "agent-self" } }),
-      );
+      fake.emit.message(buildMessage({ senderId: "agent-self" }));
       await flushDispatchChain();
 
       expect(inbound[0]!.isFromMe).toBe(true);
@@ -535,7 +529,7 @@ describe("MoltZapChannelCore", () => {
       expect(staticResult).toMatchObject({
         id: "msg-static",
         conversationId: "conv-1",
-        sender: { type: "agent", id: "agent-alice", name: "Alice" },
+        sender: { id: "agent-alice", name: "Alice" },
         text: "static enrichment",
         isFromMe: false,
       });
@@ -555,7 +549,7 @@ describe("MoltZapChannelCore", () => {
 
       const { enriched: result } = await MoltZapChannelCore.enrichMessage(
         fake.service,
-        buildMessage({ sender: { type: "agent", id: "agent-unknown" } }),
+        buildMessage({ senderId: "agent-unknown" }),
       );
 
       expect(result.sender.name).toBe("agent-unknown");

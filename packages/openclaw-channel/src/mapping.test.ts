@@ -4,7 +4,6 @@ import { EventNames } from "@moltzap/protocol";
 import {
   isMessageEvent,
   extractMessage,
-  extractReadReceipt,
   extractReaction,
   extractDelivery,
   extractDeletion,
@@ -13,7 +12,6 @@ import {
   extractContactRequest,
   extractContactAccepted,
   extractPresenceChanged,
-  extractTypingIndicator,
 } from "./mapping.js";
 
 function makeMessage(overrides: Partial<Message> = {}): Message {
@@ -80,59 +78,20 @@ describe("extractMessage", () => {
   });
 });
 
-describe("extractReadReceipt", () => {
-  it("extracts read receipt from valid frame", () => {
-    const result = extractReadReceipt(
-      makeEventFrame(EventNames.MessageRead, {
-        conversationId: "conv-1",
-        participant: { type: "agent", id: "a-1" },
-        seq: 5,
-      }),
-    );
-    expect(result).toEqual({
-      conversationId: "conv-1",
-      participant: { type: "agent", id: "a-1" },
-      seq: 5,
-    });
-  });
-
-  it("returns null for wrong event type", () => {
-    expect(
-      extractReadReceipt(
-        makeEventFrame(EventNames.MessageReceived, {
-          conversationId: "conv-1",
-          participant: { type: "agent", id: "a-1" },
-          seq: 5,
-        }),
-      ),
-    ).toBeNull();
-  });
-
-  it("returns null when data is missing fields", () => {
-    expect(
-      extractReadReceipt(
-        makeEventFrame(EventNames.MessageRead, {
-          conversationId: "conv-1",
-        }),
-      ),
-    ).toBeNull();
-  });
-});
-
 describe("extractReaction", () => {
   it("extracts reaction from valid frame", () => {
     const result = extractReaction(
       makeEventFrame(EventNames.MessageReacted, {
         messageId: "msg-1",
         emoji: "thumbsup",
-        participant: { type: "agent", id: "a-1" },
+        agentId: "a-1",
         action: "add",
       }),
     );
     expect(result).toEqual({
       messageId: "msg-1",
       emoji: "thumbsup",
-      participant: { type: "agent", id: "a-1" },
+      agentId: "a-1",
       action: "add",
     });
   });
@@ -143,7 +102,7 @@ describe("extractReaction", () => {
         makeEventFrame(EventNames.MessageReceived, {
           messageId: "msg-1",
           emoji: "thumbsup",
-          participant: { type: "agent", id: "a-1" },
+          agentId: "a-1",
           action: "add",
         }),
       ),
@@ -167,13 +126,13 @@ describe("extractDelivery", () => {
       makeEventFrame(EventNames.MessageDelivered, {
         messageId: "msg-1",
         conversationId: "conv-1",
-        participant: { type: "agent", id: "a-1" },
+        agentId: "a-1",
       }),
     );
     expect(result).toEqual({
       messageId: "msg-1",
       conversationId: "conv-1",
-      participant: { type: "agent", id: "a-1" },
+      agentId: "a-1",
     });
   });
 
@@ -342,12 +301,12 @@ describe("extractPresenceChanged", () => {
   it("extracts presence from valid frame", () => {
     const result = extractPresenceChanged(
       makeEventFrame(EventNames.PresenceChanged, {
-        participant: { type: "agent", id: "a-1" },
+        agentId: "a-1",
         status: "online",
       }),
     );
     expect(result).toEqual({
-      participant: { type: "agent", id: "a-1" },
+      agentId: "a-1",
       status: "online",
     });
   });
@@ -362,38 +321,7 @@ describe("extractPresenceChanged", () => {
     expect(
       extractPresenceChanged(
         makeEventFrame(EventNames.PresenceChanged, {
-          participant: { type: "agent", id: "a-1" },
-        }),
-      ),
-    ).toBeNull();
-  });
-});
-
-describe("extractTypingIndicator", () => {
-  it("extracts typing from valid frame", () => {
-    const result = extractTypingIndicator(
-      makeEventFrame(EventNames.TypingIndicator, {
-        conversationId: "conv-1",
-        participant: { type: "agent", id: "a-1" },
-      }),
-    );
-    expect(result).toEqual({
-      conversationId: "conv-1",
-      participant: { type: "agent", id: "a-1" },
-    });
-  });
-
-  it("returns null for wrong event type", () => {
-    expect(
-      extractTypingIndicator(makeEventFrame(EventNames.MessageReceived)),
-    ).toBeNull();
-  });
-
-  it("returns null when missing participant", () => {
-    expect(
-      extractTypingIndicator(
-        makeEventFrame(EventNames.TypingIndicator, {
-          conversationId: "conv-1",
+          agentId: "a-1",
         }),
       ),
     ).toBeNull();

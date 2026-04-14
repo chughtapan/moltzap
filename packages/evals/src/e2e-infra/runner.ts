@@ -59,7 +59,6 @@ function validateResponse(result: GeneratedResult): ValidatedResult {
     try {
       const ctx = JSON.parse(result.conversationContext) as {
         conversationId?: string;
-        senderType?: string;
         senderId?: string;
         messageId?: string;
         parts?: Array<{ type: string; text?: string }>;
@@ -67,11 +66,6 @@ function validateResponse(result: GeneratedResult): ValidatedResult {
 
       if (!ctx.conversationId) {
         errors.push("Response missing conversationId");
-      }
-      if (ctx.senderType !== "agent") {
-        errors.push(
-          `Expected sender type "agent", got "${ctx.senderType ?? "missing"}"`,
-        );
       }
       if (!ctx.senderId) {
         errors.push("Response missing sender agent ID");
@@ -100,9 +94,8 @@ function validateResponse(result: GeneratedResult): ValidatedResult {
 type RawMessage = {
   id: string;
   conversationId: string;
-  sender: { type: string; id: string };
+  senderId: string;
   parts: Array<{ type: string; text?: string }>;
-  seq: number;
   createdAt: string;
 };
 
@@ -139,7 +132,7 @@ export async function sendAndWaitForResponse(opts: {
 
     if (
       msg.conversationId === conversationId &&
-      msg.sender.id === expectedSenderId
+      msg.senderId === expectedSenderId
     ) {
       found = msg;
       break;
@@ -301,11 +294,9 @@ async function generateResult(opts: {
 
     const conversationContext = JSON.stringify({
       conversationId: rawMessage.conversationId,
-      senderType: rawMessage.sender.type,
-      senderId: rawMessage.sender.id,
+      senderId: rawMessage.senderId,
       messageId: rawMessage.id,
       parts: rawMessage.parts,
-      seq: rawMessage.seq,
       createdAt: rawMessage.createdAt,
     });
 

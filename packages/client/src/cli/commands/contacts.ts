@@ -9,14 +9,10 @@ export const contactsCommand = new Command("contacts").description(
 contactsCommand
   .command("list")
   .description("List contacts")
-  .option("--status <status>", "Filter by status (pending, accepted, blocked)")
   .option("--json", "Output as JSON")
   .action(
-    action(async (opts: { status?: string; json?: boolean }) => {
-      const params: Record<string, unknown> = {};
-      if (opts.status) params.status = opts.status;
-
-      const result = (await request("contacts/list", params)) as {
+    action(async (opts: { json?: boolean }) => {
+      const result = (await request("contacts/list", {})) as {
         contacts: Contact[];
       };
 
@@ -29,9 +25,8 @@ contactsCommand
         return;
       }
       for (const c of result.contacts) {
-        const requester = c.requesterName ?? c.requesterPhone ?? c.requesterId;
-        const target = c.targetName ?? c.targetPhone ?? c.targetId;
-        console.log(`  ${c.id}  ${c.status}  ${requester} -> ${target}`);
+        const rel = c.relationship ? ` (${c.relationship})` : "";
+        console.log(`  ${c.id}  ${c.contactUserId}  ${c.source}${rel}`);
       }
     }),
   );
@@ -45,16 +40,15 @@ contactsCommand
       const params: Record<string, string> = {};
       if (identifier.startsWith("+")) {
         params.phone = identifier;
+        params.source = "phone";
       } else {
-        params.userId = identifier;
+        params.contactUserId = identifier;
+        params.source = "manual";
       }
       const result = (await request("contacts/add", params)) as {
-        contactId: string;
-        status: string;
+        contact: Contact;
       };
-      console.log(
-        `Contact request sent (id: ${result.contactId}, status: ${result.status})`,
-      );
+      console.log(`Contact added (id: ${result.contact.id})`);
     }),
   );
 
