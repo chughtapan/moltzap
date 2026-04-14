@@ -1,5 +1,5 @@
 import { Type, type Static } from "@sinclair/typebox";
-import { DateTimeString } from "../../helpers.js";
+import { stringEnum, DateTimeString } from "../../helpers.js";
 import { ConversationId } from "../primitives.js";
 import {
   ConversationSchema,
@@ -7,13 +7,20 @@ import {
   ConversationParticipantSchema,
   ConversationSummarySchema,
 } from "../conversations.js";
-import { ParticipantRefSchema } from "../identity.js";
+
+const AgentParticipantSchema = Type.Object(
+  {
+    type: stringEnum(["agent"]),
+    id: Type.String({ format: "uuid" }),
+  },
+  { additionalProperties: false },
+);
 
 export const ConversationsCreateParamsSchema = Type.Object(
   {
     type: ConversationTypeEnum,
     name: Type.Optional(Type.String({ minLength: 1, maxLength: 100 })),
-    participants: Type.Array(ParticipantRefSchema, { minItems: 1 }),
+    participants: Type.Array(AgentParticipantSchema, { minItems: 1 }),
   },
   { additionalProperties: false },
 );
@@ -71,7 +78,7 @@ export const ConversationsMuteParamsSchema = Type.Object(
 export const ConversationsAddParticipantParamsSchema = Type.Object(
   {
     conversationId: ConversationId,
-    participant: ParticipantRefSchema,
+    participant: AgentParticipantSchema,
   },
   { additionalProperties: false },
 );
@@ -79,7 +86,7 @@ export const ConversationsAddParticipantParamsSchema = Type.Object(
 export const ConversationsRemoveParticipantParamsSchema = Type.Object(
   {
     conversationId: ConversationId,
-    participant: ParticipantRefSchema,
+    participant: AgentParticipantSchema,
   },
   { additionalProperties: false },
 );

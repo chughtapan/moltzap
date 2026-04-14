@@ -193,8 +193,7 @@ describe("MoltZapService.getContext — XML injection hardening", () => {
     return {
       id: overrides.id ?? "msg-1",
       conversationId: overrides.conversationId ?? "conv-other",
-      sender: overrides.sender ?? { type: "agent", id: "agent-attacker" },
-      seq: overrides.seq ?? Date.now() * 1000,
+      senderId: overrides.senderId ?? "agent-attacker",
       parts: overrides.parts ?? [{ type: "text", text: "hello" }],
       createdAt: overrides.createdAt ?? new Date().toISOString(),
       ...overrides,
@@ -210,7 +209,7 @@ describe("MoltZapService.getContext — XML injection hardening", () => {
     service.addMessage(
       "conv-other",
       msg({
-        sender: { type: "agent", id: "agent-attacker" },
+        senderId: "agent-attacker",
         parts: [{ type: "text", text: "innocuous text" }],
       }),
     );
@@ -233,7 +232,7 @@ describe("MoltZapService.getContext — XML injection hardening", () => {
     service.addMessage(
       "conv-other",
       msg({
-        sender: { type: "agent", id: "agent-sender" },
+        senderId: "agent-sender",
         parts: [
           {
             type: "text",
@@ -262,7 +261,7 @@ describe("MoltZapService.getContext — XML injection hardening", () => {
     service.addMessage(
       "conv-other",
       msg({
-        sender: { type: "agent", id: "agent-bob" },
+        senderId: "agent-bob",
         parts: [{ type: "text", text: "hello from the other side" }],
         createdAt: threeMinAgo,
       }),
@@ -288,7 +287,7 @@ describe("MoltZapService.getContext — XML injection hardening", () => {
     service.addMessage(
       "conv-other",
       msg({
-        sender: { type: "agent", id: "agent-bob" },
+        senderId: "agent-bob",
         parts: [{ type: "text", text: longText }],
       }),
     );
@@ -309,8 +308,7 @@ describe("MoltZapService.peekContextEntries", () => {
     service.addMessage(convId, {
       id: `m-${seq}`,
       conversationId: convId,
-      sender: { type: "agent", id: "agent-bob" },
-      seq,
+      senderId: "agent-bob",
       parts: [{ type: "text", text }],
       createdAt: new Date().toISOString(),
     } as Message);
@@ -431,8 +429,7 @@ describe("MoltZapService.peekFullMessages", () => {
     service.addMessage("conv-a", {
       id: "m-1",
       conversationId: "conv-a",
-      sender: { type: "agent", id: "agent-bob" },
-      seq: 1,
+      senderId: "agent-bob",
       parts: [{ type: "text", text: "first" }],
       createdAt: "2026-04-13T22:00:00Z",
     } as Message);
@@ -440,8 +437,7 @@ describe("MoltZapService.peekFullMessages", () => {
     service.addMessage("conv-b", {
       id: "m-2",
       conversationId: "conv-b",
-      sender: { type: "agent", id: "agent-alice" },
-      seq: 1,
+      senderId: "agent-alice",
       parts: [{ type: "text", text: "second" }],
       createdAt: "2026-04-13T22:00:01Z",
     } as Message);
@@ -449,8 +445,7 @@ describe("MoltZapService.peekFullMessages", () => {
     service.addMessage("conv-a", {
       id: "m-3",
       conversationId: "conv-a",
-      sender: { type: "agent", id: "agent-bob" },
-      seq: 2,
+      senderId: "agent-bob",
       parts: [{ type: "text", text: "third" }],
       createdAt: "2026-04-13T22:00:02Z",
     } as Message);
@@ -471,8 +466,7 @@ describe("MoltZapService.peekFullMessages", () => {
     service.addMessage("conv-self", {
       id: "m-1",
       conversationId: "conv-self",
-      sender: { type: "agent", id: "agent-bob" },
-      seq: 1,
+      senderId: "agent-bob",
       parts: [{ type: "text", text: "own conv" }],
       createdAt: "2026-04-13T22:00:00Z",
     } as Message);
@@ -486,8 +480,7 @@ describe("MoltZapService.peekFullMessages", () => {
     service.addMessage("conv-a", {
       id: "m-1",
       conversationId: "conv-a",
-      sender: { type: "agent", id: "agent-bob" },
-      seq: 1,
+      senderId: "agent-bob",
       parts: [{ type: "text", text: "old" }],
       createdAt: "2026-04-13T22:00:00Z",
     } as Message);
@@ -499,8 +492,7 @@ describe("MoltZapService.peekFullMessages", () => {
     service.addMessage("conv-a", {
       id: "m-2",
       conversationId: "conv-a",
-      sender: { type: "agent", id: "agent-bob" },
-      seq: 2,
+      senderId: "agent-bob",
       parts: [{ type: "text", text: "new" }],
       createdAt: "2026-04-13T22:01:00Z",
     } as Message);
@@ -517,7 +509,7 @@ describe("MoltZapService.peekFullMessages", () => {
         service.addMessage(`conv-${c}`, {
           id: `m-${c}-${m}`,
           conversationId: `conv-${c}`,
-          sender: { type: "agent", id: "agent-bob" },
+          senderId: "agent-bob",
           seq: m + 1,
           parts: [{ type: "text", text: `c${c}-m${m}` }],
           createdAt: new Date(Date.now() + c * 10000 + m * 1000).toISOString(),
@@ -534,8 +526,7 @@ describe("MoltZapService.peekFullMessages", () => {
     service.addMessage("conv-a", {
       id: "m-1",
       conversationId: "conv-a",
-      sender: { type: "agent", id: "agent-bob" },
-      seq: 1,
+      senderId: "agent-bob",
       parts: [{ type: "text", text: "hi" }],
       createdAt: "2026-04-13T22:00:00Z",
     } as Message);
@@ -551,8 +542,7 @@ describe("MoltZapService.peekFullMessages", () => {
     service.addMessage("conv-a", {
       id: "m-1",
       conversationId: "conv-a",
-      sender: { type: "agent", id: "agent-bob" },
-      seq: 1,
+      senderId: "agent-bob",
       parts: [{ type: "text", text: "hi" }],
       createdAt: "2026-04-13T22:00:00Z",
     } as Message);
@@ -567,7 +557,7 @@ describe("MoltZapService.peekFullMessages", () => {
       service.addMessage("conv-a", {
         id: `m-${i}`,
         conversationId: "conv-a",
-        sender: { type: "agent", id: "agent-bob" },
+        senderId: "agent-bob",
         seq: i,
         parts: [{ type: "text", text: `msg-${i}` }],
         createdAt: new Date(Date.now() + i * 1000).toISOString(),

@@ -49,7 +49,7 @@ describe("Send to Existing Conversation", () => {
     };
 
     expect(send2.message.conversationId).toBe(conversationId);
-    expect(send2.message.sender.id).toBe(alice.agentId);
+    expect(send2.message.senderId).toBe(alice.agentId);
 
     const bobEvent2 = await bobEvent2Promise;
     const received = (

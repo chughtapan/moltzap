@@ -182,7 +182,7 @@ export class ConversationService {
         type: row.type,
         name: row.name ?? undefined,
         lastMessagePreview: cachedPreview,
-        lastMessageAt: row.last_message_at
+        lastMessageTimestamp: row.last_message_at
           ? row.last_message_at.toISOString()
           : undefined,
         unreadCount: row.unread_count,
@@ -200,13 +200,13 @@ export class ConversationService {
 
       const partsByConv = new Map<
         string,
-        Array<{ type: "user" | "agent"; id: string }>
+        Array<{ type: "agent"; id: string }>
       >();
       for (const row of partRows) {
         const convId = row.conversation_id;
         if (!partsByConv.has(convId)) partsByConv.set(convId, []);
         partsByConv.get(convId)!.push({
-          type: row.participant_type,
+          type: "agent" as const,
           id: row.participant_id,
         });
       }
@@ -561,10 +561,7 @@ export class ConversationService {
       id: row.id,
       type: row.type,
       name: row.name ?? undefined,
-      createdBy: {
-        type: row.created_by_type,
-        id: row.created_by_id,
-      },
+      createdBy: row.created_by_id,
       createdAt: row.created_at.toISOString(),
       updatedAt: row.updated_at.toISOString(),
     };
@@ -580,16 +577,17 @@ export class ConversationService {
     muted_until: Date | null;
     agent_name?: string | null;
     agent_display_name?: string | null;
+    last_read_message_id?: string | null;
   }): ConversationParticipant {
     return {
       conversationId: row.conversation_id,
       participant: {
-        type: row.participant_type,
+        type: "agent" as const,
         id: row.participant_id,
       },
       role: row.role,
       joinedAt: row.joined_at.toISOString(),
-      lastReadSeq: Number(row.last_read_seq),
+      lastReadMessageId: row.last_read_message_id ?? undefined,
       mutedUntil: row.muted_until ? row.muted_until.toISOString() : undefined,
       agentName: row.agent_name ?? undefined,
       agentDisplayName: row.agent_display_name ?? undefined,

@@ -10,8 +10,6 @@ import {
   historyCommand,
 } from "./commands/conversations.js";
 import { inviteCommand } from "./commands/invite.js";
-import { reactCommand } from "./commands/react.js";
-import { deleteCommand } from "./commands/delete.js";
 import { presenceCommand } from "./commands/presence.js";
 import { pingCommand } from "./commands/ping.js";
 import { statusCommand } from "./commands/status.js";
@@ -34,8 +32,6 @@ program.addCommand(contactsCommand);
 program.addCommand(conversationsCommand);
 program.addCommand(historyCommand);
 program.addCommand(inviteCommand);
-program.addCommand(reactCommand);
-program.addCommand(deleteCommand);
 program.addCommand(presenceCommand);
 program.addCommand(pingCommand);
 program.addCommand(statusCommand);

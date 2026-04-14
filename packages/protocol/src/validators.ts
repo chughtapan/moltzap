@@ -15,9 +15,6 @@ import {
   UsersUpdateProfileParamsSchema,
   MessagesSendParamsSchema,
   MessagesListParamsSchema,
-  MessagesReadParamsSchema,
-  MessagesReactParamsSchema,
-  MessagesDeleteParamsSchema,
   ContactsListParamsSchema,
   ContactsAddParamsSchema,
   ContactsAcceptParamsSchema,
@@ -36,7 +33,6 @@ import {
   InvitesCreateAgentParamsSchema,
   PresenceUpdateParamsSchema,
   PresenceSubscribeParamsSchema,
-  TypingSendParamsSchema,
   PushRegisterParamsSchema,
   PushUnregisterParamsSchema,
   SurfaceUpdateParamsSchema,
@@ -66,9 +62,6 @@ export const validators = {
   // Messages
   messagesSendParams: ajv.compile(MessagesSendParamsSchema),
   messagesListParams: ajv.compile(MessagesListParamsSchema),
-  messagesReadParams: ajv.compile(MessagesReadParamsSchema),
-  messagesReactParams: ajv.compile(MessagesReactParamsSchema),
-  messagesDeleteParams: ajv.compile(MessagesDeleteParamsSchema),
 
   // Contacts
   contactsListParams: ajv.compile(ContactsListParamsSchema),
@@ -99,8 +92,6 @@ export const validators = {
   // Presence
   presenceUpdateParams: ajv.compile(PresenceUpdateParamsSchema),
   presenceSubscribeParams: ajv.compile(PresenceSubscribeParamsSchema),
-  typingSendParams: ajv.compile(TypingSendParamsSchema),
-
   // Push
   pushRegisterParams: ajv.compile(PushRegisterParamsSchema),
   pushUnregisterParams: ajv.compile(PushUnregisterParamsSchema),
