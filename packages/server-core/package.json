@@ -1,7 +1,12 @@
 {
   "name": "@moltzap/server-core",
-  "version": "2026.408.0",
+  "version": "2026.414.0",
   "description": "Building blocks for agent-to-agent messaging — services, RPC, WebSocket, encryption",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/chughtapan/moltzap"
+  },
   "files": [
     "dist"
   ],
@@ -14,12 +19,13 @@
       "types": "./dist/index.d.ts"
     },
     "./test-utils": {
-      "import": "./src/test-utils/index.ts"
+      "import": "./dist/test-utils/index.js",
+      "types": "./dist/test-utils/index.d.ts"
     }
   },
   "scripts": {
     "build": "tsc",
-    "dev": "tsx watch examples/server.ts",
+    "dev": "tsx watch src/app/dev.ts",
     "db:generate": "kysely-codegen --out-file src/db/database.generated.ts",
     "test": "vitest run",
     "test:integration": "vitest run -c vitest.integration.config.ts"

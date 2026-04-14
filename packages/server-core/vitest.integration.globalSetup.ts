@@ -21,7 +21,8 @@ export default async function ({ provide }: GlobalSetupContext) {
   const pool = new pg.Pool({ connectionString: container.getConnectionUri() });
   const schemaPath = join(
     dirname(fileURLToPath(import.meta.url)),
-    "examples",
+    "src",
+    "app",
     "core-schema.sql",
   );
   const sql = readFileSync(schemaPath, "utf-8");

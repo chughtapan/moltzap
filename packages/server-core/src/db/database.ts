@@ -1,5 +1,5 @@
 // @generated — thin wrapper over kysely-codegen output for core schema.
-// Run `pnpm db:generate` after changing examples/core-schema.sql.
+// Run `pnpm db:generate` after changing src/app/core-schema.sql.
 
 import type { Insertable, Selectable, Updateable } from "kysely";
 import type {

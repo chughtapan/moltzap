@@ -1,15 +1,15 @@
-import type { PresenceService } from "../../src/services/presence.service.js";
-import type { ConversationService } from "../../src/services/conversation.service.js";
-import type { RpcMethodRegistry } from "../../src/rpc/context.js";
-import { defineMethod } from "../../src/rpc/context.js";
+import type { PresenceService } from "../../services/presence.service.js";
+import type { ConversationService } from "../../services/conversation.service.js";
+import type { RpcMethodRegistry } from "../../rpc/context.js";
+import { defineMethod } from "../../rpc/context.js";
 import type {
   PresenceUpdateParams,
   PresenceSubscribeParams,
 } from "@moltzap/protocol";
-import { validators, eventFrame, EventNames } from "@moltzap/protocol";
-import { ParticipantService } from "../../src/services/participant.service.js";
-import type { Broadcaster } from "../../src/ws/broadcaster.js";
-import type { ConnectionManager } from "../../src/ws/connection.js";
+import { validators, EventNames, eventFrame } from "@moltzap/protocol";
+import { ParticipantService } from "../../services/participant.service.js";
+import type { Broadcaster } from "../../ws/broadcaster.js";
+import type { ConnectionManager } from "../../ws/connection.js";
 
 export function createPresenceHandlers(deps: {
   presenceService: PresenceService;

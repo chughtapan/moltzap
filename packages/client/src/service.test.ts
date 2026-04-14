@@ -419,3 +419,151 @@ describe("MoltZapService.peekContextEntries", () => {
     expect(second.entries[0]!.text).toBe("second");
   });
 });
+
+describe("MoltZapService.peekFullMessages", () => {
+  it("returns full messages from all conversations sorted by timestamp", () => {
+    const service = new FakeMoltZapService();
+    service.setAgentNameDirect("agent-bob", "Bob");
+    service.setAgentNameDirect("agent-alice", "Alice");
+
+    service.addMessage("conv-a", {
+      id: "m-1",
+      conversationId: "conv-a",
+      senderId: "agent-bob",
+      parts: [{ type: "text", text: "first" }],
+      createdAt: "2026-04-13T22:00:00Z",
+    } as Message);
+
+    service.addMessage("conv-b", {
+      id: "m-2",
+      conversationId: "conv-b",
+      senderId: "agent-alice",
+      parts: [{ type: "text", text: "second" }],
+      createdAt: "2026-04-13T22:00:01Z",
+    } as Message);
+
+    service.addMessage("conv-a", {
+      id: "m-3",
+      conversationId: "conv-a",
+      senderId: "agent-bob",
+      parts: [{ type: "text", text: "third" }],
+      createdAt: "2026-04-13T22:00:02Z",
+    } as Message);
+
+    const { messages } = service.peekFullMessages("conv-self");
+    expect(messages).toHaveLength(3);
+    expect(messages.map((m) => m.text)).toEqual(["first", "second", "third"]);
+    expect(messages[0]!.conversationId).toBe("conv-a");
+    expect(messages[0]!.senderName).toBe("Bob");
+    expect(messages[0]!.senderId).toBe("agent-bob");
+    expect(messages[1]!.conversationId).toBe("conv-b");
+    expect(messages[1]!.senderName).toBe("Alice");
+    expect(messages[1]!.senderId).toBe("agent-alice");
+  });
+
+  it("excludes messages from the current conversation", () => {
+    const service = new FakeMoltZapService();
+    service.addMessage("conv-self", {
+      id: "m-1",
+      conversationId: "conv-self",
+      senderId: "agent-bob",
+      parts: [{ type: "text", text: "own conv" }],
+      createdAt: "2026-04-13T22:00:00Z",
+    } as Message);
+
+    const { messages } = service.peekFullMessages("conv-self");
+    expect(messages).toHaveLength(0);
+  });
+
+  it("commit advances markers; subsequent peek returns only new messages", () => {
+    const service = new FakeMoltZapService();
+    service.addMessage("conv-a", {
+      id: "m-1",
+      conversationId: "conv-a",
+      senderId: "agent-bob",
+      parts: [{ type: "text", text: "old" }],
+      createdAt: "2026-04-13T22:00:00Z",
+    } as Message);
+
+    const first = service.peekFullMessages("conv-self");
+    first.commit();
+    expect(first.messages).toHaveLength(1);
+
+    service.addMessage("conv-a", {
+      id: "m-2",
+      conversationId: "conv-a",
+      senderId: "agent-bob",
+      parts: [{ type: "text", text: "new" }],
+      createdAt: "2026-04-13T22:01:00Z",
+    } as Message);
+
+    const second = service.peekFullMessages("conv-self");
+    expect(second.messages).toHaveLength(1);
+    expect(second.messages[0]!.text).toBe("new");
+  });
+
+  it("no artificial cap on conversations or messages per conversation", () => {
+    const service = new FakeMoltZapService();
+    for (let c = 0; c < 10; c++) {
+      for (let m = 0; m < 5; m++) {
+        service.addMessage(`conv-${c}`, {
+          id: `m-${c}-${m}`,
+          conversationId: `conv-${c}`,
+          senderId: "agent-bob",
+          seq: m + 1,
+          parts: [{ type: "text", text: `c${c}-m${m}` }],
+          createdAt: new Date(Date.now() + c * 10000 + m * 1000).toISOString(),
+        } as Message);
+      }
+    }
+
+    const { messages } = service.peekFullMessages("conv-self");
+    expect(messages).toHaveLength(50);
+  });
+
+  it("peek without commit is idempotent", () => {
+    const service = new FakeMoltZapService();
+    service.addMessage("conv-a", {
+      id: "m-1",
+      conversationId: "conv-a",
+      senderId: "agent-bob",
+      parts: [{ type: "text", text: "hi" }],
+      createdAt: "2026-04-13T22:00:00Z",
+    } as Message);
+
+    const a = service.peekFullMessages("conv-self").messages;
+    const b = service.peekFullMessages("conv-self").messages;
+    expect(a).toHaveLength(1);
+    expect(b).toHaveLength(1);
+  });
+
+  it("commit for one viewing conv does not affect another", () => {
+    const service = new FakeMoltZapService();
+    service.addMessage("conv-a", {
+      id: "m-1",
+      conversationId: "conv-a",
+      senderId: "agent-bob",
+      parts: [{ type: "text", text: "hi" }],
+      createdAt: "2026-04-13T22:00:00Z",
+    } as Message);
+
+    service.peekFullMessages("viewer-1").commit();
+    expect(service.peekFullMessages("viewer-2").messages).toHaveLength(1);
+  });
+
+  it("stores more than 20 messages per conversation without eviction", () => {
+    const service = new FakeMoltZapService();
+    for (let i = 1; i <= 30; i++) {
+      service.addMessage("conv-a", {
+        id: `m-${i}`,
+        conversationId: "conv-a",
+        senderId: "agent-bob",
+        seq: i,
+        parts: [{ type: "text", text: `msg-${i}` }],
+        createdAt: new Date(Date.now() + i * 1000).toISOString(),
+      } as Message);
+    }
+    const { messages } = service.peekFullMessages("conv-self");
+    expect(messages).toHaveLength(30);
+  });
+});

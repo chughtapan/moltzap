@@ -1,9 +1,9 @@
-import type { MessageService } from "../../src/services/message.service.js";
-import type { ConversationService } from "../../src/services/conversation.service.js";
-import type { ConnectionManager } from "../../src/ws/connection.js";
-import type { Db } from "../../src/db/client.js";
-import type { RpcMethodRegistry } from "../../src/rpc/context.js";
-import { defineMethod } from "../../src/rpc/context.js";
+import type { MessageService } from "../../services/message.service.js";
+import type { ConversationService } from "../../services/conversation.service.js";
+import type { ConnectionManager } from "../../ws/connection.js";
+import type { Db } from "../../db/client.js";
+import type { RpcMethodRegistry } from "../../rpc/context.js";
+import { defineMethod } from "../../rpc/context.js";
 import type {
   ParticipantRef,
   MessagesSendParams,
@@ -12,8 +12,8 @@ import type {
   MessagesDeleteParams,
 } from "@moltzap/protocol";
 import { validators, ErrorCodes } from "@moltzap/protocol";
-import { ParticipantService } from "../../src/services/participant.service.js";
-import { RpcError } from "../../src/rpc/router.js";
+import { ParticipantService } from "../../services/participant.service.js";
+import { RpcError } from "../../rpc/router.js";
 
 export type ParsedTo = { type: "agent"; identifier: string };
 

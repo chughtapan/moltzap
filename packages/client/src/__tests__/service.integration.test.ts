@@ -620,7 +620,7 @@ describe("Cross-Conversation Context", () => {
     regC.client.close();
   });
 
-  it("ring buffer eviction — only recent messages tracked", async () => {
+  it("buffer stores all messages without eviction", async () => {
     const regA = await registerAgent("ring-a");
     const regB = await registerAgent("ring-b");
     const regC = await registerAgent("ring-c");
@@ -629,7 +629,6 @@ describe("Cross-Conversation Context", () => {
     await regC.client.connect(regC.apiKey);
     const service = await connectService(regA.apiKey);
 
-    // convB created to establish the conversation but not referenced directly
     await service.sendRpc("conversations/create", {
       type: "dm",
       participants: [{ type: "agent", id: regB.agentId }],
@@ -639,7 +638,6 @@ describe("Cross-Conversation Context", () => {
       participants: [{ type: "agent", id: regC.agentId }],
     })) as { conversation: { id: string } };
 
-    // Send 25 messages (exceeds default max of 20)
     for (let i = 0; i < 25; i++) {
       await regC.client.rpc("messages/send", {
         conversationId: convC.conversation.id,
@@ -649,17 +647,132 @@ describe("Cross-Conversation Context", () => {
     await new Promise((r) => setTimeout(r, 2000));
 
     const history = service.getHistory(convC.conversation.id);
-    expect(history.length).toBeLessThanOrEqual(20);
+    expect(history.length).toBe(25);
 
-    // Oldest messages should have been evicted
     const texts = history.map((m) =>
       m.parts
         .filter((p) => p.type === "text")
         .map((p) => (p as { text: string }).text)
         .join(""),
     );
-    expect(texts).not.toContain("msg-0");
+    expect(texts).toContain("msg-0");
     expect(texts).toContain("msg-24");
+
+    service.close();
+    regA.client.close();
+    regB.client.close();
+    regC.client.close();
+  });
+});
+
+// ─── Group 2b: peekFullMessages ──────────────────────────────────────────────
+
+describe("peekFullMessages", () => {
+  it("returns full messages from other conversations sorted by timestamp", async () => {
+    const regA = await registerAgent("pfm-a");
+    const regB = await registerAgent("pfm-b");
+    const regC = await registerAgent("pfm-c");
+
+    await regB.client.connect(regB.apiKey);
+    await regC.client.connect(regC.apiKey);
+    const service = await connectService(regA.apiKey);
+
+    const convB = (await service.sendRpc("conversations/create", {
+      type: "dm",
+      participants: [{ type: "agent", id: regB.agentId }],
+    })) as { conversation: { id: string } };
+
+    const convC = (await service.sendRpc("conversations/create", {
+      type: "dm",
+      participants: [{ type: "agent", id: regC.agentId }],
+    })) as { conversation: { id: string } };
+
+    await sendAndSettle(regC.client, convC.conversation.id, "from C");
+    await sendAndSettle(regB.client, convB.conversation.id, "from B");
+
+    const { messages } = service.peekFullMessages(convB.conversation.id);
+
+    expect(messages.length).toBeGreaterThanOrEqual(1);
+    // convC message should appear (it's a different conversation)
+    const texts = messages.map((m) => m.text);
+    expect(texts).toContain("from C");
+    // Messages sorted chronologically — "from C" sent before "from B"
+    const cIdx = texts.indexOf("from C");
+    expect(cIdx).toBeGreaterThanOrEqual(0);
+
+    service.close();
+    regA.client.close();
+    regB.client.close();
+    regC.client.close();
+  });
+
+  it("returns all messages without artificial caps", async () => {
+    const regA = await registerAgent("nocap-a");
+    const agents = [];
+    for (let i = 0; i < 7; i++) {
+      const reg = await registerAgent(`nocap-b${i}`);
+      await reg.client.connect(reg.apiKey);
+      agents.push(reg);
+    }
+    const service = await connectService(regA.apiKey);
+
+    const convIds: string[] = [];
+    for (const agent of agents) {
+      const conv = (await service.sendRpc("conversations/create", {
+        type: "dm",
+        participants: [{ type: "agent", id: agent.agentId }],
+      })) as { conversation: { id: string } };
+      convIds.push(conv.conversation.id);
+      await sendAndSettle(
+        agent.client,
+        conv.conversation.id,
+        `hi from ${agent.agentId.slice(0, 8)}`,
+      );
+    }
+
+    // Peek from the perspective of conv 0 — should see messages from all 6 other convs
+    const { messages } = service.peekFullMessages(convIds[0]!);
+    expect(messages.length).toBeGreaterThanOrEqual(6);
+
+    service.close();
+    regA.client.close();
+    for (const a of agents) a.client.close();
+  });
+
+  it("commit advances markers — second peek returns only new messages", async () => {
+    const regA = await registerAgent("commit-a");
+    const regB = await registerAgent("commit-b");
+    const regC = await registerAgent("commit-c");
+
+    await regB.client.connect(regB.apiKey);
+    await regC.client.connect(regC.apiKey);
+    const service = await connectService(regA.apiKey);
+
+    const convB = (await service.sendRpc("conversations/create", {
+      type: "dm",
+      participants: [{ type: "agent", id: regB.agentId }],
+    })) as { conversation: { id: string } };
+
+    const convC = (await service.sendRpc("conversations/create", {
+      type: "dm",
+      participants: [{ type: "agent", id: regC.agentId }],
+    })) as { conversation: { id: string } };
+
+    await sendAndSettle(regC.client, convC.conversation.id, "old msg");
+
+    const first = service.peekFullMessages(convB.conversation.id);
+    expect(first.messages.length).toBeGreaterThanOrEqual(1);
+    first.commit();
+
+    // Peek again — old message should be gone
+    const second = service.peekFullMessages(convB.conversation.id);
+    expect(second.messages.length).toBe(0);
+
+    // Send a new message — should appear
+    await sendAndSettle(regC.client, convC.conversation.id, "new msg");
+    const third = service.peekFullMessages(convB.conversation.id);
+    expect(third.messages.length).toBeGreaterThanOrEqual(1);
+    expect(third.messages.map((m) => m.text)).toContain("new msg");
 
     service.close();
     regA.client.close();
