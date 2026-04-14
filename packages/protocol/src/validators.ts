@@ -15,8 +15,6 @@ import {
   UsersUpdateProfileParamsSchema,
   MessagesSendParamsSchema,
   MessagesListParamsSchema,
-  MessagesReactParamsSchema,
-  MessagesDeleteParamsSchema,
   ContactsListParamsSchema,
   ContactsAddParamsSchema,
   ContactsAcceptParamsSchema,
@@ -64,8 +62,6 @@ export const validators = {
   // Messages
   messagesSendParams: ajv.compile(MessagesSendParamsSchema),
   messagesListParams: ajv.compile(MessagesListParamsSchema),
-  messagesReactParams: ajv.compile(MessagesReactParamsSchema),
-  messagesDeleteParams: ajv.compile(MessagesDeleteParamsSchema),
 
   // Contacts
   contactsListParams: ajv.compile(ContactsListParamsSchema),

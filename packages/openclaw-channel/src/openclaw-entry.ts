@@ -15,9 +15,7 @@ import {
 } from "@moltzap/client";
 import { formatCrossConvOpenClaw } from "./format-cross-conv.js";
 import {
-  extractReaction,
   extractDelivery,
-  extractDeletion,
   extractConversationCreated,
   extractConversationUpdated,
   extractContactRequest,
@@ -378,26 +376,6 @@ export const moltzapChannelPlugin = {
             if (delivery) {
               log?.debug?.(
                 `MoltZap: delivery for ${delivery.messageId} in ${delivery.conversationId}`,
-              );
-              setStatus({ accountId, lastEventAt: Date.now() });
-            }
-            break;
-          }
-          case EventNames.MessageReacted: {
-            const reaction = extractReaction(event);
-            if (reaction) {
-              log?.debug?.(
-                `MoltZap: reaction ${reaction.action} ${reaction.emoji} on ${reaction.messageId}`,
-              );
-              setStatus({ accountId, lastEventAt: Date.now() });
-            }
-            break;
-          }
-          case EventNames.MessageDeleted: {
-            const deletion = extractDeletion(event);
-            if (deletion) {
-              log?.debug?.(
-                `MoltZap: message ${deletion.messageId} deleted in ${deletion.conversationId}`,
               );
               setStatus({ accountId, lastEventAt: Date.now() });
             }

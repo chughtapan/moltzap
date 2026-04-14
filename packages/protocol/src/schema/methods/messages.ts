@@ -1,5 +1,4 @@
 import { Type, type Static } from "@sinclair/typebox";
-import { stringEnum } from "../../helpers.js";
 import { ConversationId, MessageId } from "../primitives.js";
 import { MessageSchema, PartSchema } from "../messages.js";
 
@@ -34,23 +33,7 @@ export const MessagesListResultSchema = Type.Object(
   { additionalProperties: false },
 );
 
-export const MessagesReactParamsSchema = Type.Object(
-  {
-    messageId: MessageId,
-    emoji: Type.String({ minLength: 1, maxLength: 32 }),
-    action: stringEnum(["add", "remove"]),
-  },
-  { additionalProperties: false },
-);
-
-export const MessagesDeleteParamsSchema = Type.Object(
-  { messageId: MessageId },
-  { additionalProperties: false },
-);
-
 export type MessagesSendParams = Static<typeof MessagesSendParamsSchema>;
 export type MessagesSendResult = Static<typeof MessagesSendResultSchema>;
 export type MessagesListParams = Static<typeof MessagesListParamsSchema>;
 export type MessagesListResult = Static<typeof MessagesListResultSchema>;
-export type MessagesReactParams = Static<typeof MessagesReactParamsSchema>;
-export type MessagesDeleteParams = Static<typeof MessagesDeleteParamsSchema>;

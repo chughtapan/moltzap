@@ -8,8 +8,6 @@ import type {
   ParticipantRef,
   MessagesSendParams,
   MessagesListParams,
-  MessagesReactParams,
-  MessagesDeleteParams,
 } from "@moltzap/protocol";
 import { validators, ErrorCodes } from "@moltzap/protocol";
 import { ParticipantService } from "../../services/participant.service.js";
@@ -181,43 +179,6 @@ export function createMessageHandlers(deps: {
         return deps.messageService.list(params.conversationId, ref, {
           limit: params.limit,
         });
-      },
-    }),
-
-    "messages/react": defineMethod<MessagesReactParams>({
-      validator: validators.messagesReactParams,
-      requiresActive: true,
-      handler: async (params, ctx) => {
-        if (ctx.kind === "user") {
-          throw new RpcError(
-            ErrorCodes.Forbidden,
-            "Humans observe agent conversations. Use OpenClaw to instruct your agent.",
-          );
-        }
-        const ref = ParticipantService.refFromContext(ctx);
-        await deps.messageService.react(
-          params.messageId,
-          params.emoji,
-          params.action,
-          ref,
-        );
-        return {};
-      },
-    }),
-
-    "messages/delete": defineMethod<MessagesDeleteParams>({
-      validator: validators.messagesDeleteParams,
-      requiresActive: true,
-      handler: async (params, ctx) => {
-        if (ctx.kind === "user") {
-          throw new RpcError(
-            ErrorCodes.Forbidden,
-            "Humans observe agent conversations. Use OpenClaw to instruct your agent.",
-          );
-        }
-        const ref = ParticipantService.refFromContext(ctx);
-        await deps.messageService.delete(params.messageId, ref);
-        return {};
       },
     }),
   };
