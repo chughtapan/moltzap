@@ -31,9 +31,6 @@ import {
   MessagesSendResultSchema,
   MessagesListParamsSchema,
   MessagesListResultSchema,
-  MessagesReadParamsSchema,
-  MessagesReactParamsSchema,
-  MessagesDeleteParamsSchema,
   // Contacts
   ContactsListParamsSchema,
   ContactsListResultSchema,
@@ -65,7 +62,6 @@ import {
   PresenceUpdateParamsSchema,
   PresenceSubscribeParamsSchema,
   PresenceSubscribeResultSchema,
-  TypingSendParamsSchema,
   // Push
   PushRegisterParamsSchema,
   PushUnregisterParamsSchema,
@@ -78,16 +74,12 @@ import {
   // Events
   EventNames,
   MessageReceivedEventSchema,
-  MessageReadEventSchema,
-  MessageReactedEventSchema,
   MessageDeliveredEventSchema,
-  MessageDeletedEventSchema,
   ConversationCreatedEventSchema,
   ConversationUpdatedEventSchema,
   ContactRequestEventSchema,
   ContactAcceptedEventSchema,
   PresenceChangedEventSchema,
-  TypingIndicatorEventSchema,
   SurfaceUpdatedEventSchema,
   SurfaceClearedEventSchema,
 } from "../packages/protocol/src/schema/index.js";
@@ -239,28 +231,6 @@ const methods: MethodDef[] = [
       { code: -32001, name: "Forbidden", when: "Not a participant" },
     ],
   },
-  {
-    method: "messages/read",
-    description:
-      "Mark all messages up to a sequence number as read in a conversation.",
-    params: MessagesReadParamsSchema,
-    category: "messages",
-    relatedEvents: ["messages/read"],
-  },
-  {
-    method: "messages/react",
-    description: "Add or remove an emoji reaction on a message.",
-    params: MessagesReactParamsSchema,
-    category: "messages",
-    relatedEvents: ["messages/reacted"],
-  },
-  {
-    method: "messages/delete",
-    description: "Soft-delete a message. Sets isDeleted to true.",
-    params: MessagesDeleteParamsSchema,
-    category: "messages",
-    relatedEvents: ["messages/deleted"],
-  },
   // Contacts
   {
     method: "contacts/list",
@@ -399,14 +369,7 @@ const methods: MethodDef[] = [
     result: PresenceSubscribeResultSchema,
     category: "presence",
   },
-  {
-    method: "typing/send",
-    description:
-      "Notify other participants that you are typing in a conversation.",
-    params: TypingSendParamsSchema,
-    category: "presence",
-    relatedEvents: ["typing/indicator"],
-  },
+  {},
   // Push
   {
     method: "push/register",
@@ -473,30 +436,10 @@ const events: EventDef[] = [
     triggeredBy: ["messages/send"],
   },
   {
-    event: EventNames.MessageRead,
-    description:
-      "Fired when a participant marks messages as read in a conversation.",
-    data: MessageReadEventSchema,
-    triggeredBy: ["messages/read"],
-  },
-  {
-    event: EventNames.MessageReacted,
-    description:
-      "Fired when a participant adds or removes a reaction on a message.",
-    data: MessageReactedEventSchema,
-    triggeredBy: ["messages/react"],
-  },
-  {
     event: EventNames.MessageDelivered,
     description:
       "Fired when a message is confirmed delivered to a participant.",
     data: MessageDeliveredEventSchema,
-  },
-  {
-    event: EventNames.MessageDeleted,
-    description: "Fired when a message is deleted.",
-    data: MessageDeletedEventSchema,
-    triggeredBy: ["messages/delete"],
   },
   {
     event: EventNames.ConversationCreated,
@@ -534,12 +477,7 @@ const events: EventDef[] = [
     data: PresenceChangedEventSchema,
     triggeredBy: ["presence/update"],
   },
-  {
-    event: EventNames.TypingIndicator,
-    description: "Fired when a participant is typing in a conversation.",
-    data: TypingIndicatorEventSchema,
-    triggeredBy: ["typing/send"],
-  },
+  {},
   {
     event: EventNames.SurfaceUpdated,
     description:
