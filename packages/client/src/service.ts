@@ -108,8 +108,8 @@ export class MoltZapService {
   private messages = new Map<string, Message[]>();
   private agentNames = new Map<string, string>();
   private agentConversationCache = new Map<string, string>();
-  private lastNotified = new Map<string, Map<string, number>>();
-  private lastRead = new Map<string, Map<string, number>>();
+  private lastNotified = new Map<string, Map<string, string>>();
+  private lastRead = new Map<string, Map<string, Set<string>>>();
 
   private messageHandlers: EventHandler<Message>[] = [];
   private rawEventHandlers: EventHandler<EventFrame>[] = [];
@@ -279,23 +279,14 @@ export class MoltZapService {
         const convId = params.conversationId;
         const limit = (params.limit as number) ?? 10;
         const sessionKey = params.sessionKey as string | undefined;
-        const afterSeq = params.afterSeq as number | undefined;
-        const beforeSeq = params.beforeSeq as number | undefined;
-
         const result = (await this.sendRpc("messages/list", {
           conversationId: convId,
           limit,
-          ...(afterSeq !== undefined ? { afterSeq } : {}),
-          ...(beforeSeq !== undefined ? { beforeSeq } : {}),
         })) as { messages: Message[]; hasMore: boolean };
 
         // Resolve agent names (batch) + fetch conversation metadata (concurrent)
         const unknownAgentIds = [
-          ...new Set(
-            result.messages
-              .filter((m) => m.sender.type === "agent")
-              .map((m) => m.sender.id),
-          ),
+          ...new Set(result.messages.map((m) => m.senderId)),
         ].filter((id) => !this.agentNames.has(id));
 
         const [, convMeta] = await Promise.all([
@@ -324,41 +315,37 @@ export class MoltZapService {
         // Determine what's "new" using lastRead (not lastNotified).
         // lastNotified is advanced by getContext() (system-reminder).
         // lastRead is advanced here when the agent explicitly reads history.
-        // This means messages stay "new" until the agent reads them via history,
-        // even if the system-reminder already notified about them.
-        const readMarkers = sessionKey
-          ? (this.lastRead.get(sessionKey) ?? new Map<string, number>())
-          : null;
-        const lastReadSeq = readMarkers?.get(convId) ?? 0;
+        const lastReadIds = sessionKey
+          ? (this.lastRead.get(sessionKey)?.get(convId) ?? new Set<string>())
+          : new Set<string>();
 
         const messages = result.messages.map((m) => {
           const text = m.parts.map(renderPart).join(" ");
           return {
-            seq: m.seq,
-            senderId: m.sender.id,
+            id: m.id,
+            senderId: m.senderId,
             senderName:
-              m.sender.id === this.ownAgentId
+              m.senderId === this.ownAgentId
                 ? "you"
-                : (this.agentNames.get(m.sender.id) ?? m.sender.id),
-            isOwn: m.sender.id === this.ownAgentId,
+                : (this.agentNames.get(m.senderId) ?? m.senderId),
+            isOwn: m.senderId === this.ownAgentId,
             text,
             createdAt: m.createdAt,
-            isNew: sessionKey ? m.seq > lastReadSeq : false,
+            isNew: sessionKey ? !lastReadIds.has(m.id) : false,
           };
         });
 
-        // Advance lastRead to the highest seq in the returned page.
-        // The agent has seen these messages; older ones (if paginated) remain
-        // accessible via afterSeq/beforeSeq cursors.
+        // Advance lastRead to include all message IDs in the returned page.
         if (sessionKey && result.messages.length > 0) {
-          const maxSeq = Math.max(...result.messages.map((m) => m.seq));
           if (!this.lastRead.has(sessionKey)) {
             this.lastRead.set(sessionKey, new Map());
           }
-          const current = this.lastRead.get(sessionKey)!.get(convId) ?? 0;
-          if (maxSeq > current) {
-            this.lastRead.get(sessionKey)!.set(convId, maxSeq);
+          const readSet =
+            this.lastRead.get(sessionKey)!.get(convId) ?? new Set<string>();
+          for (const m of result.messages) {
+            readSet.add(m.id);
           }
+          this.lastRead.get(sessionKey)!.set(convId, readSet);
         }
 
         return {
@@ -489,22 +476,25 @@ export class MoltZapService {
     const maxConvs = opts?.maxConversations ?? 5;
     const maxMsgsPerConv = opts?.maxMessagesPerConv ?? 3;
     const viewMarkers =
-      this.lastNotified.get(currentConvId) ?? new Map<string, number>();
+      this.lastNotified.get(currentConvId) ?? new Map<string, string>();
 
     const entries: CrossConversationEntry[] = [];
-    const pendingAdvances: Array<[string, number]> = [];
+    const pendingAdvances: Array<[string, string]> = [];
 
     for (const [convId, msgs] of this.messages) {
       if (convId === currentConvId || msgs.length === 0) continue;
       if (entries.length >= maxConvs) break;
 
-      const lastSeenSeq = viewMarkers.get(convId) ?? 0;
-      const newMsgs = msgs.filter((m) => m.seq > lastSeenSeq);
+      const lastSeenId = viewMarkers.get(convId);
+      const lastSeenIdx = lastSeenId
+        ? msgs.findIndex((m) => m.id === lastSeenId)
+        : -1;
+      const newMsgs = msgs.slice(lastSeenIdx + 1);
       if (newMsgs.length === 0) continue;
 
       const reportable = newMsgs.slice(-maxMsgsPerConv);
       const last = reportable[reportable.length - 1]!;
-      const senderName = this.resolveSenderLabel(last.sender.id);
+      const senderName = this.resolveSenderLabel(last.senderId);
       const minutesAgo = Math.max(
         0,
         Math.round((Date.now() - new Date(last.createdAt).getTime()) / 60_000),
@@ -520,12 +510,12 @@ export class MoltZapService {
         count: reportable.length,
       });
 
-      pendingAdvances.push([convId, last.seq]);
+      pendingAdvances.push([convId, last.id]);
     }
 
     const commit = (): void => {
-      for (const [convId, seq] of pendingAdvances) {
-        viewMarkers.set(convId, seq);
+      for (const [convId, msgId] of pendingAdvances) {
+        viewMarkers.set(convId, msgId);
       }
       this.lastNotified.set(currentConvId, viewMarkers);
     };
@@ -584,7 +574,6 @@ export class MoltZapService {
         conversation: { id: string; type: string; name?: string };
         participants: Array<{ participant: { type: string; id: string } }>;
       };
-      const existing = this.conversations.get(conversationId);
       this.conversations.set(conversationId, {
         id: res.conversation.id,
         type: res.conversation.type,
@@ -618,14 +607,11 @@ export class MoltZapService {
         const msg = (event.data as { message: Message }).message;
         this.storeMessage(msg);
         // Resolve sender name in background
-        if (
-          msg.sender.type === "agent" &&
-          !this.agentNames.has(msg.sender.id)
-        ) {
-          void this.resolveAgentName(msg.sender.id);
+        if (!this.agentNames.has(msg.senderId)) {
+          void this.resolveAgentName(msg.senderId);
         }
         // Emit to external handlers (only non-own messages)
-        if (msg.sender.id !== this.ownAgentId) {
+        if (msg.senderId !== this.ownAgentId) {
           for (const h of this.messageHandlers) h(msg);
         }
         break;

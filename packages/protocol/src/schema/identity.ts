@@ -17,10 +17,20 @@ export const UserSchema = Type.Object(
   {
     id: UserId,
     phone: Type.Optional(Type.String()),
+    email: Type.Optional(Type.String({ format: "email" })),
     displayName: Type.String({ minLength: 1 }),
     avatarUrl: Type.Optional(Type.String({ format: "uri" })),
     status: stringEnum(["active", "deactivated"]),
     createdAt: DateTimeString,
+  },
+  { additionalProperties: false },
+);
+
+export const AgentMetadataSchema = Type.Object(
+  {
+    purpose: Type.Optional(Type.Array(Type.String())),
+    description: Type.Optional(Type.String()),
+    tags: Type.Optional(Type.Record(Type.String(), Type.String())),
   },
   { additionalProperties: false },
 );
@@ -36,6 +46,8 @@ export const AgentSchema = Type.Object(
     }),
     displayName: Type.Optional(Type.String()),
     description: Type.Optional(Type.String()),
+    agentType: Type.Optional(stringEnum(["OpenClaw", "NanoClaw"])),
+    metadata: Type.Optional(AgentMetadataSchema),
     status: stringEnum(["pending_claim", "active", "suspended"]),
     createdAt: DateTimeString,
   },

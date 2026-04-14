@@ -1,7 +1,6 @@
 import { Type, type Static } from "@sinclair/typebox";
 import { DateTimeString } from "../helpers.js";
-import { MessageId, ConversationId } from "./primitives.js";
-import { ParticipantRefSchema } from "./identity.js";
+import { MessageId, ConversationId, AgentId } from "./primitives.js";
 
 export const TextPartSchema = Type.Object(
   {
@@ -41,14 +40,10 @@ export const MessageSchema = Type.Object(
   {
     id: MessageId,
     conversationId: ConversationId,
-    sender: ParticipantRefSchema,
-    seq: Type.Integer({ minimum: 1 }),
+    senderId: AgentId,
     replyToId: Type.Optional(MessageId),
     parts: Type.Array(PartSchema, { minItems: 1, maxItems: 10 }),
-    reactions: Type.Optional(
-      Type.Record(Type.String({ maxLength: 32 }), Type.Array(Type.String())),
-    ),
-    isDeleted: Type.Optional(Type.Boolean()),
+    taggedEntities: Type.Optional(Type.Array(AgentId)),
     createdAt: DateTimeString,
   },
   { additionalProperties: false },

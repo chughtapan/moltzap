@@ -193,8 +193,7 @@ describe("MoltZapService.getContext — XML injection hardening", () => {
     return {
       id: overrides.id ?? "msg-1",
       conversationId: overrides.conversationId ?? "conv-other",
-      sender: overrides.sender ?? { type: "agent", id: "agent-attacker" },
-      seq: overrides.seq ?? Date.now() * 1000,
+      senderId: overrides.senderId ?? "agent-attacker",
       parts: overrides.parts ?? [{ type: "text", text: "hello" }],
       createdAt: overrides.createdAt ?? new Date().toISOString(),
       ...overrides,
@@ -210,7 +209,7 @@ describe("MoltZapService.getContext — XML injection hardening", () => {
     service.addMessage(
       "conv-other",
       msg({
-        sender: { type: "agent", id: "agent-attacker" },
+        senderId: "agent-attacker",
         parts: [{ type: "text", text: "innocuous text" }],
       }),
     );
@@ -233,7 +232,7 @@ describe("MoltZapService.getContext — XML injection hardening", () => {
     service.addMessage(
       "conv-other",
       msg({
-        sender: { type: "agent", id: "agent-sender" },
+        senderId: "agent-sender",
         parts: [
           {
             type: "text",
@@ -262,7 +261,7 @@ describe("MoltZapService.getContext — XML injection hardening", () => {
     service.addMessage(
       "conv-other",
       msg({
-        sender: { type: "agent", id: "agent-bob" },
+        senderId: "agent-bob",
         parts: [{ type: "text", text: "hello from the other side" }],
         createdAt: threeMinAgo,
       }),
@@ -288,7 +287,7 @@ describe("MoltZapService.getContext — XML injection hardening", () => {
     service.addMessage(
       "conv-other",
       msg({
-        sender: { type: "agent", id: "agent-bob" },
+        senderId: "agent-bob",
         parts: [{ type: "text", text: longText }],
       }),
     );
@@ -309,8 +308,7 @@ describe("MoltZapService.peekContextEntries", () => {
     service.addMessage(convId, {
       id: `m-${seq}`,
       conversationId: convId,
-      sender: { type: "agent", id: "agent-bob" },
-      seq,
+      senderId: "agent-bob",
       parts: [{ type: "text", text }],
       createdAt: new Date().toISOString(),
     } as Message);

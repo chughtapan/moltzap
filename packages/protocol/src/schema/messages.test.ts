@@ -27,8 +27,7 @@ describe("MessageSchema", () => {
   const validMessage = {
     id: "550e8400-e29b-41d4-a716-446655440000",
     conversationId: "660e8400-e29b-41d4-a716-446655440000",
-    sender: { type: "agent", id: "770e8400-e29b-41d4-a716-446655440000" },
-    seq: 1,
+    senderId: "770e8400-e29b-41d4-a716-446655440000",
     parts: [{ type: "text", text: "Hello!" }],
     createdAt: "2026-03-14T12:00:00.000Z",
   };
