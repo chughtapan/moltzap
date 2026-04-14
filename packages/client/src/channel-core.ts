@@ -3,7 +3,7 @@
  */
 
 import type { Message } from "@moltzap/protocol";
-import type { CrossConversationEntry } from "./service.js";
+import type { CrossConversationEntry, CrossConvMessage } from "./service.js";
 import type { WsClientLogger } from "./ws-client.js";
 
 export interface EnrichedSender {
@@ -21,6 +21,7 @@ export interface EnrichedConversationMeta {
 export interface ContextBlocks {
   groupMetadata?: EnrichedConversationMeta;
   crossConversation?: CrossConversationEntry[];
+  crossConversationMessages?: CrossConvMessage[];
 }
 
 export interface EnrichedInboundMessage {
@@ -54,6 +55,10 @@ export interface ChannelService {
     currentConvId: string,
     opts?: { maxConversations?: number; maxMessagesPerConv?: number },
   ): { entries: CrossConversationEntry[]; commit: () => void };
+  peekFullMessages(currentConvId: string): {
+    messages: CrossConvMessage[];
+    commit: () => void;
+  };
 }
 
 export interface ChannelCoreOptions {
@@ -194,12 +199,20 @@ export class MoltZapChannelCore {
       contextBlocks.groupMetadata = conversationMeta;
     }
 
-    const { entries, commit } = service.peekContextEntries(
+    const { entries, commit: commitLegacy } = service.peekContextEntries(
       message.conversationId,
     );
     if (entries.length > 0) {
       contextBlocks.crossConversation = entries;
     }
+
+    const { messages: fullMessages, commit: commitFull } =
+      service.peekFullMessages(message.conversationId);
+    if (fullMessages.length > 0) {
+      contextBlocks.crossConversationMessages = fullMessages;
+    }
+
+    const hasContext = entries.length > 0 || fullMessages.length > 0;
 
     return {
       enriched: {
@@ -216,7 +229,12 @@ export class MoltZapChannelCore {
         conversationMeta,
         contextBlocks,
       },
-      commitContext: entries.length > 0 ? commit : undefined,
+      commitContext: hasContext
+        ? () => {
+            commitLegacy();
+            commitFull();
+          }
+        : undefined,
     };
   }
 

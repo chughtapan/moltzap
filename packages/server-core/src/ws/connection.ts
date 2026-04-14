@@ -28,6 +28,10 @@ export class ConnectionManager {
     return this.connections.get(id);
   }
 
+  all(): MoltZapConnection[] {
+    return [...this.connections.values()];
+  }
+
   getByParticipant(type: string, id: string): MoltZapConnection[] {
     return Array.from(this.connections.values()).filter(
       (conn) =>

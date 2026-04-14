@@ -81,7 +81,15 @@ interface HelloOk {
   unreadCounts?: Record<string, number>;
 }
 
-const MAX_MESSAGES_PER_CONV = 20;
+/** Full message from another conversation, used by peekFullMessages(). */
+export interface CrossConvMessage {
+  conversationId: string;
+  conversationName?: string;
+  senderName: string;
+  senderId: string;
+  text: string;
+  timestamp: string;
+}
 
 function renderPart(p: Part): string {
   switch (p.type) {
@@ -374,9 +382,9 @@ export class MoltZapService {
 
   // --- Messages ---
 
-  getHistory(convId: string, limit = 20): Message[] {
+  getHistory(convId: string, limit?: number): Message[] {
     const msgs = this.messages.get(convId) ?? [];
-    return msgs.slice(-limit);
+    return limit ? msgs.slice(-limit) : [...msgs];
   }
 
   // --- Agent Names ---
@@ -523,6 +531,60 @@ export class MoltZapService {
     return { entries, commit };
   }
 
+  /**
+   * Return all new messages from all other conversations as full transcripts,
+   * sorted chronologically. Uses the same lastNotified markers as
+   * peekContextEntries. Call commit() to advance markers.
+   */
+  peekFullMessages(currentConvId: string): {
+    messages: CrossConvMessage[];
+    commit: () => void;
+  } {
+    const viewMarkers =
+      this.lastNotified.get(currentConvId) ?? new Map<string, string>();
+
+    const allMessages: CrossConvMessage[] = [];
+    const pendingAdvances: Array<[string, string]> = [];
+
+    for (const [convId, msgs] of this.messages) {
+      if (convId === currentConvId || msgs.length === 0) continue;
+
+      const lastSeenId = viewMarkers.get(convId);
+      const lastSeenIdx = lastSeenId
+        ? msgs.findIndex((m) => m.id === lastSeenId)
+        : -1;
+      const newMsgs = msgs.slice(lastSeenIdx + 1);
+      if (newMsgs.length === 0) continue;
+
+      const convName = this.conversations.get(convId)?.name;
+
+      for (const m of newMsgs) {
+        const text = m.parts.map(renderPart).join(" ");
+        allMessages.push({
+          conversationId: convId,
+          conversationName: convName,
+          senderName: this.resolveSenderLabel(m.senderId),
+          senderId: m.senderId,
+          text,
+          timestamp: m.createdAt,
+        });
+      }
+
+      pendingAdvances.push([convId, newMsgs[newMsgs.length - 1]!.id]);
+    }
+
+    allMessages.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+
+    const commit = (): void => {
+      for (const [convId, msgId] of pendingAdvances) {
+        viewMarkers.set(convId, msgId);
+      }
+      this.lastNotified.set(currentConvId, viewMarkers);
+    };
+
+    return { messages: allMessages, commit };
+  }
+
   // --- Events ---
 
   on(event: "message", handler: EventHandler<Message>): void;
@@ -644,7 +706,6 @@ export class MoltZapService {
   private storeMessage(msg: Message): void {
     const buf = this.messages.get(msg.conversationId) ?? [];
     buf.push(msg);
-    if (buf.length > MAX_MESSAGES_PER_CONV) buf.shift();
     this.messages.set(msg.conversationId, buf);
   }
 

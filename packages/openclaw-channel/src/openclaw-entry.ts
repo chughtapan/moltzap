@@ -11,9 +11,9 @@
 import {
   MoltZapChannelCore,
   MoltZapService,
-  formatCrossConversationBlock,
   type WsClientLogger,
 } from "@moltzap/client";
+import { formatCrossConvOpenClaw } from "./format-cross-conv.js";
 import {
   extractReaction,
   extractDelivery,
@@ -288,15 +288,19 @@ export const moltzapChannelPlugin = {
           lastEventAt: Date.now(),
         });
 
-        const crossConvBlock = formatCrossConversationBlock(
-          enriched.contextBlocks.crossConversation ?? [],
-          {
-            header: `Recent updates (you are in conv:${enriched.conversationId}):`,
-          },
+        const crossConvBlock = formatCrossConvOpenClaw(
+          enriched.contextBlocks.crossConversationMessages ?? [],
+          { ownAgentId: service.ownAgentId ?? "" },
         );
         const bodyForAgent = crossConvBlock
           ? `${crossConvBlock}\n\n${enriched.text}`
           : enriched.text;
+
+        if (crossConvBlock) {
+          log?.info?.(
+            `MoltZap: BodyForAgent has cross-conv context (${enriched.contextBlocks.crossConversationMessages?.length ?? 0} msgs) for ${enriched.conversationId}: ${bodyForAgent.slice(0, 500)}`,
+          );
+        }
 
         if (
           !ctx.channelRuntime?.reply?.dispatchReplyWithBufferedBlockDispatcher

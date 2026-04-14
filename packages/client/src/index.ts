@@ -4,6 +4,7 @@ export {
   sanitizeForSystemReminder,
   type ConversationMeta,
   type ContextOptions,
+  type CrossConvMessage,
   type CrossConversationEntry,
   type ServiceOptions,
 } from "./service.js";

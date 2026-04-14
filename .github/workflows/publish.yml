@@ -29,11 +29,13 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
 
       - uses: pnpm/action-setup@v4
+      # Node 24 ships npm >=11.5 which supports OIDC trusted publishing.
+      # Do NOT set registry-url — it writes a NODE_AUTH_TOKEN reference to
+      # .npmrc that takes priority over OIDC and breaks trusted publishing.
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
-          registry-url: https://registry.npmjs.org
 
       - run: pnpm install --frozen-lockfile
 
@@ -101,13 +103,24 @@ jobs:
             git push --atomic origin main
           fi
 
+      - name: Build all packages
+        run: pnpm -r build
+
       - name: Pack and publish
-        if: steps.versions.outputs.changed != ''
+        env:
+          # Clear any residual NODE_AUTH_TOKEN so npm uses OIDC trusted
+          # publishing via id-token: write. See:
+          # https://github.com/orgs/community/discussions/176761
+          NODE_AUTH_TOKEN: ""
         run: |
-          for pkg in ${{ steps.versions.outputs.changed }}; do
+          echo "npm version: $(npm --version)"
+          # Publish any package whose local version is not yet on npm.
+          # This covers both newly bumped versions AND versions from prior
+          # runs where the bump committed but the publish failed.
+          for pkg in protocol server-core client openclaw-channel; do
             VER=$(node -p "require('./packages/$pkg/package.json').version")
             if npm view "@moltzap/${pkg}@${VER}" version 2>/dev/null | grep -q "$VER"; then
-              echo "@moltzap/${pkg}@${VER} already published — skipping"
+              echo "@moltzap/${pkg}@${VER} already on npm — skipping"
               continue
             fi
             echo "Publishing @moltzap/${pkg}@${VER}..."

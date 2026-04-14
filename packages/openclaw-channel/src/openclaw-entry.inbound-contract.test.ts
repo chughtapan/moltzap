@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { Message } from "@moltzap/protocol";
-import type { CrossConversationEntry } from "@moltzap/client";
+import type { CrossConversationEntry, CrossConvMessage } from "@moltzap/client";
 
 // Capture handlers registered via service.on()
 let capturedOnMessage: ((msg: Message) => void) | null = null;
@@ -16,6 +16,13 @@ const mockPeekContextEntries =
   vi.fn<
     (convId: string) => {
       entries: CrossConversationEntry[];
+      commit: () => void;
+    }
+  >();
+const mockPeekFullMessages =
+  vi.fn<
+    (convId: string) => {
+      messages: CrossConvMessage[];
       commit: () => void;
     }
   >();
@@ -36,6 +43,7 @@ vi.mock("@moltzap/client", async () => {
       resolveAgentName: mockResolveAgentName,
       getConversation: mockGetConversation,
       peekContextEntries: mockPeekContextEntries,
+      peekFullMessages: mockPeekFullMessages,
       sendRpc: mockSendRpc,
       send: mockSend,
       startSocketServer: vi.fn(),
@@ -53,6 +61,7 @@ vi.mock("@moltzap/client", async () => {
 });
 
 import { moltzapChannelPlugin } from "./openclaw-entry.js";
+import { CROSS_CONV_HEADER } from "./format-cross-conv.js";
 
 function makeMessage(overrides: Partial<Message> = {}): Message {
   return {
@@ -110,6 +119,7 @@ describe("Flow 5: Inbound contract — dispatchReplyWithBufferedBlockDispatcher"
       participants: ["agent:agent-sender-1", "agent:agent-self"],
     });
     mockPeekContextEntries.mockReturnValue({ entries: [], commit: vi.fn() });
+    mockPeekFullMessages.mockReturnValue({ messages: [], commit: vi.fn() });
 
     // Start the plugin's gateway
     void moltzapChannelPlugin.gateway.startAccount({
@@ -370,15 +380,16 @@ describe("Flow 5: Inbound contract — dispatchReplyWithBufferedBlockDispatcher"
     expect(ctx.BodyForAgent).toBe("Line 1\nLine 2\nLine 3");
   });
 
-  it("BodyForAgent includes cross-conversation context when peekContextEntries returns entries", async () => {
-    mockPeekContextEntries.mockReturnValue({
-      entries: [
+  it("BodyForAgent includes cross-conversation context as OpenClaw JSON metadata", async () => {
+    mockPeekFullMessages.mockReturnValue({
+      messages: [
         {
           conversationId: "conv-other",
+          conversationName: undefined,
           senderName: "seller",
+          senderId: "agent-seller",
           text: "Min $4000",
-          minutesAgo: 2,
-          count: 1,
+          timestamp: "2026-04-13T22:00:00Z",
         },
       ],
       commit: vi.fn(),
@@ -394,10 +405,11 @@ describe("Flow 5: Inbound contract — dispatchReplyWithBufferedBlockDispatcher"
       mockDispatch.mock.calls[0]![0] as { ctx: Record<string, unknown> }
     ).ctx;
     expect(ctx.Body).toBe("What should I offer?");
-    expect(ctx.BodyForAgent).toContain("<system-reminder>");
-    expect(ctx.BodyForAgent).toContain("seller");
-    expect(ctx.BodyForAgent).toContain("Min $4000");
+    expect(ctx.BodyForAgent).toContain(CROSS_CONV_HEADER);
+    expect(ctx.BodyForAgent).toContain('"sender": "seller"');
+    expect(ctx.BodyForAgent).toContain('"text": "Min $4000"');
     expect(ctx.BodyForAgent).toContain("What should I offer?");
+    expect(ctx.BodyForAgent).not.toContain("<system-reminder>");
   });
 
   it("BodyForAgent equals Body when peekContextEntries returns empty", async () => {

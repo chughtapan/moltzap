@@ -4,14 +4,14 @@ import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Kysely, PostgresDialect } from "kysely";
-import { createCoreApp } from "../../examples/server.js";
+import { createCoreApp } from "../app/server.js";
 import { seedInitialKek } from "../crypto/key-rotation.js";
 import { EnvelopeEncryption } from "../crypto/envelope.js";
-import type { CoreApp } from "../../examples/types.js";
+import type { CoreApp } from "../app/types.js";
 import type { Database } from "../db/database.js";
 
 export type { Database } from "../db/database.js";
-export type { CoreApp } from "../../examples/types.js";
+export type { CoreApp } from "../app/types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -62,11 +62,12 @@ export async function startCoreTestServer(opts?: {
     pgPort = container.getMappedPort(5432);
 
     // Apply core schema to the template DB
+    // Resolve from package root — works from both src/ (tsx) and dist/ (node)
+    const pkgRoot = join(__dirname, "..");
     const schemaPath = join(
-      __dirname,
-      "..",
-      "..",
-      "examples",
+      pkgRoot.endsWith("dist") ? join(pkgRoot, "..") : pkgRoot,
+      "src",
+      "app",
       "core-schema.sql",
     );
     const schema = readFileSync(schemaPath, "utf-8");
@@ -144,7 +145,6 @@ export async function stopCoreTestServer(): Promise<void> {
   pgContainer = null;
 
   await app?.close();
-  // Kysely.destroy() ends the underlying pool — don't also call resetPool.end()
   await db?.destroy();
   if (admin && name) {
     try {

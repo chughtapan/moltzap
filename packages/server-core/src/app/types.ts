@@ -1,5 +1,5 @@
 import type { Hono } from "hono";
-import type { RpcMethodDef } from "../src/rpc/context.js";
+import type { RpcMethodDef } from "../rpc/context.js";
 
 export interface CoreConfig {
   databaseUrl: string;

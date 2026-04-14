@@ -1,18 +1,41 @@
+import type { ConversationService } from "../../services/conversation.service.js";
+import type { Broadcaster } from "../../ws/broadcaster.js";
+import type { ConnectionManager } from "../../ws/connection.js";
+import type { RpcMethodRegistry } from "../../rpc/context.js";
+import type {
+  ParticipantRef,
+  ConversationsCreateParams,
+  ConversationsListParams,
+  ConversationsGetParams,
+  ConversationsUpdateParams,
+  ConversationsLeaveParams,
+  ConversationsMuteParams,
+  ConversationsUnmuteParams,
+  ConversationsAddParticipantParams,
+  ConversationsRemoveParticipantParams,
+} from "@moltzap/protocol";
 import {
   validators,
   EventNames,
   ErrorCodes,
   eventFrame,
 } from "@moltzap/protocol";
-import { ParticipantService } from "../../src/services/participant.service.js";
-import { RpcError } from "../../src/rpc/router.js";
-import { defineMethod } from "../../src/rpc/context.js";
-export function createConversationHandlers(deps) {
+import { ParticipantService } from "../../services/participant.service.js";
+import { RpcError } from "../../rpc/router.js";
+import { defineMethod } from "../../rpc/context.js";
+
+export function createConversationHandlers(deps: {
+  conversationService: ConversationService;
+  broadcaster: Broadcaster;
+  connections: ConnectionManager;
+  getConnId: () => string;
+}): RpcMethodRegistry {
   return {
-    "conversations/create": defineMethod({
+    "conversations/create": defineMethod<ConversationsCreateParams>({
       validator: validators.conversationsCreateParams,
       handler: async (params, ctx) => {
-        let creatorRef;
+        let creatorRef: ParticipantRef;
+
         if (ctx.kind === "user") {
           // Humans can only create a control-channel DM with their own active agent
           if (!ctx.activeAgentId) {
@@ -24,31 +47,36 @@ export function createConversationHandlers(deps) {
           const isControlCreate =
             params.type === "dm" &&
             params.participants.length === 1 &&
-            params.participants[0].type === "agent" &&
-            params.participants[0].id === ctx.activeAgentId;
+            params.participants[0]!.type === "agent" &&
+            params.participants[0]!.id === ctx.activeAgentId;
+
           if (!isControlCreate) {
             throw new RpcError(
               ErrorCodes.Forbidden,
               "Humans observe agent conversations. Use OpenClaw to instruct your agent.",
             );
           }
+
           // Bypass refFromContext — creator is the user, not their agent
           creatorRef = { type: "user", id: ctx.userId };
         } else {
           creatorRef = ParticipantService.refFromContext(ctx);
         }
+
         const conversation = await deps.conversationService.create(
           params.type,
           params.name,
           params.participants,
           creatorRef,
         );
+
         // Subscribe creator's connection to the new conversation
         const creatorConnId = deps.getConnId();
         const creatorConn = deps.connections.get(creatorConnId);
         if (creatorConn) {
           creatorConn.conversationIds.add(conversation.id);
         }
+
         // Notify all other participants and subscribe their connections
         for (const ref of params.participants) {
           // Subscribe any connected participant to the new conversation
@@ -64,11 +92,13 @@ export function createConversationHandlers(deps) {
             eventFrame(EventNames.ConversationCreated, { conversation }),
           );
         }
+
         return { conversation };
       },
       requiresActive: true,
     }),
-    "conversations/list": defineMethod({
+
+    "conversations/list": defineMethod<ConversationsListParams>({
       validator: validators.conversationsListParams,
       handler: async (params, ctx) => {
         const ref = ParticipantService.refFromContext(ctx);
@@ -76,7 +106,8 @@ export function createConversationHandlers(deps) {
       },
       requiresActive: true,
     }),
-    "conversations/get": defineMethod({
+
+    "conversations/get": defineMethod<ConversationsGetParams>({
       validator: validators.conversationsGetParams,
       handler: async (params, ctx) => {
         const ref = ParticipantService.refFromContext(ctx);
@@ -84,7 +115,8 @@ export function createConversationHandlers(deps) {
       },
       requiresActive: true,
     }),
-    "conversations/update": defineMethod({
+
+    "conversations/update": defineMethod<ConversationsUpdateParams>({
       validator: validators.conversationsUpdateParams,
       handler: async (params, ctx) => {
         if (ctx.kind === "user") {
@@ -99,15 +131,18 @@ export function createConversationHandlers(deps) {
           params.name,
           ref,
         );
+
         deps.broadcaster.broadcastToConversation(
           params.conversationId,
           eventFrame(EventNames.ConversationUpdated, { conversation }),
         );
+
         return { conversation };
       },
       requiresActive: true,
     }),
-    "conversations/leave": defineMethod({
+
+    "conversations/leave": defineMethod<ConversationsLeaveParams>({
       validator: validators.conversationsLeaveParams,
       handler: async (params, ctx) => {
         if (ctx.kind === "user") {
@@ -118,16 +153,19 @@ export function createConversationHandlers(deps) {
         }
         const ref = ParticipantService.refFromContext(ctx);
         await deps.conversationService.leave(params.conversationId, ref);
+
         // Remove conversation from connection's subscription set so broadcaster stops sending events
         const conn = deps.connections.get(deps.getConnId());
         if (conn) {
           conn.conversationIds.delete(params.conversationId);
         }
+
         return {};
       },
       requiresActive: true,
     }),
-    "conversations/mute": defineMethod({
+
+    "conversations/mute": defineMethod<ConversationsMuteParams>({
       validator: validators.conversationsMuteParams,
       handler: async (params, ctx) => {
         if (ctx.kind === "user") {
@@ -142,16 +180,19 @@ export function createConversationHandlers(deps) {
           ref,
           params.until,
         );
+
         // Update the mute cache on the caller's connection
         const conn = deps.connections.get(deps.getConnId());
         if (conn) {
           conn.mutedConversations.add(params.conversationId);
         }
+
         return {};
       },
       requiresActive: true,
     }),
-    "conversations/unmute": defineMethod({
+
+    "conversations/unmute": defineMethod<ConversationsUnmuteParams>({
       validator: validators.conversationsUnmuteParams,
       handler: async (params, ctx) => {
         if (ctx.kind === "user") {
@@ -162,60 +203,65 @@ export function createConversationHandlers(deps) {
         }
         const ref = ParticipantService.refFromContext(ctx);
         await deps.conversationService.unmute(params.conversationId, ref);
+
         // Update the mute cache on the caller's connection
         const conn = deps.connections.get(deps.getConnId());
         if (conn) {
           conn.mutedConversations.delete(params.conversationId);
         }
+
         return {};
       },
       requiresActive: true,
     }),
-    "conversations/addParticipant": defineMethod({
-      validator: validators.conversationsAddParticipantParams,
-      handler: async (params, ctx) => {
-        if (ctx.kind === "user") {
-          throw new RpcError(
-            ErrorCodes.Forbidden,
-            "Humans observe agent conversations. Use OpenClaw to instruct your agent.",
+
+    "conversations/addParticipant":
+      defineMethod<ConversationsAddParticipantParams>({
+        validator: validators.conversationsAddParticipantParams,
+        handler: async (params, ctx) => {
+          if (ctx.kind === "user") {
+            throw new RpcError(
+              ErrorCodes.Forbidden,
+              "Humans observe agent conversations. Use OpenClaw to instruct your agent.",
+            );
+          }
+          const ref = ParticipantService.refFromContext(ctx);
+          const participant = await deps.conversationService.addParticipant(
+            params.conversationId,
+            params.participant,
+            ref,
           );
-        }
-        const ref = ParticipantService.refFromContext(ctx);
-        const participant = await deps.conversationService.addParticipant(
-          params.conversationId,
-          params.participant,
-          ref,
-        );
-        // Subscribe the new participant's connections to the conversation
-        for (const conn of deps.connections.getByParticipant(
-          params.participant.type,
-          params.participant.id,
-        )) {
-          conn.conversationIds.add(params.conversationId);
-        }
-        return { participant };
-      },
-      requiresActive: true,
-    }),
-    "conversations/removeParticipant": defineMethod({
-      validator: validators.conversationsRemoveParticipantParams,
-      handler: async (params, ctx) => {
-        if (ctx.kind === "user") {
-          throw new RpcError(
-            ErrorCodes.Forbidden,
-            "Humans observe agent conversations. Use OpenClaw to instruct your agent.",
+          // Subscribe the new participant's connections to the conversation
+          for (const conn of deps.connections.getByParticipant(
+            params.participant.type,
+            params.participant.id,
+          )) {
+            conn.conversationIds.add(params.conversationId);
+          }
+          return { participant };
+        },
+        requiresActive: true,
+      }),
+
+    "conversations/removeParticipant":
+      defineMethod<ConversationsRemoveParticipantParams>({
+        validator: validators.conversationsRemoveParticipantParams,
+        handler: async (params, ctx) => {
+          if (ctx.kind === "user") {
+            throw new RpcError(
+              ErrorCodes.Forbidden,
+              "Humans observe agent conversations. Use OpenClaw to instruct your agent.",
+            );
+          }
+          const ref = ParticipantService.refFromContext(ctx);
+          await deps.conversationService.removeParticipant(
+            params.conversationId,
+            params.participant,
+            ref,
           );
-        }
-        const ref = ParticipantService.refFromContext(ctx);
-        await deps.conversationService.removeParticipant(
-          params.conversationId,
-          params.participant,
-          ref,
-        );
-        return {};
-      },
-      requiresActive: true,
-    }),
+          return {};
+        },
+        requiresActive: true,
+      }),
   };
 }
-//# sourceMappingURL=conversations.handlers.js.map

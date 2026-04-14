@@ -1,8 +1,8 @@
 import type { Kysely } from "kysely";
-import type { Database } from "../src/db/database.js";
-import type { AuthService } from "../src/services/auth.service.js";
-import type { ConversationService } from "../src/services/conversation.service.js";
-import { logger } from "../src/logger.js";
+import type { Database } from "../db/database.js";
+import type { AuthService } from "../services/auth.service.js";
+import type { ConversationService } from "../services/conversation.service.js";
+import { logger } from "../logger.js";
 
 const log = logger.child({ component: "demo" });
 
