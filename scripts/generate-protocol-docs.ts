@@ -369,7 +369,6 @@ const methods: MethodDef[] = [
     result: PresenceSubscribeResultSchema,
     category: "presence",
   },
-  {},
   // Push
   {
     method: "push/register",
@@ -477,7 +476,6 @@ const events: EventDef[] = [
     data: PresenceChangedEventSchema,
     triggeredBy: ["presence/update"],
   },
-  {},
   {
     event: EventNames.SurfaceUpdated,
     description:
