@@ -180,7 +180,10 @@ export class DockerManager {
     connectTimeoutMs?: number;
   }): Promise<AgentContainer> {
     const container = await this.startAgent(opts);
-    await waitForChannel(container.containerId, opts.connectTimeoutMs ?? 180_000);
+    await waitForChannel(
+      container.containerId,
+      opts.connectTimeoutMs ?? 180_000,
+    );
     return container;
   }
 
