@@ -18,8 +18,8 @@ function makeMessage(overrides: Partial<Message> = {}): Message {
   return {
     id: "msg-1",
     conversationId: "conv-1",
-    sender: { type: "user", id: "u-1" },
-    seq: 0,
+    senderId: "u-1",
+
     parts: [{ type: "text", text: "hello" }],
     createdAt: "2026-01-01T00:00:00Z",
     ...overrides,
@@ -237,18 +237,16 @@ describe("extractContactRequest", () => {
       makeEventFrame(EventNames.ContactRequest, {
         contact: {
           id: "c-1",
-          requesterId: "u-1",
-          targetId: "u-2",
-          status: "pending",
+          contactUserId: "u-2",
+          source: "manual",
         },
       }),
     );
     expect(result).toEqual({
       contact: {
         id: "c-1",
-        requesterId: "u-1",
-        targetId: "u-2",
-        status: "pending",
+        contactUserId: "u-2",
+        source: "manual",
       },
     });
   });
@@ -274,18 +272,16 @@ describe("extractContactAccepted", () => {
       makeEventFrame(EventNames.ContactAccepted, {
         contact: {
           id: "c-1",
-          requesterId: "u-1",
-          targetId: "u-2",
-          status: "accepted",
+          contactUserId: "u-2",
+          source: "manual",
         },
       }),
     );
     expect(result).toEqual({
       contact: {
         id: "c-1",
-        requesterId: "u-1",
-        targetId: "u-2",
-        status: "accepted",
+        contactUserId: "u-2",
+        source: "manual",
       },
     });
   });

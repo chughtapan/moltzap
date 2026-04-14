@@ -37,7 +37,7 @@ async function waitForRepliesByList(params: {
     const replies = result.messages.filter(
       (m) =>
         m.sender.type === "agent" &&
-        m.sender.id === params.receiverAgentId &&
+        m.senderId === params.receiverAgentId &&
         extractText(m).includes("ECHO:"),
     );
 
@@ -160,17 +160,17 @@ describe("Stress: concurrent multi-agent messaging", () => {
       expect(repliesC).toHaveLength(3);
 
       for (const reply of repliesA) {
-        expect(reply.sender.id).toBe(receiverAgentId);
+        expect(reply.senderId).toBe(receiverAgentId);
         expect(reply.conversationId).toBe(convA);
         expect(extractText(reply)).toContain("ECHO:");
       }
       for (const reply of repliesB) {
-        expect(reply.sender.id).toBe(receiverAgentId);
+        expect(reply.senderId).toBe(receiverAgentId);
         expect(reply.conversationId).toBe(convB);
         expect(extractText(reply)).toContain("ECHO:");
       }
       for (const reply of repliesC) {
-        expect(reply.sender.id).toBe(receiverAgentId);
+        expect(reply.senderId).toBe(receiverAgentId);
         expect(reply.conversationId).toBe(convC);
         expect(extractText(reply)).toContain("ECHO:");
       }
