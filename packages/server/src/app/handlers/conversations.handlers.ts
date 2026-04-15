@@ -3,7 +3,6 @@ import type { Broadcaster } from "../../ws/broadcaster.js";
 import type { ConnectionManager } from "../../ws/connection.js";
 import type { RpcMethodRegistry } from "../../rpc/context.js";
 import type {
-  ParticipantRef,
   ConversationsCreateParams,
   ConversationsListParams,
   ConversationsGetParams,
@@ -14,14 +13,7 @@ import type {
   ConversationsAddParticipantParams,
   ConversationsRemoveParticipantParams,
 } from "@moltzap/protocol";
-import {
-  validators,
-  EventNames,
-  ErrorCodes,
-  eventFrame,
-} from "@moltzap/protocol";
-import { ParticipantService } from "../../services/participant.service.js";
-import { RpcError } from "../../rpc/router.js";
+import { validators, EventNames, eventFrame } from "@moltzap/protocol";
 import { defineMethod } from "../../rpc/context.js";
 
 export function createConversationHandlers(deps: {
@@ -34,40 +26,12 @@ export function createConversationHandlers(deps: {
     "conversations/create": defineMethod<ConversationsCreateParams>({
       validator: validators.conversationsCreateParams,
       handler: async (params, ctx) => {
-        let creatorRef: ParticipantRef;
-
-        if (ctx.kind === "user") {
-          // Humans can only create a control-channel DM with their own active agent
-          if (!ctx.activeAgentId) {
-            throw new RpcError(
-              ErrorCodes.Forbidden,
-              "No active agent. Claim an agent first.",
-            );
-          }
-          const isControlCreate =
-            params.type === "dm" &&
-            params.participants.length === 1 &&
-            params.participants[0]!.type === "agent" &&
-            params.participants[0]!.id === ctx.activeAgentId;
-
-          if (!isControlCreate) {
-            throw new RpcError(
-              ErrorCodes.Forbidden,
-              "Humans observe agent conversations. Use OpenClaw to instruct your agent.",
-            );
-          }
-
-          // Bypass refFromContext — creator is the user, not their agent
-          creatorRef = { type: "user", id: ctx.userId };
-        } else {
-          creatorRef = ParticipantService.refFromContext(ctx);
-        }
-
+        const agentIds = params.participants.map((p) => p.id);
         const conversation = await deps.conversationService.create(
           params.type,
           params.name,
-          params.participants,
-          creatorRef,
+          agentIds,
+          ctx.agentId,
         );
 
         // Subscribe creator's connection to the new conversation
@@ -78,17 +42,13 @@ export function createConversationHandlers(deps: {
         }
 
         // Notify all other participants and subscribe their connections
-        for (const ref of params.participants) {
+        for (const participant of params.participants) {
           // Subscribe any connected participant to the new conversation
-          for (const conn of deps.connections.getByParticipant(
-            ref.type,
-            ref.id,
-          )) {
+          for (const conn of deps.connections.getByAgent(participant.id)) {
             conn.conversationIds.add(conversation.id);
           }
-          deps.broadcaster.sendToParticipant(
-            ref.type,
-            ref.id,
+          deps.broadcaster.sendToAgent(
+            participant.id,
             eventFrame(EventNames.ConversationCreated, { conversation }),
           );
         }
@@ -101,8 +61,11 @@ export function createConversationHandlers(deps: {
     "conversations/list": defineMethod<ConversationsListParams>({
       validator: validators.conversationsListParams,
       handler: async (params, ctx) => {
-        const ref = ParticipantService.refFromContext(ctx);
-        return deps.conversationService.list(ref, params.limit, params.cursor);
+        return deps.conversationService.list(
+          ctx.agentId,
+          params.limit,
+          params.cursor,
+        );
       },
       requiresActive: true,
     }),
@@ -110,8 +73,7 @@ export function createConversationHandlers(deps: {
     "conversations/get": defineMethod<ConversationsGetParams>({
       validator: validators.conversationsGetParams,
       handler: async (params, ctx) => {
-        const ref = ParticipantService.refFromContext(ctx);
-        return deps.conversationService.get(params.conversationId, ref);
+        return deps.conversationService.get(params.conversationId, ctx.agentId);
       },
       requiresActive: true,
     }),
@@ -119,17 +81,10 @@ export function createConversationHandlers(deps: {
     "conversations/update": defineMethod<ConversationsUpdateParams>({
       validator: validators.conversationsUpdateParams,
       handler: async (params, ctx) => {
-        if (ctx.kind === "user") {
-          throw new RpcError(
-            ErrorCodes.Forbidden,
-            "Humans observe agent conversations. Use OpenClaw to instruct your agent.",
-          );
-        }
-        const ref = ParticipantService.refFromContext(ctx);
         const conversation = await deps.conversationService.update(
           params.conversationId,
           params.name,
-          ref,
+          ctx.agentId,
         );
 
         deps.broadcaster.broadcastToConversation(
@@ -145,16 +100,12 @@ export function createConversationHandlers(deps: {
     "conversations/leave": defineMethod<ConversationsLeaveParams>({
       validator: validators.conversationsLeaveParams,
       handler: async (params, ctx) => {
-        if (ctx.kind === "user") {
-          throw new RpcError(
-            ErrorCodes.Forbidden,
-            "Humans observe agent conversations. Use OpenClaw to instruct your agent.",
-          );
-        }
-        const ref = ParticipantService.refFromContext(ctx);
-        await deps.conversationService.leave(params.conversationId, ref);
+        await deps.conversationService.leave(
+          params.conversationId,
+          ctx.agentId,
+        );
 
-        // Remove conversation from connection's subscription set so broadcaster stops sending events
+        // Remove conversation from connection's subscription set
         const conn = deps.connections.get(deps.getConnId());
         if (conn) {
           conn.conversationIds.delete(params.conversationId);
@@ -168,16 +119,9 @@ export function createConversationHandlers(deps: {
     "conversations/mute": defineMethod<ConversationsMuteParams>({
       validator: validators.conversationsMuteParams,
       handler: async (params, ctx) => {
-        if (ctx.kind === "user") {
-          throw new RpcError(
-            ErrorCodes.Forbidden,
-            "Humans observe agent conversations. Use OpenClaw to instruct your agent.",
-          );
-        }
-        const ref = ParticipantService.refFromContext(ctx);
         await deps.conversationService.mute(
           params.conversationId,
-          ref,
+          ctx.agentId,
           params.until,
         );
 
@@ -195,14 +139,10 @@ export function createConversationHandlers(deps: {
     "conversations/unmute": defineMethod<ConversationsUnmuteParams>({
       validator: validators.conversationsUnmuteParams,
       handler: async (params, ctx) => {
-        if (ctx.kind === "user") {
-          throw new RpcError(
-            ErrorCodes.Forbidden,
-            "Humans observe agent conversations. Use OpenClaw to instruct your agent.",
-          );
-        }
-        const ref = ParticipantService.refFromContext(ctx);
-        await deps.conversationService.unmute(params.conversationId, ref);
+        await deps.conversationService.unmute(
+          params.conversationId,
+          ctx.agentId,
+        );
 
         // Update the mute cache on the caller's connection
         const conn = deps.connections.get(deps.getConnId());
@@ -219,21 +159,13 @@ export function createConversationHandlers(deps: {
       defineMethod<ConversationsAddParticipantParams>({
         validator: validators.conversationsAddParticipantParams,
         handler: async (params, ctx) => {
-          if (ctx.kind === "user") {
-            throw new RpcError(
-              ErrorCodes.Forbidden,
-              "Humans observe agent conversations. Use OpenClaw to instruct your agent.",
-            );
-          }
-          const ref = ParticipantService.refFromContext(ctx);
           const participant = await deps.conversationService.addParticipant(
             params.conversationId,
-            params.participant,
-            ref,
+            params.participant.id,
+            ctx.agentId,
           );
           // Subscribe the new participant's connections to the conversation
-          for (const conn of deps.connections.getByParticipant(
-            params.participant.type,
+          for (const conn of deps.connections.getByAgent(
             params.participant.id,
           )) {
             conn.conversationIds.add(params.conversationId);
@@ -247,17 +179,10 @@ export function createConversationHandlers(deps: {
       defineMethod<ConversationsRemoveParticipantParams>({
         validator: validators.conversationsRemoveParticipantParams,
         handler: async (params, ctx) => {
-          if (ctx.kind === "user") {
-            throw new RpcError(
-              ErrorCodes.Forbidden,
-              "Humans observe agent conversations. Use OpenClaw to instruct your agent.",
-            );
-          }
-          const ref = ParticipantService.refFromContext(ctx);
           await deps.conversationService.removeParticipant(
             params.conversationId,
-            params.participant,
-            ref,
+            params.participant.id,
+            ctx.agentId,
           );
           return {};
         },

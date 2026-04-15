@@ -26,11 +26,7 @@ export type Int8 = ColumnType<
 
 export type ParticipantRole = "admin" | "member" | "owner";
 
-export type ParticipantType = "agent" | "user";
-
 export type Timestamp = ColumnType<Date, Date | string, Date | string>;
-
-export type UserStatus = "active" | "deactivated";
 
 export interface Agents {
   api_key_id: string;
@@ -59,15 +55,13 @@ export interface ConversationParticipants {
   joined_at: Generated<Timestamp>;
   last_read_seq: Generated<Int8>;
   muted_until: Timestamp | null;
-  participant_id: string;
-  participant_type: ParticipantType;
+  agent_id: string;
   role: Generated<ParticipantRole>;
 }
 
 export interface Conversations {
   created_at: Generated<Timestamp>;
   created_by_id: string;
-  created_by_type: ParticipantType;
   id: Generated<string>;
   name: string | null;
   type: ConversationType;
@@ -85,8 +79,7 @@ export interface EncryptionKeys {
 export interface MessageDelivery {
   delivered_at: Timestamp | null;
   message_id: string;
-  participant_id: string;
-  participant_type: ParticipantType;
+  agent_id: string;
   read_at: Timestamp | null;
   status: Generated<DeliveryStatus>;
 }
@@ -103,25 +96,7 @@ export interface Messages {
   parts_tag: Buffer;
   reply_to_id: string | null;
   sender_id: string;
-  sender_type: ParticipantType;
   seq: Int8;
-}
-
-export interface Reactions {
-  created_at: Generated<Timestamp>;
-  emoji: string;
-  message_id: string;
-  participant_id: string;
-  participant_type: ParticipantType;
-}
-
-export interface Users {
-  created_at: Generated<Timestamp>;
-  display_name: string | null;
-  id: Generated<string>;
-  last_seen_at: Timestamp | null;
-  status: Generated<UserStatus>;
-  updated_at: Generated<Timestamp>;
 }
 
 export interface DB {
@@ -132,6 +107,4 @@ export interface DB {
   encryption_keys: EncryptionKeys;
   message_delivery: MessageDelivery;
   messages: Messages;
-  reactions: Reactions;
-  users: Users;
 }

@@ -1,15 +1,10 @@
 import type { Db } from "../db/client.js";
-import type {
-  ConversationType,
-  ParticipantRole,
-  ParticipantType,
-} from "../db/database.js";
+import type { ConversationType, ParticipantRole } from "../db/database.js";
 import type { Logger } from "../logger.js";
 import type {
   Conversation,
   ConversationParticipant,
   ConversationSummary,
-  ParticipantRef,
 } from "@moltzap/protocol";
 import { RpcError } from "../rpc/router.js";
 import { ErrorCodes } from "@moltzap/protocol";
@@ -32,7 +27,6 @@ interface ConversationColumns {
   id: string;
   type: ConversationType;
   name: string | null;
-  created_by_type: ParticipantType;
   created_by_id: string;
   created_at: Date;
   updated_at: Date;
@@ -56,37 +50,34 @@ export class ConversationService {
   async create(
     type: "dm" | "group",
     name: string | undefined,
-    participantRefs: ParticipantRef[],
-    creatorRef: ParticipantRef,
+    agentIds: string[],
+    creatorAgentId: string,
   ): Promise<Conversation> {
     // Validate all participants exist
-    for (const ref of participantRefs) {
-      await this.participants.requireExists(ref);
+    for (const agentId of agentIds) {
+      await this.participants.requireExists(agentId);
     }
 
-    // For DMs, validate contact relationship via owner user IDs
+    // For DMs, validate exactly one other participant
     if (type === "dm") {
-      if (participantRefs.length !== 1) {
+      if (agentIds.length !== 1) {
         throw new RpcError(
           ErrorCodes.InvalidParams,
           "DM requires exactly one other participant",
         );
       }
 
-      // Check for existing DM between these two participants
+      // Check for existing DM between these two agents
       const existingDm = await this.findExistingDm(
-        creatorRef,
-        participantRefs[0]!,
+        creatorAgentId,
+        agentIds[0]!,
       );
       if (existingDm) {
         return existingDm;
       }
     }
 
-    if (
-      type === "group" &&
-      participantRefs.length + 1 > MAX_GROUP_PARTICIPANTS
-    ) {
+    if (type === "group" && agentIds.length + 1 > MAX_GROUP_PARTICIPANTS) {
       throw new RpcError(
         ErrorCodes.ConversationFull,
         `Group cannot exceed ${MAX_GROUP_PARTICIPANTS} participants`,
@@ -99,8 +90,7 @@ export class ConversationService {
         .values({
           type,
           name: name ?? null,
-          created_by_type: creatorRef.type,
-          created_by_id: creatorRef.id,
+          created_by_id: creatorAgentId,
         })
         .returningAll()
         .executeTakeFirstOrThrow();
@@ -112,20 +102,18 @@ export class ConversationService {
         .insertInto("conversation_participants")
         .values({
           conversation_id: conversationId,
-          participant_type: creatorRef.type,
-          participant_id: creatorRef.id,
+          agent_id: creatorAgentId,
           role: "owner",
         })
         .execute();
 
       // Add other participants as members
-      for (const ref of participantRefs) {
+      for (const agentId of agentIds) {
         await trx
           .insertInto("conversation_participants")
           .values({
             conversation_id: conversationId,
-            participant_type: ref.type,
-            participant_id: ref.id,
+            agent_id: agentId,
             role: "member",
           })
           .onConflict((oc) => oc.doNothing())
@@ -133,7 +121,7 @@ export class ConversationService {
       }
 
       this.logger.info(
-        { conversationId, type, participantCount: participantRefs.length + 1 },
+        { conversationId, type, participantCount: agentIds.length + 1 },
         "Conversation created",
       );
 
@@ -142,7 +130,7 @@ export class ConversationService {
   }
 
   async list(
-    participantRef: ParticipantRef,
+    agentId: string,
     limit = 50,
     cursor?: string,
   ): Promise<{ conversations: ConversationSummary[]; cursor?: string }> {
@@ -164,8 +152,7 @@ export class ConversationService {
         WHERE conversation_id = c.id AND is_deleted = false
         ORDER BY seq DESC LIMIT 1
       ) m ON true
-      WHERE cp.participant_type = ${participantRef.type}
-        AND cp.participant_id = ${participantRef.id}
+      WHERE cp.agent_id = ${agentId}
         ${cursorParam ? sql`AND c.updated_at < ${cursorParam}` : sql``}
       ORDER BY COALESCE(m.created_at, c.updated_at) DESC
       LIMIT ${limit + 1}
@@ -194,7 +181,7 @@ export class ConversationService {
       const convIds = conversations.map((c) => c.id);
       const partRows = await this.db
         .selectFrom("conversation_participants")
-        .select(["conversation_id", "participant_type", "participant_id"])
+        .select(["conversation_id", "agent_id"])
         .where("conversation_id", "in", convIds)
         .execute();
 
@@ -207,7 +194,7 @@ export class ConversationService {
         if (!partsByConv.has(convId)) partsByConv.set(convId, []);
         partsByConv.get(convId)!.push({
           type: "agent" as const,
-          id: row.participant_id,
+          id: row.agent_id,
         });
       }
       for (const conv of conversations) {
@@ -225,12 +212,12 @@ export class ConversationService {
 
   async get(
     conversationId: string,
-    requesterRef: ParticipantRef,
+    requesterAgentId: string,
   ): Promise<{
     conversation: Conversation;
     participants: ConversationParticipant[];
   }> {
-    await this.requireParticipant(conversationId, requesterRef);
+    await this.requireParticipant(conversationId, requesterAgentId);
 
     const conv = await this.db
       .selectFrom("conversations")
@@ -244,15 +231,10 @@ export class ConversationService {
 
     const partRows = await this.db
       .selectFrom("conversation_participants as cp")
-      .leftJoin("agents as a", (join) =>
-        join.on(
-          sql`cp.participant_type = 'agent' AND cp.participant_id::text = a.id::text`,
-        ),
-      )
+      .leftJoin("agents as a", "a.id", "cp.agent_id")
       .select([
         "cp.conversation_id",
-        "cp.participant_type",
-        "cp.participant_id",
+        "cp.agent_id",
         "cp.role",
         "cp.joined_at",
         "cp.last_read_seq",
@@ -272,9 +254,12 @@ export class ConversationService {
   async update(
     conversationId: string,
     name: string | undefined,
-    requesterRef: ParticipantRef,
+    requesterAgentId: string,
   ): Promise<Conversation> {
-    await this.requireRole(conversationId, requesterRef, ["owner", "admin"]);
+    await this.requireRole(conversationId, requesterAgentId, [
+      "owner",
+      "admin",
+    ]);
 
     const row = await this.db
       .updateTable("conversations")
@@ -290,10 +275,7 @@ export class ConversationService {
     return this.mapConversation(row);
   }
 
-  async leave(
-    conversationId: string,
-    participantRef: ParticipantRef,
-  ): Promise<void> {
+  async leave(conversationId: string, agentId: string): Promise<void> {
     const conv = await this.db
       .selectFrom("conversations")
       .select("type")
@@ -310,8 +292,7 @@ export class ConversationService {
     const result = await this.db
       .deleteFrom("conversation_participants")
       .where("conversation_id", "=", conversationId)
-      .where("participant_type", "=", participantRef.type)
-      .where("participant_id", "=", participantRef.id)
+      .where("agent_id", "=", agentId)
       .executeTakeFirst();
 
     if (result.numDeletedRows === 0n) {
@@ -321,11 +302,14 @@ export class ConversationService {
 
   async addParticipant(
     conversationId: string,
-    participantRef: ParticipantRef,
-    requesterRef: ParticipantRef,
+    agentId: string,
+    requesterAgentId: string,
   ): Promise<ConversationParticipant> {
-    await this.requireRole(conversationId, requesterRef, ["owner", "admin"]);
-    await this.participants.requireExists(participantRef);
+    await this.requireRole(conversationId, requesterAgentId, [
+      "owner",
+      "admin",
+    ]);
+    await this.participants.requireExists(agentId);
 
     const countRow = await this.db
       .selectFrom("conversation_participants")
@@ -344,13 +328,12 @@ export class ConversationService {
       .insertInto("conversation_participants")
       .values({
         conversation_id: conversationId,
-        participant_type: participantRef.type,
-        participant_id: participantRef.id,
+        agent_id: agentId,
         role: "member",
       })
       .onConflict((oc) =>
         oc
-          .columns(["conversation_id", "participant_type", "participant_id"])
+          .columns(["conversation_id", "agent_id"])
           .doUpdateSet({ role: sql`conversation_participants.role` }),
       )
       .returningAll()
@@ -361,16 +344,18 @@ export class ConversationService {
 
   async removeParticipant(
     conversationId: string,
-    participantRef: ParticipantRef,
-    requesterRef: ParticipantRef,
+    agentId: string,
+    requesterAgentId: string,
   ): Promise<void> {
-    await this.requireRole(conversationId, requesterRef, ["owner", "admin"]);
+    await this.requireRole(conversationId, requesterAgentId, [
+      "owner",
+      "admin",
+    ]);
 
     const result = await this.db
       .deleteFrom("conversation_participants")
       .where("conversation_id", "=", conversationId)
-      .where("participant_type", "=", participantRef.type)
-      .where("participant_id", "=", participantRef.id)
+      .where("agent_id", "=", agentId)
       .where("role", "=", "member")
       .executeTakeFirst();
 
@@ -384,7 +369,7 @@ export class ConversationService {
 
   async mute(
     conversationId: string,
-    participantRef: ParticipantRef,
+    agentId: string,
     until?: string,
   ): Promise<void> {
     const mutedUntil = until ?? "infinity";
@@ -392,8 +377,7 @@ export class ConversationService {
       .updateTable("conversation_participants")
       .set({ muted_until: sql`${mutedUntil}::timestamptz` })
       .where("conversation_id", "=", conversationId)
-      .where("participant_type", "=", participantRef.type)
-      .where("participant_id", "=", participantRef.id)
+      .where("agent_id", "=", agentId)
       .executeTakeFirst();
 
     if (!result || result.numUpdatedRows === 0n) {
@@ -401,16 +385,12 @@ export class ConversationService {
     }
   }
 
-  async unmute(
-    conversationId: string,
-    participantRef: ParticipantRef,
-  ): Promise<void> {
+  async unmute(conversationId: string, agentId: string): Promise<void> {
     const result = await this.db
       .updateTable("conversation_participants")
       .set({ muted_until: null })
       .where("conversation_id", "=", conversationId)
-      .where("participant_type", "=", participantRef.type)
-      .where("participant_id", "=", participantRef.id)
+      .where("agent_id", "=", agentId)
       .executeTakeFirst();
 
     if (!result || result.numUpdatedRows === 0n) {
@@ -418,25 +398,21 @@ export class ConversationService {
     }
   }
 
-  async getParticipantRefs(conversationId: string): Promise<ParticipantRef[]> {
+  async getParticipantAgentIds(conversationId: string): Promise<string[]> {
     const rows = await this.db
       .selectFrom("conversation_participants")
-      .select(["participant_type", "participant_id"])
+      .select("agent_id")
       .where("conversation_id", "=", conversationId)
       .execute();
 
-    return rows.map((r) => ({
-      type: r.participant_type,
-      id: r.participant_id,
-    }));
+    return rows.map((r) => r.agent_id);
   }
 
-  async getConversationIds(participantRef: ParticipantRef): Promise<string[]> {
+  async getConversationIds(agentId: string): Promise<string[]> {
     const rows = await this.db
       .selectFrom("conversation_participants")
       .select("conversation_id")
-      .where("participant_type", "=", participantRef.type)
-      .where("participant_id", "=", participantRef.id)
+      .where("agent_id", "=", agentId)
       .execute();
 
     return rows.map((r) => r.conversation_id);
@@ -444,14 +420,13 @@ export class ConversationService {
 
   async requireParticipant(
     conversationId: string,
-    ref: ParticipantRef,
+    agentId: string,
   ): Promise<void> {
     const row = await this.db
       .selectFrom("conversation_participants")
       .select(sql`1`.as("exists"))
       .where("conversation_id", "=", conversationId)
-      .where("participant_type", "=", ref.type)
-      .where("participant_id", "=", ref.id)
+      .where("agent_id", "=", agentId)
       .executeTakeFirst();
 
     if (!row) {
@@ -464,15 +439,14 @@ export class ConversationService {
 
   private async requireRole(
     conversationId: string,
-    ref: ParticipantRef,
+    agentId: string,
     allowedRoles: string[],
   ): Promise<void> {
     const row = await this.db
       .selectFrom("conversation_participants")
       .select("role")
       .where("conversation_id", "=", conversationId)
-      .where("participant_type", "=", ref.type)
-      .where("participant_id", "=", ref.id)
+      .where("agent_id", "=", agentId)
       .executeTakeFirst();
 
     if (!row) {
@@ -483,44 +457,9 @@ export class ConversationService {
     }
   }
 
-  async isControlChannel(
-    conversationId: string,
-    userId: string,
-    activeAgentId: string,
-  ): Promise<boolean> {
-    try {
-      // Verify conversation is a DM with exactly user + their agent as participants
-      const conv = await this.db
-        .selectFrom("conversations")
-        .select("type")
-        .where("id", "=", conversationId)
-        .executeTakeFirst();
-      if (!conv || conv.type !== "dm") return false;
-
-      const rows = await this.db
-        .selectFrom("conversation_participants")
-        .select(["participant_type", "participant_id"])
-        .where("conversation_id", "=", conversationId)
-        .execute();
-
-      if (rows.length !== 2) return false;
-      const hasUser = rows.some(
-        (r) => r.participant_type === "user" && r.participant_id === userId,
-      );
-      const hasAgent = rows.some(
-        (r) =>
-          r.participant_type === "agent" && r.participant_id === activeAgentId,
-      );
-      return hasUser && hasAgent;
-    } catch (err) {
-      this.logger.error({ err, conversationId }, "isControlChannel DB error");
-      throw new RpcError(ErrorCodes.InternalError, "Internal error");
-    }
-  }
-
   private async findExistingDm(
-    a: ParticipantRef,
-    b: ParticipantRef,
+    agentIdA: string,
+    agentIdB: string,
   ): Promise<Conversation | null> {
     const result = await sql<ConversationColumns>`
       SELECT c.* FROM conversations c
@@ -528,32 +467,18 @@ export class ConversationService {
       AND EXISTS (
         SELECT 1 FROM conversation_participants cp
         WHERE cp.conversation_id = c.id
-          AND cp.participant_type = ${a.type}
-          AND cp.participant_id = ${a.id}
+          AND cp.agent_id = ${agentIdA}
       )
       AND EXISTS (
         SELECT 1 FROM conversation_participants cp
         WHERE cp.conversation_id = c.id
-          AND cp.participant_type = ${b.type}
-          AND cp.participant_id = ${b.id}
+          AND cp.agent_id = ${agentIdB}
       )
       LIMIT 1
     `.execute(this.db);
 
     if (result.rows.length === 0) return null;
     return this.mapConversation(result.rows[0]!);
-  }
-
-  private async getOwnerUserId(ref: ParticipantRef): Promise<string | null> {
-    if (ref.type === "user") return ref.id;
-
-    const row = await this.db
-      .selectFrom("agents")
-      .select("owner_user_id")
-      .where("id", "=", ref.id)
-      .executeTakeFirst();
-
-    return row?.owner_user_id ?? null;
   }
 
   private mapConversation(row: ConversationColumns): Conversation {
@@ -569,8 +494,7 @@ export class ConversationService {
 
   private mapParticipant(row: {
     conversation_id: string;
-    participant_type: ParticipantType;
-    participant_id: string;
+    agent_id: string;
     role: ParticipantRole;
     joined_at: Date;
     last_read_seq: string;
@@ -583,7 +507,7 @@ export class ConversationService {
       conversationId: row.conversation_id,
       participant: {
         type: "agent" as const,
-        id: row.participant_id,
+        id: row.agent_id,
       },
       role: row.role,
       joinedAt: row.joined_at.toISOString(),

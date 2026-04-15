@@ -3,10 +3,12 @@ import type { ConversationService } from "../../services/conversation.service.js
 import type { PresenceService } from "../../services/presence.service.js";
 import { defineMethod } from "../../rpc/context.js";
 import { sql } from "kysely";
-import type { RpcMethodRegistry } from "../../rpc/context.js";
+import type {
+  RpcMethodRegistry,
+  AuthenticatedContext,
+} from "../../rpc/context.js";
 import type {
   HelloOk,
-  ParticipantRef,
   ConnectParams,
   AgentsLookupParams,
   AgentsLookupByNameParams,
@@ -14,10 +16,8 @@ import type {
   AgentCard,
 } from "@moltzap/protocol";
 import type { ConnectionManager } from "../../ws/connection.js";
-import type { Broadcaster } from "../../ws/broadcaster.js";
 import type { Db } from "../../db/client.js";
 import { PROTOCOL_VERSION, ErrorCodes, validators } from "@moltzap/protocol";
-import { ParticipantService } from "../../services/participant.service.js";
 import { RpcError } from "../../rpc/router.js";
 
 function toAgentCard(row: {
@@ -42,7 +42,6 @@ export function createCoreAuthHandlers(deps: {
   authService: AuthService;
   conversationService: ConversationService;
   presenceService: PresenceService;
-  broadcaster: Broadcaster;
   connections: ConnectionManager;
   db: Db;
   getConnId: () => string;
@@ -59,28 +58,15 @@ export function createCoreAuthHandlers(deps: {
 
         // If already authenticated, just return the hello payload
         if (conn.auth) {
-          if (conn.auth.kind !== "agent") {
-            throw new RpcError(ErrorCodes.Unauthorized, "Agent key required");
-          }
           return buildHelloOk(conn.auth, deps);
         }
 
-        const p = params;
-
-        if (!("agentKey" in p)) {
-          throw new RpcError(
-            ErrorCodes.Unauthorized,
-            "Agent key required for authentication",
-          );
-        }
-
-        const agent = await deps.authService.authenticateAgent(p.agentKey);
+        const agent = await deps.authService.authenticateAgent(params.agentKey);
         if (!agent) {
           throw new RpcError(ErrorCodes.Unauthorized, "Authentication failed");
         }
 
-        const auth = {
-          kind: "agent" as const,
+        const auth: AuthenticatedContext = {
           agentId: agent.agentId,
           agentStatus: agent.status,
           ownerUserId: agent.ownerUserId,
@@ -90,14 +76,14 @@ export function createCoreAuthHandlers(deps: {
         conn.auth = auth;
 
         // Subscribe to conversation channels and load muted set
-        const ref = ParticipantService.refFromContext(auth);
-        const convIds = await deps.conversationService.getConversationIds(ref);
+        const convIds = await deps.conversationService.getConversationIds(
+          auth.agentId,
+        );
         for (const id of convIds) conn.conversationIds.add(id);
         const mutedRows = await deps.db
           .selectFrom("conversation_participants")
           .select("conversation_id")
-          .where("participant_type", "=", ref.type)
-          .where("participant_id", "=", ref.id)
+          .where("agent_id", "=", auth.agentId)
           .where("muted_until", "is not", null)
           .where("muted_until", ">", sql<Date>`now()`)
           .execute();
@@ -152,15 +138,9 @@ export function createCoreAuthHandlers(deps: {
       validator: validators.agentsListParams,
       requiresActive: true,
       handler: async (_params, ctx) => {
-        if (ctx.kind !== "agent") {
-          throw new RpcError(
-            ErrorCodes.Forbidden,
-            "Agent authentication required",
-          );
-        }
         const rows = await deps.db
           .selectFrom("conversation_participants as cp")
-          .innerJoin("agents as a", "a.id", "cp.participant_id")
+          .innerJoin("agents as a", "a.id", "cp.agent_id")
           .select([
             "a.id",
             "a.name",
@@ -169,16 +149,14 @@ export function createCoreAuthHandlers(deps: {
             "a.status",
             "a.owner_user_id",
           ])
-          .where("cp.participant_type", "=", "agent")
-          .where("cp.participant_id", "!=", ctx.agentId)
+          .where("cp.agent_id", "!=", ctx.agentId)
           .where((eb) =>
             eb.exists(
               eb
                 .selectFrom("conversation_participants as cp2")
                 .select("cp2.conversation_id")
                 .whereRef("cp2.conversation_id", "=", "cp.conversation_id")
-                .where("cp2.participant_type", "=", "agent")
-                .where("cp2.participant_id", "=", ctx.agentId),
+                .where("cp2.agent_id", "=", ctx.agentId),
             ),
           )
           .distinct()
@@ -195,20 +173,13 @@ export function createCoreAuthHandlers(deps: {
 }
 
 async function buildHelloOk(
-  ctx: {
-    kind: "agent";
-    agentId: string;
-    agentStatus: string;
-    ownerUserId: string | null;
-  },
+  ctx: AuthenticatedContext,
   deps: {
     conversationService: ConversationService;
     presenceService: PresenceService;
   },
 ): Promise<HelloOk> {
-  const ref: ParticipantRef = { type: "agent", id: ctx.agentId };
-
-  const { conversations } = await deps.conversationService.list(ref);
+  const { conversations } = await deps.conversationService.list(ctx.agentId);
 
   const unreadCounts: Record<string, number> = {};
   for (const conv of conversations) {
@@ -217,7 +188,7 @@ async function buildHelloOk(
     }
   }
 
-  deps.presenceService.setOnline(ref);
+  deps.presenceService.setOnline(ctx.agentId);
 
   return {
     protocolVersion: PROTOCOL_VERSION,

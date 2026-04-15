@@ -63,19 +63,13 @@ The socket server accumulates `buffer += chunk.toString()` with no max size. A c
 
 **Depends on:** Nothing.
 
-## Channel core
-
-### Deferred: early commit in enrichMessage
-
-**Priority:** P4
-
-**Status as of 2026-04-13:** Fixed in PR #32. `enrichMessage()` now returns `{ enriched, commitContext }` and `handleInbound()` calls `commitContext()` only after the inbound handler succeeds. If dispatch throws, entries stay unmarked and resurface on the next message.
-
-Found by Codex adversarial review (gpt-5.4). Previously, `commit()` was called inside `enrichMessage()` before the handler ran, which meant a failed dispatch permanently consumed cross-conv entries.
-
-**Files:** `packages/client/src/channel-core.ts` (enrichMessage, handleInbound)
-
 ## Completed
+
+### Early commit in enrichMessage
+
+**Completed:** 2026-04-13 (PR #32)
+
+`enrichMessage()` now returns `{ enriched, commitContext }` and `handleInbound()` calls `commitContext()` only after the inbound handler succeeds. If dispatch throws, entries stay unmarked and resurface on the next message.
 
 ### Extract MoltZapChannelCore + migrate channels
 

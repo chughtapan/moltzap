@@ -4,14 +4,12 @@ import { ErrorCodes, type RequestFrame } from "@moltzap/protocol";
 import type { AuthenticatedContext } from "./context.js";
 
 const activeAgent: AuthenticatedContext = {
-  kind: "agent",
   agentId: "agent-1",
   agentStatus: "active",
   ownerUserId: "user-1",
 };
 
 const pendingAgent: AuthenticatedContext = {
-  kind: "agent",
   agentId: "agent-2",
   agentStatus: "pending_claim",
   ownerUserId: null,

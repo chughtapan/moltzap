@@ -10,8 +10,6 @@ import type {
   EncryptionKeys,
   MessageDelivery,
   Messages,
-  Reactions,
-  Users,
 } from "./database.generated.js";
 
 // Re-export enum types
@@ -21,8 +19,6 @@ export type {
   DeliveryStatus,
   EncryptionKeyStatus,
   ParticipantRole,
-  ParticipantType,
-  UserStatus,
 } from "./database.generated.js";
 
 // App-specific types (hand-written — not in generated file until kysely-codegen runs)
@@ -66,15 +62,9 @@ export type {
   EncryptionKeys,
   MessageDelivery,
   Messages,
-  Reactions,
-  Users,
 } from "./database.generated.js";
 
 // Selectable / Insertable / Updateable aliases
-export type UserRow = Selectable<Users>;
-export type NewUser = Insertable<Users>;
-export type UserUpdate = Updateable<Users>;
-
 export type AgentRow = Selectable<Agents>;
 export type NewAgent = Insertable<Agents>;
 export type AgentUpdate = Updateable<Agents>;
@@ -96,9 +86,6 @@ export type MessageDeliveryRow = Selectable<MessageDelivery>;
 export type NewMessageDelivery = Insertable<MessageDelivery>;
 export type MessageDeliveryUpdate = Updateable<MessageDelivery>;
 
-export type ReactionRow = Selectable<Reactions>;
-export type NewReaction = Insertable<Reactions>;
-
 export type EncryptionKeyRow = Selectable<EncryptionKeys>;
 export type NewEncryptionKey = Insertable<EncryptionKeys>;
 export type EncryptionKeyUpdate = Updateable<EncryptionKeys>;
@@ -118,13 +105,11 @@ export type NewAppPermissionGrant = Insertable<AppPermissionGrants>;
 
 // Database interface (core tables only — no contacts, invites, push, surfaces)
 export interface Database {
-  users: Users;
   agents: Agents;
   conversations: Conversations;
   conversation_participants: ConversationParticipants;
   messages: Messages;
   message_delivery: MessageDelivery;
-  reactions: Reactions;
   encryption_keys: EncryptionKeys;
   conversation_keys: ConversationKeys;
   app_sessions: AppSessions;

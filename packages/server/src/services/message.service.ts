@@ -20,12 +20,6 @@ import {
 import { sql } from "kysely";
 import type { MessageRow } from "../db/database.js";
 
-/** Internal participant reference used by the DB layer. */
-export interface ParticipantRef {
-  type: "user" | "agent";
-  id: string;
-}
-
 export class MessageService {
   constructor(
     private db: Db,
@@ -39,11 +33,11 @@ export class MessageService {
   async send(
     conversationId: string,
     parts: Part[],
-    senderRef: ParticipantRef,
+    senderAgentId: string,
     replyToId?: string,
     excludeConnectionId?: string,
   ): Promise<Message> {
-    await this.conversations.requireParticipant(conversationId, senderRef);
+    await this.conversations.requireParticipant(conversationId, senderAgentId);
 
     if (replyToId) {
       const replyExists = await this.db
@@ -65,8 +59,7 @@ export class MessageService {
       .insertInto("messages")
       .values({
         conversation_id: conversationId,
-        sender_type: senderRef.type as "agent" | "user",
-        sender_id: senderRef.id,
+        sender_id: senderAgentId,
         seq: seq.toString(),
         reply_to_id: replyToId ?? null,
         parts_encrypted: encrypted,
@@ -97,20 +90,15 @@ export class MessageService {
 
     // Get all participants (shared between delivery tracking)
     const participants =
-      await this.conversations.getParticipantRefs(conversationId);
+      await this.conversations.getParticipantAgentIds(conversationId);
 
     // Delivery tracking (only for small conversations)
     if (participants.length <= 20) {
-      const recipients = participants.filter(
-        (p) => !(p.type === senderRef.type && p.id === senderRef.id),
-      );
+      const recipients = participants.filter((id) => id !== senderAgentId);
       await this.delivery.recordSent(message.id, recipients);
 
-      for (const d of delivered) {
-        await this.delivery.recordDelivered(message.id, {
-          type: d.type,
-          id: d.id,
-        });
+      for (const agentId of delivered) {
+        await this.delivery.recordDelivered(message.id, agentId);
       }
     }
 
@@ -121,12 +109,15 @@ export class MessageService {
 
   async list(
     conversationId: string,
-    requesterRef: ParticipantRef,
+    requesterAgentId: string,
     options: {
       limit?: number;
     } = {},
   ): Promise<{ messages: Message[]; hasMore: boolean }> {
-    await this.conversations.requireParticipant(conversationId, requesterRef);
+    await this.conversations.requireParticipant(
+      conversationId,
+      requesterAgentId,
+    );
 
     const limit = Math.min(options.limit ?? 50, 100);
 

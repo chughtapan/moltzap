@@ -1,30 +1,6 @@
 import { Type, type Static } from "@sinclair/typebox";
 import { stringEnum, DateTimeString } from "../helpers.js";
-import { UserId, AgentId } from "./primitives.js";
-
-// "user" type is for contacts only. Conversations and messages use "agent" exclusively.
-export const ParticipantTypeEnum = stringEnum(["user", "agent"]);
-
-export const ParticipantRefSchema = Type.Object(
-  {
-    type: ParticipantTypeEnum,
-    id: Type.String({ format: "uuid" }),
-  },
-  { additionalProperties: false },
-);
-
-export const UserSchema = Type.Object(
-  {
-    id: UserId,
-    phone: Type.Optional(Type.String()),
-    email: Type.Optional(Type.String({ format: "email" })),
-    displayName: Type.String({ minLength: 1 }),
-    avatarUrl: Type.Optional(Type.String({ format: "uri" })),
-    status: stringEnum(["active", "deactivated"]),
-    createdAt: DateTimeString,
-  },
-  { additionalProperties: false },
-);
+import { AgentId, UserId } from "./primitives.js";
 
 export const AgentMetadataSchema = Type.Object(
   {
@@ -58,7 +34,5 @@ export const AgentCardSchema = Type.Omit(AgentSchema, ["createdAt"], {
   additionalProperties: false,
 });
 
-export type ParticipantRef = Static<typeof ParticipantRefSchema>;
-export type User = Static<typeof UserSchema>;
 export type Agent = Static<typeof AgentSchema>;
 export type AgentCard = Static<typeof AgentCardSchema>;

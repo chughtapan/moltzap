@@ -5,9 +5,9 @@ import type {
   AppsAttestSkillParams,
   AppsGrantPermissionParams,
 } from "@moltzap/protocol";
-import { validators, ErrorCodes } from "@moltzap/protocol";
+import { validators } from "@moltzap/protocol";
 import { defineMethod } from "../../rpc/context.js";
-import { RpcError } from "../../rpc/router.js";
+import { ParticipantService } from "../../services/participant.service.js";
 
 export function createAppHandlers(deps: {
   appHost: AppHost;
@@ -16,13 +16,6 @@ export function createAppHandlers(deps: {
     "apps/create": defineMethod<AppsCreateParams>({
       validator: validators.appsCreateParams,
       handler: async (params, ctx) => {
-        if (ctx.kind !== "agent") {
-          throw new RpcError(
-            ErrorCodes.Forbidden,
-            "Only agents can create app sessions",
-          );
-        }
-
         const session = await deps.appHost.createSession(
           params.appId,
           ctx.agentId,
@@ -36,13 +29,6 @@ export function createAppHandlers(deps: {
     "apps/attestSkill": defineMethod<AppsAttestSkillParams>({
       validator: validators.appsAttestSkillParams,
       handler: async (params, ctx) => {
-        if (ctx.kind !== "agent") {
-          throw new RpcError(
-            ErrorCodes.Forbidden,
-            "Only agents can attest skills",
-          );
-        }
-
         deps.appHost.resolveChallenge(
           params.challengeId,
           ctx.agentId,
@@ -57,15 +43,10 @@ export function createAppHandlers(deps: {
     "apps/grantPermission": defineMethod<AppsGrantPermissionParams>({
       validator: validators.appsGrantPermissionParams,
       handler: async (params, ctx) => {
-        if (ctx.kind !== "user") {
-          throw new RpcError(
-            ErrorCodes.Forbidden,
-            "Only users can grant permissions",
-          );
-        }
+        const ownerUserId = ParticipantService.requireOwnerId(ctx);
 
         deps.appHost.resolvePermission(
-          ctx.userId,
+          ownerUserId,
           params.sessionId,
           params.agentId,
           params.resource,

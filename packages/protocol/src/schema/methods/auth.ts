@@ -1,5 +1,5 @@
 import { Type, type Static } from "@sinclair/typebox";
-import { AgentId, UserId } from "../primitives.js";
+import { AgentId } from "../primitives.js";
 import { ConversationSummarySchema } from "../conversations.js";
 import { AgentCardSchema } from "../identity.js";
 
@@ -38,24 +38,14 @@ export const RegisterResultSchema = Type.Object(
   { additionalProperties: false },
 );
 
-export const ConnectParamsSchema = Type.Union([
-  Type.Object(
-    {
-      jwt: Type.String(),
-      minProtocol: Type.String(),
-      maxProtocol: Type.String(),
-    },
-    { additionalProperties: false },
-  ),
-  Type.Object(
-    {
-      agentKey: Type.String(),
-      minProtocol: Type.String(),
-      maxProtocol: Type.String(),
-    },
-    { additionalProperties: false },
-  ),
-]);
+export const ConnectParamsSchema = Type.Object(
+  {
+    agentKey: Type.String(),
+    minProtocol: Type.String(),
+    maxProtocol: Type.String(),
+  },
+  { additionalProperties: false },
+);
 
 export const RateLimitsSchema = Type.Object(
   {
@@ -80,14 +70,10 @@ export const PolicySchema = Type.Object(
 export const HelloOkSchema = Type.Object(
   {
     protocolVersion: Type.String(),
-    userId: Type.Optional(UserId),
-    userDisplayName: Type.Optional(Type.String()),
-    agentId: Type.Optional(AgentId),
+    agentId: AgentId,
     conversations: Type.Array(ConversationSummarySchema),
     unreadCounts: Type.Record(Type.String(), Type.Integer()),
     policy: PolicySchema,
-    ownedAgents: Type.Optional(Type.Array(OwnedAgentSchema)),
-    activeAgentId: Type.Optional(AgentId),
   },
   { additionalProperties: false },
 );
@@ -109,32 +95,6 @@ export const AgentsLookupResultSchema = Type.Object(
   { additionalProperties: false },
 );
 
-export const UsersLookupParamsSchema = Type.Object(
-  {
-    userIds: Type.Array(Type.String({ format: "uuid" }), {
-      minItems: 1,
-      maxItems: 100,
-    }),
-  },
-  { additionalProperties: false },
-);
-
-export const UsersLookupResultSchema = Type.Object(
-  {
-    users: Type.Array(
-      Type.Object(
-        {
-          id: UserId,
-          displayName: Type.String(),
-          phone: Type.String(),
-        },
-        { additionalProperties: false },
-      ),
-    ),
-  },
-  { additionalProperties: false },
-);
-
 export const AgentsLookupByNameParamsSchema = Type.Object(
   {
     names: Type.Array(Type.String({ minLength: 1, maxLength: 32 }), {
@@ -148,20 +108,6 @@ export const AgentsLookupByNameParamsSchema = Type.Object(
 export const AgentsLookupByNameResultSchema = Type.Object(
   {
     agents: Type.Array(AgentCardSchema),
-  },
-  { additionalProperties: false },
-);
-
-export const UsersUpdateProfileParamsSchema = Type.Object(
-  {
-    displayName: Type.Optional(Type.String({ minLength: 1, maxLength: 100 })),
-  },
-  { additionalProperties: false },
-);
-
-export const UsersUpdateProfileResultSchema = Type.Object(
-  {
-    displayName: Type.String(),
   },
   { additionalProperties: false },
 );
@@ -189,14 +135,6 @@ export type AgentsLookupByNameParams = Static<
 >;
 export type AgentsLookupByNameResult = Static<
   typeof AgentsLookupByNameResultSchema
->;
-export type UsersLookupParams = Static<typeof UsersLookupParamsSchema>;
-export type UsersLookupResult = Static<typeof UsersLookupResultSchema>;
-export type UsersUpdateProfileParams = Static<
-  typeof UsersUpdateProfileParamsSchema
->;
-export type UsersUpdateProfileResult = Static<
-  typeof UsersUpdateProfileResultSchema
 >;
 export type AgentsListParams = Static<typeof AgentsListParamsSchema>;
 export type AgentsListResult = Static<typeof AgentsListResultSchema>;
