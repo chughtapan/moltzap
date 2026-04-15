@@ -54,7 +54,7 @@ export function createRpcRouter(methods: RpcMethodRegistry) {
           { requestId, method: methodName, errorCode: err.code, durationMs },
           err.message,
         );
-        return errorResponse(requestId, err.code, err.message);
+        return errorResponse(requestId, err.code, err.message, err.data);
       }
       logger.error(
         { requestId, method: methodName, err, durationMs },
@@ -69,6 +69,7 @@ export class RpcError extends Error {
   constructor(
     public readonly code: number,
     message: string,
+    public readonly data?: unknown,
   ) {
     super(message);
     this.name = "RpcError";
@@ -83,6 +84,12 @@ function errorResponse(
   id: string,
   code: number,
   message: string,
+  data?: unknown,
 ): ResponseFrame {
-  return { jsonrpc: "2.0", type: "response", id, error: { code, message } };
+  return {
+    jsonrpc: "2.0",
+    type: "response",
+    id,
+    error: { code, message, ...(data !== undefined && { data }) },
+  };
 }

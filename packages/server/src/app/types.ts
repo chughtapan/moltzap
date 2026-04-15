@@ -2,6 +2,7 @@ import type { Hono } from "hono";
 import type { RpcMethodDef } from "../rpc/context.js";
 import type { AppManifest, AppSession } from "@moltzap/protocol";
 import type { ContactChecker } from "./app-host.js";
+import type { BeforeMessageDeliveryHandler, OnJoinHandler } from "./hooks.js";
 
 export interface CoreConfig {
   databaseUrl: string;
@@ -29,5 +30,10 @@ export interface CoreApp {
     initiatorAgentId: string,
     invitedAgentIds: string[],
   ) => Promise<AppSession>;
+  onBeforeMessageDelivery: (
+    appId: string,
+    handler: BeforeMessageDeliveryHandler,
+  ) => void;
+  onAppJoin: (appId: string, handler: OnJoinHandler) => void;
   close: () => Promise<void>;
 }

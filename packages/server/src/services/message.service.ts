@@ -19,6 +19,7 @@ import {
 } from "../crypto/serialization.js";
 import { sql } from "kysely";
 import type { MessageRow } from "../db/database.js";
+import type { AppHost } from "../app/app-host.js";
 
 export class MessageService {
   constructor(
@@ -28,16 +29,41 @@ export class MessageService {
     private broadcaster: Broadcaster,
     private encryption: EnvelopeEncryption | null,
     private delivery: DeliveryService,
+    private appHost?: AppHost,
   ) {}
 
   async send(
     conversationId: string,
-    parts: Part[],
+    inputParts: Part[],
     senderAgentId: string,
     replyToId?: string,
     excludeConnectionId?: string,
   ): Promise<Message> {
     await this.conversations.requireParticipant(conversationId, senderAgentId);
+
+    // Run before_message_delivery hook if applicable
+    let parts = inputParts;
+    let patchedBy: string | undefined;
+    if (this.appHost) {
+      const hookResult = await this.appHost.runBeforeMessageDelivery(
+        conversationId,
+        senderAgentId,
+        parts,
+      );
+      if (hookResult) {
+        if (hookResult.action === "block") {
+          throw new RpcError(ErrorCodes.HookBlocked, hookResult.reason, {
+            feedback: hookResult.feedback,
+            retry: hookResult.retry,
+          });
+        }
+        if (hookResult.action === "patch") {
+          parts = hookResult.parts;
+          patchedBy = "hook";
+        }
+        // action === "allow" — proceed normally
+      }
+    }
 
     if (replyToId) {
       const replyExists = await this.db
@@ -71,7 +97,7 @@ export class MessageService {
       .returningAll()
       .executeTakeFirstOrThrow();
 
-    const message = this.mapMessage(row, parts);
+    const message = this.mapMessage(row, parts, patchedBy);
 
     const firstTextPart = parts.find((p) => p.type === "text");
 
@@ -293,13 +319,18 @@ export class MessageService {
     ) as Part[];
   }
 
-  private mapMessage(row: MessageRow, parts: Part[]): Message {
+  private mapMessage(
+    row: MessageRow,
+    parts: Part[],
+    patchedBy?: string,
+  ): Message {
     return {
       id: row.id,
       conversationId: row.conversation_id,
       senderId: row.sender_id,
       replyToId: row.reply_to_id ?? undefined,
       parts,
+      ...(patchedBy && { patchedBy }),
       createdAt: row.created_at.toISOString(),
     };
   }

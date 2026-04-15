@@ -70,6 +70,15 @@ export function createCoreApp(config: CoreConfig): CoreApp {
   );
   const deliveryService = new DeliveryService(db);
   const presenceService = new PresenceService();
+  // AppHost — needs to be created before MessageService so it can be injected
+  const appHost = new AppHost(
+    db,
+    broadcaster,
+    connections,
+    conversationService,
+    logger,
+  );
+
   const messageService = new MessageService(
     db,
     logger,
@@ -77,15 +86,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     broadcaster,
     envelope,
     deliveryService,
-  );
-
-  // AppHost
-  const appHost = new AppHost(
-    db,
-    broadcaster,
-    connections,
-    conversationService,
-    logger,
+    appHost,
   );
 
   // Per-request connection context for concurrent WebSocket RPC dispatches
@@ -315,6 +316,12 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     },
     async createAppSession(appId, initiatorAgentId, invitedAgentIds) {
       return appHost.createSession(appId, initiatorAgentId, invitedAgentIds);
+    },
+    onBeforeMessageDelivery(appId, handler) {
+      appHost.onBeforeMessageDelivery(appId, handler);
+    },
+    onAppJoin(appId, handler) {
+      appHost.onAppJoin(appId, handler);
     },
     async close() {
       appHost.destroy();

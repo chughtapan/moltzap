@@ -4,9 +4,14 @@ import type { Broadcaster } from "../ws/broadcaster.js";
 import type { ConnectionManager } from "../ws/connection.js";
 import type { ConversationService } from "../services/conversation.service.js";
 import type { Logger } from "../logger.js";
-import type { AppManifest, AppSession } from "@moltzap/protocol";
+import type { AppManifest, AppSession, Part } from "@moltzap/protocol";
 import { ErrorCodes, eventFrame } from "@moltzap/protocol";
 import { RpcError } from "../rpc/router.js";
+import type {
+  BeforeMessageDeliveryHandler,
+  OnJoinHandler,
+  HookResult,
+} from "./hooks.js";
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -41,6 +46,18 @@ export class AppHost {
   private manifests = new Map<string, AppManifest>();
   private contactChecker: ContactChecker | null = null;
 
+  // Hook registry
+  private beforeMessageDeliveryHandlers = new Map<
+    string,
+    BeforeMessageDeliveryHandler
+  >();
+  private onJoinHandlers = new Map<string, OnJoinHandler>();
+
+  // Reverse index: conversationId → sessionId (populated when sessions are created)
+  private conversationToSession = new Map<string, string>();
+  // Forward index: sessionId → appId (for fast lookup)
+  private sessionToApp = new Map<string, string>();
+
   constructor(
     private db: Kysely<Database>,
     private broadcaster: Broadcaster,
@@ -60,6 +77,70 @@ export class AppHost {
 
   setContactChecker(checker: ContactChecker): void {
     this.contactChecker = checker;
+  }
+
+  // ── Hook Registration ──────────────────────────────────────────────
+
+  onBeforeMessageDelivery(
+    appId: string,
+    handler: BeforeMessageDeliveryHandler,
+  ): void {
+    this.beforeMessageDeliveryHandlers.set(appId, handler);
+    this.logger.info({ appId }, "Registered beforeMessageDelivery hook");
+  }
+
+  onAppJoin(appId: string, handler: OnJoinHandler): void {
+    this.onJoinHandlers.set(appId, handler);
+    this.logger.info({ appId }, "Registered onJoin hook");
+  }
+
+  /**
+   * Run before_message_delivery hooks for a conversation.
+   * Returns null if no hook applies (non-app conversation or no handler registered).
+   * Fails open on timeout — returns null so the message is delivered.
+   */
+  async runBeforeMessageDelivery(
+    conversationId: string,
+    senderId: string,
+    parts: Part[],
+  ): Promise<HookResult | null> {
+    const sessionId = this.conversationToSession.get(conversationId);
+    if (!sessionId) return null; // Not an app conversation
+
+    const appId = this.sessionToApp.get(sessionId);
+    if (!appId) return null;
+
+    const handler = this.beforeMessageDeliveryHandlers.get(appId);
+    if (!handler) return null; // No hook registered for this app
+
+    const manifest = this.manifests.get(appId);
+    const timeoutMs = manifest?.hooks?.beforeMessageDelivery?.timeoutMs ?? 5000;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const result = await handler(
+        { conversationId, senderId, parts, sessionId, appId },
+        controller.signal,
+      );
+      return result;
+    } catch (err) {
+      if (controller.signal.aborted) {
+        this.logger.warn(
+          { appId, sessionId, conversationId },
+          "beforeMessageDelivery hook timed out — failing open",
+        );
+        return null; // Fail open
+      }
+      this.logger.error(
+        { err, appId, sessionId, conversationId },
+        "beforeMessageDelivery hook threw — failing open",
+      );
+      return null; // Fail open on unexpected errors too
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   async createSession(
@@ -158,6 +239,12 @@ export class AppHost {
           .execute();
       }
     });
+
+    // Populate reverse indexes for hook lookup
+    this.sessionToApp.set(sessionId, appId);
+    for (const convId of Object.values(conversationMap)) {
+      this.conversationToSession.set(convId, sessionId);
+    }
 
     const session: AppSession = {
       id: sessionId,
@@ -648,6 +735,41 @@ export class AppHost {
       { sessionId: session.id, agentId, grantedResources },
       "Agent admitted to app session",
     );
+
+    // Fire on_join hook
+    const onJoinHandler = this.onJoinHandlers.get(session.appId);
+    if (onJoinHandler) {
+      const manifest = this.manifests.get(session.appId);
+      const timeoutMs = manifest?.hooks?.onJoin?.timeoutMs ?? 5000;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+      try {
+        await onJoinHandler(
+          {
+            sessionId: session.id,
+            appId: session.appId,
+            agentId,
+            grantedResources,
+          },
+          controller.signal,
+        );
+      } catch (err) {
+        if (controller.signal.aborted) {
+          this.logger.warn(
+            { appId: session.appId, sessionId: session.id, agentId },
+            "onJoin hook timed out",
+          );
+        } else {
+          this.logger.error(
+            { err, appId: session.appId, sessionId: session.id, agentId },
+            "onJoin hook threw",
+          );
+        }
+      } finally {
+        clearTimeout(timer);
+      }
+    }
   }
 
   private async rejectAgent(
