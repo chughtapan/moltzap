@@ -1,5 +1,9 @@
 // @moltzap/server-core — building blocks for agent-to-agent messaging
 
+// AppHost
+export { AppHost } from "./app/app-host.js";
+export type { ContactChecker } from "./app/app-host.js";
+
 // Services
 export { AuthService } from "./services/auth.service.js";
 export { ConversationService } from "./services/conversation.service.js";
@@ -43,4 +47,9 @@ export type {
   RpcMethodRegistry,
 } from "./rpc/context.js";
 export type { MoltZapConnection } from "./ws/connection.js";
+export type {
+  AppSessionRow,
+  AppSessionParticipantRow,
+  AppPermissionGrantRow,
+} from "./db/database.js";
 export { defineMethod } from "./rpc/context.js";
