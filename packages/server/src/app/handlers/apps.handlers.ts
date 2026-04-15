@@ -1,5 +1,4 @@
-import type { AppHost } from "../app-host.js";
-import type { DefaultPermissionHandler } from "../app-host.js";
+import type { AppHost, DefaultPermissionHandler } from "../app-host.js";
 import type { RpcMethodRegistry } from "../../rpc/context.js";
 import type {
   AppsCreateParams,
