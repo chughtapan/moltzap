@@ -165,7 +165,10 @@ describe("Permission grant flow (DefaultPermissionHandler)", () => {
     });
     await admitted2;
 
-    // No second permissions/required event
+    // Verify no permissions/required event was sent for the cached session.
+    // Wait briefly then check — the event would have arrived before the
+    // admitted event if it was going to come at all.
+    await new Promise((r) => setTimeout(r, 200));
     const stray = bob.client
       .drainEvents()
       .filter((e) => e.event === "permissions/required");

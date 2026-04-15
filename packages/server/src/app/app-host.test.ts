@@ -176,9 +176,33 @@ function getChallenges(host: AppHost): Map<string, Record<string, unknown>> {
   >;
 }
 
-/** Wait for async admission (admitAgentsAsync fires-and-forgets). */
-function waitForAdmission(ms = 150) {
-  return new Promise((r) => setTimeout(r, ms));
+/**
+ * Wait for async admission to complete by polling broadcaster calls.
+ * Looks for sessionReady, participantAdmitted, or participantRejected events
+ * which signal that admitAgentsAsync has finished processing.
+ * Falls back to a short timeout if no terminal event appears.
+ */
+async function waitForAdmission(
+  broadcasterMock: { sendToAgent: { mock: { calls: unknown[][] } } },
+  opts: { event?: string; maxMs?: number } = {},
+) {
+  const target = opts.event ?? "app/participantRejected";
+  const maxMs = opts.maxMs ?? 500;
+  const start = Date.now();
+  while (Date.now() - start < maxMs) {
+    const found = broadcasterMock.sendToAgent.mock.calls.some(
+      (call: unknown[]) => {
+        const frame = call[1] as Record<string, unknown> | undefined;
+        return (
+          frame?.event === target ||
+          frame?.event === "app/sessionReady" ||
+          frame?.event === "app/participantAdmitted"
+        );
+      },
+    );
+    if (found) return;
+    await new Promise((r) => setTimeout(r, 10));
+  }
 }
 
 const TEST_MANIFEST = {
@@ -380,7 +404,7 @@ describe("AppHost", () => {
       db._setAgentRows(TEST_AGENTS);
 
       await appHost.createSession("test-app", "agent-init", ["agent-2"]);
-      await waitForAdmission();
+      await waitForAdmission(broadcaster);
 
       expect(broadcaster.sendToAgent).toHaveBeenCalledWith(
         "agent-2",
@@ -415,7 +439,7 @@ describe("AppHost", () => {
       appHost.setPermissionHandler(handler);
 
       await appHost.createSession("perm-app", "agent-init", ["agent-2"]);
-      await waitForAdmission();
+      await waitForAdmission(broadcaster);
 
       expect(handler.requestPermission).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -472,7 +496,7 @@ describe("AppHost", () => {
         if (handler) appHost.setPermissionHandler(handler);
 
         await appHost.createSession("perm-app", "agent-init", ["agent-2"]);
-        await waitForAdmission();
+        await waitForAdmission(broadcaster);
 
         expect(broadcaster.sendToAgent).toHaveBeenCalledWith(
           "agent-2",
@@ -494,7 +518,7 @@ describe("AppHost", () => {
       appHost.setPermissionHandler(handler);
 
       await appHost.createSession("perm-app", "agent-init", ["agent-2"]);
-      await waitForAdmission();
+      await waitForAdmission(broadcaster);
 
       expect(logger.info).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -512,7 +536,7 @@ describe("AppHost", () => {
       appHost.setPermissionHandler(handler);
 
       await appHost.createSession("perm-app", "agent-init", ["agent-2"]);
-      await waitForAdmission();
+      await waitForAdmission(broadcaster);
 
       expect(logger.info).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -532,7 +556,7 @@ describe("AppHost", () => {
       appHost.setPermissionHandler(handler);
 
       await appHost.createSession("perm-app", "agent-init", ["agent-2"]);
-      await waitForAdmission();
+      await waitForAdmission(broadcaster);
 
       expect(handler.requestPermission).not.toHaveBeenCalled();
     });
@@ -580,13 +604,16 @@ describe("AppHost", () => {
         "agent-B",
       ]);
 
-      // Give async admission a tick to start both agents
-      await new Promise((r) => setTimeout(r, 50));
+      // Poll until the handler has been called (both agents started admission)
+      const start = Date.now();
+      while (callCount === 0 && Date.now() - start < 500) {
+        await new Promise((r) => setTimeout(r, 5));
+      }
 
       // Resolve the shared promise
       resolveFirst(["read"]);
 
-      await waitForAdmission(200);
+      await waitForAdmission(broadcaster);
 
       // Both agents share owner "user-shared" + appId "coal-app" + resource "files".
       // The handler should have been called only once (coalesced).
@@ -616,7 +643,7 @@ describe("AppHost", () => {
       appHost.setPermissionHandler(handler);
 
       await appHost.createSession("set-app", "agent-init", ["agent-2"]);
-      await waitForAdmission();
+      await waitForAdmission(broadcaster);
 
       expect(handler.requestPermission).toHaveBeenCalled();
     });
@@ -642,7 +669,7 @@ describe("AppHost", () => {
       appHost.setPermissionHandler(handler);
 
       await appHost.createSession("set-app2", "agent-init", ["agent-2"]);
-      await waitForAdmission();
+      await waitForAdmission(broadcaster);
 
       expect(handler.requestPermission).not.toHaveBeenCalled();
     });
