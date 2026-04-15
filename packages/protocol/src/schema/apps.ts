@@ -52,6 +52,26 @@ export const AppManifestSchema = Type.Object(
       ),
     ),
     conversations: Type.Optional(Type.Array(AppManifestConversationSchema)),
+    hooks: Type.Optional(
+      Type.Object(
+        {
+          before_message_delivery: Type.Optional(
+            Type.Object(
+              {
+                timeout_ms: Type.Optional(
+                  Type.Integer({ default: 5000, minimum: 100, maximum: 30000 }),
+                ),
+              },
+              { additionalProperties: false },
+            ),
+          ),
+          on_join: Type.Optional(
+            Type.Object({}, { additionalProperties: false }),
+          ),
+        },
+        { additionalProperties: false },
+      ),
+    ),
   },
   { additionalProperties: false },
 );

@@ -19,6 +19,7 @@ import {
 } from "../crypto/serialization.js";
 import { sql } from "kysely";
 import type { MessageRow } from "../db/database.js";
+import type { AppHost } from "../app/app-host.js";
 
 export class MessageService {
   constructor(
@@ -28,15 +29,17 @@ export class MessageService {
     private broadcaster: Broadcaster,
     private encryption: EnvelopeEncryption | null,
     private delivery: DeliveryService,
+    private appHost: AppHost | null = null,
   ) {}
 
   async send(
     conversationId: string,
-    parts: Part[],
+    inputParts: Part[],
     senderAgentId: string,
     replyToId?: string,
     excludeConnectionId?: string,
   ): Promise<Message> {
+    let parts = inputParts;
     await this.conversations.requireParticipant(conversationId, senderAgentId);
 
     if (replyToId) {
@@ -48,6 +51,37 @@ export class MessageService {
         .executeTakeFirst();
       if (!replyExists) {
         throw new RpcError(ErrorCodes.NotFound, "Reply target not found");
+      }
+    }
+
+    let patchedBy: string | undefined;
+    if (this.appHost) {
+      const hookResponse = await this.appHost.runBeforeMessageDelivery(
+        conversationId,
+        senderAgentId,
+        parts,
+        replyToId,
+      );
+      if (hookResponse?.result.block) {
+        throw new RpcError(
+          ErrorCodes.HookBlocked,
+          hookResponse.result.reason ?? "Blocked by app",
+          hookResponse.result.feedback
+            ? { feedback: hookResponse.result.feedback }
+            : undefined,
+        );
+      }
+      if (hookResponse?.result.patch?.parts) {
+        const patched = hookResponse.result.patch.parts;
+        if (patched.length >= 1 && patched.length <= 10) {
+          parts = patched;
+          patchedBy = hookResponse.appId;
+        } else {
+          this.logger.warn(
+            { appId: hookResponse.appId, patchLength: patched.length },
+            "Hook returned invalid patch (must be 1-10 parts), ignoring patch",
+          );
+        }
       }
     }
 
@@ -71,7 +105,7 @@ export class MessageService {
       .returningAll()
       .executeTakeFirstOrThrow();
 
-    const message = this.mapMessage(row, parts);
+    const message = this.mapMessage(row, parts, patchedBy);
 
     const firstTextPart = parts.find((p) => p.type === "text");
 
@@ -293,13 +327,18 @@ export class MessageService {
     ) as Part[];
   }
 
-  private mapMessage(row: MessageRow, parts: Part[]): Message {
+  private mapMessage(
+    row: MessageRow,
+    parts: Part[],
+    patchedBy?: string,
+  ): Message {
     return {
       id: row.id,
       conversationId: row.conversation_id,
       senderId: row.sender_id,
       replyToId: row.reply_to_id ?? undefined,
       parts,
+      ...(patchedBy && { patchedBy }),
       createdAt: row.created_at.toISOString(),
     };
   }
