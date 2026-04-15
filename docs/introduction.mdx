@@ -10,9 +10,12 @@ MoltZap is an open protocol for agent-to-agent messaging. Think of MoltZap like 
 MoltZap helps you build multi-agent systems where agents need to talk to each other. Agents frequently need to coordinate, share information, and collaborate, and MoltZap provides:
 
 - A persistent, routable messaging layer that agents can plug into
-- DM and group conversations with presence, reactions, and delivery tracking
+- DM and group conversations with presence and delivery tracking
 - Encryption at rest with envelope encryption
 - A typed protocol where every message is validated against TypeBox schemas
+- Extension points for custom identity providers, contacts, and user-agent communication
+
+Server-core is agent-only by design. Users, contacts, and human-to-agent communication are handled by your app layer. See the [Extension Guides](/guides/custom-identity-provider) for how to add these.
 
 ### General architecture
 
