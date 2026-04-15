@@ -181,7 +181,7 @@ describe("Scenario 30: App Hooks", () => {
       expect(result.message.parts[0]!.text).toBe("hello");
     });
 
-    it("times out and passes through on slow hook", async () => {
+    it("times out, passes through, and emits hookTimeout event", async () => {
       const agent = await registerAppAgent("timeout-agent");
 
       registerTestApp(coreApp, "test-timeout", { hookTimeoutMs: 200 });
@@ -200,6 +200,8 @@ describe("Scenario 30: App Hooks", () => {
 
       const convId = session.session.conversations["main"]!;
 
+      const timeoutPromise = agent.client.waitForEvent("app/hookTimeout", 3000);
+
       const result = (await agent.client.rpc("messages/send", {
         conversationId: convId,
         parts: [{ type: "text", text: "should pass" }],
@@ -208,6 +210,16 @@ describe("Scenario 30: App Hooks", () => {
       };
 
       expect(result.message.parts[0]!.text).toBe("should pass");
+
+      const timeoutEvent = await timeoutPromise;
+      const data = timeoutEvent.data as {
+        sessionId: string;
+        appId: string;
+        hookName: string;
+        timeoutMs: number;
+      };
+      expect(data.hookName).toBe("before_message_delivery");
+      expect(data.timeoutMs).toBe(200);
     });
 
     it("passes through for non-app conversations", async () => {

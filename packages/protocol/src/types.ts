@@ -125,4 +125,10 @@ export type {
   AppsAttestSkillResult,
   AppsGrantPermissionParams,
   AppsGrantPermissionResult,
+  AppsCloseSessionParams,
+  AppsCloseSessionResult,
+  AppsGetSessionParams,
+  AppsGetSessionResult,
+  AppsListSessionsParams,
+  AppsListSessionsResult,
 } from "./schema/methods/apps.js";
