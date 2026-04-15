@@ -30,11 +30,6 @@ export class ParticipantService {
     return resolved.ownerUserId;
   }
 
-  /** Get the owner user ID for a context. */
-  static ownerIdFromContext(ctx: AuthenticatedContext): string | null {
-    return ctx.ownerUserId;
-  }
-
   /** Get owner user ID or throw Forbidden. Use in handlers that require a claimed agent. */
   static requireOwnerId(ctx: AuthenticatedContext): string {
     const userId = ctx.ownerUserId;

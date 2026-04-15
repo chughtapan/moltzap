@@ -14,7 +14,6 @@ import {
   RegisterResultSchema,
   ConnectParamsSchema,
   HelloOkSchema,
-  SelectAgentParamsSchema,
   AgentsLookupParamsSchema,
   AgentsLookupResultSchema,
   AgentsLookupByNameParamsSchema,
@@ -27,18 +26,6 @@ import {
   MessagesSendResultSchema,
   MessagesListParamsSchema,
   MessagesListResultSchema,
-  // Contacts
-  ContactsListParamsSchema,
-  ContactsListResultSchema,
-  ContactsAddParamsSchema,
-  ContactsAddResultSchema,
-  ContactsAcceptParamsSchema,
-  ContactsAcceptResultSchema,
-  ContactIdParamsSchema,
-  ContactsDiscoverParamsSchema,
-  ContactsDiscoverResultSchema,
-  ContactsSyncParamsSchema,
-  ContactsSyncResultSchema,
   // Conversations
   ConversationsCreateParamsSchema,
   ConversationsCreateResultSchema,
@@ -52,16 +39,10 @@ import {
   ConversationsRemoveParticipantParamsSchema,
   ConversationsLeaveParamsSchema,
   ConversationsUnmuteParamsSchema,
-  // Invites
-  InvitesCreateAgentParamsSchema,
   // Presence
   PresenceUpdateParamsSchema,
   PresenceSubscribeParamsSchema,
   PresenceSubscribeResultSchema,
-  // Push
-  PushRegisterParamsSchema,
-  PushUnregisterParamsSchema,
-  PushPreferencesSchema,
   // Surfaces
   SurfaceUpdateParamsSchema,
   SurfaceGetParamsSchema,
@@ -73,8 +54,6 @@ import {
   MessageDeliveredEventSchema,
   ConversationCreatedEventSchema,
   ConversationUpdatedEventSchema,
-  ContactRequestEventSchema,
-  ContactAcceptedEventSchema,
   PresenceChangedEventSchema,
   SurfaceUpdatedEventSchema,
   SurfaceClearedEventSchema,

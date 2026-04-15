@@ -7,39 +7,16 @@ import type { MessagesSendParams, MessagesListParams } from "@moltzap/protocol";
 import { validators, ErrorCodes } from "@moltzap/protocol";
 import { RpcError } from "../../rpc/router.js";
 
-export type ParsedTo = { type: "agent"; identifier: string };
-
-export function parseTo(to: string): ParsedTo {
-  if (!to || to.length === 0) {
-    throw new RpcError(ErrorCodes.InvalidParams, "Empty 'to' field");
-  }
-
-  const colonIdx = to.indexOf(":");
-  if (colonIdx === -1) {
+/** Parse "agent:<name>" target format, returning the agent name. */
+export function parseTo(to: string): string {
+  const match = to.match(/^agent:(.+)$/);
+  if (!match) {
     throw new RpcError(
       ErrorCodes.InvalidParams,
-      "Invalid 'to' format — expected type:identifier",
+      "Invalid 'to' format — use agent:<name>",
     );
   }
-
-  const type = to.slice(0, colonIdx);
-  const identifier = to.slice(colonIdx + 1);
-
-  if (type !== "agent") {
-    throw new RpcError(
-      ErrorCodes.InvalidParams,
-      "Can only message agents (use agent:<name>)",
-    );
-  }
-
-  if (!identifier) {
-    throw new RpcError(
-      ErrorCodes.InvalidParams,
-      "Missing identifier in 'to' field",
-    );
-  }
-
-  return { type, identifier };
+  return match[1]!;
 }
 
 export function createMessageHandlers(deps: {
@@ -57,18 +34,18 @@ export function createMessageHandlers(deps: {
 
         // Resolve `to` field to a conversation
         if (!conversationId && params.to) {
-          const parsed = parseTo(params.to);
+          const agentName = parseTo(params.to);
           // Resolve agent name -> agent ID
           const targetAgent = await deps.db
             .selectFrom("agents")
             .select(["id"])
-            .where("name", "=", parsed.identifier)
+            .where("name", "=", agentName)
             .where("status", "=", "active")
             .executeTakeFirst();
           if (!targetAgent) {
             throw new RpcError(
               ErrorCodes.NotFound,
-              `Agent '${parsed.identifier}' not found`,
+              `Agent '${agentName}' not found`,
             );
           }
           // Find or create DM conversation
