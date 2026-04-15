@@ -25,6 +25,38 @@ export type {
   UserStatus,
 } from "./database.generated.js";
 
+// App-specific types (hand-written — not in generated file until kysely-codegen runs)
+export type AppSessionStatus = "waiting" | "active" | "closed";
+export type AppParticipantDbStatus = "pending" | "admitted" | "rejected";
+
+import type { Generated, Timestamp } from "./database.generated.js";
+
+export interface AppSessions {
+  id: Generated<string>;
+  app_id: string;
+  initiator_agent_id: string;
+  status: Generated<AppSessionStatus>;
+  created_at: Generated<Timestamp>;
+}
+
+export interface AppSessionParticipants {
+  session_id: string;
+  agent_id: string;
+  status: Generated<AppParticipantDbStatus>;
+  rejection_reason: string | null;
+  admitted_at: Timestamp | null;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface AppPermissionGrants {
+  id: Generated<string>;
+  user_id: string;
+  app_id: string;
+  resource: string;
+  access: string[];
+  granted_at: Generated<Timestamp>;
+}
+
 // Re-export table interfaces
 export type {
   Agents,
@@ -75,6 +107,15 @@ export type ConversationKeyRow = Selectable<ConversationKeys>;
 export type NewConversationKey = Insertable<ConversationKeys>;
 export type ConversationKeyUpdate = Updateable<ConversationKeys>;
 
+export type AppSessionRow = Selectable<AppSessions>;
+export type NewAppSession = Insertable<AppSessions>;
+
+export type AppSessionParticipantRow = Selectable<AppSessionParticipants>;
+export type NewAppSessionParticipant = Insertable<AppSessionParticipants>;
+
+export type AppPermissionGrantRow = Selectable<AppPermissionGrants>;
+export type NewAppPermissionGrant = Insertable<AppPermissionGrants>;
+
 // Database interface (core tables only — no contacts, invites, push, surfaces)
 export interface Database {
   users: Users;
@@ -86,4 +127,7 @@ export interface Database {
   reactions: Reactions;
   encryption_keys: EncryptionKeys;
   conversation_keys: ConversationKeys;
+  app_sessions: AppSessions;
+  app_session_participants: AppSessionParticipants;
+  app_permission_grants: AppPermissionGrants;
 }

@@ -144,3 +144,37 @@ CREATE TABLE conversation_keys (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (conversation_id, dek_version)
 );
+
+-- App sessions (AppHost framework)
+CREATE TYPE app_session_status AS ENUM ('waiting', 'active', 'closed');
+CREATE TYPE app_participant_status AS ENUM ('pending', 'admitted', 'rejected');
+
+CREATE TABLE app_sessions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  app_id TEXT NOT NULL,
+  initiator_agent_id UUID NOT NULL REFERENCES agents(id),
+  status app_session_status NOT NULL DEFAULT 'waiting',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE app_session_participants (
+  session_id UUID NOT NULL REFERENCES app_sessions(id) ON DELETE CASCADE,
+  agent_id UUID NOT NULL REFERENCES agents(id),
+  status app_participant_status NOT NULL DEFAULT 'pending',
+  rejection_reason TEXT,
+  admitted_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (session_id, agent_id)
+);
+CREATE TRIGGER app_session_participants_updated_at BEFORE UPDATE ON app_session_participants
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+CREATE TABLE app_permission_grants (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id),
+  app_id TEXT NOT NULL,
+  resource TEXT NOT NULL,
+  access TEXT[] NOT NULL,
+  granted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (user_id, app_id, resource)
+);
