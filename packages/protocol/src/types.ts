@@ -123,6 +123,10 @@ export type {
   AppsCreateResult,
   AppsAttestSkillParams,
   AppsAttestSkillResult,
-  AppsGrantPermissionParams,
-  AppsGrantPermissionResult,
+  PermissionsGrantParams,
+  PermissionsGrantResult,
+  PermissionsListParams,
+  PermissionsListResult,
+  PermissionsRevokeParams,
+  PermissionsRevokeResult,
 } from "./schema/methods/apps.js";

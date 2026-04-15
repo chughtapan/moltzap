@@ -19,7 +19,7 @@ export const EventNames = {
   SurfaceUpdated: "surface/updated",
   SurfaceCleared: "surface/cleared",
   AppSkillChallenge: "app/skillChallenge",
-  AppPermissionRequest: "app/permissionRequest",
+  PermissionsRequired: "permissions/required",
   AppParticipantAdmitted: "app/participantAdmitted",
   AppParticipantRejected: "app/participantRejected",
   AppSessionReady: "app/sessionReady",
@@ -90,7 +90,7 @@ export const AppSkillChallengeEventSchema = Type.Object(
   { additionalProperties: false },
 );
 
-export const AppPermissionRequestEventSchema = Type.Object(
+export const PermissionsRequiredEventSchema = Type.Object(
   {
     sessionId: AppSessionId,
     appId: Type.String(),
@@ -118,6 +118,16 @@ export const AppParticipantRejectedEventSchema = Type.Object(
     reason: Type.String(),
     stage: stringEnum(["identity", "capability", "permission"]),
     suggestedAction: Type.Optional(Type.String()),
+    rejectionCode: Type.Optional(
+      stringEnum([
+        "no_handler",
+        "permission_denied",
+        "permission_timeout",
+        "identity_rejected",
+        "capability_failed",
+        "capability_timeout",
+      ]),
+    ),
   },
   { additionalProperties: false },
 );

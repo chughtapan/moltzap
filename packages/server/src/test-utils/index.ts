@@ -189,6 +189,14 @@ export function getCoreDb(): Kysely<Database> {
   return resetDb;
 }
 
+export function getCoreApp(): CoreApp {
+  if (!coreApp)
+    throw new Error(
+      "Test server not running. Call startCoreTestServer() first.",
+    );
+  return coreApp;
+}
+
 export function getBaseUrl(): string {
   if (!_baseUrl) throw new Error("Test server not running.");
   return _baseUrl;

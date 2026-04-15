@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Message } from "@moltzap/protocol";
+import { EventNames } from "@moltzap/protocol";
 import { MoltZapService, sanitizeForSystemReminder } from "./service.js";
 
 class FakeMoltZapService extends MoltZapService {
@@ -565,5 +566,82 @@ describe("MoltZapService.peekFullMessages", () => {
     }
     const { messages } = service.peekFullMessages("conv-self");
     expect(messages).toHaveLength(30);
+  });
+});
+
+describe("MoltZapService.on('permissionRequired')", () => {
+  it("fires handler when permissions/required event arrives", () => {
+    const service = new FakeMoltZapService();
+    const received: unknown[] = [];
+    service.on("permissionRequired", (data) => received.push(data));
+
+    const event = {
+      jsonrpc: "2.0" as const,
+      type: "event" as const,
+      event: EventNames.PermissionsRequired,
+      data: {
+        sessionId: "sess-1",
+        appId: "test-app",
+        resource: "contacts",
+        access: ["read"],
+        requestId: crypto.randomUUID(),
+        targetUserId: crypto.randomUUID(),
+      },
+    };
+    (Reflect.get(service, "handleEvent") as (e: typeof event) => void).call(
+      service,
+      event,
+    );
+
+    expect(received).toHaveLength(1);
+    expect(received[0]).toMatchObject({
+      sessionId: "sess-1",
+      appId: "test-app",
+      resource: "contacts",
+      access: ["read"],
+    });
+  });
+
+  it("does not fire for unrelated events", () => {
+    const service = new FakeMoltZapService();
+    const received: unknown[] = [];
+    service.on("permissionRequired", (data) => received.push(data));
+
+    const event = {
+      jsonrpc: "2.0" as const,
+      type: "event" as const,
+      event: EventNames.PresenceChanged,
+      data: { agentId: "agent-1", status: "online" },
+    };
+    (Reflect.get(service, "handleEvent") as (e: typeof event) => void).call(
+      service,
+      event,
+    );
+
+    expect(received).toHaveLength(0);
+  });
+});
+
+describe("MoltZapService.grantPermission", () => {
+  it("sends permissions/grant RPC", async () => {
+    const service = new FakeMoltZapService();
+    service.responses.set("permissions/grant", {});
+
+    await service.grantPermission({
+      sessionId: "sess-1",
+      agentId: "agent-2",
+      resource: "contacts",
+      access: ["read"],
+    });
+
+    expect(service.calls).toContainEqual({
+      method: "permissions/grant",
+      params: {
+        sessionId: "sess-1",
+        agentId: "agent-2",
+        resource: "contacts",
+        access: ["read"],
+      },
+    });
   });
 });
