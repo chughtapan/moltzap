@@ -1,25 +1,19 @@
 import { Type } from "@sinclair/typebox";
-import { stringEnum } from "../helpers.js";
 import { MessageSchema } from "./messages.js";
 import { ConversationSchema } from "./conversations.js";
 import { ContactSchema } from "./contacts.js";
-import { ConversationId, MessageId } from "./primitives.js";
-import { ParticipantRefSchema } from "./identity.js";
+import { ConversationId, MessageId, AgentId } from "./primitives.js";
 import { PresenceStatusEnum } from "./presence.js";
 import { SurfaceSchema } from "./surfaces.js";
 
 export const EventNames = {
   MessageReceived: "messages/received",
-  MessageRead: "messages/read",
-  MessageReacted: "messages/reacted",
   MessageDelivered: "messages/delivered",
-  MessageDeleted: "messages/deleted",
   ConversationCreated: "conversations/created",
   ConversationUpdated: "conversations/updated",
   ContactRequest: "contact/request",
   ContactAccepted: "contact/accepted",
   PresenceChanged: "presence/changed",
-  TypingIndicator: "typing/indicator",
   SurfaceUpdated: "surface/updated",
   SurfaceCleared: "surface/cleared",
 } as const;
@@ -29,36 +23,12 @@ export const MessageReceivedEventSchema = Type.Object(
   { additionalProperties: false },
 );
 
-export const MessageReadEventSchema = Type.Object(
-  {
-    conversationId: ConversationId,
-    participant: ParticipantRefSchema,
-    seq: Type.Integer({ minimum: 0 }),
-  },
-  { additionalProperties: false },
-);
-
-export const MessageReactedEventSchema = Type.Object(
-  {
-    messageId: MessageId,
-    emoji: Type.String(),
-    participant: ParticipantRefSchema,
-    action: stringEnum(["add", "remove"]),
-  },
-  { additionalProperties: false },
-);
-
 export const MessageDeliveredEventSchema = Type.Object(
   {
     messageId: MessageId,
     conversationId: ConversationId,
-    participant: ParticipantRefSchema,
+    agentId: AgentId,
   },
-  { additionalProperties: false },
-);
-
-export const MessageDeletedEventSchema = Type.Object(
-  { messageId: MessageId, conversationId: ConversationId },
   { additionalProperties: false },
 );
 
@@ -84,16 +54,8 @@ export const ContactAcceptedEventSchema = Type.Object(
 
 export const PresenceChangedEventSchema = Type.Object(
   {
-    participant: ParticipantRefSchema,
+    agentId: AgentId,
     status: PresenceStatusEnum,
-  },
-  { additionalProperties: false },
-);
-
-export const TypingIndicatorEventSchema = Type.Object(
-  {
-    conversationId: ConversationId,
-    participant: ParticipantRefSchema,
   },
   { additionalProperties: false },
 );

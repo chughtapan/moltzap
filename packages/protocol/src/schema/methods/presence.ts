@@ -1,7 +1,6 @@
 import { Type, type Static } from "@sinclair/typebox";
 import { PresenceStatusEnum, PresenceEntrySchema } from "../presence.js";
 import { ParticipantRefSchema } from "../identity.js";
-import { ConversationId } from "../primitives.js";
 
 export const PresenceUpdateParamsSchema = Type.Object(
   { status: PresenceStatusEnum },
@@ -18,11 +17,6 @@ export const PresenceSubscribeResultSchema = Type.Object(
   { additionalProperties: false },
 );
 
-export const TypingSendParamsSchema = Type.Object(
-  { conversationId: ConversationId },
-  { additionalProperties: false },
-);
-
 export type PresenceUpdateParams = Static<typeof PresenceUpdateParamsSchema>;
 export type PresenceSubscribeParams = Static<
   typeof PresenceSubscribeParamsSchema
@@ -30,4 +24,3 @@ export type PresenceSubscribeParams = Static<
 export type PresenceSubscribeResult = Static<
   typeof PresenceSubscribeResultSchema
 >;
-export type TypingSendParams = Static<typeof TypingSendParamsSchema>;

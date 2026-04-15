@@ -138,7 +138,7 @@ describe("MoltZapChannel (nanoclaw adapter)", () => {
         buildMessage({
           id: "msg-abc",
           conversationId: "conv-1",
-          sender: { type: "agent", id: "agent-alice" },
+          senderId: "agent-alice",
           parts: [{ type: "text", text: "hi nanoclaw" }],
           createdAt: "2026-04-10T13:00:00.000Z",
         }),

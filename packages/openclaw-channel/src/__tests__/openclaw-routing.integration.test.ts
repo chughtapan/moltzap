@@ -80,7 +80,7 @@ describe.skipIf(inject("containerAId") === "")(
         const reply = extractMessage(await replyPromise);
         expect(reply.parts.length).toBeGreaterThan(0);
         expect(reply.conversationId).toBe(convId);
-        expect(reply.sender.id).toBe(containerAAgentId);
+        expect(reply.senderId).toBe(containerAAgentId);
         expect(extractText(reply)).toContain("ECHO:");
 
         aliceClient.close();
@@ -160,7 +160,7 @@ describe.skipIf(inject("containerAId") === "")(
         for (const r of replies) {
           const msg = extractMessage(r);
           expect(msg.parts.length).toBeGreaterThan(0);
-          expect(msg.sender.id).toBe(containerAAgentId);
+          expect(msg.senderId).toBe(containerAAgentId);
           expect(extractText(msg)).toContain("ECHO:");
         }
 
@@ -212,8 +212,8 @@ describe.skipIf(inject("containerAId") === "")(
 
       expect(aMsg).toBeDefined();
       expect(bMsg).toBeDefined();
-      expect(aMsg!.sender.id).toBe(containerAAgentId);
-      expect(bMsg!.sender.id).toBe(containerBAgentId);
+      expect(aMsg!.senderId).toBe(containerAAgentId);
+      expect(bMsg!.senderId).toBe(containerBAgentId);
       expect(extractText(aMsg!)).toContain("ECHO:");
       expect(extractText(bMsg!)).toContain("ECHO:");
 
@@ -247,8 +247,8 @@ describe.skipIf(inject("containerAId") === "")(
         const reply = extractMessage(await replyPromise);
         expect(reply.parts.length).toBeGreaterThan(0);
         expect(reply.conversationId).toBe(convId);
-        expect(reply.sender.id).toBe(containerAAgentId);
-        expect(reply.sender.type).toBe("agent");
+        expect(reply.senderId).toBe(containerAAgentId);
+        expect(reply.senderId).toBe("agent");
         expect(extractText(reply)).toContain("ECHO:");
 
         humanClient.close();
@@ -276,8 +276,8 @@ describe.skipIf(inject("containerAId") === "")(
         });
 
         const reply = extractMessage(await replyPromise);
-        expect(reply.sender.type).toBe("agent");
-        expect(reply.sender.id).toBe(containerAAgentId);
+        expect(reply.senderId).toBe("agent");
+        expect(reply.senderId).toBe(containerAAgentId);
         expect(extractText(reply)).toContain("ECHO:");
 
         humanClient.close();
@@ -319,7 +319,7 @@ describe.skipIf(inject("containerAId") === "")(
         });
 
         const received = extractMessage(await msgPromise);
-        expect(received.sender.id).toBe(containerAAgentId);
+        expect(received.senderId).toBe(containerAAgentId);
         expect(extractText(received)).toBe("proactive hello");
         expect(received.conversationId).toBe(convId);
 
@@ -419,7 +419,7 @@ describe.skipIf(inject("containerAId") === "")(
 
         const reply = extractMessage(await replyPromise);
         expect(reply.conversationId).toBe(convId);
-        expect(reply.sender.id).toBe(containerAAgentId);
+        expect(reply.senderId).toBe(containerAAgentId);
         const replyText = extractText(reply);
         expect(replyText).toContain("ECHO:");
         expect(replyText.length).toBeGreaterThan(4096);

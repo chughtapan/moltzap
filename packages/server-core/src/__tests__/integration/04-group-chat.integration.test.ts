@@ -41,18 +41,13 @@ describe("Scenario 4: Group Chat", () => {
     const conversationId = conv.conversation.id;
 
     // Alice sends multiple messages
-    const seqs: number[] = [];
+    const seqs: string[] = [];
     for (let i = 0; i < 3; i++) {
       const result = (await alice.client.rpc("messages/send", {
         conversationId,
         parts: [{ type: "text", text: `Message ${i + 1}` }],
-      })) as { message: { seq: number } };
-      seqs.push(result.message.seq);
-    }
-
-    // Verify seq monotonicity
-    for (let i = 1; i < seqs.length; i++) {
-      expect(seqs[i]).toBeGreaterThan(seqs[i - 1]!);
+      })) as { message: { id: string } };
+      seqs.push(result.message.id);
     }
 
     // List messages

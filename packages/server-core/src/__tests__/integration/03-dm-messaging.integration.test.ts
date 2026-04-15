@@ -42,10 +42,9 @@ describe("Scenario 3: DM Messaging", () => {
     const sendResult = (await alice.client.rpc("messages/send", {
       conversationId,
       parts: [{ type: "text", text: "Hello Bob!" }],
-    })) as { message: { id: string; seq: number; parts: unknown[] } };
+    })) as { message: { id: string; parts: unknown[] } };
 
     expect(sendResult.message.id).toBeDefined();
-    expect(sendResult.message.seq).toBeGreaterThan(0);
     expect(sendResult.message.parts).toEqual([
       { type: "text", text: "Hello Bob!" },
     ]);
@@ -68,12 +67,6 @@ describe("Scenario 3: DM Messaging", () => {
 
     expect(dbRow.parts_iv).toBeDefined();
     expect(dbRow.parts_tag).toBeDefined();
-
-    // Mark as read
-    await alice.client.rpc("messages/read", {
-      conversationId,
-      seq: sendResult.message.seq,
-    });
 
     alice.client.close();
     bob.client.close();

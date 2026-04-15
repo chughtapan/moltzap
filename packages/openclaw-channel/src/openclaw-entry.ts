@@ -15,16 +15,12 @@ import {
 } from "@moltzap/client";
 import { formatCrossConvOpenClaw } from "./format-cross-conv.js";
 import {
-  extractReadReceipt,
-  extractReaction,
   extractDelivery,
-  extractDeletion,
   extractConversationCreated,
   extractConversationUpdated,
   extractContactRequest,
   extractContactAccepted,
   extractPresenceChanged,
-  extractTypingIndicator,
 } from "./mapping.js";
 import { EventNames } from "@moltzap/protocol";
 
@@ -278,7 +274,7 @@ export const moltzapChannelPlugin = {
       core.onInbound(async (enriched) => {
         const chatType =
           enriched.conversationMeta?.type === "group" ? "group" : "direct";
-        const fromId = `${enriched.sender.type}:${enriched.sender.id}`;
+        const fromId = `agent:${enriched.sender.id}`;
 
         log?.info?.(
           `MoltZap: inbound from ${fromId}: ${enriched.text.slice(0, 80)}`,
@@ -375,41 +371,11 @@ export const moltzapChannelPlugin = {
       // Forward non-message events for status/logging
       service.on("rawEvent", (event) => {
         switch (event.event) {
-          case EventNames.MessageRead: {
-            const receipt = extractReadReceipt(event);
-            if (receipt) {
-              log?.debug?.(
-                `MoltZap: read receipt from ${receipt.participant.id} in ${receipt.conversationId} up to seq ${receipt.seq}`,
-              );
-              setStatus({ accountId, lastEventAt: Date.now() });
-            }
-            break;
-          }
           case EventNames.MessageDelivered: {
             const delivery = extractDelivery(event);
             if (delivery) {
               log?.debug?.(
                 `MoltZap: delivery for ${delivery.messageId} in ${delivery.conversationId}`,
-              );
-              setStatus({ accountId, lastEventAt: Date.now() });
-            }
-            break;
-          }
-          case EventNames.MessageReacted: {
-            const reaction = extractReaction(event);
-            if (reaction) {
-              log?.debug?.(
-                `MoltZap: reaction ${reaction.action} ${reaction.emoji} on ${reaction.messageId}`,
-              );
-              setStatus({ accountId, lastEventAt: Date.now() });
-            }
-            break;
-          }
-          case EventNames.MessageDeleted: {
-            const deletion = extractDeletion(event);
-            if (deletion) {
-              log?.debug?.(
-                `MoltZap: message ${deletion.messageId} deleted in ${deletion.conversationId}`,
               );
               setStatus({ accountId, lastEventAt: Date.now() });
             }
@@ -439,7 +405,7 @@ export const moltzapChannelPlugin = {
             const contact = extractContactRequest(event);
             if (contact) {
               log?.debug?.(
-                `MoltZap: contact request from ${contact.contact.requesterId}`,
+                `MoltZap: contact request from ${contact.contact.contactUserId}`,
               );
               setStatus({ accountId, lastEventAt: Date.now() });
             }
@@ -457,18 +423,9 @@ export const moltzapChannelPlugin = {
             const presence = extractPresenceChanged(event);
             if (presence) {
               log?.debug?.(
-                `MoltZap: ${presence.participant.id} is now ${presence.status}`,
+                `MoltZap: ${presence.agentId} is now ${presence.status}`,
               );
               setStatus({ accountId, lastEventAt: Date.now() });
-            }
-            break;
-          }
-          case EventNames.TypingIndicator: {
-            const typing = extractTypingIndicator(event);
-            if (typing) {
-              log?.debug?.(
-                `MoltZap: typing in ${typing.conversationId} by ${typing.participant.id}`,
-              );
             }
             break;
           }
