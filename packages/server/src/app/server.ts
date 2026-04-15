@@ -34,7 +34,7 @@ import { createPresenceHandlers } from "./handlers/presence.handlers.js";
 import { createAppHandlers } from "./handlers/apps.handlers.js";
 
 // AppHost
-import { AppHost } from "./app-host.js";
+import { AppHost, DefaultPermissionHandler } from "./app-host.js";
 
 import type { CoreConfig, CoreApp, ConnectionHook } from "./types.js";
 import { runDemoAgents } from "./demo-agents.js";
@@ -90,6 +90,12 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     appHost,
   );
 
+  const defaultPermissionHandler = new DefaultPermissionHandler(
+    broadcaster,
+    logger,
+  );
+  appHost.setPermissionHandler(defaultPermissionHandler);
+
   // Per-request connection context for concurrent WebSocket RPC dispatches
   const connIdContext = new AsyncLocalStorage<string>();
 
@@ -123,7 +129,10 @@ export function createCoreApp(config: CoreConfig): CoreApp {
       connections,
       getConnId: () => connIdContext.getStore() ?? "",
     }),
-    ...createAppHandlers({ appHost }),
+    ...createAppHandlers({
+      appHost,
+      permissionHandler: defaultPermissionHandler,
+    }),
   };
 
   const dispatch = createRpcRouter(methods);
@@ -315,6 +324,9 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     setContactChecker(checker) {
       appHost.setContactChecker(checker);
     },
+    setPermissionHandler(handler) {
+      appHost.setPermissionHandler(handler);
+    },
     async createAppSession(appId, initiatorAgentId, invitedAgentIds) {
       return appHost.createSession(appId, initiatorAgentId, invitedAgentIds);
     },
@@ -337,6 +349,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
       return appHost.listSessions(callerAgentId, opts);
     },
     async close() {
+      defaultPermissionHandler.destroy();
       appHost.destroy();
       for (const conn of connections.all()) {
         try {

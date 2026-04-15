@@ -5,7 +5,7 @@ import type { ConnectionManager } from "../ws/connection.js";
 import type { ConversationService } from "../services/conversation.service.js";
 import type { Logger } from "../logger.js";
 import type { AppManifest, AppSession, Part } from "@moltzap/protocol";
-import { ErrorCodes, eventFrame } from "@moltzap/protocol";
+import { ErrorCodes, EventNames, eventFrame } from "@moltzap/protocol";
 import type {
   AppHooks,
   BeforeMessageDeliveryHook,
@@ -21,6 +21,32 @@ function errorMessage(err: unknown): string {
 
 export interface ContactChecker {
   areInContact(userIdA: string, userIdB: string): Promise<boolean>;
+}
+
+export interface PermissionHandler {
+  requestPermission(params: {
+    userId: string;
+    agentId: string;
+    sessionId: string;
+    appId: string;
+    resource: string;
+    access: string[];
+    timeoutMs: number;
+  }): Promise<string[]>;
+}
+
+export class PermissionDeniedError extends Error {
+  constructor(resource: string) {
+    super(`Permission denied for resource: ${resource}`);
+    this.name = "PermissionDeniedError";
+  }
+}
+
+export class PermissionTimeoutError extends Error {
+  constructor(resource: string) {
+    super(`Permission timeout for resource: ${resource}`);
+    this.name = "PermissionTimeoutError";
+  }
 }
 
 interface PendingChallenge {
@@ -42,11 +68,102 @@ interface PendingPermission {
   timer: ReturnType<typeof setTimeout>;
 }
 
+export class DefaultPermissionHandler implements PermissionHandler {
+  private pendingPermissions = new Map<string, PendingPermission>();
+
+  constructor(
+    private broadcaster: Broadcaster,
+    private logger: Logger,
+  ) {}
+
+  async requestPermission(params: {
+    userId: string;
+    agentId: string;
+    sessionId: string;
+    appId: string;
+    resource: string;
+    access: string[];
+    timeoutMs: number;
+  }): Promise<string[]> {
+    const requestId = crypto.randomUUID();
+    const key = `${params.sessionId}:${params.agentId}:${params.resource}`;
+
+    return new Promise<string[]>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingPermissions.delete(key);
+        reject(new PermissionTimeoutError(params.resource));
+      }, params.timeoutMs);
+
+      this.pendingPermissions.set(key, {
+        targetUserId: params.userId,
+        agentId: params.agentId,
+        sessionId: params.sessionId,
+        appId: params.appId,
+        resource: params.resource,
+        resolve,
+        reject: (reason: string) => reject(new PermissionDeniedError(reason)),
+        timer,
+      });
+
+      this.broadcaster.sendToAgent(
+        params.agentId,
+        eventFrame(EventNames.PermissionsRequired, {
+          sessionId: params.sessionId,
+          appId: params.appId,
+          resource: params.resource,
+          access: params.access,
+          requestId,
+          targetUserId: params.userId,
+        }),
+      );
+    });
+  }
+
+  resolvePermission(
+    callerUserId: string,
+    sessionId: string,
+    agentId: string,
+    resource: string,
+    access: string[],
+  ): void {
+    const key = `${sessionId}:${agentId}:${resource}`;
+    const pending = this.pendingPermissions.get(key);
+    if (!pending) return;
+
+    if (pending.targetUserId !== callerUserId) {
+      this.logger.warn(
+        {
+          expected: pending.targetUserId,
+          got: callerUserId,
+          agentId,
+          sessionId,
+          resource,
+        },
+        "Permission grant from wrong user",
+      );
+      return;
+    }
+
+    clearTimeout(pending.timer);
+    this.pendingPermissions.delete(key);
+    pending.resolve(access);
+  }
+
+  destroy(): void {
+    for (const pending of this.pendingPermissions.values()) {
+      clearTimeout(pending.timer);
+      pending.reject("shutdown");
+    }
+    this.pendingPermissions.clear();
+  }
+}
+
 export class AppHost {
   private pendingChallenges = new Map<string, PendingChallenge>();
-  private pendingPermissions = new Map<string, PendingPermission>();
   private manifests = new Map<string, AppManifest>();
   private contactChecker: ContactChecker | null = null;
+  private permissionHandler: PermissionHandler | null = null;
+  private inflightPermissions = new Map<string, Promise<string[]>>();
   private hooks = new Map<string, AppHooks>();
   private conversationToSession = new Map<
     string,
@@ -73,6 +190,10 @@ export class AppHost {
 
   setContactChecker(checker: ContactChecker): void {
     this.contactChecker = checker;
+  }
+
+  setPermissionHandler(handler: PermissionHandler): void {
+    this.permissionHandler = handler;
   }
 
   onBeforeMessageDelivery(
@@ -328,41 +449,10 @@ export class AppHost {
     pending.resolve({ skillUrl, version });
   }
 
-  resolvePermission(
-    callerUserId: string,
-    sessionId: string,
-    agentId: string,
-    resource: string,
-    access: string[],
-  ): void {
-    const key = `${sessionId}:${agentId}:${resource}`;
-    const pending = this.pendingPermissions.get(key);
-    if (!pending) return;
-
-    if (pending.targetUserId !== callerUserId) {
-      this.logger.warn(
-        {
-          expected: pending.targetUserId,
-          got: callerUserId,
-          agentId,
-          sessionId,
-          resource,
-        },
-        "Permission grant from wrong user",
-      );
-      return;
-    }
-
-    clearTimeout(pending.timer);
-    this.pendingPermissions.delete(key);
-    pending.resolve(access);
-  }
-
   async closeSession(
     sessionId: string,
     callerAgentId: string,
   ): Promise<{ closed: boolean }> {
-    // 1. Look up session
     const sessionRow = await this.db
       .selectFrom("app_sessions")
       .selectAll()
@@ -376,7 +466,6 @@ export class AppHost {
       throw new RpcError(ErrorCodes.SessionClosed, "Session is already closed");
     }
 
-    // 2. Only initiator can close
     if (sessionRow.initiator_agent_id !== callerAgentId) {
       throw new RpcError(
         ErrorCodes.Forbidden,
@@ -384,7 +473,7 @@ export class AppHost {
       );
     }
 
-    // 2b. Atomic claim: prevents concurrent close race
+    // Atomic claim: prevents concurrent close race
     const claimed = await this.db
       .updateTable("app_sessions")
       .set({ status: "closed", closed_at: new Date() })
@@ -395,7 +484,6 @@ export class AppHost {
       throw new RpcError(ErrorCodes.SessionClosed, "Session is already closed");
     }
 
-    // 3. Get admitted participants for broadcast
     const participantRows = await this.db
       .selectFrom("app_session_participants")
       .select("agent_id")
@@ -404,7 +492,6 @@ export class AppHost {
       .execute();
     const participantAgentIds = participantRows.map((r) => r.agent_id);
 
-    // 4. Get conversation mappings (single query, used for both convIds and hook context)
     const convEntries = await this.db
       .selectFrom("app_session_conversations")
       .select(["conversation_key", "conversation_id"])
@@ -417,7 +504,7 @@ export class AppHost {
       this.sessionToConversations.get(sessionId) ??
       new Set(convEntries.map((r) => r.conversation_id));
 
-    // 5. Fire on_close hook with timeout (fail-open)
+    // Fire on_close hook with timeout (fail-open)
     const appHooks = this.hooks.get(sessionRow.app_id);
     if (appHooks?.onClose) {
       const manifest = this.manifests.get(sessionRow.app_id);
@@ -461,7 +548,6 @@ export class AppHost {
       }
     }
 
-    // 6-7a. Archive conversations (session already marked closed in step 2b)
     const convIdArray = [...convIds];
     if (convIdArray.length > 0) {
       await this.db
@@ -471,13 +557,11 @@ export class AppHost {
         .execute();
     }
 
-    // 7b-7c. Prune in-memory maps
     for (const convId of convIdArray) {
       this.conversationToSession.delete(convId);
     }
     this.sessionToConversations.delete(sessionId);
 
-    // 7d. Unsubscribe all agents from closed conversations
     const allAgentIds = [callerAgentId, ...participantAgentIds];
     for (const agentId of allAgentIds) {
       for (const convId of convIdArray) {
@@ -485,7 +569,6 @@ export class AppHost {
       }
     }
 
-    // 8. Broadcast app/sessionClosed to initiator + admitted participants
     const closedEvent = eventFrame("app/sessionClosed", {
       sessionId,
       closedBy: callerAgentId,
@@ -512,7 +595,6 @@ export class AppHost {
       throw new RpcError(ErrorCodes.SessionNotFound, "Session not found");
     }
 
-    // Accessible to initiator or admitted participants
     const isInitiator = sessionRow.initiator_agent_id === callerAgentId;
     if (!isInitiator) {
       const participant = await this.db
@@ -530,7 +612,6 @@ export class AppHost {
       }
     }
 
-    // Hydrate conversations from DB join table
     const convRows = await this.db
       .selectFrom("app_session_conversations")
       .select(["conversation_key", "conversation_id"])
@@ -604,14 +685,52 @@ export class AppHost {
       clearTimeout(pending.timer);
     }
     this.pendingChallenges.clear();
-    for (const pending of this.pendingPermissions.values()) {
-      clearTimeout(pending.timer);
-      pending.reject("shutdown");
-    }
-    this.pendingPermissions.clear();
+    this.inflightPermissions.clear();
     this.hooks.clear();
     this.conversationToSession.clear();
     this.sessionToConversations.clear();
+  }
+
+  async listGrants(
+    userId: string,
+    appId?: string,
+  ): Promise<
+    Array<{
+      appId: string;
+      resource: string;
+      access: string[];
+      grantedAt: string;
+    }>
+  > {
+    let query = this.db
+      .selectFrom("app_permission_grants")
+      .select(["app_id", "resource", "access", "granted_at"])
+      .where("user_id", "=", userId);
+
+    if (appId) {
+      query = query.where("app_id", "=", appId);
+    }
+
+    const rows = await query.execute();
+    return rows.map((r) => ({
+      appId: r.app_id,
+      resource: r.resource,
+      access: r.access,
+      grantedAt: new Date(r.granted_at).toISOString(),
+    }));
+  }
+
+  async revokeGrant(
+    userId: string,
+    appId: string,
+    resource: string,
+  ): Promise<void> {
+    await this.db
+      .deleteFrom("app_permission_grants")
+      .where("user_id", "=", userId)
+      .where("app_id", "=", appId)
+      .where("resource", "=", resource)
+      .executeTakeFirst();
   }
 
   private subscribeToConversation(agentId: string, convId: string): void {
@@ -734,30 +853,25 @@ export class AppHost {
         agentId,
         "identity",
         "Agent not found",
+        undefined,
+        "identity_rejected",
       );
       return;
     }
 
     // Identity and capability checks are independent — run concurrently.
-    // Guard prevents duplicate rejection events if both fail.
+    // Track whether we've already rejected this agent so concurrent failures
+    // don't send duplicate rejection events.
     let rejected = false;
     const guardedReject = async (
-      stage: "identity" | "capability",
-      reason: string,
-      suggestedAction?: string,
+      ...args: Parameters<typeof this.rejectAgent>
     ) => {
       if (rejected) return;
       rejected = true;
-      await this.rejectAgent(
-        session.id,
-        agentId,
-        stage,
-        reason,
-        suggestedAction,
-      );
+      await this.rejectAgent(...args);
     };
 
-    const results = await Promise.allSettled([
+    const [identityResult, capabilityResult] = await Promise.allSettled([
       this.checkIdentity(
         session,
         initiatorAgentId,
@@ -770,8 +884,8 @@ export class AppHost {
         : Promise.resolve(),
     ]);
 
-    const failure = results.find((r) => r.status === "rejected");
-    if (failure) throw (failure as PromiseRejectedResult).reason;
+    if (identityResult.status === "rejected") throw identityResult.reason;
+    if (capabilityResult.status === "rejected") throw capabilityResult.reason;
 
     const grantedResources = await this.checkPermissions(
       session,
@@ -796,20 +910,19 @@ export class AppHost {
       string,
       { id: string; owner_user_id: string | null; status: string }
     >,
-    guardedReject: (
-      stage: "identity" | "capability",
-      reason: string,
-      suggestedAction?: string,
-    ) => Promise<void>,
+    reject: typeof this.rejectAgent = this.rejectAgent.bind(this),
   ): Promise<void> {
     const agent = agentMap.get(agentId)!;
     const initiator = agentMap.get(initiatorAgentId)!;
 
     if (!agent.owner_user_id) {
-      await guardedReject(
+      await reject(
+        session.id,
+        agentId,
         "identity",
         "Agent has no owner_user_id",
         "Set owner_user_id on the agent before inviting it to app sessions",
+        "identity_rejected",
       );
       throw new Error("Agent has no owner");
     }
@@ -822,17 +935,25 @@ export class AppHost {
         agent.owner_user_id,
       );
       if (!inContact) {
-        await guardedReject(
+        await reject(
+          session.id,
+          agentId,
           "identity",
           "Agent owner is not a contact of the session initiator's owner",
+          undefined,
+          "identity_rejected",
         );
         throw new Error("Not in contacts");
       }
     } catch (err) {
       if (errorMessage(err) === "Not in contacts") throw err;
-      await guardedReject(
+      await reject(
+        session.id,
+        agentId,
         "identity",
         `ContactChecker error: ${errorMessage(err)}`,
+        undefined,
+        "identity_rejected",
       );
       throw err;
     }
@@ -842,31 +963,26 @@ export class AppHost {
     session: AppSession,
     agentId: string,
     manifest: AppManifest,
-    guardedReject: (
-      stage: "identity" | "capability",
-      reason: string,
-      suggestedAction?: string,
-    ) => Promise<void>,
+    reject: typeof this.rejectAgent = this.rejectAgent.bind(this),
   ): Promise<void> {
     const challengeId = crypto.randomUUID();
     const timeoutMs = manifest.challengeTimeoutMs ?? 30000;
 
     const result = await new Promise<{ skillUrl: string; version: string }>(
-      (resolve, reject) => {
+      (resolve, promiseReject) => {
         const timer = setTimeout(() => {
           this.pendingChallenges.delete(challengeId);
-          reject(new Error("attestation timeout"));
+          promiseReject(new Error("attestation timeout"));
         }, timeoutMs);
 
         this.pendingChallenges.set(challengeId, {
           targetAgentId: agentId,
           sessionId: session.id,
           resolve,
-          reject: (reason: string) => reject(new Error(reason)),
+          reject: (reason: string) => promiseReject(new Error(reason)),
           timer,
         });
 
-        // Send challenge to the agent
         this.broadcaster.sendToAgent(
           agentId,
           eventFrame("app/skillChallenge", {
@@ -879,31 +995,45 @@ export class AppHost {
         );
       },
     ).catch(async (err) => {
+      const code =
+        errorMessage(err) === "attestation timeout"
+          ? "capability_timeout"
+          : "capability_failed";
       const reason =
         errorMessage(err) === "attestation timeout"
           ? "Skill attestation timed out"
           : `Skill attestation failed: ${errorMessage(err)}`;
-      await guardedReject(
+      await reject(
+        session.id,
+        agentId,
         "capability",
         reason,
         `Install the skill from ${manifest.skillUrl} and ensure version >= ${manifest.skillMinVersion ?? "any"}`,
+        code,
       );
       throw err;
     });
 
-    // Verify the attestation
     if (result.skillUrl !== manifest.skillUrl) {
-      await guardedReject(
+      await reject(
+        session.id,
+        agentId,
         "capability",
         `Skill URL mismatch: expected ${manifest.skillUrl}, got ${result.skillUrl}`,
+        undefined,
+        "capability_failed",
       );
       throw new Error("Skill mismatch");
     }
 
     if (manifest.skillMinVersion && result.version < manifest.skillMinVersion) {
-      await guardedReject(
+      await reject(
+        session.id,
+        agentId,
         "capability",
         `Skill version ${result.version} below minimum ${manifest.skillMinVersion}`,
+        undefined,
+        "capability_failed",
       );
       throw new Error("Skill version too low");
     }
@@ -913,14 +1043,21 @@ export class AppHost {
     userId: string,
     appId: string,
     resource: string,
+    requiredAccess: string[],
   ): Promise<{ access: string[] } | undefined> {
-    return this.db
+    const row = await this.db
       .selectFrom("app_permission_grants")
       .select("access")
       .where("user_id", "=", userId)
       .where("app_id", "=", appId)
       .where("resource", "=", resource)
       .executeTakeFirst();
+
+    if (!row) return undefined;
+    // Set-containment: stored access must cover ALL required access
+    const stored = new Set(row.access);
+    const covers = requiredAccess.every((a) => stored.has(a));
+    return covers ? row : undefined;
   }
 
   private async checkPermissions(
@@ -941,6 +1078,7 @@ export class AppHost {
         ownerUserId,
         session.appId,
         perm.resource,
+        perm.access,
       );
 
       if (existing) {
@@ -952,41 +1090,63 @@ export class AppHost {
         }
       }
 
-      const permKey = `${session.id}:${agentId}:${perm.resource}`;
-      const requestId = crypto.randomUUID();
-      const timeoutMs = manifest.permissionTimeoutMs ?? 120000;
+      if (!this.permissionHandler) {
+        await this.rejectAgent(
+          session.id,
+          agentId,
+          "permission",
+          `No permission handler configured for resource: ${perm.resource}`,
+          "Server must configure a PermissionHandler to process permission requests",
+          "no_handler",
+        );
+        throw new Error("No permission handler");
+      }
 
-      try {
-        const access = await new Promise<string[]>((resolve, reject) => {
-          const timer = setTimeout(() => {
-            this.pendingPermissions.delete(permKey);
-            reject(new Error("permission timeout"));
-          }, timeoutMs);
+      // Coalescing: same userId+appId+resource reuses in-flight promise
+      const coalesceKey = `${ownerUserId}:${session.appId}:${perm.resource}`;
 
-          this.pendingPermissions.set(permKey, {
-            targetUserId: ownerUserId,
+      if (!this.inflightPermissions.has(coalesceKey)) {
+        this.logger.info(
+          {
+            sessionId: session.id,
+            appId: session.appId,
+            resource: perm.resource,
+            agentId,
+          },
+          "Requesting permission from handler",
+        );
+
+        const promise = this.permissionHandler
+          .requestPermission({
+            userId: ownerUserId,
             agentId,
             sessionId: session.id,
             appId: session.appId,
             resource: perm.resource,
-            resolve,
-            reject: (reason: string) => reject(new Error(reason)),
-            timer,
+            access: perm.access,
+            timeoutMs: manifest.permissionTimeoutMs ?? 120000,
+          })
+          .finally(() => {
+            this.inflightPermissions.delete(coalesceKey);
           });
 
-          // Send permission request to the agent (agent's owner grants via apps/grantPermission)
-          this.broadcaster.sendToAgent(
-            agentId,
-            eventFrame("app/permissionRequest", {
-              sessionId: session.id,
-              appId: session.appId,
-              resource: perm.resource,
-              access: perm.access,
-              requestId,
-              targetUserId: ownerUserId,
-            }),
-          );
-        });
+        this.inflightPermissions.set(coalesceKey, promise);
+      }
+
+      try {
+        const access = await this.inflightPermissions.get(coalesceKey)!;
+
+        this.logger.info(
+          { sessionId: session.id, resource: perm.resource, access },
+          "Permission handler responded",
+        );
+
+        // Post-handler validation: returned access must cover required access
+        const returnedSet = new Set(access);
+        const covers = perm.access.every((a) => returnedSet.has(a));
+        if (!covers) {
+          throw new PermissionDeniedError(perm.resource);
+        }
 
         // Store the grant
         await this.db
@@ -1006,18 +1166,53 @@ export class AppHost {
 
         granted.push(perm.resource);
       } catch (err) {
-        this.logger.warn(
-          { err, sessionId: session.id, resource: perm.resource },
-          "Permission grant failed",
+        this.inflightPermissions.delete(coalesceKey);
+
+        if (
+          err instanceof PermissionDeniedError ||
+          err instanceof PermissionTimeoutError
+        ) {
+          const code =
+            err instanceof PermissionTimeoutError
+              ? "permission_timeout"
+              : "permission_denied";
+          this.logger.warn(
+            {
+              err: err.message,
+              sessionId: session.id,
+              resource: perm.resource,
+            },
+            "Permission request failed",
+          );
+          await this.rejectAgent(
+            session.id,
+            agentId,
+            "permission",
+            err.message,
+            `Grant ${perm.resource} access via the permission prompt`,
+            code,
+          );
+          throw err;
+        }
+
+        // Unknown error from handler
+        this.logger.error(
+          {
+            err: errorMessage(err),
+            sessionId: session.id,
+            resource: perm.resource,
+          },
+          "Permission handler error",
         );
         await this.rejectAgent(
           session.id,
           agentId,
           "permission",
-          `Permission timeout for resource: ${perm.resource}`,
+          `Permission handler error for resource: ${perm.resource}`,
           `Grant ${perm.resource} access via the permission prompt`,
+          "permission_denied",
         );
-        throw new Error("Permission denied");
+        throw new PermissionDeniedError(perm.resource);
       }
     }
 
@@ -1026,6 +1221,7 @@ export class AppHost {
         ownerUserId,
         session.appId,
         perm.resource,
+        perm.access,
       );
 
       if (existing) {
@@ -1107,6 +1303,7 @@ export class AppHost {
     stage: "identity" | "capability" | "permission",
     reason: string,
     suggestedAction?: string,
+    rejectionCode?: string,
   ): Promise<void> {
     await this.db
       .updateTable("app_session_participants")
@@ -1123,11 +1320,12 @@ export class AppHost {
         reason,
         stage,
         suggestedAction,
+        rejectionCode,
       }),
     );
 
     this.logger.info(
-      { sessionId, agentId, stage, reason },
+      { sessionId, agentId, stage, reason, rejectionCode },
       "Agent rejected from app session",
     );
   }

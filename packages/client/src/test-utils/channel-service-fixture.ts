@@ -5,10 +5,12 @@ import type {
   ChannelService,
   CrossConversationEntry,
   CrossConvMessage,
+  PermissionRequiredData,
 } from "../index.js";
 
 type MessageHandler = (msg: Message) => void;
 type VoidHandler = () => void;
+type PermissionRequiredHandler = (data: PermissionRequiredData) => void;
 
 interface FixtureConversationMeta {
   type: string;
@@ -21,6 +23,7 @@ export interface ChannelServiceEmit {
   message(msg: Message): void;
   disconnect(): void;
   reconnect(): void;
+  permissionRequired(data: PermissionRequiredData): void;
 }
 
 export interface ChannelServiceState {
@@ -55,6 +58,7 @@ export function createFakeChannelService(
   const messageHandlers: MessageHandler[] = [];
   const disconnectHandlers: VoidHandler[] = [];
   const reconnectHandlers: VoidHandler[] = [];
+  const permissionRequiredHandlers: PermissionRequiredHandler[] = [];
 
   const conversations = new Map<string, FixtureConversationMeta>();
   const agentNames = new Map<string, string>();
@@ -74,8 +78,8 @@ export function createFakeChannelService(
     },
 
     on(
-      event: "message" | "disconnect" | "reconnect",
-      handler: MessageHandler | VoidHandler,
+      event: "message" | "disconnect" | "reconnect" | "permissionRequired",
+      handler: MessageHandler | VoidHandler | PermissionRequiredHandler,
     ): void {
       if (event === "message") {
         messageHandlers.push(handler as MessageHandler);
@@ -83,6 +87,8 @@ export function createFakeChannelService(
         disconnectHandlers.push(handler as VoidHandler);
       } else if (event === "reconnect") {
         reconnectHandlers.push(handler as VoidHandler);
+      } else if (event === "permissionRequired") {
+        permissionRequiredHandlers.push(handler as PermissionRequiredHandler);
       }
     },
 
@@ -142,6 +148,9 @@ export function createFakeChannelService(
     },
     reconnect() {
       for (const h of reconnectHandlers) h();
+    },
+    permissionRequired(data) {
+      for (const h of permissionRequiredHandlers) h(data);
     },
   };
 
