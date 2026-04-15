@@ -571,7 +571,11 @@ export class AppHost {
           .execute();
 
         granted.push(perm.resource);
-      } catch {
+      } catch (err) {
+        this.logger.warn(
+          { err, sessionId: session.id, resource: perm.resource },
+          "Permission grant failed",
+        );
         await this.rejectAgent(
           session.id,
           agentId,

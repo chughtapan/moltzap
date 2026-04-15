@@ -194,7 +194,8 @@ export function createCoreApp(config: CoreConfig): CoreApp {
             const data =
               typeof evt.data === "string" ? evt.data : evt.data.toString();
             frame = JSON.parse(data);
-          } catch {
+          } catch (err) {
+            logger.warn({ err, connId }, "Failed to parse WebSocket frame");
             ws.send(
               JSON.stringify({
                 jsonrpc: "2.0",
@@ -320,8 +321,8 @@ export function createCoreApp(config: CoreConfig): CoreApp {
       for (const conn of connections.all()) {
         try {
           conn.ws.close();
-        } catch {
-          // best effort
+        } catch (err) {
+          logger.warn({ err }, "Failed to close WebSocket on shutdown");
         }
       }
       // Give in-flight handlers a moment to settle

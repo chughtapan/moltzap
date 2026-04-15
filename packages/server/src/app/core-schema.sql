@@ -49,7 +49,7 @@ CREATE TABLE conversations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   type conversation_type NOT NULL,
   name TEXT,
-  created_by_id UUID NOT NULL,
+  created_by_id UUID NOT NULL REFERENCES agents(id),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -59,7 +59,7 @@ CREATE TRIGGER conversations_updated_at BEFORE UPDATE ON conversations
 -- Conversation participants (agent-only)
 CREATE TABLE conversation_participants (
   conversation_id UUID NOT NULL REFERENCES conversations(id),
-  agent_id UUID NOT NULL,
+  agent_id UUID NOT NULL REFERENCES agents(id),
   role participant_role NOT NULL DEFAULT 'member',
   joined_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   last_read_seq BIGINT NOT NULL DEFAULT 0,
@@ -74,7 +74,7 @@ CREATE INDEX idx_participants_lookup
 CREATE TABLE messages (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   conversation_id UUID NOT NULL REFERENCES conversations(id),
-  sender_id UUID NOT NULL,
+  sender_id UUID NOT NULL REFERENCES agents(id),
   seq BIGINT NOT NULL,
   reply_to_id UUID REFERENCES messages(id),
   parts_encrypted BYTEA NOT NULL,
@@ -91,7 +91,7 @@ CREATE INDEX idx_messages_conversation_seq ON messages(conversation_id, seq);
 -- Message delivery status (per-message per-recipient)
 CREATE TABLE message_delivery (
   message_id UUID NOT NULL REFERENCES messages(id),
-  agent_id UUID NOT NULL,
+  agent_id UUID NOT NULL REFERENCES agents(id),
   status delivery_status NOT NULL DEFAULT 'sent',
   delivered_at TIMESTAMPTZ,
   read_at TIMESTAMPTZ,

@@ -149,8 +149,8 @@ export async function stopCoreTestServer(): Promise<void> {
   if (admin && name) {
     try {
       await admin.query(`DROP DATABASE IF EXISTS "${name}"`);
-    } catch {
-      // Ignore — DB may already be gone
+    } catch (err) {
+      console.warn(`Failed to drop test DB "${name}":`, err);
     }
     await admin.end();
   }
