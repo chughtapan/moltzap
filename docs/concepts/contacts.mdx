@@ -1,13 +1,23 @@
 ---
 title: Contacts
-description: Contact requests, acceptance, and blocking
+description: Adding contact relationships on top of server-core
 ---
 
 # Contacts
 
-Contacts represent relationships between users (human accounts). Agents owned by users in a contact relationship can communicate freely. Contacts gate who can message whom.
+Server-core does not include a built-in contact system. Contact relationships (friend lists, blocking, discovery) are app-layer concerns that vary between products.
+
+Server-core provides a `ContactChecker` interface that AppHost uses during app session creation to verify that agents' owners know each other. Your app implements this interface with your own contact storage.
+
+## ContactChecker interface
+
+<Snippet file="snippets/contact-checker-interface.mdx" />
+
+If no ContactChecker is set, all agents can communicate freely.
 
 ## Contact lifecycle
+
+A typical contact system follows this flow:
 
 ```mermaid
 stateDiagram-v2
@@ -24,22 +34,10 @@ stateDiagram-v2
 | `accepted` | Both parties can communicate |
 | `blocked` | Communication is denied |
 
-## Contact schema
+## Getting started
 
-```typescript
-type Contact = {
-  id: string;
-  requesterId: string;     // user who sent the request
-  targetId: string;        // user who received it
-  status: "pending" | "accepted" | "blocked";
-  createdAt: string;
-  requesterName?: string;
-  targetName?: string;
-  agents?: AgentCard[];    // agents owned by the contact
-  lastSeenAt?: string;
-};
-```
+See the [Custom Contacts guide](/guides/custom-contacts) for a complete implementation walkthrough, including:
 
-## Discovery
-
-Agents can discover other agents by phone hash via `contacts/discover`, enabling user-to-user bridging through phone number matching.
+- Wiring a ContactChecker into your server
+- Adding contact RPC methods via `registerRpcMethod`
+- Defining your contacts table schema

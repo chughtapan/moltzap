@@ -134,19 +134,6 @@ const methods: MethodDef[] = [
     ],
   },
   {
-    method: "auth/select-agent",
-    description: "Switch the active agent on a user-authenticated connection.",
-    params: SelectAgentParamsSchema,
-    category: "auth",
-    errors: [
-      {
-        code: -32002,
-        name: "NotFound",
-        when: "Agent ID not found or not owned by user",
-      },
-    ],
-  },
-  {
     method: "auth/invite-agent",
     description: "Create an agent invite for a phone number.",
     params: InviteAgentParamsSchema,
@@ -174,21 +161,6 @@ const methods: MethodDef[] = [
     params: AgentsListParamsSchema,
     result: AgentsListResultSchema,
     category: "agents",
-  },
-  // Users
-  {
-    method: "users/lookup",
-    description: "Look up users by their UUIDs.",
-    params: UsersLookupParamsSchema,
-    result: UsersLookupResultSchema,
-    category: "users",
-  },
-  {
-    method: "users/update-profile",
-    description: "Update the authenticated user's display name.",
-    params: UsersUpdateProfileParamsSchema,
-    result: UsersUpdateProfileResultSchema,
-    category: "users",
   },
   // Messages
   {
@@ -230,50 +202,6 @@ const methods: MethodDef[] = [
       { code: -32002, name: "NotFound", when: "Conversation not found" },
       { code: -32001, name: "Forbidden", when: "Not a participant" },
     ],
-  },
-  // Contacts
-  {
-    method: "contacts/list",
-    description: "List contacts, optionally filtered by status.",
-    params: ContactsListParamsSchema,
-    result: ContactsListResultSchema,
-    category: "contacts",
-  },
-  {
-    method: "contacts/add",
-    description: "Send a contact request to a user by phone or user ID.",
-    params: ContactsAddParamsSchema,
-    result: ContactsAddResultSchema,
-    category: "contacts",
-    relatedEvents: ["contact/request"],
-  },
-  {
-    method: "contacts/accept",
-    description: "Accept a pending contact request.",
-    params: ContactsAcceptParamsSchema,
-    result: ContactsAcceptResultSchema,
-    category: "contacts",
-    relatedEvents: ["contact/accepted"],
-  },
-  {
-    method: "contacts/block",
-    description: "Block a contact. Prevents further communication.",
-    params: ContactIdParamsSchema,
-    category: "contacts",
-  },
-  {
-    method: "contacts/discover",
-    description: "Discover users by phone number hashes for contact matching.",
-    params: ContactsDiscoverParamsSchema,
-    result: ContactsDiscoverResultSchema,
-    category: "contacts",
-  },
-  {
-    method: "contacts/sync",
-    description: "Sync phone contact hashes and receive new matches.",
-    params: ContactsSyncParamsSchema,
-    result: ContactsSyncResultSchema,
-    category: "contacts",
   },
   // Conversations
   {
@@ -347,13 +275,6 @@ const methods: MethodDef[] = [
     params: ConversationsUnmuteParamsSchema,
     category: "conversations",
   },
-  // Invites
-  {
-    method: "invites/create-agent",
-    description: "Create a registration invite code for a new agent.",
-    params: InvitesCreateAgentParamsSchema,
-    category: "invites",
-  },
   // Presence
   {
     method: "presence/update",
@@ -368,25 +289,6 @@ const methods: MethodDef[] = [
     params: PresenceSubscribeParamsSchema,
     result: PresenceSubscribeResultSchema,
     category: "presence",
-  },
-  // Push
-  {
-    method: "push/register",
-    description: "Register a device for push notifications.",
-    params: PushRegisterParamsSchema,
-    category: "push",
-  },
-  {
-    method: "push/unregister",
-    description: "Unregister a device from push notifications.",
-    params: PushUnregisterParamsSchema,
-    category: "push",
-  },
-  {
-    method: "push/preferences",
-    description: "Update push notification preferences.",
-    params: PushPreferencesSchema,
-    category: "push",
   },
   // Surfaces
   {
@@ -456,18 +358,6 @@ const events: EventDef[] = [
       "conversations/add-participant",
       "conversations/remove-participant",
     ],
-  },
-  {
-    event: EventNames.ContactRequest,
-    description: "Fired when someone sends you a contact request.",
-    data: ContactRequestEventSchema,
-    triggeredBy: ["contacts/add"],
-  },
-  {
-    event: EventNames.ContactAccepted,
-    description: "Fired when a contact request you sent is accepted.",
-    data: ContactAcceptedEventSchema,
-    triggeredBy: ["contacts/accept"],
   },
   {
     event: EventNames.PresenceChanged,

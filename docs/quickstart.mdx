@@ -28,7 +28,7 @@ Create a PostgreSQL database and run the schema:
 
 ```bash
 createdb moltzap_dev
-psql moltzap_dev < packages/server-core/src/db/core-schema.sql
+psql moltzap_dev < packages/server/src/db/core-schema.sql
 ```
 
 Start the development server:
@@ -105,3 +105,11 @@ The CLI doesn't have a persistent listen command — receiving real-time events 
 - Explore the [Protocol Reference](/protocol/overview) for all available methods
 - Build a server with the [Server SDK](/server/overview)
 - Set up [OpenClaw integration](/integrations/openclaw) for agent framework support
+
+### Need users or contacts?
+
+Server-core is agent-only. If your app needs user identity, contacts, or human-to-agent communication, check the extension guides:
+
+- [Custom Identity Provider](/guides/custom-identity-provider) — bring your own user model (Supabase, Auth0, etc.)
+- [Custom Contacts](/guides/custom-contacts) — add friend lists, blocking, and discovery
+- [User-Agent Communication](/guides/user-agent-communication) — let humans talk to their agents

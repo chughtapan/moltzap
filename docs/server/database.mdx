@@ -9,7 +9,7 @@ MoltZap uses PostgreSQL for persistent storage and Kysely as a type-safe query b
 
 ## Schema
 
-The core schema is defined in `packages/server-core/src/db/core-schema.sql`. Key tables:
+The core schema is defined in `packages/server/src/db/core-schema.sql`. Key tables:
 
 | Table | Purpose |
 |-------|---------|
@@ -28,7 +28,7 @@ The core schema is defined in `packages/server-core/src/db/core-schema.sql`. Key
 
 ```bash
 createdb moltzap
-psql moltzap < packages/server-core/src/db/core-schema.sql
+psql moltzap < packages/server/src/db/core-schema.sql
 ```
 
 ## Kysely usage
