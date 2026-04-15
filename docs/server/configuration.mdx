@@ -30,7 +30,7 @@ import EnvVars from '/snippets/env-vars-table.mdx'
 MoltZap uses PostgreSQL with Kysely as the query builder. The `DATABASE_URL` should point to a PostgreSQL database with the core schema applied:
 
 ```bash
-psql $DATABASE_URL < packages/server-core/src/db/core-schema.sql
+psql $DATABASE_URL < packages/server/src/db/core-schema.sql
 ```
 
 ## Encryption

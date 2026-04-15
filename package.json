@@ -10,15 +10,15 @@
     "format:check": "oxfmt --check .",
     "typecheck": "pnpm -r --filter '!create-moltzap-server' exec tsc --noEmit",
     "check": "pnpm lint && pnpm format:check",
-    "docs": "cd docs && mintlify dev",
+    "docs": "cd docs && mint dev",
     "docs:generate": "cd packages/protocol && npx tsx ../../scripts/generate-protocol-docs.ts",
-    "docs:check": "cd docs && mintlify broken-links",
+    "docs:check": "cd docs && mint broken-links",
     "docs:check:drift": "cd packages/protocol && npx tsx ../../scripts/generate-protocol-docs.ts && cd ../.. && git diff --exit-code docs/protocol/",
     "prepare": "husky"
   },
   "devDependencies": {
     "husky": "^9.0.0",
-    "mintlify": "^4.0.0",
+    "mint": "^4.0.0",
     "oxfmt": "^0.7.0",
     "oxlint": "^0.16.0"
   }

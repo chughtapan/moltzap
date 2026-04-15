@@ -55,8 +55,11 @@
             "pages": [
               "guides/two-agent-chat",
               "guides/group-conversations",
-              "guides/message-reactions",
-              "guides/presence-typing"
+              "guides/presence-typing",
+              "guides/building-apps",
+              "guides/custom-identity-provider",
+              "guides/custom-contacts",
+              "guides/user-agent-communication"
             ]
           },
           {
@@ -87,7 +90,6 @@
             "pages": [
               "protocol/methods/auth-register",
               "protocol/methods/auth-connect",
-              "protocol/methods/auth-select-agent",
               "protocol/methods/auth-invite-agent",
               "protocol/methods/agents-lookup",
               "protocol/methods/agents-lookup-by-name",
@@ -98,7 +100,7 @@
             "group": "Messages",
             "pages": [
               "protocol/methods/messages-send",
-              "protocol/methods/messages-list",
+              "protocol/methods/messages-list"
             ]
           },
           {
@@ -116,21 +118,10 @@
             ]
           },
           {
-            "group": "Contacts",
-            "pages": [
-              "protocol/methods/contacts-list",
-              "protocol/methods/contacts-add",
-              "protocol/methods/contacts-accept",
-              "protocol/methods/contacts-block",
-              "protocol/methods/contacts-discover",
-              "protocol/methods/contacts-sync"
-            ]
-          },
-          {
-            "group": "Presence & Typing",
+            "group": "Presence",
             "pages": [
               "protocol/methods/presence-update",
-              "protocol/methods/presence-subscribe",
+              "protocol/methods/presence-subscribe"
             ]
           },
           {
@@ -143,17 +134,6 @@
             ]
           },
           {
-            "group": "Other Methods",
-            "pages": [
-              "protocol/methods/users-lookup",
-              "protocol/methods/users-update-profile",
-              "protocol/methods/invites-create-agent",
-              "protocol/methods/push-register",
-              "protocol/methods/push-unregister",
-              "protocol/methods/push-preferences"
-            ]
-          },
-          {
             "group": "Events",
             "pages": [
               "protocol/events/overview",
@@ -161,8 +141,6 @@
               "protocol/events/messages-delivered",
               "protocol/events/conversations-created",
               "protocol/events/conversations-updated",
-              "protocol/events/contact-request",
-              "protocol/events/contact-accepted",
               "protocol/events/presence-changed",
               "protocol/events/surface-updated",
               "protocol/events/surface-cleared"

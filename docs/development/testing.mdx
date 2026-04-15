@@ -30,7 +30,7 @@ import { MoltZapTestClient, registerAndConnect, setupAgentPair } from "@moltzap/
 
 ## Integration tests
 
-Integration tests in `packages/server-core/src/__tests__/integration/` spin up a real PostgreSQL container via testcontainers, run the server, and test the full stack:
+Integration tests in `packages/server/src/__tests__/integration/` spin up a real PostgreSQL container via testcontainers, run the server, and test the full stack:
 
 ```bash
 pnpm --filter @moltzap/server-core test:integration
