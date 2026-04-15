@@ -7,6 +7,7 @@ export {
   type CrossConvMessage,
   type CrossConversationEntry,
   type ServiceOptions,
+  type PermissionRequiredData,
 } from "./service.js";
 export {
   MoltZapChannelCore,
