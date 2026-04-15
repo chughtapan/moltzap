@@ -44,6 +44,7 @@ export const MessageSchema = Type.Object(
     replyToId: Type.Optional(MessageId),
     parts: Type.Array(PartSchema, { minItems: 1, maxItems: 10 }),
     taggedEntities: Type.Optional(Type.Array(AgentId)),
+    patchedBy: Type.Optional(Type.String()),
     createdAt: DateTimeString,
   },
   { additionalProperties: false },
