@@ -4,8 +4,15 @@ import type { Broadcaster } from "../ws/broadcaster.js";
 import type { ConnectionManager } from "../ws/connection.js";
 import type { ConversationService } from "../services/conversation.service.js";
 import type { Logger } from "../logger.js";
-import type { AppManifest, AppSession } from "@moltzap/protocol";
+import type { AppManifest, AppSession, Part } from "@moltzap/protocol";
 import { ErrorCodes, eventFrame } from "@moltzap/protocol";
+import type {
+  AppHooks,
+  BeforeMessageDeliveryContext,
+  BeforeMessageDeliveryHook,
+  HookResult,
+  OnJoinHook,
+} from "./hooks.js";
 import { RpcError } from "../rpc/router.js";
 
 function errorMessage(err: unknown): string {
@@ -40,6 +47,11 @@ export class AppHost {
   private pendingPermissions = new Map<string, PendingPermission>();
   private manifests = new Map<string, AppManifest>();
   private contactChecker: ContactChecker | null = null;
+  private hooks = new Map<string, AppHooks>();
+  private conversationToSession = new Map<
+    string,
+    { id: string; appId: string }
+  >();
 
   constructor(
     private db: Kysely<Database>,
@@ -60,6 +72,63 @@ export class AppHost {
 
   setContactChecker(checker: ContactChecker): void {
     this.contactChecker = checker;
+  }
+
+  onBeforeMessageDelivery(
+    appId: string,
+    handler: BeforeMessageDeliveryHook,
+  ): void {
+    const existing = this.hooks.get(appId) ?? {};
+    existing.beforeMessageDelivery = handler;
+    this.hooks.set(appId, existing);
+  }
+
+  onAppJoin(appId: string, handler: OnJoinHook): void {
+    const existing = this.hooks.get(appId) ?? {};
+    existing.onJoin = handler;
+    this.hooks.set(appId, existing);
+  }
+
+  async runBeforeMessageDelivery(
+    conversationId: string,
+    senderAgentId: string,
+    parts: Part[],
+    replyToId?: string,
+  ): Promise<{ result: HookResult; appId: string } | null> {
+    const session = this.conversationToSession.get(conversationId);
+    if (!session) return null;
+
+    const appHooks = this.hooks.get(session.appId);
+    if (!appHooks?.beforeMessageDelivery) return null;
+
+    const agent = await this.db
+      .selectFrom("agents")
+      .select("owner_user_id")
+      .where("id", "=", senderAgentId)
+      .executeTakeFirst();
+
+    const ctx = {
+      conversationId,
+      sender: {
+        agentId: senderAgentId,
+        ownerId: agent?.owner_user_id ?? "",
+      },
+      message: { parts, replyToId },
+      sessionId: session.id,
+      appId: session.appId,
+    };
+
+    const manifest = this.manifests.get(session.appId);
+    const timeoutMs =
+      manifest?.hooks?.before_message_delivery?.timeout_ms ?? 5000;
+
+    const result = await this.runWithTimeout(
+      appHooks.beforeMessageDelivery,
+      ctx,
+      timeoutMs,
+    );
+    if (!result) return null;
+    return { result, appId: session.appId };
   }
 
   async createSession(
@@ -159,6 +228,10 @@ export class AppHost {
       }
     });
 
+    for (const convId of Object.values(conversationMap)) {
+      this.conversationToSession.set(convId, { id: sessionId, appId });
+    }
+
     const session: AppSession = {
       id: sessionId,
       appId,
@@ -242,7 +315,7 @@ export class AppHost {
     pending.resolve(access);
   }
 
-  /** Cancel all pending timers. Called on shutdown. */
+  /** Cancel all pending timers and clear state. Called on shutdown. */
   destroy(): void {
     for (const pending of this.pendingChallenges.values()) {
       clearTimeout(pending.timer);
@@ -252,11 +325,45 @@ export class AppHost {
       clearTimeout(pending.timer);
     }
     this.pendingPermissions.clear();
+    this.hooks.clear();
+    this.conversationToSession.clear();
   }
 
   private subscribeToConversation(agentId: string, convId: string): void {
     for (const conn of this.connections.getByAgent(agentId)) {
       conn.conversationIds.add(convId);
+    }
+  }
+
+  private async runWithTimeout(
+    fn: (ctx: BeforeMessageDeliveryContext) => HookResult | Promise<HookResult>,
+    ctx: Omit<BeforeMessageDeliveryContext, "signal">,
+    timeoutMs: number,
+  ): Promise<HookResult | null> {
+    const controller = new AbortController();
+    const ctxWithSignal: BeforeMessageDeliveryContext = {
+      ...ctx,
+      signal: controller.signal,
+    };
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const result = await Promise.race([
+        Promise.resolve(fn(ctxWithSignal)),
+        new Promise<null>((resolve) => {
+          timer = setTimeout(() => {
+            controller.abort();
+            resolve(null);
+          }, timeoutMs);
+        }),
+      ]);
+      return result;
+    } catch (err) {
+      controller.abort();
+      this.logger.error({ err }, "Hook execution error");
+      return null;
+    } finally {
+      clearTimeout(timer);
     }
   }
 
@@ -353,7 +460,12 @@ export class AppHost {
       agentMap,
     );
 
-    await this.admitAgentToSession(session, agentId, grantedResources);
+    await this.admitAgentToSession(
+      session,
+      agentId,
+      grantedResources,
+      agent.owner_user_id ?? "",
+    );
   }
 
   private async checkIdentity(
@@ -606,6 +718,7 @@ export class AppHost {
     session: AppSession,
     agentId: string,
     grantedResources: string[],
+    ownerId: string,
   ): Promise<void> {
     await this.db
       .updateTable("app_session_participants")
@@ -633,7 +746,6 @@ export class AppHost {
 
         this.subscribeToConversation(agentId, convId);
       }
-      // "initiator" and "none" don't add the invited agent
     }
 
     const admittedEvent = eventFrame("app/participantAdmitted", {
@@ -648,6 +760,23 @@ export class AppHost {
       { sessionId: session.id, agentId, grantedResources },
       "Agent admitted to app session",
     );
+
+    const appHooks = this.hooks.get(session.appId);
+    if (appHooks?.onJoin) {
+      try {
+        await appHooks.onJoin({
+          conversations: session.conversations,
+          agent: { agentId, ownerId },
+          sessionId: session.id,
+          appId: session.appId,
+        });
+      } catch (err) {
+        this.logger.error(
+          { err, sessionId: session.id, agentId },
+          "on_join hook error",
+        );
+      }
+    }
   }
 
   private async rejectAgent(
