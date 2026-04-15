@@ -68,6 +68,15 @@ export interface ServiceOptions {
   logger?: WsClientLogger;
 }
 
+export interface PermissionRequiredData {
+  sessionId: string;
+  appId: string;
+  resource: string;
+  access: string[];
+  requestId: string;
+  targetUserId: string;
+}
+
 type EventHandler<T> = (data: T) => void;
 
 interface HelloOk {
@@ -123,6 +132,8 @@ export class MoltZapService {
   private rawEventHandlers: EventHandler<EventFrame>[] = [];
   private disconnectHandlers: EventHandler<void>[] = [];
   private reconnectHandlers: EventHandler<HelloOk>[] = [];
+  private permissionRequiredHandlers: EventHandler<PermissionRequiredData>[] =
+    [];
   private pendingNameLookups = new Map<string, Promise<string>>();
 
   ownAgentId: string | undefined;
@@ -169,6 +180,7 @@ export class MoltZapService {
     this.agentConversationCache.clear();
     this.lastNotified.clear();
     this.lastRead.clear();
+    this.permissionRequiredHandlers.length = 0;
   }
 
   // --- Socket Server ---
@@ -592,7 +604,16 @@ export class MoltZapService {
   on(event: "disconnect", handler: EventHandler<void>): void;
   on(event: "reconnect", handler: EventHandler<HelloOk>): void;
   on(
-    event: "message" | "rawEvent" | "disconnect" | "reconnect",
+    event: "permissionRequired",
+    handler: EventHandler<PermissionRequiredData>,
+  ): void;
+  on(
+    event:
+      | "message"
+      | "rawEvent"
+      | "disconnect"
+      | "reconnect"
+      | "permissionRequired",
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     handler: EventHandler<any>,
   ): void {
@@ -609,6 +630,11 @@ export class MoltZapService {
       case "reconnect":
         this.reconnectHandlers.push(handler as EventHandler<HelloOk>);
         break;
+      case "permissionRequired":
+        this.permissionRequiredHandlers.push(
+          handler as EventHandler<PermissionRequiredData>,
+        );
+        break;
     }
   }
 
@@ -617,6 +643,15 @@ export class MoltZapService {
   async sendRpc(method: string, params?: unknown): Promise<unknown> {
     if (!this.client) throw new Error("Not connected");
     return this.client.sendRpc(method, params);
+  }
+
+  async grantPermission(params: {
+    sessionId: string;
+    agentId: string;
+    resource: string;
+    access: string[];
+  }): Promise<void> {
+    await this.sendRpc("permissions/grant", params);
   }
 
   // --- Internals ---
@@ -676,6 +711,11 @@ export class MoltZapService {
         if (msg.senderId !== this.ownAgentId) {
           for (const h of this.messageHandlers) h(msg);
         }
+        break;
+      }
+      case EventNames.PermissionsRequired: {
+        const data = event.data as PermissionRequiredData;
+        for (const h of this.permissionRequiredHandlers) h(data);
         break;
       }
       case EventNames.ConversationCreated:

@@ -1,11 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { AppHost, type ContactChecker } from "./app-host.js";
+import {
+  AppHost,
+  DefaultPermissionHandler,
+  PermissionDeniedError,
+  PermissionTimeoutError,
+  type ContactChecker,
+  type PermissionHandler,
+} from "./app-host.js";
 import { ErrorCodes } from "@moltzap/protocol";
 import { RpcError } from "../rpc/router.js";
 
-// Minimal mocks matching the interfaces AppHost depends on
+// ── Mock helpers ─────────────────────────────────────────────────────
+
 function createMockDb() {
-  const rows: Record<string, unknown[]> = {};
+  let agentRows: unknown[] = [];
+  let grantRow: { access: string[] } | null = null;
+  let grantRows: unknown[] = [];
+
   const mockTrx = {
     insertInto: vi.fn().mockReturnValue({
       values: vi.fn().mockReturnValue({
@@ -37,20 +48,47 @@ function createMockDb() {
     }),
   };
 
-  return {
-    selectFrom: vi.fn().mockReturnValue({
+  // Build the agents chain: selectFrom("agents").select([...]).where("id","in",...).execute()
+  function agentsChain() {
+    return {
+      select: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          execute: vi.fn().mockImplementation(() => Promise.resolve(agentRows)),
+        }),
+      }),
+    };
+  }
+
+  // Build the grants chain for findGrant:
+  //   selectFrom("app_permission_grants").select("access").where(...).where(...).where(...).executeTakeFirst()
+  // and for listGrants:
+  //   selectFrom("app_permission_grants").select([...]).where(...).where(...).execute()
+  function grantsChain() {
+    return {
       select: vi.fn().mockReturnValue({
         where: vi.fn().mockReturnValue({
           where: vi.fn().mockReturnValue({
             where: vi.fn().mockReturnValue({
-              executeTakeFirst: vi.fn().mockResolvedValue(null),
+              executeTakeFirst: vi
+                .fn()
+                .mockImplementation(() => Promise.resolve(grantRow)),
             }),
-            execute: vi.fn().mockResolvedValue([]),
-            executeTakeFirst: vi.fn().mockResolvedValue(null),
+            execute: vi
+              .fn()
+              .mockImplementation(() => Promise.resolve(grantRows)),
           }),
-          execute: vi.fn().mockResolvedValue(rows["agents"] ?? []),
+          execute: vi.fn().mockImplementation(() => Promise.resolve(grantRows)),
         }),
       }),
+    };
+  }
+
+  const db = {
+    selectFrom: vi.fn().mockImplementation((table: string) => {
+      if (table === "agents") return agentsChain();
+      if (table === "app_permission_grants") return grantsChain();
+      // Fallback: deep mock
+      return agentsChain();
     }),
     updateTable: vi.fn().mockReturnValue({
       set: vi.fn().mockReturnValue({
@@ -74,6 +112,15 @@ function createMockDb() {
         execute: vi.fn().mockResolvedValue([]),
       }),
     }),
+    deleteFrom: vi.fn().mockReturnValue({
+      where: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            executeTakeFirst: vi.fn().mockResolvedValue({ numDeletedRows: 0n }),
+          }),
+        }),
+      }),
+    }),
     transaction: vi.fn().mockReturnValue({
       execute: vi
         .fn()
@@ -81,18 +128,18 @@ function createMockDb() {
           fn(mockTrx),
         ),
     }),
-    _setAgentRows(agentRows: unknown[]) {
-      rows["agents"] = agentRows;
-      // Re-wire selectFrom to return the agent rows
-      (this.selectFrom as ReturnType<typeof vi.fn>).mockReturnValue({
-        select: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            execute: vi.fn().mockResolvedValue(agentRows),
-          }),
-        }),
-      });
+    _setAgentRows(rows: unknown[]) {
+      agentRows = rows;
+    },
+    _setGrantRow(row: { access: string[] } | null) {
+      grantRow = row;
+    },
+    _setGrantRows(rows: unknown[]) {
+      grantRows = rows;
     },
   };
+
+  return db;
 }
 
 function createMockBroadcaster() {
@@ -122,13 +169,40 @@ function createMockLogger() {
   };
 }
 
-// Test helper to access private pendingChallenges map
-// Avoids scattered eslint-disable comments throughout tests
 function getChallenges(host: AppHost): Map<string, Record<string, unknown>> {
   return Reflect.get(host, "pendingChallenges") as Map<
     string,
     Record<string, unknown>
   >;
+}
+
+/**
+ * Wait for async admission to complete by polling broadcaster calls.
+ * Looks for sessionReady, participantAdmitted, or participantRejected events
+ * which signal that admitAgentsAsync has finished processing.
+ * Falls back to a short timeout if no terminal event appears.
+ */
+async function waitForAdmission(
+  broadcasterMock: { sendToAgent: { mock: { calls: unknown[][] } } },
+  opts: { event?: string; maxMs?: number } = {},
+) {
+  const target = opts.event ?? "app/participantRejected";
+  const maxMs = opts.maxMs ?? 500;
+  const start = Date.now();
+  while (Date.now() - start < maxMs) {
+    const found = broadcasterMock.sendToAgent.mock.calls.some(
+      (call: unknown[]) => {
+        const frame = call[1] as Record<string, unknown> | undefined;
+        return (
+          frame?.event === target ||
+          frame?.event === "app/sessionReady" ||
+          frame?.event === "app/participantAdmitted"
+        );
+      },
+    );
+    if (found) return;
+    await new Promise((r) => setTimeout(r, 10));
+  }
 }
 
 const TEST_MANIFEST = {
@@ -146,6 +220,8 @@ const TEST_AGENTS = [
   { id: "agent-3", owner_user_id: "user-3", status: "active" },
 ];
 
+// ── Tests ────────────────────────────────────────────────────────────
+
 describe("AppHost", () => {
   let appHost: AppHost;
   let db: ReturnType<typeof createMockDb>;
@@ -162,7 +238,7 @@ describe("AppHost", () => {
       db as never,
       broadcaster as never,
       connections as never,
-      null as never, // conversationService not used directly
+      null as never,
       logger as never,
     );
   });
@@ -216,7 +292,7 @@ describe("AppHost", () => {
     });
 
     it("throws AgentNotFound for missing initiator", async () => {
-      db._setAgentRows([]); // no agents in DB
+      db._setAgentRows([]);
       await expect(
         appHost.createSession("test-app", "agent-init", []),
       ).rejects.toThrow(RpcError);
@@ -238,7 +314,6 @@ describe("AppHost", () => {
       expect(session.initiatorAgentId).toBe("agent-init");
       expect(session.conversations).toHaveProperty("main");
 
-      // Should emit sessionReady to initiator
       expect(broadcaster.sendToAgent).toHaveBeenCalledWith(
         "agent-init",
         expect.objectContaining({
@@ -258,12 +333,10 @@ describe("AppHost", () => {
 
   describe("resolveChallenge", () => {
     it("ignores unknown challengeId", () => {
-      // Should not throw
       appHost.resolveChallenge("nonexistent", "agent-1", "url", "1.0");
     });
 
     it("rejects attestation from wrong agent", () => {
-      // Simulate a pending challenge
       const challengeId = crypto.randomUUID();
       getChallenges(appHost).set(challengeId, {
         targetAgentId: "agent-2",
@@ -275,7 +348,6 @@ describe("AppHost", () => {
 
       appHost.resolveChallenge(challengeId, "wrong-agent", "url", "1.0");
 
-      // Should still be pending (not resolved)
       expect(getChallenges(appHost).has(challengeId)).toBe(true);
       expect(logger.warn).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -321,7 +393,6 @@ describe("AppHost", () => {
       const session = await appHost.createSession("test-app", "agent-init", [
         "agent-2",
       ]);
-      // Session created without error — identity check passed with default allow-all
       expect(session.status).toBe("waiting");
     });
 
@@ -333,11 +404,8 @@ describe("AppHost", () => {
       db._setAgentRows(TEST_AGENTS);
 
       await appHost.createSession("test-app", "agent-init", ["agent-2"]);
+      await waitForAdmission(broadcaster);
 
-      // Wait for async admission to complete
-      await new Promise((r) => setTimeout(r, 100));
-
-      // Should have sent a rejection event
       expect(broadcaster.sendToAgent).toHaveBeenCalledWith(
         "agent-2",
         expect.objectContaining({
@@ -347,14 +415,495 @@ describe("AppHost", () => {
     });
   });
 
-  describe("setContactChecker", () => {
-    it("updates the checker", () => {
-      const checker: ContactChecker = {
-        areInContact: vi.fn().mockResolvedValue(true),
-      };
-      appHost.setContactChecker(checker);
-      // Internal state updated (no public getter, but exercises the code path)
-      expect(checker).toBeDefined();
+  // setContactChecker and setPermissionHandler are exercised by the admission tests below
+
+  describe("PermissionHandler integration", () => {
+    const PERM_MANIFEST = {
+      ...TEST_MANIFEST,
+      appId: "perm-app",
+      permissions: {
+        required: [{ resource: "calendar", access: ["read", "write"] }],
+        optional: [],
+      },
+    };
+
+    beforeEach(() => {
+      appHost.registerApp(PERM_MANIFEST);
+      db._setAgentRows(TEST_AGENTS);
     });
+
+    it("calls handler.requestPermission during admission", async () => {
+      const handler: PermissionHandler = {
+        requestPermission: vi.fn().mockResolvedValue(["read", "write"]),
+      };
+      appHost.setPermissionHandler(handler);
+
+      await appHost.createSession("perm-app", "agent-init", ["agent-2"]);
+      await waitForAdmission(broadcaster);
+
+      expect(handler.requestPermission).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: "user-2",
+          agentId: "agent-2",
+          appId: "perm-app",
+          resource: "calendar",
+          access: ["read", "write"],
+        }),
+      );
+    });
+
+    it.each([
+      {
+        scenario: "no handler configured",
+        handler: undefined,
+        expectedCode: "no_handler",
+      },
+      {
+        scenario: "handler returns insufficient access",
+        handler: { requestPermission: vi.fn().mockResolvedValue(["read"]) },
+        expectedCode: "permission_denied",
+      },
+      {
+        scenario: "handler throws PermissionTimeoutError",
+        handler: {
+          requestPermission: vi
+            .fn()
+            .mockRejectedValue(new PermissionTimeoutError("calendar")),
+        },
+        expectedCode: "permission_timeout",
+      },
+      {
+        scenario: "handler throws PermissionDeniedError",
+        handler: {
+          requestPermission: vi
+            .fn()
+            .mockRejectedValue(new PermissionDeniedError("calendar")),
+        },
+        expectedCode: "permission_denied",
+      },
+      {
+        scenario: "handler throws unknown error",
+        handler: {
+          requestPermission: vi
+            .fn()
+            .mockRejectedValue(new Error("network error")),
+        },
+        expectedCode: "permission_denied",
+      },
+    ])(
+      "rejects with '$expectedCode' when $scenario",
+      async ({ handler, expectedCode }) => {
+        if (handler) appHost.setPermissionHandler(handler);
+
+        await appHost.createSession("perm-app", "agent-init", ["agent-2"]);
+        await waitForAdmission(broadcaster);
+
+        expect(broadcaster.sendToAgent).toHaveBeenCalledWith(
+          "agent-2",
+          expect.objectContaining({
+            event: "app/participantRejected",
+            data: expect.objectContaining({
+              rejectionCode: expectedCode,
+              stage: "permission",
+            }),
+          }),
+        );
+      },
+    );
+
+    it("logs when requesting permission from handler", async () => {
+      const handler: PermissionHandler = {
+        requestPermission: vi.fn().mockResolvedValue(["read", "write"]),
+      };
+      appHost.setPermissionHandler(handler);
+
+      await appHost.createSession("perm-app", "agent-init", ["agent-2"]);
+      await waitForAdmission(broadcaster);
+
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.objectContaining({
+          resource: "calendar",
+          agentId: "agent-2",
+        }),
+        "Requesting permission from handler",
+      );
+    });
+
+    it("logs handler response", async () => {
+      const handler: PermissionHandler = {
+        requestPermission: vi.fn().mockResolvedValue(["read", "write"]),
+      };
+      appHost.setPermissionHandler(handler);
+
+      await appHost.createSession("perm-app", "agent-init", ["agent-2"]);
+      await waitForAdmission(broadcaster);
+
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.objectContaining({
+          resource: "calendar",
+          access: ["read", "write"],
+        }),
+        "Permission handler responded",
+      );
+    });
+
+    it("skips handler when existing grant covers required access", async () => {
+      db._setGrantRow({ access: ["read", "write"] });
+
+      const handler: PermissionHandler = {
+        requestPermission: vi.fn().mockResolvedValue(["read", "write"]),
+      };
+      appHost.setPermissionHandler(handler);
+
+      await appHost.createSession("perm-app", "agent-init", ["agent-2"]);
+      await waitForAdmission(broadcaster);
+
+      expect(handler.requestPermission).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("permission prompt coalescing", () => {
+    it("reuses in-flight promise for same userId+appId+resource", async () => {
+      const PERM_MANIFEST_COAL = {
+        ...TEST_MANIFEST,
+        appId: "coal-app",
+        permissions: {
+          required: [{ resource: "files", access: ["read"] }],
+          optional: [],
+        },
+      };
+      appHost.registerApp(PERM_MANIFEST_COAL);
+
+      // Two agents with the same owner
+      const agents = [
+        { id: "agent-init", owner_user_id: "user-1", status: "active" },
+        { id: "agent-A", owner_user_id: "user-shared", status: "active" },
+        { id: "agent-B", owner_user_id: "user-shared", status: "active" },
+      ];
+      db._setAgentRows(agents);
+
+      let resolveFirst!: (v: string[]) => void;
+      let callCount = 0;
+      const handler: PermissionHandler = {
+        requestPermission: vi.fn().mockImplementation(() => {
+          callCount++;
+          if (callCount === 1) {
+            // First call: return a controllable promise
+            return new Promise<string[]>((resolve) => {
+              resolveFirst = resolve;
+            });
+          }
+          // Subsequent calls: resolve immediately
+          return Promise.resolve(["read"]);
+        }),
+      };
+      appHost.setPermissionHandler(handler);
+
+      await appHost.createSession("coal-app", "agent-init", [
+        "agent-A",
+        "agent-B",
+      ]);
+
+      // Poll until the handler has been called (both agents started admission)
+      const start = Date.now();
+      while (callCount === 0 && Date.now() - start < 500) {
+        await new Promise((r) => setTimeout(r, 5));
+      }
+
+      // Resolve the shared promise
+      resolveFirst(["read"]);
+
+      await waitForAdmission(broadcaster);
+
+      // Both agents share owner "user-shared" + appId "coal-app" + resource "files".
+      // The handler should have been called only once (coalesced).
+      expect(callCount).toBe(1);
+    });
+  });
+
+  describe("findGrant set-containment", () => {
+    it("does not use existing grant when stored access is insufficient", async () => {
+      // Grant has ["read"] but required is ["read", "write"]
+      db._setGrantRow({ access: ["read"] });
+
+      const PERM_MANIFEST_SET = {
+        ...TEST_MANIFEST,
+        appId: "set-app",
+        permissions: {
+          required: [{ resource: "docs", access: ["read", "write"] }],
+          optional: [],
+        },
+      };
+      appHost.registerApp(PERM_MANIFEST_SET);
+      db._setAgentRows(TEST_AGENTS);
+
+      const handler: PermissionHandler = {
+        requestPermission: vi.fn().mockResolvedValue(["read", "write"]),
+      };
+      appHost.setPermissionHandler(handler);
+
+      await appHost.createSession("set-app", "agent-init", ["agent-2"]);
+      await waitForAdmission(broadcaster);
+
+      expect(handler.requestPermission).toHaveBeenCalled();
+    });
+
+    it("uses existing grant when stored access covers all required access", async () => {
+      // Grant has ["read", "write", "admin"] which covers ["read", "write"]
+      db._setGrantRow({ access: ["read", "write", "admin"] });
+
+      const PERM_MANIFEST_SET = {
+        ...TEST_MANIFEST,
+        appId: "set-app2",
+        permissions: {
+          required: [{ resource: "docs", access: ["read", "write"] }],
+          optional: [],
+        },
+      };
+      appHost.registerApp(PERM_MANIFEST_SET);
+      db._setAgentRows(TEST_AGENTS);
+
+      const handler: PermissionHandler = {
+        requestPermission: vi.fn(),
+      };
+      appHost.setPermissionHandler(handler);
+
+      await appHost.createSession("set-app2", "agent-init", ["agent-2"]);
+      await waitForAdmission(broadcaster);
+
+      expect(handler.requestPermission).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("listGrants", () => {
+    it("returns empty array when no grants exist", async () => {
+      db._setGrantRows([]);
+      const result = await appHost.listGrants("user-1");
+      expect(result).toEqual([]);
+    });
+
+    it("returns mapped grant rows", async () => {
+      db._setGrantRows([
+        {
+          app_id: "app-1",
+          resource: "calendar",
+          access: ["read"],
+          granted_at: "2025-01-01T00:00:00.000Z",
+        },
+      ]);
+      const result = await appHost.listGrants("user-1");
+      expect(result).toEqual([
+        {
+          appId: "app-1",
+          resource: "calendar",
+          access: ["read"],
+          grantedAt: expect.any(String),
+        },
+      ]);
+    });
+
+    it("calls selectFrom with app_permission_grants", async () => {
+      db._setGrantRows([]);
+      await appHost.listGrants("user-1", "specific-app");
+      expect(db.selectFrom).toHaveBeenCalledWith("app_permission_grants");
+    });
+  });
+
+  describe("revokeGrant", () => {
+    it("calls deleteFrom on app_permission_grants", async () => {
+      await appHost.revokeGrant("user-1", "app-1", "calendar");
+      expect(db.deleteFrom).toHaveBeenCalledWith("app_permission_grants");
+    });
+  });
+
+  describe("destroy", () => {
+    it("clears pending challenges", () => {
+      const challengeId = crypto.randomUUID();
+      getChallenges(appHost).set(challengeId, {
+        targetAgentId: "agent-2",
+        sessionId: "session-1",
+        resolve: vi.fn(),
+        reject: vi.fn(),
+        timer: setTimeout(() => {}, 30000),
+      });
+
+      appHost.destroy();
+      expect(getChallenges(appHost).size).toBe(0);
+    });
+  });
+});
+
+describe("DefaultPermissionHandler", () => {
+  let handler: DefaultPermissionHandler;
+  let broadcaster: ReturnType<typeof createMockBroadcaster>;
+  let logger: ReturnType<typeof createMockLogger>;
+
+  beforeEach(() => {
+    broadcaster = createMockBroadcaster();
+    logger = createMockLogger();
+    handler = new DefaultPermissionHandler(
+      broadcaster as never,
+      logger as never,
+    );
+  });
+
+  describe("requestPermission", () => {
+    it("sends permissions/required event to the agent", async () => {
+      const promise = handler.requestPermission({
+        userId: "user-1",
+        agentId: "agent-1",
+        sessionId: "session-1",
+        appId: "app-1",
+        resource: "calendar",
+        access: ["read"],
+        timeoutMs: 5000,
+      });
+
+      handler.resolvePermission("user-1", "session-1", "agent-1", "calendar", [
+        "read",
+      ]);
+      await promise;
+
+      expect(broadcaster.sendToAgent).toHaveBeenCalledWith(
+        "agent-1",
+        expect.objectContaining({
+          event: "permissions/required",
+          data: expect.objectContaining({
+            sessionId: "session-1",
+            appId: "app-1",
+            resource: "calendar",
+            access: ["read"],
+            targetUserId: "user-1",
+          }),
+        }),
+      );
+    });
+
+    it("resolves with granted access", async () => {
+      const promise = handler.requestPermission({
+        userId: "user-1",
+        agentId: "agent-1",
+        sessionId: "session-1",
+        appId: "app-1",
+        resource: "calendar",
+        access: ["read"],
+        timeoutMs: 5000,
+      });
+
+      handler.resolvePermission("user-1", "session-1", "agent-1", "calendar", [
+        "read",
+        "write",
+      ]);
+
+      const result = await promise;
+      expect(result).toEqual(["read", "write"]);
+    });
+
+    it("rejects with PermissionTimeoutError on timeout", async () => {
+      vi.useFakeTimers();
+
+      const promise = handler.requestPermission({
+        userId: "user-1",
+        agentId: "agent-1",
+        sessionId: "session-1",
+        appId: "app-1",
+        resource: "calendar",
+        access: ["read"],
+        timeoutMs: 1000,
+      });
+
+      vi.advanceTimersByTime(1001);
+
+      await expect(promise).rejects.toThrow(PermissionTimeoutError);
+      await expect(promise).rejects.toThrow(
+        "Permission timeout for resource: calendar",
+      );
+
+      vi.useRealTimers();
+    });
+  });
+
+  describe("resolvePermission", () => {
+    it("ignores unknown permission key", () => {
+      handler.resolvePermission("user-1", "session-1", "agent-1", "unknown", [
+        "read",
+      ]);
+    });
+
+    it("rejects grant from wrong user", async () => {
+      const promise = handler.requestPermission({
+        userId: "user-1",
+        agentId: "agent-1",
+        sessionId: "session-1",
+        appId: "app-1",
+        resource: "calendar",
+        access: ["read"],
+        timeoutMs: 5000,
+      });
+
+      handler.resolvePermission(
+        "wrong-user",
+        "session-1",
+        "agent-1",
+        "calendar",
+        ["read"],
+      );
+
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          expected: "user-1",
+          got: "wrong-user",
+        }),
+        "Permission grant from wrong user",
+      );
+
+      // Resolve correctly to avoid hanging
+      handler.resolvePermission("user-1", "session-1", "agent-1", "calendar", [
+        "read",
+      ]);
+      await promise;
+    });
+  });
+
+  describe("destroy", () => {
+    it("rejects pending promises and clears map", async () => {
+      const promise = handler.requestPermission({
+        userId: "user-1",
+        agentId: "agent-1",
+        sessionId: "session-1",
+        appId: "app-1",
+        resource: "calendar",
+        access: ["read"],
+        timeoutMs: 60000,
+      });
+
+      handler.destroy();
+
+      await expect(promise).rejects.toThrow(PermissionDeniedError);
+
+      const pendingMap = Reflect.get(handler, "pendingPermissions") as Map<
+        string,
+        unknown
+      >;
+      expect(pendingMap.size).toBe(0);
+    });
+  });
+});
+
+describe("PermissionDeniedError", () => {
+  it("has correct name and message", () => {
+    const err = new PermissionDeniedError("calendar");
+    expect(err.name).toBe("PermissionDeniedError");
+    expect(err.message).toBe("Permission denied for resource: calendar");
+    expect(err).toBeInstanceOf(Error);
+  });
+});
+
+describe("PermissionTimeoutError", () => {
+  it("has correct name and message", () => {
+    const err = new PermissionTimeoutError("files");
+    expect(err.name).toBe("PermissionTimeoutError");
+    expect(err.message).toBe("Permission timeout for resource: files");
+    expect(err).toBeInstanceOf(Error);
   });
 });

@@ -3,7 +3,11 @@
  */
 
 import type { Message } from "@moltzap/protocol";
-import type { CrossConversationEntry, CrossConvMessage } from "./service.js";
+import type {
+  CrossConversationEntry,
+  CrossConvMessage,
+  PermissionRequiredData,
+} from "./service.js";
 import type { WsClientLogger } from "./ws-client.js";
 
 export interface EnrichedSender {
@@ -43,6 +47,10 @@ export interface ChannelService {
   on(event: "message", handler: (msg: Message) => void): void;
   on(event: "disconnect", handler: () => void): void;
   on(event: "reconnect", handler: () => void): void;
+  on(
+    event: "permissionRequired",
+    handler: (data: PermissionRequiredData) => void,
+  ): void;
   connect(): Promise<unknown>;
   close(): void;
   send(conversationId: string, text: string): Promise<void>;
@@ -102,6 +110,9 @@ export class MoltZapChannelCore {
   private dispatchChain: Promise<void> = Promise.resolve();
   private disconnectHandlers: Array<() => void> = [];
   private reconnectHandlers: Array<() => void> = [];
+  private permissionRequiredHandler:
+    | ((data: PermissionRequiredData) => void)
+    | null = null;
 
   constructor(opts: ChannelCoreOptions) {
     this.service = opts.service;
@@ -127,6 +138,12 @@ export class MoltZapChannelCore {
       this.connected = true;
       for (const h of this.reconnectHandlers) h();
     });
+
+    this.service.on("permissionRequired", (data) => {
+      if (this.permissionRequiredHandler) {
+        this.permissionRequiredHandler(data);
+      }
+    });
   }
 
   /** Replaces any previous handler. */
@@ -140,6 +157,10 @@ export class MoltZapChannelCore {
 
   onReconnect(handler: () => void): void {
     this.reconnectHandlers.push(handler);
+  }
+
+  onPermissionRequired(handler: (data: PermissionRequiredData) => void): void {
+    this.permissionRequiredHandler = handler;
   }
 
   async connect(): Promise<void> {

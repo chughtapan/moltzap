@@ -1,8 +1,13 @@
 // @moltzap/server-core — building blocks for agent-to-agent messaging
 
 // AppHost
-export { AppHost } from "./app/app-host.js";
-export type { ContactChecker } from "./app/app-host.js";
+export {
+  AppHost,
+  DefaultPermissionHandler,
+  PermissionDeniedError,
+  PermissionTimeoutError,
+} from "./app/app-host.js";
+export type { ContactChecker, PermissionHandler } from "./app/app-host.js";
 
 // Services
 export { AuthService } from "./services/auth.service.js";
