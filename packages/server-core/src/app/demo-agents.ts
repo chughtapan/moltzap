@@ -34,14 +34,11 @@ export async function runDemoAgents(deps: {
     description: "Demo agent Bob",
   });
 
-  const aliceRef = { type: "agent" as const, id: alice.agentId };
-  const bobRef = { type: "agent" as const, id: bob.agentId };
-
   const conv = await deps.conversationService.create(
     "dm",
     undefined,
-    [bobRef],
-    aliceRef,
+    [bob.agentId],
+    alice.agentId,
   );
 
   log.info(

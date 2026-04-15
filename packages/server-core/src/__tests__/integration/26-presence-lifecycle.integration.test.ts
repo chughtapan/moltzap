@@ -20,8 +20,8 @@ describe("Presence Lifecycle", () => {
     const bob = await registerAndConnect("bob-pres");
 
     const result = (await alice.client.rpc("presence/subscribe", {
-      participants: [{ type: "agent", id: bob.agentId }],
-    })) as { statuses: Array<{ participant: { id: string }; status: string }> };
+      agentIds: [bob.agentId],
+    })) as { statuses: Array<{ agentId: string; status: string }> };
 
     expect(result.statuses).toHaveLength(1);
     expect(result.statuses[0]!.status).toBe("online");
@@ -32,7 +32,7 @@ describe("Presence Lifecycle", () => {
     const bob = await registerAndConnect("bob-away");
 
     await alice.client.rpc("presence/subscribe", {
-      participants: [{ type: "agent", id: bob.agentId }],
+      agentIds: [bob.agentId],
     });
 
     const presPromise = alice.client.waitForEvent("presence/changed");
@@ -40,10 +40,10 @@ describe("Presence Lifecycle", () => {
 
     const event = await presPromise;
     const data = event.data as {
-      participant: { id: string };
+      agentId: string;
       status: string;
     };
-    expect(data.participant.id).toBe(bob.agentId);
+    expect(data.agentId).toBe(bob.agentId);
     expect(data.status).toBe("away");
   });
 
@@ -52,7 +52,7 @@ describe("Presence Lifecycle", () => {
     const bob = await registerAndConnect("bob-cycle");
 
     await alice.client.rpc("presence/subscribe", {
-      participants: [{ type: "agent", id: bob.agentId }],
+      agentIds: [bob.agentId],
     });
 
     // away

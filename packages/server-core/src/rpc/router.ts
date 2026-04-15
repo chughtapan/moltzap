@@ -31,21 +31,12 @@ export function createRpcRouter(methods: RpcMethodRegistry) {
       );
     }
 
-    if (method.requiresActive) {
-      if (ctx.kind === "agent" && ctx.agentStatus !== "active") {
-        return errorResponse(
-          requestId,
-          ErrorCodes.Forbidden,
-          "Agent must be claimed before performing this action",
-        );
-      }
-      if (ctx.kind === "user" && !ctx.activeAgentId) {
-        return errorResponse(
-          requestId,
-          ErrorCodes.Forbidden,
-          "No active agent. Claim an agent first.",
-        );
-      }
+    if (method.requiresActive && ctx.agentStatus !== "active") {
+      return errorResponse(
+        requestId,
+        ErrorCodes.Forbidden,
+        "Agent must be claimed before performing this action",
+      );
     }
 
     try {

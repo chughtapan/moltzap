@@ -5,12 +5,9 @@ export interface MoltZapConnection {
   id: string;
   ws: WSContext;
   auth: AuthenticatedContext | null;
-  activeAgentId: string | null;
   lastPong: number;
   conversationIds: Set<string>;
   mutedConversations: Set<string>;
-  /** Cached control-channel conversation ID for human→agent DMs. Cleared on agent switch. */
-  controlChannelId: string | null;
 }
 
 export class ConnectionManager {
@@ -32,19 +29,9 @@ export class ConnectionManager {
     return [...this.connections.values()];
   }
 
-  getByParticipant(type: string, id: string): MoltZapConnection[] {
+  getByAgent(agentId: string): MoltZapConnection[] {
     return Array.from(this.connections.values()).filter(
-      (conn) =>
-        conn.auth &&
-        ((conn.auth.kind === "user" &&
-          type === "user" &&
-          conn.auth.userId === id) ||
-          (conn.auth.kind === "agent" &&
-            type === "agent" &&
-            conn.auth.agentId === id) ||
-          (conn.auth.kind === "user" &&
-            type === "agent" &&
-            conn.activeAgentId === id)),
+      (conn) => conn.auth && conn.auth.agentId === agentId,
     );
   }
 

@@ -1,5 +1,3 @@
-import type { ParticipantRef } from "@moltzap/protocol";
-
 type PresenceStatus = "online" | "offline" | "away";
 
 /**
@@ -7,57 +5,52 @@ type PresenceStatus = "online" | "offline" | "away";
  * Presence is lost on server restart — clients recover via auto-reconnect.
  *
  * Subscription model: when a connection calls presence/subscribe for a set of
- * participants, it registers for push updates. When any of those participants
+ * agents, it registers for push updates. When any of those agents
  * call presence/update, the change is pushed only to subscribed connections.
  */
 export class PresenceService {
   private statuses = new Map<string, PresenceStatus>();
-  /** participantKey → set of connIds watching that participant */
+  /** agentId → set of connIds watching that agent */
   private subscribers = new Map<string, Set<string>>();
 
-  private key(ref: ParticipantRef): string {
-    return `${ref.type}:${ref.id}`;
+  setOnline(agentId: string): void {
+    this.statuses.set(agentId, "online");
   }
 
-  setOnline(ref: ParticipantRef): void {
-    this.statuses.set(this.key(ref), "online");
+  setOffline(agentId: string): void {
+    this.statuses.set(agentId, "offline");
   }
 
-  setOffline(ref: ParticipantRef): void {
-    this.statuses.set(this.key(ref), "offline");
+  update(agentId: string, status: PresenceStatus): void {
+    this.statuses.set(agentId, status);
   }
 
-  update(ref: ParticipantRef, status: PresenceStatus): void {
-    this.statuses.set(this.key(ref), status);
-  }
-
-  get(ref: ParticipantRef): PresenceStatus {
-    return this.statuses.get(this.key(ref)) ?? "offline";
+  get(agentId: string): PresenceStatus {
+    return this.statuses.get(agentId) ?? "offline";
   }
 
   getMany(
-    refs: ParticipantRef[],
-  ): Array<{ participant: ParticipantRef; status: PresenceStatus }> {
-    return refs.map((ref) => ({
-      participant: ref,
-      status: this.get(ref),
+    agentIds: string[],
+  ): Array<{ agentId: string; status: PresenceStatus }> {
+    return agentIds.map((agentId) => ({
+      agentId,
+      status: this.get(agentId),
     }));
   }
 
-  subscribe(connId: string, participants: ParticipantRef[]): void {
-    for (const ref of participants) {
-      const k = this.key(ref);
-      let subs = this.subscribers.get(k);
+  subscribe(connId: string, agentIds: string[]): void {
+    for (const agentId of agentIds) {
+      let subs = this.subscribers.get(agentId);
       if (!subs) {
         subs = new Set();
-        this.subscribers.set(k, subs);
+        this.subscribers.set(agentId, subs);
       }
       subs.add(connId);
     }
   }
 
-  getSubscribers(ref: ParticipantRef): Set<string> {
-    return this.subscribers.get(this.key(ref)) ?? new Set();
+  getSubscribers(agentId: string): Set<string> {
+    return this.subscribers.get(agentId) ?? new Set();
   }
 
   removeConnection(connId: string): void {

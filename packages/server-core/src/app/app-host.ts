@@ -113,7 +113,6 @@ export class AppHost {
           .values({
             type: "group",
             name: convDef.name,
-            created_by_type: "agent",
             created_by_id: initiatorAgentId,
           })
           .returningAll()
@@ -125,8 +124,7 @@ export class AppHost {
           .insertInto("conversation_participants")
           .values({
             conversation_id: conv.id,
-            participant_type: "agent",
-            participant_id: initiatorAgentId,
+            agent_id: initiatorAgentId,
             role: "owner",
           })
           .execute();
@@ -172,8 +170,7 @@ export class AppHost {
 
     if (invitedAgentIds.length === 0) {
       session.status = "active";
-      this.broadcaster.sendToParticipant(
-        "agent",
+      this.broadcaster.sendToAgent(
         initiatorAgentId,
         eventFrame("app/sessionReady", {
           sessionId,
@@ -258,7 +255,7 @@ export class AppHost {
   }
 
   private subscribeToConversation(agentId: string, convId: string): void {
-    for (const conn of this.connections.getByParticipant("agent", agentId)) {
+    for (const conn of this.connections.getByAgent(agentId)) {
       conn.conversationIds.add(convId);
     }
   }
@@ -294,8 +291,7 @@ export class AppHost {
           ),
         );
 
-      this.broadcaster.sendToParticipant(
-        "agent",
+      this.broadcaster.sendToAgent(
         initiatorAgentId,
         eventFrame("app/sessionReady", {
           sessionId: session.id,
@@ -435,8 +431,7 @@ export class AppHost {
         });
 
         // Send challenge to the agent
-        this.broadcaster.sendToParticipant(
-          "agent",
+        this.broadcaster.sendToAgent(
           agentId,
           eventFrame("app/skillChallenge", {
             challengeId,
@@ -545,9 +540,9 @@ export class AppHost {
             timer,
           });
 
-          this.broadcaster.sendToParticipant(
-            "user",
-            ownerUserId,
+          // Send permission request to the agent (agent's owner grants via apps/grantPermission)
+          this.broadcaster.sendToAgent(
+            agentId,
             eventFrame("app/permissionRequest", {
               sessionId: session.id,
               appId: session.appId,
@@ -626,8 +621,7 @@ export class AppHost {
           .insertInto("conversation_participants")
           .values({
             conversation_id: convId,
-            participant_type: "agent",
-            participant_id: agentId,
+            agent_id: agentId,
             role: "member",
           })
           .onConflict((oc) => oc.doNothing())
@@ -643,12 +637,8 @@ export class AppHost {
       agentId,
       grantedResources,
     });
-    this.broadcaster.sendToParticipant("agent", agentId, admittedEvent);
-    this.broadcaster.sendToParticipant(
-      "agent",
-      session.initiatorAgentId,
-      admittedEvent,
-    );
+    this.broadcaster.sendToAgent(agentId, admittedEvent);
+    this.broadcaster.sendToAgent(session.initiatorAgentId, admittedEvent);
 
     this.logger.info(
       { sessionId: session.id, agentId, grantedResources },
@@ -670,8 +660,7 @@ export class AppHost {
       .where("agent_id", "=", agentId)
       .execute();
 
-    this.broadcaster.sendToParticipant(
-      "agent",
+    this.broadcaster.sendToAgent(
       agentId,
       eventFrame("app/participantRejected", {
         sessionId,
