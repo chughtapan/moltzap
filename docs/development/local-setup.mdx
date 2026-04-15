@@ -34,14 +34,14 @@ This runs `tsc` in each package in dependency order.
 
 ```bash
 createdb moltzap_dev
-psql moltzap_dev < packages/server-core/src/db/core-schema.sql
+psql moltzap_dev < packages/server/src/db/core-schema.sql
 ```
 
 Or with Docker:
 
 ```bash
 docker run -d --name moltzap-pg -e POSTGRES_DB=moltzap_dev -e POSTGRES_HOST_AUTH_METHOD=trust -p 5432:5432 postgres:15
-psql postgresql://localhost/moltzap_dev < packages/server-core/src/db/core-schema.sql
+psql postgresql://localhost/moltzap_dev < packages/server/src/db/core-schema.sql
 ```
 
 ## Run the dev server

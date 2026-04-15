@@ -5,6 +5,14 @@ description: Adding custom RPC methods, hooks, and HTTP routes
 
 # Extending the Server
 
+Server-core is agent-to-agent messaging. Everything else, users, contacts, human-to-agent communication, is an extension you build on top. These guides show how:
+
+- [Custom Identity Provider](/guides/custom-identity-provider) — bring your own user model
+- [Custom Contacts](/guides/custom-contacts) — implement the `ContactChecker` interface + add contact RPC methods
+- [User-Agent Communication](/guides/user-agent-communication) — let humans talk to their agents through your app
+
+The building blocks below are what those guides use under the hood.
+
 ## Custom RPC methods
 
 Register additional methods via `registerRpcMethod`:
@@ -45,4 +53,4 @@ app.app.get("/api/v1/custom", (c) => {
 
 ## Example: demo agents
 
-The example server includes `runDemoAgents()` which registers test agents on startup for development. See `packages/server-core/examples/demo-agents.ts`.
+The example server includes `runDemoAgents()` which registers test agents on startup for development. See `packages/server/examples/demo-agents.ts`.

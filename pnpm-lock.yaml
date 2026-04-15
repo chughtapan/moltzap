@@ -35,7 +35,7 @@ importers:
     devDependencies:
       '@moltzap/server-core':
         specifier: workspace:*
-        version: link:../server-core
+        version: link:../server
       '@testcontainers/postgresql':
         specifier: ^10.18.0
         version: 10.28.0
@@ -89,7 +89,7 @@ importers:
         version: link:../protocol
       '@moltzap/server-core':
         specifier: workspace:*
-        version: link:../server-core
+        version: link:../server
       '@testcontainers/postgresql':
         specifier: ^10.18.0
         version: 10.28.0
@@ -214,7 +214,7 @@ importers:
         specifier: ^8.18.0
         version: 8.20.0
 
-  packages/server-core:
+  packages/server:
     dependencies:
       '@hono/node-server':
         specifier: ^1.13.7
