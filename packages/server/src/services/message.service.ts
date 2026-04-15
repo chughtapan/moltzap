@@ -72,8 +72,16 @@ export class MessageService {
         );
       }
       if (hookResponse?.result.patch?.parts) {
-        parts = hookResponse.result.patch.parts;
-        patchedBy = hookResponse.appId;
+        const patched = hookResponse.result.patch.parts;
+        if (patched.length >= 1 && patched.length <= 10) {
+          parts = patched;
+          patchedBy = hookResponse.appId;
+        } else {
+          this.logger.warn(
+            { appId: hookResponse.appId, patchLength: patched.length },
+            "Hook returned invalid patch (must be 1-10 parts), ignoring patch",
+          );
+        }
       }
     }
 
