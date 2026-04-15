@@ -145,16 +145,18 @@ export class AppHost {
         })
         .execute();
 
-      for (const agentId of invitedAgentIds) {
+      if (invitedAgentIds.length > 0) {
         await trx
           .insertInto("app_session_participants")
-          .values({
-            session_id: sessionId,
-            agent_id: agentId,
-            status: "pending",
-            rejection_reason: null,
-            admitted_at: null,
-          })
+          .values(
+            invitedAgentIds.map((agentId) => ({
+              session_id: sessionId,
+              agent_id: agentId,
+              status: "pending" as const,
+              rejection_reason: null,
+              admitted_at: null,
+            })),
+          )
           .execute();
       }
     });
@@ -340,11 +342,13 @@ export class AppHost {
       return;
     }
 
-    await this.checkIdentity(session, initiatorAgentId, agentId, agentMap);
-
-    if (manifest.skillUrl) {
-      await this.checkCapability(session, agentId, manifest);
-    }
+    // Identity and capability checks are independent — run concurrently
+    await Promise.all([
+      this.checkIdentity(session, initiatorAgentId, agentId, agentMap),
+      manifest.skillUrl
+        ? this.checkCapability(session, agentId, manifest)
+        : Promise.resolve(),
+    ]);
 
     const grantedResources = await this.checkPermissions(
       session,
