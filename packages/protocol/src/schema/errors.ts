@@ -17,6 +17,16 @@ export const ErrorCodes = {
   Blocked: -32006,
   ConversationFull: -32007,
   ProtocolMismatch: -32008,
+  // App codes (-32010 to -32019)
+  AppNotFound: -32010,
+  AgentNotFound: -32011,
+  SkillTimeout: -32012,
+  SkillMismatch: -32013,
+  PermissionTimeout: -32014,
+  PermissionDenied: -32015,
+  IdentityRejected: -32016,
+  MaxParticipants: -32017,
+  AgentNoOwner: -32018,
 } as const;
 
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];

@@ -40,6 +40,9 @@ import {
   SurfaceActionParamsSchema,
   SurfaceClearParamsSchema,
   PushPreferencesSchema,
+  AppsCreateParamsSchema,
+  AppsAttestSkillParamsSchema,
+  AppsGrantPermissionParamsSchema,
 } from "./schema/index.js";
 
 const ajv = addFormats(new Ajv({ strict: true, allErrors: true }));
@@ -102,6 +105,11 @@ export const validators = {
   surfaceActionParams: ajv.compile(SurfaceActionParamsSchema),
   surfaceClearParams: ajv.compile(SurfaceClearParamsSchema),
   pushPreferencesParams: ajv.compile(PushPreferencesSchema),
+
+  // Apps
+  appsCreateParams: ajv.compile(AppsCreateParamsSchema),
+  appsAttestSkillParams: ajv.compile(AppsAttestSkillParamsSchema),
+  appsGrantPermissionParams: ajv.compile(AppsGrantPermissionParamsSchema),
 } as const;
 
 export type ValidatorName = keyof typeof validators;
