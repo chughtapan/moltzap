@@ -470,13 +470,33 @@ export class AppHost {
       return;
     }
 
-    // Identity and capability checks are independent — run concurrently
-    await Promise.all([
-      this.checkIdentity(session, initiatorAgentId, agentId, agentMap),
+    // Identity and capability checks are independent — run concurrently.
+    // Track whether we've already rejected this agent so concurrent failures
+    // don't send duplicate rejection events.
+    let rejected = false;
+    const guardedReject = async (
+      ...args: Parameters<typeof this.rejectAgent>
+    ) => {
+      if (rejected) return;
+      rejected = true;
+      await this.rejectAgent(...args);
+    };
+
+    const [identityResult, capabilityResult] = await Promise.allSettled([
+      this.checkIdentity(
+        session,
+        initiatorAgentId,
+        agentId,
+        agentMap,
+        guardedReject,
+      ),
       manifest.skillUrl
-        ? this.checkCapability(session, agentId, manifest)
+        ? this.checkCapability(session, agentId, manifest, guardedReject)
         : Promise.resolve(),
     ]);
+
+    if (identityResult.status === "rejected") throw identityResult.reason;
+    if (capabilityResult.status === "rejected") throw capabilityResult.reason;
 
     const grantedResources = await this.checkPermissions(
       session,
@@ -496,12 +516,13 @@ export class AppHost {
       string,
       { id: string; owner_user_id: string | null; status: string }
     >,
+    reject: typeof this.rejectAgent = this.rejectAgent.bind(this),
   ): Promise<void> {
     const agent = agentMap.get(agentId)!;
     const initiator = agentMap.get(initiatorAgentId)!;
 
     if (!agent.owner_user_id) {
-      await this.rejectAgent(
+      await reject(
         session.id,
         agentId,
         "identity",
@@ -520,7 +541,7 @@ export class AppHost {
         agent.owner_user_id,
       );
       if (!inContact) {
-        await this.rejectAgent(
+        await reject(
           session.id,
           agentId,
           "identity",
@@ -532,7 +553,7 @@ export class AppHost {
       }
     } catch (err) {
       if (errorMessage(err) === "Not in contacts") throw err;
-      await this.rejectAgent(
+      await reject(
         session.id,
         agentId,
         "identity",
@@ -548,26 +569,26 @@ export class AppHost {
     session: AppSession,
     agentId: string,
     manifest: AppManifest,
+    reject: typeof this.rejectAgent = this.rejectAgent.bind(this),
   ): Promise<void> {
     const challengeId = crypto.randomUUID();
     const timeoutMs = manifest.challengeTimeoutMs ?? 30000;
 
     const result = await new Promise<{ skillUrl: string; version: string }>(
-      (resolve, reject) => {
+      (resolve, promiseReject) => {
         const timer = setTimeout(() => {
           this.pendingChallenges.delete(challengeId);
-          reject(new Error("attestation timeout"));
+          promiseReject(new Error("attestation timeout"));
         }, timeoutMs);
 
         this.pendingChallenges.set(challengeId, {
           targetAgentId: agentId,
           sessionId: session.id,
           resolve,
-          reject: (reason: string) => reject(new Error(reason)),
+          reject: (reason: string) => promiseReject(new Error(reason)),
           timer,
         });
 
-        // Send challenge to the agent
         this.broadcaster.sendToAgent(
           agentId,
           eventFrame("app/skillChallenge", {
@@ -588,7 +609,7 @@ export class AppHost {
         errorMessage(err) === "attestation timeout"
           ? "Skill attestation timed out"
           : `Skill attestation failed: ${errorMessage(err)}`;
-      await this.rejectAgent(
+      await reject(
         session.id,
         agentId,
         "capability",
@@ -599,9 +620,8 @@ export class AppHost {
       throw err;
     });
 
-    // Verify the attestation
     if (result.skillUrl !== manifest.skillUrl) {
-      await this.rejectAgent(
+      await reject(
         session.id,
         agentId,
         "capability",
@@ -613,7 +633,7 @@ export class AppHost {
     }
 
     if (manifest.skillMinVersion && result.version < manifest.skillMinVersion) {
-      await this.rejectAgent(
+      await reject(
         session.id,
         agentId,
         "capability",
