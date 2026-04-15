@@ -16,6 +16,32 @@ export interface ContactChecker {
   areInContact(userIdA: string, userIdB: string): Promise<boolean>;
 }
 
+export interface PermissionHandler {
+  requestPermission(params: {
+    userId: string;
+    agentId: string;
+    sessionId: string;
+    appId: string;
+    resource: string;
+    access: string[];
+    timeoutMs: number;
+  }): Promise<string[]>;
+}
+
+export class PermissionDeniedError extends Error {
+  constructor(resource: string) {
+    super(`Permission denied for resource: ${resource}`);
+    this.name = "PermissionDeniedError";
+  }
+}
+
+export class PermissionTimeoutError extends Error {
+  constructor(resource: string) {
+    super(`Permission timeout for resource: ${resource}`);
+    this.name = "PermissionTimeoutError";
+  }
+}
+
 interface PendingChallenge {
   targetAgentId: string;
   sessionId: string;
@@ -35,11 +61,101 @@ interface PendingPermission {
   timer: ReturnType<typeof setTimeout>;
 }
 
+export class DefaultPermissionHandler implements PermissionHandler {
+  private pendingPermissions = new Map<string, PendingPermission>();
+
+  constructor(
+    private broadcaster: Broadcaster,
+    private logger: Logger,
+  ) {}
+
+  async requestPermission(params: {
+    userId: string;
+    agentId: string;
+    sessionId: string;
+    appId: string;
+    resource: string;
+    access: string[];
+    timeoutMs: number;
+  }): Promise<string[]> {
+    const requestId = crypto.randomUUID();
+    const key = `${params.sessionId}:${params.agentId}:${params.resource}`;
+
+    return new Promise<string[]>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingPermissions.delete(key);
+        reject(new PermissionTimeoutError(params.resource));
+      }, params.timeoutMs);
+
+      this.pendingPermissions.set(key, {
+        targetUserId: params.userId,
+        agentId: params.agentId,
+        sessionId: params.sessionId,
+        appId: params.appId,
+        resource: params.resource,
+        resolve,
+        reject: (reason: string) => reject(new PermissionDeniedError(reason)),
+        timer,
+      });
+
+      this.broadcaster.sendToAgent(
+        params.agentId,
+        eventFrame("permissions/required", {
+          sessionId: params.sessionId,
+          appId: params.appId,
+          resource: params.resource,
+          access: params.access,
+          requestId,
+          targetUserId: params.userId,
+        }),
+      );
+    });
+  }
+
+  resolvePermission(
+    callerUserId: string,
+    sessionId: string,
+    agentId: string,
+    resource: string,
+    access: string[],
+  ): void {
+    const key = `${sessionId}:${agentId}:${resource}`;
+    const pending = this.pendingPermissions.get(key);
+    if (!pending) return;
+
+    if (pending.targetUserId !== callerUserId) {
+      this.logger.warn(
+        {
+          expected: pending.targetUserId,
+          got: callerUserId,
+          agentId,
+          sessionId,
+          resource,
+        },
+        "Permission grant from wrong user",
+      );
+      return;
+    }
+
+    clearTimeout(pending.timer);
+    this.pendingPermissions.delete(key);
+    pending.resolve(access);
+  }
+
+  destroy(): void {
+    for (const pending of this.pendingPermissions.values()) {
+      clearTimeout(pending.timer);
+    }
+    this.pendingPermissions.clear();
+  }
+}
+
 export class AppHost {
   private pendingChallenges = new Map<string, PendingChallenge>();
-  private pendingPermissions = new Map<string, PendingPermission>();
   private manifests = new Map<string, AppManifest>();
   private contactChecker: ContactChecker | null = null;
+  private permissionHandler: PermissionHandler | null = null;
+  private inflightPermissions = new Map<string, Promise<string[]>>();
 
   constructor(
     private db: Kysely<Database>,
@@ -60,6 +176,10 @@ export class AppHost {
 
   setContactChecker(checker: ContactChecker): void {
     this.contactChecker = checker;
+  }
+
+  setPermissionHandler(handler: PermissionHandler): void {
+    this.permissionHandler = handler;
   }
 
   async createSession(
@@ -212,46 +332,56 @@ export class AppHost {
     pending.resolve({ skillUrl, version });
   }
 
-  resolvePermission(
-    callerUserId: string,
-    sessionId: string,
-    agentId: string,
-    resource: string,
-    access: string[],
-  ): void {
-    const key = `${sessionId}:${agentId}:${resource}`;
-    const pending = this.pendingPermissions.get(key);
-    if (!pending) return;
-
-    if (pending.targetUserId !== callerUserId) {
-      this.logger.warn(
-        {
-          expected: pending.targetUserId,
-          got: callerUserId,
-          agentId,
-          sessionId,
-          resource,
-        },
-        "Permission grant from wrong user",
-      );
-      return;
-    }
-
-    clearTimeout(pending.timer);
-    this.pendingPermissions.delete(key);
-    pending.resolve(access);
-  }
-
   /** Cancel all pending timers. Called on shutdown. */
   destroy(): void {
     for (const pending of this.pendingChallenges.values()) {
       clearTimeout(pending.timer);
     }
     this.pendingChallenges.clear();
-    for (const pending of this.pendingPermissions.values()) {
-      clearTimeout(pending.timer);
+  }
+
+  async listGrants(
+    userId: string,
+    appId?: string,
+  ): Promise<
+    Array<{
+      appId: string;
+      resource: string;
+      access: string[];
+      grantedAt: string;
+    }>
+  > {
+    let query = this.db
+      .selectFrom("app_permission_grants")
+      .select(["app_id", "resource", "access", "granted_at"])
+      .where("user_id", "=", userId);
+
+    if (appId) {
+      query = query.where("app_id", "=", appId);
     }
-    this.pendingPermissions.clear();
+
+    const rows = await query.execute();
+    return rows.map((r) => ({
+      appId: r.app_id,
+      resource: r.resource,
+      access: r.access,
+      grantedAt: new Date(r.granted_at).toISOString(),
+    }));
+  }
+
+  async revokeGrant(
+    userId: string,
+    appId: string,
+    resource: string,
+  ): Promise<{ numDeletedRows: bigint }> {
+    const result = await this.db
+      .deleteFrom("app_permission_grants")
+      .where("user_id", "=", userId)
+      .where("app_id", "=", appId)
+      .where("resource", "=", resource)
+      .executeTakeFirst();
+
+    return { numDeletedRows: result.numDeletedRows };
   }
 
   private subscribeToConversation(agentId: string, convId: string): void {
@@ -483,14 +613,21 @@ export class AppHost {
     userId: string,
     appId: string,
     resource: string,
+    requiredAccess: string[],
   ): Promise<{ access: string[] } | undefined> {
-    return this.db
+    const row = await this.db
       .selectFrom("app_permission_grants")
       .select("access")
       .where("user_id", "=", userId)
       .where("app_id", "=", appId)
       .where("resource", "=", resource)
       .executeTakeFirst();
+
+    if (!row) return undefined;
+    // Set-containment: stored access must cover ALL required access
+    const stored = new Set(row.access);
+    const covers = requiredAccess.every((a) => stored.has(a));
+    return covers ? row : undefined;
   }
 
   private async checkPermissions(
@@ -511,6 +648,7 @@ export class AppHost {
         ownerUserId,
         session.appId,
         perm.resource,
+        perm.access,
       );
 
       if (existing) {
@@ -518,41 +656,71 @@ export class AppHost {
         continue;
       }
 
-      const permKey = `${session.id}:${agentId}:${perm.resource}`;
-      const requestId = crypto.randomUUID();
-      const timeoutMs = manifest.permissionTimeoutMs ?? 120000;
+      if (!this.permissionHandler) {
+        await this.rejectAgent(
+          session.id,
+          agentId,
+          "permission",
+          `No permission handler configured for resource: ${perm.resource}`,
+          "Server must configure a PermissionHandler to process permission requests",
+          "no_handler",
+        );
+        throw new Error("No permission handler");
+      }
 
-      try {
-        const access = await new Promise<string[]>((resolve, reject) => {
-          const timer = setTimeout(() => {
-            this.pendingPermissions.delete(permKey);
-            reject(new Error("permission timeout"));
-          }, timeoutMs);
+      // Coalescing: same userId+appId+resource reuses in-flight promise
+      const coalesceKey = `${ownerUserId}:${session.appId}:${perm.resource}`;
 
-          this.pendingPermissions.set(permKey, {
-            targetUserId: ownerUserId,
+      if (!this.inflightPermissions.has(coalesceKey)) {
+        this.logger.info(
+          {
+            sessionId: session.id,
+            appId: session.appId,
+            resource: perm.resource,
+            agentId,
+          },
+          "Requesting permission from handler",
+        );
+
+        const promise = this.permissionHandler
+          .requestPermission({
+            userId: ownerUserId,
             agentId,
             sessionId: session.id,
             appId: session.appId,
             resource: perm.resource,
-            resolve,
-            reject: (reason: string) => reject(new Error(reason)),
-            timer,
+            access: perm.access,
+            timeoutMs: manifest.permissionTimeoutMs ?? 120000,
+          })
+          .finally(() => {
+            this.inflightPermissions.delete(coalesceKey);
           });
 
-          // Send permission request to the agent (agent's owner grants via apps/grantPermission)
-          this.broadcaster.sendToAgent(
+        this.inflightPermissions.set(coalesceKey, promise);
+      }
+
+      try {
+        const access = await this.inflightPermissions.get(coalesceKey)!;
+
+        this.logger.info(
+          { sessionId: session.id, resource: perm.resource, access },
+          "Permission handler responded",
+        );
+
+        // Post-handler validation: returned access must cover required access
+        const returnedSet = new Set(access);
+        const covers = perm.access.every((a) => returnedSet.has(a));
+        if (!covers) {
+          await this.rejectAgent(
+            session.id,
             agentId,
-            eventFrame("app/permissionRequest", {
-              sessionId: session.id,
-              appId: session.appId,
-              resource: perm.resource,
-              access: perm.access,
-              requestId,
-              targetUserId: ownerUserId,
-            }),
+            "permission",
+            `Insufficient access granted for resource: ${perm.resource}`,
+            `Required: ${perm.access.join(", ")}; granted: ${access.join(", ")}`,
+            "permission_denied",
           );
-        });
+          throw new PermissionDeniedError(perm.resource);
+        }
 
         // Store the grant
         await this.db
@@ -572,18 +740,53 @@ export class AppHost {
 
         granted.push(perm.resource);
       } catch (err) {
-        this.logger.warn(
-          { err, sessionId: session.id, resource: perm.resource },
-          "Permission grant failed",
+        this.inflightPermissions.delete(coalesceKey);
+
+        if (
+          err instanceof PermissionDeniedError ||
+          err instanceof PermissionTimeoutError
+        ) {
+          const code =
+            err instanceof PermissionTimeoutError
+              ? "permission_timeout"
+              : "permission_denied";
+          this.logger.warn(
+            {
+              err: err.message,
+              sessionId: session.id,
+              resource: perm.resource,
+            },
+            "Permission request failed",
+          );
+          await this.rejectAgent(
+            session.id,
+            agentId,
+            "permission",
+            err.message,
+            `Grant ${perm.resource} access via the permission prompt`,
+            code,
+          );
+          throw err;
+        }
+
+        // Unknown error from handler
+        this.logger.error(
+          {
+            err: errorMessage(err),
+            sessionId: session.id,
+            resource: perm.resource,
+          },
+          "Permission handler error",
         );
         await this.rejectAgent(
           session.id,
           agentId,
           "permission",
-          `Permission timeout for resource: ${perm.resource}`,
+          `Permission handler error for resource: ${perm.resource}`,
           `Grant ${perm.resource} access via the permission prompt`,
+          "permission_denied",
         );
-        throw new Error("Permission denied");
+        throw new PermissionDeniedError(perm.resource);
       }
     }
 
@@ -592,6 +795,7 @@ export class AppHost {
         ownerUserId,
         session.appId,
         perm.resource,
+        perm.access,
       );
 
       if (existing) {
@@ -656,6 +860,7 @@ export class AppHost {
     stage: "identity" | "capability" | "permission",
     reason: string,
     suggestedAction?: string,
+    rejectionCode?: string,
   ): Promise<void> {
     await this.db
       .updateTable("app_session_participants")
@@ -672,11 +877,12 @@ export class AppHost {
         reason,
         stage,
         suggestedAction,
+        rejectionCode,
       }),
     );
 
     this.logger.info(
-      { sessionId, agentId, stage, reason },
+      { sessionId, agentId, stage, reason, rejectionCode },
       "Agent rejected from app session",
     );
   }
