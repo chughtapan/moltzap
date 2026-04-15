@@ -1,16 +1,10 @@
 import type { MessageService } from "../../services/message.service.js";
 import type { ConversationService } from "../../services/conversation.service.js";
-import type { ConnectionManager } from "../../ws/connection.js";
 import type { Db } from "../../db/client.js";
 import type { RpcMethodRegistry } from "../../rpc/context.js";
 import { defineMethod } from "../../rpc/context.js";
-import type {
-  ParticipantRef,
-  MessagesSendParams,
-  MessagesListParams,
-} from "@moltzap/protocol";
+import type { MessagesSendParams, MessagesListParams } from "@moltzap/protocol";
 import { validators, ErrorCodes } from "@moltzap/protocol";
-import { ParticipantService } from "../../services/participant.service.js";
 import { RpcError } from "../../rpc/router.js";
 
 export type ParsedTo = { type: "agent"; identifier: string };
@@ -51,7 +45,6 @@ export function parseTo(to: string): ParsedTo {
 export function createMessageHandlers(deps: {
   messageService: MessageService;
   conversationService: ConversationService;
-  connections: ConnectionManager;
   db: Db;
   getConnId: () => string;
 }): RpcMethodRegistry {
@@ -60,59 +53,15 @@ export function createMessageHandlers(deps: {
       validator: validators.messagesSendParams,
       requiresActive: true,
       handler: async (params, ctx) => {
-        let senderRef: ParticipantRef;
-
-        if (ctx.kind === "user") {
-          // Humans can only send to their own agent's control channel
-          if (!ctx.activeAgentId) {
-            throw new RpcError(
-              ErrorCodes.Forbidden,
-              "No active agent. Claim an agent first.",
-            );
-          }
-          if (!params.conversationId) {
-            throw new RpcError(
-              ErrorCodes.Forbidden,
-              "Humans can only send to the control channel via conversationId.",
-            );
-          }
-
-          // Check cached control channel first, fall back to DB query
-          const conn = deps.connections.get(deps.getConnId());
-          let isControl = conn?.controlChannelId === params.conversationId;
-          if (!isControl) {
-            isControl = await deps.conversationService.isControlChannel(
-              params.conversationId,
-              ctx.userId,
-              ctx.activeAgentId,
-            );
-            if (isControl && conn) {
-              conn.controlChannelId = params.conversationId;
-            }
-          }
-
-          if (!isControl) {
-            throw new RpcError(
-              ErrorCodes.Forbidden,
-              "Humans observe agent conversations. Use OpenClaw to instruct your agent.",
-            );
-          }
-
-          // Bypass refFromContext — human sends as user, not as their agent
-          senderRef = { type: "user", id: ctx.userId };
-        } else {
-          senderRef = ParticipantService.refFromContext(ctx);
-        }
-
         let conversationId = params.conversationId;
 
         // Resolve `to` field to a conversation
         if (!conversationId && params.to) {
           const parsed = parseTo(params.to);
-          // Resolve agent name -> agent ID -> owner_user_id
+          // Resolve agent name -> agent ID
           const targetAgent = await deps.db
             .selectFrom("agents")
-            .select(["id", "owner_user_id"])
+            .select(["id"])
             .where("name", "=", parsed.identifier)
             .where("status", "=", "active")
             .executeTakeFirst();
@@ -123,16 +72,11 @@ export function createMessageHandlers(deps: {
             );
           }
           // Find or create DM conversation
-          const targetRef = {
-            type: "agent" as const,
-            id: targetAgent.id,
-          };
-
           const conversation = await deps.conversationService.create(
             "dm",
             undefined,
-            [targetRef],
-            senderRef,
+            [targetAgent.id],
+            ctx.agentId,
           );
           conversationId = conversation.id;
         }
@@ -147,7 +91,7 @@ export function createMessageHandlers(deps: {
         const message = await deps.messageService.send(
           conversationId,
           params.parts,
-          senderRef,
+          ctx.agentId,
           params.replyToId,
           deps.getConnId(),
         );
@@ -159,24 +103,7 @@ export function createMessageHandlers(deps: {
       validator: validators.messagesListParams,
       requiresActive: true,
       handler: async (params, ctx) => {
-        // User ref for control channel (human is participant), agent ref for observer mode
-        let ref: ParticipantRef;
-        if (ctx.kind === "user" && ctx.activeAgentId) {
-          const conn = deps.connections.get(deps.getConnId());
-          const isControl =
-            conn?.controlChannelId === params.conversationId ||
-            (await deps.conversationService.isControlChannel(
-              params.conversationId,
-              ctx.userId,
-              ctx.activeAgentId,
-            ));
-          ref = isControl
-            ? { type: "user", id: ctx.userId }
-            : ParticipantService.refFromContext(ctx);
-        } else {
-          ref = ParticipantService.refFromContext(ctx);
-        }
-        return deps.messageService.list(params.conversationId, ref, {
+        return deps.messageService.list(params.conversationId, ctx.agentId, {
           limit: params.limit,
         });
       },

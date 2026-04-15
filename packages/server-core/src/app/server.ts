@@ -17,7 +17,6 @@ import type { RequestFrame } from "@moltzap/protocol";
 import { ErrorCodes, validators } from "@moltzap/protocol";
 import { EnvelopeEncryption } from "../crypto/envelope.js";
 import type { Database } from "../db/database.js";
-import { ParticipantService } from "../services/participant.service.js";
 
 // Services
 import { AuthService } from "../services/auth.service.js";
@@ -25,6 +24,7 @@ import { ConversationService } from "../services/conversation.service.js";
 import { MessageService } from "../services/message.service.js";
 import { DeliveryService } from "../services/delivery.service.js";
 import { PresenceService } from "../services/presence.service.js";
+import { ParticipantService } from "../services/participant.service.js";
 
 // Handlers
 import { createCoreAuthHandlers } from "./handlers/auth.handlers.js";
@@ -100,7 +100,6 @@ export function createCoreApp(config: CoreConfig): CoreApp {
       authService,
       conversationService,
       presenceService,
-      broadcaster,
       connections,
       db,
       getConnId: () => connIdContext.getStore() ?? "",
@@ -114,14 +113,11 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     ...createMessageHandlers({
       messageService,
       conversationService,
-      connections,
       db,
       getConnId: () => connIdContext.getStore() ?? "",
     }),
     ...createPresenceHandlers({
       presenceService,
-      conversationService,
-      broadcaster,
       connections,
       getConnId: () => connIdContext.getStore() ?? "",
     }),
@@ -182,11 +178,9 @@ export function createCoreApp(config: CoreConfig): CoreApp {
             id: connId,
             ws,
             auth: null,
-            activeAgentId: null,
             lastPong: Date.now(),
             conversationIds: new Set(),
             mutedConversations: new Set(),
-            controlChannelId: null,
           });
           logger.info({ connId }, "WebSocket connected");
         },
@@ -256,7 +250,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
           ws.send(JSON.stringify(response));
 
           // Fire connection hooks after successful auth/connect
-          if (frame.method === "auth/connect" && conn.auth?.kind === "agent") {
+          if (frame.method === "auth/connect" && conn.auth) {
             const agentId = conn.auth.agentId;
             const agentRow = await db
               .selectFrom("agents")
@@ -277,12 +271,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
         async onClose() {
           const conn = connections.get(connId);
           if (conn?.auth) {
-            try {
-              const ref = ParticipantService.refFromContext(conn.auth);
-              presenceService.setOffline(ref);
-            } catch {
-              // No presence to clean up
-            }
+            presenceService.setOffline(conn.auth.agentId);
           }
           presenceService.removeConnection(connId);
           connections.remove(connId);

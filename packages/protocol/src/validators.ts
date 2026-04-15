@@ -11,8 +11,6 @@ import {
   AgentsLookupParamsSchema,
   AgentsLookupByNameParamsSchema,
   AgentsListParamsSchema,
-  UsersLookupParamsSchema,
-  UsersUpdateProfileParamsSchema,
   MessagesSendParamsSchema,
   MessagesListParamsSchema,
   ContactsListParamsSchema,
@@ -60,8 +58,6 @@ export const validators = {
   agentsLookupParams: ajv.compile(AgentsLookupParamsSchema),
   agentsLookupByNameParams: ajv.compile(AgentsLookupByNameParamsSchema),
   agentsListParams: ajv.compile(AgentsListParamsSchema),
-  usersLookupParams: ajv.compile(UsersLookupParamsSchema),
-  usersUpdateProfileParams: ajv.compile(UsersUpdateProfileParamsSchema),
   // Messages
   messagesSendParams: ajv.compile(MessagesSendParamsSchema),
   messagesListParams: ajv.compile(MessagesListParamsSchema),

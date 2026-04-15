@@ -1,6 +1,6 @@
 import { Type, type Static } from "@sinclair/typebox";
 import { PresenceStatusEnum, PresenceEntrySchema } from "../presence.js";
-import { ParticipantRefSchema } from "../identity.js";
+import { AgentId } from "../primitives.js";
 
 export const PresenceUpdateParamsSchema = Type.Object(
   { status: PresenceStatusEnum },
@@ -8,7 +8,7 @@ export const PresenceUpdateParamsSchema = Type.Object(
 );
 
 export const PresenceSubscribeParamsSchema = Type.Object(
-  { participants: Type.Array(ParticipantRefSchema) },
+  { agentIds: Type.Array(AgentId) },
   { additionalProperties: false },
 );
 
