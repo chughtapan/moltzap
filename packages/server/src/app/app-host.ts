@@ -315,7 +315,7 @@ export class AppHost {
     pending.resolve(access);
   }
 
-  /** Cancel all pending timers. Called on shutdown. */
+  /** Cancel all pending timers and clear state. Called on shutdown. */
   destroy(): void {
     for (const pending of this.pendingChallenges.values()) {
       clearTimeout(pending.timer);
@@ -325,6 +325,8 @@ export class AppHost {
       clearTimeout(pending.timer);
     }
     this.pendingPermissions.clear();
+    this.hooks.clear();
+    this.conversationToSession.clear();
   }
 
   private subscribeToConversation(agentId: string, convId: string): void {
@@ -344,21 +346,24 @@ export class AppHost {
       signal: controller.signal,
     };
 
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const result = await Promise.race([
         Promise.resolve(fn(ctxWithSignal)),
-        new Promise<null>((resolve) =>
-          setTimeout(() => {
+        new Promise<null>((resolve) => {
+          timer = setTimeout(() => {
             controller.abort();
             resolve(null);
-          }, timeoutMs),
-        ),
+          }, timeoutMs);
+        }),
       ]);
       return result;
     } catch (err) {
       controller.abort();
       this.logger.error({ err }, "Hook execution error");
       return null;
+    } finally {
+      clearTimeout(timer);
     }
   }
 
@@ -455,7 +460,12 @@ export class AppHost {
       agentMap,
     );
 
-    await this.admitAgentToSession(session, agentId, grantedResources);
+    await this.admitAgentToSession(
+      session,
+      agentId,
+      grantedResources,
+      agent.owner_user_id ?? "",
+    );
   }
 
   private async checkIdentity(
@@ -708,6 +718,7 @@ export class AppHost {
     session: AppSession,
     agentId: string,
     grantedResources: string[],
+    ownerId: string,
   ): Promise<void> {
     await this.db
       .updateTable("app_session_participants")
@@ -735,7 +746,6 @@ export class AppHost {
 
         this.subscribeToConversation(agentId, convId);
       }
-      // "initiator" and "none" don't add the invited agent
     }
 
     const admittedEvent = eventFrame("app/participantAdmitted", {
@@ -753,19 +763,10 @@ export class AppHost {
 
     const appHooks = this.hooks.get(session.appId);
     if (appHooks?.onJoin) {
-      const admittedAgent = await this.db
-        .selectFrom("agents")
-        .select("owner_user_id")
-        .where("id", "=", agentId)
-        .executeTakeFirst();
-
       try {
         await appHooks.onJoin({
           conversations: session.conversations,
-          agent: {
-            agentId,
-            ownerId: admittedAgent?.owner_user_id ?? "",
-          },
+          agent: { agentId, ownerId },
           sessionId: session.id,
           appId: session.appId,
         });
