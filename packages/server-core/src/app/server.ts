@@ -31,6 +31,10 @@ import { createCoreAuthHandlers } from "./handlers/auth.handlers.js";
 import { createConversationHandlers } from "./handlers/conversations.handlers.js";
 import { createMessageHandlers } from "./handlers/messages.handlers.js";
 import { createPresenceHandlers } from "./handlers/presence.handlers.js";
+import { createAppHandlers } from "./handlers/apps.handlers.js";
+
+// AppHost
+import { AppHost } from "./app-host.js";
 
 import type { CoreConfig, CoreApp, ConnectionHook } from "./types.js";
 import { runDemoAgents } from "./demo-agents.js";
@@ -75,6 +79,15 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     deliveryService,
   );
 
+  // AppHost
+  const appHost = new AppHost(
+    db,
+    broadcaster,
+    connections,
+    conversationService,
+    logger,
+  );
+
   // Per-request connection context for concurrent WebSocket RPC dispatches
   const connIdContext = new AsyncLocalStorage<string>();
 
@@ -112,6 +125,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
       connections,
       getConnId: () => connIdContext.getStore() ?? "",
     }),
+    ...createAppHandlers({ appHost }),
   };
 
   const dispatch = createRpcRouter(methods);
@@ -303,8 +317,17 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     onConnection(hook: ConnectionHook) {
       connectionHooks.push(hook);
     },
+    registerApp(manifest) {
+      appHost.registerApp(manifest);
+    },
+    setContactChecker(checker) {
+      appHost.setContactChecker(checker);
+    },
+    async createAppSession(appId, initiatorAgentId, invitedAgentIds) {
+      return appHost.createSession(appId, initiatorAgentId, invitedAgentIds);
+    },
     async close() {
-      // Close all WebSocket connections first so in-flight RPCs finish
+      appHost.destroy();
       for (const conn of connections.all()) {
         try {
           conn.ws.close();

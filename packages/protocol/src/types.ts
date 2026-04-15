@@ -116,3 +116,22 @@ export type {
   SurfaceClearParams,
   Surface,
 } from "./schema/surfaces.js";
+
+// App types
+export type {
+  AppPermission,
+  AppManifest,
+  AppManifestConversation,
+  AppSession,
+  AppParticipantStatus,
+} from "./schema/apps.js";
+
+// Apps method types
+export type {
+  AppsCreateParams,
+  AppsCreateResult,
+  AppsAttestSkillParams,
+  AppsAttestSkillResult,
+  AppsGrantPermissionParams,
+  AppsGrantPermissionResult,
+} from "./schema/methods/apps.js";

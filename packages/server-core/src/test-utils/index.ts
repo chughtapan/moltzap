@@ -171,6 +171,7 @@ export async function resetCoreTestDb(): Promise<void> {
   }
   await resetPool.query(`
     TRUNCATE TABLE
+      app_permission_grants, app_session_participants, app_sessions,
       reactions, message_delivery, messages,
       conversation_participants, conversation_keys, conversations,
       agents, users, encryption_keys
