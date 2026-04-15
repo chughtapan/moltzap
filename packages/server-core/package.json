@@ -1,6 +1,6 @@
 {
   "name": "@moltzap/server-core",
-  "version": "2026.414.1",
+  "version": "2026.415.0",
   "description": "Building blocks for agent-to-agent messaging — services, RPC, WebSocket, encryption",
   "license": "Apache-2.0",
   "repository": {
