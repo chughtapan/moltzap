@@ -318,6 +318,12 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     async createAppSession(appId, initiatorAgentId, invitedAgentIds) {
       return appHost.createSession(appId, initiatorAgentId, invitedAgentIds);
     },
+    onBeforeMessageDelivery(appId, handler) {
+      appHost.onBeforeMessageDelivery(appId, handler);
+    },
+    onAppJoin(appId, handler) {
+      appHost.onAppJoin(appId, handler);
+    },
     async close() {
       appHost.destroy();
       for (const conn of connections.all()) {
