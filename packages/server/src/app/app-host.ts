@@ -5,7 +5,7 @@ import type { ConnectionManager } from "../ws/connection.js";
 import type { ConversationService } from "../services/conversation.service.js";
 import type { Logger } from "../logger.js";
 import type { AppManifest, AppSession } from "@moltzap/protocol";
-import { ErrorCodes, eventFrame } from "@moltzap/protocol";
+import { ErrorCodes, EventNames, eventFrame } from "@moltzap/protocol";
 import { RpcError } from "../rpc/router.js";
 
 function errorMessage(err: unknown): string {
@@ -100,7 +100,7 @@ export class DefaultPermissionHandler implements PermissionHandler {
 
       this.broadcaster.sendToAgent(
         params.agentId,
-        eventFrame("permissions/required", {
+        eventFrame(EventNames.PermissionsRequired, {
           sessionId: params.sessionId,
           appId: params.appId,
           resource: params.resource,
@@ -145,6 +145,7 @@ export class DefaultPermissionHandler implements PermissionHandler {
   destroy(): void {
     for (const pending of this.pendingPermissions.values()) {
       clearTimeout(pending.timer);
+      pending.reject("shutdown");
     }
     this.pendingPermissions.clear();
   }
@@ -373,15 +374,13 @@ export class AppHost {
     userId: string,
     appId: string,
     resource: string,
-  ): Promise<{ numDeletedRows: bigint }> {
-    const result = await this.db
+  ): Promise<void> {
+    await this.db
       .deleteFrom("app_permission_grants")
       .where("user_id", "=", userId)
       .where("app_id", "=", appId)
       .where("resource", "=", resource)
       .executeTakeFirst();
-
-    return { numDeletedRows: result.numDeletedRows };
   }
 
   private subscribeToConversation(agentId: string, convId: string): void {
@@ -711,14 +710,6 @@ export class AppHost {
         const returnedSet = new Set(access);
         const covers = perm.access.every((a) => returnedSet.has(a));
         if (!covers) {
-          await this.rejectAgent(
-            session.id,
-            agentId,
-            "permission",
-            `Insufficient access granted for resource: ${perm.resource}`,
-            `Required: ${perm.access.join(", ")}; granted: ${access.join(", ")}`,
-            "permission_denied",
-          );
           throw new PermissionDeniedError(perm.resource);
         }
 

@@ -752,9 +752,8 @@ describe("AppHost", () => {
   });
 
   describe("revokeGrant", () => {
-    it("returns delete result", async () => {
-      const result = await appHost.revokeGrant("user-1", "app-1", "calendar");
-      expect(result).toEqual({ numDeletedRows: 0n });
+    it("calls deleteFrom on app_permission_grants", async () => {
+      await appHost.revokeGrant("user-1", "app-1", "calendar");
       expect(db.deleteFrom).toHaveBeenCalledWith("app_permission_grants");
     });
   });
@@ -963,21 +962,20 @@ describe("DefaultPermissionHandler", () => {
   });
 
   describe("destroy", () => {
-    it("clears all pending permissions", () => {
-      // Start a request but don't resolve it
-      handler
-        .requestPermission({
-          userId: "user-1",
-          agentId: "agent-1",
-          sessionId: "session-1",
-          appId: "app-1",
-          resource: "calendar",
-          access: ["read"],
-          timeoutMs: 60000,
-        })
-        .catch(() => {}); // suppress unhandled rejection
+    it("rejects pending promises and clears map", async () => {
+      const promise = handler.requestPermission({
+        userId: "user-1",
+        agentId: "agent-1",
+        sessionId: "session-1",
+        appId: "app-1",
+        resource: "calendar",
+        access: ["read"],
+        timeoutMs: 60000,
+      });
 
       handler.destroy();
+
+      await expect(promise).rejects.toThrow(PermissionDeniedError);
 
       const pendingMap = Reflect.get(handler, "pendingPermissions") as Map<
         string,
