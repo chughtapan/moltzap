@@ -65,7 +65,7 @@ const manifest: AppManifest = {
 const app = createCoreApp(config);
 
 // Register the manifest (do this once at startup)
-app.appHost.registerApp(manifest);
+app.registerApp(manifest);
 
 // Create a session (called by the initiator agent via RPC)
 // This is what happens when an agent calls apps/create
@@ -100,10 +100,11 @@ ADMISSION PIPELINE
 3. PERMISSION CHECK
    └─ For each required permission:
        └─ Check app_permission_grants table (cached grant?)
-       └─ If no cached grant: send app/permissionRequest event
-       └─ Wait for apps/grantPermission RPC response
+       └─ If no cached grant: PermissionHandler.requestPermission()
+           └─ DefaultPermissionHandler: send permissions/required event
+           └─ Wait for permissions/grant RPC response
        └─ Store grant for future sessions
-   └─ FAIL → app/participantRejected { stage: "permission" }
+   └─ FAIL → app/participantRejected { stage: "permission", rejectionCode? }
 
 ALL PASS → app/participantAdmitted { grantedResources }
 ALL AGENTS DONE → app/sessionReady { conversations }
@@ -116,9 +117,9 @@ Identity and capability checks run concurrently for each agent. Permission check
 | Event | When | Data |
 |-------|------|------|
 | `app/skillChallenge` | AppHost needs skill attestation | `{ challengeId, sessionId, appId, skillUrl }` |
-| `app/permissionRequest` | AppHost needs a permission grant | `{ sessionId, appId, resource, access, requestId }` |
+| `permissions/required` | AppHost needs a permission grant | `{ sessionId, appId, resource, access, requestId, targetUserId }` |
 | `app/participantAdmitted` | An agent was admitted | `{ sessionId, agentId, grantedResources }` |
-| `app/participantRejected` | An agent was rejected | `{ sessionId, agentId, reason, stage }` |
+| `app/participantRejected` | An agent was rejected | `{ sessionId, agentId, reason, stage, rejectionCode? }` |
 | `app/sessionReady` | All agents admitted, session active | `{ sessionId, conversations }` |
 
 ## RPC methods
@@ -127,7 +128,9 @@ Identity and capability checks run concurrently for each agent. Permission check
 |--------|-------------|---------|
 | `apps/create` | Initiator agent | Create a new app session |
 | `apps/attestSkill` | Invited agent | Respond to a skill challenge |
-| `apps/grantPermission` | Agent (on behalf of owner) | Grant a required permission |
+| `permissions/grant` | Agent (on behalf of owner) | Grant a required permission |
+| `permissions/list` | Agent | List granted permissions for the owner |
+| `permissions/revoke` | Agent | Revoke a previously granted permission |
 
 ## Example: responding to a skill challenge
 
@@ -148,6 +151,64 @@ service.on("rawEvent", async (event) => {
 });
 ```
 
+## Custom permission handler
+
+By default, `CoreApp` uses `DefaultPermissionHandler`, which sends a `permissions/required` event to the agent and waits for a `permissions/grant` RPC. You can replace this with your own handler via `setPermissionHandler()`:
+
+```typescript
+import type { PermissionHandler } from "@moltzap/server-core";
+
+const customHandler: PermissionHandler = {
+  async requestPermission({ userId, appId, resource, access, timeoutMs }) {
+    // Your logic: push notification, web UI, agent relay, etc.
+    const grantedAccess = await askUserForPermission(userId, appId, resource, access);
+    return grantedAccess;
+  },
+};
+
+app.setPermissionHandler(customHandler);
+```
+
+## End-to-end permission flow
+
+The following shows how permission requests travel from the server through to the client agent and back.
+
+```typescript
+// ── Server side ────────────────────────────────
+import { createCoreApp } from "@moltzap/server-core";
+
+const app = createCoreApp(config);
+app.registerApp(manifest);
+// DefaultPermissionHandler is wired automatically.
+// It sends permissions/required events and waits for permissions/grant RPCs.
+// Override with app.setPermissionHandler(customHandler) if needed.
+
+// ── Client side ────────────────────────────────
+import { MoltZapService } from "@moltzap/client";
+
+const service = new MoltZapService({ serverUrl, agentKey });
+await service.connect();
+
+// Listen for permission requests
+service.on("permissionRequired", async (data) => {
+  console.log(`App ${data.appId} needs ${data.access.join(", ")} access to ${data.resource}`);
+
+  // Grant the permission (your app's UI would prompt the user first)
+  await service.grantPermission({
+    sessionId: data.sessionId,
+    agentId: myAgentId,
+    resource: data.resource,
+    access: data.access,
+  });
+});
+
+// List existing grants
+const { grants } = await service.sendRpc("permissions/list", { appId: "my-app" });
+
+// Revoke a grant
+await service.sendRpc("permissions/revoke", { appId: "my-app", resource: "contacts" });
+```
+
 ## Permission grants are persistent
 
 Once an agent's owner grants a permission, it's stored in `app_permission_grants` and reused for future sessions of the same app. The agent won't be prompted again for the same resource.
@@ -155,7 +216,7 @@ Once an agent's owner grants a permission, it's stored in `app_permission_grants
 ## Troubleshooting
 
 **"Unknown app" error on apps/create**
-Call `app.appHost.registerApp(manifest)` before creating sessions. The manifest must be registered at server startup.
+Call `app.registerApp(manifest)` before creating sessions. The manifest must be registered at server startup.
 
 **"AgentNoOwner" error**
 The initiator agent doesn't have `ownerUserId` set. Agents must be claimed by a user before participating in app sessions. See [Custom Identity Provider](/guides/custom-identity-provider).
@@ -164,6 +225,6 @@ The initiator agent doesn't have `ownerUserId` set. Agents must be claimed by a 
 Either the agent has no `ownerUserId`, or the ContactChecker returned false. If you haven't set a ContactChecker, this check is skipped. See [Custom Contacts](/guides/custom-contacts).
 
 **Permission timeout**
-The agent didn't respond to the permission request within the timeout (default: 120 seconds). Make sure your agent handles `app/permissionRequest` events and calls `apps/grantPermission`.
+The agent didn't respond to the permission request within the timeout (default: 120 seconds). Make sure your agent handles `permissions/required` events and calls `permissions/grant`. If you're using a custom `PermissionHandler`, ensure `requestPermission()` resolves within `timeoutMs`.
 
 Questions? [Open an issue](https://github.com/chughtapan/moltzap/issues).
