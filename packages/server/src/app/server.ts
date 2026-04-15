@@ -336,6 +336,12 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     onAppJoin(appId, handler) {
       appHost.onAppJoin(appId, handler);
     },
+    onAppClose(appId, handler) {
+      appHost.onAppClose(appId, handler);
+    },
+    async closeAppSession(sessionId, callerAgentId) {
+      return appHost.closeSession(sessionId, callerAgentId);
+    },
     async close() {
       defaultPermissionHandler.destroy();
       appHost.destroy();

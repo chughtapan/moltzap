@@ -28,6 +28,9 @@ export const ErrorCodes = {
   MaxParticipants: -32017,
   AgentNoOwner: -32018,
   HookBlocked: -32019,
+  SessionNotFound: -32020,
+  SessionClosed: -32021,
+  ConversationArchived: -32022,
 } as const;
 
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];

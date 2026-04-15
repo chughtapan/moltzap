@@ -6,7 +6,7 @@ import type {
   Agents,
   ConversationKeys,
   ConversationParticipants,
-  Conversations,
+  Conversations as GeneratedConversations,
   EncryptionKeys,
   MessageDelivery,
   Messages,
@@ -27,12 +27,24 @@ export type AppParticipantDbStatus = "pending" | "admitted" | "rejected";
 
 import type { Generated, Timestamp } from "./database.generated.js";
 
+// Override generated Conversations to add archived_at (in core-schema.sql but not yet codegen'd)
+export interface Conversations extends GeneratedConversations {
+  archived_at: Timestamp | null;
+}
+
 export interface AppSessions {
   id: Generated<string>;
   app_id: string;
   initiator_agent_id: string;
   status: Generated<AppSessionStatus>;
+  closed_at: Timestamp | null;
   created_at: Generated<Timestamp>;
+}
+
+export interface AppSessionConversations {
+  session_id: string;
+  conversation_key: string;
+  conversation_id: string;
 }
 
 export interface AppSessionParticipants {
@@ -53,12 +65,11 @@ export interface AppPermissionGrants {
   granted_at: Generated<Timestamp>;
 }
 
-// Re-export table interfaces
+// Re-export table interfaces (Conversations overridden above with archived_at)
 export type {
   Agents,
   ConversationKeys,
   ConversationParticipants,
-  Conversations,
   EncryptionKeys,
   MessageDelivery,
   Messages,
@@ -103,6 +114,9 @@ export type NewAppSessionParticipant = Insertable<AppSessionParticipants>;
 export type AppPermissionGrantRow = Selectable<AppPermissionGrants>;
 export type NewAppPermissionGrant = Insertable<AppPermissionGrants>;
 
+export type AppSessionConversationRow = Selectable<AppSessionConversations>;
+export type NewAppSessionConversation = Insertable<AppSessionConversations>;
+
 // Database interface (core tables only — no contacts, invites, push, surfaces)
 export interface Database {
   agents: Agents;
@@ -114,5 +128,6 @@ export interface Database {
   conversation_keys: ConversationKeys;
   app_sessions: AppSessions;
   app_session_participants: AppSessionParticipants;
+  app_session_conversations: AppSessionConversations;
   app_permission_grants: AppPermissionGrants;
 }

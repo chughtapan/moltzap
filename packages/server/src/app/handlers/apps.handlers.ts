@@ -3,6 +3,9 @@ import type { RpcMethodRegistry } from "../../rpc/context.js";
 import type {
   AppsCreateParams,
   AppsAttestSkillParams,
+  AppsCloseSessionParams,
+  AppsGetSessionParams,
+  AppsListSessionsParams,
   PermissionsGrantParams,
   PermissionsListParams,
   PermissionsRevokeParams,
@@ -79,6 +82,37 @@ export function createAppHandlers(deps: {
           params.resource,
         );
         return {};
+      },
+    }),
+
+    "apps/closeSession": defineMethod<AppsCloseSessionParams>({
+      validator: validators.appsCloseSessionParams,
+      handler: async (params, ctx) => {
+        return deps.appHost.closeSession(params.sessionId, ctx.agentId);
+      },
+    }),
+
+    "apps/getSession": defineMethod<AppsGetSessionParams>({
+      validator: validators.appsGetSessionParams,
+      handler: async (params, ctx) => {
+        const session = await deps.appHost.getSession(
+          params.sessionId,
+          ctx.agentId,
+        );
+        return { session };
+      },
+    }),
+
+    "apps/listSessions": defineMethod<AppsListSessionsParams>({
+      validator: validators.appsListSessionsParams,
+      handler: async (params, ctx) => {
+        const sessions = await deps.appHost.listSessions(
+          ctx.agentId,
+          params.appId,
+          params.status,
+          params.limit,
+        );
+        return { sessions };
       },
     }),
   };

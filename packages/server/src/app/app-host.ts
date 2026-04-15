@@ -1,16 +1,22 @@
 import type { Kysely } from "kysely";
-import type { Database } from "../db/database.js";
+import type { Database, AppSessionStatus } from "../db/database.js";
 import type { Broadcaster } from "../ws/broadcaster.js";
 import type { ConnectionManager } from "../ws/connection.js";
 import type { ConversationService } from "../services/conversation.service.js";
 import type { Logger } from "../logger.js";
-import type { AppManifest, AppSession, Part } from "@moltzap/protocol";
-import { ErrorCodes, EventNames, eventFrame } from "@moltzap/protocol";
+import type { AppManifest, Part } from "@moltzap/protocol";
+import {
+  ErrorCodes,
+  EventNames,
+  eventFrame,
+  type AppSession,
+} from "@moltzap/protocol";
 import type {
   AppHooks,
   BeforeMessageDeliveryContext,
   BeforeMessageDeliveryHook,
   HookResult,
+  OnCloseHook,
   OnJoinHook,
 } from "./hooks.js";
 import { RpcError } from "../rpc/router.js";
@@ -169,6 +175,7 @@ export class AppHost {
     string,
     { id: string; appId: string }
   >();
+  private sessionToConversations = new Map<string, Record<string, string>>();
 
   constructor(
     private db: Kysely<Database>,
@@ -207,6 +214,12 @@ export class AppHost {
   onAppJoin(appId: string, handler: OnJoinHook): void {
     const existing = this.hooks.get(appId) ?? {};
     existing.onJoin = handler;
+    this.hooks.set(appId, existing);
+  }
+
+  onAppClose(appId: string, handler: OnCloseHook): void {
+    const existing = this.hooks.get(appId) ?? {};
+    existing.onClose = handler;
     this.hooks.set(appId, existing);
   }
 
@@ -347,11 +360,27 @@ export class AppHost {
           )
           .execute();
       }
+
+      // Persist session → conversation mapping
+      const convEntries = Object.entries(conversationMap);
+      if (convEntries.length > 0) {
+        await trx
+          .insertInto("app_session_conversations")
+          .values(
+            convEntries.map(([key, convId]) => ({
+              session_id: sessionId,
+              conversation_key: key,
+              conversation_id: convId,
+            })),
+          )
+          .execute();
+      }
     });
 
     for (const convId of Object.values(conversationMap)) {
       this.conversationToSession.set(convId, { id: sessionId, appId });
     }
+    this.sessionToConversations.set(sessionId, conversationMap);
 
     const session: AppSession = {
       id: sessionId,
@@ -415,6 +444,7 @@ export class AppHost {
     this.inflightPermissions.clear();
     this.hooks.clear();
     this.conversationToSession.clear();
+    this.sessionToConversations.clear();
   }
 
   async listGrants(
@@ -459,9 +489,302 @@ export class AppHost {
       .executeTakeFirst();
   }
 
+  async closeSession(
+    sessionId: string,
+    callerAgentId: string,
+  ): Promise<{ closed: true }> {
+    // Step 1: Load session
+    const session = await this.db
+      .selectFrom("app_sessions")
+      .selectAll()
+      .where("id", "=", sessionId)
+      .executeTakeFirst();
+
+    if (!session) {
+      throw new RpcError(ErrorCodes.SessionNotFound, "Session not found");
+    }
+    if (session.status === "closed") {
+      throw new RpcError(ErrorCodes.SessionClosed, "Session already closed");
+    }
+
+    // Step 2: Verify caller is initiator
+    if (session.initiator_agent_id !== callerAgentId) {
+      throw new RpcError(
+        ErrorCodes.Forbidden,
+        "Only the session initiator can close the session",
+      );
+    }
+
+    // Step 3: Get admitted participants for broadcast
+    const participantRows = await this.db
+      .selectFrom("app_session_participants")
+      .select("agent_id")
+      .where("session_id", "=", sessionId)
+      .where("status", "=", "admitted")
+      .execute();
+    const participantAgentIds = participantRows.map((r) => r.agent_id);
+
+    // Step 4: Look up conversations from sessionToConversations map (O(1))
+    const conversationMap = this.sessionToConversations.get(sessionId) ?? {};
+    const convIds = Object.values(conversationMap);
+
+    // Step 5: Fire on_close hook (fail-open)
+    const appHooks = this.hooks.get(session.app_id);
+    if (appHooks?.onClose) {
+      const agent = await this.db
+        .selectFrom("agents")
+        .select("owner_user_id")
+        .where("id", "=", callerAgentId)
+        .executeTakeFirst();
+
+      const manifest = this.manifests.get(session.app_id);
+      const timeoutMs = manifest?.hooks?.on_close?.timeout_ms ?? 5000;
+
+      const hookResult = await this.runHookWithTimeout(
+        (signal) =>
+          appHooks.onClose!({
+            sessionId,
+            appId: session.app_id,
+            conversations: conversationMap,
+            closedBy: {
+              agentId: callerAgentId,
+              ownerId: agent?.owner_user_id ?? "",
+            },
+            signal,
+          }),
+        timeoutMs,
+      );
+
+      if (hookResult.timedOut) {
+        this.logger.warn(
+          { sessionId, appId: session.app_id, timeoutMs },
+          "on_close hook timed out",
+        );
+        // Broadcast app/hookTimeout to initiator
+        this.broadcaster.sendToAgent(
+          callerAgentId,
+          eventFrame(EventNames.AppHookTimeout, {
+            sessionId,
+            appId: session.app_id,
+            hookName: "on_close",
+            timeoutMs,
+          }),
+        );
+      }
+    }
+
+    // Steps 6 + 7a: DB transaction — close session + archive conversations
+    await this.db.transaction().execute(async (trx) => {
+      await trx
+        .updateTable("app_sessions")
+        .set({ status: "closed", closed_at: new Date() })
+        .where("id", "=", sessionId)
+        .execute();
+
+      if (convIds.length > 0) {
+        await trx
+          .updateTable("conversations")
+          .set({ archived_at: new Date() })
+          .where("id", "in", convIds)
+          .execute();
+      }
+    });
+
+    // Step 7b: Prune conversationToSession entries
+    for (const convId of convIds) {
+      this.conversationToSession.delete(convId);
+    }
+
+    // Step 7c: Prune sessionToConversations entry
+    this.sessionToConversations.delete(sessionId);
+
+    // Step 7d: Unsubscribe agents from conversations
+    const allAgentIds = [callerAgentId, ...participantAgentIds];
+    for (const agentId of allAgentIds) {
+      for (const conn of this.connections.getByAgent(agentId)) {
+        for (const convId of convIds) {
+          conn.conversationIds.delete(convId);
+        }
+      }
+    }
+
+    // Step 8: Broadcast app/sessionClosed
+    const closedEvent = eventFrame(EventNames.AppSessionClosed, {
+      sessionId,
+      closedBy: callerAgentId,
+    });
+    this.broadcaster.sendToAgent(callerAgentId, closedEvent);
+    for (const agentId of participantAgentIds) {
+      this.broadcaster.sendToAgent(agentId, closedEvent);
+    }
+
+    this.logger.info(
+      { sessionId, appId: session.app_id, closedBy: callerAgentId },
+      "App session closed",
+    );
+
+    // Step 9
+    return { closed: true };
+  }
+
+  async getSession(
+    sessionId: string,
+    callerAgentId: string,
+  ): Promise<AppSession> {
+    const session = await this.db
+      .selectFrom("app_sessions")
+      .selectAll()
+      .where("id", "=", sessionId)
+      .executeTakeFirst();
+
+    if (!session) {
+      throw new RpcError(ErrorCodes.SessionNotFound, "Session not found");
+    }
+
+    // Check caller is initiator or admitted participant
+    const isInitiator = session.initiator_agent_id === callerAgentId;
+    if (!isInitiator) {
+      const participant = await this.db
+        .selectFrom("app_session_participants")
+        .select("status")
+        .where("session_id", "=", sessionId)
+        .where("agent_id", "=", callerAgentId)
+        .executeTakeFirst();
+
+      if (!participant || participant.status !== "admitted") {
+        throw new RpcError(
+          ErrorCodes.Forbidden,
+          "Not a participant in this session",
+        );
+      }
+    }
+
+    // Load conversations from DB
+    const convRows = await this.db
+      .selectFrom("app_session_conversations")
+      .select(["conversation_key", "conversation_id"])
+      .where("session_id", "=", sessionId)
+      .execute();
+
+    const conversations: Record<string, string> = {};
+    for (const row of convRows) {
+      conversations[row.conversation_key] = row.conversation_id;
+    }
+
+    return {
+      id: session.id,
+      appId: session.app_id,
+      initiatorAgentId: session.initiator_agent_id,
+      status: session.status,
+      conversations,
+      createdAt: new Date(session.created_at).toISOString(),
+      closedAt: session.closed_at
+        ? new Date(session.closed_at).toISOString()
+        : undefined,
+    };
+  }
+
+  async listSessions(
+    callerAgentId: string,
+    appId?: string,
+    status?: string,
+    limit = 50,
+  ): Promise<AppSession[]> {
+    let query = this.db
+      .selectFrom("app_sessions")
+      .selectAll()
+      .where("initiator_agent_id", "=", callerAgentId)
+      .orderBy("created_at", "desc")
+      .limit(limit);
+
+    if (appId) {
+      query = query.where("app_id", "=", appId);
+    }
+    if (status) {
+      query = query.where("status", "=", status as AppSessionStatus);
+    }
+
+    const rows = await query.execute();
+
+    // Batch-load conversations for all sessions
+    const sessionIds = rows.map((r) => r.id);
+    const convRows =
+      sessionIds.length > 0
+        ? await this.db
+            .selectFrom("app_session_conversations")
+            .select(["session_id", "conversation_key", "conversation_id"])
+            .where("session_id", "in", sessionIds)
+            .execute()
+        : [];
+
+    const convBySession = new Map<string, Record<string, string>>();
+    for (const row of convRows) {
+      if (!convBySession.has(row.session_id)) {
+        convBySession.set(row.session_id, {});
+      }
+      convBySession.get(row.session_id)![row.conversation_key] =
+        row.conversation_id;
+    }
+
+    return rows.map((row) => ({
+      id: row.id,
+      appId: row.app_id,
+      initiatorAgentId: row.initiator_agent_id,
+      status: row.status,
+      conversations: convBySession.get(row.id) ?? {},
+      createdAt: new Date(row.created_at).toISOString(),
+      closedAt: row.closed_at
+        ? new Date(row.closed_at).toISOString()
+        : undefined,
+    }));
+  }
+
+  /** Check if a conversation has been archived (for use in message guards). */
+  async isConversationArchived(conversationId: string): Promise<boolean> {
+    const row = await this.db
+      .selectFrom("conversations")
+      .select("archived_at")
+      .where("id", "=", conversationId)
+      .executeTakeFirst();
+    return row?.archived_at != null;
+  }
+
   private subscribeToConversation(agentId: string, convId: string): void {
     for (const conn of this.connections.getByAgent(agentId)) {
       conn.conversationIds.add(convId);
+    }
+  }
+
+  private async runHookWithTimeout<T>(
+    fn: (signal: AbortSignal) => T | Promise<T>,
+    timeoutMs: number,
+  ): Promise<
+    { result: T; timedOut: false } | { result: null; timedOut: true }
+  > {
+    const controller = new AbortController();
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const raceResult = await Promise.race([
+        Promise.resolve(fn(controller.signal)).then((r) => ({
+          result: r,
+          timedOut: false as const,
+        })),
+        new Promise<{ result: null; timedOut: true }>((resolve) => {
+          timer = setTimeout(() => {
+            controller.abort();
+            resolve({ result: null, timedOut: true });
+          }, timeoutMs);
+        }),
+      ]);
+      return raceResult;
+    } catch (err) {
+      controller.abort();
+      this.logger.error({ err }, "Hook execution error");
+      // Hook threw — not a timeout, but no result available
+      return { result: null, timedOut: true };
+    } finally {
+      clearTimeout(timer);
     }
   }
 
@@ -470,31 +793,11 @@ export class AppHost {
     ctx: Omit<BeforeMessageDeliveryContext, "signal">,
     timeoutMs: number,
   ): Promise<HookResult | null> {
-    const controller = new AbortController();
-    const ctxWithSignal: BeforeMessageDeliveryContext = {
-      ...ctx,
-      signal: controller.signal,
-    };
-
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-      const result = await Promise.race([
-        Promise.resolve(fn(ctxWithSignal)),
-        new Promise<null>((resolve) => {
-          timer = setTimeout(() => {
-            controller.abort();
-            resolve(null);
-          }, timeoutMs);
-        }),
-      ]);
-      return result;
-    } catch (err) {
-      controller.abort();
-      this.logger.error({ err }, "Hook execution error");
-      return null;
-    } finally {
-      clearTimeout(timer);
-    }
+    const hookResult = await this.runHookWithTimeout(
+      (signal) => fn({ ...ctx, signal }),
+      timeoutMs,
+    );
+    return hookResult.timedOut ? null : hookResult.result;
   }
 
   // ── Internal ───────────────────────────────────────────────────────

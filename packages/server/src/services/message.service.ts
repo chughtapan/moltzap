@@ -42,6 +42,18 @@ export class MessageService {
     let parts = inputParts;
     await this.conversations.requireParticipant(conversationId, senderAgentId);
 
+    // Guard: reject messages to archived conversations
+    if (this.appHost) {
+      const archived =
+        await this.appHost.isConversationArchived(conversationId);
+      if (archived) {
+        throw new RpcError(
+          ErrorCodes.ConversationArchived,
+          "Conversation is archived",
+        );
+      }
+    }
+
     if (replyToId) {
       const replyExists = await this.db
         .selectFrom("messages")
