@@ -344,10 +344,36 @@ export async function ensureNanoclawInstalled(): Promise<void> {
 export async function startNanoclawSmoke(opts: {
   apiKey: string;
   serverUrl: string;
+  workspaceFiles?: Array<{ relativePath: string; content: string }>;
 }): Promise<NanoclawSmokeHandle> {
   const dataDir = await fsp.mkdtemp(
     path.join(os.tmpdir(), "moltzap-nanoclaw-smoke-"),
   );
+
+  // Each agent needs its own working directory so store/data/groups are
+  // isolated (nanoclaw derives these from process.cwd()). Copy the full
+  // tree except node_modules (132MB), which is symlinked instead.
+  const agentCwd = path.join(dataDir, "nanoclaw");
+  fs.cpSync(NANOCLAW_CACHE, agentCwd, {
+    recursive: true,
+    filter: (src) => !src.includes("node_modules"),
+  });
+  await fsp.symlink(
+    path.join(NANOCLAW_CACHE, "node_modules"),
+    path.join(agentCwd, "node_modules"),
+  );
+  // Write per-agent workspace files (isolated, no shared-cache overwrite)
+  if (opts.workspaceFiles) {
+    for (const file of opts.workspaceFiles) {
+      const destPath = path.join(
+        agentCwd,
+        "container/skills",
+        file.relativePath,
+      );
+      await fsp.mkdir(path.dirname(destPath), { recursive: true });
+      await fsp.writeFile(destPath, file.content);
+    }
+  }
 
   // @moltzap/client's MoltZapWsClient appends "/ws" and rewrites http→ws itself.
   // The eval runner hands us the already-expanded wsUrl (ws://host:port/ws),
@@ -361,11 +387,11 @@ export async function startNanoclawSmoke(opts: {
   await ensureOnecliRunning();
 
   logger.info(
-    `Starting nanoclaw subprocess (dataDir: ${dataDir}, server: ${normalizedServerUrl})`,
+    `Starting nanoclaw subprocess (cwd: ${agentCwd}, server: ${normalizedServerUrl})`,
   );
 
   const proc = spawn("node", ["dist/index.js"], {
-    cwd: NANOCLAW_CACHE,
+    cwd: agentCwd,
     env: {
       ...process.env,
       MOLTZAP_API_KEY: opts.apiKey,

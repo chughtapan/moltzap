@@ -1,18 +1,16 @@
 /**
  * Manages nanoclaw processes for E2E evals.
  *
- * Each agent is a separate nanoclaw subprocess sharing a cached binary
- * and OneCLI gateway. Mirrors DockerManager's API surface.
+ * Each agent runs as a separate subprocess with an isolated working
+ * directory (store, groups, data). The shared nanoclaw binary and
+ * node_modules are symlinked to avoid copying ~200MB per agent.
  */
 
-import * as fs from "node:fs";
-import * as path from "node:path";
 import {
   ensureNanoclawInstalled,
   startNanoclawSmoke,
   stopNanoclawSmoke,
   getNanoclawLogs,
-  NANOCLAW_CACHE,
   type NanoclawSmokeHandle,
 } from "./nanoclaw-smoke.js";
 import { logger } from "./logger.js";
@@ -37,24 +35,10 @@ export class NanoclawManager {
   }): Promise<NanoclawAgent> {
     logger.info(`Starting nanoclaw agent "${opts.name}"`);
 
-    // Write workspace files into the nanoclaw cache's container tree.
-    // Skills are volume-mounted at runtime (not baked into the image),
-    // so changes here are visible to the next subcontainer launch.
-    if (opts.workspaceFiles) {
-      for (const file of opts.workspaceFiles) {
-        const destPath = path.join(
-          NANOCLAW_CACHE,
-          "container/skills",
-          file.relativePath,
-        );
-        fs.mkdirSync(path.dirname(destPath), { recursive: true });
-        fs.writeFileSync(destPath, file.content);
-      }
-    }
-
     const handle = await startNanoclawSmoke({
       apiKey: opts.apiKey,
       serverUrl: opts.serverUrl,
+      workspaceFiles: opts.workspaceFiles,
     });
     const agent: NanoclawAgent = { name: opts.name, handle };
     this.agents.push(agent);
