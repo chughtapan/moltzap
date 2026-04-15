@@ -22,10 +22,6 @@ import {
   AgentsListParamsSchema,
   AgentsListResultSchema,
   InviteAgentParamsSchema,
-  UsersLookupParamsSchema,
-  UsersLookupResultSchema,
-  UsersUpdateProfileParamsSchema,
-  UsersUpdateProfileResultSchema,
   // Messages
   MessagesSendParamsSchema,
   MessagesSendResultSchema,
@@ -174,21 +170,6 @@ const methods: MethodDef[] = [
     params: AgentsListParamsSchema,
     result: AgentsListResultSchema,
     category: "agents",
-  },
-  // Users
-  {
-    method: "users/lookup",
-    description: "Look up users by their UUIDs.",
-    params: UsersLookupParamsSchema,
-    result: UsersLookupResultSchema,
-    category: "users",
-  },
-  {
-    method: "users/update-profile",
-    description: "Update the authenticated user's display name.",
-    params: UsersUpdateProfileParamsSchema,
-    result: UsersUpdateProfileResultSchema,
-    category: "users",
   },
   // Messages
   {
