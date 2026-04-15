@@ -70,6 +70,16 @@ export function createCoreApp(config: CoreConfig): CoreApp {
   );
   const deliveryService = new DeliveryService(db);
   const presenceService = new PresenceService();
+
+  // AppHost (before MessageService — it needs the hook call)
+  const appHost = new AppHost(
+    db,
+    broadcaster,
+    connections,
+    conversationService,
+    logger,
+  );
+
   const messageService = new MessageService(
     db,
     logger,
@@ -77,15 +87,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     broadcaster,
     envelope,
     deliveryService,
-  );
-
-  // AppHost
-  const appHost = new AppHost(
-    db,
-    broadcaster,
-    connections,
-    conversationService,
-    logger,
+    appHost,
   );
 
   // Per-request connection context for concurrent WebSocket RPC dispatches
