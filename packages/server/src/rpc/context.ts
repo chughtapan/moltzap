@@ -1,15 +1,8 @@
-export type AuthenticatedContext =
-  | {
-      kind: "user";
-      userId: string;
-      activeAgentId: string | null;
-    }
-  | {
-      kind: "agent";
-      agentId: string;
-      agentStatus: string;
-      ownerUserId: string | null;
-    };
+export interface AuthenticatedContext {
+  agentId: string;
+  agentStatus: string;
+  ownerUserId: string | null;
+}
 
 export type RpcHandler = (
   params: unknown,

@@ -1,5 +1,4 @@
 import type { PresenceService } from "../../services/presence.service.js";
-import type { ConversationService } from "../../services/conversation.service.js";
 import type { RpcMethodRegistry } from "../../rpc/context.js";
 import { defineMethod } from "../../rpc/context.js";
 import type {
@@ -7,14 +6,10 @@ import type {
   PresenceSubscribeParams,
 } from "@moltzap/protocol";
 import { validators, EventNames, eventFrame } from "@moltzap/protocol";
-import { ParticipantService } from "../../services/participant.service.js";
-import type { Broadcaster } from "../../ws/broadcaster.js";
 import type { ConnectionManager } from "../../ws/connection.js";
 
 export function createPresenceHandlers(deps: {
   presenceService: PresenceService;
-  conversationService: ConversationService;
-  broadcaster: Broadcaster;
   connections: ConnectionManager;
   getConnId: () => string;
 }): RpcMethodRegistry {
@@ -23,13 +18,14 @@ export function createPresenceHandlers(deps: {
       validator: validators.presenceUpdateParams,
       requiresActive: true,
       handler: async (params, ctx) => {
-        const ref = ParticipantService.refFromContext(ctx);
-        deps.presenceService.update(ref, params.status);
+        deps.presenceService.update(ctx.agentId, params.status);
 
-        // Notify only connections that subscribed to this participant
-        const subscriberConnIds = deps.presenceService.getSubscribers(ref);
+        // Notify only connections that subscribed to this agent
+        const subscriberConnIds = deps.presenceService.getSubscribers(
+          ctx.agentId,
+        );
         const event = eventFrame(EventNames.PresenceChanged, {
-          participant: ref,
+          agentId: ctx.agentId,
           status: params.status,
         });
         const raw = JSON.stringify(event);
@@ -51,8 +47,8 @@ export function createPresenceHandlers(deps: {
       requiresActive: true,
       handler: async (params, _ctx) => {
         const connId = deps.getConnId();
-        deps.presenceService.subscribe(connId, params.participants);
-        const statuses = deps.presenceService.getMany(params.participants);
+        deps.presenceService.subscribe(connId, params.agentIds);
+        const statuses = deps.presenceService.getMany(params.agentIds);
         return { statuses };
       },
     }),

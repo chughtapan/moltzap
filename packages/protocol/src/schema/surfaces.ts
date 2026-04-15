@@ -1,7 +1,6 @@
 import { Type, type Static } from "@sinclair/typebox";
 import { DateTimeString } from "../helpers.js";
-import { ConversationId } from "./primitives.js";
-import { ParticipantRefSchema } from "./identity.js";
+import { ConversationId, AgentId } from "./primitives.js";
 
 export const SurfaceSpecSchema = Type.Object(
   {
@@ -54,7 +53,7 @@ export const SurfaceSchema = Type.Object(
     conversationId: ConversationId,
     title: Type.String(),
     spec: SurfaceSpecSchema,
-    updatedBy: ParticipantRefSchema,
+    updatedBy: AgentId,
     updatedAt: DateTimeString,
     version: Type.Integer({ minimum: 1 }),
   },

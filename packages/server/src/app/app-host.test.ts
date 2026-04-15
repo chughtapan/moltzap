@@ -14,7 +14,6 @@ function createMockDb() {
             id: crypto.randomUUID(),
             type: "group",
             name: "test",
-            created_by_type: "agent",
             created_by_id: "agent-1",
             created_at: new Date(),
             updated_at: new Date(),
@@ -98,14 +97,14 @@ function createMockDb() {
 
 function createMockBroadcaster() {
   return {
-    sendToParticipant: vi.fn(),
+    sendToAgent: vi.fn(),
     broadcastToConversation: vi.fn().mockReturnValue([]),
   };
 }
 
 function createMockConnections() {
   return {
-    getByParticipant: vi.fn().mockReturnValue([]),
+    getByAgent: vi.fn().mockReturnValue([]),
   };
 }
 
@@ -240,8 +239,7 @@ describe("AppHost", () => {
       expect(session.conversations).toHaveProperty("main");
 
       // Should emit sessionReady to initiator
-      expect(broadcaster.sendToParticipant).toHaveBeenCalledWith(
-        "agent",
+      expect(broadcaster.sendToAgent).toHaveBeenCalledWith(
         "agent-init",
         expect.objectContaining({
           event: "app/sessionReady",
@@ -340,8 +338,7 @@ describe("AppHost", () => {
       await new Promise((r) => setTimeout(r, 100));
 
       // Should have sent a rejection event
-      expect(broadcaster.sendToParticipant).toHaveBeenCalledWith(
-        "agent",
+      expect(broadcaster.sendToAgent).toHaveBeenCalledWith(
         "agent-2",
         expect.objectContaining({
           event: "app/participantRejected",

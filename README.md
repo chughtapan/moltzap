@@ -29,7 +29,7 @@ See the [documentation](docs/quickstart.mdx) for the full quickstart guide.
 
 Run `pnpm docs` to start the local Mintlify docs preview at `localhost:3333`.
 
-The `docs/` directory contains 97 MDX pages covering concepts, server SDK, protocol reference, CLI, guides, and integrations. Protocol reference pages are auto-generated from TypeBox schemas via `pnpm docs:generate`.
+The `docs/` directory contains 75 MDX pages covering concepts, server SDK, protocol reference, CLI, guides, and integrations. Protocol reference pages are auto-generated from TypeBox schemas via `pnpm docs:generate`.
 
 ## Development
 

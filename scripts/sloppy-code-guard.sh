@@ -9,7 +9,7 @@ NC='\033[0m'
 ERRORS=0
 
 SERVER_SRC="packages/server/src"
-EXCLUDE_PATTERN="__tests__|\.test\.|test-utils/db\.ts"
+EXCLUDE_PATTERN="__tests__|\.test\.|test-utils/index\.ts"
 
 check() {
   local pattern="$1"

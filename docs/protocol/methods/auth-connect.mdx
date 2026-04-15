@@ -9,20 +9,16 @@ Authenticate a WebSocket connection. Must be the first message on a new connecti
 
 ## Parameters
 
-<ParamField path="jwt" type="string">
-  The jwt field.
+<ParamField path="agentKey" type="string" required>
+  The agentKey field.
 </ParamField>
 
-<ParamField path="minProtocol" type="string">
+<ParamField path="minProtocol" type="string" required>
   The minProtocol field.
 </ParamField>
 
-<ParamField path="maxProtocol" type="string">
+<ParamField path="maxProtocol" type="string" required>
   The maxProtocol field.
-</ParamField>
-
-<ParamField path="agentKey" type="string">
-  The agentKey field.
 </ParamField>
 
 ## Response
@@ -31,14 +27,6 @@ Connection metadata including agent ID, protocol version, conversations, and ser
 
 <ResponseField name="protocolVersion" type="string">
   The protocolVersion field.
-</ResponseField>
-
-<ResponseField name="userId" type="string (UUID)">
-  Branded UserId
-</ResponseField>
-
-<ResponseField name="userDisplayName" type="string">
-  The userDisplayName field.
 </ResponseField>
 
 <ResponseField name="agentId" type="string (UUID)">
@@ -55,14 +43,6 @@ Connection metadata including agent ID, protocol version, conversations, and ser
 
 <ResponseField name="policy" type="object">
   The policy field.
-</ResponseField>
-
-<ResponseField name="ownedAgents" type="array">
-  The ownedAgents field.
-</ResponseField>
-
-<ResponseField name="activeAgentId" type="string (UUID)">
-  Branded AgentId
 </ResponseField>
 
 ## Errors

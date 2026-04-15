@@ -1,5 +1,4 @@
 import type { Db } from "../db/client.js";
-import type { ParticipantRef } from "@moltzap/protocol";
 import { sql } from "kysely";
 
 const DELIVERY_TRACKING_THRESHOLD = 20;
@@ -20,19 +19,15 @@ export class DeliveryService {
     return result.count < DELIVERY_TRACKING_THRESHOLD;
   }
 
-  async recordSent(
-    messageId: string,
-    recipients: ParticipantRef[],
-  ): Promise<void> {
-    if (recipients.length === 0) return;
+  async recordSent(messageId: string, agentIds: string[]): Promise<void> {
+    if (agentIds.length === 0) return;
 
     await this.db
       .insertInto("message_delivery")
       .values(
-        recipients.map((r) => ({
+        agentIds.map((agentId) => ({
           message_id: messageId,
-          participant_type: r.type,
-          participant_id: r.id,
+          agent_id: agentId,
           status: "sent" as const,
         })),
       )
@@ -40,24 +35,19 @@ export class DeliveryService {
       .execute();
   }
 
-  async recordDelivered(
-    messageId: string,
-    participant: ParticipantRef,
-  ): Promise<void> {
+  async recordDelivered(messageId: string, agentId: string): Promise<void> {
     await this.db
       .updateTable("message_delivery")
       .set({ status: "delivered", delivered_at: sql`now()` })
       .where("message_id", "=", messageId)
-      .where("participant_type", "=", participant.type)
-      .where("participant_id", "=", participant.id)
+      .where("agent_id", "=", agentId)
       .where("status", "=", "sent")
       .execute();
   }
 
   async getDeliveryStatus(messageId: string): Promise<
     Array<{
-      participantType: string;
-      participantId: string;
+      agentId: string;
       status: string;
       deliveredAt?: string;
       readAt?: string;
@@ -65,19 +55,12 @@ export class DeliveryService {
   > {
     const rows = await this.db
       .selectFrom("message_delivery")
-      .select([
-        "participant_type",
-        "participant_id",
-        "status",
-        "delivered_at",
-        "read_at",
-      ])
+      .select(["agent_id", "status", "delivered_at", "read_at"])
       .where("message_id", "=", messageId)
       .execute();
 
     return rows.map((r) => ({
-      participantType: r.participant_type,
-      participantId: r.participant_id,
+      agentId: r.agent_id,
       status: r.status,
       deliveredAt: r.delivered_at ? r.delivered_at.toISOString() : undefined,
       readAt: r.read_at ? r.read_at.toISOString() : undefined,
