@@ -32,6 +32,7 @@ export interface AppSessions {
   app_id: string;
   initiator_agent_id: string;
   status: Generated<AppSessionStatus>;
+  closed_at: Timestamp | null;
   created_at: Generated<Timestamp>;
 }
 
@@ -42,6 +43,12 @@ export interface AppSessionParticipants {
   rejection_reason: string | null;
   admitted_at: Timestamp | null;
   updated_at: Generated<Timestamp>;
+}
+
+export interface AppSessionConversations {
+  session_id: string;
+  conversation_key: string;
+  conversation_id: string;
 }
 
 export interface AppPermissionGrants {
@@ -100,6 +107,9 @@ export type NewAppSession = Insertable<AppSessions>;
 export type AppSessionParticipantRow = Selectable<AppSessionParticipants>;
 export type NewAppSessionParticipant = Insertable<AppSessionParticipants>;
 
+export type AppSessionConversationRow = Selectable<AppSessionConversations>;
+export type NewAppSessionConversation = Insertable<AppSessionConversations>;
+
 export type AppPermissionGrantRow = Selectable<AppPermissionGrants>;
 export type NewAppPermissionGrant = Insertable<AppPermissionGrants>;
 
@@ -114,5 +124,6 @@ export interface Database {
   conversation_keys: ConversationKeys;
   app_sessions: AppSessions;
   app_session_participants: AppSessionParticipants;
+  app_session_conversations: AppSessionConversations;
   app_permission_grants: AppPermissionGrants;
 }

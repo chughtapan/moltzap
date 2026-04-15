@@ -4,6 +4,9 @@ import type {
   AppsCreateParams,
   AppsAttestSkillParams,
   AppsGrantPermissionParams,
+  AppsCloseSessionParams,
+  AppsGetSessionParams,
+  AppsListSessionsParams,
 } from "@moltzap/protocol";
 import { validators } from "@moltzap/protocol";
 import { defineMethod } from "../../rpc/context.js";
@@ -54,6 +57,36 @@ export function createAppHandlers(deps: {
         );
 
         return {};
+      },
+    }),
+
+    "apps/closeSession": defineMethod<AppsCloseSessionParams>({
+      validator: validators.appsCloseSessionParams,
+      handler: async (params, ctx) => {
+        return deps.appHost.closeSession(params.sessionId, ctx.agentId);
+      },
+    }),
+
+    "apps/getSession": defineMethod<AppsGetSessionParams>({
+      validator: validators.appsGetSessionParams,
+      handler: async (params, ctx) => {
+        const session = await deps.appHost.getSession(
+          params.sessionId,
+          ctx.agentId,
+        );
+        return { session };
+      },
+    }),
+
+    "apps/listSessions": defineMethod<AppsListSessionsParams>({
+      validator: validators.appsListSessionsParams,
+      handler: async (params, ctx) => {
+        const sessions = await deps.appHost.listSessions(ctx.agentId, {
+          appId: params.appId,
+          status: params.status,
+          limit: params.limit ?? 50,
+        });
+        return { sessions };
       },
     }),
   };

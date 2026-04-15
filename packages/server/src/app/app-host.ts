@@ -1,5 +1,5 @@
 import type { Kysely } from "kysely";
-import type { Database } from "../db/database.js";
+import type { AppSessionStatus, Database } from "../db/database.js";
 import type { Broadcaster } from "../ws/broadcaster.js";
 import type { ConnectionManager } from "../ws/connection.js";
 import type { ConversationService } from "../services/conversation.service.js";
@@ -8,9 +8,9 @@ import type { AppManifest, AppSession, Part } from "@moltzap/protocol";
 import { ErrorCodes, eventFrame } from "@moltzap/protocol";
 import type {
   AppHooks,
-  BeforeMessageDeliveryContext,
   BeforeMessageDeliveryHook,
   HookResult,
+  OnCloseHook,
   OnJoinHook,
 } from "./hooks.js";
 import { RpcError } from "../rpc/router.js";
@@ -52,6 +52,7 @@ export class AppHost {
     string,
     { id: string; appId: string }
   >();
+  private sessionToConversations = new Map<string, Set<string>>();
 
   constructor(
     private db: Kysely<Database>,
@@ -89,6 +90,12 @@ export class AppHost {
     this.hooks.set(appId, existing);
   }
 
+  onSessionClose(appId: string, handler: OnCloseHook): void {
+    const existing = this.hooks.get(appId) ?? {};
+    existing.onClose = handler;
+    this.hooks.set(appId, existing);
+  }
+
   async runBeforeMessageDelivery(
     conversationId: string,
     senderAgentId: string,
@@ -122,13 +129,31 @@ export class AppHost {
     const timeoutMs =
       manifest?.hooks?.before_message_delivery?.timeout_ms ?? 5000;
 
-    const result = await this.runWithTimeout(
-      appHooks.beforeMessageDelivery,
-      ctx,
+    const outcome = await this.runHookWithTimeout(
+      (signal) => appHooks.beforeMessageDelivery!({ ...ctx, signal }),
       timeoutMs,
     );
-    if (!result) return null;
-    return { result, appId: session.appId };
+
+    if (outcome.timedOut) {
+      this.broadcaster.sendToAgent(
+        ctx.sender.agentId,
+        eventFrame("app/hookTimeout", {
+          sessionId: session.id,
+          appId: session.appId,
+          hookName: "before_message_delivery",
+          timeoutMs,
+        }),
+      );
+      this.logger.warn(
+        { sessionId: session.id, appId: session.appId, timeoutMs },
+        "before_message_delivery hook timed out",
+      );
+      return null;
+    }
+
+    if (!outcome.result) return null;
+
+    return { result: outcome.result, appId: session.appId };
   }
 
   async createSession(
@@ -209,8 +234,23 @@ export class AppHost {
           app_id: appId,
           initiator_agent_id: initiatorAgentId,
           status: initialStatus,
+          closed_at: null,
         })
         .execute();
+
+      const convEntries = Object.entries(conversationMap);
+      if (convEntries.length > 0) {
+        await trx
+          .insertInto("app_session_conversations")
+          .values(
+            convEntries.map(([key, convId]) => ({
+              session_id: sessionId,
+              conversation_key: key,
+              conversation_id: convId,
+            })),
+          )
+          .execute();
+      }
 
       if (invitedAgentIds.length > 0) {
         await trx
@@ -228,9 +268,12 @@ export class AppHost {
       }
     });
 
+    const convIds = new Set<string>();
     for (const convId of Object.values(conversationMap)) {
       this.conversationToSession.set(convId, { id: sessionId, appId });
+      convIds.add(convId);
     }
+    this.sessionToConversations.set(sessionId, convIds);
 
     const session: AppSession = {
       id: sessionId,
@@ -315,6 +358,246 @@ export class AppHost {
     pending.resolve(access);
   }
 
+  async closeSession(
+    sessionId: string,
+    callerAgentId: string,
+  ): Promise<{ closed: boolean }> {
+    // 1. Look up session
+    const sessionRow = await this.db
+      .selectFrom("app_sessions")
+      .selectAll()
+      .where("id", "=", sessionId)
+      .executeTakeFirst();
+
+    if (!sessionRow) {
+      throw new RpcError(ErrorCodes.SessionNotFound, "Session not found");
+    }
+    if (sessionRow.status === "closed") {
+      throw new RpcError(ErrorCodes.SessionClosed, "Session is already closed");
+    }
+
+    // 2. Only initiator can close
+    if (sessionRow.initiator_agent_id !== callerAgentId) {
+      throw new RpcError(
+        ErrorCodes.Forbidden,
+        "Only the session initiator can close the session",
+      );
+    }
+
+    // 2b. Atomic claim: prevents concurrent close race
+    const claimed = await this.db
+      .updateTable("app_sessions")
+      .set({ status: "closed", closed_at: new Date() })
+      .where("id", "=", sessionId)
+      .where("status", "!=", "closed")
+      .executeTakeFirst();
+    if (BigInt(claimed.numUpdatedRows) === 0n) {
+      throw new RpcError(ErrorCodes.SessionClosed, "Session is already closed");
+    }
+
+    // 3. Get admitted participants for broadcast
+    const participantRows = await this.db
+      .selectFrom("app_session_participants")
+      .select("agent_id")
+      .where("session_id", "=", sessionId)
+      .where("status", "=", "admitted")
+      .execute();
+    const participantAgentIds = participantRows.map((r) => r.agent_id);
+
+    // 4. Get conversation mappings (single query, used for both convIds and hook context)
+    const convEntries = await this.db
+      .selectFrom("app_session_conversations")
+      .select(["conversation_key", "conversation_id"])
+      .where("session_id", "=", sessionId)
+      .execute();
+    const conversations: Record<string, string> = Object.fromEntries(
+      convEntries.map((r) => [r.conversation_key, r.conversation_id]),
+    );
+    const convIds =
+      this.sessionToConversations.get(sessionId) ??
+      new Set(convEntries.map((r) => r.conversation_id));
+
+    // 5. Fire on_close hook with timeout (fail-open)
+    const appHooks = this.hooks.get(sessionRow.app_id);
+    if (appHooks?.onClose) {
+      const manifest = this.manifests.get(sessionRow.app_id);
+      const timeoutMs = manifest?.hooks?.on_close?.timeout_ms ?? 5000;
+
+      const initiator = await this.db
+        .selectFrom("agents")
+        .select("owner_user_id")
+        .where("id", "=", callerAgentId)
+        .executeTakeFirst();
+
+      const outcome = await this.runHookWithTimeout(
+        (signal) =>
+          appHooks.onClose!({
+            sessionId,
+            appId: sessionRow.app_id,
+            conversations,
+            closedBy: {
+              agentId: callerAgentId,
+              ownerId: initiator?.owner_user_id ?? "",
+            },
+            signal,
+          }),
+        timeoutMs,
+      );
+
+      if (outcome.timedOut) {
+        this.broadcaster.sendToAgent(
+          callerAgentId,
+          eventFrame("app/hookTimeout", {
+            sessionId,
+            appId: sessionRow.app_id,
+            hookName: "on_close",
+            timeoutMs,
+          }),
+        );
+        this.logger.warn(
+          { sessionId, appId: sessionRow.app_id, timeoutMs },
+          "on_close hook timed out",
+        );
+      }
+    }
+
+    // 6-7a. Archive conversations (session already marked closed in step 2b)
+    const convIdArray = [...convIds];
+    if (convIdArray.length > 0) {
+      await this.db
+        .updateTable("conversations")
+        .set({ archived_at: new Date() })
+        .where("id", "in", convIdArray)
+        .execute();
+    }
+
+    // 7b-7c. Prune in-memory maps
+    for (const convId of convIdArray) {
+      this.conversationToSession.delete(convId);
+    }
+    this.sessionToConversations.delete(sessionId);
+
+    // 7d. Unsubscribe all agents from closed conversations
+    const allAgentIds = [callerAgentId, ...participantAgentIds];
+    for (const agentId of allAgentIds) {
+      for (const convId of convIdArray) {
+        this.unsubscribeFromConversation(agentId, convId);
+      }
+    }
+
+    // 8. Broadcast app/sessionClosed to initiator + admitted participants
+    const closedEvent = eventFrame("app/sessionClosed", {
+      sessionId,
+      closedBy: callerAgentId,
+    });
+    this.broadcaster.sendToAgent(callerAgentId, closedEvent);
+    for (const agentId of participantAgentIds) {
+      this.broadcaster.sendToAgent(agentId, closedEvent);
+    }
+
+    return { closed: true };
+  }
+
+  async getSession(
+    sessionId: string,
+    callerAgentId: string,
+  ): Promise<AppSession> {
+    const sessionRow = await this.db
+      .selectFrom("app_sessions")
+      .selectAll()
+      .where("id", "=", sessionId)
+      .executeTakeFirst();
+
+    if (!sessionRow) {
+      throw new RpcError(ErrorCodes.SessionNotFound, "Session not found");
+    }
+
+    // Accessible to initiator or admitted participants
+    const isInitiator = sessionRow.initiator_agent_id === callerAgentId;
+    if (!isInitiator) {
+      const participant = await this.db
+        .selectFrom("app_session_participants")
+        .select("status")
+        .where("session_id", "=", sessionId)
+        .where("agent_id", "=", callerAgentId)
+        .executeTakeFirst();
+
+      if (!participant || participant.status !== "admitted") {
+        throw new RpcError(
+          ErrorCodes.Forbidden,
+          "Only the initiator or admitted participants can view this session",
+        );
+      }
+    }
+
+    // Hydrate conversations from DB join table
+    const convRows = await this.db
+      .selectFrom("app_session_conversations")
+      .select(["conversation_key", "conversation_id"])
+      .where("session_id", "=", sessionId)
+      .execute();
+    const conversations: Record<string, string> = Object.fromEntries(
+      convRows.map((r) => [r.conversation_key, r.conversation_id]),
+    );
+
+    const session: AppSession = {
+      id: sessionRow.id,
+      appId: sessionRow.app_id,
+      initiatorAgentId: sessionRow.initiator_agent_id,
+      status: sessionRow.status,
+      conversations,
+      createdAt: new Date(
+        sessionRow.created_at as unknown as string,
+      ).toISOString(),
+    };
+    if (sessionRow.closed_at) {
+      session.closedAt = new Date(
+        sessionRow.closed_at as unknown as string,
+      ).toISOString();
+    }
+    return session;
+  }
+
+  async listSessions(
+    callerAgentId: string,
+    opts?: { appId?: string; status?: string; limit?: number },
+  ): Promise<AppSession[]> {
+    let query = this.db
+      .selectFrom("app_sessions")
+      .selectAll()
+      .where("initiator_agent_id", "=", callerAgentId)
+      .orderBy("created_at", "desc");
+
+    if (opts?.appId) {
+      query = query.where("app_id", "=", opts.appId);
+    }
+    if (opts?.status) {
+      query = query.where("status", "=", opts.status as AppSessionStatus);
+    }
+
+    const limit = opts?.limit ?? 50;
+    query = query.limit(limit);
+
+    const rows = await query.execute();
+
+    return rows.map((row) => {
+      const session: AppSession = {
+        id: row.id,
+        appId: row.app_id,
+        initiatorAgentId: row.initiator_agent_id,
+        status: row.status,
+        conversations: {},
+        createdAt: new Date(row.created_at as unknown as string).toISOString(),
+      };
+      if (row.closed_at) {
+        session.closedAt = new Date(
+          row.closed_at as unknown as string,
+        ).toISOString();
+      }
+      return session;
+    });
+  }
+
   /** Cancel all pending timers and clear state. Called on shutdown. */
   destroy(): void {
     for (const pending of this.pendingChallenges.values()) {
@@ -323,10 +606,12 @@ export class AppHost {
     this.pendingChallenges.clear();
     for (const pending of this.pendingPermissions.values()) {
       clearTimeout(pending.timer);
+      pending.reject("shutdown");
     }
     this.pendingPermissions.clear();
     this.hooks.clear();
     this.conversationToSession.clear();
+    this.sessionToConversations.clear();
   }
 
   private subscribeToConversation(agentId: string, convId: string): void {
@@ -335,25 +620,33 @@ export class AppHost {
     }
   }
 
-  private async runWithTimeout(
-    fn: (ctx: BeforeMessageDeliveryContext) => HookResult | Promise<HookResult>,
-    ctx: Omit<BeforeMessageDeliveryContext, "signal">,
+  private unsubscribeFromConversation(agentId: string, convId: string): void {
+    for (const conn of this.connections.getByAgent(agentId)) {
+      conn.conversationIds.delete(convId);
+    }
+  }
+
+  private async runHookWithTimeout<T>(
+    fn: (signal: AbortSignal) => T | Promise<T>,
     timeoutMs: number,
-  ): Promise<HookResult | null> {
+  ): Promise<
+    | { result: T; timedOut: false }
+    | { result: null; timedOut: true }
+    | { result: null; timedOut: false }
+  > {
     const controller = new AbortController();
-    const ctxWithSignal: BeforeMessageDeliveryContext = {
-      ...ctx,
-      signal: controller.signal,
-    };
 
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const result = await Promise.race([
-        Promise.resolve(fn(ctxWithSignal)),
-        new Promise<null>((resolve) => {
+        Promise.resolve(fn(controller.signal)).then((r) => ({
+          result: r,
+          timedOut: false as const,
+        })),
+        new Promise<{ result: null; timedOut: true }>((resolve) => {
           timer = setTimeout(() => {
             controller.abort();
-            resolve(null);
+            resolve({ result: null, timedOut: true });
           }, timeoutMs);
         }),
       ]);
@@ -361,7 +654,7 @@ export class AppHost {
     } catch (err) {
       controller.abort();
       this.logger.error({ err }, "Hook execution error");
-      return null;
+      return { result: null, timedOut: false };
     } finally {
       clearTimeout(timer);
     }
@@ -445,13 +738,40 @@ export class AppHost {
       return;
     }
 
-    // Identity and capability checks are independent — run concurrently
-    await Promise.all([
-      this.checkIdentity(session, initiatorAgentId, agentId, agentMap),
+    // Identity and capability checks are independent — run concurrently.
+    // Guard prevents duplicate rejection events if both fail.
+    let rejected = false;
+    const guardedReject = async (
+      stage: "identity" | "capability",
+      reason: string,
+      suggestedAction?: string,
+    ) => {
+      if (rejected) return;
+      rejected = true;
+      await this.rejectAgent(
+        session.id,
+        agentId,
+        stage,
+        reason,
+        suggestedAction,
+      );
+    };
+
+    const results = await Promise.allSettled([
+      this.checkIdentity(
+        session,
+        initiatorAgentId,
+        agentId,
+        agentMap,
+        guardedReject,
+      ),
       manifest.skillUrl
-        ? this.checkCapability(session, agentId, manifest)
+        ? this.checkCapability(session, agentId, manifest, guardedReject)
         : Promise.resolve(),
     ]);
+
+    const failure = results.find((r) => r.status === "rejected");
+    if (failure) throw (failure as PromiseRejectedResult).reason;
 
     const grantedResources = await this.checkPermissions(
       session,
@@ -476,14 +796,17 @@ export class AppHost {
       string,
       { id: string; owner_user_id: string | null; status: string }
     >,
+    guardedReject: (
+      stage: "identity" | "capability",
+      reason: string,
+      suggestedAction?: string,
+    ) => Promise<void>,
   ): Promise<void> {
     const agent = agentMap.get(agentId)!;
     const initiator = agentMap.get(initiatorAgentId)!;
 
     if (!agent.owner_user_id) {
-      await this.rejectAgent(
-        session.id,
-        agentId,
+      await guardedReject(
         "identity",
         "Agent has no owner_user_id",
         "Set owner_user_id on the agent before inviting it to app sessions",
@@ -499,9 +822,7 @@ export class AppHost {
         agent.owner_user_id,
       );
       if (!inContact) {
-        await this.rejectAgent(
-          session.id,
-          agentId,
+        await guardedReject(
           "identity",
           "Agent owner is not a contact of the session initiator's owner",
         );
@@ -509,9 +830,7 @@ export class AppHost {
       }
     } catch (err) {
       if (errorMessage(err) === "Not in contacts") throw err;
-      await this.rejectAgent(
-        session.id,
-        agentId,
+      await guardedReject(
         "identity",
         `ContactChecker error: ${errorMessage(err)}`,
       );
@@ -523,6 +842,11 @@ export class AppHost {
     session: AppSession,
     agentId: string,
     manifest: AppManifest,
+    guardedReject: (
+      stage: "identity" | "capability",
+      reason: string,
+      suggestedAction?: string,
+    ) => Promise<void>,
   ): Promise<void> {
     const challengeId = crypto.randomUUID();
     const timeoutMs = manifest.challengeTimeoutMs ?? 30000;
@@ -559,9 +883,7 @@ export class AppHost {
         errorMessage(err) === "attestation timeout"
           ? "Skill attestation timed out"
           : `Skill attestation failed: ${errorMessage(err)}`;
-      await this.rejectAgent(
-        session.id,
-        agentId,
+      await guardedReject(
         "capability",
         reason,
         `Install the skill from ${manifest.skillUrl} and ensure version >= ${manifest.skillMinVersion ?? "any"}`,
@@ -571,9 +893,7 @@ export class AppHost {
 
     // Verify the attestation
     if (result.skillUrl !== manifest.skillUrl) {
-      await this.rejectAgent(
-        session.id,
-        agentId,
+      await guardedReject(
         "capability",
         `Skill URL mismatch: expected ${manifest.skillUrl}, got ${result.skillUrl}`,
       );
@@ -581,9 +901,7 @@ export class AppHost {
     }
 
     if (manifest.skillMinVersion && result.version < manifest.skillMinVersion) {
-      await this.rejectAgent(
-        session.id,
-        agentId,
+      await guardedReject(
         "capability",
         `Skill version ${result.version} below minimum ${manifest.skillMinVersion}`,
       );
@@ -626,8 +944,12 @@ export class AppHost {
       );
 
       if (existing) {
-        granted.push(perm.resource);
-        continue;
+        const storedAccess = new Set(existing.access);
+        const covers = perm.access.every((a) => storedAccess.has(a));
+        if (covers) {
+          granted.push(perm.resource);
+          continue;
+        }
       }
 
       const permKey = `${session.id}:${agentId}:${perm.resource}`;
