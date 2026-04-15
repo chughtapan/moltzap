@@ -327,7 +327,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
       return appHost.createSession(appId, initiatorAgentId, invitedAgentIds);
     },
     async close() {
-      // Close all WebSocket connections first so in-flight RPCs finish
+      appHost.destroy();
       for (const conn of connections.all()) {
         try {
           conn.ws.close();

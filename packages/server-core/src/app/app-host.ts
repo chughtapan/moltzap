@@ -8,6 +8,10 @@ import type { AppManifest, AppSession } from "@moltzap/protocol";
 import { ErrorCodes, eventFrame } from "@moltzap/protocol";
 import { RpcError } from "../rpc/router.js";
 
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 export interface ContactChecker {
   areInContact(userIdA: string, userIdB: string): Promise<boolean>;
 }
@@ -79,7 +83,6 @@ export class AppHost {
       );
     }
 
-    // Batch-fetch all agents (initiator + invited) to validate and get owner IDs
     const allAgentIds = [initiatorAgentId, ...invitedAgentIds];
     const agentRows = await this.db
       .selectFrom("agents")
@@ -89,7 +92,6 @@ export class AppHost {
 
     const agentMap = new Map(agentRows.map((r) => [r.id, r]));
 
-    // Validate initiator
     const initiator = agentMap.get(initiatorAgentId);
     if (!initiator) {
       throw new RpcError(ErrorCodes.AgentNotFound, "Initiator agent not found");
@@ -101,12 +103,10 @@ export class AppHost {
       );
     }
 
-    // Create session and conversations in a transaction
     const sessionId = crypto.randomUUID();
     const conversationMap: Record<string, string> = {};
 
     await this.db.transaction().execute(async (trx) => {
-      // Create manifest-declared conversations with metadata tags
       for (const convDef of manifest.conversations ?? []) {
         const conv = await trx
           .insertInto("conversations")
@@ -121,7 +121,6 @@ export class AppHost {
 
         conversationMap[convDef.key] = conv.id;
 
-        // Add initiator as owner of every conversation
         await trx
           .insertInto("conversation_participants")
           .values({
@@ -132,27 +131,20 @@ export class AppHost {
           })
           .execute();
 
-        // Subscribe initiator's connection to the conversation
-        for (const conn of this.connections.getByParticipant(
-          "agent",
-          initiatorAgentId,
-        )) {
-          conn.conversationIds.add(conv.id);
-        }
+        this.subscribeToConversation(initiatorAgentId, conv.id);
       }
 
-      // Insert session row
+      const initialStatus = invitedAgentIds.length === 0 ? "active" : "waiting";
       await trx
         .insertInto("app_sessions")
         .values({
           id: sessionId,
           app_id: appId,
           initiator_agent_id: initiatorAgentId,
-          status: "waiting",
+          status: initialStatus,
         })
         .execute();
 
-      // Insert participant rows for all invited agents
       for (const agentId of invitedAgentIds) {
         await trx
           .insertInto("app_session_participants")
@@ -171,19 +163,12 @@ export class AppHost {
       id: sessionId,
       appId,
       initiatorAgentId,
-      status: "waiting",
+      status: invitedAgentIds.length === 0 ? "active" : "waiting",
       conversations: conversationMap,
       createdAt: new Date().toISOString(),
     };
 
-    // Start async admission for each invited agent (non-blocking)
     if (invitedAgentIds.length === 0) {
-      // No agents to admit, session is immediately ready
-      await this.db
-        .updateTable("app_sessions")
-        .set({ status: "active" })
-        .where("id", "=", sessionId)
-        .execute();
       session.status = "active";
       this.broadcaster.sendToParticipant(
         "agent",
@@ -235,32 +220,44 @@ export class AppHost {
     resource: string,
     access: string[],
   ): void {
-    // Find matching pending permission
-    for (const [key, pending] of this.pendingPermissions) {
-      if (
-        pending.agentId === agentId &&
-        pending.sessionId === sessionId &&
-        pending.resource === resource
-      ) {
-        if (pending.targetUserId !== callerUserId) {
-          this.logger.warn(
-            {
-              expected: pending.targetUserId,
-              got: callerUserId,
-              agentId,
-              sessionId,
-              resource,
-            },
-            "Permission grant from wrong user",
-          );
-          return;
-        }
+    const key = `${sessionId}:${agentId}:${resource}`;
+    const pending = this.pendingPermissions.get(key);
+    if (!pending) return;
 
-        clearTimeout(pending.timer);
-        this.pendingPermissions.delete(key);
-        pending.resolve(access);
-        return;
-      }
+    if (pending.targetUserId !== callerUserId) {
+      this.logger.warn(
+        {
+          expected: pending.targetUserId,
+          got: callerUserId,
+          agentId,
+          sessionId,
+          resource,
+        },
+        "Permission grant from wrong user",
+      );
+      return;
+    }
+
+    clearTimeout(pending.timer);
+    this.pendingPermissions.delete(key);
+    pending.resolve(access);
+  }
+
+  /** Cancel all pending timers. Called on shutdown. */
+  destroy(): void {
+    for (const pending of this.pendingChallenges.values()) {
+      clearTimeout(pending.timer);
+    }
+    this.pendingChallenges.clear();
+    for (const pending of this.pendingPermissions.values()) {
+      clearTimeout(pending.timer);
+    }
+    this.pendingPermissions.clear();
+  }
+
+  private subscribeToConversation(agentId: string, convId: string): void {
+    for (const conn of this.connections.getByParticipant("agent", agentId)) {
+      conn.conversationIds.add(convId);
     }
   }
 
@@ -343,15 +340,12 @@ export class AppHost {
       return;
     }
 
-    // 1. Identity check
     await this.checkIdentity(session, initiatorAgentId, agentId, agentMap);
 
-    // 2. Capability check
     if (manifest.skillUrl) {
       await this.checkCapability(session, agentId, manifest);
     }
 
-    // 3. Permission check
     const grantedResources = await this.checkPermissions(
       session,
       agentId,
@@ -359,7 +353,6 @@ export class AppHost {
       agentMap,
     );
 
-    // 4. Admit
     await this.admitAgentToSession(session, agentId, grantedResources);
   }
 
@@ -403,12 +396,12 @@ export class AppHost {
         throw new Error("Not in contacts");
       }
     } catch (err) {
-      if ((err as Error).message === "Not in contacts") throw err;
+      if (errorMessage(err) === "Not in contacts") throw err;
       await this.rejectAgent(
         session.id,
         agentId,
         "identity",
-        `ContactChecker error: ${(err as Error).message}`,
+        `ContactChecker error: ${errorMessage(err)}`,
       );
       throw err;
     }
@@ -452,9 +445,9 @@ export class AppHost {
       },
     ).catch(async (err) => {
       const reason =
-        (err as Error).message === "attestation timeout"
+        errorMessage(err) === "attestation timeout"
           ? "Skill attestation timed out"
-          : `Skill attestation failed: ${(err as Error).message}`;
+          : `Skill attestation failed: ${errorMessage(err)}`;
       await this.rejectAgent(
         session.id,
         agentId,
@@ -487,6 +480,20 @@ export class AppHost {
     }
   }
 
+  private async findGrant(
+    userId: string,
+    appId: string,
+    resource: string,
+  ): Promise<{ access: string[] } | undefined> {
+    return this.db
+      .selectFrom("app_permission_grants")
+      .select("access")
+      .where("user_id", "=", userId)
+      .where("app_id", "=", appId)
+      .where("resource", "=", resource)
+      .executeTakeFirst();
+  }
+
   private async checkPermissions(
     session: AppSession,
     agentId: string,
@@ -500,33 +507,30 @@ export class AppHost {
     const ownerUserId = agent.owner_user_id!;
     const granted: string[] = [];
 
-    // Check required permissions
     for (const perm of manifest.permissions.required) {
-      const existing = await this.db
-        .selectFrom("app_permission_grants")
-        .select("access")
-        .where("user_id", "=", ownerUserId)
-        .where("app_id", "=", session.appId)
-        .where("resource", "=", perm.resource)
-        .executeTakeFirst();
+      const existing = await this.findGrant(
+        ownerUserId,
+        session.appId,
+        perm.resource,
+      );
 
       if (existing) {
         granted.push(perm.resource);
         continue;
       }
 
-      // Request permission from owner user
+      const permKey = `${session.id}:${agentId}:${perm.resource}`;
       const requestId = crypto.randomUUID();
       const timeoutMs = manifest.permissionTimeoutMs ?? 120000;
 
       try {
         const access = await new Promise<string[]>((resolve, reject) => {
           const timer = setTimeout(() => {
-            this.pendingPermissions.delete(requestId);
+            this.pendingPermissions.delete(permKey);
             reject(new Error("permission timeout"));
           }, timeoutMs);
 
-          this.pendingPermissions.set(requestId, {
+          this.pendingPermissions.set(permKey, {
             targetUserId: ownerUserId,
             agentId,
             sessionId: session.id,
@@ -580,15 +584,12 @@ export class AppHost {
       }
     }
 
-    // Check optional permissions (non-blocking, just check existing grants)
     for (const perm of manifest.permissions.optional) {
-      const existing = await this.db
-        .selectFrom("app_permission_grants")
-        .select("access")
-        .where("user_id", "=", ownerUserId)
-        .where("app_id", "=", session.appId)
-        .where("resource", "=", perm.resource)
-        .executeTakeFirst();
+      const existing = await this.findGrant(
+        ownerUserId,
+        session.appId,
+        perm.resource,
+      );
 
       if (existing) {
         granted.push(perm.resource);
@@ -603,7 +604,6 @@ export class AppHost {
     agentId: string,
     grantedResources: string[],
   ): Promise<void> {
-    // Update participant status
     await this.db
       .updateTable("app_session_participants")
       .set({ status: "admitted", admitted_at: new Date() })
@@ -611,7 +611,6 @@ export class AppHost {
       .where("agent_id", "=", agentId)
       .execute();
 
-    // Add agent to session conversations based on participantFilter
     const manifest = this.manifests.get(session.appId)!;
     for (const convDef of manifest.conversations ?? []) {
       const filter = convDef.participantFilter ?? "all";
@@ -630,18 +629,11 @@ export class AppHost {
           .onConflict((oc) => oc.doNothing())
           .execute();
 
-        // Subscribe agent's connection
-        for (const conn of this.connections.getByParticipant(
-          "agent",
-          agentId,
-        )) {
-          conn.conversationIds.add(convId);
-        }
+        this.subscribeToConversation(agentId, convId);
       }
       // "initiator" and "none" don't add the invited agent
     }
 
-    // Broadcast admission event to both agent and initiator
     const admittedEvent = eventFrame("app/participantAdmitted", {
       sessionId: session.id,
       agentId,

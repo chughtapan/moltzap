@@ -123,6 +123,15 @@ function createMockLogger() {
   };
 }
 
+// Test helper to access private pendingChallenges map
+// Avoids scattered eslint-disable comments throughout tests
+function getChallenges(host: AppHost): Map<string, Record<string, unknown>> {
+  return Reflect.get(host, "pendingChallenges") as Map<
+    string,
+    Record<string, unknown>
+  >;
+}
+
 const TEST_MANIFEST = {
   appId: "test-app",
   name: "Test App",
@@ -258,8 +267,7 @@ describe("AppHost", () => {
     it("rejects attestation from wrong agent", () => {
       // Simulate a pending challenge
       const challengeId = crypto.randomUUID();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (appHost as any)["pendingChallenges"].set(challengeId, {
+      getChallenges(appHost).set(challengeId, {
         targetAgentId: "agent-2",
         sessionId: "session-1",
         resolve: vi.fn(),
@@ -270,10 +278,7 @@ describe("AppHost", () => {
       appHost.resolveChallenge(challengeId, "wrong-agent", "url", "1.0");
 
       // Should still be pending (not resolved)
-      expect(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (appHost as any)["pendingChallenges"].has(challengeId),
-      ).toBe(true);
+      expect(getChallenges(appHost).has(challengeId)).toBe(true);
       expect(logger.warn).toHaveBeenCalledWith(
         expect.objectContaining({
           expected: "agent-2",
@@ -282,11 +287,7 @@ describe("AppHost", () => {
         "Skill attestation from wrong agent",
       );
 
-      // cleanup
-      clearTimeout(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (appHost as any)["pendingChallenges"].get(challengeId)!.timer,
-      );
+      appHost.destroy();
     });
 
     it("resolves valid challenge", () => {
@@ -294,8 +295,7 @@ describe("AppHost", () => {
       const resolve = vi.fn();
       const timer = setTimeout(() => {}, 30000);
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (appHost as any)["pendingChallenges"].set(challengeId, {
+      getChallenges(appHost).set(challengeId, {
         targetAgentId: "agent-2",
         sessionId: "session-1",
         resolve,
@@ -309,10 +309,7 @@ describe("AppHost", () => {
         skillUrl: "skill-url",
         version: "1.0",
       });
-      expect(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (appHost as any)["pendingChallenges"].has(challengeId),
-      ).toBe(false);
+      expect(getChallenges(appHost).has(challengeId)).toBe(false);
     });
   });
 
