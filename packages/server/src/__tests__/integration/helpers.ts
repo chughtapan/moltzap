@@ -7,6 +7,7 @@ import {
   stopCoreTestServer,
   resetCoreTestDb,
   getCoreDb,
+  getCoreApp,
 } from "../../test-utils/index.js";
 import {
   registerAndConnect,
@@ -74,6 +75,10 @@ export async function resetTestDb(): Promise<void> {
 
 export function getKyselyDb(): Kysely<Database> {
   return getCoreDb();
+}
+
+export function getTestCoreApp() {
+  return getCoreApp();
 }
 
 export async function createTestUser(

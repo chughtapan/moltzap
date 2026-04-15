@@ -1,9 +1,11 @@
-import type { AppHost } from "../app-host.js";
+import type { AppHost, DefaultPermissionHandler } from "../app-host.js";
 import type { RpcMethodRegistry } from "../../rpc/context.js";
 import type {
   AppsCreateParams,
   AppsAttestSkillParams,
-  AppsGrantPermissionParams,
+  PermissionsGrantParams,
+  PermissionsListParams,
+  PermissionsRevokeParams,
 } from "@moltzap/protocol";
 import { validators } from "@moltzap/protocol";
 import { defineMethod } from "../../rpc/context.js";
@@ -11,6 +13,7 @@ import { ParticipantService } from "../../services/participant.service.js";
 
 export function createAppHandlers(deps: {
   appHost: AppHost;
+  permissionHandler?: DefaultPermissionHandler;
 }): RpcMethodRegistry {
   return {
     "apps/create": defineMethod<AppsCreateParams>({
@@ -40,12 +43,12 @@ export function createAppHandlers(deps: {
       },
     }),
 
-    "apps/grantPermission": defineMethod<AppsGrantPermissionParams>({
-      validator: validators.appsGrantPermissionParams,
+    "permissions/grant": defineMethod<PermissionsGrantParams>({
+      validator: validators.permissionsGrantParams,
       handler: async (params, ctx) => {
         const ownerUserId = ParticipantService.requireOwnerId(ctx);
 
-        deps.appHost.resolvePermission(
+        deps.permissionHandler?.resolvePermission(
           ownerUserId,
           params.sessionId,
           params.agentId,
@@ -53,6 +56,28 @@ export function createAppHandlers(deps: {
           params.access,
         );
 
+        return {};
+      },
+    }),
+
+    "permissions/list": defineMethod<PermissionsListParams>({
+      validator: validators.permissionsListParams,
+      handler: async (params, ctx) => {
+        const ownerUserId = ParticipantService.requireOwnerId(ctx);
+        const grants = await deps.appHost.listGrants(ownerUserId, params.appId);
+        return { grants };
+      },
+    }),
+
+    "permissions/revoke": defineMethod<PermissionsRevokeParams>({
+      validator: validators.permissionsRevokeParams,
+      handler: async (params, ctx) => {
+        const ownerUserId = ParticipantService.requireOwnerId(ctx);
+        await deps.appHost.revokeGrant(
+          ownerUserId,
+          params.appId,
+          params.resource,
+        );
         return {};
       },
     }),
