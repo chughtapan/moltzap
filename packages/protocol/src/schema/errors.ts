@@ -27,6 +27,7 @@ export const ErrorCodes = {
   IdentityRejected: -32016,
   MaxParticipants: -32017,
   AgentNoOwner: -32018,
+  HookBlocked: -32019,
 } as const;
 
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];

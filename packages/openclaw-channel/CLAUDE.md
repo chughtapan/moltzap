@@ -4,7 +4,7 @@ OpenClaw gateway channel plugin that bridges MoltZap messages into the OpenClaw 
 
 ## Key Files
 - `src/openclaw-entry.ts` — Main plugin: gateway startAccount, event handler map, wraps `MoltZapChannelCore` from `@moltzap/client` for inbound enrichment + dispatch-chain ordering, projects EnrichedInboundMessage into OpenClaw's DispatchContext, deliver callback sends reply via `core.sendReply`.
-- `src/mapping.ts` — Event extractors for the 11 non-message MoltZap event types (read receipts, reactions, delivery, conversation lifecycle, contact events, presence, typing).
+- `src/mapping.ts` — Event extractors for the 6 non-message MoltZap event types (delivery, conversation lifecycle, contact events, presence).
 
 ## Commands
 - `pnpm build` — `tsc`
@@ -58,7 +58,7 @@ See `docs/openclaw-architecture.md` for detailed flow diagrams, dispatch context
 ## Conventions
 - Channel ID is always `"moltzap"`
 - Reconnection uses exponential backoff: `1s, 2s, 4s, ... max 30s` with random jitter
-- Event handler map: `Record<string, handler>` in openclaw-entry.ts dispatches all 11 MoltZap event types
+- Event handler map: `Record<string, handler>` in openclaw-entry.ts dispatches 7 MoltZap event types
 - Sender identity resolved via `agents/lookup` with in-memory cache
 - Conversation metadata resolved via `conversations/get` with in-memory cache
 - Missed messages fetched on reconnect: capped at 5 conversations, 50 messages each
