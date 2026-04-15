@@ -339,6 +339,7 @@ export class AppHost {
       clearTimeout(pending.timer);
     }
     this.pendingChallenges.clear();
+    this.inflightPermissions.clear();
   }
 
   async listGrants(
@@ -463,6 +464,8 @@ export class AppHost {
         agentId,
         "identity",
         "Agent not found",
+        undefined,
+        "identity_rejected",
       );
       return;
     }
@@ -504,6 +507,7 @@ export class AppHost {
         "identity",
         "Agent has no owner_user_id",
         "Set owner_user_id on the agent before inviting it to app sessions",
+        "identity_rejected",
       );
       throw new Error("Agent has no owner");
     }
@@ -521,6 +525,8 @@ export class AppHost {
           agentId,
           "identity",
           "Agent owner is not a contact of the session initiator's owner",
+          undefined,
+          "identity_rejected",
         );
         throw new Error("Not in contacts");
       }
@@ -531,6 +537,8 @@ export class AppHost {
         agentId,
         "identity",
         `ContactChecker error: ${errorMessage(err)}`,
+        undefined,
+        "identity_rejected",
       );
       throw err;
     }
@@ -572,6 +580,10 @@ export class AppHost {
         );
       },
     ).catch(async (err) => {
+      const code =
+        errorMessage(err) === "attestation timeout"
+          ? "capability_timeout"
+          : "capability_failed";
       const reason =
         errorMessage(err) === "attestation timeout"
           ? "Skill attestation timed out"
@@ -582,6 +594,7 @@ export class AppHost {
         "capability",
         reason,
         `Install the skill from ${manifest.skillUrl} and ensure version >= ${manifest.skillMinVersion ?? "any"}`,
+        code,
       );
       throw err;
     });
@@ -593,6 +606,8 @@ export class AppHost {
         agentId,
         "capability",
         `Skill URL mismatch: expected ${manifest.skillUrl}, got ${result.skillUrl}`,
+        undefined,
+        "capability_failed",
       );
       throw new Error("Skill mismatch");
     }
@@ -603,6 +618,8 @@ export class AppHost {
         agentId,
         "capability",
         `Skill version ${result.version} below minimum ${manifest.skillMinVersion}`,
+        undefined,
+        "capability_failed",
       );
       throw new Error("Skill version too low");
     }

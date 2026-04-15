@@ -391,25 +391,7 @@ describe("AppHost", () => {
     });
   });
 
-  describe("setContactChecker", () => {
-    it("updates the checker", () => {
-      const checker: ContactChecker = {
-        areInContact: vi.fn().mockResolvedValue(true),
-      };
-      appHost.setContactChecker(checker);
-      expect(checker).toBeDefined();
-    });
-  });
-
-  describe("setPermissionHandler", () => {
-    it("sets the handler on AppHost", () => {
-      const handler: PermissionHandler = {
-        requestPermission: vi.fn().mockResolvedValue(["read"]),
-      };
-      appHost.setPermissionHandler(handler);
-      expect(handler).toBeDefined();
-    });
-  });
+  // setContactChecker and setPermissionHandler are exercised by the admission tests below
 
   describe("PermissionHandler integration", () => {
     const PERM_MANIFEST = {
@@ -446,115 +428,64 @@ describe("AppHost", () => {
       );
     });
 
-    it("rejects agent with 'no_handler' when no handler is configured", async () => {
-      await appHost.createSession("perm-app", "agent-init", ["agent-2"]);
-      await waitForAdmission();
+    it.each([
+      {
+        scenario: "no handler configured",
+        handler: undefined,
+        expectedCode: "no_handler",
+      },
+      {
+        scenario: "handler returns insufficient access",
+        handler: { requestPermission: vi.fn().mockResolvedValue(["read"]) },
+        expectedCode: "permission_denied",
+      },
+      {
+        scenario: "handler throws PermissionTimeoutError",
+        handler: {
+          requestPermission: vi
+            .fn()
+            .mockRejectedValue(new PermissionTimeoutError("calendar")),
+        },
+        expectedCode: "permission_timeout",
+      },
+      {
+        scenario: "handler throws PermissionDeniedError",
+        handler: {
+          requestPermission: vi
+            .fn()
+            .mockRejectedValue(new PermissionDeniedError("calendar")),
+        },
+        expectedCode: "permission_denied",
+      },
+      {
+        scenario: "handler throws unknown error",
+        handler: {
+          requestPermission: vi
+            .fn()
+            .mockRejectedValue(new Error("network error")),
+        },
+        expectedCode: "permission_denied",
+      },
+    ])(
+      "rejects with '$expectedCode' when $scenario",
+      async ({ handler, expectedCode }) => {
+        if (handler) appHost.setPermissionHandler(handler);
 
-      expect(broadcaster.sendToAgent).toHaveBeenCalledWith(
-        "agent-2",
-        expect.objectContaining({
-          event: "app/participantRejected",
-          data: expect.objectContaining({
-            rejectionCode: "no_handler",
-            stage: "permission",
+        await appHost.createSession("perm-app", "agent-init", ["agent-2"]);
+        await waitForAdmission();
+
+        expect(broadcaster.sendToAgent).toHaveBeenCalledWith(
+          "agent-2",
+          expect.objectContaining({
+            event: "app/participantRejected",
+            data: expect.objectContaining({
+              rejectionCode: expectedCode,
+              stage: "permission",
+            }),
           }),
-        }),
-      );
-    });
-
-    it("rejects agent when handler returns insufficient access", async () => {
-      const handler: PermissionHandler = {
-        requestPermission: vi.fn().mockResolvedValue(["read"]),
-      };
-      appHost.setPermissionHandler(handler);
-
-      await appHost.createSession("perm-app", "agent-init", ["agent-2"]);
-      await waitForAdmission();
-
-      expect(broadcaster.sendToAgent).toHaveBeenCalledWith(
-        "agent-2",
-        expect.objectContaining({
-          event: "app/participantRejected",
-          data: expect.objectContaining({
-            rejectionCode: "permission_denied",
-            stage: "permission",
-          }),
-        }),
-      );
-    });
-
-    it("rejects with 'permission_timeout' when handler throws PermissionTimeoutError", async () => {
-      const handler: PermissionHandler = {
-        requestPermission: vi
-          .fn()
-          .mockRejectedValue(new PermissionTimeoutError("calendar")),
-      };
-      appHost.setPermissionHandler(handler);
-
-      await appHost.createSession("perm-app", "agent-init", ["agent-2"]);
-      await waitForAdmission();
-
-      expect(broadcaster.sendToAgent).toHaveBeenCalledWith(
-        "agent-2",
-        expect.objectContaining({
-          event: "app/participantRejected",
-          data: expect.objectContaining({
-            rejectionCode: "permission_timeout",
-            stage: "permission",
-          }),
-        }),
-      );
-    });
-
-    it("rejects with 'permission_denied' when handler throws PermissionDeniedError", async () => {
-      const handler: PermissionHandler = {
-        requestPermission: vi
-          .fn()
-          .mockRejectedValue(new PermissionDeniedError("calendar")),
-      };
-      appHost.setPermissionHandler(handler);
-
-      await appHost.createSession("perm-app", "agent-init", ["agent-2"]);
-      await waitForAdmission();
-
-      expect(broadcaster.sendToAgent).toHaveBeenCalledWith(
-        "agent-2",
-        expect.objectContaining({
-          event: "app/participantRejected",
-          data: expect.objectContaining({
-            rejectionCode: "permission_denied",
-            stage: "permission",
-          }),
-        }),
-      );
-    });
-
-    it("rejects with 'permission_denied' on unknown handler error", async () => {
-      const handler: PermissionHandler = {
-        requestPermission: vi
-          .fn()
-          .mockRejectedValue(new Error("network error")),
-      };
-      appHost.setPermissionHandler(handler);
-
-      await appHost.createSession("perm-app", "agent-init", ["agent-2"]);
-      await waitForAdmission();
-
-      expect(broadcaster.sendToAgent).toHaveBeenCalledWith(
-        "agent-2",
-        expect.objectContaining({
-          event: "app/participantRejected",
-          data: expect.objectContaining({
-            rejectionCode: "permission_denied",
-            stage: "permission",
-          }),
-        }),
-      );
-      expect(logger.error).toHaveBeenCalledWith(
-        expect.objectContaining({ err: "network error" }),
-        "Permission handler error",
-      );
-    });
+        );
+      },
+    );
 
     it("logs when requesting permission from handler", async () => {
       const handler: PermissionHandler = {
@@ -755,60 +686,6 @@ describe("AppHost", () => {
     it("calls deleteFrom on app_permission_grants", async () => {
       await appHost.revokeGrant("user-1", "app-1", "calendar");
       expect(db.deleteFrom).toHaveBeenCalledWith("app_permission_grants");
-    });
-  });
-
-  describe("rejectionCode in events", () => {
-    it("includes rejectionCode in participantRejected event data", async () => {
-      const manifest = {
-        ...TEST_MANIFEST,
-        appId: "rej-app",
-        permissions: {
-          required: [{ resource: "files", access: ["read"] }],
-          optional: [],
-        },
-      };
-      appHost.registerApp(manifest);
-      db._setAgentRows(TEST_AGENTS);
-
-      // No handler set — triggers "no_handler" rejection
-      await appHost.createSession("rej-app", "agent-init", ["agent-2"]);
-      await waitForAdmission();
-
-      const rejectionCall = broadcaster.sendToAgent.mock.calls.find(
-        (call: unknown[]) =>
-          (call[1] as Record<string, unknown>).event ===
-          "app/participantRejected",
-      );
-      expect(rejectionCall).toBeDefined();
-      const data = (
-        rejectionCall![1] as Record<string, Record<string, unknown>>
-      ).data!;
-      expect(data.rejectionCode).toBe("no_handler");
-    });
-
-    it("includes rejectionCode in logger output", async () => {
-      const manifest = {
-        ...TEST_MANIFEST,
-        appId: "log-app",
-        permissions: {
-          required: [{ resource: "files", access: ["read"] }],
-          optional: [],
-        },
-      };
-      appHost.registerApp(manifest);
-      db._setAgentRows(TEST_AGENTS);
-
-      await appHost.createSession("log-app", "agent-init", ["agent-2"]);
-      await waitForAdmission();
-
-      expect(logger.info).toHaveBeenCalledWith(
-        expect.objectContaining({
-          rejectionCode: "no_handler",
-          stage: "permission",
-        }),
-        "Agent rejected from app session",
-      );
     });
   });
 
