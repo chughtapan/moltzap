@@ -3,7 +3,7 @@ import type { RpcMethodRegistry } from "../../rpc/context.js";
 import type {
   AppsCreateParams,
   AppsAttestSkillParams,
-  AppsGrantPermissionParams,
+  PermissionsGrantParams,
 } from "@moltzap/protocol";
 import { validators } from "@moltzap/protocol";
 import { defineMethod } from "../../rpc/context.js";
@@ -40,8 +40,8 @@ export function createAppHandlers(deps: {
       },
     }),
 
-    "apps/grantPermission": defineMethod<AppsGrantPermissionParams>({
-      validator: validators.appsGrantPermissionParams,
+    "apps/grantPermission": defineMethod<PermissionsGrantParams>({
+      validator: validators.permissionsGrantParams,
       handler: async (params, ctx) => {
         const ownerUserId = ParticipantService.requireOwnerId(ctx);
 
