@@ -162,8 +162,10 @@ export class MoltZapTestClient {
           if (resp.error) {
             const err = new Error(resp.error.message) as Error & {
               code: number;
+              data?: unknown;
             };
             err.code = resp.error.code;
+            if (resp.error.data !== undefined) err.data = resp.error.data;
             reject(err);
           } else {
             resolve(resp.result);

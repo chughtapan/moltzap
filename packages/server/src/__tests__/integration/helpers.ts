@@ -21,6 +21,7 @@ import {
 import { MoltZapTestClient } from "@moltzap/protocol/test-client";
 import type { Database } from "../../db/database.js";
 import type { Kysely } from "kysely";
+import type { CoreApp } from "../../app/types.js";
 
 export type { ConnectedAgent } from "../../test-utils/helpers.js";
 export { MoltZapTestClient } from "@moltzap/protocol/test-client";
@@ -32,12 +33,15 @@ export {
   trackClient,
 };
 
+let _coreApp: CoreApp | null = null;
+
 /**
  * Start the core test server using the shared Postgres from globalSetup.
  */
 export async function startTestServer(_opts?: { devMode?: boolean }): Promise<{
   baseUrl: string;
   wsUrl: string;
+  coreApp: CoreApp;
 }> {
   // Get pgHost/pgPort from vitest's globalSetup via inject()
   const { inject } = await import("vitest");
@@ -45,11 +49,22 @@ export async function startTestServer(_opts?: { devMode?: boolean }): Promise<{
   const pgPort = inject("testPgPort");
 
   const server = await startCoreTestServer({ pgHost, pgPort });
-  return { baseUrl: server.baseUrl, wsUrl: server.wsUrl };
+  _coreApp = server.coreApp;
+  return {
+    baseUrl: server.baseUrl,
+    wsUrl: server.wsUrl,
+    coreApp: server.coreApp,
+  };
+}
+
+export function getCoreApp(): CoreApp {
+  if (!_coreApp) throw new Error("Test server not running.");
+  return _coreApp;
 }
 
 export async function stopTestServer(): Promise<void> {
   closeAllClients();
+  _coreApp = null;
   await stopCoreTestServer();
 }
 
