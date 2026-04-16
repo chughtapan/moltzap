@@ -20,3 +20,4 @@ export * from "./methods/phone-contacts.js";
 export * from "./methods/push.js";
 export * from "./apps.js";
 export * from "./methods/apps.js";
+export * from "./methods/system.js";

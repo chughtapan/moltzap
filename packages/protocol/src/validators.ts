@@ -46,6 +46,8 @@ import {
   AppsCloseSessionParamsSchema,
   AppsGetSessionParamsSchema,
   AppsListSessionsParamsSchema,
+  AppsRegisterParamsSchema,
+  SystemPingParamsSchema,
 } from "./schema/index.js";
 
 const ajv = addFormats(new Ajv({ strict: true, allErrors: true }));
@@ -116,6 +118,8 @@ export const validators = {
   appsCloseSessionParams: ajv.compile(AppsCloseSessionParamsSchema),
   appsGetSessionParams: ajv.compile(AppsGetSessionParamsSchema),
   appsListSessionsParams: ajv.compile(AppsListSessionsParamsSchema),
+  appsRegisterParams: ajv.compile(AppsRegisterParamsSchema),
+  systemPingParams: ajv.compile(SystemPingParamsSchema),
 } as const;
 
 export type ValidatorName = keyof typeof validators;

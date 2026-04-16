@@ -1,7 +1,26 @@
 import { Type, type Static } from "@sinclair/typebox";
 import { AgentId } from "../primitives.js";
-import { AppSessionSchema } from "../apps.js";
+import { AppManifestSchema, AppSessionSchema } from "../apps.js";
 import { DateTimeString, stringEnum } from "../../helpers.js";
+
+// Register app manifest remotely
+
+export const AppsRegisterParamsSchema = Type.Object(
+  {
+    manifest: AppManifestSchema,
+  },
+  { additionalProperties: false },
+);
+
+export const AppsRegisterResultSchema = Type.Object(
+  {
+    appId: Type.String(),
+  },
+  { additionalProperties: false },
+);
+
+export type AppsRegisterParams = Static<typeof AppsRegisterParamsSchema>;
+export type AppsRegisterResult = Static<typeof AppsRegisterResultSchema>;
 
 export const AppsCreateParamsSchema = Type.Object(
   {
