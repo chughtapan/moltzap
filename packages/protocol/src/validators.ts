@@ -43,6 +43,9 @@ import {
   PermissionsGrantParamsSchema,
   PermissionsListParamsSchema,
   PermissionsRevokeParamsSchema,
+  AppsCloseSessionParamsSchema,
+  AppsGetSessionParamsSchema,
+  AppsListSessionsParamsSchema,
 } from "./schema/index.js";
 
 const ajv = addFormats(new Ajv({ strict: true, allErrors: true }));
@@ -110,6 +113,9 @@ export const validators = {
   permissionsGrantParams: ajv.compile(PermissionsGrantParamsSchema),
   permissionsListParams: ajv.compile(PermissionsListParamsSchema),
   permissionsRevokeParams: ajv.compile(PermissionsRevokeParamsSchema),
+  appsCloseSessionParams: ajv.compile(AppsCloseSessionParamsSchema),
+  appsGetSessionParams: ajv.compile(AppsGetSessionParamsSchema),
+  appsListSessionsParams: ajv.compile(AppsListSessionsParamsSchema),
 } as const;
 
 export type ValidatorName = keyof typeof validators;

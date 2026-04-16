@@ -68,6 +68,16 @@ export const AppManifestSchema = Type.Object(
           on_join: Type.Optional(
             Type.Object({}, { additionalProperties: false }),
           ),
+          on_close: Type.Optional(
+            Type.Object(
+              {
+                timeout_ms: Type.Optional(
+                  Type.Integer({ default: 5000, minimum: 100, maximum: 30000 }),
+                ),
+              },
+              { additionalProperties: false },
+            ),
+          ),
         },
         { additionalProperties: false },
       ),
@@ -84,6 +94,7 @@ export const AppSessionSchema = Type.Object(
     status: stringEnum(["waiting", "active", "failed", "closed"]),
     conversations: Type.Record(Type.String(), ConversationId),
     createdAt: DateTimeString,
+    closedAt: Type.Optional(DateTimeString),
   },
   { additionalProperties: false },
 );

@@ -6,7 +6,11 @@ import type { Database } from "../db/database.js";
 import type { ContactService, PermissionService } from "./app-host.js";
 import type { UserService } from "../services/user.service.js";
 import type { AsyncWebhookAdapter } from "../adapters/webhook.js";
-import type { BeforeMessageDeliveryHook, OnJoinHook } from "./hooks.js";
+import type {
+  BeforeMessageDeliveryHook,
+  OnCloseHook,
+  OnJoinHook,
+} from "./hooks.js";
 
 export interface CoreConfig {
   db: Kysely<Database>;
@@ -47,5 +51,18 @@ export interface CoreApp {
     handler: BeforeMessageDeliveryHook,
   ) => void;
   onAppJoin: (appId: string, handler: OnJoinHook) => void;
+  onSessionClose: (appId: string, handler: OnCloseHook) => void;
+  closeAppSession: (
+    sessionId: string,
+    callerAgentId: string,
+  ) => Promise<{ closed: boolean }>;
+  getAppSession: (
+    sessionId: string,
+    callerAgentId: string,
+  ) => Promise<AppSession>;
+  listAppSessions: (
+    callerAgentId: string,
+    opts?: { appId?: string; status?: string; limit?: number },
+  ) => Promise<AppSession[]>;
   close: () => Promise<void>;
 }

@@ -21,7 +21,7 @@ import { sql } from "kysely";
 import type { MessageRow } from "../db/database.js";
 import type { AppHost } from "../app/app-host.js";
 
-/** pg returns bytea as Buffer, PGlite returns Uint8Array. Normalize to Buffer. */
+/** pg returns bytea as Buffer, PGlite returns Uint8Array. Normalize so .toString("utf-8") works. */
 function toBuf(v: Buffer | Uint8Array): Buffer {
   return Buffer.isBuffer(v) ? v : Buffer.from(v);
 }
@@ -46,6 +46,19 @@ export class MessageService {
   ): Promise<Message> {
     let parts = inputParts;
     await this.conversations.requireParticipant(conversationId, senderAgentId);
+
+    // Reject messages to archived conversations
+    const conv = await this.db
+      .selectFrom("conversations")
+      .select("archived_at")
+      .where("id", "=", conversationId)
+      .executeTakeFirst();
+    if (conv?.archived_at) {
+      throw new RpcError(
+        ErrorCodes.ConversationArchived,
+        "Conversation is archived",
+      );
+    }
 
     if (replyToId) {
       const replyExists = await this.db
