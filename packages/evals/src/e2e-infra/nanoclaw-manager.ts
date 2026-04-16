@@ -93,4 +93,15 @@ export class NanoclawManager {
   getAgentLogs(agent: NanoclawAgent): string {
     return getNanoclawLogs(agent.handle);
   }
+
+  /** Capture nanoclaw process logs to disk for all agents. */
+  captureAllLogs(outputDir: string): void {
+    fs.mkdirSync(outputDir, { recursive: true });
+    for (const a of this.agents) {
+      const agentDir = path.join(outputDir, a.name);
+      fs.mkdirSync(agentDir, { recursive: true });
+      const logs = getNanoclawLogs(a.handle);
+      fs.writeFileSync(path.join(agentDir, "process.log"), logs);
+    }
+  }
 }

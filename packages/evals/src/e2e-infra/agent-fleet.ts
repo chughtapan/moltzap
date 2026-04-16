@@ -20,6 +20,7 @@ export interface AgentFleet {
   agents: FleetAgent[];
   stopAll(): Promise<void>;
   getLogs(name: string): string;
+  captureAllLogs(outputDir: string): void;
 }
 
 export interface LaunchFleetOpts {
@@ -97,6 +98,9 @@ async function launchOpenClawFleet(opts: LaunchFleetOpts): Promise<AgentFleet> {
       }
       return dockerManager.getContainerLogs(container);
     },
+    captureAllLogs(outputDir: string): void {
+      dockerManager.captureAllLogs(outputDir);
+    },
   };
 }
 
@@ -150,6 +154,9 @@ async function launchNanoclawFleet(opts: LaunchFleetOpts): Promise<AgentFleet> {
         );
       }
       return nanoclawManager.getAgentLogs(agent);
+    },
+    captureAllLogs(outputDir: string): void {
+      nanoclawManager.captureAllLogs(outputDir);
     },
   };
 }

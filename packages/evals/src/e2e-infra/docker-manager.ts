@@ -204,6 +204,27 @@ export class DockerManager {
   getContainerLogs(agent: AgentContainer): string {
     return getLogs(agent.containerId);
   }
+
+  /** Capture Docker stdout/stderr and internal pino logs to disk for all containers. */
+  captureAllLogs(outputDir: string): void {
+    fs.mkdirSync(outputDir, { recursive: true });
+    for (const c of this.containers) {
+      const agentDir = path.join(outputDir, c.name);
+      fs.mkdirSync(agentDir, { recursive: true });
+
+      // 1. Docker stdout/stderr
+      const dockerLogs = getLogs(c.containerId);
+      fs.writeFileSync(path.join(agentDir, "docker.log"), dockerLogs);
+
+      // 2. Internal pino logs (bind-mounted tmpDir/logs/)
+      const internalLogsDir = path.join(c._raw.tmpDir, "logs");
+      if (fs.existsSync(internalLogsDir)) {
+        const internalDest = path.join(agentDir, "internal");
+        fs.mkdirSync(internalDest, { recursive: true });
+        fs.cpSync(internalLogsDir, internalDest, { recursive: true });
+      }
+    }
+  }
 }
 
 /** Start N agent containers with model resolution and API key forwarding. */
