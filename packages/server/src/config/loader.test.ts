@@ -10,8 +10,6 @@ import { readFileSync } from "node:fs";
 const VALID_YAML = `
 database:
   url: postgres://localhost:5432/moltzap
-encryption:
-  master_secret: my-secret
 `;
 
 beforeEach(() => {
@@ -28,7 +26,6 @@ describe("loadConfigFromFile", () => {
 
     const config = loadConfigFromFile("test.yaml");
     expect(config.database.url).toBe("postgres://localhost:5432/moltzap");
-    expect(config.encryption.master_secret).toBe("my-secret");
   });
 
   it("interpolates ${ENV_VAR} references", () => {
@@ -36,8 +33,6 @@ describe("loadConfigFromFile", () => {
     vi.mocked(readFileSync).mockReturnValue(`
 database:
   url: \${TEST_DB_URL}
-encryption:
-  master_secret: secret
 `);
 
     const config = loadConfigFromFile("test.yaml");
@@ -50,8 +45,6 @@ encryption:
     vi.mocked(readFileSync).mockReturnValue(`
 database:
   url: postgres://\${DB_HOST}:\${DB_PORT}/moltzap
-encryption:
-  master_secret: secret
 `);
 
     const config = loadConfigFromFile("test.yaml");
@@ -63,8 +56,6 @@ encryption:
     vi.mocked(readFileSync).mockReturnValue(`
 database:
   url: \${MISSING_VAR}
-encryption:
-  master_secret: secret
 `);
 
     expect(() => loadConfigFromFile("test.yaml")).toThrow(ConfigLoadError);
@@ -91,8 +82,8 @@ encryption:
 
   it("throws ConfigLoadError with errors array for schema validation failure", () => {
     vi.mocked(readFileSync).mockReturnValue(`
-database:
-  url: postgres://localhost/db
+server:
+  port: -1
 `);
 
     try {
@@ -103,9 +94,6 @@ database:
       const loadErr = err as ConfigLoadError;
       expect(loadErr.errors).toBeDefined();
       expect(loadErr.errors!.length).toBeGreaterThan(0);
-      expect(loadErr.errors!.some((e) => e.path.includes("encryption"))).toBe(
-        true,
-      );
     }
   });
 
@@ -130,8 +118,6 @@ database:
     vi.mocked(readFileSync).mockReturnValue(`
 database:
   url: pg://localhost/db
-encryption:
-  master_secret: secret
 server:
   cors_origins:
     - \${ORIGIN}

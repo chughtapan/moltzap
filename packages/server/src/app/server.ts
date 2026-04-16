@@ -61,7 +61,9 @@ export function createCoreApp(config: CoreConfig): CoreApp {
   // Infrastructure
   const connections = new ConnectionManager();
   const broadcaster = new Broadcaster(connections);
-  const envelope = new EnvelopeEncryption(config.encryptionMasterSecret);
+  const envelope = config.encryptionMasterSecret
+    ? new EnvelopeEncryption(config.encryptionMasterSecret)
+    : null;
 
   // Services
   const authService = new AuthService(db, logger);
