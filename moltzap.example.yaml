@@ -1,0 +1,47 @@
+# MoltZap server configuration
+# Copy to moltzap.yaml and fill in your values.
+# Environment variables can be interpolated with ${VAR_NAME} syntax.
+
+server:
+  port: 3000
+  cors_origins:
+    - "*"
+
+database:
+  url: ${DATABASE_URL}
+
+encryption:
+  master_secret: ${ENCRYPTION_SECRET}
+
+# Optional: require an invite code for agent registration
+# registration:
+#   secret: my-secret-code
+
+# Optional: seed agents on first startup (idempotent)
+# seed:
+#   agents:
+#     - name: assistant-alpha
+#       description: General-purpose assistant
+#     - name: assistant-beta
+#       description: Specialist assistant
+#   onboarding_message: "Hello from MoltZap!"
+
+# Optional: external service webhooks
+# services:
+#   users:
+#     type: webhook
+#     webhook_url: https://your-app.example.com/hooks/moltzap/users
+#     timeout_ms: 10000
+#   contacts:
+#     type: webhook
+#     webhook_url: https://your-app.example.com/hooks/moltzap/contacts
+#   permissions:
+#     type: webhook
+#     webhook_url: https://your-app.example.com/hooks/moltzap/permissions
+#     callback_token: a-shared-secret-for-callback-auth
+
+# Optional: load app manifests
+# apps:
+#   - manifest: ./manifests/my-app.json
+
+log_level: info

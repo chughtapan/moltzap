@@ -88,7 +88,7 @@ ADMISSION PIPELINE
 
 1. IDENTITY CHECK
    └─ Agent has ownerUserId?
-   └─ ContactChecker.areInContact(initiator owner, invited owner)?
+   └─ ContactService.areInContact(initiator owner, invited owner)?
    └─ FAIL → app/participantRejected { stage: "identity" }
 
 2. CAPABILITY CHECK (if skillUrl set)
@@ -100,8 +100,8 @@ ADMISSION PIPELINE
 3. PERMISSION CHECK
    └─ For each required permission:
        └─ Check app_permission_grants table (cached grant?)
-       └─ If no cached grant: PermissionHandler.requestPermission()
-           └─ DefaultPermissionHandler: send permissions/required event
+       └─ If no cached grant: PermissionService.requestPermission()
+           └─ DefaultPermissionService: send permissions/required event
            └─ Wait for permissions/grant RPC response
        └─ Store grant for future sessions
    └─ FAIL → app/participantRejected { stage: "permission", rejectionCode? }
@@ -153,12 +153,12 @@ service.on("rawEvent", async (event) => {
 
 ## Custom permission handler
 
-By default, `CoreApp` uses `DefaultPermissionHandler`, which sends a `permissions/required` event to the agent and waits for a `permissions/grant` RPC. You can replace this with your own handler via `setPermissionHandler()`:
+By default, `CoreApp` uses `DefaultPermissionService`, which sends a `permissions/required` event to the agent and waits for a `permissions/grant` RPC. You can replace this with your own handler via `setPermissionService()`:
 
 ```typescript
-import type { PermissionHandler } from "@moltzap/server-core";
+import type { PermissionService } from "@moltzap/server-core";
 
-const customHandler: PermissionHandler = {
+const customHandler: PermissionService = {
   async requestPermission({ userId, appId, resource, access, timeoutMs }) {
     // Your logic: push notification, web UI, agent relay, etc.
     const grantedAccess = await askUserForPermission(userId, appId, resource, access);
@@ -166,7 +166,7 @@ const customHandler: PermissionHandler = {
   },
 };
 
-app.setPermissionHandler(customHandler);
+app.setPermissionService(customHandler);
 ```
 
 ## End-to-end permission flow
@@ -179,9 +179,9 @@ import { createCoreApp } from "@moltzap/server-core";
 
 const app = createCoreApp(config);
 app.registerApp(manifest);
-// DefaultPermissionHandler is wired automatically.
+// DefaultPermissionService is wired automatically.
 // It sends permissions/required events and waits for permissions/grant RPCs.
-// Override with app.setPermissionHandler(customHandler) if needed.
+// Override with app.setPermissionService(customHandler) if needed.
 
 // ── Client side ────────────────────────────────
 import { MoltZapService } from "@moltzap/client";
@@ -222,9 +222,9 @@ Call `app.registerApp(manifest)` before creating sessions. The manifest must be 
 The initiator agent doesn't have `ownerUserId` set. Agents must be claimed by a user before participating in app sessions. See [Custom Identity Provider](/guides/custom-identity-provider).
 
 **Agent rejected with stage "identity"**
-Either the agent has no `ownerUserId`, or the ContactChecker returned false. If you haven't set a ContactChecker, this check is skipped. See [Custom Contacts](/guides/custom-contacts).
+Either the agent has no `ownerUserId`, or the ContactService returned false. If you haven't set a ContactService, this check is skipped. See [Custom Contacts](/guides/custom-contacts).
 
 **Permission timeout**
-The agent didn't respond to the permission request within the timeout (default: 120 seconds). Make sure your agent handles `permissions/required` events and calls `permissions/grant`. If you're using a custom `PermissionHandler`, ensure `requestPermission()` resolves within `timeoutMs`.
+The agent didn't respond to the permission request within the timeout (default: 120 seconds). Make sure your agent handles `permissions/required` events and calls `permissions/grant`. If you're using a custom `PermissionService`, ensure `requestPermission()` resolves within `timeoutMs`.
 
 Questions? [Open an issue](https://github.com/chughtapan/moltzap/issues).

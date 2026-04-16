@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   AppHost,
-  DefaultPermissionHandler,
+  DefaultPermissionService,
   PermissionDeniedError,
   PermissionTimeoutError,
-  type ContactChecker,
-  type PermissionHandler,
+  type ContactService,
+  type PermissionService,
 } from "./app-host.js";
 import { ErrorCodes } from "@moltzap/protocol";
 import { RpcError } from "../rpc/router.js";
@@ -388,7 +388,7 @@ describe("AppHost", () => {
       appHost.registerApp(TEST_MANIFEST);
     });
 
-    it("allows all agents when no ContactChecker is set", async () => {
+    it("allows all agents when no ContactService is set", async () => {
       db._setAgentRows(TEST_AGENTS);
       const session = await appHost.createSession("test-app", "agent-init", [
         "agent-2",
@@ -396,11 +396,11 @@ describe("AppHost", () => {
       expect(session.status).toBe("waiting");
     });
 
-    it("rejects agents when ContactChecker returns false", async () => {
-      const checker: ContactChecker = {
+    it("rejects agents when ContactService returns false", async () => {
+      const checker: ContactService = {
         areInContact: vi.fn().mockResolvedValue(false),
       };
-      appHost.setContactChecker(checker);
+      appHost.setContactService(checker);
       db._setAgentRows(TEST_AGENTS);
 
       await appHost.createSession("test-app", "agent-init", ["agent-2"]);
@@ -415,9 +415,9 @@ describe("AppHost", () => {
     });
   });
 
-  // setContactChecker and setPermissionHandler are exercised by the admission tests below
+  // setContactService and setPermissionService are exercised by the admission tests below
 
-  describe("PermissionHandler integration", () => {
+  describe("PermissionService integration", () => {
     const PERM_MANIFEST = {
       ...TEST_MANIFEST,
       appId: "perm-app",
@@ -433,10 +433,10 @@ describe("AppHost", () => {
     });
 
     it("calls handler.requestPermission during admission", async () => {
-      const handler: PermissionHandler = {
+      const handler: PermissionService = {
         requestPermission: vi.fn().mockResolvedValue(["read", "write"]),
       };
-      appHost.setPermissionHandler(handler);
+      appHost.setPermissionService(handler);
 
       await appHost.createSession("perm-app", "agent-init", ["agent-2"]);
       await waitForAdmission(broadcaster);
@@ -456,12 +456,12 @@ describe("AppHost", () => {
       {
         scenario: "no handler configured",
         handler: undefined,
-        expectedCode: "no_handler",
+        expectedCode: "NoPermissionHandler",
       },
       {
         scenario: "handler returns insufficient access",
         handler: { requestPermission: vi.fn().mockResolvedValue(["read"]) },
-        expectedCode: "permission_denied",
+        expectedCode: "PermissionDenied",
       },
       {
         scenario: "handler throws PermissionTimeoutError",
@@ -470,7 +470,7 @@ describe("AppHost", () => {
             .fn()
             .mockRejectedValue(new PermissionTimeoutError("calendar")),
         },
-        expectedCode: "permission_timeout",
+        expectedCode: "PermissionTimeout",
       },
       {
         scenario: "handler throws PermissionDeniedError",
@@ -479,7 +479,7 @@ describe("AppHost", () => {
             .fn()
             .mockRejectedValue(new PermissionDeniedError("calendar")),
         },
-        expectedCode: "permission_denied",
+        expectedCode: "PermissionDenied",
       },
       {
         scenario: "handler throws unknown error",
@@ -488,12 +488,12 @@ describe("AppHost", () => {
             .fn()
             .mockRejectedValue(new Error("network error")),
         },
-        expectedCode: "permission_denied",
+        expectedCode: "PermissionHandlerError",
       },
     ])(
       "rejects with '$expectedCode' when $scenario",
       async ({ handler, expectedCode }) => {
-        if (handler) appHost.setPermissionHandler(handler);
+        if (handler) appHost.setPermissionService(handler);
 
         await appHost.createSession("perm-app", "agent-init", ["agent-2"]);
         await waitForAdmission(broadcaster);
@@ -512,10 +512,10 @@ describe("AppHost", () => {
     );
 
     it("logs when requesting permission from handler", async () => {
-      const handler: PermissionHandler = {
+      const handler: PermissionService = {
         requestPermission: vi.fn().mockResolvedValue(["read", "write"]),
       };
-      appHost.setPermissionHandler(handler);
+      appHost.setPermissionService(handler);
 
       await appHost.createSession("perm-app", "agent-init", ["agent-2"]);
       await waitForAdmission(broadcaster);
@@ -530,10 +530,10 @@ describe("AppHost", () => {
     });
 
     it("logs handler response", async () => {
-      const handler: PermissionHandler = {
+      const handler: PermissionService = {
         requestPermission: vi.fn().mockResolvedValue(["read", "write"]),
       };
-      appHost.setPermissionHandler(handler);
+      appHost.setPermissionService(handler);
 
       await appHost.createSession("perm-app", "agent-init", ["agent-2"]);
       await waitForAdmission(broadcaster);
@@ -550,10 +550,10 @@ describe("AppHost", () => {
     it("skips handler when existing grant covers required access", async () => {
       db._setGrantRow({ access: ["read", "write"] });
 
-      const handler: PermissionHandler = {
+      const handler: PermissionService = {
         requestPermission: vi.fn().mockResolvedValue(["read", "write"]),
       };
-      appHost.setPermissionHandler(handler);
+      appHost.setPermissionService(handler);
 
       await appHost.createSession("perm-app", "agent-init", ["agent-2"]);
       await waitForAdmission(broadcaster);
@@ -584,7 +584,7 @@ describe("AppHost", () => {
 
       let resolveFirst!: (v: string[]) => void;
       let callCount = 0;
-      const handler: PermissionHandler = {
+      const handler: PermissionService = {
         requestPermission: vi.fn().mockImplementation(() => {
           callCount++;
           if (callCount === 1) {
@@ -597,7 +597,7 @@ describe("AppHost", () => {
           return Promise.resolve(["read"]);
         }),
       };
-      appHost.setPermissionHandler(handler);
+      appHost.setPermissionService(handler);
 
       await appHost.createSession("coal-app", "agent-init", [
         "agent-A",
@@ -637,10 +637,10 @@ describe("AppHost", () => {
       appHost.registerApp(PERM_MANIFEST_SET);
       db._setAgentRows(TEST_AGENTS);
 
-      const handler: PermissionHandler = {
+      const handler: PermissionService = {
         requestPermission: vi.fn().mockResolvedValue(["read", "write"]),
       };
-      appHost.setPermissionHandler(handler);
+      appHost.setPermissionService(handler);
 
       await appHost.createSession("set-app", "agent-init", ["agent-2"]);
       await waitForAdmission(broadcaster);
@@ -663,10 +663,10 @@ describe("AppHost", () => {
       appHost.registerApp(PERM_MANIFEST_SET);
       db._setAgentRows(TEST_AGENTS);
 
-      const handler: PermissionHandler = {
+      const handler: PermissionService = {
         requestPermission: vi.fn(),
       };
-      appHost.setPermissionHandler(handler);
+      appHost.setPermissionService(handler);
 
       await appHost.createSession("set-app2", "agent-init", ["agent-2"]);
       await waitForAdmission(broadcaster);
@@ -733,15 +733,15 @@ describe("AppHost", () => {
   });
 });
 
-describe("DefaultPermissionHandler", () => {
-  let handler: DefaultPermissionHandler;
+describe("DefaultPermissionService", () => {
+  let handler: DefaultPermissionService;
   let broadcaster: ReturnType<typeof createMockBroadcaster>;
   let logger: ReturnType<typeof createMockLogger>;
 
   beforeEach(() => {
     broadcaster = createMockBroadcaster();
     logger = createMockLogger();
-    handler = new DefaultPermissionHandler(
+    handler = new DefaultPermissionService(
       broadcaster as never,
       logger as never,
     );
