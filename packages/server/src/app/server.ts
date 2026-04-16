@@ -35,7 +35,12 @@ import { createAppHandlers } from "./handlers/apps.handlers.js";
 import { AppHost, DefaultPermissionService } from "./app-host.js";
 import type { AsyncWebhookAdapter } from "../adapters/webhook.js";
 
-import type { CoreConfig, CoreApp, ConnectionHook } from "./types.js";
+import type {
+  CoreConfig,
+  CoreApp,
+  ConnectionHook,
+  DisconnectionHook,
+} from "./types.js";
 
 function safeEqual(a: string, b: string): boolean {
   const bufA = Buffer.from(a);
@@ -95,6 +100,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
 
   // Connection hooks
   const connectionHooks: ConnectionHook[] = [];
+  const disconnectionHooks: DisconnectionHook[] = [];
 
   // Webhook permission callback state (set via setWebhookPermissionCallback)
   let _webhookPermAdapter: AsyncWebhookAdapter | null = null;
@@ -310,6 +316,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
           // Fire connection hooks after successful auth/connect
           if (frame.method === "auth/connect" && conn.auth) {
             const agentId = conn.auth.agentId;
+            const ownerUserId = conn.auth.ownerUserId;
             const agentRow = await db
               .selectFrom("agents")
               .select("name")
@@ -318,7 +325,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
             const agentName = agentRow?.name ?? agentId;
             for (const hook of connectionHooks) {
               try {
-                await hook({ agentId, agentName, connId });
+                await hook({ agentId, agentName, ownerUserId, connId });
               } catch (err) {
                 logger.error({ err, agentId, connId }, "Connection hook error");
               }
@@ -329,7 +336,20 @@ export function createCoreApp(config: CoreConfig): CoreApp {
         async onClose() {
           const conn = connections.get(connId);
           if (conn?.auth) {
-            presenceService.setOffline(conn.auth.agentId);
+            const { agentId, ownerUserId } = conn.auth;
+            presenceService.setOffline(agentId);
+            // Fire disconnection hooks (after auth was established).
+            // Hooks run concurrently; errors log but don't block cleanup.
+            for (const hook of disconnectionHooks) {
+              try {
+                await hook({ agentId, ownerUserId, connId });
+              } catch (err) {
+                logger.error(
+                  { err, agentId, connId },
+                  "Disconnection hook error",
+                );
+              }
+            }
           }
           presenceService.removeConnection(connId);
           connections.remove(connId);
@@ -357,6 +377,9 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     },
     onConnection(hook: ConnectionHook) {
       connectionHooks.push(hook);
+    },
+    onDisconnection(hook: DisconnectionHook) {
+      disconnectionHooks.push(hook);
     },
     registerApp(manifest) {
       appHost.registerApp(manifest);

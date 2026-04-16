@@ -32,6 +32,14 @@ export interface CoreConfig {
 export type ConnectionHook = (params: {
   agentId: string;
   agentName: string;
+  /** Owner user ID resolved at auth/connect time. Null for unclaimed agents. */
+  ownerUserId: string | null;
+  connId: string;
+}) => Promise<void> | void;
+
+export type DisconnectionHook = (params: {
+  agentId: string;
+  ownerUserId: string | null;
   connId: string;
 }) => Promise<void> | void;
 
@@ -40,6 +48,12 @@ export interface CoreApp {
   readonly port: number;
   registerRpcMethod: (name: string, def: RpcMethodDef) => void;
   onConnection: (hook: ConnectionHook) => void;
+  /**
+   * Fires when a WebSocket closes, after auth was established. Use for
+   * per-user cleanup (e.g., `last_seen_at` updates). Does not fire for
+   * connections that never authenticated.
+   */
+  onDisconnection: (hook: DisconnectionHook) => void;
   registerApp: (manifest: AppManifest) => void;
   setUserService: (service: UserService) => void;
   setContactService: (checker: ContactService) => void;
