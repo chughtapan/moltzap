@@ -424,6 +424,20 @@ interface RpcMethod<P, A, E, R> {
 
 This area is intentionally split into alternatives. The repo can stop after Plan A and still be fully Effect-native at the service/runtime layer.
 
+**Current recommendation for this repo:** Treat **Plan C1** as the default migration path.
+- Keep Kysely for the first Effect migration wave.
+- Hide it behind an Effect `DbService` / Layer boundary.
+- Revisit `@effect/sql-kysely` only after a proof-of-concept on real query-heavy modules.
+- Treat a full move to `@effect/sql-pg` as a separate project, not part of the initial runtime migration.
+
+**Why this is the current recommendation:**
+- The server currently has roughly 100 query-builder call sites plus raw `sql`` fragments, with the densest concentration in:
+  - `packages/server/src/app/app-host.ts`
+  - `packages/server/src/services/conversation.service.ts`
+  - `packages/server/src/services/message.service.ts`
+- The current DB bootstrap in `packages/server/src/db/client.ts` is already centralized, which makes it straightforward to wrap with `Layer.scoped`.
+- Rewriting the runtime model and rewriting the SQL layer at the same time would create avoidable migration risk.
+
 ### Plan C1: Keep Kysely Behind Effect Services
 
 **Scope:** No SQL framework rewrite. Keep Kysely as the query builder and database integration surface, but expose it only through Effect services.
@@ -435,6 +449,7 @@ This area is intentionally split into alternatives. The repo can stop after Plan
 
 **Stages:**
 - [ ] Wrap DB access behind a `DbService` tag.
+- [ ] Move DB construction and teardown into `Layer.scoped` using the existing `createDb()` / `db.destroy()` lifecycle.
 - [ ] Centralize transaction helpers as Effect combinators.
 - [ ] Remove direct Kysely construction from leaf services.
 - [ ] Ensure all DB interaction returns typed Effect failures, not thrown driver errors.
@@ -452,7 +467,22 @@ This area is intentionally split into alternatives. The repo can stop after Plan
 - `packages/server/src/services/message.service.ts`
 - `packages/server/src/app/app-host.ts`
 
+**Important caveats verified against the current package:**
+- The package README explicitly says the integration is **not fully future-proof** because it depends on Kysely internals and builder patching.
+- The current npm package peer dependency requires `kysely ^0.28.2`.
+- This repo currently uses `kysely ^0.27.0` in `packages/server` and `packages/evals`.
+- A scratch install validated the current state:
+  - latest `@effect/sql-kysely` installs and typechecks cleanly with `kysely 0.28.x`
+  - latest `@effect/sql-kysely` does **not** install cleanly with `kysely 0.27.x`
+  - forcing the `0.27.x` install still failed typechecking in a minimal sample
+
+**Interpretation:**
+- Plan C2 is not a same-day enhancement on top of the current repo.
+- It first requires a deliberate Kysely upgrade track.
+- Even after the upgrade, it should still be treated as a bridge with patch-based risk, not a zero-risk foundation.
+
 **Stages:**
+- [ ] Upgrade Kysely to a version supported by the current `@effect/sql-kysely` release in a separate compatibility PR.
 - [ ] Run a proof-of-concept on one service with joins, transactions, and returning clauses.
 - [ ] Evaluate type quality, transaction ergonomics, and operational complexity.
 - [ ] If satisfactory, roll it out service by service.
