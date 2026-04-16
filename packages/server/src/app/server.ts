@@ -100,6 +100,11 @@ export function createCoreApp(config: CoreConfig): CoreApp {
   let _webhookPermAdapter: AsyncWebhookAdapter | null = null;
   let _callbackToken: string | null = null;
 
+  // Shared UserService reference. setUserService assigns both appHost's
+  // internal userService AND this ref so the auth handler can read it.
+  let _userService: import("../services/user.service.js").UserService | null =
+    null;
+
   // Mutable RPC method registry — core handlers + extension methods
   const methods: RpcMethodRegistry = {
     ...createCoreAuthHandlers({
@@ -109,6 +114,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
       connections,
       db,
       getConnId: () => connIdContext.getStore() ?? "",
+      getUserService: () => _userService,
     }),
     ...createConversationHandlers({
       conversationService,
@@ -362,6 +368,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
       appHost.registerApp(manifest);
     },
     setUserService(service) {
+      _userService = service;
       appHost.setUserService(service);
     },
     setContactService(checker) {
