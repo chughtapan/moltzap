@@ -1,6 +1,6 @@
 import { SqlError } from "@effect/sql/SqlError";
-import type { EffectKysely } from "@effect/sql-kysely/Pg";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import { sql } from "kysely";
 import type {
   ConversationType,
@@ -8,6 +8,7 @@ import type {
   NewConversation,
   NewConversationParticipant,
 } from "../src/db/database.js";
+import type { EffectKyselyToolkit } from "./effect-kysely-toolkit.js";
 
 interface ListRow {
   id: string;
@@ -26,34 +27,17 @@ interface CreateConversationInput {
   creatorAgentId: string;
 }
 
-function sqlError(message: string, cause: unknown): SqlError {
-  return new SqlError({ cause, message });
-}
-
-function fromPromiseQuery<A>(
-  message: string,
-  thunk: () => Promise<A>,
-): Effect.Effect<A, SqlError> {
-  return Effect.tryPromise({
-    try: thunk,
-    catch: (cause) => sqlError(message, cause),
-  });
-}
-
 /**
  * Targeted POC against the current conversation-service query shapes.
  *
- * What works cleanly with `@effect/sql-kysely`:
- * - builder chains can be `yield*`'d directly
- * - insert / update builders become `Effect`s
- * - transactions move to `db.withTransaction(effect)`
- *
- * What still needs a bridge:
- * - `.executeTakeFirst()` / `.executeTakeFirstOrThrow()`
- * - raw `sql``.execute(db)` fragments
+ * This version uses a small local toolkit to make the remaining rough edges
+ * feel native:
+ * - `takeFirstOption` / `takeFirstOrFail` replace `executeTakeFirst*`
+ * - `rawQuery` executes Kysely raw SQL through captured `SqlClient`
+ * - transactions still move to `db.withTransaction(effect)`
  */
 export function createConversationPoc(
-  db: EffectKysely<Database>,
+  toolkit: EffectKyselyToolkit<Database>,
   input: CreateConversationInput,
 ): Effect.Effect<
   {
@@ -62,6 +46,8 @@ export function createConversationPoc(
   },
   SqlError
 > {
+  const db = toolkit.db;
+
   return db.withTransaction(
     Effect.gen(function* () {
       const foundAgents = yield* db
@@ -75,15 +61,9 @@ export function createConversationPoc(
         created_by_id: input.creatorAgentId,
       };
 
-      // `executeTakeFirstOrThrow()` remains Promise-based even on the patched builders.
-      const created = yield* fromPromiseQuery(
-        "effect-kysely POC: insert conversation",
-        () =>
-          db
-            .insertInto("conversations")
-            .values(conversation)
-            .returningAll()
-            .executeTakeFirstOrThrow(),
+      const created = yield* toolkit.takeFirstOrElse(
+        db.insertInto("conversations").values(conversation).returningAll(),
+        () => new SqlError({ message: "Expected inserted conversation row" }),
       );
 
       const ownerParticipant: NewConversationParticipant = {
@@ -121,14 +101,43 @@ export function createConversationPoc(
   );
 }
 
+export function findConversationPoc(
+  toolkit: EffectKyselyToolkit<Database>,
+  conversationId: string,
+): Effect.Effect<
+  Option.Option<{
+    id: string;
+    type: ConversationType;
+    name: string | null;
+    created_by_id: string;
+    created_at: Date;
+    updated_at: Date;
+  }>,
+  SqlError
+> {
+  return toolkit.takeFirstOption(
+    toolkit.db
+      .selectFrom("conversations")
+      .select([
+        "id",
+        "type",
+        "name",
+        "created_by_id",
+        "created_at",
+        "updated_at",
+      ])
+      .where("id", "=", conversationId),
+  );
+}
+
 export function listConversationsPoc(
-  db: EffectKysely<Database>,
+  toolkit: EffectKyselyToolkit<Database>,
   agentId: string,
   limit = 50,
   cursor?: string,
 ): Effect.Effect<
   {
-    rows: ListRow[];
+    rows: ReadonlyArray<ListRow>;
     participantRows: Array<{
       conversation_id: string;
       agent_id: string;
@@ -136,14 +145,13 @@ export function listConversationsPoc(
   },
   SqlError
 > {
+  const db = toolkit.db;
+
   return Effect.gen(function* () {
     const cursorParam = cursor ?? null;
 
-    // Raw SQL fragments still use Kysely's Promise-returning `.execute(db)` API.
-    const rows = yield* fromPromiseQuery(
-      "effect-kysely POC: raw conversation list",
-      async () => {
-        const result = await sql<ListRow>`
+    const rows = yield* toolkit.rawQuery(
+      sql<ListRow>`
           SELECT c.id, c.type, c.name, c.updated_at,
                  m.parts_encrypted IS NOT NULL as has_last_message,
                  m.created_at as last_message_at,
@@ -165,10 +173,7 @@ export function listConversationsPoc(
             ${cursorParam ? sql`AND c.updated_at < ${cursorParam}` : sql``}
           ORDER BY COALESCE(m.created_at, c.updated_at) DESC
           LIMIT ${limit + 1}
-        `.execute(db);
-
-        return result.rows;
-      },
+      `,
     );
 
     const participantRows =
