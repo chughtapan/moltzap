@@ -133,6 +133,14 @@ export type {
   AppsCloseSessionResult,
   AppsGetSessionParams,
   AppsGetSessionResult,
+  AppsRegisterParams,
+  AppsRegisterResult,
   AppsListSessionsParams,
   AppsListSessionsResult,
 } from "./schema/methods/apps.js";
+
+// System method types
+export type {
+  SystemPingParams,
+  SystemPingResult,
+} from "./schema/methods/system.js";

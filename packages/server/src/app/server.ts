@@ -30,6 +30,7 @@ import { createConversationHandlers } from "./handlers/conversations.handlers.js
 import { createMessageHandlers } from "./handlers/messages.handlers.js";
 import { createPresenceHandlers } from "./handlers/presence.handlers.js";
 import { createAppHandlers } from "./handlers/apps.handlers.js";
+import { createSystemHandlers } from "./handlers/system.handlers.js";
 
 // AppHost
 import { AppHost, DefaultPermissionService } from "./app-host.js";
@@ -131,6 +132,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
       appHost,
       permissionService: defaultPermissionService,
     }),
+    ...createSystemHandlers(),
   };
 
   const dispatch = createRpcRouter(methods);
