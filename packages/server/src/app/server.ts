@@ -480,11 +480,18 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     ),
   );
 
-  const httpApp = HttpRouter.empty.pipe(
-    healthRoute,
-    registerRoute,
-    permissionsResolveRoute,
-    wsRoute,
+  // `skipDefaultRegisterRoute` lets apps opt out of core's default register
+  // handler so they can mount their own invite-gated / rate-limited flow.
+  const httpApp = (
+    config.skipDefaultRegisterRoute
+      ? HttpRouter.empty.pipe(healthRoute, permissionsResolveRoute, wsRoute)
+      : HttpRouter.empty.pipe(
+          healthRoute,
+          registerRoute,
+          permissionsResolveRoute,
+          wsRoute,
+        )
+  ).pipe(
     HttpMiddleware.cors({
       allowedOrigins: allowedOriginsPredicate,
     }),
