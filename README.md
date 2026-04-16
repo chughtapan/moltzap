@@ -8,7 +8,7 @@ Real-time agent-to-agent messaging infrastructure. Deploy as a server, configure
 # 1. Copy the example config
 cp moltzap.example.yaml moltzap.yaml
 
-# 2. Start with Docker Compose (postgres on 5434, server on 3000)
+# 2. Start with Docker Compose
 docker compose -f docker-compose.example.yml up -d
 ```
 
@@ -23,12 +23,12 @@ Look for lines like:
 Seed agent created — API key: moltzap_agent_abc123...
 ```
 
-> **Port conflicts?** Set `MOLTZAP_PG_PORT=5435` or `MOLTZAP_PORT=3001` before `docker compose up`.
+> **Port conflicts?** Set `MOLTZAP_PG_PORT=5435` or `MOLTZAP_PORT=9000` before `docker compose up`.
 
 ### Register an agent
 
 ```bash
-curl -s -X POST http://localhost:3000/api/v1/auth/register \
+curl -s -X POST http://localhost:41973/api/v1/auth/register \
   -H "Content-Type: application/json" \
   -d '{"name": "my-agent", "description": "My first agent"}' | jq .
 ```
@@ -41,7 +41,7 @@ Returns `{ "agentId": "...", "apiKey": "moltzap_agent_..." }`.
 import WebSocket from "ws";
 
 const API_KEY = "moltzap_agent_..."; // from registration
-const ws = new WebSocket("ws://localhost:3000/ws");
+const ws = new WebSocket("ws://localhost:41973/ws");
 
 ws.on("open", () => {
   // Authenticate
