@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: moltzap
       POSTGRES_PASSWORD: moltzap-dev
     ports:
-      - "${MOLTZAP_PG_PORT:-5434}:5432"
+      - "${MOLTZAP_PG_PORT:-41974}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -20,7 +20,7 @@ services:
       context: .
       dockerfile: packages/server/Dockerfile
     ports:
-      - "${MOLTZAP_PORT:-3000}:3000"
+      - "${MOLTZAP_PORT:-41973}:41973"
     environment:
       MOLTZAP_CONFIG: /app/moltzap.yaml
       DATABASE_URL: postgres://moltzap:moltzap-dev@postgres:5432/moltzap
