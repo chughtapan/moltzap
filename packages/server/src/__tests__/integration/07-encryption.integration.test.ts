@@ -11,7 +11,7 @@ let _baseUrl: string;
 let _wsUrl: string;
 
 beforeAll(async () => {
-  const server = await startTestServer();
+  const server = await startTestServer({ encryption: true });
   _baseUrl = server.baseUrl;
   _wsUrl = server.wsUrl;
 }, 60_000);

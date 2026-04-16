@@ -1,7 +1,7 @@
 /** Standalone server — loads YAML config, boots PGlite or Postgres, starts the server. */
 
 import { readFileSync, existsSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { join, dirname, resolve, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Kysely, PostgresDialect, sql } from "kysely";
 import { loadConfigFromFile } from "./config/loader.js";
@@ -9,7 +9,12 @@ import type { MoltZapConfig } from "./config/schema.js";
 import { createCoreApp } from "./app/server.js";
 import { seedInitialKek } from "./crypto/key-rotation.js";
 import { EnvelopeEncryption } from "./crypto/envelope.js";
-import { WebhookClient, AsyncWebhookAdapter } from "./adapters/webhook.js";
+import {
+  WebhookClient,
+  WebhookContactService,
+  AsyncWebhookAdapter,
+  WebhookPermissionService,
+} from "./adapters/webhook.js";
 import { WebhookUserService } from "./services/user.service.js";
 import { logger } from "./logger.js";
 import type { CoreApp, CoreConfig } from "./app/types.js";
@@ -165,7 +170,12 @@ async function seedAgents(
     const result = (await res.json()) as RegisterResponse;
     logger.info(
       { name: agentDef.name, agentId: result.agentId },
-      "Seed agent created — API key: %s",
+      "Seed agent created",
+    );
+    // API key logged at debug level to avoid leaking to production log aggregation
+    logger.debug(
+      { name: agentDef.name, apiKey: result.apiKey },
+      "Seed agent API key: %s",
       result.apiKey,
     );
   }
@@ -181,10 +191,12 @@ export async function startServer(configPath?: string): Promise<{
   const yamlConfig = loadConfigFromFile(configPath);
 
   // Create database (PGlite if no URL, Postgres otherwise)
-  const usePgLite = !yamlConfig.database?.url;
+  // DATABASE_URL env var is a fallback when YAML doesn't specify database.url
+  const databaseUrl = yamlConfig.database?.url || process.env["DATABASE_URL"];
+  const usePgLite = !databaseUrl;
   const handle = usePgLite
     ? await createPgLiteDb(yamlConfig.database?.data_dir)
-    : await createPostgresDb(yamlConfig.database!.url!);
+    : await createPostgresDb(databaseUrl!);
 
   if (usePgLite) {
     logger.info("Using embedded PGlite database (no external Postgres needed)");
@@ -223,20 +235,47 @@ export async function startServer(configPath?: string): Promise<{
   }
 
   if (
+    yamlConfig.services?.contacts?.type === "webhook" &&
+    yamlConfig.services.contacts.webhook_url
+  ) {
+    app.setContactService(
+      new WebhookContactService(
+        webhookClient,
+        yamlConfig.services.contacts.webhook_url,
+        yamlConfig.services.contacts.timeout_ms ?? 10000,
+        logger,
+      ),
+    );
+  }
+
+  if (
     yamlConfig.services?.permissions?.type === "webhook" &&
     yamlConfig.services.permissions.webhook_url
   ) {
     const adapter = new AsyncWebhookAdapter();
     const token =
       yamlConfig.services.permissions.callback_token ?? crypto.randomUUID();
+    const callbackBaseUrl = `http://127.0.0.1:${app.port}`;
+    const permService = new WebhookPermissionService(
+      adapter,
+      yamlConfig.services.permissions.webhook_url,
+      callbackBaseUrl,
+      token,
+      logger,
+    );
+    app.setPermissionService(permService);
     app.setWebhookPermissionCallback(adapter, token);
   }
 
-  // Register app manifests
+  // Register app manifests (resolve paths relative to config file location)
   if (yamlConfig.apps) {
+    const configDir = yamlConfig._configDir;
     for (const appRef of yamlConfig.apps) {
       try {
-        const manifestJson = readFileSync(appRef.manifest, "utf-8");
+        const manifestPath = isAbsolute(appRef.manifest)
+          ? appRef.manifest
+          : resolve(configDir, appRef.manifest);
+        const manifestJson = readFileSync(manifestPath, "utf-8");
         const manifest = JSON.parse(manifestJson);
         app.registerApp(manifest);
         logger.info(
@@ -255,13 +294,22 @@ export async function startServer(configPath?: string): Promise<{
   // Seed agents (after server is listening)
   if (yamlConfig.seed?.agents?.length) {
     const baseUrl = `http://127.0.0.1:${app.port}`;
-    setTimeout(async () => {
-      try {
-        await seedAgents(yamlConfig, handle.db, baseUrl);
-      } catch (err) {
-        logger.error({ err }, "Seed failed");
+    // Wait for the server to be ready before seeding
+    const waitForReady = async (retries = 10): Promise<void> => {
+      for (let i = 0; i < retries; i++) {
+        try {
+          const res = await fetch(`${baseUrl}/health`);
+          if (res.ok) return;
+        } catch (err) {
+          logger.debug({ err, attempt: i + 1 }, "Server not ready yet");
+        }
+        await new Promise((r) => setTimeout(r, 200));
       }
-    }, 500);
+      throw new Error("Server did not become ready in time");
+    };
+    waitForReady()
+      .then(() => seedAgents(yamlConfig, handle.db, baseUrl))
+      .catch((err) => logger.error({ err }, "Seed failed"));
   }
 
   logger.info(
@@ -282,7 +330,8 @@ export async function startServer(configPath?: string): Promise<{
   };
 }
 
-// Run if executed directly (bin/moltzap-server)
+// Auto-start when run directly (e.g. `node dist/standalone.js`, `tsx src/standalone.ts`)
+// bin/moltzap-server calls startServer() explicitly via import.
 const isDirectRun =
   process.argv[1]?.endsWith("standalone.js") ||
   process.argv[1]?.endsWith("standalone.ts");

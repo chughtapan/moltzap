@@ -21,6 +21,11 @@ import { sql } from "kysely";
 import type { MessageRow } from "../db/database.js";
 import type { AppHost } from "../app/app-host.js";
 
+/** pg returns bytea as Buffer, PGlite returns Uint8Array. Normalize to Buffer. */
+function toBuf(v: Buffer | Uint8Array): Buffer {
+  return Buffer.isBuffer(v) ? v : Buffer.from(v);
+}
+
 export class MessageService {
   constructor(
     private db: Db,
@@ -296,7 +301,7 @@ export class MessageService {
     const dekVersion = row.dek_version;
 
     if (!this.encryption || dekVersion === 0) {
-      return JSON.parse(row.parts_encrypted.toString("utf-8")) as Part[];
+      return JSON.parse(toBuf(row.parts_encrypted).toString("utf-8")) as Part[];
     }
 
     const conversationId = row.conversation_id;
@@ -319,9 +324,9 @@ export class MessageService {
 
     return this.encryption.decryptMessage(
       {
-        ciphertext: row.parts_encrypted,
-        iv: row.parts_iv,
-        tag: row.parts_tag,
+        ciphertext: toBuf(row.parts_encrypted),
+        iv: toBuf(row.parts_iv),
+        tag: toBuf(row.parts_tag),
       },
       dek,
     ) as Part[];

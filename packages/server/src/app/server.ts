@@ -3,6 +3,7 @@ import { cors } from "hono/cors";
 import { createNodeWebSocket } from "@hono/node-ws";
 import { serve } from "@hono/node-server";
 import { AsyncLocalStorage } from "node:async_hooks";
+import { timingSafeEqual } from "node:crypto";
 import { logger } from "../logger.js";
 import { ConnectionManager } from "../ws/connection.js";
 import { Broadcaster } from "../ws/broadcaster.js";
@@ -35,6 +36,13 @@ import { AppHost, DefaultPermissionService } from "./app-host.js";
 import type { AsyncWebhookAdapter } from "../adapters/webhook.js";
 
 import type { CoreConfig, CoreApp, ConnectionHook } from "./types.js";
+
+function safeEqual(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return timingSafeEqual(bufA, bufB);
+}
 
 export function createCoreApp(config: CoreConfig): CoreApp {
   const db = config.db;
@@ -156,7 +164,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
 
     if (config.registrationSecret) {
       const inviteCode = (body as { inviteCode?: string }).inviteCode;
-      if (!inviteCode || inviteCode !== config.registrationSecret) {
+      if (!inviteCode || !safeEqual(inviteCode, config.registrationSecret)) {
         return c.json({ error: "Invalid or missing invite code" }, 403);
       }
     }
@@ -185,7 +193,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
       return c.json({ error: "Unauthorized" }, 401);
     }
     const token = authHeader.replace("Bearer ", "");
-    if (token !== _callbackToken) {
+    if (!safeEqual(token, _callbackToken)) {
       return c.json({ error: "Invalid callback token" }, 401);
     }
 
@@ -373,6 +381,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
       appHost.onAppJoin(appId, handler);
     },
     async close() {
+      _webhookPermAdapter?.destroy();
       defaultPermissionService.destroy();
       appHost.destroy();
       for (const conn of connections.all()) {

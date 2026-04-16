@@ -47,6 +47,13 @@ export interface PermissionService {
   }): Promise<string[]>;
 }
 
+export class NotInContactsError extends Error {
+  constructor() {
+    super("Not in contacts");
+    this.name = "NotInContactsError";
+  }
+}
+
 export class PermissionDeniedError extends Error {
   constructor(resource: string) {
     super(`Permission denied for resource: ${resource}`);
@@ -290,7 +297,8 @@ export class AppHost {
       );
     }
 
-    const allAgentIds = [initiatorAgentId, ...invitedAgentIds];
+    const uniqueInvitedIds = [...new Set(invitedAgentIds)];
+    const allAgentIds = [initiatorAgentId, ...uniqueInvitedIds];
     const agentRows = await this.db
       .selectFrom("agents")
       .select(["id", "owner_user_id", "status"])
@@ -352,7 +360,8 @@ export class AppHost {
         this.subscribeToConversation(initiatorAgentId, conv.id);
       }
 
-      const initialStatus = invitedAgentIds.length === 0 ? "active" : "waiting";
+      const initialStatus =
+        uniqueInvitedIds.length === 0 ? "active" : "waiting";
       await trx
         .insertInto("app_sessions")
         .values({
@@ -365,7 +374,7 @@ export class AppHost {
 
       // Only insert participant rows for agents that exist in the DB
       // (non-existent agents will be rejected during admission)
-      const knownInvitees = invitedAgentIds.filter((id) => agentMap.has(id));
+      const knownInvitees = uniqueInvitedIds.filter((id) => agentMap.has(id));
       if (knownInvitees.length > 0) {
         await trx
           .insertInto("app_session_participants")
@@ -390,12 +399,12 @@ export class AppHost {
       id: sessionId,
       appId,
       initiatorAgentId,
-      status: invitedAgentIds.length === 0 ? "active" : "waiting",
+      status: uniqueInvitedIds.length === 0 ? "active" : "waiting",
       conversations: conversationMap,
       createdAt: new Date().toISOString(),
     };
 
-    if (invitedAgentIds.length === 0) {
+    if (uniqueInvitedIds.length === 0) {
       session.status = "active";
       this.broadcaster.sendToAgent(
         initiatorAgentId,
@@ -409,7 +418,7 @@ export class AppHost {
         session,
         manifest,
         initiatorAgentId,
-        invitedAgentIds,
+        uniqueInvitedIds,
         agentMap,
       );
     }
@@ -748,10 +757,10 @@ export class AppHost {
           undefined,
           "NotInContacts",
         );
-        throw new Error("Not in contacts");
+        throw new NotInContactsError();
       }
     } catch (err) {
-      if (errorMessage(err) === "Not in contacts") throw err;
+      if (err instanceof NotInContactsError) throw err;
       await reject(
         session.id,
         agentId,
@@ -1106,8 +1115,21 @@ export class AppHost {
     agentId: string,
     stage: "user" | "identity" | "capability" | "permission",
     reason: string,
-    suggestedAction?: string,
-    rejectionCode?: string,
+    suggestedAction: string | undefined,
+    rejectionCode:
+      | "UserInvalid"
+      | "UserValidationFailed"
+      | "AgentNotFound"
+      | "AgentNoOwner"
+      | "NotInContacts"
+      | "ContactCheckFailed"
+      | "AttestationTimeout"
+      | "SkillMismatch"
+      | "SkillVersionTooOld"
+      | "PermissionDenied"
+      | "PermissionTimeout"
+      | "PermissionHandlerError"
+      | "NoPermissionHandler",
   ): Promise<void> {
     await this.db
       .updateTable("app_session_participants")

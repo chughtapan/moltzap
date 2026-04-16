@@ -372,28 +372,30 @@ export class ConversationService {
     agentId: string,
     until?: string,
   ): Promise<void> {
-    const mutedUntil = until ?? "infinity";
-    const result = await this.db
+    const mutedUntil = until ?? "9999-12-31T23:59:59+00:00";
+    const rows = await this.db
       .updateTable("conversation_participants")
       .set({ muted_until: sql`${mutedUntil}::timestamptz` })
       .where("conversation_id", "=", conversationId)
       .where("agent_id", "=", agentId)
-      .executeTakeFirst();
+      .returning("conversation_id")
+      .execute();
 
-    if (!result || result.numUpdatedRows === 0n) {
+    if (rows.length === 0) {
       throw new RpcError(ErrorCodes.NotFound, "Not a participant");
     }
   }
 
   async unmute(conversationId: string, agentId: string): Promise<void> {
-    const result = await this.db
+    const rows = await this.db
       .updateTable("conversation_participants")
-      .set({ muted_until: null })
+      .set({ muted_until: sql.lit(null) })
       .where("conversation_id", "=", conversationId)
       .where("agent_id", "=", agentId)
-      .executeTakeFirst();
+      .returning("conversation_id")
+      .execute();
 
-    if (!result || result.numUpdatedRows === 0n) {
+    if (rows.length === 0) {
       throw new RpcError(ErrorCodes.NotFound, "Not a participant");
     }
   }
