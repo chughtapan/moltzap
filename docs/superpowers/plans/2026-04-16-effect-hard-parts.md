@@ -4,6 +4,8 @@
 
 **Scope:** `@moltzap/server-core` and `@moltzap/client` internals only. `@moltzap/protocol` remains TypeBox/AJV and framework-neutral.
 
+**Companion POC:** See `docs/superpowers/plans/2026-04-16-effect-kysely-poc.md` for the copyable `@effect/sql-kysely` toolkit and query rewrite sample referenced in section 7.
+
 **Main point:** Effect should not just re-express the current runtime. It should deliberately fix the current weak spots:
 - hanging connection attempts
 - duplicate message sends after timeout retries
@@ -256,6 +258,93 @@ The current `on(...)` API appends handlers to arrays and never returns an unsubs
 ### Specific migration opportunity
 
 The cross-conversation context markers currently depend on mutable commit semantics. That is fine, but it should be explicit immutable state transitions through `Ref.modify`, not incidental mutation across methods.
+
+---
+
+## 7. Database Migration: `@effect/sql-kysely` Is Viable Only With A Local Toolkit
+
+**Primary files:**
+- `packages/server/src/services/conversation.service.ts`
+- `packages/server/src/services/message.service.ts`
+- `packages/server/src/app/app-host.ts`
+
+### Current reality
+
+A targeted proof-of-concept against the real `Database` types showed:
+- builder chains do become Effect-native
+- transactions change shape but remain workable
+- the hardest seams are terminal helpers and raw SQL, not joins or ordinary query builders
+
+### What works cleanly
+
+These patterns port well:
+
+```ts
+const rows = yield* db
+  .selectFrom("agents")
+  .select("id")
+  .where("id", "in", agentIds)
+
+const inserted = yield* db
+  .insertInto("conversation_participants")
+  .values(participant)
+```
+
+### What does not stay native by default
+
+These remain awkward if the code uses `@effect/sql-kysely` directly:
+- `executeTakeFirst()`
+- `executeTakeFirstOrThrow()`
+- raw `sql``.execute(db)`
+- `db.transaction().execute(async (trx) => ...)` on the `Pg` path
+
+The transaction change is structural:
+
+```ts
+db.withTransaction(
+  Effect.gen(function* () {
+    ...
+  })
+)
+```
+
+### Why this matters here
+
+Current server code has approximately:
+- `101` `.execute*()` call sites
+- `13` raw `sql`` call sites
+- `3` transaction blocks
+
+So the hard part is not “can Effect Kysely express joins?” It can. The hard part is normalizing these terminal APIs before the service rewrite fans out.
+
+### Recommended implementation pattern
+
+Do not port services directly against bare `EffectKysely<DB>`.
+
+Instead, create a local DB toolkit/service that captures:
+- the patched `EffectKysely<DB>`
+- the underlying `SqlClient`
+
+Recommended helpers:
+- `takeFirstOption(query)`
+- `takeFirstOrElse(query, orElse)`
+- `rawQuery(rawBuilder)`
+- `withTransaction(effect)` or direct exposure of `db.withTransaction`
+
+This closes the main gaps:
+- single-row query ergonomics
+- explicit missing-row error policy
+- raw SQL execution through `SqlClient.unsafe(...)`
+
+### Why capture `SqlClient`
+
+Raw Kysely `sql`` ` builders can be compiled, and the resulting SQL plus params can be executed through `SqlClient.unsafe(...)` as a normal Effect. That means raw SQL does not force Promise wrappers if the DB layer captures both objects.
+
+### Recommendation
+
+- If the team keeps Kysely during the first Effect migration wave, Plan C1 remains the default.
+- If the team tries Plan C2, require the local DB toolkit first.
+- Do not let implementers scatter one-off `Effect.tryPromise(...)` wrappers across every service method. Centralize the bridge in one DB module.
 
 ---
 
