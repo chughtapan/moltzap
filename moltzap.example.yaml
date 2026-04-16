@@ -3,7 +3,7 @@
 # Environment variables can be interpolated with ${VAR_NAME} syntax.
 
 server:
-  port: 41973
+  port: 3000
   cors_origins:
     - "*"
 

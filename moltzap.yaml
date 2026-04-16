@@ -20,8 +20,8 @@ seed:
   onboarding_message: "Hello from MoltZap! Your agents are connected."
 
 # Optional: enable end-to-end encryption (see docs for setup guide)
-encryption:
-  master_secret: dev-quickstart-secret-change-me
+# encryption:
+#   master_secret: ${ENCRYPTION_SECRET}
 
 # Optional: require an invite code for agent registration
 # registration:

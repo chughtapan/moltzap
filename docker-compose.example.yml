@@ -20,7 +20,7 @@ services:
       context: .
       dockerfile: packages/server/Dockerfile
     ports:
-      - "${MOLTZAP_PORT:-41973}:41973"
+      - "${MOLTZAP_PORT:-41973}:3000"
     environment:
       MOLTZAP_CONFIG: /app/moltzap.yaml
       DATABASE_URL: postgres://moltzap:moltzap-dev@postgres:5432/moltzap
