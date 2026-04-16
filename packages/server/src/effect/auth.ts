@@ -1,4 +1,4 @@
-import { Context, Effect } from "effect";
+import { Context, Effect, Layer } from "effect";
 import type { RegisterParams } from "@moltzap/protocol";
 import {
   generateApiKey,
@@ -6,35 +6,38 @@ import {
   parseApiKey,
   hashSecret,
 } from "../auth/agent-auth.js";
-import { Db, Log, tryDb } from "./services.js";
+import { Db, Log } from "./services.js";
+
+const tryPromise = <A>(f: () => Promise<A>): Effect.Effect<A, Error> =>
+  Effect.tryPromise({
+    try: () => f(),
+    catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+  });
 
 export interface AuthServiceShape {
   registerAgent(
     params: RegisterParams,
-  ): Effect.Effect<{ agentId: string; apiKey: string }, Error, never>;
+  ): Effect.Effect<{ agentId: string; apiKey: string }, Error>;
 
-  authenticateAgent(apiKey: string): Effect.Effect<
-    {
-      agentId: string;
-      status: string;
-      ownerUserId: string | null;
-    } | null,
-    Error,
-    never
-  >;
+  authenticateAgent(apiKey: string): Effect.Effect<{
+    agentId: string;
+    status: string;
+    ownerUserId: string | null;
+  } | null, Error>;
 }
 
 export class Auth extends Context.Tag("Auth")<Auth, AuthServiceShape>() {}
 
-export const AuthLive = Effect.all([Db, Log]).pipe(
-  Effect.map(([_db, logger]) => {
+export const AuthLayer = Layer.effect(
+  Auth,
+  Effect.map(Effect.all([Db, Log]), ([db, logger]) => {
     const registerAgent = (
       params: RegisterParams,
     ): Effect.Effect<{ agentId: string; apiKey: string }, Error> =>
       Effect.gen(function* () {
         const { apiKey, keyId, secretHash } = generateApiKey();
 
-        const result = yield* tryDb((db) =>
+        const result = yield* tryPromise(() =>
           db
             .insertInto("agents")
             .values({
@@ -69,7 +72,7 @@ export const AuthLive = Effect.all([Db, Log]).pipe(
         const parsed = parseApiKey(apiKey);
         if (!parsed) return null;
 
-        const row = yield* tryDb((db) =>
+        const row = yield* tryPromise(() =>
           db
             .selectFrom("agents")
             .select(["id", "api_key_secret_hash", "status", "owner_user_id"])
@@ -91,5 +94,3 @@ export const AuthLive = Effect.all([Db, Log]).pipe(
     return { registerAgent, authenticateAgent } satisfies AuthServiceShape;
   }),
 );
-
-export const AuthLayer = Effect.toLayer(AuthLive, Auth);
