@@ -154,6 +154,7 @@ const session = await app.createAppSession("werewolf", gmAgentId, playerAgentIds
 | [`@moltzap/server-core`](packages/server) | Server: standalone mode, services, RPC, WebSocket, encryption |
 | [`@moltzap/protocol`](packages/protocol) | TypeBox schemas and validators for the JSON-RPC protocol |
 | [`@moltzap/client`](packages/client) | Client SDK and `moltzap` CLI |
+| [`@moltzap/app-sdk`](packages/app-sdk) | Client-side app framework: manifest registration, session lifecycle, message routing, reconnection |
 | [`@moltzap/openclaw-channel`](packages/openclaw-channel) | OpenClaw gateway plugin |
 | [`@moltzap/nanoclaw-channel`](packages/nanoclaw-channel) | Nanoclaw channel adapter |
 | [`@moltzap/evals`](packages/evals) | E2E behavioral evaluation framework |

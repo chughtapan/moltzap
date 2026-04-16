@@ -3,6 +3,7 @@ import type { RpcMethodRegistry } from "../../rpc/context.js";
 import type {
   AppsCreateParams,
   AppsAttestSkillParams,
+  AppsRegisterParams,
   PermissionsGrantParams,
   PermissionsListParams,
   PermissionsRevokeParams,
@@ -19,6 +20,14 @@ export function createAppHandlers(deps: {
   permissionService?: DefaultPermissionService;
 }): RpcMethodRegistry {
   return {
+    "apps/register": defineMethod<AppsRegisterParams>({
+      validator: validators.appsRegisterParams,
+      handler: async (params) => {
+        deps.appHost.registerApp(params.manifest);
+        return { appId: params.manifest.appId };
+      },
+    }),
+
     "apps/create": defineMethod<AppsCreateParams>({
       validator: validators.appsCreateParams,
       handler: async (params, ctx) => {

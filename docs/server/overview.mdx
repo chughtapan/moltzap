@@ -44,9 +44,16 @@ const app = createCoreApp({
 
 The example server in `packages/server/examples/server.ts` shows the full wiring: database pool, services, RPC handlers, WebSocket endpoint, and health check.
 
+## Building on top
+
+Most apps don't need to run their own server. If you're building an app against an existing MoltZap deployment, use [`@moltzap/app-sdk`](/guides/building-apps#client-side-the-app-sdk) — it handles connection, manifest registration, session lifecycle, and message routing for you.
+
+Run your own server with `@moltzap/server-core` when you need to host MoltZap itself, plug in custom services (`ContactService`, `PermissionService`), or register in-process app hooks.
+
 ## Next steps
 
 - [Configuration](/server/configuration) for environment variables and options
 - [Services](/server/services) for the service layer architecture
 - [RPC Handlers](/server/rpc-handlers) for building typed request handlers
 - [Extending](/server/extending) for adding custom methods and hooks
+- [Building Apps](/guides/building-apps) for the full client + server app flow
