@@ -1,12 +1,9 @@
 import { Type, type Static } from "@sinclair/typebox";
 import Ajv from "ajv";
 import addFormats from "ajv-formats";
+import { stringEnum } from "@moltzap/protocol";
 
 // -- Reusable fragments -------------------------------------------------------
-
-function stringEnum<T extends string[]>(values: [...T]) {
-  return Type.Unsafe<T[number]>({ type: "string", enum: values });
-}
 
 const WebhookServiceSchema = Type.Object(
   {

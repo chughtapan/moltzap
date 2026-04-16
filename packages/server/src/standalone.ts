@@ -136,7 +136,7 @@ async function seedAgents(
 
   const secret = config.registration?.secret;
 
-  for (const agentDef of agents) {
+  const seedOne = async (agentDef: { name: string; description?: string }) => {
     const existing = await db
       .selectFrom("agents")
       .where("name", "=", agentDef.name)
@@ -145,7 +145,7 @@ async function seedAgents(
 
     if (existing) {
       logger.info({ name: agentDef.name }, "Seed agent already exists");
-      continue;
+      return;
     }
 
     const body: Record<string, string> = { name: agentDef.name };
@@ -164,7 +164,7 @@ async function seedAgents(
         { name: agentDef.name, status: res.status, body: text },
         "Failed to register seed agent",
       );
-      continue;
+      return;
     }
 
     const result = (await res.json()) as RegisterResponse;
@@ -172,13 +172,14 @@ async function seedAgents(
       { name: agentDef.name, agentId: result.agentId },
       "Seed agent created",
     );
-    // API key logged at debug level to avoid leaking to production log aggregation
     logger.debug(
       { name: agentDef.name, apiKey: result.apiKey },
       "Seed agent API key: %s",
       result.apiKey,
     );
-  }
+  };
+
+  await Promise.allSettled(agents.map(seedOne));
 }
 
 // ── Main ────────────────────────────────────────────────────────────
