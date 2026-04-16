@@ -2,7 +2,11 @@ import type { Hono } from "hono";
 import type { RpcMethodDef } from "../rpc/context.js";
 import type { AppManifest, AppSession } from "@moltzap/protocol";
 import type { ContactChecker, PermissionHandler } from "./app-host.js";
-import type { BeforeMessageDeliveryHook, OnJoinHook } from "./hooks.js";
+import type {
+  BeforeMessageDeliveryHook,
+  OnCloseHook,
+  OnJoinHook,
+} from "./hooks.js";
 
 export interface CoreConfig {
   databaseUrl: string;
@@ -36,5 +40,18 @@ export interface CoreApp {
     handler: BeforeMessageDeliveryHook,
   ) => void;
   onAppJoin: (appId: string, handler: OnJoinHook) => void;
+  onSessionClose: (appId: string, handler: OnCloseHook) => void;
+  closeAppSession: (
+    sessionId: string,
+    callerAgentId: string,
+  ) => Promise<{ closed: boolean }>;
+  getAppSession: (
+    sessionId: string,
+    callerAgentId: string,
+  ) => Promise<AppSession>;
+  listAppSessions: (
+    callerAgentId: string,
+    opts?: { appId?: string; status?: string; limit?: number },
+  ) => Promise<AppSession[]>;
   close: () => Promise<void>;
 }

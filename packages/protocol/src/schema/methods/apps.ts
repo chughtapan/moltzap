@@ -1,7 +1,7 @@
 import { Type, type Static } from "@sinclair/typebox";
 import { AgentId } from "../primitives.js";
 import { AppSessionSchema } from "../apps.js";
-import { DateTimeString } from "../../helpers.js";
+import { DateTimeString, stringEnum } from "../../helpers.js";
 
 export const AppsCreateParamsSchema = Type.Object(
   {
@@ -99,4 +99,71 @@ export type PermissionsRevokeParams = Static<
 >;
 export type PermissionsRevokeResult = Static<
   typeof PermissionsRevokeResultSchema
+>;
+
+// Close session
+
+export const AppsCloseSessionParamsSchema = Type.Object(
+  {
+    sessionId: Type.String({ format: "uuid" }),
+  },
+  { additionalProperties: false },
+);
+
+export const AppsCloseSessionResultSchema = Type.Object(
+  {
+    closed: Type.Boolean(),
+  },
+  { additionalProperties: false },
+);
+
+export type AppsCloseSessionParams = Static<
+  typeof AppsCloseSessionParamsSchema
+>;
+export type AppsCloseSessionResult = Static<
+  typeof AppsCloseSessionResultSchema
+>;
+
+// Get session
+
+export const AppsGetSessionParamsSchema = Type.Object(
+  {
+    sessionId: Type.String({ format: "uuid" }),
+  },
+  { additionalProperties: false },
+);
+
+export const AppsGetSessionResultSchema = Type.Object(
+  {
+    session: AppSessionSchema,
+  },
+  { additionalProperties: false },
+);
+
+export type AppsGetSessionParams = Static<typeof AppsGetSessionParamsSchema>;
+export type AppsGetSessionResult = Static<typeof AppsGetSessionResultSchema>;
+
+// List sessions
+
+export const AppsListSessionsParamsSchema = Type.Object(
+  {
+    appId: Type.Optional(Type.String()),
+    status: Type.Optional(stringEnum(["waiting", "active", "closed"])),
+    limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })),
+  },
+  { additionalProperties: false },
+);
+
+export const AppsListSessionsResultSchema = Type.Object(
+  {
+    sessions: Type.Array(AppSessionSchema),
+  },
+  { additionalProperties: false },
+);
+
+export type AppsListSessionsParams = Static<
+  typeof AppsListSessionsParamsSchema
+>;
+export type AppsListSessionsResult = Static<
+  typeof AppsListSessionsResultSchema
 >;

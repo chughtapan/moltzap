@@ -1,0 +1,25 @@
+scenarioId: EVAL-030
+scenarioName: Cross-conversation awareness
+runNumber: 1
+modelName: openai/gpt-5.4
+latencyMs: 1146.02012500001
+judgeResult:
+  pass: false
+  reason: >-
+    The agent returned a 401 API key error in both conversations instead of
+    producing any meaningful response. It never processed the user's message or
+    returned a valid MoltZap message.
+  issues:
+    - issue: >-
+        Agent returned a raw OpenAI 401 authentication error instead of a valid
+        MoltZap message
+      severity: critical
+    - issue: >-
+        Response does not contain 'Zenda' — cross-conversation context was never
+        tested because the agent failed entirely
+      severity: critical
+    - issue: >-
+        No valid text content in response — only an error string leaked from the
+        upstream LLM provider
+      severity: critical
+  overallSeverity: critical
