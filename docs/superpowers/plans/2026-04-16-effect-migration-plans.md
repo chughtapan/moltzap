@@ -24,6 +24,8 @@
 
 **Companion deep-dive:** See `docs/superpowers/plans/2026-04-16-effect-hard-parts.md` for the code-level traps, behavior bugs worth fixing during migration, and recommended Effect patterns for the hardest runtime seams.
 
+**Companion POC:** See `docs/superpowers/plans/2026-04-16-effect-kysely-poc.md` for the targeted `@effect/sql-kysely` toolkit and `conversation.service`-style rewrite sample.
+
 ---
 
 ## Shared Constraints
@@ -481,8 +483,40 @@ This area is intentionally split into alternatives. The repo can stop after Plan
 - It first requires a deliberate Kysely upgrade track.
 - Even after the upgrade, it should still be treated as a bridge with patch-based risk, not a zero-risk foundation.
 
+**Additional proof-of-concept findings from a targeted `conversation.service`-style spike:**
+- Straight builder chains do map cleanly:
+  - `yield* db.selectFrom(...).select(...).where(...)`
+  - `yield* db.insertInto(...).values(...).returningAll()`
+- The `Pg` path replaces `db.transaction().execute(async (trx) => ...)` with `db.withTransaction(effect)`.
+- The main non-native seams are terminal helpers and raw SQL:
+  - `executeTakeFirst()`
+  - `executeTakeFirstOrThrow()`
+  - raw `sql``.execute(db)`
+- Those seams are bridgeable with a small local toolkit that captures both:
+  - the patched `EffectKysely<DB>` instance
+  - the underlying `SqlClient`
+- That toolkit can provide:
+  - `takeFirstOption`
+  - `takeFirstOrElse`
+  - `rawQuery`
+  - `inTransaction` or direct `db.withTransaction(...)`
+
+**Implication for this repo:**
+- `@effect/sql-kysely` is not “install one package and keep the current call style”.
+- It is “introduce a DB toolkit/service, then port services onto that surface”.
+- That is still materially smaller than a full `@effect/sql-pg` rewrite, but it is a real migration track.
+
+**Current rewrite surface in `packages/server/src`:**
+- roughly `101` `.execute*()` call sites
+- roughly `13` raw `sql`` call sites
+- `3` `transaction().execute(...)` blocks
+
 **Stages:**
 - [ ] Upgrade Kysely to a version supported by the current `@effect/sql-kysely` release in a separate compatibility PR.
+- [ ] Introduce a local DB toolkit/service that captures both `EffectKysely<DB>` and `SqlClient`.
+- [ ] Replace `executeTakeFirst*` usage with toolkit helpers before broad service rewrites.
+- [ ] Replace raw `sql`` execution with toolkit-backed execution or direct `@effect/sql` where appropriate.
+- [ ] Convert transaction-heavy modules to `db.withTransaction(effect)`.
 - [ ] Run a proof-of-concept on one service with joins, transactions, and returning clauses.
 - [ ] Evaluate type quality, transaction ergonomics, and operational complexity.
 - [ ] If satisfactory, roll it out service by service.
