@@ -8,7 +8,7 @@
     "lint": "oxlint .",
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",
-    "typecheck": "pnpm -r --filter '!create-moltzap-server' exec tsc --noEmit",
+    "typecheck": "pnpm -r exec tsc --noEmit",
     "check": "pnpm lint && pnpm format:check",
     "docs": "cd docs && mint dev",
     "docs:generate": "cd packages/protocol && npx tsx ../../scripts/generate-protocol-docs.ts",

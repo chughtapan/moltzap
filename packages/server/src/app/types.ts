@@ -1,7 +1,11 @@
 import type { Hono } from "hono";
+import type { Kysely } from "kysely";
 import type { RpcMethodDef } from "../rpc/context.js";
 import type { AppManifest, AppSession } from "@moltzap/protocol";
-import type { ContactChecker, PermissionHandler } from "./app-host.js";
+import type { Database } from "../db/database.js";
+import type { ContactService, PermissionService } from "./app-host.js";
+import type { UserService } from "../services/user.service.js";
+import type { AsyncWebhookAdapter } from "../adapters/webhook.js";
 import type {
   BeforeMessageDeliveryHook,
   OnCloseHook,
@@ -9,10 +13,12 @@ import type {
 } from "./hooks.js";
 
 export interface CoreConfig {
-  databaseUrl: string;
-  encryptionMasterSecret: string;
+  db: Kysely<Database>;
+  dbCleanup?: () => Promise<void>;
+  encryptionMasterSecret?: string;
   port: number;
   corsOrigins: string[];
+  registrationSecret?: string;
   devMode?: boolean;
 }
 
@@ -28,8 +34,13 @@ export interface CoreApp {
   registerRpcMethod: (name: string, def: RpcMethodDef) => void;
   onConnection: (hook: ConnectionHook) => void;
   registerApp: (manifest: AppManifest) => void;
-  setContactChecker: (checker: ContactChecker) => void;
-  setPermissionHandler: (handler: PermissionHandler) => void;
+  setUserService: (service: UserService) => void;
+  setContactService: (checker: ContactService) => void;
+  setPermissionService: (handler: PermissionService) => void;
+  setWebhookPermissionCallback: (
+    adapter: AsyncWebhookAdapter,
+    token: string,
+  ) => void;
   createAppSession: (
     appId: string,
     initiatorAgentId: string,

@@ -1,0 +1,7 @@
+#!/usr/bin/env node
+import { startServer } from "../dist/standalone.js";
+
+startServer().catch((err) => {
+  console.error("Server startup failed:", err);
+  process.exit(1);
+});

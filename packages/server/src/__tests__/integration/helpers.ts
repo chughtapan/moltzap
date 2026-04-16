@@ -38,7 +38,10 @@ let _coreApp: CoreApp | null = null;
 /**
  * Start the core test server using the shared Postgres from globalSetup.
  */
-export async function startTestServer(_opts?: { devMode?: boolean }): Promise<{
+export async function startTestServer(_opts?: {
+  devMode?: boolean;
+  encryption?: boolean;
+}): Promise<{
   baseUrl: string;
   wsUrl: string;
   coreApp: CoreApp;
@@ -48,7 +51,11 @@ export async function startTestServer(_opts?: { devMode?: boolean }): Promise<{
   const pgHost = inject("testPgHost");
   const pgPort = inject("testPgPort");
 
-  const server = await startCoreTestServer({ pgHost, pgPort });
+  const server = await startCoreTestServer({
+    pgHost,
+    pgPort,
+    encryption: _opts?.encryption,
+  });
   _coreApp = server.coreApp;
   return {
     baseUrl: server.baseUrl,
