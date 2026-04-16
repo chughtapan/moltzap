@@ -6,6 +6,8 @@ import type { Database } from "../db/database.js";
 import type { ContactService, PermissionService } from "./app-host.js";
 import type { UserService } from "../services/user.service.js";
 import type { AsyncWebhookAdapter } from "../adapters/webhook.js";
+import type { Broadcaster } from "../ws/broadcaster.js";
+import type { ConnectionManager } from "../ws/connection.js";
 import type {
   BeforeMessageDeliveryHook,
   OnCloseHook,
@@ -69,6 +71,19 @@ export interface CoreApp {
    * connections that never authenticated.
    */
   onDisconnection: (hook: DisconnectionHook) => void;
+  /**
+   * Live Broadcaster instance. Apps that register custom RPCs and want to
+   * emit events out-of-band (not via `broadcastToConversation`) use this to
+   * `sendToAgent(agentId, event)`. Stable identity — same ref across the
+   * server lifetime.
+   */
+  broadcaster: Broadcaster;
+  /**
+   * Live ConnectionManager instance. Apps can query `getByParticipant` to
+   * check whether an agent has any live connections (for presence-gated
+   * push decisions, etc.). Stable identity.
+   */
+  connections: ConnectionManager;
   registerApp: (manifest: AppManifest) => void;
   setUserService: (service: UserService) => void;
   setContactService: (checker: ContactService) => void;
