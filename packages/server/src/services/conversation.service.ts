@@ -12,6 +12,7 @@ import { ParticipantService } from "./participant.service.js";
 import { sql } from "kysely";
 
 const MAX_GROUP_PARTICIPANTS = 256;
+const PREVIEW_CACHE_MAX = 2000;
 
 interface ListRow {
   id: string;
@@ -44,7 +45,12 @@ export class ConversationService {
 
   /** Write-through: called from MessageService.send() with plaintext parts before encryption */
   updatePreviewCache(conversationId: string, firstPartText: string): void {
+    this.previewCache.delete(conversationId);
     this.previewCache.set(conversationId, firstPartText.slice(0, 80));
+    if (this.previewCache.size > PREVIEW_CACHE_MAX) {
+      const oldest = this.previewCache.keys().next().value!;
+      this.previewCache.delete(oldest);
+    }
   }
 
   async create(
@@ -53,9 +59,18 @@ export class ConversationService {
     agentIds: string[],
     creatorAgentId: string,
   ): Promise<Conversation> {
-    // Validate all participants exist
-    for (const agentId of agentIds) {
-      await this.participants.requireExists(agentId);
+    if (agentIds.length > 0) {
+      const found = await this.db
+        .selectFrom("agents")
+        .select("id")
+        .where("id", "in", agentIds)
+        .execute();
+      const foundIds = new Set(found.map((r) => r.id));
+      for (const agentId of agentIds) {
+        if (!foundIds.has(agentId)) {
+          throw new RpcError(ErrorCodes.NotFound, `Agent ${agentId} not found`);
+        }
+      }
     }
 
     // For DMs, validate exactly one other participant

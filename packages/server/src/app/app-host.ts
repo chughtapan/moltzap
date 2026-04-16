@@ -890,15 +890,30 @@ export class AppHost {
     const ownerUserId = agent.owner_user_id!;
     const granted: string[] = [];
 
-    for (const perm of manifest.permissions.required) {
-      const existing = await this.findGrant(
-        ownerUserId,
-        session.appId,
-        perm.resource,
-        perm.access,
-      );
+    const allResources = [
+      ...manifest.permissions.required,
+      ...manifest.permissions.optional,
+    ].map((p) => p.resource);
+    const existingGrants = new Map<string, string[]>();
+    if (allResources.length > 0) {
+      const rows = await this.db
+        .selectFrom("app_permission_grants")
+        .select(["resource", "access"])
+        .where("user_id", "=", ownerUserId)
+        .where("app_id", "=", session.appId)
+        .where("resource", "in", allResources)
+        .execute();
+      for (const row of rows) {
+        existingGrants.set(row.resource, row.access);
+      }
+    }
 
-      if (existing) {
+    for (const perm of manifest.permissions.required) {
+      const storedAccess = existingGrants.get(perm.resource);
+      const covers =
+        storedAccess && perm.access.every((a) => new Set(storedAccess).has(a));
+
+      if (covers) {
         granted.push(perm.resource);
         continue;
       }
@@ -1030,14 +1045,10 @@ export class AppHost {
     }
 
     for (const perm of manifest.permissions.optional) {
-      const existing = await this.findGrant(
-        ownerUserId,
-        session.appId,
-        perm.resource,
-        perm.access,
-      );
-
-      if (existing) {
+      const storedAccess = existingGrants.get(perm.resource);
+      const covers =
+        storedAccess && perm.access.every((a) => new Set(storedAccess).has(a));
+      if (covers) {
         granted.push(perm.resource);
       }
     }

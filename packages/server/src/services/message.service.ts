@@ -136,9 +136,7 @@ export class MessageService {
       const recipients = participants.filter((id) => id !== senderAgentId);
       await this.delivery.recordSent(message.id, recipients);
 
-      for (const agentId of delivered) {
-        await this.delivery.recordDelivered(message.id, agentId);
-      }
+      await this.delivery.recordDeliveredBatch(message.id, delivered);
     }
 
     this.logger.info({ conversationId, messageId: message.id }, "Message sent");
@@ -173,13 +171,12 @@ export class MessageService {
     const hasMore = rows.length > limit;
     const resultRows = hasMore ? rows.slice(0, limit) : rows;
 
-    // Decrypt messages
-    const messages = await Promise.all(
-      resultRows.map(async (row) => {
-        const parts = await this.decryptParts(row);
-        return this.mapMessage(row, parts);
-      }),
-    );
+    const dekCache = new Map<number, Buffer>();
+    const messages: Message[] = [];
+    for (const row of resultRows) {
+      const parts = await this.decryptPartsWithCache(row, dekCache);
+      messages.push(this.mapMessage(row, parts));
+    }
 
     // Return in ascending order
     messages.reverse();
@@ -295,6 +292,47 @@ export class MessageService {
 
     const { ciphertext, iv, tag } = this.encryption.encryptMessage(parts, dek);
     return { encrypted: ciphertext, iv, tag, dekVersion, kekVersion };
+  }
+
+  private async decryptPartsWithCache(
+    row: MessageRow,
+    dekCache: Map<number, Buffer>,
+  ): Promise<Part[]> {
+    const dekVersion = row.dek_version;
+
+    if (!this.encryption || dekVersion === 0) {
+      return JSON.parse(toBuf(row.parts_encrypted).toString("utf-8")) as Part[];
+    }
+
+    let dek = dekCache.get(dekVersion);
+    if (!dek) {
+      const keyRow = await this.db
+        .selectFrom("conversation_keys as ck")
+        .innerJoin("encryption_keys as ek", "ek.version", "ck.kek_version")
+        .select(["ck.wrapped_dek", "ek.encrypted_key"])
+        .where("ck.conversation_id", "=", row.conversation_id)
+        .where("ck.dek_version", "=", dekVersion)
+        .executeTakeFirst();
+
+      if (!keyRow) {
+        throw new RpcError(-32603, "Decryption key not found");
+      }
+
+      const kek = this.encryption.decryptKek(
+        deserializePayload(keyRow.encrypted_key),
+      );
+      dek = unwrapKey(deserializePayload(keyRow.wrapped_dek), kek);
+      dekCache.set(dekVersion, dek);
+    }
+
+    return this.encryption.decryptMessage(
+      {
+        ciphertext: toBuf(row.parts_encrypted),
+        iv: toBuf(row.parts_iv),
+        tag: toBuf(row.parts_tag),
+      },
+      dek,
+    ) as Part[];
   }
 
   private async decryptParts(row: MessageRow): Promise<Part[]> {
