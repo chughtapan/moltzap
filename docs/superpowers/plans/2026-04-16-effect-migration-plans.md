@@ -22,6 +22,8 @@
   - `packages/client/src/ws-client.ts`
 - The most important unsafe seam today is `packages/server/src/rpc/context.ts`, where `defineMethod<T>()` erases types with a cast and relies on runtime validators to save the contract later.
 
+**Companion deep-dive:** See `docs/superpowers/plans/2026-04-16-effect-hard-parts.md` for the code-level traps, behavior bugs worth fixing during migration, and recommended Effect patterns for the hardest runtime seams.
+
 ---
 
 ## Shared Constraints
