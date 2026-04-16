@@ -6,14 +6,21 @@ const MINIMAL_CONFIG = {
 };
 
 describe("validateConfig", () => {
-  it("accepts minimal config (database only)", () => {
+  it("accepts empty config (PGlite default)", () => {
+    const result = validateConfig({});
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.config.database).toBeUndefined();
+    }
+  });
+
+  it("accepts config with database URL", () => {
     const result = validateConfig(MINIMAL_CONFIG);
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.config.database.url).toBe(
+      expect(result.config.database?.url).toBe(
         "postgres://localhost:5432/moltzap",
       );
-      expect(result.config.encryption).toBeUndefined();
     }
   });
 
@@ -46,12 +53,9 @@ describe("validateConfig", () => {
     expect(result.ok).toBe(true);
   });
 
-  it("rejects missing database", () => {
-    const result = validateConfig({});
+  it("rejects empty database url string", () => {
+    const result = validateConfig({ database: { url: "" } });
     expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.errors.some((e) => e.path.includes("database"))).toBe(true);
-    }
   });
 
   it("accepts config with encryption", () => {

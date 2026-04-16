@@ -2,7 +2,7 @@
 
 // Core API
 export { createCoreApp } from "./app/server.js";
-export type { CoreConfig, CoreApp, ServiceConfig } from "./app/types.js";
+export type { CoreConfig, CoreApp } from "./app/types.js";
 
 // AppHost
 export {
@@ -34,8 +34,8 @@ export {
 } from "./config/schema.js";
 export type { MoltZapConfig, ConfigError } from "./config/schema.js";
 
-// Seed
-export { seedAgents } from "./seed.js";
+// Standalone
+export { startServer } from "./standalone.js";
 
 // Services
 export { AuthService } from "./services/auth.service.js";

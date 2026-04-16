@@ -55,9 +55,14 @@ export const MoltZapConfigSchema = Type.Object(
       ),
     ),
 
-    database: Type.Object(
-      { url: Type.String({ minLength: 1 }) },
-      { additionalProperties: false },
+    database: Type.Optional(
+      Type.Object(
+        {
+          url: Type.Optional(Type.String({ minLength: 1 })),
+          data_dir: Type.Optional(Type.String()),
+        },
+        { additionalProperties: false },
+      ),
     ),
 
     encryption: Type.Optional(
@@ -90,6 +95,16 @@ export const MoltZapConfigSchema = Type.Object(
         {
           agents: Type.Optional(Type.Array(SeedAgentSchema)),
           onboarding_message: Type.Optional(Type.String()),
+          demo: Type.Optional(
+            Type.Object(
+              {
+                topic: Type.Optional(Type.String()),
+                runtime: Type.Optional(stringEnum(["openclaw", "nanoclaw"])),
+                model: Type.Optional(Type.String()),
+              },
+              { additionalProperties: false },
+            ),
+          ),
         },
         { additionalProperties: false },
       ),
