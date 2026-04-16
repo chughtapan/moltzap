@@ -20,6 +20,13 @@ export interface CoreConfig {
   corsOrigins: string[];
   registrationSecret?: string;
   devMode?: boolean;
+  /**
+   * When true, core does not mount its default /api/v1/auth/register route.
+   * Apps that want their own invite-gated / rate-limited register flow should
+   * set this and mount their own handler. Contributes to chughtapan/moltzap's
+   * extension API; a future PR pushes this upstream.
+   */
+  skipDefaultRegisterRoute?: boolean;
 }
 
 export type ConnectionHook = (params: {
