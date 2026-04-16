@@ -34,10 +34,13 @@ import { createPresenceHandlers } from "./handlers/presence.handlers.js";
 import { createAppHandlers } from "./handlers/apps.handlers.js";
 
 // AppHost
-import { AppHost, DefaultPermissionHandler } from "./app-host.js";
+import { AppHost, DefaultPermissionService } from "./app-host.js";
+
+// Service adapters
+import { WebhookUserService } from "../services/user.service.js";
+import { WebhookClient, AsyncWebhookAdapter } from "../adapters/webhook.js";
 
 import type { CoreConfig, CoreApp, ConnectionHook } from "./types.js";
-import { runDemoAgents } from "./demo-agents.js";
 
 export function createCoreApp(config: CoreConfig): CoreApp {
   // Database pool
@@ -90,11 +93,41 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     appHost,
   );
 
-  const defaultPermissionHandler = new DefaultPermissionHandler(
+  const defaultPermissionService = new DefaultPermissionService(
     broadcaster,
     logger,
   );
-  appHost.setPermissionHandler(defaultPermissionHandler);
+
+  // Wire services based on config (webhook or in-process)
+  const webhookClient = new WebhookClient();
+  let _webhookPermAdapter: AsyncWebhookAdapter | null = null;
+  let _callbackToken: string | null = null;
+
+  if (
+    config.services?.users?.type === "webhook" &&
+    config.services.users.webhook_url
+  ) {
+    appHost.setUserService(
+      new WebhookUserService(
+        webhookClient,
+        config.services.users.webhook_url,
+        config.services.users.timeout_ms ?? 10000,
+      ),
+    );
+  }
+
+  if (
+    config.services?.permissions?.type === "webhook" &&
+    config.services.permissions.webhook_url
+  ) {
+    _webhookPermAdapter = new AsyncWebhookAdapter();
+    _callbackToken =
+      config.services.permissions.callback_token ?? crypto.randomUUID();
+  }
+
+  // Always set default permission service for in-process mode
+  // (webhook mode will override this in standalone.ts)
+  appHost.setPermissionService(defaultPermissionService);
 
   // Per-request connection context for concurrent WebSocket RPC dispatches
   const connIdContext = new AsyncLocalStorage<string>();
@@ -131,7 +164,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     }),
     ...createAppHandlers({
       appHost,
-      permissionHandler: defaultPermissionHandler,
+      permissionService: defaultPermissionService,
     }),
   };
 
@@ -157,12 +190,21 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     c.json({ status: "ok", connections: connections.size }),
   );
 
-  // Agent registration (no rate limiting, no invite code validation)
+  // Agent registration
   app.post("/api/v1/auth/register", async (c) => {
     const body = await c.req.json();
     if (!validators.registerParams(body)) {
       return c.json({ error: "Invalid parameters" }, 400);
     }
+
+    // Enforce registration secret when configured
+    if (config.registration?.secret) {
+      const inviteCode = (body as { inviteCode?: string }).inviteCode;
+      if (!inviteCode || inviteCode !== config.registration.secret) {
+        return c.json({ error: "Invalid or missing invite code" }, 403);
+      }
+    }
+
     try {
       const result = await authService.registerAgent(body);
       return c.json(result, 201);
@@ -174,6 +216,43 @@ export function createCoreApp(config: CoreConfig): CoreApp {
       logger.error({ err }, "Registration failed");
       return c.json({ error: "Registration failed" }, 500);
     }
+  });
+
+  // Permissions callback for async webhook flow
+  app.post("/api/v1/permissions/resolve", async (c) => {
+    if (!_webhookPermAdapter) {
+      return c.json({ error: "Webhook permissions not configured" }, 404);
+    }
+
+    const authHeader = c.req.header("Authorization");
+    if (!authHeader || !_callbackToken) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+    const token = authHeader.replace("Bearer ", "");
+    if (token !== _callbackToken) {
+      return c.json({ error: "Invalid callback token" }, 401);
+    }
+
+    const body = (await c.req.json()) as {
+      request_id?: string;
+      access?: string[];
+    };
+    if (!body.request_id || !Array.isArray(body.access)) {
+      return c.json(
+        { error: "Invalid body: need request_id and access[]" },
+        400,
+      );
+    }
+
+    const found = _webhookPermAdapter.resolveCallback(
+      body.request_id,
+      body.access,
+    );
+    if (!found) {
+      return c.json({ error: "Unknown or expired request_id" }, 404);
+    }
+
+    return c.json({ ok: true });
   });
 
   // WebSocket endpoint
@@ -301,12 +380,6 @@ export function createCoreApp(config: CoreConfig): CoreApp {
 
   injectWebSocket(server);
 
-  if (config.devMode) {
-    runDemoAgents({ db, authService, conversationService }).catch((err) =>
-      logger.error(err, "Demo agent setup failed"),
-    );
-  }
-
   return {
     app,
     get port() {
@@ -321,11 +394,14 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     registerApp(manifest) {
       appHost.registerApp(manifest);
     },
-    setContactChecker(checker) {
-      appHost.setContactChecker(checker);
+    setUserService(service) {
+      appHost.setUserService(service);
     },
-    setPermissionHandler(handler) {
-      appHost.setPermissionHandler(handler);
+    setContactService(checker) {
+      appHost.setContactService(checker);
+    },
+    setPermissionService(handler) {
+      appHost.setPermissionService(handler);
     },
     async createAppSession(appId, initiatorAgentId, invitedAgentIds) {
       return appHost.createSession(appId, initiatorAgentId, invitedAgentIds);
@@ -337,7 +413,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
       appHost.onAppJoin(appId, handler);
     },
     async close() {
-      defaultPermissionHandler.destroy();
+      defaultPermissionService.destroy();
       appHost.destroy();
       for (const conn of connections.all()) {
         try {

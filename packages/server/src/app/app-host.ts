@@ -3,6 +3,7 @@ import type { Database } from "../db/database.js";
 import type { Broadcaster } from "../ws/broadcaster.js";
 import type { ConnectionManager } from "../ws/connection.js";
 import type { ConversationService } from "../services/conversation.service.js";
+import type { UserService } from "../services/user.service.js";
 import type { Logger } from "../logger.js";
 import type { AppManifest, AppSession, Part } from "@moltzap/protocol";
 import { ErrorCodes, EventNames, eventFrame } from "@moltzap/protocol";
@@ -19,11 +20,22 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-export interface ContactChecker {
+/** Compare two semver strings. Returns <0 if a<b, 0 if equal, >0 if a>b. */
+function compareSemver(a: string, b: string): number {
+  const pa = a.split(".").map(Number);
+  const pb = b.split(".").map(Number);
+  for (let i = 0; i < 3; i++) {
+    const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
+export interface ContactService {
   areInContact(userIdA: string, userIdB: string): Promise<boolean>;
 }
 
-export interface PermissionHandler {
+export interface PermissionService {
   requestPermission(params: {
     userId: string;
     agentId: string;
@@ -68,7 +80,7 @@ interface PendingPermission {
   timer: ReturnType<typeof setTimeout>;
 }
 
-export class DefaultPermissionHandler implements PermissionHandler {
+export class DefaultPermissionService implements PermissionService {
   private pendingPermissions = new Map<string, PendingPermission>();
 
   constructor(
@@ -161,8 +173,9 @@ export class DefaultPermissionHandler implements PermissionHandler {
 export class AppHost {
   private pendingChallenges = new Map<string, PendingChallenge>();
   private manifests = new Map<string, AppManifest>();
-  private contactChecker: ContactChecker | null = null;
-  private permissionHandler: PermissionHandler | null = null;
+  private userService: UserService | null = null;
+  private contactService: ContactService | null = null;
+  private permissionService: PermissionService | null = null;
   private inflightPermissions = new Map<string, Promise<string[]>>();
   private hooks = new Map<string, AppHooks>();
   private conversationToSession = new Map<
@@ -187,12 +200,16 @@ export class AppHost {
     return this.manifests.get(appId);
   }
 
-  setContactChecker(checker: ContactChecker): void {
-    this.contactChecker = checker;
+  setUserService(service: UserService): void {
+    this.userService = service;
   }
 
-  setPermissionHandler(handler: PermissionHandler): void {
-    this.permissionHandler = handler;
+  setContactService(checker: ContactService): void {
+    this.contactService = checker;
+  }
+
+  setPermissionService(handler: PermissionService): void {
+    this.permissionService = handler;
   }
 
   onBeforeMessageDelivery(
@@ -291,6 +308,19 @@ export class AppHost {
         ErrorCodes.AgentNoOwner,
         "Initiator agent has no owner_user_id. Agents must have an owner to participate in app sessions. Set owner_user_id on the agent.",
       );
+    }
+
+    // Validate initiator's user before persisting anything
+    if (this.userService) {
+      const { valid } = await this.userService.validateUser(
+        initiator.owner_user_id,
+      );
+      if (!valid) {
+        throw new RpcError(
+          ErrorCodes.Forbidden,
+          "Initiator user failed validation",
+        );
+      }
     }
 
     const sessionId = crypto.randomUUID();
@@ -511,14 +541,18 @@ export class AppHost {
   ): void {
     const resolved = new Map<string, "admitted" | "rejected">();
     const total = invitedAgentIds.length;
+    // Cache UserService results per ownerUserId to avoid redundant webhook calls
+    const userValidationCache = new Map<string, Promise<{ valid: boolean }>>();
 
     const checkDone = () => {
       if (resolved.size < total) return;
 
-      // All agents resolved — mark session active and emit sessionReady
+      const allRejected = [...resolved.values()].every((s) => s === "rejected");
+      const finalStatus = allRejected ? "failed" : "active";
+
       this.db
         .updateTable("app_sessions")
-        .set({ status: "active" })
+        .set({ status: finalStatus })
         .where("id", "=", session.id)
         .execute()
         .catch((err) =>
@@ -528,17 +562,37 @@ export class AppHost {
           ),
         );
 
-      this.broadcaster.sendToAgent(
-        initiatorAgentId,
-        eventFrame("app/sessionReady", {
-          sessionId: session.id,
-          conversations: session.conversations,
-        }),
-      );
+      if (allRejected) {
+        this.broadcaster.sendToAgent(
+          initiatorAgentId,
+          eventFrame("app/sessionFailed", {
+            sessionId: session.id,
+          }),
+        );
+        this.logger.warn(
+          { sessionId: session.id },
+          "All agents rejected — session failed",
+        );
+      } else {
+        this.broadcaster.sendToAgent(
+          initiatorAgentId,
+          eventFrame("app/sessionReady", {
+            sessionId: session.id,
+            conversations: session.conversations,
+          }),
+        );
+      }
     };
 
     for (const agentId of invitedAgentIds) {
-      this.admitAgent(session, manifest, initiatorAgentId, agentId, agentMap)
+      this.admitAgent(
+        session,
+        manifest,
+        initiatorAgentId,
+        agentId,
+        agentMap,
+        userValidationCache,
+      )
         .then(() => {
           resolved.set(agentId, "admitted");
           checkDone();
@@ -563,6 +617,7 @@ export class AppHost {
       string,
       { id: string; owner_user_id: string | null; status: string }
     >,
+    userValidationCache: Map<string, Promise<{ valid: boolean }>>,
   ): Promise<void> {
     const agent = agentMap.get(agentId);
     if (!agent) {
@@ -572,12 +627,12 @@ export class AppHost {
         "identity",
         "Agent not found",
         undefined,
-        "identity_rejected",
+        "AgentNotFound",
       );
       return;
     }
 
-    // Identity and capability checks are independent — run concurrently.
+    // User, identity, and capability checks are independent — run concurrently.
     // Track whether we've already rejected this agent so concurrent failures
     // don't send duplicate rejection events.
     let rejected = false;
@@ -589,7 +644,7 @@ export class AppHost {
       await this.rejectAgent(...args);
     };
 
-    const [identityResult, capabilityResult] = await Promise.allSettled([
+    const checks: Promise<void>[] = [
       this.checkIdentity(
         session,
         initiatorAgentId,
@@ -597,13 +652,42 @@ export class AppHost {
         agentMap,
         guardedReject,
       ),
-      manifest.skillUrl
-        ? this.checkCapability(session, agentId, manifest, guardedReject)
-        : Promise.resolve(),
-    ]);
+    ];
 
-    if (identityResult.status === "rejected") throw identityResult.reason;
-    if (capabilityResult.status === "rejected") throw capabilityResult.reason;
+    if (manifest.skillUrl) {
+      checks.push(
+        this.checkCapability(session, agentId, manifest, guardedReject),
+      );
+    }
+
+    // User validation (cached per ownerUserId)
+    if (this.userService && agent.owner_user_id) {
+      const userId = agent.owner_user_id;
+      if (!userValidationCache.has(userId)) {
+        userValidationCache.set(userId, this.userService.validateUser(userId));
+      }
+      checks.push(
+        userValidationCache.get(userId)!.then(async ({ valid }) => {
+          if (!valid) {
+            await guardedReject(
+              session.id,
+              agentId,
+              "user",
+              "User validation failed",
+              undefined,
+              "UserInvalid",
+            );
+            throw new Error("User invalid");
+          }
+        }),
+      );
+    }
+
+    const results = await Promise.allSettled(checks);
+
+    for (const result of results) {
+      if (result.status === "rejected") throw result.reason;
+    }
 
     const grantedResources = await this.checkPermissions(
       session,
@@ -640,15 +724,15 @@ export class AppHost {
         "identity",
         "Agent has no owner_user_id",
         "Set owner_user_id on the agent before inviting it to app sessions",
-        "identity_rejected",
+        "AgentNoOwner",
       );
       throw new Error("Agent has no owner");
     }
 
-    if (!this.contactChecker) return; // default: allow all
+    if (!this.contactService) return; // default: allow all
 
     try {
-      const inContact = await this.contactChecker.areInContact(
+      const inContact = await this.contactService.areInContact(
         initiator.owner_user_id!,
         agent.owner_user_id,
       );
@@ -659,7 +743,7 @@ export class AppHost {
           "identity",
           "Agent owner is not a contact of the session initiator's owner",
           undefined,
-          "identity_rejected",
+          "NotInContacts",
         );
         throw new Error("Not in contacts");
       }
@@ -669,9 +753,9 @@ export class AppHost {
         session.id,
         agentId,
         "identity",
-        `ContactChecker error: ${errorMessage(err)}`,
+        `Contact check error: ${errorMessage(err)}`,
         undefined,
-        "identity_rejected",
+        "ContactCheckFailed",
       );
       throw err;
     }
@@ -715,8 +799,8 @@ export class AppHost {
     ).catch(async (err) => {
       const code =
         errorMessage(err) === "attestation timeout"
-          ? "capability_timeout"
-          : "capability_failed";
+          ? "AttestationTimeout"
+          : "SkillMismatch";
       const reason =
         errorMessage(err) === "attestation timeout"
           ? "Skill attestation timed out"
@@ -739,19 +823,22 @@ export class AppHost {
         "capability",
         `Skill URL mismatch: expected ${manifest.skillUrl}, got ${result.skillUrl}`,
         undefined,
-        "capability_failed",
+        "SkillMismatch",
       );
       throw new Error("Skill mismatch");
     }
 
-    if (manifest.skillMinVersion && result.version < manifest.skillMinVersion) {
+    if (
+      manifest.skillMinVersion &&
+      compareSemver(result.version, manifest.skillMinVersion) < 0
+    ) {
       await reject(
         session.id,
         agentId,
         "capability",
         `Skill version ${result.version} below minimum ${manifest.skillMinVersion}`,
         undefined,
-        "capability_failed",
+        "SkillVersionTooOld",
       );
       throw new Error("Skill version too low");
     }
@@ -804,14 +891,14 @@ export class AppHost {
         continue;
       }
 
-      if (!this.permissionHandler) {
+      if (!this.permissionService) {
         await this.rejectAgent(
           session.id,
           agentId,
           "permission",
           `No permission handler configured for resource: ${perm.resource}`,
-          "Server must configure a PermissionHandler to process permission requests",
-          "no_handler",
+          "Server must configure a PermissionService to process permission requests",
+          "NoPermissionHandler",
         );
         throw new Error("No permission handler");
       }
@@ -830,7 +917,7 @@ export class AppHost {
           "Requesting permission from handler",
         );
 
-        const promise = this.permissionHandler
+        const promise = this.permissionService
           .requestPermission({
             userId: ownerUserId,
             agentId,
@@ -888,8 +975,8 @@ export class AppHost {
         ) {
           const code =
             err instanceof PermissionTimeoutError
-              ? "permission_timeout"
-              : "permission_denied";
+              ? "PermissionTimeout"
+              : "PermissionDenied";
           this.logger.warn(
             {
               err: err.message,
@@ -924,7 +1011,7 @@ export class AppHost {
           "permission",
           `Permission handler error for resource: ${perm.resource}`,
           `Grant ${perm.resource} access via the permission prompt`,
-          "permission_denied",
+          "PermissionHandlerError",
         );
         throw new PermissionDeniedError(perm.resource);
       }
@@ -1014,7 +1101,7 @@ export class AppHost {
   private async rejectAgent(
     sessionId: string,
     agentId: string,
-    stage: "identity" | "capability" | "permission",
+    stage: "user" | "identity" | "capability" | "permission",
     reason: string,
     suggestedAction?: string,
     rejectionCode?: string,

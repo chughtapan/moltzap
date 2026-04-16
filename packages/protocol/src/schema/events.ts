@@ -23,6 +23,7 @@ export const EventNames = {
   AppParticipantAdmitted: "app/participantAdmitted",
   AppParticipantRejected: "app/participantRejected",
   AppSessionReady: "app/sessionReady",
+  AppSessionFailed: "app/sessionFailed",
 } as const;
 
 export const MessageReceivedEventSchema = Type.Object(
@@ -116,18 +117,23 @@ export const AppParticipantRejectedEventSchema = Type.Object(
     sessionId: AppSessionId,
     agentId: AgentId,
     reason: Type.String(),
-    stage: stringEnum(["identity", "capability", "permission"]),
+    stage: stringEnum(["user", "identity", "capability", "permission"]),
     suggestedAction: Type.Optional(Type.String()),
-    rejectionCode: Type.Optional(
-      stringEnum([
-        "no_handler",
-        "permission_denied",
-        "permission_timeout",
-        "identity_rejected",
-        "capability_failed",
-        "capability_timeout",
-      ]),
-    ),
+    rejectionCode: stringEnum([
+      "UserInvalid",
+      "UserValidationFailed",
+      "AgentNotFound",
+      "AgentNoOwner",
+      "NotInContacts",
+      "ContactCheckFailed",
+      "AttestationTimeout",
+      "SkillMismatch",
+      "SkillVersionTooOld",
+      "PermissionDenied",
+      "PermissionTimeout",
+      "PermissionHandlerError",
+      "NoPermissionHandler",
+    ]),
   },
   { additionalProperties: false },
 );
@@ -136,6 +142,13 @@ export const AppSessionReadyEventSchema = Type.Object(
   {
     sessionId: AppSessionId,
     conversations: Type.Record(Type.String(), ConversationId),
+  },
+  { additionalProperties: false },
+);
+
+export const AppSessionFailedEventSchema = Type.Object(
+  {
+    sessionId: AppSessionId,
   },
   { additionalProperties: false },
 );

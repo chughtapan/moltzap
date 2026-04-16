@@ -1,0 +1,35 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: moltzap
+      POSTGRES_USER: moltzap
+      POSTGRES_PASSWORD: moltzap-dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U moltzap"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  moltzap-server:
+    build:
+      context: .
+      dockerfile: packages/server/Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      MOLTZAP_CONFIG: /app/moltzap.yaml
+      DATABASE_URL: postgres://moltzap:moltzap-dev@postgres:5432/moltzap
+      ENCRYPTION_SECRET: change-me-to-a-random-64-char-hex-string
+    volumes:
+      - ./moltzap.example.yaml:/app/moltzap.yaml:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:

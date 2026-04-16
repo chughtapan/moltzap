@@ -1,4 +1,4 @@
-import type { AppHost, DefaultPermissionHandler } from "../app-host.js";
+import type { AppHost, DefaultPermissionService } from "../app-host.js";
 import type { RpcMethodRegistry } from "../../rpc/context.js";
 import type {
   AppsCreateParams,
@@ -13,7 +13,7 @@ import { ParticipantService } from "../../services/participant.service.js";
 
 export function createAppHandlers(deps: {
   appHost: AppHost;
-  permissionHandler?: DefaultPermissionHandler;
+  permissionService?: DefaultPermissionService;
 }): RpcMethodRegistry {
   return {
     "apps/create": defineMethod<AppsCreateParams>({
@@ -48,7 +48,7 @@ export function createAppHandlers(deps: {
       handler: async (params, ctx) => {
         const ownerUserId = ParticipantService.requireOwnerId(ctx);
 
-        deps.permissionHandler?.resolvePermission(
+        deps.permissionService?.resolvePermission(
           ownerUserId,
           params.sessionId,
           params.agentId,

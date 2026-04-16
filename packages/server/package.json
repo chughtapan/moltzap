@@ -8,8 +8,12 @@
     "url": "https://github.com/chughtapan/moltzap"
   },
   "files": [
-    "dist"
+    "dist",
+    "bin"
   ],
+  "bin": {
+    "moltzap-server": "./bin/moltzap-server"
+  },
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -34,10 +38,14 @@
     "@hono/node-server": "^1.13.7",
     "@hono/node-ws": "^1.0.5",
     "@moltzap/protocol": "workspace:*",
+    "@sinclair/typebox": "^0.34.0",
+    "ajv": "^8.17.0",
+    "ajv-formats": "^3.0.0",
     "hono": "^4.6.0",
     "kysely": "^0.27.0",
     "pg": "^8.12.0",
-    "pino": "^9.6.0"
+    "pino": "^9.6.0",
+    "yaml": "^2.8.3"
   },
   "devDependencies": {
     "@testcontainers/postgresql": "^10.18.0",

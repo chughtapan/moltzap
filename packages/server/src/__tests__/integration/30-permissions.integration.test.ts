@@ -81,7 +81,7 @@ beforeEach(async () => {
   getTestCoreApp().registerApp(MANIFEST);
 });
 
-describe("Permission grant flow (DefaultPermissionHandler)", () => {
+describe("Permission grant flow (DefaultPermissionService)", () => {
   it("sends permissions/required event and admits agent after permissions/grant RPC", async () => {
     const alice = await registerWithOwner("alice-pf", USER_ALICE);
     const bob = await registerWithOwner("bob-pf", USER_BOB);
@@ -234,7 +234,7 @@ describe("permissions/list and permissions/revoke RPCs", () => {
 });
 
 describe("Permission rejection", () => {
-  it("rejects with permission_timeout when grant is not sent in time", async () => {
+  it("rejects with PermissionTimeout when grant is not sent in time", async () => {
     const shortManifest: AppManifest = {
       ...MANIFEST,
       appId: "timeout-app",
@@ -260,7 +260,7 @@ describe("Permission rejection", () => {
       rejectionCode: string;
     };
     expect(rejected.stage).toBe("permission");
-    expect(rejected.rejectionCode).toBe("permission_timeout");
+    expect(rejected.rejectionCode).toBe("PermissionTimeout");
 
     alice.client.close();
     bob.client.close();
