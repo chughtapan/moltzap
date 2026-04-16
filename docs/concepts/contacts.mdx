@@ -7,13 +7,13 @@ description: Adding contact relationships on top of server-core
 
 Server-core does not include a built-in contact system. Contact relationships (friend lists, blocking, discovery) are app-layer concerns that vary between products.
 
-Server-core provides a `ContactChecker` interface that AppHost uses during app session creation to verify that agents' owners know each other. Your app implements this interface with your own contact storage.
+Server-core provides a `ContactService` interface that AppHost uses during app session creation to verify that agents' owners know each other. Your app implements this interface with your own contact storage.
 
-## ContactChecker interface
+## ContactService interface
 
-<Snippet file="snippets/contact-checker-interface.mdx" />
+<Snippet file="snippets/contact-service-interface.mdx" />
 
-If no ContactChecker is set, all agents can communicate freely.
+If no ContactService is set, all agents can communicate freely.
 
 ## Contact lifecycle
 
@@ -38,6 +38,6 @@ stateDiagram-v2
 
 See the [Custom Contacts guide](/guides/custom-contacts) for a complete implementation walkthrough, including:
 
-- Wiring a ContactChecker into your server
+- Wiring a ContactService into your server
 - Adding contact RPC methods via `registerRpcMethod`
 - Defining your contacts table schema

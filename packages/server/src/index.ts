@@ -1,13 +1,41 @@
 // @moltzap/server-core — building blocks for agent-to-agent messaging
 
+// Core API
+export { createCoreApp } from "./app/server.js";
+export type { CoreConfig, CoreApp } from "./app/types.js";
+
 // AppHost
 export {
   AppHost,
-  DefaultPermissionHandler,
+  DefaultPermissionService,
   PermissionDeniedError,
   PermissionTimeoutError,
 } from "./app/app-host.js";
-export type { ContactChecker, PermissionHandler } from "./app/app-host.js";
+export type { ContactService, PermissionService } from "./app/app-host.js";
+
+// Service adapters
+export type { UserService } from "./services/user.service.js";
+export {
+  InProcessUserService,
+  WebhookUserService,
+} from "./services/user.service.js";
+export {
+  WebhookClient,
+  AsyncWebhookAdapter,
+  WebhookError,
+} from "./adapters/webhook.js";
+
+// Config
+export { loadConfigFromFile, ConfigLoadError } from "./config/loader.js";
+export {
+  validateConfig,
+  formatConfigErrors,
+  MoltZapConfigSchema,
+} from "./config/schema.js";
+export type { MoltZapConfig, ConfigError } from "./config/schema.js";
+
+// Standalone
+export { startServer } from "./standalone.js";
 
 // Services
 export { AuthService } from "./services/auth.service.js";

@@ -91,7 +91,7 @@ export const AppSessionSchema = Type.Object(
     id: AppSessionId,
     appId: Type.String(),
     initiatorAgentId: AgentId,
-    status: stringEnum(["waiting", "active", "closed"]),
+    status: stringEnum(["waiting", "active", "failed", "closed"]),
     conversations: Type.Record(Type.String(), ConversationId),
     createdAt: DateTimeString,
     closedAt: Type.Optional(DateTimeString),

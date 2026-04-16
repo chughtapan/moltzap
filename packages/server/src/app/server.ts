@@ -3,8 +3,7 @@ import { cors } from "hono/cors";
 import { createNodeWebSocket } from "@hono/node-ws";
 import { serve } from "@hono/node-server";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { Kysely, PostgresDialect } from "kysely";
-import pg from "pg";
+import { timingSafeEqual } from "node:crypto";
 import { logger } from "../logger.js";
 import { ConnectionManager } from "../ws/connection.js";
 import { Broadcaster } from "../ws/broadcaster.js";
@@ -16,7 +15,6 @@ import type {
 import type { RequestFrame } from "@moltzap/protocol";
 import { ErrorCodes, validators } from "@moltzap/protocol";
 import { EnvelopeEncryption } from "../crypto/envelope.js";
-import type { Database } from "../db/database.js";
 
 // Services
 import { AuthService } from "../services/auth.service.js";
@@ -34,31 +32,27 @@ import { createPresenceHandlers } from "./handlers/presence.handlers.js";
 import { createAppHandlers } from "./handlers/apps.handlers.js";
 
 // AppHost
-import { AppHost, DefaultPermissionHandler } from "./app-host.js";
+import { AppHost, DefaultPermissionService } from "./app-host.js";
+import type { AsyncWebhookAdapter } from "../adapters/webhook.js";
 
 import type { CoreConfig, CoreApp, ConnectionHook } from "./types.js";
-import { runDemoAgents } from "./demo-agents.js";
+
+function safeEqual(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return timingSafeEqual(bufA, bufB);
+}
 
 export function createCoreApp(config: CoreConfig): CoreApp {
-  // Database pool
-  const pool = new pg.Pool({
-    connectionString: config.databaseUrl,
-    max: 20,
-    idleTimeoutMillis: 30000,
-  });
-
-  pool.on("error", (err) => {
-    logger.error({ err }, "Unexpected database pool error");
-  });
-
-  const db = new Kysely<Database>({
-    dialect: new PostgresDialect({ pool }),
-  });
+  const db = config.db;
 
   // Infrastructure
   const connections = new ConnectionManager();
   const broadcaster = new Broadcaster(connections);
-  const envelope = new EnvelopeEncryption(config.encryptionMasterSecret);
+  const envelope = config.encryptionMasterSecret
+    ? new EnvelopeEncryption(config.encryptionMasterSecret)
+    : null;
 
   // Services
   const authService = new AuthService(db, logger);
@@ -90,11 +84,11 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     appHost,
   );
 
-  const defaultPermissionHandler = new DefaultPermissionHandler(
+  const defaultPermissionService = new DefaultPermissionService(
     broadcaster,
     logger,
   );
-  appHost.setPermissionHandler(defaultPermissionHandler);
+  appHost.setPermissionService(defaultPermissionService);
 
   // Per-request connection context for concurrent WebSocket RPC dispatches
   const connIdContext = new AsyncLocalStorage<string>();
@@ -102,7 +96,11 @@ export function createCoreApp(config: CoreConfig): CoreApp {
   // Connection hooks
   const connectionHooks: ConnectionHook[] = [];
 
-  // Mutable RPC method registry — core handlers + extension methods from @moltzap/server
+  // Webhook permission callback state (set via setWebhookPermissionCallback)
+  let _webhookPermAdapter: AsyncWebhookAdapter | null = null;
+  let _callbackToken: string | null = null;
+
+  // Mutable RPC method registry — core handlers + extension methods
   const methods: RpcMethodRegistry = {
     ...createCoreAuthHandlers({
       authService,
@@ -131,7 +129,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     }),
     ...createAppHandlers({
       appHost,
-      permissionHandler: defaultPermissionHandler,
+      permissionService: defaultPermissionService,
     }),
   };
 
@@ -157,12 +155,20 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     c.json({ status: "ok", connections: connections.size }),
   );
 
-  // Agent registration (no rate limiting, no invite code validation)
+  // Agent registration
   app.post("/api/v1/auth/register", async (c) => {
     const body = await c.req.json();
     if (!validators.registerParams(body)) {
       return c.json({ error: "Invalid parameters" }, 400);
     }
+
+    if (config.registrationSecret) {
+      const inviteCode = (body as { inviteCode?: string }).inviteCode;
+      if (!inviteCode || !safeEqual(inviteCode, config.registrationSecret)) {
+        return c.json({ error: "Invalid or missing invite code" }, 403);
+      }
+    }
+
     try {
       const result = await authService.registerAgent(body);
       return c.json(result, 201);
@@ -174,6 +180,43 @@ export function createCoreApp(config: CoreConfig): CoreApp {
       logger.error({ err }, "Registration failed");
       return c.json({ error: "Registration failed" }, 500);
     }
+  });
+
+  // Permissions callback for async webhook flow
+  app.post("/api/v1/permissions/resolve", async (c) => {
+    if (!_webhookPermAdapter) {
+      return c.json({ error: "Webhook permissions not configured" }, 404);
+    }
+
+    const authHeader = c.req.header("Authorization");
+    if (!authHeader || !_callbackToken) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+    const token = authHeader.replace("Bearer ", "");
+    if (!safeEqual(token, _callbackToken)) {
+      return c.json({ error: "Invalid callback token" }, 401);
+    }
+
+    const body = (await c.req.json()) as {
+      request_id?: string;
+      access?: string[];
+    };
+    if (!body.request_id || !Array.isArray(body.access)) {
+      return c.json(
+        { error: "Invalid body: need request_id and access[]" },
+        400,
+      );
+    }
+
+    const found = _webhookPermAdapter.resolveCallback(
+      body.request_id,
+      body.access,
+    );
+    if (!found) {
+      return c.json({ error: "Unknown or expired request_id" }, 404);
+    }
+
+    return c.json({ ok: true });
   });
 
   // WebSocket endpoint
@@ -301,12 +344,6 @@ export function createCoreApp(config: CoreConfig): CoreApp {
 
   injectWebSocket(server);
 
-  if (config.devMode) {
-    runDemoAgents({ db, authService, conversationService }).catch((err) =>
-      logger.error(err, "Demo agent setup failed"),
-    );
-  }
-
   return {
     app,
     get port() {
@@ -321,11 +358,18 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     registerApp(manifest) {
       appHost.registerApp(manifest);
     },
-    setContactChecker(checker) {
-      appHost.setContactChecker(checker);
+    setUserService(service) {
+      appHost.setUserService(service);
     },
-    setPermissionHandler(handler) {
-      appHost.setPermissionHandler(handler);
+    setContactService(checker) {
+      appHost.setContactService(checker);
+    },
+    setPermissionService(handler) {
+      appHost.setPermissionService(handler);
+    },
+    setWebhookPermissionCallback(adapter, token) {
+      _webhookPermAdapter = adapter;
+      _callbackToken = token;
     },
     async createAppSession(appId, initiatorAgentId, invitedAgentIds) {
       return appHost.createSession(appId, initiatorAgentId, invitedAgentIds);
@@ -349,7 +393,8 @@ export function createCoreApp(config: CoreConfig): CoreApp {
       return appHost.listSessions(callerAgentId, opts);
     },
     async close() {
-      defaultPermissionHandler.destroy();
+      _webhookPermAdapter?.destroy();
+      defaultPermissionService.destroy();
       appHost.destroy();
       for (const conn of connections.all()) {
         try {
@@ -358,10 +403,11 @@ export function createCoreApp(config: CoreConfig): CoreApp {
           logger.warn({ err }, "Failed to close WebSocket on shutdown");
         }
       }
-      // Give in-flight handlers a moment to settle
       await new Promise((r) => setTimeout(r, 500));
       server.close();
-      await db.destroy();
+      if (config.dbCleanup) {
+        await config.dbCleanup();
+      }
     },
   };
 }

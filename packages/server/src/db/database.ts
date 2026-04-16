@@ -22,7 +22,7 @@ export type {
 } from "./database.generated.js";
 
 // App-specific types (hand-written — not in generated file until kysely-codegen runs)
-export type AppSessionStatus = "waiting" | "active" | "closed";
+export type AppSessionStatus = "waiting" | "active" | "failed" | "closed";
 export type AppParticipantDbStatus = "pending" | "admitted" | "rejected";
 
 import type { Generated, Timestamp } from "./database.generated.js";
