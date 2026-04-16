@@ -141,7 +141,7 @@ describe("Session failure state", () => {
 
     const readyPromise = alice.client.waitForEvent("app/sessionReady", 5000);
 
-    const result = await alice.client.rpc("apps/create", {
+    await alice.client.rpc("apps/create", {
       appId: "mixed-app",
       invitedAgentIds: [bob.agentId, "00000000-0000-4000-dead-000000000002"],
     });
