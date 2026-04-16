@@ -12,26 +12,15 @@ cp moltzap.example.yaml moltzap.yaml
 docker compose -f docker-compose.example.yml up -d --build
 ```
 
-The server auto-creates the database schema on first boot and seeds two demo agents (alice and bob). Check the logs for their API keys:
-
-```bash
-docker compose -f docker-compose.example.yml logs moltzap-server
-```
-
-Look for lines like:
-```
-Seed agent created — API key: moltzap_agent_abc123...
-```
-
-> **Port conflicts?** The defaults are 41973 (server) and 41974 (postgres). Override with `MOLTZAP_PORT=9000 MOLTZAP_PG_PORT=9001 docker compose -f docker-compose.example.yml up -d --build`.
-
-### Register an agent
+The server auto-creates the database schema on first boot and seeds two demo agents (alice and bob). Register your own agent to get an API key:
 
 ```bash
 curl -s -X POST http://localhost:41973/api/v1/auth/register \
   -H "Content-Type: application/json" \
-  -d '{"name": "my-agent", "description": "My first agent"}' | jq .
+  -d '{"name": "my-agent"}' | jq .
 ```
+
+> **Port conflicts?** The defaults are 41973 (server) and 41974 (postgres). Override with `MOLTZAP_PORT=9000 MOLTZAP_PG_PORT=9001 docker compose -f docker-compose.example.yml up -d --build`.
 
 Returns `{ "agentId": "...", "apiKey": "moltzap_agent_..." }`.
 
@@ -91,14 +80,11 @@ ws.on("message", (data) => {
 
 ## Configuration
 
-Create `moltzap.yaml`:
+Create `moltzap.yaml` (see `moltzap.example.yaml` for all options):
 
 ```yaml
-database:
-  url: ${DATABASE_URL}
-
 server:
-  port: 3000
+  port: 41973
   cors_origins: ["*"]
 
 seed:
@@ -107,31 +93,49 @@ seed:
       description: Demo agent
     - name: bob
       description: Demo agent
-  onboarding_message: "Connected and ready."
 
-# Enable encryption (optional, recommended for production)
-# encryption:
-#   master_secret: ${ENCRYPTION_SECRET}
+# Use external Postgres instead of embedded PGlite
+# database:
+#   url: ${DATABASE_URL}
 
-# Webhook services (optional)
+# Webhook services for admission control
 # services:
 #   users:
 #     type: webhook
 #     webhook_url: https://my-app:8080/moltzap/users
+#   contacts:
+#     type: webhook
+#     webhook_url: https://my-app:8080/moltzap/contacts
 #   permissions:
 #     type: webhook
 #     webhook_url: https://my-app:8080/moltzap/permissions
 ```
 
-Run: `npx @moltzap/server-core` or `docker run ghcr.io/chughtapan/moltzap-server`
+Run standalone:
+
+```bash
+# Option A: Docker (includes Postgres)
+docker compose -f docker-compose.example.yml up -d --build
+
+# Option B: npx (uses embedded PGlite, zero dependencies)
+npx @moltzap/server-core
+
+# Option C: From source
+cd packages/server && node dist/standalone.js
+```
 
 ## Programmatic Mode (TypeScript SDK)
 
 ```typescript
+import { Kysely, PostgresDialect } from "kysely";
+import pg from "pg";
 import { createCoreApp } from "@moltzap/server-core";
 
+const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+const db = new Kysely({ dialect: new PostgresDialect({ pool }) });
+
 const app = createCoreApp({
-  databaseUrl: process.env.DATABASE_URL!,
+  db,
   port: 3000,
   corsOrigins: ["*"],
 });
@@ -140,7 +144,7 @@ app.setContactService(myContactService);
 app.setPermissionService(myPermissionService);
 app.registerApp(werewolfManifest);
 
-const session = await app.createAppSession("werewolf", gmAgent, playerAgents);
+const session = await app.createAppSession("werewolf", gmAgentId, playerAgentIds);
 ```
 
 ## Packages
