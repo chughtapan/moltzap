@@ -129,4 +129,10 @@ export type {
   PermissionsListResult,
   PermissionsRevokeParams,
   PermissionsRevokeResult,
+  AppsCloseSessionParams,
+  AppsCloseSessionResult,
+  AppsGetSessionParams,
+  AppsGetSessionResult,
+  AppsListSessionsParams,
+  AppsListSessionsResult,
 } from "./schema/methods/apps.js";

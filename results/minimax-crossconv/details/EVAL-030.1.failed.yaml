@@ -1,0 +1,22 @@
+scenarioId: EVAL-030
+scenarioName: Cross-conversation awareness
+runNumber: 1
+modelName: minimax/MiniMax-M2.7-highspeed
+latencyMs: 14035.579832999996
+judgeResult:
+  pass: false
+  reason: >-
+    The agent failed to mention 'Zenda' in its response. The cross-conversation
+    context (the fact that the capital of Freedonia is Zenda) was not carried
+    over via system reminders, and the agent instead treated Freedonia as purely
+    fictional without referencing the established fact.
+  issues:
+    - issue: >-
+        Response does not contain 'Zenda' — the agent failed to recall the
+        cross-conversation fact
+      severity: critical
+    - issue: >-
+        Agent dismissed the premise entirely rather than surfacing the known
+        context from conversation 1
+      severity: significant
+  overallSeverity: critical

@@ -24,6 +24,8 @@ export const EventNames = {
   AppParticipantRejected: "app/participantRejected",
   AppSessionReady: "app/sessionReady",
   AppSessionFailed: "app/sessionFailed",
+  AppSessionClosed: "app/sessionClosed",
+  AppHookTimeout: "app/hookTimeout",
 } as const;
 
 export const MessageReceivedEventSchema = Type.Object(
@@ -149,6 +151,24 @@ export const AppSessionReadyEventSchema = Type.Object(
 export const AppSessionFailedEventSchema = Type.Object(
   {
     sessionId: AppSessionId,
+  },
+  { additionalProperties: false },
+);
+
+export const AppSessionClosedEventSchema = Type.Object(
+  {
+    sessionId: AppSessionId,
+    closedBy: AgentId,
+  },
+  { additionalProperties: false },
+);
+
+export const AppHookTimeoutEventSchema = Type.Object(
+  {
+    sessionId: AppSessionId,
+    appId: Type.String(),
+    hookName: stringEnum(["before_message_delivery", "on_close"]),
+    timeoutMs: Type.Integer(),
   },
   { additionalProperties: false },
 );

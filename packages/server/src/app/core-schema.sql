@@ -50,6 +50,7 @@ CREATE TABLE conversations (
   type conversation_type NOT NULL,
   name TEXT,
   created_by_id UUID NOT NULL REFERENCES agents(id),
+  archived_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -126,6 +127,7 @@ CREATE TABLE app_sessions (
   app_id TEXT NOT NULL,
   initiator_agent_id UUID NOT NULL REFERENCES agents(id),
   status app_session_status NOT NULL DEFAULT 'waiting',
+  closed_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -140,6 +142,13 @@ CREATE TABLE app_session_participants (
 );
 CREATE TRIGGER app_session_participants_updated_at BEFORE UPDATE ON app_session_participants
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+CREATE TABLE app_session_conversations (
+  session_id UUID NOT NULL REFERENCES app_sessions(id) ON DELETE CASCADE,
+  conversation_key TEXT NOT NULL,
+  conversation_id UUID NOT NULL REFERENCES conversations(id),
+  PRIMARY KEY (session_id, conversation_key)
+);
 
 CREATE TABLE app_permission_grants (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
