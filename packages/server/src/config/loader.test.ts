@@ -3,6 +3,7 @@ import { loadConfigFromFile, ConfigLoadError } from "./loader.js";
 
 vi.mock("node:fs", () => ({
   readFileSync: vi.fn(),
+  realpathSync: vi.fn((p: string) => p),
 }));
 
 import { readFileSync } from "node:fs";
