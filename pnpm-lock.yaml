@@ -21,6 +21,25 @@ importers:
         specifier: ^0.16.0
         version: 0.16.12
 
+  packages/app-sdk:
+    dependencies:
+      '@moltzap/client':
+        specifier: workspace:*
+        version: link:../client
+      '@moltzap/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+    devDependencies:
+      '@types/node':
+        specifier: ^25.5.0
+        version: 25.5.0
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.4(@types/debug@4.1.13)(@types/node@25.5.0)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3)
+
   packages/client:
     dependencies:
       '@moltzap/protocol':
@@ -54,8 +73,6 @@ importers:
       vitest:
         specifier: ^3.0.0
         version: 3.2.4(@types/debug@4.1.13)(@types/node@25.5.0)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3)
-
-  packages/create-moltzap-server: {}
 
   packages/evals:
     dependencies:
