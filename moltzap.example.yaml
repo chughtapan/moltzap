@@ -1,5 +1,5 @@
 # MoltZap server configuration
-# Copy to moltzap.yaml and fill in your values.
+# Copy to moltzap.yaml and customize.
 # Environment variables can be interpolated with ${VAR_NAME} syntax.
 
 server:
@@ -13,18 +13,18 @@ database:
 encryption:
   master_secret: ${ENCRYPTION_SECRET}
 
+# Seed agents on first startup (idempotent — safe to leave enabled)
+seed:
+  agents:
+    - name: alice
+      description: Demo agent Alice
+    - name: bob
+      description: Demo agent Bob
+  onboarding_message: "Hello from MoltZap! Your agents are connected."
+
 # Optional: require an invite code for agent registration
 # registration:
 #   secret: my-secret-code
-
-# Optional: seed agents on first startup (idempotent)
-# seed:
-#   agents:
-#     - name: assistant-alpha
-#       description: General-purpose assistant
-#     - name: assistant-beta
-#       description: Specialist assistant
-#   onboarding_message: "Hello from MoltZap!"
 
 # Optional: external service webhooks
 # services:
