@@ -68,6 +68,8 @@ export class MoltZapApp {
   private sessions = new Map<string, AppSessionHandle>();
   /** Reverse map: conversationId -> conversation key */
   private reverseConvMap = new Map<string, string>();
+  /** Sessions for which sessionReady handlers have fired (dedup across start() + event) */
+  private firedSessionReady = new Set<string>();
 
   // Event handlers
   private sessionReadyHandlers: SessionReadyHandler[] = [];
@@ -200,6 +202,7 @@ export class MoltZapApp {
 
     this.sessions.clear();
     this.reverseConvMap.clear();
+    this.firedSessionReady.clear();
     this.client.close();
     this.started = false;
   }
@@ -277,7 +280,10 @@ export class MoltZapApp {
     }
   }
 
-  /** Reply to a specific message */
+  /**
+   * Reply to a specific message. The server resolves the target
+   * conversation from `replyToId`.
+   */
   async reply(messageId: string, parts: Part[]): Promise<void> {
     try {
       await this.client.sendRpc("messages/send", {
@@ -366,6 +372,7 @@ export class MoltZapApp {
         this.reverseConvMap.delete(convId);
       }
       this.sessions.delete(sessionId);
+      this.firedSessionReady.delete(sessionId);
       this.emitError(new SessionClosedError(`Session ${sessionId} was closed`));
     }
   }
@@ -400,32 +407,37 @@ export class MoltZapApp {
     const convId = message.conversationId;
     const key = this.reverseConvMap.get(convId);
 
-    // Route to key-specific handler
+    // Route to key-specific handler. Use .then() so synchronous throws
+    // from the handler land in .catch() rather than escaping to the caller.
     if (key && this.messageHandlers.has(key)) {
       const handler = this.messageHandlers.get(key)!;
-      Promise.resolve(handler(message)).catch((err) => {
-        this.emitError(
-          new AppError(
-            "HANDLER_ERROR",
-            `Message handler for "${key}" threw`,
-            err instanceof Error ? err : undefined,
-          ),
-        );
-      });
+      Promise.resolve()
+        .then(() => handler(message))
+        .catch((err) => {
+          this.emitError(
+            new AppError(
+              "HANDLER_ERROR",
+              `Message handler for "${key}" threw`,
+              err instanceof Error ? err : undefined,
+            ),
+          );
+        });
     }
 
     // Route to catch-all handler
     if (this.messageHandlers.has("*")) {
       const handler = this.messageHandlers.get("*")!;
-      Promise.resolve(handler(message)).catch((err) => {
-        this.emitError(
-          new AppError(
-            "HANDLER_ERROR",
-            "Catch-all message handler threw",
-            err instanceof Error ? err : undefined,
-          ),
-        );
-      });
+      Promise.resolve()
+        .then(() => handler(message))
+        .catch((err) => {
+          this.emitError(
+            new AppError(
+              "HANDLER_ERROR",
+              "Catch-all message handler threw",
+              err instanceof Error ? err : undefined,
+            ),
+          );
+        });
     }
   }
 
@@ -444,16 +456,23 @@ export class MoltZapApp {
   }
 
   private fireSessionReady(handle: AppSessionHandle): void {
+    // Dedup: session can become active via both the apps/create result and
+    // a subsequent app/sessionReady event — handlers must only fire once.
+    if (this.firedSessionReady.has(handle.id)) return;
+    this.firedSessionReady.add(handle.id);
+
     for (const handler of this.sessionReadyHandlers) {
-      Promise.resolve(handler(handle)).catch((err) => {
-        this.emitError(
-          new AppError(
-            "HANDLER_ERROR",
-            "Session ready handler threw",
-            err instanceof Error ? err : undefined,
-          ),
-        );
-      });
+      Promise.resolve()
+        .then(() => handler(handle))
+        .catch((err) => {
+          this.emitError(
+            new AppError(
+              "HANDLER_ERROR",
+              "Session ready handler threw",
+              err instanceof Error ? err : undefined,
+            ),
+          );
+        });
     }
   }
 
@@ -478,6 +497,7 @@ export class MoltZapApp {
             freshSession.status === "failed"
           ) {
             this.sessions.delete(session.id);
+            this.firedSessionReady.delete(session.id);
             for (const convId of Object.values(session.conversations)) {
               this.reverseConvMap.delete(convId);
             }
