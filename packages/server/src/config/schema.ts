@@ -60,9 +60,11 @@ export const MoltZapConfigSchema = Type.Object(
       { additionalProperties: false },
     ),
 
-    encryption: Type.Object(
-      { master_secret: Type.String({ minLength: 1 }) },
-      { additionalProperties: false },
+    encryption: Type.Optional(
+      Type.Object(
+        { master_secret: Type.String({ minLength: 1 }) },
+        { additionalProperties: false },
+      ),
     ),
 
     services: Type.Optional(

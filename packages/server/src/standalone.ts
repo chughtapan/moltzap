@@ -29,7 +29,7 @@ function findSchemaFile(): string {
 
 async function autoMigrate(
   databaseUrl: string,
-  encryptionSecret: string,
+  encryptionSecret?: string,
 ): Promise<void> {
   // Raw pg pool for DDL — Kysely can't run before tables exist
   const migrationPool = new pg.Pool({ connectionString: databaseUrl, max: 2 });
@@ -49,11 +49,17 @@ async function autoMigrate(
     const schema = readFileSync(findSchemaFile(), "utf-8");
     await exec(schema);
 
-    // Seed the initial encryption key
-    const db = createDb(databaseUrl);
-    const envelope = new EnvelopeEncryption(encryptionSecret);
-    await seedInitialKek(db, envelope);
-    await db.destroy();
+    // Seed the initial encryption key (only when encryption is configured)
+    if (encryptionSecret) {
+      const db = createDb(databaseUrl);
+      const envelope = new EnvelopeEncryption(encryptionSecret);
+      await seedInitialKek(db, envelope);
+      await db.destroy();
+    } else {
+      logger.info(
+        "Encryption not configured — messages will be stored as plaintext",
+      );
+    }
 
     logger.info("Database schema applied successfully");
   } finally {
@@ -65,7 +71,7 @@ const yamlConfig = loadConfigFromFile();
 
 const config: CoreConfig = {
   databaseUrl: yamlConfig.database.url,
-  encryptionMasterSecret: yamlConfig.encryption.master_secret,
+  encryptionMasterSecret: yamlConfig.encryption?.master_secret,
   port: yamlConfig.server?.port ?? 3000,
   corsOrigins: yamlConfig.server?.cors_origins ?? ["*"],
   logLevel: yamlConfig.log_level,

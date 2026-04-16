@@ -3,18 +3,17 @@ import { validateConfig, formatConfigErrors } from "./schema.js";
 
 const MINIMAL_CONFIG = {
   database: { url: "postgres://localhost:5432/moltzap" },
-  encryption: { master_secret: "test-secret-key" },
 };
 
 describe("validateConfig", () => {
-  it("accepts minimal config (database + encryption only)", () => {
+  it("accepts minimal config (database only)", () => {
     const result = validateConfig(MINIMAL_CONFIG);
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.config.database.url).toBe(
         "postgres://localhost:5432/moltzap",
       );
-      expect(result.config.encryption.master_secret).toBe("test-secret-key");
+      expect(result.config.encryption).toBeUndefined();
     }
   });
 
@@ -48,20 +47,21 @@ describe("validateConfig", () => {
   });
 
   it("rejects missing database", () => {
-    const result = validateConfig({ encryption: { master_secret: "s" } });
+    const result = validateConfig({});
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.errors.some((e) => e.path.includes("database"))).toBe(true);
     }
   });
 
-  it("rejects missing encryption", () => {
-    const result = validateConfig({ database: { url: "pg://x" } });
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.errors.some((e) => e.path.includes("encryption"))).toBe(
-        true,
-      );
+  it("accepts config with encryption", () => {
+    const result = validateConfig({
+      database: { url: "pg://x" },
+      encryption: { master_secret: "test-key" },
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.config.encryption?.master_secret).toBe("test-key");
     }
   });
 
@@ -132,7 +132,6 @@ describe("validateConfig", () => {
   it("rejects empty database url", () => {
     const result = validateConfig({
       database: { url: "" },
-      encryption: { master_secret: "s" },
     });
     expect(result.ok).toBe(false);
   });

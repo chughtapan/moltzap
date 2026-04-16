@@ -14,7 +14,7 @@ export interface ServiceConfig {
 
 export interface CoreConfig {
   databaseUrl: string;
-  encryptionMasterSecret: string;
+  encryptionMasterSecret?: string;
   port: number;
   corsOrigins: string[];
   devMode?: boolean;

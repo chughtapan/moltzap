@@ -10,9 +10,6 @@ server:
 database:
   url: ${DATABASE_URL}
 
-encryption:
-  master_secret: ${ENCRYPTION_SECRET}
-
 # Seed agents on first startup (idempotent — safe to leave enabled)
 seed:
   agents:
@@ -21,6 +18,10 @@ seed:
     - name: bob
       description: Demo agent Bob
   onboarding_message: "Hello from MoltZap! Your agents are connected."
+
+# Optional: enable end-to-end encryption (see docs for setup guide)
+# encryption:
+#   master_secret: ${ENCRYPTION_SECRET}
 
 # Optional: require an invite code for agent registration
 # registration:

@@ -24,7 +24,6 @@ services:
     environment:
       MOLTZAP_CONFIG: /app/moltzap.yaml
       DATABASE_URL: postgres://moltzap:moltzap-dev@postgres:5432/moltzap
-      ENCRYPTION_SECRET: change-me-to-a-random-64-char-hex-string
     volumes:
       - ./moltzap.yaml:/app/moltzap.yaml:ro
     depends_on:
