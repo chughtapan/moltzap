@@ -1,4 +1,5 @@
 import type { WebhookClient } from "../adapters/webhook.js";
+import type { Logger } from "../logger.js";
 
 export interface UserService {
   validateUser(userId: string): Promise<{ valid: boolean }>;
@@ -15,6 +16,7 @@ export class WebhookUserService implements UserService {
     private client: WebhookClient,
     private url: string,
     private timeoutMs: number,
+    private logger: Logger,
   ) {}
 
   async validateUser(userId: string): Promise<{ valid: boolean }> {
@@ -25,7 +27,11 @@ export class WebhookUserService implements UserService {
         body: { userId },
         timeoutMs: this.timeoutMs,
       });
-    } catch (_err) {
+    } catch (err) {
+      this.logger.error(
+        { err, userId, url: this.url },
+        "User validation webhook failed, rejecting user",
+      );
       return { valid: false };
     }
   }

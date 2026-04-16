@@ -363,11 +363,14 @@ export class AppHost {
         })
         .execute();
 
-      if (invitedAgentIds.length > 0) {
+      // Only insert participant rows for agents that exist in the DB
+      // (non-existent agents will be rejected during admission)
+      const knownInvitees = invitedAgentIds.filter((id) => agentMap.has(id));
+      if (knownInvitees.length > 0) {
         await trx
           .insertInto("app_session_participants")
           .values(
-            invitedAgentIds.map((agentId) => ({
+            knownInvitees.map((agentId) => ({
               session_id: sessionId,
               agent_id: agentId,
               status: "pending" as const,
@@ -629,7 +632,7 @@ export class AppHost {
         undefined,
         "AgentNotFound",
       );
-      return;
+      throw new Error("Agent not found");
     }
 
     // User, identity, and capability checks are independent — run concurrently.

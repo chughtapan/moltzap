@@ -112,6 +112,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
         webhookClient,
         config.services.users.webhook_url,
         config.services.users.timeout_ms ?? 10000,
+        logger,
       ),
     );
   }

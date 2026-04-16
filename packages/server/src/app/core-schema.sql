@@ -118,7 +118,7 @@ CREATE TABLE conversation_keys (
 );
 
 -- App sessions (AppHost framework)
-CREATE TYPE app_session_status AS ENUM ('waiting', 'active', 'closed');
+CREATE TYPE app_session_status AS ENUM ('waiting', 'active', 'failed', 'closed');
 CREATE TYPE app_participant_status AS ENUM ('pending', 'admitted', 'rejected');
 
 CREATE TABLE app_sessions (

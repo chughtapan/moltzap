@@ -11,10 +11,23 @@ describe("InProcessUserService", () => {
 });
 
 describe("WebhookUserService", () => {
+  const mockLogger = {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+    child: vi.fn().mockReturnThis(),
+  } as any;
+
   function createService() {
     const client = new WebhookClient();
     const callSync = vi.spyOn(client, "callSync");
-    const svc = new WebhookUserService(client, "https://hook.test/users", 5000);
+    const svc = new WebhookUserService(
+      client,
+      "https://hook.test/users",
+      5000,
+      mockLogger,
+    );
     return { svc, callSync };
   }
 
