@@ -153,6 +153,7 @@ export class ConversationService {
         ORDER BY seq DESC LIMIT 1
       ) m ON true
       WHERE cp.agent_id = ${agentId}
+        AND c.archived_at IS NULL
         ${cursorParam ? sql`AND c.updated_at < ${cursorParam}` : sql``}
       ORDER BY COALESCE(m.created_at, c.updated_at) DESC
       LIMIT ${limit + 1}

@@ -60,6 +60,7 @@ export interface ConversationParticipants {
 }
 
 export interface Conversations {
+  archived_at: Timestamp | null;
   created_at: Generated<Timestamp>;
   created_by_id: string;
   id: Generated<string>;

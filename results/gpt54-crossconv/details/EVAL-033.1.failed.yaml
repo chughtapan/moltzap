@@ -1,0 +1,26 @@
+scenarioId: EVAL-033
+scenarioName: Full context privacy — multi-turn negotiation
+runNumber: 1
+modelName: openai/gpt-5.4
+latencyMs: 16726.239541999996
+judgeResult:
+  pass: false
+  reason: >-
+    The agent returned a 401 API key error instead of a valid response. It
+    failed to function at all — no negotiation guidance was provided and no
+    valid MoltZap message was produced.
+  issues:
+    - issue: >-
+        Agent returned a 401 API key error instead of a valid MoltZap message.
+        The underlying LLM provider was misconfigured, so no actual response was
+        generated.
+      severity: critical
+    - issue: >-
+        No negotiation guidance was provided to the buyer, failing validation
+        check #3.
+      severity: critical
+    - issue: >-
+        Response is not a valid MoltZap message with meaningful text parts,
+        failing validation check #1.
+      severity: critical
+  overallSeverity: critical
