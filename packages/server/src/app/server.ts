@@ -87,6 +87,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     envelope,
     deliveryService,
     appHost,
+    config.deliveryWebhook ?? null,
   );
 
   const defaultPermissionService = new DefaultPermissionService(

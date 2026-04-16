@@ -26,6 +26,11 @@ function toBuf(v: Buffer | Uint8Array): Buffer {
   return Buffer.isBuffer(v) ? v : Buffer.from(v);
 }
 
+export interface DeliveryWebhookConfig {
+  url: string;
+  secret: string;
+}
+
 export class MessageService {
   constructor(
     private db: Db,
@@ -35,6 +40,7 @@ export class MessageService {
     private encryption: EnvelopeEncryption | null,
     private delivery: DeliveryService,
     private appHost: AppHost | null = null,
+    private deliveryWebhook: DeliveryWebhookConfig | null = null,
   ) {}
 
   async send(
@@ -152,9 +158,67 @@ export class MessageService {
       await this.delivery.recordDeliveredBatch(message.id, delivered);
     }
 
+    // Fire delivery webhook (fire-and-forget) with the offline recipients so
+    // apps can drive push notifications. Bounded retry, drops on failure.
+    if (this.deliveryWebhook) {
+      const offlineRecipientAgentIds = participants.filter(
+        (id) => id !== senderAgentId && !delivered.includes(id),
+      );
+      if (offlineRecipientAgentIds.length > 0) {
+        void this.fireDeliveryWebhook({
+          conversationId,
+          messageId: message.id,
+          offlineRecipientAgentIds,
+        });
+      }
+    }
+
     this.logger.info({ conversationId, messageId: message.id }, "Message sent");
 
     return message;
+  }
+
+  private async fireDeliveryWebhook(body: {
+    conversationId: string;
+    messageId: string;
+    offlineRecipientAgentIds: string[];
+  }): Promise<void> {
+    const cfg = this.deliveryWebhook!;
+    const payload = JSON.stringify(body);
+    const { createHmac } = await import("node:crypto");
+    const signature =
+      "sha256=" + createHmac("sha256", cfg.secret).update(payload).digest("hex");
+
+    const maxAttempts = 3;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const res = await fetch(cfg.url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-MoltZap-Signature": signature,
+            "X-MoltZap-Event": "messages.delivered",
+          },
+          body: payload,
+          signal: AbortSignal.timeout(5000),
+        });
+        if (res.ok) return;
+        this.logger.warn(
+          { status: res.status, attempt, url: cfg.url },
+          "Delivery webhook non-2xx",
+        );
+      } catch (err) {
+        this.logger.warn({ err, attempt, url: cfg.url }, "Delivery webhook failed");
+      }
+      if (attempt < maxAttempts) {
+        const backoff = 1000 * Math.pow(2, attempt - 1);
+        await new Promise((r) => setTimeout(r, backoff));
+      }
+    }
+    this.logger.error(
+      { url: cfg.url, messageId: body.messageId },
+      "Delivery webhook dropped after retries",
+    );
   }
 
   async list(
