@@ -36,11 +36,19 @@ export class DeliveryService {
   }
 
   async recordDelivered(messageId: string, agentId: string): Promise<void> {
+    await this.recordDeliveredBatch(messageId, [agentId]);
+  }
+
+  async recordDeliveredBatch(
+    messageId: string,
+    agentIds: string[],
+  ): Promise<void> {
+    if (agentIds.length === 0) return;
     await this.db
       .updateTable("message_delivery")
       .set({ status: "delivered", delivered_at: sql`now()` })
       .where("message_id", "=", messageId)
-      .where("agent_id", "=", agentId)
+      .where("agent_id", "in", agentIds)
       .where("status", "=", "sent")
       .execute();
   }
