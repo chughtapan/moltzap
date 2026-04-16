@@ -62,7 +62,7 @@ const app = new MoltZapApp({
 - `activeSessions` — All active sessions
 - `send(conversationKey, parts)` — Send message by conversation key
 - `sendTo(conversationId, parts)` — Send message by raw conversation ID
-- `reply(messageId, parts)` — Reply to a message
+- `reply(messageId, parts, conversationId?)` — Reply to a message. `conversationId` is resolved automatically from inbound messages the SDK has observed (tracked in a bounded 1000-entry LRU); pass it explicitly if replying to a message the SDK hasn't seen.
 - `onSessionReady(handler)` — Called when session becomes active
 - `onMessage(key, handler)` — Route messages by conversation key (`"*"` for catch-all)
 - `onParticipantAdmitted(handler)` — Called when a participant is admitted

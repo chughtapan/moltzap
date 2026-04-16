@@ -58,10 +58,27 @@ export function createMessageHandlers(deps: {
           conversationId = conversation.id;
         }
 
+        // Resolve replyToId → conversation when conversationId is absent.
+        // Replies land in the same conversation as the message being replied to.
+        if (!conversationId && params.replyToId) {
+          const parent = await deps.db
+            .selectFrom("messages")
+            .select(["conversation_id"])
+            .where("id", "=", params.replyToId)
+            .executeTakeFirst();
+          if (!parent) {
+            throw new RpcError(
+              ErrorCodes.NotFound,
+              `Cannot resolve replyToId ${params.replyToId}: message not found`,
+            );
+          }
+          conversationId = parent.conversation_id;
+        }
+
         if (!conversationId) {
           throw new RpcError(
             ErrorCodes.InvalidParams,
-            "Either conversationId or to is required",
+            "Either conversationId, to, or replyToId is required",
           );
         }
 
