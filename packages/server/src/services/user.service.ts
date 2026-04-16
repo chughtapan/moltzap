@@ -21,12 +21,14 @@ export class WebhookUserService implements UserService {
 
   async validateUser(userId: string): Promise<{ valid: boolean }> {
     try {
-      return await this.client.callSync<{ valid: boolean }>({
+      const result = await this.client.callSync<{ valid: boolean }>({
         url: this.url,
         event: "users.validate",
         body: { userId },
         timeoutMs: this.timeoutMs,
       });
+      // Strict boolean check — don't trust truthy strings from external services
+      return { valid: result.valid === true };
     } catch (err) {
       this.logger.error(
         { err, userId, url: this.url },

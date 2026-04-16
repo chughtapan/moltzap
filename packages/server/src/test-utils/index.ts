@@ -1,9 +1,10 @@
-import pg from "pg";
+/** Test infrastructure — PGlite-based, no external Postgres needed. */
+
 import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Kysely, PostgresDialect } from "kysely";
+import { Kysely } from "kysely";
 import { createCoreApp } from "../app/server.js";
 import { seedInitialKek } from "../crypto/key-rotation.js";
 import { EnvelopeEncryption } from "../crypto/envelope.js";
@@ -16,14 +17,14 @@ export type { CoreApp } from "../app/types.js";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 let coreApp: CoreApp | null = null;
-let adminPool: pg.Pool | null = null;
-let resetPool: pg.Pool | null = null;
-let resetDb: Kysely<Database> | null = null;
-let dbName: string | null = null;
-let masterSecret: string | null = null;
+let appDb: Kysely<Database> | null = null;
+let pgliteClient: {
+  exec: (sql: string) => Promise<unknown>;
+  close: () => Promise<void>;
+} | null = null;
+let _masterSecret: string | null = null;
 let _baseUrl: string | null = null;
 let _wsUrl: string | null = null;
-let pgContainer: unknown = null;
 
 export interface CoreTestServer {
   baseUrl: string;
@@ -32,91 +33,42 @@ export interface CoreTestServer {
   coreApp: CoreApp;
 }
 
-/**
- * Start a core test server with its own Postgres.
- *
- * If pgHost/pgPort are provided, uses that Postgres (e.g., from vitest globalSetup).
- * If omitted, starts a testcontainers Postgres automatically.
- */
-export async function startCoreTestServer(opts?: {
+export async function startCoreTestServer(_opts?: {
   pgHost?: string;
   pgPort?: number;
+  encryption?: boolean;
 }): Promise<CoreTestServer> {
   if (coreApp)
     throw new Error(
       "Test server already running. Call stopCoreTestServer() first.",
     );
 
-  let pgHost = opts?.pgHost;
-  let pgPort = opts?.pgPort;
+  const { KyselyPGlite } = await import("kysely-pglite");
+  const kpg = await KyselyPGlite.create();
 
-  if (!pgHost || !pgPort) {
-    const { PostgreSqlContainer } = await import("@testcontainers/postgresql");
-    const container = await new PostgreSqlContainer("postgres:16-alpine")
-      .withDatabase("moltzap_template")
-      .withUsername("test")
-      .withPassword("test")
-      .start();
-    pgContainer = container;
-    pgHost = container.getHost();
-    pgPort = container.getMappedPort(5432);
+  pgliteClient = kpg.client as unknown as {
+    exec: (sql: string) => Promise<unknown>;
+    close: () => Promise<void>;
+  };
+  appDb = new Kysely<Database>({ dialect: kpg.dialect });
 
-    // Apply core schema to the template DB
-    // Resolve from package root — works from both src/ (tsx) and dist/ (node)
-    const pkgRoot = join(__dirname, "..");
-    const schemaPath = join(
-      pkgRoot.endsWith("dist") ? join(pkgRoot, "..") : pkgRoot,
-      "src",
-      "app",
-      "core-schema.sql",
-    );
-    const schema = readFileSync(schemaPath, "utf-8");
-    const setupPool = new pg.Pool({
-      host: pgHost,
-      port: pgPort,
-      user: "test",
-      password: "test",
-      database: "moltzap_template",
-      max: 2,
-    });
-    await setupPool.query(schema);
-    await setupPool.end();
+  // Apply core schema — __dirname is src/test-utils, schema is at src/app/core-schema.sql
+  const schemaPath = join(__dirname, "..", "app", "core-schema.sql");
+  const schema = readFileSync(schemaPath, "utf-8");
+  await pgliteClient.exec(schema);
+
+  let masterSecret: string | undefined;
+  if (_opts?.encryption) {
+    masterSecret = randomBytes(32).toString("base64");
+    _masterSecret = masterSecret;
+    const envelope = new EnvelopeEncryption(masterSecret);
+    await seedInitialKek(appDb, envelope);
   }
-
-  dbName = `test_${crypto.randomUUID().replace(/-/g, "")}`;
-  masterSecret = randomBytes(32).toString("base64");
-
-  adminPool = new pg.Pool({
-    host: pgHost,
-    port: pgPort,
-    user: "test",
-    password: "test",
-    database: "postgres",
-    max: 2,
-  });
-  await adminPool.query(
-    `CREATE DATABASE "${dbName}" TEMPLATE moltzap_template`,
-  );
-
-  const connString = `postgresql://test:test@${pgHost}:${pgPort}/${dbName}`;
-
-  resetPool = new pg.Pool({ connectionString: connString, max: 2 });
-  resetDb = new Kysely<Database>({
-    dialect: new PostgresDialect({ pool: resetPool }),
-  });
-
-  const envelope = new EnvelopeEncryption(masterSecret);
-  await seedInitialKek(resetDb, envelope);
-
-  const appPool = new pg.Pool({ connectionString: connString, max: 20 });
-  const appDb = new Kysely<Database>({
-    dialect: new PostgresDialect({ pool: appPool }),
-  });
 
   coreApp = createCoreApp({
     db: appDb,
     dbCleanup: async () => {
-      await appDb.destroy();
+      await appDb?.destroy();
     },
     encryptionMasterSecret: masterSecret,
     port: 0,
@@ -130,54 +82,37 @@ export async function startCoreTestServer(opts?: {
   _baseUrl = `http://localhost:${assignedPort}`;
   _wsUrl = `ws://localhost:${assignedPort}/ws`;
 
-  return { baseUrl: _baseUrl, wsUrl: _wsUrl, db: resetDb, coreApp };
+  return { baseUrl: _baseUrl, wsUrl: _wsUrl, db: appDb, coreApp };
 }
 
 export async function stopCoreTestServer(): Promise<void> {
   const app = coreApp;
-  const db = resetDb;
-  const admin = adminPool;
-  const _reset = resetPool;
-  const name = dbName;
-  const container = pgContainer;
+  const client = pgliteClient;
 
-  // Null out singletons FIRST to prevent double-end on sequential test files
   coreApp = null;
-  adminPool = null;
-  resetPool = null;
-  resetDb = null;
-  dbName = null;
-  masterSecret = null;
+  appDb = null;
+  pgliteClient = null;
+  _masterSecret = null;
   _baseUrl = null;
   _wsUrl = null;
-  pgContainer = null;
 
   await app?.close();
-  await db?.destroy();
-  if (admin && name) {
-    try {
-      await admin.query(`DROP DATABASE IF EXISTS "${name}"`);
-    } catch (err) {
-      console.warn(`Failed to drop test DB "${name}":`, err);
-    }
-    await admin.end();
-  }
-
-  if (
-    container &&
-    typeof (container as { stop: () => Promise<void> }).stop === "function"
-  ) {
-    await (container as { stop: () => Promise<void> }).stop();
+  // app.close() calls dbCleanup which destroys Kysely (and PGlite underneath).
+  // Guard against double-close.
+  try {
+    await client?.close();
+  } catch {
+    // PGlite already closed by dbCleanup
   }
 }
 
 export async function resetCoreTestDb(): Promise<void> {
-  if (!resetPool || !resetDb || !masterSecret) {
+  if (!pgliteClient || !appDb) {
     throw new Error(
       "Test server not running. Call startCoreTestServer() first.",
     );
   }
-  await resetPool.query(`
+  await pgliteClient.exec(`
     TRUNCATE TABLE
       app_permission_grants, app_session_participants, app_sessions,
       message_delivery, messages,
@@ -185,16 +120,18 @@ export async function resetCoreTestDb(): Promise<void> {
       agents, encryption_keys
     CASCADE;
   `);
-  const envelope = new EnvelopeEncryption(masterSecret);
-  await seedInitialKek(resetDb, envelope);
+  if (_masterSecret && appDb) {
+    const envelope = new EnvelopeEncryption(_masterSecret);
+    await seedInitialKek(appDb, envelope);
+  }
 }
 
 export function getCoreDb(): Kysely<Database> {
-  if (!resetDb)
+  if (!appDb)
     throw new Error(
       "Test server not running. Call startCoreTestServer() first.",
     );
-  return resetDb;
+  return appDb;
 }
 
 export function getCoreApp(): CoreApp {

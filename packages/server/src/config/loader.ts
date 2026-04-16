@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
+import { dirname } from "node:path";
 import { parse as parseYaml } from "yaml";
 import {
   validateConfig,
@@ -32,7 +33,9 @@ function interpolateEnvVars(obj: unknown): unknown {
   return obj;
 }
 
-export function loadConfigFromFile(path?: string): MoltZapConfig {
+export function loadConfigFromFile(
+  path?: string,
+): MoltZapConfig & { _configDir: string } {
   const configPath = path ?? process.env["MOLTZAP_CONFIG"] ?? "moltzap.yaml";
 
   let raw: string;
@@ -64,7 +67,15 @@ export function loadConfigFromFile(path?: string): MoltZapConfig {
     );
   }
 
-  return result.config;
+  let configDir: string;
+  try {
+    configDir = dirname(realpathSync(configPath));
+  } catch (err) {
+    console.warn("Failed to resolve config path symlink:", err);
+    configDir = dirname(configPath);
+  }
+
+  return { ...result.config, _configDir: configDir };
 }
 
 export class ConfigLoadError extends Error {
