@@ -1,6 +1,7 @@
 import type { AuthService } from "../../services/auth.service.js";
 import type { ConversationService } from "../../services/conversation.service.js";
 import type { PresenceService } from "../../services/presence.service.js";
+import type { UserService } from "../../services/user.service.js";
 import { defineMethod } from "../../rpc/context.js";
 import { sql } from "kysely";
 import type {
@@ -45,6 +46,9 @@ export function createCoreAuthHandlers(deps: {
   connections: ConnectionManager;
   db: Db;
   getConnId: () => string;
+  /** Accessor for the live UserService (set via core.setUserService). Used
+   * to resolve `sessionToken` bearer auth during auth/connect. */
+  getUserService: () => UserService | null;
 }): RpcMethodRegistry {
   return {
     "auth/connect": defineMethod<ConnectParams>({
@@ -61,16 +65,63 @@ export function createCoreAuthHandlers(deps: {
           return buildHelloOk(conn.auth, deps);
         }
 
-        const agent = await deps.authService.authenticateAgent(params.agentKey);
-        if (!agent) {
-          throw new RpcError(ErrorCodes.Unauthorized, "Authentication failed");
-        }
+        let auth: AuthenticatedContext;
 
-        const auth: AuthenticatedContext = {
-          agentId: agent.agentId,
-          agentStatus: agent.status,
-          ownerUserId: agent.ownerUserId,
-        };
+        if (params.sessionToken && !params.agentKey) {
+          // Bearer-token path: delegate to UserService.validateSession
+          const userSvc = deps.getUserService();
+          if (!userSvc?.validateSession) {
+            throw new RpcError(
+              ErrorCodes.Unauthorized,
+              "Session tokens not supported by this server",
+            );
+          }
+          const result = await userSvc.validateSession(params.sessionToken);
+          if (!result.valid || !result.agentId || !result.ownerUserId) {
+            throw new RpcError(
+              ErrorCodes.Unauthorized,
+              "Authentication failed",
+            );
+          }
+          // Look up agent status so `requiresActive` gating still works.
+          const row = await deps.db
+            .selectFrom("agents")
+            .select("status")
+            .where("id", "=", result.agentId)
+            .executeTakeFirst();
+          if (!row) {
+            throw new RpcError(
+              ErrorCodes.Unauthorized,
+              "Authentication failed",
+            );
+          }
+          auth = {
+            agentId: result.agentId,
+            agentStatus: row.status,
+            ownerUserId: result.ownerUserId,
+          };
+        } else if (params.agentKey && !params.sessionToken) {
+          // Agent API key path (unchanged)
+          const agent = await deps.authService.authenticateAgent(
+            params.agentKey,
+          );
+          if (!agent) {
+            throw new RpcError(
+              ErrorCodes.Unauthorized,
+              "Authentication failed",
+            );
+          }
+          auth = {
+            agentId: agent.agentId,
+            agentStatus: agent.status,
+            ownerUserId: agent.ownerUserId,
+          };
+        } else {
+          throw new RpcError(
+            ErrorCodes.InvalidParams,
+            "Exactly one of `agentKey` or `sessionToken` required",
+          );
+        }
 
         // Set auth on the connection
         conn.auth = auth;
