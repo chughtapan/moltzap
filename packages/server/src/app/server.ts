@@ -3,8 +3,6 @@ import { cors } from "hono/cors";
 import { createNodeWebSocket } from "@hono/node-ws";
 import { serve } from "@hono/node-server";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { Kysely, PostgresDialect } from "kysely";
-import pg from "pg";
 import { logger } from "../logger.js";
 import { ConnectionManager } from "../ws/connection.js";
 import { Broadcaster } from "../ws/broadcaster.js";
@@ -16,7 +14,6 @@ import type {
 import type { RequestFrame } from "@moltzap/protocol";
 import { ErrorCodes, validators } from "@moltzap/protocol";
 import { EnvelopeEncryption } from "../crypto/envelope.js";
-import type { Database } from "../db/database.js";
 
 // Services
 import { AuthService } from "../services/auth.service.js";
@@ -35,28 +32,12 @@ import { createAppHandlers } from "./handlers/apps.handlers.js";
 
 // AppHost
 import { AppHost, DefaultPermissionService } from "./app-host.js";
-
-// Service adapters
-import { WebhookUserService } from "../services/user.service.js";
-import { WebhookClient, AsyncWebhookAdapter } from "../adapters/webhook.js";
+import type { AsyncWebhookAdapter } from "../adapters/webhook.js";
 
 import type { CoreConfig, CoreApp, ConnectionHook } from "./types.js";
 
 export function createCoreApp(config: CoreConfig): CoreApp {
-  // Database pool
-  const pool = new pg.Pool({
-    connectionString: config.databaseUrl,
-    max: 20,
-    idleTimeoutMillis: 30000,
-  });
-
-  pool.on("error", (err) => {
-    logger.error({ err }, "Unexpected database pool error");
-  });
-
-  const db = new Kysely<Database>({
-    dialect: new PostgresDialect({ pool }),
-  });
+  const db = config.db;
 
   // Infrastructure
   const connections = new ConnectionManager();
@@ -99,37 +80,6 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     broadcaster,
     logger,
   );
-
-  // Wire services based on config (webhook or in-process)
-  const webhookClient = new WebhookClient();
-  let _webhookPermAdapter: AsyncWebhookAdapter | null = null;
-  let _callbackToken: string | null = null;
-
-  if (
-    config.services?.users?.type === "webhook" &&
-    config.services.users.webhook_url
-  ) {
-    appHost.setUserService(
-      new WebhookUserService(
-        webhookClient,
-        config.services.users.webhook_url,
-        config.services.users.timeout_ms ?? 10000,
-        logger,
-      ),
-    );
-  }
-
-  if (
-    config.services?.permissions?.type === "webhook" &&
-    config.services.permissions.webhook_url
-  ) {
-    _webhookPermAdapter = new AsyncWebhookAdapter();
-    _callbackToken =
-      config.services.permissions.callback_token ?? crypto.randomUUID();
-  }
-
-  // Always set default permission service for in-process mode
-  // (webhook mode will override this in standalone.ts)
   appHost.setPermissionService(defaultPermissionService);
 
   // Per-request connection context for concurrent WebSocket RPC dispatches
@@ -138,7 +88,11 @@ export function createCoreApp(config: CoreConfig): CoreApp {
   // Connection hooks
   const connectionHooks: ConnectionHook[] = [];
 
-  // Mutable RPC method registry — core handlers + extension methods from @moltzap/server
+  // Webhook permission callback state (set via setWebhookPermissionCallback)
+  let _webhookPermAdapter: AsyncWebhookAdapter | null = null;
+  let _callbackToken: string | null = null;
+
+  // Mutable RPC method registry — core handlers + extension methods
   const methods: RpcMethodRegistry = {
     ...createCoreAuthHandlers({
       authService,
@@ -200,10 +154,9 @@ export function createCoreApp(config: CoreConfig): CoreApp {
       return c.json({ error: "Invalid parameters" }, 400);
     }
 
-    // Enforce registration secret when configured
-    if (config.registration?.secret) {
+    if (config.registrationSecret) {
       const inviteCode = (body as { inviteCode?: string }).inviteCode;
-      if (!inviteCode || inviteCode !== config.registration.secret) {
+      if (!inviteCode || inviteCode !== config.registrationSecret) {
         return c.json({ error: "Invalid or missing invite code" }, 403);
       }
     }
@@ -406,6 +359,10 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     setPermissionService(handler) {
       appHost.setPermissionService(handler);
     },
+    setWebhookPermissionCallback(adapter, token) {
+      _webhookPermAdapter = adapter;
+      _callbackToken = token;
+    },
     async createAppSession(appId, initiatorAgentId, invitedAgentIds) {
       return appHost.createSession(appId, initiatorAgentId, invitedAgentIds);
     },
@@ -425,10 +382,11 @@ export function createCoreApp(config: CoreConfig): CoreApp {
           logger.warn({ err }, "Failed to close WebSocket on shutdown");
         }
       }
-      // Give in-flight handlers a moment to settle
       await new Promise((r) => setTimeout(r, 500));
       server.close();
-      await db.destroy();
+      if (config.dbCleanup) {
+        await config.dbCleanup();
+      }
     },
   };
 }

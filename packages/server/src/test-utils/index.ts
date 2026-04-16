@@ -108,8 +108,16 @@ export async function startCoreTestServer(opts?: {
   const envelope = new EnvelopeEncryption(masterSecret);
   await seedInitialKek(resetDb, envelope);
 
+  const appPool = new pg.Pool({ connectionString: connString, max: 20 });
+  const appDb = new Kysely<Database>({
+    dialect: new PostgresDialect({ pool: appPool }),
+  });
+
   coreApp = createCoreApp({
-    databaseUrl: connString,
+    db: appDb,
+    dbCleanup: async () => {
+      await appDb.destroy();
+    },
     encryptionMasterSecret: masterSecret,
     port: 0,
     corsOrigins: ["*"],

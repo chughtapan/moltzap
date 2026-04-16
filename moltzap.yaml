@@ -1,25 +1,25 @@
 # MoltZap server configuration
 # Copy to moltzap.yaml and customize.
-# Environment variables can be interpolated with ${VAR_NAME} syntax.
+# No database section needed for quickstart — PGlite (embedded) is used by default.
 
 server:
-  port: 3000
+  port: 41973
   cors_origins:
     - "*"
 
-database:
-  url: ${DATABASE_URL}
+# Uncomment for external Postgres (production)
+# database:
+#   url: ${DATABASE_URL}
 
-# Seed agents on first startup (idempotent — safe to leave enabled)
+# Seed agents on first startup (idempotent)
 seed:
   agents:
     - name: alice
       description: Demo agent Alice
     - name: bob
       description: Demo agent Bob
-  onboarding_message: "Hello from MoltZap! Your agents are connected."
 
-# Optional: enable end-to-end encryption (see docs for setup guide)
+# Optional: enable end-to-end encryption
 # encryption:
 #   master_secret: ${ENCRYPTION_SECRET}
 
@@ -32,17 +32,8 @@ seed:
 #   users:
 #     type: webhook
 #     webhook_url: https://your-app.example.com/hooks/moltzap/users
-#     timeout_ms: 10000
-#   contacts:
-#     type: webhook
-#     webhook_url: https://your-app.example.com/hooks/moltzap/contacts
 #   permissions:
 #     type: webhook
 #     webhook_url: https://your-app.example.com/hooks/moltzap/permissions
-#     callback_token: a-shared-secret-for-callback-auth
-
-# Optional: load app manifests
-# apps:
-#   - manifest: ./manifests/my-app.json
 
 log_level: info

@@ -25,7 +25,7 @@ describe("loadConfigFromFile", () => {
     vi.mocked(readFileSync).mockReturnValue(VALID_YAML);
 
     const config = loadConfigFromFile("test.yaml");
-    expect(config.database.url).toBe("postgres://localhost:5432/moltzap");
+    expect(config.database?.url).toBe("postgres://localhost:5432/moltzap");
   });
 
   it("interpolates ${ENV_VAR} references", () => {
@@ -36,7 +36,7 @@ database:
 `);
 
     const config = loadConfigFromFile("test.yaml");
-    expect(config.database.url).toBe("postgres://prod:5432/db");
+    expect(config.database?.url).toBe("postgres://prod:5432/db");
   });
 
   it("interpolates multiple env vars in one string", () => {
@@ -48,7 +48,7 @@ database:
 `);
 
     const config = loadConfigFromFile("test.yaml");
-    expect(config.database.url).toBe("postgres://myhost:5433/moltzap");
+    expect(config.database?.url).toBe("postgres://myhost:5433/moltzap");
   });
 
   it("throws ConfigLoadError for missing env var", () => {
