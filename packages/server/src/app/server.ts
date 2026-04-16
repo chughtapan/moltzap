@@ -155,32 +155,35 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     c.json({ status: "ok", connections: connections.size }),
   );
 
-  // Agent registration
-  app.post("/api/v1/auth/register", async (c) => {
-    const body = await c.req.json();
-    if (!validators.registerParams(body)) {
-      return c.json({ error: "Invalid parameters" }, 400);
-    }
-
-    if (config.registrationSecret) {
-      const inviteCode = (body as { inviteCode?: string }).inviteCode;
-      if (!inviteCode || !safeEqual(inviteCode, config.registrationSecret)) {
-        return c.json({ error: "Invalid or missing invite code" }, 403);
+  // Agent registration — skipped when the app wants its own invite-gated
+  // route. Set `skipDefaultRegisterRoute: true` in CoreConfig to opt out.
+  if (!config.skipDefaultRegisterRoute) {
+    app.post("/api/v1/auth/register", async (c) => {
+      const body = await c.req.json();
+      if (!validators.registerParams(body)) {
+        return c.json({ error: "Invalid parameters" }, 400);
       }
-    }
 
-    try {
-      const result = await authService.registerAgent(body);
-      return c.json(result, 201);
-    } catch (err) {
-      if (err instanceof RpcError) {
-        const status = err.code === ErrorCodes.Forbidden ? 403 : 400;
-        return c.json({ error: err.message }, status);
+      if (config.registrationSecret) {
+        const inviteCode = (body as { inviteCode?: string }).inviteCode;
+        if (!inviteCode || !safeEqual(inviteCode, config.registrationSecret)) {
+          return c.json({ error: "Invalid or missing invite code" }, 403);
+        }
       }
-      logger.error({ err }, "Registration failed");
-      return c.json({ error: "Registration failed" }, 500);
-    }
-  });
+
+      try {
+        const result = await authService.registerAgent(body);
+        return c.json(result, 201);
+      } catch (err) {
+        if (err instanceof RpcError) {
+          const status = err.code === ErrorCodes.Forbidden ? 403 : 400;
+          return c.json({ error: err.message }, status);
+        }
+        logger.error({ err }, "Registration failed");
+        return c.json({ error: "Registration failed" }, 500);
+      }
+    });
+  }
 
   // Permissions callback for async webhook flow
   app.post("/api/v1/permissions/resolve", async (c) => {
