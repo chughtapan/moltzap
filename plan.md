@@ -132,22 +132,22 @@ Add compiled validators.
 
 ### `@moltzap/server-core`
 
-**6. `packages/server-core/src/app/core-schema.sql`** — UPDATE
+**6. `packages/server/src/app/core-schema.sql`** — UPDATE
 Add tables:
 - `app_sessions` — `{ id, app_id, initiator_agent_id, status, created_at }` (no conversation_id — conversations linked via metadata tags)
 - `app_session_participants` — `{ session_id, agent_id, status, rejection_reason, admitted_at }`
 - `app_permission_grants` — `{ id, user_id, app_id, resource, access[], granted_at }`
 
-**7. `packages/server-core/src/db/database.ts`** — UPDATE
+**7. `packages/server/src/db/database.ts`** — UPDATE
 Add Kysely table interfaces for new tables.
 
-**8. `packages/server-core/src/services/app-session.service.ts`** — NEW
+**8. `packages/server/src/services/app-session.service.ts`** — NEW
 CRUD for app sessions and participant status tracking.
 
-**9. `packages/server-core/src/services/app-permission.service.ts`** — NEW
+**9. `packages/server/src/services/app-permission.service.ts`** — NEW
 Permission grant CRUD (upsert, check, list).
 
-**10. `packages/server-core/src/app/app-host.ts`** — NEW
+**10. `packages/server/src/app/app-host.ts`** — NEW
 Core policy engine:
 
 ```typescript
@@ -191,13 +191,13 @@ export class AppHost {
 }
 ```
 
-**11. `packages/server-core/src/app/handlers/apps.handlers.ts`** — NEW
+**11. `packages/server/src/app/handlers/apps.handlers.ts`** — NEW
 RPC handlers:
 - `apps/create` — creates session via AppHost, returns session + channels
 - `apps/attestSkill` — resolves capability challenge
 - `apps/grantPermission` — grants permission, resolves pending request
 
-**12. `packages/server-core/src/app/types.ts`** — UPDATE
+**12. `packages/server/src/app/types.ts`** — UPDATE
 Add to `CoreApp`:
 ```typescript
 registerApp: (manifest: AppManifest) => void;
@@ -205,12 +205,12 @@ setContactChecker: (checker: ContactChecker) => void;
 createAppSession: (appId: string, initiatorAgentId: string, invitedAgentIds: string[]) => Promise<AppSession>;
 ```
 
-**13. `packages/server-core/src/app/server.ts`** — UPDATE
+**13. `packages/server/src/app/server.ts`** — UPDATE
 - Instantiate AppHost with all deps
 - Register app handlers
 - Expose `registerApp()` and `setContactChecker()` on returned CoreApp
 
-**14. `packages/server-core/src/index.ts`** — UPDATE
+**14. `packages/server/src/index.ts`** — UPDATE
 Export: `AppHost`, `AppSessionService`, `AppPermissionService`, `ContactChecker`, new DB types.
 
 ---
@@ -278,13 +278,13 @@ This replaces the current `GameRoom.createGameRoomWithExistingAgents()` + manual
 
 ## Verification
 
-1. **Unit tests** — `packages/server-core/src/app/app-host.test.ts`:
+1. **Unit tests** — `packages/server/src/app/app-host.test.ts`:
    - Identity fail → participant rejected
    - Capability timeout → rejected
    - Permission denied → rejected  
    - Full happy path with mock deps
 
-2. **Integration test** — `packages/server-core/src/__tests__/integration/30-app-host.integration.test.ts`:
+2. **Integration test** — `packages/server/src/__tests__/integration/30-app-host.integration.test.ts`:
    - Register app, create session, verify skill challenge sent
    - Attest skill, verify permission request sent
    - Grant permission, verify participant admitted to conversation
@@ -366,7 +366,7 @@ This replaces the current `GameRoom.createGameRoomWithExistingAgents()` + manual
 
 21. **Error suggestedAction (MEDIUM, DX):** Error codes exist but lack fix guidance. Fix: every app RPC error includes `data.suggestedAction` with a concrete code snippet (e.g., "Call core.registerApp({ appId: 'werewolf', ... }) before creating sessions").
 
-22. **server-core README (MEDIUM, DX):** No README for the package developers import. Fix: add `packages/server-core/README.md` with AppHost section + JSDoc on `registerApp()`, `createAppSession()`, `AppManifest`.
+22. **server-core README (MEDIUM, DX):** No README for the package developers import. Fix: add `packages/server/README.md` with AppHost section + JSDoc on `registerApp()`, `createAppSession()`, `AppManifest`.
 
 23. **App test utility (MEDIUM, DX):** Developers building apps need test helpers. Fix: add `setupAppTestSession()` to `test-utils/` that registers a test app + creates session + returns handles, following the existing `setupAgentPair()` pattern.
 

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Pack server-core into a tarball
-TARBALL=$(cd packages/server-core && pnpm pack --pack-destination /tmp 2>/dev/null | tail -1)
+TARBALL=$(cd packages/server && pnpm pack --pack-destination /tmp 2>/dev/null | tail -1)
 echo "Packed: $TARBALL"
 
 # Create temp project
