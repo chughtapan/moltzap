@@ -1,7 +1,7 @@
 /** Test infrastructure — PGlite-based, no external Postgres needed. */
 
 import { randomBytes } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Kysely } from "kysely";
@@ -52,8 +52,9 @@ export async function startCoreTestServer(_opts?: {
   };
   appDb = new Kysely<Database>({ dialect: kpg.dialect });
 
-  // Apply core schema — __dirname is src/test-utils, schema is at src/app/core-schema.sql
-  const schemaPath = join(__dirname, "..", "app", "core-schema.sql");
+  const srcPath = join(__dirname, "..", "app", "core-schema.sql");
+  const distPath = join(__dirname, "..", "..", "src", "app", "core-schema.sql");
+  const schemaPath = existsSync(srcPath) ? srcPath : distPath;
   const schema = readFileSync(schemaPath, "utf-8");
   await pgliteClient.exec(schema);
 
