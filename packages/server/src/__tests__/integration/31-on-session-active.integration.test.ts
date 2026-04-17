@@ -174,7 +174,7 @@ describe("Scenario 31b: on_session_active hook", () => {
         });
       });
 
-      const session = (yield* initiator.client.rpc("apps/create", {
+      const session = (yield* initiator.client.sendRpc("apps/create", {
         appId: "osa-fire-once",
         invitedAgentIds: [inviteeA.agentId, inviteeB.agentId],
       })) as {
@@ -213,7 +213,7 @@ describe("Scenario 31b: on_session_active hook", () => {
         hookFinishedAt = Date.now();
       });
 
-      yield* initiator.client.rpc("apps/create", {
+      yield* initiator.client.sendRpc("apps/create", {
         appId: "osa-order",
         invitedAgentIds: [invitee.agentId],
       });
@@ -243,7 +243,7 @@ describe("Scenario 31b: on_session_active hook", () => {
         await new Promise((r) => setTimeout(r, 600));
       });
 
-      const session = (yield* initiator.client.rpc("apps/create", {
+      const session = (yield* initiator.client.sendRpc("apps/create", {
         appId: "osa-timeout-app",
         invitedAgentIds: [invitee.agentId],
       })) as { session: { id: string } };
@@ -288,7 +288,7 @@ describe("Scenario 31b: on_session_active hook", () => {
         throw new Error("boom from on_session_active");
       });
 
-      const session = (yield* initiator.client.rpc("apps/create", {
+      const session = (yield* initiator.client.sendRpc("apps/create", {
         appId: "osa-throw-app",
         invitedAgentIds: [invitee.agentId],
       })) as { session: { id: string } };
@@ -321,7 +321,7 @@ describe("Scenario 31b: on_session_active hook", () => {
           onSessionActiveWebhook: hook.url + "/on-session-active",
         });
 
-        const session = (yield* initiator.client.rpc("apps/create", {
+        const session = (yield* initiator.client.sendRpc("apps/create", {
           appId: "osa-webhook-app",
           invitedAgentIds: [invitee.agentId],
         })) as { session: { id: string } };
