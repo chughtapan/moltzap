@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { Schema } from "effect";
 import { WebhookClient, AsyncWebhookAdapter, WebhookError } from "./webhook.js";
+
+const OkSchema = Schema.Struct({ ok: Schema.Boolean });
+const AnySchema = Schema.Unknown;
 
 // -- WebhookClient (sync) ---------------------------------------------------
 
@@ -20,11 +24,12 @@ describe("WebhookClient", () => {
       new Response(JSON.stringify({ ok: true }), { status: 200 }),
     );
 
-    const result = await client.callSync<{ ok: boolean }>({
+    const result = await client.callSync({
       url: "https://hook.test/users",
       event: "users.validate",
       body: { userId: "u1" },
       timeoutMs: 5000,
+      schema: OkSchema,
     });
 
     expect(result).toEqual({ ok: true });
@@ -50,6 +55,7 @@ describe("WebhookClient", () => {
         event: "test",
         body: {},
         timeoutMs: 5000,
+        schema: AnySchema,
       }),
     ).rejects.toThrow(WebhookError);
 
@@ -59,6 +65,7 @@ describe("WebhookClient", () => {
         event: "test",
         body: {},
         timeoutMs: 5000,
+        schema: AnySchema,
       });
     } catch (err) {
       expect((err as WebhookError).statusCode).toBe(403);
@@ -79,6 +86,7 @@ describe("WebhookClient", () => {
         event: "test.timeout",
         body: {},
         timeoutMs: 100,
+        schema: AnySchema,
       }),
     ).rejects.toThrow(WebhookError);
 
@@ -88,10 +96,53 @@ describe("WebhookClient", () => {
         event: "test.timeout",
         body: {},
         timeoutMs: 100,
+        schema: AnySchema,
       });
     } catch (err) {
       expect((err as WebhookError).statusCode).toBe(0);
       expect((err as WebhookError).message).toContain("timed out");
+    }
+  });
+
+  it("throws WebhookError when JSON is malformed", async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      new Response("not json", { status: 200 }),
+    );
+
+    try {
+      await client.callSync({
+        url: "https://hook.test/x",
+        event: "test.badjson",
+        body: {},
+        timeoutMs: 5000,
+        schema: OkSchema,
+      });
+      throw new Error("expected throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(WebhookError);
+      expect((err as WebhookError).statusCode).toBe(0);
+      expect((err as WebhookError).message).toContain("invalid JSON");
+    }
+  });
+
+  it("throws WebhookError when response does not match schema", async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(JSON.stringify({ ok: "yes" }), { status: 200 }),
+    );
+
+    try {
+      await client.callSync({
+        url: "https://hook.test/x",
+        event: "test.badshape",
+        body: {},
+        timeoutMs: 5000,
+        schema: OkSchema,
+      });
+      throw new Error("expected throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(WebhookError);
+      expect((err as WebhookError).statusCode).toBe(0);
+      expect((err as WebhookError).message).toContain("did not match schema");
     }
   });
 
@@ -104,6 +155,7 @@ describe("WebhookClient", () => {
         event: "test.net",
         body: {},
         timeoutMs: 5000,
+        schema: AnySchema,
       }),
     ).rejects.toThrow(WebhookError);
 
@@ -113,6 +165,7 @@ describe("WebhookClient", () => {
         event: "test.net",
         body: {},
         timeoutMs: 5000,
+        schema: AnySchema,
       });
     } catch (err) {
       expect((err as WebhookError).message).toContain("ECONNREFUSED");

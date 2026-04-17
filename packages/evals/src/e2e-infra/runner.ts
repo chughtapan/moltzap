@@ -3,7 +3,7 @@
  * analyze. Each phase's own JSDoc documents its shape and concurrency.
  */
 
-import { Duration, Effect } from "effect";
+import { Duration, Effect, Either, Schema } from "effect";
 import {
   startCoreTestServer,
   stopCoreTestServer,
@@ -37,6 +37,29 @@ const EVAL_PHASE_CONCURRENCY = 4;
 /** Settle window after a group message so bystander agents can pipe a side reply. */
 const BYSTANDER_SETTLE_MS = 3000;
 
+/**
+ * Wire shape of the `conversationContext` JSON built in `generateResult`.
+ * The runner both produces and consumes it, so a decode failure here means
+ * the producer and consumer have drifted — surface it as a validation error
+ * rather than silently casting and reading `undefined` fields.
+ */
+const MessagePartSchema = Schema.Struct({
+  type: Schema.String,
+  text: Schema.optional(Schema.String),
+});
+
+const ConversationContextSchema = Schema.Struct({
+  conversationId: Schema.String.pipe(Schema.nonEmptyString()),
+  senderId: Schema.String.pipe(Schema.nonEmptyString()),
+  messageId: Schema.String.pipe(Schema.nonEmptyString()),
+  parts: Schema.Array(MessagePartSchema).pipe(Schema.minItems(1)),
+  createdAt: Schema.optional(Schema.String),
+});
+
+const decodeConversationContext = Schema.decodeUnknownEither(
+  Schema.parseJson(ConversationContextSchema),
+);
+
 /** Validate a MoltZap message response against protocol constraints. */
 function validateResponse(result: GeneratedResult): ValidatedResult {
   const errors: string[] = [];
@@ -50,42 +73,17 @@ function validateResponse(result: GeneratedResult): ValidatedResult {
     errors.push("Agent response is empty");
   }
 
-  // The response text is what we got from the agent via MoltZap.
-  // We validate context metadata embedded during generation.
   if (result.conversationContext) {
-    try {
-      const ctx = JSON.parse(result.conversationContext) as {
-        conversationId?: string;
-        senderId?: string;
-        messageId?: string;
-        parts?: Array<{ type: string; text?: string }>;
-      };
-
-      if (!ctx.conversationId) {
-        errors.push("Response missing conversationId");
-      }
-      if (!ctx.senderId) {
-        errors.push("Response missing sender agent ID");
-      }
-      if (!ctx.messageId) {
-        errors.push("Response missing message ID");
-      }
-      if (!ctx.parts || ctx.parts.length === 0) {
-        errors.push("Response has no message parts");
-      } else {
-        const hasText = ctx.parts.some(
-          (p) => p.type === "text" && p.text && p.text.trim() !== "",
-        );
-        if (!hasText) {
-          errors.push("Response has no non-empty text parts");
-        }
-      }
-    } catch (err) {
-      errors.push(
-        `Conversation context is not valid JSON: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
+    const decoded = decodeConversationContext(result.conversationContext);
+    if (Either.isLeft(decoded)) {
+      errors.push(`Invalid conversation context: ${decoded.left.message}`);
+    } else {
+      const hasText = decoded.right.parts.some(
+        (p) => p.type === "text" && p.text && p.text.trim() !== "",
       );
+      if (!hasText) {
+        errors.push("Response has no non-empty text parts");
+      }
     }
   }
 
