@@ -1339,21 +1339,17 @@ export class AppHost {
         event: opts.event,
         body: undefined,
         bodyJson,
-        headers: signature
-          ? { "X-MoltZap-Signature": signature }
-          : undefined,
+        headers: signature ? { "X-MoltZap-Signature": signature } : undefined,
         timeoutMs: opts.timeoutMs,
       });
 
       return yield* request.pipe(
         Effect.map((result) => ({ result, timedOut: false }) as HookOutcome<T>),
-        Effect.catchTag(
-          "WebhookTimeoutError",
-          () =>
-            Effect.succeed({
-              result: null,
-              timedOut: true as const,
-            } as HookOutcome<T>),
+        Effect.catchTag("WebhookTimeoutError", () =>
+          Effect.succeed({
+            result: null,
+            timedOut: true as const,
+          } as HookOutcome<T>),
         ),
         Effect.catchAll((err) =>
           Effect.gen(function* () {

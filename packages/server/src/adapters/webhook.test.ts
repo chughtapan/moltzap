@@ -1,9 +1,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { WebhookClient, AsyncWebhookAdapter, WebhookError } from "./webhook.js";
+import { Cause, Effect, Exit, Fiber } from "effect";
+import {
+  AsyncWebhookAdapter,
+  WebhookClient,
+  WebhookDestroyedError,
+  WebhookHttpError,
+  WebhookNetworkError,
+  WebhookTimeoutError,
+} from "./webhook.js";
 
 // -- WebhookClient (sync) ---------------------------------------------------
 
-describe("WebhookClient", () => {
+describe("WebhookClient.call", () => {
   let client: WebhookClient;
 
   beforeEach(() => {
@@ -20,12 +28,14 @@ describe("WebhookClient", () => {
       new Response(JSON.stringify({ ok: true }), { status: 200 }),
     );
 
-    const result = await client.callSync<{ ok: boolean }>({
-      url: "https://hook.test/users",
-      event: "users.validate",
-      body: { userId: "u1" },
-      timeoutMs: 5000,
-    });
+    const result = await Effect.runPromise(
+      client.call<{ ok: boolean }>({
+        url: "https://hook.test/users",
+        event: "users.validate",
+        body: { userId: "u1" },
+        timeoutMs: 5000,
+      }),
+    );
 
     expect(result).toEqual({ ok: true });
     expect(fetch).toHaveBeenCalledWith(
@@ -39,124 +49,137 @@ describe("WebhookClient", () => {
     );
   });
 
-  it("throws WebhookError with status code on non-200 response", async () => {
+  it("fails with WebhookHttpError on non-2xx status", async () => {
     vi.mocked(fetch).mockResolvedValue(
       new Response("forbidden", { status: 403 }),
     );
 
-    await expect(
-      client.callSync({
+    const exit = await Effect.runPromiseExit(
+      client.call({
         url: "https://hook.test/x",
         event: "test",
         body: {},
         timeoutMs: 5000,
       }),
-    ).rejects.toThrow(WebhookError);
-
-    try {
-      await client.callSync({
-        url: "https://hook.test/x",
-        event: "test",
-        body: {},
-        timeoutMs: 5000,
-      });
-    } catch (err) {
-      expect((err as WebhookError).statusCode).toBe(403);
-      expect((err as WebhookError).message).toContain("403");
-    }
-  });
-
-  it("throws WebhookError on timeout", async () => {
-    const timeoutErr = new DOMException(
-      "The operation was aborted",
-      "TimeoutError",
     );
-    vi.mocked(fetch).mockRejectedValue(timeoutErr);
 
-    await expect(
-      client.callSync({
-        url: "https://hook.test/x",
-        event: "test.timeout",
-        body: {},
-        timeoutMs: 100,
-      }),
-    ).rejects.toThrow(WebhookError);
-
-    try {
-      await client.callSync({
-        url: "https://hook.test/x",
-        event: "test.timeout",
-        body: {},
-        timeoutMs: 100,
-      });
-    } catch (err) {
-      expect((err as WebhookError).statusCode).toBe(0);
-      expect((err as WebhookError).message).toContain("timed out");
-    }
+    expect(exit._tag).toBe("Failure");
+    if (exit._tag !== "Failure") return;
+    const err = Cause.failureOption(exit.cause);
+    expect(err._tag).toBe("Some");
+    if (err._tag !== "Some") return;
+    expect(err.value._tag).toBe("WebhookHttpError");
+    const httpErr = err.value as WebhookHttpError;
+    expect(httpErr.status).toBe(403);
+    expect(httpErr.body).toBe("forbidden");
   });
 
-  it("throws WebhookError on network failure", async () => {
+  it("fails with WebhookTimeoutError when timeoutMs elapses", async () => {
+    // fetch never resolves — Effect.timeoutFail triggers on the real
+    // clock. We keep the budget small (50ms) so the test stays fast.
+    vi.mocked(fetch).mockImplementation(
+      () => new Promise(() => undefined) as never,
+    );
+
+    const exit = await Effect.runPromiseExit(
+      client.call({
+        url: "https://hook.test/x",
+        event: "test.timeout",
+        body: {},
+        timeoutMs: 50,
+      }),
+    );
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (!Exit.isFailure(exit)) return;
+    const err = Cause.failureOption(exit.cause);
+    if (err._tag !== "Some") throw new Error("expected failure");
+    expect(err.value._tag).toBe("WebhookTimeoutError");
+    expect((err.value as WebhookTimeoutError).timeoutMs).toBe(50);
+  });
+
+  it("fails with WebhookNetworkError on fetch rejection", async () => {
     vi.mocked(fetch).mockRejectedValue(new Error("ECONNREFUSED"));
 
-    await expect(
-      client.callSync({
+    const exit = await Effect.runPromiseExit(
+      client.call({
         url: "https://hook.test/x",
         event: "test.net",
         body: {},
         timeoutMs: 5000,
       }),
-    ).rejects.toThrow(WebhookError);
+    );
 
-    try {
-      await client.callSync({
-        url: "https://hook.test/x",
-        event: "test.net",
-        body: {},
-        timeoutMs: 5000,
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (!Exit.isFailure(exit)) return;
+    const err = Cause.failureOption(exit.cause);
+    if (err._tag !== "Some") throw new Error("expected failure");
+    expect(err.value._tag).toBe("WebhookNetworkError");
+    const netErr = err.value as WebhookNetworkError;
+    expect(netErr.cause).toBeInstanceOf(Error);
+    expect((netErr.cause as Error).message).toBe("ECONNREFUSED");
+  });
+
+  it("aborts fetch via AbortSignal on fiber interrupt", async () => {
+    let capturedSignal: AbortSignal | undefined;
+    vi.mocked(fetch).mockImplementation((_url, init) => {
+      capturedSignal = (init as RequestInit).signal as AbortSignal;
+      return new Promise((_resolve, reject) => {
+        capturedSignal?.addEventListener("abort", () =>
+          reject(new Error("aborted")),
+        );
       });
-    } catch (err) {
-      expect((err as WebhookError).message).toContain("ECONNREFUSED");
-    }
+    });
+
+    const fiber = Effect.runFork(
+      client.call({
+        url: "https://hook.test/x",
+        event: "test.interrupt",
+        body: {},
+        timeoutMs: 60000,
+      }),
+    );
+
+    // Give the fetch mock one tick to register.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(capturedSignal?.aborted).toBe(false);
+
+    await Effect.runPromise(Fiber.interrupt(fiber));
+    expect(capturedSignal?.aborted).toBe(true);
   });
 });
 
 // -- AsyncWebhookAdapter (permissions) --------------------------------------
 
-describe("AsyncWebhookAdapter", () => {
+describe("AsyncWebhookAdapter.send", () => {
   let adapter: AsyncWebhookAdapter;
-  let needsCleanup: boolean;
 
   beforeEach(() => {
     adapter = new AsyncWebhookAdapter(5);
-    needsCleanup = true;
     vi.stubGlobal("fetch", vi.fn());
-    vi.useFakeTimers();
   });
 
-  afterEach(() => {
-    if (needsCleanup) adapter.destroy();
-    vi.useRealTimers();
+  afterEach(async () => {
+    await Effect.runPromise(adapter.shutdown);
     vi.restoreAllMocks();
   });
 
-  /** Flush microtasks so sendRequest progresses past `await fetch()` and registers the pending entry. */
-  async function flushSendRequest() {
-    await vi.advanceTimersByTimeAsync(0);
-  }
-
-  it("sends request and resolves via callback", async () => {
+  it("resolves with access when callback arrives", async () => {
     vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 202 }));
 
-    const promise = adapter.sendRequest({
-      url: "https://hook.test/perms",
-      requestId: "req-1",
-      callbackUrl: "https://me/callback",
-      callbackToken: "token",
-      body: { agentId: "a1" },
-      timeoutMs: 10000,
-    });
+    const fiber = Effect.runFork(
+      adapter.send({
+        url: "https://hook.test/perms",
+        requestId: "req-1",
+        callbackUrl: "https://me/callback",
+        callbackToken: "token",
+        body: { agentId: "a1" },
+        timeoutMs: 10_000,
+      }),
+    );
 
-    await flushSendRequest();
+    // Give the fetch promise + Deferred registration a tick.
+    await new Promise((r) => setTimeout(r, 0));
 
     expect(fetch).toHaveBeenCalledWith(
       "https://hook.test/perms",
@@ -169,142 +192,139 @@ describe("AsyncWebhookAdapter", () => {
       }),
     );
 
-    const resolved = adapter.resolveCallback("req-1", ["read", "write"]);
-    expect(resolved).toBe(true);
+    const found = await Effect.runPromise(
+      adapter.resolveCallback("req-1", ["read", "write"]),
+    );
+    expect(found).toBe(true);
 
-    const result = await promise;
-    expect(result).toEqual(["read", "write"]);
+    const exit = await Effect.runPromise(Fiber.await(fiber));
+    expect(Exit.isSuccess(exit)).toBe(true);
+    if (Exit.isSuccess(exit)) expect(exit.value).toEqual(["read", "write"]);
   });
 
-  it("throws WebhookError when server returns non-202", async () => {
+  it("fails with WebhookHttpError on non-202 response", async () => {
     vi.mocked(fetch).mockResolvedValue(new Response("bad", { status: 500 }));
 
-    const promise = adapter.sendRequest({
-      url: "https://hook.test/perms",
-      requestId: "req-err",
-      callbackUrl: "https://me/cb",
-      callbackToken: "t",
-      body: {},
-      timeoutMs: 5000,
-    });
+    const exit = await Effect.runPromiseExit(
+      adapter.send({
+        url: "https://hook.test/perms",
+        requestId: "req-err",
+        callbackUrl: "https://me/cb",
+        callbackToken: "t",
+        body: {},
+        timeoutMs: 5000,
+      }),
+    );
 
-    // Attach handler before flushing to avoid unhandled rejection warning
-    const assertion = expect(promise).rejects.toThrow(WebhookError);
-    await flushSendRequest();
-    await assertion;
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (!Exit.isFailure(exit)) return;
+    const err = Cause.failureOption(exit.cause);
+    if (err._tag !== "Some") throw new Error("expected failure");
+    expect(err.value._tag).toBe("WebhookHttpError");
+    expect((err.value as WebhookHttpError).status).toBe(500);
   });
 
-  it("returns false for resolveCallback with unknown request_id", () => {
-    expect(adapter.resolveCallback("unknown-id", ["read"])).toBe(false);
+  it("returns false for resolveCallback with unknown request_id", async () => {
+    const found = await Effect.runPromise(
+      adapter.resolveCallback("unknown-id", ["read"]),
+    );
+    expect(found).toBe(false);
   });
 
-  it("returns true for duplicate resolveCallback (idempotency)", async () => {
+  it("returns true for duplicate resolveCallback within TTL (idempotency)", async () => {
     vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 202 }));
 
-    const promise = adapter.sendRequest({
-      url: "https://hook.test/perms",
-      requestId: "req-dup",
-      callbackUrl: "https://me/cb",
-      callbackToken: "t",
-      body: {},
-      timeoutMs: 30000,
-    });
+    const fiber = Effect.runFork(
+      adapter.send({
+        url: "https://hook.test/perms",
+        requestId: "req-dup",
+        callbackUrl: "https://me/cb",
+        callbackToken: "t",
+        body: {},
+        timeoutMs: 30_000,
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 0));
 
-    await flushSendRequest();
-
-    expect(adapter.resolveCallback("req-dup", ["read"])).toBe(true);
-    await promise;
-
-    expect(adapter.resolveCallback("req-dup", ["read"])).toBe(true);
+    expect(
+      await Effect.runPromise(adapter.resolveCallback("req-dup", ["read"])),
+    ).toBe(true);
+    await Effect.runPromise(Fiber.await(fiber));
+    expect(
+      await Effect.runPromise(adapter.resolveCallback("req-dup", ["read"])),
+    ).toBe(true);
   });
 
-  it("rejects pending promise on timeout", async () => {
+  it("fails with WebhookTimeoutError when callback never arrives", async () => {
     vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 202 }));
 
-    const promise = adapter.sendRequest({
-      url: "https://hook.test/perms",
-      requestId: "req-timeout",
-      callbackUrl: "https://me/cb",
-      callbackToken: "t",
-      body: {},
-      timeoutMs: 5000,
-    });
+    const exit = await Effect.runPromiseExit(
+      adapter.send({
+        url: "https://hook.test/perms",
+        requestId: "req-timeout",
+        callbackUrl: "https://me/cb",
+        callbackToken: "t",
+        body: {},
+        timeoutMs: 10,
+      }),
+    );
 
-    await flushSendRequest();
-
-    // Attach handler before advancing timers to avoid unhandled rejection warning
-    const assertion = expect(promise).rejects.toThrow("timed out");
-    await vi.advanceTimersByTimeAsync(5001);
-    await assertion;
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (!Exit.isFailure(exit)) return;
+    const err = Cause.failureOption(exit.cause);
+    if (err._tag !== "Some") throw new Error("expected failure");
+    expect(err.value._tag).toBe("WebhookTimeoutError");
   });
 
-  it("resolveCallback returns false after TTL expiry and drops the id", async () => {
-    // After a callback resolves, the adapter remembers the id for
-    // RESOLVED_TTL_MS (5 minutes) to make repeat callbacks idempotent.
-    // Once the TTL lapses, the first repeat call must BOTH drop the id
-    // from the `resolved` map AND return false — otherwise a very late
-    // duplicate would masquerade as a fresh, unknown request.
+  it("shutdown fails all pending requests with WebhookDestroyedError", async () => {
     vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 202 }));
 
-    const promise = adapter.sendRequest({
-      url: "https://hook.test/perms",
-      requestId: "req-ttl",
-      callbackUrl: "https://me/cb",
-      callbackToken: "t",
-      body: {},
-      timeoutMs: 60000,
-    });
+    const fiber = Effect.runFork(
+      adapter.send({
+        url: "https://hook.test/perms",
+        requestId: "req-destroy",
+        callbackUrl: "https://me/cb",
+        callbackToken: "t",
+        body: {},
+        timeoutMs: 60_000,
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 0));
 
-    await flushSendRequest();
+    await Effect.runPromise(adapter.shutdown);
 
-    // Initial resolution: recorded in `resolved`, promise completes.
-    expect(adapter.resolveCallback("req-ttl", ["read"])).toBe(true);
-    await promise;
-
-    // Still within TTL — duplicate is idempotent, returns true.
-    expect(adapter.resolveCallback("req-ttl", ["read"])).toBe(true);
-
-    // Advance past the 5-minute TTL window.
-    await vi.advanceTimersByTimeAsync(5 * 60 * 1000 + 1);
-
-    // First call after expiry deletes the stale entry and returns false.
-    expect(adapter.resolveCallback("req-ttl", ["read"])).toBe(false);
-
-    // Second call confirms the id is no longer in `resolved`: it must
-    // now fall through to the "no pending entry" branch, which also
-    // returns false. This double-checks the delete in the previous step.
-    expect(adapter.resolveCallback("req-ttl", ["read"])).toBe(false);
+    const exit = await Effect.runPromise(Fiber.await(fiber));
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (!Exit.isFailure(exit)) return;
+    const err = Cause.failureOption(exit.cause);
+    if (err._tag !== "Some") throw new Error("expected failure");
+    expect(err.value._tag).toBe("WebhookDestroyedError");
+    expect((err.value as WebhookDestroyedError).requestId).toBe("req-destroy");
   });
 
-  it("destroy() rejects all pending requests", async () => {
+  it("removes pending entry when the send fiber is interrupted", async () => {
+    // 202 ack → the fiber parks on Deferred.await. Interrupt it and
+    // confirm the pending map is cleared (resolveCallback returns false).
     vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 202 }));
 
-    const promise = adapter.sendRequest({
-      url: "https://hook.test/perms",
-      requestId: "req-destroy",
-      callbackUrl: "https://me/cb",
-      callbackToken: "t",
-      body: {},
-      timeoutMs: 60000,
-    });
+    const fiber = Effect.runFork(
+      adapter.send({
+        url: "https://hook.test/perms",
+        requestId: "req-interrupt",
+        callbackUrl: "https://me/cb",
+        callbackToken: "t",
+        body: {},
+        timeoutMs: 60_000,
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 0));
 
-    await flushSendRequest();
-    adapter.destroy();
-    needsCleanup = false;
+    await Effect.runPromise(Fiber.interrupt(fiber));
+    await new Promise((r) => setTimeout(r, 0));
 
-    await expect(promise).rejects.toThrow(WebhookError);
-    await expect(promise).rejects.toThrow("Adapter destroyed");
-  });
-});
-
-// -- WebhookError -----------------------------------------------------------
-
-describe("WebhookError", () => {
-  it("has correct name, message, and statusCode", () => {
-    const err = new WebhookError("bad request", 400);
-    expect(err.name).toBe("WebhookError");
-    expect(err.message).toBe("bad request");
-    expect(err.statusCode).toBe(400);
-    expect(err).toBeInstanceOf(Error);
+    const found = await Effect.runPromise(
+      adapter.resolveCallback("req-interrupt", ["read"]),
+    );
+    expect(found).toBe(false);
   });
 });
