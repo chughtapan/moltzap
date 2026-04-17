@@ -933,6 +933,147 @@ export class AppHost {
     );
   }
 
+  /**
+   * Attach a dynamically-created conversation to an existing app session.
+   *
+   * Apps that create conversations outside the manifest (e.g. per-participant
+   * role DMs inside an `on_session_active` handler) must register them with
+   * `AppHost` so `before_message_delivery` fires on subsequent sends. Without
+   * this call `conversationToSession.get(convId)` returns `undefined` and the
+   * hook is silently skipped (see `runBeforeMessageDelivery`).
+   *
+   * Semantics:
+   * - Validates the session exists and isn't closed.
+   * - Idempotent on exact `(sessionId, conversationId, key)` match — a second
+   *   identical call is a no-op.
+   * - Errors if `key` is already used in the session under a different
+   *   `conversationId`, or if `conversationId` is already attached to the
+   *   session under a different `key`, or if `conversationId` is already
+   *   attached to a *different* session.
+   */
+  attachConversation(
+    sessionId: string,
+    conversationId: string,
+    key: string,
+  ): Effect.Effect<void, RpcFailure> {
+    return catchSqlErrorAsDefect(
+      Effect.gen(this, function* () {
+        const sessionOpt = yield* takeFirstOption(
+          this.db
+            .selectFrom("app_sessions")
+            .select(["id", "app_id", "status"])
+            .where("id", "=", sessionId),
+        );
+        const session = Option.getOrNull(sessionOpt);
+        if (!session) {
+          return yield* Effect.fail(
+            new RpcFailure({
+              code: ErrorCodes.SessionNotFound,
+              message: "Session not found",
+            }),
+          );
+        }
+        if (session.status === "closed") {
+          return yield* Effect.fail(
+            new RpcFailure({
+              code: ErrorCodes.SessionClosed,
+              message: "Cannot attach a conversation to a closed session",
+            }),
+          );
+        }
+
+        // Cross-session collision: a convId can only belong to one session's
+        // hook pipeline at a time (AppHost.conversationToSession is 1:1).
+        const crossSession = this.conversationToSession.get(conversationId);
+        if (crossSession && crossSession.id !== sessionId) {
+          return yield* Effect.fail(
+            new RpcFailure({
+              code: ErrorCodes.Conflict,
+              message: `Conversation ${conversationId} is already attached to session ${crossSession.id}`,
+            }),
+          );
+        }
+
+        // Single query covers both uniqueness checks: either the convId or the
+        // key is already present for this session. At most two rows come back
+        // (one per dimension) — bounded by the (session_id, conversation_key)
+        // primary key and by the 1:1 cross-session invariant above.
+        const existingRows = yield* this.db
+          .selectFrom("app_session_conversations")
+          .select(["conversation_key", "conversation_id"])
+          .where("session_id", "=", sessionId)
+          .where((eb) =>
+            eb.or([
+              eb("conversation_id", "=", conversationId),
+              eb("conversation_key", "=", key),
+            ]),
+          );
+
+        let convIdMatch: { conversation_key: string } | null = null;
+        let keyMatch: { conversation_id: string } | null = null;
+        for (const row of existingRows) {
+          if (row.conversation_id === conversationId) convIdMatch = row;
+          if (row.conversation_key === key) keyMatch = row;
+        }
+
+        if (
+          convIdMatch &&
+          keyMatch &&
+          convIdMatch.conversation_key === key &&
+          keyMatch.conversation_id === conversationId
+        ) {
+          // Exact (sessionId, convId, key) triple already recorded — no-op.
+          // Refresh the in-memory maps in case they diverged from the DB
+          // (e.g. after a server restart before a lazy rehydrate).
+          this.conversationToSession.set(conversationId, {
+            id: sessionId,
+            appId: session.app_id,
+          });
+          const existingSet = this.sessionToConversations.get(sessionId);
+          if (existingSet) existingSet.add(conversationId);
+          else
+            this.sessionToConversations.set(
+              sessionId,
+              new Set([conversationId]),
+            );
+          return;
+        }
+
+        if (convIdMatch && convIdMatch.conversation_key !== key) {
+          return yield* Effect.fail(
+            new RpcFailure({
+              code: ErrorCodes.Conflict,
+              message: `Conversation ${conversationId} is already attached to session ${sessionId} under key "${convIdMatch.conversation_key}"`,
+            }),
+          );
+        }
+        if (keyMatch && keyMatch.conversation_id !== conversationId) {
+          return yield* Effect.fail(
+            new RpcFailure({
+              code: ErrorCodes.Conflict,
+              message: `Conversation key "${key}" is already in use for session ${sessionId}`,
+            }),
+          );
+        }
+
+        yield* this.db.insertInto("app_session_conversations").values({
+          session_id: sessionId,
+          conversation_key: key,
+          conversation_id: conversationId,
+        });
+
+        this.conversationToSession.set(conversationId, {
+          id: sessionId,
+          appId: session.app_id,
+        });
+        const convSet = this.sessionToConversations.get(sessionId);
+        if (convSet) convSet.add(conversationId);
+        else
+          this.sessionToConversations.set(sessionId, new Set([conversationId]));
+      }),
+    );
+  }
+
   getSession(
     sessionId: string,
     callerAgentId: string,
