@@ -134,6 +134,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
       presenceService,
       connections,
       db,
+      userService: config.userService ?? null,
     }),
     ...createConversationHandlers({
       conversationService,

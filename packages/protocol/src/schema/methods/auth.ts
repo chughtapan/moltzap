@@ -46,7 +46,13 @@ export const Connect = defineRpc({
   name: "auth/connect",
   params: Type.Object(
     {
-      agentKey: Type.String(),
+      /** Agent API key — `moltzap_agent_<keyId>_<secret>`. Exactly one of
+       * `agentKey` or `sessionToken` must be present. */
+      agentKey: Type.Optional(Type.String()),
+      /** App-minted bearer token. Resolved via `UserService.validateSession`
+       * during auth/connect. Exactly one of `agentKey` or `sessionToken`
+       * must be present. */
+      sessionToken: Type.Optional(Type.String()),
       minProtocol: Type.String(),
       maxProtocol: Type.String(),
     },
