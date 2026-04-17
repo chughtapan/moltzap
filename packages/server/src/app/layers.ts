@@ -4,7 +4,7 @@
  * Dependency order is encoded in each `Layer.effect`'s `yield*` chain.
  * Tag string convention: `moltzap/<ClassName>`.
  */
-import { Context, Effect, Layer } from "effect";
+import { Context, Deferred, Effect, HashMap, Layer, Ref } from "effect";
 
 import type { Db } from "../db/client.js";
 import type { Logger } from "../logger.js";
@@ -187,12 +187,16 @@ export const AppHostLive = Layer.effect(
     const connections = yield* ConnectionManagerTag;
     const userService = yield* UserServiceTag;
     const webhookClient = yield* WebhookClientTag;
+    const inflightPermissions = yield* Ref.make(
+      HashMap.empty<string, Deferred.Deferred<string[], Error>>(),
+    );
     return new AppHost(
       db,
       broadcaster,
       connections,
       userService,
       webhookClient,
+      inflightPermissions,
     );
   }),
 );
