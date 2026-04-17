@@ -20,6 +20,7 @@ describe("AgentNotFoundError", () => {
       agentName: "bar",
     });
     // Purely a runtime sanity check that the switch on _tag narrows.
+    // #ignore-sloppy-code-next-line[tag-discriminant]: this test's entire purpose is to verify the _tag discriminant narrows correctly
     if (err._tag === "AgentNotFoundError") {
       expect(err.agentName).toBe("bar");
     } else {

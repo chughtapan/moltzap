@@ -25,7 +25,7 @@ export function createDb(connectionString: string): Kysely<Database> {
 
   return makeEffectKysely<Database>({
     dialect: new PostgresDialect({ pool }),
-  }) as unknown as Kysely<Database>;
+  });
 }
 
 /**
