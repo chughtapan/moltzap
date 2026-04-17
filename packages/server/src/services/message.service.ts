@@ -1,7 +1,7 @@
 import type { Db } from "../db/client.js";
 import type { Message, Part } from "@moltzap/protocol";
 import { ErrorCodes, EventNames, eventFrame } from "@moltzap/protocol";
-import { Duration, Effect, Fiber, Option, Schedule } from "effect";
+import { Duration, Effect, Fiber, Option, Schedule, Schema } from "effect";
 import { SqlError } from "@effect/sql/SqlError";
 import { RpcFailure, notFound, internalError } from "../runtime/index.js";
 import { nextSnowflakeId } from "../db/snowflake.js";
@@ -282,13 +282,16 @@ export class MessageService {
     );
 
     return client
-      .call<unknown>({
+      .call({
         url: cfg.url,
         event: "messages.delivered",
         body: undefined,
         bodyJson: payload,
         timeoutMs: DELIVERY_WEBHOOK_TIMEOUT_MS,
         headers: { "X-MoltZap-Signature": signature },
+        // Fire-and-forget: receivers typically reply 204/empty, and
+        // anything they do send is discarded by `Effect.asVoid` below.
+        schema: Schema.Unknown,
       })
       .pipe(
         Effect.retry(retrySchedule),
