@@ -120,6 +120,18 @@ type WebhookCallError =
   | WebhookNetworkError;
 
 /**
+ * Best-effort read of a Response body. An unreadable body is logged
+ * context, not a failure signal, so we coerce any error to an empty
+ * string rather than propagating it.
+ */
+function readResponseText(response: Response): Effect.Effect<string, never> {
+  return Effect.tryPromise({
+    try: () => response.text(),
+    catch: () => null,
+  }).pipe(Effect.orElseSucceed(() => ""));
+}
+
+/**
  * Sync webhook client: POST a payload, receive a parsed JSON response.
  * All failures land in the typed error channel — fetch is driven through
  * `Effect.tryPromise({ try: (signal) => fetch(url, { signal }) })` so
@@ -150,39 +162,31 @@ export class WebhookClient {
       catch: (err) => new WebhookNetworkError({ url, event, cause: err }),
     });
 
-    const readBody = (response: Response): Effect.Effect<string, never> =>
-      Effect.tryPromise({
-        try: () => response.text(),
-        catch: () => null,
-      }).pipe(Effect.orElseSucceed(() => ""));
-
     const parseResponse = (
       response: Response,
     ): Effect.Effect<T, WebhookHttpError | WebhookNetworkError> =>
-      response.ok
-        ? readBody(response).pipe(
-            Effect.flatMap((text) =>
-              text.length === 0
-                ? Effect.succeed(null as T)
-                : Effect.try({
-                    try: () => JSON.parse(text) as T,
-                    catch: (err) =>
-                      new WebhookNetworkError({ url, event, cause: err }),
-                  }),
-            ),
-          )
-        : readBody(response).pipe(
-            Effect.flatMap((text) =>
-              Effect.fail(
+      readResponseText(response).pipe(
+        Effect.flatMap(
+          (text): Effect.Effect<T, WebhookHttpError | WebhookNetworkError> => {
+            if (!response.ok) {
+              return Effect.fail(
                 new WebhookHttpError({
                   url,
                   event,
                   status: response.status,
                   body: text,
                 }),
-              ),
-            ),
-          );
+              );
+            }
+            if (text.length === 0) return Effect.succeed(null as T);
+            return Effect.try({
+              try: () => JSON.parse(text) as T,
+              catch: (err) =>
+                new WebhookNetworkError({ url, event, cause: err }),
+            });
+          },
+        ),
+      );
 
     return this.permits.withPermits(1)(
       doFetch.pipe(
@@ -314,15 +318,7 @@ export class AsyncWebhookAdapter {
         }).pipe(
           Effect.flatMap((response) => {
             if (response.status === 202) return Effect.void;
-            return Effect.tryPromise({
-              try: () => response.text().catch(() => ""),
-              catch: () =>
-                new WebhookNetworkError({
-                  url,
-                  event,
-                  cause: "failed to read error body",
-                }),
-            }).pipe(
+            return readResponseText(response).pipe(
               Effect.flatMap((text) =>
                 Effect.fail(
                   new WebhookHttpError({
