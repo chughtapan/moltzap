@@ -17,6 +17,7 @@ import { AppHost, DefaultPermissionService } from "./app-host.js";
 import { WebhookClient } from "../adapters/webhook.js";
 import {
   DbTag,
+  DeliveryWebhookTag,
   EncryptionTag,
   LoggerTag,
   ServicesLive,
@@ -39,6 +40,7 @@ const BaseLive = Layer.mergeAll(
   Layer.succeed(EncryptionTag, null),
   Layer.succeed(UserServiceTag, null),
   Layer.succeed(WebhookClientTag, new WebhookClient()),
+  Layer.succeed(DeliveryWebhookTag, null),
   LoggerLive,
 );
 
