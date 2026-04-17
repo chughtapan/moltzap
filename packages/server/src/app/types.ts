@@ -149,5 +149,16 @@ export interface CoreApp {
     callerAgentId: string,
     opts?: { appId?: string; status?: string; limit?: number },
   ) => Effect.Effect<AppSession[], RpcFailure>;
+  /**
+   * Register a dynamically-created conversation with an app session so
+   * `before_message_delivery` fires on subsequent sends. Typical use: an app
+   * creates per-participant DMs inside its `on_session_active` handler, then
+   * attaches each under a distinct key (e.g. `role_dm_<agentId>`).
+   */
+  attachAppConversation: (
+    sessionId: string,
+    conversationId: string,
+    key: string,
+  ) => Effect.Effect<void, RpcFailure>;
   close: () => Promise<void>;
 }
