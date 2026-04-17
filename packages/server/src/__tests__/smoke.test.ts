@@ -1,7 +1,10 @@
 import { describe, it, expect } from "vitest";
 
 describe("@moltzap/server-core", () => {
-  it("exports building blocks", async () => {
+  // Cold-start dynamic import pulls the full server surface in a single
+  // module graph — on slower CI hosts this crosses the default 5s vitest
+  // timeout. Give it a generous window; the test itself does negligible work.
+  it("exports building blocks", { timeout: 30_000 }, async () => {
     const mod = await import("../index.js");
 
     // Services
@@ -14,7 +17,7 @@ describe("@moltzap/server-core", () => {
 
     // Infrastructure
     expect(mod.createRpcRouter).toBeDefined();
-    expect(mod.RpcError).toBeDefined();
+    expect(mod.RpcFailure).toBeDefined();
     expect(mod.ConnectionManager).toBeDefined();
     expect(mod.Broadcaster).toBeDefined();
     expect(mod.EnvelopeEncryption).toBeDefined();

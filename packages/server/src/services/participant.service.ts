@@ -1,7 +1,11 @@
 import type { Db } from "../db/client.js";
-import { RpcError } from "../rpc/router.js";
-import { ErrorCodes } from "@moltzap/protocol";
+import { Effect, Option } from "effect";
+import { RpcFailure, notFound, forbidden } from "../runtime/index.js";
 import type { AuthenticatedContext } from "../rpc/context.js";
+import {
+  catchSqlErrorAsDefect,
+  takeFirstOption,
+} from "../db/effect-kysely-toolkit.js";
 
 /**
  * Shared utility for resolving and validating agent references.
@@ -9,33 +13,48 @@ import type { AuthenticatedContext } from "../rpc/context.js";
 export class ParticipantService {
   constructor(private db: Db) {}
 
-  async resolve(
+  resolve(
     agentId: string,
-  ): Promise<{ exists: boolean; ownerUserId: string | null }> {
-    const row = await this.db
-      .selectFrom("agents")
-      .select(["id", "owner_user_id"])
-      .where("id", "=", agentId)
-      .where("status", "=", "active")
-      .executeTakeFirst();
-    if (!row) return { exists: false, ownerUserId: null };
-    return { exists: true, ownerUserId: row.owner_user_id };
+  ): Effect.Effect<
+    { exists: boolean; ownerUserId: string | null },
+    RpcFailure
+  > {
+    return catchSqlErrorAsDefect(
+      Effect.gen(this, function* () {
+        const rowOpt = yield* takeFirstOption(
+          this.db
+            .selectFrom("agents")
+            .select(["id", "owner_user_id"])
+            .where("id", "=", agentId)
+            .where("status", "=", "active"),
+        );
+        if (Option.isNone(rowOpt)) return { exists: false, ownerUserId: null };
+        return {
+          exists: true,
+          ownerUserId: rowOpt.value.owner_user_id,
+        };
+      }),
+    );
   }
 
-  async requireExists(agentId: string): Promise<string | null> {
-    const resolved = await this.resolve(agentId);
-    if (!resolved.exists) {
-      throw new RpcError(ErrorCodes.NotFound, `Agent ${agentId} not found`);
-    }
-    return resolved.ownerUserId;
+  requireExists(agentId: string): Effect.Effect<string | null, RpcFailure> {
+    return Effect.gen(this, function* () {
+      const resolved = yield* this.resolve(agentId);
+      if (!resolved.exists) {
+        return yield* Effect.fail(notFound(`Agent ${agentId} not found`));
+      }
+      return resolved.ownerUserId;
+    });
   }
 
   /** Get owner user ID or throw Forbidden. Use in handlers that require a claimed agent. */
-  static requireOwnerId(ctx: AuthenticatedContext): string {
+  static requireOwnerId(
+    ctx: AuthenticatedContext,
+  ): Effect.Effect<string, RpcFailure> {
     const userId = ctx.ownerUserId;
     if (!userId) {
-      throw new RpcError(ErrorCodes.Forbidden, "Agent not claimed");
+      return Effect.fail(forbidden("Agent not claimed"));
     }
-    return userId;
+    return Effect.succeed(userId);
   }
 }

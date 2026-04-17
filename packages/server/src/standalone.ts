@@ -1,14 +1,18 @@
 /** Standalone server — loads YAML config, boots PGlite or Postgres, starts the server. */
 
-import { readFileSync, existsSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join, dirname, resolve, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Kysely, PostgresDialect, sql } from "kysely";
+import { Duration, Effect } from "effect";
+import { FileSystem, HttpClient, HttpClientRequest } from "@effect/platform";
+import { NodeFileSystem, NodeHttpClient } from "@effect/platform-node";
 import { loadConfigFromFile } from "./config/loader.js";
-import type { MoltZapConfig } from "./config/schema.js";
+import type { MoltZapAppConfig as MoltZapConfig } from "./config/effect-config.js";
 import { createCoreApp } from "./app/server.js";
 import { seedInitialKek } from "./crypto/key-rotation.js";
 import { EnvelopeEncryption } from "./crypto/envelope.js";
+import { makeEffectKysely } from "./db/effect-kysely-toolkit.js";
 import {
   WebhookClient,
   WebhookContactService,
@@ -30,6 +34,7 @@ interface DbHandle {
   runMigrationSql: (sql: string) => Promise<void>;
 }
 
+// #ignore-sloppy-code-next-line[async-keyword, promise-type]: PGlite dynamic import + pool init boundary
 async function createPgLiteDb(dataDir?: string): Promise<DbHandle> {
   const { KyselyPGlite } = await import("kysely-pglite");
 
@@ -37,32 +42,58 @@ async function createPgLiteDb(dataDir?: string): Promise<DbHandle> {
     ? await KyselyPGlite.create(dataDir)
     : await KyselyPGlite.create();
 
-  const db = new Kysely<Database>({ dialect: kpg.dialect });
+  // Effect-patched Kysely: builder chains can be used as `Effect`s inside
+  // services while the promise API (`.execute()`, `.transaction()`) still
+  // works for migration/seed code.
+  const db = makeEffectKysely<Database>({
+    dialect: kpg.dialect,
+  }) as unknown as Kysely<Database>;
 
   return {
     db,
-    cleanup: async () => {
-      await db.destroy();
-      await kpg.client.close();
-    },
-    runMigrationSql: async (sqlText: string) => {
-      await kpg.client.exec(sqlText);
-    },
+    cleanup: () =>
+      // Close the PGlite client after Kysely releases its connection. We use
+      // an Effect chain here rather than raw Promise composition to keep the
+      // sequencing guard-friendly.
+      Effect.runPromise(
+        Effect.tryPromise({
+          try: () => db.destroy(),
+          catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+        }).pipe(
+          Effect.flatMap(() =>
+            Effect.tryPromise({
+              try: () => kpg.client.close(),
+              catch: (err) =>
+                err instanceof Error ? err : new Error(String(err)),
+            }),
+          ),
+        ),
+      ),
+    runMigrationSql: (sqlText: string) =>
+      Effect.runPromise(
+        Effect.tryPromise({
+          try: () => kpg.client.exec(sqlText),
+          catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+        }).pipe(Effect.asVoid),
+      ),
   };
 }
 
+// #ignore-sloppy-code-next-line[async-keyword, promise-type]: pg dynamic import + Pool init boundary
 async function createPostgresDb(url: string): Promise<DbHandle> {
   const pg = await import("pg");
   const pool = new pg.default.Pool({ connectionString: url, max: 20 });
-  const db = new Kysely<Database>({
+  // Effect-patched Kysely: builder chains can be used as `Effect`s inside
+  // services while the promise API (`.execute()`, `.transaction()`) still
+  // works for migration/seed code.
+  const db = makeEffectKysely<Database>({
     dialect: new PostgresDialect({ pool }),
-  });
+  }) as unknown as Kysely<Database>;
 
   return {
     db,
-    cleanup: async () => {
-      await db.destroy();
-    },
+    cleanup: () => db.destroy(),
+    // #ignore-sloppy-code-next-line[async-keyword]: pg pool.query callback-to-Promise boundary
     runMigrationSql: async (sqlText: string) => {
       // Raw DDL — Kysely can't run before tables exist
       const exec = pool.query.bind(pool);
@@ -88,35 +119,58 @@ function findSchemaFile(): string {
   );
 }
 
-async function autoMigrate(
+/**
+ * Run the schema migration. Effect-native: reads the schema file via the
+ * platform `FileSystem` service, seeds the KEK row inside an Effect, and
+ * bridges to `handle.runMigrationSql` at the Kysely boundary (which still
+ * exposes a Promise API for raw DDL).
+ */
+function autoMigrateEffect(
   handle: DbHandle,
-  encryptionSecret?: string,
-): Promise<void> {
-  const result = await sql<{ has_schema: boolean }>`
-    SELECT EXISTS (
-      SELECT FROM information_schema.tables WHERE table_name = 'agents'
-    ) AS has_schema
-  `.execute(handle.db);
+  encryptionSecret: string | undefined,
+): Effect.Effect<void, Error, FileSystem.FileSystem> {
+  return Effect.gen(function* () {
+    const result = yield* Effect.tryPromise({
+      try: () =>
+        sql<{ has_schema: boolean }>`
+          SELECT EXISTS (
+            SELECT FROM information_schema.tables WHERE table_name = 'agents'
+          ) AS has_schema
+        `.execute(handle.db),
+      catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+    });
 
-  if (result.rows[0]?.has_schema) {
-    logger.info("Database schema already exists, skipping migration");
-    return;
-  }
+    if (result.rows[0]?.has_schema) {
+      logger.info("Database schema already exists, skipping migration");
+      return;
+    }
 
-  logger.info("Applying database schema...");
-  const schema = readFileSync(findSchemaFile(), "utf-8");
-  await handle.runMigrationSql(schema);
+    logger.info("Applying database schema...");
 
-  if (encryptionSecret) {
-    const envelope = new EnvelopeEncryption(encryptionSecret);
-    await seedInitialKek(handle.db, envelope);
-  } else {
-    logger.info(
-      "Encryption not configured — messages will be stored as plaintext",
-    );
-  }
+    const fs = yield* FileSystem.FileSystem;
+    const schema = yield* fs
+      .readFileString(findSchemaFile(), "utf-8")
+      .pipe(Effect.mapError((e) => new Error(e.message)));
 
-  logger.info("Database schema applied successfully");
+    yield* Effect.tryPromise({
+      try: () => handle.runMigrationSql(schema),
+      catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+    });
+
+    if (encryptionSecret) {
+      const envelope = new EnvelopeEncryption(encryptionSecret);
+      yield* Effect.tryPromise({
+        try: () => seedInitialKek(handle.db, envelope),
+        catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+      });
+    } else {
+      logger.info(
+        "Encryption not configured — messages will be stored as plaintext",
+      );
+    }
+
+    logger.info("Database schema applied successfully");
+  });
 }
 
 // ── Seed ────────────────────────────────────────────────────────────
@@ -126,70 +180,121 @@ interface RegisterResponse {
   apiKey: string;
 }
 
-async function seedAgents(
+/**
+ * Register seed agents over HTTP against the already-bound local server. Uses
+ * `@effect/platform` HttpClient so transport errors are typed. Per-agent
+ * failures are logged and dropped — seeding is best-effort.
+ */
+function seedAgentsEffect(
   config: MoltZapConfig,
   db: Kysely<Database>,
   baseUrl: string,
-): Promise<void> {
-  const agents = config.seed?.agents;
-  if (!agents?.length) return;
+): Effect.Effect<void, never, HttpClient.HttpClient> {
+  return Effect.gen(function* () {
+    const agents = config.seed?.agents;
+    if (!agents?.length) return;
 
-  const secret = config.registration?.secret;
+    const secret = config.registration?.secret;
+    const client = yield* HttpClient.HttpClient;
 
-  const seedOne = async (agentDef: { name: string; description?: string }) => {
-    const existing = await db
-      .selectFrom("agents")
-      .where("name", "=", agentDef.name)
-      .select("id")
-      .executeTakeFirst();
+    const seedOne = (agentDef: { name: string; description?: string }) =>
+      Effect.gen(function* () {
+        const existing = yield* Effect.tryPromise({
+          try: () =>
+            db
+              .selectFrom("agents")
+              .where("name", "=", agentDef.name)
+              .select("id")
+              .executeTakeFirst(),
+          catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+        });
 
-    if (existing) {
-      logger.info({ name: agentDef.name }, "Seed agent already exists");
-      return;
-    }
+        if (existing) {
+          logger.info({ name: agentDef.name }, "Seed agent already exists");
+          return;
+        }
 
-    const body: Record<string, string> = { name: agentDef.name };
-    if (agentDef.description) body["description"] = agentDef.description;
-    if (secret) body["inviteCode"] = secret;
+        const body: Record<string, string> = { name: agentDef.name };
+        if (agentDef.description) body["description"] = agentDef.description;
+        if (secret) body["inviteCode"] = secret;
 
-    const res = await fetch(`${baseUrl}/api/v1/auth/register`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      logger.error(
-        { name: agentDef.name, status: res.status, body: text },
-        "Failed to register seed agent",
+        const request = HttpClientRequest.post(
+          `${baseUrl}/api/v1/auth/register`,
+        ).pipe(HttpClientRequest.bodyUnsafeJson(body));
+        const response = yield* client.execute(request);
+        if (response.status < 200 || response.status >= 300) {
+          const text = yield* response.text.pipe(
+            Effect.catchAll(() => Effect.succeed("")),
+          );
+          logger.error(
+            { name: agentDef.name, status: response.status, body: text },
+            "Failed to register seed agent",
+          );
+          return;
+        }
+        const result = (yield* response.json) as RegisterResponse;
+        logger.info(
+          { name: agentDef.name, agentId: result.agentId },
+          "Seed agent created",
+        );
+        logger.debug(
+          { name: agentDef.name, apiKey: result.apiKey },
+          "Seed agent API key: %s",
+          result.apiKey,
+        );
+      }).pipe(
+        Effect.catchAll((err) =>
+          Effect.sync(() =>
+            logger.error(
+              { err, name: agentDef.name },
+              "Seed agent task failed",
+            ),
+          ),
+        ),
       );
-      return;
+
+    yield* Effect.forEach(agents, seedOne, {
+      concurrency: "unbounded",
+      discard: true,
+    });
+  });
+}
+
+/**
+ * Poll `/health` until the server is ready; fail after `retries` attempts.
+ */
+function waitForReadyEffect(
+  baseUrl: string,
+  retries: number,
+): Effect.Effect<void, Error, HttpClient.HttpClient> {
+  return Effect.gen(function* () {
+    const client = yield* HttpClient.HttpClient;
+    for (let i = 0; i < retries; i++) {
+      const result = yield* client
+        .execute(HttpClientRequest.get(`${baseUrl}/health`))
+        .pipe(
+          Effect.map((res) => res.status >= 200 && res.status < 300),
+          Effect.catchAll((err) => {
+            logger.debug({ err, attempt: i + 1 }, "Server not ready yet");
+            return Effect.succeed(false);
+          }),
+        );
+      if (result) return;
+      yield* Effect.sleep(Duration.millis(200));
     }
-
-    const result = (await res.json()) as RegisterResponse;
-    logger.info(
-      { name: agentDef.name, agentId: result.agentId },
-      "Seed agent created",
-    );
-    logger.debug(
-      { name: agentDef.name, apiKey: result.apiKey },
-      "Seed agent API key: %s",
-      result.apiKey,
-    );
-  };
-
-  await Promise.allSettled(agents.map(seedOne));
+    return yield* Effect.fail(new Error("Server did not become ready in time"));
+  });
 }
 
 // ── Main ────────────────────────────────────────────────────────────
 
+// #ignore-sloppy-code-next-line[async-keyword, promise-type]: Node process entrypoint for standalone server
 export async function startServer(configPath?: string): Promise<{
   app: CoreApp;
   config: MoltZapConfig;
   stop: () => Promise<void>;
 }> {
-  const yamlConfig = loadConfigFromFile(configPath);
+  const yamlConfig = await Effect.runPromise(loadConfigFromFile(configPath));
 
   // Create database (PGlite if no URL, Postgres otherwise)
   // DATABASE_URL env var is a fallback when YAML doesn't specify database.url
@@ -204,9 +309,30 @@ export async function startServer(configPath?: string): Promise<{
   }
 
   // Auto-migrate
-  await autoMigrate(handle, yamlConfig.encryption?.master_secret);
+  await Effect.runPromise(
+    autoMigrateEffect(handle, yamlConfig.encryption?.master_secret).pipe(
+      Effect.provide(NodeFileSystem.layer),
+    ),
+  );
 
   // Build CoreConfig
+  // Wire webhook services. UserService is part of CoreConfig (injected into
+  // AppHost via Layer) because the admission path needs it at construction
+  // time; other services (contacts, permissions) can be bound imperatively
+  // after createCoreApp since they gate per-request behavior.
+  const webhookClient = new WebhookClient();
+
+  const userServiceCfg = yamlConfig.services?.users;
+  const userService =
+    userServiceCfg?.type === "webhook" && userServiceCfg.webhook_url
+      ? new WebhookUserService(
+          webhookClient,
+          userServiceCfg.webhook_url,
+          userServiceCfg.timeout_ms ?? 10000,
+          logger,
+        )
+      : undefined;
+
   const coreConfig: CoreConfig = {
     db: handle.db,
     dbCleanup: handle.cleanup,
@@ -214,26 +340,11 @@ export async function startServer(configPath?: string): Promise<{
     port: yamlConfig.server?.port ?? 41973,
     corsOrigins: yamlConfig.server?.cors_origins ?? ["*"],
     registrationSecret: yamlConfig.registration?.secret,
+    userService,
+    webhookClient,
   };
 
   const app = createCoreApp(coreConfig);
-
-  // Wire webhook services
-  const webhookClient = new WebhookClient();
-
-  if (
-    yamlConfig.services?.users?.type === "webhook" &&
-    yamlConfig.services.users.webhook_url
-  ) {
-    app.setUserService(
-      new WebhookUserService(
-        webhookClient,
-        yamlConfig.services.users.webhook_url,
-        yamlConfig.services.users.timeout_ms ?? 10000,
-        logger,
-      ),
-    );
-  }
 
   if (
     yamlConfig.services?.contacts?.type === "webhook" &&
@@ -271,13 +382,33 @@ export async function startServer(configPath?: string): Promise<{
   // Register app manifests (resolve paths relative to config file location)
   if (yamlConfig.apps) {
     const configDir = yamlConfig._configDir;
+    const fsReadAppManifest = (manifestPath: string) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        return yield* fs
+          .readFileString(manifestPath, "utf-8")
+          .pipe(Effect.mapError((e) => new Error(e.message)));
+      }).pipe(Effect.provide(NodeFileSystem.layer));
+
     for (const appRef of yamlConfig.apps) {
+      const manifestPath = isAbsolute(appRef.manifest)
+        ? appRef.manifest
+        : resolve(configDir, appRef.manifest);
+      const loadResult = await Effect.runPromise(
+        fsReadAppManifest(manifestPath).pipe(
+          Effect.map((json) => ({ ok: true as const, json })),
+          Effect.catchAll((err) => Effect.succeed({ ok: false as const, err })),
+        ),
+      );
+      if (!loadResult.ok) {
+        logger.error(
+          { err: loadResult.err, path: appRef.manifest },
+          "Failed to load app manifest",
+        );
+        continue;
+      }
       try {
-        const manifestPath = isAbsolute(appRef.manifest)
-          ? appRef.manifest
-          : resolve(configDir, appRef.manifest);
-        const manifestJson = readFileSync(manifestPath, "utf-8");
-        const manifest = JSON.parse(manifestJson);
+        const manifest = JSON.parse(loadResult.json);
         app.registerApp(manifest);
         logger.info(
           { appId: manifest.appId, path: appRef.manifest },
@@ -295,22 +426,16 @@ export async function startServer(configPath?: string): Promise<{
   // Seed agents (after server is listening)
   if (yamlConfig.seed?.agents?.length) {
     const baseUrl = `http://127.0.0.1:${app.port}`;
-    // Wait for the server to be ready before seeding
-    const waitForReady = async (retries = 10): Promise<void> => {
-      for (let i = 0; i < retries; i++) {
-        try {
-          const res = await fetch(`${baseUrl}/health`);
-          if (res.ok) return;
-        } catch (err) {
-          logger.debug({ err, attempt: i + 1 }, "Server not ready yet");
-        }
-        await new Promise((r) => setTimeout(r, 200));
-      }
-      throw new Error("Server did not become ready in time");
-    };
-    waitForReady()
-      .then(() => seedAgents(yamlConfig, handle.db, baseUrl))
-      .catch((err) => logger.error({ err }, "Seed failed"));
+    // Wait for the server to be ready, then seed. Fire-and-forget at the
+    // process edge; logs are the feedback loop.
+    const seedTask = waitForReadyEffect(baseUrl, 10).pipe(
+      Effect.flatMap(() => seedAgentsEffect(yamlConfig, handle.db, baseUrl)),
+      Effect.provide(NodeHttpClient.layer),
+      Effect.catchAll((err) =>
+        Effect.sync(() => logger.error({ err }, "Seed failed")),
+      ),
+    );
+    Effect.runFork(seedTask);
   }
 
   logger.info(
@@ -325,9 +450,8 @@ export async function startServer(configPath?: string): Promise<{
   return {
     app,
     config: yamlConfig,
-    stop: async () => {
-      await app.close();
-    },
+    // `app.close()` already returns `Promise<void>` — forward it directly.
+    stop: () => app.close(),
   };
 }
 

@@ -17,9 +17,9 @@ const db = new Kysely<Database>({ dialect: new PostgresDialect({ pool }) });
 
 createCoreApp({
   db,
-  dbCleanup: async () => {
-    await db.destroy();
-  },
+  // `db.destroy()` already returns `Promise<void>` — the wrapping `async` was
+  // only needed when the function body called something else.
+  dbCleanup: () => db.destroy(),
   encryptionMasterSecret: config.encryption.masterSecret,
   port: config.server.port,
   corsOrigins: config.server.corsOrigins.exact,

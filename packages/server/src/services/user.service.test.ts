@@ -1,12 +1,18 @@
 import { describe, it, expect, vi } from "vitest";
+import { Effect } from "effect";
 import { InProcessUserService, WebhookUserService } from "./user.service.js";
-import { WebhookClient, WebhookError } from "../adapters/webhook.js";
+import { WebhookError, type WebhookClient } from "../adapters/webhook.js";
+import { makeFakeWebhookClient } from "../test-utils/fakes.js";
 
 describe("InProcessUserService", () => {
   it("always returns { valid: true }", async () => {
     const svc = new InProcessUserService();
-    expect(await svc.validateUser("any-user")).toEqual({ valid: true });
-    expect(await svc.validateUser("")).toEqual({ valid: true });
+    expect(await Effect.runPromise(svc.validateUser("any-user"))).toEqual({
+      valid: true,
+    });
+    expect(await Effect.runPromise(svc.validateUser(""))).toEqual({
+      valid: true,
+    });
   });
 });
 
@@ -17,11 +23,34 @@ describe("WebhookUserService", () => {
     error: vi.fn(),
     debug: vi.fn(),
     child: vi.fn().mockReturnThis(),
-  } as any;
+  } as never;
 
+  /**
+   * Create a WebhookUserService wired to a typed fake client. The fake's
+   * `callSync` is a `vi.fn` so we still get call-assertion ergonomics, but
+   * the overall shape is enforced against the real `WebhookClient` via
+   * `makeFakeWebhookClient`'s `Pick<>` constraint — a signature change in
+   * `callSync` fails compilation here rather than at runtime.
+   *
+   * Note: `callSync` is generic (`<T>(...) => Promise<T>`), which `vi.fn`
+   * can't represent directly — Mock's call signature is non-generic. We
+   * cast via `as` after asserting the fake body's shape via the spread into
+   * `makeFakeWebhookClient`, so a drift in the non-generic portion of the
+   * signature still fails compilation.
+   */
   function createService() {
-    const client = new WebhookClient();
-    const callSync = vi.spyOn(client, "callSync");
+    const callSync =
+      vi.fn<
+        (opts: {
+          url: string;
+          event: string;
+          body: unknown;
+          timeoutMs: number;
+        }) => Promise<unknown>
+      >();
+    const client = makeFakeWebhookClient({
+      callSync: callSync as unknown as WebhookClient["callSync"],
+    });
     const svc = new WebhookUserService(
       client,
       "https://hook.test/users",
@@ -35,7 +64,7 @@ describe("WebhookUserService", () => {
     const { svc, callSync } = createService();
     callSync.mockResolvedValue({ valid: true });
 
-    const result = await svc.validateUser("user-42");
+    const result = await Effect.runPromise(svc.validateUser("user-42"));
 
     expect(result).toEqual({ valid: true });
     expect(callSync).toHaveBeenCalledWith({
@@ -50,20 +79,26 @@ describe("WebhookUserService", () => {
     const { svc, callSync } = createService();
     callSync.mockResolvedValue({ valid: false });
 
-    expect(await svc.validateUser("bad-user")).toEqual({ valid: false });
+    expect(await Effect.runPromise(svc.validateUser("bad-user"))).toEqual({
+      valid: false,
+    });
   });
 
   it("returns { valid: false } on WebhookError", async () => {
     const { svc, callSync } = createService();
     callSync.mockRejectedValue(new WebhookError("timeout", 0));
 
-    expect(await svc.validateUser("user-1")).toEqual({ valid: false });
+    expect(await Effect.runPromise(svc.validateUser("user-1"))).toEqual({
+      valid: false,
+    });
   });
 
   it("returns { valid: false } on network error", async () => {
     const { svc, callSync } = createService();
     callSync.mockRejectedValue(new Error("ECONNREFUSED"));
 
-    expect(await svc.validateUser("user-1")).toEqual({ valid: false });
+    expect(await Effect.runPromise(svc.validateUser("user-1"))).toEqual({
+      valid: false,
+    });
   });
 });

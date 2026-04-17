@@ -1,66 +1,88 @@
+import { Effect } from "effect";
 import type { Db } from "../db/client.js";
-import type { Logger } from "../logger.js";
-import type { RegisterParams } from "@moltzap/protocol";
+import type { Register, Static } from "@moltzap/protocol";
+
+type RegisterParams = Static<typeof Register.paramsSchema>;
 import {
   generateApiKey,
   generateClaimToken,
   parseApiKey,
   hashSecret,
 } from "../auth/agent-auth.js";
+import {
+  catchSqlErrorAsDefect,
+  takeFirstOption,
+  takeFirstOrFail,
+} from "../db/effect-kysely-toolkit.js";
+import { Option } from "effect";
 
 export class AuthService {
-  constructor(
-    private db: Db,
-    private logger: Logger,
-  ) {}
+  constructor(private db: Db) {}
 
-  async registerAgent(
+  registerAgent(
     params: RegisterParams,
-  ): Promise<{ agentId: string; apiKey: string }> {
-    const { apiKey, keyId, secretHash } = generateApiKey();
+  ): Effect.Effect<{ agentId: string; apiKey: string }, never> {
+    return catchSqlErrorAsDefect(
+      Effect.gen(this, function* () {
+        const { apiKey, keyId, secretHash } = generateApiKey();
 
-    const result = await this.db
-      .insertInto("agents")
-      .values({
-        name: params.name,
-        description: params.description ?? null,
-        api_key_id: keyId,
-        api_key_secret_hash: secretHash,
-        claim_token: generateClaimToken(),
-        status: "active",
-      })
-      .returning(["id"])
-      .executeTakeFirstOrThrow();
+        const result = yield* takeFirstOrFail(
+          this.db
+            .insertInto("agents")
+            .values({
+              name: params.name,
+              description: params.description ?? null,
+              api_key_id: keyId,
+              api_key_secret_hash: secretHash,
+              claim_token: generateClaimToken(),
+              status: "active",
+            })
+            .returning(["id"]),
+          "Failed to insert agent",
+        );
 
-    const agentId = result.id;
+        const agentId = result.id;
 
-    this.logger.info({ agentId, name: params.name }, "Agent registered");
+        yield* Effect.logInfo("Agent registered").pipe(
+          Effect.annotateLogs({ agentId, name: params.name }),
+        );
 
-    return { agentId, apiKey };
+        return { agentId, apiKey };
+      }),
+    );
   }
 
-  async authenticateAgent(apiKey: string): Promise<{
-    agentId: string;
-    status: string;
-    ownerUserId: string | null;
-  } | null> {
-    const parsed = parseApiKey(apiKey);
-    if (!parsed) return null;
+  authenticateAgent(apiKey: string): Effect.Effect<
+    {
+      agentId: string;
+      status: string;
+      ownerUserId: string | null;
+    } | null,
+    never
+  > {
+    return catchSqlErrorAsDefect(
+      Effect.gen(this, function* () {
+        const parsed = parseApiKey(apiKey);
+        if (!parsed) return null;
 
-    const row = await this.db
-      .selectFrom("agents")
-      .select(["id", "api_key_secret_hash", "status", "owner_user_id"])
-      .where("api_key_id", "=", parsed.keyId)
-      .where("status", "!=", "suspended")
-      .executeTakeFirst();
+        const rowOpt = yield* takeFirstOption(
+          this.db
+            .selectFrom("agents")
+            .select(["id", "api_key_secret_hash", "status", "owner_user_id"])
+            .where("api_key_id", "=", parsed.keyId)
+            .where("status", "!=", "suspended"),
+        );
 
-    if (!row) return null;
-    if (hashSecret(parsed.secret) !== row.api_key_secret_hash) return null;
+        if (Option.isNone(rowOpt)) return null;
+        const row = rowOpt.value;
+        if (hashSecret(parsed.secret) !== row.api_key_secret_hash) return null;
 
-    return {
-      agentId: row.id,
-      status: row.status,
-      ownerUserId: row.owner_user_id ?? null,
-    };
+        return {
+          agentId: row.id,
+          status: row.status,
+          ownerUserId: row.owner_user_id ?? null,
+        };
+      }),
+    );
   }
 }

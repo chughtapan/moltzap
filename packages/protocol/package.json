@@ -33,22 +33,6 @@
     "./test-fixtures/phone-hashes": {
       "types": "./dist/test-fixtures/phone-hashes.d.ts",
       "import": "./dist/test-fixtures/phone-hashes.js"
-    },
-    "./contact-events": {
-      "types": "./dist/optional/contact-events.d.ts",
-      "import": "./dist/optional/contact-events.js"
-    },
-    "./contact-methods": {
-      "types": "./dist/optional/contact-methods.d.ts",
-      "import": "./dist/optional/contact-methods.js"
-    }
-  },
-  "peerDependencies": {
-    "ws": "^8.0.0"
-  },
-  "peerDependenciesMeta": {
-    "ws": {
-      "optional": true
     }
   },
   "scripts": {
@@ -58,16 +42,17 @@
     "generate-schema": "tsx scripts/generate-json-schema.ts"
   },
   "dependencies": {
+    "@effect/platform": "^0.96.0",
+    "@effect/platform-node": "^0.106.0",
     "@sinclair/typebox": "^0.34.0",
     "ajv": "^8.17.0",
-    "ajv-formats": "^3.0.0"
+    "ajv-formats": "^3.0.0",
+    "effect": "^3.21.0"
   },
   "devDependencies": {
     "@types/node": "^25.5.0",
-    "@types/ws": "^8.5.0",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
-    "vitest": "^3.0.0",
-    "ws": "^8.18.0"
+    "vitest": "^3.0.0"
   }
 }

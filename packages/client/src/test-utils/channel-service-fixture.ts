@@ -1,5 +1,6 @@
 /** Test fixture factory for ChannelService-shaped objects. */
 
+import { Effect } from "effect";
 import type { Message } from "@moltzap/protocol";
 import type {
   ChannelService,
@@ -92,17 +93,21 @@ export function createFakeChannelService(
       }
     },
 
-    async connect() {
-      connectCalls.count++;
-      return connectResult;
+    connect() {
+      return Effect.sync(() => {
+        connectCalls.count++;
+        return connectResult;
+      });
     },
 
     close() {
       closeCalls.count++;
     },
 
-    async send(conversationId: string, text: string) {
-      sent.push({ convId: conversationId, text });
+    send(conversationId: string, text: string) {
+      return Effect.sync(() => {
+        sent.push({ convId: conversationId, text });
+      });
     },
 
     getConversation(convId: string) {
@@ -115,11 +120,18 @@ export function createFakeChannelService(
       return agentNames.get(agentId);
     },
 
-    async resolveAgentName(agentId: string) {
-      resolveCalls.push(agentId);
-      const failure = resolveFailures.get(agentId);
-      if (failure) throw failure;
-      return agentNames.get(agentId) ?? agentId;
+    resolveAgentName(agentId: string) {
+      return Effect.suspend(() => {
+        resolveCalls.push(agentId);
+        const failure = resolveFailures.get(agentId);
+        // Match real MoltZapService.resolveAgentName semantics: never fail,
+        // fall back to the raw agentId so downstream callers (e.g.
+        // MoltZapChannelCore.enrichMessage) render something instead of
+        // crashing. Tests that inject a failure use this to assert the
+        // fallback path.
+        if (failure) return Effect.succeed(agentId);
+        return Effect.succeed(agentNames.get(agentId) ?? agentId);
+      });
     },
 
     peekContextEntries(currentConvId: string) {

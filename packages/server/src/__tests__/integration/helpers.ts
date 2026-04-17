@@ -9,6 +9,7 @@ import {
   getCoreDb,
   getCoreApp,
 } from "../../test-utils/index.js";
+import type { UserService } from "../../services/user.service.js";
 import {
   registerAndConnect,
   registerOnly,
@@ -41,6 +42,8 @@ let _coreApp: CoreApp | null = null;
 export async function startTestServer(_opts?: {
   devMode?: boolean;
   encryption?: boolean;
+  /** Optional validator forwarded to `startCoreTestServer` — see its docs. */
+  userService?: UserService;
 }): Promise<{
   baseUrl: string;
   wsUrl: string;
@@ -55,6 +58,7 @@ export async function startTestServer(_opts?: {
     pgHost,
     pgPort,
     encryption: _opts?.encryption,
+    userService: _opts?.userService,
   });
   _coreApp = server.coreApp;
   return {
@@ -70,13 +74,15 @@ export function getCoreApp(): CoreApp {
 }
 
 export async function stopTestServer(): Promise<void> {
-  closeAllClients();
+  const { Effect } = await import("effect");
+  await Effect.runPromise(closeAllClients());
   _coreApp = null;
   await stopCoreTestServer();
 }
 
 export async function resetTestDb(): Promise<void> {
-  closeAllClients();
+  const { Effect } = await import("effect");
+  await Effect.runPromise(closeAllClients());
   await resetCoreTestDb();
 }
 

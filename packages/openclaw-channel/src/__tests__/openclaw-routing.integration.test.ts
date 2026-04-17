@@ -6,7 +6,9 @@
  * not LLM quality.
  */
 
-import { describe, it, expect, inject, beforeAll, afterAll } from "vitest";
+import { describe, expect, inject, beforeAll, afterAll } from "vitest";
+import { it } from "@effect/vitest";
+import { Effect } from "effect";
 import { MoltZapTestClient } from "@moltzap/protocol/test-client";
 import { getLogs } from "../test-utils/container-core.js";
 import {
@@ -44,438 +46,531 @@ describe.skipIf(inject("containerAId") === "")(
 
     // --- Gateway lifecycle ---
 
-    it("gateway starts, loads MoltZap plugin, connects to server", () => {
-      const logs = getLogs(containerAId);
-      expect(logs).toContain("[gateway]");
-      expect(logs).toContain("[moltzap]");
-    }, 30_000);
+    it.live(
+      "gateway starts, loads MoltZap plugin, connects to server",
+      () =>
+        Effect.gen(function* () {
+          yield* Effect.sync(() => {
+            const logs = getLogs(containerAId);
+            expect(logs).toContain("[gateway]");
+            expect(logs).toContain("[moltzap]");
+          });
+        }),
+      30_000,
+    );
 
     // --- Agent-to-agent tests (shared container A) ---
 
     describe("agent-to-agent messaging", () => {
-      it("DM: alice sends -> OpenClaw dispatch -> echo reply arrives", async () => {
-        const alice = await registerAndClaim("a2a-alice-dm");
-        await makeContact(alice.userId, containerAUserId);
+      it.live(
+        "DM: alice sends -> OpenClaw dispatch -> echo reply arrives",
+        () =>
+          Effect.gen(function* () {
+            const alice = yield* Effect.promise(() =>
+              registerAndClaim("a2a-alice-dm"),
+            );
+            yield* Effect.promise(() =>
+              makeContact(alice.userId, containerAUserId),
+            );
 
-        const aliceClient = new MoltZapTestClient(baseUrl, wsUrl);
-        await aliceClient.connect(alice.apiKey);
+            const aliceClient = new MoltZapTestClient(baseUrl, wsUrl);
+            yield* aliceClient.connect(alice.apiKey);
 
-        const convId = extractConvId(
-          await aliceClient.rpc("conversations/create", {
-            type: "dm",
-            participants: [{ type: "agent", id: containerAAgentId }],
+            const convId = extractConvId(
+              yield* aliceClient.rpc("conversations/create", {
+                type: "dm",
+                participants: [{ type: "agent", id: containerAAgentId }],
+              }),
+            );
+
+            yield* aliceClient.rpc("messages/send", {
+              conversationId: convId,
+              parts: [{ type: "text", text: "hello from alice" }],
+            });
+
+            const reply = extractMessage(
+              yield* aliceClient.waitForEvent("messages/received", 60_000),
+            );
+            expect(reply.parts.length).toBeGreaterThan(0);
+            expect(reply.conversationId).toBe(convId);
+            expect(reply.senderId).toBe(containerAAgentId);
+            expect(extractText(reply)).toContain("ECHO:");
+
+            yield* aliceClient.close();
           }),
-        );
+        90_000,
+      );
 
-        const replyPromise = aliceClient.waitForEvent(
-          "messages/received",
-          60_000,
-        );
+      it.live(
+        "group: message dispatched through real OpenClaw",
+        () =>
+          Effect.gen(function* () {
+            const alice = yield* Effect.promise(() =>
+              registerAndClaim("a2a-alice-grp"),
+            );
+            const eve = yield* Effect.promise(() =>
+              registerAndClaim("a2a-eve-grp"),
+            );
+            yield* Effect.promise(() =>
+              makeContact(alice.userId, containerAUserId),
+            );
+            yield* Effect.promise(() => makeContact(alice.userId, eve.userId));
+            yield* Effect.promise(() =>
+              makeContact(containerAUserId, eve.userId),
+            );
 
-        await aliceClient.rpc("messages/send", {
-          conversationId: convId,
-          parts: [{ type: "text", text: "hello from alice" }],
-        });
+            const aliceClient = new MoltZapTestClient(baseUrl, wsUrl);
+            yield* aliceClient.connect(alice.apiKey);
 
-        const reply = extractMessage(await replyPromise);
-        expect(reply.parts.length).toBeGreaterThan(0);
-        expect(reply.conversationId).toBe(convId);
-        expect(reply.senderId).toBe(containerAAgentId);
-        expect(extractText(reply)).toContain("ECHO:");
+            const convId = extractConvId(
+              yield* aliceClient.rpc("conversations/create", {
+                type: "group",
+                name: "Integration Group",
+                participants: [
+                  { type: "agent", id: containerAAgentId },
+                  { type: "agent", id: eve.agentId },
+                ],
+              }),
+            );
 
-        aliceClient.close();
-      }, 90_000);
+            // Wait for conversation event to propagate to the gateway
+            yield* Effect.promise(() => new Promise((r) => setTimeout(r, 500)));
 
-      it("group: message dispatched through real OpenClaw", async () => {
-        const alice = await registerAndClaim("a2a-alice-grp");
-        const eve = await registerAndClaim("a2a-eve-grp");
-        await makeContact(alice.userId, containerAUserId);
-        await makeContact(alice.userId, eve.userId);
-        await makeContact(containerAUserId, eve.userId);
+            yield* aliceClient.rpc("messages/send", {
+              conversationId: convId,
+              parts: [{ type: "text", text: "hello group" }],
+            });
 
-        const aliceClient = new MoltZapTestClient(baseUrl, wsUrl);
-        await aliceClient.connect(alice.apiKey);
+            const reply = extractMessage(
+              yield* aliceClient.waitForEvent("messages/received", 60_000),
+            );
+            expect(reply.parts.length).toBeGreaterThan(0);
+            expect(reply.conversationId).toBe(convId);
+            expect(extractText(reply)).toContain("ECHO:");
 
-        const convId = extractConvId(
-          await aliceClient.rpc("conversations/create", {
-            type: "group",
-            name: "Integration Group",
-            participants: [
-              { type: "agent", id: containerAAgentId },
-              { type: "agent", id: eve.agentId },
-            ],
+            yield* aliceClient.close();
           }),
-        );
+        90_000,
+      );
 
-        // Wait for conversation event to propagate to the gateway
-        await new Promise((r) => setTimeout(r, 500));
+      it.live(
+        "rapid: multiple messages all get echo replies",
+        () =>
+          Effect.gen(function* () {
+            const alice = yield* Effect.promise(() =>
+              registerAndClaim("a2a-alice-rapid"),
+            );
+            yield* Effect.promise(() =>
+              makeContact(alice.userId, containerAUserId),
+            );
 
-        const replyPromise = aliceClient.waitForEvent(
-          "messages/received",
-          60_000,
-        );
+            const aliceClient = new MoltZapTestClient(baseUrl, wsUrl);
+            yield* aliceClient.connect(alice.apiKey);
 
-        await aliceClient.rpc("messages/send", {
-          conversationId: convId,
-          parts: [{ type: "text", text: "hello group" }],
-        });
+            const convId = extractConvId(
+              yield* aliceClient.rpc("conversations/create", {
+                type: "dm",
+                participants: [{ type: "agent", id: containerAAgentId }],
+              }),
+            );
 
-        const reply = extractMessage(await replyPromise);
-        expect(reply.parts.length).toBeGreaterThan(0);
-        expect(reply.conversationId).toBe(convId);
-        expect(extractText(reply)).toContain("ECHO:");
+            for (let i = 0; i < 3; i++) {
+              yield* aliceClient.rpc("messages/send", {
+                conversationId: convId,
+                parts: [{ type: "text", text: `Message ${i}` }],
+              });
+            }
 
-        aliceClient.close();
-      }, 90_000);
+            const replies = yield* Effect.all(
+              [
+                aliceClient.waitForEvent("messages/received", 60_000),
+                aliceClient.waitForEvent("messages/received", 60_000),
+                aliceClient.waitForEvent("messages/received", 60_000),
+              ],
+              { concurrency: "unbounded" },
+            );
+            expect(replies).toHaveLength(3);
+            for (const r of replies) {
+              const msg = extractMessage(r);
+              expect(msg.parts.length).toBeGreaterThan(0);
+              expect(msg.senderId).toBe(containerAAgentId);
+              expect(extractText(msg)).toContain("ECHO:");
+            }
 
-      it("rapid: multiple messages all get echo replies", async () => {
-        const alice = await registerAndClaim("a2a-alice-rapid");
-        await makeContact(alice.userId, containerAUserId);
-
-        const aliceClient = new MoltZapTestClient(baseUrl, wsUrl);
-        await aliceClient.connect(alice.apiKey);
-
-        const convId = extractConvId(
-          await aliceClient.rpc("conversations/create", {
-            type: "dm",
-            participants: [{ type: "agent", id: containerAAgentId }],
+            yield* aliceClient.close();
           }),
-        );
-
-        const replyPromises = [
-          aliceClient.waitForEvent("messages/received", 60_000),
-          aliceClient.waitForEvent("messages/received", 60_000),
-          aliceClient.waitForEvent("messages/received", 60_000),
-        ];
-
-        for (let i = 0; i < 3; i++) {
-          await aliceClient.rpc("messages/send", {
-            conversationId: convId,
-            parts: [{ type: "text", text: `Message ${i}` }],
-          });
-        }
-
-        const replies = await Promise.all(replyPromises);
-        expect(replies).toHaveLength(3);
-        for (const r of replies) {
-          const msg = extractMessage(r);
-          expect(msg.parts.length).toBeGreaterThan(0);
-          expect(msg.senderId).toBe(containerAAgentId);
-          expect(extractText(msg)).toContain("ECHO:");
-        }
-
-        aliceClient.close();
-      }, 120_000);
+        120_000,
+      );
     });
 
     // --- Two agents in separate containers ---
 
-    it("two agents: both receive and reply from their own containers", async () => {
-      const alice = await registerAndClaim("2a-alice");
-      await makeContact(alice.userId, containerAUserId);
-      await makeContact(alice.userId, containerBUserId);
+    it.live(
+      "two agents: both receive and reply from their own containers",
+      () =>
+        Effect.gen(function* () {
+          const alice = yield* Effect.promise(() =>
+            registerAndClaim("2a-alice"),
+          );
+          yield* Effect.promise(() =>
+            makeContact(alice.userId, containerAUserId),
+          );
+          yield* Effect.promise(() =>
+            makeContact(alice.userId, containerBUserId),
+          );
 
-      const aliceClient = new MoltZapTestClient(baseUrl, wsUrl);
-      await aliceClient.connect(alice.apiKey);
+          const aliceClient = new MoltZapTestClient(baseUrl, wsUrl);
+          yield* aliceClient.connect(alice.apiKey);
 
-      const convAId = extractConvId(
-        await aliceClient.rpc("conversations/create", {
-          type: "dm",
-          participants: [{ type: "agent", id: containerAAgentId }],
+          const convAId = extractConvId(
+            yield* aliceClient.rpc("conversations/create", {
+              type: "dm",
+              participants: [{ type: "agent", id: containerAAgentId }],
+            }),
+          );
+
+          const convBId = extractConvId(
+            yield* aliceClient.rpc("conversations/create", {
+              type: "dm",
+              participants: [{ type: "agent", id: containerBAgentId }],
+            }),
+          );
+
+          yield* aliceClient.rpc("messages/send", {
+            conversationId: convAId,
+            parts: [{ type: "text", text: "hello container-a" }],
+          });
+          yield* aliceClient.rpc("messages/send", {
+            conversationId: convBId,
+            parts: [{ type: "text", text: "hello container-b" }],
+          });
+
+          const events = yield* Effect.all(
+            [
+              aliceClient.waitForEvent("messages/received", 60_000),
+              aliceClient.waitForEvent("messages/received", 60_000),
+            ],
+            { concurrency: "unbounded" },
+          );
+          const messages = events.map((e) => extractMessage(e));
+
+          const aMsg = messages.find((m) => m.conversationId === convAId);
+          const bMsg = messages.find((m) => m.conversationId === convBId);
+
+          expect(aMsg).toBeDefined();
+          expect(bMsg).toBeDefined();
+          expect(aMsg!.senderId).toBe(containerAAgentId);
+          expect(bMsg!.senderId).toBe(containerBAgentId);
+          expect(extractText(aMsg!)).toContain("ECHO:");
+          expect(extractText(bMsg!)).toContain("ECHO:");
+
+          yield* aliceClient.close();
         }),
-      );
-
-      const convBId = extractConvId(
-        await aliceClient.rpc("conversations/create", {
-          type: "dm",
-          participants: [{ type: "agent", id: containerBAgentId }],
-        }),
-      );
-
-      const reply1 = aliceClient.waitForEvent("messages/received", 60_000);
-      const reply2 = aliceClient.waitForEvent("messages/received", 60_000);
-
-      await aliceClient.rpc("messages/send", {
-        conversationId: convAId,
-        parts: [{ type: "text", text: "hello container-a" }],
-      });
-      await aliceClient.rpc("messages/send", {
-        conversationId: convBId,
-        parts: [{ type: "text", text: "hello container-b" }],
-      });
-
-      const events = await Promise.all([reply1, reply2]);
-      const messages = events.map((e) => extractMessage(e));
-
-      const aMsg = messages.find((m) => m.conversationId === convAId);
-      const bMsg = messages.find((m) => m.conversationId === convBId);
-
-      expect(aMsg).toBeDefined();
-      expect(bMsg).toBeDefined();
-      expect(aMsg!.senderId).toBe(containerAAgentId);
-      expect(bMsg!.senderId).toBe(containerBAgentId);
-      expect(extractText(aMsg!)).toContain("ECHO:");
-      expect(extractText(bMsg!)).toContain("ECHO:");
-
-      aliceClient.close();
-    }, 180_000);
+      180_000,
+    );
 
     // --- Human -> Agent (control channel) ---
 
     describe("human -> agent via control channel", () => {
-      it("human sends to control channel, OpenClaw replies to human", async () => {
-        const humanClient = new MoltZapTestClient(baseUrl, wsUrl);
-        await humanClient.connectJwt(containerASupabaseUid);
+      it.live(
+        "human sends to control channel, OpenClaw replies to human",
+        () =>
+          Effect.gen(function* () {
+            const humanClient = new MoltZapTestClient(baseUrl, wsUrl);
+            yield* humanClient.connectJwt(containerASupabaseUid);
 
-        const convId = extractConvId(
-          await humanClient.rpc("conversations/create", {
-            type: "dm",
-            participants: [{ type: "agent", id: containerAAgentId }],
+            const convId = extractConvId(
+              yield* humanClient.rpc("conversations/create", {
+                type: "dm",
+                participants: [{ type: "agent", id: containerAAgentId }],
+              }),
+            );
+
+            yield* humanClient.rpc("messages/send", {
+              conversationId: convId,
+              parts: [{ type: "text", text: "hello from human" }],
+            });
+
+            const reply = extractMessage(
+              yield* humanClient.waitForEvent("messages/received", 60_000),
+            );
+            expect(reply.parts.length).toBeGreaterThan(0);
+            expect(reply.conversationId).toBe(convId);
+            expect(reply.senderId).toBe(containerAAgentId);
+            expect(reply.senderId).toBe("agent");
+            expect(extractText(reply)).toContain("ECHO:");
+
+            yield* humanClient.close();
           }),
-        );
+        90_000,
+      );
 
-        const replyPromise = humanClient.waitForEvent(
-          "messages/received",
-          60_000,
-        );
+      it.live(
+        "agent reply has correct sender identity",
+        () =>
+          Effect.gen(function* () {
+            const humanClient = new MoltZapTestClient(baseUrl, wsUrl);
+            yield* humanClient.connectJwt(containerASupabaseUid);
 
-        await humanClient.rpc("messages/send", {
-          conversationId: convId,
-          parts: [{ type: "text", text: "hello from human" }],
-        });
+            const convId = extractConvId(
+              yield* humanClient.rpc("conversations/create", {
+                type: "dm",
+                participants: [{ type: "agent", id: containerAAgentId }],
+              }),
+            );
 
-        const reply = extractMessage(await replyPromise);
-        expect(reply.parts.length).toBeGreaterThan(0);
-        expect(reply.conversationId).toBe(convId);
-        expect(reply.senderId).toBe(containerAAgentId);
-        expect(reply.senderId).toBe("agent");
-        expect(extractText(reply)).toContain("ECHO:");
+            yield* humanClient.rpc("messages/send", {
+              conversationId: convId,
+              parts: [{ type: "text", text: "who are you?" }],
+            });
 
-        humanClient.close();
-      }, 90_000);
+            const reply = extractMessage(
+              yield* humanClient.waitForEvent("messages/received", 60_000),
+            );
+            expect(reply.senderId).toBe("agent");
+            expect(reply.senderId).toBe(containerAAgentId);
+            expect(extractText(reply)).toContain("ECHO:");
 
-      it("agent reply has correct sender identity", async () => {
-        const humanClient = new MoltZapTestClient(baseUrl, wsUrl);
-        await humanClient.connectJwt(containerASupabaseUid);
-
-        const convId = extractConvId(
-          await humanClient.rpc("conversations/create", {
-            type: "dm",
-            participants: [{ type: "agent", id: containerAAgentId }],
+            yield* humanClient.close();
           }),
-        );
-
-        const replyPromise = humanClient.waitForEvent(
-          "messages/received",
-          60_000,
-        );
-
-        await humanClient.rpc("messages/send", {
-          conversationId: convId,
-          parts: [{ type: "text", text: "who are you?" }],
-        });
-
-        const reply = extractMessage(await replyPromise);
-        expect(reply.senderId).toBe("agent");
-        expect(reply.senderId).toBe(containerAAgentId);
-        expect(extractText(reply)).toContain("ECHO:");
-
-        humanClient.close();
-      }, 90_000);
+        90_000,
+      );
     });
 
     // --- Aggressive scenarios ---
 
     describe("outbound proactive messaging", () => {
-      it("agent proactively sends to agent:<name>, DM auto-created, message arrives", async () => {
-        const receiver = await registerAndClaim("out-receiver-pro");
-        await makeContact(containerAUserId, receiver.userId);
+      it.live(
+        "agent proactively sends to agent:<name>, DM auto-created, message arrives",
+        () =>
+          Effect.gen(function* () {
+            const receiver = yield* Effect.promise(() =>
+              registerAndClaim("out-receiver-pro"),
+            );
+            yield* Effect.promise(() =>
+              makeContact(containerAUserId, receiver.userId),
+            );
 
-        const receiverClient = new MoltZapTestClient(baseUrl, wsUrl);
-        await receiverClient.connect(receiver.apiKey);
+            const receiverClient = new MoltZapTestClient(baseUrl, wsUrl);
+            yield* receiverClient.connect(receiver.apiKey);
 
-        const msgPromise = receiverClient.waitForEvent(
-          "messages/received",
-          60_000,
-        );
+            const senderClient = new MoltZapTestClient(baseUrl, wsUrl);
+            yield* senderClient.connect(inject("containerAApiKey"));
 
-        const senderClient = new MoltZapTestClient(baseUrl, wsUrl);
-        await senderClient.connect(inject("containerAApiKey"));
+            const lookupResult = (yield* senderClient.rpc(
+              "agents/lookupByName",
+              {
+                names: ["out-receiver-pro"],
+              },
+            )) as { agents: { id: string }[] };
 
-        const lookupResult = (await senderClient.rpc("agents/lookupByName", {
-          names: ["out-receiver-pro"],
-        })) as { agents: { id: string }[] };
+            const convId = extractConvId(
+              yield* senderClient.rpc("conversations/create", {
+                type: "dm",
+                participants: [
+                  { type: "agent", id: lookupResult.agents[0]!.id },
+                ],
+              }),
+            );
 
-        const convId = extractConvId(
-          await senderClient.rpc("conversations/create", {
-            type: "dm",
-            participants: [{ type: "agent", id: lookupResult.agents[0]!.id }],
+            yield* senderClient.rpc("messages/send", {
+              conversationId: convId,
+              parts: [{ type: "text", text: "proactive hello" }],
+            });
+
+            const received = extractMessage(
+              yield* receiverClient.waitForEvent("messages/received", 60_000),
+            );
+            expect(received.senderId).toBe(containerAAgentId);
+            expect(extractText(received)).toBe("proactive hello");
+            expect(received.conversationId).toBe(convId);
+
+            yield* senderClient.close();
+            yield* receiverClient.close();
           }),
-        );
+        90_000,
+      );
 
-        await senderClient.rpc("messages/send", {
-          conversationId: convId,
-          parts: [{ type: "text", text: "proactive hello" }],
-        });
+      it.live(
+        "second message to same agent reuses conversation (no duplicate)",
+        () =>
+          Effect.gen(function* () {
+            const receiver = yield* Effect.promise(() =>
+              registerAndClaim("out-receiver-dup"),
+            );
+            yield* Effect.promise(() =>
+              makeContact(containerAUserId, receiver.userId),
+            );
 
-        const received = extractMessage(await msgPromise);
-        expect(received.senderId).toBe(containerAAgentId);
-        expect(extractText(received)).toBe("proactive hello");
-        expect(received.conversationId).toBe(convId);
+            const receiverClient = new MoltZapTestClient(baseUrl, wsUrl);
+            yield* receiverClient.connect(receiver.apiKey);
 
-        senderClient.close();
-        receiverClient.close();
-      }, 90_000);
+            const senderClient = new MoltZapTestClient(baseUrl, wsUrl);
+            yield* senderClient.connect(inject("containerAApiKey"));
 
-      it("second message to same agent reuses conversation (no duplicate)", async () => {
-        const receiver = await registerAndClaim("out-receiver-dup");
-        await makeContact(containerAUserId, receiver.userId);
+            const lookupResult = (yield* senderClient.rpc(
+              "agents/lookupByName",
+              {
+                names: ["out-receiver-dup"],
+              },
+            )) as { agents: { id: string }[] };
 
-        const receiverClient = new MoltZapTestClient(baseUrl, wsUrl);
-        await receiverClient.connect(receiver.apiKey);
+            const convId1 = extractConvId(
+              yield* senderClient.rpc("conversations/create", {
+                type: "dm",
+                participants: [
+                  { type: "agent", id: lookupResult.agents[0]!.id },
+                ],
+              }),
+            );
 
-        const senderClient = new MoltZapTestClient(baseUrl, wsUrl);
-        await senderClient.connect(inject("containerAApiKey"));
+            yield* senderClient.rpc("messages/send", {
+              conversationId: convId1,
+              parts: [{ type: "text", text: "first" }],
+            });
+            const msg1 = extractMessage(
+              yield* receiverClient.waitForEvent("messages/received", 60_000),
+            );
 
-        const lookupResult = (await senderClient.rpc("agents/lookupByName", {
-          names: ["out-receiver-dup"],
-        })) as { agents: { id: string }[] };
+            yield* senderClient.rpc("messages/send", {
+              conversationId: convId1,
+              parts: [{ type: "text", text: "second" }],
+            });
+            const msg2 = extractMessage(
+              yield* receiverClient.waitForEvent("messages/received", 60_000),
+            );
 
-        const convId1 = extractConvId(
-          await senderClient.rpc("conversations/create", {
-            type: "dm",
-            participants: [{ type: "agent", id: lookupResult.agents[0]!.id }],
+            expect(msg1.conversationId).toBe(convId1);
+            expect(msg2.conversationId).toBe(convId1);
+
+            yield* senderClient.close();
+            yield* receiverClient.close();
           }),
-        );
-
-        const msg1Promise = receiverClient.waitForEvent(
-          "messages/received",
-          60_000,
-        );
-        await senderClient.rpc("messages/send", {
-          conversationId: convId1,
-          parts: [{ type: "text", text: "first" }],
-        });
-        const msg1 = extractMessage(await msg1Promise);
-
-        const msg2Promise = receiverClient.waitForEvent(
-          "messages/received",
-          60_000,
-        );
-        await senderClient.rpc("messages/send", {
-          conversationId: convId1,
-          parts: [{ type: "text", text: "second" }],
-        });
-        const msg2 = extractMessage(await msg2Promise);
-
-        expect(msg1.conversationId).toBe(convId1);
-        expect(msg2.conversationId).toBe(convId1);
-
-        senderClient.close();
-        receiverClient.close();
-      }, 90_000);
+        90_000,
+      );
     });
 
     describe("error scenarios", () => {
-      it("send to nonexistent agent returns error", async () => {
-        const agent = await registerAndClaim("err-sender");
-        const agentClient = new MoltZapTestClient(baseUrl, wsUrl);
-        await agentClient.connect(agent.apiKey);
+      it.live(
+        "send to nonexistent agent returns error",
+        () =>
+          Effect.gen(function* () {
+            const agent = yield* Effect.promise(() =>
+              registerAndClaim("err-sender"),
+            );
+            const agentClient = new MoltZapTestClient(baseUrl, wsUrl);
+            yield* agentClient.connect(agent.apiKey);
 
-        await expect(
-          agentClient.rpc("agents/lookupByName", {
-            name: "nonexistent-agent-xyz",
+            const result = yield* Effect.exit(
+              agentClient.rpc("agents/lookupByName", {
+                name: "nonexistent-agent-xyz",
+              }),
+            );
+            expect(result._tag).toBe("Failure");
+
+            yield* agentClient.close();
           }),
-        ).rejects.toThrow();
+        30_000,
+      );
 
-        agentClient.close();
-      }, 30_000);
+      it.live(
+        "large message (>4096 chars) is delivered intact",
+        () =>
+          Effect.gen(function* () {
+            const alice = yield* Effect.promise(() =>
+              registerAndClaim("lg-alice"),
+            );
+            yield* Effect.promise(() =>
+              makeContact(alice.userId, containerAUserId),
+            );
 
-      it("large message (>4096 chars) is delivered intact", async () => {
-        const alice = await registerAndClaim("lg-alice");
-        await makeContact(alice.userId, containerAUserId);
+            const aliceClient = new MoltZapTestClient(baseUrl, wsUrl);
+            yield* aliceClient.connect(alice.apiKey);
 
-        const aliceClient = new MoltZapTestClient(baseUrl, wsUrl);
-        await aliceClient.connect(alice.apiKey);
+            const convId = extractConvId(
+              yield* aliceClient.rpc("conversations/create", {
+                type: "dm",
+                participants: [{ type: "agent", id: containerAAgentId }],
+              }),
+            );
 
-        const convId = extractConvId(
-          await aliceClient.rpc("conversations/create", {
-            type: "dm",
-            participants: [{ type: "agent", id: containerAAgentId }],
+            const largeText = "A".repeat(5000);
+
+            yield* aliceClient.rpc("messages/send", {
+              conversationId: convId,
+              parts: [{ type: "text", text: largeText }],
+            });
+
+            const reply = extractMessage(
+              yield* aliceClient.waitForEvent("messages/received", 60_000),
+            );
+            expect(reply.conversationId).toBe(convId);
+            expect(reply.senderId).toBe(containerAAgentId);
+            const replyText = extractText(reply);
+            expect(replyText).toContain("ECHO:");
+            expect(replyText.length).toBeGreaterThan(4096);
+
+            yield* aliceClient.close();
           }),
-        );
+        120_000,
+      );
 
-        const largeText = "A".repeat(5000);
+      it.live(
+        "reconnection during dispatch: message recovery after WebSocket drop",
+        () =>
+          Effect.gen(function* () {
+            const alice = yield* Effect.promise(() =>
+              registerAndClaim("rd-alice"),
+            );
+            yield* Effect.promise(() =>
+              makeContact(alice.userId, containerAUserId),
+            );
 
-        const replyPromise = aliceClient.waitForEvent(
-          "messages/received",
-          60_000,
-        );
+            const aliceClient = new MoltZapTestClient(baseUrl, wsUrl);
+            yield* aliceClient.connect(alice.apiKey);
 
-        await aliceClient.rpc("messages/send", {
-          conversationId: convId,
-          parts: [{ type: "text", text: largeText }],
-        });
+            const convId = extractConvId(
+              yield* aliceClient.rpc("conversations/create", {
+                type: "dm",
+                participants: [{ type: "agent", id: containerAAgentId }],
+              }),
+            );
 
-        const reply = extractMessage(await replyPromise);
-        expect(reply.conversationId).toBe(convId);
-        expect(reply.senderId).toBe(containerAAgentId);
-        const replyText = extractText(reply);
-        expect(replyText).toContain("ECHO:");
-        expect(replyText.length).toBeGreaterThan(4096);
+            // Send first message to verify baseline works
+            yield* aliceClient.rpc("messages/send", {
+              conversationId: convId,
+              parts: [{ type: "text", text: "before drop" }],
+            });
+            const reply1 = extractMessage(
+              yield* aliceClient.waitForEvent("messages/received", 60_000),
+            );
+            expect(extractText(reply1)).toContain("ECHO:");
 
-        aliceClient.close();
-      }, 120_000);
+            // Close and reconnect alice's WebSocket
+            yield* aliceClient.close();
 
-      it("reconnection during dispatch: message recovery after WebSocket drop", async () => {
-        const alice = await registerAndClaim("rd-alice");
-        await makeContact(alice.userId, containerAUserId);
+            yield* Effect.promise(
+              () => new Promise((r) => setTimeout(r, 1000)),
+            );
 
-        const aliceClient = new MoltZapTestClient(baseUrl, wsUrl);
-        await aliceClient.connect(alice.apiKey);
+            const aliceClient2 = new MoltZapTestClient(baseUrl, wsUrl);
+            yield* aliceClient2.connect(alice.apiKey);
 
-        const convId = extractConvId(
-          await aliceClient.rpc("conversations/create", {
-            type: "dm",
-            participants: [{ type: "agent", id: containerAAgentId }],
+            // Send message after reconnection
+            yield* aliceClient2.rpc("messages/send", {
+              conversationId: convId,
+              parts: [{ type: "text", text: "after reconnect" }],
+            });
+            const reply2 = extractMessage(
+              yield* aliceClient2.waitForEvent("messages/received", 60_000),
+            );
+            expect(extractText(reply2)).toContain("ECHO:");
+            expect(reply2.conversationId).toBe(convId);
+
+            yield* aliceClient2.close();
           }),
-        );
-
-        // Send first message to verify baseline works
-        const reply1Promise = aliceClient.waitForEvent(
-          "messages/received",
-          60_000,
-        );
-        await aliceClient.rpc("messages/send", {
-          conversationId: convId,
-          parts: [{ type: "text", text: "before drop" }],
-        });
-        const reply1 = extractMessage(await reply1Promise);
-        expect(extractText(reply1)).toContain("ECHO:");
-
-        // Close and reconnect alice's WebSocket
-        aliceClient.close();
-
-        await new Promise((r) => setTimeout(r, 1000));
-
-        const aliceClient2 = new MoltZapTestClient(baseUrl, wsUrl);
-        await aliceClient2.connect(alice.apiKey);
-
-        // Send message after reconnection
-        const reply2Promise = aliceClient2.waitForEvent(
-          "messages/received",
-          60_000,
-        );
-        await aliceClient2.rpc("messages/send", {
-          conversationId: convId,
-          parts: [{ type: "text", text: "after reconnect" }],
-        });
-        const reply2 = extractMessage(await reply2Promise);
-        expect(extractText(reply2)).toContain("ECHO:");
-        expect(reply2.conversationId).toBe(convId);
-
-        aliceClient2.close();
-      }, 120_000);
+        120_000,
+      );
     });
   },
 );

@@ -5,9 +5,11 @@ import { logger } from "../logger.js";
 import { serializePayload, deserializePayload } from "./serialization.js";
 import { sql } from "kysely";
 
+// #ignore-sloppy-code-next-line[async-keyword]: Kysely .execute() promise API at migration boundary
 export async function seedInitialKek(
   db: Db,
   envelope: EnvelopeEncryption,
+  // #ignore-sloppy-code-next-line[promise-type]: Kysely .execute() promise API at migration boundary
 ): Promise<void> {
   const kek = randomBytes(32);
   const encrypted = envelope.encryptKek(kek);
@@ -26,9 +28,11 @@ export async function seedInitialKek(
   logger.info("Seeded initial KEK version 1");
 }
 
+// #ignore-sloppy-code-next-line[async-keyword]: Kysely .transaction().execute() at admin/ops boundary
 export async function rotateKek(
   db: Db,
   envelope: EnvelopeEncryption,
+  // #ignore-sloppy-code-next-line[promise-type]: Kysely .transaction().execute() at admin/ops boundary
 ): Promise<number> {
   const current = await db
     .selectFrom("encryption_keys")
@@ -49,6 +53,7 @@ export async function rotateKek(
   const newKek = randomBytes(32);
   const encryptedNewKek = envelope.encryptKek(newKek);
 
+  // #ignore-sloppy-code-next-line[async-keyword]: Kysely transaction callback contract
   const reWrappedCount = await db.transaction().execute(async (trx) => {
     await trx
       .insertInto("encryption_keys")

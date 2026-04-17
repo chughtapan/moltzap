@@ -10,6 +10,8 @@ import { seedInitialKek } from "../crypto/key-rotation.js";
 import { EnvelopeEncryption } from "../crypto/envelope.js";
 import type { CoreApp } from "../app/types.js";
 import type { Database } from "../db/database.js";
+import type { UserService } from "../services/user.service.js";
+import { makeEffectKysely } from "../db/effect-kysely-toolkit.js";
 
 export type { Database } from "../db/database.js";
 export type { CoreApp } from "../app/types.js";
@@ -37,6 +39,13 @@ export async function startCoreTestServer(_opts?: {
   pgHost?: string;
   pgPort?: number;
   encryption?: boolean;
+  /**
+   * Optional user validator injected into the AppHost. Tests that exercise
+   * admission coalescing or validator short-circuiting pass a counting fake;
+   * default `undefined` preserves the open-access behavior of the original
+   * harness (admit all owners).
+   */
+  userService?: UserService;
 }): Promise<CoreTestServer> {
   if (coreApp)
     throw new Error(
@@ -50,7 +59,12 @@ export async function startCoreTestServer(_opts?: {
     exec: (sql: string) => Promise<unknown>;
     close: () => Promise<void>;
   };
-  appDb = new Kysely<Database>({ dialect: kpg.dialect });
+  // Use the Effect-patched Kysely builder so service code can `yield*`
+  // builder chains directly. The returned instance is still `Kysely<DB>`-
+  // compatible for seed helpers that use the promise API.
+  appDb = makeEffectKysely<Database>({
+    dialect: kpg.dialect,
+  }) as unknown as Kysely<Database>;
 
   const srcPath = join(__dirname, "..", "app", "core-schema.sql");
   const distPath = join(__dirname, "..", "..", "src", "app", "core-schema.sql");
@@ -75,6 +89,7 @@ export async function startCoreTestServer(_opts?: {
     port: 0,
     corsOrigins: ["*"],
     devMode: true,
+    userService: _opts?.userService,
   });
 
   await new Promise((r) => setTimeout(r, 200));

@@ -46,7 +46,13 @@ export { PresenceService } from "./services/presence.service.js";
 export { DeliveryService } from "./services/delivery.service.js";
 
 // Infrastructure
-export { createRpcRouter, RpcError } from "./rpc/router.js";
+export { createRpcRouter } from "./rpc/router.js";
+export {
+  RpcFailure,
+  InvalidParamsError,
+  ForbiddenError,
+  validateParams,
+} from "./runtime/index.js";
 export { ConnectionManager } from "./ws/connection.js";
 export { Broadcaster } from "./ws/broadcaster.js";
 export { EnvelopeEncryption } from "./crypto/envelope.js";
@@ -59,7 +65,7 @@ export {
   generateInviteToken,
   isValidApiKeyFormat,
 } from "./auth/agent-auth.js";
-export { logger, log } from "./logger.js";
+export { logger } from "./logger.js";
 export type { Logger } from "./logger.js";
 export { nextSnowflakeId, snowflakeToTimestamp } from "./db/snowflake.js";
 export { generateDek, wrapKey, unwrapKey } from "./crypto/envelope.js";

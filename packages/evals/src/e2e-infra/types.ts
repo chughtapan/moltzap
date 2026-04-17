@@ -1,6 +1,47 @@
 /** Shared types for the E2E eval pipeline. */
 
+import { Data } from "effect";
+
 export type IssueSeverity = "minor" | "significant" | "critical";
+
+/**
+ * Domain errors for the eval pipeline, used in Effect error channels where
+ * typed failure flow is clearer than `errors: string[]` accumulation.
+ *
+ * Note: most phases still surface errors inside result records (the runner's
+ * aggregate report needs per-scenario attribution), so these tags mainly show
+ * up in the internal Effect channel before being captured back into the
+ * result shape.
+ */
+
+/** Scenario generation failed (transport error, protocol timeout, etc.). */
+export class ScenarioGenerationError extends Data.TaggedError(
+  "ScenarioGenerationError",
+)<{
+  readonly scenarioId: string;
+  readonly message: string;
+}> {}
+
+/** LLM judge flow failed in a way the retry loop couldn't recover from. */
+export class JudgeError extends Data.TaggedError("JudgeError")<{
+  readonly message: string;
+  readonly fatal: boolean;
+}> {}
+
+/** Container lifecycle failed (start, wait, stop). */
+export class ContainerError extends Data.TaggedError("ContainerError")<{
+  readonly containerName: string;
+  readonly phase: "start" | "wait" | "stop" | "image";
+  readonly message: string;
+}> {}
+
+/** Sending a MoltZap message and waiting for the agent reply timed out. */
+export class AgentResponseTimeoutError extends Data.TaggedError(
+  "AgentResponseTimeoutError",
+)<{
+  readonly conversationId: string;
+  readonly timeoutMs: number;
+}> {}
 
 export interface EvalScenario {
   id: string;

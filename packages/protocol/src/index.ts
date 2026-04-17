@@ -4,6 +4,8 @@ export { ErrorCodes } from "./schema/errors.js";
 export { EventNames } from "./schema/events.js";
 export * from "./schema/index.js";
 export * from "./types.js";
+export * from "./rpc.js";
+export * from "./rpc-registry.js";
 export {
   stringEnum,
   brandedId,
