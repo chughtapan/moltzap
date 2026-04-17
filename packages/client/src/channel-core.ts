@@ -2,7 +2,7 @@
  * Shared message-enrichment helper for MoltZap channel adapters.
  */
 
-import { Effect, Fiber, Queue } from "effect";
+import { Cause, Effect, Fiber, Queue } from "effect";
 import type { Message, PermissionsRequiredEvent } from "@moltzap/protocol";
 import type {
   CrossConversationEntry,
@@ -78,9 +78,15 @@ export interface ChannelCoreOptions {
   logger?: WsClientLogger;
 }
 
-export type InboundHandler = (
+/**
+ * Handler invoked for every enriched inbound message. Returns an Effect so the
+ * error channel is part of the type — callers fail with a tagged error and the
+ * consumer fiber logs it instead of dropping it on the floor like a Promise
+ * rejection would.
+ */
+export type InboundHandler<E = unknown> = (
   msg: EnrichedInboundMessage,
-) => Promise<void> | void;
+) => Effect.Effect<void, E>;
 
 const noopLogger = {
   info: () => {},
@@ -110,7 +116,7 @@ export class MoltZapChannelCore {
   private readonly service: ChannelService;
   private readonly logger: WsClientLogger;
   private connected = false;
-  private inboundHandler: InboundHandler | null = null;
+  private inboundHandler: InboundHandler<unknown> | null = null;
   /** Inbound messages enqueue synchronously; a single forked consumer fiber
    * serialises delivery so handlers execute one-at-a-time in arrival order. */
   private readonly inboundQueue: Queue.Queue<Message> = Effect.runSync(
@@ -131,16 +137,19 @@ export class MoltZapChannelCore {
       Queue.unsafeOffer(this.inboundQueue, message);
     });
 
-    // Handler failures are caught and logged so the consumer fiber survives.
+    // Both typed failures (Effect.fail) and defects (sync throws inside the
+    // handler's Effect) are caught — Cause.squash collapses either into a
+    // single value for the logger so the consumer fiber survives a misbehaving
+    // handler in either mode.
     const consumer = Effect.forever(
       Queue.take(this.inboundQueue).pipe(
         Effect.flatMap((message) =>
           this.dispatchInboundEffect(message).pipe(
-            Effect.catchAll((err) =>
+            Effect.catchAllCause((cause) =>
               Effect.sync(() =>
                 this.logger.error(
-                  { messageId: message.id, err },
-                  "MoltZapChannelCore: inbound handler threw",
+                  { messageId: message.id, err: Cause.squash(cause) },
+                  "MoltZapChannelCore: inbound handler failed",
                 ),
               ),
             ),
@@ -168,8 +177,8 @@ export class MoltZapChannelCore {
   }
 
   /** Replaces any previous handler. */
-  onInbound(handler: InboundHandler): void {
-    this.inboundHandler = handler;
+  onInbound<E>(handler: InboundHandler<E>): void {
+    this.inboundHandler = handler as InboundHandler<unknown>;
   }
 
   onDisconnect(handler: () => void): void {
@@ -317,18 +326,17 @@ export class MoltZapChannelCore {
     });
   }
 
-  private dispatchInboundEffect(message: Message): Effect.Effect<void, Error> {
+  private dispatchInboundEffect(
+    message: Message,
+  ): Effect.Effect<void, unknown> {
     return Effect.gen(this, function* () {
       if (!this.inboundHandler) return;
       const { enriched, commitContext } =
         yield* MoltZapChannelCore.enrichMessage(this.service, message);
-      // `inboundHandler` is user code and may return a Promise, so we bridge
-      // via `tryPromise` — the consumer fiber awaits this to preserve
-      // arrival-order delivery.
-      yield* Effect.tryPromise({
-        try: () => Promise.resolve(this.inboundHandler!(enriched)),
-        catch: (err) => (err instanceof Error ? err : new Error(String(err))),
-      });
+      // The handler is user code returning an Effect — yield it directly so
+      // its typed error channel propagates to the consumer fiber, which logs
+      // and continues. We await it inline to preserve arrival-order delivery.
+      yield* this.inboundHandler(enriched);
       if (commitContext) commitContext();
     });
   }

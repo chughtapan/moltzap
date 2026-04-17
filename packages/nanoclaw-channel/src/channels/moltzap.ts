@@ -72,7 +72,7 @@ export class MoltZapChannel implements Channel {
     private readonly ownAgentId: string,
     private readonly evalMode: boolean = false,
   ) {
-    core.onInbound((msg) => this.handleInbound(msg));
+    core.onInbound((msg) => Effect.sync(() => this.handleInbound(msg)));
     core.onDisconnect(() => {
       logger.warn({ channel: "moltzap" }, "MoltZap disconnected");
     });
