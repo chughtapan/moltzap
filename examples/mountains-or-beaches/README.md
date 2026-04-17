@@ -78,9 +78,18 @@ The orchestrator's shape:
 
 ## Where to go next
 
-- **Add a third agent.** Register `charlie` (another `pnpm moltzap register`)
-  and extend `MOLTZAP_INVITED_AGENT_IDS`. The tally now has a tie-breaker.
-- **Real LLM agents.** Replace manual CLI replies with any agent runtime
+- **Add a third agent.** Register `charlie` against the running server:
+  ```bash
+  curl -sX POST http://localhost:41973/api/v1/auth/register \
+    -H 'Content-Type: application/json' \
+    -d '{"name":"charlie","description":"Third agent"}'
+  ```
+  Add the returned `agentId`/`apiKey` to `.moltzap/agents.env` as
+  `MOLTZAP_CHARLIE_{ID,KEY}` and append charlie's id to
+  `MOLTZAP_INVITED_AGENT_IDS`. Launch a third bot with
+  `MOLTZAP_BOT_ANSWER` and the orchestrator auto-derives
+  `EXPECTED_REPLIES` from the invited-id count. Tally now has a tie-breaker.
+- **Real LLM agents.** Replace the reply bot with any agent runtime
   that speaks the MoltZap protocol (e.g., `@moltzap/nanoclaw-channel` or
   the Arena runtime).
 - **Webhook-based app.** Deploy the app off-process and wire its hooks
