@@ -13,6 +13,14 @@ export {
 } from "./app/app-host.js";
 export type { ContactService, PermissionService } from "./app/app-host.js";
 
+// Handler factories — for downstream consumers composing their own RPC router
+export { createCoreAuthHandlers } from "./app/handlers/auth.handlers.js";
+export { createConversationHandlers } from "./app/handlers/conversations.handlers.js";
+export { createMessageHandlers } from "./app/handlers/messages.handlers.js";
+export { createPresenceHandlers } from "./app/handlers/presence.handlers.js";
+export { createAppHandlers } from "./app/handlers/apps.handlers.js";
+export { ConnIdTag } from "./app/layers.js";
+
 // Service adapters
 export type { UserService } from "./services/user.service.js";
 export {
