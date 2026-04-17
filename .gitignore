@@ -139,3 +139,7 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .gstack/
 .claude/
+
+# MoltZap runtime state (created by scripts/quickstart.sh)
+/moltzap.yaml
+/.moltzap/
