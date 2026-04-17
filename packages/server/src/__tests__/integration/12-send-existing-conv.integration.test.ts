@@ -27,20 +27,20 @@ describe("Send to Existing Conversation", () => {
       Effect.gen(function* () {
         const { alice, bob } = yield* setupAgentPair();
 
-        const conv = (yield* alice.client.rpc("conversations/create", {
+        const conv = (yield* alice.client.sendRpc("conversations/create", {
           type: "dm",
           participants: [{ type: "agent", id: bob.agentId }],
         })) as { conversation: { id: string } };
         const conversationId = conv.conversation.id;
 
-        yield* alice.client.rpc("messages/send", {
+        yield* alice.client.sendRpc("messages/send", {
           conversationId,
           parts: [{ type: "text", text: "First message" }],
         });
         yield* bob.client.waitForEvent("messages/received");
 
         // Send second message using conversationId
-        const send2 = (yield* alice.client.rpc("messages/send", {
+        const send2 = (yield* alice.client.sendRpc("messages/send", {
           conversationId,
           parts: [{ type: "text", text: "Second message" }],
         })) as {

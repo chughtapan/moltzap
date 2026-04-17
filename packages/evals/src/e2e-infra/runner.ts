@@ -9,7 +9,8 @@ import {
   stopCoreTestServer,
   resetCoreTestDb,
 } from "@moltzap/server-core/test-utils";
-import { MoltZapTestClient } from "@moltzap/protocol/test-client";
+import { MoltZapWsClient } from "@moltzap/client";
+import { registerAgent, stripWsPath } from "@moltzap/client/test";
 import {
   launchFleet,
   type AgentFleet,
@@ -101,7 +102,7 @@ type RawMessage = {
 
 /** Effect-native: send a message and wait for a matching response. */
 export const sendAndWaitForResponseEffect = (opts: {
-  client: MoltZapTestClient;
+  client: MoltZapWsClient;
   conversationId: string;
   message: string;
   expectedSenderId: string;
@@ -111,7 +112,7 @@ export const sendAndWaitForResponseEffect = (opts: {
     const { client, conversationId, message, expectedSenderId, timeoutMs } =
       opts;
 
-    yield* client.rpc("messages/send", {
+    yield* client.sendRpc("messages/send", {
       conversationId,
       parts: [{ type: "text", text: message }],
     });
@@ -150,7 +151,7 @@ export const sendAndWaitForResponseEffect = (opts: {
 
 /** Promise-facing wrapper for callers outside Effect. */
 export function sendAndWaitForResponse(opts: {
-  client: MoltZapTestClient;
+  client: MoltZapWsClient;
   conversationId: string;
   message: string;
   expectedSenderId: string;
@@ -169,14 +170,14 @@ export function sendAndWaitForResponse(opts: {
 // #ignore-sloppy-code-next-line[async-keyword]: evals scenario orchestration boundary
 async function generateResult(opts: {
   scenario: EvalScenario;
-  testClient: MoltZapTestClient;
+  testClient: MoltZapWsClient;
   agentId: string;
   runNumber: number;
   modelName: string;
   /** Connected bystander agents for group scenarios. */
-  bystanders?: Array<{ client: MoltZapTestClient; agentId: string }>;
+  bystanders?: Array<{ client: MoltZapWsClient; agentId: string }>;
   /** Separate probe client for cross-conversation scenarios (different sender than testClient). */
-  probeClient?: MoltZapTestClient;
+  probeClient?: MoltZapWsClient;
   // #ignore-sloppy-code-next-line[promise-type]: evals scenario orchestration boundary
 }): Promise<GeneratedResult> {
   const { scenario, testClient, agentId, runNumber, modelName } = opts;
@@ -193,7 +194,7 @@ async function generateResult(opts: {
         .map((b) => ({ type: "agent" as const, id: b.agentId }));
 
       const conv = (await Effect.runPromise(
-        testClient.rpc("conversations/create", {
+        testClient.sendRpc("conversations/create", {
           type: "group",
           name: `Eval Group ${scenario.id}`,
           participants: [
@@ -214,7 +215,7 @@ async function generateResult(opts: {
         ) {
           const bystander = opts.bystanders[i]!;
           await Effect.runPromise(
-            bystander.client.rpc("messages/send", {
+            bystander.client.sendRpc("messages/send", {
               conversationId,
               parts: [{ type: "text", text: scenario.bystanderMessages[i] }],
             }),
@@ -232,7 +233,7 @@ async function generateResult(opts: {
       }
     } else {
       const conv = (await Effect.runPromise(
-        testClient.rpc("conversations/create", {
+        testClient.sendRpc("conversations/create", {
           type: "dm",
           participants: [{ type: "agent", id: agentId }],
         }),
@@ -281,7 +282,7 @@ async function generateResult(opts: {
     // Cross-conversation probe: send from a DIFFERENT agent in a NEW conversation
     if (scenario.crossConversationProbe && opts.probeClient) {
       const probeConv = (await Effect.runPromise(
-        opts.probeClient.rpc("conversations/create", {
+        opts.probeClient.sendRpc("conversations/create", {
           type: "dm",
           participants: [{ type: "agent", id: agentId }],
         }),
@@ -355,11 +356,11 @@ interface ScenarioJob {
 function generatePhase(
   jobs: ScenarioJob[],
   ctx: {
-    evalClient: MoltZapTestClient;
-    probeClient: MoltZapTestClient;
+    evalClient: MoltZapWsClient;
+    probeClient: MoltZapWsClient;
     agentId: string;
     modelName: string;
-    bystanders: Array<{ client: MoltZapTestClient; agentId: string }>;
+    bystanders: Array<{ client: MoltZapWsClient; agentId: string }>;
     totalJobs: number;
     signal?: AbortSignal;
   },
@@ -710,7 +711,7 @@ async function runE2EEvalsImpl(
   let fleet: AgentFleet | null = null;
   let testServerBaseUrl = "";
   let testServerWsUrl = "";
-  const clientsToClose: MoltZapTestClient[] = [];
+  const clientsToClose: MoltZapWsClient[] = [];
 
   try {
     // Phase 0: Start test infrastructure
@@ -721,35 +722,32 @@ async function runE2EEvalsImpl(
     await resetCoreTestDb();
 
     // Register eval sender agent (core: no invites, direct registration)
-    const evalClient = new MoltZapTestClient(
-      testServerBaseUrl,
-      testServerWsUrl,
+    const evalReg = await Effect.runPromise(
+      registerAgent(testServerBaseUrl, "eval-runner"),
     );
-    const evalReg = await Effect.runPromise(evalClient.register("eval-runner"));
+    const evalClient = new MoltZapWsClient({
+      serverUrl: stripWsPath(testServerWsUrl),
+      agentKey: evalReg.apiKey,
+    });
 
     // Register the OpenClaw agent account
-    const registrationClient = new MoltZapTestClient(
-      testServerBaseUrl,
-      testServerWsUrl,
-    );
     const agentReg = await Effect.runPromise(
-      registrationClient.register("openclaw-eval-agent"),
+      registerAgent(testServerBaseUrl, "openclaw-eval-agent"),
     );
-    await Effect.runPromise(registrationClient.close());
 
     // Connect eval client
-    await Effect.runPromise(evalClient.connect(evalReg.apiKey));
+    await Effect.runPromise(evalClient.connect());
     clientsToClose.push(evalClient);
 
     // Register probe agent for cross-conversation scenarios (different sender)
-    const probeClient = new MoltZapTestClient(
-      testServerBaseUrl,
-      testServerWsUrl,
-    );
     const probeReg = await Effect.runPromise(
-      probeClient.register("eval-probe"),
+      registerAgent(testServerBaseUrl, "eval-probe"),
     );
-    await Effect.runPromise(probeClient.connect(probeReg.apiKey));
+    const probeClient = new MoltZapWsClient({
+      serverUrl: stripWsPath(testServerWsUrl),
+      agentKey: probeReg.apiKey,
+    });
+    await Effect.runPromise(probeClient.connect());
     clientsToClose.push(probeClient);
 
     // Register + connect bystander agents for group scenarios (parallel).
@@ -764,18 +762,24 @@ async function runE2EEvalsImpl(
         (i) => {
           // Compose the register/connect pair from small Effects so the try
           // closure stays synchronous (no `async` keyword boundary).
-          const bc = new MoltZapTestClient(testServerBaseUrl, testServerWsUrl);
-          return bc.register(`bystander-${i}`).pipe(
-            Effect.flatMap((reg) =>
-              bc.connect(reg.apiKey).pipe(
+          return registerAgent(testServerBaseUrl, `bystander-${i}`).pipe(
+            Effect.flatMap((reg) => {
+              const bc = new MoltZapWsClient({
+                serverUrl: stripWsPath(testServerWsUrl),
+                agentKey: reg.apiKey,
+              });
+              return bc.connect().pipe(
                 Effect.tap(() =>
                   Effect.sync(() => {
                     clientsToClose.push(bc);
                   }),
                 ),
                 Effect.as({ client: bc, agentId: reg.agentId }),
-              ),
-            ),
+                Effect.mapError((err) =>
+                  err instanceof Error ? err : new Error(String(err)),
+                ),
+              );
+            }),
           );
         },
         { concurrency: "unbounded" },

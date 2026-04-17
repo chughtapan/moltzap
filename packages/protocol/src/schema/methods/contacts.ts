@@ -19,7 +19,6 @@ export const ContactsAdd = defineRpc({
   params: Type.Object(
     {
       contactUserId: Type.Optional(UserId),
-      phone: Type.Optional(Type.String()),
       source: Type.Optional(ContactSourceEnum),
       relationship: Type.Optional(Type.String()),
     },
@@ -57,29 +56,4 @@ export const ContactId_ = defineRpc({
     { additionalProperties: false },
   ),
   result: Type.Object({}, { additionalProperties: false }),
-});
-
-export const ContactsDiscover = defineRpc({
-  name: "contacts/discover",
-  params: Type.Object(
-    {
-      phoneHashes: Type.Array(Type.String(), { maxItems: 1000 }),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    {
-      matches: Type.Array(
-        Type.Object(
-          {
-            phoneHash: Type.String(),
-            userId: Type.String({ format: "uuid" }),
-            displayName: Type.String(),
-          },
-          { additionalProperties: false },
-        ),
-      ),
-    },
-    { additionalProperties: false },
-  ),
 });

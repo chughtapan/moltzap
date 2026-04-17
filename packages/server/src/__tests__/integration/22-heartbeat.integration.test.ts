@@ -25,7 +25,7 @@ describe("Heartbeat / Idle Connection", () => {
     Effect.gen(function* () {
       const { alice, bob } = yield* setupAgentPair();
 
-      const conv = (yield* alice.client.rpc("conversations/create", {
+      const conv = (yield* alice.client.sendRpc("conversations/create", {
         type: "dm",
         participants: [{ type: "agent", id: bob.agentId }],
       })) as { conversation: { id: string } };
@@ -37,7 +37,7 @@ describe("Heartbeat / Idle Connection", () => {
       );
 
       // After idle period, Alice sends a message
-      yield* alice.client.rpc("messages/send", {
+      yield* alice.client.sendRpc("messages/send", {
         conversationId,
         parts: [{ type: "text", text: "Still alive after idle" }],
       });
@@ -49,7 +49,7 @@ describe("Heartbeat / Idle Connection", () => {
       expect(received.parts[0]!.text).toBe("Still alive after idle");
 
       // Verify bidirectional: Bob replies after idle
-      yield* bob.client.rpc("messages/send", {
+      yield* bob.client.sendRpc("messages/send", {
         conversationId,
         parts: [{ type: "text", text: "Reply after idle" }],
       });

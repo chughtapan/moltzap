@@ -32,7 +32,7 @@ describe("Scenario 4: Group Chat", () => {
       const bob = yield* registerAndConnect("bob-grp");
 
       // Alice creates a group
-      const conv = (yield* alice.client.rpc("conversations/create", {
+      const conv = (yield* alice.client.sendRpc("conversations/create", {
         type: "group",
         name: "Test Group",
         participants: [{ type: "agent", id: bob.agentId }],
@@ -46,7 +46,7 @@ describe("Scenario 4: Group Chat", () => {
       // Alice sends multiple messages
       const seqs: string[] = [];
       for (let i = 0; i < 3; i++) {
-        const result = (yield* alice.client.rpc("messages/send", {
+        const result = (yield* alice.client.sendRpc("messages/send", {
           conversationId,
           parts: [{ type: "text", text: `Message ${i + 1}` }],
         })) as { message: { id: string } };
@@ -54,7 +54,7 @@ describe("Scenario 4: Group Chat", () => {
       }
 
       // List messages
-      const messages = (yield* alice.client.rpc("messages/list", {
+      const messages = (yield* alice.client.sendRpc("messages/list", {
         conversationId,
       })) as { messages: Array<{ parts: Array<{ text: string }> }> };
 
@@ -73,17 +73,20 @@ describe("Scenario 4: Group Chat", () => {
       const bob = yield* registerAndConnect("bob-addp");
 
       // Create group with just Alice
-      const conv = (yield* alice.client.rpc("conversations/create", {
+      const conv = (yield* alice.client.sendRpc("conversations/create", {
         type: "group",
         name: "Add Test",
         participants: [{ type: "agent", id: alice.agentId }],
       })) as { conversation: { id: string } };
 
       // Add Bob
-      const result = (yield* alice.client.rpc("conversations/addParticipant", {
-        conversationId: conv.conversation.id,
-        participant: { type: "agent", id: bob.agentId },
-      })) as { participant: { conversationId: string; role: string } };
+      const result = (yield* alice.client.sendRpc(
+        "conversations/addParticipant",
+        {
+          conversationId: conv.conversation.id,
+          participant: { type: "agent", id: bob.agentId },
+        },
+      )) as { participant: { conversationId: string; role: string } };
 
       expect(result.participant).toBeDefined();
       expect(result.participant.conversationId).toBe(conv.conversation.id);

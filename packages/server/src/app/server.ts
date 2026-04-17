@@ -438,7 +438,11 @@ export function createCoreApp(config: CoreConfig): CoreApp {
           ),
         );
 
-        yield* Effect.race(reader, Deferred.await(closeRequested)).pipe(
+        // `raceFirst` so an abnormal close (reader fails before anyone calls
+        // `conn.shutdown`) doesn't hang on the still-pending `closeRequested`.
+        // With `race`, onExit never fires on abrupt disconnects and the
+        // connection leaks in the manager.
+        yield* Effect.raceFirst(reader, Deferred.await(closeRequested)).pipe(
           Effect.onExit((exit) =>
             Effect.sync(() => {
               const conn = connections.get(connId);

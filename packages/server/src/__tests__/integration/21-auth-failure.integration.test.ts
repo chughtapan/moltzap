@@ -2,7 +2,8 @@ import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { it } from "@effect/vitest";
 import { Effect } from "effect";
 import { startTestServer, stopTestServer, resetTestDb } from "./helpers.js";
-import { MoltZapTestClient } from "@moltzap/protocol/test-client";
+import { MoltZapWsClient } from "@moltzap/client";
+import { registerAgent, stripWsPath } from "@moltzap/client/test";
 import { getCoreDb } from "../../test-utils/index.js";
 
 let baseUrl: string;
@@ -25,9 +26,12 @@ beforeEach(async () => {
 describe("Auth Failure", () => {
   it.live("bad API key is rejected with authentication error", () =>
     Effect.gen(function* () {
-      const client = new MoltZapTestClient(baseUrl, wsUrl);
+      const client = new MoltZapWsClient({
+        serverUrl: stripWsPath(wsUrl),
+        agentKey: "invalid_key_12345",
+      });
 
-      const result = yield* Effect.exit(client.connect("invalid_key_12345"));
+      const result = yield* Effect.exit(client.connect());
       expect(result._tag).toBe("Failure");
       if (result._tag === "Failure") {
         expect(String(result.cause)).toContain("Authentication failed");
@@ -39,11 +43,12 @@ describe("Auth Failure", () => {
 
   it.live("unauthenticated RPC call is rejected", () =>
     Effect.gen(function* () {
-      const client = new MoltZapTestClient(baseUrl, wsUrl);
+      const client = new MoltZapWsClient({
+        serverUrl: stripWsPath(wsUrl),
+        agentKey: "mz_totally_fake_api_key_000000000000",
+      });
 
-      const result = yield* Effect.exit(
-        client.connect("mz_totally_fake_api_key_000000000000"),
-      );
+      const result = yield* Effect.exit(client.connect());
       expect(result._tag).toBe("Failure");
       if (result._tag === "Failure") {
         expect(String(result.cause)).toContain("Authentication failed");
@@ -55,8 +60,7 @@ describe("Auth Failure", () => {
 
   it.live("suspended agent cannot call protected RPCs", () =>
     Effect.gen(function* () {
-      const client = new MoltZapTestClient(baseUrl, wsUrl);
-      const reg = yield* client.register("suspended-agent");
+      const reg = yield* registerAgent(baseUrl, "suspended-agent");
 
       // Suspend via direct DB update
       const db = getCoreDb();
@@ -68,7 +72,11 @@ describe("Auth Failure", () => {
           .execute(),
       );
 
-      const result = yield* Effect.exit(client.connect(reg.apiKey));
+      const client = new MoltZapWsClient({
+        serverUrl: stripWsPath(wsUrl),
+        agentKey: reg.apiKey,
+      });
+      const result = yield* Effect.exit(client.connect());
       expect(result._tag).toBe("Failure");
 
       yield* client.close();

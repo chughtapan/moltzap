@@ -6,7 +6,8 @@
 import { describe, expect, inject, beforeAll, afterAll } from "vitest";
 import { it } from "@effect/vitest";
 import { Effect } from "effect";
-import { MoltZapTestClient } from "@moltzap/protocol/test-client";
+import { MoltZapWsClient } from "@moltzap/client";
+import { stripWsPath } from "@moltzap/client/test";
 import { getLogs } from "../test-utils/container-core.js";
 import {
   initWorker,
@@ -22,7 +23,7 @@ let baseUrl: string;
 let wsUrl: string;
 
 async function waitForRepliesByList(params: {
-  client: MoltZapTestClient;
+  client: MoltZapWsClient;
   conversationId: string;
   receiverAgentId: string;
   expectedCount: number;
@@ -32,7 +33,7 @@ async function waitForRepliesByList(params: {
 
   while (Date.now() < deadline) {
     const result = (await Effect.runPromise(
-      params.client.rpc("messages/list", {
+      params.client.sendRpc("messages/list", {
         conversationId: params.conversationId,
         limit: 50,
       }),
@@ -103,34 +104,39 @@ describe("Stress: concurrent multi-agent messaging", () => {
         });
 
         try {
-          const clientA = new MoltZapTestClient(baseUrl, wsUrl);
-          const clientB = new MoltZapTestClient(baseUrl, wsUrl);
-          const clientC = new MoltZapTestClient(baseUrl, wsUrl);
+          const clientA = new MoltZapWsClient({
+            serverUrl: stripWsPath(wsUrl),
+            agentKey: agentA.apiKey,
+          });
+          const clientB = new MoltZapWsClient({
+            serverUrl: stripWsPath(wsUrl),
+            agentKey: agentB.apiKey,
+          });
+          const clientC = new MoltZapWsClient({
+            serverUrl: stripWsPath(wsUrl),
+            agentKey: agentC.apiKey,
+          });
           yield* Effect.all(
-            [
-              clientA.connect(agentA.apiKey),
-              clientB.connect(agentB.apiKey),
-              clientC.connect(agentC.apiKey),
-            ],
+            [clientA.connect(), clientB.connect(), clientC.connect()],
             { concurrency: "unbounded" },
           );
 
           const [convA, convB, convC] = yield* Effect.all(
             [
               clientA
-                .rpc("conversations/create", {
+                .sendRpc("conversations/create", {
                   type: "dm",
                   participants: [{ type: "agent", id: receiverAgentId }],
                 })
                 .pipe(Effect.map(extractConvId)),
               clientB
-                .rpc("conversations/create", {
+                .sendRpc("conversations/create", {
                   type: "dm",
                   participants: [{ type: "agent", id: receiverAgentId }],
                 })
                 .pipe(Effect.map(extractConvId)),
               clientC
-                .rpc("conversations/create", {
+                .sendRpc("conversations/create", {
                   type: "dm",
                   participants: [{ type: "agent", id: receiverAgentId }],
                 })
@@ -141,19 +147,19 @@ describe("Stress: concurrent multi-agent messaging", () => {
 
           const sendEffects = [
             ...Array.from({ length: 4 }, (_, i) =>
-              clientA.rpc("messages/send", {
+              clientA.sendRpc("messages/send", {
                 conversationId: convA,
                 parts: [{ type: "text", text: `A-msg-${i}` }],
               }),
             ),
             ...Array.from({ length: 3 }, (_, i) =>
-              clientB.rpc("messages/send", {
+              clientB.sendRpc("messages/send", {
                 conversationId: convB,
                 parts: [{ type: "text", text: `B-msg-${i}` }],
               }),
             ),
             ...Array.from({ length: 3 }, (_, i) =>
-              clientC.rpc("messages/send", {
+              clientC.sendRpc("messages/send", {
                 conversationId: convC,
                 parts: [{ type: "text", text: `C-msg-${i}` }],
               }),

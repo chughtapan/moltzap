@@ -22,7 +22,7 @@ describe("Presence Lifecycle", () => {
       const alice = yield* registerAndConnect("alice-pres");
       const bob = yield* registerAndConnect("bob-pres");
 
-      const result = (yield* alice.client.rpc("presence/subscribe", {
+      const result = (yield* alice.client.sendRpc("presence/subscribe", {
         agentIds: [bob.agentId],
       })) as { statuses: Array<{ agentId: string; status: string }> };
 
@@ -36,11 +36,11 @@ describe("Presence Lifecycle", () => {
       const alice = yield* registerAndConnect("alice-away");
       const bob = yield* registerAndConnect("bob-away");
 
-      yield* alice.client.rpc("presence/subscribe", {
+      yield* alice.client.sendRpc("presence/subscribe", {
         agentIds: [bob.agentId],
       });
 
-      yield* bob.client.rpc("presence/update", { status: "away" });
+      yield* bob.client.sendRpc("presence/update", { status: "away" });
 
       const event = yield* alice.client.waitForEvent("presence/changed");
       const data = event.data as {
@@ -57,22 +57,22 @@ describe("Presence Lifecycle", () => {
       const alice = yield* registerAndConnect("alice-cycle");
       const bob = yield* registerAndConnect("bob-cycle");
 
-      yield* alice.client.rpc("presence/subscribe", {
+      yield* alice.client.sendRpc("presence/subscribe", {
         agentIds: [bob.agentId],
       });
 
       // away
-      yield* bob.client.rpc("presence/update", { status: "away" });
+      yield* bob.client.sendRpc("presence/update", { status: "away" });
       const awayEvent = yield* alice.client.waitForEvent("presence/changed");
       expect((awayEvent.data as { status: string }).status).toBe("away");
 
       // back online
-      yield* bob.client.rpc("presence/update", { status: "online" });
+      yield* bob.client.sendRpc("presence/update", { status: "online" });
       const onlineEvent = yield* alice.client.waitForEvent("presence/changed");
       expect((onlineEvent.data as { status: string }).status).toBe("online");
 
       // offline
-      yield* bob.client.rpc("presence/update", { status: "offline" });
+      yield* bob.client.sendRpc("presence/update", { status: "offline" });
       const offlineEvent = yield* alice.client.waitForEvent("presence/changed");
       expect((offlineEvent.data as { status: string }).status).toBe("offline");
     }),

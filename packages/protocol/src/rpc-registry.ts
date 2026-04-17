@@ -23,9 +23,7 @@ import {
   ContactsList,
   ContactsAdd,
   ContactsAccept,
-  ContactsDiscover,
 } from "./schema/methods/contacts.js";
-import { ContactsSync } from "./schema/methods/phone-contacts.js";
 import { InvitesCreateAgent } from "./schema/methods/invites.js";
 import {
   PresenceUpdate,
@@ -82,8 +80,6 @@ export const rpcMethods = [
   ContactsList,
   ContactsAdd,
   ContactsAccept,
-  ContactsDiscover,
-  ContactsSync,
   // Invites
   InvitesCreateAgent,
   // Presence

@@ -9,7 +9,8 @@
 import { describe, expect, inject, beforeAll, afterAll } from "vitest";
 import { it } from "@effect/vitest";
 import { Effect } from "effect";
-import { MoltZapTestClient } from "@moltzap/protocol/test-client";
+import { MoltZapWsClient } from "@moltzap/client";
+import { stripWsPath } from "@moltzap/client/test";
 import { getLogs } from "../test-utils/container-core.js";
 import {
   initWorker,
@@ -77,17 +78,20 @@ describe.skipIf(inject("containerAId") === "")(
                 err instanceof Error ? err : new Error(String(err)),
             });
 
-            const aliceClient = new MoltZapTestClient(baseUrl, wsUrl);
-            yield* aliceClient.connect(alice.apiKey);
+            const aliceClient = new MoltZapWsClient({
+              serverUrl: stripWsPath(wsUrl),
+              agentKey: alice.apiKey,
+            });
+            yield* aliceClient.connect();
 
             const convId = extractConvId(
-              yield* aliceClient.rpc("conversations/create", {
+              yield* aliceClient.sendRpc("conversations/create", {
                 type: "dm",
                 participants: [{ type: "agent", id: containerAAgentId }],
               }),
             );
 
-            yield* aliceClient.rpc("messages/send", {
+            yield* aliceClient.sendRpc("messages/send", {
               conversationId: convId,
               parts: [{ type: "text", text: "hello from alice" }],
             });
@@ -135,11 +139,14 @@ describe.skipIf(inject("containerAId") === "")(
                 err instanceof Error ? err : new Error(String(err)),
             });
 
-            const aliceClient = new MoltZapTestClient(baseUrl, wsUrl);
-            yield* aliceClient.connect(alice.apiKey);
+            const aliceClient = new MoltZapWsClient({
+              serverUrl: stripWsPath(wsUrl),
+              agentKey: alice.apiKey,
+            });
+            yield* aliceClient.connect();
 
             const convId = extractConvId(
-              yield* aliceClient.rpc("conversations/create", {
+              yield* aliceClient.sendRpc("conversations/create", {
                 type: "group",
                 name: "Integration Group",
                 participants: [
@@ -152,7 +159,7 @@ describe.skipIf(inject("containerAId") === "")(
             // Wait for conversation event to propagate to the gateway
             yield* Effect.promise(() => new Promise((r) => setTimeout(r, 500)));
 
-            yield* aliceClient.rpc("messages/send", {
+            yield* aliceClient.sendRpc("messages/send", {
               conversationId: convId,
               parts: [{ type: "text", text: "hello group" }],
             });
@@ -184,18 +191,21 @@ describe.skipIf(inject("containerAId") === "")(
                 err instanceof Error ? err : new Error(String(err)),
             });
 
-            const aliceClient = new MoltZapTestClient(baseUrl, wsUrl);
-            yield* aliceClient.connect(alice.apiKey);
+            const aliceClient = new MoltZapWsClient({
+              serverUrl: stripWsPath(wsUrl),
+              agentKey: alice.apiKey,
+            });
+            yield* aliceClient.connect();
 
             const convId = extractConvId(
-              yield* aliceClient.rpc("conversations/create", {
+              yield* aliceClient.sendRpc("conversations/create", {
                 type: "dm",
                 participants: [{ type: "agent", id: containerAAgentId }],
               }),
             );
 
             for (let i = 0; i < 3; i++) {
-              yield* aliceClient.rpc("messages/send", {
+              yield* aliceClient.sendRpc("messages/send", {
                 conversationId: convId,
                 parts: [{ type: "text", text: `Message ${i}` }],
               });
@@ -245,28 +255,31 @@ describe.skipIf(inject("containerAId") === "")(
               err instanceof Error ? err : new Error(String(err)),
           });
 
-          const aliceClient = new MoltZapTestClient(baseUrl, wsUrl);
-          yield* aliceClient.connect(alice.apiKey);
+          const aliceClient = new MoltZapWsClient({
+            serverUrl: stripWsPath(wsUrl),
+            agentKey: alice.apiKey,
+          });
+          yield* aliceClient.connect();
 
           const convAId = extractConvId(
-            yield* aliceClient.rpc("conversations/create", {
+            yield* aliceClient.sendRpc("conversations/create", {
               type: "dm",
               participants: [{ type: "agent", id: containerAAgentId }],
             }),
           );
 
           const convBId = extractConvId(
-            yield* aliceClient.rpc("conversations/create", {
+            yield* aliceClient.sendRpc("conversations/create", {
               type: "dm",
               participants: [{ type: "agent", id: containerBAgentId }],
             }),
           );
 
-          yield* aliceClient.rpc("messages/send", {
+          yield* aliceClient.sendRpc("messages/send", {
             conversationId: convAId,
             parts: [{ type: "text", text: "hello container-a" }],
           });
-          yield* aliceClient.rpc("messages/send", {
+          yield* aliceClient.sendRpc("messages/send", {
             conversationId: convBId,
             parts: [{ type: "text", text: "hello container-b" }],
           });
@@ -302,17 +315,20 @@ describe.skipIf(inject("containerAId") === "")(
         "human sends to control channel, OpenClaw replies to human",
         () =>
           Effect.gen(function* () {
-            const humanClient = new MoltZapTestClient(baseUrl, wsUrl);
-            yield* humanClient.connectJwt(containerASupabaseUid);
+            const humanClient = new MoltZapWsClient({
+              serverUrl: stripWsPath(wsUrl),
+              agentKey: containerASupabaseUid,
+            });
+            yield* humanClient.connect();
 
             const convId = extractConvId(
-              yield* humanClient.rpc("conversations/create", {
+              yield* humanClient.sendRpc("conversations/create", {
                 type: "dm",
                 participants: [{ type: "agent", id: containerAAgentId }],
               }),
             );
 
-            yield* humanClient.rpc("messages/send", {
+            yield* humanClient.sendRpc("messages/send", {
               conversationId: convId,
               parts: [{ type: "text", text: "hello from human" }],
             });
@@ -335,17 +351,20 @@ describe.skipIf(inject("containerAId") === "")(
         "agent reply has correct sender identity",
         () =>
           Effect.gen(function* () {
-            const humanClient = new MoltZapTestClient(baseUrl, wsUrl);
-            yield* humanClient.connectJwt(containerASupabaseUid);
+            const humanClient = new MoltZapWsClient({
+              serverUrl: stripWsPath(wsUrl),
+              agentKey: containerASupabaseUid,
+            });
+            yield* humanClient.connect();
 
             const convId = extractConvId(
-              yield* humanClient.rpc("conversations/create", {
+              yield* humanClient.sendRpc("conversations/create", {
                 type: "dm",
                 participants: [{ type: "agent", id: containerAAgentId }],
               }),
             );
 
-            yield* humanClient.rpc("messages/send", {
+            yield* humanClient.sendRpc("messages/send", {
               conversationId: convId,
               parts: [{ type: "text", text: "who are you?" }],
             });
@@ -381,13 +400,19 @@ describe.skipIf(inject("containerAId") === "")(
                 err instanceof Error ? err : new Error(String(err)),
             });
 
-            const receiverClient = new MoltZapTestClient(baseUrl, wsUrl);
-            yield* receiverClient.connect(receiver.apiKey);
+            const receiverClient = new MoltZapWsClient({
+              serverUrl: stripWsPath(wsUrl),
+              agentKey: receiver.apiKey,
+            });
+            yield* receiverClient.connect();
 
-            const senderClient = new MoltZapTestClient(baseUrl, wsUrl);
-            yield* senderClient.connect(inject("containerAApiKey"));
+            const senderClient = new MoltZapWsClient({
+              serverUrl: stripWsPath(wsUrl),
+              agentKey: inject("containerAApiKey"),
+            });
+            yield* senderClient.connect();
 
-            const lookupResult = (yield* senderClient.rpc(
+            const lookupResult = (yield* senderClient.sendRpc(
               "agents/lookupByName",
               {
                 names: ["out-receiver-pro"],
@@ -395,7 +420,7 @@ describe.skipIf(inject("containerAId") === "")(
             )) as { agents: { id: string }[] };
 
             const convId = extractConvId(
-              yield* senderClient.rpc("conversations/create", {
+              yield* senderClient.sendRpc("conversations/create", {
                 type: "dm",
                 participants: [
                   { type: "agent", id: lookupResult.agents[0]!.id },
@@ -403,7 +428,7 @@ describe.skipIf(inject("containerAId") === "")(
               }),
             );
 
-            yield* senderClient.rpc("messages/send", {
+            yield* senderClient.sendRpc("messages/send", {
               conversationId: convId,
               parts: [{ type: "text", text: "proactive hello" }],
             });
@@ -436,13 +461,19 @@ describe.skipIf(inject("containerAId") === "")(
                 err instanceof Error ? err : new Error(String(err)),
             });
 
-            const receiverClient = new MoltZapTestClient(baseUrl, wsUrl);
-            yield* receiverClient.connect(receiver.apiKey);
+            const receiverClient = new MoltZapWsClient({
+              serverUrl: stripWsPath(wsUrl),
+              agentKey: receiver.apiKey,
+            });
+            yield* receiverClient.connect();
 
-            const senderClient = new MoltZapTestClient(baseUrl, wsUrl);
-            yield* senderClient.connect(inject("containerAApiKey"));
+            const senderClient = new MoltZapWsClient({
+              serverUrl: stripWsPath(wsUrl),
+              agentKey: inject("containerAApiKey"),
+            });
+            yield* senderClient.connect();
 
-            const lookupResult = (yield* senderClient.rpc(
+            const lookupResult = (yield* senderClient.sendRpc(
               "agents/lookupByName",
               {
                 names: ["out-receiver-dup"],
@@ -450,7 +481,7 @@ describe.skipIf(inject("containerAId") === "")(
             )) as { agents: { id: string }[] };
 
             const convId1 = extractConvId(
-              yield* senderClient.rpc("conversations/create", {
+              yield* senderClient.sendRpc("conversations/create", {
                 type: "dm",
                 participants: [
                   { type: "agent", id: lookupResult.agents[0]!.id },
@@ -458,7 +489,7 @@ describe.skipIf(inject("containerAId") === "")(
               }),
             );
 
-            yield* senderClient.rpc("messages/send", {
+            yield* senderClient.sendRpc("messages/send", {
               conversationId: convId1,
               parts: [{ type: "text", text: "first" }],
             });
@@ -466,7 +497,7 @@ describe.skipIf(inject("containerAId") === "")(
               yield* receiverClient.waitForEvent("messages/received", 60_000),
             );
 
-            yield* senderClient.rpc("messages/send", {
+            yield* senderClient.sendRpc("messages/send", {
               conversationId: convId1,
               parts: [{ type: "text", text: "second" }],
             });
@@ -494,11 +525,14 @@ describe.skipIf(inject("containerAId") === "")(
               catch: (err) =>
                 err instanceof Error ? err : new Error(String(err)),
             });
-            const agentClient = new MoltZapTestClient(baseUrl, wsUrl);
-            yield* agentClient.connect(agent.apiKey);
+            const agentClient = new MoltZapWsClient({
+              serverUrl: stripWsPath(wsUrl),
+              agentKey: agent.apiKey,
+            });
+            yield* agentClient.connect();
 
             const result = yield* Effect.exit(
-              agentClient.rpc("agents/lookupByName", {
+              agentClient.sendRpc("agents/lookupByName", {
                 name: "nonexistent-agent-xyz",
               }),
             );
@@ -524,11 +558,14 @@ describe.skipIf(inject("containerAId") === "")(
                 err instanceof Error ? err : new Error(String(err)),
             });
 
-            const aliceClient = new MoltZapTestClient(baseUrl, wsUrl);
-            yield* aliceClient.connect(alice.apiKey);
+            const aliceClient = new MoltZapWsClient({
+              serverUrl: stripWsPath(wsUrl),
+              agentKey: alice.apiKey,
+            });
+            yield* aliceClient.connect();
 
             const convId = extractConvId(
-              yield* aliceClient.rpc("conversations/create", {
+              yield* aliceClient.sendRpc("conversations/create", {
                 type: "dm",
                 participants: [{ type: "agent", id: containerAAgentId }],
               }),
@@ -536,7 +573,7 @@ describe.skipIf(inject("containerAId") === "")(
 
             const largeText = "A".repeat(5000);
 
-            yield* aliceClient.rpc("messages/send", {
+            yield* aliceClient.sendRpc("messages/send", {
               conversationId: convId,
               parts: [{ type: "text", text: largeText }],
             });
@@ -570,18 +607,21 @@ describe.skipIf(inject("containerAId") === "")(
                 err instanceof Error ? err : new Error(String(err)),
             });
 
-            const aliceClient = new MoltZapTestClient(baseUrl, wsUrl);
-            yield* aliceClient.connect(alice.apiKey);
+            const aliceClient = new MoltZapWsClient({
+              serverUrl: stripWsPath(wsUrl),
+              agentKey: alice.apiKey,
+            });
+            yield* aliceClient.connect();
 
             const convId = extractConvId(
-              yield* aliceClient.rpc("conversations/create", {
+              yield* aliceClient.sendRpc("conversations/create", {
                 type: "dm",
                 participants: [{ type: "agent", id: containerAAgentId }],
               }),
             );
 
             // Send first message to verify baseline works
-            yield* aliceClient.rpc("messages/send", {
+            yield* aliceClient.sendRpc("messages/send", {
               conversationId: convId,
               parts: [{ type: "text", text: "before drop" }],
             });
@@ -597,11 +637,14 @@ describe.skipIf(inject("containerAId") === "")(
               () => new Promise((r) => setTimeout(r, 1000)),
             );
 
-            const aliceClient2 = new MoltZapTestClient(baseUrl, wsUrl);
-            yield* aliceClient2.connect(alice.apiKey);
+            const aliceClient2 = new MoltZapWsClient({
+              serverUrl: stripWsPath(wsUrl),
+              agentKey: alice.apiKey,
+            });
+            yield* aliceClient2.connect();
 
             // Send message after reconnection
-            yield* aliceClient2.rpc("messages/send", {
+            yield* aliceClient2.sendRpc("messages/send", {
               conversationId: convId,
               parts: [{ type: "text", text: "after reconnect" }],
             });

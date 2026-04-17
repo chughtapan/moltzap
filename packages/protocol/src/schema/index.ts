@@ -16,7 +16,6 @@ export * from "./methods/conversations.js";
 export * from "./methods/messages.js";
 export * from "./methods/invites.js";
 export * from "./methods/presence.js";
-export * from "./methods/phone-contacts.js";
 export * from "./methods/push.js";
 export * from "./apps.js";
 export * from "./methods/apps.js";

@@ -65,6 +65,11 @@ interface ConnState {
   readonly handshakeSettled: Deferred.Deferred<unknown, PendingError>;
 }
 
+interface EventWaiter {
+  readonly eventName: string;
+  readonly deferred: Deferred.Deferred<EventFrame, Error>;
+}
+
 export interface WsClientLogger {
   info: (...args: unknown[]) => void;
   warn: (...args: unknown[]) => void;
@@ -74,9 +79,12 @@ export interface WsClientLogger {
 export interface MoltZapWsClientOptions {
   serverUrl: string;
   agentKey: string;
-  onEvent: (event: EventFrame) => void;
-  onDisconnect: () => void;
-  onReconnect: (helloOk: unknown) => void;
+  /** Real-time event callback. Called for every inbound event frame, in
+   * order. Events also flow into the internal buffer so test callers can
+   * use `waitForEvent` / `drainEvents` independently. */
+  onEvent?: (event: EventFrame) => void;
+  onDisconnect?: () => void;
+  onReconnect?: (helloOk: unknown) => void;
   logger?: WsClientLogger;
 }
 
@@ -98,6 +106,8 @@ export class MoltZapWsClient {
   >;
   private readonly stateRef: Ref.Ref<Option.Option<ConnState>>;
   private readonly malformedRef: Ref.Ref<number>;
+  private readonly eventsBufferRef: Ref.Ref<ReadonlyArray<EventFrame>>;
+  private readonly eventWaitersRef: Ref.Ref<ReadonlyArray<EventWaiter>>;
   private readonly runtime: ManagedRuntime.ManagedRuntime<
     Socket.WebSocketConstructor,
     never
@@ -109,8 +119,6 @@ export class MoltZapWsClient {
   private _helloOk: unknown = null;
 
   constructor(private readonly options: MoltZapWsClientOptions) {
-    // Provide the Node WebSocketConstructor so the `makeWebSocket` Effect can
-    // run inside this client's runtime without bubbling the requirement out.
     this.runtime = ManagedRuntime.make(NodeSocket.layerWebSocketConstructor);
     this.pendingRef = this.runtime.runSync(
       Ref.make<
@@ -121,6 +129,12 @@ export class MoltZapWsClient {
       Ref.make<Option.Option<ConnState>>(Option.none()),
     );
     this.malformedRef = this.runtime.runSync(Ref.make(0));
+    this.eventsBufferRef = this.runtime.runSync(
+      Ref.make<ReadonlyArray<EventFrame>>([]),
+    );
+    this.eventWaitersRef = this.runtime.runSync(
+      Ref.make<ReadonlyArray<EventWaiter>>([]),
+    );
   }
 
   get helloOk(): unknown {
@@ -191,6 +205,49 @@ export class MoltZapWsClient {
     return Effect.sync(() => this.closeSync());
   }
 
+  /** Wait for the next inbound event whose `event` field equals `eventName`.
+   * Consumes a buffered match if present; otherwise awaits the next match
+   * with a per-call timeout. */
+  waitForEvent(
+    eventName: string,
+    timeoutMs = 5000,
+  ): Effect.Effect<EventFrame, Error> {
+    return Effect.gen(this, function* () {
+      const buffered = yield* Ref.modify(this.eventsBufferRef, (events) => {
+        const idx = events.findIndex((e) => e.event === eventName);
+        if (idx === -1) return [null as EventFrame | null, events];
+        const chosen = events[idx]!;
+        const next = [...events.slice(0, idx), ...events.slice(idx + 1)];
+        return [chosen, next];
+      });
+      if (buffered !== null) return buffered;
+
+      const deferred = yield* Deferred.make<EventFrame, Error>();
+      const waiter: EventWaiter = { eventName, deferred };
+      yield* Ref.update(this.eventWaitersRef, (ws) => [...ws, waiter]);
+      return yield* Deferred.await(deferred).pipe(
+        Effect.timeoutFail({
+          duration: `${timeoutMs} millis`,
+          onTimeout: () => new Error(`Timeout waiting for event: ${eventName}`),
+        }),
+        Effect.onExit((exit) =>
+          exit._tag === "Failure"
+            ? Ref.update(this.eventWaitersRef, (xs) =>
+                xs.filter((w) => w !== waiter),
+              )
+            : Effect.void,
+        ),
+      );
+    });
+  }
+
+  /** Return all buffered events and clear the buffer. Synchronous. */
+  drainEvents(): EventFrame[] {
+    const snapshot = this.runtime.runSync(Ref.get(this.eventsBufferRef));
+    this.runtime.runSync(Ref.set(this.eventsBufferRef, []));
+    return [...snapshot];
+  }
+
   /** Close the socket without marking as permanently closed, triggering reconnection. */
   disconnect(): Effect.Effect<void, never> {
     return Effect.sync(() => this.disconnectSync());
@@ -228,6 +285,7 @@ export class MoltZapWsClient {
     }
     // Fail pending Deferreds synchronously — no race with dispose().
     this.runtime.runSync(this.failAllPending(MSG_NOT_CONNECTED));
+    this.runtime.runSync(this.failAllEventWaiters(MSG_NOT_CONNECTED));
     const state = this.runtime.runSync(Ref.get(this.stateRef));
     this.runtime.runSync(Ref.set(this.stateRef, Option.none()));
     if (Option.isSome(state)) {
@@ -304,7 +362,7 @@ export class MoltZapWsClient {
               yield* Ref.set(this.stateRef, Option.none());
               yield* Effect.sync(() => {
                 try {
-                  this.options.onDisconnect();
+                  this.options.onDisconnect?.();
                 } catch (err) {
                   this.options.logger?.warn("onDisconnect handler threw", err);
                 }
@@ -466,16 +524,55 @@ export class MoltZapWsClient {
       }
 
       if (decoded._tag === "Event") {
-        try {
-          this.options.onEvent(decoded.frame);
-        } catch (err) {
-          this.options.logger?.error("onEvent handler threw", err);
+        if (this.options.onEvent) {
+          try {
+            this.options.onEvent(decoded.frame);
+          } catch (err) {
+            this.options.logger?.error("onEvent handler threw", err);
+          }
+        }
+        // Deliver to the most recent matching `waitForEvent` awaiter;
+        // otherwise buffer for later consumption via `drainEvents` or a
+        // future `waitForEvent`.
+        const delivered = yield* Ref.modify(this.eventWaitersRef, (ws) => {
+          for (let i = ws.length - 1; i >= 0; i--) {
+            if (ws[i]!.eventName === decoded.frame.event) {
+              const chosen = ws[i]!;
+              const next = [...ws.slice(0, i), ...ws.slice(i + 1)];
+              return [chosen, next];
+            }
+          }
+          return [null as EventWaiter | null, ws];
+        });
+        if (delivered !== null) {
+          yield* Deferred.succeed(delivered.deferred, decoded.frame).pipe(
+            Effect.ignore,
+          );
+        } else {
+          yield* Ref.update(this.eventsBufferRef, (xs) => [
+            ...xs,
+            decoded.frame,
+          ]);
         }
       }
     });
   }
 
   /** Fail every outstanding RPC with NotConnectedError and clear the map. */
+  private failAllEventWaiters(message: string): Effect.Effect<void> {
+    return Effect.gen(this, function* () {
+      const waiters = yield* Ref.getAndSet(
+        this.eventWaitersRef,
+        [] as ReadonlyArray<EventWaiter>,
+      );
+      for (const w of waiters) {
+        yield* Deferred.fail(w.deferred, new Error(message)).pipe(
+          Effect.ignore,
+        );
+      }
+    });
+  }
+
   private failAllPending(message: string): Effect.Effect<void> {
     return Effect.gen(this, function* () {
       const pending = yield* Ref.getAndSet(
@@ -499,7 +596,7 @@ export class MoltZapWsClient {
       Effect.tap((helloOk) =>
         Effect.sync(() => {
           try {
-            this.options.onReconnect(helloOk);
+            this.options.onReconnect?.(helloOk);
           } catch (err) {
             this.options.logger?.warn("onReconnect handler threw", err);
           }

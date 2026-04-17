@@ -26,9 +26,10 @@ import {
   resetTestDb,
   getKyselyDb,
   getTestCoreApp,
-  MoltZapTestClient,
   trackClient,
 } from "./helpers.js";
+import { MoltZapWsClient } from "@moltzap/client";
+import { registerAgent, stripWsPath } from "@moltzap/client/test";
 import type { PermissionService } from "../../app/app-host.js";
 
 let db: Kysely<Database>;
@@ -47,7 +48,7 @@ const MANIFEST: AppManifest = {
 };
 
 interface OwnedAgent {
-  client: MoltZapTestClient;
+  client: MoltZapWsClient;
   agentId: string;
   apiKey: string;
 }
@@ -61,9 +62,7 @@ function registerWithOwner(
     const baseUrl = `http://localhost:${app.port}`;
     const wsUrl = `ws://localhost:${app.port}/ws`;
 
-    const regClient = new MoltZapTestClient(baseUrl, wsUrl);
-    const reg = yield* regClient.register(name);
-    yield* regClient.close();
+    const reg = yield* registerAgent(baseUrl, name);
 
     yield* Effect.tryPromise(() =>
       db
@@ -73,9 +72,12 @@ function registerWithOwner(
         .execute(),
     );
 
-    const client = new MoltZapTestClient(baseUrl, wsUrl);
+    const client = new MoltZapWsClient({
+      serverUrl: stripWsPath(wsUrl),
+      agentKey: reg.apiKey,
+    });
     trackClient(client);
-    yield* client.connect(reg.apiKey);
+    yield* client.connect();
 
     return { client, agentId: reg.agentId, apiKey: reg.apiKey };
   });
@@ -127,7 +129,7 @@ describe("Scenario 23: coalesce race on permission requests", () => {
         // `${USER_BOB}:coalesce-race-app:calendar`, identical across all N.
         const N = 5;
         const createEffects = Array.from({ length: N }, () =>
-          alice.client.rpc("apps/create", {
+          alice.client.sendRpc("apps/create", {
             appId: "coalesce-race-app",
             invitedAgentIds: [bob.agentId],
           }),

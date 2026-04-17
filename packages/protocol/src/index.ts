@@ -12,7 +12,6 @@ export {
   DateTimeString,
   eventFrame,
 } from "./helpers.js";
-export { PHONE_HASH_VECTORS } from "./test-fixtures/phone-hashes.js";
 export {
   SEED_USERS,
   SEED_AGENTS,

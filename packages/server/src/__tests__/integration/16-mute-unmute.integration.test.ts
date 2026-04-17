@@ -37,10 +37,10 @@ describe("Mute and Unmute", () => {
         const conversationId = group.conversationId!;
 
         // Alice mutes the conversation
-        yield* alice.client.rpc("conversations/mute", { conversationId });
+        yield* alice.client.sendRpc("conversations/mute", { conversationId });
 
         // Bob sends a message — Eve should receive, Alice should NOT
-        yield* bob.client.rpc("messages/send", {
+        yield* bob.client.sendRpc("messages/send", {
           conversationId,
           parts: [{ type: "text", text: "Alice is muted" }],
         });
@@ -54,10 +54,10 @@ describe("Mute and Unmute", () => {
         expect(aliceMutedEvents).toHaveLength(0);
 
         // Alice unmutes
-        yield* alice.client.rpc("conversations/unmute", { conversationId });
+        yield* alice.client.sendRpc("conversations/unmute", { conversationId });
 
         // Bob sends another message — Alice SHOULD receive it now
-        yield* bob.client.rpc("messages/send", {
+        yield* bob.client.sendRpc("messages/send", {
           conversationId,
           parts: [{ type: "text", text: "Alice is back" }],
         });

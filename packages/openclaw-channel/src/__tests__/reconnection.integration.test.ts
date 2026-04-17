@@ -1,8 +1,8 @@
 import { describe, expect, beforeAll, afterAll, inject } from "vitest";
 import { it } from "@effect/vitest";
 import { Effect } from "effect";
-import { MoltZapTestClient } from "@moltzap/protocol/test-client";
 import { MoltZapWsClient } from "@moltzap/client";
+import { stripWsPath } from "@moltzap/client/test";
 import type { EventFrame, Message } from "@moltzap/protocol";
 import { EventNames } from "@moltzap/protocol";
 import {
@@ -92,10 +92,13 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
         catch: (err) => (err instanceof Error ? err : new Error(String(err))),
       });
 
-      const aliceClient = new MoltZapTestClient(baseUrl, wsUrl);
-      yield* aliceClient.connect(alice.apiKey);
+      const aliceClient = new MoltZapWsClient({
+        serverUrl: stripWsPath(wsUrl),
+        agentKey: alice.apiKey,
+      });
+      yield* aliceClient.connect();
 
-      const conv = (yield* aliceClient.rpc("conversations/create", {
+      const conv = (yield* aliceClient.sendRpc("conversations/create", {
         type: "dm",
         participants: [{ type: "agent", id: bob.agentId }],
       })) as { conversation: { id: string } };
@@ -124,7 +127,7 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
         catch: (err) => (err instanceof Error ? err : new Error(String(err))),
       });
 
-      yield* aliceClient.rpc("messages/send", {
+      yield* aliceClient.sendRpc("messages/send", {
         conversationId,
         parts: [{ type: "text", text: "Missed while offline" }],
       });
@@ -181,15 +184,18 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
 
       yield* Effect.promise(() => connectWs(bobClient));
 
-      const aliceClient = new MoltZapTestClient(baseUrl, wsUrl);
-      yield* aliceClient.connect(alice.apiKey);
+      const aliceClient = new MoltZapWsClient({
+        serverUrl: stripWsPath(wsUrl),
+        agentKey: alice.apiKey,
+      });
+      yield* aliceClient.connect();
 
-      const conv = (yield* aliceClient.rpc("conversations/create", {
+      const conv = (yield* aliceClient.sendRpc("conversations/create", {
         type: "dm",
         participants: [{ type: "agent", id: bob.agentId }],
       })) as { conversation: { id: string } };
 
-      yield* aliceClient.rpc("messages/send", {
+      yield* aliceClient.sendRpc("messages/send", {
         conversationId: conv.conversation.id,
         parts: [{ type: "text", text: "Before disconnect" }],
       });
@@ -216,7 +222,7 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
 
       receivedMessages.length = 0;
 
-      yield* aliceClient.rpc("messages/send", {
+      yield* aliceClient.sendRpc("messages/send", {
         conversationId: conv.conversation.id,
         parts: [{ type: "text", text: "After reconnect" }],
       });

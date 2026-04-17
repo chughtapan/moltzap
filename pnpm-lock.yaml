@@ -97,6 +97,9 @@ importers:
       '@effect/vitest':
         specifier: ^0.29.0
         version: 0.29.0(effect@3.21.0)(vitest@3.2.4(@types/debug@4.1.13)(@types/node@25.5.0)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
+      '@moltzap/client':
+        specifier: workspace:*
+        version: link:../client
       '@moltzap/openclaw-channel':
         specifier: workspace:*
         version: link:../openclaw-channel
@@ -195,12 +198,6 @@ importers:
 
   packages/protocol:
     dependencies:
-      '@effect/platform':
-        specifier: ^0.96.0
-        version: 0.96.0(effect@3.21.0)
-      '@effect/platform-node':
-        specifier: ^0.106.0
-        version: 0.106.0(@effect/cluster@0.58.0(@effect/platform@0.96.0(effect@3.21.0))(@effect/rpc@0.75.0(@effect/platform@0.96.0(effect@3.21.0))(effect@3.21.0))(@effect/sql@0.51.0(@effect/experimental@0.60.0(@effect/platform@0.96.0(effect@3.21.0))(effect@3.21.0))(@effect/platform@0.96.0(effect@3.21.0))(effect@3.21.0))(@effect/workflow@0.18.0(@effect/experimental@0.60.0(@effect/platform@0.96.0(effect@3.21.0))(effect@3.21.0))(@effect/platform@0.96.0(effect@3.21.0))(@effect/rpc@0.75.0(@effect/platform@0.96.0(effect@3.21.0))(effect@3.21.0))(effect@3.21.0))(effect@3.21.0))(@effect/platform@0.96.0(effect@3.21.0))(@effect/rpc@0.75.0(@effect/platform@0.96.0(effect@3.21.0))(effect@3.21.0))(@effect/sql@0.51.0(@effect/experimental@0.60.0(@effect/platform@0.96.0(effect@3.21.0))(effect@3.21.0))(@effect/platform@0.96.0(effect@3.21.0))(effect@3.21.0))(effect@3.21.0)
       '@sinclair/typebox':
         specifier: ^0.34.0
         version: 0.34.49
@@ -210,9 +207,6 @@ importers:
       ajv-formats:
         specifier: ^3.0.0
         version: 3.0.1(ajv@8.18.0)
-      effect:
-        specifier: ^3.21.0
-        version: 3.21.0
     devDependencies:
       '@types/node':
         specifier: ^25.5.0
@@ -281,6 +275,9 @@ importers:
       '@effect/vitest':
         specifier: ^0.29.0
         version: 0.29.0(effect@3.21.0)(vitest@3.2.4(@types/debug@4.1.13)(@types/node@25.5.0)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
+      '@moltzap/client':
+        specifier: workspace:*
+        version: link:../client
       '@testcontainers/postgresql':
         specifier: ^10.18.0
         version: 10.28.0
