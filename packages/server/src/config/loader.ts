@@ -9,7 +9,7 @@
 import { readFileSync, realpathSync } from "node:fs";
 import { dirname } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { Data, Effect, ConfigProvider } from "effect";
+import { Data, Effect, ConfigProvider, Match } from "effect";
 import type { ConfigError } from "effect/ConfigError";
 import { MoltZapConfig, type MoltZapAppConfig } from "./effect-config.js";
 
@@ -151,23 +151,26 @@ export const loadConfigFromFile = (
 /** Walk a ConfigError tree and produce a readable string. */
 function formatConfigError(err: ConfigError): string {
   const lines: string[] = [];
-  const walk = (e: ConfigError) => {
-    switch (e._op) {
-      case "And":
-      case "Or":
-        walk(e.left);
-        walk(e.right);
-        break;
-      case "InvalidData":
-      case "MissingData":
-      case "Unsupported":
-        lines.push(`  ${e.path.join(".") || "/"}: ${e.message}`);
-        break;
-      case "SourceUnavailable":
-        lines.push(`  ${e.path.join(".") || "/"}: ${e.message}`);
-        break;
-    }
+  const pushLeaf = (e: { path: ReadonlyArray<string>; message: string }) => {
+    lines.push(`  ${e.path.join(".") || "/"}: ${e.message}`);
   };
+  const walk = (e: ConfigError): void =>
+    Match.value(e).pipe(
+      Match.discriminatorsExhaustive("_op")({
+        And: (and) => {
+          walk(and.left);
+          walk(and.right);
+        },
+        Or: (or) => {
+          walk(or.left);
+          walk(or.right);
+        },
+        InvalidData: pushLeaf,
+        MissingData: pushLeaf,
+        Unsupported: pushLeaf,
+        SourceUnavailable: pushLeaf,
+      }),
+    );
   walk(err);
   // Dedupe while preserving order.
   const seen = new Set<string>();
