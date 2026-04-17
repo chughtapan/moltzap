@@ -12,6 +12,8 @@ import {
   ConversationsUnmute,
   ConversationsAddParticipant,
   ConversationsRemoveParticipant,
+  ConversationsArchive,
+  ConversationsUnarchive,
   EventNames,
   eventFrame,
 } from "@moltzap/protocol";
@@ -60,7 +62,12 @@ export function createConversationHandlers(deps: {
     "conversations/list": defineMethod(ConversationsList, {
       requiresActive: true,
       handler: (params, ctx) =>
-        deps.conversationService.list(ctx.agentId, params.limit, params.cursor),
+        deps.conversationService.list(
+          ctx.agentId,
+          params.limit,
+          params.cursor,
+          params.archived,
+        ),
     }),
 
     "conversations/get": defineMethod(ConversationsGet, {
@@ -101,6 +108,45 @@ export function createConversationHandlers(deps: {
           if (conn) {
             conn.conversationIds.delete(params.conversationId);
           }
+          return {};
+        }),
+    }),
+
+    "conversations/archive": defineMethod(ConversationsArchive, {
+      requiresActive: true,
+      handler: (params, ctx) =>
+        Effect.gen(function* () {
+          const { archivedAt } = yield* deps.conversationService.archive(
+            params.conversationId,
+            ctx.agentId,
+          );
+          deps.broadcaster.broadcastToConversation(
+            params.conversationId,
+            eventFrame(EventNames.ConversationArchived, {
+              conversationId: params.conversationId,
+              archivedAt,
+              by: ctx.agentId,
+            }),
+          );
+          return {};
+        }),
+    }),
+
+    "conversations/unarchive": defineMethod(ConversationsUnarchive, {
+      requiresActive: true,
+      handler: (params, ctx) =>
+        Effect.gen(function* () {
+          yield* deps.conversationService.unarchive(
+            params.conversationId,
+            ctx.agentId,
+          );
+          deps.broadcaster.broadcastToConversation(
+            params.conversationId,
+            eventFrame(EventNames.ConversationUnarchived, {
+              conversationId: params.conversationId,
+              by: ctx.agentId,
+            }),
+          );
           return {};
         }),
     }),

@@ -161,7 +161,10 @@ export const ConversationServiceLive = Layer.effect(
   Effect.gen(function* () {
     const db = yield* DbTag;
     const participants = yield* ParticipantServiceTag;
-    return new ConversationService(db, participants);
+    const appHost = yield* AppHostTag;
+    return new ConversationService(db, participants, (convId) =>
+      appHost.isAttachedToActiveSession(convId),
+    );
   }),
 );
 
@@ -262,16 +265,16 @@ const Tier1 = Layer.mergeAll(
 /** Tier 2 — Broadcaster needs Tier 1's ConnectionManager. */
 const Tier2 = Layer.provideMerge(BroadcasterLive, Tier1);
 
-/** Tier 3 — Conversation needs Tier 1's Participant; keeps Tier 2 outputs. */
-const Tier3 = Layer.provideMerge(ConversationServiceLive, Tier2);
-
-/** Tier 4 — AppHost + DefaultPermission need Conversation + Broadcaster. */
-const Tier4 = Layer.provideMerge(
+/** Tier 3 — AppHost + DefaultPermission need Broadcaster/Connections. */
+const Tier3 = Layer.provideMerge(
   Layer.mergeAll(AppHostLive, DefaultPermissionServiceLive),
-  Tier3,
+  Tier2,
 );
 
-/** Tier 5 — MessageService needs AppHost + everything upstream. */
+/** Tier 4 — ConversationService needs AppHost for the session-attach check. */
+const Tier4 = Layer.provideMerge(ConversationServiceLive, Tier3);
+
+/** Tier 5 — MessageService needs ConversationService + AppHost + upstream. */
 const Tier5 = Layer.provideMerge(MessageServiceLive, Tier4);
 
 /**
