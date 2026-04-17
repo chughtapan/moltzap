@@ -1314,10 +1314,10 @@ export class AppHost {
    *   `X-MoltZap-Signature: sha256=<hex>`. The signature covers exactly the
    *   bytes that go on the wire — we pre-serialize and hand the client
    *   `bodyJson` so it can't rewrite whitespace or reorder keys.
-   * - Enforces the hook's `timeoutMs` via `Effect.timeout`. Webhook
-   *   transport errors (non-2xx, network drop) bubble out of
-   *   `WebhookClient.callSync` as `WebhookError` and land in the
-   *   `catchAll` branch — which matches the in-process
+   * - Enforces the hook's `timeoutMs` via `WebhookClient.call` (which
+   *   wraps fetch in `Effect.timeoutFail` → `WebhookTimeoutError`).
+   *   Tagged transport errors (non-2xx, network drop, timeout) fan into
+   *   the `catchTag` branches below — matching the in-process
    *   `runHookWithTimeout` semantics so the caller's fail-closed plumbing
    *   stays identical regardless of dispatch mechanism.
    */
@@ -1334,48 +1334,32 @@ export class AppHost {
         ? signWebhookPayload(opts.secret, bodyJson)
         : undefined;
 
-      const request = Effect.tryPromise({
-        try: () =>
-          this.webhookClient.callSync<T>({
-            url: opts.url,
-            event: opts.event,
-            body: undefined,
-            bodyJson,
-            headers: signature
-              ? { "X-MoltZap-Signature": signature }
-              : undefined,
-            timeoutMs: opts.timeoutMs,
-          }),
-        catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+      const request = this.webhookClient.call<T>({
+        url: opts.url,
+        event: opts.event,
+        body: undefined,
+        bodyJson,
+        headers: signature
+          ? { "X-MoltZap-Signature": signature }
+          : undefined,
+        timeoutMs: opts.timeoutMs,
       });
 
       return yield* request.pipe(
-        Effect.timeout(`${opts.timeoutMs} millis`),
         Effect.map((result) => ({ result, timedOut: false }) as HookOutcome<T>),
-        Effect.catchTag("TimeoutException", () =>
-          Effect.succeed({
-            result: null,
-            timedOut: true as const,
-          } as HookOutcome<T>),
+        Effect.catchTag(
+          "WebhookTimeoutError",
+          () =>
+            Effect.succeed({
+              result: null,
+              timedOut: true as const,
+            } as HookOutcome<T>),
         ),
         Effect.catchAll((err) =>
           Effect.gen(function* () {
-            // WebhookClient surfaces its own timeout as a WebhookError
-            // with "timed out" in the message (HTTP-level
-            // AbortSignal.timeout fires before Effect.timeout when
-            // timeoutMs is short). Normalise both paths to
-            // timedOut:true so the caller's hookTimeout event fires
-            // consistently.
-            const msg = errorMessage(err);
-            if (/timed out/i.test(msg)) {
-              return {
-                result: null,
-                timedOut: true as const,
-              } as HookOutcome<T>;
-            }
             yield* Effect.logError("Webhook hook dispatch error").pipe(
               Effect.annotateLogs({
-                err: msg,
+                err: errorMessage(err),
                 url: opts.url,
                 event: opts.event,
               }),
