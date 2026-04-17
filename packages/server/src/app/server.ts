@@ -531,6 +531,8 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     onConnection(hook: ConnectionHook) {
       connectionHooks.push(hook);
     },
+    broadcaster,
+    connections,
     registerApp(manifest) {
       appHost.registerApp(manifest);
     },
