@@ -8,13 +8,15 @@ import { UserId } from "./types.js";
 import { logger } from "../logger.js";
 import type { AppManifest, AppSession, Part } from "@moltzap/protocol";
 import { ErrorCodes, EventNames, eventFrame } from "@moltzap/protocol";
-import type {
-  AppHooks,
-  BeforeMessageDeliveryHook,
-  HookResult,
-  OnCloseHook,
-  OnJoinHook,
-  OnSessionActiveHook,
+import {
+  HookResultSchema,
+  VoidHookSchema,
+  type AppHooks,
+  type BeforeMessageDeliveryHook,
+  type HookResult,
+  type OnCloseHook,
+  type OnJoinHook,
+  type OnSessionActiveHook,
 } from "./hooks.js";
 import type { WebhookClient } from "../adapters/webhook.js";
 import {
@@ -27,6 +29,7 @@ import {
   HashMap,
   Option,
   Ref,
+  Schema,
 } from "effect";
 import {
   RpcFailure,
@@ -497,6 +500,7 @@ export class AppHost {
                 message: ctx.message,
               },
               timeoutMs,
+              schema: HookResultSchema,
             })
           : yield* this.runHookWithTimeout<HookResult>(
               (signal) => appHooks!.beforeMessageDelivery!({ ...ctx, signal }),
@@ -866,6 +870,7 @@ export class AppHost {
                   closedBy,
                 },
                 timeoutMs,
+                schema: VoidHookSchema,
               })
             : yield* this.runHookWithTimeout<void>(
                 (signal) =>
@@ -1326,6 +1331,7 @@ export class AppHost {
     event: string;
     body: object;
     timeoutMs: number;
+    schema: Schema.Schema<T, any>;
     secret?: string;
   }): Effect.Effect<HookOutcome<T>, RpcFailure> {
     return Effect.gen(this, function* () {
@@ -1334,13 +1340,14 @@ export class AppHost {
         ? signWebhookPayload(opts.secret, bodyJson)
         : undefined;
 
-      const request = this.webhookClient.call<T>({
+      const request = this.webhookClient.call({
         url: opts.url,
         event: opts.event,
         body: undefined,
         bodyJson,
         headers: signature ? { "X-MoltZap-Signature": signature } : undefined,
         timeoutMs: opts.timeoutMs,
+        schema: opts.schema,
       });
 
       return yield* request.pipe(
@@ -1505,6 +1512,7 @@ export class AppHost {
               admittedAgentIds,
             },
             timeoutMs,
+            schema: VoidHookSchema,
           }).pipe(
             Effect.catchAllCause(() =>
               Effect.succeed({
@@ -2153,6 +2161,7 @@ export class AppHost {
               agent: { agentId, ownerId },
             },
             timeoutMs,
+            schema: VoidHookSchema,
           });
           if (outcome.timedOut) {
             this.broadcaster.sendToAgent(

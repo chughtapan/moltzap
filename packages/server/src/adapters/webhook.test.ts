@@ -1,13 +1,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { Cause, Effect, Exit, Fiber } from "effect";
+import { Cause, Effect, Exit, Fiber, Schema } from "effect";
 import {
   AsyncWebhookAdapter,
   WebhookClient,
+  WebhookDecodeError,
   WebhookDestroyedError,
   WebhookHttpError,
   WebhookNetworkError,
   WebhookTimeoutError,
 } from "./webhook.js";
+
+const OkSchema = Schema.Struct({ ok: Schema.Boolean });
 
 // -- WebhookClient (sync) ---------------------------------------------------
 
@@ -29,11 +32,12 @@ describe("WebhookClient.call", () => {
     );
 
     const result = await Effect.runPromise(
-      client.call<{ ok: boolean }>({
+      client.call({
         url: "https://hook.test/users",
         event: "users.validate",
         body: { userId: "u1" },
         timeoutMs: 5000,
+        schema: OkSchema,
       }),
     );
 
@@ -60,6 +64,7 @@ describe("WebhookClient.call", () => {
         event: "test",
         body: {},
         timeoutMs: 5000,
+        schema: Schema.Unknown,
       }),
     );
 
@@ -87,6 +92,7 @@ describe("WebhookClient.call", () => {
         event: "test.timeout",
         body: {},
         timeoutMs: 50,
+        schema: Schema.Unknown,
       }),
     );
 
@@ -98,6 +104,29 @@ describe("WebhookClient.call", () => {
     expect((err.value as WebhookTimeoutError).timeoutMs).toBe(50);
   });
 
+  it("fails with WebhookDecodeError when body doesn't match schema", async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(JSON.stringify({ ok: "not a boolean" }), { status: 200 }),
+    );
+
+    const exit = await Effect.runPromiseExit(
+      client.call({
+        url: "https://hook.test/x",
+        event: "test.schema",
+        body: {},
+        timeoutMs: 5000,
+        schema: OkSchema,
+      }),
+    );
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (!Exit.isFailure(exit)) return;
+    const err = Cause.failureOption(exit.cause);
+    if (err._tag !== "Some") throw new Error("expected failure");
+    expect(err.value._tag).toBe("WebhookDecodeError");
+    expect((err.value as WebhookDecodeError).event).toBe("test.schema");
+  });
+
   it("fails with WebhookNetworkError on fetch rejection", async () => {
     vi.mocked(fetch).mockRejectedValue(new Error("ECONNREFUSED"));
 
@@ -107,6 +136,7 @@ describe("WebhookClient.call", () => {
         event: "test.net",
         body: {},
         timeoutMs: 5000,
+        schema: Schema.Unknown,
       }),
     );
 
@@ -137,6 +167,7 @@ describe("WebhookClient.call", () => {
         event: "test.interrupt",
         body: {},
         timeoutMs: 60000,
+        schema: Schema.Unknown,
       }),
     );
 
