@@ -66,12 +66,16 @@ describe.skipIf(inject("containerAId") === "")(
         "DM: alice sends -> OpenClaw dispatch -> echo reply arrives",
         () =>
           Effect.gen(function* () {
-            const alice = yield* Effect.promise(() =>
-              registerAndClaim("a2a-alice-dm"),
-            );
-            yield* Effect.promise(() =>
-              makeContact(alice.userId, containerAUserId),
-            );
+            const alice = yield* Effect.tryPromise({
+              try: () => registerAndClaim("a2a-alice-dm"),
+              catch: (err) =>
+                err instanceof Error ? err : new Error(String(err)),
+            });
+            yield* Effect.tryPromise({
+              try: () => makeContact(alice.userId, containerAUserId),
+              catch: (err) =>
+                err instanceof Error ? err : new Error(String(err)),
+            });
 
             const aliceClient = new MoltZapTestClient(baseUrl, wsUrl);
             yield* aliceClient.connect(alice.apiKey);
@@ -105,19 +109,31 @@ describe.skipIf(inject("containerAId") === "")(
         "group: message dispatched through real OpenClaw",
         () =>
           Effect.gen(function* () {
-            const alice = yield* Effect.promise(() =>
-              registerAndClaim("a2a-alice-grp"),
-            );
-            const eve = yield* Effect.promise(() =>
-              registerAndClaim("a2a-eve-grp"),
-            );
-            yield* Effect.promise(() =>
-              makeContact(alice.userId, containerAUserId),
-            );
-            yield* Effect.promise(() => makeContact(alice.userId, eve.userId));
-            yield* Effect.promise(() =>
-              makeContact(containerAUserId, eve.userId),
-            );
+            const alice = yield* Effect.tryPromise({
+              try: () => registerAndClaim("a2a-alice-grp"),
+              catch: (err) =>
+                err instanceof Error ? err : new Error(String(err)),
+            });
+            const eve = yield* Effect.tryPromise({
+              try: () => registerAndClaim("a2a-eve-grp"),
+              catch: (err) =>
+                err instanceof Error ? err : new Error(String(err)),
+            });
+            yield* Effect.tryPromise({
+              try: () => makeContact(alice.userId, containerAUserId),
+              catch: (err) =>
+                err instanceof Error ? err : new Error(String(err)),
+            });
+            yield* Effect.tryPromise({
+              try: () => makeContact(alice.userId, eve.userId),
+              catch: (err) =>
+                err instanceof Error ? err : new Error(String(err)),
+            });
+            yield* Effect.tryPromise({
+              try: () => makeContact(containerAUserId, eve.userId),
+              catch: (err) =>
+                err instanceof Error ? err : new Error(String(err)),
+            });
 
             const aliceClient = new MoltZapTestClient(baseUrl, wsUrl);
             yield* aliceClient.connect(alice.apiKey);
@@ -157,12 +173,16 @@ describe.skipIf(inject("containerAId") === "")(
         "rapid: multiple messages all get echo replies",
         () =>
           Effect.gen(function* () {
-            const alice = yield* Effect.promise(() =>
-              registerAndClaim("a2a-alice-rapid"),
-            );
-            yield* Effect.promise(() =>
-              makeContact(alice.userId, containerAUserId),
-            );
+            const alice = yield* Effect.tryPromise({
+              try: () => registerAndClaim("a2a-alice-rapid"),
+              catch: (err) =>
+                err instanceof Error ? err : new Error(String(err)),
+            });
+            yield* Effect.tryPromise({
+              try: () => makeContact(alice.userId, containerAUserId),
+              catch: (err) =>
+                err instanceof Error ? err : new Error(String(err)),
+            });
 
             const aliceClient = new MoltZapTestClient(baseUrl, wsUrl);
             yield* aliceClient.connect(alice.apiKey);
@@ -209,15 +229,21 @@ describe.skipIf(inject("containerAId") === "")(
       "two agents: both receive and reply from their own containers",
       () =>
         Effect.gen(function* () {
-          const alice = yield* Effect.promise(() =>
-            registerAndClaim("2a-alice"),
-          );
-          yield* Effect.promise(() =>
-            makeContact(alice.userId, containerAUserId),
-          );
-          yield* Effect.promise(() =>
-            makeContact(alice.userId, containerBUserId),
-          );
+          const alice = yield* Effect.tryPromise({
+            try: () => registerAndClaim("2a-alice"),
+            catch: (err) =>
+              err instanceof Error ? err : new Error(String(err)),
+          });
+          yield* Effect.tryPromise({
+            try: () => makeContact(alice.userId, containerAUserId),
+            catch: (err) =>
+              err instanceof Error ? err : new Error(String(err)),
+          });
+          yield* Effect.tryPromise({
+            try: () => makeContact(alice.userId, containerBUserId),
+            catch: (err) =>
+              err instanceof Error ? err : new Error(String(err)),
+          });
 
           const aliceClient = new MoltZapTestClient(baseUrl, wsUrl);
           yield* aliceClient.connect(alice.apiKey);
@@ -344,12 +370,16 @@ describe.skipIf(inject("containerAId") === "")(
         "agent proactively sends to agent:<name>, DM auto-created, message arrives",
         () =>
           Effect.gen(function* () {
-            const receiver = yield* Effect.promise(() =>
-              registerAndClaim("out-receiver-pro"),
-            );
-            yield* Effect.promise(() =>
-              makeContact(containerAUserId, receiver.userId),
-            );
+            const receiver = yield* Effect.tryPromise({
+              try: () => registerAndClaim("out-receiver-pro"),
+              catch: (err) =>
+                err instanceof Error ? err : new Error(String(err)),
+            });
+            yield* Effect.tryPromise({
+              try: () => makeContact(containerAUserId, receiver.userId),
+              catch: (err) =>
+                err instanceof Error ? err : new Error(String(err)),
+            });
 
             const receiverClient = new MoltZapTestClient(baseUrl, wsUrl);
             yield* receiverClient.connect(receiver.apiKey);
@@ -395,12 +425,16 @@ describe.skipIf(inject("containerAId") === "")(
         "second message to same agent reuses conversation (no duplicate)",
         () =>
           Effect.gen(function* () {
-            const receiver = yield* Effect.promise(() =>
-              registerAndClaim("out-receiver-dup"),
-            );
-            yield* Effect.promise(() =>
-              makeContact(containerAUserId, receiver.userId),
-            );
+            const receiver = yield* Effect.tryPromise({
+              try: () => registerAndClaim("out-receiver-dup"),
+              catch: (err) =>
+                err instanceof Error ? err : new Error(String(err)),
+            });
+            yield* Effect.tryPromise({
+              try: () => makeContact(containerAUserId, receiver.userId),
+              catch: (err) =>
+                err instanceof Error ? err : new Error(String(err)),
+            });
 
             const receiverClient = new MoltZapTestClient(baseUrl, wsUrl);
             yield* receiverClient.connect(receiver.apiKey);
@@ -455,9 +489,11 @@ describe.skipIf(inject("containerAId") === "")(
         "send to nonexistent agent returns error",
         () =>
           Effect.gen(function* () {
-            const agent = yield* Effect.promise(() =>
-              registerAndClaim("err-sender"),
-            );
+            const agent = yield* Effect.tryPromise({
+              try: () => registerAndClaim("err-sender"),
+              catch: (err) =>
+                err instanceof Error ? err : new Error(String(err)),
+            });
             const agentClient = new MoltZapTestClient(baseUrl, wsUrl);
             yield* agentClient.connect(agent.apiKey);
 
@@ -477,12 +513,16 @@ describe.skipIf(inject("containerAId") === "")(
         "large message (>4096 chars) is delivered intact",
         () =>
           Effect.gen(function* () {
-            const alice = yield* Effect.promise(() =>
-              registerAndClaim("lg-alice"),
-            );
-            yield* Effect.promise(() =>
-              makeContact(alice.userId, containerAUserId),
-            );
+            const alice = yield* Effect.tryPromise({
+              try: () => registerAndClaim("lg-alice"),
+              catch: (err) =>
+                err instanceof Error ? err : new Error(String(err)),
+            });
+            yield* Effect.tryPromise({
+              try: () => makeContact(alice.userId, containerAUserId),
+              catch: (err) =>
+                err instanceof Error ? err : new Error(String(err)),
+            });
 
             const aliceClient = new MoltZapTestClient(baseUrl, wsUrl);
             yield* aliceClient.connect(alice.apiKey);
@@ -519,12 +559,16 @@ describe.skipIf(inject("containerAId") === "")(
         "reconnection during dispatch: message recovery after WebSocket drop",
         () =>
           Effect.gen(function* () {
-            const alice = yield* Effect.promise(() =>
-              registerAndClaim("rd-alice"),
-            );
-            yield* Effect.promise(() =>
-              makeContact(alice.userId, containerAUserId),
-            );
+            const alice = yield* Effect.tryPromise({
+              try: () => registerAndClaim("rd-alice"),
+              catch: (err) =>
+                err instanceof Error ? err : new Error(String(err)),
+            });
+            yield* Effect.tryPromise({
+              try: () => makeContact(alice.userId, containerAUserId),
+              catch: (err) =>
+                err instanceof Error ? err : new Error(String(err)),
+            });
 
             const aliceClient = new MoltZapTestClient(baseUrl, wsUrl);
             yield* aliceClient.connect(alice.apiKey);

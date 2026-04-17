@@ -1,9 +1,14 @@
-import type { WebSocket as WsWebSocket } from "ws";
+import type { Effect } from "effect";
+import type * as Socket from "@effect/platform/Socket";
 import type { AuthenticatedContext } from "../rpc/context.js";
 
 export interface MoltZapConnection {
   id: string;
-  ws: WsWebSocket;
+  /** Write a raw frame to this connection. Fails with SocketError on send
+   * failure or if the socket is already closed. */
+  write: (raw: string) => Effect.Effect<void, Socket.SocketError>;
+  /** Close this connection's scope, tearing down the underlying socket. */
+  shutdown: Effect.Effect<void>;
   auth: AuthenticatedContext | null;
   lastPong: number;
   conversationIds: Set<string>;
@@ -35,7 +40,6 @@ export class ConnectionManager {
     );
   }
 
-  /** Iterate all connections. */
   entries(): IterableIterator<[string, MoltZapConnection]> {
     return this.connections.entries();
   }

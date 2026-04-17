@@ -47,21 +47,21 @@ const MALFORMED_LOG_EVERY = 50;
 const MSG_NOT_CONNECTED = "WebSocket not connected";
 const MSG_RPC_ERROR_FALLBACK = "RPC error";
 
+const UTF8_DECODER = new TextDecoder("utf-8");
+
 /** Tagged error type for any pending-RPC Deferred. */
 type PendingError = RpcServerError | NotConnectedError | RpcTimeoutError;
 
 /**
- * Per-connection runtime state. Present only while the reader fiber owns the
- * socket. `None` = not connected => `sendRpc` fails fast with
- * `NotConnectedError` (replaces the `ws.readyState !== OPEN` check —
- * gotcha §4.2 in the scoping doc).
+ * Per-connection runtime state. `None` = not connected → `sendRpc` fails fast
+ * with `NotConnectedError`.
  */
 interface ConnState {
   readonly write: (frame: string) => Effect.Effect<void, Socket.SocketError>;
   readonly readerFiber: Fiber.RuntimeFiber<void, Socket.SocketError>;
   readonly scope: Scope.CloseableScope;
-  /** Settled when the reader fiber exits — lets connect() race against
-   * pre-open close (§5.1) and fail fast instead of waiting the RPC timeout. */
+  /** Settled when the reader fiber exits, letting `connect()` race against
+   * pre-open close and fail fast instead of waiting the RPC timeout. */
   readonly handshakeSettled: Deferred.Deferred<unknown, PendingError>;
 }
 
@@ -127,10 +127,8 @@ export class MoltZapWsClient {
     return this._helloOk;
   }
 
-  /**
-   * Open the socket, perform auth/connect, resolve with HelloOk.
-   * Fails immediately on pre-open close or error (§5.1).
-   */
+  /** Open the socket, perform auth/connect, resolve with HelloOk. Fails
+   * immediately on pre-open close or error. */
   connect(): Effect.Effect<
     unknown,
     NotConnectedError | RpcTimeoutError | RpcServerError
@@ -152,17 +150,12 @@ export class MoltZapWsClient {
 
   /**
    * Send an RPC. Fails with a typed error:
-   *   - `NotConnectedError` if the socket isn't OPEN or closes while the RPC
-   *     is pending (§5.2)
-   *   - `RpcTimeoutError` after `RPC_TIMEOUT_MS` — no automatic retry (§5.3)
+   *   - `NotConnectedError` if the socket isn't OPEN or closes mid-RPC
+   *   - `RpcTimeoutError` after `RPC_TIMEOUT_MS` — no automatic retry
    *   - `RpcServerError` on a typed server-error frame
    *
-   * Two overloads:
-   *   - Typed manifest: `sendRpc(AgentsLookupByName, { names: [...] })` — params
-   *     and return type are checked against the `RpcDefinition` at compile time.
-   *   - Legacy string: `sendRpc("agents/lookupByName", {...})` — kept for
-   *     back-compat during transition. Untyped; use the manifest form for
-   *     new code.
+   * Overloads: pass an `RpcDefinition` for compile-time param/result typing,
+   * or a raw method string for untyped legacy call sites.
    */
   sendRpc<D extends RpcDefinition<string, TSchema, TSchema>>(
     method: D,
@@ -253,15 +246,12 @@ export class MoltZapWsClient {
     return Effect.gen(this, function* () {
       const url = this.options.serverUrl.replace(/^http/, "ws") + "/ws";
 
-      // Fresh scope per connect attempt. Closing it tears down the reader
-      // fiber + the underlying WebSocket (gotcha §2d/§4 — scope replaces
-      // `ws.close()`). Held by the client (not the caller's fiber) so the
-      // reader fiber + writer outlive the outer `connect()` Effect.
+      // Fresh scope per connect attempt. Held by the client (not the caller's
+      // fiber) so the reader + writer outlive the outer `connect()` Effect.
       const scope = yield* Scope.make();
 
-      // Acquire the Socket inside the per-connection scope. If the WS fails
-      // to open, `Socket.makeWebSocket` fails with SocketGenericError / a
-      // SocketCloseError — we map to NotConnectedError (§5.1).
+      // Map Socket open failures (SocketGenericError / SocketCloseError) to
+      // NotConnectedError so callers see a single typed error.
       const socket = yield* Scope.extend(
         Socket.makeWebSocket(url, { openTimeout: Duration.seconds(10) }),
         scope,
@@ -282,24 +272,20 @@ export class MoltZapWsClient {
         ),
       );
 
-      // Resolve the scope-owned writer. Closes on scope close.
       const write = yield* Scope.extend(socket.writer, scope);
 
-      // Settled by whichever happens first: auth/connect response,
-      // or reader fiber exit (clean/unclean close, error). §5.1 latch.
+      // Settled first by whichever fires: the auth/connect response, or
+      // reader-fiber exit on any close/error before handshake.
       const handshakeSettled = yield* Deferred.make<unknown, PendingError>();
 
-      // Reader Effect. `runRaw` dispatches every inbound frame through
-      // `handleIncoming`. Use `onExit` (not `tapErrorCause`) so the
-      // clean-close path (code 1000 — defaultCloseCodeIsError = false) also
-      // triggers pending-drain; without this, §5.2 hangs on clean close
-      // (gotcha §4.10).
+      // Use `onExit` (not `tapErrorCause`) so the clean-close path also
+      // triggers pending-drain. `@effect/platform/Socket` treats code 1000
+      // as a SUCCESS exit, so error-only handlers miss it and pending RPCs
+      // would hang forever.
       const readerEffect = socket
         .runRaw((data) =>
           this.handleIncoming(
-            typeof data === "string"
-              ? data
-              : new TextDecoder("utf-8").decode(data),
+            typeof data === "string" ? data : UTF8_DECODER.decode(data),
           ),
         )
         .pipe(
@@ -310,14 +296,12 @@ export class MoltZapWsClient {
               }
               this._helloOk = null;
               yield* this.failAllPending(MSG_NOT_CONNECTED);
-              // If connect() is still awaiting the handshake, settle it
-              // with NotConnectedError so §5.1 does not hang.
+              // Unblock any `connect()` still awaiting the handshake.
               yield* Deferred.fail(
                 handshakeSettled,
                 new NotConnectedError({ message: MSG_NOT_CONNECTED }),
               ).pipe(Effect.ignore);
               yield* Ref.set(this.stateRef, Option.none());
-              // Notify the host callback — logs are its concern.
               yield* Effect.sync(() => {
                 try {
                   this.options.onDisconnect();
@@ -325,7 +309,6 @@ export class MoltZapWsClient {
                   this.options.logger?.warn("onDisconnect handler threw", err);
                 }
               });
-              // Start a reconnect loop if we still want to be connected.
               if (!this.closed) {
                 this.scheduleReconnect();
               }
@@ -333,22 +316,19 @@ export class MoltZapWsClient {
           ),
         );
 
-      // Fork the reader on the CLIENT's long-lived runtime — NOT the caller's
-      // fiber — so it outlives the outer `connect()` Effect. Otherwise, when
-      // `Effect.runPromise(connect())` returns, the caller's fiber tree
-      // finalizes and the reader fiber gets interrupted, triggering `onExit`
-      // which clears `_helloOk`.
+      // Fork the reader on the CLIENT's runtime (not the caller's fiber) so
+      // it outlives the outer `connect()`. Otherwise the caller's fiber tree
+      // finalizes on return, interrupts the reader, and `onExit` clears
+      // `_helloOk` behind a caller that believed connect() succeeded.
       const readerFiber = this.runtime.runFork(readerEffect);
 
-      // Publish state BEFORE sending auth/connect — the outbound write goes
-      // through `sendRpcEffect`, which reads `stateRef`.
+      // Publish state BEFORE auth/connect: the write goes through
+      // `sendRpcEffect`, which reads `stateRef`.
       yield* Ref.set(
         this.stateRef,
         Option.some({ write, readerFiber, scope, handshakeSettled }),
       );
 
-      // Kick off auth/connect. Its Deferred lives in `pendingRef` so the
-      // reader fiber can resolve it (same mechanism as any other RPC).
       const authEffect = this.sendRpcEffect("auth/connect", {
         agentKey: this.options.agentKey,
         minProtocol: PROTOCOL_VERSION,
@@ -356,9 +336,10 @@ export class MoltZapWsClient {
       });
 
       // Race the auth/connect response against the handshakeSettled deferred
-      // — whichever fires first (handshake success | pre-response close/error)
-      // settles the outer connect. `Effect.race` interrupts the loser.
-      const result = yield* Effect.race(
+      // `raceFirst` (not `race`) — `race` waits for the loser when the
+      // winner fails, so a typed auth/connect error would hang behind the
+      // still-pending handshake-watchdog Deferred.
+      const result = yield* Effect.raceFirst(
         authEffect,
         Deferred.await(handshakeSettled),
       ).pipe(
@@ -397,23 +378,17 @@ export class MoltZapWsClient {
         params,
       };
 
-      // Register the Deferred BEFORE writing (gotcha §4.9). `write(...)` is
-      // an Effect that may yield; the reader fiber can interleave, see a
-      // close, and run `failAllPending` before we register. Register-first
-      // closes that race.
+      // Register the Deferred BEFORE writing. `write` yields to the scheduler;
+      // the reader could interleave, see a close, and `failAllPending` before
+      // we register — leaving us to await a never-resolved Deferred.
       const deferred = yield* Deferred.make<unknown, PendingError>();
       yield* Ref.update(this.pendingRef, (m) => HashMap.set(m, id, deferred));
 
-      // `state.value.write` gates on an internal Latch that `runRaw` only
-      // opens after the WebSocket hits `OPEN`. If the socket never opens
-      // (connection refused, server immediate close), `runRaw`'s `ensuring`
-      // closes the latch — `write` then blocks indefinitely.
-      //
-      // Race the write against the pending Deferred (which the reader fiber
-      // fails via `failAllPending` when the socket closes). Either:
-      //   - The write completes (sent on the wire). Continue to Deferred.await.
-      //   - The Deferred resolves/fails first (e.g. pre-open close). Short
-      //     circuit without waiting on the dead write.
+      // `socket.writer` gates on an internal Latch that `runRaw` only opens
+      // after the WebSocket hits OPEN. If the socket never opens, `runRaw`'s
+      // `ensuring` closes the latch and `write` blocks indefinitely — so we
+      // race the write against the pending Deferred (which the reader fails
+      // on close), short-circuiting the dead write.
       const writeAttempt = Effect.either(
         state.value.write(JSON.stringify(frame)),
       );
@@ -445,12 +420,8 @@ export class MoltZapWsClient {
     });
   }
 
-  /**
-   * Route an inbound frame. Malformed frames are logged (with truncated
-   * payload) and dropped — they never resolve a Deferred and never crash
-   * the connection (§5.4). Event frames dispatch to `onEvent` only after
-   * passing the shape check.
-   */
+  /** Route an inbound frame. Malformed frames are logged + dropped; event
+   * frames dispatch to `onEvent` after the shape check. */
   private handleIncoming(raw: string): Effect.Effect<void> {
     return Effect.gen(this, function* () {
       const decoded = yield* decodeFrame(raw).pipe(
@@ -519,18 +490,8 @@ export class MoltZapWsClient {
     });
   }
 
-  /**
-   * Schedule a reconnect attempt. Exponential base (1s) doubling to a 30s
-   * cap, jittered 0.5–1.0× via `Schedule.jittered` — observably similar to
-   * the previous hand-rolled `baseDelay * (0.5 + Math.random() * 0.5)`, and
-   * routed through `Effect.sleep` so TestClock can drive it (a latent win
-   * vs the old raw `setTimeout`).
-   *
-   * Decision §8.2: chose stock `Schedule.jittered` over hand-rolled to match
-   * the current jitter distribution exactly. Both are observably similar
-   * (both sample uniformly inside ~half the base delay) and stock keeps the
-   * code small + keeps the scoping-doc footnote honest.
-   */
+  /** Schedule a reconnect attempt. Jittered exponential backoff (1s base,
+   * 30s cap) routed through `Effect.sleep` so `TestClock` can drive it. */
   private scheduleReconnect(): void {
     if (this.closed || this.reconnectFiber !== null) return;
 
@@ -544,12 +505,10 @@ export class MoltZapWsClient {
           }
         }),
       ),
-      // Collapse typed errors to a failure that `Schedule.exponential` can retry.
+      // Collapse typed errors so `Schedule.exponential` can retry.
       Effect.mapError(() => new Error("reconnect attempt failed")),
     );
 
-    // Schedule.exponential(1s, 2) * jittered, capped at 30s via `Schedule.either`
-    // with `Schedule.spaced(30s)`.
     const backoff = Schedule.exponential(
       Duration.millis(BASE_RECONNECT_DELAY_MS),
       2,
@@ -558,9 +517,6 @@ export class MoltZapWsClient {
       Schedule.jittered,
     );
 
-    // One-shot retry loop. Give up silently if the client is closed during
-    // a retry — the closed flag is checked on each attempt via `connectEffect`
-    // via the public `connect()` path; here we short-circuit.
     const loop: Effect.Effect<void, never> = attempt.pipe(
       Effect.retry(backoff),
       Effect.asVoid,

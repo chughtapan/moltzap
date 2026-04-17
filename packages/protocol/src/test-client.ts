@@ -20,6 +20,8 @@ import type {
 
 let requestCounter = 0;
 
+const UTF8_DECODER = new TextDecoder("utf-8");
+
 interface ConnState {
   readonly write: (frame: string) => Effect.Effect<void, Socket.SocketError>;
   readonly readerFiber: Fiber.RuntimeFiber<void, Socket.SocketError>;
@@ -40,14 +42,10 @@ export interface RegisterResponse {
 }
 
 /**
- * Effect-native test harness for the MoltZap JSON-RPC-over-WebSocket
- * protocol. Backed by `@effect/platform/Socket` +
- * `@effect/platform-node/NodeSocket` — no raw `ws` dependency. The socket
- * lifecycle (reader fiber, writer, scope) lives on an internal
- * `ManagedRuntime` so fibers outlive any single Effect the caller runs.
- *
- * Public API is Effect-returning. Tests bridge via `Effect.runPromise`
- * or `@effect/vitest`'s `it.effect`.
+ * Effect-native test harness for the MoltZap JSON-RPC protocol. Public API
+ * returns Effects; tests bridge via `Effect.runPromise` or `@effect/vitest`.
+ * The reader fiber, writer, and scope live on an internal `ManagedRuntime`
+ * so they outlive any single Effect the caller runs.
  */
 export class MoltZapTestClient {
   private readonly runtime: ManagedRuntime.ManagedRuntime<
@@ -81,8 +79,6 @@ export class MoltZapTestClient {
       Ref.make<ReadonlyArray<EventWaiter>>([]),
     );
   }
-
-  // ── Public API (Effect-returning) ──────────────────────────────────
 
   /** Register a new agent via HTTP. */
   register(
@@ -162,19 +158,20 @@ export class MoltZapTestClient {
     return [...snapshot];
   }
 
-  /** Close the socket and fail all pending RPCs. Never fails. */
+  /** Close the socket and fail all pending RPCs + event waiters. Never fails. */
   close(): Effect.Effect<void, never> {
     return Effect.gen(this, function* () {
       const state = yield* Ref.get(this.stateRef);
       yield* Ref.set(this.stateRef, Option.none());
       yield* this.failAllPending("WebSocket closed");
+      yield* this.failAllWaiters("WebSocket closed");
       if (Option.isSome(state)) {
         yield* Scope.close(state.value.scope, Exit.void);
       }
+      // #ignore-sloppy-code-next-line[effect-promise]: ManagedRuntime.dispose never rejects
+      yield* Effect.promise(() => this.runtime.dispose());
     });
   }
-
-  // ── Internals ──────────────────────────────────────────────────────
 
   private connectWithParams(
     params: Record<string, string>,
@@ -183,10 +180,6 @@ export class MoltZapTestClient {
       const scope = yield* Scope.make();
       const handshakeSettled = yield* Deferred.make<unknown, Error>();
 
-      // Gotcha §4.11: the NodeSocketServer test harness binds :: by default
-      // and returns an undialable URL; production servers don't hit this
-      // since they use NodeHttpServer. For the client, makeWebSocket just
-      // dials whatever URL we pass it.
       const socket = yield* Scope.extend(
         Socket.makeWebSocket(this.wsUrl, {
           openTimeout: Duration.seconds(30),
@@ -204,15 +197,13 @@ export class MoltZapTestClient {
 
       const write = yield* Scope.extend(socket.writer, scope);
 
-      // Gotcha §4.10: use onExit (not tapErrorCause) so a clean close
-      // (code 1000) also triggers pending-drain — otherwise pendings
-      // hang forever after a clean disconnect.
+      // `onExit` (not `tapErrorCause`) so a clean close (code 1000) also
+      // triggers pending-drain. `@effect/platform/Socket` treats 1000 as a
+      // SUCCESS exit, so error-only handlers miss it and pending RPCs hang.
       const readerEffect = socket
         .runRaw((data) =>
           this.handleIncoming(
-            typeof data === "string"
-              ? data
-              : new TextDecoder("utf-8").decode(data),
+            typeof data === "string" ? data : UTF8_DECODER.decode(data),
           ),
         )
         .pipe(
@@ -238,9 +229,11 @@ export class MoltZapTestClient {
         Option.some({ write, readerFiber, scope, handshakeSettled }),
       );
 
-      // Race auth/connect response against the handshakeSettled Deferred
-      // (fired if the reader fiber exits pre-response, §5.1).
-      return yield* Effect.race(
+      // `raceFirst` (not `race`) because `race` waits for both to complete
+      // when the first-to-finish fails. Here rpcEffect can fail with a
+      // typed auth error while the handshake-watchdog Deferred is still
+      // pending — `raceFirst` returns the error immediately.
+      return yield* Effect.raceFirst(
         this.rpcEffect("auth/connect", params),
         Deferred.await(handshakeSettled),
       );
@@ -266,10 +259,9 @@ export class MoltZapTestClient {
         params,
       };
 
-      // Gotcha §4.9: register the Deferred BEFORE writing. `write` yields
-      // to the scheduler, so the reader could see a pre-response close
-      // and run failAllPending before we register, leaving us to await
-      // a never-resolved Deferred.
+      // Register the Deferred BEFORE writing. `write` yields to the scheduler;
+      // the reader could see a pre-response close and `failAllPending` before
+      // we register — leaving us to await a never-resolved Deferred.
       const deferred = yield* Deferred.make<ResponseFrame, Error>();
       yield* Ref.update(this.pendingRef, (m) => HashMap.set(m, id, deferred));
 
@@ -407,6 +399,20 @@ export class MoltZapTestClient {
       );
       for (const [, d] of HashMap.entries(pending)) {
         yield* Deferred.fail(d, new Error(message)).pipe(Effect.ignore);
+      }
+    });
+  }
+
+  private failAllWaiters(message: string): Effect.Effect<void, never> {
+    return Effect.gen(this, function* () {
+      const waiters = yield* Ref.getAndSet(
+        this.eventWaitersRef,
+        [] as ReadonlyArray<EventWaiter>,
+      );
+      for (const w of waiters) {
+        yield* Deferred.fail(w.deferred, new Error(message)).pipe(
+          Effect.ignore,
+        );
       }
     });
   }

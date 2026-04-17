@@ -1,15 +1,6 @@
 /**
- * Main E2E eval orchestrator, mirroring OpenClaw's index.ts pipeline.
- *
- * 4-phase pipeline:
- *   1. Generation — send scenarios to a real OpenClaw agent via MoltZap
- *   2. Validation — validate responses against MoltZap protocol schemas
- *   3. Evaluation — LLM-as-judge scores the agent's behavior
- *   4. Analysis  — aggregate failures, identify patterns
- *
- * Internally each phase is an `Effect.forEach` — sequential for generation
- * (shared client state; ordering matters for event draining), bounded-
- * concurrent for evaluation (each LLM judge call is independent).
+ * Main E2E eval orchestrator. Four phases: generate → validate → evaluate →
+ * analyze. Each phase's own JSDoc documents its shape and concurrency.
  */
 
 import { Duration, Effect } from "effect";
@@ -359,11 +350,8 @@ interface ScenarioJob {
   index: number; // 1-based, for logging
 }
 
-/**
- * Phase 1: generation. Sequential — scenarios share the eval client and
- * ordering matters because `drainEvents` between jobs clears stale events
- * from prior runs. `Effect.forEach` without `concurrency` is sequential.
- */
+/** Sequential: scenarios share the eval client, and `drainEvents` between
+ * jobs would clear stale events from prior runs. */
 function generatePhase(
   jobs: ScenarioJob[],
   ctx: {
@@ -439,10 +427,7 @@ function generatePhase(
   );
 }
 
-/**
- * Phase 2: validation. Pure function per item — mapped in-place (no Effect
- * needed, but kept inside the pipeline for readability).
- */
+/** Pure per-item transform; no Effect needed. */
 function validatePhase(generated: GeneratedResult[]): ValidatedResult[] {
   return generated.map((r) => {
     const v = validateResponse(r);
@@ -484,11 +469,8 @@ function computeOverallSeverity(
   return undefined;
 }
 
-/**
- * Phase 3: evaluation. Each validated result is independent — concurrency 4
- * lets us overlap the (slow) LLM judge calls. Deterministic pass/fail checks
- * short-circuit without calling the judge.
- */
+/** Concurrency 4 overlaps the (slow) LLM judge calls. Deterministic
+ * pass/fail checks short-circuit without invoking the judge. */
 function evaluatePhase(
   validated: ValidatedResult[],
   opts: { evalModel: string; signal?: AbortSignal },
@@ -771,8 +753,6 @@ async function runE2EEvalsImpl(
     clientsToClose.push(probeClient);
 
     // Register + connect bystander agents for group scenarios (parallel).
-    // Effect.forEach with unbounded concurrency mirrors the previous
-    // Promise.all shape but cleans up the indexed Array.from construction.
     const maxBystanders = Math.max(
       0,
       ...selectedScenarios.map((s) => s.groupBystanders ?? 0),

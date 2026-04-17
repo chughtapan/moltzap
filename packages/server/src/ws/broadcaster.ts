@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import type { EventFrame } from "@moltzap/protocol";
 import type { ConnectionManager } from "./connection.js";
 import { logger } from "../logger.js";
@@ -5,10 +6,9 @@ import { logger } from "../logger.js";
 export class Broadcaster {
   constructor(private connections: ConnectionManager) {}
 
-  /**
-   * Send an event to all participants in a conversation.
-   * Returns the list of agent IDs that received the event.
-   */
+  /** Fire an event to all participants in a conversation. Returns the list
+   * of agent ids that received it. Writes are forked — broadcaster callers
+   * rely on this being effectively synchronous. */
   broadcastToConversation(
     conversationId: string,
     event: EventFrame,
@@ -23,31 +23,33 @@ export class Broadcaster {
       if (!conn.auth) continue;
       if (conn.mutedConversations.has(conversationId)) continue;
 
-      try {
-        conn.ws.send(raw);
-        delivered.push(conn.auth.agentId);
-      } catch (err) {
-        logger.warn(
-          { connId, conversationId, err },
-          "Failed to push event to connection",
-        );
-      }
+      this.forkWrite(conn.id, conn.write(raw), { conversationId });
+      delivered.push(conn.auth.agentId);
     }
 
     return delivered;
   }
 
-  /**
-   * Send an event to a specific agent (all their connections).
-   */
   sendToAgent(agentId: string, event: EventFrame): void {
     const raw = JSON.stringify(event);
     for (const conn of this.connections.getByAgent(agentId)) {
-      try {
-        conn.ws.send(raw);
-      } catch (err) {
-        logger.warn({ agentId, err }, "Failed to send to agent");
-      }
+      this.forkWrite(conn.id, conn.write(raw), { agentId });
     }
+  }
+
+  private forkWrite(
+    connId: string,
+    write: Effect.Effect<void, unknown>,
+    context: Record<string, unknown>,
+  ): void {
+    Effect.runFork(
+      write.pipe(
+        Effect.catchAll((err) =>
+          Effect.sync(() => {
+            logger.warn({ connId, err, ...context }, "Failed to push event");
+          }),
+        ),
+      ),
+    );
   }
 }

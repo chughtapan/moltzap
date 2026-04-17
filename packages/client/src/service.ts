@@ -606,12 +606,7 @@ export class MoltZapService {
     );
   }
 
-  /**
-   * Never fails — on RPC error the raw agentId is returned so waiters don't
-   * block. Inbound-message enrichment runs on a serialized consumer fiber
-   * (MoltZapChannelCore), so back-to-back lookups for the same agentId hit
-   * the populated cache rather than issuing parallel RPCs.
-   */
+  /** Cache-first. Never fails; falls back to `agentId` on RPC error. */
   resolveAgentName(agentId: string): Effect.Effect<string, never> {
     return Effect.gen(this, function* () {
       const cached = Option.getOrUndefined(
