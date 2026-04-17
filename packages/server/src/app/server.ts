@@ -41,7 +41,12 @@ import {
   type AsyncWebhookAdapter,
 } from "../adapters/webhook.js";
 
-import type { CoreConfig, CoreApp, ConnectionHook } from "./types.js";
+import type {
+  CoreConfig,
+  CoreApp,
+  ConnectionHook,
+  DisconnectionHook,
+} from "./types.js";
 import {
   DbTag,
   LoggerTag,
@@ -121,6 +126,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
 
   // Connection hooks
   const connectionHooks: ConnectionHook[] = [];
+  const disconnectionHooks: DisconnectionHook[] = [];
 
   // Webhook permission callback state (set via setWebhookPermissionCallback)
   let _webhookPermAdapter: AsyncWebhookAdapter | null = null;
@@ -406,8 +412,9 @@ export function createCoreApp(config: CoreConfig): CoreApp {
             // Fire connection hooks after a successful auth/connect — auth was
             // populated by the dispatch handler if the credentials were valid.
             if (frame.method === "auth/connect") {
-              const agentId = connections.get(connId)?.auth?.agentId;
-              if (!agentId) return;
+              const authCtx = connections.get(connId)?.auth;
+              if (!authCtx) return;
+              const { agentId, ownerUserId } = authCtx;
               const agentRow = yield* Effect.tryPromise(() =>
                 db
                   .selectFrom("agents")
@@ -419,7 +426,9 @@ export function createCoreApp(config: CoreConfig): CoreApp {
               for (const hook of connectionHooks) {
                 yield* Effect.tryPromise({
                   try: () =>
-                    Promise.resolve(hook({ agentId, agentName, connId })),
+                    Promise.resolve(
+                      hook({ agentId, agentName, ownerUserId, connId }),
+                    ),
                   catch: (err) => err,
                 }).pipe(
                   Effect.catchAll((err) =>
@@ -447,9 +456,33 @@ export function createCoreApp(config: CoreConfig): CoreApp {
         // connection leaks in the manager.
         yield* Effect.raceFirst(reader, Deferred.await(closeRequested)).pipe(
           Effect.onExit((exit) =>
-            Effect.sync(() => {
+            Effect.gen(function* () {
               const conn = connections.get(connId);
-              if (conn?.auth) presenceService.setOffline(conn.auth.agentId);
+              const authCtx = conn?.auth ?? null;
+              if (authCtx) presenceService.setOffline(authCtx.agentId);
+              // Disconnection hooks fire for connections that successfully
+              // authenticated. They run sequentially so an earlier hook's
+              // cleanup (e.g. `last_seen_at` update) completes before the
+              // next one observes the post-close state.
+              if (authCtx) {
+                const { agentId, ownerUserId } = authCtx;
+                for (const hook of disconnectionHooks) {
+                  yield* Effect.tryPromise({
+                    try: () =>
+                      Promise.resolve(hook({ agentId, ownerUserId, connId })),
+                    catch: (err) => err,
+                  }).pipe(
+                    Effect.catchAll((err) =>
+                      Effect.sync(() =>
+                        logger.error(
+                          { err, agentId, connId },
+                          "Disconnection hook error",
+                        ),
+                      ),
+                    ),
+                  );
+                }
+              }
               presenceService.removeConnection(connId);
               connections.remove(connId);
               if (Exit.isFailure(exit)) {
@@ -530,6 +563,9 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     },
     onConnection(hook: ConnectionHook) {
       connectionHooks.push(hook);
+    },
+    onDisconnection(hook: DisconnectionHook) {
+      disconnectionHooks.push(hook);
     },
     registerApp(manifest) {
       appHost.registerApp(manifest);
