@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto";
+import { signWebhookPayload } from "../adapters/webhook.js";
 import type { Kysely } from "kysely";
 import type { AppSessionStatus, Database } from "../db/database.js";
 import type { Broadcaster } from "../ws/broadcaster.js";
@@ -1167,7 +1167,7 @@ export class AppHost {
     return Effect.gen(this, function* () {
       const bodyJson = JSON.stringify(opts.body);
       const signature = opts.secret
-        ? `sha256=${createHmac("sha256", opts.secret).update(bodyJson).digest("hex")}`
+        ? signWebhookPayload(opts.secret, bodyJson)
         : undefined;
 
       const request = Effect.tryPromise({

@@ -11,6 +11,7 @@ import { NodeHttpServer } from "@effect/platform-node";
 import {
   Cause,
   Deferred,
+  Duration,
   Effect,
   Exit,
   Layer,
@@ -72,6 +73,30 @@ function safeEqual(a: string, b: string): boolean {
   const bufB = Buffer.from(b);
   if (bufA.length !== bufB.length) return false;
   return timingSafeEqual(bufA, bufB);
+}
+
+const USER_HOOK_TIMEOUT_MS = 2_000;
+
+function runUserHook<TArgs>(
+  hook: (args: TArgs) => void | Promise<void>,
+  args: TArgs,
+  label: string,
+  logCtx: Record<string, unknown>,
+): Effect.Effect<void> {
+  return Effect.tryPromise({
+    try: () => Promise.resolve(hook(args)),
+    catch: (err) => err,
+  }).pipe(
+    Effect.timeoutFail({
+      duration: Duration.millis(USER_HOOK_TIMEOUT_MS),
+      onTimeout: () => new Error(`${label} timed out`),
+    }),
+    Effect.catchAll((err) =>
+      Effect.sync(() => {
+        logger.error({ err, ...logCtx }, `${label} error`);
+      }),
+    ),
+  );
 }
 
 export function createCoreApp(config: CoreConfig): CoreApp {
@@ -427,21 +452,11 @@ export function createCoreApp(config: CoreConfig): CoreApp {
               ).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
               const agentName = agentRow?.name ?? agentId;
               for (const hook of connectionHooks) {
-                yield* Effect.tryPromise({
-                  try: () =>
-                    Promise.resolve(
-                      hook({ agentId, agentName, ownerUserId, connId }),
-                    ),
-                  catch: (err) => err,
-                }).pipe(
-                  Effect.catchAll((err) =>
-                    Effect.sync(() =>
-                      logger.error(
-                        { err, agentId, connId },
-                        "Connection hook error",
-                      ),
-                    ),
-                  ),
+                yield* runUserHook(
+                  hook,
+                  { agentId, agentName, ownerUserId, connId },
+                  "Connection hook",
+                  { agentId, connId },
                 );
               }
             }
@@ -463,26 +478,17 @@ export function createCoreApp(config: CoreConfig): CoreApp {
               const conn = connections.get(connId);
               const authCtx = conn?.auth ?? null;
               if (authCtx) presenceService.setOffline(authCtx.agentId);
-              // Disconnection hooks fire for connections that successfully
-              // authenticated. They run sequentially so an earlier hook's
-              // cleanup (e.g. `last_seen_at` update) completes before the
-              // next one observes the post-close state.
+              // Run sequentially so an earlier hook's cleanup (e.g.
+              // `last_seen_at`) completes before the next hook observes
+              // the post-close state.
               if (authCtx) {
                 const { agentId, ownerUserId } = authCtx;
                 for (const hook of disconnectionHooks) {
-                  yield* Effect.tryPromise({
-                    try: () =>
-                      Promise.resolve(hook({ agentId, ownerUserId, connId })),
-                    catch: (err) => err,
-                  }).pipe(
-                    Effect.catchAll((err) =>
-                      Effect.sync(() =>
-                        logger.error(
-                          { err, agentId, connId },
-                          "Disconnection hook error",
-                        ),
-                      ),
-                    ),
+                  yield* runUserHook(
+                    hook,
+                    { agentId, ownerUserId, connId },
+                    "Disconnection hook",
+                    { agentId, connId },
                   );
                 }
               }
@@ -610,6 +616,9 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     async close() {
       _webhookPermAdapter?.destroy();
       defaultPermissionService.destroy();
+      // Interrupt in-flight delivery-webhook retries before scope close so
+      // pending POSTs don't race the HTTP server teardown.
+      await Effect.runPromise(messageService.close());
       // `appHost.destroy()` runs before connections close, so any RPC
       // in-flight may observe cleared manifests. The drain sleep below is
       // the only mitigation today — tracked in /review output 2026-04-16.

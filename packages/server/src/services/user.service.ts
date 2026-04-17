@@ -1,5 +1,5 @@
-import { Effect } from "effect";
-import type { WebhookClient } from "../adapters/webhook.js";
+import { Cause, Effect } from "effect";
+import { WebhookCallError, type WebhookClient } from "../adapters/webhook.js";
 import type { Logger } from "../logger.js";
 
 /**
@@ -10,6 +10,11 @@ import type { Logger } from "../logger.js";
  * The wire shape from webhooks is looser (optional fields); the
  * `WebhookUserService` normalizer rejects partial payloads so anything
  * reaching a call site already satisfies this invariant.
+ *
+ * `agentStatus` is optional: when the webhook returns it we skip the
+ * `auth/connect` follow-up DB query that gates `requiresActive`. When
+ * absent, the handler falls back to a single `SELECT status FROM agents`
+ * (one extra round trip per bearer-token auth).
  */
 export type SessionValidation =
   | { readonly valid: false }
@@ -17,6 +22,7 @@ export type SessionValidation =
       readonly valid: true;
       readonly agentId: string;
       readonly ownerUserId: string;
+      readonly agentStatus?: string;
     };
 
 export interface UserService {
@@ -52,16 +58,17 @@ export class WebhookUserService implements UserService {
           body: { userId },
           timeoutMs: this.timeoutMs,
         }),
-      catch: (err) => err,
+      catch: (err) =>
+        new WebhookCallError("users.validate failed", this.url, err),
     }).pipe(
       // Strict boolean check — don't trust truthy strings from external services
       Effect.map((result) => ({ valid: result.valid === true })),
       Effect.catchAllCause((cause) =>
         Effect.sync(() => {
-          this.logger.error(
-            { err: cause, userId, url: this.url },
-            "User validation webhook failed, rejecting user",
-          );
+          this.logCauseAsFailClosed(cause, "User validation webhook", {
+            userId,
+            url: this.url,
+          });
           return { valid: false };
         }),
       ),
@@ -75,6 +82,9 @@ export class WebhookUserService implements UserService {
       valid?: unknown;
       agentId?: unknown;
       ownerUserId?: unknown;
+      /** Optional: lets `auth/connect` skip a DB round trip when the
+       * webhook already knows the agent's status. */
+      agentStatus?: unknown;
     }
     return Effect.tryPromise({
       try: () =>
@@ -84,7 +94,8 @@ export class WebhookUserService implements UserService {
           body: { token },
           timeoutMs: this.timeoutMs,
         }),
-      catch: (err) => err,
+      catch: (err) =>
+        new WebhookCallError("sessions.validate failed", this.url, err),
     }).pipe(
       Effect.map((result): SessionValidation => {
         if (result.valid !== true) return { valid: false };
@@ -94,21 +105,56 @@ export class WebhookUserService implements UserService {
         ) {
           return { valid: false };
         }
-        return {
-          valid: true,
-          agentId: result.agentId,
-          ownerUserId: result.ownerUserId,
-        };
+        const agentStatus =
+          typeof result.agentStatus === "string"
+            ? result.agentStatus
+            : undefined;
+        return agentStatus !== undefined
+          ? {
+              valid: true,
+              agentId: result.agentId,
+              ownerUserId: result.ownerUserId,
+              agentStatus,
+            }
+          : {
+              valid: true,
+              agentId: result.agentId,
+              ownerUserId: result.ownerUserId,
+            };
       }),
       Effect.catchAllCause((cause) =>
         Effect.sync((): SessionValidation => {
-          this.logger.error(
-            { err: cause, url: this.url },
-            "Session validation webhook failed, rejecting",
-          );
+          this.logCauseAsFailClosed(cause, "Session validation webhook", {
+            url: this.url,
+          });
           return { valid: false };
         }),
       ),
     );
+  }
+
+  /**
+   * Fail-closed reject logging. Expected failures (`Cause.Fail` —
+   * `WebhookCallError` from the typed `catch` above) log at warn. Defects
+   * (`Cause.Die` — synchronous throws inside the pipeline, always bugs)
+   * log at error with the full pretty cause so they're visible in the
+   * normal error stream, not hidden behind a quiet auth rejection.
+   */
+  private logCauseAsFailClosed(
+    cause: Cause.Cause<unknown>,
+    label: string,
+    ctx: Record<string, unknown>,
+  ): void {
+    if (Cause.isDieType(cause) || Cause.dieOption(cause)._tag === "Some") {
+      this.logger.error(
+        { cause: Cause.pretty(cause), ...ctx },
+        `${label} defect (bug) — rejecting`,
+      );
+    } else {
+      this.logger.warn(
+        { cause: Cause.pretty(cause), ...ctx },
+        `${label} failed — rejecting`,
+      );
+    }
   }
 }

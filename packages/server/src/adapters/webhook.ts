@@ -3,7 +3,35 @@
 import type { ContactService, PermissionService } from "../app/app-host.js";
 import type { Logger } from "../logger.js";
 import { Effect } from "effect";
+import { createHmac } from "node:crypto";
 import type { RpcFailure } from "../runtime/index.js";
+
+/**
+ * HMAC-SHA256-sign a webhook payload and return the `X-MoltZap-Signature`
+ * header value (`sha256=<hex>`). Receivers recompute over the exact JSON
+ * bytes we send, so callers must pass the same `payload` string they will
+ * write to the HTTP body.
+ */
+export function signWebhookPayload(secret: string, payload: string): string {
+  return "sha256=" + createHmac("sha256", secret).update(payload).digest("hex");
+}
+
+/**
+ * Typed failure raised by `Effect.tryPromise` wrappers around
+ * `WebhookClient.callSync`. Carries the original cause so downstream
+ * log sites can extract network/timeout detail without dealing with
+ * `unknown`.
+ */
+export class WebhookCallError extends Error {
+  override readonly name = "WebhookCallError";
+  constructor(
+    message: string,
+    readonly url: string,
+    readonly cause: unknown,
+  ) {
+    super(message);
+  }
+}
 
 // -- Semaphore ----------------------------------------------------------------
 
