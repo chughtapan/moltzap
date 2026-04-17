@@ -287,9 +287,6 @@ export class AppHost {
   private manifests = new Map<string, AppManifest>();
   private contactService: ContactService | null = null;
   private permissionService: PermissionService | null = null;
-  private inflightPermissions = Effect.runSync(
-    Ref.make(HashMap.empty<string, Deferred.Deferred<string[], Error>>()),
-  );
   private hooks = new Map<string, AppHooks>();
   private conversationToSession = new Map<
     string,
@@ -310,6 +307,14 @@ export class AppHost {
      * path, which we deliberately avoid.
      */
     private webhookClient: WebhookClient,
+    /**
+     * Coalesce map for in-flight permission requests. Constructed in the
+     * AppHost Layer so `Ref.make` runs inside an Effect rather than via
+     * `Effect.runSync` at field-initializer time.
+     */
+    private inflightPermissions: Ref.Ref<
+      HashMap.HashMap<string, Deferred.Deferred<string[], Error>>
+    >,
   ) {}
 
   registerApp(manifest: AppManifest): void {
@@ -1244,10 +1249,8 @@ export class AppHost {
       // calls. Uses the same `coalesce` helper as `inflightPermissions` so
       // concurrent admitAgent fibers for the same owner race-safely share
       // one in-flight validateUser call (see runtime/coalesce.ts).
-      const userValidationCache = Effect.runSync(
-        Ref.make(
-          HashMap.empty<string, Deferred.Deferred<{ valid: boolean }, never>>(),
-        ),
+      const userValidationCache = yield* Ref.make(
+        HashMap.empty<string, Deferred.Deferred<{ valid: boolean }, never>>(),
       );
 
       // Run per-agent admissions concurrently, wrapping each in Exit to
