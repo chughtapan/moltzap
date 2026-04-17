@@ -1,10 +1,16 @@
 /** Webhook adapters for calling external services over HTTP. */
 
+import {
+  Data,
+  Deferred,
+  Duration,
+  Effect,
+  HashMap,
+  Ref,
+} from "effect";
+import { createHmac } from "node:crypto";
 import type { ContactService, PermissionService } from "../app/app-host.js";
 import type { Logger } from "../logger.js";
-import { Effect } from "effect";
-import { createHmac } from "node:crypto";
-import type { RpcFailure } from "../runtime/index.js";
 
 /**
  * HMAC-SHA256-sign a webhook payload and return the `X-MoltZap-Signature`
@@ -16,127 +22,172 @@ export function signWebhookPayload(secret: string, payload: string): string {
   return "sha256=" + createHmac("sha256", secret).update(payload).digest("hex");
 }
 
+// -- Tagged error union -------------------------------------------------------
+
 /**
- * Typed failure raised by `Effect.tryPromise` wrappers around
- * `WebhookClient.callSync`. Carries the original cause so downstream
- * log sites can extract network/timeout detail without dealing with
- * `unknown`.
+ * Non-2xx HTTP response from the remote webhook. `status` is the actual
+ * wire status; `body` captures up to ~response.text() for log context.
  */
-export class WebhookCallError extends Error {
-  override readonly name = "WebhookCallError";
-  constructor(
-    message: string,
-    readonly url: string,
-    readonly cause: unknown,
-  ) {
-    super(message);
+export class WebhookHttpError extends Data.TaggedError("WebhookHttpError")<{
+  readonly url: string;
+  readonly event: string;
+  readonly status: number;
+  readonly body: string;
+}> {
+  get message(): string {
+    return `Webhook ${this.event} returned ${this.status}: ${this.body}`;
   }
 }
 
-// -- Semaphore ----------------------------------------------------------------
-
-class Semaphore {
-  private waiting: Array<() => void> = [];
-  private active = 0;
-
-  constructor(private max: number) {}
-
-  // #ignore-sloppy-code-next-line[async-keyword, promise-type]: Semaphore callback-to-Promise queueing primitive
-  async acquire(): Promise<void> {
-    if (this.active < this.max) {
-      this.active++;
-      return;
-    }
-    return new Promise<void>((resolve) => {
-      this.waiting.push(resolve);
-    });
-  }
-
-  release(): void {
-    const next = this.waiting.shift();
-    if (next) {
-      next();
-    } else {
-      this.active--;
-    }
+/**
+ * Request exceeded its `timeoutMs` budget — fired by `Effect.timeoutFail`.
+ * Covers both sync-webhook request/response timeouts and async-adapter
+ * callback-wait timeouts; the `event` discriminates.
+ */
+export class WebhookTimeoutError extends Data.TaggedError(
+  "WebhookTimeoutError",
+)<{
+  readonly url: string;
+  readonly event: string;
+  readonly timeoutMs: number;
+}> {
+  get message(): string {
+    return `Webhook ${this.event} timed out after ${this.timeoutMs}ms`;
   }
 }
+
+/**
+ * Transport-level failure surfaced by `fetch` (DNS, connection reset,
+ * TLS). `cause` is the original thrown value so log sites can inspect
+ * `.code` / `.errno` without re-parsing a string.
+ */
+export class WebhookNetworkError extends Data.TaggedError(
+  "WebhookNetworkError",
+)<{
+  readonly url: string;
+  readonly event: string;
+  readonly cause: unknown;
+}> {
+  get message(): string {
+    const detail =
+      this.cause instanceof Error ? this.cause.message : String(this.cause);
+    return `Webhook ${this.event} failed: ${detail}`;
+  }
+}
+
+/**
+ * Emitted when `AsyncWebhookAdapter.shutdown` fires while requests are
+ * still awaiting their out-of-band callback. Callers treat this like any
+ * other fail-closed webhook error.
+ */
+export class WebhookDestroyedError extends Data.TaggedError(
+  "WebhookDestroyedError",
+)<{
+  readonly requestId: string;
+}> {
+  get message(): string {
+    return `Webhook adapter destroyed while request ${this.requestId} was pending`;
+  }
+}
+
+/** Union of every tagged error the webhook adapters can emit. */
+export type WebhookError =
+  | WebhookHttpError
+  | WebhookTimeoutError
+  | WebhookNetworkError
+  | WebhookDestroyedError;
 
 // -- Sync webhook client (Users, Contacts) ------------------------------------
 
+/** Options for a single sync webhook call. */
+export interface WebhookCallOpts {
+  readonly url: string;
+  readonly event: string;
+  readonly body: unknown;
+  readonly timeoutMs: number;
+  /**
+   * Extra headers merged on top of `Content-Type` + `X-MoltZap-Event`.
+   * Used by app-hook webhooks to attach `X-MoltZap-Signature`. Caller-
+   * supplied keys win over the defaults — but `Content-Type` and
+   * `X-MoltZap-Event` are MoltZap-controlled, so callers should not
+   * override those.
+   */
+  readonly headers?: Record<string, string>;
+  /**
+   * Pre-serialized JSON body. When provided, `body` is ignored. Used by
+   * app-hook webhooks that compute an HMAC signature over the exact
+   * bytes that go on the wire — re-serializing here would drift.
+   */
+  readonly bodyJson?: string;
+}
+
+type WebhookCallError =
+  | WebhookHttpError
+  | WebhookTimeoutError
+  | WebhookNetworkError;
+
+/**
+ * Sync webhook client: POST a payload, receive a parsed JSON response.
+ * All failures land in the typed error channel — fetch is driven through
+ * `Effect.tryPromise({ try: (signal) => fetch(url, { signal }) })` so
+ * fiber interrupt aborts the HTTP socket, and concurrency is bounded by
+ * an `Effect.Semaphore` whose permit is returned on interrupt.
+ */
 export class WebhookClient {
-  private semaphore: Semaphore;
+  private readonly permits: Effect.Semaphore;
 
   constructor(concurrency = 10) {
-    this.semaphore = new Semaphore(concurrency);
+    // `Effect.makeSemaphore` performs no async work so it's safe to
+    // `runSync` in the constructor; keeps the `new WebhookClient()`
+    // construction surface unchanged for call sites.
+    this.permits = Effect.runSync(Effect.makeSemaphore(concurrency));
   }
 
-  // #ignore-sloppy-code-next-line[async-keyword]: fetch HTTP boundary to external webhook
-  async callSync<T>(opts: {
-    url: string;
-    event: string;
-    body: unknown;
-    timeoutMs: number;
-    /**
-     * Extra headers merged on top of `Content-Type` + `X-MoltZap-Event`.
-     * Used by app-hook webhooks to attach `X-MoltZap-Signature`. Caller-
-     * supplied keys win over the defaults — but `Content-Type` and
-     * `X-MoltZap-Event` are MoltZap-controlled, so callers should not
-     * override those.
-     */
-    headers?: Record<string, string>;
-    /**
-     * Pre-serialized JSON body. When provided, `body` is ignored. Used by
-     * app-hook webhooks that compute an HMAC signature over the exact
-     * bytes that go on the wire — re-serializing here would drift.
-     */
-    bodyJson?: string;
-    // #ignore-sloppy-code-next-line[promise-type]: fetch HTTP boundary to external webhook
-  }): Promise<T> {
-    await this.semaphore.acquire();
-    try {
-      const response = await fetch(opts.url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-MoltZap-Event": opts.event,
-          ...opts.headers,
-        },
-        body: opts.bodyJson ?? JSON.stringify(opts.body),
-        signal: AbortSignal.timeout(opts.timeoutMs),
-      });
+  call<T>(opts: WebhookCallOpts): Effect.Effect<T, WebhookCallError> {
+    const { url, event, timeoutMs } = opts;
+    const body = opts.bodyJson ?? JSON.stringify(opts.body);
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "X-MoltZap-Event": event,
+      ...opts.headers,
+    };
 
-      if (!response.ok) {
-        const text = await response.text().catch(() => "");
-        throw new WebhookError(
-          `Webhook ${opts.event} returned ${response.status}: ${text}`,
-          response.status,
-        );
-      }
+    const perform = Effect.tryPromise({
+      try: (signal) =>
+        fetch(url, { method: "POST", headers, body, signal }).then(
+          async (response) => {
+            if (!response.ok) {
+              const text = await response.text().catch(() => "");
+              throw new WebhookHttpError({
+                url,
+                event,
+                status: response.status,
+                body: text,
+              });
+            }
+            // Empty-body responses (204, or 200 with no payload) are
+            // common for fire-and-forget hooks (`on_join`, `on_close`).
+            // `response.json()` would throw on an empty body, so read
+            // as text and short-circuit.
+            const text = await response.text();
+            if (text.length === 0) return null as T;
+            return JSON.parse(text) as T;
+          },
+        ),
+      catch: (err) =>
+        err instanceof WebhookHttpError
+          ? err
+          : new WebhookNetworkError({ url, event, cause: err }),
+    });
 
-      // Empty-body responses (204, or 200 with no payload) are common for
-      // fire-and-forget hooks (`on_join`, `on_close`). `response.json()`
-      // would throw on an empty body, so read as text and short-circuit.
-      const text = await response.text();
-      if (text.length === 0) {
-        return null as T;
-      }
-      return JSON.parse(text) as T;
-    } catch (err) {
-      if (err instanceof WebhookError) throw err;
-      if (err instanceof DOMException && err.name === "TimeoutError") {
-        throw new WebhookError(
-          `Webhook ${opts.event} timed out after ${opts.timeoutMs}ms`,
-          0,
-        );
-      }
-      throw new WebhookError(
-        `Webhook ${opts.event} failed: ${(err as Error).message}`,
-        0,
-      );
-    } finally {
-      this.semaphore.release();
-    }
+    return this.permits.withPermits(1)(
+      perform.pipe(
+        Effect.timeoutFail({
+          duration: Duration.millis(timeoutMs),
+          onTimeout: () => new WebhookTimeoutError({ url, event, timeoutMs }),
+        }),
+      ),
+    );
   }
 }
 
@@ -154,147 +205,212 @@ export class WebhookContactService implements ContactService {
     userIdA: string,
     userIdB: string,
   ): Effect.Effect<boolean, never> {
-    return Effect.tryPromise({
-      try: () =>
-        this.client.callSync<{ inContact: boolean }>({
-          url: this.url,
-          event: "contacts.check",
-          body: { userIdA, userIdB },
-          timeoutMs: this.timeoutMs,
-        }),
-      catch: (err) => err,
-    }).pipe(
-      Effect.map((result) => result.inContact === true),
-      Effect.catchAll((err) =>
-        Effect.sync(() => {
-          this.webhookLogger.error(
-            { err, userIdA, userIdB, url: this.url },
-            "Contact check webhook failed, rejecting contact",
-          );
-          return false;
-        }),
-      ),
-    );
+    return this.client
+      .call<{ inContact: boolean }>({
+        url: this.url,
+        event: "contacts.check",
+        body: { userIdA, userIdB },
+        timeoutMs: this.timeoutMs,
+      })
+      .pipe(
+        Effect.map((result) => result.inContact === true),
+        Effect.catchAll((err) =>
+          Effect.sync(() => {
+            this.webhookLogger.error(
+              { err, userIdA, userIdB, url: this.url },
+              "Contact check webhook failed, rejecting contact",
+            );
+            return false;
+          }),
+        ),
+      );
   }
 }
 
 // -- Async webhook adapter (Permissions) --------------------------------------
 
-interface PendingRequest {
-  resolve: (access: string[]) => void;
-  reject: (err: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
-}
-
+/** How long we remember a resolved request-id so repeat callbacks are idempotent. */
 const RESOLVED_TTL_MS = 5 * 60 * 1000;
 
+/** Internal map entry — a Deferred that the HTTP callback route completes. */
+type PendingMap = HashMap.HashMap<
+  string,
+  Deferred.Deferred<string[], WebhookError>
+>;
+
+/**
+ * Async webhook adapter for the out-of-band permissions flow:
+ * POST to the remote, receive `202`, then wait for a later HTTP
+ * callback to deliver the access decision.
+ *
+ * Cleanup invariants (enforced by `Effect.ensuring` / `Effect.onInterrupt`):
+ *   - Fiber interrupt removes the pending Deferred from the Ref so no
+ *     entry leaks when a caller cancels.
+ *   - `Effect.timeoutFail` fires a `WebhookTimeoutError` through the
+ *     same cleanup path.
+ *   - `shutdown` fails every still-pending Deferred with
+ *     `WebhookDestroyedError`.
+ */
 export class AsyncWebhookAdapter {
-  private pending = new Map<string, PendingRequest>();
-  private resolved = new Map<string, number>();
-  private semaphore: Semaphore;
+  private readonly pending: Ref.Ref<PendingMap>;
+  /**
+   * `resolved` is a plain Map because it's only touched from the HTTP
+   * callback handler (already synchronous at its boundary). Moving it
+   * into a Ref would buy no interrupt-safety — the handler either
+   * completes its `resolveCallback` call synchronously or it doesn't run
+   * at all.
+   */
+  private readonly resolved = new Map<string, number>();
+  private readonly permits: Effect.Semaphore;
 
   constructor(concurrency = 10) {
-    this.semaphore = new Semaphore(concurrency);
+    this.pending = Effect.runSync(Ref.make<PendingMap>(HashMap.empty()));
+    this.permits = Effect.runSync(Effect.makeSemaphore(concurrency));
   }
 
-  // #ignore-sloppy-code-next-line[async-keyword]: fetch HTTP boundary + deferred callback correlation
-  async sendRequest(opts: {
-    url: string;
-    requestId: string;
-    callbackUrl: string;
-    callbackToken: string;
-    body: unknown;
-    timeoutMs: number;
-    // #ignore-sloppy-code-next-line[promise-type]: fetch HTTP boundary with deferred callback correlation
-  }): Promise<string[]> {
-    // Register the pending entry BEFORE sending the HTTP request.
-    // A fast webhook service could call back before fetch() returns.
-    const callbackPromise = new Promise<string[]>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(opts.requestId);
-        reject(
-          new WebhookError(
-            `Permissions callback for ${opts.requestId} timed out after ${opts.timeoutMs}ms`,
-            0,
-          ),
-        );
-      }, opts.timeoutMs);
+  send(opts: {
+    readonly url: string;
+    readonly requestId: string;
+    readonly callbackUrl: string;
+    readonly callbackToken: string;
+    readonly body: unknown;
+    readonly timeoutMs: number;
+  }): Effect.Effect<string[], WebhookError> {
+    const { url, requestId, timeoutMs } = opts;
+    const event = "permissions.check";
 
-      this.pending.set(opts.requestId, { resolve, reject, timer });
-    });
+    return Effect.gen(this, function* () {
+      const deferred = yield* Deferred.make<string[], WebhookError>();
 
-    await this.semaphore.acquire();
-    try {
-      const response = await fetch(opts.url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-MoltZap-Event": "permissions.check",
-          "X-MoltZap-Callback-URL": opts.callbackUrl,
-          "X-MoltZap-Callback-Token": opts.callbackToken,
-        },
-        body: JSON.stringify({
-          request_id: opts.requestId,
-          ...(opts.body as object),
-        }),
-        signal: AbortSignal.timeout(opts.timeoutMs),
+      // Register BEFORE sending the HTTP request: a fast webhook service
+      // could fire its callback before fetch() returns.
+      yield* Ref.update(this.pending, HashMap.set(requestId, deferred));
+
+      const bodyJson = JSON.stringify({
+        request_id: requestId,
+        ...(opts.body as object),
       });
 
-      if (response.status !== 202) {
-        const text = await response.text().catch(() => "");
-        this.cancelPending(opts.requestId);
-        throw new WebhookError(
-          `Permissions webhook expected 202, got ${response.status}: ${text}`,
-          response.status,
+      const post = this.permits.withPermits(1)(
+        Effect.tryPromise({
+          try: (signal) =>
+            fetch(url, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "X-MoltZap-Event": event,
+                "X-MoltZap-Callback-URL": opts.callbackUrl,
+                "X-MoltZap-Callback-Token": opts.callbackToken,
+              },
+              body: bodyJson,
+              signal,
+            }),
+          catch: (err) =>
+            new WebhookNetworkError({ url, event, cause: err }),
+        }).pipe(
+          Effect.flatMap((response) => {
+            if (response.status === 202) return Effect.void;
+            return Effect.tryPromise({
+              try: () => response.text().catch(() => ""),
+              catch: () =>
+                new WebhookNetworkError({
+                  url,
+                  event,
+                  cause: "failed to read error body",
+                }),
+            }).pipe(
+              Effect.flatMap((text) =>
+                Effect.fail(
+                  new WebhookHttpError({
+                    url,
+                    event,
+                    status: response.status,
+                    body: text,
+                  }),
+                ),
+              ),
+            );
+          }),
+        ),
+      );
+
+      // Await the callback after the POST succeeds. `ensuring` removes
+      // the pending entry on success, failure, AND interrupt — which is
+      // what plugs the Bug #3 leak.
+      const awaitCallback = Deferred.await(deferred).pipe(
+        Effect.timeoutFail({
+          duration: Duration.millis(timeoutMs),
+          onTimeout: () =>
+            new WebhookTimeoutError({ url, event, timeoutMs }),
+        }),
+      );
+
+      return yield* post.pipe(
+        Effect.flatMap(() => awaitCallback),
+        Effect.ensuring(
+          Ref.update(this.pending, HashMap.remove(requestId)),
+        ),
+      );
+    });
+  }
+
+  /**
+   * Deliver a callback decision to a pending request. Returns `true` if
+   * a pending Deferred was completed, or if the request id matches a
+   * still-fresh prior resolution (idempotent). Returns `false` for
+   * unknown/expired request ids.
+   */
+  resolveCallback(
+    requestId: string,
+    access: string[],
+  ): Effect.Effect<boolean, never> {
+    return Effect.gen(this, function* () {
+      // Idempotency: already resolved within TTL.
+      const resolvedAt = this.resolved.get(requestId);
+      if (resolvedAt !== undefined) {
+        if (Date.now() - resolvedAt < RESOLVED_TTL_MS) return true;
+        this.resolved.delete(requestId);
+        return false;
+      }
+
+      // Atomically remove the pending Deferred so no other fiber can
+      // also try to complete it.
+      const taken = yield* Ref.modify(this.pending, (map) => {
+        const existing = HashMap.get(map, requestId);
+        if (existing._tag === "None") return [existing, map];
+        return [existing, HashMap.remove(map, requestId)];
+      });
+
+      if (taken._tag === "None") return false;
+
+      this.resolved.set(requestId, Date.now());
+      this.pruneResolved();
+      yield* Deferred.succeed(taken.value, access);
+      return true;
+    });
+  }
+
+  /**
+   * Fail every pending request with `WebhookDestroyedError`. Called at
+   * server shutdown so awaiting fibers unblock rather than hanging on
+   * the `Deferred.await` until their timeout.
+   */
+  readonly shutdown: Effect.Effect<void, never> = Effect.gen(
+    this,
+    function* () {
+      const map = yield* Ref.getAndSet<PendingMap>(
+        this.pending,
+        HashMap.empty(),
+      );
+      for (const [requestId, deferred] of HashMap.entries(map)) {
+        yield* Deferred.fail(
+          deferred,
+          new WebhookDestroyedError({ requestId }),
         );
       }
-    } catch (err) {
-      this.cancelPending(opts.requestId);
-      throw err;
-    } finally {
-      this.semaphore.release();
-    }
-
-    return callbackPromise;
-  }
-
-  resolveCallback(requestId: string, access: string[]): boolean {
-    // Idempotency: already resolved within TTL
-    const resolvedAt = this.resolved.get(requestId);
-    if (resolvedAt !== undefined) {
-      if (Date.now() - resolvedAt < RESOLVED_TTL_MS) return true;
-      this.resolved.delete(requestId);
-      return false;
-    }
-
-    const entry = this.pending.get(requestId);
-    if (!entry) return false;
-
-    clearTimeout(entry.timer);
-    this.pending.delete(requestId);
-    this.resolved.set(requestId, Date.now());
-    entry.resolve(access);
-
-    this.pruneResolved();
-    return true;
-  }
-
-  destroy(): void {
-    for (const entry of this.pending.values()) {
-      clearTimeout(entry.timer);
-      entry.reject(new WebhookError("Adapter destroyed", 0));
-    }
-    this.pending.clear();
-    this.resolved.clear();
-  }
-
-  private cancelPending(requestId: string): void {
-    const entry = this.pending.get(requestId);
-    if (entry) {
-      clearTimeout(entry.timer);
-      this.pending.delete(requestId);
-    }
-  }
+      this.resolved.clear();
+    },
+  );
 
   private pruneResolved(): void {
     const cutoff = Date.now() - RESOLVED_TTL_MS;
@@ -323,49 +439,35 @@ export class WebhookPermissionService implements PermissionService {
     resource: string;
     access: string[];
     timeoutMs: number;
-  }): Effect.Effect<string[], Error> {
+  }): Effect.Effect<string[], WebhookError> {
     const requestId = crypto.randomUUID();
     const callbackUrl = `${this.callbackBaseUrl}/api/v1/permissions/resolve`;
 
-    return Effect.tryPromise({
-      try: () =>
-        this.adapter.sendRequest({
-          url: this.webhookUrl,
-          requestId,
-          callbackUrl,
-          callbackToken: this.callbackToken,
-          body: {
-            userId: params.userId,
-            agentId: params.agentId,
-            sessionId: params.sessionId,
-            appId: params.appId,
-            resource: params.resource,
-            access: params.access,
-          },
-          timeoutMs: params.timeoutMs,
-        }),
-      catch: (err) => (err instanceof Error ? err : new Error(String(err))),
-    }).pipe(
-      Effect.tapError((err) =>
-        Effect.sync(() =>
-          this.logger.error(
-            { err, requestId, resource: params.resource },
-            "Webhook permission request failed",
+    return this.adapter
+      .send({
+        url: this.webhookUrl,
+        requestId,
+        callbackUrl,
+        callbackToken: this.callbackToken,
+        body: {
+          userId: params.userId,
+          agentId: params.agentId,
+          sessionId: params.sessionId,
+          appId: params.appId,
+          resource: params.resource,
+          access: params.access,
+        },
+        timeoutMs: params.timeoutMs,
+      })
+      .pipe(
+        Effect.tapError((err) =>
+          Effect.sync(() =>
+            this.logger.error(
+              { err, requestId, resource: params.resource },
+              "Webhook permission request failed",
+            ),
           ),
         ),
-      ),
-    );
-  }
-}
-
-// -- Shared error type --------------------------------------------------------
-
-export class WebhookError extends Error {
-  constructor(
-    message: string,
-    public readonly statusCode: number,
-  ) {
-    super(message);
-    this.name = "WebhookError";
+      );
   }
 }
