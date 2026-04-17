@@ -223,6 +223,38 @@ check hardcoded-api-key \
   "*.test.ts" \
   "packages/"
 
+# `as unknown as` bypasses the type system. Use a type guard, a user-defined
+# predicate, Effect.catchTag/catchTags for tagged unions, or expectRpcFailure
+# for RPC-error test assertions. Legitimate reflection/generic-erasure casts
+# carry a `#ignore-sloppy-code[as-unknown-as]: <reason>` pragma.
+matches=$(grep -rn --include="*.ts" -E 'as unknown as' packages/*/src 2>/dev/null \
+  | filter_pragma 'as-unknown-as' \
+  || true)
+matches=$(echo "$matches" | grep -v '^$' || true)
+if [ -n "$matches" ]; then
+  echo -e "${RED}[FAIL]${NC} [as-unknown-as] 'as unknown as' cast chain bypasses the type system. Prefer a proper type guard, user-defined predicate, or Effect.catchTag/catchTags for tagged unions. For tests asserting RPC failures use packages/server/src/test-utils/rpc-error.ts (expectRpcFailure)."
+  echo "$matches"
+  echo "    Opt out with: // $PRAGMA_TAG[as-unknown-as]: <reason>"
+  echo ""
+  ERRORS=$((ERRORS + 1))
+fi
+
+# Manual `_tag` narrow on wire-error classes. Use Effect.catchTag / catchTags /
+# expectRpcFailure instead. Effect.Exit/Cause/Option internal tags are allowed —
+# they're the idiomatic narrow for those std unions.
+matches=$(grep -rn --include="*.ts" -E '\._tag\s*(===|!==|==|!=)\s*"(RpcServerError|NotConnectedError|RpcTimeoutError|AgentNotFoundError|MalformedFrameError|RpcFailure|InvalidParamsError|ForbiddenError|SqlError)"' packages/*/src 2>/dev/null \
+  | filter_pragma 'tag-discriminant' \
+  || true)
+matches=$(echo "$matches" | grep -v '^$' || true)
+if [ -n "$matches" ]; then
+  echo -e "${RED}[FAIL]${NC} [tag-discriminant] Manual _tag discriminant on a wire-error class — use Effect.catchTag / catchTags / expectRpcFailure so the dispatch is declarative and types flow through."
+  echo "$matches"
+  echo "    Opt out with: // $PRAGMA_TAG[tag-discriminant]: <reason>"
+  echo ""
+  ERRORS=$((ERRORS + 1))
+fi
+
+
 # ============================================================
 # Summary
 # ============================================================

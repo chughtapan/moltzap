@@ -47,7 +47,7 @@ async function createPgLiteDb(dataDir?: string): Promise<DbHandle> {
   // works for migration/seed code.
   const db = makeEffectKysely<Database>({
     dialect: kpg.dialect,
-  }) as unknown as Kysely<Database>;
+  });
 
   return {
     db,
@@ -88,7 +88,7 @@ async function createPostgresDb(url: string): Promise<DbHandle> {
   // works for migration/seed code.
   const db = makeEffectKysely<Database>({
     dialect: new PostgresDialect({ pool }),
-  }) as unknown as Kysely<Database>;
+  });
 
   return {
     db,

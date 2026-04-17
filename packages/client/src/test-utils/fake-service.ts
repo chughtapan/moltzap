@@ -121,13 +121,8 @@ export class FakeMoltZapService extends MoltZapService {
    * tests.
    */
   addMessage(convId: string, msg: Message): void {
-    const ref = (
-      this as unknown as {
-        messagesRef: Ref.Ref<HashMap.HashMap<string, ReadonlyArray<Message>>>;
-      }
-    ).messagesRef;
     Effect.runSync(
-      Ref.update(ref, (m) => {
+      Ref.update(this.internals.messagesRef, (m) => {
         const existing = Option.getOrElse(
           HashMap.get(m, convId),
           () => [] as ReadonlyArray<Message>,
@@ -139,11 +134,27 @@ export class FakeMoltZapService extends MoltZapService {
 
   /** Pin an agent name in the internal cache without an RPC round-trip. */
   setAgentNameDirect(id: string, name: string): void {
-    const ref = (
-      this as unknown as {
-        agentNamesRef: Ref.Ref<HashMap.HashMap<string, string>>;
-      }
-    ).agentNamesRef;
-    Effect.runSync(Ref.update(ref, (m) => HashMap.set(m, id, name)));
+    Effect.runSync(
+      Ref.update(this.internals.agentNamesRef, (m) => HashMap.set(m, id, name)),
+    );
   }
+
+  /**
+   * Typed view of the parent class's private Refs, exposed only to this
+   * fake so its test-only harness methods (addMessage, setAgentNameDirect)
+   * can stage state without going through the WebSocket pipeline. This is
+   * the single spot where the subclass widens its own `this` to see parent
+   * privates — every other caller goes through the narrow harness API.
+   */
+  private get internals(): ParentInternals {
+    // #ignore-sloppy-code-next-line[as-unknown-as]: single test-only view over parent class's private state; callers use this.internals.<ref>
+    return this as unknown as ParentInternals;
+  }
+}
+
+/** Shape of the parent `MoltZapService`'s private Refs, exposed in the fake
+ *  via `this.internals` so the test-only harness methods can seed state. */
+interface ParentInternals {
+  messagesRef: Ref.Ref<HashMap.HashMap<string, ReadonlyArray<Message>>>;
+  agentNamesRef: Ref.Ref<HashMap.HashMap<string, string>>;
 }
