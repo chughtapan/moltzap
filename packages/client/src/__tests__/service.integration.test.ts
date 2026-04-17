@@ -1525,34 +1525,30 @@ describe("Socket Server", () => {
       const reg = yield* registerAgent("sock-validate");
       const service = yield* connectService(reg.apiKey);
       service.startSocketServer();
+      // `catch: (e) => e as Error` keeps the original rejection message
+      // rather than wrapping it in UnknownException.
+      const tryReq = (params: Record<string, unknown>) =>
+        Effect.tryPromise({
+          try: () => socketRequest("history", params),
+          catch: (e) => e as Error,
+        });
       try {
-        const r1 = yield* Effect.either(
-          Effect.tryPromise(() => socketRequest("history", {})),
-        );
+        const r1 = yield* Effect.either(tryReq({}));
         expect(Either.isLeft(r1)).toBe(true);
         if (Either.isLeft(r1)) {
-          expect(String(r1.left)).toContain("conversationId is required");
+          expect(r1.left.message).toContain("conversationId is required");
         }
-        const r2 = yield* Effect.either(
-          Effect.tryPromise(() =>
-            socketRequest("history", { conversationId: 123 }),
-          ),
-        );
+        const r2 = yield* Effect.either(tryReq({ conversationId: 123 }));
         expect(Either.isLeft(r2)).toBe(true);
         if (Either.isLeft(r2)) {
-          expect(String(r2.left)).toContain("conversationId is required");
+          expect(r2.left.message).toContain("conversationId is required");
         }
         const r3 = yield* Effect.either(
-          Effect.tryPromise(() =>
-            socketRequest("history", {
-              conversationId: "abc",
-              limit: "not-a-number",
-            }),
-          ),
+          tryReq({ conversationId: "abc", limit: "not-a-number" }),
         );
         expect(Either.isLeft(r3)).toBe(true);
         if (Either.isLeft(r3)) {
-          expect(String(r3.left)).toContain("limit must be a number");
+          expect(r3.left.message).toContain("limit must be a number");
         }
       } finally {
         service.close();
