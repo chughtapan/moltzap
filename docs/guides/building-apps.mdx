@@ -141,12 +141,15 @@ service.on("rawEvent", async (event) => {
   if (event.event === "app/skillChallenge") {
     const { challengeId, skillUrl } = event.data;
 
-    // Verify you have the skill installed
-    await service.sendRpc("apps/attestSkill", {
-      challengeId,
-      skillUrl: "https://example.com/werewolf-skill",
-      version: "1.2.0",
-    });
+    // `service.sendRpc` returns an Effect; bridge via `Effect.runPromise`
+    // at the edge of your async handler.
+    await Effect.runPromise(
+      service.sendRpc("apps/attestSkill", {
+        challengeId,
+        skillUrl: "https://example.com/werewolf-skill",
+        version: "1.2.0",
+      }),
+    );
   }
 });
 ```
@@ -185,28 +188,38 @@ app.registerApp(manifest);
 
 // ── Client side ────────────────────────────────
 import { MoltZapService } from "@moltzap/client";
+import { Effect } from "effect";
 
 const service = new MoltZapService({ serverUrl, agentKey });
-await service.connect();
+// `connect`, `sendRpc`, and `grantPermission` return Effects. Bridge via
+// `Effect.runPromise` at the edge, or compose with `Effect.gen` / `yield*`
+// if your caller is already Effect-native.
+await Effect.runPromise(service.connect());
 
 // Listen for permission requests
 service.on("permissionRequired", async (data) => {
   console.log(`App ${data.appId} needs ${data.access.join(", ")} access to ${data.resource}`);
 
   // Grant the permission (your app's UI would prompt the user first)
-  await service.grantPermission({
-    sessionId: data.sessionId,
-    agentId: myAgentId,
-    resource: data.resource,
-    access: data.access,
-  });
+  await Effect.runPromise(
+    service.grantPermission({
+      sessionId: data.sessionId,
+      agentId: myAgentId,
+      resource: data.resource,
+      access: data.access,
+    }),
+  );
 });
 
 // List existing grants
-const { grants } = await service.sendRpc("permissions/list", { appId: "my-app" });
+const { grants } = await Effect.runPromise(
+  service.sendRpc("permissions/list", { appId: "my-app" }),
+);
 
 // Revoke a grant
-await service.sendRpc("permissions/revoke", { appId: "my-app", resource: "contacts" });
+await Effect.runPromise(
+  service.sendRpc("permissions/revoke", { appId: "my-app", resource: "contacts" }),
+);
 ```
 
 ## Permission grants are persistent
