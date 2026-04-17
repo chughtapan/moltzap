@@ -28,9 +28,11 @@ function customSetup(): {
     service: fake.service,
     logger: { info: () => {}, warn: () => {}, error: errorSpy },
   });
-  core.onInbound((m) => {
-    received.push(m);
-  });
+  core.onInbound((m) =>
+    Effect.sync(() => {
+      received.push(m);
+    }),
+  );
   return { fake, core, received, errorSpy };
 }
 
@@ -52,9 +54,11 @@ describe("MoltZapChannelCore", () => {
     service = fake.service;
     core = new MoltZapChannelCore({ service });
     inbound = [];
-    core.onInbound((msg) => {
-      inbound.push(msg);
-    });
+    core.onInbound((msg) =>
+      Effect.sync(() => {
+        inbound.push(msg);
+      }),
+    );
   });
 
   describe("lifecycle", () => {
@@ -239,20 +243,22 @@ describe("MoltZapChannelCore", () => {
       expect(inbound[0]!.replyToId).toBe("msg-parent-123");
     });
 
-    it("logs and swallows errors from the inbound handler", async () => {
+    it("logs failures from the inbound handler's Effect error channel and keeps the consumer alive", async () => {
       const { fake, errorSpy, core } = customSetup();
       fake.state.setConversation("conv-1", { type: "dm", participants: [] });
       fake.state.setAgentName("agent-alice", "Alice");
 
-      let handlerShouldThrow = true;
+      let handlerShouldFail = true;
       const received: EnrichedInboundMessage[] = [];
-      // Replace the setup's default capture handler with one that can throw.
-      core.onInbound((m) => {
-        if (handlerShouldThrow) {
-          throw new Error("handler boom");
-        }
-        received.push(m);
-      });
+      // Replace the setup's default capture handler with one that can fail.
+      core.onInbound((m) =>
+        Effect.gen(function* () {
+          if (handlerShouldFail) {
+            yield* Effect.fail(new Error("handler boom"));
+          }
+          received.push(m);
+        }),
+      );
 
       fake.emit.message(buildMessage({ id: "msg-1" }));
       await flushDispatchChain();
@@ -261,11 +267,39 @@ describe("MoltZapChannelCore", () => {
       expect(errorSpy).toHaveBeenCalledOnce();
 
       // Recovery: subsequent message lands cleanly.
-      handlerShouldThrow = false;
+      handlerShouldFail = false;
       fake.emit.message(buildMessage({ id: "msg-2" }));
       await flushDispatchChain();
       expect(received).toHaveLength(1);
       expect(received[0]!.id).toBe("msg-2");
+    });
+
+    it("logs synchronous defects thrown from inside the handler's Effect", async () => {
+      const { fake, errorSpy, core } = customSetup();
+      fake.state.setConversation("conv-1", { type: "dm", participants: [] });
+      fake.state.setAgentName("agent-alice", "Alice");
+
+      core.onInbound((_m) =>
+        Effect.sync(() => {
+          throw new Error("sync defect");
+        }),
+      );
+
+      fake.emit.message(buildMessage({ id: "msg-1" }));
+      await flushDispatchChain();
+
+      expect(errorSpy).toHaveBeenCalledOnce();
+
+      // Consumer fiber survives a defect and continues to dispatch later messages.
+      const next: EnrichedInboundMessage[] = [];
+      core.onInbound((m) =>
+        Effect.sync(() => {
+          next.push(m);
+        }),
+      );
+      fake.emit.message(buildMessage({ id: "msg-2" }));
+      await flushDispatchChain();
+      expect(next.map((r) => r.id)).toEqual(["msg-2"]);
     });
   });
 
@@ -313,11 +347,15 @@ describe("MoltZapChannelCore", () => {
       const handlerBarriers: Array<() => void> = [];
       const order: string[] = [];
 
-      core.onInbound(async (m) => {
-        order.push(`enter:${m.id}`);
-        await new Promise<void>((resolve) => handlerBarriers.push(resolve));
-        order.push(`exit:${m.id}`);
-      });
+      core.onInbound((m) =>
+        Effect.gen(function* () {
+          order.push(`enter:${m.id}`);
+          yield* Effect.async<void>((resume) => {
+            handlerBarriers.push(() => resume(Effect.void));
+          });
+          order.push(`exit:${m.id}`);
+        }),
+      );
 
       fake.emit.message(buildMessage({ id: "msg-1" }));
       fake.emit.message(buildMessage({ id: "msg-2" }));
@@ -348,8 +386,8 @@ describe("MoltZapChannelCore", () => {
 
       const firstHandler = vi.fn();
       const secondHandler = vi.fn();
-      core.onInbound(firstHandler);
-      core.onInbound(secondHandler);
+      core.onInbound((m) => Effect.sync(() => firstHandler(m)));
+      core.onInbound((m) => Effect.sync(() => secondHandler(m)));
 
       fake.emit.message(buildMessage());
       await flushDispatchChain();
@@ -678,8 +716,8 @@ describe("MoltZapChannelCore", () => {
     });
   });
 
-  describe("handleInbound does not commit context on handler throw", () => {
-    it("leaves markers unadvanced so the next message re-sees the same context entries", async () => {
+  describe("handleInbound does not commit context on handler failure", () => {
+    it("leaves markers unadvanced when the handler's Effect fails so the next message re-sees the same context entries", async () => {
       const { fake, core } = customSetup();
       fake.state.setConversation("conv-1", { type: "dm", participants: [] });
       fake.state.setAgentName("agent-alice", "Alice");
@@ -693,16 +731,18 @@ describe("MoltZapChannelCore", () => {
         },
       ]);
 
-      let shouldThrow = true;
+      let shouldFail = true;
       const received: EnrichedInboundMessage[] = [];
-      core.onInbound((m) => {
-        received.push(m);
-        if (shouldThrow) {
-          throw new Error("inbound handler boom");
-        }
-      });
+      core.onInbound((m) =>
+        Effect.gen(function* () {
+          received.push(m);
+          if (shouldFail) {
+            yield* Effect.fail(new Error("inbound handler boom"));
+          }
+        }),
+      );
 
-      // First message: handler throws after capturing the enriched payload.
+      // First message: handler fails after capturing the enriched payload.
       // commitContext() must NOT run, so the fake's contextEntries remain.
       fake.emit.message(buildMessage({ id: "msg-1" }));
       await flushDispatchChain();
@@ -710,7 +750,7 @@ describe("MoltZapChannelCore", () => {
 
       // Second message: handler succeeds. Because the first message didn't
       // commit, the fake still returns the same entries.
-      shouldThrow = false;
+      shouldFail = false;
       fake.emit.message(buildMessage({ id: "msg-2" }));
       await flushDispatchChain();
       expect(received[1]!.contextBlocks.crossConversation).toHaveLength(1);
