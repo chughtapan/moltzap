@@ -40,6 +40,35 @@ export class ConnectionManager {
     );
   }
 
+  /**
+   * Subscribe all currently-connected sockets of the given agents to a
+   * conversation. Adds `conversationId` to each matching connection's
+   * `conversationIds` set so subsequent `Broadcaster.broadcastToConversation`
+   * calls reach those sockets. Idempotent: a connection already subscribed is
+   * a no-op (Set semantics). Returns the list of connection ids that were
+   * subscribed (for observability + tests).
+   *
+   * Exposed for downstream apps that create conversations via
+   * `ConversationService.create` directly (rather than the `conversations/
+   * create` RPC handler, which already does this work internally). Without
+   * this helper, every consumer re-implements the same loop and drifts when
+   * the subscription shape changes.
+   */
+  subscribeAgentsToConversation(
+    agentIds: readonly string[],
+    conversationId: string,
+  ): string[] {
+    const subscribed: string[] = [];
+    const agentSet = new Set(agentIds);
+    for (const conn of this.connections.values()) {
+      if (!conn.auth) continue;
+      if (!agentSet.has(conn.auth.agentId)) continue;
+      conn.conversationIds.add(conversationId);
+      subscribed.push(conn.id);
+    }
+    return subscribed;
+  }
+
   entries(): IterableIterator<[string, MoltZapConnection]> {
     return this.connections.entries();
   }

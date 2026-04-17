@@ -45,10 +45,11 @@ export function createConversationHandlers(deps: {
             creatorConn.conversationIds.add(conversation.id);
           }
 
+          deps.connections.subscribeAgentsToConversation(
+            params.participants.map((p) => p.id),
+            conversation.id,
+          );
           for (const participant of params.participants) {
-            for (const conn of deps.connections.getByAgent(participant.id)) {
-              conn.conversationIds.add(conversation.id);
-            }
             deps.broadcaster.sendToAgent(
               participant.id,
               eventFrame(EventNames.ConversationCreated, { conversation }),
