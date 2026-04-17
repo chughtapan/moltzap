@@ -1,26 +1,25 @@
-import { Type, type Static } from "@sinclair/typebox";
+import { Type } from "@sinclair/typebox";
 import { PresenceStatusEnum, PresenceEntrySchema } from "../presence.js";
 import { AgentId } from "../primitives.js";
+import { defineRpc } from "../../rpc.js";
 
-export const PresenceUpdateParamsSchema = Type.Object(
-  { status: PresenceStatusEnum },
-  { additionalProperties: false },
-);
+export const PresenceUpdate = defineRpc({
+  name: "presence/update",
+  params: Type.Object(
+    { status: PresenceStatusEnum },
+    { additionalProperties: false },
+  ),
+  result: Type.Object({}, { additionalProperties: false }),
+});
 
-export const PresenceSubscribeParamsSchema = Type.Object(
-  { agentIds: Type.Array(AgentId) },
-  { additionalProperties: false },
-);
-
-export const PresenceSubscribeResultSchema = Type.Object(
-  { statuses: Type.Array(PresenceEntrySchema) },
-  { additionalProperties: false },
-);
-
-export type PresenceUpdateParams = Static<typeof PresenceUpdateParamsSchema>;
-export type PresenceSubscribeParams = Static<
-  typeof PresenceSubscribeParamsSchema
->;
-export type PresenceSubscribeResult = Static<
-  typeof PresenceSubscribeResultSchema
->;
+export const PresenceSubscribe = defineRpc({
+  name: "presence/subscribe",
+  params: Type.Object(
+    { agentIds: Type.Array(AgentId) },
+    { additionalProperties: false },
+  ),
+  result: Type.Object(
+    { statuses: Type.Array(PresenceEntrySchema) },
+    { additionalProperties: false },
+  ),
+});

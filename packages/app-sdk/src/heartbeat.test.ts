@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { Effect } from "effect";
 import { HeartbeatManager } from "./heartbeat.js";
 
 describe("HeartbeatManager", () => {
@@ -15,7 +16,9 @@ describe("HeartbeatManager", () => {
   });
 
   it("starts and calls sendPing at interval", async () => {
-    const sendPing = vi.fn().mockResolvedValue(undefined);
+    const sendPing = vi
+      .fn<() => Effect.Effect<void, Error>>()
+      .mockImplementation(() => Effect.void);
     const onFailure = vi.fn();
 
     hb.start(sendPing, 1000, onFailure);
@@ -28,9 +31,11 @@ describe("HeartbeatManager", () => {
     expect(sendPing).toHaveBeenCalledTimes(2);
   });
 
-  it("calls onFailure when ping throws", async () => {
+  it("calls onFailure when ping fails", async () => {
     const error = new Error("ping failed");
-    const sendPing = vi.fn().mockRejectedValue(error);
+    const sendPing = vi
+      .fn<() => Effect.Effect<void, Error>>()
+      .mockImplementation(() => Effect.fail(error));
     const onFailure = vi.fn();
 
     hb.start(sendPing, 1000, onFailure);
@@ -39,21 +44,10 @@ describe("HeartbeatManager", () => {
     expect(onFailure).toHaveBeenCalledWith(error);
   });
 
-  it("wraps non-Error failures", async () => {
-    const sendPing = vi.fn().mockRejectedValue("string error");
-    const onFailure = vi.fn();
-
-    hb.start(sendPing, 1000, onFailure);
-
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(onFailure).toHaveBeenCalledTimes(1);
-    const arg = onFailure.mock.calls[0]![0];
-    expect(arg).toBeInstanceOf(Error);
-    expect(arg.message).toBe("string error");
-  });
-
   it("stop clears the timer", async () => {
-    const sendPing = vi.fn().mockResolvedValue(undefined);
+    const sendPing = vi
+      .fn<() => Effect.Effect<void, Error>>()
+      .mockImplementation(() => Effect.void);
     const onFailure = vi.fn();
 
     hb.start(sendPing, 1000, onFailure);
@@ -65,8 +59,12 @@ describe("HeartbeatManager", () => {
   });
 
   it("start replaces previous timer", async () => {
-    const sendPing1 = vi.fn().mockResolvedValue(undefined);
-    const sendPing2 = vi.fn().mockResolvedValue(undefined);
+    const sendPing1 = vi
+      .fn<() => Effect.Effect<void, Error>>()
+      .mockImplementation(() => Effect.void);
+    const sendPing2 = vi
+      .fn<() => Effect.Effect<void, Error>>()
+      .mockImplementation(() => Effect.void);
     const onFailure = vi.fn();
 
     hb.start(sendPing1, 1000, onFailure);
@@ -78,7 +76,9 @@ describe("HeartbeatManager", () => {
   });
 
   it("destroy stops the timer", () => {
-    const sendPing = vi.fn().mockResolvedValue(undefined);
+    const sendPing = vi
+      .fn<() => Effect.Effect<void, Error>>()
+      .mockImplementation(() => Effect.void);
     const onFailure = vi.fn();
 
     hb.start(sendPing, 1000, onFailure);

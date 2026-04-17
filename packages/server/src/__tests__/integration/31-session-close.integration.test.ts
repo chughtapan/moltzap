@@ -1,4 +1,6 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { it } from "@effect/vitest";
+import { Effect, Either } from "effect";
 import {
   startTestServer,
   stopTestServer,
@@ -25,15 +27,19 @@ beforeEach(async () => {
   await resetTestDb();
 });
 
-async function registerAppAgent(name: string): Promise<ConnectedAgent> {
-  const agent = await registerAndConnect(name);
-  const db = getKyselyDb();
-  await db
-    .updateTable("agents")
-    .set({ owner_user_id: crypto.randomUUID() })
-    .where("id", "=", agent.agentId)
-    .execute();
-  return agent;
+function registerAppAgent(name: string): Effect.Effect<ConnectedAgent, Error> {
+  return Effect.gen(function* () {
+    const agent = yield* registerAndConnect(name);
+    const db = getKyselyDb();
+    yield* Effect.tryPromise(() =>
+      db
+        .updateTable("agents")
+        .set({ owner_user_id: crypto.randomUUID() })
+        .where("id", "=", agent.agentId)
+        .execute(),
+    );
+    return agent;
+  });
 }
 
 function registerTestApp(
@@ -62,604 +68,685 @@ function registerTestApp(
 
 describe("Scenario 31: Session Close + Conversation Archival", () => {
   describe("hookTimeout observability", () => {
-    it("emits app/hookTimeout on before_message_delivery timeout", async () => {
-      const agent = await registerAppAgent("bmd-timeout");
+    it.live("emits app/hookTimeout on before_message_delivery timeout", () =>
+      Effect.gen(function* () {
+        const agent = yield* registerAppAgent("bmd-timeout");
 
-      registerTestApp(coreApp, "bmd-timeout-app", { hookTimeoutMs: 200 });
+        registerTestApp(coreApp, "bmd-timeout-app", { hookTimeoutMs: 200 });
 
-      coreApp.onBeforeMessageDelivery("bmd-timeout-app", async () => {
-        await new Promise((r) => setTimeout(r, 1000));
-        return { block: true, reason: "never" };
-      });
+        coreApp.onBeforeMessageDelivery("bmd-timeout-app", async () => {
+          await new Promise((r) => setTimeout(r, 1000));
+          return { block: true, reason: "never" };
+        });
 
-      const session = (await agent.client.rpc("apps/create", {
-        appId: "bmd-timeout-app",
-        invitedAgentIds: [],
-      })) as {
-        session: { id: string; conversations: Record<string, string> };
-      };
+        const session = (yield* agent.client.sendRpc("apps/create", {
+          appId: "bmd-timeout-app",
+          invitedAgentIds: [],
+        })) as {
+          session: { id: string; conversations: Record<string, string> };
+        };
 
-      const convId = session.session.conversations["main"]!;
+        const convId = session.session.conversations["main"]!;
 
-      const timeoutPromise = agent.client.waitForEvent("app/hookTimeout", 3000);
+        // Fail-closed: send rejects with HookBlocked; event still fires so
+        // operators can observe the timeout.
+        const sendResult = yield* Effect.either(
+          agent.client.sendRpc("messages/send", {
+            conversationId: convId,
+            parts: [{ type: "text", text: "trigger timeout" }],
+          }),
+        );
+        expect(Either.isLeft(sendResult)).toBe(true);
+        if (Either.isLeft(sendResult)) {
+          expect(sendResult.left.message).toMatch(/timed out/i);
+        }
 
-      await agent.client.rpc("messages/send", {
-        conversationId: convId,
-        parts: [{ type: "text", text: "trigger timeout" }],
-      });
+        const timeoutEvent = yield* agent.client.waitForEvent(
+          "app/hookTimeout",
+          3000,
+        );
+        const data = timeoutEvent.data as {
+          sessionId: string;
+          appId: string;
+          hookName: string;
+          timeoutMs: number;
+        };
+        expect(data.sessionId).toBe(session.session.id);
+        expect(data.appId).toBe("bmd-timeout-app");
+        expect(data.hookName).toBe("before_message_delivery");
+        expect(data.timeoutMs).toBe(200);
+      }),
+    );
 
-      const timeoutEvent = await timeoutPromise;
-      const data = timeoutEvent.data as {
-        sessionId: string;
-        appId: string;
-        hookName: string;
-        timeoutMs: number;
-      };
-      expect(data.sessionId).toBe(session.session.id);
-      expect(data.appId).toBe("bmd-timeout-app");
-      expect(data.hookName).toBe("before_message_delivery");
-      expect(data.timeoutMs).toBe(200);
-    });
+    it.live("emits app/hookTimeout on on_close timeout", () =>
+      Effect.gen(function* () {
+        const agent = yield* registerAppAgent("close-timeout");
 
-    it("emits app/hookTimeout on on_close timeout", async () => {
-      const agent = await registerAppAgent("close-timeout");
+        registerTestApp(coreApp, "close-timeout-app", {
+          onCloseTimeoutMs: 200,
+        });
 
-      registerTestApp(coreApp, "close-timeout-app", {
-        onCloseTimeoutMs: 200,
-      });
+        coreApp.onSessionClose("close-timeout-app", async () => {
+          await new Promise((r) => setTimeout(r, 1000));
+        });
 
-      coreApp.onSessionClose("close-timeout-app", async () => {
-        await new Promise((r) => setTimeout(r, 1000));
-      });
+        const session = (yield* agent.client.sendRpc("apps/create", {
+          appId: "close-timeout-app",
+          invitedAgentIds: [],
+        })) as {
+          session: { id: string; conversations: Record<string, string> };
+        };
 
-      const session = (await agent.client.rpc("apps/create", {
-        appId: "close-timeout-app",
-        invitedAgentIds: [],
-      })) as {
-        session: { id: string; conversations: Record<string, string> };
-      };
+        yield* agent.client.sendRpc("apps/closeSession", {
+          sessionId: session.session.id,
+        });
 
-      const timeoutPromise = agent.client.waitForEvent("app/hookTimeout", 3000);
-
-      await agent.client.rpc("apps/closeSession", {
-        sessionId: session.session.id,
-      });
-
-      const timeoutEvent = await timeoutPromise;
-      const data = timeoutEvent.data as {
-        sessionId: string;
-        appId: string;
-        hookName: string;
-        timeoutMs: number;
-      };
-      expect(data.sessionId).toBe(session.session.id);
-      expect(data.appId).toBe("close-timeout-app");
-      expect(data.hookName).toBe("on_close");
-      expect(data.timeoutMs).toBe(200);
-    });
+        const timeoutEvent = yield* agent.client.waitForEvent(
+          "app/hookTimeout",
+          3000,
+        );
+        const data = timeoutEvent.data as {
+          sessionId: string;
+          appId: string;
+          hookName: string;
+          timeoutMs: number;
+        };
+        expect(data.sessionId).toBe(session.session.id);
+        expect(data.appId).toBe("close-timeout-app");
+        expect(data.hookName).toBe("on_close");
+        expect(data.timeoutMs).toBe(200);
+      }),
+    );
   });
 
   describe("closeSession", () => {
-    it("closes session, archives conversations, sets closed_at", async () => {
-      const agent = await registerAppAgent("close-basic");
+    it.live("closes session, archives conversations, sets closed_at", () =>
+      Effect.gen(function* () {
+        const agent = yield* registerAppAgent("close-basic");
 
-      registerTestApp(coreApp, "close-basic-app");
+        registerTestApp(coreApp, "close-basic-app");
 
-      const session = (await agent.client.rpc("apps/create", {
-        appId: "close-basic-app",
-        invitedAgentIds: [],
-      })) as {
-        session: { id: string; conversations: Record<string, string> };
-      };
+        const session = (yield* agent.client.sendRpc("apps/create", {
+          appId: "close-basic-app",
+          invitedAgentIds: [],
+        })) as {
+          session: { id: string; conversations: Record<string, string> };
+        };
 
-      const result = (await agent.client.rpc("apps/closeSession", {
-        sessionId: session.session.id,
-      })) as { closed: boolean };
+        const result = (yield* agent.client.sendRpc("apps/closeSession", {
+          sessionId: session.session.id,
+        })) as { closed: boolean };
 
-      expect(result.closed).toBe(true);
+        expect(result.closed).toBe(true);
 
-      // Verify DB state
-      const db = getKyselyDb();
-      const sessionRow = await db
-        .selectFrom("app_sessions")
-        .selectAll()
-        .where("id", "=", session.session.id)
-        .executeTakeFirstOrThrow();
+        // Verify DB state
+        const db = getKyselyDb();
+        const sessionRow = yield* Effect.tryPromise(() =>
+          db
+            .selectFrom("app_sessions")
+            .selectAll()
+            .where("id", "=", session.session.id)
+            .executeTakeFirstOrThrow(),
+        );
 
-      expect(sessionRow.status).toBe("closed");
-      expect(sessionRow.closed_at).not.toBeNull();
+        expect(sessionRow.status).toBe("closed");
+        expect(sessionRow.closed_at).not.toBeNull();
 
-      const convId = session.session.conversations["main"]!;
-      const convRow = await db
-        .selectFrom("conversations")
-        .selectAll()
-        .where("id", "=", convId)
-        .executeTakeFirstOrThrow();
+        const convId = session.session.conversations["main"]!;
+        const convRow = yield* Effect.tryPromise(() =>
+          db
+            .selectFrom("conversations")
+            .selectAll()
+            .where("id", "=", convId)
+            .executeTakeFirstOrThrow(),
+        );
 
-      expect(convRow.archived_at).not.toBeNull();
-    });
+        expect(convRow.archived_at).not.toBeNull();
+      }),
+    );
 
-    it("fires on_close hook with correct context", async () => {
-      const agent = await registerAppAgent("close-hook");
+    it.live("fires on_close hook with correct context", () =>
+      Effect.gen(function* () {
+        const agent = yield* registerAppAgent("close-hook");
 
-      registerTestApp(coreApp, "close-hook-app");
+        registerTestApp(coreApp, "close-hook-app");
 
-      let hookCtx: {
-        sessionId: string;
-        appId: string;
-        conversations: Record<string, string>;
-        closedBy: { agentId: string };
-      } | null = null;
+        let hookCtx: {
+          sessionId: string;
+          appId: string;
+          conversations: Record<string, string>;
+          closedBy: { agentId: string };
+        } | null = null;
 
-      coreApp.onSessionClose("close-hook-app", (ctx) => {
-        hookCtx = ctx;
-      });
+        coreApp.onSessionClose("close-hook-app", (ctx) => {
+          hookCtx = ctx;
+        });
 
-      const session = (await agent.client.rpc("apps/create", {
-        appId: "close-hook-app",
-        invitedAgentIds: [],
-      })) as {
-        session: { id: string; conversations: Record<string, string> };
-      };
+        const session = (yield* agent.client.sendRpc("apps/create", {
+          appId: "close-hook-app",
+          invitedAgentIds: [],
+        })) as {
+          session: { id: string; conversations: Record<string, string> };
+        };
 
-      await agent.client.rpc("apps/closeSession", {
-        sessionId: session.session.id,
-      });
-
-      expect(hookCtx).not.toBeNull();
-      expect(hookCtx!.sessionId).toBe(session.session.id);
-      expect(hookCtx!.appId).toBe("close-hook-app");
-      expect(hookCtx!.closedBy.agentId).toBe(agent.agentId);
-      expect(hookCtx!.conversations).toHaveProperty("main");
-    });
-
-    it("rejects double close with SessionClosed error", async () => {
-      const agent = await registerAppAgent("double-close");
-
-      registerTestApp(coreApp, "double-close-app");
-
-      const session = (await agent.client.rpc("apps/create", {
-        appId: "double-close-app",
-        invitedAgentIds: [],
-      })) as {
-        session: { id: string; conversations: Record<string, string> };
-      };
-
-      await agent.client.rpc("apps/closeSession", {
-        sessionId: session.session.id,
-      });
-
-      try {
-        await agent.client.rpc("apps/closeSession", {
+        yield* agent.client.sendRpc("apps/closeSession", {
           sessionId: session.session.id,
         });
-        expect.unreachable("Should have thrown");
-      } catch (err: unknown) {
-        const rpcErr = err as { code: number; message: string };
-        expect(rpcErr.code).toBe(ErrorCodes.SessionClosed);
-      }
-    });
 
-    it("rejects close by non-initiator with Forbidden error", async () => {
-      const initiator = await registerAppAgent("close-init");
-      const stranger = await registerAppAgent("close-stranger");
+        expect(hookCtx).not.toBeNull();
+        expect(hookCtx!.sessionId).toBe(session.session.id);
+        expect(hookCtx!.appId).toBe("close-hook-app");
+        expect(hookCtx!.closedBy.agentId).toBe(agent.agentId);
+        expect(hookCtx!.conversations).toHaveProperty("main");
+      }),
+    );
 
-      registerTestApp(coreApp, "close-forbidden-app");
+    it.live("rejects double close with SessionClosed error", () =>
+      Effect.gen(function* () {
+        const agent = yield* registerAppAgent("double-close");
 
-      const session = (await initiator.client.rpc("apps/create", {
-        appId: "close-forbidden-app",
-        invitedAgentIds: [],
-      })) as {
-        session: { id: string; conversations: Record<string, string> };
-      };
+        registerTestApp(coreApp, "double-close-app");
 
-      try {
-        await stranger.client.rpc("apps/closeSession", {
+        const session = (yield* agent.client.sendRpc("apps/create", {
+          appId: "double-close-app",
+          invitedAgentIds: [],
+        })) as {
+          session: { id: string; conversations: Record<string, string> };
+        };
+
+        yield* agent.client.sendRpc("apps/closeSession", {
           sessionId: session.session.id,
         });
-        expect.unreachable("Should have thrown");
-      } catch (err: unknown) {
-        const rpcErr = err as { code: number; message: string };
-        expect(rpcErr.code).toBe(ErrorCodes.Forbidden);
-      }
-    });
 
-    it("rejects close of nonexistent session with SessionNotFound", async () => {
-      const agent = await registerAppAgent("close-notfound");
-
-      try {
-        await agent.client.rpc("apps/closeSession", {
-          sessionId: crypto.randomUUID(),
-        });
-        expect.unreachable("Should have thrown");
-      } catch (err: unknown) {
-        const rpcErr = err as { code: number; message: string };
-        expect(rpcErr.code).toBe(ErrorCodes.SessionNotFound);
-      }
-    });
-
-    it("broadcasts app/sessionClosed to initiator and admitted participants", async () => {
-      const initiator = await registerAppAgent("close-broadcast-init");
-      const invitee = await registerAppAgent("close-broadcast-inv");
-
-      registerTestApp(coreApp, "close-broadcast-app");
-
-      coreApp.onAppJoin("close-broadcast-app", () => {});
-
-      const admittedPromise = invitee.client.waitForEvent(
-        "app/participantAdmitted",
-        5000,
-      );
-
-      const session = (await initiator.client.rpc("apps/create", {
-        appId: "close-broadcast-app",
-        invitedAgentIds: [invitee.agentId],
-      })) as {
-        session: { id: string; conversations: Record<string, string> };
-      };
-
-      await admittedPromise;
-
-      const initClosedPromise = initiator.client.waitForEvent(
-        "app/sessionClosed",
-        3000,
-      );
-      const invClosedPromise = invitee.client.waitForEvent(
-        "app/sessionClosed",
-        3000,
-      );
-
-      await initiator.client.rpc("apps/closeSession", {
-        sessionId: session.session.id,
-      });
-
-      const initEvent = await initClosedPromise;
-      const invEvent = await invClosedPromise;
-
-      const initData = initEvent.data as {
-        sessionId: string;
-        closedBy: string;
-      };
-      expect(initData.sessionId).toBe(session.session.id);
-      expect(initData.closedBy).toBe(initiator.agentId);
-
-      const invData = invEvent.data as {
-        sessionId: string;
-        closedBy: string;
-      };
-      expect(invData.sessionId).toBe(session.session.id);
-    });
-
-    it("rejects messages to archived conversations", async () => {
-      const agent = await registerAppAgent("archived-msg");
-
-      registerTestApp(coreApp, "archived-msg-app");
-
-      const session = (await agent.client.rpc("apps/create", {
-        appId: "archived-msg-app",
-        invitedAgentIds: [],
-      })) as {
-        session: { id: string; conversations: Record<string, string> };
-      };
-
-      const convId = session.session.conversations["main"]!;
-
-      await agent.client.rpc("apps/closeSession", {
-        sessionId: session.session.id,
-      });
-
-      try {
-        await agent.client.rpc("messages/send", {
-          conversationId: convId,
-          parts: [{ type: "text", text: "should fail" }],
-        });
-        expect.unreachable("Should have thrown");
-      } catch (err: unknown) {
-        const rpcErr = err as { code: number; message: string };
-        expect(rpcErr.code).toBe(ErrorCodes.ConversationArchived);
-      }
-    });
-
-    it("excludes archived conversations from conversations/list", async () => {
-      const agent = await registerAppAgent("archived-list");
-
-      registerTestApp(coreApp, "archived-list-app");
-
-      const session = (await agent.client.rpc("apps/create", {
-        appId: "archived-list-app",
-        invitedAgentIds: [],
-      })) as {
-        session: { id: string; conversations: Record<string, string> };
-      };
-
-      // Verify conversation appears before close
-      const beforeList = (await agent.client.rpc("conversations/list", {})) as {
-        conversations: Array<{ id: string }>;
-      };
-      const convId = session.session.conversations["main"]!;
-      expect(beforeList.conversations.some((c) => c.id === convId)).toBe(true);
-
-      await agent.client.rpc("apps/closeSession", {
-        sessionId: session.session.id,
-      });
-
-      const afterList = (await agent.client.rpc("conversations/list", {})) as {
-        conversations: Array<{ id: string }>;
-      };
-      expect(afterList.conversations.some((c) => c.id === convId)).toBe(false);
-    });
-
-    it("on_close hook can send final messages before archive", async () => {
-      const agent = await registerAppAgent("close-final-msg");
-
-      registerTestApp(coreApp, "close-final-msg-app");
-
-      let finalMessageSent = false;
-      coreApp.onSessionClose("close-final-msg-app", async (ctx) => {
-        const mainConvId = ctx.conversations["main"];
-        if (mainConvId) {
-          await agent.client.rpc("messages/send", {
-            conversationId: mainConvId,
-            parts: [{ type: "text", text: "Final message before close" }],
-          });
-          finalMessageSent = true;
+        const result = yield* Effect.either(
+          agent.client.sendRpc("apps/closeSession", {
+            sessionId: session.session.id,
+          }),
+        );
+        expect(Either.isLeft(result)).toBe(true);
+        if (Either.isLeft(result)) {
+          const rpcErr = result.left as unknown as {
+            code: number;
+            message: string;
+          };
+          expect(rpcErr.code).toBe(ErrorCodes.SessionClosed);
         }
-      });
+      }),
+    );
 
-      const session = (await agent.client.rpc("apps/create", {
-        appId: "close-final-msg-app",
-        invitedAgentIds: [],
-      })) as {
-        session: { id: string; conversations: Record<string, string> };
-      };
+    it.live("rejects close by non-initiator with Forbidden error", () =>
+      Effect.gen(function* () {
+        const initiator = yield* registerAppAgent("close-init");
+        const stranger = yield* registerAppAgent("close-stranger");
 
-      await agent.client.rpc("apps/closeSession", {
-        sessionId: session.session.id,
-      });
+        registerTestApp(coreApp, "close-forbidden-app");
 
-      expect(finalMessageSent).toBe(true);
+        const session = (yield* initiator.client.sendRpc("apps/create", {
+          appId: "close-forbidden-app",
+          invitedAgentIds: [],
+        })) as {
+          session: { id: string; conversations: Record<string, string> };
+        };
 
-      // Verify the final message was persisted
-      const convId = session.session.conversations["main"]!;
-      const db = getKyselyDb();
-      const messages = await db
-        .selectFrom("messages")
-        .selectAll()
-        .where("conversation_id", "=", convId)
-        .execute();
-      expect(messages.length).toBe(1);
-    });
+        const result = yield* Effect.either(
+          stranger.client.sendRpc("apps/closeSession", {
+            sessionId: session.session.id,
+          }),
+        );
+        expect(Either.isLeft(result)).toBe(true);
+        if (Either.isLeft(result)) {
+          const rpcErr = result.left as unknown as {
+            code: number;
+            message: string;
+          };
+          expect(rpcErr.code).toBe(ErrorCodes.Forbidden);
+        }
+      }),
+    );
+
+    it.live("rejects close of nonexistent session with SessionNotFound", () =>
+      Effect.gen(function* () {
+        const agent = yield* registerAppAgent("close-notfound");
+
+        const result = yield* Effect.either(
+          agent.client.sendRpc("apps/closeSession", {
+            sessionId: crypto.randomUUID(),
+          }),
+        );
+        expect(Either.isLeft(result)).toBe(true);
+        if (Either.isLeft(result)) {
+          const rpcErr = result.left as unknown as {
+            code: number;
+            message: string;
+          };
+          expect(rpcErr.code).toBe(ErrorCodes.SessionNotFound);
+        }
+      }),
+    );
+
+    it.live(
+      "broadcasts app/sessionClosed to initiator and admitted participants",
+      () =>
+        Effect.gen(function* () {
+          const initiator = yield* registerAppAgent("close-broadcast-init");
+          const invitee = yield* registerAppAgent("close-broadcast-inv");
+
+          registerTestApp(coreApp, "close-broadcast-app");
+
+          coreApp.onAppJoin("close-broadcast-app", () => {});
+
+          const session = (yield* initiator.client.sendRpc("apps/create", {
+            appId: "close-broadcast-app",
+            invitedAgentIds: [invitee.agentId],
+          })) as {
+            session: { id: string; conversations: Record<string, string> };
+          };
+
+          yield* invitee.client.waitForEvent("app/participantAdmitted", 5000);
+
+          yield* initiator.client.sendRpc("apps/closeSession", {
+            sessionId: session.session.id,
+          });
+
+          const initEvent = yield* initiator.client.waitForEvent(
+            "app/sessionClosed",
+            3000,
+          );
+          const invEvent = yield* invitee.client.waitForEvent(
+            "app/sessionClosed",
+            3000,
+          );
+
+          const initData = initEvent.data as {
+            sessionId: string;
+            closedBy: string;
+          };
+          expect(initData.sessionId).toBe(session.session.id);
+          expect(initData.closedBy).toBe(initiator.agentId);
+
+          const invData = invEvent.data as {
+            sessionId: string;
+            closedBy: string;
+          };
+          expect(invData.sessionId).toBe(session.session.id);
+        }),
+    );
+
+    it.live("rejects messages to archived conversations", () =>
+      Effect.gen(function* () {
+        const agent = yield* registerAppAgent("archived-msg");
+
+        registerTestApp(coreApp, "archived-msg-app");
+
+        const session = (yield* agent.client.sendRpc("apps/create", {
+          appId: "archived-msg-app",
+          invitedAgentIds: [],
+        })) as {
+          session: { id: string; conversations: Record<string, string> };
+        };
+
+        const convId = session.session.conversations["main"]!;
+
+        yield* agent.client.sendRpc("apps/closeSession", {
+          sessionId: session.session.id,
+        });
+
+        const result = yield* Effect.either(
+          agent.client.sendRpc("messages/send", {
+            conversationId: convId,
+            parts: [{ type: "text", text: "should fail" }],
+          }),
+        );
+        expect(Either.isLeft(result)).toBe(true);
+        if (Either.isLeft(result)) {
+          const rpcErr = result.left as unknown as {
+            code: number;
+            message: string;
+          };
+          expect(rpcErr.code).toBe(ErrorCodes.ConversationArchived);
+        }
+      }),
+    );
+
+    it.live("excludes archived conversations from conversations/list", () =>
+      Effect.gen(function* () {
+        const agent = yield* registerAppAgent("archived-list");
+
+        registerTestApp(coreApp, "archived-list-app");
+
+        const session = (yield* agent.client.sendRpc("apps/create", {
+          appId: "archived-list-app",
+          invitedAgentIds: [],
+        })) as {
+          session: { id: string; conversations: Record<string, string> };
+        };
+
+        // Verify conversation appears before close
+        const beforeList = (yield* agent.client.sendRpc(
+          "conversations/list",
+          {},
+        )) as {
+          conversations: Array<{ id: string }>;
+        };
+        const convId = session.session.conversations["main"]!;
+        expect(beforeList.conversations.some((c) => c.id === convId)).toBe(
+          true,
+        );
+
+        yield* agent.client.sendRpc("apps/closeSession", {
+          sessionId: session.session.id,
+        });
+
+        const afterList = (yield* agent.client.sendRpc(
+          "conversations/list",
+          {},
+        )) as {
+          conversations: Array<{ id: string }>;
+        };
+        expect(afterList.conversations.some((c) => c.id === convId)).toBe(
+          false,
+        );
+      }),
+    );
+
+    it.live("on_close hook can send final messages before archive", () =>
+      Effect.gen(function* () {
+        const agent = yield* registerAppAgent("close-final-msg");
+
+        registerTestApp(coreApp, "close-final-msg-app");
+
+        let finalMessageSent = false;
+        coreApp.onSessionClose("close-final-msg-app", async (ctx) => {
+          const mainConvId = ctx.conversations["main"];
+          if (mainConvId) {
+            await Effect.runPromise(
+              agent.client.sendRpc("messages/send", {
+                conversationId: mainConvId,
+                parts: [{ type: "text", text: "Final message before close" }],
+              }),
+            );
+            finalMessageSent = true;
+          }
+        });
+
+        const session = (yield* agent.client.sendRpc("apps/create", {
+          appId: "close-final-msg-app",
+          invitedAgentIds: [],
+        })) as {
+          session: { id: string; conversations: Record<string, string> };
+        };
+
+        yield* agent.client.sendRpc("apps/closeSession", {
+          sessionId: session.session.id,
+        });
+
+        expect(finalMessageSent).toBe(true);
+
+        // Verify the final message was persisted
+        const convId = session.session.conversations["main"]!;
+        const db = getKyselyDb();
+        const messages = yield* Effect.tryPromise(() =>
+          db
+            .selectFrom("messages")
+            .selectAll()
+            .where("conversation_id", "=", convId)
+            .execute(),
+        );
+        expect(messages.length).toBe(1);
+      }),
+    );
   });
 
   describe("getSession", () => {
-    it("returns session with conversations for initiator", async () => {
-      const agent = await registerAppAgent("get-init");
+    it.live("returns session with conversations for initiator", () =>
+      Effect.gen(function* () {
+        const agent = yield* registerAppAgent("get-init");
 
-      registerTestApp(coreApp, "get-init-app");
+        registerTestApp(coreApp, "get-init-app");
 
-      const created = (await agent.client.rpc("apps/create", {
-        appId: "get-init-app",
-        invitedAgentIds: [],
-      })) as {
-        session: { id: string; conversations: Record<string, string> };
-      };
-
-      const result = (await agent.client.rpc("apps/getSession", {
-        sessionId: created.session.id,
-      })) as {
-        session: {
-          id: string;
-          appId: string;
-          status: string;
-          conversations: Record<string, string>;
+        const created = (yield* agent.client.sendRpc("apps/create", {
+          appId: "get-init-app",
+          invitedAgentIds: [],
+        })) as {
+          session: { id: string; conversations: Record<string, string> };
         };
-      };
 
-      expect(result.session.id).toBe(created.session.id);
-      expect(result.session.appId).toBe("get-init-app");
-      expect(result.session.status).toBe("active");
-      expect(result.session.conversations).toHaveProperty("main");
-    });
+        const result = (yield* agent.client.sendRpc("apps/getSession", {
+          sessionId: created.session.id,
+        })) as {
+          session: {
+            id: string;
+            appId: string;
+            status: string;
+            conversations: Record<string, string>;
+          };
+        };
 
-    it("returns session for admitted participant", async () => {
-      const initiator = await registerAppAgent("get-part-init");
-      const invitee = await registerAppAgent("get-part-inv");
+        expect(result.session.id).toBe(created.session.id);
+        expect(result.session.appId).toBe("get-init-app");
+        expect(result.session.status).toBe("active");
+        expect(result.session.conversations).toHaveProperty("main");
+      }),
+    );
 
-      registerTestApp(coreApp, "get-part-app");
-      coreApp.onAppJoin("get-part-app", () => {});
+    it.live("returns session for admitted participant", () =>
+      Effect.gen(function* () {
+        const initiator = yield* registerAppAgent("get-part-init");
+        const invitee = yield* registerAppAgent("get-part-inv");
 
-      const admittedPromise = invitee.client.waitForEvent(
-        "app/participantAdmitted",
-        5000,
-      );
+        registerTestApp(coreApp, "get-part-app");
+        coreApp.onAppJoin("get-part-app", () => {});
 
-      const session = (await initiator.client.rpc("apps/create", {
-        appId: "get-part-app",
-        invitedAgentIds: [invitee.agentId],
-      })) as {
-        session: { id: string };
-      };
+        const session = (yield* initiator.client.sendRpc("apps/create", {
+          appId: "get-part-app",
+          invitedAgentIds: [invitee.agentId],
+        })) as {
+          session: { id: string };
+        };
 
-      await admittedPromise;
+        yield* invitee.client.waitForEvent("app/participantAdmitted", 5000);
 
-      const result = (await invitee.client.rpc("apps/getSession", {
-        sessionId: session.session.id,
-      })) as {
-        session: { id: string; appId: string };
-      };
-
-      expect(result.session.id).toBe(session.session.id);
-      expect(result.session.appId).toBe("get-part-app");
-    });
-
-    it("rejects getSession for nonexistent session with SessionNotFound", async () => {
-      const agent = await registerAppAgent("get-notfound");
-
-      try {
-        await agent.client.rpc("apps/getSession", {
-          sessionId: crypto.randomUUID(),
-        });
-        expect.unreachable("Should have thrown");
-      } catch (err: unknown) {
-        const rpcErr = err as { code: number };
-        expect(rpcErr.code).toBe(ErrorCodes.SessionNotFound);
-      }
-    });
-
-    it("rejects getSession by stranger with Forbidden", async () => {
-      const initiator = await registerAppAgent("get-stranger-init");
-      const stranger = await registerAppAgent("get-stranger");
-
-      registerTestApp(coreApp, "get-stranger-app");
-
-      const session = (await initiator.client.rpc("apps/create", {
-        appId: "get-stranger-app",
-        invitedAgentIds: [],
-      })) as {
-        session: { id: string };
-      };
-
-      try {
-        await stranger.client.rpc("apps/getSession", {
+        const result = (yield* invitee.client.sendRpc("apps/getSession", {
           sessionId: session.session.id,
-        });
-        expect.unreachable("Should have thrown");
-      } catch (err: unknown) {
-        const rpcErr = err as { code: number };
-        expect(rpcErr.code).toBe(ErrorCodes.Forbidden);
-      }
-    });
+        })) as {
+          session: { id: string; appId: string };
+        };
+
+        expect(result.session.id).toBe(session.session.id);
+        expect(result.session.appId).toBe("get-part-app");
+      }),
+    );
+
+    it.live(
+      "rejects getSession for nonexistent session with SessionNotFound",
+      () =>
+        Effect.gen(function* () {
+          const agent = yield* registerAppAgent("get-notfound");
+
+          const result = yield* Effect.either(
+            agent.client.sendRpc("apps/getSession", {
+              sessionId: crypto.randomUUID(),
+            }),
+          );
+          expect(Either.isLeft(result)).toBe(true);
+          if (Either.isLeft(result)) {
+            const rpcErr = result.left as unknown as { code: number };
+            expect(rpcErr.code).toBe(ErrorCodes.SessionNotFound);
+          }
+        }),
+    );
+
+    it.live("rejects getSession by stranger with Forbidden", () =>
+      Effect.gen(function* () {
+        const initiator = yield* registerAppAgent("get-stranger-init");
+        const stranger = yield* registerAppAgent("get-stranger");
+
+        registerTestApp(coreApp, "get-stranger-app");
+
+        const session = (yield* initiator.client.sendRpc("apps/create", {
+          appId: "get-stranger-app",
+          invitedAgentIds: [],
+        })) as {
+          session: { id: string };
+        };
+
+        const result = yield* Effect.either(
+          stranger.client.sendRpc("apps/getSession", {
+            sessionId: session.session.id,
+          }),
+        );
+        expect(Either.isLeft(result)).toBe(true);
+        if (Either.isLeft(result)) {
+          const rpcErr = result.left as unknown as { code: number };
+          expect(rpcErr.code).toBe(ErrorCodes.Forbidden);
+        }
+      }),
+    );
   });
 
   describe("listSessions", () => {
-    it("returns only caller's sessions", async () => {
-      const alice = await registerAppAgent("list-alice");
-      const bob = await registerAppAgent("list-bob");
+    it.live("returns only caller's sessions", () =>
+      Effect.gen(function* () {
+        const alice = yield* registerAppAgent("list-alice");
+        const bob = yield* registerAppAgent("list-bob");
 
-      registerTestApp(coreApp, "list-app");
+        registerTestApp(coreApp, "list-app");
 
-      await alice.client.rpc("apps/create", {
-        appId: "list-app",
-        invitedAgentIds: [],
-      });
-
-      await bob.client.rpc("apps/create", {
-        appId: "list-app",
-        invitedAgentIds: [],
-      });
-
-      const aliceResult = (await alice.client.rpc("apps/listSessions", {})) as {
-        sessions: Array<{ id: string; initiatorAgentId: string }>;
-      };
-
-      expect(aliceResult.sessions.length).toBe(1);
-      expect(aliceResult.sessions[0]!.initiatorAgentId).toBe(alice.agentId);
-
-      const bobResult = (await bob.client.rpc("apps/listSessions", {})) as {
-        sessions: Array<{ id: string; initiatorAgentId: string }>;
-      };
-
-      expect(bobResult.sessions.length).toBe(1);
-      expect(bobResult.sessions[0]!.initiatorAgentId).toBe(bob.agentId);
-    });
-
-    it("filters by appId and status", async () => {
-      const agent = await registerAppAgent("list-filter");
-
-      registerTestApp(coreApp, "list-filter-a");
-      registerTestApp(coreApp, "list-filter-b");
-
-      const sessionA = (await agent.client.rpc("apps/create", {
-        appId: "list-filter-a",
-        invitedAgentIds: [],
-      })) as { session: { id: string } };
-
-      await agent.client.rpc("apps/create", {
-        appId: "list-filter-b",
-        invitedAgentIds: [],
-      });
-
-      // Close session A
-      await agent.client.rpc("apps/closeSession", {
-        sessionId: sessionA.session.id,
-      });
-
-      // Filter by appId
-      const byApp = (await agent.client.rpc("apps/listSessions", {
-        appId: "list-filter-a",
-      })) as { sessions: Array<{ appId: string }> };
-      expect(byApp.sessions.length).toBe(1);
-      expect(byApp.sessions[0]!.appId).toBe("list-filter-a");
-
-      // Filter by status
-      const active = (await agent.client.rpc("apps/listSessions", {
-        status: "active",
-      })) as { sessions: Array<{ status: string }> };
-      expect(active.sessions.length).toBe(1);
-      expect(active.sessions[0]!.status).toBe("active");
-
-      const closed = (await agent.client.rpc("apps/listSessions", {
-        status: "closed",
-      })) as { sessions: Array<{ status: string }> };
-      expect(closed.sessions.length).toBe(1);
-      expect(closed.sessions[0]!.status).toBe("closed");
-    });
-
-    it("applies limit default of 50", async () => {
-      const agent = await registerAppAgent("list-limit");
-
-      registerTestApp(coreApp, "list-limit-app");
-
-      // Create 3 sessions, request limit of 2
-      for (let i = 0; i < 3; i++) {
-        await agent.client.rpc("apps/create", {
-          appId: "list-limit-app",
+        yield* alice.client.sendRpc("apps/create", {
+          appId: "list-app",
           invitedAgentIds: [],
         });
-      }
 
-      const limited = (await agent.client.rpc("apps/listSessions", {
-        limit: 2,
-      })) as { sessions: Array<{ id: string }> };
-      expect(limited.sessions.length).toBe(2);
+        yield* bob.client.sendRpc("apps/create", {
+          appId: "list-app",
+          invitedAgentIds: [],
+        });
 
-      // Default (no limit param) returns all 3
-      const all = (await agent.client.rpc("apps/listSessions", {})) as {
-        sessions: Array<{ id: string }>;
-      };
-      expect(all.sessions.length).toBe(3);
-    });
+        const aliceResult = (yield* alice.client.sendRpc(
+          "apps/listSessions",
+          {},
+        )) as {
+          sessions: Array<{ id: string; initiatorAgentId: string }>;
+        };
+
+        expect(aliceResult.sessions.length).toBe(1);
+        expect(aliceResult.sessions[0]!.initiatorAgentId).toBe(alice.agentId);
+
+        const bobResult = (yield* bob.client.sendRpc(
+          "apps/listSessions",
+          {},
+        )) as {
+          sessions: Array<{ id: string; initiatorAgentId: string }>;
+        };
+
+        expect(bobResult.sessions.length).toBe(1);
+        expect(bobResult.sessions[0]!.initiatorAgentId).toBe(bob.agentId);
+      }),
+    );
+
+    it.live("filters by appId and status", () =>
+      Effect.gen(function* () {
+        const agent = yield* registerAppAgent("list-filter");
+
+        registerTestApp(coreApp, "list-filter-a");
+        registerTestApp(coreApp, "list-filter-b");
+
+        const sessionA = (yield* agent.client.sendRpc("apps/create", {
+          appId: "list-filter-a",
+          invitedAgentIds: [],
+        })) as { session: { id: string } };
+
+        yield* agent.client.sendRpc("apps/create", {
+          appId: "list-filter-b",
+          invitedAgentIds: [],
+        });
+
+        // Close session A
+        yield* agent.client.sendRpc("apps/closeSession", {
+          sessionId: sessionA.session.id,
+        });
+
+        // Filter by appId
+        const byApp = (yield* agent.client.sendRpc("apps/listSessions", {
+          appId: "list-filter-a",
+        })) as { sessions: Array<{ appId: string }> };
+        expect(byApp.sessions.length).toBe(1);
+        expect(byApp.sessions[0]!.appId).toBe("list-filter-a");
+
+        // Filter by status
+        const active = (yield* agent.client.sendRpc("apps/listSessions", {
+          status: "active",
+        })) as { sessions: Array<{ status: string }> };
+        expect(active.sessions.length).toBe(1);
+        expect(active.sessions[0]!.status).toBe("active");
+
+        const closed = (yield* agent.client.sendRpc("apps/listSessions", {
+          status: "closed",
+        })) as { sessions: Array<{ status: string }> };
+        expect(closed.sessions.length).toBe(1);
+        expect(closed.sessions[0]!.status).toBe("closed");
+      }),
+    );
+
+    it.live("applies limit default of 50", () =>
+      Effect.gen(function* () {
+        const agent = yield* registerAppAgent("list-limit");
+
+        registerTestApp(coreApp, "list-limit-app");
+
+        // Create 3 sessions, request limit of 2
+        for (let i = 0; i < 3; i++) {
+          yield* agent.client.sendRpc("apps/create", {
+            appId: "list-limit-app",
+            invitedAgentIds: [],
+          });
+        }
+
+        const limited = (yield* agent.client.sendRpc("apps/listSessions", {
+          limit: 2,
+        })) as { sessions: Array<{ id: string }> };
+        expect(limited.sessions.length).toBe(2);
+
+        // Default (no limit param) returns all 3
+        const all = (yield* agent.client.sendRpc("apps/listSessions", {})) as {
+          sessions: Array<{ id: string }>;
+        };
+        expect(all.sessions.length).toBe(3);
+      }),
+    );
   });
 
   describe("getSession after close", () => {
-    it("returns closed session with closedAt", async () => {
-      const agent = await registerAppAgent("get-closed");
+    it.live("returns closed session with closedAt", () =>
+      Effect.gen(function* () {
+        const agent = yield* registerAppAgent("get-closed");
 
-      registerTestApp(coreApp, "get-closed-app");
+        registerTestApp(coreApp, "get-closed-app");
 
-      const session = (await agent.client.rpc("apps/create", {
-        appId: "get-closed-app",
-        invitedAgentIds: [],
-      })) as {
-        session: { id: string };
-      };
-
-      await agent.client.rpc("apps/closeSession", {
-        sessionId: session.session.id,
-      });
-
-      const result = (await agent.client.rpc("apps/getSession", {
-        sessionId: session.session.id,
-      })) as {
-        session: {
-          id: string;
-          status: string;
-          closedAt?: string;
+        const session = (yield* agent.client.sendRpc("apps/create", {
+          appId: "get-closed-app",
+          invitedAgentIds: [],
+        })) as {
+          session: { id: string };
         };
-      };
 
-      expect(result.session.status).toBe("closed");
-      expect(result.session.closedAt).toBeDefined();
-    });
+        yield* agent.client.sendRpc("apps/closeSession", {
+          sessionId: session.session.id,
+        });
+
+        const result = (yield* agent.client.sendRpc("apps/getSession", {
+          sessionId: session.session.id,
+        })) as {
+          session: {
+            id: string;
+            status: string;
+            closedAt?: string;
+          };
+        };
+
+        expect(result.session.status).toBe("closed");
+        expect(result.session.closedAt).toBeDefined();
+      }),
+    );
   });
 });

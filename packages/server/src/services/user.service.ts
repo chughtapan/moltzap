@@ -1,13 +1,14 @@
+import { Effect } from "effect";
 import type { WebhookClient } from "../adapters/webhook.js";
 import type { Logger } from "../logger.js";
 
 export interface UserService {
-  validateUser(userId: string): Promise<{ valid: boolean }>;
+  validateUser(userId: string): Effect.Effect<{ valid: boolean }, never>;
 }
 
 export class InProcessUserService implements UserService {
-  async validateUser(_userId: string): Promise<{ valid: boolean }> {
-    return { valid: true };
+  validateUser(_userId: string): Effect.Effect<{ valid: boolean }, never> {
+    return Effect.succeed({ valid: true });
   }
 }
 
@@ -19,22 +20,28 @@ export class WebhookUserService implements UserService {
     private logger: Logger,
   ) {}
 
-  async validateUser(userId: string): Promise<{ valid: boolean }> {
-    try {
-      const result = await this.client.callSync<{ valid: boolean }>({
-        url: this.url,
-        event: "users.validate",
-        body: { userId },
-        timeoutMs: this.timeoutMs,
-      });
+  validateUser(userId: string): Effect.Effect<{ valid: boolean }, never> {
+    return Effect.tryPromise({
+      try: () =>
+        this.client.callSync<{ valid: boolean }>({
+          url: this.url,
+          event: "users.validate",
+          body: { userId },
+          timeoutMs: this.timeoutMs,
+        }),
+      catch: (err) => err,
+    }).pipe(
       // Strict boolean check — don't trust truthy strings from external services
-      return { valid: result.valid === true };
-    } catch (err) {
-      this.logger.error(
-        { err, userId, url: this.url },
-        "User validation webhook failed, rejecting user",
-      );
-      return { valid: false };
-    }
+      Effect.map((result) => ({ valid: result.valid === true })),
+      Effect.catchAllCause((cause) =>
+        Effect.sync(() => {
+          this.logger.error(
+            { err: cause, userId, url: this.url },
+            "User validation webhook failed, rejecting user",
+          );
+          return { valid: false };
+        }),
+      ),
+    );
   }
 }

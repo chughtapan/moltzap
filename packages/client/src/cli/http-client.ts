@@ -1,43 +1,47 @@
+import { Effect } from "effect";
+import { HttpClient, HttpClientRequest } from "@effect/platform";
+import type { HttpClientError } from "@effect/platform";
+import { NodeHttpClient } from "@effect/platform-node";
 import { getHttpUrl, resolveAuth } from "./config.js";
-import type { RegisterResult } from "@moltzap/protocol";
+import type { Register, Static } from "@moltzap/protocol";
 
-function authHeaders(): Record<string, string> {
-  const { agentKey } = resolveAuth();
-  return { "X-API-Key": agentKey };
-}
+type RegisterResult = Static<typeof Register.resultSchema>;
 
-async function request<T>(
-  method: string,
+/**
+ * POST JSON to a MoltZap REST endpoint. Transport failures surface as the
+ * typed `HttpClientError` union (`RequestError | ResponseError`); non-2xx
+ * responses surface as `Error(HTTP <status>: <body>)`.
+ */
+function postJson<T>(
   path: string,
-  body?: unknown,
+  body: unknown,
   opts?: { noAuth?: boolean },
-): Promise<T> {
-  const baseUrl = getHttpUrl();
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (!opts?.noAuth) {
-    Object.assign(headers, authHeaders());
-  }
-  const res = await fetch(`${baseUrl}${path}`, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`HTTP ${res.status}: ${text}`);
-  }
-  return (await res.json()) as T;
+): Effect.Effect<T, Error | HttpClientError.HttpClientError> {
+  return Effect.gen(function* () {
+    const baseUrl = yield* getHttpUrl;
+    const headers: Record<string, string> = opts?.noAuth
+      ? {}
+      : { "X-API-Key": (yield* resolveAuth).agentKey };
+    const client = yield* HttpClient.HttpClient;
+    const request = HttpClientRequest.post(`${baseUrl}${path}`).pipe(
+      HttpClientRequest.setHeaders(headers),
+      HttpClientRequest.bodyUnsafeJson(body),
+    );
+    const response = yield* client.execute(request);
+    if (response.status < 200 || response.status >= 300) {
+      const text = yield* response.text;
+      return yield* Effect.fail(new Error(`HTTP ${response.status}: ${text}`));
+    }
+    return (yield* response.json) as T;
+  }).pipe(Effect.provide(NodeHttpClient.layer));
 }
 
-export async function registerAgent(
+export function registerAgent(
   name: string,
   inviteCode: string,
   description?: string,
-): Promise<RegisterResult> {
-  return request<RegisterResult>(
-    "POST",
+): Effect.Effect<RegisterResult, Error | HttpClientError.HttpClientError> {
+  return postJson<RegisterResult>(
     "/api/v1/auth/register",
     { name, inviteCode, description },
     { noAuth: true },

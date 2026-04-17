@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { Effect } from "effect";
 import type { Message } from "@moltzap/protocol";
 import type { CrossConversationEntry, CrossConvMessage } from "@moltzap/client";
 
@@ -33,9 +34,14 @@ vi.mock("@moltzap/client", async () => {
   return {
     ...actual,
     MoltZapService: vi.fn().mockImplementation(() => ({
+      // The service API is Effect-native. Tests mock each method to return
+      // a pre-built Effect (Effect.succeed / Effect.fail) so MoltZapChannelCore
+      // can `yield*` them without wrappers.
       connect: vi
         .fn()
-        .mockResolvedValue({ conversations: [], unreadCounts: {} }),
+        .mockReturnValue(
+          Effect.succeed({ conversations: [], unreadCounts: {} }),
+        ),
       close: mockClose,
       ownAgentId: "agent-self",
       connected: true,
@@ -109,8 +115,8 @@ describe("Flow 5: Inbound contract — dispatchReplyWithBufferedBlockDispatcher"
 
     // Default mock returns
     mockGetAgentName.mockImplementation((id: string) => `name-of-${id}`);
-    mockResolveAgentName.mockImplementation(
-      async (id: string) => `name-of-${id}`,
+    mockResolveAgentName.mockImplementation((id: string) =>
+      Effect.succeed(`name-of-${id}`),
     );
     mockGetConversation.mockReturnValue({
       id: "conv-200",

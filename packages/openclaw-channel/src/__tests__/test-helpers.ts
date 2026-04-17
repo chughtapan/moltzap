@@ -5,10 +5,17 @@
  * inject() values from globalSetup.
  */
 
+import { createHash } from "node:crypto";
 import pg from "pg";
 import { inject } from "vitest";
 import type { Message } from "@moltzap/protocol";
-import { hashPhone } from "@moltzap/protocol/phone-hash";
+
+/** Local test-only phone hash. Mirrors the server's canonicalisation —
+ * downstream impl owns the real implementation; openclaw tests just need
+ * *something* stable to feed the (now server-owned) `users.phone_hash`
+ * column. */
+const hashPhone = (phone: string): string =>
+  createHash("sha256").update(phone.trim()).digest("hex");
 
 let pool: pg.Pool | null = null;
 

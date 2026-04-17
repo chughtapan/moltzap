@@ -72,6 +72,43 @@ describe("AppManifestSchema", () => {
     };
     expect(validateManifest(manifest)).toBe(false);
   });
+
+  it("accepts manifest with webhook hook URLs + signing secret", () => {
+    const manifest = {
+      appId: "werewolf",
+      name: "Werewolf",
+      permissions: { required: [], optional: [] },
+      hooks: {
+        before_message_delivery: {
+          webhook: "https://hooks.example.com/before-message",
+          timeout_ms: 3000,
+        },
+        on_join: {
+          webhook: "https://hooks.example.com/on-join",
+        },
+        on_close: {
+          webhook: "https://hooks.example.com/on-close",
+          timeout_ms: 5000,
+        },
+        secret: "s3cret-shared-token",
+      },
+    };
+    expect(validateManifest(manifest)).toBe(true);
+  });
+
+  it("rejects malformed webhook URL", () => {
+    const manifest = {
+      appId: "test",
+      name: "Test",
+      permissions: { required: [], optional: [] },
+      hooks: {
+        before_message_delivery: {
+          webhook: "not a url",
+        },
+      },
+    };
+    expect(validateManifest(manifest)).toBe(false);
+  });
 });
 
 describe("AppSessionSchema", () => {

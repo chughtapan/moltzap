@@ -10,6 +10,7 @@
 import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { Effect, type Scope } from "effect";
 import {
   buildOpenClawConfig,
   startRawContainer,
@@ -23,6 +24,7 @@ import {
 } from "@moltzap/openclaw-channel/test-utils";
 import { DEFAULT_AGENT_MODEL_ID } from "./model-config.js";
 import { logger } from "./logger.js";
+import { ContainerError } from "./types.js";
 
 const DEFAULT_EVAL_AGENT_IMAGE = "moltzap-eval-agent:local";
 
@@ -58,14 +60,21 @@ export class DockerManager {
     this.imageName = opts?.imageName ?? DEFAULT_EVAL_AGENT_IMAGE;
   }
 
-  /** Ensure the eval agent Docker image exists, auto-building if missing. */
-  async ensureImage(): Promise<void> {
+  /**
+   * Ensure the eval agent Docker image exists, auto-building if missing.
+   * Entirely synchronous (`execSync`) — no Promise boundary needed.
+   */
+  ensureImage(): void {
     try {
       execSync(`docker image inspect ${this.imageName}`, { stdio: "pipe" });
       logger.info(`Docker image "${this.imageName}" verified`);
       return;
-    } catch {
-      // Image missing, try to auto-build
+    } catch (err) {
+      logger.debug(
+        `Docker image "${this.imageName}" inspect failed (${
+          err instanceof Error ? err.message : String(err)
+        }); will attempt auto-build`,
+      );
     }
 
     logger.info(
@@ -98,7 +107,7 @@ export class DockerManager {
     }
   }
 
-  async startAgent(opts: {
+  startAgent(opts: {
     name: string;
     agentModelId?: string;
     moltzapServerUrl?: string;
@@ -106,6 +115,28 @@ export class DockerManager {
     configOverride?: Record<string, unknown>;
     extraEnv?: Record<string, string>;
     workspaceFiles?: Array<{ relativePath: string; content: string }>;
+  }): Effect.Effect<AgentContainer, ContainerError> {
+    return Effect.tryPromise({
+      try: () => this.startAgentImpl(opts),
+      catch: (e) =>
+        new ContainerError({
+          containerName: opts.name,
+          phase: "start",
+          message: e instanceof Error ? e.message : String(e),
+        }),
+    });
+  }
+
+  // #ignore-sloppy-code-next-line[async-keyword]: Docker exec boundary
+  private async startAgentImpl(opts: {
+    name: string;
+    agentModelId?: string;
+    moltzapServerUrl?: string;
+    moltzapApiKey?: string;
+    configOverride?: Record<string, unknown>;
+    extraEnv?: Record<string, string>;
+    workspaceFiles?: Array<{ relativePath: string; content: string }>;
+    // #ignore-sloppy-code-next-line[promise-type]: Docker exec boundary
   }): Promise<AgentContainer> {
     let openclawConfig: Record<string, unknown>;
 
@@ -170,7 +201,7 @@ export class DockerManager {
     return agent;
   }
 
-  async startAgentAndWait(opts: {
+  startAgentAndWait(opts: {
     name: string;
     agentModelId?: string;
     moltzapServerUrl?: string;
@@ -178,27 +209,42 @@ export class DockerManager {
     extraEnv?: Record<string, string>;
     workspaceFiles?: Array<{ relativePath: string; content: string }>;
     connectTimeoutMs?: number;
-  }): Promise<AgentContainer> {
-    const container = await this.startAgent(opts);
-    await waitForChannel(
-      container.containerId,
-      opts.connectTimeoutMs ?? 180_000,
-    );
-    return container;
+  }): Effect.Effect<AgentContainer, ContainerError> {
+    return Effect.gen(this, function* () {
+      const container = yield* this.startAgent(opts);
+      yield* Effect.tryPromise({
+        try: () =>
+          waitForChannel(
+            container.containerId,
+            opts.connectTimeoutMs ?? 180_000,
+          ),
+        catch: (e) =>
+          new ContainerError({
+            containerName: opts.name,
+            phase: "wait",
+            message: e instanceof Error ? e.message : String(e),
+          }),
+      });
+      return container;
+    });
   }
 
-  async stopAgent(agent: AgentContainer): Promise<void> {
-    const entry = this.containers.find((c) => c === agent);
-    if (entry) stopRawContainer(entry._raw);
-    this.containers = this.containers.filter((c) => c !== agent);
+  stopAgent(agent: AgentContainer): Effect.Effect<void, ContainerError> {
+    return Effect.sync(() => {
+      const entry = this.containers.find((c) => c === agent);
+      if (entry) stopRawContainer(entry._raw);
+      this.containers = this.containers.filter((c) => c !== agent);
+    });
   }
 
-  async stopAll(): Promise<void> {
-    logger.info(`Stopping ${this.containers.length} agent container(s)`);
-    for (const c of this.containers) {
-      stopRawContainer(c._raw);
-    }
-    this.containers = [];
+  stopAll(): Effect.Effect<void, ContainerError> {
+    return Effect.sync(() => {
+      logger.info(`Stopping ${this.containers.length} agent container(s)`);
+      for (const c of this.containers) {
+        stopRawContainer(c._raw);
+      }
+      this.containers = [];
+    });
   }
 
   getContainerLogs(agent: AgentContainer): string {
@@ -206,26 +252,39 @@ export class DockerManager {
   }
 }
 
-/** Start N agent containers with model resolution and API key forwarding. */
-export async function setupAgentContainers(opts: {
+/**
+ * Start N agent containers with model resolution and API key forwarding.
+ * Returns an Effect; callers at the process edge can bridge via
+ * `Effect.runPromise`.
+ */
+export const setupAgentContainers = (opts: {
   agentCredentials: Array<{ name: string; apiKey: string }>;
   serverPort: number;
   modelId?: string;
   workspaceFiles?: (
     name: string,
   ) => Array<{ relativePath: string; content: string }>;
-}): Promise<{
-  dockerManager: DockerManager;
-  containers: AgentContainer[];
-}> {
-  const modelId = opts.modelId ?? DEFAULT_AGENT_MODEL_ID;
-  const dockerManager = new DockerManager();
-  await dockerManager.ensureImage();
+}): Effect.Effect<
+  {
+    dockerManager: DockerManager;
+    containers: AgentContainer[];
+  },
+  Error
+> =>
+  Effect.gen(function* () {
+    const modelId = opts.modelId ?? DEFAULT_AGENT_MODEL_ID;
+    const dockerManager = new DockerManager();
+    yield* Effect.try({
+      try: () => dockerManager.ensureImage(),
+      catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+    });
 
-  let containers: AgentContainer[];
-  try {
-    containers = await Promise.all(
-      opts.agentCredentials.map((cred) =>
+    // Concurrent startup. On partial failure, already-started containers are
+    // stopped before the error is rethrown. `startAgent` is Effect-native now,
+    // so `Effect.forEach` yields each child directly.
+    const containers = yield* Effect.forEach(
+      opts.agentCredentials,
+      (cred) =>
         dockerManager.startAgent({
           name: cred.name,
           moltzapServerUrl: `ws://127.0.0.1:${opts.serverPort}`,
@@ -233,12 +292,38 @@ export async function setupAgentContainers(opts: {
           agentModelId: modelId,
           workspaceFiles: opts.workspaceFiles?.(cred.name),
         }),
-      ),
+      { concurrency: "unbounded" },
+    ).pipe(
+      Effect.tapError(() => dockerManager.stopAll().pipe(Effect.ignore)),
+      Effect.mapError((err) => new Error(err.message)),
     );
-  } catch (err) {
-    await dockerManager.stopAll();
-    throw err;
-  }
 
-  return { dockerManager, containers };
-}
+    return { dockerManager, containers };
+  });
+
+/**
+ * Effect-native scoped agent container. Use with `Effect.scoped` so the
+ * container is guaranteed to stop even if the wrapped work fails or is
+ * interrupted. Now that `DockerManager.startAgent` itself returns an Effect,
+ * this is a thin `Effect.acquireRelease` wrapper.
+ */
+export const scopedAgent = (
+  dockerManager: DockerManager,
+  opts: Parameters<DockerManager["startAgent"]>[0],
+): Effect.Effect<AgentContainer, ContainerError, Scope.Scope> =>
+  Effect.acquireRelease(dockerManager.startAgent(opts), (container) =>
+    // Release must never fail (Effect.acquireRelease requirement); swallow
+    // cleanup errors to a log, matching the fleet's existing best-effort
+    // stop semantics.
+    dockerManager
+      .stopAgent(container)
+      .pipe(
+        Effect.catchAll((err) =>
+          Effect.sync(() =>
+            logger.warn(
+              `Failed to stop agent container "${container.name}": ${err.message}`,
+            ),
+          ),
+        ),
+      ),
+  );

@@ -19,6 +19,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { Duration, Effect } from "effect";
 
 import { logger } from "./logger.js";
 
@@ -57,6 +58,7 @@ export interface NanoclawSmokeHandle {
   capturedLogs: string[];
 }
 
+// #ignore-sloppy-code-next-line[async-keyword, promise-type]: fetch + Docker exec boundary
 async function isOnecliReachable(): Promise<boolean> {
   try {
     const res = await fetch(`${ONECLI_URL}/api/container-config`, {
@@ -65,11 +67,17 @@ async function isOnecliReachable(): Promise<boolean> {
     // Any HTTP response means the dashboard is listening. A 401/403 is fine —
     // nanoclaw's SDK handles auth. We only care that the port is open.
     return res.status > 0;
-  } catch {
+  } catch (err) {
+    logger.debug(
+      `OneCLI gateway unreachable at ${ONECLI_URL}: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
     return false;
   }
 }
 
+// #ignore-sloppy-code-next-line[async-keyword, promise-type]: Docker compose exec boundary
 async function ensureOnecliRunning(): Promise<void> {
   if (await isOnecliReachable()) {
     logger.info(`OneCLI gateway already running at ${ONECLI_URL}`);
@@ -107,6 +115,7 @@ async function ensureOnecliRunning(): Promise<void> {
   );
 }
 
+// #ignore-sloppy-code-next-line[async-keyword, promise-type]: Docker exec boundary
 async function preflightDocker(): Promise<void> {
   try {
     await exec("docker info", { timeout: 5_000 });
@@ -119,6 +128,7 @@ async function preflightDocker(): Promise<void> {
   }
 }
 
+// #ignore-sloppy-code-next-line[async-keyword, promise-type]: curl subshell boundary
 async function downloadTarball(url: string, destDir: string): Promise<void> {
   await fsp.mkdir(destDir, { recursive: true });
   const tarballPath = path.join(destDir, "nanoclaw.tar.gz");
@@ -173,11 +183,13 @@ function resolveClientDistPath(): string {
   return path.join(current, "client/dist");
 }
 
+// #ignore-sloppy-code-next-line[async-keyword, promise-type]: fs.readFile boundary
 async function sha1OfFile(filePath: string): Promise<string> {
   const buf = await fsp.readFile(filePath);
   return createHash("sha1").update(buf).digest("hex");
 }
 
+// #ignore-sloppy-code-next-line[async-keyword, promise-type]: fs.readFile boundary
 async function channelFileDrift(): Promise<{
   src: string;
   dst: string;
@@ -193,6 +205,7 @@ async function channelFileDrift(): Promise<{
   return srcContent === dstContent ? null : { src, dst, content: srcContent };
 }
 
+// #ignore-sloppy-code-next-line[async-keyword, promise-type]: fs stat boundary
 async function clientDistDrift(): Promise<{
   src: string;
   dst: string;
@@ -215,6 +228,7 @@ async function clientDistDrift(): Promise<{
  * when either has drifted, then rebuild nanoclaw. Caller must ensure the
  * workspace @moltzap/client has been freshly built.
  */
+// #ignore-sloppy-code-next-line[async-keyword, promise-type]: fs + npm exec boundary
 async function syncChannelFileIntoCache(): Promise<void> {
   const [chDrift, clDrift] = await Promise.all([
     channelFileDrift(),
@@ -239,6 +253,7 @@ async function syncChannelFileIntoCache(): Promise<void> {
   }
 }
 
+// #ignore-sloppy-code-next-line[async-keyword, promise-type]: npm install + docker build orchestration boundary
 export async function ensureNanoclawInstalled(): Promise<void> {
   const readyMarker = path.join(NANOCLAW_CACHE, ".ready");
   if (fs.existsSync(readyMarker)) {
@@ -341,9 +356,11 @@ export async function ensureNanoclawInstalled(): Promise<void> {
   logger.info(`Nanoclaw smoke cache ready at ${NANOCLAW_CACHE}`);
 }
 
+// #ignore-sloppy-code-next-line[async-keyword]: node child_process.spawn boundary
 export async function startNanoclawSmoke(opts: {
   apiKey: string;
   serverUrl: string;
+  // #ignore-sloppy-code-next-line[promise-type]: node child_process.spawn boundary
 }): Promise<NanoclawSmokeHandle> {
   const dataDir = await fsp.mkdtemp(
     path.join(os.tmpdir(), "moltzap-nanoclaw-smoke-"),
@@ -387,53 +404,66 @@ export async function startNanoclawSmoke(opts: {
     capturedLogs.push(chunk.toString()),
   );
 
-  // Wait for connection marker OR process exit, whichever comes first.
-  await new Promise<void>((resolve, reject) => {
+  // Race three events for readiness: connect-marker seen, process exit, or
+  // overall timeout. The Effect constructor below adapts these callback-based
+  // sources with a finalizer that always clears the watcher interval.
+  const waitForConnection = Effect.async<void, Error>((resume) => {
     let settled = false;
-
-    const timeout = setTimeout(() => {
+    const settle = (r: Effect.Effect<void, Error>): void => {
       if (settled) return;
       settled = true;
       clearInterval(watcher);
-      const tail = capturedLogs.join("").split("\n").slice(-50).join("\n");
-      reject(
-        new Error(
-          `nanoclaw did not connect within ${CONNECT_TIMEOUT_MS / 1000}s.\nLast 50 log lines:\n${tail}`,
-        ),
-      );
-    }, CONNECT_TIMEOUT_MS);
+      proc.removeListener("exit", onExit);
+      resume(r);
+    };
 
-    proc.on("exit", (code, signal) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      clearInterval(watcher);
+    const onExit = (code: number | null, signal: string | null): void => {
       const tail = capturedLogs.join("").split("\n").slice(-50).join("\n");
-      reject(
-        new Error(
-          `nanoclaw exited before connecting (code=${code}, signal=${signal}).\nLast 50 log lines:\n${tail}`,
+      settle(
+        Effect.fail(
+          new Error(
+            `nanoclaw exited before connecting (code=${code}, signal=${signal}).\nLast 50 log lines:\n${tail}`,
+          ),
         ),
       );
-    });
+    };
+
+    proc.on("exit", onExit);
 
     const watcher = setInterval(() => {
-      if (settled) return;
       const joined = capturedLogs.join("");
-      if (CONNECTED_MARKER.test(joined)) {
-        settled = true;
-        clearTimeout(timeout);
-        clearInterval(watcher);
-        resolve();
-      }
+      if (CONNECTED_MARKER.test(joined)) settle(Effect.void);
     }, 200);
-  });
+
+    // Cleanup if interrupted (e.g. outer timeout fires).
+    return Effect.sync(() => {
+      if (!settled) {
+        settled = true;
+        clearInterval(watcher);
+        proc.removeListener("exit", onExit);
+      }
+    });
+  }).pipe(
+    Effect.timeoutFail({
+      duration: Duration.millis(CONNECT_TIMEOUT_MS),
+      onTimeout: () => {
+        const tail = capturedLogs.join("").split("\n").slice(-50).join("\n");
+        return new Error(
+          `nanoclaw did not connect within ${CONNECT_TIMEOUT_MS / 1000}s.\nLast 50 log lines:\n${tail}`,
+        );
+      },
+    }),
+  );
+  await Effect.runPromise(waitForConnection);
 
   logger.info("Nanoclaw subprocess connected to MoltZap server");
   return { proc, dataDir, capturedLogs };
 }
 
+// #ignore-sloppy-code-next-line[async-keyword]: child_process kill + fs.rm boundary
 export async function stopNanoclawSmoke(
   handle: NanoclawSmokeHandle,
+  // #ignore-sloppy-code-next-line[promise-type]: child_process kill + fs.rm boundary
 ): Promise<void> {
   logger.info("Stopping nanoclaw subprocess...");
   if (!handle.proc.killed) {

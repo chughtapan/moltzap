@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { Effect } from "effect";
 
 const { mockQuery, asyncIter } = vi.hoisted(() => {
   const mockQuery = vi.fn();
@@ -66,12 +67,14 @@ describe("judgeAgentResponse", () => {
     mockQuery.mockReset();
     mockQuery.mockReturnValueOnce(asyncIter([SUCCESS]));
 
-    const result = await judgeAgentResponse({
-      scenario: SCENARIO,
-      agentResponse: "hi",
-      conversationContext: "{}",
-      evalModel: "claude-opus-4-6",
-    });
+    const result = await Effect.runPromise(
+      judgeAgentResponse({
+        scenario: SCENARIO,
+        agentResponse: "hi",
+        conversationContext: "{}",
+        evalModel: "claude-opus-4-6",
+      }),
+    );
 
     expect(result.pass).toBe(true);
     expect(result.reason).toBe("Looks good.");
@@ -91,12 +94,14 @@ describe("judgeAgentResponse", () => {
     mockQuery.mockReset();
     mockQuery.mockReturnValueOnce(asyncIter([FAIL_WITH_ISSUES]));
 
-    const result = await judgeAgentResponse({
-      scenario: SCENARIO,
-      agentResponse: "hi",
-      conversationContext: "{}",
-      evalModel: "claude-opus-4-6",
-    });
+    const result = await Effect.runPromise(
+      judgeAgentResponse({
+        scenario: SCENARIO,
+        agentResponse: "hi",
+        conversationContext: "{}",
+        evalModel: "claude-opus-4-6",
+      }),
+    );
 
     expect(result.pass).toBe(false);
     expect(result.reason).toBe("Missing required command.");
@@ -112,12 +117,14 @@ describe("judgeAgentResponse", () => {
       .mockReturnValueOnce(asyncIter([ERROR_RESULT]))
       .mockReturnValueOnce(asyncIter([SUCCESS]));
 
-    const promise = judgeAgentResponse({
-      scenario: SCENARIO,
-      agentResponse: "hi",
-      conversationContext: "{}",
-      evalModel: "claude-opus-4-6",
-    });
+    const promise = Effect.runPromise(
+      judgeAgentResponse({
+        scenario: SCENARIO,
+        agentResponse: "hi",
+        conversationContext: "{}",
+        evalModel: "claude-opus-4-6",
+      }),
+    );
     await vi.advanceTimersByTimeAsync(2000);
     const result = await promise;
     vi.useRealTimers();
@@ -131,12 +138,14 @@ describe("judgeAgentResponse", () => {
     mockQuery.mockReset();
     mockQuery.mockReturnValue(asyncIter([ERROR_RESULT]));
 
-    const promise = judgeAgentResponse({
-      scenario: SCENARIO,
-      agentResponse: "hi",
-      conversationContext: "{}",
-      evalModel: "claude-opus-4-6",
-    });
+    const promise = Effect.runPromise(
+      judgeAgentResponse({
+        scenario: SCENARIO,
+        agentResponse: "hi",
+        conversationContext: "{}",
+        evalModel: "claude-opus-4-6",
+      }),
+    );
     await vi.advanceTimersByTimeAsync(10_000);
     const result = await promise;
     vi.useRealTimers();
@@ -152,13 +161,15 @@ describe("judgeAgentResponse", () => {
     ac.abort();
 
     await expect(
-      judgeAgentResponse({
-        scenario: SCENARIO,
-        agentResponse: "hi",
-        conversationContext: "{}",
-        evalModel: "claude-opus-4-6",
-        abortSignal: ac.signal,
-      }),
+      Effect.runPromise(
+        judgeAgentResponse({
+          scenario: SCENARIO,
+          agentResponse: "hi",
+          conversationContext: "{}",
+          evalModel: "claude-opus-4-6",
+          abortSignal: ac.signal,
+        }),
+      ),
     ).rejects.toThrow(/aborted before attempt/);
     expect(mockQuery).not.toHaveBeenCalled();
   });
@@ -167,13 +178,15 @@ describe("judgeAgentResponse", () => {
     mockQuery.mockReset();
     mockQuery.mockReturnValueOnce(asyncIter([SUCCESS]));
 
-    await judgeAgentResponse({
-      scenario: SCENARIO,
-      agentResponse: "hi",
-      conversationContext: "{}",
-      evalModel: "claude-opus-4-6",
-      buildPrompt: () => "CUSTOM PROMPT BODY",
-    });
+    await Effect.runPromise(
+      judgeAgentResponse({
+        scenario: SCENARIO,
+        agentResponse: "hi",
+        conversationContext: "{}",
+        evalModel: "claude-opus-4-6",
+        buildPrompt: () => "CUSTOM PROMPT BODY",
+      }),
+    );
 
     expect(mockQuery.mock.calls[0]![0]!.prompt).toBe("CUSTOM PROMPT BODY");
   });
@@ -193,29 +206,33 @@ describe("analyzeFailures", () => {
       ]),
     );
 
-    const text = await analyzeFailures({
-      failures: [
-        {
-          scenarioId: "TEST-001",
-          runNumber: 1,
-          failureType: "Schema Validation",
-          reason: "missing field",
-        },
-      ],
-      numRuns: 5,
-      evalModel: "claude-opus-4-6",
-    });
+    const text = await Effect.runPromise(
+      analyzeFailures({
+        failures: [
+          {
+            scenarioId: "TEST-001",
+            runNumber: 1,
+            failureType: "Schema Validation",
+            reason: "missing field",
+          },
+        ],
+        numRuns: 5,
+        evalModel: "claude-opus-4-6",
+      }),
+    );
 
     expect(text).toContain("Failure analysis");
   });
 
   it("short-circuits with no SDK call when failures are empty", async () => {
     mockQuery.mockReset();
-    const text = await analyzeFailures({
-      failures: [],
-      numRuns: 5,
-      evalModel: "claude-opus-4-6",
-    });
+    const text = await Effect.runPromise(
+      analyzeFailures({
+        failures: [],
+        numRuns: 5,
+        evalModel: "claude-opus-4-6",
+      }),
+    );
 
     expect(text).toBe("No failures to analyze.");
     expect(mockQuery).not.toHaveBeenCalled();

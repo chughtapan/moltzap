@@ -1,17 +1,14 @@
-import { Type, type Static } from "@sinclair/typebox";
+import { Type } from "@sinclair/typebox";
 import { DateTimeString } from "../../helpers.js";
+import { defineRpc } from "../../rpc.js";
 
-export const SystemPingParamsSchema = Type.Object(
-  {},
-  { additionalProperties: false },
-);
-
-export const SystemPingResultSchema = Type.Object(
-  {
-    ts: DateTimeString,
-  },
-  { additionalProperties: false },
-);
-
-export type SystemPingParams = Static<typeof SystemPingParamsSchema>;
-export type SystemPingResult = Static<typeof SystemPingResultSchema>;
+export const SystemPing = defineRpc({
+  name: "system/ping",
+  params: Type.Object({}, { additionalProperties: false }),
+  result: Type.Object(
+    {
+      ts: DateTimeString,
+    },
+    { additionalProperties: false },
+  ),
+});

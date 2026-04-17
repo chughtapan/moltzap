@@ -1,10 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { Effect, Exit } from "effect";
 import { MoltZapApp } from "./app.js";
-import { AppError } from "./errors.js";
+import {
+  AppError,
+  AuthError,
+  ManifestRegistrationError,
+  SessionError,
+} from "./errors.js";
 
-// Mock MoltZapWsClient. Captures the constructor's onEvent/onReconnect/
-// onDisconnect callbacks on the returned instance so tests can simulate
-// server-side events and connection lifecycle transitions.
+// Mock MoltZapWsClient. Client methods return Effects (primary API), so
+// mocks return `Effect.succeed` / `Effect.fail`. Captures constructor
+// callbacks so tests can drive server-side events.
 vi.mock("@moltzap/client", () => {
   return {
     MoltZapWsClient: vi
@@ -18,13 +24,15 @@ vi.mock("@moltzap/client", () => {
           _onEvent: opts.onEvent,
           _onReconnect: opts.onReconnect,
           _onDisconnect: opts.onDisconnect,
-          connect: vi.fn().mockResolvedValue({ agentId: "agent-1" }),
+          connect: vi
+            .fn()
+            .mockImplementation(() => Effect.succeed({ agentId: "agent-1" })),
           sendRpc: vi.fn().mockImplementation((method: string) => {
             if (method === "apps/register") {
-              return Promise.resolve({ appId: "test-app" });
+              return Effect.succeed({ appId: "test-app" });
             }
             if (method === "apps/create") {
-              return Promise.resolve({
+              return Effect.succeed({
                 session: {
                   id: "session-1",
                   appId: "test-app",
@@ -36,13 +44,13 @@ vi.mock("@moltzap/client", () => {
               });
             }
             if (method === "system/ping") {
-              return Promise.resolve({ ts: new Date().toISOString() });
+              return Effect.succeed({ ts: new Date().toISOString() });
             }
             if (method === "apps/closeSession") {
-              return Promise.resolve({ closed: true });
+              return Effect.succeed({ closed: true });
             }
             if (method === "messages/send") {
-              return Promise.resolve({
+              return Effect.succeed({
                 message: {
                   id: "msg-1",
                   conversationId: "conv-1",
@@ -52,10 +60,12 @@ vi.mock("@moltzap/client", () => {
                 },
               });
             }
-            return Promise.resolve({});
+            return Effect.succeed({});
           }),
-          close: vi.fn(),
-          disconnect: vi.fn(),
+          close: vi.fn().mockImplementation(() => Effect.succeed(undefined)),
+          disconnect: vi
+            .fn()
+            .mockImplementation(() => Effect.succeed(undefined)),
         }),
       ),
   };
@@ -116,7 +126,7 @@ describe("MoltZapApp", () => {
 
   describe("start()", () => {
     it("connects, registers manifest, and creates session", async () => {
-      const session = await app.start();
+      const session = await Effect.runPromise(app.start());
       expect(session.id).toBe("session-1");
       expect(session.appId).toBe("test-app");
       expect(session.isActive).toBe(true);
@@ -131,13 +141,17 @@ describe("MoltZapApp", () => {
       });
     });
 
+    it("startAsync() is a Promise bridge over start()", async () => {
+      const session = await app.startAsync();
+      expect(session.id).toBe("session-1");
+    });
+
     it("fires onSessionReady for already-active sessions", async () => {
       const handler = vi.fn();
       app.onSessionReady(handler);
 
-      await app.start();
+      await Effect.runPromise(app.start());
 
-      // Allow microtasks to flush
       await new Promise((r) => setTimeout(r, 0));
       expect(handler).toHaveBeenCalledTimes(1);
       expect(handler.mock.calls[0]![0].id).toBe("session-1");
@@ -146,8 +160,8 @@ describe("MoltZapApp", () => {
 
   describe("stop()", () => {
     it("closes sessions and the client", async () => {
-      await app.start();
-      await app.stop();
+      await Effect.runPromise(app.start());
+      await Effect.runPromise(app.stop());
 
       expect(app.client.sendRpc).toHaveBeenCalledWith("apps/closeSession", {
         sessionId: "session-1",
@@ -158,27 +172,29 @@ describe("MoltZapApp", () => {
 
   describe("session management", () => {
     it("getSession returns the session by ID", async () => {
-      await app.start();
+      await Effect.runPromise(app.start());
       const session = app.getSession("session-1");
       expect(session).toBeDefined();
       expect(session!.id).toBe("session-1");
     });
 
     it("getSession returns undefined for unknown ID", async () => {
-      await app.start();
+      await Effect.runPromise(app.start());
       expect(app.getSession("unknown")).toBeUndefined();
     });
 
     it("activeSessions returns active sessions", async () => {
-      await app.start();
+      await Effect.runPromise(app.start());
       expect(app.activeSessions).toHaveLength(1);
     });
   });
 
   describe("messaging", () => {
     it("send() resolves conversation key and sends", async () => {
-      await app.start();
-      await app.send("default", [{ type: "text", text: "hello" }]);
+      await Effect.runPromise(app.start());
+      await Effect.runPromise(
+        app.send("default", [{ type: "text", text: "hello" }]),
+      );
 
       expect(app.client.sendRpc).toHaveBeenCalledWith("messages/send", {
         conversationId: "conv-1",
@@ -186,16 +202,24 @@ describe("MoltZapApp", () => {
       });
     });
 
-    it("send() throws ConversationKeyError for unknown key", async () => {
-      await app.start();
-      await expect(
+    it("send() fails with ConversationKeyError for unknown key", async () => {
+      await Effect.runPromise(app.start());
+      const exit = await Effect.runPromiseExit(
         app.send("nonexistent", [{ type: "text", text: "hello" }]),
-      ).rejects.toThrow("Unknown conversation key");
+      );
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit) && exit.cause._tag === "Fail") {
+        expect(exit.cause.error.code).toBe("UNKNOWN_CONVERSATION_KEY");
+      } else {
+        throw new Error("expected typed Fail");
+      }
     });
 
     it("sendTo() sends by raw conversation ID", async () => {
-      await app.start();
-      await app.sendTo("conv-1", [{ type: "text", text: "hello" }]);
+      await Effect.runPromise(app.start());
+      await Effect.runPromise(
+        app.sendTo("conv-1", [{ type: "text", text: "hello" }]),
+      );
 
       expect(app.client.sendRpc).toHaveBeenCalledWith("messages/send", {
         conversationId: "conv-1",
@@ -204,12 +228,24 @@ describe("MoltZapApp", () => {
     });
 
     it("reply() sends replyToId; server resolves the target conversation", async () => {
-      await app.start();
-      await app.reply("msg-1", [{ type: "text", text: "reply" }]);
+      await Effect.runPromise(app.start());
+      await Effect.runPromise(
+        app.reply("msg-1", [{ type: "text", text: "reply" }]),
+      );
 
       expect(app.client.sendRpc).toHaveBeenCalledWith("messages/send", {
         replyToId: "msg-1",
         parts: [{ type: "text", text: "reply" }],
+      });
+    });
+
+    it("sendAsync() is a Promise bridge over send()", async () => {
+      await Effect.runPromise(app.start());
+      await app.sendAsync("default", [{ type: "text", text: "hello" }]);
+
+      expect(app.client.sendRpc).toHaveBeenCalledWith("messages/send", {
+        conversationId: "conv-1",
+        parts: [{ type: "text", text: "hello" }],
       });
     });
   });
@@ -219,11 +255,10 @@ describe("MoltZapApp", () => {
       const handler = vi.fn();
       app.onSessionReady(handler);
 
-      await app.start();
+      await Effect.runPromise(app.start());
       await new Promise((r) => setTimeout(r, 0));
       expect(handler).toHaveBeenCalledTimes(1);
 
-      // Simulate duplicate server event for the same session
       const onEvent = (
         app.client as unknown as { _onEvent: (e: unknown) => void }
       )._onEvent;
@@ -260,7 +295,7 @@ describe("MoltZapApp", () => {
       const handler = vi.fn();
       app.onMessage("default", handler);
 
-      await app.start();
+      await Effect.runPromise(app.start());
       fireEvent("messages/received", { message: inboundMessage });
       await new Promise((r) => setTimeout(r, 0));
 
@@ -272,7 +307,7 @@ describe("MoltZapApp", () => {
       const starHandler = vi.fn();
       app.onMessage("*", starHandler);
 
-      await app.start();
+      await Effect.runPromise(app.start());
       fireEvent("messages/received", { message: inboundMessage });
       await new Promise((r) => setTimeout(r, 0));
 
@@ -283,7 +318,7 @@ describe("MoltZapApp", () => {
       const handler = vi.fn();
       app.onMessage("default", handler);
 
-      await app.start();
+      await Effect.runPromise(app.start());
       fireEvent("messages/received", {
         message: { ...inboundMessage, conversationId: "conv-unknown" },
       });
@@ -299,10 +334,9 @@ describe("MoltZapApp", () => {
         throw new Error("boom");
       });
 
-      await app.start();
+      await Effect.runPromise(app.start());
       fireEvent("messages/received", { message: inboundMessage });
 
-      // Promise.resolve().catch is async — flush microtasks
       await new Promise((r) => setTimeout(r, 0));
 
       expect(errorHandler).toHaveBeenCalledTimes(1);
@@ -315,7 +349,7 @@ describe("MoltZapApp", () => {
       const handler = vi.fn();
       app.onParticipantAdmitted(handler);
 
-      await app.start();
+      await Effect.runPromise(app.start());
       const event = {
         sessionId: "session-1",
         agentId: "agent-9",
@@ -330,7 +364,7 @@ describe("MoltZapApp", () => {
       const handler = vi.fn();
       app.onParticipantRejected(handler);
 
-      await app.start();
+      await Effect.runPromise(app.start());
       const event = {
         sessionId: "session-1",
         agentId: "agent-9",
@@ -347,7 +381,7 @@ describe("MoltZapApp", () => {
       const errorHandler = vi.fn();
       app.onError(errorHandler);
 
-      await app.start();
+      await Effect.runPromise(app.start());
       expect(app.getSession("session-1")).toBeDefined();
 
       fireEvent("app/sessionClosed", { sessionId: "session-1" });
@@ -373,7 +407,7 @@ describe("MoltZapApp", () => {
         },
       });
 
-      await appWithSkill.start();
+      await Effect.runPromise(appWithSkill.start());
       const onEvent = (
         appWithSkill.client as unknown as {
           _onEvent: (e: unknown) => void;
@@ -396,7 +430,7 @@ describe("MoltZapApp", () => {
     });
 
     it("app/skillChallenge is a no-op when manifest.skillUrl is absent", async () => {
-      await app.start();
+      await Effect.runPromise(app.start());
       const sendRpc = app.client.sendRpc as ReturnType<typeof vi.fn>;
       sendRpc.mockClear();
 
@@ -419,44 +453,55 @@ describe("MoltZapApp", () => {
   });
 
   describe("start() error branches", () => {
-    it("throws AuthError when connect fails", async () => {
+    it("fails with AuthError when connect fails", async () => {
       const connect = app.client.connect as ReturnType<typeof vi.fn>;
-      connect.mockRejectedValueOnce(new Error("tcp reset"));
+      connect.mockImplementationOnce(() => Effect.fail(new Error("tcp reset")));
 
-      await expect(app.start()).rejects.toMatchObject({
-        code: "AUTH_FAILED",
-        name: "AuthError",
-      });
+      const exit = await Effect.runPromiseExit(app.start());
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit) && exit.cause._tag === "Fail") {
+        expect(exit.cause.error).toBeInstanceOf(AuthError);
+        expect(exit.cause.error.code).toBe("AUTH_FAILED");
+      } else {
+        throw new Error("expected typed Fail");
+      }
     });
 
-    it("throws ManifestRegistrationError when apps/register fails", async () => {
+    it("fails with ManifestRegistrationError when apps/register fails", async () => {
       const sendRpc = app.client.sendRpc as ReturnType<typeof vi.fn>;
       sendRpc.mockImplementationOnce((method: string) => {
         if (method === "apps/register") {
-          return Promise.reject(new Error("manifest invalid"));
+          return Effect.fail(new Error("manifest invalid"));
         }
-        return Promise.resolve({});
+        return Effect.succeed({});
       });
 
-      await expect(app.start()).rejects.toMatchObject({
-        code: "MANIFEST_REJECTED",
-        name: "ManifestRegistrationError",
-      });
+      const exit = await Effect.runPromiseExit(app.start());
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit) && exit.cause._tag === "Fail") {
+        expect(exit.cause.error).toBeInstanceOf(ManifestRegistrationError);
+        expect(exit.cause.error.code).toBe("MANIFEST_REJECTED");
+      } else {
+        throw new Error("expected typed Fail");
+      }
     });
 
-    it("throws SessionError when apps/create fails", async () => {
+    it("fails with SessionError when apps/create fails", async () => {
       const sendRpc = app.client.sendRpc as ReturnType<typeof vi.fn>;
-      // apps/register succeeds, apps/create rejects
       sendRpc
-        .mockImplementationOnce(() => Promise.resolve({ appId: "test-app" }))
+        .mockImplementationOnce(() => Effect.succeed({ appId: "test-app" }))
         .mockImplementationOnce(() =>
-          Promise.reject(new Error("capacity exhausted")),
+          Effect.fail(new Error("capacity exhausted")),
         );
 
-      await expect(app.start()).rejects.toMatchObject({
-        code: "SESSION_ERROR",
-        name: "SessionError",
-      });
+      const exit = await Effect.runPromiseExit(app.start());
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit) && exit.cause._tag === "Fail") {
+        expect(exit.cause.error).toBeInstanceOf(SessionError);
+        expect(exit.cause.error.code).toBe("SESSION_ERROR");
+      } else {
+        throw new Error("expected typed Fail");
+      }
     });
   });
 
@@ -473,11 +518,11 @@ describe("MoltZapApp", () => {
     };
 
     it("on reconnect with active session, refreshes session via apps/getSession", async () => {
-      await app.start();
+      await Effect.runPromise(app.start());
       const sendRpc = app.client.sendRpc as ReturnType<typeof vi.fn>;
       sendRpc.mockImplementationOnce((method: string) => {
         if (method === "apps/getSession") {
-          return Promise.resolve({
+          return Effect.succeed({
             session: {
               id: "session-1",
               appId: "test-app",
@@ -488,7 +533,7 @@ describe("MoltZapApp", () => {
             },
           });
         }
-        return Promise.resolve({});
+        return Effect.succeed({});
       });
 
       await triggerReconnect();
@@ -496,7 +541,6 @@ describe("MoltZapApp", () => {
       expect(sendRpc).toHaveBeenCalledWith("apps/getSession", {
         sessionId: "session-1",
       });
-      // Session should now include the new "extra" conversation
       expect(app.getSession("session-1")!.conversations.extra).toBe("conv-2");
     });
 
@@ -504,11 +548,11 @@ describe("MoltZapApp", () => {
       const errorHandler = vi.fn();
       app.onError(errorHandler);
 
-      await app.start();
+      await Effect.runPromise(app.start());
       const sendRpc = app.client.sendRpc as ReturnType<typeof vi.fn>;
       sendRpc.mockImplementationOnce((method: string) => {
         if (method === "apps/getSession") {
-          return Promise.resolve({
+          return Effect.succeed({
             session: {
               id: "session-1",
               appId: "test-app",
@@ -519,7 +563,7 @@ describe("MoltZapApp", () => {
             },
           });
         }
-        return Promise.resolve({});
+        return Effect.succeed({});
       });
 
       await triggerReconnect();
@@ -534,13 +578,13 @@ describe("MoltZapApp", () => {
       const errorHandler = vi.fn();
       app.onError(errorHandler);
 
-      await app.start();
+      await Effect.runPromise(app.start());
       const sendRpc = app.client.sendRpc as ReturnType<typeof vi.fn>;
       sendRpc.mockImplementationOnce((method: string) => {
         if (method === "apps/getSession") {
-          return Promise.reject(new Error("network gone"));
+          return Effect.fail(new Error("network gone"));
         }
-        return Promise.resolve({});
+        return Effect.succeed({});
       });
 
       await triggerReconnect();
@@ -548,7 +592,6 @@ describe("MoltZapApp", () => {
       expect(errorHandler).toHaveBeenCalledWith(
         expect.objectContaining({ code: "SESSION_ERROR" }),
       );
-      // Session is NOT removed on a transient error — only on status=closed/failed
       expect(app.getSession("session-1")).toBeDefined();
     });
   });

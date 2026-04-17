@@ -47,26 +47,27 @@
     "@anthropic-ai/claude-agent-sdk": "^0.2.101",
     "@sinclair/typebox": "^0.34.0",
     "dotenv": "^16.0.0",
+    "effect": "^3.21.0",
     "js-yaml": "^4.0.0",
     "pg": "^8.13.0",
     "winston": "^3.0.0",
     "yargs": "^17.0.0"
   },
   "devDependencies": {
+    "@effect/vitest": "^0.29.0",
+    "@moltzap/client": "workspace:*",
     "@moltzap/openclaw-channel": "workspace:*",
     "@moltzap/protocol": "workspace:*",
     "@moltzap/server-core": "workspace:*",
     "@testcontainers/postgresql": "^10.18.0",
     "@types/js-yaml": "^4.0.0",
     "@types/pg": "^8.11.0",
-    "@types/ws": "^8.5.0",
     "@types/yargs": "^17.0.0",
     "kysely": "^0.27.0",
     "openclaw": "2026.3.31",
     "testcontainers": "^10.18.0",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
-    "vitest": "^3.0.0",
-    "ws": "^8.18.0"
+    "vitest": "^3.0.0"
   }
 }

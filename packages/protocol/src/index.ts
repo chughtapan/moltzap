@@ -4,13 +4,14 @@ export { ErrorCodes } from "./schema/errors.js";
 export { EventNames } from "./schema/events.js";
 export * from "./schema/index.js";
 export * from "./types.js";
+export * from "./rpc.js";
+export * from "./rpc-registry.js";
 export {
   stringEnum,
   brandedId,
   DateTimeString,
   eventFrame,
 } from "./helpers.js";
-export { PHONE_HASH_VECTORS } from "./test-fixtures/phone-hashes.js";
 export {
   SEED_USERS,
   SEED_AGENTS,

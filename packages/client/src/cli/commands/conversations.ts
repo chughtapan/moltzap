@@ -1,152 +1,219 @@
-import { Command } from "commander";
-import { request, action, resolveParticipant } from "../socket-client.js";
+import { Args, Command, Options } from "@effect/cli";
+import { Effect, Option } from "effect";
 import type { ConversationSummary } from "@moltzap/protocol";
+import { request, resolveParticipant } from "../socket-client.js";
 
-export const conversationsCommand = new Command("conversations").description(
-  "Manage conversations",
+const jsonOption = Options.boolean("json").pipe(
+  Options.withDescription("Output as JSON"),
 );
 
-conversationsCommand
-  .command("list")
-  .description("List conversations with unread counts")
-  .option("--limit <n>", "Max conversations to list", "20")
-  .option("--json", "Output as JSON")
-  .action(
-    action(async (opts: { limit: string; json?: boolean }) => {
-      const result = (await request("conversations/list", {
-        limit: parseInt(opts.limit, 10),
-      })) as { conversations: ConversationSummary[] };
-
-      if (opts.json) {
-        console.log(JSON.stringify(result.conversations, null, 2));
-        return;
-      }
-      if (result.conversations.length === 0) {
-        console.log("No conversations.");
-        return;
-      }
-      for (const c of result.conversations) {
-        const unread = c.unreadCount > 0 ? ` (${c.unreadCount} unread)` : "";
-        const name = c.name ?? c.type;
-        console.log(`  ${c.id}  ${name}${unread}`);
-        if (c.lastMessagePreview) {
-          console.log(`    Last: ${c.lastMessagePreview}`);
-        }
-      }
-    }),
-  );
-
-conversationsCommand
-  .command("create")
-  .description("Create a new conversation")
-  .argument("<name>", "Conversation name")
-  .argument("<participant...>", "Participants (e.g. agent:bob)")
-  .option("--type <type>", "Conversation type: dm or group")
-  .action(
-    action(
-      async (name: string, participants: string[], opts: { type?: string }) => {
-        const parsed = await Promise.all(participants.map(resolveParticipant));
-        const convType = opts.type ?? (parsed.length === 1 ? "dm" : "group");
-        const result = (await request("conversations/create", {
-          type: convType,
-          name,
-          participants: parsed,
-        })) as { conversation: { id: string; type: string } };
-        console.log(
-          `Conversation created: ${result.conversation.id} (${result.conversation.type})`,
-        );
-      },
+const wrap = <A>(
+  effect: Effect.Effect<A, Error>,
+  onSuccess: (value: A) => void,
+): Effect.Effect<void> =>
+  effect.pipe(
+    Effect.tap((value) => Effect.sync(() => onSuccess(value))),
+    Effect.asVoid,
+    Effect.catchAll((err) =>
+      Effect.sync(() => {
+        console.error(`Failed: ${err.message}`);
+        process.exit(1);
+      }),
     ),
   );
 
-conversationsCommand
-  .command("leave")
-  .description("Leave a conversation")
-  .argument("<conversationId>", "Conversation ID")
-  .action(
-    action(async (conversationId: string) => {
-      await request("conversations/leave", { conversationId });
+const limitOption = Options.integer("limit").pipe(
+  Options.withDefault(20),
+  Options.withDescription("Max conversations to list"),
+);
+
+const listConversations = Command.make(
+  "list",
+  { limit: limitOption, json: jsonOption },
+  ({ limit, json }) =>
+    wrap(
+      request("conversations/list", { limit }) as Effect.Effect<
+        { conversations: ConversationSummary[] },
+        Error
+      >,
+      (r) => {
+        if (json) {
+          console.log(JSON.stringify(r.conversations, null, 2));
+          return;
+        }
+        if (r.conversations.length === 0) {
+          console.log("No conversations.");
+          return;
+        }
+        for (const c of r.conversations) {
+          const unread = c.unreadCount > 0 ? ` (${c.unreadCount} unread)` : "";
+          const name = c.name ?? c.type;
+          console.log(`  ${c.id}  ${name}${unread}`);
+          if (c.lastMessagePreview) {
+            console.log(`    Last: ${c.lastMessagePreview}`);
+          }
+        }
+      },
+    ),
+).pipe(Command.withDescription("List conversations with unread counts"));
+
+const nameArg = Args.text({ name: "name" }).pipe(
+  Args.withDescription("Conversation name"),
+);
+
+const participantArg = Args.text({ name: "participant" }).pipe(
+  Args.withDescription("Participant (e.g. agent:bob)"),
+);
+
+const participantsArg = Args.text({ name: "participant" }).pipe(
+  Args.withDescription("Participants (e.g. agent:bob)"),
+  Args.repeated,
+);
+
+const typeOption = Options.text("type").pipe(
+  Options.withDescription("Conversation type: dm or group"),
+  Options.optional,
+);
+
+const createConversation = Command.make(
+  "create",
+  { name: nameArg, participants: participantsArg, type: typeOption },
+  ({ name, participants, type }) =>
+    Effect.gen(function* () {
+      const parsed = yield* Effect.all(
+        participants.map((p) => resolveParticipant(p)),
+      );
+      const convType = Option.isSome(type)
+        ? type.value
+        : parsed.length === 1
+          ? "dm"
+          : "group";
+      const result = (yield* request("conversations/create", {
+        type: convType,
+        name,
+        participants: parsed,
+      })) as { conversation: { id: string; type: string } };
+      console.log(
+        `Conversation created: ${result.conversation.id} (${result.conversation.type})`,
+      );
+    }).pipe(
+      Effect.catchAll((err) =>
+        Effect.sync(() => {
+          console.error(`Failed: ${err.message}`);
+          process.exit(1);
+        }),
+      ),
+    ),
+).pipe(Command.withDescription("Create a new conversation"));
+
+const conversationIdArg = Args.text({ name: "conversationId" }).pipe(
+  Args.withDescription("Conversation ID"),
+);
+
+const leaveConversation = Command.make(
+  "leave",
+  { conversationId: conversationIdArg },
+  ({ conversationId }) =>
+    wrap(request("conversations/leave", { conversationId }), () => {
       console.log(`Left conversation ${conversationId}.`);
     }),
-  );
+).pipe(Command.withDescription("Leave a conversation"));
 
-conversationsCommand
-  .command("mute")
-  .description("Mute a conversation")
-  .argument("<conversationId>", "Conversation ID")
-  .option("--until <datetime>", "Mute until ISO datetime")
-  .action(
-    action(async (conversationId: string, opts: { until?: string }) => {
-      const params: Record<string, string> = { conversationId };
-      if (opts.until) params.until = opts.until;
-      await request("conversations/mute", params);
+const untilOption = Options.text("until").pipe(
+  Options.withDescription("Mute until ISO datetime"),
+  Options.optional,
+);
+
+const muteConversation = Command.make(
+  "mute",
+  { conversationId: conversationIdArg, until: untilOption },
+  ({ conversationId, until }) => {
+    const params: Record<string, string> = { conversationId };
+    if (Option.isSome(until)) params.until = until.value;
+    return wrap(request("conversations/mute", params), () => {
       console.log(
-        opts.until
-          ? `Conversation ${conversationId} muted until ${opts.until}.`
+        Option.isSome(until)
+          ? `Conversation ${conversationId} muted until ${until.value}.`
           : `Conversation ${conversationId} muted.`,
       );
-    }),
-  );
+    });
+  },
+).pipe(Command.withDescription("Mute a conversation"));
 
-conversationsCommand
-  .command("unmute")
-  .description("Unmute a conversation")
-  .argument("<conversationId>", "Conversation ID")
-  .action(
-    action(async (conversationId: string) => {
-      await request("conversations/unmute", { conversationId });
+const unmuteConversation = Command.make(
+  "unmute",
+  { conversationId: conversationIdArg },
+  ({ conversationId }) =>
+    wrap(request("conversations/unmute", { conversationId }), () => {
       console.log(`Conversation ${conversationId} unmuted.`);
     }),
-  );
+).pipe(Command.withDescription("Unmute a conversation"));
 
-conversationsCommand
-  .command("update")
-  .description("Update conversation settings")
-  .argument("<conversationId>", "Conversation ID")
-  .requiredOption("--name <name>", "New conversation name")
-  .action(
-    action(async (conversationId: string, opts: { name: string }) => {
-      const result = (await request("conversations/update", {
+const nameOption = Options.text("name").pipe(
+  Options.withDescription("New conversation name"),
+);
+
+const updateConversation = Command.make(
+  "update",
+  { conversationId: conversationIdArg, name: nameOption },
+  ({ conversationId, name }) =>
+    wrap(
+      request("conversations/update", {
         conversationId,
-        name: opts.name,
-      })) as { conversation: { id: string; name: string } };
-      console.log(
-        `Conversation updated: ${result.conversation.id} (name: ${result.conversation.name})`,
-      );
-    }),
-  );
+        name,
+      }) as Effect.Effect<
+        { conversation: { id: string; name: string } },
+        Error
+      >,
+      (r) => {
+        console.log(
+          `Conversation updated: ${r.conversation.id} (name: ${r.conversation.name})`,
+        );
+      },
+    ),
+).pipe(Command.withDescription("Update conversation settings"));
 
-conversationsCommand
-  .command("add-participant")
-  .description("Add a participant to a conversation")
-  .argument("<conversationId>", "Conversation ID")
-  .argument("<participant>", "Participant (e.g. agent:bob)")
-  .action(
-    action(async (conversationId: string, participant: string) => {
-      const ref = await resolveParticipant(participant);
-      await request("conversations/addParticipant", {
+const addParticipantCommand = Command.make(
+  "add-participant",
+  { conversationId: conversationIdArg, participant: participantArg },
+  ({ conversationId, participant }) =>
+    Effect.gen(function* () {
+      const ref = yield* resolveParticipant(participant);
+      yield* request("conversations/addParticipant", {
         conversationId,
         participant: ref,
       });
       console.log(`Added ${participant} to ${conversationId}.`);
-    }),
-  );
+    }).pipe(
+      Effect.catchAll((err) =>
+        Effect.sync(() => {
+          console.error(`Failed: ${err.message}`);
+          process.exit(1);
+        }),
+      ),
+    ),
+).pipe(Command.withDescription("Add a participant to a conversation"));
 
-conversationsCommand
-  .command("remove-participant")
-  .description("Remove a participant from a conversation")
-  .argument("<conversationId>", "Conversation ID")
-  .argument("<participant>", "Participant (e.g. agent:bob)")
-  .action(
-    action(async (conversationId: string, participant: string) => {
-      const ref = await resolveParticipant(participant);
-      await request("conversations/removeParticipant", {
+const removeParticipantCommand = Command.make(
+  "remove-participant",
+  { conversationId: conversationIdArg, participant: participantArg },
+  ({ conversationId, participant }) =>
+    Effect.gen(function* () {
+      const ref = yield* resolveParticipant(participant);
+      yield* request("conversations/removeParticipant", {
         conversationId,
         participant: ref,
       });
       console.log(`Removed ${participant} from ${conversationId}.`);
-    }),
-  );
+    }).pipe(
+      Effect.catchAll((err) =>
+        Effect.sync(() => {
+          console.error(`Failed: ${err.message}`);
+          process.exit(1);
+        }),
+      ),
+    ),
+).pipe(Command.withDescription("Remove a participant from a conversation"));
 
 interface HistoryMessage {
   seq: number;
@@ -158,22 +225,30 @@ interface HistoryMessage {
   isNew: boolean;
 }
 
-async function showHistory(
-  conversationId: string,
-  opts: { limit: string; json?: boolean; sessionKey?: string },
-): Promise<void> {
-  const result = (await request("history", {
-    conversationId,
-    limit: parseInt(opts.limit, 10),
-    sessionKey: opts.sessionKey,
-  })) as {
-    messages: HistoryMessage[];
-    hasMore: boolean;
-    conversationMeta?: { type: string; name?: string };
-    newCount: number;
-  };
+interface HistoryResult {
+  messages: HistoryMessage[];
+  hasMore: boolean;
+  conversationMeta?: { type: string; name?: string };
+  newCount: number;
+}
 
-  if (opts.json) {
+const historyLimitOption = Options.integer("limit").pipe(
+  Options.withDefault(50),
+  Options.withDescription("Max messages to show"),
+);
+
+const sessionKeyOption = Options.text("session-key").pipe(
+  Options.withDescription("Session key for cross-conversation context"),
+  Options.optional,
+);
+
+const renderHistory = (
+  conversationId: string,
+  sessionKey: Option.Option<string>,
+  result: HistoryResult,
+  json: boolean,
+): void => {
+  if (json) {
     console.log(JSON.stringify(result, null, 2));
     return;
   }
@@ -181,15 +256,13 @@ async function showHistory(
     console.log("No messages.");
     return;
   }
-
-  if (opts.sessionKey && result.conversationMeta) {
+  if (Option.isSome(sessionKey) && result.conversationMeta) {
     const label = result.conversationMeta.name ?? result.conversationMeta.type;
     console.log(
       `Conversation: ${label} (${conversationId}) | ${result.newCount} new`,
     );
     console.log("");
   }
-
   for (const m of result.messages) {
     const ago = Math.max(
       0,
@@ -198,25 +271,73 @@ async function showHistory(
     const newMarker = m.isNew ? " *" : "";
     console.log(`  [${ago}m ago] ${m.senderName}: ${m.text}${newMarker}`);
   }
-
   if (result.hasMore) {
     console.log("  ... more messages available");
   }
-}
+};
 
-conversationsCommand
-  .command("history")
-  .description("Show message history for a conversation")
-  .argument("<conversationId>", "Conversation ID")
-  .option("--limit <n>", "Max messages to show", "50")
-  .option("--json", "Output as JSON")
-  .option("--session-key <key>", "Session key for cross-conversation context")
-  .action(action(showHistory));
+const historyHandler = ({
+  conversationId,
+  limit,
+  json,
+  sessionKey,
+}: {
+  conversationId: string;
+  limit: number;
+  json: boolean;
+  sessionKey: Option.Option<string>;
+}): Effect.Effect<void> => {
+  const params: Record<string, unknown> = { conversationId, limit };
+  if (Option.isSome(sessionKey)) params.sessionKey = sessionKey.value;
+  return wrap(
+    request("history", params) as Effect.Effect<HistoryResult, Error>,
+    (result) => {
+      renderHistory(conversationId, sessionKey, result, json);
+    },
+  );
+};
 
-export const historyCommand = new Command("history")
-  .description("Show message history for a conversation")
-  .argument("<conversationId>", "Conversation ID")
-  .option("--limit <n>", "Max messages to show", "50")
-  .option("--json", "Output as JSON")
-  .option("--session-key <key>", "Session key for cross-conversation context")
-  .action(action(showHistory));
+const historySubcommand = Command.make(
+  "history",
+  {
+    conversationId: conversationIdArg,
+    limit: historyLimitOption,
+    json: jsonOption,
+    sessionKey: sessionKeyOption,
+  },
+  historyHandler,
+).pipe(Command.withDescription("Show message history for a conversation"));
+
+/**
+ * `moltzap conversations [list|create|leave|mute|unmute|update|add-participant|remove-participant|history]`
+ * — conversation CRUD + inspection over the local Unix socket. Default (no
+ * subcommand) lists.
+ */
+export const conversationsCommand = Command.make("conversations", {}, () =>
+  listConversations.handler({ limit: 20, json: false }),
+).pipe(
+  Command.withDescription("Manage conversations"),
+  Command.withSubcommands([
+    listConversations,
+    createConversation,
+    leaveConversation,
+    muteConversation,
+    unmuteConversation,
+    updateConversation,
+    addParticipantCommand,
+    removeParticipantCommand,
+    historySubcommand,
+  ]),
+);
+
+/** Top-level `moltzap history <conversationId>` — identical to `conversations history`. */
+export const historyCommand = Command.make(
+  "history",
+  {
+    conversationId: conversationIdArg,
+    limit: historyLimitOption,
+    json: jsonOption,
+    sessionKey: sessionKeyOption,
+  },
+  historyHandler,
+).pipe(Command.withDescription("Show message history for a conversation"));
