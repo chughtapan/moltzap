@@ -42,6 +42,20 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+/**
+ * True iff `stored` contains every access string in `required`. Missing or
+ * empty `stored` always fails. Used both for existing-grant coverage checks
+ * and post-handler validation of a fresh permission response.
+ */
+function grantsAllRequiredAccess(
+  stored: readonly string[] | null | undefined,
+  required: readonly string[],
+): boolean {
+  if (!stored) return false;
+  const storedSet = new Set(stored);
+  return required.every((a) => storedSet.has(a));
+}
+
 /** Compare two semver strings. Returns <0 if a<b, 0 if equal, >0 if a>b. */
 function compareSemver(a: string, b: string): number {
   const pa = a.split(".").map(Number);
@@ -103,6 +117,29 @@ class SkillAttestationError extends Data.TaggedError("SkillAttestation")<{
   get message(): string {
     return this.reason;
   }
+}
+
+type RejectionStage = "user" | "identity" | "capability" | "permission";
+type RejectionCode =
+  | "UserInvalid"
+  | "UserValidationFailed"
+  | "AgentNotFound"
+  | "AgentNoOwner"
+  | "NotInContacts"
+  | "ContactCheckFailed"
+  | "AttestationTimeout"
+  | "SkillMismatch"
+  | "SkillVersionTooOld"
+  | "PermissionDenied"
+  | "PermissionTimeout"
+  | "PermissionHandlerError"
+  | "NoPermissionHandler";
+
+interface RejectionInfo {
+  readonly stage: RejectionStage;
+  readonly reason: string;
+  readonly code: RejectionCode;
+  readonly suggestedAction?: string;
 }
 
 interface PendingChallenge {
@@ -1301,14 +1338,11 @@ export class AppHost {
     return Effect.gen(this, function* () {
       const agent = agentMap.get(agentId);
       if (!agent) {
-        yield* this.rejectAgent(
-          session.id,
-          agentId,
-          "identity",
-          "Agent not found",
-          undefined,
-          "AgentNotFound",
-        );
+        yield* this.rejectAgent(session.id, agentId, {
+          stage: "identity",
+          reason: "Agent not found",
+          code: "AgentNotFound",
+        });
         return yield* Effect.fail(
           new RpcFailure({
             code: ErrorCodes.AgentNotFound,
@@ -1322,11 +1356,11 @@ export class AppHost {
       // don't send duplicate rejection events.
       let rejected = false;
       const guardedReject = (
-        ...args: Parameters<typeof this.rejectAgent>
+        info: RejectionInfo,
       ): Effect.Effect<void, RpcFailure> => {
         if (rejected) return Effect.void;
         rejected = true;
-        return this.rejectAgent(...args);
+        return this.rejectAgent(session.id, agentId, info);
       };
 
       // Run independent checks concurrently. `mode: "either"` collects every
@@ -1364,14 +1398,11 @@ export class AppHost {
               userService.validateUser(userId),
             );
             if (!valid) {
-              yield* guardedReject(
-                session.id,
-                agentId,
-                "user",
-                "User validation failed",
-                undefined,
-                "UserInvalid",
-              );
+              yield* guardedReject({
+                stage: "user",
+                reason: "User validation failed",
+                code: "UserInvalid",
+              });
               return yield* Effect.fail(forbidden("User validation failed"));
             }
           }),
@@ -1413,28 +1444,24 @@ export class AppHost {
       string,
       { id: string; owner_user_id: string | null; status: string }
     >,
-    reject?: (
-      ...args: Parameters<typeof this.rejectAgent>
-    ) => Effect.Effect<void, RpcFailure>,
+    reject?: (info: RejectionInfo) => Effect.Effect<void, RpcFailure>,
   ): Effect.Effect<void, RpcFailure> {
     return Effect.gen(this, function* () {
       const doReject =
         reject ??
-        ((...args: Parameters<typeof this.rejectAgent>) =>
-          this.rejectAgent(...args));
+        ((info: RejectionInfo) => this.rejectAgent(session.id, agentId, info));
 
       const agent = agentMap.get(agentId)!;
       const initiator = agentMap.get(initiatorAgentId)!;
 
       if (!agent.owner_user_id) {
-        yield* doReject(
-          session.id,
-          agentId,
-          "identity",
-          "Agent has no owner_user_id",
-          "Set owner_user_id on the agent before inviting it to app sessions",
-          "AgentNoOwner",
-        );
+        yield* doReject({
+          stage: "identity",
+          reason: "Agent has no owner_user_id",
+          suggestedAction:
+            "Set owner_user_id on the agent before inviting it to app sessions",
+          code: "AgentNoOwner",
+        });
         return yield* Effect.fail(
           new RpcFailure({
             code: ErrorCodes.AgentNoOwner,
@@ -1451,14 +1478,12 @@ export class AppHost {
       );
 
       if (!inContact) {
-        yield* doReject(
-          session.id,
-          agentId,
-          "identity",
-          "Agent owner is not a contact of the session initiator's owner",
-          undefined,
-          "NotInContacts",
-        );
+        yield* doReject({
+          stage: "identity",
+          reason:
+            "Agent owner is not a contact of the session initiator's owner",
+          code: "NotInContacts",
+        });
         return yield* Effect.fail(forbidden("Not in contacts"));
       }
     });
@@ -1468,15 +1493,12 @@ export class AppHost {
     session: AppSession,
     agentId: string,
     manifest: AppManifest,
-    reject?: (
-      ...args: Parameters<typeof this.rejectAgent>
-    ) => Effect.Effect<void, RpcFailure>,
+    reject?: (info: RejectionInfo) => Effect.Effect<void, RpcFailure>,
   ): Effect.Effect<void, RpcFailure> {
     return Effect.gen(this, function* () {
       const doReject =
         reject ??
-        ((...args: Parameters<typeof this.rejectAgent>) =>
-          this.rejectAgent(...args));
+        ((info: RejectionInfo) => this.rejectAgent(session.id, agentId, info));
 
       const challengeId = crypto.randomUUID();
       const timeoutMs = manifest.challengeTimeoutMs ?? 30000;
@@ -1527,32 +1549,29 @@ export class AppHost {
       if (attestation._tag === "Left") {
         const err = attestation.left;
         const isTimeout = err._tag === "AttestationTimeout";
-        const code = isTimeout ? "AttestationTimeout" : "SkillMismatch";
+        const code: RejectionCode = isTimeout
+          ? "AttestationTimeout"
+          : "SkillMismatch";
         const reason = isTimeout
           ? "Skill attestation timed out"
           : `Skill attestation failed: ${err.message}`;
-        yield* doReject(
-          session.id,
-          agentId,
-          "capability",
+        yield* doReject({
+          stage: "capability",
           reason,
-          `Install the skill from ${manifest.skillUrl} and ensure version >= ${manifest.skillMinVersion ?? "any"}`,
+          suggestedAction: `Install the skill from ${manifest.skillUrl} and ensure version >= ${manifest.skillMinVersion ?? "any"}`,
           code,
-        );
+        });
         return yield* Effect.fail(forbidden(reason));
       }
 
       const result = attestation.right;
 
       if (result.skillUrl !== manifest.skillUrl) {
-        yield* doReject(
-          session.id,
-          agentId,
-          "capability",
-          `Skill URL mismatch: expected ${manifest.skillUrl}, got ${result.skillUrl}`,
-          undefined,
-          "SkillMismatch",
-        );
+        yield* doReject({
+          stage: "capability",
+          reason: `Skill URL mismatch: expected ${manifest.skillUrl}, got ${result.skillUrl}`,
+          code: "SkillMismatch",
+        });
         return yield* Effect.fail(forbidden("Skill mismatch"));
       }
 
@@ -1560,14 +1579,11 @@ export class AppHost {
         manifest.skillMinVersion &&
         compareSemver(result.version, manifest.skillMinVersion) < 0
       ) {
-        yield* doReject(
-          session.id,
-          agentId,
-          "capability",
-          `Skill version ${result.version} below minimum ${manifest.skillMinVersion}`,
-          undefined,
-          "SkillVersionTooOld",
-        );
+        yield* doReject({
+          stage: "capability",
+          reason: `Skill version ${result.version} below minimum ${manifest.skillMinVersion}`,
+          code: "SkillVersionTooOld",
+        });
         return yield* Effect.fail(forbidden("Skill version too low"));
       }
     });
@@ -1632,170 +1648,204 @@ export class AppHost {
           }
         }
 
+        // Split required perms by whether the existing grant already
+        // covers them. Covered perms skip the permission RPC entirely;
+        // the rest run in parallel so admission isn't serialized on the
+        // slowest permission handler.
+        const needsRequest: typeof manifest.permissions.required = [];
         for (const perm of manifest.permissions.required) {
-          const storedAccess = existingGrants.get(perm.resource);
-          const storedSet = storedAccess ? new Set(storedAccess) : null;
-          const covers =
-            storedSet && perm.access.every((a) => storedSet.has(a));
-
-          if (covers) {
+          if (
+            grantsAllRequiredAccess(
+              existingGrants.get(perm.resource),
+              perm.access,
+            )
+          ) {
             granted.push(perm.resource);
-            continue;
+          } else {
+            needsRequest.push(perm);
           }
+        }
 
-          if (!this.permissionService) {
-            yield* this.rejectAgent(
-              session.id,
-              agentId,
-              "permission",
-              `No permission handler configured for resource: ${perm.resource}`,
+        if (needsRequest.length > 0 && !this.permissionService) {
+          const firstResource = needsRequest[0]!.resource;
+          yield* this.rejectAgent(session.id, agentId, {
+            stage: "permission",
+            reason: `No permission handler configured for resource: ${firstResource}`,
+            suggestedAction:
               "Server must configure a PermissionService to process permission requests",
-              "NoPermissionHandler",
-            );
-            return yield* Effect.fail(forbidden("No permission handler"));
-          }
+            code: "NoPermissionHandler",
+          });
+          return yield* Effect.fail(forbidden("No permission handler"));
+        }
 
-          // Coalescing: same userId+appId+resource reuses in-flight request.
-          // Race-safe via `coalesce`'s atomic Ref.modify test-and-insert.
-          const coalesceKey = `${ownerUserId}:${session.appId}:${perm.resource}`;
-          yield* Effect.logInfo("Requesting permission from handler").pipe(
-            Effect.annotateLogs({
-              sessionId: session.id,
-              appId: session.appId,
-              resource: perm.resource,
+        const permissionService = this.permissionService;
+        const requested = yield* Effect.forEach(
+          needsRequest,
+          (perm) =>
+            // Coalescing: same userId+appId+resource reuses in-flight request.
+            // Race-safe via `coalesce`'s atomic Ref.modify test-and-insert.
+            this.requestAndStorePermission(
+              permissionService!,
+              session,
               agentId,
-            }),
-          );
-
-          const exit = yield* Effect.exit(
-            coalesce(
-              this.inflightPermissions,
-              coalesceKey,
-              this.permissionService.requestPermission({
-                userId: ownerUserId,
-                agentId,
-                sessionId: session.id,
-                appId: session.appId,
-                resource: perm.resource,
-                access: perm.access,
-                timeoutMs: manifest.permissionTimeoutMs ?? 120000,
-              }),
+              ownerUserId,
+              perm,
+              manifest.permissionTimeoutMs ?? 120000,
             ),
-          );
-
-          if (Exit.isFailure(exit)) {
-            const failure = Cause.failureOption(exit.cause);
-            const err = failure._tag === "Some" ? failure.value : null;
-
-            if (
-              err instanceof PermissionDeniedError ||
-              err instanceof PermissionTimeoutError
-            ) {
-              const code =
-                err instanceof PermissionTimeoutError
-                  ? "PermissionTimeout"
-                  : "PermissionDenied";
-              yield* Effect.logWarning("Permission request failed").pipe(
-                Effect.annotateLogs({
-                  err: err.message,
-                  sessionId: session.id,
-                  resource: perm.resource,
-                }),
-              );
-              yield* this.rejectAgent(
-                session.id,
-                agentId,
-                "permission",
-                err.message,
-                `Grant ${perm.resource} access via the permission prompt`,
-                code,
-              );
-              return yield* Effect.fail(forbidden(err.message));
-            }
-
-            // Unknown failure or defect
-            yield* Effect.logError("Permission handler error").pipe(
-              Effect.annotateLogs({
-                cause: Cause.pretty(exit.cause),
-                sessionId: session.id,
-                resource: perm.resource,
-              }),
-            );
-            yield* this.rejectAgent(
-              session.id,
-              agentId,
-              "permission",
-              `Permission handler error for resource: ${perm.resource}`,
-              `Grant ${perm.resource} access via the permission prompt`,
-              "PermissionHandlerError",
-            );
-            return yield* Effect.fail(
-              forbidden(`Permission denied for resource: ${perm.resource}`),
-            );
-          }
-
-          const access = exit.value;
-
-          yield* Effect.logInfo("Permission handler responded").pipe(
-            Effect.annotateLogs({
-              sessionId: session.id,
-              resource: perm.resource,
-              access,
-            }),
-          );
-
-          // Post-handler validation: returned access must cover required access
-          const returnedSet = new Set(access);
-          const accessCovers = perm.access.every((a) => returnedSet.has(a));
-          if (!accessCovers) {
-            yield* Effect.logWarning("Permission request failed").pipe(
-              Effect.annotateLogs({
-                sessionId: session.id,
-                resource: perm.resource,
-              }),
-            );
-            yield* this.rejectAgent(
-              session.id,
-              agentId,
-              "permission",
-              `Permission denied for resource: ${perm.resource}`,
-              `Grant ${perm.resource} access via the permission prompt`,
-              "PermissionDenied",
-            );
-            return yield* Effect.fail(
-              forbidden(`Permission denied for resource: ${perm.resource}`),
-            );
-          }
-
-          // Store the grant
-          yield* this.db
-            .insertInto("app_permission_grants")
-            .values({
-              user_id: ownerUserId,
-              app_id: session.appId,
-              resource: perm.resource,
-              access,
-            })
-            .onConflict((oc) =>
-              oc
-                .columns(["user_id", "app_id", "resource"])
-                .doUpdateSet({ access }),
-            );
-
-          granted.push(perm.resource);
+          { concurrency: "unbounded" },
+        );
+        for (const resource of requested) {
+          granted.push(resource);
         }
 
         for (const perm of manifest.permissions.optional) {
-          const storedAccess = existingGrants.get(perm.resource);
-          const covers =
-            storedAccess &&
-            perm.access.every((a) => new Set(storedAccess).has(a));
-          if (covers) {
+          if (
+            grantsAllRequiredAccess(
+              existingGrants.get(perm.resource),
+              perm.access,
+            )
+          ) {
             granted.push(perm.resource);
           }
         }
 
         return granted;
+      }),
+    );
+  }
+
+  /**
+   * Issue a permission request for one resource, validate the response
+   * covers the required access, and persist the grant. Emits rejection
+   * and fails with `forbidden` on denial / timeout / handler error.
+   * Coalesced per (userId, appId, resource) so concurrent admissions
+   * for the same grant share one RPC.
+   */
+  private requestAndStorePermission(
+    permissionService: PermissionService,
+    session: AppSession,
+    agentId: string,
+    ownerUserId: string,
+    perm: { resource: string; access: string[] },
+    timeoutMs: number,
+  ): Effect.Effect<string, RpcFailure> {
+    return catchSqlErrorAsDefect(
+      Effect.gen(this, function* () {
+        const coalesceKey = `${ownerUserId}:${session.appId}:${perm.resource}`;
+        yield* Effect.logInfo("Requesting permission from handler").pipe(
+          Effect.annotateLogs({
+            sessionId: session.id,
+            appId: session.appId,
+            resource: perm.resource,
+            agentId,
+          }),
+        );
+
+        const exit = yield* Effect.exit(
+          coalesce(
+            this.inflightPermissions,
+            coalesceKey,
+            permissionService.requestPermission({
+              userId: ownerUserId,
+              agentId,
+              sessionId: session.id,
+              appId: session.appId,
+              resource: perm.resource,
+              access: perm.access,
+              timeoutMs,
+            }),
+          ),
+        );
+
+        if (Exit.isFailure(exit)) {
+          const failure = Cause.failureOption(exit.cause);
+          const err = failure._tag === "Some" ? failure.value : null;
+
+          if (
+            err instanceof PermissionDeniedError ||
+            err instanceof PermissionTimeoutError
+          ) {
+            const code: RejectionCode =
+              err instanceof PermissionTimeoutError
+                ? "PermissionTimeout"
+                : "PermissionDenied";
+            yield* Effect.logWarning("Permission request failed").pipe(
+              Effect.annotateLogs({
+                err: err.message,
+                sessionId: session.id,
+                resource: perm.resource,
+              }),
+            );
+            yield* this.rejectAgent(session.id, agentId, {
+              stage: "permission",
+              reason: err.message,
+              suggestedAction: `Grant ${perm.resource} access via the permission prompt`,
+              code,
+            });
+            return yield* Effect.fail(forbidden(err.message));
+          }
+
+          yield* Effect.logError("Permission handler error").pipe(
+            Effect.annotateLogs({
+              cause: Cause.pretty(exit.cause),
+              sessionId: session.id,
+              resource: perm.resource,
+            }),
+          );
+          yield* this.rejectAgent(session.id, agentId, {
+            stage: "permission",
+            reason: `Permission handler error for resource: ${perm.resource}`,
+            suggestedAction: `Grant ${perm.resource} access via the permission prompt`,
+            code: "PermissionHandlerError",
+          });
+          return yield* Effect.fail(
+            forbidden(`Permission denied for resource: ${perm.resource}`),
+          );
+        }
+
+        const access = exit.value;
+
+        yield* Effect.logInfo("Permission handler responded").pipe(
+          Effect.annotateLogs({
+            sessionId: session.id,
+            resource: perm.resource,
+            access,
+          }),
+        );
+
+        if (!grantsAllRequiredAccess(access, perm.access)) {
+          yield* Effect.logWarning("Permission request failed").pipe(
+            Effect.annotateLogs({
+              sessionId: session.id,
+              resource: perm.resource,
+            }),
+          );
+          yield* this.rejectAgent(session.id, agentId, {
+            stage: "permission",
+            reason: `Permission denied for resource: ${perm.resource}`,
+            suggestedAction: `Grant ${perm.resource} access via the permission prompt`,
+            code: "PermissionDenied",
+          });
+          return yield* Effect.fail(
+            forbidden(`Permission denied for resource: ${perm.resource}`),
+          );
+        }
+
+        yield* this.db
+          .insertInto("app_permission_grants")
+          .values({
+            user_id: ownerUserId,
+            app_id: session.appId,
+            resource: perm.resource,
+            access,
+          })
+          .onConflict((oc) =>
+            oc
+              .columns(["user_id", "app_id", "resource"])
+              .doUpdateSet({ access }),
+          );
+
+        return perm.resource;
       }),
     );
   }
@@ -1922,24 +1972,9 @@ export class AppHost {
   private rejectAgent(
     sessionId: string,
     agentId: string,
-    stage: "user" | "identity" | "capability" | "permission",
-    reason: string,
-    suggestedAction: string | undefined,
-    rejectionCode:
-      | "UserInvalid"
-      | "UserValidationFailed"
-      | "AgentNotFound"
-      | "AgentNoOwner"
-      | "NotInContacts"
-      | "ContactCheckFailed"
-      | "AttestationTimeout"
-      | "SkillMismatch"
-      | "SkillVersionTooOld"
-      | "PermissionDenied"
-      | "PermissionTimeout"
-      | "PermissionHandlerError"
-      | "NoPermissionHandler",
+    info: RejectionInfo,
   ): Effect.Effect<void, RpcFailure> {
+    const { stage, reason, code, suggestedAction } = info;
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         yield* this.db
@@ -1956,7 +1991,7 @@ export class AppHost {
             reason,
             stage,
             suggestedAction,
-            rejectionCode,
+            rejectionCode: code,
           }),
         );
 
@@ -1966,7 +2001,7 @@ export class AppHost {
             agentId,
             stage,
             reason,
-            rejectionCode,
+            rejectionCode: code,
           }),
         );
       }),

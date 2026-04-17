@@ -14,7 +14,7 @@ import type {
   AppParticipantRejectedEvent,
 } from "@moltzap/protocol";
 import { EventNames } from "@moltzap/protocol";
-import { Effect } from "effect";
+import { Effect, Fiber } from "effect";
 import { AppSessionHandle } from "./session.js";
 import { HeartbeatManager } from "./heartbeat.js";
 import {
@@ -77,6 +77,11 @@ export class MoltZapApp {
     event: AppParticipantRejectedEvent,
   ) => void)[] = [];
   private errorHandler: ((error: AppError) => void) | null = null;
+
+  /** Forked handler/recovery fibers; interrupted on stop(). */
+  private backgroundFibers = new Set<Fiber.RuntimeFiber<unknown, unknown>>();
+  /** Session IDs currently being recovered after reconnect; prevents duplicate recovery fibers on flapping networks. */
+  private recoveringSessions = new Set<string>();
 
   private started = false;
 
@@ -171,7 +176,7 @@ export class MoltZapApp {
         self.heartbeatIntervalMs,
         (err) => {
           self.logger.warn("Heartbeat ping failed:", err.message);
-          Effect.runFork(self.client.disconnect());
+          self.trackFork(self.client.disconnect());
         },
       );
 
@@ -190,6 +195,13 @@ export class MoltZapApp {
     return Effect.gen(function* () {
       self.heartbeat.destroy();
 
+      const pending = [...self.backgroundFibers];
+      self.backgroundFibers.clear();
+      self.recoveringSessions.clear();
+      if (pending.length > 0) {
+        yield* Fiber.interruptAll(pending);
+      }
+
       for (const session of self.sessions.values()) {
         if (session.isActive) {
           yield* self.client
@@ -203,6 +215,23 @@ export class MoltZapApp {
       self.firedSessionReady.clear();
       yield* self.client.close();
       self.started = false;
+    });
+  }
+
+  /**
+   * Fork a background Effect and track the fiber so stop() can interrupt it.
+   * Used for user-handler dispatch, skill-challenge attestation, and post-reconnect
+   * session recovery, all of which must not outlive the app.
+   */
+  private trackFork<E>(effect: Effect.Effect<void, E>): void {
+    const fibers = this.backgroundFibers;
+    const fiber = Effect.runFork(effect) as Fiber.RuntimeFiber<
+      unknown,
+      unknown
+    >;
+    fibers.add(fiber);
+    fiber.addObserver(() => {
+      fibers.delete(fiber);
     });
   }
 
@@ -443,7 +472,7 @@ export class MoltZapApp {
     const skillUrl = this.manifest.skillUrl;
 
     if (skillUrl) {
-      Effect.runFork(
+      this.trackFork(
         this.client
           .sendRpc("apps/attestSkill", {
             challengeId: data.challengeId,
@@ -451,6 +480,7 @@ export class MoltZapApp {
             version: this.manifest.skillMinVersion ?? "0.0.0",
           })
           .pipe(
+            Effect.asVoid,
             Effect.catchAll((err) =>
               Effect.sync(() => {
                 this.emitError(
@@ -472,7 +502,7 @@ export class MoltZapApp {
 
     if (key && this.messageHandlers.has(key)) {
       const handler = this.messageHandlers.get(key)!;
-      Effect.runFork(
+      this.trackFork(
         this.runUserHandler(() => handler(message), {
           code: "HANDLER_ERROR",
           message: `Message handler for "${key}" threw`,
@@ -482,7 +512,7 @@ export class MoltZapApp {
 
     if (this.messageHandlers.has("*")) {
       const handler = this.messageHandlers.get("*")!;
-      Effect.runFork(
+      this.trackFork(
         this.runUserHandler(() => handler(message), {
           code: "HANDLER_ERROR",
           message: "Catch-all message handler threw",
@@ -540,7 +570,7 @@ export class MoltZapApp {
     this.firedSessionReady.add(handle.id);
 
     for (const handler of this.sessionReadyHandlers) {
-      Effect.runFork(
+      this.trackFork(
         this.runUserHandler(() => handler(handle), {
           code: "HANDLER_ERROR",
           message: "Session ready handler threw",
@@ -558,7 +588,9 @@ export class MoltZapApp {
     this.logger.info("Reconnected to server");
 
     for (const session of this.sessions.values()) {
-      Effect.runFork(this.recoverSessionOnReconnect(session));
+      if (this.recoveringSessions.has(session.id)) continue;
+      this.recoveringSessions.add(session.id);
+      this.trackFork(this.recoverSessionOnReconnect(session));
     }
 
     this.heartbeat.start(
@@ -566,7 +598,7 @@ export class MoltZapApp {
       this.heartbeatIntervalMs,
       (err) => {
         this.logger.warn("Heartbeat ping failed:", err.message);
-        Effect.runFork(this.client.disconnect());
+        this.trackFork(this.client.disconnect());
       },
     );
   }
@@ -612,6 +644,11 @@ export class MoltZapApp {
                 err instanceof Error ? err : undefined,
               ),
             );
+          }),
+        ),
+        Effect.ensuring(
+          Effect.sync(() => {
+            self.recoveringSessions.delete(session.id);
           }),
         ),
       );
