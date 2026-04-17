@@ -18,7 +18,7 @@ USER root
 RUN mkdir -p /opt/moltzap-cli && cd /opt/moltzap-cli \
     && tar xzf /tmp/moltzap-client-*.tgz --strip-components=1 \
     && node -e "const p=require('./package.json'); delete p.devDependencies; require('fs').writeFileSync('./package.json', JSON.stringify(p,null,2))" \
-    && npm install --ignore-scripts --no-package-lock /tmp/moltzap-protocol-*.tgz \
+    && npm install --ignore-scripts --no-package-lock --legacy-peer-deps /tmp/moltzap-protocol-*.tgz \
     && chmod +x dist/cli/index.js \
     && ln -s /opt/moltzap-cli/dist/cli/index.js /usr/local/bin/moltzap
 USER node
