@@ -601,6 +601,9 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     onSessionClose(appId, handler) {
       appHost.onSessionClose(appId, handler);
     },
+    onSessionActive(appId, handler) {
+      appHost.onSessionActive(appId, handler);
+    },
     closeAppSession(sessionId, callerAgentId) {
       return appHost.closeSession(sessionId, callerAgentId);
     },

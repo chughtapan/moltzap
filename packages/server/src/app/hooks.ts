@@ -43,8 +43,21 @@ export interface OnCloseContext {
 
 export type OnCloseHook = (ctx: OnCloseContext) => void | Promise<void>;
 
+export interface OnSessionActiveContext {
+  sessionId: string;
+  appId: string;
+  conversations: Record<string, string>;
+  admittedAgentIds: string[];
+  signal: AbortSignal;
+}
+
+export type OnSessionActiveHook = (
+  ctx: OnSessionActiveContext,
+) => void | Promise<void>;
+
 export interface AppHooks {
   beforeMessageDelivery?: BeforeMessageDeliveryHook;
   onJoin?: OnJoinHook;
   onClose?: OnCloseHook;
+  onSessionActive?: OnSessionActiveHook;
 }
