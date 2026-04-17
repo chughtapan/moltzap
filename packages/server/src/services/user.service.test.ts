@@ -49,6 +49,7 @@ describe("WebhookUserService", () => {
         }) => Effect.Effect<unknown, unknown>
       >();
     const client = makeFakeWebhookClient({
+      // #ignore-sloppy-code-next-line[as-unknown-as]: vi.fn's call signature is non-generic; WebhookClient.call is generic over the result. Structural shape enforced by makeFakeWebhookClient's Pick<> constraint.
       call: call as unknown as WebhookClient["call"],
     });
     const svc = new WebhookUserService(

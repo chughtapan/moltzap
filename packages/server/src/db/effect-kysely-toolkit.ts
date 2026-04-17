@@ -173,7 +173,7 @@ export const rawQuery = <A extends object, DB>(
     // #ignore-sloppy-code-next-line[async-keyword]: Effect.tryPromise try closure wrapping Kysely .execute()
     try: async () => {
       const result = await query.execute(db as Kysely<DB>);
-      return result.rows as unknown as ReadonlyArray<A>;
+      return result.rows;
     },
     catch: (cause) =>
       cause instanceof SqlError

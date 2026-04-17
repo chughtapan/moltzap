@@ -51,8 +51,8 @@ export function getLogger(): Logger {
  */
 export const logger: Logger = new Proxy({} as Logger, {
   get(_target, prop) {
-    const target = getLogger() as unknown as Record<string | symbol, unknown>;
-    const value = target[prop];
+    const target = getLogger();
+    const value = Reflect.get(target, prop);
     return typeof value === "function"
       ? (value as (...args: unknown[]) => unknown).bind(target)
       : value;

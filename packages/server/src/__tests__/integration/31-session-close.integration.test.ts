@@ -1,6 +1,6 @@
 import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { it } from "@effect/vitest";
-import { Effect, Either } from "effect";
+import { Effect } from "effect";
 import {
   startTestServer,
   stopTestServer,
@@ -11,6 +11,7 @@ import {
 import type { CoreApp } from "../../app/types.js";
 import { ErrorCodes } from "@moltzap/protocol";
 import type { ConnectedAgent } from "../../test-utils/helpers.js";
+import { expectRpcFailure } from "../../test-utils/index.js";
 
 let coreApp: CoreApp;
 
@@ -88,18 +89,15 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
 
         const convId = session.session.conversations["main"]!;
 
-        // Fail-closed: send rejects with HookBlocked; event still fires so
-        // operators can observe the timeout.
-        const sendResult = yield* Effect.either(
+        // Fail-closed: send rejects with HookBlocked. The app/hookTimeout
+        // event asserted below is what distinguishes timeout from throw.
+        yield* expectRpcFailure(
           agent.client.sendRpc("messages/send", {
             conversationId: convId,
             parts: [{ type: "text", text: "trigger timeout" }],
           }),
+          ErrorCodes.HookBlocked,
         );
-        expect(Either.isLeft(sendResult)).toBe(true);
-        if (Either.isLeft(sendResult)) {
-          expect(sendResult.left.message).toMatch(/timed out/i);
-        }
 
         const timeoutEvent = yield* agent.client.waitForEvent(
           "app/hookTimeout",
@@ -258,19 +256,12 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
           sessionId: session.session.id,
         });
 
-        const result = yield* Effect.either(
+        yield* expectRpcFailure(
           agent.client.sendRpc("apps/closeSession", {
             sessionId: session.session.id,
           }),
+          ErrorCodes.SessionClosed,
         );
-        expect(Either.isLeft(result)).toBe(true);
-        if (Either.isLeft(result)) {
-          const rpcErr = result.left as unknown as {
-            code: number;
-            message: string;
-          };
-          expect(rpcErr.code).toBe(ErrorCodes.SessionClosed);
-        }
       }),
     );
 
@@ -288,19 +279,12 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
           session: { id: string; conversations: Record<string, string> };
         };
 
-        const result = yield* Effect.either(
+        yield* expectRpcFailure(
           stranger.client.sendRpc("apps/closeSession", {
             sessionId: session.session.id,
           }),
+          ErrorCodes.Forbidden,
         );
-        expect(Either.isLeft(result)).toBe(true);
-        if (Either.isLeft(result)) {
-          const rpcErr = result.left as unknown as {
-            code: number;
-            message: string;
-          };
-          expect(rpcErr.code).toBe(ErrorCodes.Forbidden);
-        }
       }),
     );
 
@@ -308,19 +292,12 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
       Effect.gen(function* () {
         const agent = yield* registerAppAgent("close-notfound");
 
-        const result = yield* Effect.either(
+        yield* expectRpcFailure(
           agent.client.sendRpc("apps/closeSession", {
             sessionId: crypto.randomUUID(),
           }),
+          ErrorCodes.SessionNotFound,
         );
-        expect(Either.isLeft(result)).toBe(true);
-        if (Either.isLeft(result)) {
-          const rpcErr = result.left as unknown as {
-            code: number;
-            message: string;
-          };
-          expect(rpcErr.code).toBe(ErrorCodes.SessionNotFound);
-        }
       }),
     );
 
@@ -391,20 +368,13 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
           sessionId: session.session.id,
         });
 
-        const result = yield* Effect.either(
+        yield* expectRpcFailure(
           agent.client.sendRpc("messages/send", {
             conversationId: convId,
             parts: [{ type: "text", text: "should fail" }],
           }),
+          ErrorCodes.ConversationArchived,
         );
-        expect(Either.isLeft(result)).toBe(true);
-        if (Either.isLeft(result)) {
-          const rpcErr = result.left as unknown as {
-            code: number;
-            message: string;
-          };
-          expect(rpcErr.code).toBe(ErrorCodes.ConversationArchived);
-        }
       }),
     );
 
@@ -563,16 +533,12 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
         Effect.gen(function* () {
           const agent = yield* registerAppAgent("get-notfound");
 
-          const result = yield* Effect.either(
+          yield* expectRpcFailure(
             agent.client.sendRpc("apps/getSession", {
               sessionId: crypto.randomUUID(),
             }),
+            ErrorCodes.SessionNotFound,
           );
-          expect(Either.isLeft(result)).toBe(true);
-          if (Either.isLeft(result)) {
-            const rpcErr = result.left as unknown as { code: number };
-            expect(rpcErr.code).toBe(ErrorCodes.SessionNotFound);
-          }
         }),
     );
 
@@ -590,16 +556,12 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
           session: { id: string };
         };
 
-        const result = yield* Effect.either(
+        yield* expectRpcFailure(
           stranger.client.sendRpc("apps/getSession", {
             sessionId: session.session.id,
           }),
+          ErrorCodes.Forbidden,
         );
-        expect(Either.isLeft(result)).toBe(true);
-        if (Either.isLeft(result)) {
-          const rpcErr = result.left as unknown as { code: number };
-          expect(rpcErr.code).toBe(ErrorCodes.Forbidden);
-        }
       }),
     );
   });
