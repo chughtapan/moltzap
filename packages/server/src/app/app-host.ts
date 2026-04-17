@@ -4,6 +4,7 @@ import type { AppSessionStatus, Database } from "../db/database.js";
 import type { Broadcaster } from "../ws/broadcaster.js";
 import type { ConnectionManager } from "../ws/connection.js";
 import type { UserService } from "../services/user.service.js";
+import { UserId } from "./types.js";
 import { logger } from "../logger.js";
 import type { AppManifest, AppSession, Part } from "@moltzap/protocol";
 import { ErrorCodes, EventNames, eventFrame } from "@moltzap/protocol";
@@ -593,7 +594,7 @@ export class AppHost {
         // Validate initiator's user before persisting anything
         if (this.userService) {
           const { valid } = yield* this.userService.validateUser(
-            initiator.owner_user_id,
+            UserId(initiator.owner_user_id),
           );
           if (!valid) {
             return yield* Effect.fail(
@@ -1391,7 +1392,7 @@ export class AppHost {
       // has/set pattern we used previously had a race where both fibers
       // could create separate Deferreds and fire redundant webhooks.
       if (this.userService && agent.owner_user_id) {
-        const userId = agent.owner_user_id;
+        const userId = UserId(agent.owner_user_id);
         const userService = this.userService;
         checks.push(
           Effect.gen(this, function* () {
