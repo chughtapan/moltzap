@@ -22,93 +22,16 @@ export type {
 } from "./schema/frames.js";
 export type { RpcError, ErrorCode } from "./schema/errors.js";
 
-// Auth method types
-export type {
-  ConnectParams,
-  SelectAgentParams,
-  RegisterParams,
-  RegisterResult,
-  InviteAgentParams,
-  HelloOk,
-  OwnedAgent,
-  AgentsLookupParams,
-  AgentsLookupResult,
-  AgentsLookupByNameParams,
-  AgentsLookupByNameResult,
-  AgentsListParams,
-  AgentsListResult,
-} from "./schema/methods/auth.js";
+// Auth shared shapes (not RPC params/results — those come from the manifest).
+export type { HelloOk, OwnedAgent } from "./schema/methods/auth.js";
 
-// Messages method types
-export type {
-  MessagesSendParams,
-  MessagesSendResult,
-  MessagesListParams,
-  MessagesListResult,
-} from "./schema/methods/messages.js";
+// Push preferences schema shape (not an RPC method).
+export type { PushPreferences } from "./schema/methods/push.js";
 
-// Contacts method types
-export type {
-  ContactsListParams,
-  ContactsListResult,
-  ContactsAddParams,
-  ContactsAddResult,
-  ContactsAcceptParams,
-  ContactsAcceptResult,
-  ContactIdParams,
-  ContactsDiscoverParams,
-  ContactsDiscoverResult,
-} from "./schema/methods/contacts.js";
+// Surface shared shape (not an RPC method).
+export type { Surface } from "./schema/surfaces.js";
 
-// Phone contacts method types
-export type {
-  ContactsSyncParams,
-  ContactsSyncResult,
-} from "./schema/methods/phone-contacts.js";
-
-// Conversations method types
-export type {
-  ConversationsCreateParams,
-  ConversationsCreateResult,
-  ConversationsListParams,
-  ConversationsListResult,
-  ConversationsGetParams,
-  ConversationsGetResult,
-  ConversationsUpdateParams,
-  ConversationsMuteParams,
-  ConversationsAddParticipantParams,
-  ConversationsRemoveParticipantParams,
-  ConversationsLeaveParams,
-  ConversationsUnmuteParams,
-} from "./schema/methods/conversations.js";
-
-// Invites method types
-export type { InvitesCreateAgentParams } from "./schema/methods/invites.js";
-
-// Presence method types
-export type {
-  PresenceUpdateParams,
-  PresenceSubscribeParams,
-  PresenceSubscribeResult,
-} from "./schema/methods/presence.js";
-
-// Push method types
-export type {
-  PushRegisterParams,
-  PushUnregisterParams,
-  PushPreferences,
-} from "./schema/methods/push.js";
-
-// Surface types
-export type {
-  SurfaceUpdateParams,
-  SurfaceGetParams,
-  SurfaceActionParams,
-  SurfaceClearParams,
-  Surface,
-} from "./schema/surfaces.js";
-
-// App types
+// App shared shapes.
 export type {
   AppPermission,
   AppManifest,
@@ -117,30 +40,27 @@ export type {
   AppParticipantStatus,
 } from "./schema/apps.js";
 
-// Apps method types
+// Typed event payloads (the `data` field of an `EventFrame` for each event).
 export type {
-  AppsCreateParams,
-  AppsCreateResult,
-  AppsAttestSkillParams,
-  AppsAttestSkillResult,
-  PermissionsGrantParams,
-  PermissionsGrantResult,
-  PermissionsListParams,
-  PermissionsListResult,
-  PermissionsRevokeParams,
-  PermissionsRevokeResult,
-  AppsCloseSessionParams,
-  AppsCloseSessionResult,
-  AppsGetSessionParams,
-  AppsGetSessionResult,
-  AppsRegisterParams,
-  AppsRegisterResult,
-  AppsListSessionsParams,
-  AppsListSessionsResult,
-} from "./schema/methods/apps.js";
+  MessageReceivedEvent,
+  MessageDeliveredEvent,
+  ConversationCreatedEvent,
+  ConversationUpdatedEvent,
+  ContactRequestEvent,
+  ContactAcceptedEvent,
+  PresenceChangedEvent,
+  SurfaceUpdatedEvent,
+  SurfaceClearedEvent,
+  AppSkillChallengeEvent,
+  PermissionsRequiredEvent,
+  AppParticipantAdmittedEvent,
+  AppParticipantRejectedEvent,
+  AppSessionReadyEvent,
+  AppSessionFailedEvent,
+  AppSessionClosedEvent,
+  AppHookTimeoutEvent,
+} from "./schema/events.js";
 
-// System method types
-export type {
-  SystemPingParams,
-  SystemPingResult,
-} from "./schema/methods/system.js";
+// RPC manifest-derived params/results aren't re-exported here; downstream
+// consumers get types from `Static<typeof Manifest.paramsSchema>` /
+// `Static<typeof Manifest.resultSchema>` at the import site.

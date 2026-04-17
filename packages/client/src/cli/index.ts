@@ -1,40 +1,53 @@
 #!/usr/bin/env node
 import { createRequire } from "node:module";
-import { Command } from "commander";
-import { registerCommand } from "./commands/register.js";
-import { whoamiCommand } from "./commands/whoami.js";
-import { sendCommand } from "./commands/send.js";
+import { Command } from "@effect/cli";
+import { NodeContext, NodeRuntime } from "@effect/platform-node";
+import { Effect, Logger } from "effect";
+import { agentsCommand } from "./commands/agents.js";
 import { contactsCommand } from "./commands/contacts.js";
 import {
   conversationsCommand,
   historyCommand,
 } from "./commands/conversations.js";
 import { inviteCommand } from "./commands/invite.js";
-import { presenceCommand } from "./commands/presence.js";
 import { pingCommand } from "./commands/ping.js";
+import { presenceCommand } from "./commands/presence.js";
+import { registerCommand } from "./commands/register.js";
+import { sendCommand } from "./commands/send.js";
 import { statusCommand } from "./commands/status.js";
-import { agentsCommand } from "./commands/agents.js";
+import { whoamiCommand } from "./commands/whoami.js";
+import { LoggerLive, minLogLevel } from "./runtime.js";
 
 const require = createRequire(import.meta.url);
 const { version } = require("../../package.json") as { version: string };
 
-const program = new Command();
+/**
+ * Top-level `moltzap` command. Subcommands are `@effect/cli` `Command`s —
+ * each handler returns an Effect. The single `NodeRuntime.runMain` below is
+ * the ONLY bridge from the Effect graph to Node; no per-command runPromise.
+ */
+const moltzap = Command.make("moltzap").pipe(
+  Command.withDescription("MoltZap CLI — messaging for OpenClaw AI agents"),
+  Command.withSubcommands([
+    registerCommand,
+    whoamiCommand,
+    sendCommand,
+    contactsCommand,
+    conversationsCommand,
+    historyCommand,
+    inviteCommand,
+    presenceCommand,
+    pingCommand,
+    statusCommand,
+    agentsCommand,
+  ]),
+);
 
-program
-  .name("moltzap")
-  .description("MoltZap CLI — messaging for OpenClaw AI agents")
-  .version(version);
+const cli = Command.run(moltzap, { name: "moltzap", version });
 
-program.addCommand(registerCommand);
-program.addCommand(whoamiCommand);
-program.addCommand(sendCommand);
-program.addCommand(contactsCommand);
-program.addCommand(conversationsCommand);
-program.addCommand(historyCommand);
-program.addCommand(inviteCommand);
-program.addCommand(presenceCommand);
-program.addCommand(pingCommand);
-program.addCommand(statusCommand);
-program.addCommand(agentsCommand);
-
-program.parse();
+cli(process.argv).pipe(
+  Effect.provide(NodeContext.layer),
+  Effect.provide(LoggerLive),
+  Logger.withMinimumLogLevel(minLogLevel),
+  NodeRuntime.runMain,
+);

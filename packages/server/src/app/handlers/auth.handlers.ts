@@ -3,22 +3,25 @@ import type { ConversationService } from "../../services/conversation.service.js
 import type { PresenceService } from "../../services/presence.service.js";
 import { defineMethod } from "../../rpc/context.js";
 import { sql } from "kysely";
+import { Effect } from "effect";
+import { ConnIdTag } from "../layers.js";
 import type {
   RpcMethodRegistry,
   AuthenticatedContext,
 } from "../../rpc/context.js";
-import type {
-  HelloOk,
-  ConnectParams,
-  AgentsLookupParams,
-  AgentsLookupByNameParams,
-  AgentsListParams,
-  AgentCard,
-} from "@moltzap/protocol";
+import type { HelloOk, AgentCard } from "@moltzap/protocol";
 import type { ConnectionManager } from "../../ws/connection.js";
 import type { Db } from "../../db/client.js";
-import { PROTOCOL_VERSION, ErrorCodes, validators } from "@moltzap/protocol";
-import { RpcError } from "../../rpc/router.js";
+import {
+  PROTOCOL_VERSION,
+  Connect,
+  AgentsLookup,
+  AgentsLookupByName,
+  AgentsList,
+} from "@moltzap/protocol";
+import type { RpcFailure } from "../../runtime/index.js";
+import { unauthorized } from "../../runtime/index.js";
+import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
 
 function toAgentCard(row: {
   id: string;
@@ -44,167 +47,174 @@ export function createCoreAuthHandlers(deps: {
   presenceService: PresenceService;
   connections: ConnectionManager;
   db: Db;
-  getConnId: () => string;
 }): RpcMethodRegistry {
   return {
-    "auth/connect": defineMethod<ConnectParams>({
-      validator: validators.connectParams,
-      handler: async (params, _ctx) => {
-        const connId = deps.getConnId();
-        const conn = deps.connections.get(connId);
-        if (!conn) {
-          throw new RpcError(ErrorCodes.Unauthorized, "Connection not found");
-        }
+    "auth/connect": defineMethod(Connect, {
+      handler: (params) =>
+        catchSqlErrorAsDefect(
+          Effect.gen(function* () {
+            const connId = yield* ConnIdTag;
+            const conn = deps.connections.get(connId);
+            if (!conn) {
+              return yield* Effect.fail(unauthorized("Connection not found"));
+            }
 
-        // If already authenticated, just return the hello payload
-        if (conn.auth) {
-          return buildHelloOk(conn.auth, deps);
-        }
+            // If already authenticated, just return the hello payload
+            if (conn.auth) {
+              return yield* buildHelloOk(conn.auth, deps);
+            }
 
-        const agent = await deps.authService.authenticateAgent(params.agentKey);
-        if (!agent) {
-          throw new RpcError(ErrorCodes.Unauthorized, "Authentication failed");
-        }
+            const agent = yield* deps.authService.authenticateAgent(
+              params.agentKey,
+            );
+            if (!agent) {
+              return yield* Effect.fail(unauthorized("Authentication failed"));
+            }
 
-        const auth: AuthenticatedContext = {
-          agentId: agent.agentId,
-          agentStatus: agent.status,
-          ownerUserId: agent.ownerUserId,
-        };
+            const auth: AuthenticatedContext = {
+              agentId: agent.agentId,
+              agentStatus: agent.status,
+              ownerUserId: agent.ownerUserId,
+            };
 
-        // Set auth on the connection
-        conn.auth = auth;
+            conn.auth = auth;
 
-        // Subscribe to conversation channels and load muted set
-        const convIds = await deps.conversationService.getConversationIds(
-          auth.agentId,
-        );
-        for (const id of convIds) conn.conversationIds.add(id);
-        const mutedRows = await deps.db
-          .selectFrom("conversation_participants")
-          .select("conversation_id")
-          .where("agent_id", "=", auth.agentId)
-          .where("muted_until", "is not", null)
-          .where("muted_until", ">", sql<Date>`now()`)
-          .execute();
-        for (const row of mutedRows) {
-          conn.mutedConversations.add(row.conversation_id);
-        }
+            const convIds = yield* deps.conversationService.getConversationIds(
+              auth.agentId,
+            );
+            for (const id of convIds) conn.conversationIds.add(id);
+            const mutedRows = yield* deps.db
+              .selectFrom("conversation_participants")
+              .select("conversation_id")
+              .where("agent_id", "=", auth.agentId)
+              .where("muted_until", "is not", null)
+              .where("muted_until", ">", sql<Date>`now()`);
+            for (const row of mutedRows) {
+              conn.mutedConversations.add(row.conversation_id);
+            }
 
-        return buildHelloOk(auth, deps);
-      },
+            return yield* buildHelloOk(auth, deps);
+          }),
+        ),
     }),
 
-    "agents/lookup": defineMethod<AgentsLookupParams>({
-      validator: validators.agentsLookupParams,
-      handler: async (params) => {
-        const rows = await deps.db
-          .selectFrom("agents")
-          .select([
-            "id",
-            "name",
-            "display_name",
-            "description",
-            "status",
-            "owner_user_id",
-          ])
-          .where("id", "in", params.agentIds)
-          .execute();
-        return { agents: rows.map(toAgentCard) };
-      },
+    // Key must match the manifest's `name` field so the dispatcher resolves
+    // it correctly; `AgentsLookup.name === "agents/lookup"`.
+    [AgentsLookup.name]: defineMethod(AgentsLookup, {
+      handler: (params) =>
+        catchSqlErrorAsDefect(
+          Effect.gen(function* () {
+            const rows = yield* deps.db
+              .selectFrom("agents")
+              .select([
+                "id",
+                "name",
+                "display_name",
+                "description",
+                "status",
+                "owner_user_id",
+              ])
+              .where("id", "in", params.agentIds);
+            return { agents: rows.map(toAgentCard) };
+          }),
+        ),
     }),
 
-    "agents/lookupByName": defineMethod<AgentsLookupByNameParams>({
-      validator: validators.agentsLookupByNameParams,
-      handler: async (params) => {
-        const rows = await deps.db
-          .selectFrom("agents")
-          .select([
-            "id",
-            "name",
-            "display_name",
-            "description",
-            "status",
-            "owner_user_id",
-          ])
-          .where("name", "in", params.names)
-          .where("status", "=", "active")
-          .execute();
-        return { agents: rows.map(toAgentCard) };
-      },
+    [AgentsLookupByName.name]: defineMethod(AgentsLookupByName, {
+      handler: (params) =>
+        catchSqlErrorAsDefect(
+          Effect.gen(function* () {
+            const rows = yield* deps.db
+              .selectFrom("agents")
+              .select([
+                "id",
+                "name",
+                "display_name",
+                "description",
+                "status",
+                "owner_user_id",
+              ])
+              .where("name", "in", params.names)
+              .where("status", "=", "active");
+            return { agents: rows.map(toAgentCard) };
+          }),
+        ),
     }),
 
-    "agents/list": defineMethod<AgentsListParams>({
-      validator: validators.agentsListParams,
+    "agents/list": defineMethod(AgentsList, {
       requiresActive: true,
-      handler: async (_params, ctx) => {
-        const rows = await deps.db
-          .selectFrom("conversation_participants as cp")
-          .innerJoin("agents as a", "a.id", "cp.agent_id")
-          .select([
-            "a.id",
-            "a.name",
-            "a.display_name",
-            "a.description",
-            "a.status",
-            "a.owner_user_id",
-          ])
-          .where("cp.agent_id", "!=", ctx.agentId)
-          .where((eb) =>
-            eb.exists(
-              eb
-                .selectFrom("conversation_participants as cp2")
-                .select("cp2.conversation_id")
-                .whereRef("cp2.conversation_id", "=", "cp.conversation_id")
-                .where("cp2.agent_id", "=", ctx.agentId),
-            ),
-          )
-          .distinct()
-          .execute();
+      handler: (_params, ctx) =>
+        catchSqlErrorAsDefect(
+          Effect.gen(function* () {
+            const rows = yield* deps.db
+              .selectFrom("conversation_participants as cp")
+              .innerJoin("agents as a", "a.id", "cp.agent_id")
+              .select([
+                "a.id",
+                "a.name",
+                "a.display_name",
+                "a.description",
+                "a.status",
+                "a.owner_user_id",
+              ])
+              .where("cp.agent_id", "!=", ctx.agentId)
+              .where((eb) =>
+                eb.exists(
+                  eb
+                    .selectFrom("conversation_participants as cp2")
+                    .select("cp2.conversation_id")
+                    .whereRef("cp2.conversation_id", "=", "cp.conversation_id")
+                    .where("cp2.agent_id", "=", ctx.agentId),
+                ),
+              )
+              .distinct();
 
-        const agents: Record<string, AgentCard> = {};
-        for (const row of rows) {
-          agents[row.id] = toAgentCard(row);
-        }
-        return { agents };
-      },
+            const agents: Record<string, AgentCard> = {};
+            for (const row of rows) {
+              agents[row.id] = toAgentCard(row);
+            }
+            return { agents };
+          }),
+        ),
     }),
   };
 }
 
-async function buildHelloOk(
+function buildHelloOk(
   ctx: AuthenticatedContext,
   deps: {
     conversationService: ConversationService;
     presenceService: PresenceService;
   },
-): Promise<HelloOk> {
-  const { conversations } = await deps.conversationService.list(ctx.agentId);
+): Effect.Effect<HelloOk, RpcFailure> {
+  return Effect.gen(function* () {
+    const { conversations } = yield* deps.conversationService.list(ctx.agentId);
 
-  const unreadCounts: Record<string, number> = {};
-  for (const conv of conversations) {
-    if (conv.unreadCount > 0) {
-      unreadCounts[conv.id] = conv.unreadCount;
+    const unreadCounts: Record<string, number> = {};
+    for (const conv of conversations) {
+      if (conv.unreadCount > 0) {
+        unreadCounts[conv.id] = conv.unreadCount;
+      }
     }
-  }
 
-  deps.presenceService.setOnline(ctx.agentId);
+    deps.presenceService.setOnline(ctx.agentId);
 
-  return {
-    protocolVersion: PROTOCOL_VERSION,
-    agentId: ctx.agentId,
-    conversations,
-    unreadCounts,
-    policy: {
-      maxMessageBytes: 65536,
-      maxPartsPerMessage: 10,
-      maxTextLength: 32768,
-      maxGroupParticipants: 256,
-      heartbeatIntervalMs: 30000,
-      rateLimits: {
-        messagesPerMinute: 60,
-        requestsPerMinute: 120,
+    return {
+      protocolVersion: PROTOCOL_VERSION,
+      agentId: ctx.agentId,
+      conversations,
+      unreadCounts,
+      policy: {
+        maxMessageBytes: 65536,
+        maxPartsPerMessage: 10,
+        maxTextLength: 32768,
+        maxGroupParticipants: 256,
+        heartbeatIntervalMs: 30000,
+        rateLimits: {
+          messagesPerMinute: 60,
+          requestsPerMinute: 120,
+        },
       },
-    },
-  };
+    };
+  });
 }

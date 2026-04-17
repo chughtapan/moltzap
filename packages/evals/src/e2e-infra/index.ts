@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 config({ path: resolve(__dirname, "../../.env") });
 
+import { Effect } from "effect";
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
 import { runE2EEvals } from "./runner.js";
@@ -41,14 +42,21 @@ for (const sig of ["SIGINT", "SIGTERM"] as const) {
             stdio: "pipe",
           });
         }
-      } catch {
-        // best effort
+      } catch (err) {
+        // SIGINT force-cleanup: best-effort but still report so an
+        // operator knows why containers may linger.
+        console.error(
+          `eval cleanup: docker rm failed: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
       }
       process.exit(1);
     }, 10_000).unref();
   });
 }
 
+// #ignore-sloppy-code-next-line[async-keyword, promise-type]: yargs CLI entrypoint
 async function main(): Promise<void> {
   const argv = await yargs(hideBin(process.argv))
     .option("model", {
@@ -113,18 +121,23 @@ async function main(): Promise<void> {
   const resultsDir =
     argv.results ?? `results/output-${modelId.replace(/[/:]/g, "_")}`;
 
+  // `runE2EEvals` is Effect-native. The CLI entry point (process boundary)
+  // runs it through `Effect.runPromise` — the same pattern the rest of the
+  // codebase uses to cross into Node-idiomatic async.
   try {
-    const result = await runE2EEvals({
-      scenarios: argv.scenario,
-      agentModelId: modelId,
-      runsPerScenario: argv["runs-per-scenario"],
-      evalModel: argv["eval-model"],
-      resultsDir,
-      cleanResults: argv["clean-results"],
-      logLevel: argv["log-level"],
-      signal: shutdownController.signal,
-      runtime: argv.runtime as "openclaw" | "nanoclaw",
-    });
+    const result = await Effect.runPromise(
+      runE2EEvals({
+        scenarios: argv.scenario,
+        agentModelId: modelId,
+        runsPerScenario: argv["runs-per-scenario"],
+        evalModel: argv["eval-model"],
+        resultsDir,
+        cleanResults: argv["clean-results"],
+        logLevel: argv["log-level"],
+        signal: shutdownController.signal,
+        runtime: argv.runtime as "openclaw" | "nanoclaw", // #ignore-sloppy-code[enum-cast]: yargs choices constrain to these values at parse time
+      }),
+    );
 
     logger.info(
       `[${modelId}] Done: ${result.summary.passed}/${result.summary.total} passed (${result.summary.avgLatencyMs.toFixed(0)}ms avg)`,

@@ -6,6 +6,12 @@ export {
   type FakeChannelService,
 } from "./channel-service-fixture.js";
 
+export {
+  FakeMoltZapService,
+  type CannedResponses,
+  type RecordedCall,
+} from "./fake-service.js";
+
 import type { Message } from "@moltzap/protocol";
 
 export function buildMessage(overrides: Partial<Message> = {}): Message {

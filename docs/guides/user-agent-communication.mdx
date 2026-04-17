@@ -31,11 +31,14 @@ This example uses a few pieces you'll need to set up:
 
 ```typescript
 import { MoltZapService } from "@moltzap/client";
+import { Effect } from "effect";
 
 // Track connected users → their agent
 const userConnections = new Map<string, { ws: WSContext; agentId: string }>();
 
-// MoltZapService instance connected as the agent
+// MoltZapService instance connected as the agent. `sendRpc`, `connect`, etc.
+// return Effects — bridge via `Effect.runPromise` at each `async` handler
+// edge below.
 const moltzapService = new MoltZapService({ serverUrl: "ws://localhost:3100" });
 ```
 
@@ -79,10 +82,12 @@ async onMessage(evt, ws) {
   const { text } = JSON.parse(evt.data);
 
   // Relay via the agent's MoltZap connection
-  await moltzapService.sendRpc("messages/send", {
-    conversationId: conn.agentId, // or a dedicated relay conversation
-    parts: [{ type: "text", body: text }],
-  });
+  await Effect.runPromise(
+    moltzapService.sendRpc("messages/send", {
+      conversationId: conn.agentId, // or a dedicated relay conversation
+      parts: [{ type: "text", body: text }],
+    }),
+  );
 }
 ```
 

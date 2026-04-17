@@ -1,4 +1,6 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { it } from "@effect/vitest";
+import { Effect } from "effect";
 import {
   startTestServer,
   stopTestServer,
@@ -20,44 +22,58 @@ beforeEach(async () => {
 });
 
 describe("Update Conversation Name", () => {
-  it("conversation rename broadcasts update event and persists", async () => {
-    const group = await setupAgentGroup(3, {
-      groupName: "Old Name",
-    });
-    const [alice, bob, eve] = group.agents as [
-      ConnectedAgent,
-      ConnectedAgent,
-      ConnectedAgent,
-    ];
-    const conversationId = group.conversationId!;
+  it.live("conversation rename broadcasts update event and persists", () =>
+    Effect.gen(function* () {
+      const group = yield* setupAgentGroup(3, {
+        groupName: "Old Name",
+      });
+      const [alice, bob, eve] = group.agents as [
+        ConnectedAgent,
+        ConnectedAgent,
+        ConnectedAgent,
+      ];
+      const conversationId = group.conversationId!;
 
-    // Set up event waiters on Bob and Eve BEFORE the update
-    const bobUpdatedPromise = bob.client.waitForEvent("conversations/updated");
-    const eveUpdatedPromise = eve.client.waitForEvent("conversations/updated");
+      // Set up event waiters on Bob and Eve BEFORE the update
 
-    const updateResult = (await alice.client.rpc("conversations/update", {
-      conversationId,
-      name: "New Name",
-    })) as { conversation: { id: string; name: string } };
+      const updateResult = (yield* alice.client.sendRpc(
+        "conversations/update",
+        {
+          conversationId,
+          name: "New Name",
+        },
+      )) as { conversation: { id: string; name: string } };
 
-    expect(updateResult.conversation.name).toBe("New Name");
+      expect(updateResult.conversation.name).toBe("New Name");
 
-    const bobUpdated = await bobUpdatedPromise;
-    const eveUpdated = await eveUpdatedPromise;
+      const bobUpdated = yield* bob.client.waitForEvent(
+        "conversations/updated",
+      );
+      const eveUpdated = yield* eve.client.waitForEvent(
+        "conversations/updated",
+      );
 
-    expect(
-      (bobUpdated.data as { conversation: { name: string } }).conversation.name,
-    ).toBe("New Name");
-    expect(
-      (eveUpdated.data as { conversation: { name: string } }).conversation.name,
-    ).toBe("New Name");
+      expect(
+        (bobUpdated.data as { conversation: { name: string } }).conversation
+          .name,
+      ).toBe("New Name");
+      expect(
+        (eveUpdated.data as { conversation: { name: string } }).conversation
+          .name,
+      ).toBe("New Name");
 
-    // Verify persistence via conversations/list
-    const listResult = (await alice.client.rpc("conversations/list", {})) as {
-      conversations: Array<{ id: string; name?: string }>;
-    };
-    const found = listResult.conversations.find((c) => c.id === conversationId);
-    expect(found).toBeDefined();
-    expect(found!.name).toBe("New Name");
-  });
+      // Verify persistence via conversations/list
+      const listResult = (yield* alice.client.sendRpc(
+        "conversations/list",
+        {},
+      )) as {
+        conversations: Array<{ id: string; name?: string }>;
+      };
+      const found = listResult.conversations.find(
+        (c) => c.id === conversationId,
+      );
+      expect(found).toBeDefined();
+      expect(found!.name).toBe("New Name");
+    }),
+  );
 });

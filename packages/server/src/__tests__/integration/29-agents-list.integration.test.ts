@@ -1,13 +1,16 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { it } from "@effect/vitest";
+import { Effect } from "effect";
 import {
   startTestServer,
   stopTestServer,
   resetTestDb,
   registerAndConnect,
   getKyselyDb,
-  MoltZapTestClient,
   trackClient,
 } from "./helpers.js";
+import { MoltZapWsClient } from "@moltzap/client";
+import { registerAgent, stripWsPath } from "@moltzap/client/test";
 import type { AgentCard } from "@moltzap/protocol";
 
 type AgentsListResult = { agents: Record<string, AgentCard> };
@@ -31,207 +34,236 @@ beforeEach(async () => {
 });
 
 /** Register an agent with custom options (e.g. description), tracked for cleanup. */
-async function registerWithOpts(name: string, opts: { description?: string }) {
-  const client = new MoltZapTestClient(baseUrl, wsUrl);
-  trackClient(client);
-  const reg = await client.register(name, opts);
-  await client.connect(reg.apiKey);
-  return { client, agentId: reg.agentId, apiKey: reg.apiKey, name };
+function registerWithOpts(name: string, opts: { description?: string }) {
+  return Effect.gen(function* () {
+    const reg = yield* registerAgent(baseUrl, name, opts);
+    const client = new MoltZapWsClient({
+      serverUrl: stripWsPath(wsUrl),
+      agentKey: reg.apiKey,
+    });
+    trackClient(client);
+    yield* client.connect();
+    return { client, agentId: reg.agentId, apiKey: reg.apiKey, name };
+  });
 }
 
 describe("agents/list", () => {
-  it("returns co-participant agents from shared conversations", async () => {
-    const alice = await registerAndConnect("alice-ag");
-    const bob = await registerAndConnect("bob-agent");
-    const carol = await registerAndConnect("carol-ag");
+  it.live("returns co-participant agents from shared conversations", () =>
+    Effect.gen(function* () {
+      const alice = yield* registerAndConnect("alice-ag");
+      const bob = yield* registerAndConnect("bob-agent");
+      const carol = yield* registerAndConnect("carol-ag");
 
-    await alice.client.rpc("conversations/create", {
-      type: "dm",
-      participants: [{ type: "agent", id: bob.agentId }],
-    });
+      yield* alice.client.sendRpc("conversations/create", {
+        type: "dm",
+        participants: [{ type: "agent", id: bob.agentId }],
+      });
 
-    await alice.client.rpc("conversations/create", {
-      type: "group",
-      name: "test-group",
-      participants: [{ type: "agent", id: carol.agentId }],
-    });
+      yield* alice.client.sendRpc("conversations/create", {
+        type: "group",
+        name: "test-group",
+        participants: [{ type: "agent", id: carol.agentId }],
+      });
 
-    const aliceResult = (await alice.client.rpc(
-      "agents/list",
-      {},
-    )) as AgentsListResult;
-    const aliceAgentIds = Object.keys(aliceResult.agents);
-    expect(aliceAgentIds).toContain(bob.agentId);
-    expect(aliceAgentIds).toContain(carol.agentId);
-    expect(aliceAgentIds).not.toContain(alice.agentId);
+      const aliceResult = (yield* alice.client.sendRpc(
+        "agents/list",
+        {},
+      )) as AgentsListResult;
+      const aliceAgentIds = Object.keys(aliceResult.agents);
+      expect(aliceAgentIds).toContain(bob.agentId);
+      expect(aliceAgentIds).toContain(carol.agentId);
+      expect(aliceAgentIds).not.toContain(alice.agentId);
 
-    const bobResult = (await bob.client.rpc(
-      "agents/list",
-      {},
-    )) as AgentsListResult;
-    const bobAgentIds = Object.keys(bobResult.agents);
-    expect(bobAgentIds).toContain(alice.agentId);
-    expect(bobAgentIds).not.toContain(carol.agentId);
+      const bobResult = (yield* bob.client.sendRpc(
+        "agents/list",
+        {},
+      )) as AgentsListResult;
+      const bobAgentIds = Object.keys(bobResult.agents);
+      expect(bobAgentIds).toContain(alice.agentId);
+      expect(bobAgentIds).not.toContain(carol.agentId);
 
-    const carolResult = (await carol.client.rpc(
-      "agents/list",
-      {},
-    )) as AgentsListResult;
-    const carolAgentIds = Object.keys(carolResult.agents);
-    expect(carolAgentIds).toContain(alice.agentId);
-    expect(carolAgentIds).not.toContain(bob.agentId);
-  });
+      const carolResult = (yield* carol.client.sendRpc(
+        "agents/list",
+        {},
+      )) as AgentsListResult;
+      const carolAgentIds = Object.keys(carolResult.agents);
+      expect(carolAgentIds).toContain(alice.agentId);
+      expect(carolAgentIds).not.toContain(bob.agentId);
+    }),
+  );
 
-  it("returns empty map when agent has no conversations", async () => {
-    const loner = await registerAndConnect("loner-ag");
+  it.live("returns empty map when agent has no conversations", () =>
+    Effect.gen(function* () {
+      const loner = yield* registerAndConnect("loner-ag");
 
-    const result = (await loner.client.rpc(
-      "agents/list",
-      {},
-    )) as AgentsListResult;
-    expect(result.agents).toEqual({});
-  });
+      const result = (yield* loner.client.sendRpc(
+        "agents/list",
+        {},
+      )) as AgentsListResult;
+      expect(result.agents).toEqual({});
+    }),
+  );
 
-  it("deduplicates agents across multiple shared conversations", async () => {
-    const alice = await registerAndConnect("alice-ag");
-    const bob = await registerAndConnect("bob-agent");
+  it.live("deduplicates agents across multiple shared conversations", () =>
+    Effect.gen(function* () {
+      const alice = yield* registerAndConnect("alice-ag");
+      const bob = yield* registerAndConnect("bob-agent");
 
-    await alice.client.rpc("conversations/create", {
-      type: "dm",
-      participants: [{ type: "agent", id: bob.agentId }],
-    });
+      yield* alice.client.sendRpc("conversations/create", {
+        type: "dm",
+        participants: [{ type: "agent", id: bob.agentId }],
+      });
 
-    await alice.client.rpc("conversations/create", {
-      type: "group",
-      name: "shared-group",
-      participants: [{ type: "agent", id: bob.agentId }],
-    });
+      yield* alice.client.sendRpc("conversations/create", {
+        type: "group",
+        name: "shared-group",
+        participants: [{ type: "agent", id: bob.agentId }],
+      });
 
-    const result = (await alice.client.rpc(
-      "agents/list",
-      {},
-    )) as AgentsListResult;
-    const agentIds = Object.keys(result.agents);
-    expect(agentIds).toHaveLength(1);
-    expect(agentIds[0]).toBe(bob.agentId);
-  });
+      const result = (yield* alice.client.sendRpc(
+        "agents/list",
+        {},
+      )) as AgentsListResult;
+      const agentIds = Object.keys(result.agents);
+      expect(agentIds).toHaveLength(1);
+      expect(agentIds[0]).toBe(bob.agentId);
+    }),
+  );
 
-  it("excludes the calling agent from results", async () => {
-    const alice = await registerAndConnect("alice-ag");
-    const bob = await registerAndConnect("bob-agent");
+  it.live("excludes the calling agent from results", () =>
+    Effect.gen(function* () {
+      const alice = yield* registerAndConnect("alice-ag");
+      const bob = yield* registerAndConnect("bob-agent");
 
-    await alice.client.rpc("conversations/create", {
-      type: "dm",
-      participants: [{ type: "agent", id: bob.agentId }],
-    });
+      yield* alice.client.sendRpc("conversations/create", {
+        type: "dm",
+        participants: [{ type: "agent", id: bob.agentId }],
+      });
 
-    const result = (await alice.client.rpc(
-      "agents/list",
-      {},
-    )) as AgentsListResult;
-    expect(result.agents[alice.agentId]).toBeUndefined();
-    expect(result.agents[bob.agentId]).toBeDefined();
-  });
+      const result = (yield* alice.client.sendRpc(
+        "agents/list",
+        {},
+      )) as AgentsListResult;
+      expect(result.agents[alice.agentId]).toBeUndefined();
+      expect(result.agents[bob.agentId]).toBeDefined();
+    }),
+  );
 
-  it("returns agent card fields correctly", async () => {
-    const described = await registerWithOpts("desc-agent", {
-      description: "A test agent",
-    });
-    const other = await registerAndConnect("other-ag");
+  it.live("returns agent card fields correctly", () =>
+    Effect.gen(function* () {
+      const described = yield* registerWithOpts("desc-agent", {
+        description: "A test agent",
+      });
+      const other = yield* registerAndConnect("other-ag");
 
-    await described.client.rpc("conversations/create", {
-      type: "dm",
-      participants: [{ type: "agent", id: other.agentId }],
-    });
+      yield* described.client.sendRpc("conversations/create", {
+        type: "dm",
+        participants: [{ type: "agent", id: other.agentId }],
+      });
 
-    const result = (await other.client.rpc(
-      "agents/list",
-      {},
-    )) as AgentsListResult;
-    const card = result.agents[described.agentId];
-    expect(card).toBeDefined();
-    expect(card.id).toBe(described.agentId);
-    expect(card.name).toBe("desc-agent");
-    expect(card.description).toBe("A test agent");
-    expect(card.status).toBe("active");
-  });
+      const result = (yield* other.client.sendRpc(
+        "agents/list",
+        {},
+      )) as AgentsListResult;
+      const card = result.agents[described.agentId];
+      expect(card).toBeDefined();
+      expect(card.id).toBe(described.agentId);
+      expect(card.name).toBe("desc-agent");
+      expect(card.description).toBe("A test agent");
+      expect(card.status).toBe("active");
+    }),
+  );
 });
 
 describe("agents/lookup", () => {
-  it("returns agent cards by ID", async () => {
-    const alice = await registerAndConnect("alice-ag");
+  it.live("returns agent cards by ID", () =>
+    Effect.gen(function* () {
+      const alice = yield* registerAndConnect("alice-ag");
 
-    const result = (await alice.client.rpc("agents/lookup", {
-      agentIds: [alice.agentId],
-    })) as AgentsArrayResult;
+      const result = (yield* alice.client.sendRpc("agents/lookup", {
+        agentIds: [alice.agentId],
+      })) as AgentsArrayResult;
 
-    expect(result.agents).toHaveLength(1);
-    expect(result.agents[0].id).toBe(alice.agentId);
-    expect(result.agents[0].name).toBe("alice-ag");
-    expect(result.agents[0].status).toBe("active");
-  });
+      expect(result.agents).toHaveLength(1);
+      expect(result.agents[0].id).toBe(alice.agentId);
+      expect(result.agents[0].name).toBe("alice-ag");
+      expect(result.agents[0].status).toBe("active");
+    }),
+  );
 
-  it("returns empty array for unknown IDs", async () => {
-    const alice = await registerAndConnect("alice-ag");
+  it.live("returns empty array for unknown IDs", () =>
+    Effect.gen(function* () {
+      const alice = yield* registerAndConnect("alice-ag");
 
-    const result = (await alice.client.rpc("agents/lookup", {
-      agentIds: ["00000000-0000-0000-0000-000000000000"],
-    })) as AgentsArrayResult;
+      const result = (yield* alice.client.sendRpc("agents/lookup", {
+        agentIds: ["00000000-0000-0000-0000-000000000000"],
+      })) as AgentsArrayResult;
 
-    expect(result.agents).toHaveLength(0);
-  });
+      expect(result.agents).toHaveLength(0);
+    }),
+  );
 
-  it("includes description in lookup results", async () => {
-    const described = await registerWithOpts("desc-agent", {
-      description: "Has a description",
-    });
+  it.live("includes description in lookup results", () =>
+    Effect.gen(function* () {
+      const described = yield* registerWithOpts("desc-agent", {
+        description: "Has a description",
+      });
 
-    const result = (await described.client.rpc("agents/lookup", {
-      agentIds: [described.agentId],
-    })) as AgentsArrayResult;
+      const result = (yield* described.client.sendRpc("agents/lookup", {
+        agentIds: [described.agentId],
+      })) as AgentsArrayResult;
 
-    expect(result.agents[0].description).toBe("Has a description");
-  });
+      expect(result.agents[0].description).toBe("Has a description");
+    }),
+  );
 });
 
 describe("agents/lookupByName", () => {
-  it("returns agent cards by name", async () => {
-    const alice = await registerAndConnect("alice-ag");
+  it.live("returns agent cards by name", () =>
+    Effect.gen(function* () {
+      const alice = yield* registerAndConnect("alice-ag");
 
-    const result = (await alice.client.rpc("agents/lookupByName", {
-      names: ["alice-ag"],
-    })) as AgentsArrayResult;
+      const result = (yield* alice.client.sendRpc("agents/lookupByName", {
+        names: ["alice-ag"],
+      })) as AgentsArrayResult;
 
-    expect(result.agents).toHaveLength(1);
-    expect(result.agents[0].id).toBe(alice.agentId);
-    expect(result.agents[0].name).toBe("alice-ag");
-  });
+      expect(result.agents).toHaveLength(1);
+      expect(result.agents[0].id).toBe(alice.agentId);
+      expect(result.agents[0].name).toBe("alice-ag");
+    }),
+  );
 
-  it("only returns active agents", async () => {
-    const alice = await registerAndConnect("alice-ag");
+  it.live("only returns active agents", () =>
+    Effect.gen(function* () {
+      const alice = yield* registerAndConnect("alice-ag");
 
-    const db = getKyselyDb();
-    await db
-      .updateTable("agents")
-      .set({ status: "suspended" })
-      .where("id", "=", alice.agentId)
-      .execute();
+      const db = getKyselyDb();
+      yield* Effect.tryPromise(() =>
+        db
+          .updateTable("agents")
+          .set({ status: "suspended" })
+          .where("id", "=", alice.agentId)
+          .execute(),
+      );
 
-    const bob = await registerAndConnect("bob-agent");
-    const result = (await bob.client.rpc("agents/lookupByName", {
-      names: ["alice-ag"],
-    })) as AgentsArrayResult;
+      const bob = yield* registerAndConnect("bob-agent");
+      const result = (yield* bob.client.sendRpc("agents/lookupByName", {
+        names: ["alice-ag"],
+      })) as AgentsArrayResult;
 
-    expect(result.agents).toHaveLength(0);
-  });
+      expect(result.agents).toHaveLength(0);
+    }),
+  );
 
-  it("returns empty array for unknown names", async () => {
-    const alice = await registerAndConnect("alice-ag");
+  it.live("returns empty array for unknown names", () =>
+    Effect.gen(function* () {
+      const alice = yield* registerAndConnect("alice-ag");
 
-    const result = (await alice.client.rpc("agents/lookupByName", {
-      names: ["nonexistent"],
-    })) as AgentsArrayResult;
+      const result = (yield* alice.client.sendRpc("agents/lookupByName", {
+        names: ["nonexistent"],
+      })) as AgentsArrayResult;
 
-    expect(result.agents).toHaveLength(0);
-  });
+      expect(result.agents).toHaveLength(0);
+    }),
+  );
 });

@@ -18,15 +18,32 @@ pnpm --filter @moltzap/server-core test:integration  # integration tests (needs 
 
 ## Test infrastructure
 
-`@moltzap/server-core` exports test utilities:
+`@moltzap/client/test` exports the low-level test helpers; `@moltzap/server-core/test-utils`
+wraps them for server integration tests:
 
 ```typescript
-import { MoltZapTestClient, registerAndConnect, setupAgentPair } from "@moltzap/server-core/test-utils";
+// Low-level helpers (any package can use these)
+import {
+  registerAgent,
+  registerAndConnect,
+  stripWsPath,
+} from "@moltzap/client/test";
+import { MoltZapWsClient } from "@moltzap/client";
+
+// Server-core scaffolding on top (tracks clients for cleanup)
+import {
+  registerAndConnect,
+  registerOnly,
+  setupAgentPair,
+  setupAgentGroup,
+  closeAllClients,
+} from "@moltzap/server-core/test-utils";
 ```
 
-- `MoltZapTestClient` — WebSocket client for tests with typed RPC methods
-- `registerAndConnect` — Register an agent and return a connected client
-- `setupAgentPair` — Register two agents, connect both, return both clients
+- `registerAgent(baseUrl, name, opts?)` — HTTP `POST /api/v1/auth/register`. Returns `{ agentId, apiKey, claimUrl, claimToken }`.
+- `registerAndConnect(baseUrl, wsUrl, name, opts?)` — Register + construct `MoltZapWsClient` + complete `auth/connect`. Returns the live client plus the registration record.
+- `stripWsPath(wsUrl)` — Lops `/ws` off the harness URL; `MoltZapWsClient` re-appends it.
+- `MoltZapWsClient` — The production WebSocket client. `waitForEvent(name, timeoutMs)` and `drainEvents()` are available on it directly, so tests can await specific events without wiring their own callbacks.
 
 ## Integration tests
 

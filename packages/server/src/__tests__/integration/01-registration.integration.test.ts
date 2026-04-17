@@ -1,6 +1,9 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { it } from "@effect/vitest";
+import { Effect } from "effect";
 import { startTestServer, stopTestServer, resetTestDb } from "./helpers.js";
-import { MoltZapTestClient } from "@moltzap/protocol/test-client";
+import { MoltZapWsClient } from "@moltzap/client";
+import { registerAgent, stripWsPath } from "@moltzap/client/test";
 import { getCoreDb } from "../../test-utils/index.js";
 
 let baseUrl: string;
@@ -21,54 +24,68 @@ beforeEach(async () => {
 });
 
 describe("Scenario 1: Registration", () => {
-  it("registers an agent and returns API key", async () => {
-    const client = new MoltZapTestClient(baseUrl, wsUrl);
-    const reg = await client.register("test-agent");
+  it.live("registers an agent and returns API key", () =>
+    Effect.gen(function* () {
+      const reg = yield* registerAgent(baseUrl, "test-agent");
 
-    expect(reg.agentId).toBeDefined();
-    expect(reg.apiKey).toMatch(/^moltzap_agent_/);
+      expect(reg.agentId).toBeDefined();
+      expect(reg.apiKey).toMatch(/^moltzap_agent_/);
+    }),
+  );
 
-    client.close();
-  });
+  it.live("rejects duplicate agent names", () =>
+    Effect.gen(function* () {
+      yield* registerAgent(baseUrl, "unique-agent");
 
-  it("rejects duplicate agent names", async () => {
-    const client = new MoltZapTestClient(baseUrl, wsUrl);
-    await client.register("unique-agent");
+      const result = yield* Effect.exit(registerAgent(baseUrl, "unique-agent"));
+      expect(result._tag).toBe("Failure");
+    }),
+  );
 
-    await expect(client.register("unique-agent")).rejects.toThrow();
+  it.live(
+    "registered agent is active immediately and can use all methods",
+    () =>
+      Effect.gen(function* () {
+        const reg = yield* registerAgent(baseUrl, "active-agent");
+        const client = new MoltZapWsClient({
+          serverUrl: stripWsPath(wsUrl),
+          agentKey: reg.apiKey,
+        });
 
-    client.close();
-  });
+        const hello = (yield* client.connect()) as Record<string, unknown>;
+        expect(hello.protocolVersion).toBeDefined();
+        expect(hello.agentId).toBe(reg.agentId);
 
-  it("registered agent is active immediately and can use all methods", async () => {
-    const client = new MoltZapTestClient(baseUrl, wsUrl);
-    const reg = await client.register("active-agent");
+        const result = (yield* client.sendRpc("conversations/list", {})) as {
+          conversations: unknown[];
+        };
+        expect(result.conversations).toEqual([]);
 
-    const hello = (await client.connect(reg.apiKey)) as Record<string, unknown>;
-    expect(hello.protocolVersion).toBeDefined();
-    expect(hello.agentId).toBe(reg.agentId);
+        yield* client.close();
+      }),
+  );
 
-    const result = (await client.rpc("conversations/list", {})) as {
-      conversations: unknown[];
-    };
-    expect(result.conversations).toEqual([]);
+  it.live("suspended agent cannot connect", () =>
+    Effect.gen(function* () {
+      const reg = yield* registerAgent(baseUrl, "suspended-agent");
 
-    client.close();
-  });
+      const db = getCoreDb();
+      yield* Effect.tryPromise(() =>
+        db
+          .updateTable("agents")
+          .set({ status: "suspended" })
+          .where("id", "=", reg.agentId)
+          .execute(),
+      );
 
-  it("suspended agent cannot connect", async () => {
-    const client = new MoltZapTestClient(baseUrl, wsUrl);
-    const reg = await client.register("suspended-agent");
+      const client = new MoltZapWsClient({
+        serverUrl: stripWsPath(wsUrl),
+        agentKey: reg.apiKey,
+      });
+      const result = yield* Effect.exit(client.connect());
+      expect(result._tag).toBe("Failure");
 
-    const db = getCoreDb();
-    await db
-      .updateTable("agents")
-      .set({ status: "suspended" })
-      .where("id", "=", reg.agentId)
-      .execute();
-
-    await expect(client.connect(reg.apiKey)).rejects.toThrow();
-
-    client.close();
-  });
+      yield* client.close();
+    }),
+  );
 });

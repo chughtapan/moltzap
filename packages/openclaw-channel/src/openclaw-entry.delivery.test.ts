@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { Effect } from "effect";
 import type { Message } from "@moltzap/protocol";
 
 // Capture handlers registered via service.on()
@@ -14,14 +15,18 @@ vi.mock("@moltzap/client", async () => {
   return {
     ...actual,
     MoltZapService: vi.fn().mockImplementation(() => ({
+      // Effect-native service — each async method returns an Effect so
+      // MoltZapChannelCore can `yield*` it.
       connect: vi
         .fn()
-        .mockResolvedValue({ conversations: [], unreadCounts: {} }),
+        .mockReturnValue(
+          Effect.succeed({ conversations: [], unreadCounts: {} }),
+        ),
       close: mockClose,
       ownAgentId: "agent-self",
       connected: true,
       getAgentName: vi.fn().mockReturnValue("Atlas"),
-      resolveAgentName: vi.fn().mockResolvedValue("Atlas"),
+      resolveAgentName: vi.fn().mockReturnValue(Effect.succeed("Atlas")),
       getConversation: vi.fn().mockReturnValue({
         id: "conv-400",
         type: "dm",
@@ -90,23 +95,31 @@ describe("Flow 6: Outbound delivery — deliver callback + sendText", () => {
     abortController = new AbortController();
     mockDispatch = vi.fn().mockResolvedValue({ queuedFinal: true });
 
-    mockSendRpc.mockImplementation(async (method: string) => {
+    // `mockSend` / `mockSendToAgent` are used by service.send / sendToAgent
+    // which now return Effects. Default them to a succeeding Effect so tests
+    // that don't override keep working.
+    mockSend.mockReturnValue(Effect.void);
+    mockSendToAgent.mockReturnValue(Effect.void);
+
+    mockSendRpc.mockImplementation((method: string) => {
       if (method === "agents/lookup") {
-        return { agents: [{ id: "agent-sender-1", name: "Atlas" }] };
+        return Effect.succeed({
+          agents: [{ id: "agent-sender-1", name: "Atlas" }],
+        });
       }
       if (method === "conversations/get") {
-        return {
+        return Effect.succeed({
           conversation: { type: "dm" },
           participants: [
             { participant: { type: "agent", id: "agent-sender-1" } },
             { participant: { type: "agent", id: "agent-self" } },
           ],
-        };
+        });
       }
       if (method === "messages/send") {
-        return { message: { id: "sent-1" } };
+        return Effect.succeed({ message: { id: "sent-1" } });
       }
-      return {};
+      return Effect.succeed({});
     });
 
     void moltzapChannelPlugin.gateway.startAccount({
@@ -261,7 +274,7 @@ describe("Flow 6: Outbound delivery — deliver callback + sendText", () => {
   });
 
   it("sendText with agent: target delegates to service.sendToAgent", async () => {
-    mockSendToAgent.mockResolvedValue(undefined);
+    mockSendToAgent.mockReturnValue(Effect.void);
 
     const result = await moltzapChannelPlugin.outbound.sendText({
       cfg: makeCfg(),
@@ -278,7 +291,7 @@ describe("Flow 6: Outbound delivery — deliver callback + sendText", () => {
   });
 
   it("sendText with agent: target forwards replyToId to sendToAgent", async () => {
-    mockSendToAgent.mockResolvedValue(undefined);
+    mockSendToAgent.mockReturnValue(Effect.void);
 
     const result = await moltzapChannelPlugin.outbound.sendText({
       cfg: makeCfg(),
@@ -295,7 +308,7 @@ describe("Flow 6: Outbound delivery — deliver callback + sendText", () => {
   });
 
   it("sendText with agent: target returns error when sendToAgent throws", async () => {
-    mockSendToAgent.mockRejectedValue(new Error("lookup failed"));
+    mockSendToAgent.mockReturnValue(Effect.fail(new Error("lookup failed")));
 
     const result = await moltzapChannelPlugin.outbound.sendText({
       cfg: makeCfg(),
@@ -321,7 +334,7 @@ describe("Flow 6: Outbound delivery — deliver callback + sendText", () => {
   });
 
   it("sendText returns error when send fails", async () => {
-    mockSend.mockRejectedValueOnce(new Error("Server rejected"));
+    mockSend.mockReturnValueOnce(Effect.fail(new Error("Server rejected")));
 
     const result = await moltzapChannelPlugin.outbound.sendText({
       cfg: makeCfg(),

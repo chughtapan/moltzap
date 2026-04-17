@@ -2,6 +2,8 @@
 
 import type { ContactService, PermissionService } from "../app/app-host.js";
 import type { Logger } from "../logger.js";
+import { Effect } from "effect";
+import type { RpcFailure } from "../runtime/index.js";
 
 // -- Semaphore ----------------------------------------------------------------
 
@@ -11,6 +13,7 @@ class Semaphore {
 
   constructor(private max: number) {}
 
+  // #ignore-sloppy-code-next-line[async-keyword, promise-type]: Semaphore callback-to-Promise queueing primitive
   async acquire(): Promise<void> {
     if (this.active < this.max) {
       this.active++;
@@ -40,11 +43,27 @@ export class WebhookClient {
     this.semaphore = new Semaphore(concurrency);
   }
 
+  // #ignore-sloppy-code-next-line[async-keyword]: fetch HTTP boundary to external webhook
   async callSync<T>(opts: {
     url: string;
     event: string;
     body: unknown;
     timeoutMs: number;
+    /**
+     * Extra headers merged on top of `Content-Type` + `X-MoltZap-Event`.
+     * Used by app-hook webhooks to attach `X-MoltZap-Signature`. Caller-
+     * supplied keys win over the defaults — but `Content-Type` and
+     * `X-MoltZap-Event` are MoltZap-controlled, so callers should not
+     * override those.
+     */
+    headers?: Record<string, string>;
+    /**
+     * Pre-serialized JSON body. When provided, `body` is ignored. Used by
+     * app-hook webhooks that compute an HMAC signature over the exact
+     * bytes that go on the wire — re-serializing here would drift.
+     */
+    bodyJson?: string;
+    // #ignore-sloppy-code-next-line[promise-type]: fetch HTTP boundary to external webhook
   }): Promise<T> {
     await this.semaphore.acquire();
     try {
@@ -53,8 +72,9 @@ export class WebhookClient {
         headers: {
           "Content-Type": "application/json",
           "X-MoltZap-Event": opts.event,
+          ...opts.headers,
         },
-        body: JSON.stringify(opts.body),
+        body: opts.bodyJson ?? JSON.stringify(opts.body),
         signal: AbortSignal.timeout(opts.timeoutMs),
       });
 
@@ -66,7 +86,14 @@ export class WebhookClient {
         );
       }
 
-      return (await response.json()) as T;
+      // Empty-body responses (204, or 200 with no payload) are common for
+      // fire-and-forget hooks (`on_join`, `on_close`). `response.json()`
+      // would throw on an empty body, so read as text and short-circuit.
+      const text = await response.text();
+      if (text.length === 0) {
+        return null as T;
+      }
+      return JSON.parse(text) as T;
     } catch (err) {
       if (err instanceof WebhookError) throw err;
       if (err instanceof DOMException && err.name === "TimeoutError") {
@@ -95,22 +122,31 @@ export class WebhookContactService implements ContactService {
     private webhookLogger: Logger,
   ) {}
 
-  async areInContact(userIdA: string, userIdB: string): Promise<boolean> {
-    try {
-      const result = await this.client.callSync<{ inContact: boolean }>({
-        url: this.url,
-        event: "contacts.check",
-        body: { userIdA, userIdB },
-        timeoutMs: this.timeoutMs,
-      });
-      return result.inContact === true;
-    } catch (err) {
-      this.webhookLogger.error(
-        { err, userIdA, userIdB, url: this.url },
-        "Contact check webhook failed, rejecting contact",
-      );
-      return false;
-    }
+  areInContact(
+    userIdA: string,
+    userIdB: string,
+  ): Effect.Effect<boolean, never> {
+    return Effect.tryPromise({
+      try: () =>
+        this.client.callSync<{ inContact: boolean }>({
+          url: this.url,
+          event: "contacts.check",
+          body: { userIdA, userIdB },
+          timeoutMs: this.timeoutMs,
+        }),
+      catch: (err) => err,
+    }).pipe(
+      Effect.map((result) => result.inContact === true),
+      Effect.catchAll((err) =>
+        Effect.sync(() => {
+          this.webhookLogger.error(
+            { err, userIdA, userIdB, url: this.url },
+            "Contact check webhook failed, rejecting contact",
+          );
+          return false;
+        }),
+      ),
+    );
   }
 }
 
@@ -133,6 +169,7 @@ export class AsyncWebhookAdapter {
     this.semaphore = new Semaphore(concurrency);
   }
 
+  // #ignore-sloppy-code-next-line[async-keyword]: fetch HTTP boundary + deferred callback correlation
   async sendRequest(opts: {
     url: string;
     requestId: string;
@@ -140,6 +177,7 @@ export class AsyncWebhookAdapter {
     callbackToken: string;
     body: unknown;
     timeoutMs: number;
+    // #ignore-sloppy-code-next-line[promise-type]: fetch HTTP boundary with deferred callback correlation
   }): Promise<string[]> {
     // Register the pending entry BEFORE sending the HTTP request.
     // A fast webhook service could call back before fetch() returns.
@@ -249,7 +287,7 @@ export class WebhookPermissionService implements PermissionService {
     private logger: Logger,
   ) {}
 
-  async requestPermission(params: {
+  requestPermission(params: {
     userId: string;
     agentId: string;
     sessionId: string;
@@ -257,33 +295,38 @@ export class WebhookPermissionService implements PermissionService {
     resource: string;
     access: string[];
     timeoutMs: number;
-  }): Promise<string[]> {
+  }): Effect.Effect<string[], Error> {
     const requestId = crypto.randomUUID();
     const callbackUrl = `${this.callbackBaseUrl}/api/v1/permissions/resolve`;
 
-    try {
-      return await this.adapter.sendRequest({
-        url: this.webhookUrl,
-        requestId,
-        callbackUrl,
-        callbackToken: this.callbackToken,
-        body: {
-          userId: params.userId,
-          agentId: params.agentId,
-          sessionId: params.sessionId,
-          appId: params.appId,
-          resource: params.resource,
-          access: params.access,
-        },
-        timeoutMs: params.timeoutMs,
-      });
-    } catch (err) {
-      this.logger.error(
-        { err, requestId, resource: params.resource },
-        "Webhook permission request failed",
-      );
-      throw err;
-    }
+    return Effect.tryPromise({
+      try: () =>
+        this.adapter.sendRequest({
+          url: this.webhookUrl,
+          requestId,
+          callbackUrl,
+          callbackToken: this.callbackToken,
+          body: {
+            userId: params.userId,
+            agentId: params.agentId,
+            sessionId: params.sessionId,
+            appId: params.appId,
+            resource: params.resource,
+            access: params.access,
+          },
+          timeoutMs: params.timeoutMs,
+        }),
+      catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+    }).pipe(
+      Effect.tapError((err) =>
+        Effect.sync(() =>
+          this.logger.error(
+            { err, requestId, resource: params.resource },
+            "Webhook permission request failed",
+          ),
+        ),
+      ),
+    );
   }
 }
 

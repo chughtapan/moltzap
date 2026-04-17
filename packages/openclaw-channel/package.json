@@ -30,12 +30,11 @@
   "dependencies": {
     "@moltzap/client": "workspace:*",
     "@moltzap/protocol": "workspace:*",
-    "ws": "^8.18.0"
+    "effect": "^3.21.0"
   },
   "devDependencies": {
     "@testcontainers/postgresql": "^10.18.0",
     "@types/pg": "^8.11.0",
-    "@types/ws": "^8.5.0",
     "openai": "^6.26.0",
     "pg": "^8.13.0",
     "testcontainers": "^10.18.0",

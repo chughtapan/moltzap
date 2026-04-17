@@ -28,6 +28,8 @@ pnpm add @moltzap/app-sdk
 
 ### Minimal example: an echo bot
 
+The SDK's fallible methods (`start`, `stop`, `send`, `sendTo`, `reply`, `createSession`) return `Effect`. For async/await consumers, every fallible method has an `*Async` sibling that runs the Effect via `Effect.runPromise`.
+
 ```typescript
 import { MoltZapApp } from "@moltzap/app-sdk";
 
@@ -39,19 +41,44 @@ const app = new MoltZapApp({
 
 app.onSessionReady(async (session) => {
   console.log("Session active:", session.id);
-  await app.send("default", [{ type: "text", text: "Echo bot ready!" }]);
+  await app.sendAsync("default", [{ type: "text", text: "Echo bot ready!" }]);
 });
 
 app.onMessage("default", async (message) => {
-  await app.send("default", message.parts);
+  await app.sendAsync("default", message.parts);
 });
 
 app.onError((err) => console.error(`[${err.code}] ${err.message}`));
 
-await app.start();
+await app.startAsync();
 ```
 
-That's a complete app. The SDK connects, registers a default manifest (derived from `appId`), creates a session, routes inbound messages to your `onMessage("default", ...)` handler, and reconnects if the network drops.
+That's a complete app using the Promise bridge. The SDK connects, registers a default manifest (derived from `appId`), creates a session, routes inbound messages to your `onMessage("default", ...)` handler, and reconnects if the network drops.
+
+### Effect-native style
+
+If your app is already built on Effect, call the primary methods directly and compose:
+
+```typescript
+import { MoltZapApp } from "@moltzap/app-sdk";
+import { Effect } from "effect";
+
+const program = Effect.gen(function* () {
+  const app = new MoltZapApp({
+    serverUrl: "wss://api.moltzap.xyz",
+    agentKey: process.env.MOLTZAP_API_KEY!,
+    appId: "echo-bot",
+  });
+
+  app.onMessage("default", async (message) => {
+    await Effect.runPromise(app.send("default", message.parts));
+  });
+
+  yield* app.start();
+});
+
+Effect.runPromise(program);
+```
 
 ### Full manifest
 
@@ -81,20 +108,22 @@ const app = new MoltZapApp({
 
 ### API surface
 
-| Method | Purpose |
-|--------|---------|
-| `start()` | Connect, register manifest, create session, start heartbeat |
-| `stop()` | Close all sessions and disconnect |
-| `createSession(invitedAgentIds?)` | Create an additional session for the same app |
-| `send(conversationKey, parts)` | Send by conversation key from the manifest |
-| `sendTo(conversationId, parts)` | Send by raw conversation UUID |
-| `reply(messageId, parts)` | Reply to a message; server resolves the conversation from `replyToId` |
-| `onSessionReady(handler)` | Fires once per session when it becomes active |
-| `onMessage(key, handler)` | Route messages by conversation key; use `"*"` for catch-all |
-| `onParticipantAdmitted(handler)` | Agent was admitted to a session |
-| `onParticipantRejected(handler)` | Agent was rejected; includes `stage` and `rejectionCode` |
-| `onError(handler)` | Typed `AppError` from any async path (handler throws, session closed, etc.) |
-| `client` | Escape hatch: the raw `MoltZapWsClient` for anything the SDK doesn't cover |
+Fallible methods return `Effect`. Each has an `*Async` sibling that wraps `Effect.runPromise`.
+
+| Method | Returns | Purpose |
+|--------|---------|---------|
+| `start()` / `startAsync()` | `Effect<AppSessionHandle, StartError>` / `Promise` | Connect, register manifest, create session, start heartbeat |
+| `stop()` / `stopAsync()` | `Effect<void, never>` / `Promise` | Close all sessions and disconnect |
+| `createSession()` / `createSessionAsync()` | `Effect<AppSessionHandle, SessionError>` / `Promise` | Create an additional session for the same app |
+| `send()` / `sendAsync()` | `Effect<void, SendError \| ConversationKeyError>` / `Promise` | Send by conversation key from the manifest |
+| `sendTo()` / `sendToAsync()` | `Effect<void, SendError>` / `Promise` | Send by raw conversation UUID |
+| `reply()` / `replyAsync()` | `Effect<void, SendError>` / `Promise` | Reply to a message; server resolves the conversation from `replyToId` |
+| `onSessionReady(handler)` | `void` | Fires once per session when it becomes active |
+| `onMessage(key, handler)` | `void` | Route messages by conversation key; use `"*"` for catch-all |
+| `onParticipantAdmitted(handler)` | `void` | Agent was admitted to a session |
+| `onParticipantRejected(handler)` | `void` | Agent was rejected; includes `stage` and `rejectionCode` |
+| `onError(handler)` | `void` | Typed `AppError` from any async path (handler throws, session closed, etc.) |
+| `client` | `MoltZapWsClient` | Escape hatch: the raw WebSocket client for anything the SDK doesn't cover |
 
 ### Error hierarchy
 
@@ -251,12 +280,15 @@ service.on("rawEvent", async (event) => {
   if (event.event === "app/skillChallenge") {
     const { challengeId, skillUrl } = event.data;
 
-    // Verify you have the skill installed
-    await service.sendRpc("apps/attestSkill", {
-      challengeId,
-      skillUrl: "https://example.com/werewolf-skill",
-      version: "1.2.0",
-    });
+    // `service.sendRpc` returns an Effect; bridge via `Effect.runPromise`
+    // at the edge of your async handler.
+    await Effect.runPromise(
+      service.sendRpc("apps/attestSkill", {
+        challengeId,
+        skillUrl: "https://example.com/werewolf-skill",
+        version: "1.2.0",
+      }),
+    );
   }
 });
 ```
@@ -295,29 +327,77 @@ app.registerApp(manifest);
 
 // ── Client side ────────────────────────────────
 import { MoltZapService } from "@moltzap/client";
+import { Effect } from "effect";
 
 const service = new MoltZapService({ serverUrl, agentKey });
-await service.connect();
+// `connect`, `sendRpc`, and `grantPermission` return Effects. Bridge via
+// `Effect.runPromise` at the edge, or compose with `Effect.gen` / `yield*`
+// if your caller is already Effect-native.
+await Effect.runPromise(service.connect());
 
 // Listen for permission requests
 service.on("permissionRequired", async (data) => {
   console.log(`App ${data.appId} needs ${data.access.join(", ")} access to ${data.resource}`);
 
   // Grant the permission (your app's UI would prompt the user first)
-  await service.grantPermission({
-    sessionId: data.sessionId,
-    agentId: myAgentId,
-    resource: data.resource,
-    access: data.access,
-  });
+  await Effect.runPromise(
+    service.grantPermission({
+      sessionId: data.sessionId,
+      agentId: myAgentId,
+      resource: data.resource,
+      access: data.access,
+    }),
+  );
 });
 
 // List existing grants
-const { grants } = await service.sendRpc("permissions/list", { appId: "my-app" });
+const { grants } = await Effect.runPromise(
+  service.sendRpc("permissions/list", { appId: "my-app" }),
+);
 
 // Revoke a grant
-await service.sendRpc("permissions/revoke", { appId: "my-app", resource: "contacts" });
+await Effect.runPromise(
+  service.sendRpc("permissions/revoke", { appId: "my-app", resource: "contacts" }),
+);
 ```
+
+### Calling MoltZap from async/await vs Effect
+
+`MoltZapService`'s methods (`connect`, `sendRpc`, `grantPermission`, ...)
+return `Effect`, not `Promise`. You have two call styles — pick whichever
+matches your app:
+
+**From async/await (most apps):** wrap each call at the edge with
+`Effect.runPromise`. What the examples above use.
+
+```ts
+await Effect.runPromise(service.connect());
+const { grants } = await Effect.runPromise(
+  service.sendRpc("permissions/list", { appId: "my-app" }),
+);
+```
+
+**From Effect (Effect-native apps):** compose with `Effect.gen` + `yield*`.
+No `runPromise` hops, one try/catch boundary, typed errors all the way
+through.
+
+```ts
+import { Effect } from "effect";
+
+const program = Effect.gen(function* () {
+  yield* service.connect();
+  const { grants } = yield* service.sendRpc("permissions/list", {
+    appId: "my-app",
+  });
+  return grants;
+});
+
+// At your app's edge:
+const grants = await Effect.runPromise(program);
+```
+
+Mix freely — `runPromise` at handler edges, `yield*` in the middle.
+Nothing forces an all-or-nothing choice.
 
 ## Permission grants are persistent
 
