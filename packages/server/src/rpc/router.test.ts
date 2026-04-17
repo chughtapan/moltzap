@@ -5,6 +5,7 @@ import { ErrorCodes, type RequestFrame } from "@moltzap/protocol";
 import { createRpcRouter } from "./router.js";
 import type { AuthenticatedContext, RpcMethodDef } from "./context.js";
 import { ForbiddenError, RpcFailure } from "../runtime/index.js";
+import { AgentId, UserId } from "../app/types.js";
 
 // Router tests assemble handler fixtures directly as `RpcMethodDef` literals
 // rather than going through `defineMethod` — these aren't real RPC methods
@@ -13,13 +14,13 @@ import { ForbiddenError, RpcFailure } from "../runtime/index.js";
 const makeMethod = (def: RpcMethodDef): RpcMethodDef => def;
 
 const activeAgent: AuthenticatedContext = {
-  agentId: "agent-1",
+  agentId: AgentId("agent-1"),
   agentStatus: "active",
-  ownerUserId: "user-1",
+  ownerUserId: UserId("user-1"),
 };
 
 const pendingAgent: AuthenticatedContext = {
-  agentId: "agent-2",
+  agentId: AgentId("agent-2"),
   agentStatus: "pending_claim",
   ownerUserId: null,
 };

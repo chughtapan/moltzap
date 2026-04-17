@@ -1,6 +1,7 @@
 import { Cause, Effect } from "effect";
 import { WebhookCallError, type WebhookClient } from "../adapters/webhook.js";
 import type { Logger } from "../logger.js";
+import { AgentId, UserId } from "../app/types.js";
 
 /**
  * Result of resolving an app-minted bearer session token. Discriminated
@@ -20,13 +21,13 @@ export type SessionValidation =
   | { readonly valid: false }
   | {
       readonly valid: true;
-      readonly agentId: string;
-      readonly ownerUserId: string;
+      readonly agentId: AgentId;
+      readonly ownerUserId: UserId;
       readonly agentStatus?: string;
     };
 
 export interface UserService {
-  validateUser(userId: string): Effect.Effect<{ valid: boolean }, never>;
+  validateUser(userId: UserId): Effect.Effect<{ valid: boolean }, never>;
   /**
    * Validate an app-minted session token during auth/connect. Optional —
    * cores that don't support bearer-token auth omit it entirely. Returns
@@ -36,7 +37,7 @@ export interface UserService {
 }
 
 export class InProcessUserService implements UserService {
-  validateUser(_userId: string): Effect.Effect<{ valid: boolean }, never> {
+  validateUser(_userId: UserId): Effect.Effect<{ valid: boolean }, never> {
     return Effect.succeed({ valid: true });
   }
 }
@@ -49,7 +50,7 @@ export class WebhookUserService implements UserService {
     private logger: Logger,
   ) {}
 
-  validateUser(userId: string): Effect.Effect<{ valid: boolean }, never> {
+  validateUser(userId: UserId): Effect.Effect<{ valid: boolean }, never> {
     return Effect.tryPromise({
       try: () =>
         this.client.callSync<{ valid: boolean }>({
@@ -109,17 +110,19 @@ export class WebhookUserService implements UserService {
           typeof result.agentStatus === "string"
             ? result.agentStatus
             : undefined;
+        const agentId = AgentId(result.agentId);
+        const ownerUserId = UserId(result.ownerUserId);
         return agentStatus !== undefined
           ? {
               valid: true,
-              agentId: result.agentId,
-              ownerUserId: result.ownerUserId,
+              agentId,
+              ownerUserId,
               agentStatus,
             }
           : {
               valid: true,
-              agentId: result.agentId,
-              ownerUserId: result.ownerUserId,
+              agentId,
+              ownerUserId,
             };
       }),
       Effect.catchAllCause((cause) =>
