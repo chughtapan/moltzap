@@ -1,27 +1,82 @@
 /**
- * Effect Logger backed by a Pino instance.
+ * Pino-backed logger, injectable via `LoggerTag`.
  *
- * Pino is still the actual output backend — operator-facing log format is
- * unchanged. On top of that, `effectLogger` wraps Pino as an Effect `Logger`
- * so `Effect.logInfo(...).pipe(Effect.annotateLogs({...}))` calls inside
- * services flow to the same Pino stream via `LoggerLive`.
+ * `LoggerLive` reads `LOG_LEVEL` / `NODE_ENV` through `Effect.Config` inside
+ * `Layer.effect` — so env vars are resolved at Layer evaluation time (via
+ * whatever `ConfigProvider` the runtime is using), not at module import.
  *
- * The Pino instance remains exported as `logger` / `Logger` so bootstrap,
- * startup, and synchronous paths that can't be inside an Effect continue
- * to work unchanged.
+ * Effect-context code pulls the instance via `LoggerTag`. Sync paths that
+ * can't sit inside an Effect (pool error listeners, top-level bootstrap,
+ * direct CLI entry) use `getLogger()` — it returns the Layer-built instance
+ * once `LoggerLive` has run, else a bootstrap pino with defaults.
  */
-import { Logger as EffectLogger } from "effect";
+import { Config, Context, Effect, Layer, Logger as EffectLogger } from "effect";
 import pino from "pino";
 
-export const logger = pino({
-  level: process.env["LOG_LEVEL"] ?? "info",
-  transport:
-    process.env["NODE_ENV"] !== "production"
-      ? { target: "pino-pretty", options: { colorize: true } }
-      : undefined,
-});
+export type Logger = pino.Logger;
 
-export type Logger = typeof logger;
+/** Context tag for the root pino logger. Provided by `LoggerLive`. */
+export class LoggerTag extends Context.Tag("moltzap/Logger")<
+  LoggerTag,
+  Logger
+>() {}
+
+/**
+ * Singleton written by `LoggerLive` on first build. Read by `getLogger()`
+ * and the `effectLogger` bridge so every log — sync or Effect — lands on the
+ * same pino stream.
+ */
+let current: Logger | null = null;
+
+/** Bootstrap pino with defaults only — no env reads. */
+let bootstrap: Logger | null = null;
+function getBootstrap(): Logger {
+  if (!bootstrap) bootstrap = pino({ level: "info" });
+  return bootstrap;
+}
+
+/**
+ * Returns the Layer-built pino once `LoggerLive` has evaluated, otherwise
+ * a bootstrap default. Sync accessor for paths that can't pull `LoggerTag`
+ * from an Effect context.
+ */
+export function getLogger(): Logger {
+  return current ?? getBootstrap();
+}
+
+/**
+ * @deprecated Prefer `LoggerTag` from Effect context, or `getLogger()` for
+ * sync paths. Kept as a transparent Proxy over `getLogger()` so legacy call
+ * sites using `logger.info(...)` continue to work during migration.
+ */
+export const logger: Logger = new Proxy({} as Logger, {
+  get(_target, prop) {
+    const target = getLogger() as unknown as Record<string | symbol, unknown>;
+    const value = target[prop];
+    return typeof value === "function"
+      ? (value as (...args: unknown[]) => unknown).bind(target)
+      : value;
+  },
+}) as Logger;
+
+/** Build pino from Effect.Config — env reads happen here, at Layer build. */
+const buildPino = Effect.gen(function* () {
+  const level = yield* Config.string("LOG_LEVEL").pipe(
+    Config.withDefault("info"),
+  );
+  const nodeEnv = yield* Config.string("NODE_ENV").pipe(
+    Config.withDefault("development"),
+  );
+  const instance = pino({
+    level,
+    transport:
+      nodeEnv !== "production"
+        ? { target: "pino-pretty", options: { colorize: true } }
+        : undefined,
+  });
+  current = instance;
+  return instance;
+});
 
 /**
  * Maps Effect's `LogLevel._tag` values to Pino's level method names. `All` /
@@ -43,13 +98,14 @@ const levelToPino: Record<
 };
 
 /**
- * Effect `Logger` that writes to the Pino instance. Annotations added via
- * `Effect.annotateLogs({...})` become the first-arg object on the Pino call,
- * matching the pre-migration `logger.info({...}, "msg")` shape so operator
- * tooling sees no format change.
+ * Effect `Logger` that writes to the current pino instance. Annotations added
+ * via `Effect.annotateLogs({...})` become the first-arg object on the Pino
+ * call, matching the pre-migration `logger.info({...}, "msg")` shape so
+ * operator tooling sees no format change.
  */
 export const effectLogger = EffectLogger.make(
   ({ logLevel, message, annotations }) => {
+    const log = getLogger();
     const mergedAnnotations: Record<string, unknown> = {};
     // HashMap iteration yields [key, value] tuples.
     for (const [k, v] of annotations) {
@@ -69,7 +125,7 @@ export const effectLogger = EffectLogger.make(
     // than letting the throw propagate as a defect through the Effect
     // runtime — a log-write failure is never worth crashing the fiber for.
     try {
-      logger[pinoMethod](mergedAnnotations, msg);
+      log[pinoMethod](mergedAnnotations, msg);
     } catch (err) {
       // #ignore-sloppy-code-next-line[bare-catch]: logger failure path writes to stderr since the logger itself is broken
       try {
@@ -87,11 +143,11 @@ export const effectLogger = EffectLogger.make(
 );
 
 /**
- * Layer that replaces Effect's default (console) logger with the Pino-backed
- * Effect logger. Provide this in the top-level Layer composition so all
- * `Effect.log*` calls inside services route through Pino.
+ * Provides `LoggerTag` (pino built from `Effect.Config`) AND replaces
+ * Effect's default (console) logger with the pino-backed `effectLogger` so
+ * `Effect.log*` calls inside services flow through the same stream.
  */
-export const LoggerLive = EffectLogger.replace(
-  EffectLogger.defaultLogger,
-  effectLogger,
+export const LoggerLive = Layer.mergeAll(
+  Layer.effect(LoggerTag, buildPino),
+  EffectLogger.replace(EffectLogger.defaultLogger, effectLogger),
 );
