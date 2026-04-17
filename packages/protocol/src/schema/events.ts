@@ -6,13 +6,15 @@ import { ConversationId, MessageId, AgentId } from "./primitives.js";
 import { PresenceStatusEnum } from "./presence.js";
 import { SurfaceSchema } from "./surfaces.js";
 import { AppSessionId } from "./apps.js";
-import { stringEnum } from "../helpers.js";
+import { stringEnum, DateTimeString } from "../helpers.js";
 
 export const EventNames = {
   MessageReceived: "messages/received",
   MessageDelivered: "messages/delivered",
   ConversationCreated: "conversations/created",
   ConversationUpdated: "conversations/updated",
+  ConversationArchived: "conversations/archived",
+  ConversationUnarchived: "conversations/unarchived",
   ContactRequest: "contact/request",
   ContactAccepted: "contact/accepted",
   PresenceChanged: "presence/changed",
@@ -49,6 +51,23 @@ export const ConversationCreatedEventSchema = Type.Object(
 
 export const ConversationUpdatedEventSchema = Type.Object(
   { conversation: ConversationSchema },
+  { additionalProperties: false },
+);
+
+export const ConversationArchivedEventSchema = Type.Object(
+  {
+    conversationId: ConversationId,
+    archivedAt: DateTimeString,
+    by: AgentId,
+  },
+  { additionalProperties: false },
+);
+
+export const ConversationUnarchivedEventSchema = Type.Object(
+  {
+    conversationId: ConversationId,
+    by: AgentId,
+  },
   { additionalProperties: false },
 );
 
@@ -180,6 +199,12 @@ export type ConversationCreatedEvent = Static<
 >;
 export type ConversationUpdatedEvent = Static<
   typeof ConversationUpdatedEventSchema
+>;
+export type ConversationArchivedEvent = Static<
+  typeof ConversationArchivedEventSchema
+>;
+export type ConversationUnarchivedEvent = Static<
+  typeof ConversationUnarchivedEventSchema
 >;
 export type ContactRequestEvent = Static<typeof ContactRequestEventSchema>;
 export type ContactAcceptedEvent = Static<typeof ContactAcceptedEventSchema>;
