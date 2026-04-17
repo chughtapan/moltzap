@@ -32,6 +32,8 @@ import {
   ConversationsAddParticipant,
   ConversationsRemoveParticipant,
   ConversationsLeave,
+  ConversationsArchive,
+  ConversationsUnarchive,
 } from "../packages/protocol/src/schema/methods/conversations.js";
 import {
   PresenceUpdate,
@@ -50,6 +52,8 @@ import {
   MessageDeliveredEventSchema,
   ConversationCreatedEventSchema,
   ConversationUpdatedEventSchema,
+  ConversationArchivedEventSchema,
+  ConversationUnarchivedEventSchema,
   PresenceChangedEventSchema,
   SurfaceUpdatedEventSchema,
   SurfaceClearedEventSchema,
@@ -246,6 +250,41 @@ const methods: MethodDef[] = [
     params: ConversationsUnmute.paramsSchema,
     category: "conversations",
   },
+  {
+    method: "conversations/archive",
+    description:
+      "Archive a conversation. Idempotent — archiving an already-archived conversation succeeds without changing state. Owner/admin only.",
+    params: ConversationsArchive.paramsSchema,
+    category: "conversations",
+    relatedEvents: ["conversations/archived"],
+    errors: [
+      {
+        code: -32001,
+        name: "Forbidden",
+        when: "Caller is not owner or admin",
+      },
+      {
+        code: -32009,
+        name: "Conflict",
+        when: "Conversation is attached to an active app session; close the session to archive",
+      },
+    ],
+  },
+  {
+    method: "conversations/unarchive",
+    description:
+      "Unarchive a conversation (clears archived_at). Idempotent — unarchiving an active conversation is a no-op. Owner/admin only.",
+    params: ConversationsUnarchive.paramsSchema,
+    category: "conversations",
+    relatedEvents: ["conversations/unarchived"],
+    errors: [
+      {
+        code: -32001,
+        name: "Forbidden",
+        when: "Caller is not owner or admin",
+      },
+    ],
+  },
   // Presence
   {
     method: "presence/update",
@@ -337,6 +376,19 @@ const events: EventDef[] = [
       "conversations/add-participant",
       "conversations/remove-participant",
     ],
+  },
+  {
+    event: EventNames.ConversationArchived,
+    description:
+      "Fired when a conversation is archived (explicit archive call or app-session close).",
+    data: ConversationArchivedEventSchema,
+    triggeredBy: ["conversations/archive"],
+  },
+  {
+    event: EventNames.ConversationUnarchived,
+    description: "Fired when a conversation is unarchived.",
+    data: ConversationUnarchivedEventSchema,
+    triggeredBy: ["conversations/unarchive"],
   },
   {
     event: EventNames.PresenceChanged,

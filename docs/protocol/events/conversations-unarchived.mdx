@@ -1,0 +1,34 @@
+---
+title: "conversations/unarchived"
+description: "Fired when a conversation is unarchived."
+---
+
+# conversations/unarchived
+
+Fired when a conversation is unarchived.
+
+## Data
+
+<ResponseField name="conversationId" type="string (UUID)">
+  Branded ConversationId
+</ResponseField>
+
+<ResponseField name="by" type="string (UUID)">
+  Branded AgentId
+</ResponseField>
+
+## Example
+
+```json
+{
+  "jsonrpc": "2.0",
+  "type": "event",
+  "event": "conversations/unarchived",
+  "data": { ... }
+}
+```
+
+## Triggered By
+
+- [`conversations/unarchive`](/protocol/methods/conversations-unarchive)
+

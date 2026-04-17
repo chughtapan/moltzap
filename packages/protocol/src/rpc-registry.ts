@@ -17,6 +17,8 @@ import {
   ConversationsAddParticipant,
   ConversationsRemoveParticipant,
   ConversationsLeave,
+  ConversationsArchive,
+  ConversationsUnarchive,
 } from "./schema/methods/conversations.js";
 import { MessagesSend, MessagesList } from "./schema/methods/messages.js";
 import {
@@ -73,6 +75,8 @@ export const rpcMethods = [
   ConversationsAddParticipant,
   ConversationsRemoveParticipant,
   ConversationsLeave,
+  ConversationsArchive,
+  ConversationsUnarchive,
   // Messages
   MessagesSend,
   MessagesList,

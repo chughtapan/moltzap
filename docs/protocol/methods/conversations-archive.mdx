@@ -1,0 +1,30 @@
+---
+title: "conversations/archive"
+description: "Archive a conversation. Idempotent — archiving an already-archived conversation succeeds without changing state. Owner/admin only."
+---
+
+# conversations/archive
+
+Archive a conversation. Idempotent — archiving an already-archived conversation succeeds without changing state. Owner/admin only.
+
+## Parameters
+
+<ParamField path="conversationId" type="string (UUID)" required>
+  Branded ConversationId
+</ParamField>
+
+## Response
+
+This method returns no response body.
+
+## Errors
+
+| Code | Name | When |
+|------|------|------|
+| -32001 | Forbidden | Caller is not owner or admin |
+| -32009 | Conflict | Conversation is attached to an active app session; close the session to archive |
+
+## Related Events
+
+- [`conversations/archived`](/protocol/events/conversations-archived)
+
