@@ -12,7 +12,7 @@ import {
   type PermissionsRequiredEvent,
   EventNames,
 } from "@moltzap/protocol";
-import { Effect, HashMap, Option, Ref } from "effect";
+import { Effect, HashMap, Match, Option, Ref } from "effect";
 import { MoltZapWsClient, type WsClientLogger } from "./ws-client.js";
 import {
   AgentNotFoundError,
@@ -112,18 +112,13 @@ export interface CrossConvMessage {
   timestamp: string;
 }
 
-function renderPart(p: Part): string {
-  switch (p.type) {
-    case "text":
-      return p.text;
-    case "image":
-      return "[image]";
-    case "file":
-      return `[file: ${p.name}]`;
-    default:
-      return `[${(p as { type: string }).type}]`;
-  }
-}
+const renderPart: (p: Part) => string = Match.type<Part>().pipe(
+  Match.discriminatorsExhaustive("type")({
+    text: (t) => t.text,
+    image: () => "[image]",
+    file: (f) => `[file: ${f.name}]`,
+  }),
+);
 
 /**
  * Per-conversation message cap. Older messages are evicted FIFO; the
