@@ -1,15 +1,18 @@
 import type { Db } from "../db/client.js";
 import type { Message, Part } from "@moltzap/protocol";
 import { ErrorCodes, EventNames, eventFrame } from "@moltzap/protocol";
-import { Duration, Effect, Option, Schedule } from "effect";
-import { createHmac } from "node:crypto";
+import { Duration, Effect, Fiber, Option, Schedule } from "effect";
 import { SqlError } from "@effect/sql/SqlError";
 import { RpcFailure, notFound, internalError } from "../runtime/index.js";
 import { nextSnowflakeId } from "../db/snowflake.js";
 import type { ConversationService } from "./conversation.service.js";
 import type { DeliveryService } from "./delivery.service.js";
 import type { Broadcaster } from "../ws/broadcaster.js";
-import type { WebhookClient } from "../adapters/webhook.js";
+import {
+  type WebhookClient,
+  WebhookCallError,
+  signWebhookPayload,
+} from "../adapters/webhook.js";
 import {
   type EnvelopeEncryption,
   generateDek,
@@ -52,6 +55,10 @@ const DELIVERY_WEBHOOK_TIMEOUT_MS = 5_000;
 const DELIVERY_WEBHOOK_MAX_ATTEMPTS = 3;
 
 export class MessageService {
+  private deliveryWebhookFibers = new Set<
+    Fiber.RuntimeFiber<unknown, unknown>
+  >();
+
   constructor(
     private db: Db,
     private conversations: ConversationService,
@@ -62,6 +69,12 @@ export class MessageService {
     private deliveryWebhook: DeliveryWebhookConfig | null = null,
     private webhookClient: WebhookClient | null = null,
   ) {}
+
+  close(): Effect.Effect<void, never> {
+    const pending = [...this.deliveryWebhookFibers];
+    this.deliveryWebhookFibers.clear();
+    return pending.length > 0 ? Fiber.interruptAll(pending) : Effect.void;
+  }
 
   send(
     conversationId: string,
@@ -219,13 +232,11 @@ export class MessageService {
             (id) => id !== senderAgentId && !deliveredSet.has(id),
           );
           if (offlineRecipientAgentIds.length > 0) {
-            yield* Effect.forkDaemon(
-              this.fireDeliveryWebhook({
-                conversationId,
-                messageId: message.id,
-                offlineRecipientAgentIds,
-              }),
-            );
+            this.spawnDeliveryWebhook({
+              conversationId,
+              messageId: message.id,
+              offlineRecipientAgentIds,
+            });
           }
         }
 
@@ -238,12 +249,21 @@ export class MessageService {
     );
   }
 
-  /**
-   * Detached daemon effect: POST `body` to the configured delivery webhook,
-   * HMAC-SHA256 signed, with bounded exponential-jittered retry. Never fails
-   * the caller — the final error channel is `never`; all outcomes log and
-   * return unit.
-   */
+  private spawnDeliveryWebhook(body: {
+    conversationId: string;
+    messageId: string;
+    offlineRecipientAgentIds: string[];
+  }): void {
+    const fibers = this.deliveryWebhookFibers;
+    const fiber = Effect.runFork(
+      this.fireDeliveryWebhook(body),
+    ) as Fiber.RuntimeFiber<unknown, unknown>;
+    fibers.add(fiber);
+    fiber.addObserver(() => {
+      fibers.delete(fiber);
+    });
+  }
+
   private fireDeliveryWebhook(body: {
     conversationId: string;
     messageId: string;
@@ -251,12 +271,12 @@ export class MessageService {
   }): Effect.Effect<void, never> {
     const cfg = this.deliveryWebhook;
     const client = this.webhookClient;
+    // Defensive: TS narrowing doesn't propagate across the fork boundary
+    // in `spawnDeliveryWebhook`, so we re-check here.
     if (!cfg || !client) return Effect.void;
 
     const payload = JSON.stringify(body);
-    const signature =
-      "sha256=" +
-      createHmac("sha256", cfg.secret).update(payload).digest("hex");
+    const signature = signWebhookPayload(cfg.secret, payload);
 
     // 1s base, doubled per attempt, ±50% jitter. `intersect` with `recurs`
     // caps the retry count at `MAX_ATTEMPTS - 1` so total attempts = MAX.
@@ -275,7 +295,8 @@ export class MessageService {
           timeoutMs: DELIVERY_WEBHOOK_TIMEOUT_MS,
           headers: { "X-MoltZap-Signature": signature },
         }),
-      catch: (err) => err,
+      catch: (err) =>
+        new WebhookCallError("messages.delivered failed", cfg.url, err),
     }).pipe(
       Effect.retry(retrySchedule),
       Effect.asVoid,
