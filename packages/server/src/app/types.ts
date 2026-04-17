@@ -42,6 +42,18 @@ export interface CoreConfig {
    * flow set this and mount their own handler.
    */
   skipDefaultRegisterRoute?: boolean;
+  /**
+   * Fire-and-forget HTTP webhook after message delivery with the list of
+   * offline recipient agent IDs. Use to drive push notifications or analytics
+   * out of band. Body is signed with HMAC-SHA256 in the
+   * `X-MoltZap-Signature: sha256=<hex>` header using `secret`.
+   *
+   * Shape: `{ conversationId, messageId, offlineRecipientAgentIds: string[] }`.
+   *
+   * Dispatched on a detached daemon fiber with a 3-attempt exponential backoff
+   * (1s base, jittered). Failures log and drop — never block `messages/send`.
+   */
+  deliveryWebhook?: { url: string; secret: string };
 }
 
 export type ConnectionHook = (params: {

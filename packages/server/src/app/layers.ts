@@ -15,7 +15,10 @@ import { ParticipantService } from "../services/participant.service.js";
 import { ConversationService } from "../services/conversation.service.js";
 import { DeliveryService } from "../services/delivery.service.js";
 import { PresenceService } from "../services/presence.service.js";
-import { MessageService } from "../services/message.service.js";
+import {
+  MessageService,
+  type DeliveryWebhookConfig,
+} from "../services/message.service.js";
 import type { UserService } from "../services/user.service.js";
 import { AppHost, DefaultPermissionService } from "./app-host.js";
 import type { EnvelopeEncryption } from "../crypto/envelope.js";
@@ -110,6 +113,15 @@ export class UserServiceTag extends Context.Tag("moltzap/UserService")<
 export class WebhookClientTag extends Context.Tag("moltzap/WebhookClient")<
   WebhookClientTag,
   WebhookClient
+>() {}
+
+/**
+ * Optional fire-and-forget message-delivery webhook. `null` means no
+ * webhook — the fanout is skipped entirely.
+ */
+export class DeliveryWebhookTag extends Context.Tag("moltzap/DeliveryWebhook")<
+  DeliveryWebhookTag,
+  DeliveryWebhookConfig | null
 >() {}
 
 // ── Infrastructure Layers (no app deps) ───────────────────────────────────
@@ -207,6 +219,8 @@ export const MessageServiceLive = Layer.effect(
     const encryption = yield* EncryptionTag;
     const delivery = yield* DeliveryServiceTag;
     const appHost = yield* AppHostTag;
+    const deliveryWebhook = yield* DeliveryWebhookTag;
+    const webhookClient = yield* WebhookClientTag;
     return new MessageService(
       db,
       conversations,
@@ -214,6 +228,8 @@ export const MessageServiceLive = Layer.effect(
       encryption,
       delivery,
       appHost,
+      deliveryWebhook,
+      webhookClient,
     );
   }),
 );
