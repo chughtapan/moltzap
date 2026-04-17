@@ -112,14 +112,8 @@ export class MoltZapChannelCore {
   private readonly logger: WsClientLogger;
   private connected = false;
   private inboundHandler: InboundHandler | null = null;
-  /**
-   * Inbound messages are enqueued synchronously from the service's `message`
-   * event and consumed by a single forked fiber. This replaces the previous
-   * `Promise<void>` chain — same semantics (arrival-order, one handler
-   * executes at a time, a throwing handler is logged and does not abort the
-   * consumer), but in Effect idiom so the channel core has no raw
-   * `Promise.then` ordering machinery.
-   */
+  /** Inbound messages enqueue synchronously; a single forked consumer fiber
+   * serialises delivery so handlers execute one-at-a-time in arrival order. */
   private readonly inboundQueue: Queue.Queue<Message> = Effect.runSync(
     Queue.unbounded<Message>(),
   );
@@ -135,13 +129,10 @@ export class MoltZapChannelCore {
     this.logger = opts.logger ?? noopLogger;
 
     this.service.on("message", (message) => {
-      // Synchronous enqueue; the consumer fiber serialises delivery.
       Queue.unsafeOffer(this.inboundQueue, message);
     });
 
-    // Long-running daemon that dequeues messages one at a time and awaits
-    // each inbound handler to completion. Individual handler failures are
-    // caught and logged so the fiber survives for the next message.
+    // Handler failures are caught and logged so the consumer fiber survives.
     const consumer = Effect.forever(
       Queue.take(this.inboundQueue).pipe(
         Effect.flatMap((message) =>

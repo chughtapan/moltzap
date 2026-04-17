@@ -37,7 +37,10 @@ afterAll(async () => {
 describe("Flow 8: Reconnection + missed message catch-up", () => {
   it.live("reconnects after disconnect with exponential backoff", () =>
     Effect.gen(function* () {
-      const bob = yield* Effect.promise(() => registerAndClaim("recon-bob"));
+      const bob = yield* Effect.tryPromise({
+        try: () => registerAndClaim("recon-bob"),
+        catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+      });
 
       let disconnected = false;
       let reconnected = false;
@@ -58,10 +61,16 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
 
       disconnectWs(client);
 
-      yield* Effect.promise(() => waitFor(() => disconnected, 3000));
+      yield* Effect.tryPromise({
+        try: () => waitFor(() => disconnected, 3000),
+        catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+      });
       expect(disconnected).toBe(true);
 
-      yield* Effect.promise(() => waitFor(() => reconnected, 10_000));
+      yield* Effect.tryPromise({
+        try: () => waitFor(() => reconnected, 10_000),
+        catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+      });
       expect(reconnected).toBe(true);
 
       closeWs(client);
@@ -70,13 +79,18 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
 
   it.live("onReconnect callback receives helloOk with unreadCounts", () =>
     Effect.gen(function* () {
-      const alice = yield* Effect.promise(() =>
-        registerAndClaim("recon-alice-unread"),
-      );
-      const bob = yield* Effect.promise(() =>
-        registerAndClaim("recon-bob-unread"),
-      );
-      yield* Effect.promise(() => makeContact(alice.userId, bob.userId));
+      const alice = yield* Effect.tryPromise({
+        try: () => registerAndClaim("recon-alice-unread"),
+        catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+      });
+      const bob = yield* Effect.tryPromise({
+        try: () => registerAndClaim("recon-bob-unread"),
+        catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+      });
+      yield* Effect.tryPromise({
+        try: () => makeContact(alice.userId, bob.userId),
+        catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+      });
 
       const aliceClient = new MoltZapTestClient(baseUrl, wsUrl);
       yield* aliceClient.connect(alice.apiKey);
@@ -102,18 +116,23 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
       yield* Effect.promise(() => connectWs(bobClient));
 
       disconnectWs(bobClient);
-      yield* Effect.promise(() =>
-        waitFor(() => reconnectHelloOk !== null || true, 2000).catch(() => {}),
-      );
+      yield* Effect.tryPromise({
+        try: () =>
+          waitFor(() => reconnectHelloOk !== null || true, 2000).catch(
+            () => {},
+          ),
+        catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+      });
 
       yield* aliceClient.rpc("messages/send", {
         conversationId,
         parts: [{ type: "text", text: "Missed while offline" }],
       });
 
-      yield* Effect.promise(() =>
-        waitFor(() => reconnectHelloOk !== null, 15_000),
-      );
+      yield* Effect.tryPromise({
+        try: () => waitFor(() => reconnectHelloOk !== null, 15_000),
+        catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+      });
 
       expect(reconnectHelloOk).toBeDefined();
 
@@ -124,13 +143,18 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
 
   it.live("events received after reconnect are dispatched to handlers", () =>
     Effect.gen(function* () {
-      const alice = yield* Effect.promise(() =>
-        registerAndClaim("recon-alice-evt"),
-      );
-      const bob = yield* Effect.promise(() =>
-        registerAndClaim("recon-bob-evt"),
-      );
-      yield* Effect.promise(() => makeContact(alice.userId, bob.userId));
+      const alice = yield* Effect.tryPromise({
+        try: () => registerAndClaim("recon-alice-evt"),
+        catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+      });
+      const bob = yield* Effect.tryPromise({
+        try: () => registerAndClaim("recon-bob-evt"),
+        catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+      });
+      yield* Effect.tryPromise({
+        try: () => makeContact(alice.userId, bob.userId),
+        catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+      });
 
       const receivedMessages: Message[] = [];
       let disconnected = false;
@@ -170,18 +194,25 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
         parts: [{ type: "text", text: "Before disconnect" }],
       });
 
-      yield* Effect.promise(() =>
-        waitFor(() => receivedMessages.length >= 1, 5000),
-      );
+      yield* Effect.tryPromise({
+        try: () => waitFor(() => receivedMessages.length >= 1, 5000),
+        catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+      });
       expect(receivedMessages[0]!.parts[0]!).toEqual({
         type: "text",
         text: "Before disconnect",
       });
 
       disconnectWs(bobClient);
-      yield* Effect.promise(() => waitFor(() => disconnected, 3000));
+      yield* Effect.tryPromise({
+        try: () => waitFor(() => disconnected, 3000),
+        catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+      });
 
-      yield* Effect.promise(() => waitFor(() => reconnected, 10_000));
+      yield* Effect.tryPromise({
+        try: () => waitFor(() => reconnected, 10_000),
+        catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+      });
 
       receivedMessages.length = 0;
 
@@ -190,9 +221,10 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
         parts: [{ type: "text", text: "After reconnect" }],
       });
 
-      yield* Effect.promise(() =>
-        waitFor(() => receivedMessages.length >= 1, 5000),
-      );
+      yield* Effect.tryPromise({
+        try: () => waitFor(() => receivedMessages.length >= 1, 5000),
+        catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+      });
       expect(receivedMessages[0]!.parts[0]!).toEqual({
         type: "text",
         text: "After reconnect",
@@ -205,9 +237,10 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
 
   it.live("close() prevents reconnection", () =>
     Effect.gen(function* () {
-      const bob = yield* Effect.promise(() =>
-        registerAndClaim("recon-bob-close"),
-      );
+      const bob = yield* Effect.tryPromise({
+        try: () => registerAndClaim("recon-bob-close"),
+        catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+      });
 
       let reconnectCount = 0;
       let disconnected = false;
@@ -228,7 +261,10 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
 
       closeWs(client);
 
-      yield* Effect.promise(() => waitFor(() => disconnected, 3000));
+      yield* Effect.tryPromise({
+        try: () => waitFor(() => disconnected, 3000),
+        catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+      });
 
       yield* Effect.promise(() => new Promise((r) => setTimeout(r, 3000)));
 
@@ -238,9 +274,10 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
 
   it.live("RPC calls work after reconnection", () =>
     Effect.gen(function* () {
-      const bob = yield* Effect.promise(() =>
-        registerAndClaim("recon-bob-rpc"),
-      );
+      const bob = yield* Effect.tryPromise({
+        try: () => registerAndClaim("recon-bob-rpc"),
+        catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+      });
 
       let reconnected = false;
 
@@ -258,7 +295,10 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
 
       disconnectWs(client);
 
-      yield* Effect.promise(() => waitFor(() => reconnected, 10_000));
+      yield* Effect.tryPromise({
+        try: () => waitFor(() => reconnected, 10_000),
+        catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+      });
 
       const result = (yield* Effect.promise(() =>
         rpcWs(client, "agents/lookup", {

@@ -76,19 +76,31 @@ describe("Stress: concurrent multi-agent messaging", () => {
     "10 concurrent messages from 3 agents all get echo replies",
     () =>
       Effect.gen(function* () {
-        const agentA = yield* Effect.promise(() =>
-          registerAndClaim("stress-a"),
-        );
-        const agentB = yield* Effect.promise(() =>
-          registerAndClaim("stress-b"),
-        );
-        const agentC = yield* Effect.promise(() =>
-          registerAndClaim("stress-c"),
-        );
+        const agentA = yield* Effect.tryPromise({
+          try: () => registerAndClaim("stress-a"),
+          catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+        });
+        const agentB = yield* Effect.tryPromise({
+          try: () => registerAndClaim("stress-b"),
+          catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+        });
+        const agentC = yield* Effect.tryPromise({
+          try: () => registerAndClaim("stress-c"),
+          catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+        });
 
-        yield* Effect.promise(() => makeContact(agentA.userId, receiverUserId));
-        yield* Effect.promise(() => makeContact(agentB.userId, receiverUserId));
-        yield* Effect.promise(() => makeContact(agentC.userId, receiverUserId));
+        yield* Effect.tryPromise({
+          try: () => makeContact(agentA.userId, receiverUserId),
+          catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+        });
+        yield* Effect.tryPromise({
+          try: () => makeContact(agentB.userId, receiverUserId),
+          catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+        });
+        yield* Effect.tryPromise({
+          try: () => makeContact(agentC.userId, receiverUserId),
+          catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+        });
 
         try {
           const clientA = new MoltZapTestClient(baseUrl, wsUrl);
@@ -152,33 +164,42 @@ describe("Stress: concurrent multi-agent messaging", () => {
 
           const [repliesA, repliesB, repliesC] = yield* Effect.all(
             [
-              Effect.promise(() =>
-                waitForRepliesByList({
-                  client: clientA,
-                  conversationId: convA,
-                  receiverAgentId,
-                  expectedCount: 4,
-                  timeoutMs: 90_000,
-                }),
-              ),
-              Effect.promise(() =>
-                waitForRepliesByList({
-                  client: clientB,
-                  conversationId: convB,
-                  receiverAgentId,
-                  expectedCount: 3,
-                  timeoutMs: 90_000,
-                }),
-              ),
-              Effect.promise(() =>
-                waitForRepliesByList({
-                  client: clientC,
-                  conversationId: convC,
-                  receiverAgentId,
-                  expectedCount: 3,
-                  timeoutMs: 90_000,
-                }),
-              ),
+              Effect.tryPromise({
+                try: () =>
+                  waitForRepliesByList({
+                    client: clientA,
+                    conversationId: convA,
+                    receiverAgentId,
+                    expectedCount: 4,
+                    timeoutMs: 90_000,
+                  }),
+                catch: (err) =>
+                  err instanceof Error ? err : new Error(String(err)),
+              }),
+              Effect.tryPromise({
+                try: () =>
+                  waitForRepliesByList({
+                    client: clientB,
+                    conversationId: convB,
+                    receiverAgentId,
+                    expectedCount: 3,
+                    timeoutMs: 90_000,
+                  }),
+                catch: (err) =>
+                  err instanceof Error ? err : new Error(String(err)),
+              }),
+              Effect.tryPromise({
+                try: () =>
+                  waitForRepliesByList({
+                    client: clientC,
+                    conversationId: convC,
+                    receiverAgentId,
+                    expectedCount: 3,
+                    timeoutMs: 90_000,
+                  }),
+                catch: (err) =>
+                  err instanceof Error ? err : new Error(String(err)),
+              }),
             ],
             { concurrency: "unbounded" },
           );

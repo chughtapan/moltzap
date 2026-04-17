@@ -10,16 +10,13 @@
  *   1. The server stays up under 100+ garbage frames on a single socket.
  *   2. Every malformed frame produces a `ParseError` response frame.
  *   3. A normal RPC still works on a fresh connection after the flood.
- *
- * If the per-connection counter leaks or the handler throws, the socket
- * tears down and the first two assertions fail. If the rate-limit logic
- * accidentally drops response frames, (2) fails.
  */
 
 import { describe, expect, beforeAll, afterAll } from "vitest";
 import { it } from "@effect/vitest";
-import { Effect } from "effect";
-import WebSocket from "ws";
+import { Duration, Effect, Ref, Scope } from "effect";
+import * as Socket from "@effect/platform/Socket";
+import { NodeSocket } from "@effect/platform-node";
 import {
   startTestServer,
   stopTestServer,
@@ -36,48 +33,55 @@ afterAll(async () => {
   await stopTestServer();
 });
 
-/**
- * Open a raw WebSocket, send every payload in `frames`, and return every
- * response frame the server sent back before close. Uses raw `ws` — the
- * `MoltZapTestClient` doesn't expose a way to bypass the validator.
- */
-async function sendRawFrames(
-  wsUrl: string,
-  frames: string[],
-): Promise<unknown[]> {
-  const responses: unknown[] = [];
-  const ws = new WebSocket(wsUrl);
+/** Open an Effect-native WebSocket, push every frame, and collect responses.
+ * Bypasses `MoltZapTestClient` so we can send frames that don't pass the
+ * protocol validator. */
+const sendRawFrames = (wsUrl: string, frames: string[]) =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const responsesRef = yield* Ref.make<ReadonlyArray<unknown>>([]);
+      const scope = yield* Scope.make();
+      const socket = yield* Scope.extend(
+        Socket.makeWebSocket(wsUrl, { openTimeout: Duration.seconds(5) }),
+        scope,
+      );
+      const writer = yield* Scope.extend(socket.writer, scope);
 
-  await new Promise<void>((resolve, reject) => {
-    ws.once("open", () => resolve());
-    ws.once("error", reject);
-  });
+      const reader = Effect.fork(
+        socket
+          .runRaw((data) =>
+            Effect.sync(() => {
+              const raw =
+                typeof data === "string"
+                  ? data
+                  : new TextDecoder("utf-8").decode(data);
+              let parsed: unknown;
+              try {
+                parsed = JSON.parse(raw);
+              } catch {
+                parsed = { __raw: raw };
+              }
+              Effect.runSync(Ref.update(responsesRef, (xs) => [...xs, parsed]));
+            }),
+          )
+          .pipe(Effect.catchAll(() => Effect.void)),
+      );
+      yield* reader;
 
-  ws.on("message", (data) => {
-    try {
-      responses.push(JSON.parse(data.toString()));
-    } catch {
-      // If the server somehow sends non-JSON, record the raw string so
-      // the test assertion surfaces it clearly.
-      responses.push({ __raw: data.toString() });
-    }
-  });
+      for (const f of frames) {
+        yield* writer(f).pipe(Effect.catchAll(() => Effect.void));
+        // Let the server handler drain each frame individually — without
+        // this yield, ws coalesces multiple sends into one chunk and the
+        // server-side `runRaw` sees a truncated stream.
+        yield* Effect.sleep(Duration.millis(1));
+      }
 
-  for (const f of frames) {
-    ws.send(f);
-    // Tiny pause so the server doesn't coalesce frames at the socket layer.
-    // Without this, several `ws.send` calls end up in one chunk and the
-    // server sees a truncated message stream.
-    await new Promise((r) => setImmediate(r));
-  }
-
-  // Wait for the server to flush every response. 200ms is generous —
-  // local PGlite round-trips are sub-millisecond.
-  await new Promise((r) => setTimeout(r, 200));
-  ws.close();
-  await new Promise((r) => setTimeout(r, 50));
-  return responses;
-}
+      // Wait for the server to flush every response.
+      yield* Effect.sleep(Duration.millis(200));
+      yield* Scope.close(scope, undefined as never);
+      return yield* Ref.get(responsesRef);
+    }),
+  ).pipe(Effect.provide(NodeSocket.layerWebSocketConstructor));
 
 describe("Scenario 22: malformed-frame flood does not crash the server", () => {
   it.live(
@@ -86,33 +90,24 @@ describe("Scenario 22: malformed-frame flood does not crash the server", () => {
       Effect.gen(function* () {
         const wsUrl = getWsUrl();
 
-        // Mix of JSON-syntax errors and not-valid-frame shapes. The test
-        // targets JSON.parse errors specifically — the branch that increments
-        // `malformedFrameCount`. Frames with valid JSON but invalid shape
-        // take the `validators.requestFrame` branch instead.
+        // Mix of JSON-syntax errors targeting the `JSON.parse` branch —
+        // valid-JSON-but-wrong-shape frames go through `validators.requestFrame`.
         const garbage: string[] = [];
         for (let i = 0; i < 101; i++) {
           garbage.push(`{not-json-${i}`);
         }
 
-        const responses = yield* Effect.promise(() =>
-          sendRawFrames(wsUrl, garbage),
-        );
+        const responses = yield* sendRawFrames(wsUrl, garbage);
 
-        // Each garbage frame should produce exactly one response frame with
-        // the canonical ParseError code. The server may coalesce a few at
-        // high load; we assert "at least most of them came back" rather than
-        // an exact count to avoid scheduler flakiness.
+        // The server may coalesce a few frames at high load; assert "at
+        // least most came back" instead of an exact count.
         const parseErrors = responses.filter((r) => {
           const f = r as { error?: { code?: number } };
           return f.error?.code === ErrorCodes.ParseError;
         });
         expect(parseErrors.length).toBeGreaterThanOrEqual(95);
 
-        // Server must still accept a fresh connection after the flood.
-        // `registerAndConnect` round-trips an auth/connect; if the server
-        // had crashed or the WebSocket upgrade path were wedged, this would
-        // throw.
+        // Fresh connection still works after the flood.
         const agent = yield* registerAndConnect("post-flood-agent");
         expect(agent.agentId).toBeDefined();
       }),
@@ -124,12 +119,8 @@ describe("Scenario 22: malformed-frame flood does not crash the server", () => {
       Effect.gen(function* () {
         const wsUrl = getWsUrl();
 
-        const responses = yield* Effect.promise(() =>
-          sendRawFrames(wsUrl, ["not-json-at-all"]),
-        );
+        const responses = yield* sendRawFrames(wsUrl, ["not-json-at-all"]);
 
-        // At least one ParseError response must have landed. Its id must be
-        // null because the server can't extract one from invalid JSON.
         const parseErrors = responses.filter((r) => {
           const f = r as { error?: { code?: number } };
           return f.error?.code === ErrorCodes.ParseError;

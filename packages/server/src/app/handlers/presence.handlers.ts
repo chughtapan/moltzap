@@ -35,7 +35,9 @@ export function createPresenceHandlers(deps: {
             if (connId === senderConnId) continue;
             const conn = deps.connections.get(connId);
             if (conn) {
-              conn.ws.send(raw);
+              Effect.runFork(
+                conn.write(raw).pipe(Effect.catchAll(() => Effect.void)),
+              );
             }
           }
           return {};

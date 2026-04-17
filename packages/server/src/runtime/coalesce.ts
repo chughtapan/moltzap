@@ -5,11 +5,8 @@ import { Deferred, Effect, HashMap, Ref } from "effect";
  * Deferred. The first caller forks `work` as a daemon and registers the
  * Deferred atomically via `Ref.modify`; subsequent callers retrieve the
  * same Deferred and await it. Entries are removed when the work completes
- * (success or failure) so the next call with the same key starts fresh.
- *
- * Fixes a race that the older `Map.has` + `Map.set` pattern had: two
- * fibers could both see `!has(key)` and each create a separate Deferred,
- * defeating the coalesce. `Ref.modify` is atomic.
+ * so the next call with the same key starts fresh. `Ref.modify` is atomic
+ * so two fibers can't both see `!has(key)` and install separate Deferreds.
  */
 export const coalesce = <K, A, E>(
   ref: Ref.Ref<HashMap.HashMap<K, Deferred.Deferred<A, E>>>,
