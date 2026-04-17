@@ -570,6 +570,8 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     onDisconnection(hook: DisconnectionHook) {
       disconnectionHooks.push(hook);
     },
+    broadcaster,
+    connections,
     registerApp(manifest) {
       appHost.registerApp(manifest);
     },
