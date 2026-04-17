@@ -27,5 +27,29 @@ describe("@moltzap/server-core", () => {
     expect(mod.createDb).toBeDefined();
     expect(mod.defineMethod).toBeDefined();
     expect(mod.nextSnowflakeId).toBeDefined();
+
+    // Runtime toolkit — error factories
+    expect(mod.notFound).toBeDefined();
+    expect(mod.forbidden).toBeDefined();
+    expect(mod.unauthorized).toBeDefined();
+    expect(mod.invalidParams).toBeDefined();
+    expect(mod.conflict).toBeDefined();
+    expect(mod.internalError).toBeDefined();
+    expect(mod.blocked).toBeDefined();
+    expect(mod.rateLimited).toBeDefined();
+
+    // Runtime toolkit — coalescing
+    expect(mod.coalesce).toBeDefined();
+    expect(mod.drainCoalesceMap).toBeDefined();
+
+    // Effect-Kysely toolkit
+    expect(mod.makeEffectKysely).toBeDefined();
+    expect(mod.takeFirstOption).toBeDefined();
+    expect(mod.takeFirstOrElse).toBeDefined();
+    expect(mod.takeFirstOrFail).toBeDefined();
+    expect(mod.catchSqlErrorAsDefect).toBeDefined();
+    expect(mod.sqlErrorToDefect).toBeDefined();
+    expect(mod.transaction).toBeDefined();
+    expect(mod.rawQuery).toBeDefined();
   });
 });
