@@ -81,6 +81,17 @@ if [ -f "$PID_FILE" ]; then
   rm -f "$PID_FILE"
 fi
 
+# ── Pre-flight port check ──────────────────────────────────────────
+# If something else is already listening on PORT, the server would exit
+# with a generic EADDRINUSE stack we'd have to extract from the log. Fail
+# fast instead with a clear error that names the port and suggests a fix.
+if command -v ss >/dev/null && ss -tln 2>/dev/null | grep -q ":${PORT}\b"; then
+  error "port ${PORT} is already in use"
+  error "  ss -tlnp | grep :${PORT}  # find the owner"
+  error "  MOLTZAP_PORT=<other> ./scripts/quickstart.sh  # use a different port"
+  exit 1
+fi
+
 # ── Install + build ────────────────────────────────────────────────
 if [ ! -d node_modules ]; then
   info "installing workspace deps (pnpm install --frozen-lockfile)"
