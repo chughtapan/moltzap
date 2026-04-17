@@ -10,9 +10,10 @@ import {
   resetTestDb,
   getKyselyDb,
   getTestCoreApp,
-  MoltZapTestClient,
   trackClient,
 } from "./helpers.js";
+import { MoltZapWsClient } from "@moltzap/client";
+import { registerAgent, stripWsPath } from "@moltzap/client/test";
 
 let db: Kysely<Database>;
 
@@ -32,15 +33,13 @@ const MANIFEST: AppManifest = {
 function registerWithOwner(
   name: string,
   userId: string,
-): Effect.Effect<{ client: MoltZapTestClient; agentId: string }, Error> {
+): Effect.Effect<{ client: MoltZapWsClient; agentId: string }, Error> {
   return Effect.gen(function* () {
     const app = getTestCoreApp();
     const baseUrl = `http://localhost:${app.port}`;
     const wsUrl = `ws://localhost:${app.port}/ws`;
 
-    const regClient = new MoltZapTestClient(baseUrl, wsUrl);
-    const reg = yield* regClient.register(name);
-    yield* regClient.close();
+    const reg = yield* registerAgent(baseUrl, name);
 
     yield* Effect.tryPromise(() =>
       db
@@ -50,9 +49,12 @@ function registerWithOwner(
         .execute(),
     );
 
-    const client = new MoltZapTestClient(baseUrl, wsUrl);
+    const client = new MoltZapWsClient({
+      serverUrl: stripWsPath(wsUrl),
+      agentKey: reg.apiKey,
+    });
     trackClient(client);
-    yield* client.connect(reg.apiKey);
+    yield* client.connect();
 
     return { client, agentId: reg.agentId };
   });
@@ -79,7 +81,7 @@ describe("Session failure state", () => {
       const alice = yield* registerWithOwner("alice-sf", USER_ALICE);
 
       // Invite an agent that doesn't exist — will be rejected at identity stage
-      yield* alice.client.rpc("apps/create", {
+      yield* alice.client.sendRpc("apps/create", {
         appId: "fail-test-app",
         invitedAgentIds: ["00000000-0000-4000-dead-000000000001"],
       });
@@ -121,7 +123,7 @@ describe("Session failure state", () => {
       };
       getTestCoreApp().registerApp(noPermManifest);
 
-      yield* alice.client.rpc("apps/create", {
+      yield* alice.client.sendRpc("apps/create", {
         appId: "no-perm-app",
         invitedAgentIds: [bob.agentId],
       });
@@ -152,7 +154,7 @@ describe("Session failure state", () => {
 
       const bob = yield* registerWithOwner("bob-mx", USER_ALICE);
 
-      yield* alice.client.rpc("apps/create", {
+      yield* alice.client.sendRpc("apps/create", {
         appId: "mixed-app",
         invitedAgentIds: [bob.agentId, "00000000-0000-4000-dead-000000000002"],
       });

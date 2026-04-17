@@ -19,13 +19,12 @@ import {
   trackClient,
   type ConnectedAgent,
 } from "../../test-utils/helpers.js";
-import { MoltZapTestClient } from "@moltzap/protocol/test-client";
 import type { Database } from "../../db/database.js";
 import type { Kysely } from "kysely";
 import type { CoreApp } from "../../app/types.js";
 
 export type { ConnectedAgent } from "../../test-utils/helpers.js";
-export { MoltZapTestClient } from "@moltzap/protocol/test-client";
+export { MoltZapWsClient } from "@moltzap/client";
 export {
   registerAndConnect,
   registerOnly,

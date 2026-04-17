@@ -55,6 +55,7 @@
   },
   "devDependencies": {
     "@effect/vitest": "^0.29.0",
+    "@moltzap/client": "workspace:*",
     "@moltzap/openclaw-channel": "workspace:*",
     "@moltzap/protocol": "workspace:*",
     "@moltzap/server-core": "workspace:*",

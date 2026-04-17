@@ -1,17 +1,22 @@
 import { Effect } from "effect";
-import { MoltZapTestClient } from "@moltzap/protocol/test-client";
+import { MoltZapWsClient } from "@moltzap/client";
+import {
+  registerAgent,
+  registerAndConnect as registerAndConnectClient,
+  stripWsPath,
+} from "@moltzap/client/test";
 import { getBaseUrl, getWsUrl } from "./index.js";
 
 export interface ConnectedAgent {
-  client: MoltZapTestClient;
+  client: MoltZapWsClient;
   agentId: string;
   apiKey: string;
   name: string;
 }
 
-const openClients: MoltZapTestClient[] = [];
+const openClients: MoltZapWsClient[] = [];
 
-export function trackClient(client: MoltZapTestClient): void {
+export function trackClient(client: MoltZapWsClient): void {
   openClients.push(client);
 }
 
@@ -27,18 +32,20 @@ export function registerAndConnect(
   name: string,
 ): Effect.Effect<ConnectedAgent, Error> {
   return Effect.gen(function* () {
-    const client = new MoltZapTestClient(getBaseUrl(), getWsUrl());
+    const { client, agentId, apiKey } = yield* registerAndConnectClient(
+      getBaseUrl(),
+      getWsUrl(),
+      name,
+    );
     openClients.push(client);
-    const reg = yield* client.register(name);
-    yield* client.connect(reg.apiKey);
-    return { client, agentId: reg.agentId, apiKey: reg.apiKey, name };
+    return { client, agentId, apiKey, name };
   });
 }
 
 /** Register an agent without connecting (for tests that need the raw client). */
 export function registerOnly(name: string): Effect.Effect<
   {
-    client: MoltZapTestClient;
+    client: MoltZapWsClient;
     agentId: string;
     apiKey: string;
     claimToken: string;
@@ -46,9 +53,12 @@ export function registerOnly(name: string): Effect.Effect<
   Error
 > {
   return Effect.gen(function* () {
-    const client = new MoltZapTestClient(getBaseUrl(), getWsUrl());
+    const reg = yield* registerAgent(getBaseUrl(), name);
+    const client = new MoltZapWsClient({
+      serverUrl: stripWsPath(getWsUrl()),
+      agentKey: reg.apiKey,
+    });
     openClients.push(client);
-    const reg = yield* client.register(name);
     return {
       client,
       agentId: reg.agentId,
@@ -94,7 +104,7 @@ export function setupAgentGroup(
         type: "agent" as const,
         id: a.agentId,
       }));
-      const conv = (yield* creator.client.rpc("conversations/create", {
+      const conv = (yield* creator.client.sendRpc("conversations/create", {
         type: "group",
         name: opts.groupName,
         participants: others,

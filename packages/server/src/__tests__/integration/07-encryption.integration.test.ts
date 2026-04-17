@@ -34,14 +34,14 @@ describe("Scenario 7: Encryption", () => {
         const { client, agentId } = yield* registerAndConnect("enc-agent");
 
         // Create conversation
-        const conv = (yield* client.rpc("conversations/create", {
+        const conv = (yield* client.sendRpc("conversations/create", {
           type: "group",
           name: "Enc Test",
           participants: [{ type: "agent", id: agentId }],
         })) as { conversation: { id: string } };
 
         // Send a message
-        const msg = (yield* client.rpc("messages/send", {
+        const msg = (yield* client.sendRpc("messages/send", {
           conversationId: conv.conversation.id,
           parts: [{ type: "text", text: "This should be encrypted" }],
         })) as { message: { id: string } };
@@ -79,7 +79,7 @@ describe("Scenario 7: Encryption", () => {
         expect(rawStr).not.toContain("This should be encrypted");
 
         // But we can still decrypt it via the API
-        const messages = (yield* client.rpc("messages/list", {
+        const messages = (yield* client.sendRpc("messages/list", {
           conversationId: conv.conversation.id,
         })) as {
           messages: Array<{ parts: Array<{ text: string }> }>;

@@ -21,18 +21,6 @@
     "./schemas": {
       "types": "./dist/schema/index.d.ts",
       "import": "./dist/schema/index.js"
-    },
-    "./phone-hash": {
-      "types": "./dist/phone-hash.d.ts",
-      "import": "./dist/phone-hash.js"
-    },
-    "./test-client": {
-      "types": "./dist/test-client.d.ts",
-      "import": "./dist/test-client.js"
-    },
-    "./test-fixtures/phone-hashes": {
-      "types": "./dist/test-fixtures/phone-hashes.d.ts",
-      "import": "./dist/test-fixtures/phone-hashes.js"
     }
   },
   "scripts": {
@@ -42,12 +30,9 @@
     "generate-schema": "tsx scripts/generate-json-schema.ts"
   },
   "dependencies": {
-    "@effect/platform": "^0.96.0",
-    "@effect/platform-node": "^0.106.0",
     "@sinclair/typebox": "^0.34.0",
     "ajv": "^8.17.0",
-    "ajv-formats": "^3.0.0",
-    "effect": "^3.21.0"
+    "ajv-formats": "^3.0.0"
   },
   "devDependencies": {
     "@types/node": "^25.5.0",

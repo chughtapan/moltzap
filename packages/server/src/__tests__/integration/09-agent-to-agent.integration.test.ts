@@ -34,7 +34,7 @@ describe("Scenario 1: Full Agent-to-Agent DM Flow", () => {
         const bob = yield* registerAndConnect("bob-a2a");
 
         // Alice creates DM — server subscribes Bob's already-open connection
-        const conv = (yield* alice.client.rpc("conversations/create", {
+        const conv = (yield* alice.client.sendRpc("conversations/create", {
           type: "dm",
           participants: [{ type: "agent", id: bob.agentId }],
         })) as { conversation: { id: string; type: string } };
@@ -42,7 +42,7 @@ describe("Scenario 1: Full Agent-to-Agent DM Flow", () => {
         const conversationId = conv.conversation.id;
 
         // Set up waiter before send
-        yield* alice.client.rpc("messages/send", {
+        yield* alice.client.sendRpc("messages/send", {
           conversationId,
           parts: [{ type: "text", text: "Hello Bob!" }],
         });
@@ -52,7 +52,7 @@ describe("Scenario 1: Full Agent-to-Agent DM Flow", () => {
             .message.parts[0]!.text,
         ).toBe("Hello Bob!");
 
-        yield* bob.client.rpc("messages/send", {
+        yield* bob.client.sendRpc("messages/send", {
           conversationId,
           parts: [{ type: "text", text: "Hey Alice!" }],
         });
@@ -64,7 +64,7 @@ describe("Scenario 1: Full Agent-to-Agent DM Flow", () => {
         ).toBe("Hey Alice!");
 
         // Both list messages
-        const msgs = (yield* alice.client.rpc("messages/list", {
+        const msgs = (yield* alice.client.sendRpc("messages/list", {
           conversationId,
         })) as {
           messages: Array<{ parts: Array<{ text: string }> }>;
@@ -86,7 +86,7 @@ describe("Scenario 5: Group Chat Fan-Out", () => {
       const bob = yield* registerAndConnect("bob-fan");
       const eve = yield* registerAndConnect("eve-fan");
 
-      const conv = (yield* alice.client.rpc("conversations/create", {
+      const conv = (yield* alice.client.sendRpc("conversations/create", {
         type: "group",
         name: "Team Chat",
         participants: [
@@ -97,7 +97,7 @@ describe("Scenario 5: Group Chat Fan-Out", () => {
       const conversationId = conv.conversation.id;
 
       // Set up waiters before send
-      yield* alice.client.rpc("messages/send", {
+      yield* alice.client.sendRpc("messages/send", {
         conversationId,
         parts: [{ type: "text", text: "Team standup" }],
       });
@@ -114,7 +114,7 @@ describe("Scenario 5: Group Chat Fan-Out", () => {
       ).toBe("Team standup");
 
       // Set up waiters for Bob's reply
-      yield* bob.client.rpc("messages/send", {
+      yield* bob.client.sendRpc("messages/send", {
         conversationId,
         parts: [{ type: "text", text: "All clear" }],
       });
@@ -146,7 +146,7 @@ describe("Regression: conversations/create subscribes connected participants", (
         const bob = yield* registerAndConnect("bob-sub");
 
         // Bob is already connected when Alice creates the DM
-        const conv = (yield* alice.client.rpc("conversations/create", {
+        const conv = (yield* alice.client.sendRpc("conversations/create", {
           type: "dm",
           participants: [{ type: "agent", id: bob.agentId }],
         })) as { conversation: { id: string } };
@@ -158,7 +158,7 @@ describe("Regression: conversations/create subscribes connected participants", (
         expect(createdEvent).toBeDefined();
 
         // Bob should also receive messages WITHOUT reconnecting
-        yield* alice.client.rpc("messages/send", {
+        yield* alice.client.sendRpc("messages/send", {
           conversationId: conv.conversation.id,
           parts: [{ type: "text", text: "No reconnect needed" }],
         });
@@ -182,13 +182,13 @@ describe("Regression: waitForEvent does not double-consume buffered events", () 
         const alice = yield* registerAndConnect("alice-buf");
         const bob = yield* registerAndConnect("bob-buf");
 
-        const conv = (yield* alice.client.rpc("conversations/create", {
+        const conv = (yield* alice.client.sendRpc("conversations/create", {
           type: "dm",
           participants: [{ type: "agent", id: bob.agentId }],
         })) as { conversation: { id: string } };
 
         // Set up waiter for first message
-        yield* alice.client.rpc("messages/send", {
+        yield* alice.client.sendRpc("messages/send", {
           conversationId: conv.conversation.id,
           parts: [{ type: "text", text: "First" }],
         });
@@ -199,7 +199,7 @@ describe("Regression: waitForEvent does not double-consume buffered events", () 
         ).toBe("First");
 
         // Set up waiter for second message — must NOT return "First" again
-        yield* alice.client.rpc("messages/send", {
+        yield* alice.client.sendRpc("messages/send", {
           conversationId: conv.conversation.id,
           parts: [{ type: "text", text: "Second" }],
         });
@@ -221,7 +221,7 @@ describe("Regression: messages/send excludes sender from broadcast", () => {
       const alice = yield* registerAndConnect("alice-noecho");
       const bob = yield* registerAndConnect("bob-noecho");
 
-      const conv = (yield* alice.client.rpc("conversations/create", {
+      const conv = (yield* alice.client.sendRpc("conversations/create", {
         type: "dm",
         participants: [{ type: "agent", id: bob.agentId }],
       })) as { conversation: { id: string } };
@@ -229,7 +229,7 @@ describe("Regression: messages/send excludes sender from broadcast", () => {
       // Bob waits for the message
 
       // Alice sends
-      yield* alice.client.rpc("messages/send", {
+      yield* alice.client.sendRpc("messages/send", {
         conversationId: conv.conversation.id,
         parts: [{ type: "text", text: "Only Bob should see this event" }],
       });

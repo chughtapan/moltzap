@@ -35,7 +35,7 @@ describe("Group Creation Events", () => {
 
         // Set up event waiters on Bob and Eve BEFORE creating the group
 
-        const conv = (yield* alice.client.rpc("conversations/create", {
+        const conv = (yield* alice.client.sendRpc("conversations/create", {
           type: "group",
           name: "Eval Group",
           participants: [

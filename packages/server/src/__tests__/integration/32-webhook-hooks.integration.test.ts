@@ -177,14 +177,14 @@ describe("Scenario 32: webhook-based app hooks", () => {
               },
             });
 
-            const session = (yield* agent.client.rpc("apps/create", {
+            const session = (yield* agent.client.sendRpc("apps/create", {
               appId: "webhook-blocker",
               invitedAgentIds: [],
             })) as { session: { conversations: Record<string, string> } };
             const convId = session.session.conversations["main"]!;
 
             const sendResult = yield* Effect.either(
-              agent.client.rpc("messages/send", {
+              agent.client.sendRpc("messages/send", {
                 conversationId: convId,
                 parts: [{ type: "text", text: "hello" }],
               }),
@@ -261,13 +261,13 @@ describe("Scenario 32: webhook-based app hooks", () => {
             },
           });
 
-          const session = (yield* agent.client.rpc("apps/create", {
+          const session = (yield* agent.client.sendRpc("apps/create", {
             appId: "webhook-patcher",
             invitedAgentIds: [],
           })) as { session: { conversations: Record<string, string> } };
           const convId = session.session.conversations["main"]!;
 
-          const result = (yield* agent.client.rpc("messages/send", {
+          const result = (yield* agent.client.sendRpc("messages/send", {
             conversationId: convId,
             parts: [{ type: "text", text: "raw" }],
           })) as {
@@ -315,14 +315,14 @@ describe("Scenario 32: webhook-based app hooks", () => {
             },
           });
 
-          const session = (yield* agent.client.rpc("apps/create", {
+          const session = (yield* agent.client.sendRpc("apps/create", {
             appId: "webhook-timeout-app",
             invitedAgentIds: [],
           })) as { session: { conversations: Record<string, string> } };
           const convId = session.session.conversations["main"]!;
 
           const sendResult = yield* Effect.either(
-            agent.client.rpc("messages/send", {
+            agent.client.sendRpc("messages/send", {
               conversationId: convId,
               parts: [{ type: "text", text: "should be blocked" }],
             }),
@@ -369,14 +369,14 @@ describe("Scenario 32: webhook-based app hooks", () => {
             },
           });
 
-          const session = (yield* agent.client.rpc("apps/create", {
+          const session = (yield* agent.client.sendRpc("apps/create", {
             appId: "webhook-5xx-app",
             invitedAgentIds: [],
           })) as { session: { conversations: Record<string, string> } };
           const convId = session.session.conversations["main"]!;
 
           const sendResult = yield* Effect.either(
-            agent.client.rpc("messages/send", {
+            agent.client.sendRpc("messages/send", {
               conversationId: convId,
               parts: [{ type: "text", text: "should be blocked" }],
             }),
@@ -426,13 +426,13 @@ describe("Scenario 32: webhook-based app hooks", () => {
               },
             });
 
-            const session = (yield* agent.client.rpc("apps/create", {
+            const session = (yield* agent.client.sendRpc("apps/create", {
               appId: "webhook-signed-app",
               invitedAgentIds: [],
             })) as { session: { conversations: Record<string, string> } };
             const convId = session.session.conversations["main"]!;
 
-            yield* agent.client.rpc("messages/send", {
+            yield* agent.client.sendRpc("messages/send", {
               conversationId: convId,
               parts: [{ type: "text", text: "hello signed" }],
             });
@@ -486,14 +486,14 @@ describe("Scenario 32: webhook-based app hooks", () => {
               return { block: false };
             });
 
-            const session = (yield* agent.client.rpc("apps/create", {
+            const session = (yield* agent.client.sendRpc("apps/create", {
               appId: "webhook-precedence-app",
               invitedAgentIds: [],
             })) as { session: { conversations: Record<string, string> } };
             const convId = session.session.conversations["main"]!;
 
             const sendResult = yield* Effect.either(
-              agent.client.rpc("messages/send", {
+              agent.client.sendRpc("messages/send", {
                 conversationId: convId,
                 parts: [{ type: "text", text: "x" }],
               }),
@@ -540,7 +540,7 @@ describe("Scenario 32: webhook-based app hooks", () => {
             },
           });
 
-          yield* initiator.client.rpc("apps/create", {
+          yield* initiator.client.sendRpc("apps/create", {
             appId: "webhook-on-join",
             invitedAgentIds: [invitee.agentId],
           });
@@ -587,12 +587,12 @@ describe("Scenario 32: webhook-based app hooks", () => {
             },
           });
 
-          const session = (yield* agent.client.rpc("apps/create", {
+          const session = (yield* agent.client.sendRpc("apps/create", {
             appId: "webhook-on-close",
             invitedAgentIds: [],
           })) as { session: { id: string } };
 
-          yield* agent.client.rpc("apps/closeSession", {
+          yield* agent.client.sendRpc("apps/closeSession", {
             sessionId: session.session.id,
           });
 

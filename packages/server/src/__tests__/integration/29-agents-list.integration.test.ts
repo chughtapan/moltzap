@@ -7,9 +7,10 @@ import {
   resetTestDb,
   registerAndConnect,
   getKyselyDb,
-  MoltZapTestClient,
   trackClient,
 } from "./helpers.js";
+import { MoltZapWsClient } from "@moltzap/client";
+import { registerAgent, stripWsPath } from "@moltzap/client/test";
 import type { AgentCard } from "@moltzap/protocol";
 
 type AgentsListResult = { agents: Record<string, AgentCard> };
@@ -35,10 +36,13 @@ beforeEach(async () => {
 /** Register an agent with custom options (e.g. description), tracked for cleanup. */
 function registerWithOpts(name: string, opts: { description?: string }) {
   return Effect.gen(function* () {
-    const client = new MoltZapTestClient(baseUrl, wsUrl);
+    const reg = yield* registerAgent(baseUrl, name, opts);
+    const client = new MoltZapWsClient({
+      serverUrl: stripWsPath(wsUrl),
+      agentKey: reg.apiKey,
+    });
     trackClient(client);
-    const reg = yield* client.register(name, opts);
-    yield* client.connect(reg.apiKey);
+    yield* client.connect();
     return { client, agentId: reg.agentId, apiKey: reg.apiKey, name };
   });
 }
@@ -50,18 +54,18 @@ describe("agents/list", () => {
       const bob = yield* registerAndConnect("bob-agent");
       const carol = yield* registerAndConnect("carol-ag");
 
-      yield* alice.client.rpc("conversations/create", {
+      yield* alice.client.sendRpc("conversations/create", {
         type: "dm",
         participants: [{ type: "agent", id: bob.agentId }],
       });
 
-      yield* alice.client.rpc("conversations/create", {
+      yield* alice.client.sendRpc("conversations/create", {
         type: "group",
         name: "test-group",
         participants: [{ type: "agent", id: carol.agentId }],
       });
 
-      const aliceResult = (yield* alice.client.rpc(
+      const aliceResult = (yield* alice.client.sendRpc(
         "agents/list",
         {},
       )) as AgentsListResult;
@@ -70,7 +74,7 @@ describe("agents/list", () => {
       expect(aliceAgentIds).toContain(carol.agentId);
       expect(aliceAgentIds).not.toContain(alice.agentId);
 
-      const bobResult = (yield* bob.client.rpc(
+      const bobResult = (yield* bob.client.sendRpc(
         "agents/list",
         {},
       )) as AgentsListResult;
@@ -78,7 +82,7 @@ describe("agents/list", () => {
       expect(bobAgentIds).toContain(alice.agentId);
       expect(bobAgentIds).not.toContain(carol.agentId);
 
-      const carolResult = (yield* carol.client.rpc(
+      const carolResult = (yield* carol.client.sendRpc(
         "agents/list",
         {},
       )) as AgentsListResult;
@@ -92,7 +96,7 @@ describe("agents/list", () => {
     Effect.gen(function* () {
       const loner = yield* registerAndConnect("loner-ag");
 
-      const result = (yield* loner.client.rpc(
+      const result = (yield* loner.client.sendRpc(
         "agents/list",
         {},
       )) as AgentsListResult;
@@ -105,18 +109,18 @@ describe("agents/list", () => {
       const alice = yield* registerAndConnect("alice-ag");
       const bob = yield* registerAndConnect("bob-agent");
 
-      yield* alice.client.rpc("conversations/create", {
+      yield* alice.client.sendRpc("conversations/create", {
         type: "dm",
         participants: [{ type: "agent", id: bob.agentId }],
       });
 
-      yield* alice.client.rpc("conversations/create", {
+      yield* alice.client.sendRpc("conversations/create", {
         type: "group",
         name: "shared-group",
         participants: [{ type: "agent", id: bob.agentId }],
       });
 
-      const result = (yield* alice.client.rpc(
+      const result = (yield* alice.client.sendRpc(
         "agents/list",
         {},
       )) as AgentsListResult;
@@ -131,12 +135,12 @@ describe("agents/list", () => {
       const alice = yield* registerAndConnect("alice-ag");
       const bob = yield* registerAndConnect("bob-agent");
 
-      yield* alice.client.rpc("conversations/create", {
+      yield* alice.client.sendRpc("conversations/create", {
         type: "dm",
         participants: [{ type: "agent", id: bob.agentId }],
       });
 
-      const result = (yield* alice.client.rpc(
+      const result = (yield* alice.client.sendRpc(
         "agents/list",
         {},
       )) as AgentsListResult;
@@ -152,12 +156,12 @@ describe("agents/list", () => {
       });
       const other = yield* registerAndConnect("other-ag");
 
-      yield* described.client.rpc("conversations/create", {
+      yield* described.client.sendRpc("conversations/create", {
         type: "dm",
         participants: [{ type: "agent", id: other.agentId }],
       });
 
-      const result = (yield* other.client.rpc(
+      const result = (yield* other.client.sendRpc(
         "agents/list",
         {},
       )) as AgentsListResult;
@@ -176,7 +180,7 @@ describe("agents/lookup", () => {
     Effect.gen(function* () {
       const alice = yield* registerAndConnect("alice-ag");
 
-      const result = (yield* alice.client.rpc("agents/lookup", {
+      const result = (yield* alice.client.sendRpc("agents/lookup", {
         agentIds: [alice.agentId],
       })) as AgentsArrayResult;
 
@@ -191,7 +195,7 @@ describe("agents/lookup", () => {
     Effect.gen(function* () {
       const alice = yield* registerAndConnect("alice-ag");
 
-      const result = (yield* alice.client.rpc("agents/lookup", {
+      const result = (yield* alice.client.sendRpc("agents/lookup", {
         agentIds: ["00000000-0000-0000-0000-000000000000"],
       })) as AgentsArrayResult;
 
@@ -205,7 +209,7 @@ describe("agents/lookup", () => {
         description: "Has a description",
       });
 
-      const result = (yield* described.client.rpc("agents/lookup", {
+      const result = (yield* described.client.sendRpc("agents/lookup", {
         agentIds: [described.agentId],
       })) as AgentsArrayResult;
 
@@ -219,7 +223,7 @@ describe("agents/lookupByName", () => {
     Effect.gen(function* () {
       const alice = yield* registerAndConnect("alice-ag");
 
-      const result = (yield* alice.client.rpc("agents/lookupByName", {
+      const result = (yield* alice.client.sendRpc("agents/lookupByName", {
         names: ["alice-ag"],
       })) as AgentsArrayResult;
 
@@ -243,7 +247,7 @@ describe("agents/lookupByName", () => {
       );
 
       const bob = yield* registerAndConnect("bob-agent");
-      const result = (yield* bob.client.rpc("agents/lookupByName", {
+      const result = (yield* bob.client.sendRpc("agents/lookupByName", {
         names: ["alice-ag"],
       })) as AgentsArrayResult;
 
@@ -255,7 +259,7 @@ describe("agents/lookupByName", () => {
     Effect.gen(function* () {
       const alice = yield* registerAndConnect("alice-ag");
 
-      const result = (yield* alice.client.rpc("agents/lookupByName", {
+      const result = (yield* alice.client.sendRpc("agents/lookupByName", {
         names: ["nonexistent"],
       })) as AgentsArrayResult;
 

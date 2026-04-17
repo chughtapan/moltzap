@@ -124,7 +124,7 @@ describe("Scenario 30: App Hooks", () => {
           },
         }));
 
-        const session = (yield* orchestrator.client.rpc("apps/create", {
+        const session = (yield* orchestrator.client.sendRpc("apps/create", {
           appId: "test-blocker",
           invitedAgentIds: [],
         })) as {
@@ -134,7 +134,7 @@ describe("Scenario 30: App Hooks", () => {
         const convId = session.session.conversations["main"]!;
 
         const result = yield* Effect.either(
-          orchestrator.client.rpc("messages/send", {
+          orchestrator.client.sendRpc("messages/send", {
             conversationId: convId,
             parts: [{ type: "text", text: "bad command" }],
           }),
@@ -180,7 +180,7 @@ describe("Scenario 30: App Hooks", () => {
           },
         }));
 
-        const session = (yield* alice.client.rpc("apps/create", {
+        const session = (yield* alice.client.sendRpc("apps/create", {
           appId: "test-patcher",
           invitedAgentIds: [],
         })) as {
@@ -189,7 +189,7 @@ describe("Scenario 30: App Hooks", () => {
 
         const convId = session.session.conversations["main"]!;
 
-        const result = (yield* alice.client.rpc("messages/send", {
+        const result = (yield* alice.client.sendRpc("messages/send", {
           conversationId: convId,
           parts: [{ type: "text", text: "secret info" }],
         })) as {
@@ -214,7 +214,7 @@ describe("Scenario 30: App Hooks", () => {
           block: false,
         }));
 
-        const session = (yield* agent.client.rpc("apps/create", {
+        const session = (yield* agent.client.sendRpc("apps/create", {
           appId: "test-passthrough",
           invitedAgentIds: [],
         })) as {
@@ -223,7 +223,7 @@ describe("Scenario 30: App Hooks", () => {
 
         const convId = session.session.conversations["main"]!;
 
-        const result = (yield* agent.client.rpc("messages/send", {
+        const result = (yield* agent.client.sendRpc("messages/send", {
           conversationId: convId,
           parts: [{ type: "text", text: "hello" }],
         })) as {
@@ -245,7 +245,7 @@ describe("Scenario 30: App Hooks", () => {
           return { block: true, reason: "Should never reach" };
         });
 
-        const session = (yield* agent.client.rpc("apps/create", {
+        const session = (yield* agent.client.sendRpc("apps/create", {
           appId: "test-timeout",
           invitedAgentIds: [],
         })) as {
@@ -256,7 +256,7 @@ describe("Scenario 30: App Hooks", () => {
 
         // Fail-closed: timed-out hook blocks the send with HookBlocked.
         const result = yield* Effect.either(
-          agent.client.rpc("messages/send", {
+          agent.client.sendRpc("messages/send", {
             conversationId: convId,
             parts: [{ type: "text", text: "should be blocked" }],
           }),
@@ -286,12 +286,12 @@ describe("Scenario 30: App Hooks", () => {
         const alice = yield* registerAppAgent("alice-noapp");
         const bob = yield* registerAppAgent("bob-noapp");
 
-        const conv = (yield* alice.client.rpc("conversations/create", {
+        const conv = (yield* alice.client.sendRpc("conversations/create", {
           type: "dm",
           participants: [{ type: "agent", id: bob.agentId }],
         })) as { conversation: { id: string } };
 
-        const result = (yield* alice.client.rpc("messages/send", {
+        const result = (yield* alice.client.sendRpc("messages/send", {
           conversationId: conv.conversation.id,
           parts: [{ type: "text", text: "normal DM" }],
         })) as {
@@ -312,7 +312,7 @@ describe("Scenario 30: App Hooks", () => {
           throw new Error("Hook crashed!");
         });
 
-        const session = (yield* agent.client.rpc("apps/create", {
+        const session = (yield* agent.client.sendRpc("apps/create", {
           appId: "test-error",
           invitedAgentIds: [],
         })) as {
@@ -322,7 +322,7 @@ describe("Scenario 30: App Hooks", () => {
         const convId = session.session.conversations["main"]!;
 
         const result = yield* Effect.either(
-          agent.client.rpc("messages/send", {
+          agent.client.sendRpc("messages/send", {
             conversationId: convId,
             parts: [{ type: "text", text: "should be blocked" }],
           }),
@@ -349,7 +349,7 @@ describe("Scenario 30: App Hooks", () => {
             return Promise.reject(new Error("async hook crash"));
           });
 
-          const session = (yield* agent.client.rpc("apps/create", {
+          const session = (yield* agent.client.sendRpc("apps/create", {
             appId: "test-async-error",
             invitedAgentIds: [],
           })) as {
@@ -359,7 +359,7 @@ describe("Scenario 30: App Hooks", () => {
           const convId = session.session.conversations["main"]!;
 
           const result = yield* Effect.either(
-            agent.client.rpc("messages/send", {
+            agent.client.sendRpc("messages/send", {
               conversationId: convId,
               parts: [{ type: "text", text: "should be blocked" }],
             }),
@@ -389,7 +389,7 @@ describe("Scenario 30: App Hooks", () => {
           return { block: false };
         });
 
-        const session = (yield* agent.client.rpc("apps/create", {
+        const session = (yield* agent.client.sendRpc("apps/create", {
           appId: "test-abort-timeout",
           invitedAgentIds: [],
         })) as {
@@ -399,7 +399,7 @@ describe("Scenario 30: App Hooks", () => {
         const convId = session.session.conversations["main"]!;
 
         const result = yield* Effect.either(
-          agent.client.rpc("messages/send", {
+          agent.client.sendRpc("messages/send", {
             conversationId: convId,
             parts: [{ type: "text", text: "blocked-by-timeout" }],
           }),
@@ -427,7 +427,7 @@ describe("Scenario 30: App Hooks", () => {
           throw new Error("boom");
         });
 
-        const session = (yield* agent.client.rpc("apps/create", {
+        const session = (yield* agent.client.sendRpc("apps/create", {
           appId: "test-abort-throw",
           invitedAgentIds: [],
         })) as {
@@ -437,7 +437,7 @@ describe("Scenario 30: App Hooks", () => {
         const convId = session.session.conversations["main"]!;
 
         const result = yield* Effect.either(
-          agent.client.rpc("messages/send", {
+          agent.client.sendRpc("messages/send", {
             conversationId: convId,
             parts: [{ type: "text", text: "blocked-by-throw" }],
           }),
@@ -468,7 +468,7 @@ describe("Scenario 30: App Hooks", () => {
           reason: "policy/no-secrets",
         }));
 
-        const session = (yield* agent.client.rpc("apps/create", {
+        const session = (yield* agent.client.sendRpc("apps/create", {
           appId: "test-explicit-block",
           invitedAgentIds: [],
         })) as {
@@ -478,7 +478,7 @@ describe("Scenario 30: App Hooks", () => {
         const convId = session.session.conversations["main"]!;
 
         const result = yield* Effect.either(
-          agent.client.rpc("messages/send", {
+          agent.client.sendRpc("messages/send", {
             conversationId: convId,
             parts: [{ type: "text", text: "secret" }],
           }),
@@ -520,7 +520,7 @@ describe("Scenario 30: App Hooks", () => {
           joinCtx = ctx;
         });
 
-        yield* initiator.client.rpc("apps/create", {
+        yield* initiator.client.sendRpc("apps/create", {
           appId: "test-join",
           invitedAgentIds: [invitee.agentId],
         });

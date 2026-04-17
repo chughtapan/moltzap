@@ -8,7 +8,8 @@ import {
   registerAndConnect,
   getKyselyDb,
 } from "./helpers.js";
-import { MoltZapTestClient } from "@moltzap/protocol/test-client";
+import { MoltZapWsClient } from "@moltzap/client";
+import { registerAgent, stripWsPath } from "@moltzap/client/test";
 
 let baseUrl: string;
 let wsUrl: string;
@@ -30,8 +31,7 @@ beforeEach(async () => {
 describe("Scenario 8: Suspended Agent Restrictions", () => {
   it.live("suspended agent cannot connect", () =>
     Effect.gen(function* () {
-      const client = new MoltZapTestClient(baseUrl, wsUrl);
-      const reg = yield* client.register("suspend-agent");
+      const reg = yield* registerAgent(baseUrl, "suspend-agent");
 
       // Suspend the agent via DB
       const db = getKyselyDb();
@@ -44,7 +44,11 @@ describe("Scenario 8: Suspended Agent Restrictions", () => {
       );
 
       // Cannot connect
-      const result = yield* Effect.exit(client.connect(reg.apiKey));
+      const client = new MoltZapWsClient({
+        serverUrl: stripWsPath(wsUrl),
+        agentKey: reg.apiKey,
+      });
+      const result = yield* Effect.exit(client.connect());
       expect(result._tag).toBe("Failure");
       if (result._tag === "Failure") {
         expect(String(result.cause)).toContain("Authentication failed");
@@ -59,7 +63,7 @@ describe("Scenario 8: Suspended Agent Restrictions", () => {
       const { client } = yield* registerAndConnect("active-agent");
 
       // Should work immediately — agents are active on registration in core
-      const result = (yield* client.rpc("conversations/list", {})) as {
+      const result = (yield* client.sendRpc("conversations/list", {})) as {
         conversations: unknown[];
       };
       expect(result.conversations).toEqual([]);

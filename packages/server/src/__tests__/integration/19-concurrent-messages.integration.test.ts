@@ -38,7 +38,7 @@ describe("Concurrent Messages", () => {
         // Create 4 separate DM conversations between agent-0 and each of agents 1-4
         const conversations: Array<{ id: string; receiverIdx: number }> = [];
         for (let i = 0; i < receivers.length; i++) {
-          const conv = (yield* sender.client.rpc("conversations/create", {
+          const conv = (yield* sender.client.sendRpc("conversations/create", {
             type: "dm",
             participants: [{ type: "agent", id: receivers[i]!.agentId }],
           })) as { conversation: { id: string } };
@@ -50,7 +50,7 @@ describe("Concurrent Messages", () => {
         // Send messages to all 4 conversations simultaneously
         yield* Effect.all(
           conversations.map((conv, i) =>
-            sender.client.rpc("messages/send", {
+            sender.client.sendRpc("messages/send", {
               conversationId: conv.id,
               parts: [{ type: "text", text: `Hello receiver-${i + 1}` }],
             }),

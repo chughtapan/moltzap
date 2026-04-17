@@ -7,7 +7,8 @@ import {
   resetTestDb,
   setupAgentPair,
 } from "./helpers.js";
-import { MoltZapTestClient } from "@moltzap/protocol/test-client";
+import { MoltZapWsClient } from "@moltzap/client";
+import { stripWsPath } from "@moltzap/client/test";
 
 let baseUrl: string;
 let wsUrl: string;
@@ -32,16 +33,16 @@ describe("Reconnection", () => {
     () =>
       Effect.gen(function* () {
         const { alice, bob } = yield* setupAgentPair();
-        let bobClient2: MoltZapTestClient | null = null;
+        let bobClient2: MoltZapWsClient | null = null;
 
         try {
-          const conv = (yield* alice.client.rpc("conversations/create", {
+          const conv = (yield* alice.client.sendRpc("conversations/create", {
             type: "dm",
             participants: [{ type: "agent", id: bob.agentId }],
           })) as { conversation: { id: string } };
           const conversationId = conv.conversation.id;
 
-          yield* alice.client.rpc("messages/send", {
+          yield* alice.client.sendRpc("messages/send", {
             conversationId,
             parts: [{ type: "text", text: "Pre-disconnect" }],
           });
@@ -51,17 +52,20 @@ describe("Reconnection", () => {
           yield* bob.client.close();
 
           // Alice sends a message while Bob is offline
-          yield* alice.client.rpc("messages/send", {
+          yield* alice.client.sendRpc("messages/send", {
             conversationId,
             parts: [{ type: "text", text: "Sent while you were away" }],
           });
 
           // Bob reconnects with the same API key
-          bobClient2 = new MoltZapTestClient(baseUrl, wsUrl);
-          yield* bobClient2.connect(bob.apiKey);
+          bobClient2 = new MoltZapWsClient({
+            serverUrl: stripWsPath(wsUrl),
+            agentKey: bob.apiKey,
+          });
+          yield* bobClient2.connect();
 
           // Bob fetches messages — should see both
-          const msgs = (yield* bobClient2.rpc("messages/list", {
+          const msgs = (yield* bobClient2.sendRpc("messages/list", {
             conversationId,
           })) as {
             messages: Array<{ parts: Array<{ text: string }> }>;
@@ -74,7 +78,7 @@ describe("Reconnection", () => {
           );
 
           // Verify real-time messaging works after reconnect
-          yield* bobClient2.rpc("messages/send", {
+          yield* bobClient2.sendRpc("messages/send", {
             conversationId,
             parts: [{ type: "text", text: "I am back online" }],
           });

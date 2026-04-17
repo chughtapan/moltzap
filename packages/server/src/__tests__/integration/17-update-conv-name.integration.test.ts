@@ -36,10 +36,13 @@ describe("Update Conversation Name", () => {
 
       // Set up event waiters on Bob and Eve BEFORE the update
 
-      const updateResult = (yield* alice.client.rpc("conversations/update", {
-        conversationId,
-        name: "New Name",
-      })) as { conversation: { id: string; name: string } };
+      const updateResult = (yield* alice.client.sendRpc(
+        "conversations/update",
+        {
+          conversationId,
+          name: "New Name",
+        },
+      )) as { conversation: { id: string; name: string } };
 
       expect(updateResult.conversation.name).toBe("New Name");
 
@@ -60,7 +63,7 @@ describe("Update Conversation Name", () => {
       ).toBe("New Name");
 
       // Verify persistence via conversations/list
-      const listResult = (yield* alice.client.rpc(
+      const listResult = (yield* alice.client.sendRpc(
         "conversations/list",
         {},
       )) as {

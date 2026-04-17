@@ -2,7 +2,8 @@ import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { it } from "@effect/vitest";
 import { Effect } from "effect";
 import { startTestServer, stopTestServer, resetTestDb } from "./helpers.js";
-import { MoltZapTestClient } from "@moltzap/protocol/test-client";
+import { MoltZapWsClient } from "@moltzap/client";
+import { registerAgent, stripWsPath } from "@moltzap/client/test";
 import { getCoreDb } from "../../test-utils/index.js";
 
 let baseUrl: string;
@@ -25,25 +26,19 @@ beforeEach(async () => {
 describe("Scenario 1: Registration", () => {
   it.live("registers an agent and returns API key", () =>
     Effect.gen(function* () {
-      const client = new MoltZapTestClient(baseUrl, wsUrl);
-      const reg = yield* client.register("test-agent");
+      const reg = yield* registerAgent(baseUrl, "test-agent");
 
       expect(reg.agentId).toBeDefined();
       expect(reg.apiKey).toMatch(/^moltzap_agent_/);
-
-      yield* client.close();
     }),
   );
 
   it.live("rejects duplicate agent names", () =>
     Effect.gen(function* () {
-      const client = new MoltZapTestClient(baseUrl, wsUrl);
-      yield* client.register("unique-agent");
+      yield* registerAgent(baseUrl, "unique-agent");
 
-      const result = yield* Effect.exit(client.register("unique-agent"));
+      const result = yield* Effect.exit(registerAgent(baseUrl, "unique-agent"));
       expect(result._tag).toBe("Failure");
-
-      yield* client.close();
     }),
   );
 
@@ -51,17 +46,17 @@ describe("Scenario 1: Registration", () => {
     "registered agent is active immediately and can use all methods",
     () =>
       Effect.gen(function* () {
-        const client = new MoltZapTestClient(baseUrl, wsUrl);
-        const reg = yield* client.register("active-agent");
+        const reg = yield* registerAgent(baseUrl, "active-agent");
+        const client = new MoltZapWsClient({
+          serverUrl: stripWsPath(wsUrl),
+          agentKey: reg.apiKey,
+        });
 
-        const hello = (yield* client.connect(reg.apiKey)) as Record<
-          string,
-          unknown
-        >;
+        const hello = (yield* client.connect()) as Record<string, unknown>;
         expect(hello.protocolVersion).toBeDefined();
         expect(hello.agentId).toBe(reg.agentId);
 
-        const result = (yield* client.rpc("conversations/list", {})) as {
+        const result = (yield* client.sendRpc("conversations/list", {})) as {
           conversations: unknown[];
         };
         expect(result.conversations).toEqual([]);
@@ -72,8 +67,7 @@ describe("Scenario 1: Registration", () => {
 
   it.live("suspended agent cannot connect", () =>
     Effect.gen(function* () {
-      const client = new MoltZapTestClient(baseUrl, wsUrl);
-      const reg = yield* client.register("suspended-agent");
+      const reg = yield* registerAgent(baseUrl, "suspended-agent");
 
       const db = getCoreDb();
       yield* Effect.tryPromise(() =>
@@ -84,7 +78,11 @@ describe("Scenario 1: Registration", () => {
           .execute(),
       );
 
-      const result = yield* Effect.exit(client.connect(reg.apiKey));
+      const client = new MoltZapWsClient({
+        serverUrl: stripWsPath(wsUrl),
+        agentKey: reg.apiKey,
+      });
+      const result = yield* Effect.exit(client.connect());
       expect(result._tag).toBe("Failure");
 
       yield* client.close();

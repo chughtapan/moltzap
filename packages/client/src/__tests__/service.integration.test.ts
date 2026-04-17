@@ -13,7 +13,11 @@ import {
   stopCoreTestServer,
   resetCoreTestDb,
 } from "@moltzap/server-core/test-utils";
-import { MoltZapTestClient } from "@moltzap/protocol/test-client";
+import { MoltZapWsClient } from "@moltzap/client";
+import {
+  registerAgent as registerAgentHttp,
+  stripWsPath,
+} from "@moltzap/client/test";
 import { MoltZapService } from "../service.js";
 
 /** Shorthand: run a service Effect to a Promise. The CLI + OpenClaw edges
@@ -42,8 +46,11 @@ beforeEach(async () => {
 /** Register an agent and return its credentials. */
 function registerAgent(name: string) {
   return Effect.gen(function* () {
-    const client = new MoltZapTestClient(baseUrl, wsUrl);
-    const reg = yield* client.register(name);
+    const reg = yield* registerAgentHttp(baseUrl, name);
+    const client = new MoltZapWsClient({
+      serverUrl: stripWsPath(wsUrl),
+      agentKey: reg.apiKey,
+    });
     return { client, ...reg };
   });
 }
@@ -63,12 +70,12 @@ function connectService(apiKey: string): Effect.Effect<MoltZapService, Error> {
 
 /** Send a message from testClient to a conversation and wait for settle. */
 function sendAndSettle(
-  client: MoltZapTestClient,
+  client: MoltZapWsClient,
   conversationId: string,
   text: string,
 ) {
   return Effect.gen(function* () {
-    yield* client.rpc("messages/send", {
+    yield* client.sendRpc("messages/send", {
       conversationId,
       parts: [{ type: "text", text }],
     });
@@ -101,8 +108,8 @@ describe("Connection & Core API", () => {
         const regB = yield* registerAgent("agent-b");
 
         // Connect agent-a and create a conversation before agent-b connects as service
-        yield* regA.client.connect(regA.apiKey);
-        const conv = (yield* regA.client.rpc("conversations/create", {
+        yield* regA.client.connect();
+        const conv = (yield* regA.client.sendRpc("conversations/create", {
           type: "dm",
           participants: [{ type: "agent", id: regB.agentId }],
         })) as { conversation: { id: string } };
@@ -124,10 +131,10 @@ describe("Connection & Core API", () => {
       const regSender = yield* registerAgent("sender");
       const regReceiver = yield* registerAgent("receiver");
 
-      yield* regSender.client.connect(regSender.apiKey);
+      yield* regSender.client.connect();
       const service = yield* connectService(regReceiver.apiKey);
 
-      const conv = (yield* regSender.client.rpc("conversations/create", {
+      const conv = (yield* regSender.client.sendRpc("conversations/create", {
         type: "dm",
         participants: [{ type: "agent", id: regReceiver.agentId }],
       })) as { conversation: { id: string } };
@@ -156,7 +163,7 @@ describe("Connection & Core API", () => {
       const regA = yield* registerAgent("self-sender");
       const regB = yield* registerAgent("other");
 
-      yield* regB.client.connect(regB.apiKey);
+      yield* regB.client.connect();
       const service = yield* connectService(regA.apiKey);
 
       const conv = (yield* service.sendRpc("conversations/create", {
@@ -184,10 +191,10 @@ describe("Connection & Core API", () => {
       const regSender = yield* registerAgent("hist-sender");
       const regReceiver = yield* registerAgent("hist-receiver");
 
-      yield* regSender.client.connect(regSender.apiKey);
+      yield* regSender.client.connect();
       const service = yield* connectService(regReceiver.apiKey);
 
-      const conv = (yield* regSender.client.rpc("conversations/create", {
+      const conv = (yield* regSender.client.sendRpc("conversations/create", {
         type: "dm",
         participants: [{ type: "agent", id: regReceiver.agentId }],
       })) as { conversation: { id: string } };
@@ -228,7 +235,7 @@ describe("Connection & Core API", () => {
       const regA = yield* registerAgent("send-a");
       const regB = yield* registerAgent("send-b");
 
-      yield* regB.client.connect(regB.apiKey);
+      yield* regB.client.connect();
       const service = yield* connectService(regA.apiKey);
 
       const conv = (yield* service.sendRpc("conversations/create", {
@@ -259,7 +266,7 @@ describe("Cross-Conversation Context", () => {
       const regA = yield* registerAgent("ctx-a");
       const regB = yield* registerAgent("ctx-b");
 
-      yield* regB.client.connect(regB.apiKey);
+      yield* regB.client.connect();
       const service = yield* connectService(regA.apiKey);
 
       const conv = (yield* service.sendRpc("conversations/create", {
@@ -285,8 +292,8 @@ describe("Cross-Conversation Context", () => {
       const regB = yield* registerAgent("null-b");
       const regC = yield* registerAgent("null-c");
 
-      yield* regB.client.connect(regB.apiKey);
-      yield* regC.client.connect(regC.apiKey);
+      yield* regB.client.connect();
+      yield* regC.client.connect();
       const service = yield* connectService(regA.apiKey);
 
       const convB = (yield* service.sendRpc("conversations/create", {
@@ -321,8 +328,8 @@ describe("Cross-Conversation Context", () => {
         const regB = yield* registerAgent("xc-b");
         const regC = yield* registerAgent("xc-c");
 
-        yield* regB.client.connect(regB.apiKey);
-        yield* regC.client.connect(regC.apiKey);
+        yield* regB.client.connect();
+        yield* regC.client.connect();
         const service = yield* connectService(regA.apiKey);
 
         const convB = (yield* service.sendRpc("conversations/create", {
@@ -362,8 +369,8 @@ describe("Cross-Conversation Context", () => {
       const regB = yield* registerAgent("fmt-b");
       const regC = yield* registerAgent("fmt-c");
 
-      yield* regB.client.connect(regB.apiKey);
-      yield* regC.client.connect(regC.apiKey);
+      yield* regB.client.connect();
+      yield* regC.client.connect();
       const service = yield* connectService(regA.apiKey);
 
       // Resolve C's name so it appears in context
@@ -396,8 +403,8 @@ describe("Cross-Conversation Context", () => {
       const regB = yield* registerAgent("trunc-b");
       const regC = yield* registerAgent("trunc-c");
 
-      yield* regB.client.connect(regB.apiKey);
-      yield* regC.client.connect(regC.apiKey);
+      yield* regB.client.connect();
+      yield* regC.client.connect();
       const service = yield* connectService(regA.apiKey);
 
       const convB = (yield* service.sendRpc("conversations/create", {
@@ -430,8 +437,8 @@ describe("Cross-Conversation Context", () => {
       const regB = yield* registerAgent("mark-b");
       const regC = yield* registerAgent("mark-c");
 
-      yield* regB.client.connect(regB.apiKey);
-      yield* regC.client.connect(regC.apiKey);
+      yield* regB.client.connect();
+      yield* regC.client.connect();
       const service = yield* connectService(regA.apiKey);
 
       const convB = (yield* service.sendRpc("conversations/create", {
@@ -465,8 +472,8 @@ describe("Cross-Conversation Context", () => {
       const regB = yield* registerAgent("perv-b");
       const regC = yield* registerAgent("perv-c");
 
-      yield* regB.client.connect(regB.apiKey);
-      yield* regC.client.connect(regC.apiKey);
+      yield* regB.client.connect();
+      yield* regC.client.connect();
       const service = yield* connectService(regA.apiKey);
 
       const convB = (yield* service.sendRpc("conversations/create", {
@@ -512,9 +519,9 @@ describe("Cross-Conversation Context", () => {
       const regC = yield* registerAgent("multi-c");
       const regD = yield* registerAgent("multi-d");
 
-      yield* regB.client.connect(regB.apiKey);
-      yield* regC.client.connect(regC.apiKey);
-      yield* regD.client.connect(regD.apiKey);
+      yield* regB.client.connect();
+      yield* regC.client.connect();
+      yield* regD.client.connect();
       const service = yield* connectService(regA.apiKey);
 
       const convB = (yield* service.sendRpc("conversations/create", {
@@ -552,7 +559,7 @@ describe("Cross-Conversation Context", () => {
         ["lim-b", "lim-c", "lim-d", "lim-e"].map((n) => registerAgent(n)),
         { concurrency: "unbounded" },
       );
-      for (const a of agents) yield* a.client.connect(a.apiKey);
+      for (const a of agents) yield* a.client.connect();
 
       const service = yield* connectService(regA.apiKey);
 
@@ -589,7 +596,7 @@ describe("Cross-Conversation Context", () => {
       const regA = yield* registerAgent("excl-a");
       const regB = yield* registerAgent("excl-b");
 
-      yield* regB.client.connect(regB.apiKey);
+      yield* regB.client.connect();
       const service = yield* connectService(regA.apiKey);
 
       const conv = (yield* service.sendRpc("conversations/create", {
@@ -615,8 +622,8 @@ describe("Cross-Conversation Context", () => {
       const regB = yield* registerAgent("name-res-b");
       const regC = yield* registerAgent("name-res-c");
 
-      yield* regB.client.connect(regB.apiKey);
-      yield* regC.client.connect(regC.apiKey);
+      yield* regB.client.connect();
+      yield* regC.client.connect();
       const service = yield* connectService(regA.apiKey);
 
       yield* service.resolveAgentName(regC.agentId);
@@ -649,8 +656,8 @@ describe("Cross-Conversation Context", () => {
       const regB = yield* registerAgent("new-b");
       const regC = yield* registerAgent("new-c");
 
-      yield* regB.client.connect(regB.apiKey);
-      yield* regC.client.connect(regC.apiKey);
+      yield* regB.client.connect();
+      yield* regC.client.connect();
       const service = yield* connectService(regA.apiKey);
 
       const convB = (yield* service.sendRpc("conversations/create", {
@@ -688,8 +695,8 @@ describe("Cross-Conversation Context", () => {
       const regB = yield* registerAgent("ring-b");
       const regC = yield* registerAgent("ring-c");
 
-      yield* regB.client.connect(regB.apiKey);
-      yield* regC.client.connect(regC.apiKey);
+      yield* regB.client.connect();
+      yield* regC.client.connect();
       const service = yield* connectService(regA.apiKey);
 
       yield* service.sendRpc("conversations/create", {
@@ -702,7 +709,7 @@ describe("Cross-Conversation Context", () => {
       })) as { conversation: { id: string } };
 
       for (let i = 0; i < 25; i++) {
-        yield* regC.client.rpc("messages/send", {
+        yield* regC.client.sendRpc("messages/send", {
           conversationId: convC.conversation.id,
           parts: [{ type: "text", text: `msg-${i}` }],
         });
@@ -740,8 +747,8 @@ describe("peekFullMessages", () => {
         const regB = yield* registerAgent("pfm-b");
         const regC = yield* registerAgent("pfm-c");
 
-        yield* regB.client.connect(regB.apiKey);
-        yield* regC.client.connect(regC.apiKey);
+        yield* regB.client.connect();
+        yield* regC.client.connect();
         const service = yield* connectService(regA.apiKey);
 
         const convB = (yield* service.sendRpc("conversations/create", {
@@ -780,7 +787,7 @@ describe("peekFullMessages", () => {
       const agents = [];
       for (let i = 0; i < 7; i++) {
         const reg = yield* registerAgent(`nocap-b${i}`);
-        yield* reg.client.connect(reg.apiKey);
+        yield* reg.client.connect();
         agents.push(reg);
       }
       const service = yield* connectService(regA.apiKey);
@@ -817,8 +824,8 @@ describe("peekFullMessages", () => {
         const regB = yield* registerAgent("commit-b");
         const regC = yield* registerAgent("commit-c");
 
-        yield* regB.client.connect(regB.apiKey);
-        yield* regC.client.connect(regC.apiKey);
+        yield* regB.client.connect();
+        yield* regC.client.connect();
         const service = yield* connectService(regA.apiKey);
 
         const convB = (yield* service.sendRpc("conversations/create", {
@@ -863,7 +870,7 @@ describe("History with session key", () => {
       const regA = yield* registerAgent("hist-a");
       const regB = yield* registerAgent("hist-b");
 
-      yield* regB.client.connect(regB.apiKey);
+      yield* regB.client.connect();
       const service = yield* connectService(regA.apiKey);
 
       // Create DM between A and B
@@ -924,8 +931,8 @@ describe("History with session key", () => {
       const regB = yield* registerAgent("grp-b");
       const regC = yield* registerAgent("grp-c");
 
-      yield* regB.client.connect(regB.apiKey);
-      yield* regC.client.connect(regC.apiKey);
+      yield* regB.client.connect();
+      yield* regC.client.connect();
       const service = yield* connectService(regA.apiKey);
 
       // Create group
@@ -1031,7 +1038,7 @@ describe("Socket Server", () => {
     Effect.gen(function* () {
       const regA = yield* registerAgent("sock-rpc-a");
       const regB = yield* registerAgent("sock-rpc-b");
-      yield* regB.client.connect(regB.apiKey);
+      yield* regB.client.connect();
       const service = yield* connectService(regA.apiKey);
       service.startSocketServer();
       try {
@@ -1062,7 +1069,7 @@ describe("Socket Server", () => {
     Effect.gen(function* () {
       const regA = yield* registerAgent("sock-hist-a");
       const regB = yield* registerAgent("sock-hist-b");
-      yield* regB.client.connect(regB.apiKey);
+      yield* regB.client.connect();
       const service = yield* connectService(regA.apiKey);
       service.startSocketServer();
       try {
@@ -1113,8 +1120,8 @@ describe("Socket Server", () => {
         const regA = yield* registerAgent("wm-a");
         const regB = yield* registerAgent("wm-b");
         const regC = yield* registerAgent("wm-c");
-        yield* regB.client.connect(regB.apiKey);
-        yield* regC.client.connect(regC.apiKey);
+        yield* regB.client.connect();
+        yield* regC.client.connect();
         const service = yield* connectService(regA.apiKey);
         service.startSocketServer();
         try {
@@ -1184,8 +1191,8 @@ describe("Socket Server", () => {
       const regA = yield* registerAgent("wm2-a");
       const regB = yield* registerAgent("wm2-b");
       const regC = yield* registerAgent("wm2-c");
-      yield* regB.client.connect(regB.apiKey);
-      yield* regC.client.connect(regC.apiKey);
+      yield* regB.client.connect();
+      yield* regC.client.connect();
       const service = yield* connectService(regA.apiKey);
       service.startSocketServer();
       try {
@@ -1256,9 +1263,9 @@ describe("Socket Server", () => {
       const regB = yield* registerAgent("wm3-b");
       const regC = yield* registerAgent("wm3-c");
       const regD = yield* registerAgent("wm3-d");
-      yield* regB.client.connect(regB.apiKey);
-      yield* regC.client.connect(regC.apiKey);
-      yield* regD.client.connect(regD.apiKey);
+      yield* regB.client.connect();
+      yield* regC.client.connect();
+      yield* regD.client.connect();
       const service = yield* connectService(regA.apiKey);
       service.startSocketServer();
       try {
@@ -1373,7 +1380,7 @@ describe("Socket Server", () => {
     Effect.gen(function* () {
       const regA = yield* registerAgent("sock-page-a");
       const regB = yield* registerAgent("sock-page-b");
-      yield* regB.client.connect(regB.apiKey);
+      yield* regB.client.connect();
       const service = yield* connectService(regA.apiKey);
       service.startSocketServer();
       try {
@@ -1439,7 +1446,7 @@ describe("Socket Server", () => {
     Effect.gen(function* () {
       const regA = yield* registerAgent("sock-attach-a");
       const regB = yield* registerAgent("sock-attach-b");
-      yield* regB.client.connect(regB.apiKey);
+      yield* regB.client.connect();
       const service = yield* connectService(regA.apiKey);
       service.startSocketServer();
       try {
@@ -1450,7 +1457,7 @@ describe("Socket Server", () => {
           }),
         )) as { conversation: { id: string } };
 
-        yield* regB.client.rpc("messages/send", {
+        yield* regB.client.sendRpc("messages/send", {
           conversationId: conv.conversation.id,
           parts: [
             { type: "text", text: "Check this out" },
