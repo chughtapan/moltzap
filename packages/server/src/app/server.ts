@@ -49,6 +49,7 @@ import type {
 } from "./types.js";
 import {
   DbTag,
+  DeliveryWebhookTag,
   LoggerTag,
   EncryptionTag,
   ServicesLive,
@@ -97,6 +98,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     Layer.succeed(EncryptionTag, envelope),
     Layer.succeed(UserServiceTag, config.userService ?? null),
     Layer.succeed(WebhookClientTag, webhookClient),
+    Layer.succeed(DeliveryWebhookTag, config.deliveryWebhook ?? null),
     // LoggerLive replaces Effect's default console logger with the Pino-backed
     // Effect logger so `Effect.log*` inside services routes through Pino.
     LoggerLive,

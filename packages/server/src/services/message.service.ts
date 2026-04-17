@@ -1,13 +1,15 @@
 import type { Db } from "../db/client.js";
 import type { Message, Part } from "@moltzap/protocol";
 import { ErrorCodes, EventNames, eventFrame } from "@moltzap/protocol";
-import { Effect, Option } from "effect";
+import { Duration, Effect, Option, Schedule } from "effect";
+import { createHmac } from "node:crypto";
 import { SqlError } from "@effect/sql/SqlError";
 import { RpcFailure, notFound, internalError } from "../runtime/index.js";
 import { nextSnowflakeId } from "../db/snowflake.js";
 import type { ConversationService } from "./conversation.service.js";
 import type { DeliveryService } from "./delivery.service.js";
 import type { Broadcaster } from "../ws/broadcaster.js";
+import type { WebhookClient } from "../adapters/webhook.js";
 import {
   type EnvelopeEncryption,
   generateDek,
@@ -40,6 +42,15 @@ function toBuf(v: Buffer | Uint8Array): Buffer {
  */
 const DELIVERY_TRACKING_MAX_PARTICIPANTS = 20;
 
+/** Config for the optional `deliveryWebhook` fire-and-forget fanout. */
+export interface DeliveryWebhookConfig {
+  url: string;
+  secret: string;
+}
+
+const DELIVERY_WEBHOOK_TIMEOUT_MS = 5_000;
+const DELIVERY_WEBHOOK_MAX_ATTEMPTS = 3;
+
 export class MessageService {
   constructor(
     private db: Db,
@@ -48,6 +59,8 @@ export class MessageService {
     private encryption: EnvelopeEncryption | null,
     private delivery: DeliveryService,
     private appHost: AppHost | null = null,
+    private deliveryWebhook: DeliveryWebhookConfig | null = null,
+    private webhookClient: WebhookClient | null = null,
   ) {}
 
   send(
@@ -196,12 +209,85 @@ export class MessageService {
           yield* this.delivery.recordDeliveredBatch(message.id, delivered);
         }
 
+        // Fire delivery webhook to the offline recipients on a detached daemon
+        // fiber so the `send` RPC returns immediately. `recordDeliveredBatch`
+        // above only runs for small conversations, so `delivered` is the
+        // authoritative presence signal for this message.
+        if (this.deliveryWebhook && this.webhookClient) {
+          const deliveredSet = new Set(delivered);
+          const offlineRecipientAgentIds = participants.filter(
+            (id) => id !== senderAgentId && !deliveredSet.has(id),
+          );
+          if (offlineRecipientAgentIds.length > 0) {
+            yield* Effect.forkDaemon(
+              this.fireDeliveryWebhook({
+                conversationId,
+                messageId: message.id,
+                offlineRecipientAgentIds,
+              }),
+            );
+          }
+        }
+
         yield* Effect.logInfo("Message sent").pipe(
           Effect.annotateLogs({ conversationId, messageId: message.id }),
         );
 
         return message;
       }),
+    );
+  }
+
+  /**
+   * Detached daemon effect: POST `body` to the configured delivery webhook,
+   * HMAC-SHA256 signed, with bounded exponential-jittered retry. Never fails
+   * the caller — the final error channel is `never`; all outcomes log and
+   * return unit.
+   */
+  private fireDeliveryWebhook(body: {
+    conversationId: string;
+    messageId: string;
+    offlineRecipientAgentIds: string[];
+  }): Effect.Effect<void, never> {
+    const cfg = this.deliveryWebhook;
+    const client = this.webhookClient;
+    if (!cfg || !client) return Effect.void;
+
+    const payload = JSON.stringify(body);
+    const signature =
+      "sha256=" +
+      createHmac("sha256", cfg.secret).update(payload).digest("hex");
+
+    // 1s base, doubled per attempt, ±50% jitter. `intersect` with `recurs`
+    // caps the retry count at `MAX_ATTEMPTS - 1` so total attempts = MAX.
+    const retrySchedule = Schedule.intersect(
+      Schedule.exponential(Duration.seconds(1), 2).pipe(Schedule.jittered),
+      Schedule.recurs(DELIVERY_WEBHOOK_MAX_ATTEMPTS - 1),
+    );
+
+    return Effect.tryPromise({
+      try: () =>
+        client.callSync<unknown>({
+          url: cfg.url,
+          event: "messages.delivered",
+          body: undefined,
+          bodyJson: payload,
+          timeoutMs: DELIVERY_WEBHOOK_TIMEOUT_MS,
+          headers: { "X-MoltZap-Signature": signature },
+        }),
+      catch: (err) => err,
+    }).pipe(
+      Effect.retry(retrySchedule),
+      Effect.asVoid,
+      Effect.catchAll((err) =>
+        Effect.logError("Delivery webhook dropped after retries").pipe(
+          Effect.annotateLogs({
+            err: String(err),
+            url: cfg.url,
+            messageId: body.messageId,
+          }),
+        ),
+      ),
     );
   }
 
