@@ -74,9 +74,8 @@ async function main(): Promise<void> {
   console.log(`[app] registered as "${APP_ID}"`);
 
   await app.sendAsync("default", [{ type: "text", text: PROMPT }]);
-  console.log(
-    `[app] sent prompt. waiting for ${EXPECTED_REPLIES} reply/replies...`,
-  );
+  const noun = EXPECTED_REPLIES === 1 ? "reply" : "replies";
+  console.log(`[app] sent prompt. waiting for ${EXPECTED_REPLIES} ${noun}...`);
 }
 
 main().catch((err) => {

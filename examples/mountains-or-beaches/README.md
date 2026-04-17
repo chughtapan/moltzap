@@ -49,14 +49,14 @@ source .moltzap/agents.env
 node examples/mountains-or-beaches/dist/index.js
 ```
 
-Expected app output:
+Expected output (agent ids are the real UUIDs from `agents.env`):
 
 ```
 [app] registered as "mountains-or-beaches"
-[app] session ready: sess_abc123 · conversation: conv_xyz789
-[app] sent prompt. waiting for 2 reply/replies...
-[agent agt_alice] mountains  →  mountains
-[agent agt_bob] beaches  →  beaches
+[app] session ready: 9b24fbb3-... · conversation: 50775301-...
+[app] sent prompt. waiting for 2 replies...
+[agent 939488b9-...] mountains  →  mountains
+[agent b6d0d15c-...] beaches  →  beaches
 [tally] mountains 1 · beaches 1
 ```
 
