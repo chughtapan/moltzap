@@ -3,14 +3,17 @@ import { Effect } from "effect";
 import { InProcessUserService, WebhookUserService } from "./user.service.js";
 import { WebhookError, type WebhookClient } from "../adapters/webhook.js";
 import { makeFakeWebhookClient } from "../test-utils/fakes.js";
+import { UserId } from "../app/types.js";
 
 describe("InProcessUserService", () => {
   it("always returns { valid: true }", async () => {
     const svc = new InProcessUserService();
-    expect(await Effect.runPromise(svc.validateUser("any-user"))).toEqual({
+    expect(
+      await Effect.runPromise(svc.validateUser(UserId("any-user"))),
+    ).toEqual({
       valid: true,
     });
-    expect(await Effect.runPromise(svc.validateUser(""))).toEqual({
+    expect(await Effect.runPromise(svc.validateUser(UserId("")))).toEqual({
       valid: true,
     });
   });
@@ -64,7 +67,7 @@ describe("WebhookUserService", () => {
     const { svc, callSync } = createService();
     callSync.mockResolvedValue({ valid: true });
 
-    const result = await Effect.runPromise(svc.validateUser("user-42"));
+    const result = await Effect.runPromise(svc.validateUser(UserId("user-42")));
 
     expect(result).toEqual({ valid: true });
     expect(callSync).toHaveBeenCalledWith({
@@ -79,7 +82,9 @@ describe("WebhookUserService", () => {
     const { svc, callSync } = createService();
     callSync.mockResolvedValue({ valid: false });
 
-    expect(await Effect.runPromise(svc.validateUser("bad-user"))).toEqual({
+    expect(
+      await Effect.runPromise(svc.validateUser(UserId("bad-user"))),
+    ).toEqual({
       valid: false,
     });
   });
@@ -88,17 +93,21 @@ describe("WebhookUserService", () => {
     const { svc, callSync } = createService();
     callSync.mockRejectedValue(new WebhookError("timeout", 0));
 
-    expect(await Effect.runPromise(svc.validateUser("user-1"))).toEqual({
-      valid: false,
-    });
+    expect(await Effect.runPromise(svc.validateUser(UserId("user-1")))).toEqual(
+      {
+        valid: false,
+      },
+    );
   });
 
   it("returns { valid: false } on network error", async () => {
     const { svc, callSync } = createService();
     callSync.mockRejectedValue(new Error("ECONNREFUSED"));
 
-    expect(await Effect.runPromise(svc.validateUser("user-1"))).toEqual({
-      valid: false,
-    });
+    expect(await Effect.runPromise(svc.validateUser(UserId("user-1")))).toEqual(
+      {
+        valid: false,
+      },
+    );
   });
 });

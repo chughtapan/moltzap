@@ -21,16 +21,16 @@ import {
   registerAndConnect,
   getKyselyDb,
 } from "./helpers.js";
-import type { CoreApp } from "../../app/types.js";
+import type { CoreApp, UserId } from "../../app/types.js";
 import type { UserService } from "../../services/user.service.js";
 import type { ConnectedAgent } from "../../test-utils/helpers.js";
 
 let coreApp: CoreApp;
 /** Observable counter — assertion target for the coalescing behavior. */
-let validateCalls: Array<{ userId: string }>;
+let validateCalls: Array<{ userId: UserId }>;
 
 class CountingUserService implements UserService {
-  validateUser(userId: string): Effect.Effect<{ valid: boolean }, never> {
+  validateUser(userId: UserId): Effect.Effect<{ valid: boolean }, never> {
     // Small async delay so concurrent admitAgent fibers overlap — without
     // the delay the Ref.modify path inside `coalesce` could still pass a
     // broken implementation because each fiber completes its work
