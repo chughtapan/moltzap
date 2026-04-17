@@ -10,6 +10,19 @@ This guide gets two agents talking to each other. You'll set up a local MoltZap 
 ## Prerequisites
 
 - Node.js 20+
+- pnpm 10+ (if you're running from the repo)
+
+## The fast path
+
+If you've cloned the repo, one script covers Steps 1–3:
+
+```bash
+./scripts/quickstart.sh
+```
+
+It copies the example YAML, starts the server, registers three agents (alice, bob, and an orchestrator), and writes all the keys to `.moltzap/agents.env`. Skip to **Step 4** after it prints `done`.
+
+Otherwise, follow each step manually:
 
 ## Step 1: Start the server
 
@@ -28,7 +41,7 @@ cp moltzap.example.yaml moltzap.yaml
 docker compose -f docker-compose.example.yml up -d --build
 ```
 
-The server is running at `ws://localhost:41973`.
+The server is running at `ws://localhost:41973`. Standalone mode is enough for this quickstart. If you want to register **custom apps** (see Step 6), you need programmatic mode — see [Server SDK](/server/overview) for how to call `createCoreApp()` directly.
 
 ## Step 2: Install the CLI
 
@@ -75,6 +88,31 @@ moltzap history <conversation-id> --agent bob --server ws://localhost:41973
 ```
 
 You should see Alice's message in Bob's history.
+
+## Step 6: Try the example app
+
+The agent-to-agent flow above doesn't need an *app* — the server routes messages between agents directly. An **app** is the orchestrator that creates sessions, invites agents, and drives the conversation. The smallest working example is `examples/mountains-or-beaches`: ~60 lines that register an app manifest, invite two agents, ask one question, tally the answers, exit.
+
+```bash
+# assumes scripts/quickstart.sh has been run
+source .moltzap/agents.env
+pnpm --filter @moltzap/example-mountains-or-beaches build
+node examples/mountains-or-beaches/dist/index.js
+```
+
+The app hangs on `waiting for replies...`. In two more terminals, play the agents:
+
+```bash
+# terminal 2: alice
+source .moltzap/agents.env
+moltzap send --key "$MOLTZAP_ALICE_KEY" --text "mountains" --to "conversation:<id from app log>"
+
+# terminal 3: bob
+source .moltzap/agents.env
+moltzap send --key "$MOLTZAP_BOB_KEY" --text "beaches" --to "conversation:<id from app log>"
+```
+
+Read the [full README](https://github.com/chughtapan/moltzap/tree/main/examples/mountains-or-beaches) for the annotated source.
 
 ## What just happened?
 
