@@ -27,7 +27,6 @@ import {
   HashMap,
   Option,
   Ref,
-  Schema,
 } from "effect";
 import {
   RpcFailure,
@@ -168,36 +167,6 @@ type HookOutcome<T> =
   | { result: T; timedOut: false }
   | { result: null; timedOut: true }
   | { result: null; timedOut: false };
-
-/**
- * Wire schema for the `before_message_delivery` webhook response. Mirrors
- * the in-process `HookResult` interface in `./hooks.ts`; drift between the
- * two shapes would mean a webhook hook accidentally mismatches behavior
- * with its in-process equivalent.
- *
- * The `patch.parts` field is an opaque `Part[]` (defined in the protocol
- * package) — we validate only that it is an array at this boundary; per-
- * part validation happens later in the delivery pipeline.
- */
-const HookResultSchema = Schema.Struct({
-  block: Schema.Boolean,
-  reason: Schema.optional(Schema.String),
-  patch: Schema.optional(Schema.Struct({ parts: Schema.Array(Schema.Any) })),
-  feedback: Schema.optional(
-    Schema.Struct({
-      type: Schema.Literal("error", "warning", "info"),
-      content: Schema.Record({ key: Schema.String, value: Schema.Unknown }),
-      retry: Schema.optional(Schema.Boolean),
-    }),
-  ),
-}) as unknown as Schema.Schema<HookResult>;
-
-/**
- * Fire-and-forget hook schema (`on_join`, `on_close`). Receivers typically
- * reply 204 or `{}`; the caller discards the value entirely, so anything
- * decodes successfully.
- */
-const VoidHookSchema = Schema.Unknown as unknown as Schema.Schema<void>;
 
 interface PendingPermission {
   targetUserId: string;
@@ -516,7 +485,7 @@ export class AppHost {
           manifest?.hooks?.before_message_delivery?.timeout_ms ?? 5000;
 
         const outcome: HookOutcome<HookResult> = webhookUrl
-          ? yield* this.dispatchWebhookHook({
+          ? yield* this.dispatchWebhookHook<HookResult>({
               url: webhookUrl,
               event: "app.before_message_delivery",
               secret: manifest?.hooks?.secret,
@@ -528,7 +497,6 @@ export class AppHost {
                 message: ctx.message,
               },
               timeoutMs,
-              schema: HookResultSchema,
             })
           : yield* this.runHookWithTimeout<HookResult>(
               (signal) => appHooks!.beforeMessageDelivery!({ ...ctx, signal }),
@@ -887,7 +855,7 @@ export class AppHost {
           };
 
           const outcome: HookOutcome<void> = onCloseWebhook
-            ? yield* this.dispatchWebhookHook({
+            ? yield* this.dispatchWebhookHook<void>({
                 url: onCloseWebhook,
                 event: "app.on_close",
                 secret: manifest?.hooks?.secret,
@@ -898,7 +866,6 @@ export class AppHost {
                   closedBy,
                 },
                 timeoutMs,
-                schema: VoidHookSchema,
               })
             : yield* this.runHookWithTimeout<void>(
                 (signal) =>
@@ -1347,10 +1314,10 @@ export class AppHost {
    *   `X-MoltZap-Signature: sha256=<hex>`. The signature covers exactly the
    *   bytes that go on the wire — we pre-serialize and hand the client
    *   `bodyJson` so it can't rewrite whitespace or reorder keys.
-   * - Enforces the hook's `timeoutMs` via `Effect.timeout`. Webhook
-   *   transport errors (non-2xx, network drop) bubble out of
-   *   `WebhookClient.callSync` as `WebhookError` and land in the
-   *   `catchAll` branch — which matches the in-process
+   * - Enforces the hook's `timeoutMs` via `WebhookClient.call` (which
+   *   wraps fetch in `Effect.timeoutFail` → `WebhookTimeoutError`).
+   *   Tagged transport errors (non-2xx, network drop, timeout) fan into
+   *   the `catchTag` branches below — matching the in-process
    *   `runHookWithTimeout` semantics so the caller's fail-closed plumbing
    *   stays identical regardless of dispatch mechanism.
    */
@@ -1359,7 +1326,6 @@ export class AppHost {
     event: string;
     body: object;
     timeoutMs: number;
-    schema: Schema.Schema<T, any>;
     secret?: string;
   }): Effect.Effect<HookOutcome<T>, RpcFailure> {
     return Effect.gen(this, function* () {
@@ -1368,26 +1334,18 @@ export class AppHost {
         ? signWebhookPayload(opts.secret, bodyJson)
         : undefined;
 
-      const request = Effect.tryPromise({
-        try: () =>
-          this.webhookClient.callSync({
-            url: opts.url,
-            event: opts.event,
-            body: undefined,
-            bodyJson,
-            headers: signature
-              ? { "X-MoltZap-Signature": signature }
-              : undefined,
-            timeoutMs: opts.timeoutMs,
-            schema: opts.schema,
-          }),
-        catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+      const request = this.webhookClient.call<T>({
+        url: opts.url,
+        event: opts.event,
+        body: undefined,
+        bodyJson,
+        headers: signature ? { "X-MoltZap-Signature": signature } : undefined,
+        timeoutMs: opts.timeoutMs,
       });
 
       return yield* request.pipe(
-        Effect.timeout(`${opts.timeoutMs} millis`),
         Effect.map((result) => ({ result, timedOut: false }) as HookOutcome<T>),
-        Effect.catchTag("TimeoutException", () =>
+        Effect.catchTag("WebhookTimeoutError", () =>
           Effect.succeed({
             result: null,
             timedOut: true as const,
@@ -1395,22 +1353,9 @@ export class AppHost {
         ),
         Effect.catchAll((err) =>
           Effect.gen(function* () {
-            // WebhookClient surfaces its own timeout as a WebhookError
-            // with "timed out" in the message (HTTP-level
-            // AbortSignal.timeout fires before Effect.timeout when
-            // timeoutMs is short). Normalise both paths to
-            // timedOut:true so the caller's hookTimeout event fires
-            // consistently.
-            const msg = errorMessage(err);
-            if (/timed out/i.test(msg)) {
-              return {
-                result: null,
-                timedOut: true as const,
-              } as HookOutcome<T>;
-            }
             yield* Effect.logError("Webhook hook dispatch error").pipe(
               Effect.annotateLogs({
-                err: msg,
+                err: errorMessage(err),
                 url: opts.url,
                 event: opts.event,
               }),
@@ -1560,7 +1505,6 @@ export class AppHost {
               admittedAgentIds,
             },
             timeoutMs,
-            schema: VoidHookSchema,
           }).pipe(
             Effect.catchAllCause(() =>
               Effect.succeed({
@@ -2198,7 +2142,7 @@ export class AppHost {
 
         if (webhookUrl) {
           const timeoutMs = manifest.hooks?.on_join?.timeout_ms ?? 5000;
-          const outcome = yield* this.dispatchWebhookHook({
+          const outcome = yield* this.dispatchWebhookHook<void>({
             url: webhookUrl,
             event: "app.on_join",
             secret: manifest.hooks?.secret,
@@ -2209,7 +2153,6 @@ export class AppHost {
               agent: { agentId, ownerId },
             },
             timeoutMs,
-            schema: VoidHookSchema,
           });
           if (outcome.timedOut) {
             this.broadcaster.sendToAgent(
