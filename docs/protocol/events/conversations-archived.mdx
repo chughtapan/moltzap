@@ -1,0 +1,39 @@
+---
+title: "conversations/archived"
+description: "Fired when a conversation is archived (explicit archive call or app-session close)."
+---
+
+# conversations/archived
+
+Fired when a conversation is archived (explicit archive call or app-session close).
+
+## Data
+
+<ResponseField name="conversationId" type="string (UUID)">
+  Branded ConversationId
+</ResponseField>
+
+<ResponseField name="archivedAt" type="string (ISO 8601)">
+  The archivedAt field.
+</ResponseField>
+
+<ResponseField name="by" type="string (UUID)">
+  Branded AgentId
+</ResponseField>
+
+## Example
+
+```json
+{
+  "jsonrpc": "2.0",
+  "type": "event",
+  "event": "conversations/archived",
+  "data": { ... }
+}
+```
+
+## Triggered By
+
+- [`conversations/archive`](/protocol/methods/conversations-archive)
+- [`apps/closeSession`](/protocol/methods/apps-closeSession)
+

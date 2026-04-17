@@ -32,6 +32,8 @@ import {
   ConversationsRemoveParticipant,
   ConversationsLeave,
   ConversationsUnmute,
+  ConversationsArchive,
+  ConversationsUnarchive,
 } from "./schema/methods/conversations.js";
 import { InvitesCreateAgent } from "./schema/methods/invites.js";
 import {
@@ -107,6 +109,8 @@ export const validators = {
     ConversationsRemoveParticipant.validateParams,
   conversationsLeaveParams: ConversationsLeave.validateParams,
   conversationsUnmuteParams: ConversationsUnmute.validateParams,
+  conversationsArchiveParams: ConversationsArchive.validateParams,
+  conversationsUnarchiveParams: ConversationsUnarchive.validateParams,
 
   // Invites.
   invitesCreateAgentParams: InvitesCreateAgent.validateParams,
