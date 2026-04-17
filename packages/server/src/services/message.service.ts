@@ -1,18 +1,14 @@
 import type { Db } from "../db/client.js";
 import type { Message, Part } from "@moltzap/protocol";
 import { ErrorCodes, EventNames, eventFrame } from "@moltzap/protocol";
-import { Duration, Effect, Fiber, Option, Schedule, Schema } from "effect";
+import { Duration, Effect, Fiber, Option, Schedule } from "effect";
 import { SqlError } from "@effect/sql/SqlError";
 import { RpcFailure, notFound, internalError } from "../runtime/index.js";
 import { nextSnowflakeId } from "../db/snowflake.js";
 import type { ConversationService } from "./conversation.service.js";
 import type { DeliveryService } from "./delivery.service.js";
 import type { Broadcaster } from "../ws/broadcaster.js";
-import {
-  type WebhookClient,
-  WebhookCallError,
-  signWebhookPayload,
-} from "../adapters/webhook.js";
+import { type WebhookClient, signWebhookPayload } from "../adapters/webhook.js";
 import {
   type EnvelopeEncryption,
   generateDek,
@@ -285,34 +281,28 @@ export class MessageService {
       Schedule.recurs(DELIVERY_WEBHOOK_MAX_ATTEMPTS - 1),
     );
 
-    return Effect.tryPromise({
-      try: () =>
-        client.callSync({
-          url: cfg.url,
-          event: "messages.delivered",
-          body: undefined,
-          bodyJson: payload,
-          timeoutMs: DELIVERY_WEBHOOK_TIMEOUT_MS,
-          headers: { "X-MoltZap-Signature": signature },
-          // Fire-and-forget: receivers typically reply 204/empty, and
-          // anything they do send is discarded by `Effect.asVoid` below.
-          schema: Schema.Unknown,
-        }),
-      catch: (err) =>
-        new WebhookCallError("messages.delivered failed", cfg.url, err),
-    }).pipe(
-      Effect.retry(retrySchedule),
-      Effect.asVoid,
-      Effect.catchAll((err) =>
-        Effect.logError("Delivery webhook dropped after retries").pipe(
-          Effect.annotateLogs({
-            err: String(err),
-            url: cfg.url,
-            messageId: body.messageId,
-          }),
+    return client
+      .call<unknown>({
+        url: cfg.url,
+        event: "messages.delivered",
+        body: undefined,
+        bodyJson: payload,
+        timeoutMs: DELIVERY_WEBHOOK_TIMEOUT_MS,
+        headers: { "X-MoltZap-Signature": signature },
+      })
+      .pipe(
+        Effect.retry(retrySchedule),
+        Effect.asVoid,
+        Effect.catchAll((err) =>
+          Effect.logError("Delivery webhook dropped after retries").pipe(
+            Effect.annotateLogs({
+              err: String(err),
+              url: cfg.url,
+              messageId: body.messageId,
+            }),
+          ),
         ),
-      ),
-    );
+      );
   }
 
   list(
