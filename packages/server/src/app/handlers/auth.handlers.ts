@@ -21,7 +21,7 @@ import {
   AgentsList,
 } from "@moltzap/protocol";
 import type { RpcFailure } from "../../runtime/index.js";
-import { invalidParams, unauthorized } from "../../runtime/index.js";
+import { unauthorized } from "../../runtime/index.js";
 import {
   catchSqlErrorAsDefect,
   takeFirstOption,
@@ -71,26 +71,17 @@ export function createCoreAuthHandlers(deps: {
               return yield* buildHelloOk(conn.auth, deps);
             }
 
-            const hasAgentKey = typeof params.agentKey === "string";
-            const hasSessionToken = typeof params.sessionToken === "string";
-            if (hasAgentKey === hasSessionToken) {
-              return yield* Effect.fail(
-                invalidParams(
-                  "Exactly one of `agentKey` or `sessionToken` required",
-                ),
-              );
-            }
-
-            const auth: AuthenticatedContext = hasSessionToken
-              ? yield* authenticateSession(
-                  params.sessionToken as string,
-                  deps.userService,
-                  deps.db,
-                )
-              : yield* authenticateAgentKey(
-                  params.agentKey as string,
-                  deps.authService,
-                );
+            const auth: AuthenticatedContext =
+              "sessionToken" in params
+                ? yield* authenticateSession(
+                    params.sessionToken,
+                    deps.userService,
+                    deps.db,
+                  )
+                : yield* authenticateAgentKey(
+                    params.agentKey,
+                    deps.authService,
+                  );
 
             conn.auth = auth;
 
@@ -234,8 +225,13 @@ function authenticateSession(
       if (!result.valid) {
         return yield* Effect.fail(unauthorized("Authentication failed"));
       }
-      // `result` is now narrowed to the `valid: true` branch; agentId and
-      // ownerUserId are guaranteed present by the discriminated union.
+      if (result.agentStatus !== undefined) {
+        return {
+          agentId: result.agentId,
+          agentStatus: result.agentStatus,
+          ownerUserId: result.ownerUserId,
+        };
+      }
       const rowOpt = yield* takeFirstOption(
         db
           .selectFrom("agents")
