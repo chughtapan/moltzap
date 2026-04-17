@@ -8,10 +8,7 @@ import { nextSnowflakeId } from "../db/snowflake.js";
 import type { ConversationService } from "./conversation.service.js";
 import type { DeliveryService } from "./delivery.service.js";
 import type { Broadcaster } from "../ws/broadcaster.js";
-import {
-  type WebhookClient,
-  signWebhookPayload,
-} from "../adapters/webhook.js";
+import { type WebhookClient, signWebhookPayload } from "../adapters/webhook.js";
 import {
   type EnvelopeEncryption,
   generateDek,

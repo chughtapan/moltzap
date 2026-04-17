@@ -1,13 +1,6 @@
 /** Webhook adapters for calling external services over HTTP. */
 
-import {
-  Data,
-  Deferred,
-  Duration,
-  Effect,
-  HashMap,
-  Ref,
-} from "effect";
+import { Data, Deferred, Duration, Effect, HashMap, Option, Ref } from "effect";
 import { createHmac } from "node:crypto";
 import type { ContactService, PermissionService } from "../app/app-host.js";
 import type { Logger } from "../logger.js";
@@ -137,9 +130,9 @@ export class WebhookClient {
   private readonly permits: Effect.Semaphore;
 
   constructor(concurrency = 10) {
-    // `Effect.makeSemaphore` performs no async work so it's safe to
-    // `runSync` in the constructor; keeps the `new WebhookClient()`
-    // construction surface unchanged for call sites.
+    // `Effect.makeSemaphore` is pure, so `runSync` in the constructor
+    // is safe and keeps the `new WebhookClient()` construction surface
+    // unchanged for call sites.
     this.permits = Effect.runSync(Effect.makeSemaphore(concurrency));
   }
 
@@ -152,36 +145,48 @@ export class WebhookClient {
       ...opts.headers,
     };
 
-    const perform = Effect.tryPromise({
-      try: (signal) =>
-        fetch(url, { method: "POST", headers, body, signal }).then(
-          async (response) => {
-            if (!response.ok) {
-              const text = await response.text().catch(() => "");
-              throw new WebhookHttpError({
-                url,
-                event,
-                status: response.status,
-                body: text,
-              });
-            }
-            // Empty-body responses (204, or 200 with no payload) are
-            // common for fire-and-forget hooks (`on_join`, `on_close`).
-            // `response.json()` would throw on an empty body, so read
-            // as text and short-circuit.
-            const text = await response.text();
-            if (text.length === 0) return null as T;
-            return JSON.parse(text) as T;
-          },
-        ),
-      catch: (err) =>
-        err instanceof WebhookHttpError
-          ? err
-          : new WebhookNetworkError({ url, event, cause: err }),
+    const doFetch = Effect.tryPromise({
+      try: (signal) => fetch(url, { method: "POST", headers, body, signal }),
+      catch: (err) => new WebhookNetworkError({ url, event, cause: err }),
     });
 
+    const readBody = (response: Response): Effect.Effect<string, never> =>
+      Effect.tryPromise({
+        try: () => response.text(),
+        catch: () => null,
+      }).pipe(Effect.orElseSucceed(() => ""));
+
+    const parseResponse = (
+      response: Response,
+    ): Effect.Effect<T, WebhookHttpError | WebhookNetworkError> =>
+      response.ok
+        ? readBody(response).pipe(
+            Effect.flatMap((text) =>
+              text.length === 0
+                ? Effect.succeed(null as T)
+                : Effect.try({
+                    try: () => JSON.parse(text) as T,
+                    catch: (err) =>
+                      new WebhookNetworkError({ url, event, cause: err }),
+                  }),
+            ),
+          )
+        : readBody(response).pipe(
+            Effect.flatMap((text) =>
+              Effect.fail(
+                new WebhookHttpError({
+                  url,
+                  event,
+                  status: response.status,
+                  body: text,
+                }),
+              ),
+            ),
+          );
+
     return this.permits.withPermits(1)(
-      perform.pipe(
+      doFetch.pipe(
+        Effect.flatMap(parseResponse),
         Effect.timeoutFail({
           duration: Duration.millis(timeoutMs),
           onTimeout: () => new WebhookTimeoutError({ url, event, timeoutMs }),
@@ -305,8 +310,7 @@ export class AsyncWebhookAdapter {
               body: bodyJson,
               signal,
             }),
-          catch: (err) =>
-            new WebhookNetworkError({ url, event, cause: err }),
+          catch: (err) => new WebhookNetworkError({ url, event, cause: err }),
         }).pipe(
           Effect.flatMap((response) => {
             if (response.status === 202) return Effect.void;
@@ -340,16 +344,13 @@ export class AsyncWebhookAdapter {
       const awaitCallback = Deferred.await(deferred).pipe(
         Effect.timeoutFail({
           duration: Duration.millis(timeoutMs),
-          onTimeout: () =>
-            new WebhookTimeoutError({ url, event, timeoutMs }),
+          onTimeout: () => new WebhookTimeoutError({ url, event, timeoutMs }),
         }),
       );
 
       return yield* post.pipe(
         Effect.flatMap(() => awaitCallback),
-        Effect.ensuring(
-          Ref.update(this.pending, HashMap.remove(requestId)),
-        ),
+        Effect.ensuring(Ref.update(this.pending, HashMap.remove(requestId))),
       );
     });
   }
@@ -374,12 +375,18 @@ export class AsyncWebhookAdapter {
       }
 
       // Atomically remove the pending Deferred so no other fiber can
-      // also try to complete it.
-      const taken = yield* Ref.modify(this.pending, (map) => {
-        const existing = HashMap.get(map, requestId);
-        if (existing._tag === "None") return [existing, map];
-        return [existing, HashMap.remove(map, requestId)];
-      });
+      // also try to complete it. Explicit tuple type keeps TS from
+      // widening the two branches to incompatible literal `_tag`s.
+      type Taken = Option.Option<Deferred.Deferred<string[], WebhookError>>;
+      const taken: Taken = yield* Ref.modify(
+        this.pending,
+        (map): readonly [Taken, PendingMap] => {
+          const existing: Taken = HashMap.get(map, requestId);
+          return existing._tag === "None"
+            ? [existing, map]
+            : [existing, HashMap.remove(map, requestId)];
+        },
+      );
 
       if (taken._tag === "None") return false;
 
