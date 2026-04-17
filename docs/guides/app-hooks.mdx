@@ -217,4 +217,4 @@ Pick one path per hook; don't wire both.
 
 ## End-to-end example
 
-The integration test [`32-webhook-hooks.integration.test.ts`](../../packages/server/src/__tests__/integration/32-webhook-hooks.integration.test.ts) spins up a Node `http.createServer` as the webhook endpoint, registers a manifest that points at it, and verifies: block, patch, signed payload, timeout → fail-closed, precedence. Copy it as a starting point for your own integration coverage.
+The integration test [`32-webhook-hooks.integration.test.ts`](https://github.com/chughtapan/moltzap/blob/main/packages/server/src/__tests__/integration/32-webhook-hooks.integration.test.ts) spins up a Node `http.createServer` as the webhook endpoint, registers a manifest that points at it, and verifies: block, patch, signed payload, timeout → fail-closed, precedence. Copy it as a starting point for your own integration coverage.
