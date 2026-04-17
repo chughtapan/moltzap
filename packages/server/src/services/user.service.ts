@@ -1,5 +1,5 @@
 import { Cause, Effect } from "effect";
-import { WebhookCallError, type WebhookClient } from "../adapters/webhook.js";
+import type { WebhookClient } from "../adapters/webhook.js";
 import type { Logger } from "../logger.js";
 import { AgentId, UserId } from "../app/types.js";
 
@@ -51,29 +51,26 @@ export class WebhookUserService implements UserService {
   ) {}
 
   validateUser(userId: UserId): Effect.Effect<{ valid: boolean }, never> {
-    return Effect.tryPromise({
-      try: () =>
-        this.client.callSync<{ valid: boolean }>({
-          url: this.url,
-          event: "users.validate",
-          body: { userId },
-          timeoutMs: this.timeoutMs,
-        }),
-      catch: (err) =>
-        new WebhookCallError("users.validate failed", this.url, err),
-    }).pipe(
-      // Strict boolean check — don't trust truthy strings from external services
-      Effect.map((result) => ({ valid: result.valid === true })),
-      Effect.catchAllCause((cause) =>
-        Effect.sync(() => {
-          this.logCauseAsFailClosed(cause, "User validation webhook", {
-            userId,
-            url: this.url,
-          });
-          return { valid: false };
-        }),
-      ),
-    );
+    return this.client
+      .call<{ valid: boolean }>({
+        url: this.url,
+        event: "users.validate",
+        body: { userId },
+        timeoutMs: this.timeoutMs,
+      })
+      .pipe(
+        // Strict boolean check — don't trust truthy strings from external services
+        Effect.map((result) => ({ valid: result.valid === true })),
+        Effect.catchAllCause((cause) =>
+          Effect.sync(() => {
+            this.logCauseAsFailClosed(cause, "User validation webhook", {
+              userId,
+              url: this.url,
+            });
+            return { valid: false };
+          }),
+        ),
+      );
   }
 
   validateSession(token: string): Effect.Effect<SessionValidation, never> {
@@ -87,61 +84,50 @@ export class WebhookUserService implements UserService {
        * webhook already knows the agent's status. */
       agentStatus?: unknown;
     }
-    return Effect.tryPromise({
-      try: () =>
-        this.client.callSync<WireResponse>({
-          url: this.url,
-          event: "sessions.validate",
-          body: { token },
-          timeoutMs: this.timeoutMs,
+    return this.client
+      .call<WireResponse>({
+        url: this.url,
+        event: "sessions.validate",
+        body: { token },
+        timeoutMs: this.timeoutMs,
+      })
+      .pipe(
+        Effect.map((result): SessionValidation => {
+          if (result.valid !== true) return { valid: false };
+          if (
+            typeof result.agentId !== "string" ||
+            typeof result.ownerUserId !== "string"
+          ) {
+            return { valid: false };
+          }
+          const agentStatus =
+            typeof result.agentStatus === "string"
+              ? result.agentStatus
+              : undefined;
+          const agentId = AgentId(result.agentId);
+          const ownerUserId = UserId(result.ownerUserId);
+          return agentStatus !== undefined
+            ? { valid: true, agentId, ownerUserId, agentStatus }
+            : { valid: true, agentId, ownerUserId };
         }),
-      catch: (err) =>
-        new WebhookCallError("sessions.validate failed", this.url, err),
-    }).pipe(
-      Effect.map((result): SessionValidation => {
-        if (result.valid !== true) return { valid: false };
-        if (
-          typeof result.agentId !== "string" ||
-          typeof result.ownerUserId !== "string"
-        ) {
-          return { valid: false };
-        }
-        const agentStatus =
-          typeof result.agentStatus === "string"
-            ? result.agentStatus
-            : undefined;
-        const agentId = AgentId(result.agentId);
-        const ownerUserId = UserId(result.ownerUserId);
-        return agentStatus !== undefined
-          ? {
-              valid: true,
-              agentId,
-              ownerUserId,
-              agentStatus,
-            }
-          : {
-              valid: true,
-              agentId,
-              ownerUserId,
-            };
-      }),
-      Effect.catchAllCause((cause) =>
-        Effect.sync((): SessionValidation => {
-          this.logCauseAsFailClosed(cause, "Session validation webhook", {
-            url: this.url,
-          });
-          return { valid: false };
-        }),
-      ),
-    );
+        Effect.catchAllCause((cause) =>
+          Effect.sync((): SessionValidation => {
+            this.logCauseAsFailClosed(cause, "Session validation webhook", {
+              url: this.url,
+            });
+            return { valid: false };
+          }),
+        ),
+      );
   }
 
   /**
-   * Fail-closed reject logging. Expected failures (`Cause.Fail` —
-   * `WebhookCallError` from the typed `catch` above) log at warn. Defects
-   * (`Cause.Die` — synchronous throws inside the pipeline, always bugs)
-   * log at error with the full pretty cause so they're visible in the
-   * normal error stream, not hidden behind a quiet auth rejection.
+   * Fail-closed reject logging. Expected failures (`Cause.Fail` — the
+   * tagged `WebhookError` variants raised by `WebhookClient.call`) log
+   * at warn. Defects (`Cause.Die` — synchronous throws inside the
+   * pipeline, always bugs) log at error with the full pretty cause so
+   * they're visible in the normal error stream, not hidden behind a
+   * quiet auth rejection.
    */
   private logCauseAsFailClosed(
     cause: Cause.Cause<unknown>,

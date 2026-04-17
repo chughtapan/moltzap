@@ -38,8 +38,12 @@ export {
 export {
   WebhookClient,
   AsyncWebhookAdapter,
-  WebhookError,
+  WebhookHttpError,
+  WebhookTimeoutError,
+  WebhookNetworkError,
+  WebhookDestroyedError,
 } from "./adapters/webhook.js";
+export type { WebhookError } from "./adapters/webhook.js";
 
 // Config
 export { loadConfigFromFile, ConfigLoadError } from "./config/loader.js";

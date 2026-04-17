@@ -10,7 +10,6 @@ import type { DeliveryService } from "./delivery.service.js";
 import type { Broadcaster } from "../ws/broadcaster.js";
 import {
   type WebhookClient,
-  WebhookCallError,
   signWebhookPayload,
 } from "../adapters/webhook.js";
 import {
@@ -285,31 +284,28 @@ export class MessageService {
       Schedule.recurs(DELIVERY_WEBHOOK_MAX_ATTEMPTS - 1),
     );
 
-    return Effect.tryPromise({
-      try: () =>
-        client.callSync<unknown>({
-          url: cfg.url,
-          event: "messages.delivered",
-          body: undefined,
-          bodyJson: payload,
-          timeoutMs: DELIVERY_WEBHOOK_TIMEOUT_MS,
-          headers: { "X-MoltZap-Signature": signature },
-        }),
-      catch: (err) =>
-        new WebhookCallError("messages.delivered failed", cfg.url, err),
-    }).pipe(
-      Effect.retry(retrySchedule),
-      Effect.asVoid,
-      Effect.catchAll((err) =>
-        Effect.logError("Delivery webhook dropped after retries").pipe(
-          Effect.annotateLogs({
-            err: String(err),
-            url: cfg.url,
-            messageId: body.messageId,
-          }),
+    return client
+      .call<unknown>({
+        url: cfg.url,
+        event: "messages.delivered",
+        body: undefined,
+        bodyJson: payload,
+        timeoutMs: DELIVERY_WEBHOOK_TIMEOUT_MS,
+        headers: { "X-MoltZap-Signature": signature },
+      })
+      .pipe(
+        Effect.retry(retrySchedule),
+        Effect.asVoid,
+        Effect.catchAll((err) =>
+          Effect.logError("Delivery webhook dropped after retries").pipe(
+            Effect.annotateLogs({
+              err: String(err),
+              url: cfg.url,
+              messageId: body.messageId,
+            }),
+          ),
         ),
-      ),
-    );
+      );
   }
 
   list(

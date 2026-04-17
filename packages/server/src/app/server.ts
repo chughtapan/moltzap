@@ -294,7 +294,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
         );
       }
 
-      const found = _webhookPermAdapter.resolveCallback(
+      const found = yield* _webhookPermAdapter.resolveCallback(
         body.request_id,
         body.access,
       );
@@ -618,7 +618,9 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     },
     // #ignore-sloppy-code-next-line[async-keyword]: server close is a Promise boundary for external callers
     async close() {
-      _webhookPermAdapter?.destroy();
+      if (_webhookPermAdapter) {
+        await Effect.runPromise(_webhookPermAdapter.shutdown);
+      }
       defaultPermissionService.destroy();
       // Interrupt in-flight delivery-webhook retries before scope close so
       // pending POSTs don't race the HTTP server teardown.
