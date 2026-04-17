@@ -64,5 +64,8 @@ See `docs/openclaw-architecture.md` for detailed flow diagrams, dispatch context
 - Missed messages fetched on reconnect: capped at 5 conversations, 50 messages each
 
 ## Dependencies
-- `@moltzap/protocol` (workspace, runtime + test utilities: `hashPhone`, `MoltZapTestClient`)
+- `@moltzap/protocol` (workspace, runtime types + schemas)
+- `@moltzap/client` (workspace, `MoltZapWsClient` used directly in E2E tests;
+  test helpers at `@moltzap/client/test`: `registerAgent`, `registerAndConnect`,
+  `stripWsPath`)
 - E2E tests spawn the server as a subprocess via `src/__tests__/spawn-server.ts` — requires `pnpm --filter @moltzap/server build` first
