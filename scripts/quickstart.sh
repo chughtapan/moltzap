@@ -45,6 +45,30 @@ fi
 
 mkdir -p "$STATE_DIR"
 
+# ── Kill any previous server we started ────────────────────────────
+if [ -f "$PID_FILE" ]; then
+  old_pid=$(cat "$PID_FILE" 2>/dev/null || true)
+  if [ -n "$old_pid" ] && kill -0 "$old_pid" 2>/dev/null; then
+    info "stopping previous server (pid $old_pid)"
+    kill "$old_pid" 2>/dev/null || true
+    sleep 1
+  fi
+  rm -f "$PID_FILE"
+fi
+
+# ── Pre-flight port check ──────────────────────────────────────────
+# If something else is already listening on PORT, the server would exit
+# with a generic EADDRINUSE stack we'd have to extract from the log. Fail
+# fast instead with a clear error that names the port and suggests a fix.
+# Runs BEFORE writing moltzap.yaml so a collision doesn't leave stray
+# files behind for the user to clean up.
+if command -v ss >/dev/null && ss -tln 2>/dev/null | grep -q ":${PORT}\b"; then
+  error "port ${PORT} is already in use"
+  error "  ss -tlnp | grep :${PORT}  # find the owner"
+  error "  MOLTZAP_PORT=<other> ./scripts/quickstart.sh  # use a different port"
+  exit 1
+fi
+
 # ── Config file ────────────────────────────────────────────────────
 # Write a minimal moltzap.yaml without seed agents — the script registers
 # alice/bob/orchestrator explicitly via HTTP. Seeding would race with
@@ -68,28 +92,6 @@ dev_mode:
 
 log_level: info
 YAML
-fi
-
-# ── Kill any previous server we started ────────────────────────────
-if [ -f "$PID_FILE" ]; then
-  old_pid=$(cat "$PID_FILE" 2>/dev/null || true)
-  if [ -n "$old_pid" ] && kill -0 "$old_pid" 2>/dev/null; then
-    info "stopping previous server (pid $old_pid)"
-    kill "$old_pid" 2>/dev/null || true
-    sleep 1
-  fi
-  rm -f "$PID_FILE"
-fi
-
-# ── Pre-flight port check ──────────────────────────────────────────
-# If something else is already listening on PORT, the server would exit
-# with a generic EADDRINUSE stack we'd have to extract from the log. Fail
-# fast instead with a clear error that names the port and suggests a fix.
-if command -v ss >/dev/null && ss -tln 2>/dev/null | grep -q ":${PORT}\b"; then
-  error "port ${PORT} is already in use"
-  error "  ss -tlnp | grep :${PORT}  # find the owner"
-  error "  MOLTZAP_PORT=<other> ./scripts/quickstart.sh  # use a different port"
-  exit 1
 fi
 
 # ── Install + build ────────────────────────────────────────────────
