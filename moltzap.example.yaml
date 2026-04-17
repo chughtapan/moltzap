@@ -27,6 +27,16 @@ seed:
 # registration:
 #   secret: my-secret-code
 
+# Optional: local-dev-only mode. When enabled, agents registered via
+# the default /api/v1/auth/register endpoint are auto-owned by a
+# synthetic user id — the developer at the keyboard. This skips the
+# external claim handshake (see docs/guides/custom-identity-provider.mdx)
+# so localhost demos can exercise app sessions without Supabase/Auth0.
+# NEVER enable this in production.
+# dev_mode:
+#   enabled: true
+#   # user_id: "<optional-override-uuid>"  # defaults to a random UUID at boot
+
 # Optional: external service webhooks
 # services:
 #   users:

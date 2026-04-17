@@ -50,6 +50,14 @@ export interface CoreConfig {
   registrationSecret?: string;
   devMode?: boolean;
   /**
+   * When set, agents registered via the default `/api/v1/auth/register`
+   * route are given this user id as their `owner_user_id`, skipping the
+   * claim step. Intended for local dev / quickstart. Production MUST
+   * leave this unset and perform claim through an external auth
+   * provider (see docs/guides/custom-identity-provider.mdx).
+   */
+  devModeUserId?: string;
+  /**
    * Optional webhook-backed user validator. When unset the server skips
    * user validation during app session admission (admits all users).
    */
