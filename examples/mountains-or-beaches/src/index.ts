@@ -26,6 +26,7 @@ const INVITED_AGENT_IDS = required("MOLTZAP_INVITED_AGENT_IDS")
 const APP_ID = "mountains-or-beaches";
 const PROMPT = "mountains or beaches? reply in one word.";
 const EXPECTED_REPLIES = INVITED_AGENT_IDS.length;
+const REPLY_TIMEOUT_MS = 60_000;
 
 async function main(): Promise<void> {
   const app = new MoltZapApp({
@@ -60,14 +61,17 @@ async function main(): Promise<void> {
     tally[bucket] += 1;
     console.log(`[agent ${message.senderId}] ${text}  →  ${bucket}`);
 
-    if (replied.size >= EXPECTED_REPLIES) finish();
+    if (replied.size >= EXPECTED_REPLIES) finish(0);
   });
 
-  function finish(): void {
+  let watchdog: NodeJS.Timeout | undefined;
+
+  function finish(code: number): void {
+    if (watchdog) clearTimeout(watchdog);
     const parts = [`mountains ${tally.mountains}`, `beaches ${tally.beaches}`];
     if (tally.other > 0) parts.push(`other ${tally.other}`);
     console.log(`[tally] ${parts.join(" · ")}`);
-    void app.stopAsync().then(() => process.exit(0));
+    void app.stopAsync().then(() => process.exit(code));
   }
 
   await app.startAsync();
@@ -76,6 +80,15 @@ async function main(): Promise<void> {
   await app.sendAsync("default", [{ type: "text", text: PROMPT }]);
   const noun = EXPECTED_REPLIES === 1 ? "reply" : "replies";
   console.log(`[app] sent prompt. waiting for ${EXPECTED_REPLIES} ${noun}...`);
+
+  // Bail out rather than hang forever if someone forgets to start the bots.
+  watchdog = setTimeout(() => {
+    console.error(
+      `[app] timed out after ${REPLY_TIMEOUT_MS / 1000}s: ` +
+        `got ${replied.size}/${EXPECTED_REPLIES} replies`,
+    );
+    finish(1);
+  }, REPLY_TIMEOUT_MS);
 }
 
 main().catch((err) => {
