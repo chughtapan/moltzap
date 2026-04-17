@@ -36,6 +36,12 @@ export interface CoreConfig {
    * HTTP.
    */
   webhookClient?: WebhookClient;
+  /**
+   * When true, core does not mount its default `/api/v1/auth/register`
+   * route. Apps that want their own invite-gated / rate-limited register
+   * flow set this and mount their own handler.
+   */
+  skipDefaultRegisterRoute?: boolean;
 }
 
 export type ConnectionHook = (params: {
