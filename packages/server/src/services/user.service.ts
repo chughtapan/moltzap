@@ -134,7 +134,7 @@ export class WebhookUserService implements UserService {
     label: string,
     ctx: Record<string, unknown>,
   ): void {
-    if (Cause.isDieType(cause) || Cause.dieOption(cause)._tag === "Some") {
+    if (Cause.dieOption(cause)._tag === "Some") {
       this.logger.error(
         { cause: Cause.pretty(cause), ...ctx },
         `${label} defect (bug) — rejecting`,
