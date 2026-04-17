@@ -613,6 +613,9 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     listAppSessions(callerAgentId, opts) {
       return appHost.listSessions(callerAgentId, opts);
     },
+    attachAppConversation(sessionId, conversationId, key) {
+      return appHost.attachConversation(sessionId, conversationId, key);
+    },
     // #ignore-sloppy-code-next-line[async-keyword]: server close is a Promise boundary for external callers
     async close() {
       _webhookPermAdapter?.destroy();
