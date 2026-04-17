@@ -40,6 +40,13 @@ export const conflict = (message: string, data?: unknown): RpcFailure =>
 export const internalError = (message: string): RpcFailure =>
   new RpcFailure({ code: ErrorCodes.InternalError, message });
 
+export const blocked = (message = "Blocked"): RpcFailure =>
+  new RpcFailure({ code: ErrorCodes.Blocked, message });
+
+export const rateLimited = (
+  message = "Please wait before trying again",
+): RpcFailure => new RpcFailure({ code: ErrorCodes.RateLimited, message });
+
 /** Boundary validation error — raised when an AJV validator rejects `params`. */
 export class InvalidParamsError extends Data.TaggedError("InvalidParamsError")<{
   readonly message: string;

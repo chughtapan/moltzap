@@ -52,7 +52,29 @@ export {
   InvalidParamsError,
   ForbiddenError,
   validateParams,
+  notFound,
+  forbidden,
+  unauthorized,
+  invalidParams,
+  conflict,
+  internalError,
+  blocked,
+  rateLimited,
+  coalesce,
+  drainCoalesceMap,
+  type Validator,
 } from "./runtime/index.js";
+export {
+  makeEffectKysely,
+  takeFirstOption,
+  takeFirstOrElse,
+  takeFirstOrFail,
+  catchSqlErrorAsDefect,
+  sqlErrorToDefect,
+  transaction,
+  rawQuery,
+  type EffectKysely,
+} from "./db/effect-kysely-toolkit.js";
 export { ConnectionManager } from "./ws/connection.js";
 export { Broadcaster } from "./ws/broadcaster.js";
 export { EnvelopeEncryption } from "./crypto/envelope.js";
