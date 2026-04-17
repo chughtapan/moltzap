@@ -1,4 +1,4 @@
-import { Type } from "@sinclair/typebox";
+import { Type, type Static } from "@sinclair/typebox";
 import { MessageSchema } from "./messages.js";
 import { ConversationSchema } from "./conversations.js";
 import { ContactSchema } from "./contacts.js";
@@ -172,3 +172,33 @@ export const AppHookTimeoutEventSchema = Type.Object(
   },
   { additionalProperties: false },
 );
+
+export type MessageReceivedEvent = Static<typeof MessageReceivedEventSchema>;
+export type MessageDeliveredEvent = Static<typeof MessageDeliveredEventSchema>;
+export type ConversationCreatedEvent = Static<
+  typeof ConversationCreatedEventSchema
+>;
+export type ConversationUpdatedEvent = Static<
+  typeof ConversationUpdatedEventSchema
+>;
+export type ContactRequestEvent = Static<typeof ContactRequestEventSchema>;
+export type ContactAcceptedEvent = Static<typeof ContactAcceptedEventSchema>;
+export type PresenceChangedEvent = Static<typeof PresenceChangedEventSchema>;
+export type SurfaceUpdatedEvent = Static<typeof SurfaceUpdatedEventSchema>;
+export type SurfaceClearedEvent = Static<typeof SurfaceClearedEventSchema>;
+export type AppSkillChallengeEvent = Static<
+  typeof AppSkillChallengeEventSchema
+>;
+export type PermissionsRequiredEvent = Static<
+  typeof PermissionsRequiredEventSchema
+>;
+export type AppParticipantAdmittedEvent = Static<
+  typeof AppParticipantAdmittedEventSchema
+>;
+export type AppParticipantRejectedEvent = Static<
+  typeof AppParticipantRejectedEventSchema
+>;
+export type AppSessionReadyEvent = Static<typeof AppSessionReadyEventSchema>;
+export type AppSessionFailedEvent = Static<typeof AppSessionFailedEventSchema>;
+export type AppSessionClosedEvent = Static<typeof AppSessionClosedEventSchema>;
+export type AppHookTimeoutEvent = Static<typeof AppHookTimeoutEventSchema>;

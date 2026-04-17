@@ -3,11 +3,10 @@
  */
 
 import { Effect, Fiber, Queue } from "effect";
-import type { Message } from "@moltzap/protocol";
+import type { Message, PermissionsRequiredEvent } from "@moltzap/protocol";
 import type {
   CrossConversationEntry,
   CrossConvMessage,
-  PermissionRequiredData,
   ServiceRpcError,
 } from "./service.js";
 import type { WsClientLogger } from "./ws-client.js";
@@ -51,7 +50,7 @@ export interface ChannelService {
   on(event: "reconnect", handler: () => void): void;
   on(
     event: "permissionRequired",
-    handler: (data: PermissionRequiredData) => void,
+    handler: (data: PermissionsRequiredEvent) => void,
   ): void;
   connect(): Effect.Effect<unknown, ServiceRpcError>;
   close(): void;
@@ -121,7 +120,7 @@ export class MoltZapChannelCore {
   private disconnectHandlers: Array<() => void> = [];
   private reconnectHandlers: Array<() => void> = [];
   private permissionRequiredHandler:
-    | ((data: PermissionRequiredData) => void)
+    | ((data: PermissionsRequiredEvent) => void)
     | null = null;
 
   constructor(opts: ChannelCoreOptions) {
@@ -181,7 +180,9 @@ export class MoltZapChannelCore {
     this.reconnectHandlers.push(handler);
   }
 
-  onPermissionRequired(handler: (data: PermissionRequiredData) => void): void {
+  onPermissionRequired(
+    handler: (data: PermissionsRequiredEvent) => void,
+  ): void {
     this.permissionRequiredHandler = handler;
   }
 

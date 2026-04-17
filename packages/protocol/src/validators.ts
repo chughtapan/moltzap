@@ -46,6 +46,7 @@ import {
   SurfaceClear,
 } from "./schema/surfaces.js";
 import {
+  AppsRegister,
   AppsCreate,
   AppsAttestSkill,
   PermissionsGrant,
@@ -55,6 +56,7 @@ import {
   AppsGetSession,
   AppsListSessions,
 } from "./schema/methods/apps.js";
+import { SystemPing } from "./schema/methods/system.js";
 
 /**
  * This AJV instance handles frame-level validation only. Each RPC
@@ -125,6 +127,7 @@ export const validators = {
   surfaceClearParams: SurfaceClear.validateParams,
 
   // Apps.
+  appsRegisterParams: AppsRegister.validateParams,
   appsCreateParams: AppsCreate.validateParams,
   appsAttestSkillParams: AppsAttestSkill.validateParams,
   permissionsGrantParams: PermissionsGrant.validateParams,
@@ -133,6 +136,9 @@ export const validators = {
   appsCloseSessionParams: AppsCloseSession.validateParams,
   appsGetSessionParams: AppsGetSession.validateParams,
   appsListSessionsParams: AppsListSessions.validateParams,
+
+  // System.
+  systemPingParams: SystemPing.validateParams,
 } as const;
 
 export type ValidatorName = keyof typeof validators;

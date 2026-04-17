@@ -6,6 +6,10 @@ import {
   type EventFrame,
   type Message,
   type Part,
+  type MessageReceivedEvent,
+  type ConversationCreatedEvent,
+  type ConversationUpdatedEvent,
+  type PermissionsRequiredEvent,
   EventNames,
 } from "@moltzap/protocol";
 import { Effect, HashMap, Option, Ref } from "effect";
@@ -82,15 +86,6 @@ export interface ServiceOptions {
   serverUrl: string;
   agentKey: string;
   logger?: WsClientLogger;
-}
-
-export interface PermissionRequiredData {
-  sessionId: string;
-  appId: string;
-  resource: string;
-  access: string[];
-  requestId: string;
-  targetUserId: string;
 }
 
 type EventHandler<T> = (data: T) => void;
@@ -194,7 +189,7 @@ export class MoltZapService {
   private rawEventHandlers: EventHandler<EventFrame>[] = [];
   private disconnectHandlers: EventHandler<void>[] = [];
   private reconnectHandlers: EventHandler<HelloOk>[] = [];
-  private permissionRequiredHandlers: EventHandler<PermissionRequiredData>[] =
+  private permissionRequiredHandlers: EventHandler<PermissionsRequiredEvent>[] =
     [];
 
   private _ownAgentId: string | undefined;
@@ -874,7 +869,7 @@ export class MoltZapService {
   on(event: "reconnect", handler: EventHandler<HelloOk>): void;
   on(
     event: "permissionRequired",
-    handler: EventHandler<PermissionRequiredData>,
+    handler: EventHandler<PermissionsRequiredEvent>,
   ): void;
   on(
     event:
@@ -901,7 +896,7 @@ export class MoltZapService {
         break;
       case "permissionRequired":
         this.permissionRequiredHandlers.push(
-          handler as EventHandler<PermissionRequiredData>,
+          handler as EventHandler<PermissionsRequiredEvent>,
         );
         break;
     }
@@ -988,9 +983,12 @@ export class MoltZapService {
   private handleEvent(event: EventFrame): void {
     fanout(this.rawEventHandlers, event, this.opts.logger);
 
+    // The server validates event.data against each event's schema before
+    // emitting; each case casts to the typed Static<> payload for that
+    // specific event.
     switch (event.event) {
       case EventNames.MessageReceived: {
-        const msg = (event.data as { message: Message }).message;
+        const msg = (event.data as MessageReceivedEvent).message;
         this.storeMessage(msg);
         // Name resolution is driven lazily by channel-core's serialized
         // consumer via resolveAgentName(), which populates agentNamesRef on
@@ -1001,24 +999,27 @@ export class MoltZapService {
         break;
       }
       case EventNames.PermissionsRequired: {
-        const data = event.data as PermissionRequiredData;
-        fanout(this.permissionRequiredHandlers, data, this.opts.logger);
+        fanout(
+          this.permissionRequiredHandlers,
+          event.data as PermissionsRequiredEvent,
+          this.opts.logger,
+        );
         break;
       }
       case EventNames.ConversationCreated:
       case EventNames.ConversationUpdated: {
-        const data = event.data as {
-          conversation: { id: string; type: string; name?: string };
-        };
+        const { conversation } = event.data as
+          | ConversationCreatedEvent
+          | ConversationUpdatedEvent;
         Effect.runSync(
           Ref.update(this.conversationsRef, (m) => {
             const existing = Option.getOrUndefined(
-              HashMap.get(m, data.conversation.id),
+              HashMap.get(m, conversation.id),
             );
-            return HashMap.set(m, data.conversation.id, {
-              id: data.conversation.id,
-              type: data.conversation.type,
-              name: data.conversation.name,
+            return HashMap.set(m, conversation.id, {
+              id: conversation.id,
+              type: conversation.type,
+              name: conversation.name,
               participants: existing?.participants ?? [],
             });
           }),
@@ -1030,9 +1031,7 @@ export class MoltZapService {
         // a populated list within a round-trip of the event.
         if (event.event === EventNames.ConversationCreated) {
           // Fire-and-forget: refreshConversationParticipants never fails.
-          Effect.runFork(
-            this.refreshConversationParticipants(data.conversation.id),
-          );
+          Effect.runFork(this.refreshConversationParticipants(conversation.id));
         }
         break;
       }

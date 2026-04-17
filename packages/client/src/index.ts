@@ -8,8 +8,8 @@ export {
   type CrossConversationEntry,
   type ServiceOptions,
   type ServiceRpcError,
-  type PermissionRequiredData,
 } from "./service.js";
+export type { PermissionsRequiredEvent } from "@moltzap/protocol";
 export {
   AgentNotFoundError,
   NotConnectedError,

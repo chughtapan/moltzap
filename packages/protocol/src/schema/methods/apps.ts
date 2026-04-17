@@ -1,8 +1,24 @@
-import { Type, type Static } from "@sinclair/typebox";
+import { Type } from "@sinclair/typebox";
 import { AgentId } from "../primitives.js";
-import { AppSessionSchema } from "../apps.js";
+import { AppManifestSchema, AppSessionSchema } from "../apps.js";
 import { DateTimeString, stringEnum } from "../../helpers.js";
 import { defineRpc } from "../../rpc.js";
+
+export const AppsRegister = defineRpc({
+  name: "apps/register",
+  params: Type.Object(
+    {
+      manifest: AppManifestSchema,
+    },
+    { additionalProperties: false },
+  ),
+  result: Type.Object(
+    {
+      appId: Type.String(),
+    },
+    { additionalProperties: false },
+  ),
+});
 
 export const AppsCreate = defineRpc({
   name: "apps/create",
