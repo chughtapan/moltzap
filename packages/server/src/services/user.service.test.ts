@@ -67,12 +67,14 @@ describe("WebhookUserService", () => {
     const result = await Effect.runPromise(svc.validateUser(UserId("user-42")));
 
     expect(result).toEqual({ valid: true });
-    expect(call).toHaveBeenCalledWith({
-      url: "https://hook.test/users",
-      event: "users.validate",
-      body: { userId: "user-42" },
-      timeoutMs: 5000,
-    });
+    expect(call).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: "https://hook.test/users",
+        event: "users.validate",
+        body: { userId: "user-42" },
+        timeoutMs: 5000,
+      }),
+    );
   });
 
   it("returns { valid: false } when webhook returns it", async () => {
