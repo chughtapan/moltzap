@@ -1,5 +1,5 @@
 import type { Kysely } from "kysely";
-import type { Effect } from "effect";
+import { Brand, type Effect } from "effect";
 import type { RpcMethodDef } from "../rpc/context.js";
 import type { AppManifest, AppSession } from "@moltzap/protocol";
 import type { Database } from "../db/database.js";
@@ -17,6 +17,28 @@ import type {
   OnCloseHook,
   OnJoinHook,
 } from "./hooks.js";
+
+/**
+ * Branded identifier types. Each constructor is a nominal brand — it wraps a
+ * validated string into the branded type at a trust boundary (HTTP handler,
+ * DB row mapper, webhook body decoder) without runtime cost. Branded IDs are
+ * assignable TO `string`, but a plain `string` is not assignable TO a brand
+ * without an explicit constructor call, so the compiler catches ID swaps.
+ */
+export type UserId = string & Brand.Brand<"UserId">;
+export const UserId = Brand.nominal<UserId>();
+
+export type AgentId = string & Brand.Brand<"AgentId">;
+export const AgentId = Brand.nominal<AgentId>();
+
+export type ConversationId = string & Brand.Brand<"ConversationId">;
+export const ConversationId = Brand.nominal<ConversationId>();
+
+export type SessionId = string & Brand.Brand<"SessionId">;
+export const SessionId = Brand.nominal<SessionId>();
+
+export type AppId = string & Brand.Brand<"AppId">;
+export const AppId = Brand.nominal<AppId>();
 
 export interface CoreConfig {
   db: Kysely<Database>;
