@@ -8,6 +8,7 @@ import { Context, Deferred, Effect, HashMap, Layer, Ref } from "effect";
 
 import type { Db } from "../db/client.js";
 import type { Logger } from "../logger.js";
+import { LoggerTag } from "../logger.js";
 import { ConnectionManager } from "../ws/connection.js";
 import { Broadcaster } from "../ws/broadcaster.js";
 import { AuthService } from "../services/auth.service.js";
@@ -31,11 +32,9 @@ import type { WebhookClient } from "../adapters/webhook.js";
 /** Postgres/PGlite database handle (Kysely<Database>). */
 export class DbTag extends Context.Tag("moltzap/Db")<DbTag, Db>() {}
 
-/** Pino logger (root). */
-export class LoggerTag extends Context.Tag("moltzap/Logger")<
-  LoggerTag,
-  Logger
->() {}
+/** Re-exported so call sites importing tags from one file still compile.
+ * Canonical definition lives in `../logger.js`. */
+export { LoggerTag };
 
 /** Optional envelope-encryption helper. null when encryption is disabled. */
 export class EncryptionTag extends Context.Tag("moltzap/Encryption")<
