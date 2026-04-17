@@ -3,10 +3,14 @@ import type { ConversationService } from "../../services/conversation.service.js
 import type { RpcMethodRegistry } from "../../rpc/context.js";
 import { defineMethod } from "../../rpc/context.js";
 import { MessagesSend, MessagesList } from "@moltzap/protocol";
-import { Effect } from "effect";
-import { RpcFailure, invalidParams } from "../../runtime/index.js";
+import { Effect, Option } from "effect";
+import { RpcFailure, invalidParams, notFound } from "../../runtime/index.js";
 import { ConnIdTag } from "../layers.js";
-import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
+import type { Db } from "../../db/client.js";
+import {
+  catchSqlErrorAsDefect,
+  takeFirstOption,
+} from "../../db/effect-kysely-toolkit.js";
 
 /** Parse "agent:<name>" target format, returning the agent name. */
 export function parseTo(to: string): Effect.Effect<string, RpcFailure> {
@@ -20,6 +24,7 @@ export function parseTo(to: string): Effect.Effect<string, RpcFailure> {
 export function createMessageHandlers(deps: {
   messageService: MessageService;
   conversationService: ConversationService;
+  db: Db;
 }): RpcMethodRegistry {
   return {
     "messages/send": defineMethod(MessagesSend, {
@@ -39,9 +44,28 @@ export function createMessageHandlers(deps: {
               conversationId = conversation.id;
             }
 
+            if (!conversationId && params.replyToId) {
+              const parentOpt = yield* takeFirstOption(
+                deps.db
+                  .selectFrom("messages")
+                  .select(["conversation_id"])
+                  .where("id", "=", params.replyToId),
+              );
+              if (Option.isNone(parentOpt)) {
+                return yield* Effect.fail(
+                  notFound(
+                    `Cannot resolve replyToId ${params.replyToId}: message not found`,
+                  ),
+                );
+              }
+              conversationId = parentOpt.value.conversation_id;
+            }
+
             if (!conversationId) {
               return yield* Effect.fail(
-                invalidParams("Either conversationId or to is required"),
+                invalidParams(
+                  "Either conversationId, to, or replyToId is required",
+                ),
               );
             }
 

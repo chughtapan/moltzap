@@ -1,6 +1,7 @@
 import type { AppHost, DefaultPermissionService } from "../app-host.js";
 import type { RpcMethodRegistry } from "../../rpc/context.js";
 import {
+  AppsRegister,
   AppsCreate,
   AppsAttestSkill,
   PermissionsGrant,
@@ -19,6 +20,14 @@ export function createAppHandlers(deps: {
   permissionService?: DefaultPermissionService;
 }): RpcMethodRegistry {
   return {
+    "apps/register": defineMethod(AppsRegister, {
+      handler: (params) =>
+        Effect.sync(() => {
+          deps.appHost.registerApp(params.manifest);
+          return { appId: params.manifest.appId };
+        }),
+    }),
+
     "apps/create": defineMethod(AppsCreate, {
       handler: (params, ctx) =>
         Effect.gen(function* () {

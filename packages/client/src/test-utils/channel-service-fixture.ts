@@ -6,12 +6,12 @@ import type {
   ChannelService,
   CrossConversationEntry,
   CrossConvMessage,
-  PermissionRequiredData,
+  PermissionsRequiredEvent,
 } from "../index.js";
 
 type MessageHandler = (msg: Message) => void;
 type VoidHandler = () => void;
-type PermissionRequiredHandler = (data: PermissionRequiredData) => void;
+type PermissionRequiredHandler = (data: PermissionsRequiredEvent) => void;
 
 interface FixtureConversationMeta {
   type: string;
@@ -24,7 +24,7 @@ export interface ChannelServiceEmit {
   message(msg: Message): void;
   disconnect(): void;
   reconnect(): void;
-  permissionRequired(data: PermissionRequiredData): void;
+  permissionRequired(data: PermissionsRequiredEvent): void;
 }
 
 export interface ChannelServiceState {

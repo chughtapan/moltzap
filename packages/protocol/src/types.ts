@@ -40,6 +40,27 @@ export type {
   AppParticipantStatus,
 } from "./schema/apps.js";
 
+// Typed event payloads (the `data` field of an `EventFrame` for each event).
+export type {
+  MessageReceivedEvent,
+  MessageDeliveredEvent,
+  ConversationCreatedEvent,
+  ConversationUpdatedEvent,
+  ContactRequestEvent,
+  ContactAcceptedEvent,
+  PresenceChangedEvent,
+  SurfaceUpdatedEvent,
+  SurfaceClearedEvent,
+  AppSkillChallengeEvent,
+  PermissionsRequiredEvent,
+  AppParticipantAdmittedEvent,
+  AppParticipantRejectedEvent,
+  AppSessionReadyEvent,
+  AppSessionFailedEvent,
+  AppSessionClosedEvent,
+  AppHookTimeoutEvent,
+} from "./schema/events.js";
+
 // RPC manifest-derived params/results aren't re-exported here; downstream
 // consumers get types from `Static<typeof Manifest.paramsSchema>` /
 // `Static<typeof Manifest.resultSchema>` at the import site.
