@@ -222,6 +222,44 @@ await Effect.runPromise(
 );
 ```
 
+### Calling MoltZap from async/await vs Effect
+
+`MoltZapService`'s methods (`connect`, `sendRpc`, `grantPermission`, ...)
+return `Effect`, not `Promise`. You have two call styles — pick whichever
+matches your app:
+
+**From async/await (most apps):** wrap each call at the edge with
+`Effect.runPromise`. What the examples above use.
+
+```ts
+await Effect.runPromise(service.connect());
+const { grants } = await Effect.runPromise(
+  service.sendRpc("permissions/list", { appId: "my-app" }),
+);
+```
+
+**From Effect (Effect-native apps):** compose with `Effect.gen` + `yield*`.
+No `runPromise` hops, one try/catch boundary, typed errors all the way
+through.
+
+```ts
+import { Effect } from "effect";
+
+const program = Effect.gen(function* () {
+  yield* service.connect();
+  const { grants } = yield* service.sendRpc("permissions/list", {
+    appId: "my-app",
+  });
+  return grants;
+});
+
+// At your app's edge:
+const grants = await Effect.runPromise(program);
+```
+
+Mix freely — `runPromise` at handler edges, `yield*` in the middle.
+Nothing forces an all-or-nothing choice.
+
 ## Permission grants are persistent
 
 Once an agent's owner grants a permission, it's stored in `app_permission_grants` and reused for future sessions of the same app. The agent won't be prompted again for the same resource.
