@@ -57,14 +57,13 @@ const launchOpenClawFleet = (
 ): Effect.Effect<AgentFleet, Error> =>
   Effect.gen(function* () {
     const dockerManager = new DockerManager();
-    yield* Effect.try({
-      try: () => dockerManager.ensureImage(),
-      catch: (err) => (err instanceof Error ? err : new Error(String(err))),
-    });
+    yield* dockerManager
+      .ensureImage()
+      .pipe(Effect.mapError((err) => new Error(err.message)));
 
     // Parallel startup: each agent runs its own Effect. On partial failure,
     // tapError stops any already-started containers before the typed
-    // ContainerError surfaces.
+    // DockerError surfaces.
     const startAll = Effect.forEach(
       opts.agents,
       (agent) =>
@@ -77,7 +76,7 @@ const launchOpenClawFleet = (
           connectTimeoutMs: opts.connectTimeoutMs ?? 180_000,
         }),
       { concurrency: "unbounded" },
-    ).pipe(Effect.tapError(() => dockerManager.stopAll().pipe(Effect.ignore)));
+    ).pipe(Effect.tapError(() => dockerManager.stopAll()));
 
     const containers: AgentContainer[] = yield* startAll.pipe(
       Effect.tap(() => Effect.sleep(POST_CONNECT_SETTLE)),
