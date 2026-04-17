@@ -2,7 +2,7 @@
 
 import type { ContactService, PermissionService } from "../app/app-host.js";
 import type { Logger } from "../logger.js";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { createHmac } from "node:crypto";
 import type { RpcFailure } from "../runtime/index.js";
 
@@ -78,6 +78,15 @@ export class WebhookClient {
     body: unknown;
     timeoutMs: number;
     /**
+     * Decoder for the webhook response. The body is read as text, parsed
+     * as JSON (or decoded as `undefined` for empty bodies), then passed
+     * through this schema — so callers get a checked value of type `T`
+     * instead of an unvalidated cast. Malformed responses surface as
+     * `WebhookError` with statusCode 0 and the same "rejecting" plumbing
+     * as network / timeout failures.
+     */
+    schema: Schema.Schema<T, any>;
+    /**
      * Extra headers merged on top of `Content-Type` + `X-MoltZap-Event`.
      * Used by app-hook webhooks to attach `X-MoltZap-Signature`. Caller-
      * supplied keys win over the defaults — but `Content-Type` and
@@ -115,13 +124,31 @@ export class WebhookClient {
       }
 
       // Empty-body responses (204, or 200 with no payload) are common for
-      // fire-and-forget hooks (`on_join`, `on_close`). `response.json()`
-      // would throw on an empty body, so read as text and short-circuit.
+      // fire-and-forget hooks (`on_join`, `on_close`). Decode `undefined`
+      // through the caller's schema — schemas for those callers accept it;
+      // schemas that require a payload fail decode and surface below.
       const text = await response.text();
+      let parsed: unknown;
       if (text.length === 0) {
-        return null as T;
+        parsed = undefined;
+      } else {
+        try {
+          parsed = JSON.parse(text);
+        } catch (err) {
+          throw new WebhookError(
+            `Webhook ${opts.event} returned invalid JSON: ${(err as Error).message}`,
+            0,
+          );
+        }
       }
-      return JSON.parse(text) as T;
+      try {
+        return Schema.decodeUnknownSync(opts.schema)(parsed);
+      } catch (err) {
+        throw new WebhookError(
+          `Webhook ${opts.event} response did not match schema: ${(err as Error).message}`,
+          0,
+        );
+      }
     } catch (err) {
       if (err instanceof WebhookError) throw err;
       if (err instanceof DOMException && err.name === "TimeoutError") {
@@ -142,6 +169,8 @@ export class WebhookClient {
 
 // -- Sync webhook contact service ---------------------------------------------
 
+const ContactsCheckResponse = Schema.Struct({ inContact: Schema.Boolean });
+
 export class WebhookContactService implements ContactService {
   constructor(
     private client: WebhookClient,
@@ -156,15 +185,16 @@ export class WebhookContactService implements ContactService {
   ): Effect.Effect<boolean, never> {
     return Effect.tryPromise({
       try: () =>
-        this.client.callSync<{ inContact: boolean }>({
+        this.client.callSync({
           url: this.url,
           event: "contacts.check",
           body: { userIdA, userIdB },
           timeoutMs: this.timeoutMs,
+          schema: ContactsCheckResponse,
         }),
       catch: (err) => err,
     }).pipe(
-      Effect.map((result) => result.inContact === true),
+      Effect.map((result) => result.inContact),
       Effect.catchAll((err) =>
         Effect.sync(() => {
           this.webhookLogger.error(
