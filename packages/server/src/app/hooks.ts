@@ -22,13 +22,11 @@ export interface HookResult {
 }
 
 /**
- * Wire schema for `HookResult` — runs over webhook responses so malformed
- * payloads surface as `WebhookDecodeError` instead of leaking through an
- * unchecked cast. `parts` in `patch` is deliberately `Schema.Unknown` to
- * avoid importing the full `Part` protocol schema into the server-core
- * adapter layer; the runtime `Part` shape is re-validated at the
- * message-send boundary. The cast reconciles that intentional widening
- * with the `Part[]` field in `HookResult`.
+ * Wire schema for `HookResult` webhook responses. `patch.parts` is
+ * widened to `unknown[]` here so server-core doesn't depend on the full
+ * `Part` protocol schema; the real `Part` shape is re-validated at the
+ * message-send boundary. The final cast reconciles that intentional
+ * widening with the `Part[]` field in `HookResult`.
  */
 export const HookResultSchema = Schema.Struct({
   block: Schema.Boolean,
@@ -45,11 +43,7 @@ export const HookResultSchema = Schema.Struct({
   ),
 }) as unknown as Schema.Schema<HookResult, unknown>;
 
-/**
- * Schema for fire-and-forget hook webhooks (`on_join`, `on_close`,
- * `on_session_active`). Accepts an empty / undefined body from 204
- * responses; any payload is ignored.
- */
+/** Fire-and-forget hooks (`on_join`, `on_close`, `on_session_active`) — any payload is ignored. */
 export const VoidHookSchema: Schema.Schema<void, unknown> = Schema.transform(
   Schema.Unknown,
   Schema.Void,
