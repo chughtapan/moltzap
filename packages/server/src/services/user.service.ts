@@ -1,7 +1,23 @@
-import { Cause, Effect } from "effect";
+import { Cause, Effect, Schema } from "effect";
 import type { WebhookClient } from "../adapters/webhook.js";
 import type { Logger } from "../logger.js";
 import { AgentId, UserId } from "../app/types.js";
+
+// Strict wire schemas — `WebhookClient.call` runs these over the parsed
+// response, so malformed payloads surface as `WebhookDecodeError` and
+// land in the fail-closed `catchAllCause` branch rather than leaking as
+// unchecked casts.
+const UserValidateResponse = Schema.Struct({ valid: Schema.Boolean });
+
+const SessionValidateResponse = Schema.Union(
+  Schema.Struct({
+    valid: Schema.Literal(true),
+    agentId: Schema.String,
+    ownerUserId: Schema.String,
+    agentStatus: Schema.optional(Schema.String),
+  }),
+  Schema.Struct({ valid: Schema.Literal(false) }),
+);
 
 /**
  * Result of resolving an app-minted bearer session token. Discriminated
@@ -52,15 +68,14 @@ export class WebhookUserService implements UserService {
 
   validateUser(userId: UserId): Effect.Effect<{ valid: boolean }, never> {
     return this.client
-      .call<{ valid: boolean }>({
+      .call({
         url: this.url,
         event: "users.validate",
         body: { userId },
         timeoutMs: this.timeoutMs,
+        schema: UserValidateResponse,
       })
       .pipe(
-        // Strict boolean check — don't trust truthy strings from external services
-        Effect.map((result) => ({ valid: result.valid === true })),
         Effect.catchAllCause((cause) =>
           Effect.sync(() => {
             this.logCauseAsFailClosed(cause, "User validation webhook", {
@@ -74,36 +89,18 @@ export class WebhookUserService implements UserService {
   }
 
   validateSession(token: string): Effect.Effect<SessionValidation, never> {
-    // Wire shape is looser than the internal discriminated union; normalize
-    // here so nothing downstream needs to re-check for missing fields.
-    interface WireResponse {
-      valid?: unknown;
-      agentId?: unknown;
-      ownerUserId?: unknown;
-      /** Optional: lets `auth/connect` skip a DB round trip when the
-       * webhook already knows the agent's status. */
-      agentStatus?: unknown;
-    }
     return this.client
-      .call<WireResponse>({
+      .call({
         url: this.url,
         event: "sessions.validate",
         body: { token },
         timeoutMs: this.timeoutMs,
+        schema: SessionValidateResponse,
       })
       .pipe(
         Effect.map((result): SessionValidation => {
           if (result.valid !== true) return { valid: false };
-          if (
-            typeof result.agentId !== "string" ||
-            typeof result.ownerUserId !== "string"
-          ) {
-            return { valid: false };
-          }
-          const agentStatus =
-            typeof result.agentStatus === "string"
-              ? result.agentStatus
-              : undefined;
+          const agentStatus = result.agentStatus;
           const agentId = AgentId(result.agentId);
           const ownerUserId = UserId(result.ownerUserId);
           return agentStatus !== undefined

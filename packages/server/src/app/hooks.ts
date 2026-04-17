@@ -1,4 +1,5 @@
 import type { Part } from "@moltzap/protocol";
+import { Schema } from "effect";
 
 export interface BeforeMessageDeliveryContext {
   conversationId: string;
@@ -19,6 +20,35 @@ export interface HookResult {
     retry?: boolean;
   };
 }
+
+/**
+ * Wire schema for `HookResult` webhook responses. `patch.parts` is
+ * widened to `unknown[]` here so server-core doesn't depend on the full
+ * `Part` protocol schema; the real `Part` shape is re-validated at the
+ * message-send boundary. The final cast reconciles that intentional
+ * widening with the `Part[]` field in `HookResult`.
+ */
+export const HookResultSchema = Schema.Struct({
+  block: Schema.Boolean,
+  reason: Schema.optional(Schema.String),
+  patch: Schema.optional(
+    Schema.Struct({ parts: Schema.Array(Schema.Unknown) }),
+  ),
+  feedback: Schema.optional(
+    Schema.Struct({
+      type: Schema.Literal("error", "warning", "info"),
+      content: Schema.Record({ key: Schema.String, value: Schema.Unknown }),
+      retry: Schema.optional(Schema.Boolean),
+    }),
+  ),
+}) as unknown as Schema.Schema<HookResult, unknown>;
+
+/** Fire-and-forget hooks (`on_join`, `on_close`, `on_session_active`) — any payload is ignored. */
+export const VoidHookSchema: Schema.Schema<void, unknown> = Schema.transform(
+  Schema.Unknown,
+  Schema.Void,
+  { decode: () => undefined, encode: () => undefined },
+);
 
 export type BeforeMessageDeliveryHook = (
   ctx: BeforeMessageDeliveryContext,
