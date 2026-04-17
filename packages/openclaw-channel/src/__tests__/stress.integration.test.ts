@@ -3,7 +3,9 @@
  * Uses shared container from globalSetup — no per-test container startup.
  */
 
-import { describe, it, expect, inject, beforeAll, afterAll } from "vitest";
+import { describe, expect, inject, beforeAll, afterAll } from "vitest";
+import { it } from "@effect/vitest";
+import { Effect } from "effect";
 import { MoltZapTestClient } from "@moltzap/protocol/test-client";
 import { getLogs } from "../test-utils/container-core.js";
 import {
@@ -29,10 +31,12 @@ async function waitForRepliesByList(params: {
   const deadline = Date.now() + params.timeoutMs;
 
   while (Date.now() < deadline) {
-    const result = (await params.client.rpc("messages/list", {
-      conversationId: params.conversationId,
-      limit: 50,
-    })) as { messages: Message[] };
+    const result = (await Effect.runPromise(
+      params.client.rpc("messages/list", {
+        conversationId: params.conversationId,
+        limit: 50,
+      }),
+    )) as { messages: Message[] };
 
     const replies = result.messages.filter(
       (m) =>
@@ -68,129 +72,155 @@ describe("Stress: concurrent multi-agent messaging", () => {
     await cleanupWorker();
   });
 
-  it("10 concurrent messages from 3 agents all get echo replies", async () => {
-    const agentA = await registerAndClaim("stress-a");
-    const agentB = await registerAndClaim("stress-b");
-    const agentC = await registerAndClaim("stress-c");
+  it.live(
+    "10 concurrent messages from 3 agents all get echo replies",
+    () =>
+      Effect.gen(function* () {
+        const agentA = yield* Effect.promise(() =>
+          registerAndClaim("stress-a"),
+        );
+        const agentB = yield* Effect.promise(() =>
+          registerAndClaim("stress-b"),
+        );
+        const agentC = yield* Effect.promise(() =>
+          registerAndClaim("stress-c"),
+        );
 
-    await makeContact(agentA.userId, receiverUserId);
-    await makeContact(agentB.userId, receiverUserId);
-    await makeContact(agentC.userId, receiverUserId);
+        yield* Effect.promise(() => makeContact(agentA.userId, receiverUserId));
+        yield* Effect.promise(() => makeContact(agentB.userId, receiverUserId));
+        yield* Effect.promise(() => makeContact(agentC.userId, receiverUserId));
 
-    try {
-      const clientA = new MoltZapTestClient(baseUrl, wsUrl);
-      const clientB = new MoltZapTestClient(baseUrl, wsUrl);
-      const clientC = new MoltZapTestClient(baseUrl, wsUrl);
-      await Promise.all([
-        clientA.connect(agentA.apiKey),
-        clientB.connect(agentB.apiKey),
-        clientC.connect(agentC.apiKey),
-      ]);
+        try {
+          const clientA = new MoltZapTestClient(baseUrl, wsUrl);
+          const clientB = new MoltZapTestClient(baseUrl, wsUrl);
+          const clientC = new MoltZapTestClient(baseUrl, wsUrl);
+          yield* Effect.all(
+            [
+              clientA.connect(agentA.apiKey),
+              clientB.connect(agentB.apiKey),
+              clientC.connect(agentC.apiKey),
+            ],
+            { concurrency: "unbounded" },
+          );
 
-      const [convA, convB, convC] = await Promise.all([
-        clientA
-          .rpc("conversations/create", {
-            type: "dm",
-            participants: [{ type: "agent", id: receiverAgentId }],
-          })
-          .then(extractConvId),
-        clientB
-          .rpc("conversations/create", {
-            type: "dm",
-            participants: [{ type: "agent", id: receiverAgentId }],
-          })
-          .then(extractConvId),
-        clientC
-          .rpc("conversations/create", {
-            type: "dm",
-            participants: [{ type: "agent", id: receiverAgentId }],
-          })
-          .then(extractConvId),
-      ]);
+          const [convA, convB, convC] = yield* Effect.all(
+            [
+              clientA
+                .rpc("conversations/create", {
+                  type: "dm",
+                  participants: [{ type: "agent", id: receiverAgentId }],
+                })
+                .pipe(Effect.map(extractConvId)),
+              clientB
+                .rpc("conversations/create", {
+                  type: "dm",
+                  participants: [{ type: "agent", id: receiverAgentId }],
+                })
+                .pipe(Effect.map(extractConvId)),
+              clientC
+                .rpc("conversations/create", {
+                  type: "dm",
+                  participants: [{ type: "agent", id: receiverAgentId }],
+                })
+                .pipe(Effect.map(extractConvId)),
+            ],
+            { concurrency: "unbounded" },
+          );
 
-      const sendPromises = [
-        ...Array.from({ length: 4 }, (_, i) =>
-          clientA.rpc("messages/send", {
-            conversationId: convA,
-            parts: [{ type: "text", text: `A-msg-${i}` }],
-          }),
-        ),
-        ...Array.from({ length: 3 }, (_, i) =>
-          clientB.rpc("messages/send", {
-            conversationId: convB,
-            parts: [{ type: "text", text: `B-msg-${i}` }],
-          }),
-        ),
-        ...Array.from({ length: 3 }, (_, i) =>
-          clientC.rpc("messages/send", {
-            conversationId: convC,
-            parts: [{ type: "text", text: `C-msg-${i}` }],
-          }),
-        ),
-      ];
+          const sendEffects = [
+            ...Array.from({ length: 4 }, (_, i) =>
+              clientA.rpc("messages/send", {
+                conversationId: convA,
+                parts: [{ type: "text", text: `A-msg-${i}` }],
+              }),
+            ),
+            ...Array.from({ length: 3 }, (_, i) =>
+              clientB.rpc("messages/send", {
+                conversationId: convB,
+                parts: [{ type: "text", text: `B-msg-${i}` }],
+              }),
+            ),
+            ...Array.from({ length: 3 }, (_, i) =>
+              clientC.rpc("messages/send", {
+                conversationId: convC,
+                parts: [{ type: "text", text: `C-msg-${i}` }],
+              }),
+            ),
+          ];
 
-      await Promise.all(sendPromises);
+          yield* Effect.all(sendEffects, { concurrency: "unbounded" });
 
-      const [repliesA, repliesB, repliesC] = await Promise.all([
-        waitForRepliesByList({
-          client: clientA,
-          conversationId: convA,
-          receiverAgentId,
-          expectedCount: 4,
-          timeoutMs: 90_000,
-        }),
-        waitForRepliesByList({
-          client: clientB,
-          conversationId: convB,
-          receiverAgentId,
-          expectedCount: 3,
-          timeoutMs: 90_000,
-        }),
-        waitForRepliesByList({
-          client: clientC,
-          conversationId: convC,
-          receiverAgentId,
-          expectedCount: 3,
-          timeoutMs: 90_000,
-        }),
-      ]);
+          const [repliesA, repliesB, repliesC] = yield* Effect.all(
+            [
+              Effect.promise(() =>
+                waitForRepliesByList({
+                  client: clientA,
+                  conversationId: convA,
+                  receiverAgentId,
+                  expectedCount: 4,
+                  timeoutMs: 90_000,
+                }),
+              ),
+              Effect.promise(() =>
+                waitForRepliesByList({
+                  client: clientB,
+                  conversationId: convB,
+                  receiverAgentId,
+                  expectedCount: 3,
+                  timeoutMs: 90_000,
+                }),
+              ),
+              Effect.promise(() =>
+                waitForRepliesByList({
+                  client: clientC,
+                  conversationId: convC,
+                  receiverAgentId,
+                  expectedCount: 3,
+                  timeoutMs: 90_000,
+                }),
+              ),
+            ],
+            { concurrency: "unbounded" },
+          );
 
-      expect(repliesA).toHaveLength(4);
-      expect(repliesB).toHaveLength(3);
-      expect(repliesC).toHaveLength(3);
+          expect(repliesA).toHaveLength(4);
+          expect(repliesB).toHaveLength(3);
+          expect(repliesC).toHaveLength(3);
 
-      for (const reply of repliesA) {
-        expect(reply.senderId).toBe(receiverAgentId);
-        expect(reply.conversationId).toBe(convA);
-        expect(extractText(reply)).toContain("ECHO:");
-      }
-      for (const reply of repliesB) {
-        expect(reply.senderId).toBe(receiverAgentId);
-        expect(reply.conversationId).toBe(convB);
-        expect(extractText(reply)).toContain("ECHO:");
-      }
-      for (const reply of repliesC) {
-        expect(reply.senderId).toBe(receiverAgentId);
-        expect(reply.conversationId).toBe(convC);
-        expect(extractText(reply)).toContain("ECHO:");
-      }
+          for (const reply of repliesA) {
+            expect(reply.senderId).toBe(receiverAgentId);
+            expect(reply.conversationId).toBe(convA);
+            expect(extractText(reply)).toContain("ECHO:");
+          }
+          for (const reply of repliesB) {
+            expect(reply.senderId).toBe(receiverAgentId);
+            expect(reply.conversationId).toBe(convB);
+            expect(extractText(reply)).toContain("ECHO:");
+          }
+          for (const reply of repliesC) {
+            expect(reply.senderId).toBe(receiverAgentId);
+            expect(reply.conversationId).toBe(convC);
+            expect(extractText(reply)).toContain("ECHO:");
+          }
 
-      const allReplyIds = [
-        ...repliesA.map((r) => r.id),
-        ...repliesB.map((r) => r.id),
-        ...repliesC.map((r) => r.id),
-      ];
-      const uniqueIds = new Set(allReplyIds);
-      expect(uniqueIds.size).toBe(10);
+          const allReplyIds = [
+            ...repliesA.map((r) => r.id),
+            ...repliesB.map((r) => r.id),
+            ...repliesC.map((r) => r.id),
+          ];
+          const uniqueIds = new Set(allReplyIds);
+          expect(uniqueIds.size).toBe(10);
 
-      clientA.close();
-      clientB.close();
-      clientC.close();
-    } catch (err) {
-      console.error("=== STRESS CONTAINER LOGS ===");
-      console.error(getLogs(containerAId));
-      console.error("=== END CONTAINER LOGS ===");
-      throw err;
-    }
-  }, 180_000);
+          yield* clientA.close();
+          yield* clientB.close();
+          yield* clientC.close();
+        } catch (err) {
+          console.error("=== STRESS CONTAINER LOGS ===");
+          console.error(getLogs(containerAId));
+          console.error("=== END CONTAINER LOGS ===");
+          throw err;
+        }
+      }),
+    180_000,
+  );
 });

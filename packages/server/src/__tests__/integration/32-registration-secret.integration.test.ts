@@ -1,4 +1,6 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, expect, beforeAll, afterAll } from "vitest";
+import { it } from "@effect/vitest";
+import { Effect } from "effect";
 import { MoltZapTestClient } from "./helpers.js";
 import {
   startCoreTestServer,
@@ -23,20 +25,24 @@ afterAll(async () => {
 });
 
 describe("Registration secret enforcement", () => {
-  it("allows registration when no secret is configured (default)", async () => {
-    const client = new MoltZapTestClient(baseUrl, wsUrl);
-    const result = await client.register("open-agent");
-    expect(result.agentId).toBeDefined();
-    expect(result.apiKey).toBeDefined();
-    client.close();
-  });
+  it.live("allows registration when no secret is configured (default)", () =>
+    Effect.gen(function* () {
+      const client = new MoltZapTestClient(baseUrl, wsUrl);
+      const result = yield* client.register("open-agent");
+      expect(result.agentId).toBeDefined();
+      expect(result.apiKey).toBeDefined();
+      yield* client.close();
+    }),
+  );
 
-  it("returns agent data on successful registration", async () => {
-    const client = new MoltZapTestClient(baseUrl, wsUrl);
-    const result = await client.register("test-agent-data");
-    expect(typeof result.agentId).toBe("string");
-    expect(typeof result.apiKey).toBe("string");
-    expect(result.agentId.length).toBeGreaterThan(0);
-    client.close();
-  });
+  it.live("returns agent data on successful registration", () =>
+    Effect.gen(function* () {
+      const client = new MoltZapTestClient(baseUrl, wsUrl);
+      const result = yield* client.register("test-agent-data");
+      expect(typeof result.agentId).toBe("string");
+      expect(typeof result.apiKey).toBe("string");
+      expect(result.agentId.length).toBeGreaterThan(0);
+      yield* client.close();
+    }),
+  );
 });

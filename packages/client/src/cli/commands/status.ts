@@ -1,17 +1,37 @@
-import { Command } from "commander";
-import { request, action } from "../socket-client.js";
+import { Command } from "@effect/cli";
+import { Effect } from "effect";
+import { request } from "../socket-client.js";
 
-export const statusCommand = new Command("status")
-  .description("Show agent connection status and conversation summary")
-  .action(
-    action(async () => {
-      const result = (await request("status")) as {
-        agentId: string;
-        connected: boolean;
-        conversations: number;
-      };
-      console.log(`Agent ID:       ${result.agentId ?? "none"}`);
-      console.log(`Connected:      ${result.connected}`);
-      console.log(`Conversations:  ${result.conversations}`);
-    }),
-  );
+interface StatusResult {
+  agentId: string;
+  connected: boolean;
+  conversations: number;
+}
+
+/**
+ * `moltzap status` — calls the local service's `status` RPC and prints
+ * agent id, live connection state, and conversation count.
+ */
+export const statusCommand = Command.make("status", {}, () =>
+  request("status").pipe(
+    Effect.tap((result) =>
+      Effect.sync(() => {
+        const r = result as StatusResult;
+        console.log(`Agent ID:       ${r.agentId ?? "none"}`);
+        console.log(`Connected:      ${r.connected}`);
+        console.log(`Conversations:  ${r.conversations}`);
+      }),
+    ),
+    Effect.asVoid,
+    Effect.catchAll((err) =>
+      Effect.sync(() => {
+        console.error(`Failed: ${err.message}`);
+        process.exit(1);
+      }),
+    ),
+  ),
+).pipe(
+  Command.withDescription(
+    "Show agent connection status and conversation summary",
+  ),
+);

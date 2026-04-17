@@ -40,13 +40,19 @@ export interface NewMessage {
 
 export interface Channel {
   name: string;
-  connect(): Promise<void>;
-  sendMessage(jid: string, text: string): Promise<void>;
+  connect(): Promise<void>; // #ignore-sloppy-code[promise-type]: mirrors upstream nanoclaw Channel interface signature
+  sendMessage(
+    jid: string,
+    text: string,
+  ): Promise<void>; // #ignore-sloppy-code[promise-type]: mirrors upstream nanoclaw Channel interface signature
   isConnected(): boolean;
   ownsJid(jid: string): boolean;
-  disconnect(): Promise<void>;
-  setTyping?(jid: string, isTyping: boolean): Promise<void>;
-  syncGroups?(force: boolean): Promise<void>;
+  disconnect(): Promise<void>; // #ignore-sloppy-code[promise-type]: mirrors upstream nanoclaw Channel interface signature
+  setTyping?(
+    jid: string,
+    isTyping: boolean,
+  ): Promise<void>; // #ignore-sloppy-code[promise-type]: mirrors upstream nanoclaw Channel interface signature
+  syncGroups?(force: boolean): Promise<void>; // #ignore-sloppy-code[promise-type]: mirrors upstream nanoclaw Channel interface signature
 }
 
 export type OnInboundMessage = (chatJid: string, message: NewMessage) => void;

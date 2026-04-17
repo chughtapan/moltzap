@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as fs from "node:fs";
+import { Effect } from "effect";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("node:fs");
 
@@ -15,8 +16,9 @@ describe("resolveAuth", () => {
   beforeEach(() => {
     process.env = { ...originalEnv };
     delete process.env.MOLTZAP_API_KEY;
+    delete process.env.MOLTZAP_SERVER_URL;
     vi.mocked(fs.readFileSync).mockImplementation(() => {
-      throw new Error("ENOENT");
+      throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
     });
   });
 
@@ -25,7 +27,7 @@ describe("resolveAuth", () => {
     vi.restoreAllMocks();
   });
 
-  it("MOLTZAP_API_KEY env var takes highest priority", () => {
+  it("MOLTZAP_API_KEY env var takes highest priority", async () => {
     process.env.MOLTZAP_API_KEY = "moltzap_agent_envkey123";
     mockConfigFile({
       serverUrl: "wss://test",
@@ -33,29 +35,33 @@ describe("resolveAuth", () => {
       agentName: "myagent",
     });
 
-    const result = resolveAuth();
+    const result = await Effect.runPromise(resolveAuth);
     expect(result).toEqual({ agentKey: "moltzap_agent_envkey123" });
   });
 
-  it("config apiKey is used when no env var", () => {
+  it("config apiKey is used when no env var", async () => {
     mockConfigFile({
       serverUrl: "wss://test",
       apiKey: "moltzap_agent_configkey",
       agentName: "myagent",
     });
 
-    const result = resolveAuth();
+    const result = await Effect.runPromise(resolveAuth);
     expect(result).toEqual({ agentKey: "moltzap_agent_configkey" });
   });
 
-  it("throws if no env var and no config apiKey", () => {
+  it("fails if no env var and no config apiKey", async () => {
     mockConfigFile({ serverUrl: "wss://test" });
 
-    expect(() => resolveAuth()).toThrow("No agent registered");
+    await expect(Effect.runPromise(resolveAuth)).rejects.toThrow(
+      "No agent registered",
+    );
   });
 
-  it("throws if config file missing", () => {
+  it("fails if config file missing", async () => {
     // readFileSync throws ENOENT (set in beforeEach)
-    expect(() => resolveAuth()).toThrow("No agent registered");
+    await expect(Effect.runPromise(resolveAuth)).rejects.toThrow(
+      "No agent registered",
+    );
   });
 });

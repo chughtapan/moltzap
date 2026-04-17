@@ -1,9 +1,15 @@
 import { query, type Options } from "@anthropic-ai/claude-agent-sdk";
 import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
+import { Duration, Effect, Schedule, Stream } from "effect";
 import { DEFAULT_JUDGE_MODEL } from "./model-config.js";
 import { logger } from "./logger.js";
-import type { EvalScenario, JudgeResult, TranscriptEntry } from "./types.js";
+import {
+  JudgeError,
+  type EvalScenario,
+  type JudgeResult,
+  type TranscriptEntry,
+} from "./types.js";
 
 const JudgeResultSchema = Type.Object(
   {
@@ -164,53 +170,100 @@ function buildJudgeQueryOptions(opts: {
 
 const JUDGE_OUTPUT_FORMAT: Options["outputFormat"] = {
   type: "json_schema",
-  schema: JudgeResultSchema as Record<string, unknown>,
+  schema: JudgeResultSchema as Record<string, unknown>, // #ignore-sloppy-code[record-cast]: SDK outputFormat expects opaque JSON schema Record
 };
 
-async function callJudgeWithSdk(opts: {
+/**
+ * One underlying call into the SDK. Wrapped in `Effect.tryPromise` so SDK
+ * rejections become typed JudgeError failures in the Effect channel.
+ */
+function callJudgeEffect(opts: {
   userPrompt: string;
   model: string;
   abortSignal?: AbortSignal;
-}): Promise<JudgeResult> {
-  const { controller, dispose } = linkAbort(opts.abortSignal);
-  try {
-    const stream = query({
-      prompt: opts.userPrompt,
-      options: buildJudgeQueryOptions({
-        model: opts.model,
-        controller,
-        maxTurns: 5,
-        outputFormat: JUDGE_OUTPUT_FORMAT,
-      }),
-    });
+}): Effect.Effect<JudgeResult, JudgeError> {
+  return Effect.acquireUseRelease(
+    Effect.sync(() => linkAbort(opts.abortSignal)),
+    ({ controller }) => {
+      // `query` returns an async-iterable — bridge to a Stream so the
+      // consumer stays Effect-native. We pull until the first `result`
+      // message, then synthesise a typed JudgeResult or a typed failure.
+      const stream = Stream.fromAsyncIterable(
+        query({
+          prompt: opts.userPrompt,
+          options: buildJudgeQueryOptions({
+            model: opts.model,
+            controller,
+            maxTurns: 5,
+            outputFormat: JUDGE_OUTPUT_FORMAT,
+          }),
+        }),
+        (err) =>
+          new JudgeError({
+            message: err instanceof Error ? err.message : String(err),
+            fatal: isFatalError(err),
+          }),
+      );
 
-    for await (const msg of stream) {
-      if (msg.type !== "result") continue;
-      if (msg.subtype === "success") {
-        const so = msg.structured_output;
-        if (so === undefined || so === null) {
-          throw new Error("Judge success result missing structured_output");
-        }
-        const parsed = Value.Parse(JudgeResultSchema, so);
-        return {
-          pass: parsed.pass,
-          reason: parsed.reason || "No reason provided",
-          issues: parsed.issues,
-        };
-      }
-      const errs = (msg.errors ?? []).join("; ");
-      throw new Error(`Judge ${msg.subtype}${errs ? `: ${errs}` : ""}`);
-    }
-
-    throw new Error("Judge stream ended without a result message");
-  } finally {
-    dispose();
-  }
+      return stream.pipe(
+        Stream.filter((msg) => msg.type === "result"),
+        Stream.runHead,
+        Effect.flatMap((headOpt) =>
+          headOpt._tag === "None"
+            ? Effect.fail(
+                new JudgeError({
+                  message: "Judge stream ended without a result message",
+                  fatal: false,
+                }),
+              )
+            : Effect.sync(() => headOpt.value),
+        ),
+        Effect.flatMap((msg) => {
+          if (msg.subtype !== "success") {
+            const errs = (msg.errors ?? []).join("; ");
+            return Effect.fail(
+              new JudgeError({
+                message: `Judge ${msg.subtype}${errs ? `: ${errs}` : ""}`,
+                fatal: isFatalError({
+                  message: `Judge ${msg.subtype}`,
+                } as Error),
+              }),
+            );
+          }
+          const so = msg.structured_output;
+          if (so === undefined || so === null) {
+            return Effect.fail(
+              new JudgeError({
+                message: "Judge success result missing structured_output",
+                fatal: true,
+              }),
+            );
+          }
+          return Effect.try({
+            try: () => {
+              const parsed = Value.Parse(JudgeResultSchema, so);
+              return {
+                pass: parsed.pass,
+                reason: parsed.reason || "No reason provided",
+                issues: parsed.issues,
+              } satisfies JudgeResult;
+            },
+            catch: (e) =>
+              new JudgeError({
+                message: e instanceof Error ? e.message : String(e),
+                fatal: isFatalError(e),
+              }),
+          });
+        }),
+      );
+    },
+    ({ dispose }) => Effect.sync(() => dispose()),
+  );
 }
 
 /** Errors that should bypass the retry loop — retrying is guaranteed to fail. */
-function isFatal(err: Error): boolean {
-  const msg = err.message;
+function isFatalError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
   return (
     msg.includes("aborted") ||
     msg.includes("Expected") || // TypeBox Value.Parse errors
@@ -218,8 +271,32 @@ function isFatal(err: Error): boolean {
   );
 }
 
-/** Evaluate a single agent response using the LLM judge. */
-export async function judgeAgentResponse(opts: {
+/** Max attempts including the initial attempt. Preserves prior 3-try semantics. */
+const MAX_JUDGE_ATTEMPTS = 3;
+
+/**
+ * Retry schedule: exponential backoff starting at 1s, doubling each time,
+ * bounded to (MAX_JUDGE_ATTEMPTS - 1) retries. This keeps the same total
+ * wait-time (~3s) and same attempt count (3) as the pre-Effect loop, so the
+ * existing fake-timer tests still line up.
+ *
+ * We additionally bail out early on fatal errors via `while` — there's no
+ * point retrying a parse error or an aborted signal.
+ */
+const judgeRetrySchedule = Schedule.intersect(
+  Schedule.exponential(Duration.seconds(1), 2),
+  Schedule.recurs(MAX_JUDGE_ATTEMPTS - 1),
+).pipe(Schedule.whileInput((err: JudgeError) => !err.fatal));
+
+/**
+ * Effect-native judge call: timeout-protected, retried with exponential
+ * backoff, and finally mapped to a critical-severity fallback JudgeResult so
+ * the top-level runner never has to handle a raised error here. The error
+ * channel is `never` because internal failures are folded into a
+ * `JudgeResult`; the only remaining failure is the abort-before-attempt
+ * defect, which surfaces via `Effect.runPromise` as a rejection.
+ */
+export const judgeAgentResponse = (opts: {
   scenario: EvalScenario;
   agentResponse: string;
   conversationContext: string;
@@ -227,37 +304,48 @@ export async function judgeAgentResponse(opts: {
   evalModel?: string;
   abortSignal?: AbortSignal;
   buildPrompt?: typeof buildEvalPrompt;
-}): Promise<JudgeResult> {
-  const evalModel = opts.evalModel ?? DEFAULT_JUDGE_MODEL;
-  const userPrompt = (opts.buildPrompt ?? buildEvalPrompt)({
-    scenario: opts.scenario,
-    agentResponse: opts.agentResponse,
-    conversationContext: opts.conversationContext,
-    transcript: opts.transcript,
-  });
-
-  const maxRetries = 3;
-  let attempt = 0;
-  while (true) {
+}): Effect.Effect<JudgeResult, never> =>
+  Effect.gen(function* () {
+    // Synchronous pre-check: the existing test contract expects a throw
+    // before any SDK call when the signal is already aborted. Raise as a
+    // defect so `Effect.runPromise` surfaces it as a rejection.
     if (opts.abortSignal?.aborted) {
       throw new Error("Judge aborted before attempt");
     }
-    try {
-      return await callJudgeWithSdk({
-        userPrompt,
-        model: evalModel,
-        abortSignal: opts.abortSignal,
-      });
-    } catch (e: unknown) {
-      const err = e as Error;
-      const isLast = attempt === maxRetries - 1;
-      if (isFatal(err) || isLast) {
+
+    const evalModel = opts.evalModel ?? DEFAULT_JUDGE_MODEL;
+    const userPrompt = (opts.buildPrompt ?? buildEvalPrompt)({
+      scenario: opts.scenario,
+      agentResponse: opts.agentResponse,
+      conversationContext: opts.conversationContext,
+      transcript: opts.transcript,
+    });
+
+    const judge = callJudgeEffect({
+      userPrompt,
+      model: evalModel,
+      abortSignal: opts.abortSignal,
+    }).pipe(
+      // Timeout individual attempts so a stuck model call doesn't hang the run.
+      Effect.timeoutFail({
+        duration: Duration.seconds(60),
+        onTimeout: () =>
+          new JudgeError({
+            message: "Judge call timed out after 60s",
+            fatal: false,
+          }),
+      }),
+      Effect.retry(judgeRetrySchedule),
+    );
+
+    return yield* judge.pipe(
+      Effect.catchTag("JudgeError", (err) => {
         logger.warn(
-          isLast
-            ? `Evaluation failed after ${maxRetries} attempts: ${err.message}`
-            : `Evaluation failed (fatal, no retry): ${err.message}`,
+          err.fatal
+            ? `Evaluation failed (fatal, no retry): ${err.message}`
+            : `Evaluation failed after ${MAX_JUDGE_ATTEMPTS} attempts: ${err.message}`,
         );
-        return {
+        return Effect.succeed<JudgeResult>({
           pass: false,
           reason: `Evaluation flow failed: ${err.message}`,
           issues: [
@@ -266,18 +354,16 @@ export async function judgeAgentResponse(opts: {
               severity: "critical",
             },
           ],
-        };
-      }
-      attempt++;
-      await new Promise((resolve) =>
-        setTimeout(resolve, 1000 * Math.pow(2, attempt - 1)),
-      );
-    }
-  }
-}
+        });
+      }),
+    );
+  });
 
-/** Summarize failure patterns from an eval run. Plain-text Claude output. */
-export async function analyzeFailures(opts: {
+/**
+ * Summarize failure patterns from an eval run. Never fails — internal
+ * errors fold into a descriptive markdown string.
+ */
+export const analyzeFailures = (opts: {
   failures: Array<{
     scenarioId: string;
     runNumber: number;
@@ -288,10 +374,26 @@ export async function analyzeFailures(opts: {
   numRuns: number;
   evalModel?: string;
   abortSignal?: AbortSignal;
-}): Promise<string> {
-  if (opts.failures.length === 0) {
-    return "No failures to analyze.";
-  }
+}): Effect.Effect<string, never> =>
+  Effect.suspend(() => {
+    if (opts.failures.length === 0) {
+      return Effect.succeed("No failures to analyze.");
+    }
+    return analyzeFailuresImpl(opts);
+  });
+
+const analyzeFailuresImpl = (opts: {
+  failures: Array<{
+    scenarioId: string;
+    runNumber: number;
+    failureType: string;
+    reason: string;
+    issues?: string[];
+  }>;
+  numRuns: number;
+  evalModel?: string;
+  abortSignal?: AbortSignal;
+}): Effect.Effect<string, never> => {
   const evalModel = opts.evalModel ?? DEFAULT_JUDGE_MODEL;
 
   const failureDetails = opts.failures
@@ -324,30 +426,42 @@ Output Format:
 Return a short Markdown-formatted summary with headers and bullet points.
 `;
 
-  const { controller, dispose } = linkAbort(opts.abortSignal);
-  try {
-    const stream = query({
-      prompt: analysisPrompt,
-      options: buildJudgeQueryOptions({
-        model: evalModel,
-        controller,
-        maxTurns: 1,
+  return Effect.acquireUseRelease(
+    Effect.sync(() => linkAbort(opts.abortSignal)),
+    ({ controller }) => {
+      const stream = Stream.fromAsyncIterable(
+        query({
+          prompt: analysisPrompt,
+          options: buildJudgeQueryOptions({
+            model: evalModel,
+            controller,
+            maxTurns: 1,
+          }),
+        }),
+        (err) => (err instanceof Error ? err : new Error(String(err))),
+      );
+      return stream.pipe(
+        Stream.filter((msg) => msg.type === "result"),
+        Stream.runHead,
+        Effect.map((headOpt) => {
+          if (headOpt._tag === "None") {
+            return "Analysis failed: stream ended without result.";
+          }
+          const msg = headOpt.value;
+          if (msg.subtype !== "success")
+            return `Analysis failed: ${msg.subtype}`;
+          return msg.result || "Analysis returned no text.";
+        }),
+      );
+    },
+    ({ dispose }) => Effect.sync(() => dispose()),
+  ).pipe(
+    Effect.catchAll((e) =>
+      Effect.sync(() => {
+        const msg = e instanceof Error ? e.message : String(e);
+        logger.error(`Error during analysis: ${msg}`);
+        return `Analysis failed: ${msg}`;
       }),
-    });
-
-    for await (const msg of stream) {
-      if (msg.type !== "result") continue;
-      if (msg.subtype === "success") {
-        return msg.result || "Analysis returned no text.";
-      }
-      return `Analysis failed: ${msg.subtype}`;
-    }
-    return "Analysis failed: stream ended without result.";
-  } catch (e: unknown) {
-    const err = e as Error;
-    logger.error(`Error during analysis: ${err.message}`);
-    return `Analysis failed: ${err.message}`;
-  } finally {
-    dispose();
-  }
-}
+    ),
+  );
+};

@@ -7,8 +7,16 @@ export {
   type CrossConvMessage,
   type CrossConversationEntry,
   type ServiceOptions,
+  type ServiceRpcError,
   type PermissionRequiredData,
 } from "./service.js";
+export {
+  AgentNotFoundError,
+  NotConnectedError,
+  RpcServerError,
+  RpcTimeoutError,
+  MalformedFrameError,
+} from "./runtime/errors.js";
 export {
   MoltZapChannelCore,
   type ChannelCoreOptions,

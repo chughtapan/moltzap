@@ -238,6 +238,44 @@ describe("AsyncWebhookAdapter", () => {
     await assertion;
   });
 
+  it("resolveCallback returns false after TTL expiry and drops the id", async () => {
+    // After a callback resolves, the adapter remembers the id for
+    // RESOLVED_TTL_MS (5 minutes) to make repeat callbacks idempotent.
+    // Once the TTL lapses, the first repeat call must BOTH drop the id
+    // from the `resolved` map AND return false — otherwise a very late
+    // duplicate would masquerade as a fresh, unknown request.
+    vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 202 }));
+
+    const promise = adapter.sendRequest({
+      url: "https://hook.test/perms",
+      requestId: "req-ttl",
+      callbackUrl: "https://me/cb",
+      callbackToken: "t",
+      body: {},
+      timeoutMs: 60000,
+    });
+
+    await flushSendRequest();
+
+    // Initial resolution: recorded in `resolved`, promise completes.
+    expect(adapter.resolveCallback("req-ttl", ["read"])).toBe(true);
+    await promise;
+
+    // Still within TTL — duplicate is idempotent, returns true.
+    expect(adapter.resolveCallback("req-ttl", ["read"])).toBe(true);
+
+    // Advance past the 5-minute TTL window.
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000 + 1);
+
+    // First call after expiry deletes the stale entry and returns false.
+    expect(adapter.resolveCallback("req-ttl", ["read"])).toBe(false);
+
+    // Second call confirms the id is no longer in `resolved`: it must
+    // now fall through to the "no pending entry" branch, which also
+    // returns false. This double-checks the delete in the previous step.
+    expect(adapter.resolveCallback("req-ttl", ["read"])).toBe(false);
+  });
+
   it("destroy() rejects all pending requests", async () => {
     vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 202 }));
 

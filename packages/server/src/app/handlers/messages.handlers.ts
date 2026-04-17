@@ -1,89 +1,69 @@
 import type { MessageService } from "../../services/message.service.js";
 import type { ConversationService } from "../../services/conversation.service.js";
-import type { Db } from "../../db/client.js";
 import type { RpcMethodRegistry } from "../../rpc/context.js";
 import { defineMethod } from "../../rpc/context.js";
-import type { MessagesSendParams, MessagesListParams } from "@moltzap/protocol";
-import { validators, ErrorCodes } from "@moltzap/protocol";
-import { RpcError } from "../../rpc/router.js";
+import { MessagesSend, MessagesList } from "@moltzap/protocol";
+import { Effect } from "effect";
+import { RpcFailure, invalidParams } from "../../runtime/index.js";
+import { ConnIdTag } from "../layers.js";
+import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
 
 /** Parse "agent:<name>" target format, returning the agent name. */
-export function parseTo(to: string): string {
+export function parseTo(to: string): Effect.Effect<string, RpcFailure> {
   const match = to.match(/^agent:(.+)$/);
   if (!match) {
-    throw new RpcError(
-      ErrorCodes.InvalidParams,
-      "Invalid 'to' format — use agent:<name>",
-    );
+    return Effect.fail(invalidParams("Invalid 'to' format — use agent:<name>"));
   }
-  return match[1]!;
+  return Effect.succeed(match[1]!);
 }
 
 export function createMessageHandlers(deps: {
   messageService: MessageService;
   conversationService: ConversationService;
-  db: Db;
-  getConnId: () => string;
 }): RpcMethodRegistry {
   return {
-    "messages/send": defineMethod<MessagesSendParams>({
-      validator: validators.messagesSendParams,
+    "messages/send": defineMethod(MessagesSend, {
       requiresActive: true,
-      handler: async (params, ctx) => {
-        let conversationId = params.conversationId;
+      handler: (params, ctx) =>
+        catchSqlErrorAsDefect(
+          Effect.gen(function* () {
+            let conversationId = params.conversationId;
 
-        // Resolve `to` field to a conversation
-        if (!conversationId && params.to) {
-          const agentName = parseTo(params.to);
-          // Resolve agent name -> agent ID
-          const targetAgent = await deps.db
-            .selectFrom("agents")
-            .select(["id"])
-            .where("name", "=", agentName)
-            .where("status", "=", "active")
-            .executeTakeFirst();
-          if (!targetAgent) {
-            throw new RpcError(
-              ErrorCodes.NotFound,
-              `Agent '${agentName}' not found`,
+            if (!conversationId && params.to) {
+              const agentName = yield* parseTo(params.to);
+              const conversation =
+                yield* deps.conversationService.createDmByAgentName(
+                  agentName,
+                  ctx.agentId,
+                );
+              conversationId = conversation.id;
+            }
+
+            if (!conversationId) {
+              return yield* Effect.fail(
+                invalidParams("Either conversationId or to is required"),
+              );
+            }
+
+            const connId = yield* ConnIdTag;
+            const message = yield* deps.messageService.send(
+              conversationId,
+              params.parts,
+              ctx.agentId,
+              params.replyToId,
+              connId,
             );
-          }
-          // Find or create DM conversation
-          const conversation = await deps.conversationService.create(
-            "dm",
-            undefined,
-            [targetAgent.id],
-            ctx.agentId,
-          );
-          conversationId = conversation.id;
-        }
-
-        if (!conversationId) {
-          throw new RpcError(
-            ErrorCodes.InvalidParams,
-            "Either conversationId or to is required",
-          );
-        }
-
-        const message = await deps.messageService.send(
-          conversationId,
-          params.parts,
-          ctx.agentId,
-          params.replyToId,
-          deps.getConnId(),
-        );
-        return { message };
-      },
+            return { message };
+          }),
+        ),
     }),
 
-    "messages/list": defineMethod<MessagesListParams>({
-      validator: validators.messagesListParams,
+    "messages/list": defineMethod(MessagesList, {
       requiresActive: true,
-      handler: async (params, ctx) => {
-        return deps.messageService.list(params.conversationId, ctx.agentId, {
+      handler: (params, ctx) =>
+        deps.messageService.list(params.conversationId, ctx.agentId, {
           limit: params.limit,
-        });
-      },
+        }),
     }),
   };
 }

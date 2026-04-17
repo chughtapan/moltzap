@@ -1,4 +1,6 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { it } from "@effect/vitest";
+import { Effect } from "effect";
 import {
   startTestServer,
   stopTestServer,
@@ -26,35 +28,43 @@ beforeEach(async () => {
 });
 
 describe("Scenario 8: Suspended Agent Restrictions", () => {
-  it("suspended agent cannot connect", async () => {
-    const client = new MoltZapTestClient(baseUrl, wsUrl);
-    const reg = await client.register("suspend-agent");
+  it.live("suspended agent cannot connect", () =>
+    Effect.gen(function* () {
+      const client = new MoltZapTestClient(baseUrl, wsUrl);
+      const reg = yield* client.register("suspend-agent");
 
-    // Suspend the agent via DB
-    const db = getKyselyDb();
-    await db
-      .updateTable("agents")
-      .set({ status: "suspended" })
-      .where("id", "=", reg.agentId)
-      .execute();
+      // Suspend the agent via DB
+      const db = getKyselyDb();
+      yield* Effect.tryPromise(() =>
+        db
+          .updateTable("agents")
+          .set({ status: "suspended" })
+          .where("id", "=", reg.agentId)
+          .execute(),
+      );
 
-    // Cannot connect
-    await expect(client.connect(reg.apiKey)).rejects.toThrow(
-      "Authentication failed",
-    );
+      // Cannot connect
+      const result = yield* Effect.exit(client.connect(reg.apiKey));
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") {
+        expect(String(result.cause)).toContain("Authentication failed");
+      }
 
-    client.close();
-  });
+      yield* client.close();
+    }),
+  );
 
-  it("active agent works normally after registration", async () => {
-    const { client } = await registerAndConnect("active-agent");
+  it.live("active agent works normally after registration", () =>
+    Effect.gen(function* () {
+      const { client } = yield* registerAndConnect("active-agent");
 
-    // Should work immediately — agents are active on registration in core
-    const result = (await client.rpc("conversations/list", {})) as {
-      conversations: unknown[];
-    };
-    expect(result.conversations).toEqual([]);
+      // Should work immediately — agents are active on registration in core
+      const result = (yield* client.rpc("conversations/list", {})) as {
+        conversations: unknown[];
+      };
+      expect(result.conversations).toEqual([]);
 
-    client.close();
-  });
+      yield* client.close();
+    }),
+  );
 });

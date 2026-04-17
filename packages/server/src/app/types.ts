@@ -1,11 +1,15 @@
-import type { Hono } from "hono";
 import type { Kysely } from "kysely";
+import type { Effect } from "effect";
 import type { RpcMethodDef } from "../rpc/context.js";
 import type { AppManifest, AppSession } from "@moltzap/protocol";
 import type { Database } from "../db/database.js";
 import type { ContactService, PermissionService } from "./app-host.js";
+import type { RpcFailure } from "../runtime/index.js";
 import type { UserService } from "../services/user.service.js";
-import type { AsyncWebhookAdapter } from "../adapters/webhook.js";
+import type {
+  AsyncWebhookAdapter,
+  WebhookClient,
+} from "../adapters/webhook.js";
 import type {
   BeforeMessageDeliveryHook,
   OnCloseHook,
@@ -20,6 +24,18 @@ export interface CoreConfig {
   corsOrigins: string[];
   registrationSecret?: string;
   devMode?: boolean;
+  /**
+   * Optional webhook-backed user validator. When unset the server skips
+   * user validation during app session admission (admits all users).
+   */
+  userService?: UserService;
+  /**
+   * Shared outbound HTTP client for webhook dispatch (app hooks, contact
+   * service, user service). If unset, `createCoreApp` constructs a default
+   * `new WebhookClient()`. Tests may inject a fake to intercept outbound
+   * HTTP.
+   */
+  webhookClient?: WebhookClient;
 }
 
 export type ConnectionHook = (params: {
@@ -29,12 +45,10 @@ export type ConnectionHook = (params: {
 }) => Promise<void> | void;
 
 export interface CoreApp {
-  app: Hono;
   readonly port: number;
   registerRpcMethod: (name: string, def: RpcMethodDef) => void;
   onConnection: (hook: ConnectionHook) => void;
   registerApp: (manifest: AppManifest) => void;
-  setUserService: (service: UserService) => void;
   setContactService: (checker: ContactService) => void;
   setPermissionService: (handler: PermissionService) => void;
   setWebhookPermissionCallback: (
@@ -45,7 +59,7 @@ export interface CoreApp {
     appId: string,
     initiatorAgentId: string,
     invitedAgentIds: string[],
-  ) => Promise<AppSession>;
+  ) => Effect.Effect<AppSession, RpcFailure>;
   onBeforeMessageDelivery: (
     appId: string,
     handler: BeforeMessageDeliveryHook,
@@ -55,14 +69,14 @@ export interface CoreApp {
   closeAppSession: (
     sessionId: string,
     callerAgentId: string,
-  ) => Promise<{ closed: boolean }>;
+  ) => Effect.Effect<{ closed: boolean }, RpcFailure>;
   getAppSession: (
     sessionId: string,
     callerAgentId: string,
-  ) => Promise<AppSession>;
+  ) => Effect.Effect<AppSession, RpcFailure>;
   listAppSessions: (
     callerAgentId: string,
     opts?: { appId?: string; status?: string; limit?: number },
-  ) => Promise<AppSession[]>;
+  ) => Effect.Effect<AppSession[], RpcFailure>;
   close: () => Promise<void>;
 }

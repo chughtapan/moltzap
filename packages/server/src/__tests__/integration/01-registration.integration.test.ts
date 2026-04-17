@@ -1,4 +1,6 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { it } from "@effect/vitest";
+import { Effect } from "effect";
 import { startTestServer, stopTestServer, resetTestDb } from "./helpers.js";
 import { MoltZapTestClient } from "@moltzap/protocol/test-client";
 import { getCoreDb } from "../../test-utils/index.js";
@@ -21,54 +23,71 @@ beforeEach(async () => {
 });
 
 describe("Scenario 1: Registration", () => {
-  it("registers an agent and returns API key", async () => {
-    const client = new MoltZapTestClient(baseUrl, wsUrl);
-    const reg = await client.register("test-agent");
+  it.live("registers an agent and returns API key", () =>
+    Effect.gen(function* () {
+      const client = new MoltZapTestClient(baseUrl, wsUrl);
+      const reg = yield* client.register("test-agent");
 
-    expect(reg.agentId).toBeDefined();
-    expect(reg.apiKey).toMatch(/^moltzap_agent_/);
+      expect(reg.agentId).toBeDefined();
+      expect(reg.apiKey).toMatch(/^moltzap_agent_/);
 
-    client.close();
-  });
+      yield* client.close();
+    }),
+  );
 
-  it("rejects duplicate agent names", async () => {
-    const client = new MoltZapTestClient(baseUrl, wsUrl);
-    await client.register("unique-agent");
+  it.live("rejects duplicate agent names", () =>
+    Effect.gen(function* () {
+      const client = new MoltZapTestClient(baseUrl, wsUrl);
+      yield* client.register("unique-agent");
 
-    await expect(client.register("unique-agent")).rejects.toThrow();
+      const result = yield* Effect.exit(client.register("unique-agent"));
+      expect(result._tag).toBe("Failure");
 
-    client.close();
-  });
+      yield* client.close();
+    }),
+  );
 
-  it("registered agent is active immediately and can use all methods", async () => {
-    const client = new MoltZapTestClient(baseUrl, wsUrl);
-    const reg = await client.register("active-agent");
+  it.live(
+    "registered agent is active immediately and can use all methods",
+    () =>
+      Effect.gen(function* () {
+        const client = new MoltZapTestClient(baseUrl, wsUrl);
+        const reg = yield* client.register("active-agent");
 
-    const hello = (await client.connect(reg.apiKey)) as Record<string, unknown>;
-    expect(hello.protocolVersion).toBeDefined();
-    expect(hello.agentId).toBe(reg.agentId);
+        const hello = (yield* client.connect(reg.apiKey)) as Record<
+          string,
+          unknown
+        >;
+        expect(hello.protocolVersion).toBeDefined();
+        expect(hello.agentId).toBe(reg.agentId);
 
-    const result = (await client.rpc("conversations/list", {})) as {
-      conversations: unknown[];
-    };
-    expect(result.conversations).toEqual([]);
+        const result = (yield* client.rpc("conversations/list", {})) as {
+          conversations: unknown[];
+        };
+        expect(result.conversations).toEqual([]);
 
-    client.close();
-  });
+        yield* client.close();
+      }),
+  );
 
-  it("suspended agent cannot connect", async () => {
-    const client = new MoltZapTestClient(baseUrl, wsUrl);
-    const reg = await client.register("suspended-agent");
+  it.live("suspended agent cannot connect", () =>
+    Effect.gen(function* () {
+      const client = new MoltZapTestClient(baseUrl, wsUrl);
+      const reg = yield* client.register("suspended-agent");
 
-    const db = getCoreDb();
-    await db
-      .updateTable("agents")
-      .set({ status: "suspended" })
-      .where("id", "=", reg.agentId)
-      .execute();
+      const db = getCoreDb();
+      yield* Effect.tryPromise(() =>
+        db
+          .updateTable("agents")
+          .set({ status: "suspended" })
+          .where("id", "=", reg.agentId)
+          .execute(),
+      );
 
-    await expect(client.connect(reg.apiKey)).rejects.toThrow();
+      const result = yield* Effect.exit(client.connect(reg.apiKey));
+      expect(result._tag).toBe("Failure");
 
-    client.close();
-  });
+      yield* client.close();
+    }),
+  );
 });

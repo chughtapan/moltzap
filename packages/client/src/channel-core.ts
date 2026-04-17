@@ -2,11 +2,13 @@
  * Shared message-enrichment helper for MoltZap channel adapters.
  */
 
+import { Effect, Fiber, Queue } from "effect";
 import type { Message } from "@moltzap/protocol";
 import type {
   CrossConversationEntry,
   CrossConvMessage,
   PermissionRequiredData,
+  ServiceRpcError,
 } from "./service.js";
 import type { WsClientLogger } from "./ws-client.js";
 
@@ -51,14 +53,17 @@ export interface ChannelService {
     event: "permissionRequired",
     handler: (data: PermissionRequiredData) => void,
   ): void;
-  connect(): Promise<unknown>;
+  connect(): Effect.Effect<unknown, ServiceRpcError>;
   close(): void;
-  send(conversationId: string, text: string): Promise<void>;
+  send(
+    conversationId: string,
+    text: string,
+  ): Effect.Effect<void, ServiceRpcError>;
   getConversation(
     convId: string,
   ): { type: string; name?: string; participants: string[] } | undefined;
   getAgentName(agentId: string): string | undefined;
-  resolveAgentName(agentId: string): Promise<string>;
+  resolveAgentName(agentId: string): Effect.Effect<string, never>;
   peekContextEntries(
     currentConvId: string,
     opts?: { maxConversations?: number; maxMessagesPerConv?: number },
@@ -107,7 +112,18 @@ export class MoltZapChannelCore {
   private readonly logger: WsClientLogger;
   private connected = false;
   private inboundHandler: InboundHandler | null = null;
-  private dispatchChain: Promise<void> = Promise.resolve();
+  /**
+   * Inbound messages are enqueued synchronously from the service's `message`
+   * event and consumed by a single forked fiber. This replaces the previous
+   * `Promise<void>` chain — same semantics (arrival-order, one handler
+   * executes at a time, a throwing handler is logged and does not abort the
+   * consumer), but in Effect idiom so the channel core has no raw
+   * `Promise.then` ordering machinery.
+   */
+  private readonly inboundQueue: Queue.Queue<Message> = Effect.runSync(
+    Queue.unbounded<Message>(),
+  );
+  private readonly consumerFiber: Fiber.RuntimeFiber<void, never>;
   private disconnectHandlers: Array<() => void> = [];
   private reconnectHandlers: Array<() => void> = [];
   private permissionRequiredHandler:
@@ -119,24 +135,39 @@ export class MoltZapChannelCore {
     this.logger = opts.logger ?? noopLogger;
 
     this.service.on("message", (message) => {
-      this.dispatchChain = this.dispatchChain
-        .then(() => this.handleInbound(message))
-        .catch((err) => {
-          this.logger.error(
-            { messageId: message.id, err },
-            "MoltZapChannelCore: inbound handler threw",
-          );
-        });
+      // Synchronous enqueue; the consumer fiber serialises delivery.
+      Queue.unsafeOffer(this.inboundQueue, message);
     });
+
+    // Long-running daemon that dequeues messages one at a time and awaits
+    // each inbound handler to completion. Individual handler failures are
+    // caught and logged so the fiber survives for the next message.
+    const consumer = Effect.forever(
+      Queue.take(this.inboundQueue).pipe(
+        Effect.flatMap((message) =>
+          this.dispatchInboundEffect(message).pipe(
+            Effect.catchAll((err) =>
+              Effect.sync(() =>
+                this.logger.error(
+                  { messageId: message.id, err },
+                  "MoltZapChannelCore: inbound handler threw",
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    this.consumerFiber = Effect.runFork(consumer);
 
     this.service.on("disconnect", () => {
       this.connected = false;
-      for (const h of this.disconnectHandlers) h();
+      this.fanout(this.disconnectHandlers, "disconnect");
     });
 
     this.service.on("reconnect", () => {
       this.connected = true;
-      for (const h of this.reconnectHandlers) h();
+      this.fanout(this.reconnectHandlers, "reconnect");
     });
 
     this.service.on("permissionRequired", (data) => {
@@ -163,109 +194,150 @@ export class MoltZapChannelCore {
     this.permissionRequiredHandler = handler;
   }
 
-  async connect(): Promise<void> {
-    await this.service.connect();
-    this.connected = true;
+  private fanout(handlers: ReadonlyArray<() => void>, label: string): void {
+    for (const h of handlers) {
+      try {
+        h();
+      } catch (err) {
+        this.logger.error(
+          { err, label },
+          `MoltZapChannelCore: ${label} handler threw`,
+        );
+      }
+    }
   }
 
-  async disconnect(): Promise<void> {
-    this.service.close();
-    this.connected = false;
+  connect(): Effect.Effect<void, ServiceRpcError> {
+    return this.service.connect().pipe(
+      Effect.tap(() =>
+        Effect.sync(() => {
+          this.connected = true;
+        }),
+      ),
+      Effect.asVoid,
+    );
+  }
+
+  disconnect(): Effect.Effect<void, never> {
+    return Effect.gen(this, function* () {
+      this.service.close();
+      this.connected = false;
+      // Interrupt the consumer fiber so any queued inbound messages are
+      // dropped rather than delivered after the channel is torn down.
+      yield* Fiber.interrupt(this.consumerFiber);
+    });
   }
 
   isConnected(): boolean {
     return this.connected;
   }
 
-  async sendReply(conversationId: string, text: string): Promise<void> {
-    await this.service.send(conversationId, text);
+  sendReply(
+    conversationId: string,
+    text: string,
+  ): Effect.Effect<void, ServiceRpcError> {
+    return this.service.send(conversationId, text);
   }
 
   /**
    * Stateless enrichment helper. Falls back to `sender.id` if
    * `resolveAgentName` throws (e.g. service not yet connected).
    */
-  static async enrichMessage(
+  static enrichMessage(
     service: ChannelService,
     message: Message,
-  ): Promise<{
-    enriched: EnrichedInboundMessage;
-    commitContext?: () => void;
-  }> {
-    const convMeta = service.getConversation(message.conversationId);
+  ): Effect.Effect<
+    {
+      enriched: EnrichedInboundMessage;
+      commitContext?: () => void;
+    },
+    never
+  > {
+    return Effect.gen(function* () {
+      const convMeta = service.getConversation(message.conversationId);
 
-    const senderName =
-      service.getAgentName(message.senderId) ??
-      (await service
-        .resolveAgentName(message.senderId)
-        .catch(() => message.senderId));
+      const cachedName = service.getAgentName(message.senderId);
+      // `resolveAgentName` has `never` in the error channel — it catches its
+      // own transport failures and falls back to `senderId` internally, so
+      // no explicit `catchAll` is needed here.
+      const senderName =
+        cachedName !== undefined
+          ? cachedName
+          : yield* service.resolveAgentName(message.senderId);
 
-    const text = extractTextContent(message.parts);
+      const text = extractTextContent(message.parts);
 
-    const isFromMe =
-      service.ownAgentId !== undefined &&
-      message.senderId === service.ownAgentId;
+      const isFromMe =
+        service.ownAgentId !== undefined &&
+        message.senderId === service.ownAgentId;
 
-    const conversationMeta: EnrichedConversationMeta | undefined = convMeta
-      ? {
-          type: convMeta.type === "group" ? "group" : "dm",
-          name: convMeta.name,
-          participants: convMeta.participants,
-        }
-      : undefined;
-
-    const contextBlocks: ContextBlocks = {};
-
-    if (conversationMeta?.type === "group") {
-      contextBlocks.groupMetadata = conversationMeta;
-    }
-
-    const { entries, commit: commitLegacy } = service.peekContextEntries(
-      message.conversationId,
-    );
-    if (entries.length > 0) {
-      contextBlocks.crossConversation = entries;
-    }
-
-    const { messages: fullMessages, commit: commitFull } =
-      service.peekFullMessages(message.conversationId);
-    if (fullMessages.length > 0) {
-      contextBlocks.crossConversationMessages = fullMessages;
-    }
-
-    const hasContext = entries.length > 0 || fullMessages.length > 0;
-
-    return {
-      enriched: {
-        id: message.id,
-        conversationId: message.conversationId,
-        sender: {
-          id: message.senderId,
-          name: senderName,
-        },
-        text,
-        isFromMe,
-        createdAt: message.createdAt,
-        replyToId: message.replyToId,
-        conversationMeta,
-        contextBlocks,
-      },
-      commitContext: hasContext
-        ? () => {
-            commitLegacy();
-            commitFull();
+      const conversationMeta: EnrichedConversationMeta | undefined = convMeta
+        ? {
+            type: convMeta.type === "group" ? "group" : "dm",
+            name: convMeta.name,
+            participants: convMeta.participants,
           }
-        : undefined,
-    };
+        : undefined;
+
+      const contextBlocks: ContextBlocks = {};
+
+      if (conversationMeta?.type === "group") {
+        contextBlocks.groupMetadata = conversationMeta;
+      }
+
+      const { entries, commit: commitLegacy } = service.peekContextEntries(
+        message.conversationId,
+      );
+      if (entries.length > 0) {
+        contextBlocks.crossConversation = entries;
+      }
+
+      const { messages: fullMessages, commit: commitFull } =
+        service.peekFullMessages(message.conversationId);
+      if (fullMessages.length > 0) {
+        contextBlocks.crossConversationMessages = fullMessages;
+      }
+
+      const hasContext = entries.length > 0 || fullMessages.length > 0;
+
+      return {
+        enriched: {
+          id: message.id,
+          conversationId: message.conversationId,
+          sender: {
+            id: message.senderId,
+            name: senderName,
+          },
+          text,
+          isFromMe,
+          createdAt: message.createdAt,
+          replyToId: message.replyToId,
+          conversationMeta,
+          contextBlocks,
+        },
+        commitContext: hasContext
+          ? () => {
+              commitLegacy();
+              commitFull();
+            }
+          : undefined,
+      };
+    });
   }
 
-  private async handleInbound(message: Message): Promise<void> {
-    if (!this.inboundHandler) return;
-    const { enriched, commitContext } = await MoltZapChannelCore.enrichMessage(
-      this.service,
-      message,
-    );
-    await this.inboundHandler(enriched);
-    commitContext?.();
+  private dispatchInboundEffect(message: Message): Effect.Effect<void, Error> {
+    return Effect.gen(this, function* () {
+      if (!this.inboundHandler) return;
+      const { enriched, commitContext } =
+        yield* MoltZapChannelCore.enrichMessage(this.service, message);
+      // `inboundHandler` is user code and may return a Promise, so we bridge
+      // via `tryPromise` — the consumer fiber awaits this to preserve
+      // arrival-order delivery.
+      yield* Effect.tryPromise({
+        try: () => Promise.resolve(this.inboundHandler!(enriched)),
+        catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+      });
+      if (commitContext) commitContext();
+    });
   }
 }

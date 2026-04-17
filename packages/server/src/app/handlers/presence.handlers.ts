@@ -1,56 +1,56 @@
 import type { PresenceService } from "../../services/presence.service.js";
 import type { RpcMethodRegistry } from "../../rpc/context.js";
 import { defineMethod } from "../../rpc/context.js";
-import type {
-  PresenceUpdateParams,
-  PresenceSubscribeParams,
+import {
+  PresenceUpdate,
+  PresenceSubscribe,
+  EventNames,
+  eventFrame,
 } from "@moltzap/protocol";
-import { validators, EventNames, eventFrame } from "@moltzap/protocol";
+import { Effect } from "effect";
 import type { ConnectionManager } from "../../ws/connection.js";
+import { ConnIdTag } from "../layers.js";
 
 export function createPresenceHandlers(deps: {
   presenceService: PresenceService;
   connections: ConnectionManager;
-  getConnId: () => string;
 }): RpcMethodRegistry {
   return {
-    "presence/update": defineMethod<PresenceUpdateParams>({
-      validator: validators.presenceUpdateParams,
+    "presence/update": defineMethod(PresenceUpdate, {
       requiresActive: true,
-      handler: async (params, ctx) => {
-        deps.presenceService.update(ctx.agentId, params.status);
+      handler: (params, ctx) =>
+        Effect.gen(function* () {
+          const senderConnId = yield* ConnIdTag;
+          deps.presenceService.update(ctx.agentId, params.status);
 
-        // Notify only connections that subscribed to this agent
-        const subscriberConnIds = deps.presenceService.getSubscribers(
-          ctx.agentId,
-        );
-        const event = eventFrame(EventNames.PresenceChanged, {
-          agentId: ctx.agentId,
-          status: params.status,
-        });
-        const raw = JSON.stringify(event);
-        const senderConnId = deps.getConnId();
-        for (const connId of subscriberConnIds) {
-          if (connId === senderConnId) continue;
-          const conn = deps.connections.get(connId);
-          if (conn) {
-            conn.ws.send(raw);
+          const subscriberConnIds = deps.presenceService.getSubscribers(
+            ctx.agentId,
+          );
+          const event = eventFrame(EventNames.PresenceChanged, {
+            agentId: ctx.agentId,
+            status: params.status,
+          });
+          const raw = JSON.stringify(event);
+          for (const connId of subscriberConnIds) {
+            if (connId === senderConnId) continue;
+            const conn = deps.connections.get(connId);
+            if (conn) {
+              conn.ws.send(raw);
+            }
           }
-        }
-
-        return {};
-      },
+          return {};
+        }),
     }),
 
-    "presence/subscribe": defineMethod<PresenceSubscribeParams>({
-      validator: validators.presenceSubscribeParams,
+    "presence/subscribe": defineMethod(PresenceSubscribe, {
       requiresActive: true,
-      handler: async (params, _ctx) => {
-        const connId = deps.getConnId();
-        deps.presenceService.subscribe(connId, params.agentIds);
-        const statuses = deps.presenceService.getMany(params.agentIds);
-        return { statuses };
-      },
+      handler: (params) =>
+        Effect.gen(function* () {
+          const connId = yield* ConnIdTag;
+          deps.presenceService.subscribe(connId, params.agentIds);
+          const statuses = deps.presenceService.getMany(params.agentIds);
+          return { statuses };
+        }),
     }),
   };
 }

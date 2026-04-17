@@ -8,7 +8,23 @@ import {
   type Part,
   EventNames,
 } from "@moltzap/protocol";
+import { Effect, HashMap, Option, Ref } from "effect";
 import { MoltZapWsClient, type WsClientLogger } from "./ws-client.js";
+import {
+  AgentNotFoundError,
+  NotConnectedError,
+  RpcServerError,
+  RpcTimeoutError,
+} from "./runtime/errors.js";
+
+/**
+ * Errors that can surface from the Effect-based service API. Matches the
+ * failure channel of `MoltZapWsClient.sendRpc` / `connect`.
+ */
+export type ServiceRpcError =
+  | NotConnectedError
+  | RpcTimeoutError
+  | RpcServerError;
 
 export interface ConversationMeta {
   id: string;
@@ -114,6 +130,36 @@ function renderPart(p: Part): string {
 }
 
 /**
+ * Per-conversation message buffer cap. Wired as a guard against unbounded
+ * growth on long-running clients; set to `Infinity` until we have real
+ * usage data to pick a sensible eviction threshold.
+ */
+const MAX_MESSAGES_PER_CONV = Number.POSITIVE_INFINITY;
+
+const snapshot = <A>(ref: Ref.Ref<A>): A => Effect.runSync(Ref.get(ref));
+
+/**
+ * Invoke every handler with `arg`, isolating throws so one bad handler
+ * doesn't abort the remaining fanout. Logs via the optional client logger.
+ */
+function fanout<T>(
+  handlers: ReadonlyArray<EventHandler<T>>,
+  arg: T,
+  logger?: WsClientLogger,
+): void {
+  for (const h of handlers) {
+    try {
+      h(arg);
+    } catch (err) {
+      logger?.error("event handler threw", err);
+    }
+  }
+}
+
+const getOr = <K, V>(m: HashMap.HashMap<K, V>, key: K, dflt: () => V): V =>
+  Option.getOrElse(HashMap.get(m, key), dflt);
+
+/**
  * Stateful MoltZap client that manages connection, conversation tracking,
  * agent name resolution, and cross-conversation context generation.
  */
@@ -121,22 +167,37 @@ export class MoltZapService {
   private client: MoltZapWsClient | null = null;
   private _connected = false;
 
-  private conversations = new Map<string, ConversationMeta>();
-  private messages = new Map<string, Message[]>();
-  private agentNames = new Map<string, string>();
-  private agentConversationCache = new Map<string, string>();
-  private lastNotified = new Map<string, Map<string, string>>();
-  private lastRead = new Map<string, Map<string, Set<string>>>();
-
+  private readonly conversationsRef: Ref.Ref<
+    HashMap.HashMap<string, ConversationMeta>
+  > = Effect.runSync(Ref.make(HashMap.empty<string, ConversationMeta>()));
+  private readonly messagesRef: Ref.Ref<
+    HashMap.HashMap<string, ReadonlyArray<Message>>
+  > = Effect.runSync(Ref.make(HashMap.empty<string, ReadonlyArray<Message>>()));
+  private readonly agentNamesRef: Ref.Ref<HashMap.HashMap<string, string>> =
+    Effect.runSync(Ref.make(HashMap.empty<string, string>()));
+  private readonly agentConversationCacheRef: Ref.Ref<
+    HashMap.HashMap<string, string>
+  > = Effect.runSync(Ref.make(HashMap.empty<string, string>()));
+  private readonly lastNotifiedRef: Ref.Ref<
+    HashMap.HashMap<string, HashMap.HashMap<string, string>>
+  > = Effect.runSync(
+    Ref.make(HashMap.empty<string, HashMap.HashMap<string, string>>()),
+  );
+  private readonly lastReadRef: Ref.Ref<
+    HashMap.HashMap<string, HashMap.HashMap<string, ReadonlySet<string>>>
+  > = Effect.runSync(
+    Ref.make(
+      HashMap.empty<string, HashMap.HashMap<string, ReadonlySet<string>>>(),
+    ),
+  );
   private messageHandlers: EventHandler<Message>[] = [];
   private rawEventHandlers: EventHandler<EventFrame>[] = [];
   private disconnectHandlers: EventHandler<void>[] = [];
   private reconnectHandlers: EventHandler<HelloOk>[] = [];
   private permissionRequiredHandlers: EventHandler<PermissionRequiredData>[] =
     [];
-  private pendingNameLookups = new Map<string, Promise<string>>();
 
-  ownAgentId: string | undefined;
+  private _ownAgentId: string | undefined;
 
   constructor(private opts: ServiceOptions) {}
 
@@ -144,43 +205,65 @@ export class MoltZapService {
     return this._connected;
   }
 
-  async connect(): Promise<HelloOk> {
-    this.client = new MoltZapWsClient({
-      serverUrl: this.opts.serverUrl,
-      agentKey: this.opts.agentKey,
-      logger: this.opts.logger,
-      onEvent: (event) => this.handleEvent(event),
-      onDisconnect: () => {
-        this._connected = false;
-        for (const h of this.disconnectHandlers) h();
-      },
-      onReconnect: (helloOk) => {
-        this._connected = true;
-        const hello = helloOk as HelloOk;
-        this.populateFromHello(hello);
-        for (const h of this.reconnectHandlers) h(hello);
-      },
-    });
-
-    const helloOk = (await this.client.connect()) as HelloOk;
-    this._connected = true;
-    this.ownAgentId = helloOk.agentId;
-    this.populateFromHello(helloOk);
-    return helloOk;
+  get ownAgentId(): string | undefined {
+    return this._ownAgentId;
   }
 
+  /** Effect-native: compose via `yield*` or bridge at the edge via `Effect.runPromise`. */
+  connect(): Effect.Effect<HelloOk, ServiceRpcError> {
+    return Effect.gen(this, function* () {
+      this.client = new MoltZapWsClient({
+        serverUrl: this.opts.serverUrl,
+        agentKey: this.opts.agentKey,
+        logger: this.opts.logger,
+        onEvent: (event) => this.handleEvent(event),
+        onDisconnect: () => {
+          this._connected = false;
+          fanout(this.disconnectHandlers, undefined, this.opts.logger);
+        },
+        onReconnect: (helloOk) => {
+          this._connected = true;
+          const hello = helloOk as HelloOk;
+          this.populateFromHello(hello);
+          fanout(this.reconnectHandlers, hello, this.opts.logger);
+        },
+      });
+
+      const helloOk = (yield* this.client.connect()) as HelloOk;
+      this._connected = true;
+      this._ownAgentId = helloOk.agentId;
+      this.populateFromHello(helloOk);
+      return helloOk;
+    });
+  }
+
+  /**
+   * Tear down the service. `close()` is sync because it fans out to the
+   * socket server, Refs, and the ws-client — the ws-client's own close
+   * Effect is run via `Effect.runSync` here so the caller gets an immediate
+   * shutdown the way existing code expects.
+   */
   close(): void {
     this._connected = false;
     this.stopSocketServer();
-    this.client?.close();
+    if (this.client) {
+      Effect.runSync(this.client.close());
+    }
     this.client = null;
-    this.conversations.clear();
-    this.messages.clear();
-    this.agentNames.clear();
-    this.agentConversationCache.clear();
-    this.lastNotified.clear();
-    this.lastRead.clear();
-    this.permissionRequiredHandlers.length = 0;
+    Effect.runSync(
+      Effect.all([
+        Ref.set(this.conversationsRef, HashMap.empty()),
+        Ref.set(this.messagesRef, HashMap.empty()),
+        Ref.set(this.agentNamesRef, HashMap.empty()),
+        Ref.set(this.agentConversationCacheRef, HashMap.empty()),
+        Ref.set(this.lastNotifiedRef, HashMap.empty()),
+        Ref.set(this.lastReadRef, HashMap.empty()),
+      ]),
+    );
+    // Handlers are preserved across close()/connect() cycles. MoltZapChannelCore
+    // subscribes once in its constructor; clearing handlers here would silently
+    // drop inbound/reconnect dispatch on any subsequent reconnect of the same
+    // service instance.
   }
 
   // --- Socket Server ---
@@ -195,9 +278,19 @@ export class MoltZapService {
     "service.sock",
   );
 
+  /**
+   * `agentId` is a server-assigned string. Treat it as untrusted: if a
+   * compromised or malicious server returns an id containing `..` or a
+   * path separator, a naive `path.join(... , agentId)` escapes `~/.moltzap`.
+   * Reject anything that isn't a safe identifier.
+   */
+  private static safeAgentIdSegment(id: string): string {
+    return /^[A-Za-z0-9_-]+$/.test(id) ? id : "default";
+  }
+
   /** Per-instance socket path based on connected agentId. */
   get socketPath(): string {
-    const id = this.ownAgentId ?? "default";
+    const id = MoltZapService.safeAgentIdSegment(this.ownAgentId ?? "default");
     return path.join(os.homedir(), ".moltzap", `service-${id}.sock`);
   }
 
@@ -206,7 +299,14 @@ export class MoltZapService {
     this.activeSocketPath = sockPath;
     try {
       fs.unlinkSync(sockPath);
-    } catch {}
+    } catch (err) {
+      // ENOENT is the normal case (no stale socket); log everything
+      // else (permission denied, EACCES) so operators can diagnose.
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== "ENOENT") {
+        this.opts.logger?.warn("unlink existing socket failed", err);
+      }
+    }
     fs.mkdirSync(path.dirname(sockPath), { recursive: true });
 
     this.socketServer = net.createServer((conn) => {
@@ -217,19 +317,37 @@ export class MoltZapService {
         buffer = lines.pop()!;
         for (const line of lines) {
           if (!line.trim()) continue;
-          void this.handleSocketLine(line, conn);
+          // Fork the line-handler Effect onto the Effect runtime. Each line
+          // dispatches independently; the fiber runs until it writes a
+          // response or error frame back onto the socket.
+          Effect.runFork(this.handleSocketLineEffect(line, conn));
         }
       });
     });
-    this.socketServer.listen(sockPath);
+    this.socketServer.listen(sockPath, () => {
+      // Owner-only permissions: the socket exposes an RPC passthrough that
+      // impersonates this agent to the server, so other local users on the
+      // host must not be able to connect.
+      try {
+        fs.chmodSync(sockPath, 0o600);
+      } catch (err) {
+        this.opts.logger?.warn("chmod 0600 on socket failed", err);
+      }
+    });
 
     // Symlink default path to this instance for CLI discovery
     try {
       fs.unlinkSync(MoltZapService.SOCKET_PATH);
-    } catch {}
+    } catch (err) {
+      // Stale/missing default symlink is expected most of the time; log
+      // at debug so real permission errors still surface.
+      this.opts.logger?.info("unlink default socket symlink", err);
+    }
     try {
       fs.symlinkSync(sockPath, MoltZapService.SOCKET_PATH);
-    } catch {}
+    } catch (err) {
+      this.opts.logger?.warn("symlink default socket failed", err);
+    }
   }
 
   stopSocketServer(): void {
@@ -239,232 +357,327 @@ export class MoltZapService {
     this.activeSocketPath = null;
     try {
       fs.unlinkSync(sockPath);
-    } catch {}
-    // Remove default symlink if it points to this instance
+    } catch (err) {
+      this.opts.logger?.info("unlink socket path", err);
+    }
+    // Remove default symlink only if it points to this instance.
     try {
       const target = fs.readlinkSync(MoltZapService.SOCKET_PATH);
       if (target === sockPath) fs.unlinkSync(MoltZapService.SOCKET_PATH);
-    } catch {}
+    } catch (err) {
+      this.opts.logger?.info("cleanup default symlink", err);
+    }
   }
 
-  private async handleSocketLine(
+  /**
+   * Handle one JSON line from the unix socket as an Effect. Parses the
+   * request, dispatches through `handleSocketRequestEffect`, and writes
+   * either a `{result}` or `{error}` frame back onto the connection.
+   * Never fails — all branches resolve into a `conn.write` side effect.
+   */
+  private handleSocketLineEffect(
     line: string,
     conn: net.Socket,
-  ): Promise<void> {
-    try {
-      const req = JSON.parse(line) as Record<string, unknown>;
+  ): Effect.Effect<void, never> {
+    return Effect.suspend(() => {
+      let req: Record<string, unknown>;
+      try {
+        req = JSON.parse(line) as Record<string, unknown>; // #ignore-sloppy-code[record-cast]: JSON.parse boundary from unix socket line protocol
+      } catch (err) {
+        return Effect.sync(() =>
+          conn.write(
+            JSON.stringify({
+              error: err instanceof Error ? err.message : String(err),
+            }) + "\n",
+          ),
+        );
+      }
       if (typeof req.method !== "string" || !req.method) {
-        throw new Error("method is required and must be a string");
+        return Effect.sync(() =>
+          conn.write(
+            JSON.stringify({
+              error: "method is required and must be a string",
+            }) + "\n",
+          ),
+        );
       }
       const params =
         req.params != null && typeof req.params === "object"
-          ? (req.params as Record<string, unknown>)
+          ? (req.params as Record<string, unknown>) // #ignore-sloppy-code[record-cast]: req.params is untyped JSON from socket
           : {};
-      const result = await this.handleSocketRequest(req.method, params);
-      conn.write(JSON.stringify({ result }) + "\n");
-    } catch (err) {
-      conn.write(
-        JSON.stringify({
-          error: err instanceof Error ? err.message : String(err),
-        }) + "\n",
+      return this.handleSocketRequestEffect(req.method, params).pipe(
+        Effect.match({
+          onSuccess: (result) => {
+            conn.write(JSON.stringify({ result }) + "\n");
+          },
+          onFailure: (err) => {
+            conn.write(
+              JSON.stringify({
+                error: err instanceof Error ? err.message : String(err),
+              }) + "\n",
+            );
+          },
+        }),
       );
-    }
+    });
   }
 
-  private async handleSocketRequest(
+  private handleSocketRequestEffect(
     method: string,
     params: Record<string, unknown>,
-  ): Promise<unknown> {
-    switch (method) {
-      case "ping":
-        return { ok: true, agentId: this.ownAgentId };
+  ): Effect.Effect<unknown, Error | ServiceRpcError> {
+    return Effect.suspend(() => {
+      switch (method) {
+        case "ping":
+          return Effect.succeed({ ok: true, agentId: this.ownAgentId });
 
-      case "status":
-        return {
-          agentId: this.ownAgentId,
-          connected: this._connected,
-          conversations: this.getConversations().length,
-        };
+        case "status":
+          return Effect.succeed({
+            agentId: this.ownAgentId,
+            connected: this._connected,
+            conversations: this.getConversations().length,
+          });
 
-      case "history": {
-        if (
-          typeof params.conversationId !== "string" ||
-          !params.conversationId
-        ) {
-          throw new Error("conversationId is required and must be a string");
-        }
-        if (params.limit !== undefined && typeof params.limit !== "number") {
-          throw new Error("limit must be a number");
-        }
-        const convId = params.conversationId;
-        const limit = (params.limit as number) ?? 10;
-        const sessionKey = params.sessionKey as string | undefined;
-        const result = (await this.sendRpc("messages/list", {
-          conversationId: convId,
-          limit,
-        })) as { messages: Message[]; hasMore: boolean };
+        case "history":
+          return this.handleHistoryRequest(params);
 
-        // Resolve agent names (batch) + fetch conversation metadata (concurrent)
-        const unknownAgentIds = [
-          ...new Set(result.messages.map((m) => m.senderId)),
-        ].filter((id) => !this.agentNames.has(id));
+        default:
+          // Passthrough: forward any other method to the MoltZap server via RPC
+          return this.sendRpc(method, params);
+      }
+    });
+  }
 
-        const [, convMeta] = await Promise.all([
-          unknownAgentIds.length > 0
-            ? this.sendRpc("agents/lookup", { agentIds: unknownAgentIds }).then(
-                (res) => {
-                  for (const a of (
-                    res as { agents: Array<{ id: string; name: string }> }
-                  ).agents) {
-                    this.agentNames.set(a.id, a.name);
+  private handleHistoryRequest(
+    params: Record<string, unknown>,
+  ): Effect.Effect<unknown, Error | ServiceRpcError> {
+    return Effect.gen(this, function* () {
+      if (typeof params.conversationId !== "string" || !params.conversationId) {
+        return yield* Effect.fail(
+          new Error("conversationId is required and must be a string"),
+        );
+      }
+      if (params.limit !== undefined && typeof params.limit !== "number") {
+        return yield* Effect.fail(new Error("limit must be a number"));
+      }
+      const convId = params.conversationId;
+      const limit = (params.limit as number) ?? 10;
+      const sessionKey = params.sessionKey as string | undefined;
+      const result = (yield* this.sendRpc("messages/list", {
+        conversationId: convId,
+        limit,
+      })) as { messages: Message[]; hasMore: boolean };
+
+      // Resolve agent names (batch) + fetch conversation metadata (concurrent)
+      const knownNames = yield* Ref.get(this.agentNamesRef);
+      const unknownAgentIds = [
+        ...new Set(result.messages.map((m) => m.senderId)),
+      ].filter((id) => !HashMap.has(knownNames, id));
+
+      const lookupEff =
+        unknownAgentIds.length > 0
+          ? this.sendRpc("agents/lookup", { agentIds: unknownAgentIds }).pipe(
+              Effect.tap((res) => {
+                const agents = (
+                  res as { agents: Array<{ id: string; name: string }> }
+                ).agents;
+                return Ref.update(this.agentNamesRef, (names) => {
+                  let next = names;
+                  for (const a of agents) {
+                    next = HashMap.set(next, a.id, a.name);
                   }
-                },
-              )
-            : Promise.resolve(),
-          this.sendRpc("conversations/get", { conversationId: convId })
-            .then(
-              (res) =>
-                (res as { conversation: { type: string; name?: string } })
-                  .conversation,
+                  return next;
+                });
+              }),
+              Effect.asVoid,
+              Effect.catchAll(() => Effect.void),
             )
-            .catch(
-              () => undefined as { type: string; name?: string } | undefined,
+          : Effect.void;
+
+      const metaEff = this.sendRpc("conversations/get", {
+        conversationId: convId,
+      }).pipe(
+        Effect.map(
+          (res) =>
+            (res as { conversation: { type: string; name?: string } })
+              .conversation,
+        ),
+        Effect.catchAll(() =>
+          Effect.succeed(
+            undefined as { type: string; name?: string } | undefined,
+          ),
+        ),
+      );
+
+      const [, convMeta] = yield* Effect.all([lookupEff, metaEff], {
+        concurrency: "unbounded",
+      });
+
+      // Determine what's "new" using lastRead (not lastNotified).
+      // lastNotified is advanced by getContext() (system-reminder).
+      // lastRead is advanced here when the agent explicitly reads history.
+      const allAgentNames = yield* Ref.get(this.agentNamesRef);
+      const lastReadMap = yield* Ref.get(this.lastReadRef);
+      const lastReadIds: ReadonlySet<string> = sessionKey
+        ? Option.getOrElse(
+            Option.flatMap(HashMap.get(lastReadMap, sessionKey), (perConv) =>
+              HashMap.get(perConv, convId),
             ),
-        ]);
+            () => new Set<string>() as ReadonlySet<string>,
+          )
+        : new Set<string>();
 
-        // Determine what's "new" using lastRead (not lastNotified).
-        // lastNotified is advanced by getContext() (system-reminder).
-        // lastRead is advanced here when the agent explicitly reads history.
-        const lastReadIds = sessionKey
-          ? (this.lastRead.get(sessionKey)?.get(convId) ?? new Set<string>())
-          : new Set<string>();
-
-        const messages = result.messages.map((m) => {
-          const text = m.parts.map(renderPart).join(" ");
-          return {
-            id: m.id,
-            senderId: m.senderId,
-            senderName:
-              m.senderId === this.ownAgentId
-                ? "you"
-                : (this.agentNames.get(m.senderId) ?? m.senderId),
-            isOwn: m.senderId === this.ownAgentId,
-            text,
-            createdAt: m.createdAt,
-            isNew: sessionKey ? !lastReadIds.has(m.id) : false,
-          };
-        });
-
-        // Advance lastRead to include all message IDs in the returned page.
-        if (sessionKey && result.messages.length > 0) {
-          if (!this.lastRead.has(sessionKey)) {
-            this.lastRead.set(sessionKey, new Map());
-          }
-          const readSet =
-            this.lastRead.get(sessionKey)!.get(convId) ?? new Set<string>();
-          for (const m of result.messages) {
-            readSet.add(m.id);
-          }
-          this.lastRead.get(sessionKey)!.set(convId, readSet);
-        }
-
+      const messages = result.messages.map((m) => {
+        const text = m.parts.map(renderPart).join(" ");
+        const senderName = Option.getOrElse(
+          HashMap.get(allAgentNames, m.senderId),
+          () => m.senderId,
+        );
         return {
-          messages,
-          hasMore: result.hasMore,
-          conversationMeta: convMeta,
-          newCount: messages.filter((m) => m.isNew).length,
+          id: m.id,
+          senderId: m.senderId,
+          senderName: m.senderId === this.ownAgentId ? "you" : senderName,
+          isOwn: m.senderId === this.ownAgentId,
+          text,
+          createdAt: m.createdAt,
+          isNew: sessionKey ? !lastReadIds.has(m.id) : false,
         };
+      });
+
+      // Advance lastRead to include all message IDs in the returned page.
+      if (sessionKey && result.messages.length > 0) {
+        yield* Ref.update(this.lastReadRef, (outer) => {
+          const perSession = getOr(outer, sessionKey, () =>
+            HashMap.empty<string, ReadonlySet<string>>(),
+          );
+          const existing = getOr(
+            perSession,
+            convId,
+            () => new Set<string>() as ReadonlySet<string>,
+          );
+          if (result.messages.every((m) => existing.has(m.id))) return outer;
+          const nextSet = new Set(existing);
+          for (const m of result.messages) nextSet.add(m.id);
+          return HashMap.set(
+            outer,
+            sessionKey,
+            HashMap.set(perSession, convId, nextSet),
+          );
+        });
       }
 
-      default:
-        // Passthrough: forward any other method to the MoltZap server via RPC
-        return this.sendRpc(method, params);
-    }
+      return {
+        messages,
+        hasMore: result.hasMore,
+        conversationMeta: convMeta,
+        newCount: messages.filter((m) => m.isNew).length,
+      };
+    });
   }
 
   // --- Conversations ---
 
   getConversation(convId: string): ConversationMeta | undefined {
-    return this.conversations.get(convId);
+    return Option.getOrUndefined(
+      HashMap.get(snapshot(this.conversationsRef), convId),
+    );
   }
 
   getConversations(): ConversationMeta[] {
-    return [...this.conversations.values()];
+    return [...HashMap.values(snapshot(this.conversationsRef))];
   }
 
   // --- Messages ---
 
   getHistory(convId: string, limit?: number): Message[] {
-    const msgs = this.messages.get(convId) ?? [];
+    const msgs = getOr(
+      snapshot(this.messagesRef),
+      convId,
+      () => [] as ReadonlyArray<Message>,
+    );
     return limit ? msgs.slice(-limit) : [...msgs];
   }
 
   // --- Agent Names ---
 
   getAgentName(agentId: string): string | undefined {
-    return this.agentNames.get(agentId);
+    return Option.getOrUndefined(
+      HashMap.get(snapshot(this.agentNamesRef), agentId),
+    );
   }
 
-  async resolveAgentName(agentId: string): Promise<string> {
-    const cached = this.agentNames.get(agentId);
-    if (cached) return cached;
+  /**
+   * Never fails — on RPC error the raw agentId is returned so waiters don't
+   * block. Inbound-message enrichment runs on a serialized consumer fiber
+   * (MoltZapChannelCore), so back-to-back lookups for the same agentId hit
+   * the populated cache rather than issuing parallel RPCs.
+   */
+  resolveAgentName(agentId: string): Effect.Effect<string, never> {
+    return Effect.gen(this, function* () {
+      const cached = Option.getOrUndefined(
+        HashMap.get(snapshot(this.agentNamesRef), agentId),
+      );
+      if (cached !== undefined) return cached;
 
-    const pending = this.pendingNameLookups.get(agentId);
-    if (pending) return pending;
-
-    const promise = (async () => {
-      const result = (await this.sendRpc("agents/lookup", {
-        agentIds: [agentId],
-      })) as { agents: Array<{ id: string; name: string }> };
-
-      const agent = result.agents[0];
-      if (agent) {
-        this.agentNames.set(agentId, agent.name);
-        return agent.name;
-      }
-      return agentId;
-    })();
-
-    this.pendingNameLookups.set(agentId, promise);
-    try {
-      return await promise;
-    } finally {
-      this.pendingNameLookups.delete(agentId);
-    }
+      return yield* this.sendRpc("agents/lookup", { agentIds: [agentId] }).pipe(
+        Effect.flatMap((result) => {
+          const agent = (
+            result as { agents: Array<{ id: string; name: string }> }
+          ).agents[0];
+          if (!agent) return Effect.succeed(agentId);
+          return Ref.update(this.agentNamesRef, (names) =>
+            HashMap.set(names, agentId, agent.name),
+          ).pipe(Effect.as(agent.name));
+        }),
+        Effect.catchAll(() => Effect.succeed(agentId)),
+      );
+    });
   }
 
   // --- Messaging ---
 
-  async send(
+  send(
     convId: string,
     text: string,
     opts?: { replyTo?: string },
-  ): Promise<void> {
-    await this.sendRpc("messages/send", {
-      conversationId: convId,
-      parts: [{ type: "text", text }],
-      ...(opts?.replyTo ? { replyToId: opts.replyTo } : {}),
-    });
+  ): Effect.Effect<void, ServiceRpcError> {
+    return Effect.asVoid(
+      this.sendRpc("messages/send", {
+        conversationId: convId,
+        parts: [{ type: "text", text }],
+        ...(opts?.replyTo ? { replyToId: opts.replyTo } : {}),
+      }),
+    );
   }
 
-  async sendToAgent(
+  sendToAgent(
     agentName: string,
     text: string,
     opts?: { replyTo?: string },
-  ): Promise<void> {
-    let conversationId = this.agentConversationCache.get(agentName);
-    if (!conversationId) {
-      const lookupResult = (await this.sendRpc("agents/lookupByName", {
-        name: agentName,
-      })) as { agent: { id: string } };
-      const createResult = (await this.sendRpc("conversations/create", {
-        type: "dm",
-        participants: [{ type: "agent", id: lookupResult.agent.id }],
-      })) as { conversation: { id: string } };
-      conversationId = createResult.conversation.id;
-      this.agentConversationCache.set(agentName, conversationId);
-    }
-    await this.send(conversationId, text, opts);
+  ): Effect.Effect<void, ServiceRpcError | AgentNotFoundError> {
+    return Effect.gen(this, function* () {
+      const cache = yield* Ref.get(this.agentConversationCacheRef);
+      let conversationId = Option.getOrUndefined(HashMap.get(cache, agentName));
+      if (!conversationId) {
+        const lookupResult = (yield* this.sendRpc("agents/lookupByName", {
+          names: [agentName],
+        })) as { agents: Array<{ id: string; name: string }> };
+        const agent = lookupResult.agents[0];
+        if (!agent) {
+          return yield* Effect.fail(new AgentNotFoundError({ agentName }));
+        }
+        const createResult = (yield* this.sendRpc("conversations/create", {
+          type: "dm",
+          participants: [{ type: "agent", id: agent.id }],
+        })) as { conversation: { id: string } };
+        conversationId = createResult.conversation.id;
+        const newId = conversationId;
+        yield* Ref.update(this.agentConversationCacheRef, (m) =>
+          HashMap.set(m, agentName, newId),
+        );
+      }
+      yield* this.send(conversationId, text, opts);
+    });
   }
 
   // --- Cross-Conversation Context ---
@@ -495,37 +708,56 @@ export class MoltZapService {
   ): { entries: CrossConversationEntry[]; commit: () => void } {
     const maxConvs = opts?.maxConversations ?? 5;
     const maxMsgsPerConv = opts?.maxMessagesPerConv ?? 3;
-    const viewMarkers =
-      this.lastNotified.get(currentConvId) ?? new Map<string, string>();
+    const { messagesMap, conversationsMap, agentNamesMap, viewMarkers } =
+      this.readCrossConvState(currentConvId);
+
+    // Collect all candidate conversations with their last-message timestamp,
+    // then sort by recency before applying `maxConvs`. HashMap iteration
+    // order is hash-based (not insertion/recency), so without the sort the
+    // maxConvs truncation would pick an arbitrary subset and could omit the
+    // freshest conversations.
+    const candidates: Array<{
+      convId: string;
+      newMsgs: ReadonlyArray<Message>;
+      lastTs: number;
+    }> = [];
+    for (const [convId, newMsgs] of this.iterNewMessagesByConv(
+      messagesMap,
+      viewMarkers,
+      currentConvId,
+    )) {
+      const last = newMsgs[newMsgs.length - 1]!;
+      candidates.push({
+        convId,
+        newMsgs,
+        lastTs: new Date(last.createdAt).getTime(),
+      });
+    }
+    candidates.sort((a, b) => b.lastTs - a.lastTs);
 
     const entries: CrossConversationEntry[] = [];
     const pendingAdvances: Array<[string, string]> = [];
 
-    for (const [convId, msgs] of this.messages) {
-      if (convId === currentConvId || msgs.length === 0) continue;
-      if (entries.length >= maxConvs) break;
-
-      const lastSeenId = viewMarkers.get(convId);
-      const lastSeenIdx = lastSeenId
-        ? msgs.findIndex((m) => m.id === lastSeenId)
-        : -1;
-      const newMsgs = msgs.slice(lastSeenIdx + 1);
-      if (newMsgs.length === 0) continue;
-
+    for (const { convId, newMsgs } of candidates.slice(0, maxConvs)) {
       const reportable = newMsgs.slice(-maxMsgsPerConv);
       const last = reportable[reportable.length - 1]!;
-      const senderName = this.resolveSenderLabel(last.senderId);
+      const senderName = getOr(
+        agentNamesMap,
+        last.senderId,
+        () => last.senderId,
+      );
       const minutesAgo = Math.max(
         0,
         Math.round((Date.now() - new Date(last.createdAt).getTime()) / 60_000),
       );
-      const text = last.parts.map(renderPart).join(" ");
 
       entries.push({
         conversationId: convId,
-        conversationName: this.conversations.get(convId)?.name,
+        conversationName: Option.getOrUndefined(
+          HashMap.get(conversationsMap, convId),
+        )?.name,
         senderName,
-        text,
+        text: last.parts.map(renderPart).join(" "),
         minutesAgo,
         count: reportable.length,
       });
@@ -533,14 +765,10 @@ export class MoltZapService {
       pendingAdvances.push([convId, last.id]);
     }
 
-    const commit = (): void => {
-      for (const [convId, msgId] of pendingAdvances) {
-        viewMarkers.set(convId, msgId);
-      }
-      this.lastNotified.set(currentConvId, viewMarkers);
+    return {
+      entries,
+      commit: () => this.advanceLastNotified(currentConvId, pendingAdvances),
     };
-
-    return { entries, commit };
   }
 
   /**
@@ -552,32 +780,28 @@ export class MoltZapService {
     messages: CrossConvMessage[];
     commit: () => void;
   } {
-    const viewMarkers =
-      this.lastNotified.get(currentConvId) ?? new Map<string, string>();
+    const { messagesMap, conversationsMap, agentNamesMap, viewMarkers } =
+      this.readCrossConvState(currentConvId);
 
     const allMessages: CrossConvMessage[] = [];
     const pendingAdvances: Array<[string, string]> = [];
 
-    for (const [convId, msgs] of this.messages) {
-      if (convId === currentConvId || msgs.length === 0) continue;
-
-      const lastSeenId = viewMarkers.get(convId);
-      const lastSeenIdx = lastSeenId
-        ? msgs.findIndex((m) => m.id === lastSeenId)
-        : -1;
-      const newMsgs = msgs.slice(lastSeenIdx + 1);
-      if (newMsgs.length === 0) continue;
-
-      const convName = this.conversations.get(convId)?.name;
+    for (const [convId, newMsgs] of this.iterNewMessagesByConv(
+      messagesMap,
+      viewMarkers,
+      currentConvId,
+    )) {
+      const convName = Option.getOrUndefined(
+        HashMap.get(conversationsMap, convId),
+      )?.name;
 
       for (const m of newMsgs) {
-        const text = m.parts.map(renderPart).join(" ");
         allMessages.push({
           conversationId: convId,
           conversationName: convName,
-          senderName: this.resolveSenderLabel(m.senderId),
+          senderName: getOr(agentNamesMap, m.senderId, () => m.senderId),
           senderId: m.senderId,
-          text,
+          text: m.parts.map(renderPart).join(" "),
           timestamp: m.createdAt,
         });
       }
@@ -587,14 +811,64 @@ export class MoltZapService {
 
     allMessages.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 
-    const commit = (): void => {
-      for (const [convId, msgId] of pendingAdvances) {
-        viewMarkers.set(convId, msgId);
-      }
-      this.lastNotified.set(currentConvId, viewMarkers);
+    return {
+      messages: allMessages,
+      commit: () => this.advanceLastNotified(currentConvId, pendingAdvances),
     };
+  }
 
-    return { messages: allMessages, commit };
+  private readCrossConvState(currentConvId: string): {
+    messagesMap: HashMap.HashMap<string, ReadonlyArray<Message>>;
+    conversationsMap: HashMap.HashMap<string, ConversationMeta>;
+    agentNamesMap: HashMap.HashMap<string, string>;
+    viewMarkers: HashMap.HashMap<string, string>;
+  } {
+    const lastNotifiedMap = snapshot(this.lastNotifiedRef);
+    return {
+      messagesMap: snapshot(this.messagesRef),
+      conversationsMap: snapshot(this.conversationsRef),
+      agentNamesMap: snapshot(this.agentNamesRef),
+      viewMarkers: getOr(lastNotifiedMap, currentConvId, () =>
+        HashMap.empty<string, string>(),
+      ),
+    };
+  }
+
+  private *iterNewMessagesByConv(
+    messagesMap: HashMap.HashMap<string, ReadonlyArray<Message>>,
+    viewMarkers: HashMap.HashMap<string, string>,
+    currentConvId: string,
+  ): Iterable<[string, ReadonlyArray<Message>]> {
+    for (const [convId, msgs] of messagesMap) {
+      if (convId === currentConvId || msgs.length === 0) continue;
+      const lastSeenId = Option.getOrUndefined(
+        HashMap.get(viewMarkers, convId),
+      );
+      const lastSeenIdx = lastSeenId
+        ? msgs.findIndex((m) => m.id === lastSeenId)
+        : -1;
+      const newMsgs = msgs.slice(lastSeenIdx + 1);
+      if (newMsgs.length === 0) continue;
+      yield [convId, newMsgs];
+    }
+  }
+
+  private advanceLastNotified(
+    currentConvId: string,
+    pendingAdvances: ReadonlyArray<readonly [string, string]>,
+  ): void {
+    if (pendingAdvances.length === 0) return;
+    Effect.runSync(
+      Ref.update(this.lastNotifiedRef, (outer) => {
+        let markers = getOr(outer, currentConvId, () =>
+          HashMap.empty<string, string>(),
+        );
+        for (const [convId, msgId] of pendingAdvances) {
+          markers = HashMap.set(markers, convId, msgId);
+        }
+        return HashMap.set(outer, currentConvId, markers);
+      }),
+    );
   }
 
   // --- Events ---
@@ -640,18 +914,25 @@ export class MoltZapService {
 
   // --- RPC passthrough ---
 
-  async sendRpc(method: string, params?: unknown): Promise<unknown> {
-    if (!this.client) throw new Error("Not connected");
-    return this.client.sendRpc(method, params);
+  sendRpc(
+    method: string,
+    params?: unknown,
+  ): Effect.Effect<unknown, ServiceRpcError> {
+    return Effect.suspend(() => {
+      if (!this.client) {
+        return Effect.fail(new NotConnectedError({ message: "Not connected" }));
+      }
+      return this.client.sendRpc(method, params);
+    });
   }
 
-  async grantPermission(params: {
+  grantPermission(params: {
     sessionId: string;
     agentId: string;
     resource: string;
     access: string[];
-  }): Promise<void> {
-    await this.sendRpc("permissions/grant", params);
+  }): Effect.Effect<void, ServiceRpcError> {
+    return Effect.asVoid(this.sendRpc("permissions/grant", params));
   }
 
   // --- Internals ---
@@ -661,61 +942,72 @@ export class MoltZapService {
    * into the local cache. Called on ConversationCreated events because the
    * event schema omits the participants list — see protocol/events.ts.
    */
-  private async refreshConversationParticipants(
+  private refreshConversationParticipants(
     conversationId: string,
-  ): Promise<void> {
-    try {
-      const res = (await this.sendRpc("conversations/get", {
-        conversationId,
-      })) as {
-        conversation: { id: string; type: string; name?: string };
-        participants: Array<{ participant: { type: string; id: string } }>;
-      };
-      this.conversations.set(conversationId, {
-        id: res.conversation.id,
-        type: res.conversation.type,
-        name: res.conversation.name,
-        participants: res.participants.map(
-          (p) => `${p.participant.type}:${p.participant.id}`,
-        ),
-      });
-    } catch {
+  ): Effect.Effect<void, never> {
+    return this.sendRpc("conversations/get", { conversationId }).pipe(
+      Effect.tap((res) => {
+        const typed = res as {
+          conversation: { id: string; type: string; name?: string };
+          participants: Array<{ participant: { type: string; id: string } }>;
+        };
+        const meta: ConversationMeta = {
+          id: typed.conversation.id,
+          type: typed.conversation.type,
+          name: typed.conversation.name,
+          participants: typed.participants.map(
+            (p) => `${p.participant.type}:${p.participant.id}`,
+          ),
+        };
+        return Ref.update(this.conversationsRef, (m) =>
+          HashMap.set(m, conversationId, meta),
+        );
+      }),
+      Effect.asVoid,
       // Best-effort refresh. Leave the existing entry in place on failure.
-    }
+      Effect.catchAll(() => Effect.void),
+    );
   }
 
   private populateFromHello(hello: HelloOk): void {
     if (!hello.conversations) return;
-    for (const conv of hello.conversations) {
-      this.conversations.set(conv.id, {
-        id: conv.id,
-        type: conv.type,
-        name: conv.name,
-        participants: (conv.participants ?? []).map((p) => `${p.type}:${p.id}`),
-      });
-    }
+    const incoming = hello.conversations;
+    Effect.runSync(
+      Ref.update(this.conversationsRef, (m) => {
+        let next = m;
+        for (const conv of incoming) {
+          next = HashMap.set(next, conv.id, {
+            id: conv.id,
+            type: conv.type,
+            name: conv.name,
+            participants: (conv.participants ?? []).map(
+              (p) => `${p.type}:${p.id}`,
+            ),
+          });
+        }
+        return next;
+      }),
+    );
   }
 
   private handleEvent(event: EventFrame): void {
-    for (const h of this.rawEventHandlers) h(event);
+    fanout(this.rawEventHandlers, event, this.opts.logger);
 
     switch (event.event) {
       case EventNames.MessageReceived: {
         const msg = (event.data as { message: Message }).message;
         this.storeMessage(msg);
-        // Resolve sender name in background
-        if (!this.agentNames.has(msg.senderId)) {
-          void this.resolveAgentName(msg.senderId);
-        }
-        // Emit to external handlers (only non-own messages)
-        if (msg.senderId !== this.ownAgentId) {
-          for (const h of this.messageHandlers) h(msg);
+        // Name resolution is driven lazily by channel-core's serialized
+        // consumer via resolveAgentName(), which populates agentNamesRef on
+        // first miss and hits the cache on every subsequent message.
+        if (msg.senderId !== this._ownAgentId) {
+          fanout(this.messageHandlers, msg, this.opts.logger);
         }
         break;
       }
       case EventNames.PermissionsRequired: {
         const data = event.data as PermissionRequiredData;
-        for (const h of this.permissionRequiredHandlers) h(data);
+        fanout(this.permissionRequiredHandlers, data, this.opts.logger);
         break;
       }
       case EventNames.ConversationCreated:
@@ -723,20 +1015,29 @@ export class MoltZapService {
         const data = event.data as {
           conversation: { id: string; type: string; name?: string };
         };
-        const existing = this.conversations.get(data.conversation.id);
-        this.conversations.set(data.conversation.id, {
-          id: data.conversation.id,
-          type: data.conversation.type,
-          name: data.conversation.name,
-          participants: existing?.participants ?? [],
-        });
+        Effect.runSync(
+          Ref.update(this.conversationsRef, (m) => {
+            const existing = Option.getOrUndefined(
+              HashMap.get(m, data.conversation.id),
+            );
+            return HashMap.set(m, data.conversation.id, {
+              id: data.conversation.id,
+              type: data.conversation.type,
+              name: data.conversation.name,
+              participants: existing?.participants ?? [],
+            });
+          }),
+        );
         // The ConversationCreated event schema doesn't carry participants
         // (protocol/schema/events.ts: ConversationSchema is id/type/name/
         // createdBy/timestamps only). Fetch full details asynchronously so
         // downstream code that reads getConversation(id).participants sees
         // a populated list within a round-trip of the event.
         if (event.event === EventNames.ConversationCreated) {
-          void this.refreshConversationParticipants(data.conversation.id);
+          // Fire-and-forget: refreshConversationParticipants never fails.
+          Effect.runFork(
+            this.refreshConversationParticipants(data.conversation.id),
+          );
         }
         break;
       }
@@ -744,12 +1045,20 @@ export class MoltZapService {
   }
 
   private storeMessage(msg: Message): void {
-    const buf = this.messages.get(msg.conversationId) ?? [];
-    buf.push(msg);
-    this.messages.set(msg.conversationId, buf);
-  }
-
-  private resolveSenderLabel(senderId: string): string {
-    return this.agentNames.get(senderId) ?? senderId;
+    Effect.runSync(
+      Ref.update(this.messagesRef, (m) => {
+        const existing = getOr(
+          m,
+          msg.conversationId,
+          () => [] as ReadonlyArray<Message>,
+        );
+        const appended = [...existing, msg];
+        const capped =
+          appended.length > MAX_MESSAGES_PER_CONV
+            ? appended.slice(-MAX_MESSAGES_PER_CONV)
+            : appended;
+        return HashMap.set(m, msg.conversationId, capped);
+      }),
+    );
   }
 }

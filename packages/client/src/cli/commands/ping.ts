@@ -1,23 +1,44 @@
-import { Command } from "commander";
+import { Command } from "@effect/cli";
+import { HttpClient, HttpClientRequest } from "@effect/platform";
+import { NodeHttpClient } from "@effect/platform-node";
+import { Effect } from "effect";
 import { getHttpUrl } from "../config.js";
 
-export const pingCommand = new Command("ping")
-  .description("Check if the MoltZap server is reachable")
-  .action(async () => {
-    const url = `${getHttpUrl()}/health`;
-    try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
-      if (res.ok) {
+const pingEffect: Effect.Effect<void, Error> = Effect.gen(function* () {
+  const baseUrl = yield* getHttpUrl;
+  const client = yield* HttpClient.HttpClient;
+  const response = yield* client.execute(
+    HttpClientRequest.get(`${baseUrl}/health`),
+  );
+  if (response.status < 200 || response.status >= 300) {
+    return yield* Effect.fail(
+      new Error(`Server unreachable: HTTP ${response.status}`),
+    );
+  }
+}).pipe(
+  Effect.timeout("5 seconds"),
+  Effect.provide(NodeHttpClient.layer),
+  Effect.catchAll((err) =>
+    Effect.fail(err instanceof Error ? err : new Error(String(err))),
+  ),
+);
+
+/**
+ * `moltzap ping` — hit /health on the configured server URL. Exit 0 on
+ * 2xx, 1 otherwise (message to stderr via the caught Error surface).
+ */
+export const pingCommand = Command.make("ping", {}, () =>
+  pingEffect.pipe(
+    Effect.tap(() =>
+      Effect.sync(() => {
         console.log("Server reachable");
-        process.exit(0);
-      } else {
-        console.error(`Server unreachable: HTTP ${res.status}`);
+      }),
+    ),
+    Effect.catchAll((err) =>
+      Effect.sync(() => {
+        console.error(`Server unreachable: ${err.message}`);
         process.exit(1);
-      }
-    } catch (err) {
-      console.error(
-        `Server unreachable: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      process.exit(1);
-    }
-  });
+      }),
+    ),
+  ),
+).pipe(Command.withDescription("Check if the MoltZap server is reachable"));

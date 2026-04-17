@@ -1,4 +1,6 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { it } from "@effect/vitest";
+import { Effect } from "effect";
 import { startTestServer, stopTestServer, resetTestDb } from "./helpers.js";
 import { MoltZapTestClient } from "@moltzap/protocol/test-client";
 import { getCoreDb } from "../../test-utils/index.js";
@@ -21,40 +23,55 @@ beforeEach(async () => {
 });
 
 describe("Auth Failure", () => {
-  it("bad API key is rejected with authentication error", async () => {
-    const client = new MoltZapTestClient(baseUrl, wsUrl);
+  it.live("bad API key is rejected with authentication error", () =>
+    Effect.gen(function* () {
+      const client = new MoltZapTestClient(baseUrl, wsUrl);
 
-    await expect(client.connect("invalid_key_12345")).rejects.toThrow(
-      "Authentication failed",
-    );
+      const result = yield* Effect.exit(client.connect("invalid_key_12345"));
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") {
+        expect(String(result.cause)).toContain("Authentication failed");
+      }
 
-    client.close();
-  });
+      yield* client.close();
+    }),
+  );
 
-  it("unauthenticated RPC call is rejected", async () => {
-    const client = new MoltZapTestClient(baseUrl, wsUrl);
+  it.live("unauthenticated RPC call is rejected", () =>
+    Effect.gen(function* () {
+      const client = new MoltZapTestClient(baseUrl, wsUrl);
 
-    await expect(
-      client.connect("mz_totally_fake_api_key_000000000000"),
-    ).rejects.toThrow("Authentication failed");
+      const result = yield* Effect.exit(
+        client.connect("mz_totally_fake_api_key_000000000000"),
+      );
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") {
+        expect(String(result.cause)).toContain("Authentication failed");
+      }
 
-    client.close();
-  });
+      yield* client.close();
+    }),
+  );
 
-  it("suspended agent cannot call protected RPCs", async () => {
-    const client = new MoltZapTestClient(baseUrl, wsUrl);
-    const reg = await client.register("suspended-agent");
+  it.live("suspended agent cannot call protected RPCs", () =>
+    Effect.gen(function* () {
+      const client = new MoltZapTestClient(baseUrl, wsUrl);
+      const reg = yield* client.register("suspended-agent");
 
-    // Suspend via direct DB update
-    const db = getCoreDb();
-    await db
-      .updateTable("agents")
-      .set({ status: "suspended" })
-      .where("id", "=", reg.agentId)
-      .execute();
+      // Suspend via direct DB update
+      const db = getCoreDb();
+      yield* Effect.tryPromise(() =>
+        db
+          .updateTable("agents")
+          .set({ status: "suspended" })
+          .where("id", "=", reg.agentId)
+          .execute(),
+      );
 
-    await expect(client.connect(reg.apiKey)).rejects.toThrow();
+      const result = yield* Effect.exit(client.connect(reg.apiKey));
+      expect(result._tag).toBe("Failure");
 
-    client.close();
-  });
+      yield* client.close();
+    }),
+  );
 });

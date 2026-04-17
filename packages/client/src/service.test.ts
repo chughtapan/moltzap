@@ -1,64 +1,57 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import * as path from "node:path";
+import * as os from "node:os";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Effect } from "effect";
 import type { Message } from "@moltzap/protocol";
 import { EventNames } from "@moltzap/protocol";
-import { MoltZapService, sanitizeForSystemReminder } from "./service.js";
+import { sanitizeForSystemReminder } from "./service.js";
+import { FakeMoltZapService } from "./test-utils/fake-service.js";
 
-class FakeMoltZapService extends MoltZapService {
-  calls: Array<{ method: string; params: unknown }> = [];
-  responses = new Map<string, unknown>();
-
-  constructor() {
-    super({ serverUrl: "ws://test.invalid", agentKey: "test-key" });
-  }
-
-  override async sendRpc(method: string, params?: unknown): Promise<unknown> {
-    this.calls.push({ method, params });
-    if (this.responses.has(method)) {
-      return this.responses.get(method);
-    }
-    throw new Error(`FakeMoltZapService: no canned response for ${method}`);
-  }
-
-  // --- Test harness: reach into private state ---
-  addMessage(convId: string, msg: Message): void {
-    const buf =
-      (this as unknown as { messages: Map<string, Message[]> }).messages.get(
-        convId,
-      ) ?? [];
-    buf.push(msg);
-    (this as unknown as { messages: Map<string, Message[]> }).messages.set(
-      convId,
-      buf,
-    );
-  }
-
-  setAgentNameDirect(id: string, name: string): void {
-    (this as unknown as { agentNames: Map<string, string> }).agentNames.set(
-      id,
-      name,
-    );
-  }
-}
+/** Run a service Effect to a Promise for test assertions. */
+const run = <A, E>(e: Effect.Effect<A, E>): Promise<A> => Effect.runPromise(e);
 
 describe("MoltZapService.sendToAgent", () => {
   let service: FakeMoltZapService;
 
   beforeEach(() => {
     service = new FakeMoltZapService();
-    service.responses.set("agents/lookupByName", {
-      agent: { id: "agent-alice-id" },
+    // `setResponse` is typed: the wire name must be a `RpcMethodName` literal
+    // and the value must match `RpcMap[M]["result"]`. Both guard against the
+    // contract-drift bug (A7) that motivated this fake.
+    service.setResponse("agents/lookupByName", {
+      agents: [
+        {
+          id: "agent-alice-id",
+          name: "alice",
+          status: "active",
+        },
+      ],
     });
-    service.responses.set("conversations/create", {
-      conversation: { id: "conv-alice" },
+    service.setResponse("conversations/create", {
+      conversation: {
+        id: "conv-alice",
+        type: "dm",
+        createdBy: "agent-self",
+        createdAt: "2026-04-16T00:00:00Z",
+        updatedAt: "2026-04-16T00:00:00Z",
+      },
     });
-    service.responses.set("messages/send", {});
+    service.setResponse("messages/send", {
+      message: {
+        id: "msg-1",
+        conversationId: "conv-alice",
+        senderId: "agent-self",
+        parts: [{ type: "text", text: "placeholder" }],
+        createdAt: "2026-04-16T00:00:00Z",
+      } as Message,
+    });
   });
 
   it("resolves agent name, creates a DM, and sends the message on first call", async () => {
-    await service.sendToAgent("alice", "hello");
+    await run(service.sendToAgent("alice", "hello"));
 
     expect(service.calls).toEqual([
-      { method: "agents/lookupByName", params: { name: "alice" } },
+      { method: "agents/lookupByName", params: { names: ["alice"] } },
       {
         method: "conversations/create",
         params: {
@@ -77,10 +70,10 @@ describe("MoltZapService.sendToAgent", () => {
   });
 
   it("caches the conversation id and skips lookup on subsequent calls", async () => {
-    await service.sendToAgent("alice", "first");
+    await run(service.sendToAgent("alice", "first"));
     service.calls = [];
 
-    await service.sendToAgent("alice", "second");
+    await run(service.sendToAgent("alice", "second"));
 
     expect(service.calls).toEqual([
       {
@@ -94,7 +87,9 @@ describe("MoltZapService.sendToAgent", () => {
   });
 
   it("forwards replyTo to messages/send as replyToId", async () => {
-    await service.sendToAgent("alice", "reply text", { replyTo: "msg-123" });
+    await run(
+      service.sendToAgent("alice", "reply text", { replyTo: "msg-123" }),
+    );
 
     const sendCall = service.calls.find((c) => c.method === "messages/send");
     expect(sendCall?.params).toEqual({
@@ -105,22 +100,28 @@ describe("MoltZapService.sendToAgent", () => {
   });
 
   it("maintains separate cache entries per agent name", async () => {
-    service.responses.set("agents/lookupByName", {
-      agent: { id: "agent-alice-id" },
+    service.setResponse("agents/lookupByName", {
+      agents: [{ id: "agent-alice-id", name: "alice", status: "active" }],
     });
-    await service.sendToAgent("alice", "hello alice");
+    await run(service.sendToAgent("alice", "hello alice"));
 
-    service.responses.set("agents/lookupByName", {
-      agent: { id: "agent-bob-id" },
+    service.setResponse("agents/lookupByName", {
+      agents: [{ id: "agent-bob-id", name: "bob", status: "active" }],
     });
-    service.responses.set("conversations/create", {
-      conversation: { id: "conv-bob" },
+    service.setResponse("conversations/create", {
+      conversation: {
+        id: "conv-bob",
+        type: "dm",
+        createdBy: "agent-self",
+        createdAt: "2026-04-16T00:00:00Z",
+        updatedAt: "2026-04-16T00:00:00Z",
+      },
     });
-    await service.sendToAgent("bob", "hello bob");
+    await run(service.sendToAgent("bob", "hello bob"));
 
     service.calls = [];
-    await service.sendToAgent("alice", "alice again");
-    await service.sendToAgent("bob", "bob again");
+    await run(service.sendToAgent("alice", "alice again"));
+    await run(service.sendToAgent("bob", "bob again"));
 
     const sendCalls = service.calls.filter((c) => c.method === "messages/send");
     expect(sendCalls).toHaveLength(2);
@@ -132,26 +133,34 @@ describe("MoltZapService.sendToAgent", () => {
     ).toBe("conv-bob");
   });
 
-  it("propagates errors from agents/lookupByName", async () => {
-    service.responses.delete("agents/lookupByName");
+  it("throws a clear error when no agent is found for the given name", async () => {
+    service.setResponse("agents/lookupByName", { agents: [] });
 
-    await expect(service.sendToAgent("alice", "hi")).rejects.toThrow(
+    await expect(run(service.sendToAgent("nobody", "hi"))).rejects.toThrow(
+      /Agent not found: nobody/,
+    );
+  });
+
+  it("propagates errors from agents/lookupByName", async () => {
+    service.deleteResponse("agents/lookupByName");
+
+    await expect(run(service.sendToAgent("alice", "hi"))).rejects.toThrow(
       /no canned response for agents\/lookupByName/,
     );
   });
 
   it("propagates errors from conversations/create", async () => {
-    service.responses.delete("conversations/create");
+    service.deleteResponse("conversations/create");
 
-    await expect(service.sendToAgent("alice", "hi")).rejects.toThrow(
+    await expect(run(service.sendToAgent("alice", "hi"))).rejects.toThrow(
       /no canned response for conversations\/create/,
     );
   });
 
   it("propagates errors from messages/send", async () => {
-    service.responses.delete("messages/send");
+    service.deleteResponse("messages/send");
 
-    await expect(service.sendToAgent("alice", "hi")).rejects.toThrow(
+    await expect(run(service.sendToAgent("alice", "hi"))).rejects.toThrow(
       /no canned response for messages\/send/,
     );
   });
@@ -625,14 +634,16 @@ describe("MoltZapService.on('permissionRequired')", () => {
 describe("MoltZapService.grantPermission", () => {
   it("sends permissions/grant RPC", async () => {
     const service = new FakeMoltZapService();
-    service.responses.set("permissions/grant", {});
+    service.setResponse("permissions/grant", {});
 
-    await service.grantPermission({
-      sessionId: "sess-1",
-      agentId: "agent-2",
-      resource: "contacts",
-      access: ["read"],
-    });
+    await run(
+      service.grantPermission({
+        sessionId: "sess-1",
+        agentId: "agent-2",
+        resource: "contacts",
+        access: ["read"],
+      }),
+    );
 
     expect(service.calls).toContainEqual({
       method: "permissions/grant",
@@ -643,5 +654,149 @@ describe("MoltZapService.grantPermission", () => {
         access: ["read"],
       },
     });
+  });
+});
+
+describe("MoltZapService.socketPath — agentId sanitization", () => {
+  /**
+   * The socket path is composed from a server-assigned `agentId`. A
+   * compromised or malicious server that returns an id containing `..`
+   * or path separators could otherwise escape `~/.moltzap` via a naive
+   * `path.join`. `safeAgentIdSegment` (exercised via the public
+   * `socketPath` getter) must collapse any non-matching id to the
+   * literal string `"default"`.
+   *
+   * Implementation detail under test: `safeAgentIdSegment` is a private
+   * static that validates against `/^[A-Za-z0-9_-]+$/`. We drive it via
+   * the public `socketPath` getter to avoid reaching through `Reflect`
+   * into private statics.
+   */
+
+  const expectedDefaultPath = path.join(
+    os.homedir(),
+    ".moltzap",
+    "service-default.sock",
+  );
+
+  /** Write directly into `_ownAgentId` so `socketPath` reads the test value. */
+  function setOwnAgentId(service: FakeMoltZapService, id: string): void {
+    Reflect.set(service as unknown as object, "_ownAgentId", id);
+  }
+
+  it("accepts safe alphanumeric agent ids verbatim", () => {
+    const service = new FakeMoltZapService();
+    setOwnAgentId(service, "agent-abc_123");
+    expect(service.socketPath).toBe(
+      path.join(os.homedir(), ".moltzap", "service-agent-abc_123.sock"),
+    );
+  });
+
+  it("rejects `..` traversal and falls back to `service-default.sock`", () => {
+    const service = new FakeMoltZapService();
+    setOwnAgentId(service, "../etc/passwd");
+    expect(service.socketPath).toBe(expectedDefaultPath);
+    // The dangerous segment must not appear anywhere in the resolved path.
+    expect(service.socketPath).not.toContain("..");
+    expect(service.socketPath).not.toContain("etc/passwd");
+  });
+
+  it("rejects forward-slash separators", () => {
+    const service = new FakeMoltZapService();
+    setOwnAgentId(service, "foo/bar");
+    expect(service.socketPath).toBe(expectedDefaultPath);
+  });
+
+  it("rejects a plain `..` agent id", () => {
+    const service = new FakeMoltZapService();
+    setOwnAgentId(service, "..");
+    expect(service.socketPath).toBe(expectedDefaultPath);
+  });
+
+  it("rejects empty-string and whitespace agent ids", () => {
+    const service = new FakeMoltZapService();
+    setOwnAgentId(service, "");
+    expect(service.socketPath).toBe(expectedDefaultPath);
+
+    setOwnAgentId(service, " ");
+    expect(service.socketPath).toBe(expectedDefaultPath);
+  });
+
+  it("rejects shell metacharacters and path-like punctuation", () => {
+    const service = new FakeMoltZapService();
+    for (const bad of [
+      "a;b",
+      "a|b",
+      "a$b",
+      "a\\b",
+      "a\nb",
+      ".hidden",
+      "foo.sock",
+    ]) {
+      setOwnAgentId(service, bad);
+      expect(service.socketPath).toBe(expectedDefaultPath);
+    }
+  });
+
+  it("falls back to `default` when no agent id has been assigned yet", () => {
+    const service = new FakeMoltZapService();
+    // _ownAgentId defaults to undefined; socketPath should still be stable.
+    expect(service.socketPath).toBe(expectedDefaultPath);
+  });
+
+  it("keeps the socket inside ~/.moltzap/ for every rejected id", () => {
+    const service = new FakeMoltZapService();
+    const moltzapDir = path.join(os.homedir(), ".moltzap") + path.sep;
+    for (const bad of ["../foo", "a/b", "a\x00b", "a\\b"]) {
+      setOwnAgentId(service, bad);
+      expect(service.socketPath.startsWith(moltzapDir)).toBe(true);
+    }
+  });
+});
+
+describe("MoltZapService.fanout — message handlers", () => {
+  it("runs all handlers even if one throws, logging via the provided logger", () => {
+    const logger = {
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    };
+    const service = new FakeMoltZapService();
+    // Monkey-patch the internal logger so fanout can log via it. The opts
+    // field is private; accessing via Reflect keeps the test minimal.
+    (service as unknown as { opts: { logger: typeof logger } }).opts.logger =
+      logger;
+
+    const seen: Message[] = [];
+    service.on("message", () => {
+      throw new Error("first handler boom");
+    });
+    service.on("message", (m) => {
+      seen.push(m);
+    });
+
+    const msg: Message = {
+      id: "m-1",
+      conversationId: "conv-1",
+      senderId: "agent-other",
+      parts: [{ type: "text", text: "hi" }],
+      createdAt: "2026-04-16T00:00:00.000Z",
+    } as Message;
+    const event = {
+      jsonrpc: "2.0" as const,
+      type: "event" as const,
+      event: EventNames.MessageReceived,
+      data: { message: msg },
+    };
+
+    // handleEvent is private; reach into it the same way the existing
+    // permissions test does.
+    (Reflect.get(service, "handleEvent") as (e: typeof event) => void).call(
+      service,
+      event,
+    );
+
+    // Second handler still fired despite first handler throwing.
+    expect(seen).toEqual([msg]);
+    expect(logger.error).toHaveBeenCalledOnce();
   });
 });

@@ -1,22 +1,25 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { Effect, Option } from "effect";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { sendCommand } from "./send.js";
 
-const mockRequest = vi.fn().mockResolvedValue({ message: { id: "msg-123" } });
+const mockRequest = vi.fn(() => Effect.succeed({ message: { id: "msg-123" } }));
 
 vi.mock("../socket-client.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../socket-client.js")>();
   return {
     ...actual,
-    request: (...args: unknown[]) => mockRequest(...args),
+    request: (...args: unknown[]) => mockRequest(...(args as [])),
   };
 });
 
-describe("send command", () => {
+describe("send command handler", () => {
   const originalExit = process.exit;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockRequest.mockResolvedValue({ message: { id: "msg-123" } });
+    mockRequest.mockImplementation(() =>
+      Effect.succeed({ message: { id: "msg-123" } }),
+    );
     process.exit = vi.fn() as never;
   });
 
@@ -25,13 +28,13 @@ describe("send command", () => {
   });
 
   it("sends to conversation by conv: prefix", async () => {
-    await sendCommand.parseAsync([
-      "node",
-      "test",
-      "conv:abc-123",
-      "Hello world",
-    ]);
-
+    await Effect.runPromise(
+      sendCommand.handler({
+        target: "conv:abc-123",
+        message: "Hello world",
+        replyTo: Option.none(),
+      }),
+    );
     expect(mockRequest).toHaveBeenCalledWith("messages/send", {
       conversationId: "abc-123",
       parts: [{ type: "text", text: "Hello world" }],
@@ -39,8 +42,13 @@ describe("send command", () => {
   });
 
   it("sends to agent target without conv: prefix", async () => {
-    await sendCommand.parseAsync(["node", "test", "agent:alice", "Hi Alice"]);
-
+    await Effect.runPromise(
+      sendCommand.handler({
+        target: "agent:alice",
+        message: "Hi Alice",
+        replyTo: Option.none(),
+      }),
+    );
     expect(mockRequest).toHaveBeenCalledWith("messages/send", {
       to: "agent:alice",
       parts: [{ type: "text", text: "Hi Alice" }],
@@ -48,15 +56,13 @@ describe("send command", () => {
   });
 
   it("includes replyToId when --reply-to is provided", async () => {
-    await sendCommand.parseAsync([
-      "node",
-      "test",
-      "conv:abc-123",
-      "Reply text",
-      "--reply-to",
-      "msg-original",
-    ]);
-
+    await Effect.runPromise(
+      sendCommand.handler({
+        target: "conv:abc-123",
+        message: "Reply text",
+        replyTo: Option.some("msg-original"),
+      }),
+    );
     expect(mockRequest).toHaveBeenCalledWith("messages/send", {
       conversationId: "abc-123",
       parts: [{ type: "text", text: "Reply text" }],

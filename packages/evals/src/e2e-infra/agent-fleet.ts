@@ -6,9 +6,11 @@
  * handle for cleanup and log access.
  */
 
+import { Duration, Effect } from "effect";
 import { DockerManager, type AgentContainer } from "./docker-manager.js";
 import { NanoclawManager, type NanoclawAgent } from "./nanoclaw-manager.js";
 import { logger } from "./logger.js";
+import { ContainerError } from "./types.js";
 
 export type AgentRuntime = "openclaw" | "nanoclaw";
 
@@ -18,7 +20,7 @@ export interface FleetAgent {
 
 export interface AgentFleet {
   agents: FleetAgent[];
-  stopAll(): Promise<void>;
+  stopAll(): Promise<void>; // #ignore-sloppy-code[promise-type]: fleet public API — caller `runE2EEvalsImpl` still awaits at the process edge
   getLogs(name: string): string;
 }
 
@@ -35,23 +37,37 @@ export interface LaunchFleetOpts {
   connectTimeoutMs?: number;
 }
 
-const POST_CONNECT_SETTLE_MS = 2_000;
+const POST_CONNECT_SETTLE = Duration.seconds(2);
 
-export async function launchFleet(opts: LaunchFleetOpts): Promise<AgentFleet> {
-  if (opts.runtime === "openclaw") {
-    return launchOpenClawFleet(opts);
-  }
-  return launchNanoclawFleet(opts);
+/** Effect-native fleet launcher. Caller at the process edge (`runE2EEvals`) bridges via `runPromise`. */
+export const launchFleetEffect = (
+  opts: LaunchFleetOpts,
+): Effect.Effect<AgentFleet, Error> =>
+  opts.runtime === "openclaw"
+    ? launchOpenClawFleet(opts)
+    : launchNanoclawFleet(opts);
+
+// #ignore-sloppy-code-next-line[promise-type]: process-edge bridge for `runE2EEvalsImpl`
+export function launchFleet(opts: LaunchFleetOpts): Promise<AgentFleet> {
+  return Effect.runPromise(launchFleetEffect(opts));
 }
 
-async function launchOpenClawFleet(opts: LaunchFleetOpts): Promise<AgentFleet> {
-  const dockerManager = new DockerManager();
-  await dockerManager.ensureImage();
+const launchOpenClawFleet = (
+  opts: LaunchFleetOpts,
+): Effect.Effect<AgentFleet, Error> =>
+  Effect.gen(function* () {
+    const dockerManager = new DockerManager();
+    yield* Effect.try({
+      try: () => dockerManager.ensureImage(),
+      catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+    });
 
-  let containers: AgentContainer[];
-  try {
-    containers = await Promise.all(
-      opts.agents.map((agent) =>
+    // Parallel startup: each agent runs its own Effect. On partial failure,
+    // tapError stops any already-started containers before the typed
+    // ContainerError surfaces.
+    const startAll = Effect.forEach(
+      opts.agents,
+      (agent) =>
         dockerManager.startAgentAndWait({
           name: agent.name,
           moltzapServerUrl: opts.serverUrl,
@@ -60,96 +76,132 @@ async function launchOpenClawFleet(opts: LaunchFleetOpts): Promise<AgentFleet> {
           workspaceFiles: opts.workspaceFiles?.(agent.name),
           connectTimeoutMs: opts.connectTimeoutMs ?? 180_000,
         }),
-      ),
+      { concurrency: "unbounded" },
+    ).pipe(Effect.tapError(() => dockerManager.stopAll().pipe(Effect.ignore)));
+
+    const containers: AgentContainer[] = yield* startAll.pipe(
+      Effect.tap(() => Effect.sleep(POST_CONNECT_SETTLE)),
+      Effect.mapError((err) => new Error(err.message)),
     );
-  } catch (err) {
-    // Partial failure: stop already-started containers before rethrowing.
-    await dockerManager.stopAll();
-    throw err;
-  }
 
-  // Grace delay: let the server register all connections before callers proceed.
-  await new Promise((r) => setTimeout(r, POST_CONNECT_SETTLE_MS));
+    yield* Effect.sync(() =>
+      logger.info(`Fleet started: ${containers.length} openclaw agent(s)`),
+    );
 
-  logger.info(`Fleet started: ${containers.length} openclaw agent(s)`);
+    const agentMap = new Map(containers.map((c) => [c.name, c]));
 
-  const agentMap = new Map(containers.map((c) => [c.name, c]));
-
-  return {
-    agents: containers.map((c) => ({ name: c.name })),
-    async stopAll() {
-      // Capture logs before stopping for post-mortem access.
-      for (const c of containers) {
-        const logs = dockerManager.getContainerLogs(c);
-        if (logs && logs !== "(no logs available)") {
-          const last20 = logs.split("\n").slice(-20).join("\n");
-          logger.info(`Fleet agent "${c.name}" logs (last 20):\n${last20}`);
+    return {
+      agents: containers.map((c) => ({ name: c.name })),
+      stopAll: () =>
+        Effect.runPromise(
+          Effect.gen(function* () {
+            // Capture logs before stopping for post-mortem access.
+            for (const c of containers) {
+              const logs = dockerManager.getContainerLogs(c);
+              if (logs && logs !== "(no logs available)") {
+                const last20 = logs.split("\n").slice(-20).join("\n");
+                yield* Effect.sync(() =>
+                  logger.info(
+                    `Fleet agent "${c.name}" logs (last 20):\n${last20}`,
+                  ),
+                );
+              }
+            }
+            yield* dockerManager.stopAll();
+          }),
+        ),
+      getLogs(name: string): string {
+        const container = agentMap.get(name);
+        if (!container) {
+          throw new Error(
+            `Unknown fleet agent "${name}". Known agents: ${[...agentMap.keys()].join(", ")}`,
+          );
         }
-      }
-      await dockerManager.stopAll();
-    },
-    getLogs(name: string): string {
-      const container = agentMap.get(name);
-      if (!container) {
-        throw new Error(
-          `Unknown fleet agent "${name}". Known agents: ${[...agentMap.keys()].join(", ")}`,
-        );
-      }
-      return dockerManager.getContainerLogs(container);
-    },
-  };
-}
+        return dockerManager.getContainerLogs(container);
+      },
+    } satisfies AgentFleet;
+  });
 
-async function launchNanoclawFleet(opts: LaunchFleetOpts): Promise<AgentFleet> {
-  const nanoclawManager = new NanoclawManager();
-  await nanoclawManager.ensureInstalled();
+const launchNanoclawFleet = (
+  opts: LaunchFleetOpts,
+): Effect.Effect<AgentFleet, Error> =>
+  Effect.gen(function* () {
+    const nanoclawManager = new NanoclawManager();
+    yield* Effect.tryPromise({
+      try: () => nanoclawManager.ensureInstalled(),
+      catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+    });
 
-  const agents: NanoclawAgent[] = [];
-  try {
-    // Sequential to avoid overwhelming OneCLI/Docker.
-    for (const agentOpts of opts.agents) {
-      const agent = await nanoclawManager.startAgent({
-        name: agentOpts.name,
-        apiKey: agentOpts.apiKey,
-        serverUrl: opts.serverUrl,
-        workspaceFiles: opts.workspaceFiles?.(agentOpts.name),
-      });
-      agents.push(agent);
-    }
-  } catch (err) {
-    // Partial failure: stop already-started agents before rethrowing.
-    await nanoclawManager.stopAll();
-    throw err;
-  }
+    // Sequential — nanoclaw spawns subcontainers via OneCLI and parallel starts
+    // overwhelm the gateway. Effect.forEach without `concurrency` is sequential.
+    const startAll = Effect.forEach(opts.agents, (agentOpts) =>
+      Effect.tryPromise({
+        try: () =>
+          nanoclawManager.startAgent({
+            name: agentOpts.name,
+            apiKey: agentOpts.apiKey,
+            serverUrl: opts.serverUrl,
+            workspaceFiles: opts.workspaceFiles?.(agentOpts.name),
+          }),
+        catch: (e) =>
+          new ContainerError({
+            containerName: agentOpts.name,
+            phase: "start",
+            message: e instanceof Error ? e.message : String(e),
+          }),
+      }),
+    ).pipe(
+      Effect.tapError(() =>
+        Effect.tryPromise({
+          try: () => nanoclawManager.stopAll(),
+          catch: () => undefined,
+        }).pipe(Effect.ignore),
+      ),
+      // Grace delay: let the server register all connections before callers proceed.
+      Effect.tap(() => Effect.sleep(POST_CONNECT_SETTLE)),
+      Effect.mapError((err) => new Error(err.message)),
+    );
 
-  // Grace delay: let the server register all connections before callers proceed.
-  await new Promise((r) => setTimeout(r, POST_CONNECT_SETTLE_MS));
+    const agents: NanoclawAgent[] = yield* startAll;
 
-  logger.info(`Fleet started: ${agents.length} nanoclaw agent(s)`);
+    yield* Effect.sync(() =>
+      logger.info(`Fleet started: ${agents.length} nanoclaw agent(s)`),
+    );
 
-  const agentMap = new Map(agents.map((a) => [a.name, a]));
+    const agentMap = new Map(agents.map((a) => [a.name, a]));
 
-  return {
-    agents: agents.map((a) => ({ name: a.name })),
-    async stopAll() {
-      // Capture logs before stopping for post-mortem access.
-      for (const a of agents) {
-        const logs = nanoclawManager.getAgentLogs(a);
-        if (logs) {
-          const last20 = logs.split("\n").slice(-20).join("\n");
-          logger.info(`Fleet agent "${a.name}" logs (last 20):\n${last20}`);
+    return {
+      agents: agents.map((a) => ({ name: a.name })),
+      stopAll: () =>
+        Effect.runPromise(
+          Effect.gen(function* () {
+            // Capture logs before stopping for post-mortem access.
+            for (const a of agents) {
+              const logs = nanoclawManager.getAgentLogs(a);
+              if (logs) {
+                const last20 = logs.split("\n").slice(-20).join("\n");
+                yield* Effect.sync(() =>
+                  logger.info(
+                    `Fleet agent "${a.name}" logs (last 20):\n${last20}`,
+                  ),
+                );
+              }
+            }
+            yield* Effect.tryPromise({
+              try: () => nanoclawManager.stopAll(),
+              catch: (err) =>
+                err instanceof Error ? err : new Error(String(err)),
+            });
+          }),
+        ),
+      getLogs(name: string): string {
+        const agent = agentMap.get(name);
+        if (!agent) {
+          throw new Error(
+            `Unknown fleet agent "${name}". Known agents: ${[...agentMap.keys()].join(", ")}`,
+          );
         }
-      }
-      await nanoclawManager.stopAll();
-    },
-    getLogs(name: string): string {
-      const agent = agentMap.get(name);
-      if (!agent) {
-        throw new Error(
-          `Unknown fleet agent "${name}". Known agents: ${[...agentMap.keys()].join(", ")}`,
-        );
-      }
-      return nanoclawManager.getAgentLogs(agent);
-    },
-  };
-}
+        return nanoclawManager.getAgentLogs(agent);
+      },
+    } satisfies AgentFleet;
+  });

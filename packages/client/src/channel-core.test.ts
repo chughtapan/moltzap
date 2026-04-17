@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Effect } from "effect";
 import type { Message } from "@moltzap/protocol";
 
 import {
@@ -59,20 +60,20 @@ describe("MoltZapChannelCore", () => {
   describe("lifecycle", () => {
     it("connect() delegates to service and sets connected", async () => {
       expect(core.isConnected()).toBe(false);
-      await core.connect();
+      await Effect.runPromise(core.connect());
       expect(fake.state.connectCalls.count).toBe(1);
       expect(core.isConnected()).toBe(true);
     });
 
     it("disconnect() closes the service and clears the connected flag", async () => {
-      await core.connect();
-      await core.disconnect();
+      await Effect.runPromise(core.connect());
+      await Effect.runPromise(core.disconnect());
       expect(fake.state.closeCalls.count).toBe(1);
       expect(core.isConnected()).toBe(false);
     });
 
     it("disconnect event from the service clears the connected flag", async () => {
-      await core.connect();
+      await Effect.runPromise(core.connect());
       fake.emit.disconnect();
       expect(core.isConnected()).toBe(false);
     });
@@ -85,7 +86,7 @@ describe("MoltZapChannelCore", () => {
     it("onDisconnect handlers fire on disconnect event", async () => {
       const spy = vi.fn();
       core.onDisconnect(spy);
-      await core.connect();
+      await Effect.runPromise(core.connect());
       fake.emit.disconnect();
       expect(spy).toHaveBeenCalledOnce();
     });
@@ -274,11 +275,13 @@ describe("MoltZapChannelCore", () => {
       fake.state.setConversation("conv-1", { type: "dm", participants: [] });
       forceResolveAgentNamePath(fake);
 
-      // Hold the resolveAgentName promises so we can control timing.
+      // Hold the resolveAgentName promises so we can control timing. The
+      // fake returns an async-style Effect that resumes once the test calls
+      // the recorded resolver — this mirrors the pre-Effect Promise flow.
       const resolvers: Array<(name: string) => void> = [];
       fake.service.resolveAgentName = (id: string) =>
-        new Promise<string>((resolve) => {
-          resolvers.push(() => resolve(id));
+        Effect.async<string, never>((resume) => {
+          resolvers.push(() => resume(Effect.succeed(id)));
         });
 
       fake.emit.message(buildMessage({ id: "msg-1" }));
@@ -557,7 +560,7 @@ describe("MoltZapChannelCore", () => {
 
   describe("sendReply", () => {
     it("delegates to service.send with conversationId and text", async () => {
-      await core.sendReply("conv-42", "hello there");
+      await Effect.runPromise(core.sendReply("conv-42", "hello there"));
       expect(fake.state.sent).toEqual([
         { convId: "conv-42", text: "hello there" },
       ]);
@@ -588,8 +591,9 @@ describe("MoltZapChannelCore", () => {
         parts: [{ type: "text", text: "static enrichment" }],
       });
 
-      const { enriched: staticResult, commitContext } =
-        await MoltZapChannelCore.enrichMessage(service, msg);
+      const { enriched: staticResult, commitContext } = await Effect.runPromise(
+        MoltZapChannelCore.enrichMessage(service, msg),
+      );
 
       expect(staticResult).toMatchObject({
         id: "msg-static",
@@ -612,12 +616,107 @@ describe("MoltZapChannelCore", () => {
         new Error("Not connected"),
       );
 
-      const { enriched: result } = await MoltZapChannelCore.enrichMessage(
-        fake.service,
-        buildMessage({ senderId: "agent-unknown" }),
+      const { enriched: result } = await Effect.runPromise(
+        MoltZapChannelCore.enrichMessage(
+          fake.service,
+          buildMessage({ senderId: "agent-unknown" }),
+        ),
       );
 
       expect(result.sender.name).toBe("agent-unknown");
+    });
+  });
+
+  describe("fanout guards", () => {
+    it("disconnect: running handlers continue after one throws; logger.error sees 'disconnect handler threw'", async () => {
+      const { fake, core, errorSpy } = customSetup();
+      const recorded: string[] = [];
+      core.onDisconnect(() => {
+        throw new Error("first disconnect boom");
+      });
+      core.onDisconnect(() => {
+        recorded.push("second");
+      });
+
+      await Effect.runPromise(core.connect());
+      fake.emit.disconnect();
+
+      expect(recorded).toEqual(["second"]);
+      expect(errorSpy).toHaveBeenCalled();
+      const msgs = errorSpy.mock.calls.map(
+        (c: unknown[]) => (typeof c[1] === "string" ? c[1] : c[0]) as string,
+      );
+      expect(
+        msgs.some(
+          (m) =>
+            typeof m === "string" && m.includes("disconnect handler threw"),
+        ),
+      ).toBe(true);
+    });
+
+    it("reconnect: running handlers continue after one throws; logger.error sees 'reconnect handler threw'", () => {
+      const { fake, core, errorSpy } = customSetup();
+      const recorded: string[] = [];
+      core.onReconnect(() => {
+        throw new Error("first reconnect boom");
+      });
+      core.onReconnect(() => {
+        recorded.push("second");
+      });
+
+      fake.emit.reconnect();
+
+      expect(recorded).toEqual(["second"]);
+      const msgs = errorSpy.mock.calls.map(
+        (c: unknown[]) => (typeof c[1] === "string" ? c[1] : c[0]) as string,
+      );
+      expect(
+        msgs.some(
+          (m) => typeof m === "string" && m.includes("reconnect handler threw"),
+        ),
+      ).toBe(true);
+    });
+  });
+
+  describe("handleInbound does not commit context on handler throw", () => {
+    it("leaves markers unadvanced so the next message re-sees the same context entries", async () => {
+      const { fake, core } = customSetup();
+      fake.state.setConversation("conv-1", { type: "dm", participants: [] });
+      fake.state.setAgentName("agent-alice", "Alice");
+      fake.state.setContextEntries("conv-1", [
+        {
+          conversationId: "conv-other",
+          senderName: "Bob",
+          text: "first visit",
+          minutesAgo: 1,
+          count: 1,
+        },
+      ]);
+
+      let shouldThrow = true;
+      const received: EnrichedInboundMessage[] = [];
+      core.onInbound((m) => {
+        received.push(m);
+        if (shouldThrow) {
+          throw new Error("inbound handler boom");
+        }
+      });
+
+      // First message: handler throws after capturing the enriched payload.
+      // commitContext() must NOT run, so the fake's contextEntries remain.
+      fake.emit.message(buildMessage({ id: "msg-1" }));
+      await flushDispatchChain();
+      expect(received[0]!.contextBlocks.crossConversation).toHaveLength(1);
+
+      // Second message: handler succeeds. Because the first message didn't
+      // commit, the fake still returns the same entries.
+      shouldThrow = false;
+      fake.emit.message(buildMessage({ id: "msg-2" }));
+      await flushDispatchChain();
+      expect(received[1]!.contextBlocks.crossConversation).toHaveLength(1);
+      expect(received[1]!.contextBlocks.crossConversation![0]!.text).toBe(
+        "first visit",
+      );
     });
   });
 });

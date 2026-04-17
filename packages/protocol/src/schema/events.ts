@@ -167,7 +167,7 @@ export const AppHookTimeoutEventSchema = Type.Object(
   {
     sessionId: AppSessionId,
     appId: Type.String(),
-    hookName: stringEnum(["before_message_delivery", "on_close"]),
+    hookName: stringEnum(["before_message_delivery", "on_join", "on_close"]),
     timeoutMs: Type.Integer(),
   },
   { additionalProperties: false },

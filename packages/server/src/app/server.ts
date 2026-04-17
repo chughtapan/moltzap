@@ -1,13 +1,19 @@
-import { Hono } from "hono";
-import { cors } from "hono/cors";
-import { createNodeWebSocket } from "@hono/node-ws";
-import { serve } from "@hono/node-server";
-import { AsyncLocalStorage } from "node:async_hooks";
+import * as http from "node:http";
+import type { IncomingMessage } from "node:http";
+import type { Duplex } from "node:stream";
 import { timingSafeEqual } from "node:crypto";
-import { logger } from "../logger.js";
-import { ConnectionManager } from "../ws/connection.js";
-import { Broadcaster } from "../ws/broadcaster.js";
-import { createRpcRouter, RpcError } from "../rpc/router.js";
+import { WebSocketServer, type WebSocket as WsWebSocket } from "ws";
+import {
+  HttpMiddleware,
+  HttpRouter,
+  HttpServerRequest,
+  HttpServerResponse,
+} from "@effect/platform";
+import { NodeHttpServer } from "@effect/platform-node";
+import { Cause, Effect, Exit, Layer, ManagedRuntime } from "effect";
+
+import { logger, LoggerLive } from "../logger.js";
+import { createRpcRouter } from "../rpc/router.js";
 import type {
   AuthenticatedContext,
   RpcMethodRegistry,
@@ -16,14 +22,6 @@ import type { RequestFrame } from "@moltzap/protocol";
 import { ErrorCodes, validators } from "@moltzap/protocol";
 import { EnvelopeEncryption } from "../crypto/envelope.js";
 
-// Services
-import { AuthService } from "../services/auth.service.js";
-import { ConversationService } from "../services/conversation.service.js";
-import { MessageService } from "../services/message.service.js";
-import { DeliveryService } from "../services/delivery.service.js";
-import { PresenceService } from "../services/presence.service.js";
-import { ParticipantService } from "../services/participant.service.js";
-
 // Handlers
 import { createCoreAuthHandlers } from "./handlers/auth.handlers.js";
 import { createConversationHandlers } from "./handlers/conversations.handlers.js";
@@ -31,11 +29,24 @@ import { createMessageHandlers } from "./handlers/messages.handlers.js";
 import { createPresenceHandlers } from "./handlers/presence.handlers.js";
 import { createAppHandlers } from "./handlers/apps.handlers.js";
 
-// AppHost
-import { AppHost, DefaultPermissionService } from "./app-host.js";
-import type { AsyncWebhookAdapter } from "../adapters/webhook.js";
+import {
+  WebhookClient,
+  type AsyncWebhookAdapter,
+} from "../adapters/webhook.js";
 
 import type { CoreConfig, CoreApp, ConnectionHook } from "./types.js";
+import {
+  DbTag,
+  LoggerTag,
+  EncryptionTag,
+  ServicesLive,
+  UserServiceTag,
+  WebhookClientTag,
+  resolveServices,
+} from "./layers.js";
+
+/** Grace period after closing all WebSockets so in-flight sends can flush. */
+const SHUTDOWN_DRAIN_MS = 500;
 
 function safeEqual(a: string, b: string): boolean {
   const bufA = Buffer.from(a);
@@ -47,51 +58,53 @@ function safeEqual(a: string, b: string): boolean {
 export function createCoreApp(config: CoreConfig): CoreApp {
   const db = config.db;
 
-  // Infrastructure
-  const connections = new ConnectionManager();
-  const broadcaster = new Broadcaster(connections);
+  // ── Service construction via Effect Layers ──────────────────────────
+  // Declarative replacement for the previous `new XxxService(db, logger)`
+  // chain. Dependency order is encoded in each Layer's `yield*` — not
+  // hand-written here — so adding a new service only requires a new Tag
+  // + Layer in layers.ts, no edits to this function.
   const envelope = config.encryptionMasterSecret
     ? new EnvelopeEncryption(config.encryptionMasterSecret)
     : null;
 
-  // Services
-  const authService = new AuthService(db, logger);
-  const participantService = new ParticipantService(db);
-  const conversationService = new ConversationService(
-    db,
-    logger,
-    participantService,
-  );
-  const deliveryService = new DeliveryService(db);
-  const presenceService = new PresenceService();
+  // A single shared WebhookClient instance handles all outbound HTTP from
+  // the core: AppHost hook webhooks, plus any contact/user-service adapters
+  // layered on top via `setContactService` etc. One semaphore means one
+  // place to tune concurrency.
+  const webhookClient = config.webhookClient ?? new WebhookClient();
 
-  // AppHost (before MessageService — it needs the hook call)
-  const appHost = new AppHost(
-    db,
-    broadcaster,
+  const BaseLive = Layer.mergeAll(
+    Layer.succeed(DbTag, db),
+    Layer.succeed(LoggerTag, logger),
+    Layer.succeed(EncryptionTag, envelope),
+    Layer.succeed(UserServiceTag, config.userService ?? null),
+    Layer.succeed(WebhookClientTag, webhookClient),
+    // LoggerLive replaces Effect's default console logger with the Pino-backed
+    // Effect logger so `Effect.log*` inside services routes through Pino.
+    LoggerLive,
+  );
+
+  // provideMerge (vs provide): BaseLive satisfies ServicesLive's Db/Logger/
+  // Encryption requirements AND exposes them downstream, so resolveServices
+  // can also pull db/logger/encryption from Context without a separate Layer.
+  const FullLive = Layer.provideMerge(ServicesLive, BaseLive);
+
+  const services = Effect.runSync(
+    resolveServices.pipe(Effect.provide(FullLive)),
+  );
+
+  const {
     connections,
-    conversationService,
-    logger,
-  );
-
-  const messageService = new MessageService(
-    db,
-    logger,
-    conversationService,
     broadcaster,
-    envelope,
-    deliveryService,
+    authService,
+    conversationService,
+    presenceService,
+    messageService,
     appHost,
-  );
+    defaultPermissionService,
+  } = services;
 
-  const defaultPermissionService = new DefaultPermissionService(
-    broadcaster,
-    logger,
-  );
   appHost.setPermissionService(defaultPermissionService);
-
-  // Per-request connection context for concurrent WebSocket RPC dispatches
-  const connIdContext = new AsyncLocalStorage<string>();
 
   // Connection hooks
   const connectionHooks: ConnectionHook[] = [];
@@ -108,24 +121,19 @@ export function createCoreApp(config: CoreConfig): CoreApp {
       presenceService,
       connections,
       db,
-      getConnId: () => connIdContext.getStore() ?? "",
     }),
     ...createConversationHandlers({
       conversationService,
       broadcaster,
       connections,
-      getConnId: () => connIdContext.getStore() ?? "",
     }),
     ...createMessageHandlers({
       messageService,
       conversationService,
-      db,
-      getConnId: () => connIdContext.getStore() ?? "",
     }),
     ...createPresenceHandlers({
       presenceService,
       connections,
-      getConnId: () => connIdContext.getStore() ?? "",
     }),
     ...createAppHandlers({
       appHost,
@@ -135,217 +143,328 @@ export function createCoreApp(config: CoreConfig): CoreApp {
 
   const dispatch = createRpcRouter(methods);
 
-  // Hono app
-  const app = new Hono();
-  const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
+  // ── HTTP routes via @effect/platform HttpRouter ──────────────────────
 
-  app.use(
-    "*",
-    cors({
-      origin: (origin) => {
-        if (config.corsOrigins.includes("*")) return origin;
-        if (config.corsOrigins.includes(origin)) return origin;
-        logger.warn({ origin }, "CORS origin rejected");
-        return "";
-      },
-    }),
+  const healthRoute = HttpRouter.get(
+    "/health",
+    Effect.sync(() =>
+      HttpServerResponse.unsafeJson({
+        status: "ok",
+        connections: connections.size,
+      }),
+    ),
   );
 
-  app.get("/health", (c) =>
-    c.json({ status: "ok", connections: connections.size }),
-  );
-
-  // Agent registration
-  app.post("/api/v1/auth/register", async (c) => {
-    const body = await c.req.json();
-    if (!validators.registerParams(body)) {
-      return c.json({ error: "Invalid parameters" }, 400);
-    }
-
-    if (config.registrationSecret) {
-      const inviteCode = (body as { inviteCode?: string }).inviteCode;
-      if (!inviteCode || !safeEqual(inviteCode, config.registrationSecret)) {
-        return c.json({ error: "Invalid or missing invite code" }, 403);
+  const registerRoute = HttpRouter.post(
+    "/api/v1/auth/register",
+    Effect.gen(function* () {
+      const request = yield* HttpServerRequest.HttpServerRequest;
+      const bodyResult = yield* Effect.either(request.json);
+      if (bodyResult._tag === "Left") {
+        return HttpServerResponse.unsafeJson(
+          { error: "Invalid JSON" },
+          { status: 400 },
+        );
       }
-    }
+      const body = bodyResult.right;
 
-    try {
-      const result = await authService.registerAgent(body);
-      return c.json(result, 201);
-    } catch (err) {
-      if (err instanceof RpcError) {
-        const status = err.code === ErrorCodes.Forbidden ? 403 : 400;
-        return c.json({ error: err.message }, status);
+      if (!validators.registerParams(body)) {
+        return HttpServerResponse.unsafeJson(
+          { error: "Invalid parameters" },
+          { status: 400 },
+        );
       }
-      logger.error({ err }, "Registration failed");
-      return c.json({ error: "Registration failed" }, 500);
-    }
-  });
 
-  // Permissions callback for async webhook flow
-  app.post("/api/v1/permissions/resolve", async (c) => {
-    if (!_webhookPermAdapter) {
-      return c.json({ error: "Webhook permissions not configured" }, 404);
-    }
-
-    const authHeader = c.req.header("Authorization");
-    if (!authHeader || !_callbackToken) {
-      return c.json({ error: "Unauthorized" }, 401);
-    }
-    const token = authHeader.replace("Bearer ", "");
-    if (!safeEqual(token, _callbackToken)) {
-      return c.json({ error: "Invalid callback token" }, 401);
-    }
-
-    const body = (await c.req.json()) as {
-      request_id?: string;
-      access?: string[];
-    };
-    if (!body.request_id || !Array.isArray(body.access)) {
-      return c.json(
-        { error: "Invalid body: need request_id and access[]" },
-        400,
-      );
-    }
-
-    const found = _webhookPermAdapter.resolveCallback(
-      body.request_id,
-      body.access,
-    );
-    if (!found) {
-      return c.json({ error: "Unknown or expired request_id" }, 404);
-    }
-
-    return c.json({ ok: true });
-  });
-
-  // WebSocket endpoint
-  app.get(
-    "/ws",
-    upgradeWebSocket(() => {
-      let connId: string;
-
-      return {
-        onOpen(_evt, ws) {
-          connId = crypto.randomUUID();
-          connections.add({
-            id: connId,
-            ws,
-            auth: null,
-            lastPong: Date.now(),
-            conversationIds: new Set(),
-            mutedConversations: new Set(),
-          });
-          logger.info({ connId }, "WebSocket connected");
-        },
-
-        async onMessage(evt, ws) {
-          const conn = connections.get(connId);
-          if (!conn) return;
-
-          let frame: RequestFrame;
-          try {
-            const data =
-              typeof evt.data === "string" ? evt.data : evt.data.toString();
-            frame = JSON.parse(data);
-          } catch (err) {
-            logger.warn({ err, connId }, "Failed to parse WebSocket frame");
-            ws.send(
-              JSON.stringify({
-                jsonrpc: "2.0",
-                type: "response",
-                id: null,
-                error: {
-                  code: ErrorCodes.ParseError,
-                  message: "Invalid JSON",
-                },
-              }),
-            );
-            return;
-          }
-
-          if (
-            !frame.jsonrpc ||
-            frame.jsonrpc !== "2.0" ||
-            frame.type !== "request"
-          ) {
-            ws.send(
-              JSON.stringify({
-                jsonrpc: "2.0",
-                type: "response",
-                id: frame.id ?? null,
-                error: {
-                  code: ErrorCodes.InvalidRequest,
-                  message: "Invalid request frame",
-                },
-              }),
-            );
-            return;
-          }
-
-          if (frame.method !== "auth/connect" && !conn.auth) {
-            ws.send(
-              JSON.stringify({
-                jsonrpc: "2.0",
-                type: "response",
-                id: frame.id,
-                error: {
-                  code: ErrorCodes.Unauthorized,
-                  message: "Not authenticated. Send auth/connect first.",
-                },
-              }),
-            );
-            return;
-          }
-
-          const ctx = conn.auth ?? ({} as AuthenticatedContext);
-          const response = await connIdContext.run(connId, async () =>
-            dispatch(frame, ctx),
+      if (config.registrationSecret) {
+        const inviteCode = (body as { inviteCode?: string }).inviteCode;
+        if (!inviteCode || !safeEqual(inviteCode, config.registrationSecret)) {
+          return HttpServerResponse.unsafeJson(
+            { error: "Invalid or missing invite code" },
+            { status: 403 },
           );
-          ws.send(JSON.stringify(response));
+        }
+      }
 
-          // Fire connection hooks after successful auth/connect
-          if (frame.method === "auth/connect" && conn.auth) {
-            const agentId = conn.auth.agentId;
-            const agentRow = await db
-              .selectFrom("agents")
-              .select("name")
-              .where("id", "=", agentId)
-              .executeTakeFirst();
-            const agentName = agentRow?.name ?? agentId;
-            for (const hook of connectionHooks) {
-              try {
-                await hook({ agentId, agentName, connId });
-              } catch (err) {
-                logger.error({ err, agentId, connId }, "Connection hook error");
-              }
-            }
-          }
-        },
-
-        async onClose() {
-          const conn = connections.get(connId);
-          if (conn?.auth) {
-            presenceService.setOffline(conn.auth.agentId);
-          }
-          presenceService.removeConnection(connId);
-          connections.remove(connId);
-          logger.info({ connId }, "WebSocket disconnected");
-        },
-      };
+      const exit = yield* Effect.exit(
+        authService.registerAgent(
+          body as Parameters<typeof authService.registerAgent>[0],
+        ),
+      );
+      if (Exit.isSuccess(exit)) {
+        return HttpServerResponse.unsafeJson(exit.value, { status: 201 });
+      }
+      // registerAgent's error channel is `never` — any failure here is a defect
+      // (DB error, etc.) which maps to a 500.
+      logger.error({ cause: Cause.pretty(exit.cause) }, "Registration failed");
+      return HttpServerResponse.unsafeJson(
+        { error: "Registration failed" },
+        { status: 500 },
+      );
     }),
+  );
+
+  const permissionsResolveRoute = HttpRouter.post(
+    "/api/v1/permissions/resolve",
+    Effect.gen(function* () {
+      if (!_webhookPermAdapter) {
+        return HttpServerResponse.unsafeJson(
+          { error: "Webhook permissions not configured" },
+          { status: 404 },
+        );
+      }
+
+      const request = yield* HttpServerRequest.HttpServerRequest;
+      const authHeader = request.headers["authorization"];
+      if (!authHeader || !_callbackToken) {
+        return HttpServerResponse.unsafeJson(
+          { error: "Unauthorized" },
+          { status: 401 },
+        );
+      }
+      const token = authHeader.replace("Bearer ", "");
+      if (!safeEqual(token, _callbackToken)) {
+        return HttpServerResponse.unsafeJson(
+          { error: "Invalid callback token" },
+          { status: 401 },
+        );
+      }
+
+      const bodyResult = yield* Effect.either(request.json);
+      if (bodyResult._tag === "Left") {
+        return HttpServerResponse.unsafeJson(
+          { error: "Invalid JSON" },
+          { status: 400 },
+        );
+      }
+      const body = bodyResult.right as {
+        request_id?: string;
+        access?: string[];
+      };
+      if (!body.request_id || !Array.isArray(body.access)) {
+        return HttpServerResponse.unsafeJson(
+          { error: "Invalid body: need request_id and access[]" },
+          { status: 400 },
+        );
+      }
+
+      const found = _webhookPermAdapter.resolveCallback(
+        body.request_id,
+        body.access,
+      );
+      if (!found) {
+        return HttpServerResponse.unsafeJson(
+          { error: "Unknown or expired request_id" },
+          { status: 404 },
+        );
+      }
+
+      return HttpServerResponse.unsafeJson({ ok: true });
+    }),
+  );
+
+  const allowedOriginsPredicate = (origin: string): boolean => {
+    if (config.corsOrigins.includes("*")) return true;
+    if (config.corsOrigins.includes(origin)) return true;
+    logger.warn({ origin }, "CORS origin rejected");
+    return false;
+  };
+
+  const httpApp = HttpRouter.empty.pipe(
+    healthRoute,
+    registerRoute,
+    permissionsResolveRoute,
+    HttpMiddleware.cors({
+      allowedOrigins: allowedOriginsPredicate,
+    }),
+  );
+
+  // Build a Node (req, res) handler from the Effect HttpApp.
+  // We manage the http.Server ourselves so we can attach the WS upgrade hook.
+  // LoggerLive is included so Effect.log* calls inside HTTP routes flow
+  // through Pino (matching the WS/RPC dispatch path).
+  const runtime = ManagedRuntime.make(
+    Layer.mergeAll(NodeHttpServer.layerContext, LoggerLive),
+  );
+
+  // Synchronously produce the Node handler. `makeHandler` only needs a Runtime.
+  const makeHandlerEffect = NodeHttpServer.makeHandler(httpApp);
+  const nodeHandler = runtime.runSync(makeHandlerEffect);
+
+  // ── WebSocket via raw `ws` package + Node `upgrade` event ────────────
+
+  const wss = new WebSocketServer({ noServer: true });
+
+  function handleWsConnection(ws: WsWebSocket): void {
+    const connId = crypto.randomUUID();
+
+    connections.add({
+      id: connId,
+      ws,
+      auth: null,
+      lastPong: Date.now(),
+      conversationIds: new Set(),
+      mutedConversations: new Set(),
+    });
+    logger.info({ connId }, "WebSocket connected");
+
+    // Per-connection counter for malformed-frame logging rate-limit.
+    // Mirrors the client-side `MALFORMED_LOG_EVERY` pattern so a buggy
+    // or hostile client can't flood the server log.
+    let malformedFrameCount = 0;
+    const MALFORMED_LOG_EVERY = 50;
+
+    // #ignore-sloppy-code-next-line[async-keyword]: ws library message handler
+    ws.on("message", async (data) => {
+      const conn = connections.get(connId);
+      if (!conn) return;
+
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(data.toString());
+      } catch (err) {
+        const n = ++malformedFrameCount;
+        if (n === 1 || n % MALFORMED_LOG_EVERY === 0) {
+          logger.warn(
+            { err, connId, count: n },
+            "Failed to parse WebSocket frame",
+          );
+        }
+        try {
+          ws.send(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              type: "response",
+              id: null,
+              error: {
+                code: ErrorCodes.ParseError,
+                message: "Invalid JSON",
+              },
+            }),
+          );
+        } catch (err) {
+          logger.warn({ err, connId }, "ws.send failed");
+        }
+        return;
+      }
+
+      if (!validators.requestFrame(parsed)) {
+        const id =
+          typeof parsed === "object" &&
+          parsed !== null &&
+          typeof (parsed as { id?: unknown }).id === "string"
+            ? (parsed as { id: string }).id
+            : null;
+        try {
+          ws.send(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              type: "response",
+              id,
+              error: {
+                code: ErrorCodes.InvalidRequest,
+                message: "Invalid request frame",
+              },
+            }),
+          );
+        } catch (err) {
+          logger.warn({ err, connId }, "ws.send failed");
+        }
+        return;
+      }
+
+      const frame = parsed as RequestFrame;
+
+      if (frame.method !== "auth/connect" && !conn.auth) {
+        try {
+          ws.send(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              type: "response",
+              id: frame.id,
+              error: {
+                code: ErrorCodes.Unauthorized,
+                message: "Not authenticated. Send auth/connect first.",
+              },
+            }),
+          );
+        } catch (err) {
+          logger.warn({ err, connId }, "ws.send failed");
+        }
+        return;
+      }
+
+      const ctx = conn.auth ?? ({} as AuthenticatedContext);
+      const response = await dispatch(frame, ctx, connId);
+      try {
+        ws.send(JSON.stringify(response));
+      } catch (err) {
+        logger.warn({ err, connId }, "ws.send failed");
+      }
+
+      // Fire connection hooks after successful auth/connect
+      if (frame.method === "auth/connect" && conn.auth) {
+        const agentId = conn.auth.agentId;
+        const agentRow = await db
+          .selectFrom("agents")
+          .select("name")
+          .where("id", "=", agentId)
+          .executeTakeFirst();
+        const agentName = agentRow?.name ?? agentId;
+        for (const hook of connectionHooks) {
+          try {
+            await hook({ agentId, agentName, connId });
+          } catch (err) {
+            logger.error({ err, agentId, connId }, "Connection hook error");
+          }
+        }
+      }
+    });
+
+    ws.on("close", () => {
+      const conn = connections.get(connId);
+      if (conn?.auth) {
+        presenceService.setOffline(conn.auth.agentId);
+      }
+      presenceService.removeConnection(connId);
+      connections.remove(connId);
+      logger.info({ connId }, "WebSocket disconnected");
+    });
+
+    ws.on("error", (err) => {
+      logger.warn({ err, connId }, "WebSocket error");
+    });
+  }
+
+  // ── HTTP server with WS upgrade hook ──────────────────────────────────
+
+  const server = http.createServer(nodeHandler);
+
+  server.on(
+    "upgrade",
+    (request: IncomingMessage, socket: Duplex, head: Buffer) => {
+      const url = request.url ?? "";
+      // Match only /ws (ignore query strings)
+      const pathOnly = url.split("?")[0];
+      if (pathOnly !== "/ws") {
+        socket.destroy();
+        return;
+      }
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        handleWsConnection(ws);
+      });
+    },
   );
 
   let actualPort = config.port;
-  const server = serve({ fetch: app.fetch, port: config.port }, (info) => {
-    actualPort = info.port;
-    logger.info({ port: info.port }, "MoltZap core server listening");
+  server.listen(config.port, () => {
+    const addr = server.address();
+    if (addr && typeof addr === "object") {
+      actualPort = addr.port;
+    }
+    logger.info({ port: actualPort }, "MoltZap core server listening");
   });
 
-  injectWebSocket(server);
-
   return {
-    app,
     get port() {
       return actualPort;
     },
@@ -358,9 +477,6 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     registerApp(manifest) {
       appHost.registerApp(manifest);
     },
-    setUserService(service) {
-      appHost.setUserService(service);
-    },
     setContactService(checker) {
       appHost.setContactService(checker);
     },
@@ -371,7 +487,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
       _webhookPermAdapter = adapter;
       _callbackToken = token;
     },
-    async createAppSession(appId, initiatorAgentId, invitedAgentIds) {
+    createAppSession(appId, initiatorAgentId, invitedAgentIds) {
       return appHost.createSession(appId, initiatorAgentId, invitedAgentIds);
     },
     onBeforeMessageDelivery(appId, handler) {
@@ -383,19 +499,29 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     onSessionClose(appId, handler) {
       appHost.onSessionClose(appId, handler);
     },
-    async closeAppSession(sessionId, callerAgentId) {
+    closeAppSession(sessionId, callerAgentId) {
       return appHost.closeSession(sessionId, callerAgentId);
     },
-    async getAppSession(sessionId, callerAgentId) {
+    getAppSession(sessionId, callerAgentId) {
       return appHost.getSession(sessionId, callerAgentId);
     },
-    async listAppSessions(callerAgentId, opts) {
+    listAppSessions(callerAgentId, opts) {
       return appHost.listSessions(callerAgentId, opts);
     },
+    // #ignore-sloppy-code-next-line[async-keyword]: ws library server close method
     async close() {
       _webhookPermAdapter?.destroy();
       defaultPermissionService.destroy();
+      // NOTE: appHost.destroy() runs before the WS connections close, so
+      // any RPC in-flight at this moment (mid-createSession, mid-send)
+      // may observe cleared manifests / conversationToSession maps and
+      // surface AppNotFound or undefined lookups. The SHUTDOWN_DRAIN_MS
+      // sleep below is our only mitigation; it's not a real drain since
+      // there's no counter. A proper fix would invert the order and
+      // await an in-flight counter before destroy(). Tracked in /review
+      // output 2026-04-16.
       appHost.destroy();
+      // Close all WS connections first so in-flight message handlers stop
       for (const conn of connections.all()) {
         try {
           conn.ws.close();
@@ -403,8 +529,18 @@ export function createCoreApp(config: CoreConfig): CoreApp {
           logger.warn({ err }, "Failed to close WebSocket on shutdown");
         }
       }
-      await new Promise((r) => setTimeout(r, 500));
-      server.close();
+      // Close the WS server (stops accepting new upgrades)
+      await new Promise<void>((resolve) => {
+        wss.close(() => resolve());
+      });
+      // Let in-flight requests drain briefly
+      await new Promise((r) => setTimeout(r, SHUTDOWN_DRAIN_MS));
+      // Close HTTP listener
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+      });
+      // Dispose the Effect runtime
+      await runtime.dispose();
       if (config.dbCleanup) {
         await config.dbCleanup();
       }

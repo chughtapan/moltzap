@@ -1,9 +1,9 @@
-import type { WSContext } from "hono/ws";
+import type { WebSocket as WsWebSocket } from "ws";
 import type { AuthenticatedContext } from "../rpc/context.js";
 
 export interface MoltZapConnection {
   id: string;
-  ws: WSContext;
+  ws: WsWebSocket;
   auth: AuthenticatedContext | null;
   lastPong: number;
   conversationIds: Set<string>;
