@@ -94,6 +94,17 @@ export const AppManifestSchema = Type.Object(
               { additionalProperties: false },
             ),
           ),
+          on_session_active: Type.Optional(
+            Type.Object(
+              {
+                webhook: Type.Optional(Type.String({ format: "uri" })),
+                timeout_ms: Type.Optional(
+                  Type.Integer({ default: 5000, minimum: 100, maximum: 30000 }),
+                ),
+              },
+              { additionalProperties: false },
+            ),
+          ),
           /**
            * Optional shared secret used to HMAC-SHA256 sign outbound webhook
            * bodies. The signature is sent as `X-MoltZap-Signature:
