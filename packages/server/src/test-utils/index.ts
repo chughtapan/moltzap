@@ -15,6 +15,7 @@ import { makeEffectKysely } from "../db/effect-kysely-toolkit.js";
 
 export type { Database } from "../db/database.js";
 export type { CoreApp } from "../app/types.js";
+export { expectRpcFailure } from "./rpc-error.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -55,16 +56,13 @@ export async function startCoreTestServer(_opts?: {
   const { KyselyPGlite } = await import("kysely-pglite");
   const kpg = await KyselyPGlite.create();
 
-  pgliteClient = kpg.client as unknown as {
-    exec: (sql: string) => Promise<unknown>;
-    close: () => Promise<void>;
-  };
+  pgliteClient = kpg.client;
   // Use the Effect-patched Kysely builder so service code can `yield*`
   // builder chains directly. The returned instance is still `Kysely<DB>`-
   // compatible for seed helpers that use the promise API.
   appDb = makeEffectKysely<Database>({
     dialect: kpg.dialect,
-  }) as unknown as Kysely<Database>;
+  });
 
   const srcPath = join(__dirname, "..", "app", "core-schema.sql");
   const distPath = join(__dirname, "..", "..", "src", "app", "core-schema.sql");

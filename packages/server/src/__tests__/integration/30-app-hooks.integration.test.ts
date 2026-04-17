@@ -39,7 +39,7 @@
 
 import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { it } from "@effect/vitest";
-import { Effect, Either } from "effect";
+import { Effect } from "effect";
 import {
   startTestServer,
   stopTestServer,
@@ -50,6 +50,7 @@ import {
 import type { CoreApp } from "../../app/types.js";
 import { ErrorCodes } from "@moltzap/protocol";
 import type { ConnectedAgent } from "../../test-utils/helpers.js";
+import { expectRpcFailure } from "../../test-utils/index.js";
 
 let coreApp: CoreApp;
 
@@ -133,30 +134,21 @@ describe("Scenario 30: App Hooks", () => {
 
         const convId = session.session.conversations["main"]!;
 
-        const result = yield* Effect.either(
+        const rpcErr = yield* expectRpcFailure(
           orchestrator.client.sendRpc("messages/send", {
             conversationId: convId,
             parts: [{ type: "text", text: "bad command" }],
           }),
+          ErrorCodes.HookBlocked,
         );
-        expect(Either.isLeft(result)).toBe(true);
-        if (Either.isLeft(result)) {
-          const rpcErr = result.left as unknown as {
-            code: number;
-            message: string;
-            data?: unknown;
-          };
-          expect(rpcErr.code).toBe(ErrorCodes.HookBlocked);
-          expect(rpcErr.message).toContain("Invalid command format");
-          expect(rpcErr.data).toHaveProperty("feedback");
-          const feedback = (
-            rpcErr.data as {
-              feedback: { type: string; retry: boolean };
-            }
-          ).feedback;
-          expect(feedback.type).toBe("error");
-          expect(feedback.retry).toBe(true);
-        }
+        // data.feedback is the wire contract (structured payload from the
+        // hook) — check shape. Message text comes through but is narrative.
+        expect(rpcErr.data).toHaveProperty("feedback");
+        const feedback = (
+          rpcErr.data as { feedback: { type: string; retry: boolean } }
+        ).feedback;
+        expect(feedback.type).toBe("error");
+        expect(feedback.retry).toBe(true);
       }),
     );
 
@@ -255,16 +247,15 @@ describe("Scenario 30: App Hooks", () => {
         const convId = session.session.conversations["main"]!;
 
         // Fail-closed: timed-out hook blocks the send with HookBlocked.
-        const result = yield* Effect.either(
+        // The app/hookTimeout event (asserted below) is what distinguishes
+        // a timeout from a throw — the wire code alone doesn't.
+        yield* expectRpcFailure(
           agent.client.sendRpc("messages/send", {
             conversationId: convId,
             parts: [{ type: "text", text: "should be blocked" }],
           }),
+          ErrorCodes.HookBlocked,
         );
-        expect(Either.isLeft(result)).toBe(true);
-        if (Either.isLeft(result)) {
-          expect(result.left.message).toMatch(/timed out/i);
-        }
 
         const timeoutEvent = yield* agent.client.waitForEvent(
           "app/hookTimeout",
@@ -321,16 +312,13 @@ describe("Scenario 30: App Hooks", () => {
 
         const convId = session.session.conversations["main"]!;
 
-        const result = yield* Effect.either(
+        yield* expectRpcFailure(
           agent.client.sendRpc("messages/send", {
             conversationId: convId,
             parts: [{ type: "text", text: "should be blocked" }],
           }),
+          ErrorCodes.HookBlocked,
         );
-        expect(Either.isLeft(result)).toBe(true);
-        if (Either.isLeft(result)) {
-          expect(result.left.message).toMatch(/hook error/i);
-        }
       }),
     );
 
@@ -358,16 +346,13 @@ describe("Scenario 30: App Hooks", () => {
 
           const convId = session.session.conversations["main"]!;
 
-          const result = yield* Effect.either(
+          yield* expectRpcFailure(
             agent.client.sendRpc("messages/send", {
               conversationId: convId,
               parts: [{ type: "text", text: "should be blocked" }],
             }),
+            ErrorCodes.HookBlocked,
           );
-          expect(Either.isLeft(result)).toBe(true);
-          if (Either.isLeft(result)) {
-            expect(result.left.message).toMatch(/hook error/i);
-          }
         }),
     );
 
@@ -398,16 +383,13 @@ describe("Scenario 30: App Hooks", () => {
 
         const convId = session.session.conversations["main"]!;
 
-        const result = yield* Effect.either(
+        yield* expectRpcFailure(
           agent.client.sendRpc("messages/send", {
             conversationId: convId,
             parts: [{ type: "text", text: "blocked-by-timeout" }],
           }),
+          ErrorCodes.HookBlocked,
         );
-        expect(Either.isLeft(result)).toBe(true);
-        if (Either.isLeft(result)) {
-          expect(result.left.message).toMatch(/timed out/i);
-        }
 
         // Give the delayed hook body time to finish its post-sleep read.
         yield* Effect.promise(() => new Promise((r) => setTimeout(r, 500)));
@@ -436,22 +418,19 @@ describe("Scenario 30: App Hooks", () => {
 
         const convId = session.session.conversations["main"]!;
 
-        const result = yield* Effect.either(
+        yield* expectRpcFailure(
           agent.client.sendRpc("messages/send", {
             conversationId: convId,
             parts: [{ type: "text", text: "blocked-by-throw" }],
           }),
+          ErrorCodes.HookBlocked,
         );
-        expect(Either.isLeft(result)).toBe(true);
-        if (Either.isLeft(result)) {
-          expect(result.left.message).toMatch(/hook error/i);
-        }
 
         // `runHookWithTimeout` aborts the controller synchronously in its
         // catch branch, so the signal the hook captured must be aborted by
-        // the time we read it.
-        expect(capturedSignal).not.toBeNull();
-        expect((capturedSignal as unknown as AbortSignal).aborted).toBe(true);
+        // the time we read it. Optional-chain .aborted avoids a non-null
+        // cast: if captured is still null the test fails with `undefined`.
+        expect(capturedSignal?.aborted).toBe(true);
       }),
     );
 
@@ -477,26 +456,17 @@ describe("Scenario 30: App Hooks", () => {
 
         const convId = session.session.conversations["main"]!;
 
-        const result = yield* Effect.either(
+        const rpcErr = yield* expectRpcFailure(
           agent.client.sendRpc("messages/send", {
             conversationId: convId,
             parts: [{ type: "text", text: "secret" }],
           }),
+          ErrorCodes.HookBlocked,
         );
-        expect(Either.isLeft(result)).toBe(true);
-        if (Either.isLeft(result)) {
-          const rpcErr = result.left as unknown as {
-            code: number;
-            message: string;
-          };
-          expect(rpcErr.code).toBe(ErrorCodes.HookBlocked);
-          // The synthesized timeout/throw reasons include the phrases
-          // "timed out" and "hook error"; an explicit reason must pass
-          // through verbatim.
-          expect(rpcErr.message).toContain("policy/no-secrets");
-          expect(rpcErr.message).not.toMatch(/timed out/i);
-          expect(rpcErr.message).not.toMatch(/hook error/i);
-        }
+        // This test IS about verbatim propagation of the explicit hook
+        // reason (vs server-synthesized fallback on timeout/throw) — so
+        // asserting the message substring is wire-contract, not narrative.
+        expect(rpcErr.message).toContain("policy/no-secrets");
       }),
     );
   });

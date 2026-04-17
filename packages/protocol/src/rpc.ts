@@ -58,7 +58,9 @@ export function defineRpc<
     validateParams: ajv.compile(def.params),
     // Phantom — never read at runtime. Typed as `Static<P>` so
     // `typeof def.Params` at the type level yields the params type.
+    // #ignore-sloppy-code-next-line[as-unknown-as]: TS phantom-type witness; runtime is null, type carrier only
     Params: null as unknown as Static<P>,
+    // #ignore-sloppy-code-next-line[as-unknown-as]: TS phantom-type witness; runtime is null, type carrier only
     Result: null as unknown as Static<R>,
   };
 }

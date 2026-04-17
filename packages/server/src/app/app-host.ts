@@ -1136,14 +1136,10 @@ export class AppHost {
           initiatorAgentId: sessionRow.initiator_agent_id,
           status: sessionRow.status,
           conversations,
-          createdAt: new Date(
-            sessionRow.created_at as unknown as string,
-          ).toISOString(),
+          createdAt: new Date(sessionRow.created_at).toISOString(),
         };
         if (sessionRow.closed_at) {
-          session.closedAt = new Date(
-            sessionRow.closed_at as unknown as string,
-          ).toISOString();
+          session.closedAt = new Date(sessionRow.closed_at).toISOString();
         }
         return session;
       }),
@@ -1181,14 +1177,10 @@ export class AppHost {
             initiatorAgentId: row.initiator_agent_id,
             status: row.status,
             conversations: {},
-            createdAt: new Date(
-              row.created_at as unknown as string,
-            ).toISOString(),
+            createdAt: new Date(row.created_at).toISOString(),
           };
           if (row.closed_at) {
-            session.closedAt = new Date(
-              row.closed_at as unknown as string,
-            ).toISOString();
+            session.closedAt = new Date(row.closed_at).toISOString();
           }
           return session;
         });

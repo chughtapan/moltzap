@@ -680,6 +680,7 @@ describe("MoltZapService.socketPath — agentId sanitization", () => {
 
   /** Write directly into `_ownAgentId` so `socketPath` reads the test value. */
   function setOwnAgentId(service: FakeMoltZapService, id: string): void {
+    // #ignore-sloppy-code-next-line[as-unknown-as]: Reflect.set target requires `object`; reaching private field of class for test setup
     Reflect.set(service as unknown as object, "_ownAgentId", id);
   }
 
@@ -763,6 +764,7 @@ describe("MoltZapService.fanout — message handlers", () => {
     const service = new FakeMoltZapService();
     // Monkey-patch the internal logger so fanout can log via it. The opts
     // field is private; accessing via Reflect keeps the test minimal.
+    // #ignore-sloppy-code-next-line[as-unknown-as]: test-only reach into private opts.logger for fanout logging assertion
     (service as unknown as { opts: { logger: typeof logger } }).opts.logger =
       logger;
 

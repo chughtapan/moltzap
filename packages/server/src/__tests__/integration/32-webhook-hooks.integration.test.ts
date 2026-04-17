@@ -14,8 +14,9 @@
 
 import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { it } from "@effect/vitest";
-import { Effect, Either } from "effect";
+import { Effect } from "effect";
 import * as http from "node:http";
+import { expectRpcFailure } from "../../test-utils/index.js";
 import type { AddressInfo } from "node:net";
 import { createHmac } from "node:crypto";
 
@@ -183,23 +184,16 @@ describe("Scenario 32: webhook-based app hooks", () => {
             })) as { session: { conversations: Record<string, string> } };
             const convId = session.session.conversations["main"]!;
 
-            const sendResult = yield* Effect.either(
+            const rpcErr = yield* expectRpcFailure(
               agent.client.sendRpc("messages/send", {
                 conversationId: convId,
                 parts: [{ type: "text", text: "hello" }],
               }),
+              ErrorCodes.HookBlocked,
             );
-            expect(Either.isLeft(sendResult)).toBe(true);
-            if (Either.isLeft(sendResult)) {
-              const rpcErr = sendResult.left as unknown as {
-                code: number;
-                message: string;
-                data?: unknown;
-              };
-              expect(rpcErr.code).toBe(ErrorCodes.HookBlocked);
-              expect(rpcErr.message).toContain("Webhook says no");
-              expect(rpcErr.data).toHaveProperty("feedback");
-            }
+            // data.feedback IS the wire contract: structured block payload
+            // from the webhook must reach the client as-is.
+            expect(rpcErr.data).toHaveProperty("feedback");
 
             // Verify the outbound POST shape.
             expect(hook.requests.length).toBe(1);
@@ -321,16 +315,13 @@ describe("Scenario 32: webhook-based app hooks", () => {
           })) as { session: { conversations: Record<string, string> } };
           const convId = session.session.conversations["main"]!;
 
-          const sendResult = yield* Effect.either(
+          yield* expectRpcFailure(
             agent.client.sendRpc("messages/send", {
               conversationId: convId,
               parts: [{ type: "text", text: "should be blocked" }],
             }),
+            ErrorCodes.HookBlocked,
           );
-          expect(Either.isLeft(sendResult)).toBe(true);
-          if (Either.isLeft(sendResult)) {
-            expect(sendResult.left.message).toMatch(/timed out/i);
-          }
 
           const evt = yield* agent.client.waitForEvent("app/hookTimeout", 3000);
           const data = evt.data as {
@@ -375,16 +366,13 @@ describe("Scenario 32: webhook-based app hooks", () => {
           })) as { session: { conversations: Record<string, string> } };
           const convId = session.session.conversations["main"]!;
 
-          const sendResult = yield* Effect.either(
+          yield* expectRpcFailure(
             agent.client.sendRpc("messages/send", {
               conversationId: convId,
               parts: [{ type: "text", text: "should be blocked" }],
             }),
+            ErrorCodes.HookBlocked,
           );
-          expect(Either.isLeft(sendResult)).toBe(true);
-          if (Either.isLeft(sendResult)) {
-            expect(sendResult.left.message).toMatch(/hook error/i);
-          }
         } finally {
           yield* Effect.promise(() => hook.close());
         }
@@ -492,21 +480,13 @@ describe("Scenario 32: webhook-based app hooks", () => {
             })) as { session: { conversations: Record<string, string> } };
             const convId = session.session.conversations["main"]!;
 
-            const sendResult = yield* Effect.either(
+            yield* expectRpcFailure(
               agent.client.sendRpc("messages/send", {
                 conversationId: convId,
                 parts: [{ type: "text", text: "x" }],
               }),
+              ErrorCodes.HookBlocked,
             );
-            expect(Either.isLeft(sendResult)).toBe(true);
-            if (Either.isLeft(sendResult)) {
-              const rpcErr = sendResult.left as unknown as {
-                code: number;
-                message: string;
-              };
-              expect(rpcErr.code).toBe(ErrorCodes.HookBlocked);
-              expect(rpcErr.message).toContain("from webhook");
-            }
 
             expect(hook.requests.length).toBe(1);
             expect(inProcessFired).toBe(false);
