@@ -1,9 +1,10 @@
 import type { AuthService } from "../../services/auth.service.js";
 import type { ConversationService } from "../../services/conversation.service.js";
 import type { PresenceService } from "../../services/presence.service.js";
+import type { UserService } from "../../services/user.service.js";
 import { defineMethod } from "../../rpc/context.js";
 import { sql } from "kysely";
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import { ConnIdTag } from "../layers.js";
 import type {
   RpcMethodRegistry,
@@ -20,8 +21,11 @@ import {
   AgentsList,
 } from "@moltzap/protocol";
 import type { RpcFailure } from "../../runtime/index.js";
-import { unauthorized } from "../../runtime/index.js";
-import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
+import { invalidParams, unauthorized } from "../../runtime/index.js";
+import {
+  catchSqlErrorAsDefect,
+  takeFirstOption,
+} from "../../db/effect-kysely-toolkit.js";
 
 function toAgentCard(row: {
   id: string;
@@ -47,6 +51,9 @@ export function createCoreAuthHandlers(deps: {
   presenceService: PresenceService;
   connections: ConnectionManager;
   db: Db;
+  /** Optional app-minted session resolver. When null, auth/connect rejects
+   * `sessionToken` requests with Unauthorized. */
+  userService: UserService | null;
 }): RpcMethodRegistry {
   return {
     "auth/connect": defineMethod(Connect, {
@@ -64,18 +71,26 @@ export function createCoreAuthHandlers(deps: {
               return yield* buildHelloOk(conn.auth, deps);
             }
 
-            const agent = yield* deps.authService.authenticateAgent(
-              params.agentKey,
-            );
-            if (!agent) {
-              return yield* Effect.fail(unauthorized("Authentication failed"));
+            const hasAgentKey = typeof params.agentKey === "string";
+            const hasSessionToken = typeof params.sessionToken === "string";
+            if (hasAgentKey === hasSessionToken) {
+              return yield* Effect.fail(
+                invalidParams(
+                  "Exactly one of `agentKey` or `sessionToken` required",
+                ),
+              );
             }
 
-            const auth: AuthenticatedContext = {
-              agentId: agent.agentId,
-              agentStatus: agent.status,
-              ownerUserId: agent.ownerUserId,
-            };
+            const auth: AuthenticatedContext = hasSessionToken
+              ? yield* authenticateSession(
+                  params.sessionToken as string,
+                  deps.userService,
+                  deps.db,
+                )
+              : yield* authenticateAgentKey(
+                  params.agentKey as string,
+                  deps.authService,
+                );
 
             conn.auth = auth;
 
@@ -178,6 +193,65 @@ export function createCoreAuthHandlers(deps: {
         ),
     }),
   };
+}
+
+/** Agent API-key path — existing behavior, typed `never` from authService. */
+function authenticateAgentKey(
+  agentKey: string,
+  authService: AuthService,
+): Effect.Effect<AuthenticatedContext, RpcFailure> {
+  return Effect.gen(function* () {
+    const agent = yield* authService.authenticateAgent(agentKey);
+    if (!agent) {
+      return yield* Effect.fail(unauthorized("Authentication failed"));
+    }
+    return {
+      agentId: agent.agentId,
+      agentStatus: agent.status,
+      ownerUserId: agent.ownerUserId,
+    };
+  });
+}
+
+/**
+ * App-minted bearer-token path. Resolves the session via
+ * `UserService.validateSession`, then looks up the agent status so
+ * `requiresActive` gating still works for the bearer path.
+ */
+function authenticateSession(
+  token: string,
+  userService: UserService | null,
+  db: Db,
+): Effect.Effect<AuthenticatedContext, RpcFailure> {
+  return catchSqlErrorAsDefect(
+    Effect.gen(function* () {
+      if (!userService?.validateSession) {
+        return yield* Effect.fail(
+          unauthorized("Session tokens not supported by this server"),
+        );
+      }
+      const result = yield* userService.validateSession(token);
+      if (!result.valid) {
+        return yield* Effect.fail(unauthorized("Authentication failed"));
+      }
+      // `result` is now narrowed to the `valid: true` branch; agentId and
+      // ownerUserId are guaranteed present by the discriminated union.
+      const rowOpt = yield* takeFirstOption(
+        db
+          .selectFrom("agents")
+          .select("status")
+          .where("id", "=", result.agentId),
+      );
+      if (Option.isNone(rowOpt)) {
+        return yield* Effect.fail(unauthorized("Authentication failed"));
+      }
+      return {
+        agentId: result.agentId,
+        agentStatus: rowOpt.value.status,
+        ownerUserId: result.ownerUserId,
+      };
+    }),
+  );
 }
 
 function buildHelloOk(
