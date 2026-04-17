@@ -16,6 +16,7 @@ import type {
   BeforeMessageDeliveryHook,
   OnCloseHook,
   OnJoinHook,
+  OnSessionActiveHook,
 } from "./hooks.js";
 
 /**
@@ -135,6 +136,7 @@ export interface CoreApp {
   ) => void;
   onAppJoin: (appId: string, handler: OnJoinHook) => void;
   onSessionClose: (appId: string, handler: OnCloseHook) => void;
+  onSessionActive: (appId: string, handler: OnSessionActiveHook) => void;
   closeAppSession: (
     sessionId: string,
     callerAgentId: string,
