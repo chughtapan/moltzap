@@ -82,14 +82,17 @@ if [ -f "$PID_FILE" ]; then
 fi
 
 # ── Install + build ────────────────────────────────────────────────
-if [ ! -d node_modules ] || [ ! -f packages/server/dist/standalone.js ]; then
+if [ ! -d node_modules ]; then
   info "installing workspace deps (pnpm install --frozen-lockfile)"
   pnpm install --frozen-lockfile
-
-  info "building workspace (pnpm -r build) — one-time, ~30s"
-  # Don't suppress output: build errors are diagnostic.
-  pnpm -r build
 fi
+
+# Always run `pnpm -r build` — it's idempotent (tsc skips unchanged files in
+# seconds) and ensures every workspace package has a dist/ before the
+# example tries to import from @moltzap/app-sdk. Gating on a single file
+# misses packages outside the server-core dep tree.
+info "building workspace (pnpm -r build) — idempotent, ~5–30s"
+pnpm -r build
 
 # ── Start server ──────────────────────────────────────────────────
 info "starting server on $SERVER_URL"
