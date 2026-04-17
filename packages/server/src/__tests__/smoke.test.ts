@@ -51,5 +51,13 @@ describe("@moltzap/server-core", () => {
     expect(mod.sqlErrorToDefect).toBeDefined();
     expect(mod.transaction).toBeDefined();
     expect(mod.rawQuery).toBeDefined();
+
+    // Handler factories — per-domain RPC handler builders
+    expect(mod.createCoreAuthHandlers).toBeDefined();
+    expect(mod.createConversationHandlers).toBeDefined();
+    expect(mod.createMessageHandlers).toBeDefined();
+    expect(mod.createPresenceHandlers).toBeDefined();
+    expect(mod.createAppHandlers).toBeDefined();
+    expect(mod.ConnIdTag).toBeDefined();
   });
 });
