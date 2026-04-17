@@ -384,6 +384,10 @@ export class AppHost {
     return this.manifests.get(appId);
   }
 
+  isAttachedToActiveSession(conversationId: string): boolean {
+    return this.conversationToSession.has(conversationId);
+  }
+
   setContactService(checker: ContactService): void {
     this.contactService = checker;
   }

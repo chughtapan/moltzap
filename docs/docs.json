@@ -114,7 +114,9 @@
               "protocol/methods/conversations-remove-participant",
               "protocol/methods/conversations-leave",
               "protocol/methods/conversations-mute",
-              "protocol/methods/conversations-unmute"
+              "protocol/methods/conversations-unmute",
+              "protocol/methods/conversations-archive",
+              "protocol/methods/conversations-unarchive"
             ]
           },
           {
@@ -141,6 +143,8 @@
               "protocol/events/messages-delivered",
               "protocol/events/conversations-created",
               "protocol/events/conversations-updated",
+              "protocol/events/conversations-archived",
+              "protocol/events/conversations-unarchived",
               "protocol/events/presence-changed",
               "protocol/events/surface-updated",
               "protocol/events/surface-cleared"
