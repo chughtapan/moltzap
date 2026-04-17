@@ -186,4 +186,21 @@ server:
     const config = await Effect.runPromise(loadConfigFromFile("test.yaml"));
     expect(config.server?.cors_origins).toEqual(["https://app.example.com"]);
   });
+
+  // Top-level YAML trust boundary: previously an unchecked `as unknown` cast
+  // on `parseYaml`. A scalar / array / null top level used to make every
+  // subsequent `Config.nested(...)` silently report a missing key. The
+  // schema at the boundary now rejects these cases with a clear message.
+  it.each([
+    ["scalar string", "hello"],
+    ["array", "- 1\n- 2\n"],
+    ["null", "~"],
+  ])("rejects non-mapping YAML top-level (%s)", async (_label, yaml) => {
+    vi.mocked(readFileSync).mockReturnValue(yaml);
+
+    const exit = await Effect.runPromiseExit(loadConfigFromFile("test.yaml"));
+    const err = expectConfigLoadError(exit);
+    expect(err.kind).toBe("yaml");
+    expect(err.message).toMatch(/top-level value must be a mapping/);
+  });
 });
