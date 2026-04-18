@@ -1,0 +1,39 @@
+{
+  "name": "@moltzap/observability",
+  "version": "0.1.0",
+  "description": "Platform-wide telemetry for MoltZap: event schema, in-process emitter, pino sink, JSONL collector, metrics rollup",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/chughtapan/moltzap"
+  },
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./test-utils": {
+      "types": "./dist/test-utils.d.ts",
+      "import": "./dist/test-utils.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "pino": "^9.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}
