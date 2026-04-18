@@ -37,6 +37,5 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @moltzap/protocol build
-      - run: pnpm --filter @moltzap/server-core build
+      - run: pnpm --filter @moltzap/server-core... build
       - run: pnpm --filter @moltzap/server-core test:integration
