@@ -1,4 +1,4 @@
-export type AuthenticatedContext =
+export type AuthenticatedContext = (
   | {
       kind: "user";
       userId: string;
@@ -9,7 +9,11 @@ export type AuthenticatedContext =
       agentId: string;
       agentStatus: string;
       ownerUserId: string | null;
-    };
+    }
+) & {
+  /** WS connection ID, populated by apps that track per-connection state. */
+  connectionId?: string;
+};
 
 export type RpcHandler = (
   params: unknown,

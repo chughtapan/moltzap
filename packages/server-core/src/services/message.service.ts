@@ -2,6 +2,7 @@ import type { Db } from "../db/client.js";
 import type { Logger } from "../logger.js";
 import type { Message, ParticipantRef, Part } from "@moltzap/protocol";
 import { ErrorCodes, EventNames, eventFrame } from "@moltzap/protocol";
+import { telemetry, SCHEMA_VERSION } from "@moltzap/observability";
 import { RpcError } from "../rpc/router.js";
 import { nextSnowflakeId } from "../db/snowflake.js";
 import type { ConversationService } from "./conversation.service.js";
@@ -112,6 +113,21 @@ export class MessageService {
       { conversationId, messageId: message.id, seq: message.seq },
       "Message sent",
     );
+
+    telemetry.emit({
+      event: "message.sent",
+      source: "server",
+      schemaVersion: SCHEMA_VERSION,
+      ts: Date.now(),
+      msgId: message.id,
+      convId: conversationId,
+      senderAgentId: senderRef.id,
+      senderKind: senderRef.type === "agent" ? "agent" : "user",
+      chars: parts.reduce(
+        (n, p) => n + (p.type === "text" ? p.text.length : 0),
+        0,
+      ),
+    });
 
     return message;
   }

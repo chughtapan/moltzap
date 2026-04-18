@@ -15,6 +15,7 @@ import { RpcError } from "../rpc/router.js";
 import { ErrorCodes } from "@moltzap/protocol";
 import { ParticipantService } from "./participant.service.js";
 import { sql } from "kysely";
+import { telemetry, SCHEMA_VERSION } from "@moltzap/observability";
 
 const MAX_GROUP_PARTICIPANTS = 256;
 
@@ -136,6 +137,19 @@ export class ConversationService {
         { conversationId, type, participantCount: participantRefs.length + 1 },
         "Conversation created",
       );
+
+      telemetry.emit({
+        event: "conversation.created",
+        source: "server",
+        schemaVersion: SCHEMA_VERSION,
+        ts: Date.now(),
+        convId: conversationId,
+        type,
+        participantIds: [
+          `${creatorRef.type}:${creatorRef.id}`,
+          ...participantRefs.map((r) => `${r.type}:${r.id}`),
+        ],
+      });
 
       return this.mapConversation(conv);
     });

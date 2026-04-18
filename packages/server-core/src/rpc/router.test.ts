@@ -1,7 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, afterEach } from "vitest";
 import { createRpcRouter, RpcError } from "./router.js";
 import { ErrorCodes, type RequestFrame } from "@moltzap/protocol";
 import type { AuthenticatedContext } from "./context.js";
+import {
+  captureTelemetry,
+  resetTelemetry,
+} from "@moltzap/observability/test-utils";
 
 const activeAgent: AuthenticatedContext = {
   kind: "agent",
@@ -85,5 +89,60 @@ describe("createRpcRouter", () => {
       activeAgent,
     );
     expect(res.result).toEqual({ name: "alice" });
+  });
+
+  describe("telemetry emits", () => {
+    afterEach(resetTelemetry);
+
+    it("emits rpc.error for unknown method with reason=method_not_found", async () => {
+      const { events } = captureTelemetry();
+      await dispatch(frame("test/nonexistent"), activeAgent);
+      const rpcErrors = events.filter((e) => e.event === "rpc.error");
+      expect(rpcErrors).toHaveLength(1);
+      const err = rpcErrors[0]!;
+      if (err.event !== "rpc.error") return;
+      expect(err.code).toBe(ErrorCodes.MethodNotFound);
+      expect(err.method).toBe("test/nonexistent");
+      expect(err.agentId).toBe("agent-1");
+      expect(err.reason).toBe("method_not_found");
+    });
+
+    it("emits rpc.error for InvalidParams with reason=invalid_params", async () => {
+      const { events } = captureTelemetry();
+      await dispatch(frame("test/validated", {}), activeAgent);
+      const rpcErrors = events.filter((e) => e.event === "rpc.error");
+      expect(rpcErrors).toHaveLength(1);
+      if (rpcErrors[0]!.event !== "rpc.error") return;
+      expect(rpcErrors[0]!.code).toBe(ErrorCodes.InvalidParams);
+      expect(rpcErrors[0]!.reason).toBe("invalid_params");
+    });
+
+    it("emits rpc.error when handler throws RpcError with reason=handler_rejected", async () => {
+      const { events } = captureTelemetry();
+      await dispatch(frame("test/throw"), activeAgent);
+      const rpcErrors = events.filter((e) => e.event === "rpc.error");
+      expect(rpcErrors).toHaveLength(1);
+      if (rpcErrors[0]!.event !== "rpc.error") return;
+      expect(rpcErrors[0]!.code).toBe(ErrorCodes.NotFound);
+      expect(rpcErrors[0]!.message).toBe("Not found");
+      expect(rpcErrors[0]!.reason).toBe("handler_rejected");
+    });
+
+    it("emits rpc.error for Forbidden on pending agent with reason=forbidden_pending_claim", async () => {
+      const { events } = captureTelemetry();
+      await dispatch(frame("test/active-only"), pendingAgent);
+      const rpcErrors = events.filter((e) => e.event === "rpc.error");
+      expect(rpcErrors).toHaveLength(1);
+      if (rpcErrors[0]!.event !== "rpc.error") return;
+      expect(rpcErrors[0]!.code).toBe(ErrorCodes.Forbidden);
+      expect(rpcErrors[0]!.reason).toBe("forbidden_pending_claim");
+    });
+
+    it("does NOT emit rpc.error on successful dispatch", async () => {
+      const { events } = captureTelemetry();
+      await dispatch(frame("test/echo", { ok: 1 }), activeAgent);
+      const rpcErrors = events.filter((e) => e.event === "rpc.error");
+      expect(rpcErrors).toHaveLength(0);
+    });
   });
 });
