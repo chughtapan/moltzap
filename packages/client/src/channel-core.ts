@@ -5,6 +5,7 @@
 import type { Message } from "@moltzap/protocol";
 import type { CrossConversationEntry, CrossConvMessage } from "./service.js";
 import type { WsClientLogger } from "./ws-client.js";
+import { telemetry, SCHEMA_VERSION } from "@moltzap/observability";
 
 export interface EnrichedSender {
   type: "agent" | "user";
@@ -65,6 +66,11 @@ export interface ChannelService {
 export interface ChannelCoreOptions {
   service: ChannelService;
   logger?: WsClientLogger;
+  /**
+   * Milliseconds between `queue.stats` telemetry emissions. Default 5000.
+   * Set to 0 to disable the periodic stats timer (useful in tests).
+   */
+  queueStatsIntervalMs?: number;
 }
 
 export type InboundHandler = (
@@ -95,6 +101,12 @@ function extractTextContent(parts: Message["parts"]): string {
  * is side-effectful (advances per-conversation markers), so a second core
  * would consume entries the first expected.
  */
+export interface QueueStats {
+  depth: number;
+  inflight: number;
+  oldestQueuedAgeMs?: number;
+}
+
 export class MoltZapChannelCore {
   private readonly service: ChannelService;
   private readonly logger: WsClientLogger;
@@ -104,30 +116,138 @@ export class MoltZapChannelCore {
   private disconnectHandlers: Array<() => void> = [];
   private reconnectHandlers: Array<() => void> = [];
 
+  private inflight = 0;
+  private enqueuedAt = new Map<string, number>();
+  private queueStatsTimer: NodeJS.Timeout | null = null;
+  private lastEmittedStats: { depth: number; inflight: number } | null = null;
+  private readonly queueStatsIntervalMs: number;
+
   constructor(opts: ChannelCoreOptions) {
     this.service = opts.service;
     this.logger = opts.logger ?? noopLogger;
+    this.queueStatsIntervalMs = opts.queueStatsIntervalMs ?? 5000;
 
     this.service.on("message", (message) => {
-      this.dispatchChain = this.dispatchChain
-        .then(() => this.handleInbound(message))
-        .catch((err) => {
+      const agentId = this.service.ownAgentId;
+      this.enqueuedAt.set(message.id, Date.now());
+
+      const startHandler = async (): Promise<void> => {
+        const dispatchStartedAt = Date.now();
+        this.inflight++;
+        if (agentId) {
+          telemetry.emit({
+            event: "dispatch.start",
+            source: "agent",
+            schemaVersion: SCHEMA_VERSION,
+            ts: dispatchStartedAt,
+            msgId: message.id,
+            convId: message.conversationId,
+            agentId,
+            queueDepth: this.enqueuedAt.size,
+            inflight: this.inflight,
+          });
+        }
+        let outcome: "final" | "error" = "final";
+        let errorReason: string | undefined;
+        try {
+          await this.handleInbound(message);
+        } catch (err) {
+          outcome = "error";
+          errorReason = err instanceof Error ? err.message : String(err);
           this.logger.error(
             { messageId: message.id, err },
             "MoltZapChannelCore: inbound handler threw",
           );
-        });
+        } finally {
+          this.inflight--;
+          this.enqueuedAt.delete(message.id);
+          if (agentId) {
+            telemetry.emit({
+              event: "dispatch.complete",
+              source: "agent",
+              schemaVersion: SCHEMA_VERSION,
+              ts: Date.now(),
+              msgId: message.id,
+              convId: message.conversationId,
+              agentId,
+              durationMs: Date.now() - dispatchStartedAt,
+              outcome,
+              errorReason,
+            });
+          }
+        }
+      };
+
+      this.dispatchChain = this.dispatchChain.then(startHandler);
     });
 
     this.service.on("disconnect", () => {
       this.connected = false;
+      this.stopQueueStatsTimer();
       for (const h of this.disconnectHandlers) h();
     });
 
     this.service.on("reconnect", () => {
       this.connected = true;
+      this.startQueueStatsTimer();
       for (const h of this.reconnectHandlers) h();
     });
+  }
+
+  private startQueueStatsTimer(): void {
+    if (this.queueStatsTimer !== null) return;
+    if (this.queueStatsIntervalMs <= 0) return;
+    this.queueStatsTimer = setInterval(() => {
+      const agentId = this.service.ownAgentId;
+      if (!agentId) return;
+      const stats = this.getQueueStats();
+      // Only emit when state changes. Skip duplicate zero heartbeats for
+      // idle agents; emit exactly one "back to zero" transition.
+      const last = this.lastEmittedStats;
+      if (
+        last &&
+        last.depth === stats.depth &&
+        last.inflight === stats.inflight
+      ) {
+        return;
+      }
+      this.lastEmittedStats = { depth: stats.depth, inflight: stats.inflight };
+      telemetry.emit({
+        event: "queue.stats",
+        source: "agent",
+        schemaVersion: SCHEMA_VERSION,
+        ts: Date.now(),
+        agentId,
+        depth: stats.depth,
+        inflight: stats.inflight,
+        oldestQueuedAgeMs: stats.oldestQueuedAgeMs,
+      });
+    }, this.queueStatsIntervalMs);
+    this.queueStatsTimer.unref?.();
+  }
+
+  private stopQueueStatsTimer(): void {
+    if (this.queueStatsTimer !== null) {
+      clearInterval(this.queueStatsTimer);
+      this.queueStatsTimer = null;
+    }
+  }
+
+  getQueueStats(): QueueStats {
+    let oldestQueuedAgeMs: number | undefined;
+    if (this.enqueuedAt.size > 0) {
+      const now = Date.now();
+      let oldest = now;
+      for (const t of this.enqueuedAt.values()) {
+        if (t < oldest) oldest = t;
+      }
+      oldestQueuedAgeMs = now - oldest;
+    }
+    return {
+      depth: this.enqueuedAt.size,
+      inflight: this.inflight,
+      oldestQueuedAgeMs,
+    };
   }
 
   /** Replaces any previous handler. */
@@ -146,9 +266,11 @@ export class MoltZapChannelCore {
   async connect(): Promise<void> {
     await this.service.connect();
     this.connected = true;
+    this.startQueueStatsTimer();
   }
 
   async disconnect(): Promise<void> {
+    this.stopQueueStatsTimer();
     this.service.close();
     this.connected = false;
   }

@@ -32,6 +32,7 @@
     "test:integration": "vitest run --config vitest.integration.config.ts"
   },
   "dependencies": {
+    "@moltzap/observability": "workspace:*",
     "@moltzap/protocol": "workspace:*",
     "commander": "^13.0.0",
     "ws": "^8.18.0"

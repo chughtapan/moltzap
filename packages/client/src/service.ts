@@ -9,6 +9,7 @@ import {
   EventNames,
 } from "@moltzap/protocol";
 import { MoltZapWsClient, type WsClientLogger } from "./ws-client.js";
+import { telemetry, SCHEMA_VERSION } from "@moltzap/observability";
 
 export interface ConversationMeta {
   id: string;
@@ -133,6 +134,8 @@ export class MoltZapService {
     return this._connected;
   }
 
+  private reconnectAttempts = 0;
+
   async connect(): Promise<HelloOk> {
     this.client = new MoltZapWsClient({
       serverUrl: this.opts.serverUrl,
@@ -141,12 +144,32 @@ export class MoltZapService {
       onEvent: (event) => this.handleEvent(event),
       onDisconnect: () => {
         this._connected = false;
+        if (this.ownAgentId) {
+          telemetry.emit({
+            event: "connection.disconnect",
+            source: "agent",
+            schemaVersion: SCHEMA_VERSION,
+            ts: Date.now(),
+            agentId: this.ownAgentId,
+          });
+        }
         for (const h of this.disconnectHandlers) h();
       },
       onReconnect: (helloOk) => {
         this._connected = true;
+        this.reconnectAttempts++;
         const hello = helloOk as HelloOk;
         this.populateFromHello(hello);
+        if (this.ownAgentId) {
+          telemetry.emit({
+            event: "connection.reconnect",
+            source: "agent",
+            schemaVersion: SCHEMA_VERSION,
+            ts: Date.now(),
+            agentId: this.ownAgentId,
+            attemptN: this.reconnectAttempts,
+          });
+        }
         for (const h of this.reconnectHandlers) h(hello);
       },
     });
@@ -441,11 +464,26 @@ export class MoltZapService {
     text: string,
     opts?: { replyTo?: string },
   ): Promise<void> {
-    await this.sendRpc("messages/send", {
+    const response = (await this.sendRpc("messages/send", {
       conversationId: convId,
       parts: [{ type: "text", text }],
       ...(opts?.replyTo ? { replyToId: opts.replyTo } : {}),
-    });
+    })) as { message?: { id?: string } };
+
+    const msgId = response?.message?.id;
+    if (msgId && this.ownAgentId) {
+      telemetry.emit({
+        event: "outbound.sent",
+        source: "agent",
+        schemaVersion: SCHEMA_VERSION,
+        ts: Date.now(),
+        msgId,
+        replyToMsgId: opts?.replyTo,
+        convId,
+        agentId: this.ownAgentId,
+        chars: text.length,
+      });
+    }
   }
 
   async sendToAgent(
@@ -683,6 +721,22 @@ export class MoltZapService {
           !this.agentNames.has(msg.sender.id)
         ) {
           void this.resolveAgentName(msg.sender.id);
+        }
+        if (msg.sender.id !== this.ownAgentId && this.ownAgentId) {
+          telemetry.emit({
+            event: "inbound.received",
+            source: "agent",
+            schemaVersion: SCHEMA_VERSION,
+            ts: Date.now(),
+            msgId: msg.id,
+            convId: msg.conversationId,
+            senderAgentId: msg.sender.id,
+            agentId: this.ownAgentId,
+            chars: msg.parts.reduce(
+              (n, p) => n + (p.type === "text" ? p.text.length : 0),
+              0,
+            ),
+          });
         }
         // Emit to external handlers (only non-own messages)
         if (msg.sender.id !== this.ownAgentId) {
