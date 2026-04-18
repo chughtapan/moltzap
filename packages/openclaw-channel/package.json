@@ -33,6 +33,7 @@
     "ws": "^8.18.0"
   },
   "devDependencies": {
+    "@moltzap/observability": "workspace:*",
     "@testcontainers/postgresql": "^10.18.0",
     "@types/pg": "^8.11.0",
     "@types/ws": "^8.5.0",

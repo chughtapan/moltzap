@@ -307,7 +307,7 @@ export const moltzapChannelPlugin = {
         if (
           !ctx.channelRuntime?.reply?.dispatchReplyWithBufferedBlockDispatcher
         ) {
-          return;
+          return { outcome: "skipped" };
         }
 
         const groupSubject = enriched.conversationMeta?.name;
@@ -316,60 +316,58 @@ export const moltzapChannelPlugin = {
             ? enriched.conversationMeta.participants.join(",")
             : undefined;
 
-        try {
-          const result =
-            await ctx.channelRuntime.reply.dispatchReplyWithBufferedBlockDispatcher(
-              {
-                ctx: {
-                  Body: enriched.text,
-                  BodyForAgent: bodyForAgent,
-                  From: fromId,
-                  To: account.agentName ?? accountId,
-                  SessionKey: `agent:main:moltzap:${chatType === "group" ? "group" : "dm"}:${enriched.conversationId}`,
-                  AccountId: accountId,
-                  Provider: CHANNEL_ID,
-                  Surface: CHANNEL_ID,
-                  OriginatingChannel: CHANNEL_ID,
-                  OriginatingTo: enriched.conversationId,
-                  ChatType: chatType,
-                  ...(groupSubject ? { GroupSubject: groupSubject } : {}),
-                  ...(groupMembers ? { GroupMembers: groupMembers } : {}),
-                  ...(enriched.conversationMeta?.name
-                    ? { ConversationLabel: enriched.conversationMeta.name }
-                    : {}),
-                  SenderName: enriched.sender.name,
-                },
-                cfg: ctx.cfg,
-                dispatcherOptions: {
-                  deliver: async (
-                    payload: { text?: string; body?: string },
-                    info?: { kind?: string },
-                  ) => {
-                    if (info?.kind !== "final") return true;
-                    const text = payload.text ?? payload.body;
-                    if (!text) return true;
-                    try {
-                      await core.sendReply(enriched.conversationId, text);
-                      log?.info?.(
-                        `MoltZap: outbound reply to ${enriched.conversationId}: ${text.slice(0, 80)}`,
-                      );
-                      return true;
-                    } catch (sendErr) {
-                      log?.error?.(`MoltZap: failed to send reply: ${sendErr}`);
-                      return false;
-                    }
-                  },
+        const result =
+          await ctx.channelRuntime.reply.dispatchReplyWithBufferedBlockDispatcher(
+            {
+              ctx: {
+                Body: enriched.text,
+                BodyForAgent: bodyForAgent,
+                From: fromId,
+                To: account.agentName ?? accountId,
+                SessionKey: `agent:main:moltzap:${chatType === "group" ? "group" : "dm"}:${enriched.conversationId}`,
+                AccountId: accountId,
+                Provider: CHANNEL_ID,
+                Surface: CHANNEL_ID,
+                OriginatingChannel: CHANNEL_ID,
+                OriginatingTo: enriched.conversationId,
+                ChatType: chatType,
+                ...(groupSubject ? { GroupSubject: groupSubject } : {}),
+                ...(groupMembers ? { GroupMembers: groupMembers } : {}),
+                ...(enriched.conversationMeta?.name
+                  ? { ConversationLabel: enriched.conversationMeta.name }
+                  : {}),
+                SenderName: enriched.sender.name,
+              },
+              cfg: ctx.cfg,
+              dispatcherOptions: {
+                deliver: async (
+                  payload: { text?: string; body?: string },
+                  info?: { kind?: string },
+                ) => {
+                  if (info?.kind !== "final") return true;
+                  const text = payload.text ?? payload.body;
+                  if (!text) return true;
+                  try {
+                    await core.sendReply(enriched.conversationId, text);
+                    log?.info?.(
+                      `MoltZap: outbound reply to ${enriched.conversationId}: ${text.slice(0, 80)}`,
+                    );
+                    return true;
+                  } catch (sendErr) {
+                    log?.error?.(`MoltZap: failed to send reply: ${sendErr}`);
+                    return false;
+                  }
                 },
               },
-            );
-          if (!result.queuedFinal) {
-            log?.debug?.(
-              `MoltZap: dispatch completed without final reply for ${enriched.conversationId}`,
-            );
-          }
-        } catch (err: unknown) {
-          log?.error?.(`MoltZap: dispatch error: ${err}`);
+            },
+          );
+        if (!result.queuedFinal) {
+          log?.debug?.(
+            `MoltZap: dispatch completed without final reply for ${enriched.conversationId}`,
+          );
+          return { outcome: "skipped" };
         }
+        return { outcome: "final" };
       });
 
       // Forward non-message events for status/logging

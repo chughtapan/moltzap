@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { Message } from "@moltzap/protocol";
 import type { CrossConversationEntry, CrossConvMessage } from "@moltzap/client";
+import type { DispatchCompleteEvent } from "@moltzap/observability";
+import {
+  captureTelemetry,
+  resetTelemetry,
+} from "@moltzap/observability/test-utils";
 
 // Capture handlers registered via service.on()
 let capturedOnMessage: ((msg: Message) => void) | null = null;
@@ -426,5 +431,48 @@ describe("Flow 5: Inbound contract — dispatchReplyWithBufferedBlockDispatcher"
     ).ctx;
     expect(ctx.Body).toBe("Plain message");
     expect(ctx.BodyForAgent).toBe("Plain message");
+  });
+
+  describe("dispatch outcome propagates to telemetry", () => {
+    let events: ReturnType<typeof captureTelemetry>["events"];
+
+    beforeEach(() => {
+      ({ events } = captureTelemetry());
+    });
+    afterEach(resetTelemetry);
+
+    it.each([
+      {
+        name: "outcome=final when queuedFinal is true",
+        mock: () => mockDispatch.mockResolvedValueOnce({ queuedFinal: true }),
+        expectedOutcome: "final" as const,
+      },
+      {
+        name: "outcome=skipped when queuedFinal is false",
+        mock: () => mockDispatch.mockResolvedValueOnce({ queuedFinal: false }),
+        expectedOutcome: "skipped" as const,
+      },
+      {
+        name: "outcome=error when dispatch throws",
+        mock: () =>
+          mockDispatch.mockRejectedValueOnce(new Error("dispatch-blew-up")),
+        expectedOutcome: "error" as const,
+        expectedErrorReason: "dispatch-blew-up",
+      },
+    ])("$name", async ({ mock, expectedOutcome, expectedErrorReason }) => {
+      mock();
+      capturedOnMessage!(makeMessage());
+      await vi.waitFor(() => {
+        const completes = events.filter((e) => e.event === "dispatch.complete");
+        expect(completes.length).toBeGreaterThanOrEqual(1);
+      });
+      const complete = events.find(
+        (e) => e.event === "dispatch.complete",
+      ) as DispatchCompleteEvent;
+      expect(complete.outcome).toBe(expectedOutcome);
+      if (expectedErrorReason !== undefined) {
+        expect(complete.errorReason).toBe(expectedErrorReason);
+      }
+    });
   });
 });

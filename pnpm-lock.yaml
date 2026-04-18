@@ -177,6 +177,9 @@ importers:
         specifier: ^8.18.0
         version: 8.20.0
     devDependencies:
+      '@moltzap/observability':
+        specifier: workspace:*
+        version: link:../observability
       '@testcontainers/postgresql':
         specifier: ^10.18.0
         version: 10.28.0
