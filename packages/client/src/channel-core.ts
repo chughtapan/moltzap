@@ -73,9 +73,18 @@ export interface ChannelCoreOptions {
   queueStatsIntervalMs?: number;
 }
 
+/**
+ * Rollups need to distinguish "agent replied" from "agent received but chose
+ * not to respond." Returning void or undefined maps to outcome "final"
+ * (backwards-compatible for handlers predating this contract).
+ */
+export interface InboundHandlerResult {
+  outcome: "final" | "skipped";
+}
+
 export type InboundHandler = (
   msg: EnrichedInboundMessage,
-) => Promise<void> | void;
+) => Promise<void | InboundHandlerResult> | void | InboundHandlerResult;
 
 const noopLogger = {
   info: () => {},
@@ -147,10 +156,11 @@ export class MoltZapChannelCore {
             inflight: this.inflight,
           });
         }
-        let outcome: "final" | "error" = "final";
+        let outcome: "final" | "skipped" | "error" = "final";
         let errorReason: string | undefined;
         try {
-          await this.handleInbound(message);
+          const result = await this.handleInbound(message);
+          if (result?.outcome === "skipped") outcome = "skipped";
         } catch (err) {
           outcome = "error";
           errorReason = err instanceof Error ? err.message : String(err);
@@ -362,13 +372,16 @@ export class MoltZapChannelCore {
     };
   }
 
-  private async handleInbound(message: Message): Promise<void> {
+  private async handleInbound(
+    message: Message,
+  ): Promise<void | InboundHandlerResult> {
     if (!this.inboundHandler) return;
     const { enriched, commitContext } = await MoltZapChannelCore.enrichMessage(
       this.service,
       message,
     );
-    await this.inboundHandler(enriched);
+    const result = await this.inboundHandler(enriched);
     commitContext?.();
+    return result;
   }
 }

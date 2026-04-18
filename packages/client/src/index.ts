@@ -17,6 +17,8 @@ export {
   type EnrichedInboundMessage,
   type EnrichedSender,
   type InboundHandler,
+  type InboundHandlerResult,
+  type QueueStats,
 } from "./channel-core.js";
 export {
   MoltZapWsClient,
