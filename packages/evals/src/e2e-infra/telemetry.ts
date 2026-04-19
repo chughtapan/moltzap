@@ -58,6 +58,91 @@ export type SharedContractTelemetryEvent =
       status: "success" | "validation_failure" | "runtime_failure" | "aborted";
     };
 
+export type RunStartedTelemetryEvent = Extract<
+  SharedContractTelemetryEvent,
+  { _tag: "run.started" }
+>;
+export type FleetStartedTelemetryEvent = Extract<
+  SharedContractTelemetryEvent,
+  { _tag: "fleet.started" }
+>;
+export type FleetStoppedTelemetryEvent = Extract<
+  SharedContractTelemetryEvent,
+  { _tag: "fleet.stopped" }
+>;
+export type MessageSentTelemetryEvent = Extract<
+  SharedContractTelemetryEvent,
+  { _tag: "message.sent" }
+>;
+export type MessageReceivedTelemetryEvent = Extract<
+  SharedContractTelemetryEvent,
+  { _tag: "message.received" }
+>;
+export type RunCompletedTelemetryEvent = Extract<
+  SharedContractTelemetryEvent,
+  { _tag: "run.completed" }
+>;
+
+export function createRunStartedTelemetryEvent(
+  event: Omit<RunStartedTelemetryEvent, "schemaVersion" | "_tag">,
+): RunStartedTelemetryEvent {
+  return {
+    schemaVersion: 1,
+    _tag: "run.started",
+    ...event,
+  };
+}
+
+export function createFleetStartedTelemetryEvent(
+  event: Omit<FleetStartedTelemetryEvent, "schemaVersion" | "_tag">,
+): FleetStartedTelemetryEvent {
+  return {
+    schemaVersion: 1,
+    _tag: "fleet.started",
+    ...event,
+  };
+}
+
+export function createFleetStoppedTelemetryEvent(
+  event: Omit<FleetStoppedTelemetryEvent, "schemaVersion" | "_tag">,
+): FleetStoppedTelemetryEvent {
+  return {
+    schemaVersion: 1,
+    _tag: "fleet.stopped",
+    ...event,
+  };
+}
+
+export function createMessageSentTelemetryEvent(
+  event: Omit<MessageSentTelemetryEvent, "schemaVersion" | "_tag">,
+): MessageSentTelemetryEvent {
+  return {
+    schemaVersion: 1,
+    _tag: "message.sent",
+    ...event,
+  };
+}
+
+export function createMessageReceivedTelemetryEvent(
+  event: Omit<MessageReceivedTelemetryEvent, "schemaVersion" | "_tag">,
+): MessageReceivedTelemetryEvent {
+  return {
+    schemaVersion: 1,
+    _tag: "message.received",
+    ...event,
+  };
+}
+
+export function createRunCompletedTelemetryEvent(
+  event: Omit<RunCompletedTelemetryEvent, "schemaVersion" | "_tag">,
+): RunCompletedTelemetryEvent {
+  return {
+    schemaVersion: 1,
+    _tag: "run.completed",
+    ...event,
+  };
+}
+
 type TelemetryHandler = (event: SharedContractTelemetryEvent) => void;
 
 const handlers = new Set<TelemetryHandler>();

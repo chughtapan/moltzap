@@ -92,7 +92,7 @@ describe("runE2EEvals shared contract", () => {
       const summaryPath = path.join(outputDir, "summary.md");
       const bundle = JSON.parse(fs.readFileSync(bundleJsonPath, "utf8")) as {
         metadata: { contractMode: string };
-        events: Array<{ _tag: string }>;
+        events: Array<{ type: string }>;
       };
 
       expect(result.summary.total).toBe(1);
@@ -102,9 +102,7 @@ describe("runE2EEvals shared contract", () => {
       expect(fs.existsSync(bundleYamlPath)).toBe(true);
       expect(fs.existsSync(summaryPath)).toBe(false);
       expect(bundle.metadata.contractMode).toBe("shared");
-      expect(bundle.events.map((event) => event._tag)).toEqual([
-        "run.completed",
-      ]);
+      expect(bundle.events.map((event) => event.type)).toEqual(["phase"]);
       expect(judge.judgeAgentResponse).not.toHaveBeenCalled();
       expect(judge.analyzeFailures).not.toHaveBeenCalled();
       expect(report.generateReport).not.toHaveBeenCalled();

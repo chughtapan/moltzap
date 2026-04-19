@@ -11,7 +11,11 @@ import { DockerManager, type AgentContainer } from "./docker-manager.js";
 import { NanoclawManager, type NanoclawAgent } from "./nanoclaw-manager.js";
 import { logger } from "./logger.js";
 import { ContainerError } from "./types.js";
-import { telemetry } from "./telemetry.js";
+import {
+  createFleetStartedTelemetryEvent,
+  createFleetStoppedTelemetryEvent,
+  telemetry,
+} from "./telemetry.js";
 
 export type AgentRuntime = "openclaw" | "nanoclaw";
 
@@ -87,14 +91,14 @@ const launchOpenClawFleet = (
     yield* Effect.sync(() =>
       logger.info(`Fleet started: ${containers.length} openclaw agent(s)`),
     );
-    telemetry.emit({
-      schemaVersion: 1,
-      _tag: "fleet.started",
-      ts: new Date().toISOString(),
-      runtime: "openclaw",
-      agentNames: containers.map((c) => c.name),
-      serverUrl: opts.serverUrl,
-    });
+    telemetry.emit(
+      createFleetStartedTelemetryEvent({
+        ts: new Date().toISOString(),
+        runtime: "openclaw",
+        agentNames: containers.map((c) => c.name),
+        serverUrl: opts.serverUrl,
+      }),
+    );
 
     const agentMap = new Map(containers.map((c) => [c.name, c]));
 
@@ -116,13 +120,13 @@ const launchOpenClawFleet = (
               }
             }
             yield* dockerManager.stopAll();
-            telemetry.emit({
-              schemaVersion: 1,
-              _tag: "fleet.stopped",
-              ts: new Date().toISOString(),
-              runtime: "openclaw",
-              agentNames: containers.map((c) => c.name),
-            });
+            telemetry.emit(
+              createFleetStoppedTelemetryEvent({
+                ts: new Date().toISOString(),
+                runtime: "openclaw",
+                agentNames: containers.map((c) => c.name),
+              }),
+            );
           }),
         ),
       getLogs(name: string): string {
@@ -182,14 +186,14 @@ const launchNanoclawFleet = (
     yield* Effect.sync(() =>
       logger.info(`Fleet started: ${agents.length} nanoclaw agent(s)`),
     );
-    telemetry.emit({
-      schemaVersion: 1,
-      _tag: "fleet.started",
-      ts: new Date().toISOString(),
-      runtime: "nanoclaw",
-      agentNames: agents.map((a) => a.name),
-      serverUrl: opts.serverUrl,
-    });
+    telemetry.emit(
+      createFleetStartedTelemetryEvent({
+        ts: new Date().toISOString(),
+        runtime: "nanoclaw",
+        agentNames: agents.map((a) => a.name),
+        serverUrl: opts.serverUrl,
+      }),
+    );
 
     const agentMap = new Map(agents.map((a) => [a.name, a]));
 
@@ -215,13 +219,13 @@ const launchNanoclawFleet = (
               catch: (err) =>
                 err instanceof Error ? err : new Error(String(err)),
             });
-            telemetry.emit({
-              schemaVersion: 1,
-              _tag: "fleet.stopped",
-              ts: new Date().toISOString(),
-              runtime: "nanoclaw",
-              agentNames: agents.map((a) => a.name),
-            });
+            telemetry.emit(
+              createFleetStoppedTelemetryEvent({
+                ts: new Date().toISOString(),
+                runtime: "nanoclaw",
+                agentNames: agents.map((a) => a.name),
+              }),
+            );
           }),
         ),
       getLogs(name: string): string {

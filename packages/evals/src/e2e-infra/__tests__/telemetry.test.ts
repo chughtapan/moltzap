@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { telemetry, type SharedContractTelemetryEvent } from "../telemetry.js";
+import {
+  createFleetStartedTelemetryEvent,
+  createRunStartedTelemetryEvent,
+  telemetry,
+  type SharedContractTelemetryEvent,
+} from "../telemetry.js";
 
 afterEach(() => {
   telemetry.reset();
@@ -12,17 +17,17 @@ describe("telemetry", () => {
       received.push(event);
     });
 
-    telemetry.emit({
-      schemaVersion: 1,
-      _tag: "run.started",
-      ts: "2026-04-19T00:00:00.000Z",
-      runId: "run-1",
-      scenarioId: "EVAL-001",
-      runNumber: 1,
-      runtime: "openclaw",
-      contractMode: "shared",
-      modelName: "test-model",
-    });
+    telemetry.emit(
+      createRunStartedTelemetryEvent({
+        ts: "2026-04-19T00:00:00.000Z",
+        runId: "run-1",
+        scenarioId: "EVAL-001",
+        runNumber: 1,
+        runtime: "openclaw",
+        contractMode: "shared",
+        modelName: "test-model",
+      }),
+    );
 
     unsubscribe();
 
@@ -39,14 +44,14 @@ describe("telemetry", () => {
       received.push(event);
     });
 
-    telemetry.emit({
-      schemaVersion: 1,
-      _tag: "fleet.started",
-      ts: "2026-04-19T00:00:00.000Z",
-      runtime: "openclaw",
-      agentNames: ["eval-agent"],
-      serverUrl: "ws://example.test",
-    });
+    telemetry.emit(
+      createFleetStartedTelemetryEvent({
+        ts: "2026-04-19T00:00:00.000Z",
+        runtime: "openclaw",
+        agentNames: ["eval-agent"],
+        serverUrl: "ws://example.test",
+      }),
+    );
 
     expect(received).toHaveLength(1);
     expect(received[0]?._tag).toBe("fleet.started");
