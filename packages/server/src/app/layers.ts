@@ -161,8 +161,9 @@ export const ConversationServiceLive = Layer.effect(
   Effect.gen(function* () {
     const db = yield* DbTag;
     const participants = yield* ParticipantServiceTag;
+    const connections = yield* ConnectionManagerTag;
     const appHost = yield* AppHostTag;
-    return new ConversationService(db, participants, (convId) =>
+    return new ConversationService(db, participants, connections, (convId) =>
       appHost.isAttachedToActiveSession(convId),
     );
   }),

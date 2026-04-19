@@ -39,16 +39,11 @@ export function createConversationHandlers(deps: {
             ctx.agentId,
           );
 
-          const creatorConnId = yield* ConnIdTag;
-          const creatorConn = deps.connections.get(creatorConnId);
-          if (creatorConn) {
-            creatorConn.conversationIds.add(conversation.id);
-          }
-
-          deps.connections.subscribeAgentsToConversation(
-            params.participants.map((p) => p.id),
-            conversation.id,
-          );
+          // ConversationService.create subscribes every participant's open
+          // sockets (including the creator's) to the new conversation. The
+          // handler's only remaining job is to fan the ConversationCreated
+          // event out to each participant's agent so clients can react to
+          // the new conversation appearing in their conversation list.
           for (const participant of params.participants) {
             deps.broadcaster.sendToAgent(
               participant.id,
