@@ -22,9 +22,17 @@
       "import": "./dist/e2e-infra/report.js",
       "types": "./dist/e2e-infra/report.d.ts"
     },
+    "./judgment-bundle": {
+      "import": "./dist/e2e-infra/judgment-bundle.js",
+      "types": "./dist/e2e-infra/judgment-bundle.d.ts"
+    },
     "./llm-judge": {
       "import": "./dist/e2e-infra/llm-judge.js",
       "types": "./dist/e2e-infra/llm-judge.d.ts"
+    },
+    "./telemetry": {
+      "import": "./dist/e2e-infra/telemetry.js",
+      "types": "./dist/e2e-infra/telemetry.d.ts"
     },
     "./docker-manager": {
       "import": "./dist/e2e-infra/docker-manager.js",

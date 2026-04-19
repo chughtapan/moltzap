@@ -114,6 +114,7 @@ export interface TranscriptEntry {
   role: "user" | "agent";
   text: string;
   conversationId: string;
+  createdAt?: string;
 }
 
 export interface GeneratedResult {
