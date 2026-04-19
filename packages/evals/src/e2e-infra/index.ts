@@ -103,12 +103,6 @@ async function main(): Promise<void> {
       default: "openclaw",
       choices: ["openclaw", "nanoclaw"],
     })
-    .option("contract-mode", {
-      type: "string",
-      description:
-        "Evaluation contract mode: shared emits cc-judge bundles and skips local judge/report; legacy keeps the existing eval judge/report flow",
-      choices: ["shared", "legacy"],
-    })
     .help()
     .alias("h", "help")
     .strict().argv;
@@ -116,12 +110,7 @@ async function main(): Promise<void> {
   setupLogger(argv.results, argv["log-level"]);
 
   const modelId = argv.model!;
-  const contractMode =
-    argv["contract-mode"] === "legacy" || argv["contract-mode"] === "shared"
-      ? argv["contract-mode"]
-      : argv.runtime === "openclaw"
-        ? "shared"
-        : "legacy";
+  const contractMode = argv.runtime === "openclaw" ? "shared" : "legacy";
 
   logger.info(
     `\n${"=".repeat(60)}\nRunning evals with agent model: ${modelId}\n${"=".repeat(60)}`,
