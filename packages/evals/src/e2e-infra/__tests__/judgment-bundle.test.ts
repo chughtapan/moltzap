@@ -11,7 +11,14 @@ import type {
   GeneratedResult,
   ValidatedResult,
 } from "../types.js";
-import type { SharedContractTelemetryEvent } from "../telemetry.js";
+import {
+  createFleetStartedTelemetryEvent,
+  createMessageReceivedTelemetryEvent,
+  createMessageSentTelemetryEvent,
+  createRunCompletedTelemetryEvent,
+  createRunStartedTelemetryEvent,
+  type SharedContractTelemetryEvent,
+} from "../telemetry.js";
 
 const SCENARIO: EvalScenario = {
   id: "EVAL-001",
@@ -58,9 +65,7 @@ const VALIDATED: ValidatedResult = {
 };
 
 const EVENTS: SharedContractTelemetryEvent[] = [
-  {
-    schemaVersion: 1,
-    _tag: "run.started",
+  createRunStartedTelemetryEvent({
     ts: "2026-04-19T00:00:00.000Z",
     runId: "moltzap-EVAL-001-1-openclaw-eval",
     scenarioId: SCENARIO.id,
@@ -68,20 +73,16 @@ const EVENTS: SharedContractTelemetryEvent[] = [
     runtime: "openclaw",
     contractMode: "shared",
     modelName: "openclaw-eval",
-  },
-  {
-    schemaVersion: 1,
-    _tag: "message.sent",
+  }),
+  createMessageSentTelemetryEvent({
     ts: "2026-04-19T00:00:00.000Z",
     scenarioId: SCENARIO.id,
     runNumber: 1,
     conversationId: "conv-1",
     expectedSenderId: "agent-1",
     charCount: 5,
-  },
-  {
-    schemaVersion: 1,
-    _tag: "message.received",
+  }),
+  createMessageReceivedTelemetryEvent({
     ts: "2026-04-19T00:00:02.000Z",
     scenarioId: SCENARIO.id,
     runNumber: 1,
@@ -90,17 +91,15 @@ const EVENTS: SharedContractTelemetryEvent[] = [
     messageId: "msg-1",
     charCount: 10,
     latencyMs: 42,
-  },
-  {
-    schemaVersion: 1,
-    _tag: "run.completed",
+  }),
+  createRunCompletedTelemetryEvent({
     ts: "2026-04-19T00:00:03.000Z",
     runId: "moltzap-EVAL-001-1-openclaw-eval",
     scenarioId: SCENARIO.id,
     runNumber: 1,
     contractMode: "shared",
     status: "success",
-  },
+  }),
 ];
 
 describe("buildJudgmentBundle", () => {
@@ -121,6 +120,12 @@ describe("buildJudgmentBundle", () => {
     expect(bundle.project).toBe("moltzap");
     expect(bundle.agents).toHaveLength(1);
     expect(bundle.events).toHaveLength(4);
+    expect(bundle.events.map((event) => event.type)).toEqual([
+      "phase",
+      "message",
+      "message",
+      "phase",
+    ]);
     expect(bundle.outcomes[0]?.status).toBe("completed");
     expect(bundle.context?.transcript).toHaveLength(2);
   });

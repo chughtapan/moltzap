@@ -21,7 +21,14 @@ import { analyzeFailures, judgeAgentResponse } from "./llm-judge.js";
 import { generateReport, generateSummaryMarkdown } from "./report.js";
 import { DEFAULT_JUDGE_MODEL, DEFAULT_AGENT_MODEL_ID } from "./model-config.js";
 import { logger } from "./logger.js";
-import { telemetry, type SharedContractTelemetryEvent } from "./telemetry.js";
+import {
+  createMessageReceivedTelemetryEvent,
+  createMessageSentTelemetryEvent,
+  createRunCompletedTelemetryEvent,
+  createRunStartedTelemetryEvent,
+  telemetry,
+  type SharedContractTelemetryEvent,
+} from "./telemetry.js";
 import {
   buildJudgmentBundle,
   deriveJudgmentRunId,
@@ -118,16 +125,16 @@ export const sendAndWaitForResponseEffect = (opts: {
     const { client, conversationId, message, expectedSenderId, timeoutMs } =
       opts;
     const sentAt = performance.now();
-    telemetry.emit({
-      schemaVersion: 1,
-      _tag: "message.sent",
-      ts: new Date().toISOString(),
-      scenarioId: opts.scenarioId,
-      runNumber: opts.runNumber,
-      conversationId,
-      expectedSenderId,
-      charCount: message.length,
-    });
+    telemetry.emit(
+      createMessageSentTelemetryEvent({
+        ts: new Date().toISOString(),
+        scenarioId: opts.scenarioId,
+        runNumber: opts.runNumber,
+        conversationId,
+        expectedSenderId,
+        charCount: message.length,
+      }),
+    );
 
     yield* client.sendRpc("messages/send", {
       conversationId,
@@ -155,18 +162,18 @@ export const sendAndWaitForResponseEffect = (opts: {
           .filter((p) => p.type === "text" && p.text)
           .map((p) => p.text)
           .join("\n");
-        telemetry.emit({
-          schemaVersion: 1,
-          _tag: "message.received",
-          ts: msg.createdAt,
-          scenarioId: opts.scenarioId,
-          runNumber: opts.runNumber,
-          conversationId,
-          senderId: expectedSenderId,
-          messageId: msg.id,
-          charCount: responseText.length,
-          latencyMs: performance.now() - sentAt,
-        });
+        telemetry.emit(
+          createMessageReceivedTelemetryEvent({
+            ts: msg.createdAt,
+            scenarioId: opts.scenarioId,
+            runNumber: opts.runNumber,
+            conversationId,
+            senderId: expectedSenderId,
+            messageId: msg.id,
+            charCount: responseText.length,
+            latencyMs: performance.now() - sentAt,
+          }),
+        );
         return { responseText, rawMessage: msg };
       }
     }
@@ -439,17 +446,17 @@ function generatePhase(
         runNumber: job.run,
         modelName: ctx.modelName,
       });
-      telemetry.emit({
-        schemaVersion: 1,
-        _tag: "run.started",
-        ts: new Date().toISOString(),
-        runId,
-        scenarioId: job.scenario.id,
-        runNumber: job.run,
-        runtime: ctx.runtime,
-        contractMode: ctx.contractMode,
-        modelName: ctx.modelName,
-      });
+      telemetry.emit(
+        createRunStartedTelemetryEvent({
+          ts: new Date().toISOString(),
+          runId,
+          scenarioId: job.scenario.id,
+          runNumber: job.run,
+          runtime: ctx.runtime,
+          contractMode: ctx.contractMode,
+          modelName: ctx.modelName,
+        }),
+      );
 
       // Drain stale events between scenarios — previous agent responses
       // can leak into the next scenario's waitForEvent since DM conversations
@@ -742,16 +749,16 @@ function sharedContractPhase(
           : result.validationErrors.length > 0
             ? "validation_failure"
             : "success";
-        telemetry.emit({
-          schemaVersion: 1,
-          _tag: "run.completed",
-          ts: new Date().toISOString(),
-          runId,
-          scenarioId: result.scenarioId,
-          runNumber: result.runNumber,
-          contractMode: opts.contractMode,
-          status,
-        });
+        telemetry.emit(
+          createRunCompletedTelemetryEvent({
+            ts: new Date().toISOString(),
+            runId,
+            scenarioId: result.scenarioId,
+            runNumber: result.runNumber,
+            contractMode: opts.contractMode,
+            status,
+          }),
+        );
         if (!bundlesDir) continue;
         const bundle = buildJudgmentBundle({
           project: opts.project,

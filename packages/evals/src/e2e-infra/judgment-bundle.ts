@@ -12,6 +12,34 @@ import type { SharedContractTelemetryEvent } from "./telemetry.js";
 
 type RuntimeKind = "openclaw" | "nanoclaw";
 
+export type JudgmentBundleTraceEvent =
+  | {
+      type: "message";
+      from: string;
+      to?: string;
+      channel: string;
+      text: string;
+      ts: number;
+    }
+  | {
+      type: "phase";
+      phase: string;
+      round?: number;
+      ts: number;
+    }
+  | {
+      type: "action";
+      agent: string;
+      action: string;
+      channel: string;
+      ts: number;
+    }
+  | {
+      type: "state";
+      snapshot: Readonly<Record<string, unknown>>;
+      ts: number;
+    };
+
 export interface ExecutionArtifact {
   _tag: "DockerBuildArtifact" | "DockerImageArtifact";
   contextPath?: string;
@@ -60,7 +88,7 @@ export interface JudgmentBundle {
   description: string;
   requirements: RunRequirements;
   agents: ReadonlyArray<AgentDeclaration>;
-  events: ReadonlyArray<SharedContractTelemetryEvent>;
+  events: ReadonlyArray<JudgmentBundleTraceEvent>;
   outcomes: ReadonlyArray<AgentOutcome>;
   context?: Readonly<Record<string, unknown>>;
   metadata?: Readonly<Record<string, unknown>>;
@@ -133,91 +161,42 @@ const AgentOutcomeSchema = Type.Object(
   { additionalProperties: false },
 );
 
-const SharedContractTelemetryEventSchema = Type.Union([
+const JudgmentBundleTraceEventSchema = Type.Union([
   Type.Object(
     {
-      schemaVersion: Type.Literal(1),
-      _tag: Type.Literal("run.started"),
-      ts: Type.String(),
-      runId: Type.String(),
-      scenarioId: Type.String(),
-      runNumber: Type.Number(),
-      runtime: Type.Union([Type.Literal("openclaw"), Type.Literal("nanoclaw")]),
-      contractMode: Type.Union([
-        Type.Literal("legacy"),
-        Type.Literal("shared"),
-      ]),
-      modelName: Type.String(),
+      type: Type.Literal("message"),
+      from: Type.String(),
+      to: Type.Optional(Type.String()),
+      channel: Type.String(),
+      text: Type.String(),
+      ts: Type.Number(),
     },
     { additionalProperties: false },
   ),
   Type.Object(
     {
-      schemaVersion: Type.Literal(1),
-      _tag: Type.Literal("fleet.started"),
-      ts: Type.String(),
-      runtime: Type.Union([Type.Literal("openclaw"), Type.Literal("nanoclaw")]),
-      agentNames: Type.Array(Type.String()),
-      serverUrl: Type.String(),
+      type: Type.Literal("phase"),
+      phase: Type.String(),
+      round: Type.Optional(Type.Number()),
+      ts: Type.Number(),
     },
     { additionalProperties: false },
   ),
   Type.Object(
     {
-      schemaVersion: Type.Literal(1),
-      _tag: Type.Literal("fleet.stopped"),
-      ts: Type.String(),
-      runtime: Type.Union([Type.Literal("openclaw"), Type.Literal("nanoclaw")]),
-      agentNames: Type.Array(Type.String()),
+      type: Type.Literal("action"),
+      agent: Type.String(),
+      action: Type.String(),
+      channel: Type.String(),
+      ts: Type.Number(),
     },
     { additionalProperties: false },
   ),
   Type.Object(
     {
-      schemaVersion: Type.Literal(1),
-      _tag: Type.Literal("message.sent"),
-      ts: Type.String(),
-      scenarioId: Type.String(),
-      runNumber: Type.Number(),
-      conversationId: Type.String(),
-      expectedSenderId: Type.String(),
-      charCount: Type.Number(),
-    },
-    { additionalProperties: false },
-  ),
-  Type.Object(
-    {
-      schemaVersion: Type.Literal(1),
-      _tag: Type.Literal("message.received"),
-      ts: Type.String(),
-      scenarioId: Type.String(),
-      runNumber: Type.Number(),
-      conversationId: Type.String(),
-      senderId: Type.String(),
-      messageId: Type.String(),
-      charCount: Type.Number(),
-      latencyMs: Type.Number(),
-    },
-    { additionalProperties: false },
-  ),
-  Type.Object(
-    {
-      schemaVersion: Type.Literal(1),
-      _tag: Type.Literal("run.completed"),
-      ts: Type.String(),
-      runId: Type.String(),
-      scenarioId: Type.String(),
-      runNumber: Type.Number(),
-      contractMode: Type.Union([
-        Type.Literal("legacy"),
-        Type.Literal("shared"),
-      ]),
-      status: Type.Union([
-        Type.Literal("success"),
-        Type.Literal("validation_failure"),
-        Type.Literal("runtime_failure"),
-        Type.Literal("aborted"),
-      ]),
+      type: Type.Literal("state"),
+      snapshot: Type.Record(Type.String(), Type.Unknown()),
+      ts: Type.Number(),
     },
     { additionalProperties: false },
   ),
@@ -232,7 +211,7 @@ export const JudgmentBundleSchema = Type.Object(
     description: Type.String(),
     requirements: RunRequirementsSchema,
     agents: Type.Array(AgentDeclarationSchema),
-    events: Type.Array(SharedContractTelemetryEventSchema),
+    events: Type.Array(JudgmentBundleTraceEventSchema),
     outcomes: Type.Array(AgentOutcomeSchema),
     context: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
     metadata: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
@@ -291,6 +270,63 @@ function buildAgentDeclaration(opts: {
   };
 }
 
+function mapTelemetryEventToTraceEvent(
+  event: SharedContractTelemetryEvent,
+): JudgmentBundleTraceEvent {
+  switch (event._tag) {
+    case "run.started":
+      return {
+        type: "phase",
+        phase: "run.started",
+        round: event.runNumber,
+        ts: Date.parse(event.ts),
+      };
+    case "fleet.started":
+      return {
+        type: "state",
+        snapshot: {
+          runtime: event.runtime,
+          agentNames: event.agentNames,
+          serverUrl: event.serverUrl,
+        },
+        ts: Date.parse(event.ts),
+      };
+    case "fleet.stopped":
+      return {
+        type: "state",
+        snapshot: {
+          runtime: event.runtime,
+          agentNames: event.agentNames,
+          stopped: true,
+        },
+        ts: Date.parse(event.ts),
+      };
+    case "message.sent":
+      return {
+        type: "message",
+        from: event.expectedSenderId,
+        channel: event.conversationId,
+        text: "",
+        ts: Date.parse(event.ts),
+      };
+    case "message.received":
+      return {
+        type: "message",
+        from: event.senderId,
+        channel: event.conversationId,
+        text: "",
+        ts: Date.parse(event.ts),
+      };
+    case "run.completed":
+      return {
+        type: "phase",
+        phase: "run.completed",
+        round: event.runNumber,
+        ts: Date.parse(event.ts),
+      };
+  }
+}
+
 export function buildJudgmentBundle(opts: {
   project: string;
   runId: string;
@@ -323,7 +359,7 @@ export function buildJudgmentBundle(opts: {
         runNumber: opts.generated.runNumber,
       }),
     ],
-    events: [...opts.telemetryEvents],
+    events: opts.telemetryEvents.map(mapTelemetryEventToTraceEvent),
     outcomes: [
       {
         agentId: opts.agentId,
