@@ -21,6 +21,12 @@ import { analyzeFailures, judgeAgentResponse } from "./llm-judge.js";
 import { generateReport, generateSummaryMarkdown } from "./report.js";
 import { DEFAULT_JUDGE_MODEL, DEFAULT_AGENT_MODEL_ID } from "./model-config.js";
 import { logger } from "./logger.js";
+import { telemetry, type SharedContractTelemetryEvent } from "./telemetry.js";
+import {
+  buildJudgmentBundle,
+  deriveJudgmentRunId,
+  writeJudgmentBundleArtifacts,
+} from "./judgment-bundle.js";
 import type {
   EvalScenario,
   GeneratedResult,
@@ -105,10 +111,23 @@ export const sendAndWaitForResponseEffect = (opts: {
   message: string;
   expectedSenderId: string;
   timeoutMs: number;
+  scenarioId: string;
+  runNumber: number;
 }): Effect.Effect<{ responseText: string; rawMessage: RawMessage }, Error> =>
   Effect.gen(function* () {
     const { client, conversationId, message, expectedSenderId, timeoutMs } =
       opts;
+    const sentAt = performance.now();
+    telemetry.emit({
+      schemaVersion: 1,
+      _tag: "message.sent",
+      ts: new Date().toISOString(),
+      scenarioId: opts.scenarioId,
+      runNumber: opts.runNumber,
+      conversationId,
+      expectedSenderId,
+      charCount: message.length,
+    });
 
     yield* client.sendRpc("messages/send", {
       conversationId,
@@ -136,6 +155,18 @@ export const sendAndWaitForResponseEffect = (opts: {
           .filter((p) => p.type === "text" && p.text)
           .map((p) => p.text)
           .join("\n");
+        telemetry.emit({
+          schemaVersion: 1,
+          _tag: "message.received",
+          ts: msg.createdAt,
+          scenarioId: opts.scenarioId,
+          runNumber: opts.runNumber,
+          conversationId,
+          senderId: expectedSenderId,
+          messageId: msg.id,
+          charCount: responseText.length,
+          latencyMs: performance.now() - sentAt,
+        });
         return { responseText, rawMessage: msg };
       }
     }
@@ -154,6 +185,8 @@ export function sendAndWaitForResponse(opts: {
   message: string;
   expectedSenderId: string;
   timeoutMs: number;
+  scenarioId: string;
+  runNumber: number;
   // #ignore-sloppy-code-next-line[promise-type]: public signature kept for external callers; orchestration is Effect-native above
 }): Promise<{ responseText: string; rawMessage: RawMessage }> {
   return Effect.runPromise(sendAndWaitForResponseEffect(opts));
@@ -212,6 +245,7 @@ async function generateResult(opts: {
           i++
         ) {
           const bystander = opts.bystanders[i]!;
+          const bystanderSentAt = new Date().toISOString();
           await Effect.runPromise(
             bystander.client.sendRpc("messages/send", {
               conversationId,
@@ -222,6 +256,7 @@ async function generateResult(opts: {
             role: "user",
             text: scenario.bystanderMessages[i]!,
             conversationId,
+            createdAt: bystanderSentAt,
           });
         }
 
@@ -240,39 +275,53 @@ async function generateResult(opts: {
     }
 
     // Send the initial setup message
+    const setupSentAt = new Date().toISOString();
     let lastResponse = await sendAndWaitForResponse({
       client: testClient,
       conversationId,
       message: scenario.setupMessage,
       expectedSenderId: agentId,
       timeoutMs: AGENT_RESPONSE_TIMEOUT_MS,
+      scenarioId: scenario.id,
+      runNumber,
     });
     transcript.push({
       role: "user",
       text: scenario.setupMessage,
       conversationId,
+      createdAt: setupSentAt,
     });
     transcript.push({
       role: "agent",
       text: lastResponse.responseText,
       conversationId,
+      createdAt: lastResponse.rawMessage.createdAt,
     });
 
     // Send follow-up messages for multi-turn scenarios
     if (scenario.followUpMessages) {
       for (const followUp of scenario.followUpMessages) {
+        const followUpSentAt = new Date().toISOString();
         lastResponse = await sendAndWaitForResponse({
           client: testClient,
           conversationId,
           message: followUp,
           expectedSenderId: agentId,
           timeoutMs: AGENT_RESPONSE_TIMEOUT_MS,
+          scenarioId: scenario.id,
+          runNumber,
         });
-        transcript.push({ role: "user", text: followUp, conversationId });
+        transcript.push({
+          role: "user",
+          text: followUp,
+          conversationId,
+          createdAt: followUpSentAt,
+        });
         transcript.push({
           role: "agent",
           text: lastResponse.responseText,
           conversationId,
+          createdAt: lastResponse.rawMessage.createdAt,
         });
       }
     }
@@ -287,22 +336,27 @@ async function generateResult(opts: {
       )) as { conversation: { id: string } };
 
       const probeConvId = probeConv.conversation.id;
+      const probeSentAt = new Date().toISOString();
       lastResponse = await sendAndWaitForResponse({
         client: opts.probeClient,
         conversationId: probeConvId,
         message: scenario.crossConversationProbe,
         expectedSenderId: agentId,
         timeoutMs: AGENT_RESPONSE_TIMEOUT_MS,
+        scenarioId: scenario.id,
+        runNumber,
       });
       transcript.push({
         role: "user",
         text: scenario.crossConversationProbe,
         conversationId: probeConvId,
+        createdAt: probeSentAt,
       });
       transcript.push({
         role: "agent",
         text: lastResponse.responseText,
         conversationId: probeConvId,
+        createdAt: lastResponse.rawMessage.createdAt,
       });
     }
 
@@ -358,6 +412,8 @@ function generatePhase(
     probeClient: MoltZapWsClient;
     agentId: string;
     modelName: string;
+    runtime: AgentRuntime;
+    contractMode: "legacy" | "shared";
     bystanders: Array<{ client: MoltZapWsClient; agentId: string }>;
     totalJobs: number;
     signal?: AbortSignal;
@@ -377,6 +433,23 @@ function generatePhase(
           error: "Aborted before generation",
         } as GeneratedResult);
       }
+
+      const runId = deriveJudgmentRunId({
+        scenarioId: job.scenario.id,
+        runNumber: job.run,
+        modelName: ctx.modelName,
+      });
+      telemetry.emit({
+        schemaVersion: 1,
+        _tag: "run.started",
+        ts: new Date().toISOString(),
+        runId,
+        scenarioId: job.scenario.id,
+        runNumber: job.run,
+        runtime: ctx.runtime,
+        contractMode: ctx.contractMode,
+        modelName: ctx.modelName,
+      });
 
       // Drain stale events between scenarios — previous agent responses
       // can leak into the next scenario's waitForEvent since DM conversations
@@ -634,6 +707,102 @@ function analyzePhase(
   });
 }
 
+function isScenarioScopedTelemetryEvent(
+  event: SharedContractTelemetryEvent,
+): event is Extract<
+  SharedContractTelemetryEvent,
+  { scenarioId: string; runNumber: number }
+> {
+  return "scenarioId" in event && "runNumber" in event;
+}
+
+function sharedContractPhase(
+  validated: ValidatedResult[],
+  opts: {
+    outputDir?: string;
+    project: string;
+    agentId: string;
+    agentName: string;
+    runtime: AgentRuntime;
+    contractMode: "legacy" | "shared";
+    telemetryEvents: ReadonlyArray<SharedContractTelemetryEvent>;
+  },
+): Effect.Effect<{ result: E2ERunResult; analysisText: undefined }> {
+  return Effect.gen(function* () {
+    const bundlesDir = opts.outputDir ? `${opts.outputDir}/bundles` : undefined;
+    yield* Effect.sync(() => {
+      for (const result of validated) {
+        const runId = deriveJudgmentRunId({
+          scenarioId: result.scenarioId,
+          runNumber: result.runNumber,
+          modelName: result.modelName,
+        });
+        const status = result.error
+          ? "runtime_failure"
+          : result.validationErrors.length > 0
+            ? "validation_failure"
+            : "success";
+        telemetry.emit({
+          schemaVersion: 1,
+          _tag: "run.completed",
+          ts: new Date().toISOString(),
+          runId,
+          scenarioId: result.scenarioId,
+          runNumber: result.runNumber,
+          contractMode: opts.contractMode,
+          status,
+        });
+        if (!bundlesDir) continue;
+        const bundle = buildJudgmentBundle({
+          project: opts.project,
+          runId,
+          scenario: result.scenario,
+          generated: result,
+          validated: result,
+          agentId: opts.agentId,
+          agentName: opts.agentName,
+          runtime: opts.runtime,
+          contractMode: opts.contractMode,
+          telemetryEvents: opts.telemetryEvents.filter(
+            (event) =>
+              event._tag === "fleet.started" ||
+              event._tag === "fleet.stopped" ||
+              (isScenarioScopedTelemetryEvent(event) &&
+                event.scenarioId === result.scenarioId &&
+                event.runNumber === result.runNumber),
+          ),
+        });
+        writeJudgmentBundleArtifacts(bundle, bundlesDir);
+      }
+    });
+
+    const allResults: EvaluatedResult[] = validated.map((result) => ({
+      ...result,
+    }));
+    const passed = allResults.filter(
+      (r) =>
+        !r.error &&
+        r.validationErrors.length === 0 &&
+        (!r.judgeResult || r.judgeResult.pass),
+    ).length;
+    const totalLatency = allResults.reduce((sum, r) => sum + r.latencyMs, 0);
+
+    return {
+      result: {
+        results: allResults,
+        summary: {
+          total: allResults.length,
+          passed,
+          failed: allResults.length - passed,
+          avgLatencyMs:
+            allResults.length > 0 ? totalLatency / allResults.length : 0,
+        },
+      },
+      analysisText: undefined,
+    };
+  });
+}
+
 /** Error surfaced from `runE2EEvals`. Tests + callers at the process edge
  * unwrap this via `Effect.runPromise`, which throws a `FiberFailure`. */
 export class RunError extends Error {
@@ -654,6 +823,7 @@ export interface RunE2EEvalsOptions {
   logLevel?: string;
   signal?: AbortSignal;
   runtime?: AgentRuntime;
+  contractMode?: "legacy" | "shared";
 }
 
 export const runE2EEvals = (
@@ -706,6 +876,12 @@ async function runE2EEvalsImpl(
   }
 
   const runtime: AgentRuntime = opts.runtime ?? "openclaw";
+  const contractMode: "legacy" | "shared" =
+    opts.contractMode ?? (runtime === "openclaw" ? "shared" : "legacy");
+  const telemetryEvents: SharedContractTelemetryEvent[] = [];
+  const unsubscribeTelemetry = telemetry.subscribe((event) => {
+    telemetryEvents.push(event);
+  });
   let fleet: AgentFleet | null = null;
   let testServerBaseUrl = "";
   let testServerWsUrl = "";
@@ -809,11 +985,25 @@ async function runE2EEvalsImpl(
         probeClient,
         agentId: agentReg.agentId,
         modelName,
+        runtime,
+        contractMode,
         bystanders,
         totalJobs: jobs.length,
         signal: opts.signal,
       });
       const validated = validatePhase(generated);
+      if (contractMode === "shared") {
+        const { result } = yield* sharedContractPhase(validated, {
+          outputDir,
+          project: "moltzap",
+          agentId: agentReg.agentId,
+          agentName: "openclaw-eval-agent",
+          runtime,
+          contractMode,
+          telemetryEvents,
+        });
+        return result;
+      }
       const evaluated = yield* evaluatePhase(validated, {
         evalModel,
         signal: opts.signal,
@@ -826,10 +1016,12 @@ async function runE2EEvalsImpl(
       return result;
     });
 
+    logger.info(`Contract mode: ${contractMode}`);
     return await Effect.runPromise(pipeline);
   } finally {
     if (fleet) await fleet.stopAll();
     for (const c of clientsToClose) await Effect.runPromise(c.close());
     await stopCoreTestServer().catch(() => {});
+    unsubscribeTelemetry();
   }
 }
