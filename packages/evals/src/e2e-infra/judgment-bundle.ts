@@ -298,12 +298,11 @@ function buildBundleAgentDeclaration(opts: {
     id: opts.agent.id,
     name: opts.agent.name,
     role: opts.agent.role,
-    artifact:
-      opts.agent.artifact ?? {
-        _tag: "DockerImageArtifact",
-        image: "moltzap-eval-agent:local",
-        pullPolicy: "if-missing",
-      },
+    artifact: opts.agent.artifact ?? {
+      _tag: "DockerImageArtifact",
+      image: "moltzap-eval-agent:local",
+      pullPolicy: "if-missing",
+    },
     promptInputs: {
       modelName: opts.modelName,
       scenarioId: opts.scenarioId,

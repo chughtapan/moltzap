@@ -209,7 +209,9 @@ describe("buildJudgmentBundle", () => {
       "message",
       "message",
     ]);
-    expect(bundle.requirements.judgeRubric).toBe("Verify content preservation only.");
+    expect(bundle.requirements.judgeRubric).toBe(
+      "Verify content preservation only.",
+    );
     expect(bundle.agents[0]?.promptInputs).toMatchObject({
       modelName: "openclaw-eval",
       scenarioId: "ARENA-000",
