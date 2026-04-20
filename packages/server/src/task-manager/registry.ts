@@ -60,6 +60,20 @@ export interface TaskManagerRegistry {
     address: TaskManagerAddress,
   ) => Effect.Effect<TaskManagerEndpointRegistration, TaskManagerAddressNotFound, never>;
 
+  /**
+   * Uniform dispatch by endpoint kind:
+   *   - `default-dm`    → in-process `DefaultDmTaskManager.handle`
+   *   - `default-group` → in-process `DefaultGroupTaskManager.handle`
+   *   - `app`           → calls slice B `TaskService.getTask(taskId)`,
+   *                       `TaskService.listParticipants(taskId)`, and
+   *                       `TaskService.listConversations(taskId)` to populate
+   *                       `TaskManagerContext` (`appId`, `initiatorAgentId`,
+   *                       `participantIds`, `conversationIds`), then dispatches
+   *                       over the app's WS.
+   * `TaskNotFound` from any of the metadata reads lifts to
+   * `TaskManagerDispatchFailed{cause: "metadata"}`. Round-3 codex follow-up:
+   * `listConversations` owner is now explicit on this method.
+   */
   readonly invoke: (
     address: TaskManagerAddress,
     payload: TaskMessagePayload,
@@ -71,7 +85,22 @@ export class TaskManagerRegistryTag extends Context.Tag("TaskManagerRegistry")<
   TaskManagerRegistry
 >() {}
 
-export const mintDefaultAddress = (
+/**
+ * Mint a `tm:default-dm:<taskId>:v1`-shaped address for a platform-default DM
+ * endpoint. Slice C owns three kinds: `default-dm`, `default-group`, `app`
+ * (spec #137 round-2 goal 2).
+ */
+export const mintDefaultDmAddress = (
+  _taskId: TaskId,
+): Effect.Effect<TaskManagerAddress, never, never> => {
+  throw new Error("not implemented");
+};
+
+/**
+ * Mint a `tm:default-group:<taskId>:v1`-shaped address for the platform-default
+ * group passthrough endpoint.
+ */
+export const mintDefaultGroupAddress = (
   _taskId: TaskId,
 ): Effect.Effect<TaskManagerAddress, never, never> => {
   throw new Error("not implemented");

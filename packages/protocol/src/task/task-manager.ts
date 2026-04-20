@@ -21,7 +21,8 @@ export type MessageId = string & { readonly __brand: "MessageId" };
 
 export const TaskManagerAddressSchema: Schema.Schema<TaskManagerAddress, string> = Schema.declare(
   (u: unknown): u is TaskManagerAddress =>
-    typeof u === "string" && /^tm:(default|app):[a-z0-9-]+:[A-Za-z0-9_-]+$/.test(u),
+    typeof u === "string" &&
+    /^tm:(default-dm|default-group|app):[a-z0-9-]+:[A-Za-z0-9_-]+$/.test(u),
   { identifier: "TaskManagerAddress" },
 );
 
@@ -64,9 +65,18 @@ export const TaskManagerActionSchema: Schema.Schema<TaskManagerAction, unknown> 
 
 /* ── Endpoint-registration record, stored at createTask time ─────────────── */
 
+/**
+ * `kind` discriminates three defaults + app-owned (spec #137 round-2 goal 2):
+ *   - `default-dm`    — platform-default DM TM: uniqueness at creation
+ *                       (SELECT-before-INSERT) + immutability at mutation
+ *                       (rejects participant actions with `DmImmutableError`).
+ *   - `default-group` — platform-default group passthrough TM: no rules,
+ *                       stores the message and fans out to participants.
+ *   - `app`           — app-registered TM via `registerTaskManager`.
+ */
 export interface TaskManagerEndpointRegistration {
   readonly taskId: TaskId;
   readonly address: TaskManagerAddress;
-  readonly kind: "default" | "app";
+  readonly kind: "default-dm" | "default-group" | "app";
   readonly appId: AppId | null;
 }

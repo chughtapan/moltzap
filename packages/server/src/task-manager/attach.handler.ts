@@ -21,7 +21,7 @@ export class AttachConversationConflict extends Data.TaggedError(
 )<{
   readonly taskId: TaskId;
   readonly conversationId: ConversationId;
-  readonly reason: "already_attached_to_other_task" | "dm_immutable";
+  readonly reason: "already_attached_to_other_task";
 }> {}
 
 export class AttachParticipantInvalid extends Data.TaggedError(
