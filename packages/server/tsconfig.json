@@ -1,9 +1,15 @@
 {
+  "_comment": "Architect stub update (spec #135 AC7/AC8). Adds TS project references to src/network and src/task subtrees; their composite builds gate cross-boundary imports at build time. src/network and src/task are excluded from the parent's own include to avoid overlap with the referenced projects. Parent stays composite so the root build participates in the reference graph.",
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "dist",
-    "rootDir": "src"
+    "rootDir": "src",
+    "composite": true
   },
   "include": ["src"],
-  "exclude": ["src/__tests__"]
+  "exclude": ["src/__tests__", "src/network", "src/task"],
+  "references": [
+    { "path": "./src/network" },
+    { "path": "./src/task" }
+  ]
 }

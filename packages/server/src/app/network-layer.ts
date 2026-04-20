@@ -118,7 +118,10 @@ export interface ContactCheckService {
 /** Discriminated contact-check outcome. */
 export type ContactCheckOutcome =
   | { readonly _tag: "Allowed" }
-  | { readonly _tag: "Blocked"; readonly reason: "not-contact" | "blocked-by-recipient" };
+  | {
+      readonly _tag: "Blocked";
+      readonly reason: "not-contact" | "blocked-by-recipient";
+    };
 
 /* ── Tags ───────────────────────────────────────────────────────────────── */
 
@@ -159,7 +162,10 @@ export interface ContactCheckServiceTag {
 }
 
 /** Request-scoped connection id tag (re-exported; canonical def in layers.ts). */
-export declare const NetworkConnIdTag: Context.Tag<NetworkConnIdTag, ConnectionId>;
+export declare const NetworkConnIdTag: Context.Tag<
+  NetworkConnIdTag,
+  ConnectionId
+>;
 export interface NetworkConnIdTag {
   readonly _: unique symbol;
 }

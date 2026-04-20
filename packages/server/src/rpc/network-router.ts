@@ -15,7 +15,10 @@
  */
 
 import type { RequestFrame, ResponseFrame } from "@moltzap/protocol/network";
-import type { AuthenticatedContext, NetworkRpcMethodRegistry } from "./network-context.js";
+import type {
+  AuthenticatedContext,
+  NetworkRpcMethodRegistry,
+} from "./network-context.js";
 import type { ConnectionId } from "../app/network-layer.js";
 
 /**

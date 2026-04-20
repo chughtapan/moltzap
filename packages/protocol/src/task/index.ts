@@ -132,7 +132,9 @@ export declare const AppsGetSession: TaskRpcManifest;
 
 /* ── Task-layer param validators (pre-compiled) ─────────────────────────── */
 
-export declare const taskValidators: Readonly<Record<string, (data: unknown) => boolean>>;
+export declare const taskValidators: Readonly<
+  Record<string, (data: unknown) => boolean>
+>;
 
 /* ── Task-layer event name table ────────────────────────────────────────── */
 

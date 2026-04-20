@@ -1,0 +1,14 @@
+{
+  "_comment": "Architect stub. Part of the network <-> task boundary (spec #135 AC7/AC8). composite:true; references ../network (one-way dep: task may import from network). Reverse direction is impossible because network/tsconfig has no reference back to this project.",
+  "extends": "../../../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "outDir": "../../dist/task",
+    "rootDir": "."
+  },
+  "include": ["**/*.ts"],
+  "exclude": ["**/*.test.ts", "**/*.type-test.ts"],
+  "references": [
+    { "path": "../network" }
+  ]
+}

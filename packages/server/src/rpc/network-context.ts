@@ -13,11 +13,7 @@
  */
 
 import type { Effect } from "effect";
-import type {
-  RpcDefinition,
-  Static,
-  TSchema,
-} from "@moltzap/protocol/network";
+import type { RpcDefinition, Static, TSchema } from "@moltzap/protocol/network";
 import type { RpcFailure } from "../runtime/index.js";
 import type {
   NetworkLayerOutputs,
@@ -78,7 +74,9 @@ export interface NetworkRpcMethodDef {
 }
 
 /** Registry of network methods keyed by wire method string. */
-export type NetworkRpcMethodRegistry = Readonly<Record<string, NetworkRpcMethodDef>>;
+export type NetworkRpcMethodRegistry = Readonly<
+  Record<string, NetworkRpcMethodDef>
+>;
 
 /* ── Binder — manifest-driven method definition ─────────────────────────── */
 

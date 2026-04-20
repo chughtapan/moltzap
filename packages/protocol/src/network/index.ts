@@ -49,7 +49,11 @@ export type ErrorCode = never;
 export declare const ErrorCodes: Readonly<Record<string, number>>;
 
 /** Wire shape of the `error` field on a `ResponseFrame`. */
-export type RpcError = { readonly code: number; readonly message: string; readonly data?: unknown };
+export type RpcError = {
+  readonly code: number;
+  readonly message: string;
+  readonly data?: unknown;
+};
 
 /* ── Network primitives — endpoint + opaque payload ─────────────────────── */
 
