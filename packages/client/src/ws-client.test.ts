@@ -597,6 +597,51 @@ describe("§5.4 malformed frames are logged but do not affect pending RPCs", () 
     );
   });
 
+  it("accepts a padded chunk that contains both an event and the response", async () => {
+    await withTestServer(
+      Effect.gen(function* () {
+        const logger = makeLogger();
+        const events: unknown[] = [];
+        const server = yield* startHandshakingServer((conn, _raw, frame) =>
+          Effect.gen(function* () {
+            if (frame.method !== "conversations/list") return;
+            yield* conn.send(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                type: "event",
+                event: "messages/received",
+                data: { message: { id: "m-1", conversationId: "c-1" } },
+              }) +
+                "\u0000" +
+                JSON.stringify({
+                  jsonrpc: "2.0",
+                  type: "response",
+                  id: frame.id,
+                  result: { conversations: [] },
+                }),
+            );
+          }),
+        );
+        const client = makeClient(server.url, {
+          logger,
+          onEvent: (event) => events.push(event),
+        });
+        yield* Effect.promise(() => connectP(client));
+
+        const result = (yield* Effect.promise(() =>
+          sendRpcP(client, "conversations/list", {}),
+        )) as { conversations: unknown[] };
+
+        expect(result.conversations).toEqual([]);
+        expect(events).toHaveLength(1);
+        expect(events[0]).toMatchObject({ event: "messages/received" });
+        expect(logger.warn).not.toHaveBeenCalled();
+
+        closeClient(client);
+      }),
+    );
+  });
+
   it("routes a well-formed event frame to onEvent", async () => {
     await withTestServer(
       Effect.gen(function* () {

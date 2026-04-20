@@ -56,6 +56,8 @@ ANTHROPIC_API_KEY=...
 
 Two runtimes are supported: `openclaw` (Docker container with the channel plugin) and `nanoclaw` (host subprocess with OneCLI gateway for Claude OAuth).
 
+By default, the `openclaw` path now emits shared-contract cc-judge bundle artifacts and skips the local judge/report stack.
+
 ```bash
 # OpenClaw runtime (default) — runs agent in Docker
 pnpm --filter @moltzap/evals eval:e2e --model minimax/MiniMax-M2.7-highspeed
