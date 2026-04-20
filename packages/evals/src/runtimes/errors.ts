@@ -1,5 +1,3 @@
-import type * as Effect from "effect/Effect";
-
 // Tagged error classes for the Runtime interface.
 // Each names the failure mode and carries the data the CLI needs to print.
 
