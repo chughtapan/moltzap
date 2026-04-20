@@ -34,6 +34,17 @@ import type {
  * endpoint at registration time; the network layer has no global fallback
  * (every endpoint names its own).
  *
+ * Invariants (enforced by `ConnectionManager.register` at implement-* time —
+ * registration fails with `EndpointAlreadyRegistered`'s sibling
+ * `InvalidBackpressurePolicy` if violated):
+ *   - `maxQueueDepth >= 1`. `0` is not permitted (would make every enqueue
+ *     fail/drop/block trivially); negative values are rejected.
+ *   - `Block.maxQueueDepth` has an implicit register-time ceiling of `10_000`
+ *     to bound worst-case memory per endpoint. The implement-* pass names
+ *     the constant.
+ *   - `Block` has no timeout — `send` suspends until capacity or interrupt.
+ *     If a bounded wait is needed, the caller wraps with `Effect.timeout`.
+ *
  * Semantics:
  *   - `Fail`         — `send` fails with `BackpressureExceeded`. Caller
  *                      decides whether to drop, retry, or queue upstream.

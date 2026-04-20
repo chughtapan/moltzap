@@ -23,6 +23,9 @@
  */
 
 import type { Effect, Queue, Scope } from "effect";
+// `Ref` and `Option` are only used in type-position (see `LiveEndpoint.failure`);
+// imported inline via `import("effect").Ref` / `.Option` to avoid widening the
+// value-import surface.
 import type { EventFrame } from "@moltzap/protocol/network";
 import type { BackpressurePolicy } from "./delivery-service.js";
 
@@ -66,6 +69,46 @@ export type NetworkWriteOutcome =
 export type EndpointKind = "agent" | "task-manager";
 
 /**
+ * Transport-agnostic frame sink. The drain fiber calls `send(frame)` for each
+ * dequeued frame and the `Transport` is responsible for serialization + I/O
+ * (WS `write`, webhook POST, in-process push). Returning a failing Effect
+ * tears down the endpoint's scope; the endpoint's teardown handler is called
+ * from `Scope.close`.
+ *
+ * Three concrete `Transport` implementations land in implement-*:
+ *   - WS transport — wraps `NetworkConnection.write`.
+ *   - Webhook transport — `WebhookClient.call` with retry budget.
+ *   - In-process transport — direct `Queue.offer` on the peer's inbox.
+ *
+ * The `Transport` interface is what makes the endpoint abstraction actually
+ * transport-agnostic (flagged by codex review). The drain fiber never branches
+ * on `EndpointKind`; it branches on whatever `Transport.send` does.
+ */
+export interface Transport {
+  readonly send: (
+    frame: EventFrame,
+  ) => Effect.Effect<void, TransportError, never>;
+  /** Called by `Scope.close` to release transport resources (close WS, drop
+   *  webhook retry budget, etc.). Idempotent. */
+  readonly teardown: () => Effect.Effect<void, never, never>;
+}
+
+/**
+ * Transport I/O failure as seen by the drain fiber. The fiber logs + triggers
+ * endpoint teardown; the error surfaces to callers only as
+ * `DeliveryTransportFailed` during the brief window before `unregister` runs.
+ */
+export class TransportError {
+  readonly _tag = "TransportError" as const;
+  constructor(
+    readonly address: EndpointAddress,
+    readonly cause: unknown,
+  ) {
+    throw new Error("not implemented");
+  }
+}
+
+/**
  * A registered delivery target. One per logical endpoint — an agent's WS
  * connection, a task-manager webhook URL, or an in-process task-manager
  * handle. Created by a transport (e.g. WS upgrade path, webhook registrar)
@@ -73,8 +116,15 @@ export type EndpointKind = "agent" | "task-manager";
  *
  * Ownership: the `scope` is the teardown boundary for both the draining
  * fiber and the underlying transport. `register` forks a drain fiber into
- * this scope; closing the scope interrupts the fiber and closes the
- * transport.
+ * this scope; closing the scope interrupts the fiber and calls
+ * `transport.teardown`.
+ *
+ * Failure latch: `failure` is set by the drain fiber when `transport.send`
+ * returns a failing Effect; once set, `ConnectionManager.lookup` returns an
+ * endpoint whose next `send` short-circuits with `DeliveryTransportFailed`.
+ * The drain fiber then closes the scope (triggering `unregister`); subsequent
+ * lookups fail with `EndpointNotRegistered`. This is the state backing for
+ * `DeliveryTransportFailed` in `delivery-service.ts`.
  */
 export interface LiveEndpoint {
   readonly address: EndpointAddress;
@@ -83,11 +133,19 @@ export interface LiveEndpoint {
    *  or in-process endpoints. Surfaced so the `NetworkConnectionManager`
    *  read surface (arch-A) can answer connId→conn lookups. */
   readonly connection: NetworkConnection | null;
+  /** Transport-agnostic frame sink. Drives the drain fiber. */
+  readonly transport: Transport;
   /** Bounded queue. Size and overflow behavior come from `policy`. */
   readonly queue: Queue.Queue<EventFrame>;
   readonly policy: BackpressurePolicy;
   /** Endpoint-owned scope. Closing it tears down the drain fiber + transport. */
   readonly scope: Scope.CloseableScope;
+  /** Set by the drain fiber on transport failure. Consulted by `send` before
+   *  enqueue so callers get `DeliveryTransportFailed` during the teardown
+   *  window. `Ref<Option<TransportError>>` at implement-* time. */
+  readonly failure: import("effect").Ref.Ref<
+    import("effect").Option.Option<TransportError>
+  >;
 }
 
 /* ── ConnectionManager service ─────────────────────────────────────────── */
@@ -210,13 +268,23 @@ export class AgentNotReachable {
 
 /* ── Not-implemented stub bodies ───────────────────────────────────────── */
 
+/** Opaque forward-reference to `../runtime/layers.ts#LoggerTag`. Re-declared
+ *  here for the same rootDir reason as `AgentId` / `EndpointAddress` above:
+ *  the network subtree cannot import from the parent-project `runtime/`. The
+ *  brands are structural; arch-G's impl satisfies both. Implement-*
+ *  collapses the duplicates at the move to `src/network/layer.ts`. */
+export interface LoggerTag {
+  readonly _: unique symbol;
+}
+
 /** Constructor stub — the implement-* pass replaces with a real class +
  *  `Layer.scoped` that wires the internal map and the per-endpoint drain
- *  fibers. */
+ *  fibers. Requires `LoggerTag` because the drain fiber logs transport
+ *  failures before tearing the endpoint down (see `LiveEndpoint.failure`). */
 export declare const makeConnectionManager: () => Effect.Effect<
   ConnectionManager,
   never,
-  Scope.Scope
+  Scope.Scope | LoggerTag
 >;
 
 /** Constructor stub for the resolver. Backed by the registry map from

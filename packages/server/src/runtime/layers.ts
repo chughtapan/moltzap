@@ -36,6 +36,7 @@ import type {
   HumanContactTag,
   TaskManagerRegistryTag,
   TaskConnIdTag,
+  TaskConnectionId,
 } from "../rpc/handler-runtime.js";
 
 /* ── Base tier (Db + Logger) ──────────────────────────────────────────── */
@@ -187,7 +188,7 @@ export declare const provideNetworkLayer: <A, E>(
  */
 export declare const provideTaskLayer: <A, E>(
   handler: import("effect").Effect.Effect<A, E, TaskLayerOutputs>,
-  connId: string,
+  connId: TaskConnectionId,
 ) => import("effect").Effect.Effect<A, E, never>;
 
 /* ── Not-implemented stub bodies ───────────────────────────────────────── */

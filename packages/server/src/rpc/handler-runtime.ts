@@ -99,10 +99,21 @@ export declare const TaskManagerRegistryTag: Context.Tag<
   TaskManagerRegistrySurface
 >;
 
+/** Request-scoped connection id for the task surface. Branded — same shape as
+ *  the network-layer `ConnectionId` brand. Raw `string` here was a review
+ *  finding (codex #5); branding prevents cross-use of arbitrary strings as
+ *  conn ids. */
+export type TaskConnectionId = string & {
+  readonly __brand: "TaskConnectionId";
+};
+
 export interface TaskConnIdTag {
   readonly _: unique symbol;
 }
-export declare const TaskConnIdTag: Context.Tag<TaskConnIdTag, string>;
+export declare const TaskConnIdTag: Context.Tag<
+  TaskConnIdTag,
+  TaskConnectionId
+>;
 
 /* ── Placeholder surfaces (materialized by arch-G module 5) ────────────── */
 
@@ -199,17 +210,33 @@ export function defineTaskMethod<
 export type AnyRpcMethodDef = NetworkRpcMethodDef | TaskRpcMethodDef;
 
 /** Combined registry. Method names must not collide across surfaces — the
- *  router asserts disjointness at construction. */
+ *  router asserts disjointness at construction. Kept as two maps rather than
+ *  a flattened `Record<string, AnyRpcMethodDef>` so the router preserves the
+ *  per-surface type discriminant at the dispatch site (see `AnyRpcMethodDef`
+ *  comment above). The flat shape was considered and rejected: flattening
+ *  loses the `layer` tag at the type level, which the exhaustive-match
+ *  dispatcher relies on. */
 export interface CombinedRegistry {
   readonly network: Readonly<Record<string, NetworkRpcMethodDef>>;
   readonly task: TaskRpcMethodRegistry;
 }
 
+/** Caller supplied overlapping method names across the two surfaces. Defect —
+ *  the router cannot route a name that is claimed by both surfaces. */
+export class RegistryCollision {
+  readonly _tag = "RegistryCollision" as const;
+  constructor(readonly methods: ReadonlyArray<string>) {
+    throw new Error("not implemented");
+  }
+}
+
 /**
- * Build the combined registry from two surface-specific registries.
- * Rejects collisions.
+ * Build the combined registry from two surface-specific registries. Fails
+ * with `RegistryCollision` naming every offending method. Total — the
+ * error is on the Effect channel, not a thrown exception (spec Invariant:
+ * typed errors, not thrown).
  */
 export declare const combineRegistries: (
   network: Readonly<Record<string, NetworkRpcMethodDef>>,
   task: TaskRpcMethodRegistry,
-) => CombinedRegistry;
+) => Effect.Effect<CombinedRegistry, RegistryCollision, never>;
