@@ -1,39 +1,312 @@
-import type * as Effect from "effect/Effect";
+import { Effect } from "effect";
+import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
 import type { CoreApp } from "@moltzap/server-core";
+
 import type { Runtime, SpawnInput, LogSlice, ReadyOutcome } from "./runtime.js";
 import { SpawnFailed } from "./errors.js";
 
 export interface OpenClawAdapterDeps {
-  /** Live CoreApp instance for ConnectionManager readiness checks. */
   readonly coreApp: CoreApp;
-  /** Absolute path to openclaw.mjs bin. */
   readonly openclawBin: string;
-  /** Absolute path to the built @moltzap/openclaw-channel dist directory. */
   readonly channelDistDir: string;
-  /** Monorepo root (for resolving workspace packages). */
   readonly repoRoot: string;
 }
 
+interface AdapterState {
+  child: ChildProcess;
+  stateDir: string;
+  logBuffer: string;
+  spawnInput: SpawnInput;
+  tornDown: boolean;
+}
+
 export class OpenClawAdapter implements Runtime {
+  private state: AdapterState | null = null;
+
   constructor(private readonly deps: OpenClawAdapterDeps) {}
 
   spawn(input: SpawnInput): Effect.Effect<void, SpawnFailed, never> {
-    throw new Error("not implemented");
+    return Effect.try({
+      try: () => {
+        const stateDir = fs.mkdtempSync(
+          path.join(os.tmpdir(), `openclaw-${input.agentName}-`),
+        );
+
+        writeOpenClawConfig({
+          stateDir,
+          serverUrl: input.serverUrl,
+          apiKey: input.apiKey,
+          agentName: input.agentName,
+        });
+
+        installChannelPlugin(
+          stateDir,
+          this.deps.channelDistDir,
+          this.deps.repoRoot,
+        );
+
+        const child = nodeSpawn(
+          "node",
+          [
+            this.deps.openclawBin,
+            "gateway",
+            "run",
+            "--allow-unconfigured",
+            "--port",
+            "0",
+          ],
+          {
+            cwd: stateDir,
+            env: {
+              ...process.env,
+              OPENCLAW_STATE_DIR: stateDir,
+              OPENCLAW_CONFIG_PATH: path.join(stateDir, "openclaw.json"),
+            },
+            stdio: ["ignore", "pipe", "pipe"],
+            // detached:true makes the child the leader of its own process group.
+            // This lets teardown kill the entire group via process.kill(-pid, signal).
+            detached: true,
+          },
+        );
+
+        const st: AdapterState = {
+          child,
+          stateDir,
+          logBuffer: "",
+          spawnInput: input,
+          tornDown: false,
+        };
+
+        const onChunk = (chunk: Buffer) => {
+          st.logBuffer += chunk.toString();
+        };
+        child.stdout?.on("data", onChunk);
+        child.stderr?.on("data", onChunk);
+
+        this.state = st;
+      },
+      catch: (cause) =>
+        new SpawnFailed(
+          input.agentName,
+          cause instanceof Error ? cause : new Error(String(cause)),
+        ),
+    });
   }
 
   waitUntilReady(timeoutMs: number): Effect.Effect<ReadyOutcome, never, never> {
-    throw new Error("not implemented");
+    return Effect.async<ReadyOutcome, never, never>((resume) => {
+      if (!this.state) {
+        resume(Effect.succeed({ _tag: "Ready" as const }));
+        return;
+      }
+
+      const deadline = Date.now() + timeoutMs;
+      const { child, spawnInput } = this.state;
+      const agentId = spawnInput.agentId;
+
+      const check = () => {
+        if (child.exitCode !== null) {
+          const stderr = this.state?.logBuffer ?? "";
+          this.runTeardown();
+          resume(
+            Effect.succeed({
+              _tag: "ProcessExited" as const,
+              exitCode: child.exitCode,
+              stderr,
+            }),
+          );
+          return;
+        }
+
+        const connections = this.deps.coreApp.connections.getByAgent(agentId);
+        if (connections.length > 0 && connections[0]!.auth !== null) {
+          resume(Effect.succeed({ _tag: "Ready" as const }));
+          return;
+        }
+
+        if (Date.now() > deadline) {
+          this.runTeardown();
+          resume(Effect.succeed({ _tag: "Timeout" as const, timeoutMs }));
+          return;
+        }
+
+        setTimeout(check, 500);
+      };
+
+      check();
+    });
   }
 
   teardown(): Effect.Effect<void, never, never> {
-    throw new Error("not implemented");
+    return Effect.sync(() => this.runTeardown());
   }
 
   getLogs(offset: number): LogSlice {
-    throw new Error("not implemented");
+    if (!this.state) return { text: "", nextOffset: 0 };
+    const text = this.state.logBuffer.slice(offset);
+    return { text, nextOffset: this.state.logBuffer.length };
   }
 
   getInboundMarker(): string {
-    throw new Error("not implemented");
+    return "MoltZap: inbound from agent:";
   }
+
+  /** Synchronous teardown: SIGTERM → 10s wait → SIGKILL → rm workdir. */
+  private runTeardown(): void {
+    if (!this.state || this.state.tornDown) return;
+    this.state.tornDown = true;
+
+    const { child, stateDir } = this.state;
+
+    this.killGroup(child, "SIGTERM");
+
+    // Spin-wait for exit (up to 10s). Teardown is a cleanup path where
+    // synchronous blocking is acceptable.
+    const deadline = Date.now() + 10_000;
+    while (child.exitCode === null && Date.now() < deadline) {
+      // Give the event loop a tick so the exit event fires.
+      const spinStart = Date.now();
+      while (Date.now() - spinStart < 100) {
+        // busy-wait 100ms
+      }
+    }
+
+    if (child.exitCode === null) {
+      this.killGroup(child, "SIGKILL");
+    }
+
+    try {
+      fs.rmSync(stateDir, { recursive: true, force: true });
+      // #ignore-sloppy-code-next-line[bare-catch]: teardown cleanup — nothing to do if rmSync fails
+    } catch (_err) {
+      void _err;
+    }
+  }
+
+  private killGroup(child: ChildProcess, signal: NodeJS.Signals): void {
+    try {
+      if (child.pid != null) {
+        process.kill(-child.pid, signal);
+      }
+      // #ignore-sloppy-code-next-line[bare-catch]: ESRCH — process already dead
+    } catch (_err) {
+      void _err;
+    }
+  }
+}
+
+// --- Config and plugin install (module-private) ---
+
+interface OpenClawConfig {
+  agents: {
+    defaults: {
+      model: { primary: string };
+      workspace: string;
+      compaction: { mode: string };
+    };
+  };
+  commands: { native: string; nativeSkills: string; restart: boolean };
+  messages: {
+    queue: { mode: string; debounceMs: number; cap: number; drop: string };
+  };
+  channels: {
+    moltzap: {
+      accounts: Array<{
+        id: string;
+        apiKey: string;
+        serverUrl: string;
+        agentName: string;
+      }>;
+    };
+  };
+  gateway: {
+    mode: string;
+    auth: { mode: string; token: string };
+  };
+}
+
+function writeOpenClawConfig(opts: {
+  stateDir: string;
+  serverUrl: string;
+  apiKey: string;
+  agentName: string;
+}): void {
+  const serverUrl = opts.serverUrl
+    .replace(/\/ws$/, "")
+    .replace(/^ws:/, "http:");
+
+  const config: OpenClawConfig = {
+    agents: {
+      defaults: {
+        model: { primary: "anthropic/claude-sonnet-4-5" },
+        workspace: path.join(opts.stateDir, "workspace"),
+        compaction: { mode: "safeguard" },
+      },
+    },
+    commands: { native: "auto", nativeSkills: "auto", restart: true },
+    messages: {
+      queue: { mode: "queue", debounceMs: 0, cap: 100, drop: "new" },
+    },
+    channels: {
+      moltzap: {
+        accounts: [
+          {
+            id: "default",
+            apiKey: opts.apiKey,
+            serverUrl,
+            agentName: opts.agentName,
+          },
+        ],
+      },
+    },
+    gateway: {
+      mode: "local",
+      auth: { mode: "token", token: `runtime-${Date.now().toString(36)}` },
+    },
+  };
+
+  fs.mkdirSync(path.join(opts.stateDir, "workspace"), { recursive: true });
+  fs.mkdirSync(path.join(opts.stateDir, "logs"), { recursive: true });
+  fs.writeFileSync(
+    path.join(opts.stateDir, "openclaw.json"),
+    JSON.stringify(config, null, 2),
+  );
+}
+
+function installChannelPlugin(
+  stateDir: string,
+  channelDistDir: string,
+  repoRoot: string,
+): void {
+  const extDir = path.join(stateDir, "extensions", "openclaw-channel");
+  fs.mkdirSync(path.dirname(extDir), { recursive: true });
+
+  // Copy, not symlink. OpenClaw's plugin loader rejects symlinked roots
+  // (openBoundaryFileSync with rejectHardlinks: true).
+  fs.cpSync(channelDistDir, extDir, {
+    recursive: true,
+    dereference: true,
+    filter: (src) => {
+      const rel = path.relative(channelDistDir, src);
+      return !rel.startsWith("node_modules") && !rel.startsWith("src");
+    },
+  });
+
+  // Link workspace packages so the plugin's imports resolve.
+  const pluginNm = path.join(extDir, "node_modules");
+  fs.mkdirSync(path.join(pluginNm, "@moltzap"), { recursive: true });
+  fs.symlinkSync(
+    path.join(repoRoot, "packages/protocol"),
+    path.join(pluginNm, "@moltzap/protocol"),
+    "dir",
+  );
+  fs.symlinkSync(
+    path.join(repoRoot, "packages/client"),
+    path.join(pluginNm, "@moltzap/client"),
+    "dir",
+  );
 }

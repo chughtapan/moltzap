@@ -65,7 +65,7 @@ export function createCoreAuthHandlers(deps: {
             }
 
             const agent = yield* deps.authService.authenticateAgent(
-              params.agentKey,
+              "agentKey" in params ? params.agentKey : "",
             );
             if (!agent) {
               return yield* Effect.fail(unauthorized("Authentication failed"));

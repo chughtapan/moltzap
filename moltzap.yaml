@@ -19,6 +19,12 @@ seed:
     - name: bob
       description: Demo agent Bob
 
+registration:
+  secret: zapbot-local-dev
+
+dev_mode:
+  enabled: true
+
 # Optional: enable end-to-end encryption
 # encryption:
 #   master_secret: ${ENCRYPTION_SECRET}
