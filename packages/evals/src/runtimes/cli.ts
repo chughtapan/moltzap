@@ -115,8 +115,9 @@ async function runChat(): Promise<ChatResult> {
     // Phase: agent-register
     let aliceReg: { apiKey: string; agentId: string };
     let bobReg: { apiKey: string; agentId: string };
+    let senderReg: { apiKey: string; agentId: string };
     try {
-      [aliceReg, bobReg] = await Promise.all([
+      [aliceReg, bobReg, senderReg] = await Promise.all([
         fetch(`${server.baseUrl}/api/v1/auth/register`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -130,6 +131,17 @@ async function runChat(): Promise<ChatResult> {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name: "bob" }),
+          // #ignore-sloppy-code-next-line[then-chain]: idiomatic fetch→JSON mapping
+        }).then(
+          // #ignore-sloppy-code-next-line[async-keyword]: fetch JSON deserialisation boundary
+          async (r) => (await r.json()) as { apiKey: string; agentId: string },
+        ),
+        // A dedicated sender agent avoids displacing alice's openclaw gateway
+        // connection — the server enforces one active session per agent.
+        fetch(`${server.baseUrl}/api/v1/auth/register`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: "runtime-sender" }),
           // #ignore-sloppy-code-next-line[then-chain]: idiomatic fetch→JSON mapping
         }).then(
           // #ignore-sloppy-code-next-line[async-keyword]: fetch JSON deserialisation boundary
@@ -214,7 +226,7 @@ async function runChat(): Promise<ChatResult> {
 
     const aliceService = new MoltZapService({
       serverUrl: server.wsUrl,
-      agentKey: aliceReg.apiKey,
+      agentKey: senderReg.apiKey,
     });
     services.push(aliceService);
 
