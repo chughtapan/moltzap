@@ -8,12 +8,6 @@
  */
 
 import { Schema } from "effect";
-// Reach into the network sibling for EndpointAddress. Slice A's
-// `@moltzap/protocol/network` is the canonical home. Importing the type-only
-// reference preserves the one-way protocol dependency (task may import from
-// network; network may NOT import from task — enforced by ESLint rule per
-// spec #135).
-import type { EndpointAddress } from "../network/index.js";
 import type { Part } from "./index.js";
 
 /* ── Branded IDs ─────────────────────────────────────────────────────────── */
@@ -51,15 +45,15 @@ export const TaskMessagePayloadSchema: Schema.Schema<TaskMessagePayload, unknown
 
 /* ── Exhaustive action set the TM may return ─────────────────────────────── */
 
-// Forward targets are wire-layer addresses, not agent ids. The task layer's
-// listParticipants returns AgentId[]; the TM resolves those to
-// EndpointAddress values via the network-layer identity service before
-// constructing a Forward action. This matches NetworkDeliveryService.send,
-// which only accepts EndpointAddress. The AgentId → EndpointAddress
-// resolution is a dedicated task-layer service (see §4 data flow) with its
-// own typed error surface; never a hidden best-effort inside this union.
+// Forward targets are AgentIds, keeping the TM at the identity abstraction.
+// The AgentId → EndpointAddress resolver lives in the NETWORK LAYER (co-
+// located with ConnectionManager). The task-manager runtime — not the TM
+// itself — resolves each AgentId to an EndpointAddress via that service and
+// then calls NetworkDeliveryService.send per recipient. This keeps the TM
+// decoupled from the wire addressing scheme and from offline/routing
+// concerns, both of which are network-layer responsibilities.
 export type TaskManagerAction =
-  | { readonly _tag: "Forward"; readonly recipients: readonly EndpointAddress[] }
+  | { readonly _tag: "Forward"; readonly recipients: readonly AgentId[] }
   | { readonly _tag: "Block"; readonly reason: string }
   | { readonly _tag: "Modify"; readonly payload: TaskMessagePayload }
   | { readonly _tag: "Close"; readonly reason: string }
