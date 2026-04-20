@@ -21,6 +21,28 @@ importers:
         specifier: ^0.16.0
         version: 0.16.12
 
+  examples/mountains-or-beaches:
+    dependencies:
+      '@moltzap/app-sdk':
+        specifier: workspace:*
+        version: link:../../packages/app-sdk
+      '@moltzap/client':
+        specifier: workspace:*
+        version: link:../../packages/client
+      '@moltzap/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
+      effect:
+        specifier: ^3.21.0
+        version: 3.21.0
+    devDependencies:
+      '@types/node':
+        specifier: ^25.5.0
+        version: 25.5.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   packages/app-sdk:
     dependencies:
       '@moltzap/client':

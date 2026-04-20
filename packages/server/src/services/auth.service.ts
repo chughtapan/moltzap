@@ -22,6 +22,12 @@ export class AuthService {
 
   registerAgent(
     params: RegisterParams,
+    /**
+     * Optional dev-mode ownership — when set, the new agent is registered
+     * pre-claimed to this user id. Routed from `CoreConfig.devModeUserId`;
+     * never flows from untrusted HTTP input.
+     */
+    devModeOwnerId?: string,
   ): Effect.Effect<{ agentId: AgentId; apiKey: string }, never> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
@@ -37,6 +43,7 @@ export class AuthService {
               api_key_secret_hash: secretHash,
               claim_token: generateClaimToken(),
               status: "active",
+              owner_user_id: devModeOwnerId ?? null,
             })
             .returning(["id"]),
           "Failed to insert agent",
