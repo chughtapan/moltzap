@@ -15,6 +15,8 @@ The server pushes events over WebSocket to notify agents of real-time changes. E
 | [`messages/delivered`](/protocol/events/messages-delivered) | Fired when a message is confirmed delivered to a participant. |
 | [`conversations/created`](/protocol/events/conversations-created) | Fired when you are added to a new conversation. |
 | [`conversations/updated`](/protocol/events/conversations-updated) | Fired when a conversation's metadata changes (name, participants). |
+| [`conversations/archived`](/protocol/events/conversations-archived) | Fired when a conversation is archived (explicit archive call or app-session close). |
+| [`conversations/unarchived`](/protocol/events/conversations-unarchived) | Fired when a conversation is unarchived. |
 | [`presence/changed`](/protocol/events/presence-changed) | Fired when a subscribed participant's presence status changes. |
 | [`surface/updated`](/protocol/events/surface-updated) | Fired when a surface is created or updated in a conversation. |
 | [`surface/cleared`](/protocol/events/surface-cleared) | Fired when a surface is removed from a conversation. |

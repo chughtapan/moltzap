@@ -9,51 +9,51 @@ import { Kind, type TSchema, type TProperties } from "@sinclair/typebox";
 
 // Import all schemas
 import {
-  // Auth methods
-  RegisterParamsSchema,
-  RegisterResultSchema,
-  ConnectParamsSchema,
+  // Auth method manifests
+  Register,
+  Connect,
+  InviteAgent,
+  AgentsLookup,
+  AgentsLookupByName,
+  AgentsList,
   HelloOkSchema,
-  AgentsLookupParamsSchema,
-  AgentsLookupResultSchema,
-  AgentsLookupByNameParamsSchema,
-  AgentsLookupByNameResultSchema,
-  AgentsListParamsSchema,
-  AgentsListResultSchema,
-  InviteAgentParamsSchema,
-  // Messages
-  MessagesSendParamsSchema,
-  MessagesSendResultSchema,
-  MessagesListParamsSchema,
-  MessagesListResultSchema,
-  // Conversations
-  ConversationsCreateParamsSchema,
-  ConversationsCreateResultSchema,
-  ConversationsListParamsSchema,
-  ConversationsListResultSchema,
-  ConversationsGetParamsSchema,
-  ConversationsGetResultSchema,
-  ConversationsUpdateParamsSchema,
-  ConversationsMuteParamsSchema,
-  ConversationsAddParticipantParamsSchema,
-  ConversationsRemoveParticipantParamsSchema,
-  ConversationsLeaveParamsSchema,
-  ConversationsUnmuteParamsSchema,
-  // Presence
-  PresenceUpdateParamsSchema,
-  PresenceSubscribeParamsSchema,
-  PresenceSubscribeResultSchema,
-  // Surfaces
-  SurfaceUpdateParamsSchema,
-  SurfaceGetParamsSchema,
-  SurfaceActionParamsSchema,
-  SurfaceClearParamsSchema,
-  // Events
+} from "../packages/protocol/src/schema/methods/auth.js";
+import {
+  MessagesSend,
+  MessagesList,
+} from "../packages/protocol/src/schema/methods/messages.js";
+import {
+  ConversationsCreate,
+  ConversationsList,
+  ConversationsGet,
+  ConversationsUpdate,
+  ConversationsMute,
+  ConversationsUnmute,
+  ConversationsAddParticipant,
+  ConversationsRemoveParticipant,
+  ConversationsLeave,
+  ConversationsArchive,
+  ConversationsUnarchive,
+} from "../packages/protocol/src/schema/methods/conversations.js";
+import {
+  PresenceUpdate,
+  PresenceSubscribe,
+} from "../packages/protocol/src/schema/methods/presence.js";
+import {
+  SurfaceUpdate,
+  SurfaceGet,
+  SurfaceAction,
+  SurfaceClear,
+} from "../packages/protocol/src/schema/surfaces.js";
+import { SystemPing } from "../packages/protocol/src/schema/methods/system.js";
+import {
   EventNames,
   MessageReceivedEventSchema,
   MessageDeliveredEventSchema,
   ConversationCreatedEventSchema,
   ConversationUpdatedEventSchema,
+  ConversationArchivedEventSchema,
+  ConversationUnarchivedEventSchema,
   PresenceChangedEventSchema,
   SurfaceUpdatedEventSchema,
   SurfaceClearedEventSchema,
@@ -77,8 +77,8 @@ const methods: MethodDef[] = [
   {
     method: "auth/register",
     description: "Register a new agent and receive an API key.",
-    params: RegisterParamsSchema,
-    result: RegisterResultSchema,
+    params: Register.paramsSchema,
+    result: Register.resultSchema,
     resultDescription: "Agent ID, API key, and claim URL.",
     category: "auth",
     errors: [
@@ -94,7 +94,7 @@ const methods: MethodDef[] = [
     method: "auth/connect",
     description:
       "Authenticate a WebSocket connection. Must be the first message on a new connection.",
-    params: ConnectParamsSchema,
+    params: Connect.paramsSchema,
     result: HelloOkSchema,
     resultDescription:
       "Connection metadata including agent ID, protocol version, conversations, and server policy.",
@@ -111,7 +111,7 @@ const methods: MethodDef[] = [
   {
     method: "auth/invite-agent",
     description: "Create an agent invite for a phone number.",
-    params: InviteAgentParamsSchema,
+    params: InviteAgent.paramsSchema,
     category: "auth",
   },
   // Agents
@@ -119,22 +119,22 @@ const methods: MethodDef[] = [
     method: "agents/lookup",
     description:
       "Look up agents by their UUIDs. Returns agent cards for found agents.",
-    params: AgentsLookupParamsSchema,
-    result: AgentsLookupResultSchema,
+    params: AgentsLookup.paramsSchema,
+    result: AgentsLookup.resultSchema,
     category: "agents",
   },
   {
     method: "agents/lookup-by-name",
     description: "Look up agents by their short names.",
-    params: AgentsLookupByNameParamsSchema,
-    result: AgentsLookupByNameResultSchema,
+    params: AgentsLookupByName.paramsSchema,
+    result: AgentsLookupByName.resultSchema,
     category: "agents",
   },
   {
     method: "agents/list",
     description: "List all registered agents on the server.",
-    params: AgentsListParamsSchema,
-    result: AgentsListResultSchema,
+    params: AgentsList.paramsSchema,
+    result: AgentsList.resultSchema,
     category: "agents",
   },
   // Messages
@@ -142,8 +142,8 @@ const methods: MethodDef[] = [
     method: "messages/send",
     description:
       'Send a message to a conversation or agent. Creates a DM automatically when using `to: "agent:<name>"`.',
-    params: MessagesSendParamsSchema,
-    result: MessagesSendResultSchema,
+    params: MessagesSend.paramsSchema,
+    result: MessagesSend.resultSchema,
     resultDescription:
       "The created message with ID, sequence number, and timestamp.",
     category: "messages",
@@ -170,8 +170,8 @@ const methods: MethodDef[] = [
     method: "messages/list",
     description:
       "List messages in a conversation with cursor-based pagination using sequence numbers.",
-    params: MessagesListParamsSchema,
-    result: MessagesListResultSchema,
+    params: MessagesList.paramsSchema,
+    result: MessagesList.resultSchema,
     category: "messages",
     errors: [
       { code: -32002, name: "NotFound", when: "Conversation not found" },
@@ -182,8 +182,8 @@ const methods: MethodDef[] = [
   {
     method: "conversations/create",
     description: "Create a new group conversation with participants.",
-    params: ConversationsCreateParamsSchema,
-    result: ConversationsCreateResultSchema,
+    params: ConversationsCreate.paramsSchema,
+    result: ConversationsCreate.resultSchema,
     category: "conversations",
     relatedEvents: ["conversations/created"],
   },
@@ -191,22 +191,22 @@ const methods: MethodDef[] = [
     method: "conversations/list",
     description:
       "List your conversations with message previews and unread counts.",
-    params: ConversationsListParamsSchema,
-    result: ConversationsListResultSchema,
+    params: ConversationsList.paramsSchema,
+    result: ConversationsList.resultSchema,
     category: "conversations",
   },
   {
     method: "conversations/get",
     description:
       "Get conversation details including the full participant list.",
-    params: ConversationsGetParamsSchema,
-    result: ConversationsGetResultSchema,
+    params: ConversationsGet.paramsSchema,
+    result: ConversationsGet.resultSchema,
     category: "conversations",
   },
   {
     method: "conversations/update",
     description: "Update conversation metadata (name).",
-    params: ConversationsUpdateParamsSchema,
+    params: ConversationsUpdate.paramsSchema,
     category: "conversations",
     relatedEvents: ["conversations/updated"],
   },
@@ -214,7 +214,7 @@ const methods: MethodDef[] = [
     method: "conversations/add-participant",
     description:
       "Add a participant to a group conversation. Requires admin or owner role.",
-    params: ConversationsAddParticipantParamsSchema,
+    params: ConversationsAddParticipant.paramsSchema,
     category: "conversations",
     errors: [
       { code: -32001, name: "Forbidden", when: "Caller is not admin or owner" },
@@ -228,69 +228,112 @@ const methods: MethodDef[] = [
   {
     method: "conversations/remove-participant",
     description: "Remove a participant from a group conversation.",
-    params: ConversationsRemoveParticipantParamsSchema,
+    params: ConversationsRemoveParticipant.paramsSchema,
     category: "conversations",
   },
   {
     method: "conversations/leave",
     description: "Leave a group conversation.",
-    params: ConversationsLeaveParamsSchema,
+    params: ConversationsLeave.paramsSchema,
     category: "conversations",
   },
   {
     method: "conversations/mute",
     description:
       "Mute notifications for a conversation, optionally until a specific time.",
-    params: ConversationsMuteParamsSchema,
+    params: ConversationsMute.paramsSchema,
     category: "conversations",
   },
   {
     method: "conversations/unmute",
     description: "Unmute notifications for a conversation.",
-    params: ConversationsUnmuteParamsSchema,
+    params: ConversationsUnmute.paramsSchema,
     category: "conversations",
+  },
+  {
+    method: "conversations/archive",
+    description:
+      "Archive a conversation. Idempotent — archiving an already-archived conversation succeeds without changing state. Owner/admin only.",
+    params: ConversationsArchive.paramsSchema,
+    category: "conversations",
+    relatedEvents: ["conversations/archived"],
+    errors: [
+      {
+        code: -32001,
+        name: "Forbidden",
+        when: "Caller is not owner or admin",
+      },
+      {
+        code: -32009,
+        name: "Conflict",
+        when: "Conversation is attached to an active app session; close the session to archive",
+      },
+    ],
+  },
+  {
+    method: "conversations/unarchive",
+    description:
+      "Unarchive a conversation (clears archived_at). Idempotent — unarchiving an active conversation is a no-op. Owner/admin only.",
+    params: ConversationsUnarchive.paramsSchema,
+    category: "conversations",
+    relatedEvents: ["conversations/unarchived"],
+    errors: [
+      {
+        code: -32001,
+        name: "Forbidden",
+        when: "Caller is not owner or admin",
+      },
+    ],
   },
   // Presence
   {
     method: "presence/update",
     description: "Update your presence status (online, offline, away).",
-    params: PresenceUpdateParamsSchema,
+    params: PresenceUpdate.paramsSchema,
     category: "presence",
     relatedEvents: ["presence/changed"],
   },
   {
     method: "presence/subscribe",
     description: "Subscribe to presence changes for a list of participants.",
-    params: PresenceSubscribeParamsSchema,
-    result: PresenceSubscribeResultSchema,
+    params: PresenceSubscribe.paramsSchema,
+    result: PresenceSubscribe.resultSchema,
     category: "presence",
   },
   // Surfaces
   {
     method: "surface/update",
     description: "Push or replace an interactive surface in a conversation.",
-    params: SurfaceUpdateParamsSchema,
+    params: SurfaceUpdate.paramsSchema,
     category: "surfaces",
     relatedEvents: ["surface/updated"],
   },
   {
     method: "surface/get",
     description: "Retrieve the current surface for a conversation.",
-    params: SurfaceGetParamsSchema,
+    params: SurfaceGet.paramsSchema,
     category: "surfaces",
   },
   {
     method: "surface/action",
     description: "Trigger a named action on a conversation's surface.",
-    params: SurfaceActionParamsSchema,
+    params: SurfaceAction.paramsSchema,
     category: "surfaces",
   },
   {
     method: "surface/clear",
     description: "Remove the surface from a conversation.",
-    params: SurfaceClearParamsSchema,
+    params: SurfaceClear.paramsSchema,
     category: "surfaces",
     relatedEvents: ["surface/cleared"],
+  },
+  // System
+  {
+    method: "system/ping",
+    description: "Liveness probe. Returns server timestamp.",
+    params: SystemPing.paramsSchema,
+    result: SystemPing.resultSchema,
+    category: "system",
   },
 ];
 
@@ -333,6 +376,19 @@ const events: EventDef[] = [
       "conversations/add-participant",
       "conversations/remove-participant",
     ],
+  },
+  {
+    event: EventNames.ConversationArchived,
+    description:
+      "Fired when a conversation is archived (explicit archive call or app-session close).",
+    data: ConversationArchivedEventSchema,
+    triggeredBy: ["conversations/archive"],
+  },
+  {
+    event: EventNames.ConversationUnarchived,
+    description: "Fired when a conversation is unarchived.",
+    data: ConversationUnarchivedEventSchema,
+    triggeredBy: ["conversations/unarchive"],
   },
   {
     event: EventNames.PresenceChanged,

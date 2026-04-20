@@ -76,14 +76,11 @@ export const registerAndConnect = (
       serverUrl: stripWsPath(wsUrl),
       agentKey: reg.apiKey,
     });
-    yield* client
-      .connect()
-      .pipe(
-        Effect.mapError((err) =>
-          err._tag === "RpcTimeoutError"
-            ? new Error(`RPC timeout: ${err.method}`)
-            : new Error(err.message),
-        ),
-      );
+    yield* client.connect().pipe(
+      Effect.catchTag("RpcTimeoutError", (err) =>
+        Effect.fail(new Error(`RPC timeout: ${err.method}`)),
+      ),
+      Effect.mapError((err) => new Error(err.message)),
+    );
     return { client, ...reg };
   });

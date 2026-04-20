@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import type { Db } from "../db/client.js";
 import type { Register, Static } from "@moltzap/protocol";
+import { AgentId, UserId } from "../app/types.js";
 
 type RegisterParams = Static<typeof Register.paramsSchema>;
 import {
@@ -21,7 +22,13 @@ export class AuthService {
 
   registerAgent(
     params: RegisterParams,
-  ): Effect.Effect<{ agentId: string; apiKey: string }, never> {
+    /**
+     * Optional dev-mode ownership — when set, the new agent is registered
+     * pre-claimed to this user id. Routed from `CoreConfig.devModeUserId`;
+     * never flows from untrusted HTTP input.
+     */
+    devModeOwnerId?: string,
+  ): Effect.Effect<{ agentId: AgentId; apiKey: string }, never> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         const { apiKey, keyId, secretHash } = generateApiKey();
@@ -36,12 +43,13 @@ export class AuthService {
               api_key_secret_hash: secretHash,
               claim_token: generateClaimToken(),
               status: "active",
+              owner_user_id: devModeOwnerId ?? null,
             })
             .returning(["id"]),
           "Failed to insert agent",
         );
 
-        const agentId = result.id;
+        const agentId = AgentId(result.id);
 
         yield* Effect.logInfo("Agent registered").pipe(
           Effect.annotateLogs({ agentId, name: params.name }),
@@ -54,9 +62,9 @@ export class AuthService {
 
   authenticateAgent(apiKey: string): Effect.Effect<
     {
-      agentId: string;
+      agentId: AgentId;
       status: string;
-      ownerUserId: string | null;
+      ownerUserId: UserId | null;
     } | null,
     never
   > {
@@ -78,9 +86,10 @@ export class AuthService {
         if (hashSecret(parsed.secret) !== row.api_key_secret_hash) return null;
 
         return {
-          agentId: row.id,
+          agentId: AgentId(row.id),
           status: row.status,
-          ownerUserId: row.owner_user_id ?? null,
+          ownerUserId:
+            row.owner_user_id === null ? null : UserId(row.owner_user_id),
         };
       }),
     );

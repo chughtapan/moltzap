@@ -2,11 +2,12 @@ import type { Effect } from "effect";
 import type { RpcDefinition, Static, TSchema } from "@moltzap/protocol";
 import type { RpcFailure } from "../runtime/index.js";
 import type { ConnIdTag } from "../app/layers.js";
+import type { AgentId, UserId } from "../app/types.js";
 
 export interface AuthenticatedContext {
-  agentId: string;
+  agentId: AgentId;
   agentStatus: string;
-  ownerUserId: string | null;
+  ownerUserId: UserId | null;
 }
 
 /**

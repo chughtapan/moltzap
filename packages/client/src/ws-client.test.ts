@@ -16,11 +16,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { it as itEffect } from "@effect/vitest";
 import {
+  Cause,
   Deferred,
   Duration,
   Effect,
   Exit,
   Fiber,
+  Option,
   Scope,
   TestClock,
 } from "effect";
@@ -29,6 +31,7 @@ import * as Socket from "@effect/platform/Socket";
 import { PROTOCOL_VERSION } from "@moltzap/protocol";
 
 import { MoltZapWsClient, RPC_TIMEOUT_MS } from "./ws-client.js";
+import { RpcTimeoutError } from "./runtime/errors.js";
 
 // ── Test server helpers ────────────────────────────────────────────────
 
@@ -156,13 +159,10 @@ interface ClientHarness {
 const connectP = (client: MoltZapWsClient): Promise<unknown> =>
   Effect.runPromise(
     client.connect().pipe(
-      Effect.catchAll((err) => {
-        const msg =
-          err._tag === "RpcTimeoutError"
-            ? `RPC timeout: ${err.method}`
-            : err.message;
-        return Effect.fail(new Error(msg));
-      }),
+      Effect.catchTag("RpcTimeoutError", (err) =>
+        Effect.fail(new Error(`RPC timeout: ${err.method}`)),
+      ),
+      Effect.catchAll((err) => Effect.fail(new Error(err.message))),
     ),
   );
 
@@ -173,13 +173,10 @@ const sendRpcP = (
 ): Promise<unknown> =>
   Effect.runPromise(
     client.sendRpc(method, params).pipe(
-      Effect.catchAll((err) => {
-        const msg =
-          err._tag === "RpcTimeoutError"
-            ? `RPC timeout: ${err.method}`
-            : err.message;
-        return Effect.fail(new Error(msg));
-      }),
+      Effect.catchTag("RpcTimeoutError", (err) =>
+        Effect.fail(new Error(`RPC timeout: ${err.method}`)),
+      ),
+      Effect.catchAll((err) => Effect.fail(new Error(err.message))),
     ),
   );
 
@@ -461,16 +458,19 @@ describe("§5.3 sendRpc does NOT retry on timeout (TestClock)", () => {
         const exit = yield* Fiber.await(rpcFiber);
         expect(Exit.isFailure(exit)).toBe(true);
         if (Exit.isFailure(exit)) {
-          const cause = exit.cause as unknown as {
-            _tag: string;
-            error?: { _tag?: string; method?: string; timeoutMs?: number };
-          };
-          const err = cause._tag === "Fail" ? cause.error : (cause as unknown);
-          expect((err as { _tag?: string })._tag).toBe("RpcTimeoutError");
-          expect((err as { method?: string }).method).toBe("messages/send");
-          expect((err as { timeoutMs?: number }).timeoutMs).toBe(
-            RPC_TIMEOUT_MS,
-          );
+          // Cause.failureOption narrows the cause to its typed error without
+          // touching `_tag` manually. instanceof pins the class nominally
+          // in case a defect slipped through with a matching shape.
+          const failed = Cause.failureOption(exit.cause);
+          expect(Option.isSome(failed)).toBe(true);
+          if (Option.isSome(failed)) {
+            const err = failed.value;
+            expect(err).toBeInstanceOf(RpcTimeoutError);
+            if (err instanceof RpcTimeoutError) {
+              expect(err.method).toBe("messages/send");
+              expect(err.timeoutMs).toBe(RPC_TIMEOUT_MS);
+            }
+          }
         }
 
         // No retry frame may have been enqueued — timeout is terminal. Bounce
@@ -591,6 +591,51 @@ describe("§5.4 malformed frames are logged but do not affect pending RPCs", () 
         expect(result.conversations).toEqual([]);
         // Logger saw at least one malformed-frame warning.
         expect(logger.warn).toHaveBeenCalled();
+
+        closeClient(client);
+      }),
+    );
+  });
+
+  it("accepts a padded chunk that contains both an event and the response", async () => {
+    await withTestServer(
+      Effect.gen(function* () {
+        const logger = makeLogger();
+        const events: unknown[] = [];
+        const server = yield* startHandshakingServer((conn, _raw, frame) =>
+          Effect.gen(function* () {
+            if (frame.method !== "conversations/list") return;
+            yield* conn.send(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                type: "event",
+                event: "messages/received",
+                data: { message: { id: "m-1", conversationId: "c-1" } },
+              }) +
+                "\u0000" +
+                JSON.stringify({
+                  jsonrpc: "2.0",
+                  type: "response",
+                  id: frame.id,
+                  result: { conversations: [] },
+                }),
+            );
+          }),
+        );
+        const client = makeClient(server.url, {
+          logger,
+          onEvent: (event) => events.push(event),
+        });
+        yield* Effect.promise(() => connectP(client));
+
+        const result = (yield* Effect.promise(() =>
+          sendRpcP(client, "conversations/list", {}),
+        )) as { conversations: unknown[] };
+
+        expect(result.conversations).toEqual([]);
+        expect(events).toHaveLength(1);
+        expect(events[0]).toMatchObject({ event: "messages/received" });
+        expect(logger.warn).not.toHaveBeenCalled();
 
         closeClient(client);
       }),

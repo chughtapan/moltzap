@@ -1,5 +1,5 @@
 import type { Kysely } from "kysely";
-import type { Effect } from "effect";
+import { Brand, type Effect } from "effect";
 import type { RpcMethodDef } from "../rpc/context.js";
 import type { AppManifest, AppSession } from "@moltzap/protocol";
 import type { Database } from "../db/database.js";
@@ -16,7 +16,30 @@ import type {
   BeforeMessageDeliveryHook,
   OnCloseHook,
   OnJoinHook,
+  OnSessionActiveHook,
 } from "./hooks.js";
+
+/**
+ * Branded identifier types. Each constructor is a nominal brand — it wraps a
+ * validated string into the branded type at a trust boundary (HTTP handler,
+ * DB row mapper, webhook body decoder) without runtime cost. Branded IDs are
+ * assignable TO `string`, but a plain `string` is not assignable TO a brand
+ * without an explicit constructor call, so the compiler catches ID swaps.
+ */
+export type UserId = string & Brand.Brand<"UserId">;
+export const UserId = Brand.nominal<UserId>();
+
+export type AgentId = string & Brand.Brand<"AgentId">;
+export const AgentId = Brand.nominal<AgentId>();
+
+export type ConversationId = string & Brand.Brand<"ConversationId">;
+export const ConversationId = Brand.nominal<ConversationId>();
+
+export type SessionId = string & Brand.Brand<"SessionId">;
+export const SessionId = Brand.nominal<SessionId>();
+
+export type AppId = string & Brand.Brand<"AppId">;
+export const AppId = Brand.nominal<AppId>();
 
 export interface CoreConfig {
   db: Kysely<Database>;
@@ -26,6 +49,14 @@ export interface CoreConfig {
   corsOrigins: string[];
   registrationSecret?: string;
   devMode?: boolean;
+  /**
+   * When set, agents registered via the default `/api/v1/auth/register`
+   * route are given this user id as their `owner_user_id`, skipping the
+   * claim step. Intended for local dev / quickstart. Production MUST
+   * leave this unset and perform claim through an external auth
+   * provider (see docs/guides/custom-identity-provider.mdx).
+   */
+  devModeUserId?: string;
   /**
    * Optional webhook-backed user validator. When unset the server skips
    * user validation during app session admission (admits all users).
@@ -39,17 +70,36 @@ export interface CoreConfig {
    */
   webhookClient?: WebhookClient;
   /**
-   * When true, core does not mount its default /api/v1/auth/register route.
-   * Apps that want their own invite-gated / rate-limited register flow should
-   * set this and mount their own handler. Contributes to chughtapan/moltzap's
-   * extension API; a future PR pushes this upstream.
+   * When true, core does not mount its default `/api/v1/auth/register`
+   * route. Apps that want their own invite-gated / rate-limited register
+   * flow set this and mount their own handler.
    */
   skipDefaultRegisterRoute?: boolean;
+  /**
+   * Fire-and-forget HTTP webhook after message delivery with the list of
+   * offline recipient agent IDs. Use to drive push notifications or analytics
+   * out of band. Body is signed with HMAC-SHA256 in the
+   * `X-MoltZap-Signature: sha256=<hex>` header using `secret`.
+   *
+   * Shape: `{ conversationId, messageId, offlineRecipientAgentIds: string[] }`.
+   *
+   * Dispatched on a detached daemon fiber with a 3-attempt exponential backoff
+   * (1s base, jittered). Failures log and drop — never block `messages/send`.
+   */
+  deliveryWebhook?: { url: string; secret: string };
 }
 
 export type ConnectionHook = (params: {
   agentId: string;
   agentName: string;
+  /** Owner user ID resolved at auth/connect time. Null for unclaimed agents. */
+  ownerUserId: string | null;
+  connId: string;
+}) => Promise<void> | void;
+
+export type DisconnectionHook = (params: {
+  agentId: string;
+  ownerUserId: string | null;
   connId: string;
 }) => Promise<void> | void;
 
@@ -57,6 +107,12 @@ export interface CoreApp {
   readonly port: number;
   registerRpcMethod: (name: string, def: RpcMethodDef) => void;
   onConnection: (hook: ConnectionHook) => void;
+  /**
+   * Fires when a WebSocket closes, after auth was established. Use for
+   * per-user cleanup (e.g., `last_seen_at` updates). Does not fire for
+   * connections that never authenticated.
+   */
+  onDisconnection: (hook: DisconnectionHook) => void;
   /**
    * Live Broadcaster instance. Apps that register custom RPCs and want to
    * emit events out-of-band (not via `broadcastToConversation`) use this to
@@ -88,6 +144,7 @@ export interface CoreApp {
   ) => void;
   onAppJoin: (appId: string, handler: OnJoinHook) => void;
   onSessionClose: (appId: string, handler: OnCloseHook) => void;
+  onSessionActive: (appId: string, handler: OnSessionActiveHook) => void;
   closeAppSession: (
     sessionId: string,
     callerAgentId: string,
@@ -100,5 +157,16 @@ export interface CoreApp {
     callerAgentId: string,
     opts?: { appId?: string; status?: string; limit?: number },
   ) => Effect.Effect<AppSession[], RpcFailure>;
+  /**
+   * Register a dynamically-created conversation with an app session so
+   * `before_message_delivery` fires on subsequent sends. Typical use: an app
+   * creates per-participant DMs inside its `on_session_active` handler, then
+   * attaches each under a distinct key (e.g. `role_dm_<agentId>`).
+   */
+  attachAppConversation: (
+    sessionId: string,
+    conversationId: string,
+    key: string,
+  ) => Effect.Effect<void, RpcFailure>;
   close: () => Promise<void>;
 }

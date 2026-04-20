@@ -71,6 +71,26 @@ vi.mock("@moltzap/client", () => {
   };
 });
 
+/** Mocked WsClient stashes constructor callbacks as `_on*` fields so tests
+ *  can fire them directly. Single cast boundary between mock and real type. */
+interface MockedWsClient {
+  _onEvent: (e: unknown) => void;
+  _onReconnect: () => void;
+  _onDisconnect: () => void;
+}
+
+// #ignore-sloppy-code-next-line[as-unknown-as]: mock boundary — real MoltZapWsClient has no _on* fields
+const asMock = (c: unknown): MockedWsClient => c as MockedWsClient;
+
+const fireEvent = (
+  app: MoltZapApp,
+  event: string,
+  data: Record<string, unknown>,
+): void => asMock(app.client)._onEvent({ type: "event", event, data });
+
+const fireReconnect = (app: MoltZapApp): void =>
+  asMock(app.client)._onReconnect();
+
 describe("MoltZapApp", () => {
   let app: MoltZapApp;
 
@@ -259,13 +279,9 @@ describe("MoltZapApp", () => {
       await new Promise((r) => setTimeout(r, 0));
       expect(handler).toHaveBeenCalledTimes(1);
 
-      const onEvent = (
-        app.client as unknown as { _onEvent: (e: unknown) => void }
-      )._onEvent;
-      onEvent({
-        type: "event",
-        event: "app/sessionReady",
-        data: { sessionId: "session-1", conversations: { default: "conv-1" } },
+      fireEvent(app, "app/sessionReady", {
+        sessionId: "session-1",
+        conversations: { default: "conv-1" },
       });
 
       await new Promise((r) => setTimeout(r, 0));
@@ -274,15 +290,6 @@ describe("MoltZapApp", () => {
   });
 
   describe("event dispatch", () => {
-    const fireEvent = (event: string, data: Record<string, unknown>): void => {
-      const onEvent = (
-        app.client as unknown as {
-          _onEvent: (e: unknown) => void;
-        }
-      )._onEvent;
-      onEvent({ type: "event", event, data });
-    };
-
     const inboundMessage = {
       id: "msg-42",
       conversationId: "conv-1",
@@ -296,7 +303,7 @@ describe("MoltZapApp", () => {
       app.onMessage("default", handler);
 
       await Effect.runPromise(app.start());
-      fireEvent("messages/received", { message: inboundMessage });
+      fireEvent(app, "messages/received", { message: inboundMessage });
       await new Promise((r) => setTimeout(r, 0));
 
       expect(handler).toHaveBeenCalledTimes(1);
@@ -308,7 +315,7 @@ describe("MoltZapApp", () => {
       app.onMessage("*", starHandler);
 
       await Effect.runPromise(app.start());
-      fireEvent("messages/received", { message: inboundMessage });
+      fireEvent(app, "messages/received", { message: inboundMessage });
       await new Promise((r) => setTimeout(r, 0));
 
       expect(starHandler).toHaveBeenCalledWith(inboundMessage);
@@ -319,7 +326,7 @@ describe("MoltZapApp", () => {
       app.onMessage("default", handler);
 
       await Effect.runPromise(app.start());
-      fireEvent("messages/received", {
+      fireEvent(app, "messages/received", {
         message: { ...inboundMessage, conversationId: "conv-unknown" },
       });
       await new Promise((r) => setTimeout(r, 0));
@@ -335,7 +342,7 @@ describe("MoltZapApp", () => {
       });
 
       await Effect.runPromise(app.start());
-      fireEvent("messages/received", { message: inboundMessage });
+      fireEvent(app, "messages/received", { message: inboundMessage });
 
       await new Promise((r) => setTimeout(r, 0));
 
@@ -355,7 +362,7 @@ describe("MoltZapApp", () => {
         agentId: "agent-9",
         grantedResources: ["messages"],
       };
-      fireEvent("app/participantAdmitted", event);
+      fireEvent(app, "app/participantAdmitted", event);
 
       expect(handler).toHaveBeenCalledWith(event);
     });
@@ -372,7 +379,7 @@ describe("MoltZapApp", () => {
         stage: "identity",
         rejectionCode: "NOT_CONTACT",
       };
-      fireEvent("app/participantRejected", event);
+      fireEvent(app, "app/participantRejected", event);
 
       expect(handler).toHaveBeenCalledWith(event);
     });
@@ -384,7 +391,7 @@ describe("MoltZapApp", () => {
       await Effect.runPromise(app.start());
       expect(app.getSession("session-1")).toBeDefined();
 
-      fireEvent("app/sessionClosed", { sessionId: "session-1" });
+      fireEvent(app, "app/sessionClosed", { sessionId: "session-1" });
 
       expect(app.getSession("session-1")).toBeUndefined();
       expect(errorHandler).toHaveBeenCalledTimes(1);
@@ -408,16 +415,7 @@ describe("MoltZapApp", () => {
       });
 
       await Effect.runPromise(appWithSkill.start());
-      const onEvent = (
-        appWithSkill.client as unknown as {
-          _onEvent: (e: unknown) => void;
-        }
-      )._onEvent;
-      onEvent({
-        type: "event",
-        event: "app/skillChallenge",
-        data: { challengeId: "chal-1" },
-      });
+      fireEvent(appWithSkill, "app/skillChallenge", { challengeId: "chal-1" });
 
       expect(appWithSkill.client.sendRpc).toHaveBeenCalledWith(
         "apps/attestSkill",
@@ -434,16 +432,7 @@ describe("MoltZapApp", () => {
       const sendRpc = app.client.sendRpc as ReturnType<typeof vi.fn>;
       sendRpc.mockClear();
 
-      const onEvent = (
-        app.client as unknown as {
-          _onEvent: (e: unknown) => void;
-        }
-      )._onEvent;
-      onEvent({
-        type: "event",
-        event: "app/skillChallenge",
-        data: { challengeId: "chal-1" },
-      });
+      fireEvent(app, "app/skillChallenge", { challengeId: "chal-1" });
 
       expect(sendRpc).not.toHaveBeenCalledWith(
         "apps/attestSkill",
@@ -507,12 +496,7 @@ describe("MoltZapApp", () => {
 
   describe("reconnect recovery", () => {
     const triggerReconnect = async (): Promise<void> => {
-      const onReconnect = (
-        app.client as unknown as {
-          _onReconnect: () => void;
-        }
-      )._onReconnect;
-      onReconnect();
+      fireReconnect(app);
       await new Promise((r) => setTimeout(r, 0));
       await new Promise((r) => setTimeout(r, 0));
     };

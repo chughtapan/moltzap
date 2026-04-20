@@ -12,7 +12,7 @@ import {
   type PermissionsRequiredEvent,
   EventNames,
 } from "@moltzap/protocol";
-import { Effect, HashMap, Option, Ref } from "effect";
+import { Effect, HashMap, Match, Option, Ref } from "effect";
 import { MoltZapWsClient, type WsClientLogger } from "./ws-client.js";
 import {
   AgentNotFoundError,
@@ -20,6 +20,7 @@ import {
   RpcServerError,
   RpcTimeoutError,
 } from "./runtime/errors.js";
+import { getOr, snapshot } from "./runtime/refs.js";
 
 /**
  * Errors that can surface from the Effect-based service API. Matches the
@@ -111,27 +112,20 @@ export interface CrossConvMessage {
   timestamp: string;
 }
 
-function renderPart(p: Part): string {
-  switch (p.type) {
-    case "text":
-      return p.text;
-    case "image":
-      return "[image]";
-    case "file":
-      return `[file: ${p.name}]`;
-    default:
-      return `[${(p as { type: string }).type}]`;
-  }
-}
+const renderPart: (p: Part) => string = Match.type<Part>().pipe(
+  Match.discriminatorsExhaustive("type")({
+    text: (t) => t.text,
+    image: () => "[image]",
+    file: (f) => `[file: ${f.name}]`,
+  }),
+);
 
 /**
- * Per-conversation message buffer cap. Wired as a guard against unbounded
- * growth on long-running clients; set to `Infinity` until we have real
- * usage data to pick a sensible eviction threshold.
+ * Per-conversation message cap. Older messages are evicted FIFO; the
+ * on-disk history remains the source of truth. Sized for typical CLI
+ * display windows — `conversations get` shows at most a few hundred.
  */
-const MAX_MESSAGES_PER_CONV = Number.POSITIVE_INFINITY;
-
-const snapshot = <A>(ref: Ref.Ref<A>): A => Effect.runSync(Ref.get(ref));
+const MAX_MESSAGES_PER_CONV = 1000;
 
 /**
  * Invoke every handler with `arg`, isolating throws so one bad handler
@@ -151,12 +145,16 @@ function fanout<T>(
   }
 }
 
-const getOr = <K, V>(m: HashMap.HashMap<K, V>, key: K, dflt: () => V): V =>
-  Option.getOrElse(HashMap.get(m, key), dflt);
-
 /**
  * Stateful MoltZap client that manages connection, conversation tracking,
  * agent name resolution, and cross-conversation context generation.
+ *
+ * API contract: **every fallible method returns `Effect`.** There are no
+ * `*Async` Promise siblings (unlike `@moltzap/app-sdk`'s `MoltZapApp`);
+ * async/await consumers run the Effect at the edge with `Effect.runPromise`.
+ * `@moltzap/app-sdk` is the public app-facing surface and layers its own
+ * `*Async` wrappers on top. Keep this class Effect-only so downstream
+ * callers compose failures and cancellation explicitly.
  */
 export class MoltZapService {
   private client: MoltZapWsClient | null = null;
@@ -601,7 +599,12 @@ export class MoltZapService {
     );
   }
 
-  /** Cache-first. Never fails; falls back to `agentId` on RPC error. */
+  /**
+   * Cache-first agent-name lookup. Never fails: falls back to `agentId`
+   * when the RPC errors or the server has no record. The error path logs
+   * so ops can see repeated lookup failures; the empty-response path is
+   * silent (a cold agent is an expected transient state).
+   */
   resolveAgentName(agentId: string): Effect.Effect<string, never> {
     return Effect.gen(this, function* () {
       const cached = Option.getOrUndefined(
@@ -619,7 +622,14 @@ export class MoltZapService {
             HashMap.set(names, agentId, agent.name),
           ).pipe(Effect.as(agent.name));
         }),
-        Effect.catchAll(() => Effect.succeed(agentId)),
+        Effect.catchAll((err) =>
+          Effect.logWarning(
+            "agents/lookup failed; falling back to agentId",
+          ).pipe(
+            Effect.annotateLogs({ agentId, err: String(err) }),
+            Effect.as(agentId),
+          ),
+        ),
       );
     });
   }

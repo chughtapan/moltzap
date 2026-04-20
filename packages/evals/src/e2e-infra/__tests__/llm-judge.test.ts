@@ -11,6 +11,7 @@ const { mockQuery, asyncIter } = vi.hoisted(() => {
           async next(): Promise<IteratorResult<T>> {
             if (i < messages.length)
               return { value: messages[i++]!, done: false };
+            // #ignore-sloppy-code-next-line[as-unknown-as]: IteratorResult<T, TReturn=undefined> requires `value: T` even when `done: true`; standard TS/async-iterator typing gap
             return { value: undefined as unknown as T, done: true };
           },
         };

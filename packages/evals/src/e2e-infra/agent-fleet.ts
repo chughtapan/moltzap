@@ -11,6 +11,11 @@ import { DockerManager, type AgentContainer } from "./docker-manager.js";
 import { NanoclawManager, type NanoclawAgent } from "./nanoclaw-manager.js";
 import { logger } from "./logger.js";
 import { ContainerError } from "./types.js";
+import {
+  createFleetStartedTelemetryEvent,
+  createFleetStoppedTelemetryEvent,
+  telemetry,
+} from "./telemetry.js";
 
 export type AgentRuntime = "openclaw" | "nanoclaw";
 
@@ -57,14 +62,13 @@ const launchOpenClawFleet = (
 ): Effect.Effect<AgentFleet, Error> =>
   Effect.gen(function* () {
     const dockerManager = new DockerManager();
-    yield* Effect.try({
-      try: () => dockerManager.ensureImage(),
-      catch: (err) => (err instanceof Error ? err : new Error(String(err))),
-    });
+    yield* dockerManager
+      .ensureImage()
+      .pipe(Effect.mapError((err) => new Error(err.message)));
 
     // Parallel startup: each agent runs its own Effect. On partial failure,
     // tapError stops any already-started containers before the typed
-    // ContainerError surfaces.
+    // DockerError surfaces.
     const startAll = Effect.forEach(
       opts.agents,
       (agent) =>
@@ -77,7 +81,7 @@ const launchOpenClawFleet = (
           connectTimeoutMs: opts.connectTimeoutMs ?? 180_000,
         }),
       { concurrency: "unbounded" },
-    ).pipe(Effect.tapError(() => dockerManager.stopAll().pipe(Effect.ignore)));
+    ).pipe(Effect.tapError(() => dockerManager.stopAll()));
 
     const containers: AgentContainer[] = yield* startAll.pipe(
       Effect.tap(() => Effect.sleep(POST_CONNECT_SETTLE)),
@@ -86,6 +90,14 @@ const launchOpenClawFleet = (
 
     yield* Effect.sync(() =>
       logger.info(`Fleet started: ${containers.length} openclaw agent(s)`),
+    );
+    telemetry.emit(
+      createFleetStartedTelemetryEvent({
+        ts: new Date().toISOString(),
+        runtime: "openclaw",
+        agentNames: containers.map((c) => c.name),
+        serverUrl: opts.serverUrl,
+      }),
     );
 
     const agentMap = new Map(containers.map((c) => [c.name, c]));
@@ -108,6 +120,13 @@ const launchOpenClawFleet = (
               }
             }
             yield* dockerManager.stopAll();
+            telemetry.emit(
+              createFleetStoppedTelemetryEvent({
+                ts: new Date().toISOString(),
+                runtime: "openclaw",
+                agentNames: containers.map((c) => c.name),
+              }),
+            );
           }),
         ),
       getLogs(name: string): string {
@@ -167,6 +186,14 @@ const launchNanoclawFleet = (
     yield* Effect.sync(() =>
       logger.info(`Fleet started: ${agents.length} nanoclaw agent(s)`),
     );
+    telemetry.emit(
+      createFleetStartedTelemetryEvent({
+        ts: new Date().toISOString(),
+        runtime: "nanoclaw",
+        agentNames: agents.map((a) => a.name),
+        serverUrl: opts.serverUrl,
+      }),
+    );
 
     const agentMap = new Map(agents.map((a) => [a.name, a]));
 
@@ -192,6 +219,13 @@ const launchNanoclawFleet = (
               catch: (err) =>
                 err instanceof Error ? err : new Error(String(err)),
             });
+            telemetry.emit(
+              createFleetStoppedTelemetryEvent({
+                ts: new Date().toISOString(),
+                runtime: "nanoclaw",
+                agentNames: agents.map((a) => a.name),
+              }),
+            );
           }),
         ),
       getLogs(name: string): string {

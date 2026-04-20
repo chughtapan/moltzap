@@ -110,12 +110,13 @@ async function main(): Promise<void> {
   setupLogger(argv.results, argv["log-level"]);
 
   const modelId = argv.model!;
+  const contractMode = argv.runtime === "openclaw" ? "shared" : "legacy";
 
   logger.info(
     `\n${"=".repeat(60)}\nRunning evals with agent model: ${modelId}\n${"=".repeat(60)}`,
   );
   logger.info(
-    `Scenarios: ${argv.scenario?.join(", ") ?? "all"} | Runs: ${argv["runs-per-scenario"]} | Judge: ${argv["eval-model"]}`,
+    `Scenarios: ${argv.scenario?.join(", ") ?? "all"} | Runs: ${argv["runs-per-scenario"]} | Judge: ${argv["eval-model"]} | Contract: ${contractMode}`,
   );
 
   const resultsDir =
@@ -136,11 +137,12 @@ async function main(): Promise<void> {
         logLevel: argv["log-level"],
         signal: shutdownController.signal,
         runtime: argv.runtime as "openclaw" | "nanoclaw", // #ignore-sloppy-code[enum-cast]: yargs choices constrain to these values at parse time
+        contractMode,
       }),
     );
 
     logger.info(
-      `[${modelId}] Done: ${result.summary.passed}/${result.summary.total} passed (${result.summary.avgLatencyMs.toFixed(0)}ms avg)`,
+      `[${modelId}] Done: ${result.summary.passed}/${result.summary.total} passed (${result.summary.avgLatencyMs.toFixed(0)}ms avg) [contract=${contractMode}]`,
     );
 
     if (result.summary.failed > 0) {
