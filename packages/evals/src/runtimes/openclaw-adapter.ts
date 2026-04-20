@@ -114,7 +114,8 @@ export class OpenClawAdapter implements Runtime {
       const check = () => {
         if (child.exitCode !== null) {
           const stderr = this.state?.logBuffer ?? "";
-          this.runTeardown();
+          // #ignore-sloppy-code-next-line[promise-type]: fire-and-forget cleanup — resume callback cannot await
+          void this.doTeardown();
           resume(
             Effect.succeed({
               _tag: "ProcessExited" as const,
@@ -132,7 +133,8 @@ export class OpenClawAdapter implements Runtime {
         }
 
         if (Date.now() > deadline) {
-          this.runTeardown();
+          // #ignore-sloppy-code-next-line[promise-type]: fire-and-forget cleanup — resume callback cannot await
+          void this.doTeardown();
           resume(Effect.succeed({ _tag: "Timeout" as const, timeoutMs }));
           return;
         }
@@ -145,7 +147,8 @@ export class OpenClawAdapter implements Runtime {
   }
 
   teardown(): Effect.Effect<void, never, never> {
-    return Effect.sync(() => this.runTeardown());
+    // #ignore-sloppy-code-next-line[effect-promise, promise-type]: doTeardown is internally guarded — torn-down flag prevents double-run, errors are swallowed by design
+    return Effect.promise(() => this.doTeardown());
   }
 
   getLogs(offset: number): LogSlice {
@@ -158,8 +161,9 @@ export class OpenClawAdapter implements Runtime {
     return "MoltZap: inbound from agent:";
   }
 
-  /** Synchronous teardown: SIGTERM → 10s wait → SIGKILL → rm workdir. */
-  private runTeardown(): void {
+  /** Async teardown: SIGTERM → await exit event (≤10s) → SIGKILL → rm workdir. */
+  // #ignore-sloppy-code-next-line[async-keyword, promise-type]: child_process exit event + fs.rm boundary
+  private async doTeardown(): Promise<void> {
     if (!this.state || this.state.tornDown) return;
     this.state.tornDown = true;
 
@@ -167,15 +171,14 @@ export class OpenClawAdapter implements Runtime {
 
     this.killGroup(child, "SIGTERM");
 
-    // Spin-wait for exit (up to 10s). Teardown is a cleanup path where
-    // synchronous blocking is acceptable.
-    const deadline = Date.now() + 10_000;
-    while (child.exitCode === null && Date.now() < deadline) {
-      // Give the event loop a tick so the exit event fires.
-      const spinStart = Date.now();
-      while (Date.now() - spinStart < 100) {
-        // busy-wait 100ms
-      }
+    if (child.exitCode === null) {
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, 10_000);
+        child.once("exit", () => {
+          clearTimeout(timer);
+          resolve();
+        });
+      });
     }
 
     if (child.exitCode === null) {
