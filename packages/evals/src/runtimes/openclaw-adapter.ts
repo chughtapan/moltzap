@@ -329,4 +329,9 @@ function installChannelPlugin(
     path.join(pluginNm, "@moltzap/client"),
     "dir",
   );
+  fs.symlinkSync(
+    path.join(channelDistDir, "node_modules", "effect"),
+    path.join(pluginNm, "effect"),
+    "dir",
+  );
 }
