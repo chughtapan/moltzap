@@ -60,6 +60,15 @@ export interface AgentDeclaration {
   metadata?: Readonly<Record<string, unknown>>;
 }
 
+export interface JudgmentBundleAgentInput {
+  id: string;
+  name: string;
+  role?: string;
+  artifact?: ExecutionArtifact;
+  promptInputs?: Readonly<Record<string, unknown>>;
+  metadata?: Readonly<Record<string, unknown>>;
+}
+
 export interface RunRequirements {
   expectedBehavior: string;
   validationChecks: ReadonlyArray<string>;
@@ -92,6 +101,15 @@ export interface JudgmentBundle {
   outcomes: ReadonlyArray<AgentOutcome>;
   context?: Readonly<Record<string, unknown>>;
   metadata?: Readonly<Record<string, unknown>>;
+}
+
+export interface JudgmentBundleScenarioInput {
+  id: string;
+  name: string;
+  description: string;
+  expectedBehavior: string;
+  validationChecks: ReadonlyArray<string>;
+  judgeRubric?: string;
 }
 
 const ExecutionArtifactSchema = Type.Union([
@@ -270,6 +288,41 @@ function buildAgentDeclaration(opts: {
   };
 }
 
+function buildBundleAgentDeclaration(opts: {
+  agent: JudgmentBundleAgentInput;
+  runtime: RuntimeKind;
+  modelName: string;
+  scenarioId: string;
+}): AgentDeclaration {
+  return {
+    id: opts.agent.id,
+    name: opts.agent.name,
+    role: opts.agent.role,
+    artifact: opts.agent.artifact ?? {
+      _tag: "DockerImageArtifact",
+      image: "moltzap-eval-agent:local",
+      pullPolicy: "if-missing",
+    },
+    promptInputs: {
+      modelName: opts.modelName,
+      scenarioId: opts.scenarioId,
+      runtime: opts.runtime,
+      ...opts.agent.promptInputs,
+    },
+    metadata: {
+      ...opts.agent.metadata,
+      runtime: opts.runtime,
+      modelName: opts.modelName,
+    },
+  };
+}
+
+function sortTraceEvents(
+  events: ReadonlyArray<JudgmentBundleTraceEvent>,
+): ReadonlyArray<JudgmentBundleTraceEvent> {
+  return [...events].sort((left, right) => left.ts - right.ts);
+}
+
 function outgoingMessagesFromScenario(scenario: EvalScenario): string[] {
   return [
     scenario.setupMessage,
@@ -353,6 +406,60 @@ function mapTelemetryEventToTraceEvent(
   }
 }
 
+export function buildTraceJudgmentBundle(opts: {
+  project: string;
+  runId: string;
+  scenario: JudgmentBundleScenarioInput;
+  runtime: RuntimeKind;
+  modelName: string;
+  contractMode: "legacy" | "shared";
+  agents: ReadonlyArray<JudgmentBundleAgentInput>;
+  events: ReadonlyArray<JudgmentBundleTraceEvent>;
+  outcomes: ReadonlyArray<AgentOutcome>;
+  context?: Readonly<Record<string, unknown>>;
+  metadata?: Readonly<Record<string, unknown>>;
+}): JudgmentBundle {
+  const bundle: JudgmentBundle = {
+    runId: opts.runId,
+    project: opts.project,
+    scenarioId: opts.scenario.id,
+    name: opts.scenario.name,
+    description: opts.scenario.description,
+    requirements: {
+      expectedBehavior: opts.scenario.expectedBehavior,
+      validationChecks: opts.scenario.validationChecks,
+      ...(opts.scenario.judgeRubric !== undefined
+        ? { judgeRubric: opts.scenario.judgeRubric }
+        : {}),
+    },
+    agents: opts.agents.map((agent) =>
+      buildBundleAgentDeclaration({
+        agent,
+        runtime: opts.runtime,
+        modelName: opts.modelName,
+        scenarioId: opts.scenario.id,
+      }),
+    ),
+    events: sortTraceEvents(opts.events),
+    outcomes: opts.outcomes,
+    context: {
+      modelName: opts.modelName,
+      contractMode: opts.contractMode,
+      runtime: opts.runtime,
+      ...opts.context,
+    },
+    metadata: {
+      contractMode: opts.contractMode,
+      generatedAt: new Date().toISOString(),
+      modelName: opts.modelName,
+      runtime: opts.runtime,
+      ...opts.metadata,
+    },
+  };
+
+  return Value.Parse(JudgmentBundleSchema, bundle);
+}
+
 export function buildJudgmentBundle(opts: {
   project: string;
   runId: string;
@@ -384,25 +491,30 @@ export function buildJudgmentBundle(opts: {
     return traceEvent;
   });
 
-  const bundle: JudgmentBundle = {
-    runId: opts.runId,
+  return buildTraceJudgmentBundle({
     project: opts.project,
-    scenarioId: opts.scenario.id,
-    name: opts.scenario.name,
-    description: opts.scenario.description,
-    requirements: {
+    runId: opts.runId,
+    scenario: {
+      id: opts.scenario.id,
+      name: opts.scenario.name,
+      description: opts.scenario.description,
       expectedBehavior: opts.scenario.expectedBehavior,
       validationChecks: opts.scenario.validationChecks,
     },
+    runtime: opts.runtime,
+    modelName: opts.generated.modelName,
+    contractMode: opts.contractMode,
     agents: [
-      buildAgentDeclaration({
-        agentId: opts.agentId,
-        agentName: opts.agentName,
-        runtime: opts.runtime,
-        modelName: opts.generated.modelName,
-        scenario: opts.scenario,
-        runNumber: opts.generated.runNumber,
-      }),
+      {
+        ...buildAgentDeclaration({
+          agentId: opts.agentId,
+          agentName: opts.agentName,
+          runtime: opts.runtime,
+          modelName: opts.generated.modelName,
+          scenario: opts.scenario,
+          runNumber: opts.generated.runNumber,
+        }),
+      },
     ],
     events,
     outcomes: [
@@ -416,19 +528,12 @@ export function buildJudgmentBundle(opts: {
     context: {
       conversationContext: opts.generated.conversationContext,
       transcript: opts.generated.transcript ?? [],
-      modelName: opts.generated.modelName,
-      contractMode: opts.contractMode,
-      runtime: opts.runtime,
       validationErrors: opts.validated.validationErrors,
     },
     metadata: {
-      contractMode: opts.contractMode,
-      generatedAt: new Date().toISOString(),
       runNumber: opts.generated.runNumber,
     },
-  };
-
-  return Value.Parse(JudgmentBundleSchema, bundle);
+  });
 }
 
 export function writeJudgmentBundleArtifacts(
@@ -452,6 +557,7 @@ export function deriveJudgmentRunId(opts: {
   scenarioId: string;
   runNumber: number;
   modelName: string;
+  projectPrefix?: string;
 }): string {
-  return `moltzap-${opts.scenarioId}-${opts.runNumber}-${opts.modelName.replace(/[^\w.-]+/g, "_")}`;
+  return `${opts.projectPrefix ?? "moltzap"}-${opts.scenarioId}-${opts.runNumber}-${opts.modelName.replace(/[^\w.-]+/g, "_")}`;
 }

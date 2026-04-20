@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   buildJudgmentBundle,
+  buildTraceJudgmentBundle,
   writeJudgmentBundleArtifacts,
   type JudgmentBundleTraceEvent,
 } from "../judgment-bundle.js";
@@ -139,6 +140,85 @@ describe("buildJudgmentBundle", () => {
     ]);
     expect(bundle.outcomes[0]?.status).toBe("completed");
     expect(bundle.context?.transcript).toHaveLength(2);
+    expect(bundle.metadata?.modelName).toBe("openclaw-eval");
+  });
+
+  it("builds trace-driven bundles through the shared helper", () => {
+    const bundle = buildTraceJudgmentBundle({
+      project: "moltzap-arena",
+      runId: "arena-ARENA-000-1-openclaw-eval",
+      scenario: {
+        id: "ARENA-000",
+        name: "arena canary",
+        description: "Checks that arena preserves the shared-contract trace.",
+        expectedBehavior: "keep the canary prompt and response intact",
+        validationChecks: ["prompt preserved", "response preserved"],
+        judgeRubric: "Verify content preservation only.",
+      },
+      runtime: "openclaw",
+      modelName: "openclaw-eval",
+      contractMode: "shared",
+      agents: [
+        {
+          id: "agent-1",
+          name: "Agent-1",
+          role: "werewolf",
+          promptInputs: { runNumber: 1 },
+        },
+      ],
+      events: [
+        {
+          type: "message",
+          from: "TaskMaster",
+          to: "Agent-1",
+          channel: "dm",
+          text: "hello",
+          ts: 2,
+        },
+        {
+          type: "message",
+          from: "Agent-1",
+          channel: "dm",
+          text: "/kill target:Agent-2",
+          ts: 3,
+        },
+        {
+          type: "state",
+          snapshot: { phase: "night" },
+          ts: 1,
+        },
+      ],
+      outcomes: [
+        {
+          agentId: "agent-1",
+          status: "completed",
+          endedAt: "2026-04-19T00:00:03.000Z",
+        },
+      ],
+      context: {
+        conversationContext: '{"phase":"night"}',
+        validationErrors: [],
+      },
+      metadata: {
+        multiAgent: false,
+      },
+    });
+
+    expect(bundle.events.map((event) => event.type)).toEqual([
+      "state",
+      "message",
+      "message",
+    ]);
+    expect(bundle.requirements.judgeRubric).toBe(
+      "Verify content preservation only.",
+    );
+    expect(bundle.agents[0]?.promptInputs).toMatchObject({
+      modelName: "openclaw-eval",
+      scenarioId: "ARENA-000",
+      runNumber: 1,
+      runtime: "openclaw",
+    });
+    expect(bundle.metadata?.modelName).toBe("openclaw-eval");
   });
 
   it("writes JSON and YAML bundle artifacts", () => {
