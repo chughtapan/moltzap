@@ -56,8 +56,8 @@ import type {
  *   - `LoggerTag` — canonical source `../logger.js`
  *     (`Context.Tag("moltzap/Logger")`; survives the refactor unchanged).
  */
-export type { DbTag, EncryptionTag } from "../app/layers.js";
-export type { LoggerTag } from "../logger.js";
+export { DbTag, EncryptionTag } from "../app/layers.js";
+export { LoggerTag } from "../logger.js";
 import type { DbTag, EncryptionTag } from "../app/layers.js";
 import type { LoggerTag } from "../logger.js";
 
