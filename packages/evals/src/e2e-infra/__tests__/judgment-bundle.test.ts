@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildJudgmentBundle,
   writeJudgmentBundleArtifacts,
+  type JudgmentBundleTraceEvent,
 } from "../judgment-bundle.js";
 import type {
   EvalScenario,
@@ -120,6 +121,16 @@ describe("buildJudgmentBundle", () => {
     expect(bundle.project).toBe("moltzap");
     expect(bundle.agents).toHaveLength(1);
     expect(bundle.events).toHaveLength(4);
+    const messageEvents = bundle.events.filter(
+      (
+        event,
+      ): event is Extract<JudgmentBundleTraceEvent, { type: "message" }> =>
+        event.type === "message",
+    );
+    expect(messageEvents.map((event) => event.text)).toEqual([
+      "hello",
+      "hello back",
+    ]);
     expect(bundle.events.map((event) => event.type)).toEqual([
       "phase",
       "message",

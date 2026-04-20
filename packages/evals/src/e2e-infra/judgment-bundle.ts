@@ -270,8 +270,34 @@ function buildAgentDeclaration(opts: {
   };
 }
 
+function outgoingMessagesFromScenario(scenario: EvalScenario): string[] {
+  return [
+    scenario.setupMessage,
+    ...(scenario.followUpMessages ?? []),
+    ...(scenario.crossConversationProbe !== undefined
+      ? [scenario.crossConversationProbe]
+      : []),
+  ];
+}
+
+function agentResponsesFromResult(generated: GeneratedResult): string[] {
+  const transcriptResponses = generated.transcript?.filter(
+    (entry) => entry.role === "agent" && entry.text.trim() !== "",
+  );
+  if (transcriptResponses !== undefined && transcriptResponses.length > 0) {
+    return transcriptResponses.map((entry) => entry.text);
+  }
+  return generated.agentResponse.trim() !== "" ? [generated.agentResponse] : [];
+}
+
 function mapTelemetryEventToTraceEvent(
   event: SharedContractTelemetryEvent,
+  opts: {
+    outgoingMessages: ReadonlyArray<string>;
+    agentResponses: ReadonlyArray<string>;
+    sentIndex: number;
+    receivedIndex: number;
+  },
 ): JudgmentBundleTraceEvent {
   switch (event._tag) {
     case "run.started":
@@ -306,7 +332,7 @@ function mapTelemetryEventToTraceEvent(
         type: "message",
         from: event.expectedSenderId,
         channel: event.conversationId,
-        text: "",
+        text: opts.outgoingMessages[opts.sentIndex] ?? "",
         ts: Date.parse(event.ts),
       };
     case "message.received":
@@ -314,7 +340,7 @@ function mapTelemetryEventToTraceEvent(
         type: "message",
         from: event.senderId,
         channel: event.conversationId,
-        text: "",
+        text: opts.agentResponses[opts.receivedIndex] ?? "",
         ts: Date.parse(event.ts),
       };
     case "run.completed":
@@ -339,6 +365,25 @@ export function buildJudgmentBundle(opts: {
   contractMode: "legacy" | "shared";
   telemetryEvents: ReadonlyArray<SharedContractTelemetryEvent>;
 }): JudgmentBundle {
+  let sentIndex = 0;
+  let receivedIndex = 0;
+  const outgoingMessages = outgoingMessagesFromScenario(opts.scenario);
+  const agentResponses = agentResponsesFromResult(opts.generated);
+  const events = opts.telemetryEvents.map((event) => {
+    const traceEvent = mapTelemetryEventToTraceEvent(event, {
+      outgoingMessages,
+      agentResponses,
+      sentIndex,
+      receivedIndex,
+    });
+    if (event._tag === "message.sent") {
+      sentIndex += 1;
+    } else if (event._tag === "message.received") {
+      receivedIndex += 1;
+    }
+    return traceEvent;
+  });
+
   const bundle: JudgmentBundle = {
     runId: opts.runId,
     project: opts.project,
@@ -359,7 +404,7 @@ export function buildJudgmentBundle(opts: {
         runNumber: opts.generated.runNumber,
       }),
     ],
-    events: opts.telemetryEvents.map(mapTelemetryEventToTraceEvent),
+    events,
     outcomes: [
       {
         agentId: opts.agentId,
