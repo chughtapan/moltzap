@@ -104,6 +104,28 @@ export class BackpressureExceeded {
 }
 
 /**
+ * Registration rejected the caller's `BackpressurePolicy` because it violates
+ * one of the invariants documented on `BackpressurePolicy` above
+ * (`maxQueueDepth < 1`, or `Block.maxQueueDepth` beyond the register-time
+ * ceiling). Surfaced on `ConnectionManager.register`'s error channel so
+ * callers see a typed failure rather than a thrown assertion. `reason` is a
+ * short machine-readable discriminator; `message` is for operator logs.
+ */
+export class InvalidBackpressurePolicy {
+  readonly _tag = "InvalidBackpressurePolicy" as const;
+  constructor(
+    readonly address: EndpointAddress,
+    readonly policy: BackpressurePolicy,
+    readonly reason:
+      | "max-queue-depth-below-one"
+      | "block-max-queue-depth-above-ceiling",
+    readonly message: string,
+  ) {
+    throw new Error("not implemented");
+  }
+}
+
+/**
  * The endpoint's drain fiber failed to write to the transport and the
  * endpoint has been torn down. `send` after a transport failure sees this
  * only for a brief window before `unregister` runs; most callers will see

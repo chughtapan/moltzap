@@ -43,22 +43,25 @@ import type {
 
 /**
  * Base-tier tag union — supplied at process startup from the standalone
- * entry. `DbTag` and `LoggerTag` survive unchanged from the existing
- * `app/layers.ts`; canonical definitions migrate with the implement-* move.
+ * entry. Re-exports the canonical tag classes so this module's "same tag
+ * identity" promise (at the file-level docstring above) actually holds:
+ * `Effect.Context` uses class-reference identity, so two separately-declared
+ * placeholder interfaces would resolve against the real service tags as
+ * different keys. Round-2 codex review flagged the earlier placeholder form.
+ *
+ *   - `DbTag` / `EncryptionTag` — canonical source `../app/layers.js`
+ *     (existing arch-A-era layers file; implement-* will migrate both to
+ *     dedicated modules under `../db/` and `../crypto/` respectively,
+ *     preserving identity via re-export).
+ *   - `LoggerTag` — canonical source `../logger.js`
+ *     (`Context.Tag("moltzap/Logger")`; survives the refactor unchanged).
  */
-export type BaseTierInputs = DbTag | LoggerTag | EncryptionTag;
+export type { DbTag, EncryptionTag } from "../app/layers.js";
+export type { LoggerTag } from "../logger.js";
+import type { DbTag, EncryptionTag } from "../app/layers.js";
+import type { LoggerTag } from "../logger.js";
 
-/** Placeholder tag forwards. Canonical: `../db/client.ts`, `../logger.ts`,
- *  `../crypto/envelope.ts`. Not duplicated here. */
-export interface DbTag {
-  readonly _: unique symbol;
-}
-export interface LoggerTag {
-  readonly _: unique symbol;
-}
-export interface EncryptionTag {
-  readonly _: unique symbol;
-}
+export type BaseTierInputs = DbTag | LoggerTag | EncryptionTag;
 
 /* ── NetworkLayerLive ─────────────────────────────────────────────────── */
 
@@ -114,7 +117,13 @@ export declare const NetworkLayerLive: Layer.Layer<
  *   - `MessageStoreTag`          — message persistence; yields Effect + typed errors.
  *   - `HumanContactTag`          — unified human-contact abstraction (spec Invariant 12).
  *   - `TaskManagerRegistryTag`   — taskId → TaskManager resolver.
- *   - `TaskConnIdTag`            — request-scoped conn id for task handlers.
+ *
+ * `TaskConnIdTag` is intentionally NOT in this union. It is request-scoped
+ * (each incoming RPC gets a fresh conn id), so it's provided per-request
+ * via `Effect.provideService(TaskConnIdTag, connId)` at the task-handler
+ * dispatcher (see `provideTaskLayer` below) — symmetric with how
+ * `NetworkConnIdTag` is handled by arch-A's `provideNetworkLayer`. Round-2
+ * codex review flagged the earlier inclusion as a scope asymmetry.
  *
  * `TaskServiceTag` is abstract here (its concrete surface is defined by
  * arch-C; arch-G names it so the Layer shape is frozen).
@@ -131,8 +140,7 @@ export type TaskLayerOutputs =
   | AppHostTag
   | MessageStoreTag
   | HumanContactTag
-  | TaskManagerRegistryTag
-  | TaskConnIdTag;
+  | TaskManagerRegistryTag;
 
 /**
  * Provides every task-layer service tag (plus every network tag, since the
@@ -184,10 +192,17 @@ export declare const provideNetworkLayer: <A, E>(
 
 /**
  * Task-handler dispatcher adapter. Mirror of `provideNetworkLayer` for the
- * task surface.
+ * task surface. Applies `Effect.provide(TaskLayerLive)` + per-request
+ * `Effect.provideService(TaskConnIdTag, connId)` — the conn-id tag is NOT
+ * in `TaskLayerOutputs` (it's request-scoped, not process-scoped), so the
+ * handler's `R` lists it explicitly.
  */
 export declare const provideTaskLayer: <A, E>(
-  handler: import("effect").Effect.Effect<A, E, TaskLayerOutputs>,
+  handler: import("effect").Effect.Effect<
+    A,
+    E,
+    TaskLayerOutputs | TaskConnIdTag
+  >,
   connId: TaskConnectionId,
 ) => import("effect").Effect.Effect<A, E, never>;
 

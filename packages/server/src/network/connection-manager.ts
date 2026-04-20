@@ -27,7 +27,10 @@ import type { Effect, Queue, Scope } from "effect";
 // imported inline via `import("effect").Ref` / `.Option` to avoid widening the
 // value-import surface.
 import type { EventFrame } from "@moltzap/protocol/network";
-import type { BackpressurePolicy } from "./delivery-service.js";
+import type {
+  BackpressurePolicy,
+  InvalidBackpressurePolicy,
+} from "./delivery-service.js";
 
 /* ── Branded identifiers (re-declared locally) ─────────────────────────── */
 /*
@@ -164,11 +167,17 @@ export interface ConnectionManager {
    * Register a new live endpoint. Forks the scoped drain fiber into
    * `endpoint.scope`. Fails with `EndpointAlreadyRegistered` if the address
    * is already present — registration is not idempotent; re-registration is
-   * a caller bug.
+   * a caller bug. Fails with `InvalidBackpressurePolicy` if
+   * `endpoint.policy` violates the documented invariants
+   * (see `BackpressurePolicy` in `./delivery-service.js`).
    */
   readonly register: (
     endpoint: LiveEndpoint,
-  ) => Effect.Effect<void, EndpointAlreadyRegistered, never>;
+  ) => Effect.Effect<
+    void,
+    EndpointAlreadyRegistered | InvalidBackpressurePolicy,
+    never
+  >;
 
   /**
    * Unregister an endpoint. Closes the endpoint's scope (tearing down the
@@ -268,23 +277,22 @@ export class AgentNotReachable {
 
 /* ── Not-implemented stub bodies ───────────────────────────────────────── */
 
-/** Opaque forward-reference to `../runtime/layers.ts#LoggerTag`. Re-declared
- *  here for the same rootDir reason as `AgentId` / `EndpointAddress` above:
- *  the network subtree cannot import from the parent-project `runtime/`. The
- *  brands are structural; arch-G's impl satisfies both. Implement-*
- *  collapses the duplicates at the move to `src/network/layer.ts`. */
-export interface LoggerTag {
-  readonly _: unique symbol;
-}
-
 /** Constructor stub — the implement-* pass replaces with a real class +
  *  `Layer.scoped` that wires the internal map and the per-endpoint drain
- *  fibers. Requires `LoggerTag` because the drain fiber logs transport
- *  failures before tearing the endpoint down (see `LiveEndpoint.failure`). */
+ *  fibers.
+ *
+ *  The drain fiber logs transport failures via `Effect.log` (Effect's
+ *  built-in logging surface), NOT via an explicit `LoggerTag` requirement.
+ *  `LoggerLive` from `../logger.ts` installs a pino-backed `Logger` via
+ *  `Logger.replace(defaultLogger, pino)` — so `Effect.log` routes through
+ *  the same pino stream the rest of the stack uses, with zero Context
+ *  dependency at this layer. Round-2 codex review flagged an earlier version
+ *  that required a placeholder `LoggerTag`; dropping the requirement
+ *  sidesteps the tag-identity concern entirely. */
 export declare const makeConnectionManager: () => Effect.Effect<
   ConnectionManager,
   never,
-  Scope.Scope | LoggerTag
+  Scope.Scope
 >;
 
 /** Constructor stub for the resolver. Backed by the registry map from
