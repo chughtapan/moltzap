@@ -235,6 +235,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
       const exit = yield* Effect.exit(
         authService.registerAgent(
           body as Parameters<typeof authService.registerAgent>[0],
+          config.devModeUserId,
         ),
       );
       if (Exit.isSuccess(exit)) {
