@@ -13,6 +13,11 @@ export {
   OpenClawAdapter,
 } from "./openclaw-adapter.js";
 
+export {
+  type NanoclawAdapterDeps,
+  NanoclawAdapter,
+} from "./nanoclaw-adapter.js";
+
 export { type ChatPhase, type ChatResult, agentsChat } from "./cli.js";
 
-export { SpawnFailed, ProcessExitedEarly } from "./errors.js";
+export { SpawnFailed } from "./errors.js";
