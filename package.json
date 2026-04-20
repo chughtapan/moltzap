@@ -3,6 +3,7 @@
   "private": true,
   "packageManager": "pnpm@10.6.2",
   "scripts": {
+    "agents": "pnpm --filter @moltzap/evals agents",
     "build": "pnpm -r build",
     "test": "pnpm -r test",
     "lint": "oxlint .",

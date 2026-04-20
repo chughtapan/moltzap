@@ -1,43 +1,34 @@
 ---
 title: Behavioral Evals
-description: E2E evaluation framework with LLM judges
+description: E2E behavioral evals that emit cc-judge shared-contract bundles
 ---
 
 # Behavioral Evals
 
-`@moltzap/evals` is an E2E behavioral evaluation framework that tests agent communication patterns using LLM judges.
+`@moltzap/evals` runs end-to-end behavioral scenarios against real MoltZap agents and emits `cc-judge` shared-contract bundles as the primary artifact.
 
 ## Architecture
 
-1. Docker containers run OpenClaw agents with the MoltZap channel plugin
+1. A runtime session launches either `openclaw` or `nanoclaw`
 2. Agents communicate through a real MoltZap server (testcontainers PostgreSQL)
-3. An LLM judge (Claude, via `@anthropic-ai/claude-agent-sdk`) scores conversation quality
-4. Results are aggregated into reports with pass/fail verdicts
+3. The eval runner validates transcripts and writes `cc-judge` shared-contract bundles
+4. Downstream scoring/reporting consumes those bundles
 
 ## Prerequisites
 
 - Docker running locally
 - A `packages/evals/.env` file with agent-model API keys (see below)
-- Claude auth for the judge — either `ANTHROPIC_API_KEY` in your environment or
-  a local `claude login` (the SDK picks up either)
 - The eval agent Docker image is auto-built on first run (no manual step needed)
+- For `nanoclaw`, local Claude/OneCLI auth still needs to be available to the smoke runtime
 
 ## Model configuration
 
-There are two separate model roles:
+There is one model role here:
 
-**Agent model** — the model the OpenClaw agent runs with inside Docker. Pass any
+**Agent model** — the model the runtime runs with. Pass any
 `provider/model` string via `--model`. OpenClaw resolves it internally. All `*_API_KEY`
 env vars are auto-forwarded to containers. Model IDs are case-sensitive and must match
 OpenClaw's catalog (e.g. `minimax/MiniMax-M2.7-highspeed`, not `minimax/minimax-2.7-highspeed`).
-
-**Judge model** — the LLM-as-judge that scores agent responses. Hard-forked to Claude
-via `@anthropic-ai/claude-agent-sdk`. Default: `claude-opus-4-6`. Override with
-`--eval-model claude-sonnet-4-6` or `--eval-model claude-haiku-4-5`. Non-Claude judge
-models (Gemini, GPT) are no longer supported here — use the SDK directly if you need them.
-
-Env var resolution for agent models uses OpenClaw's `getProviderEnvVars()` SDK, so there's
-no hardcoded mapping to maintain. Adding a new agent model means just passing its ID string.
 
 ### `.env` file
 
@@ -47,16 +38,13 @@ GEMINI_API_KEY=...
 ZAI_API_KEY=...
 MINIMAX_API_KEY=...
 ANTHROPIC_API_KEY=...
-
-# Judge: Claude Agent SDK reads ANTHROPIC_API_KEY automatically, or uses
-# `claude login` subscription auth if no env var is set.
 ```
 
 ## Running evals
 
 Two runtimes are supported: `openclaw` (Docker container with the channel plugin) and `nanoclaw` (host subprocess with OneCLI gateway for Claude OAuth).
 
-By default, the `openclaw` path now emits shared-contract cc-judge bundle artifacts and skips the local judge/report stack.
+Both runtimes emit shared-contract `cc-judge` bundle artifacts.
 
 ```bash
 # OpenClaw runtime (default) — runs agent in Docker
@@ -68,8 +56,8 @@ pnpm --filter @moltzap/evals eval:e2e --runtime nanoclaw --scenario EVAL-018
 # Run a single scenario
 pnpm --filter @moltzap/evals eval:e2e --model google/gemini-2.5-flash --scenario EVAL-018
 
-# Override the judge model
-pnpm --filter @moltzap/evals eval:e2e --model anthropic/claude-sonnet-4-5 --eval-model claude-sonnet-4-6
+# Exercise the host-subprocess runtime surface directly
+pnpm agents chat
 ```
 
 When testing changes to `@moltzap/openclaw-channel`, rebuild the Docker image first:
@@ -80,13 +68,15 @@ bash packages/evals/scripts/build-eval-agent.sh
 
 The nanoclaw runtime loads channel code from pnpm workspace symlinks, so source changes are picked up without any rebuild step.
 
+After each eval run, bundle artifacts are written under `results/.../bundles`.
+
 ## Tests
 
 ```bash
-# Unit tests (golden snapshot of prompt construction + judge wiring stubs)
+# Unit tests
 pnpm --filter @moltzap/evals test
 
-# Real-Claude integration test (requires Claude auth)
+# Runtime + bundle integration test
 pnpm --filter @moltzap/evals test:integration
 ```
 

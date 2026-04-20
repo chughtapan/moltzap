@@ -2,8 +2,6 @@
 
 import { Data } from "effect";
 
-export type IssueSeverity = "minor" | "significant" | "critical";
-
 /**
  * Domain errors for the eval pipeline, used in Effect error channels where
  * typed failure flow is clearer than `errors: string[]` accumulation.
@@ -101,15 +99,6 @@ export interface EvalScenario {
   bystanderMessages?: string[];
 }
 
-export interface JudgeResult {
-  pass: boolean;
-  reason: string;
-  issues?: Array<{
-    issue: string;
-    severity: IssueSeverity;
-  }>;
-}
-
 export interface TranscriptEntry {
   role: "user" | "agent";
   text: string;
@@ -134,15 +123,8 @@ export interface ValidatedResult extends GeneratedResult {
   validationErrors: string[];
 }
 
-export interface EvaluatedResult extends ValidatedResult {
-  judgeResult?: JudgeResult & {
-    overallSeverity?: IssueSeverity;
-    evalPrompt?: string;
-  };
-}
-
 export interface E2ERunResult {
-  results: EvaluatedResult[];
+  results: ValidatedResult[];
   summary: {
     total: number;
     passed: number;

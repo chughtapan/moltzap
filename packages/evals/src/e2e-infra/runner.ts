@@ -11,42 +11,32 @@ import {
 } from "@moltzap/server-core/test-utils";
 import { MoltZapWsClient } from "@moltzap/client";
 import { registerAgent, stripWsPath } from "@moltzap/client/test";
-import {
-  launchFleet,
-  type AgentFleet,
-  type AgentRuntime,
-} from "./agent-fleet.js";
 import { TIER5_SCENARIOS } from "./scenarios.js";
-import { analyzeFailures, judgeAgentResponse } from "./llm-judge.js";
-import { generateReport, generateSummaryMarkdown } from "./report.js";
-import { DEFAULT_JUDGE_MODEL, DEFAULT_AGENT_MODEL_ID } from "./model-config.js";
+import { DEFAULT_AGENT_MODEL_ID } from "./model-config.js";
 import { logger } from "./logger.js";
 import {
   createMessageReceivedTelemetryEvent,
   createMessageSentTelemetryEvent,
-  createRunCompletedTelemetryEvent,
   createRunStartedTelemetryEvent,
   telemetry,
   type SharedContractTelemetryEvent,
 } from "./telemetry.js";
+import { deriveJudgmentRunId } from "./judgment-bundle.js";
 import {
-  buildJudgmentBundle,
-  deriveJudgmentRunId,
-  writeJudgmentBundleArtifacts,
-} from "./judgment-bundle.js";
+  launchEvalRuntime,
+  type EvalRuntimeKind as AgentRuntime,
+  type EvalRuntimeSession,
+} from "./eval-runtime.js";
+import { runSharedContractEvaluation } from "./shared-contract-evaluation.js";
 import type {
   EvalScenario,
   GeneratedResult,
   TranscriptEntry,
   ValidatedResult,
-  EvaluatedResult,
   E2ERunResult,
-  IssueSeverity,
 } from "./types.js";
 
 const AGENT_RESPONSE_TIMEOUT_MS = 120_000;
-/** Concurrency cap for the evaluation phase (LLM judge calls). */
-const EVAL_PHASE_CONCURRENCY = 4;
 /** Settle window after a group message so bystander agents can pipe a side reply. */
 const BYSTANDER_SETTLE_MS = 3000;
 
@@ -110,6 +100,10 @@ type RawMessage = {
   parts: Array<{ type: string; text?: string }>;
   createdAt: string;
 };
+
+function tailLines(text: string, count: number): string {
+  return text.split("\n").slice(-count).join("\n");
+}
 
 /** Effect-native: send a message and wait for a matching response. */
 export const sendAndWaitForResponseEffect = (opts: {
@@ -402,7 +396,7 @@ async function generateResult(opts: {
   }
 }
 
-export { type AgentRuntime } from "./agent-fleet.js";
+export { type EvalRuntimeKind as AgentRuntime } from "./eval-runtime.js";
 
 interface ScenarioJob {
   scenario: EvalScenario;
@@ -420,7 +414,6 @@ function generatePhase(
     agentId: string;
     modelName: string;
     runtime: AgentRuntime;
-    contractMode: "legacy" | "shared";
     bystanders: Array<{ client: MoltZapWsClient; agentId: string }>;
     totalJobs: number;
     signal?: AbortSignal;
@@ -453,7 +446,6 @@ function generatePhase(
           scenarioId: job.scenario.id,
           runNumber: job.run,
           runtime: ctx.runtime,
-          contractMode: ctx.contractMode,
           modelName: ctx.modelName,
         }),
       );
@@ -519,297 +511,6 @@ function validatePhase(generated: GeneratedResult[]): ValidatedResult[] {
   });
 }
 
-/** Build the EvaluatedResult for hard-failed validations or generation. */
-function evaluatedFromValidationFailure(v: ValidatedResult): EvaluatedResult {
-  return {
-    ...v,
-    judgeResult: {
-      pass: false,
-      reason:
-        v.error ?? `Schema validation failed: ${v.validationErrors.join("; ")}`,
-      issues: v.validationErrors.map((e) => ({
-        issue: e,
-        severity: "critical" as IssueSeverity,
-      })),
-      overallSeverity: "critical" as IssueSeverity,
-    },
-  };
-}
-
-function computeOverallSeverity(
-  issues: Array<{ severity: IssueSeverity }> | undefined,
-  pass: boolean,
-): IssueSeverity | undefined {
-  if (pass || !issues) return undefined;
-  const severities = issues.map((i) => i.severity);
-  if (severities.includes("critical")) return "critical";
-  if (severities.includes("significant")) return "significant";
-  if (severities.includes("minor")) return "minor";
-  return undefined;
-}
-
-/** Concurrency 4 overlaps the (slow) LLM judge calls. Deterministic
- * pass/fail checks short-circuit without invoking the judge. */
-function evaluatePhase(
-  validated: ValidatedResult[],
-  opts: { evalModel: string; signal?: AbortSignal },
-): Effect.Effect<EvaluatedResult[], never> {
-  return Effect.forEach(
-    validated,
-    (v) =>
-      Effect.gen(function* () {
-        if (v.error || v.validationErrors.length > 0) {
-          return evaluatedFromValidationFailure(v);
-        }
-        if (v.scenario.deterministicPassCheck?.(v.agentResponse)) {
-          yield* Effect.sync(() => {
-            logger.info(
-              `${v.scenarioId} run ${v.runNumber}: Deterministic pass check matched`,
-            );
-          });
-          return {
-            ...v,
-            judgeResult: {
-              pass: true,
-              reason: "Deterministic pass check matched",
-            },
-          } satisfies EvaluatedResult;
-        }
-        if (v.scenario.deterministicFailCheck?.(v.agentResponse)) {
-          yield* Effect.sync(() => {
-            logger.info(
-              `${v.scenarioId} run ${v.runNumber}: Deterministic fail check matched`,
-            );
-          });
-          return {
-            ...v,
-            judgeResult: {
-              pass: false,
-              reason: "Deterministic fail check matched",
-              issues: [
-                {
-                  issue: "Response matched deterministic failure pattern",
-                  severity: "critical" as IssueSeverity,
-                },
-              ],
-              overallSeverity: "critical" as IssueSeverity,
-            },
-          } satisfies EvaluatedResult;
-        }
-
-        yield* Effect.sync(() => {
-          logger.info(
-            `${v.scenarioId} run ${v.runNumber}: Running LLM judge...`,
-          );
-        });
-
-        const judge = yield* judgeAgentResponse({
-          scenario: v.scenario,
-          agentResponse: v.agentResponse,
-          conversationContext: v.conversationContext,
-          transcript: v.transcript,
-          evalModel: opts.evalModel,
-          abortSignal: opts.signal,
-        });
-
-        const overallSeverity = computeOverallSeverity(
-          judge.issues,
-          judge.pass,
-        );
-
-        const evaluated: EvaluatedResult = {
-          ...v,
-          judgeResult: { ...judge, overallSeverity },
-        };
-
-        yield* Effect.sync(() => {
-          const status = evaluated.judgeResult?.pass ? "PASS" : "FAIL";
-          logger.info(
-            `${v.scenarioId} run ${v.runNumber}: ${status} (${evaluated.latencyMs.toFixed(0)}ms)`,
-          );
-        });
-
-        return evaluated;
-      }),
-    { concurrency: EVAL_PHASE_CONCURRENCY },
-  );
-}
-
-/**
- * Phase 4: aggregate results into an E2ERunResult and optionally feed the
- * LLM failure-analysis prompt.
- */
-function analyzePhase(
-  allResults: EvaluatedResult[],
-  opts: { evalModel: string; signal?: AbortSignal; outputDir?: string },
-): Effect.Effect<{ result: E2ERunResult; analysisText: string | undefined }> {
-  return Effect.gen(function* () {
-    const failures = allResults.filter(
-      (r) =>
-        r.error ||
-        r.validationErrors.length > 0 ||
-        (r.judgeResult && !r.judgeResult.pass),
-    );
-
-    let analysisText: string | undefined;
-    if (failures.length > 0) {
-      yield* Effect.sync(() => {
-        logger.info(
-          `Running failure analysis on ${failures.length} failure(s)...`,
-        );
-      });
-      // analyzeFailures is Effect-native and never fails — yield directly.
-      analysisText = yield* analyzeFailures({
-        failures: failures.map((f) => ({
-          scenarioId: f.scenarioId,
-          runNumber: f.runNumber,
-          failureType: f.error
-            ? "Generation Error"
-            : f.validationErrors.length > 0
-              ? "Schema Validation"
-              : "Evaluation Failure",
-          reason: f.error ?? f.judgeResult?.reason ?? "Unknown",
-          issues: f.judgeResult?.issues?.map(
-            (i) => `${i.severity}: ${i.issue}`,
-          ),
-        })),
-        numRuns: allResults.length,
-        evalModel: opts.evalModel,
-        abortSignal: opts.signal,
-      });
-    }
-
-    if (opts.outputDir) {
-      yield* Effect.sync(() => {
-        generateReport(allResults, opts.outputDir!, analysisText);
-      });
-    }
-
-    yield* Effect.sync(() => {
-      const summary = generateSummaryMarkdown(allResults, analysisText);
-      logger.info(summary);
-    });
-
-    const passed = allResults.filter(
-      (r) =>
-        !r.error &&
-        r.validationErrors.length === 0 &&
-        (!r.judgeResult || r.judgeResult.pass),
-    ).length;
-    const totalLatency = allResults.reduce((sum, r) => sum + r.latencyMs, 0);
-
-    return {
-      result: {
-        results: allResults,
-        summary: {
-          total: allResults.length,
-          passed,
-          failed: allResults.length - passed,
-          avgLatencyMs:
-            allResults.length > 0 ? totalLatency / allResults.length : 0,
-        },
-      },
-      analysisText,
-    };
-  });
-}
-
-function isScenarioScopedTelemetryEvent(
-  event: SharedContractTelemetryEvent,
-): event is Extract<
-  SharedContractTelemetryEvent,
-  { scenarioId: string; runNumber: number }
-> {
-  return "scenarioId" in event && "runNumber" in event;
-}
-
-function sharedContractPhase(
-  validated: ValidatedResult[],
-  opts: {
-    outputDir?: string;
-    project: string;
-    agentId: string;
-    agentName: string;
-    runtime: AgentRuntime;
-    contractMode: "legacy" | "shared";
-    telemetryEvents: ReadonlyArray<SharedContractTelemetryEvent>;
-  },
-): Effect.Effect<{ result: E2ERunResult; analysisText: undefined }> {
-  return Effect.gen(function* () {
-    const bundlesDir = opts.outputDir ? `${opts.outputDir}/bundles` : undefined;
-    yield* Effect.sync(() => {
-      for (const result of validated) {
-        const runId = deriveJudgmentRunId({
-          scenarioId: result.scenarioId,
-          runNumber: result.runNumber,
-          modelName: result.modelName,
-        });
-        const status = result.error
-          ? "runtime_failure"
-          : result.validationErrors.length > 0
-            ? "validation_failure"
-            : "success";
-        telemetry.emit(
-          createRunCompletedTelemetryEvent({
-            ts: new Date().toISOString(),
-            runId,
-            scenarioId: result.scenarioId,
-            runNumber: result.runNumber,
-            contractMode: opts.contractMode,
-            status,
-          }),
-        );
-        if (!bundlesDir) continue;
-        const bundle = buildJudgmentBundle({
-          project: opts.project,
-          runId,
-          scenario: result.scenario,
-          generated: result,
-          validated: result,
-          agentId: opts.agentId,
-          agentName: opts.agentName,
-          runtime: opts.runtime,
-          contractMode: opts.contractMode,
-          telemetryEvents: opts.telemetryEvents.filter(
-            (event) =>
-              event._tag === "fleet.started" ||
-              event._tag === "fleet.stopped" ||
-              (isScenarioScopedTelemetryEvent(event) &&
-                event.scenarioId === result.scenarioId &&
-                event.runNumber === result.runNumber),
-          ),
-        });
-        writeJudgmentBundleArtifacts(bundle, bundlesDir);
-      }
-    });
-
-    const allResults: EvaluatedResult[] = validated.map((result) => ({
-      ...result,
-    }));
-    const passed = allResults.filter(
-      (r) =>
-        !r.error &&
-        r.validationErrors.length === 0 &&
-        (!r.judgeResult || r.judgeResult.pass),
-    ).length;
-    const totalLatency = allResults.reduce((sum, r) => sum + r.latencyMs, 0);
-
-    return {
-      result: {
-        results: allResults,
-        summary: {
-          total: allResults.length,
-          passed,
-          failed: allResults.length - passed,
-          avgLatencyMs:
-            allResults.length > 0 ? totalLatency / allResults.length : 0,
-        },
-      },
-      analysisText: undefined,
-    };
-  });
-}
-
 /** Error surfaced from `runE2EEvals`. Tests + callers at the process edge
  * unwrap this via `Effect.runPromise`, which throws a `FiberFailure`. */
 export class RunError extends Error {
@@ -824,13 +525,11 @@ export interface RunE2EEvalsOptions {
   scenarios?: string[];
   agentModelId?: string;
   runsPerScenario?: number;
-  evalModel?: string;
   resultsDir?: string;
   cleanResults?: boolean;
   logLevel?: string;
   signal?: AbortSignal;
   runtime?: AgentRuntime;
-  contractMode?: "legacy" | "shared";
 }
 
 export const runE2EEvals = (
@@ -852,7 +551,6 @@ async function runE2EEvalsImpl(
   const {
     scenarios: scenarioFilter,
     runsPerScenario = 1,
-    evalModel = DEFAULT_JUDGE_MODEL,
     resultsDir,
     cleanResults = false,
   } = opts;
@@ -883,13 +581,11 @@ async function runE2EEvalsImpl(
   }
 
   const runtime: AgentRuntime = opts.runtime ?? "openclaw";
-  const contractMode: "legacy" | "shared" =
-    opts.contractMode ?? (runtime === "openclaw" ? "shared" : "legacy");
   const telemetryEvents: SharedContractTelemetryEvent[] = [];
   const unsubscribeTelemetry = telemetry.subscribe((event) => {
     telemetryEvents.push(event);
   });
-  let fleet: AgentFleet | null = null;
+  let runtimeSession: EvalRuntimeSession | null = null;
   let testServerBaseUrl = "";
   let testServerWsUrl = "";
   const clientsToClose: MoltZapWsClient[] = [];
@@ -911,9 +607,11 @@ async function runE2EEvalsImpl(
       agentKey: evalReg.apiKey,
     });
 
-    // Register the OpenClaw agent account
+    const evalAgentName = "eval-target-agent";
+
+    // Register the target agent account used by whichever runtime is selected.
     const agentReg = await Effect.runPromise(
-      registerAgent(testServerBaseUrl, "openclaw-eval-agent"),
+      registerAgent(testServerBaseUrl, evalAgentName),
     );
 
     // Connect eval client
@@ -967,13 +665,37 @@ async function runE2EEvalsImpl(
       ),
     );
 
-    // Start the agent runtime via fleet API (blocks until connected).
-    fleet = await launchFleet({
-      runtime,
-      agents: [{ name: "openclaw-eval-agent", apiKey: agentReg.apiKey }],
-      serverUrl: testServerWsUrl,
-      modelId: opts.agentModelId,
-    });
+    const launchedRuntimeSession = await Effect.runPromise(
+      launchEvalRuntime({
+        runtime,
+        agentName: evalAgentName,
+        agentId: agentReg.agentId,
+        apiKey: agentReg.apiKey,
+        serverUrl: testServerWsUrl,
+        coreApp: server.coreApp,
+        modelId: opts.agentModelId,
+      }),
+    );
+    runtimeSession = launchedRuntimeSession;
+    const readyOutcome = await Effect.runPromise(
+      launchedRuntimeSession.waitUntilReady(180_000),
+    );
+    if (readyOutcome._tag !== "Ready") {
+      const detail =
+        readyOutcome._tag === "Timeout"
+          ? `Timed out after ${readyOutcome.timeoutMs}ms`
+          : `Process exited with code ${readyOutcome.exitCode}`;
+      const logs =
+        readyOutcome._tag === "ProcessExited"
+          ? readyOutcome.stderr
+          : launchedRuntimeSession.getLogs(0).text;
+      const logExcerpt = tailLines(logs, 20);
+      throw new Error(
+        logExcerpt
+          ? `Agent runtime "${runtime}" failed readiness: ${detail}\n${logExcerpt}`
+          : `Agent runtime "${runtime}" failed readiness: ${detail}`,
+      );
+    }
     logger.info("Agent connected. Starting eval scenarios...");
 
     // Build the job list (scenario × run).
@@ -993,40 +715,29 @@ async function runE2EEvalsImpl(
         agentId: agentReg.agentId,
         modelName,
         runtime,
-        contractMode,
         bystanders,
         totalJobs: jobs.length,
         signal: opts.signal,
       });
       const validated = validatePhase(generated);
-      if (contractMode === "shared") {
-        const { result } = yield* sharedContractPhase(validated, {
-          outputDir,
-          project: "moltzap",
-          agentId: agentReg.agentId,
-          agentName: "openclaw-eval-agent",
-          runtime,
-          contractMode,
-          telemetryEvents,
-        });
-        return result;
-      }
-      const evaluated = yield* evaluatePhase(validated, {
-        evalModel,
-        signal: opts.signal,
-      });
-      const { result } = yield* analyzePhase(evaluated, {
-        evalModel,
-        signal: opts.signal,
+      const { result } = yield* runSharedContractEvaluation({
+        validated,
         outputDir,
+        project: "moltzap",
+        agentId: agentReg.agentId,
+        agentName: evalAgentName,
+        runtime,
+        telemetryEvents,
       });
       return result;
     });
 
-    logger.info(`Contract mode: ${contractMode}`);
+    logger.info("Bundle output: cc-judge shared-contract");
     return await Effect.runPromise(pipeline);
   } finally {
-    if (fleet) await fleet.stopAll();
+    if (runtimeSession) {
+      await Effect.runPromise(runtimeSession.teardown());
+    }
     for (const c of clientsToClose) await Effect.runPromise(c.close());
     await stopCoreTestServer().catch(() => {});
     unsubscribeTelemetry();

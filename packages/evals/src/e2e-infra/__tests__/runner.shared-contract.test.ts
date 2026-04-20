@@ -15,25 +15,32 @@ afterEach(() => {
 
 describe("runE2EEvals shared contract", () => {
   it(
-    "emits bundles and skips the judge/report stack",
+    "emits bundles through the shared-contract path for nanoclaw by default",
     { timeout: 30_000 },
     async () => {
       const serverCore = await import("@moltzap/server-core/test-utils");
       const client = await import("@moltzap/client");
       const clientTest = await import("@moltzap/client/test");
-      const agentFleet = await import("../agent-fleet.js");
-      const judge = await import("../llm-judge.js");
-      const report = await import("../report.js");
+      const evalRuntime = await import("../eval-runtime.js");
+
+      const runtimeSession = {
+        name: "eval-target-agent",
+        waitUntilReady: vi.fn().mockReturnValue(Effect.succeed({ _tag: "Ready" })),
+        teardown: vi.fn().mockReturnValue(Effect.succeed(undefined)),
+        getLogs: vi.fn().mockReturnValue({ text: "", nextOffset: 0 }),
+        getInboundMarker: vi.fn().mockReturnValue("inbound from agent:"),
+      };
 
       vi.spyOn(serverCore, "startCoreTestServer").mockResolvedValue({
         baseUrl: "http://core.test",
         wsUrl: "ws://core.test/ws",
+        coreApp: {},
       } as never);
       vi.spyOn(serverCore, "stopCoreTestServer").mockResolvedValue(undefined);
       vi.spyOn(serverCore, "resetCoreTestDb").mockResolvedValue(undefined);
-      vi.spyOn(agentFleet, "launchFleet").mockResolvedValue({
-        stopAll: vi.fn().mockResolvedValue(undefined),
-      } as never);
+      vi.spyOn(evalRuntime, "launchEvalRuntime").mockReturnValue(
+        Effect.succeed(runtimeSession as never),
+      );
       vi.spyOn(clientTest, "registerAgent").mockImplementation((_, name) =>
         Effect.succeed({
           agentId: `${name}-id`,
@@ -43,17 +50,6 @@ describe("runE2EEvals shared contract", () => {
         } as never),
       );
       vi.spyOn(clientTest, "stripWsPath").mockImplementation((url) => url);
-      vi.spyOn(judge, "judgeAgentResponse").mockImplementation(() => {
-        throw new Error(
-          "judgeAgentResponse should not be called in shared mode",
-        );
-      });
-      vi.spyOn(judge, "analyzeFailures").mockImplementation(() => {
-        throw new Error("analyzeFailures should not be called in shared mode");
-      });
-      vi.spyOn(report, "generateReport").mockImplementation(() => {
-        throw new Error("generateReport should not be called in shared mode");
-      });
       vi.spyOn(client.MoltZapWsClient.prototype, "connect").mockReturnValue(
         Effect.succeed(undefined),
       );
@@ -73,8 +69,7 @@ describe("runE2EEvals shared contract", () => {
         runE2EEvals({
           scenarios: ["EVAL-018"],
           agentModelId: "openclaw-eval",
-          runtime: "openclaw",
-          contractMode: "shared",
+          runtime: "nanoclaw",
           resultsDir: outputDir,
           cleanResults: true,
           signal: AbortSignal.abort(),
@@ -91,7 +86,6 @@ describe("runE2EEvals shared contract", () => {
       const bundleYamlPath = path.join(bundleDir, `${runId}.yaml`);
       const summaryPath = path.join(outputDir, "summary.md");
       const bundle = JSON.parse(fs.readFileSync(bundleJsonPath, "utf8")) as {
-        metadata: { contractMode: string };
         events: Array<{ type: string }>;
       };
 
@@ -101,13 +95,11 @@ describe("runE2EEvals shared contract", () => {
       expect(fs.existsSync(bundleJsonPath)).toBe(true);
       expect(fs.existsSync(bundleYamlPath)).toBe(true);
       expect(fs.existsSync(summaryPath)).toBe(false);
-      expect(bundle.metadata.contractMode).toBe("shared");
       expect(bundle.events.map((event) => event.type)).toEqual(["phase"]);
-      expect(judge.judgeAgentResponse).not.toHaveBeenCalled();
-      expect(judge.analyzeFailures).not.toHaveBeenCalled();
-      expect(report.generateReport).not.toHaveBeenCalled();
       expect(serverCore.startCoreTestServer).toHaveBeenCalledTimes(1);
-      expect(agentFleet.launchFleet).toHaveBeenCalledTimes(1);
+      expect(evalRuntime.launchEvalRuntime).toHaveBeenCalledTimes(1);
+      expect(runtimeSession.waitUntilReady).toHaveBeenCalledTimes(1);
+      expect(runtimeSession.teardown).toHaveBeenCalledTimes(1);
       expect(clientTest.registerAgent).toHaveBeenCalledTimes(3);
     },
   );
