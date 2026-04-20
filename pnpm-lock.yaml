@@ -281,9 +281,6 @@ importers:
       ajv-formats:
         specifier: ^3.0.0
         version: 3.0.1(ajv@8.18.0)
-      effect:
-        specifier: ^3.21.0
-        version: 3.21.0
     devDependencies:
       '@types/node':
         specifier: ^25.5.0
