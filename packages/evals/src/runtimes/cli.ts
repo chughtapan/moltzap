@@ -125,7 +125,10 @@ async function runChat(): Promise<ChatResult> {
           // #ignore-sloppy-code-next-line[then-chain]: idiomatic fetch→JSON mapping
         }).then(
           // #ignore-sloppy-code-next-line[async-keyword]: fetch JSON deserialisation boundary
-          async (r) => (await r.json()) as { apiKey: string; agentId: string },
+          async (r) => {
+            if (!r.ok) throw new Error(`register failed: ${r.status}`);
+            return (await r.json()) as { apiKey: string; agentId: string };
+          },
         ),
         fetch(`${server.baseUrl}/api/v1/auth/register`, {
           method: "POST",
@@ -134,7 +137,10 @@ async function runChat(): Promise<ChatResult> {
           // #ignore-sloppy-code-next-line[then-chain]: idiomatic fetch→JSON mapping
         }).then(
           // #ignore-sloppy-code-next-line[async-keyword]: fetch JSON deserialisation boundary
-          async (r) => (await r.json()) as { apiKey: string; agentId: string },
+          async (r) => {
+            if (!r.ok) throw new Error(`register failed: ${r.status}`);
+            return (await r.json()) as { apiKey: string; agentId: string };
+          },
         ),
         // A dedicated sender agent avoids displacing alice's openclaw gateway
         // connection — the server enforces one active session per agent.
@@ -145,7 +151,10 @@ async function runChat(): Promise<ChatResult> {
           // #ignore-sloppy-code-next-line[then-chain]: idiomatic fetch→JSON mapping
         }).then(
           // #ignore-sloppy-code-next-line[async-keyword]: fetch JSON deserialisation boundary
-          async (r) => (await r.json()) as { apiKey: string; agentId: string },
+          async (r) => {
+            if (!r.ok) throw new Error(`register failed: ${r.status}`);
+            return (await r.json()) as { apiKey: string; agentId: string };
+          },
         ),
       ]);
     } catch (err) {
