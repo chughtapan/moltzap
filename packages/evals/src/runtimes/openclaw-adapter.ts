@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 
@@ -30,8 +31,10 @@ export class OpenClawAdapter implements Runtime {
   constructor(private readonly deps: OpenClawAdapterDeps) {}
 
   spawn(input: SpawnInput): Effect.Effect<void, SpawnFailed, never> {
-    return Effect.try({
-      try: () => {
+    return Effect.tryPromise({
+      // #ignore-sloppy-code-next-line[async-keyword]: port allocation requires a Promise — deferred step before nodeSpawn
+      try: async () => {
+        const port = await allocateFreePort();
         const stateDir = fs.mkdtempSync(
           path.join(os.tmpdir(), `openclaw-${input.agentName}-`),
         );
@@ -57,7 +60,7 @@ export class OpenClawAdapter implements Runtime {
             "run",
             "--allow-unconfigured",
             "--port",
-            "0",
+            String(port),
           ],
           {
             cwd: stateDir,
@@ -197,6 +200,20 @@ export class OpenClawAdapter implements Runtime {
       void _err;
     }
   }
+}
+
+// --- Module-private helpers ---
+
+// #ignore-sloppy-code-next-line[promise-type]: net.createServer callback boundary — no Effect wrapper needed for this one-shot utility
+function allocateFreePort(): Promise<number> {
+  return new Promise<number>((resolve, reject) => {
+    const server = net.createServer();
+    server.listen(0, () => {
+      const addr = server.address() as net.AddressInfo;
+      server.close(() => resolve(addr.port));
+    });
+    server.on("error", reject);
+  });
 }
 
 // --- Config and plugin install (module-private) ---
