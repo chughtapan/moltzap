@@ -362,7 +362,6 @@ export function buildJudgmentBundle(opts: {
   agentId: string;
   agentName: string;
   runtime: RuntimeKind;
-  contractMode: "legacy" | "shared";
   telemetryEvents: ReadonlyArray<SharedContractTelemetryEvent>;
 }): JudgmentBundle {
   let sentIndex = 0;
@@ -417,12 +416,10 @@ export function buildJudgmentBundle(opts: {
       conversationContext: opts.generated.conversationContext,
       transcript: opts.generated.transcript ?? [],
       modelName: opts.generated.modelName,
-      contractMode: opts.contractMode,
       runtime: opts.runtime,
       validationErrors: opts.validated.validationErrors,
     },
     metadata: {
-      contractMode: opts.contractMode,
       generatedAt: new Date().toISOString(),
       runNumber: opts.generated.runNumber,
     },

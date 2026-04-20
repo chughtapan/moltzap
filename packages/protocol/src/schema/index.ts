@@ -10,6 +10,7 @@ export * from "./frames.js";
 export * from "./errors.js";
 export * from "./surfaces.js";
 export * from "./events.js";
+export * from "./human-contact.js";
 export * from "./methods/auth.js";
 export * from "./methods/contacts.js";
 export * from "./methods/conversations.js";

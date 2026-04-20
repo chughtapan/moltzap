@@ -16,7 +16,7 @@ import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
 import { runE2EEvals } from "./runner.js";
 import { TIER5_SCENARIOS } from "./scenarios.js";
-import { DEFAULT_AGENT_MODEL_ID, DEFAULT_JUDGE_MODEL } from "./model-config.js";
+import { DEFAULT_AGENT_MODEL_ID } from "./model-config.js";
 import { setupLogger, logger } from "./logger.js";
 
 // --- Signal handling: ensure eval containers are cleaned up on exit ---
@@ -76,11 +76,6 @@ async function main(): Promise<void> {
       description: "Number of times to run each scenario",
       default: 1,
     })
-    .option("eval-model", {
-      type: "string",
-      description: "Model to use for LLM-as-judge evaluation",
-      default: DEFAULT_JUDGE_MODEL,
-    })
     .option("results", {
       type: "string",
       description: "Output directory for results",
@@ -99,7 +94,7 @@ async function main(): Promise<void> {
     .option("runtime", {
       type: "string",
       description:
-        "Agent runtime to spin up: openclaw (default, containerized) or nanoclaw (host subprocess, smoke test only)",
+        "Agent runtime to spin up: openclaw (containerized) or nanoclaw (host subprocess via the shared runtime abstraction)",
       default: "openclaw",
       choices: ["openclaw", "nanoclaw"],
     })
@@ -110,13 +105,12 @@ async function main(): Promise<void> {
   setupLogger(argv.results, argv["log-level"]);
 
   const modelId = argv.model!;
-  const contractMode = argv.runtime === "openclaw" ? "shared" : "legacy";
 
   logger.info(
     `\n${"=".repeat(60)}\nRunning evals with agent model: ${modelId}\n${"=".repeat(60)}`,
   );
   logger.info(
-    `Scenarios: ${argv.scenario?.join(", ") ?? "all"} | Runs: ${argv["runs-per-scenario"]} | Judge: ${argv["eval-model"]} | Contract: ${contractMode}`,
+    `Scenarios: ${argv.scenario?.join(", ") ?? "all"} | Runs: ${argv["runs-per-scenario"]} | Contract: shared`,
   );
 
   const resultsDir =
@@ -131,18 +125,16 @@ async function main(): Promise<void> {
         scenarios: argv.scenario,
         agentModelId: modelId,
         runsPerScenario: argv["runs-per-scenario"],
-        evalModel: argv["eval-model"],
         resultsDir,
         cleanResults: argv["clean-results"],
         logLevel: argv["log-level"],
         signal: shutdownController.signal,
         runtime: argv.runtime as "openclaw" | "nanoclaw", // #ignore-sloppy-code[enum-cast]: yargs choices constrain to these values at parse time
-        contractMode,
       }),
     );
 
     logger.info(
-      `[${modelId}] Done: ${result.summary.passed}/${result.summary.total} passed (${result.summary.avgLatencyMs.toFixed(0)}ms avg) [contract=${contractMode}]`,
+      `[${modelId}] Done: ${result.summary.passed}/${result.summary.total} passed (${result.summary.avgLatencyMs.toFixed(0)}ms avg) [contract=shared]`,
     );
 
     if (result.summary.failed > 0) {

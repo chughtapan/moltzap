@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { MoltZapService } from "@moltzap/client";
 import {
@@ -300,4 +300,38 @@ async function runChat(): Promise<ChatResult> {
     }
     await stopCoreTestServer();
   }
+}
+
+function isDirectExecution(): boolean {
+  return import.meta.url === pathToFileURL(process.argv[1] ?? "").href;
+}
+
+// #ignore-sloppy-code-next-line[promise-type, async-keyword]: CLI process boundary
+async function main(): Promise<void> {
+  const command = process.argv[2] ?? "chat";
+  if (command !== "chat") {
+    console.error(`Unknown agents command "${command}". Supported: chat`);
+    process.exitCode = 2;
+    return;
+  }
+
+  const result = await Effect.runPromise(agentsChat());
+  if (result._tag === "Pass") {
+    console.info(`agents chat passed in ${result.durationMs}ms`);
+    return;
+  }
+
+  console.error(
+    `agents chat failed at ${result.phase}: ${result.detail}${
+      result.logExcerpt ? `\n${result.logExcerpt}` : ""
+    }`,
+  );
+  process.exitCode = 1;
+}
+
+if (isDirectExecution()) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(2);
+  });
 }
