@@ -14,12 +14,23 @@
     "docs:generate": "cd packages/protocol && npx tsx ../../scripts/generate-protocol-docs.ts",
     "docs:check": "cd docs && mint broken-links",
     "docs:check:drift": "cd packages/protocol && npx tsx ../../scripts/generate-protocol-docs.ts && cd ../.. && git diff --exit-code docs/protocol/",
-    "prepare": "husky"
+    "prepare": "husky",
+    "lint:safe": "eslint packages/"
   },
   "devDependencies": {
+    "@eslint-community/eslint-plugin-eslint-comments": "^4.7.1",
+    "@stryker-mutator/core": "^9.6.1",
+    "@stryker-mutator/typescript-checker": "^9.6.1",
+    "@typescript-eslint/eslint-plugin": "^8.58.2",
+    "@typescript-eslint/parser": "^8.58.2",
+    "eslint": "^9",
+    "eslint-plugin-agent-code-guard": "^0.0.2",
+    "eslint-plugin-sonarjs": "^4.0.3",
+    "fast-check": "^4.0.0",
     "husky": "^9.0.0",
     "mint": "^4.0.0",
     "oxfmt": "^0.7.0",
-    "oxlint": "^0.16.0"
+    "oxlint": "^0.16.0",
+    "typescript": "^5"
   }
 }

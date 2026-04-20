@@ -30,7 +30,7 @@ export class MalformedFrameError extends Data.TaggedError(
 export class AgentNotFoundError extends Data.TaggedError("AgentNotFoundError")<{
   readonly agentName: string;
 }> {
-  get message(): string {
+  override get message(): string {
     return `Agent not found: ${this.agentName}`;
   }
 }
