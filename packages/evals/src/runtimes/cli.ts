@@ -122,7 +122,8 @@ async function runChat(): Promise<ChatResult> {
           body: JSON.stringify({ name: "alice" }),
           // #ignore-sloppy-code-next-line[then-chain]: idiomatic fetch→JSON mapping
         }).then(
-          (r) => r.json() as Promise<{ apiKey: string; agentId: string }>,
+          // #ignore-sloppy-code-next-line[async-keyword]: fetch JSON deserialisation boundary
+          async (r) => (await r.json()) as { apiKey: string; agentId: string },
         ),
         fetch(`${server.baseUrl}/api/v1/auth/register`, {
           method: "POST",
@@ -130,7 +131,8 @@ async function runChat(): Promise<ChatResult> {
           body: JSON.stringify({ name: "bob" }),
           // #ignore-sloppy-code-next-line[then-chain]: idiomatic fetch→JSON mapping
         }).then(
-          (r) => r.json() as Promise<{ apiKey: string; agentId: string }>,
+          // #ignore-sloppy-code-next-line[async-keyword]: fetch JSON deserialisation boundary
+          async (r) => (await r.json()) as { apiKey: string; agentId: string },
         ),
       ]);
     } catch (err) {
