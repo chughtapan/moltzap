@@ -61,6 +61,10 @@ export type RpcError = {
  * Branded identifier for a network-addressable endpoint (an agent, a session
  * participant, a session). Decoded at the network boundary; passed opaquely
  * by the task layer. Never parsed at the network layer beyond schema check.
+ *
+ * Canonical declaration site: this file (arch-A). Arch-F imports this type
+ * from here; it MUST NOT be re-declared elsewhere (hard constraint — unique
+ * brand declarations, sub-issue #157).
  */
 export type EndpointAddress = string & { readonly __brand: "EndpointAddress" };
 
@@ -69,6 +73,24 @@ export type EndpointAddress = string & { readonly __brand: "EndpointAddress" };
  * layer MUST NOT decode, validate, or inspect `OpaquePayload` — only route it.
  */
 export type OpaquePayload = string & { readonly __brand: "OpaquePayload" };
+
+/* ── Actor-model identity + endpoint types (arch-F) ─────────────────────── */
+
+/**
+ * Actor-model types live in `./actor-model.ts`. Re-exported here so consumers
+ * reach them via `@moltzap/protocol/network` without a deeper subpath. The
+ * flat package barrel (`packages/protocol/src/index.ts`) MUST NOT re-export
+ * these names; spec #135 Invariant 18 binds this constraint. The negative-
+ * canary `.type-test.ts` alongside `actor-model.ts` is the compile-time
+ * guard.
+ */
+export type {
+  UserId,
+  AgentId,
+  EndpointKind,
+  EndpointRegistration,
+  AuthenticatedIdentity,
+} from "./actor-model.js";
 
 /* ── Network RPC method manifests ───────────────────────────────────────── */
 
