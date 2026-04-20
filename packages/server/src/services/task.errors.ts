@@ -62,16 +62,6 @@ export class ReplyTargetNotInTask extends Data.TaggedError(
   readonly replyToId: MessageId;
 }> {}
 
-// Returned when createTask is called with zero participants. The task layer
-// requires at least one member on creation. DM/group shape validation is
-// not the task layer's concern — that lives in the DM task manager (spec #137).
-export class InvalidParticipantCount extends Data.TaggedError(
-  "InvalidParticipantCount",
-)<{
-  readonly provided: number;
-  readonly expected: string;
-}> {}
-
 // Infrastructure failure (Kysely / Postgres). Surfaced as a tagged error so
 // callers can discriminate retry-able DB errors from domain errors.
 export class TaskDbError extends Data.TaggedError("TaskDbError")<{
@@ -89,5 +79,4 @@ export type TaskServiceError =
   | ParticipantNotInTask
   | DuplicateParticipant
   | ReplyTargetNotInTask
-  | InvalidParticipantCount
   | TaskDbError;

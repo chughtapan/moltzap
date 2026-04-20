@@ -43,19 +43,23 @@
 -- idempotence is enforced by the DM task manager (spec #137).
 
 -- === 6. CREATE conversations table =======================================
--- Columns (spec goal 2 — no `type` field):
---   id UUID PK
+-- Columns (spec goal 2 — keyed by (task_id, id); no `type` field):
 --   task_id UUID NOT NULL REFERENCES tasks(id)
+--   id UUID NOT NULL
 --   name TEXT NULL
 --   created_by_id UUID NOT NULL REFERENCES agents(id)
 --   archived_at TIMESTAMPTZ NULL
 --   created_at / updated_at TIMESTAMPTZ
+-- PRIMARY KEY (task_id, id).
+-- The composite PK binds every conversation to its owning task; the message
+-- table's composite FK on (task_id, conversation_id) then makes cross-task
+-- references structurally unrepresentable.
 
 -- === 7. CREATE messages table ============================================
 -- Columns (spec goal 3):
 --   id UUID PK
---   task_id UUID NOT NULL REFERENCES tasks(id)    -- denormalized
---   conversation_id UUID NOT NULL REFERENCES conversations(id)
+--   task_id UUID NOT NULL                         -- part of composite FK
+--   conversation_id UUID NOT NULL                 -- part of composite FK
 --   sender_id UUID NOT NULL REFERENCES agents(id)
 --   seq BIGINT NOT NULL
 --   reply_to_id UUID NULL REFERENCES messages(id)
@@ -66,6 +70,7 @@
 --   kek_version INT NOT NULL
 --   is_deleted BOOLEAN NOT NULL DEFAULT false
 --   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+-- FOREIGN KEY (task_id, conversation_id) REFERENCES conversations(task_id, id).
 -- Indexes: (task_id, seq), (conversation_id, seq), UNIQUE(conversation_id, seq).
 
 -- === 8. RECREATE message_delivery, conversation_keys =====================
