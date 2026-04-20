@@ -1,6 +1,5 @@
 import { Context, Data, Effect } from "effect";
 import type {
-  AgentId,
   ConversationId,
   TaskId,
   TaskManagerAction,
@@ -15,14 +14,6 @@ export class DefaultPassthroughStorageFailed extends Data.TaggedError(
   readonly detail: string;
 }> {}
 
-export class DefaultPassthroughFanoutFailed extends Data.TaggedError(
-  "DefaultPassthroughFanoutFailed",
-)<{
-  readonly taskId: TaskId;
-  readonly conversationId: ConversationId;
-  readonly failedRecipients: readonly AgentId[];
-}> {}
-
 export class DefaultPassthroughTaskClosed extends Data.TaggedError(
   "DefaultPassthroughTaskClosed",
 )<{
@@ -31,14 +22,16 @@ export class DefaultPassthroughTaskClosed extends Data.TaggedError(
 
 export type DefaultPassthroughError =
   | DefaultPassthroughStorageFailed
-  | DefaultPassthroughFanoutFailed
   | DefaultPassthroughTaskClosed;
 
 /**
  * The platform-default passthrough TM runs in-process with the task layer
- * (no network hop). It calls slice B `TaskService.storeMessage` and returns
- * `Forward(participants \ sender)`; the task layer is responsible for the
- * per-recipient `NetworkDeliveryService.send` fan-out.
+ * (no network hop). It calls slice B `TaskService.storeMessage`, reads the
+ * participant set via slice B `TaskService.listParticipants`, and returns
+ * `Forward(participants \ sender)`. The per-recipient
+ * `NetworkDeliveryService.send` fan-out happens AFTER `handle` returns, at
+ * the task-layer switch site; any fan-out failure surfaces there with a
+ * task-layer-switch-owned error tag (NOT on this method's channel).
  */
 export interface DefaultPassthroughTaskManager {
   readonly handle: (
