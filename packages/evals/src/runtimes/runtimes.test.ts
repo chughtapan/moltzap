@@ -116,6 +116,13 @@ describe("OpenClawAdapter.getLogs", () => {
     expect(slice.text).toBe("");
     expect(slice.nextOffset).toBe(0);
   });
+
+  it("returns empty slice for non-zero offset when no process has been spawned", () => {
+    const adapter = new OpenClawAdapter(stubDeps());
+    const slice: LogSlice = adapter.getLogs(100);
+    expect(slice.text).toBe("");
+    expect(slice.nextOffset).toBe(0);
+  });
 });
 
 describe("OpenClawAdapter.getInboundMarker", () => {

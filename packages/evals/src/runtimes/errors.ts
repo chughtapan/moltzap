@@ -10,14 +10,3 @@ export class SpawnFailed extends Error {
     super(`Failed to spawn agent "${agentName}": ${cause.message}`, { cause });
   }
 }
-
-export class ProcessExitedEarly extends Error {
-  readonly _tag = "ProcessExitedEarly" as const;
-  constructor(
-    readonly agentName: string,
-    readonly exitCode: number | null,
-    readonly stderr: string,
-  ) {
-    super(`Agent "${agentName}" exited early with code ${String(exitCode)}`);
-  }
-}
