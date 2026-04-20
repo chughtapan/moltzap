@@ -1,5 +1,6 @@
 /** Standalone server — loads YAML config, boots PGlite or Postgres, starts the server. */
 
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join, dirname, resolve, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -47,7 +48,7 @@ async function createPgLiteDb(dataDir?: string): Promise<DbHandle> {
   // works for migration/seed code.
   const db = makeEffectKysely<Database>({
     dialect: kpg.dialect,
-  }) as unknown as Kysely<Database>;
+  });
 
   return {
     db,
@@ -88,7 +89,7 @@ async function createPostgresDb(url: string): Promise<DbHandle> {
   // works for migration/seed code.
   const db = makeEffectKysely<Database>({
     dialect: new PostgresDialect({ pool }),
-  }) as unknown as Kysely<Database>;
+  });
 
   return {
     db,
@@ -333,6 +334,21 @@ export async function startServer(configPath?: string): Promise<{
         )
       : undefined;
 
+  // Dev mode: when `dev_mode.enabled` in YAML, agents registered via the
+  // default HTTP register route are auto-owned by this UUID — the
+  // "developer at the keyboard". Skips the external-claim handshake so
+  // the quickstart can reach the app-session flow without Supabase etc.
+  // Production MUST leave `dev_mode.enabled` false (or absent).
+  const devModeUserId = yamlConfig.dev_mode?.enabled
+    ? (yamlConfig.dev_mode.user_id ?? randomUUID())
+    : undefined;
+  if (devModeUserId) {
+    logger.warn(
+      { devModeUserId },
+      "dev_mode.enabled=true — registered agents will be auto-owned; do not use in production",
+    );
+  }
+
   const coreConfig: CoreConfig = {
     db: handle.db,
     dbCleanup: handle.cleanup,
@@ -340,6 +356,7 @@ export async function startServer(configPath?: string): Promise<{
     port: yamlConfig.server?.port ?? 41973,
     corsOrigins: yamlConfig.server?.cors_origins ?? ["*"],
     registrationSecret: yamlConfig.registration?.secret,
+    devModeUserId,
     userService,
     webhookClient,
   };

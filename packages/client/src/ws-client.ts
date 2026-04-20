@@ -26,7 +26,7 @@ import {
   RpcServerError,
   RpcTimeoutError,
 } from "./runtime/errors.js";
-import { decodeFrame } from "./runtime/frame.js";
+import { decodeFrames } from "./runtime/frame.js";
 
 /**
  * Default per-RPC timeout. Exported so tests driving `TestClock` can match
@@ -43,6 +43,13 @@ const MAX_RECONNECT_DELAY_MS = 30_000;
  * the counter in the log makes it clear how many we've dropped between logs.
  */
 const MALFORMED_LOG_EVERY = 50;
+
+/**
+ * Cap on the per-client event buffer. Any frame that has no live
+ * `waitForEvent` awaiter lands here until someone drains it. Excess
+ * frames are evicted FIFO so a slow consumer can't leak memory.
+ */
+const MAX_EVENT_BUFFER = 1000;
 
 const MSG_NOT_CONNECTED = "WebSocket not connected";
 const MSG_RPC_ERROR_FALLBACK = "RPC error";
@@ -68,6 +75,20 @@ interface ConnState {
 interface EventWaiter {
   readonly eventName: string;
   readonly deferred: Deferred.Deferred<EventFrame, Error>;
+}
+
+/** Drop `waiter` from its event-name bucket, pruning an empty bucket. */
+function removeWaiter(
+  m: HashMap.HashMap<string, ReadonlyArray<EventWaiter>>,
+  eventName: string,
+  waiter: EventWaiter,
+): HashMap.HashMap<string, ReadonlyArray<EventWaiter>> {
+  const bucket = HashMap.get(m, eventName);
+  if (bucket._tag === "None") return m;
+  const filtered = bucket.value.filter((w) => w !== waiter);
+  return filtered.length === 0
+    ? HashMap.remove(m, eventName)
+    : HashMap.set(m, eventName, filtered);
 }
 
 export interface WsClientLogger {
@@ -107,7 +128,15 @@ export class MoltZapWsClient {
   private readonly stateRef: Ref.Ref<Option.Option<ConnState>>;
   private readonly malformedRef: Ref.Ref<number>;
   private readonly eventsBufferRef: Ref.Ref<ReadonlyArray<EventFrame>>;
-  private readonly eventWaitersRef: Ref.Ref<ReadonlyArray<EventWaiter>>;
+  /**
+   * Waiters keyed by event name. Each bucket is a FIFO stack: delivery
+   * pops the most recently registered waiter (the tail). Keying by event
+   * name keeps dispatch O(1) per inbound frame regardless of total
+   * outstanding waiters.
+   */
+  private readonly eventWaitersRef: Ref.Ref<
+    HashMap.HashMap<string, ReadonlyArray<EventWaiter>>
+  >;
   private readonly runtime: ManagedRuntime.ManagedRuntime<
     Socket.WebSocketConstructor,
     never
@@ -133,7 +162,9 @@ export class MoltZapWsClient {
       Ref.make<ReadonlyArray<EventFrame>>([]),
     );
     this.eventWaitersRef = this.runtime.runSync(
-      Ref.make<ReadonlyArray<EventWaiter>>([]),
+      Ref.make<HashMap.HashMap<string, ReadonlyArray<EventWaiter>>>(
+        HashMap.empty(),
+      ),
     );
   }
 
@@ -224,7 +255,12 @@ export class MoltZapWsClient {
 
       const deferred = yield* Deferred.make<EventFrame, Error>();
       const waiter: EventWaiter = { eventName, deferred };
-      yield* Ref.update(this.eventWaitersRef, (ws) => [...ws, waiter]);
+      yield* Ref.update(this.eventWaitersRef, (m) => {
+        const existing = HashMap.get(m, eventName);
+        const next =
+          existing._tag === "Some" ? [...existing.value, waiter] : [waiter];
+        return HashMap.set(m, eventName, next as ReadonlyArray<EventWaiter>);
+      });
       return yield* Deferred.await(deferred).pipe(
         Effect.timeoutFail({
           duration: `${timeoutMs} millis`,
@@ -232,8 +268,8 @@ export class MoltZapWsClient {
         }),
         Effect.onExit((exit) =>
           exit._tag === "Failure"
-            ? Ref.update(this.eventWaitersRef, (xs) =>
-                xs.filter((w) => w !== waiter),
+            ? Ref.update(this.eventWaitersRef, (m) =>
+                removeWaiter(m, eventName, waiter),
               )
             : Effect.void,
         ),
@@ -482,7 +518,7 @@ export class MoltZapWsClient {
    * frames dispatch to `onEvent` after the shape check. */
   private handleIncoming(raw: string): Effect.Effect<void> {
     return Effect.gen(this, function* () {
-      const decoded = yield* decodeFrame(raw).pipe(
+      const decodedFrames = yield* decodeFrames(raw).pipe(
         Effect.catchTag("MalformedFrameError", (err) =>
           Effect.gen(this, function* () {
             const n = yield* Ref.updateAndGet(this.malformedRef, (c) => c + 1);
@@ -496,79 +532,87 @@ export class MoltZapWsClient {
           }),
         ),
       );
-      if (decoded === null) return;
+      if (decodedFrames === null) return;
 
-      if (decoded._tag === "Response") {
-        const { id, result, error } = decoded;
-        const pending = yield* Ref.modify(this.pendingRef, (m) => {
-          const entry = HashMap.get(m, id);
-          return entry._tag === "Some"
-            ? [entry.value, HashMap.remove(m, id)]
-            : [null, m];
-        });
-        if (pending === null) return;
+      for (const decoded of decodedFrames) {
+        if (decoded._tag === "Response") {
+          const { id, result, error } = decoded;
+          const pending = yield* Ref.modify(this.pendingRef, (m) => {
+            const entry = HashMap.get(m, id);
+            return entry._tag === "Some"
+              ? [entry.value, HashMap.remove(m, id)]
+              : [null, m];
+          });
+          if (pending === null) continue;
 
-        if (error) {
-          yield* Deferred.fail(
-            pending,
-            new RpcServerError({
-              code: typeof error.code === "number" ? error.code : -32603,
-              message: error.message ?? MSG_RPC_ERROR_FALLBACK,
-              data: error.data,
-            }),
-          );
-        } else {
-          yield* Deferred.succeed(pending, result);
-        }
-        return;
-      }
-
-      if (decoded._tag === "Event") {
-        if (this.options.onEvent) {
-          try {
-            this.options.onEvent(decoded.frame);
-          } catch (err) {
-            this.options.logger?.error("onEvent handler threw", err);
+          if (error) {
+            yield* Deferred.fail(
+              pending,
+              new RpcServerError({
+                code: typeof error.code === "number" ? error.code : -32603,
+                message: error.message ?? MSG_RPC_ERROR_FALLBACK,
+                data: error.data,
+              }),
+            );
+          } else {
+            yield* Deferred.succeed(pending, result);
           }
+          continue;
         }
-        // Deliver to the most recent matching `waitForEvent` awaiter;
-        // otherwise buffer for later consumption via `drainEvents` or a
-        // future `waitForEvent`.
-        const delivered = yield* Ref.modify(this.eventWaitersRef, (ws) => {
-          for (let i = ws.length - 1; i >= 0; i--) {
-            if (ws[i]!.eventName === decoded.frame.event) {
-              const chosen = ws[i]!;
-              const next = [...ws.slice(0, i), ...ws.slice(i + 1)];
-              return [chosen, next];
+
+        if (decoded._tag === "Event") {
+          if (this.options.onEvent) {
+            try {
+              this.options.onEvent(decoded.frame);
+            } catch (err) {
+              this.options.logger?.error("onEvent handler threw", err);
             }
           }
-          return [null as EventWaiter | null, ws];
-        });
-        if (delivered !== null) {
-          yield* Deferred.succeed(delivered.deferred, decoded.frame).pipe(
-            Effect.ignore,
-          );
-        } else {
-          yield* Ref.update(this.eventsBufferRef, (xs) => [
-            ...xs,
-            decoded.frame,
-          ]);
+          const delivered = yield* Ref.modify(this.eventWaitersRef, (m) => {
+            const bucket = HashMap.get(m, decoded.frame.event);
+            if (bucket._tag === "None" || bucket.value.length === 0) {
+              return [null as EventWaiter | null, m];
+            }
+            const arr = bucket.value;
+            const chosen = arr[arr.length - 1]!;
+            const rest = arr.slice(0, -1);
+            const nextMap =
+              rest.length === 0
+                ? HashMap.remove(m, decoded.frame.event)
+                : HashMap.set(m, decoded.frame.event, rest);
+            return [chosen, nextMap];
+          });
+          if (delivered !== null) {
+            yield* Deferred.succeed(delivered.deferred, decoded.frame).pipe(
+              Effect.ignore,
+            );
+            continue;
+          }
+
+          yield* Ref.update(this.eventsBufferRef, (xs) => {
+            const appended = [...xs, decoded.frame];
+            return appended.length > MAX_EVENT_BUFFER
+              ? appended.slice(-MAX_EVENT_BUFFER)
+              : appended;
+          });
         }
       }
     });
   }
 
-  /** Fail every outstanding RPC with NotConnectedError and clear the map. */
+  /** Fail every outstanding event waiter with `message` and clear the map. */
   private failAllEventWaiters(message: string): Effect.Effect<void> {
     return Effect.gen(this, function* () {
       const waiters = yield* Ref.getAndSet(
         this.eventWaitersRef,
-        [] as ReadonlyArray<EventWaiter>,
+        HashMap.empty<string, ReadonlyArray<EventWaiter>>(),
       );
-      for (const w of waiters) {
-        yield* Deferred.fail(w.deferred, new Error(message)).pipe(
-          Effect.ignore,
-        );
+      for (const [, bucket] of HashMap.entries(waiters)) {
+        for (const w of bucket) {
+          yield* Deferred.fail(w.deferred, new Error(message)).pipe(
+            Effect.ignore,
+          );
+        }
       }
     });
   }

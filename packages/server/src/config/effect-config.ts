@@ -99,6 +99,11 @@ const RegistrationSection = Config.all({
   secret: opt(nonEmptyString("secret")),
 });
 
+const DevModeSection = Config.all({
+  enabled: Config.boolean("enabled"),
+  user_id: opt(nonEmptyString("user_id")),
+});
+
 const SeedAgentEntry = Config.all({
   name: nonEmptyString("name"),
   description: opt(Config.string("description")),
@@ -138,6 +143,7 @@ export interface MoltZapAppConfig {
     permissions?: ServiceConfig;
   };
   registration?: { secret?: string };
+  dev_mode?: { enabled: boolean; user_id?: string };
   seed?: {
     agents?: Array<{ name: string; description?: string }>;
     onboarding_message?: string;
@@ -162,6 +168,7 @@ export const MoltZapConfig: Config.Config<MoltZapAppConfig> = Config.all({
   encryption: opt(EncryptionSection.pipe(Config.nested("encryption"))),
   services: opt(ServicesSection.pipe(Config.nested("services"))),
   registration: opt(RegistrationSection.pipe(Config.nested("registration"))),
+  dev_mode: opt(DevModeSection.pipe(Config.nested("dev_mode"))),
   seed: opt(SeedSection.pipe(Config.nested("seed"))),
   apps: opt(Config.array(AppRef, "apps")),
   log_level: opt(Config.literal("debug", "info", "warn", "error")("log_level")),
@@ -174,6 +181,7 @@ export const MoltZapConfig: Config.Config<MoltZapAppConfig> = Config.all({
     if (fields.services !== undefined) out.services = fields.services;
     if (fields.registration !== undefined)
       out.registration = fields.registration;
+    if (fields.dev_mode !== undefined) out.dev_mode = fields.dev_mode;
     if (fields.seed !== undefined) out.seed = fields.seed;
     if (fields.apps !== undefined) out.apps = fields.apps;
     if (fields.log_level !== undefined) out.log_level = fields.log_level;

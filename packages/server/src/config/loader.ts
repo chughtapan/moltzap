@@ -9,9 +9,22 @@
 import { readFileSync, realpathSync } from "node:fs";
 import { dirname } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { Data, Effect, ConfigProvider } from "effect";
+import { Data, Effect, ConfigProvider, Either, Match, Schema } from "effect";
 import type { ConfigError } from "effect/ConfigError";
 import { MoltZapConfig, type MoltZapAppConfig } from "./effect-config.js";
+
+/**
+ * Top-level YAML document shape. `ConfigProvider.fromJson` silently
+ * accepts any input — handing it a scalar, array, or `null` turns every
+ * subsequent `Config.nested(...)` lookup into a "missing key" error that
+ * hides the real problem (the file is not a config mapping). Decoding
+ * at the boundary fails loudly with one clear message instead.
+ */
+const YamlDocumentSchema = Schema.Record({
+  key: Schema.String,
+  value: Schema.Unknown,
+});
+const decodeYamlDocument = Schema.decodeUnknownEither(YamlDocumentSchema);
 
 /** Union of failure modes when loading a config file. */
 export type ConfigLoadErrorKind = "read" | "yaml" | "env" | "validation";
@@ -107,7 +120,7 @@ export const loadConfigFromFile = (
     });
 
     const parsed = yield* Effect.try({
-      try: () => parseYaml(raw) as unknown,
+      try: (): unknown => parseYaml(raw),
       catch: (cause) =>
         new ConfigLoadError({
           kind: "yaml",
@@ -117,7 +130,19 @@ export const loadConfigFromFile = (
         }),
     });
 
-    const interp = interpolateEnvVars(parsed, configPath);
+    const decoded = decodeYamlDocument(parsed);
+    if (Either.isLeft(decoded)) {
+      return yield* Effect.fail(
+        new ConfigLoadError({
+          kind: "yaml",
+          path: configPath,
+          message: `Invalid YAML in "${configPath}": top-level value must be a mapping (${decoded.left.message})`,
+          cause: decoded.left,
+        }),
+      );
+    }
+
+    const interp = interpolateEnvVars(decoded.right, configPath);
     if (!interp.ok) return yield* Effect.fail(interp.error);
 
     // `fromJson` walks the nested object and produces flat paths that
@@ -151,23 +176,26 @@ export const loadConfigFromFile = (
 /** Walk a ConfigError tree and produce a readable string. */
 function formatConfigError(err: ConfigError): string {
   const lines: string[] = [];
-  const walk = (e: ConfigError) => {
-    switch (e._op) {
-      case "And":
-      case "Or":
-        walk(e.left);
-        walk(e.right);
-        break;
-      case "InvalidData":
-      case "MissingData":
-      case "Unsupported":
-        lines.push(`  ${e.path.join(".") || "/"}: ${e.message}`);
-        break;
-      case "SourceUnavailable":
-        lines.push(`  ${e.path.join(".") || "/"}: ${e.message}`);
-        break;
-    }
+  const pushLeaf = (e: { path: ReadonlyArray<string>; message: string }) => {
+    lines.push(`  ${e.path.join(".") || "/"}: ${e.message}`);
   };
+  const walk = (e: ConfigError): void =>
+    Match.value(e).pipe(
+      Match.discriminatorsExhaustive("_op")({
+        And: (and) => {
+          walk(and.left);
+          walk(and.right);
+        },
+        Or: (or) => {
+          walk(or.left);
+          walk(or.right);
+        },
+        InvalidData: pushLeaf,
+        MissingData: pushLeaf,
+        Unsupported: pushLeaf,
+        SourceUnavailable: pushLeaf,
+      }),
+    );
   walk(err);
   // Dedupe while preserving order.
   const seen = new Set<string>();

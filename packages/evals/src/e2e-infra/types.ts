@@ -28,12 +28,47 @@ export class JudgeError extends Data.TaggedError("JudgeError")<{
   readonly fatal: boolean;
 }> {}
 
-/** Container lifecycle failed (start, wait, stop). */
+/** Container lifecycle failed (start, wait, stop). Used by the nanoclaw
+ * runtime path; the Docker runtime uses the per-phase tagged errors below. */
 export class ContainerError extends Data.TaggedError("ContainerError")<{
   readonly containerName: string;
   readonly phase: "start" | "wait" | "stop" | "image";
   readonly message: string;
 }> {}
+
+/** Docker image inspect or auto-build failed. */
+export class DockerImageError extends Data.TaggedError("DockerImageError")<{
+  readonly imageName: string;
+  readonly message: string;
+}> {}
+
+/** Container creation, workspace seeding, or gateway handshake failed. */
+export class DockerStartError extends Data.TaggedError("DockerStartError")<{
+  readonly containerName: string;
+  readonly message: string;
+}> {}
+
+/** Channel health check did not observe the agent within the timeout. */
+export class DockerHealthTimeoutError extends Data.TaggedError(
+  "DockerHealthTimeoutError",
+)<{
+  readonly containerName: string;
+  readonly timeoutMs: number;
+  readonly message: string;
+}> {}
+
+/** `docker rm` (or the raw stop helper) failed for a container. */
+export class DockerStopError extends Data.TaggedError("DockerStopError")<{
+  readonly containerName: string;
+  readonly message: string;
+}> {}
+
+/** Union of failure modes produced by `DockerManager`'s Effect-native API. */
+export type DockerError =
+  | DockerImageError
+  | DockerStartError
+  | DockerHealthTimeoutError
+  | DockerStopError;
 
 /** Sending a MoltZap message and waiting for the agent reply timed out. */
 export class AgentResponseTimeoutError extends Data.TaggedError(
@@ -79,6 +114,7 @@ export interface TranscriptEntry {
   role: "user" | "agent";
   text: string;
   conversationId: string;
+  createdAt?: string;
 }
 
 export interface GeneratedResult {

@@ -77,17 +77,17 @@ export const makeFakeService = <S extends object>(impl: Partial<S>): S =>
 /**
  * Typed test double for `WebhookClient`. Use instead of `vi.spyOn` on a real
  * instance: the `Pick<>` constraint forces the caller to match the real
- * `callSync` signature, so a contract change in `WebhookClient` breaks the
+ * `call` signature, so a contract change in `WebhookClient` breaks the
  * test at compile time rather than at runtime.
  *
  * Example:
  *   const client = makeFakeWebhookClient({
- *     callSync: async () => ({ valid: true }),
+ *     call: () => Effect.succeed({ valid: true }),
  *   });
  *   const svc = new WebhookUserService(client, "url", 5000, logger);
  */
 export const makeFakeWebhookClient = (
-  impl: Pick<WebhookClient, "callSync">,
+  impl: Pick<WebhookClient, "call">,
 ): WebhookClient => impl as WebhookClient;
 
 // ── Layer-based fakes for tagged services ──────────────────────────────────

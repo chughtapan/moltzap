@@ -4,10 +4,11 @@
  * Dependency order is encoded in each `Layer.effect`'s `yield*` chain.
  * Tag string convention: `moltzap/<ClassName>`.
  */
-import { Context, Effect, Layer } from "effect";
+import { Context, Deferred, Effect, HashMap, Layer, Ref } from "effect";
 
 import type { Db } from "../db/client.js";
 import type { Logger } from "../logger.js";
+import { LoggerTag } from "../logger.js";
 import { ConnectionManager } from "../ws/connection.js";
 import { Broadcaster } from "../ws/broadcaster.js";
 import { AuthService } from "../services/auth.service.js";
@@ -15,7 +16,10 @@ import { ParticipantService } from "../services/participant.service.js";
 import { ConversationService } from "../services/conversation.service.js";
 import { DeliveryService } from "../services/delivery.service.js";
 import { PresenceService } from "../services/presence.service.js";
-import { MessageService } from "../services/message.service.js";
+import {
+  MessageService,
+  type DeliveryWebhookConfig,
+} from "../services/message.service.js";
 import type { UserService } from "../services/user.service.js";
 import { AppHost, DefaultPermissionService } from "./app-host.js";
 import type { EnvelopeEncryption } from "../crypto/envelope.js";
@@ -28,11 +32,9 @@ import type { WebhookClient } from "../adapters/webhook.js";
 /** Postgres/PGlite database handle (Kysely<Database>). */
 export class DbTag extends Context.Tag("moltzap/Db")<DbTag, Db>() {}
 
-/** Pino logger (root). */
-export class LoggerTag extends Context.Tag("moltzap/Logger")<
-  LoggerTag,
-  Logger
->() {}
+/** Re-exported so call sites importing tags from one file still compile.
+ * Canonical definition lives in `../logger.js`. */
+export { LoggerTag };
 
 /** Optional envelope-encryption helper. null when encryption is disabled. */
 export class EncryptionTag extends Context.Tag("moltzap/Encryption")<
@@ -112,6 +114,15 @@ export class WebhookClientTag extends Context.Tag("moltzap/WebhookClient")<
   WebhookClient
 >() {}
 
+/**
+ * Optional fire-and-forget message-delivery webhook. `null` means no
+ * webhook — the fanout is skipped entirely.
+ */
+export class DeliveryWebhookTag extends Context.Tag("moltzap/DeliveryWebhook")<
+  DeliveryWebhookTag,
+  DeliveryWebhookConfig | null
+>() {}
+
 // ── Infrastructure Layers (no app deps) ───────────────────────────────────
 
 export const ConnectionManagerLive = Layer.sync(
@@ -150,7 +161,11 @@ export const ConversationServiceLive = Layer.effect(
   Effect.gen(function* () {
     const db = yield* DbTag;
     const participants = yield* ParticipantServiceTag;
-    return new ConversationService(db, participants);
+    const connections = yield* ConnectionManagerTag;
+    const appHost = yield* AppHostTag;
+    return new ConversationService(db, participants, connections, (convId) =>
+      appHost.isAttachedToActiveSession(convId),
+    );
   }),
 );
 
@@ -175,12 +190,16 @@ export const AppHostLive = Layer.effect(
     const connections = yield* ConnectionManagerTag;
     const userService = yield* UserServiceTag;
     const webhookClient = yield* WebhookClientTag;
+    const inflightPermissions = yield* Ref.make(
+      HashMap.empty<string, Deferred.Deferred<string[], Error>>(),
+    );
     return new AppHost(
       db,
       broadcaster,
       connections,
       userService,
       webhookClient,
+      inflightPermissions,
     );
   }),
 );
@@ -207,6 +226,8 @@ export const MessageServiceLive = Layer.effect(
     const encryption = yield* EncryptionTag;
     const delivery = yield* DeliveryServiceTag;
     const appHost = yield* AppHostTag;
+    const deliveryWebhook = yield* DeliveryWebhookTag;
+    const webhookClient = yield* WebhookClientTag;
     return new MessageService(
       db,
       conversations,
@@ -214,6 +235,8 @@ export const MessageServiceLive = Layer.effect(
       encryption,
       delivery,
       appHost,
+      deliveryWebhook,
+      webhookClient,
     );
   }),
 );
@@ -243,16 +266,16 @@ const Tier1 = Layer.mergeAll(
 /** Tier 2 — Broadcaster needs Tier 1's ConnectionManager. */
 const Tier2 = Layer.provideMerge(BroadcasterLive, Tier1);
 
-/** Tier 3 — Conversation needs Tier 1's Participant; keeps Tier 2 outputs. */
-const Tier3 = Layer.provideMerge(ConversationServiceLive, Tier2);
-
-/** Tier 4 — AppHost + DefaultPermission need Conversation + Broadcaster. */
-const Tier4 = Layer.provideMerge(
+/** Tier 3 — AppHost + DefaultPermission need Broadcaster/Connections. */
+const Tier3 = Layer.provideMerge(
   Layer.mergeAll(AppHostLive, DefaultPermissionServiceLive),
-  Tier3,
+  Tier2,
 );
 
-/** Tier 5 — MessageService needs AppHost + everything upstream. */
+/** Tier 4 — ConversationService needs AppHost for the session-attach check. */
+const Tier4 = Layer.provideMerge(ConversationServiceLive, Tier3);
+
+/** Tier 5 — MessageService needs ConversationService + AppHost + upstream. */
 const Tier5 = Layer.provideMerge(MessageServiceLive, Tier4);
 
 /**

@@ -1,0 +1,29 @@
+---
+title: "conversations/unarchive"
+description: "Unarchive a conversation (clears archived_at). Idempotent — unarchiving an active conversation is a no-op. Owner/admin only."
+---
+
+# conversations/unarchive
+
+Unarchive a conversation (clears archived_at). Idempotent — unarchiving an active conversation is a no-op. Owner/admin only.
+
+## Parameters
+
+<ParamField path="conversationId" type="string (UUID)" required>
+  Branded ConversationId
+</ParamField>
+
+## Response
+
+This method returns no response body.
+
+## Errors
+
+| Code | Name | When |
+|------|------|------|
+| -32001 | Forbidden | Caller is not owner or admin |
+
+## Related Events
+
+- [`conversations/unarchived`](/protocol/events/conversations-unarchived)
+

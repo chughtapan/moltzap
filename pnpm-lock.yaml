@@ -21,6 +21,28 @@ importers:
         specifier: ^0.16.0
         version: 0.16.12
 
+  examples/mountains-or-beaches:
+    dependencies:
+      '@moltzap/app-sdk':
+        specifier: workspace:*
+        version: link:../../packages/app-sdk
+      '@moltzap/client':
+        specifier: workspace:*
+        version: link:../../packages/client
+      '@moltzap/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
+      effect:
+        specifier: ^3.21.0
+        version: 3.21.0
+    devDependencies:
+      '@types/node':
+        specifier: ^25.5.0
+        version: 25.5.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   packages/app-sdk:
     dependencies:
       '@moltzap/client':
@@ -144,8 +166,8 @@ importers:
         specifier: ^17.0.0
         version: 17.0.35
       kysely:
-        specifier: ^0.27.0
-        version: 0.27.6
+        specifier: ^0.28.2
+        version: 0.28.16
       openclaw:
         specifier: 2026.3.31
         version: 2026.3.31(@cfworker/json-schema@4.1.1)(@napi-rs/canvas@0.1.97)
@@ -256,7 +278,7 @@ importers:
         version: 0.51.0(@effect/experimental@0.60.0(@effect/platform@0.96.0(effect@3.21.0))(effect@3.21.0))(@effect/platform@0.96.0(effect@3.21.0))(effect@3.21.0)
       '@effect/sql-kysely':
         specifier: ^0.47.0
-        version: 0.47.0(@effect/sql@0.51.0(@effect/experimental@0.60.0(@effect/platform@0.96.0(effect@3.21.0))(effect@3.21.0))(@effect/platform@0.96.0(effect@3.21.0))(effect@3.21.0))(effect@3.21.0)(kysely@0.27.6)
+        version: 0.47.0(@effect/sql@0.51.0(@effect/experimental@0.60.0(@effect/platform@0.96.0(effect@3.21.0))(effect@3.21.0))(@effect/platform@0.96.0(effect@3.21.0))(effect@3.21.0))(effect@3.21.0)(kysely@0.28.16)
       '@effect/sql-pg':
         specifier: ^0.52.1
         version: 0.52.1(@effect/experimental@0.60.0(@effect/platform@0.96.0(effect@3.21.0))(effect@3.21.0))(@effect/platform@0.96.0(effect@3.21.0))(@effect/sql@0.51.0(@effect/experimental@0.60.0(@effect/platform@0.96.0(effect@3.21.0))(effect@3.21.0))(@effect/platform@0.96.0(effect@3.21.0))(effect@3.21.0))(effect@3.21.0)
@@ -279,11 +301,11 @@ importers:
         specifier: ^3.21.0
         version: 3.21.0
       kysely:
-        specifier: ^0.27.0
-        version: 0.27.6
+        specifier: ^0.28.2
+        version: 0.28.16
       kysely-pglite:
         specifier: ^0.6.1
-        version: 0.6.1(@electric-sql/pglite@0.4.4)(kysely@0.27.6)(pg@8.20.0)
+        version: 0.6.1(@electric-sql/pglite@0.4.4)(kysely@0.28.16)(pg@8.20.0)
       pg:
         specifier: ^8.12.0
         version: 8.20.0
@@ -311,7 +333,7 @@ importers:
         version: 4.6.0
       kysely-codegen:
         specifier: ^0.20.0
-        version: 0.20.0(kysely@0.27.6)(pg@8.20.0)(typescript@5.9.3)
+        version: 0.20.0(kysely@0.28.16)(pg@8.20.0)(typescript@5.9.3)
       pino-pretty:
         specifier: ^13.0.0
         version: 13.1.3
@@ -4750,9 +4772,9 @@ packages:
       '@electric-sql/pglite': '*'
       kysely: '*'
 
-  kysely@0.27.6:
-    resolution: {integrity: sha512-FIyV/64EkKhJmjgC0g2hygpBv5RNWVPyNCqSAD7eTCv6eFWNIi4PN1UvdSJGicN/o35bnevgis4Y0UDC0qi8jQ==}
-    engines: {node: '>=14.0.0'}
+  kysely@0.28.16:
+    resolution: {integrity: sha512-3i5pmOiZvMDj00qhrIVbH0AnioVTx22DMP7Vn5At4yJO46iy+FM8Y/g61ltenLVSo3fiO8h8Q3QOFgf/gQ72ww==}
+    engines: {node: '>=20.0.0'}
 
   lazystream@1.0.1:
     resolution: {integrity: sha512-b94GiNHQNy6JNTrt5w6zNyffMrNkXZb3KTkCZJb2V1xaEGCk093vkZ2jk3tpaeP33/OiXC+WvK9AxUebnf5nbw==}
@@ -7756,11 +7778,11 @@ snapshots:
       effect: 3.21.0
       msgpackr: 1.11.9
 
-  '@effect/sql-kysely@0.47.0(@effect/sql@0.51.0(@effect/experimental@0.60.0(@effect/platform@0.96.0(effect@3.21.0))(effect@3.21.0))(@effect/platform@0.96.0(effect@3.21.0))(effect@3.21.0))(effect@3.21.0)(kysely@0.27.6)':
+  '@effect/sql-kysely@0.47.0(@effect/sql@0.51.0(@effect/experimental@0.60.0(@effect/platform@0.96.0(effect@3.21.0))(effect@3.21.0))(@effect/platform@0.96.0(effect@3.21.0))(effect@3.21.0))(effect@3.21.0)(kysely@0.28.16)':
     dependencies:
       '@effect/sql': 0.51.0(@effect/experimental@0.60.0(@effect/platform@0.96.0(effect@3.21.0))(effect@3.21.0))(@effect/platform@0.96.0(effect@3.21.0))(effect@3.21.0)
       effect: 3.21.0
-      kysely: 0.27.6
+      kysely: 0.28.16
 
   '@effect/sql-pg@0.52.1(@effect/experimental@0.60.0(@effect/platform@0.96.0(effect@3.21.0))(effect@3.21.0))(@effect/platform@0.96.0(effect@3.21.0))(@effect/sql@0.51.0(@effect/experimental@0.60.0(@effect/platform@0.96.0(effect@3.21.0))(effect@3.21.0))(@effect/platform@0.96.0(effect@3.21.0))(effect@3.21.0))(effect@3.21.0)':
     dependencies:
@@ -12521,26 +12543,26 @@ snapshots:
 
   kuler@2.0.0: {}
 
-  kysely-codegen@0.15.0(kysely@0.27.6)(pg@8.20.0):
+  kysely-codegen@0.15.0(kysely@0.28.16)(pg@8.20.0):
     dependencies:
       chalk: 4.1.2
       dotenv: 16.6.1
       dotenv-expand: 11.0.7
       git-diff: 2.0.6
-      kysely: 0.27.6
+      kysely: 0.28.16
       micromatch: 4.0.8
       minimist: 1.2.8
     optionalDependencies:
       pg: 8.20.0
 
-  kysely-codegen@0.20.0(kysely@0.27.6)(pg@8.20.0)(typescript@5.9.3):
+  kysely-codegen@0.20.0(kysely@0.28.16)(pg@8.20.0)(typescript@5.9.3):
     dependencies:
       chalk: 4.1.2
       cosmiconfig: 9.0.1(typescript@5.9.3)
       diff: 8.0.4
       dotenv: 17.3.1
       dotenv-expand: 12.0.3
-      kysely: 0.27.6
+      kysely: 0.28.16
       micromatch: 4.0.8
       minimist: 1.2.8
       pluralize: 8.0.0
@@ -12550,7 +12572,7 @@ snapshots:
     transitivePeerDependencies:
       - typescript
 
-  kysely-pglite@0.6.1(@electric-sql/pglite@0.4.4)(kysely@0.27.6)(pg@8.20.0):
+  kysely-pglite@0.6.1(@electric-sql/pglite@0.4.4)(kysely@0.28.16)(pg@8.20.0):
     dependencies:
       '@electric-sql/pglite': 0.4.4
       '@oclif/core': 4.10.5
@@ -12561,8 +12583,8 @@ snapshots:
       fs-extra: 11.2.0
       globby: 14.1.0
       jiti: 2.0.0-beta.3
-      kysely: 0.27.6
-      kysely-codegen: 0.15.0(kysely@0.27.6)(pg@8.20.0)
+      kysely: 0.28.16
+      kysely-codegen: 0.15.0(kysely@0.28.16)(pg@8.20.0)
       radash: 12.1.1
     transitivePeerDependencies:
       - '@libsql/kysely-libsql'
@@ -12574,7 +12596,7 @@ snapshots:
       - tarn
       - tedious
 
-  kysely@0.27.6: {}
+  kysely@0.28.16: {}
 
   lazystream@1.0.1:
     dependencies:

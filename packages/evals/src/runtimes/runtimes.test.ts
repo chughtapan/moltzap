@@ -24,7 +24,7 @@ function stubCoreApp() {
     connections: {
       getByAgent: (_agentId: string) => [],
     },
-  } as unknown as import("@moltzap/server-core").CoreApp;
+  } as unknown as import("@moltzap/server-core").CoreApp; // #ignore-sloppy-code[as-unknown-as]: minimal test stub — only the surface OpenClawAdapter touches is implemented
 }
 
 function stubDeps(): OpenClawAdapterDeps {
@@ -78,6 +78,7 @@ describe("Runtime interface", () => {
       "getInboundMarker",
     ] as const;
     for (const m of runtimeMethods) {
+      // #ignore-sloppy-code-next-line[as-unknown-as]: dynamic method-name lookup in exhaustiveness check — no other way to index by string
       expect(typeof (adapter as unknown as Record<string, unknown>)[m]).toBe(
         "function",
       );

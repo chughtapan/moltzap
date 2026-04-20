@@ -4,6 +4,14 @@
 export { createCoreApp } from "./app/server.js";
 export type { CoreConfig, CoreApp } from "./app/types.js";
 
+export {
+  AgentId,
+  UserId,
+  ConversationId,
+  SessionId,
+  AppId,
+} from "./app/types.js";
+
 // AppHost
 export {
   AppHost,
@@ -12,6 +20,14 @@ export {
   PermissionTimeoutError,
 } from "./app/app-host.js";
 export type { ContactService, PermissionService } from "./app/app-host.js";
+
+// Handler factories — for downstream consumers composing their own RPC router
+export { createCoreAuthHandlers } from "./app/handlers/auth.handlers.js";
+export { createConversationHandlers } from "./app/handlers/conversations.handlers.js";
+export { createMessageHandlers } from "./app/handlers/messages.handlers.js";
+export { createPresenceHandlers } from "./app/handlers/presence.handlers.js";
+export { createAppHandlers } from "./app/handlers/apps.handlers.js";
+export { ConnIdTag } from "./app/layers.js";
 
 // Service adapters
 export type { UserService } from "./services/user.service.js";
@@ -22,8 +38,12 @@ export {
 export {
   WebhookClient,
   AsyncWebhookAdapter,
-  WebhookError,
+  WebhookHttpError,
+  WebhookTimeoutError,
+  WebhookNetworkError,
+  WebhookDestroyedError,
 } from "./adapters/webhook.js";
+export type { WebhookError } from "./adapters/webhook.js";
 
 // Config
 export { loadConfigFromFile, ConfigLoadError } from "./config/loader.js";
@@ -52,7 +72,29 @@ export {
   InvalidParamsError,
   ForbiddenError,
   validateParams,
+  notFound,
+  forbidden,
+  unauthorized,
+  invalidParams,
+  conflict,
+  internalError,
+  blocked,
+  rateLimited,
+  coalesce,
+  drainCoalesceMap,
+  type Validator,
 } from "./runtime/index.js";
+export {
+  makeEffectKysely,
+  takeFirstOption,
+  takeFirstOrElse,
+  takeFirstOrFail,
+  catchSqlErrorAsDefect,
+  sqlErrorToDefect,
+  transaction,
+  rawQuery,
+  type EffectKysely,
+} from "./db/effect-kysely-toolkit.js";
 export { ConnectionManager } from "./ws/connection.js";
 export { Broadcaster } from "./ws/broadcaster.js";
 export { EnvelopeEncryption } from "./crypto/envelope.js";

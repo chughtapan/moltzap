@@ -1,4 +1,4 @@
-import { Type, type Static } from "@sinclair/typebox";
+import { Type } from "@sinclair/typebox";
 import { stringEnum, DateTimeString } from "../../helpers.js";
 import { ConversationId } from "../primitives.js";
 import {
@@ -43,6 +43,7 @@ export const ConversationsList = defineRpc({
     {
       limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
       cursor: Type.Optional(Type.String()),
+      archived: Type.Optional(stringEnum(["exclude", "include", "only"])),
     },
     { additionalProperties: false },
   ),
@@ -129,6 +130,24 @@ export const ConversationsRemoveParticipant = defineRpc({
 
 export const ConversationsLeave = defineRpc({
   name: "conversations/leave",
+  params: Type.Object(
+    { conversationId: ConversationId },
+    { additionalProperties: false },
+  ),
+  result: Type.Object({}, { additionalProperties: false }),
+});
+
+export const ConversationsArchive = defineRpc({
+  name: "conversations/archive",
+  params: Type.Object(
+    { conversationId: ConversationId },
+    { additionalProperties: false },
+  ),
+  result: Type.Object({}, { additionalProperties: false }),
+});
+
+export const ConversationsUnarchive = defineRpc({
+  name: "conversations/unarchive",
   params: Type.Object(
     { conversationId: ConversationId },
     { additionalProperties: false },

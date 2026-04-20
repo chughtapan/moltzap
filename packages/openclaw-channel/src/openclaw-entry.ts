@@ -312,52 +312,55 @@ export function createMoltzapChannelPlugin() {
 
         const core = new MoltZapChannelCore({ service, logger: wsLogger });
 
-        // #ignore-sloppy-code-next-line[async-keyword]: core.onInbound handler signature contract
-        core.onInbound(async (enriched) => {
-          const chatType =
-            enriched.conversationMeta?.type === "group" ? "group" : "direct";
-          const fromId = `agent:${enriched.sender.id}`;
+        core.onInbound((enriched) =>
+          Effect.gen(function* () {
+            const chatType =
+              enriched.conversationMeta?.type === "group" ? "group" : "direct";
+            const fromId = `agent:${enriched.sender.id}`;
 
-          log?.info?.(
-            `MoltZap: inbound from ${fromId}: ${enriched.text.slice(0, 80)}`,
-          );
-
-          setStatus({
-            accountId,
-            lastInboundAt: Date.now(),
-            lastEventAt: Date.now(),
-          });
-
-          const crossConvBlock = formatCrossConvOpenClaw(
-            enriched.contextBlocks.crossConversationMessages ?? [],
-            { ownAgentId: service.ownAgentId ?? "" },
-          );
-          const bodyForAgent = crossConvBlock
-            ? `${crossConvBlock}\n\n${enriched.text}`
-            : enriched.text;
-
-          if (crossConvBlock) {
             log?.info?.(
-              `MoltZap: BodyForAgent has cross-conv context (${enriched.contextBlocks.crossConversationMessages?.length ?? 0} msgs) for ${enriched.conversationId}: ${bodyForAgent.slice(0, 500)}`,
+              `MoltZap: inbound from ${fromId}: ${enriched.text.slice(0, 80)}`,
             );
-          }
 
-          if (
-            !ctx.channelRuntime?.reply?.dispatchReplyWithBufferedBlockDispatcher
-          ) {
-            return;
-          }
+            setStatus({
+              accountId,
+              lastInboundAt: Date.now(),
+              lastEventAt: Date.now(),
+            });
 
-          const groupSubject = enriched.conversationMeta?.name;
-          const groupMembers =
-            enriched.conversationMeta?.type === "group"
-              ? enriched.conversationMeta.participants.join(",")
-              : undefined;
+            const crossConvBlock = formatCrossConvOpenClaw(
+              enriched.contextBlocks.crossConversationMessages ?? [],
+              { ownAgentId: service.ownAgentId ?? "" },
+            );
+            const bodyForAgent = crossConvBlock
+              ? `${crossConvBlock}\n\n${enriched.text}`
+              : enriched.text;
 
-          try {
-            const result =
-              await ctx.channelRuntime.reply.dispatchReplyWithBufferedBlockDispatcher(
-                {
+            if (crossConvBlock) {
+              log?.info?.(
+                `MoltZap: BodyForAgent has cross-conv context (${enriched.contextBlocks.crossConversationMessages?.length ?? 0} msgs) for ${enriched.conversationId}: ${bodyForAgent.slice(0, 500)}`,
+              );
+            }
+
+            const dispatch =
+              ctx.channelRuntime?.reply
+                ?.dispatchReplyWithBufferedBlockDispatcher;
+            if (!dispatch) {
+              return;
+            }
+
+            const groupSubject = enriched.conversationMeta?.name;
+            const groupMembers =
+              enriched.conversationMeta?.type === "group"
+                ? enriched.conversationMeta.participants.join(",")
+                : undefined;
+
+            // Bridge OpenClaw's Promise-shaped dispatch into Effect, then
+            // catchAll back to a logged no-op so a single failed reply doesn't
+            // crash the consumer fiber.
+            const result = yield* Effect.tryPromise({
+              try: () =>
+                dispatch({
                   ctx: {
                     Body: enriched.text,
                     BodyForAgent: bodyForAgent,
@@ -411,17 +414,23 @@ export function createMoltzapChannelPlugin() {
                       return Effect.runPromise(deliverEffect);
                     },
                   },
-                },
-              );
-            if (!result.queuedFinal) {
+                }),
+              catch: (err: unknown) => err,
+            }).pipe(
+              Effect.catchAll((err) =>
+                Effect.sync(() => {
+                  log?.error?.(`MoltZap: dispatch error: ${err}`);
+                  return null;
+                }),
+              ),
+            );
+            if (result && !result.queuedFinal) {
               log?.debug?.(
                 `MoltZap: dispatch completed without final reply for ${enriched.conversationId}`,
               );
             }
-          } catch (err: unknown) {
-            log?.error?.(`MoltZap: dispatch error: ${err}`);
-          }
-        });
+          }),
+        );
 
         // Forward non-message events for status/logging.
         // Sync dispatcher — no async work, just log + setStatus. // #ignore-sloppy-code[async-keyword]: comment prose only, not code

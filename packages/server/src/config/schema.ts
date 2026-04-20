@@ -87,6 +87,16 @@ export const MoltZapConfigSchema = Type.Object(
       ),
     ),
 
+    dev_mode: Type.Optional(
+      Type.Object(
+        {
+          enabled: Type.Boolean(),
+          user_id: Type.Optional(Type.String({ minLength: 1 })),
+        },
+        { additionalProperties: false },
+      ),
+    ),
+
     seed: Type.Optional(
       Type.Object(
         {

@@ -4,7 +4,7 @@ import { Effect, Layer } from "effect";
 import { expect } from "vitest";
 import type { Db } from "../db/client.js";
 import type { Database } from "../db/database.js";
-import { LoggerLive, logger } from "../logger.js";
+import { LoggerLive, getLogger } from "../logger.js";
 import { Broadcaster } from "../ws/broadcaster.js";
 import { ConnectionManager } from "../ws/connection.js";
 import { AuthService } from "../services/auth.service.js";
@@ -17,8 +17,8 @@ import { AppHost, DefaultPermissionService } from "./app-host.js";
 import { WebhookClient } from "../adapters/webhook.js";
 import {
   DbTag,
+  DeliveryWebhookTag,
   EncryptionTag,
-  LoggerTag,
   ServicesLive,
   UserServiceTag,
   WebhookClientTag,
@@ -32,13 +32,14 @@ import {
  */
 const fakeDb = {} as Kysely<Database> as Db;
 
-/** Base layer — feeds the ServicesLive requirements. */
+/** Base layer — feeds the ServicesLive requirements. LoggerLive provides
+ * LoggerTag itself, so no separate `Layer.succeed(LoggerTag, …)` needed. */
 const BaseLive = Layer.mergeAll(
   Layer.succeed(DbTag, fakeDb),
-  Layer.succeed(LoggerTag, logger),
   Layer.succeed(EncryptionTag, null),
   Layer.succeed(UserServiceTag, null),
   Layer.succeed(WebhookClientTag, new WebhookClient()),
+  Layer.succeed(DeliveryWebhookTag, null),
   LoggerLive,
 );
 
@@ -52,7 +53,9 @@ it.effect("ServicesLive resolves every service via resolveServices", () =>
     // Identity-pass-throughs from BaseLive — sanity that the plumbing
     // doesn't clone or wrap them somewhere unexpected.
     expect(services.db).toBe(fakeDb);
-    expect(services.logger).toBe(logger);
+    // LoggerLive builds pino from Effect.Config — asserting identity against
+    // getLogger() confirms the shim and the Layer agree on one singleton.
+    expect(services.logger).toBe(getLogger());
     expect(services.encryption).toBeNull();
 
     // Services that ServicesLive constructs. Each must be a real instance
