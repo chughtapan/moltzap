@@ -1,21 +1,23 @@
 // Task-layer branded ID and discriminated-union types.
-// Boundary types for the 9-method CRUD surface defined in spec #136.
+// Boundary types for the 12-method CRUD surface defined in spec #136.
+// The task layer has no DM-specific schema (spec #136 invariant 3); DM
+// uniqueness and immutability live in the default DM task manager (spec
+// #137, app layer).
 
 export type TaskId = string & { readonly __brand: "TaskId" };
 export type ConversationId = string & { readonly __brand: "ConversationId" };
 export type MessageId = string & { readonly __brand: "MessageId" };
 export type AgentId = string & { readonly __brand: "AgentId" };
 export type AppId = string & { readonly __brand: "AppId" };
-export type ParticipantSetHash = string & {
-  readonly __brand: "ParticipantSetHash";
-};
 export type Seq = bigint & { readonly __brand: "Seq" };
 
 export type TaskStatus = "active" | "closed";
 
+// Identity hint supplied by the caller at task creation. Determines whether
+// `app_id` is persisted on the row. The task layer carries no DM/group
+// discriminator — classification is a task-manager concern (spec #137).
 export type TaskKind =
-  | { readonly kind: "dm" }
-  | { readonly kind: "group" }
+  | { readonly kind: "plain" }
   | { readonly kind: "app"; readonly appId: AppId };
 
 export interface TaskRecord {
@@ -26,7 +28,6 @@ export interface TaskRecord {
   readonly appId: AppId | null;
   readonly initiatorAgentId: AgentId;
   readonly participantCount: number;
-  readonly participantSetHash: ParticipantSetHash;
 }
 
 export interface ConversationRecord {
@@ -59,11 +60,6 @@ export interface CreateTaskInput {
   readonly kind: TaskKind;
   readonly initiatorAgentId: AgentId;
   readonly participantAgentIds: readonly AgentId[];
-}
-
-export interface CreateTaskOutput {
-  readonly task: TaskRecord;
-  readonly created: boolean;
 }
 
 export interface CreateConversationInput {

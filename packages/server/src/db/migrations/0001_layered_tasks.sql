@@ -5,37 +5,42 @@
 --
 -- This file is the migration skeleton — operations are named but bodies are
 -- filled in by the implement-* downstream modality.
+--
+-- Scope note (spec #136 invariant 3): the task layer carries NO DM-specific
+-- schema. There is no `participant_set_hash` column, no `participant_count`
+-- column, and no partial unique index for DM uniqueness. DM uniqueness and
+-- immutability live in the default DM task manager (spec #137), which
+-- enforces them via SELECT-before-INSERT against the task layer's read
+-- methods (getTask / listParticipants).
 
 -- === 1. DROP existing tables / types =====================================
 -- Drop app_session_conversations, app_session_participants, app_sessions
 -- (slice B removes the session concept — a session IS a task).
 -- Drop message_delivery, messages, conversation_keys, conversation_participants,
 -- conversations in dependency order.
--- Drop the `conversation_type` enum (participant_count replaces it).
+-- Drop the `conversation_type` enum.
 
 -- === 2. CREATE task_status enum ==========================================
 -- Values: 'active', 'closed'.
 
 -- === 3. CREATE tasks table ===============================================
--- Columns (spec goal 1):
+-- Columns (spec goal 1 — identity + lifecycle only; no DM-specific columns):
 --   id UUID PK
 --   status task_status NOT NULL DEFAULT 'active'
 --   started_at TIMESTAMPTZ NOT NULL DEFAULT now()
 --   ended_at TIMESTAMPTZ NULL
---   app_id TEXT NULL                              -- NULL for plain DM / group
+--   app_id TEXT NULL                              -- NULL for non-app tasks
 --   initiator_agent_id UUID NOT NULL REFERENCES agents(id)
---   participant_count INT NOT NULL                -- denormalized
---   participant_set_hash CHAR(64) NOT NULL        -- sha256 hex, denormalized
---   conversation_count INT NOT NULL DEFAULT 0     -- needed for DM-shape guard
+-- No participant_count, no participant_set_hash, no conversation_count.
+-- participant_count is computed at read time from task_participants when
+-- getTask / listParticipants need it.
 
 -- === 4. CREATE task_participants table ===================================
 -- (task_id, agent_id) PK; FK to tasks and agents.
 
--- === 5. CREATE partial unique index on tasks =============================
--- CREATE UNIQUE INDEX idx_tasks_dm_uniqueness
---   ON tasks (participant_set_hash)
---   WHERE app_id IS NULL AND participant_count = 2;
--- Enforces spec AC 3 at the DB level.
+-- === 5. (intentionally empty) ============================================
+-- No partial unique index for DM uniqueness at the task layer. DM
+-- idempotence is enforced by the DM task manager (spec #137).
 
 -- === 6. CREATE conversations table =======================================
 -- Columns (spec goal 2 — no `type` field):

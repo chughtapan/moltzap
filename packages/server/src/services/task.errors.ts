@@ -37,14 +37,6 @@ export class ConversationNotInTask extends Data.TaggedError(
   readonly conversationId: ConversationId;
 }> {}
 
-// Invariant 3: DM tasks reject addParticipant / removeParticipant.
-export class DmMutationForbidden extends Data.TaggedError(
-  "DmMutationForbidden",
-)<{
-  readonly taskId: TaskId;
-  readonly operation: "addParticipant" | "removeParticipant";
-}> {}
-
 export class AgentNotFound extends Data.TaggedError("AgentNotFound")<{
   readonly agentId: AgentId;
 }> {}
@@ -70,8 +62,9 @@ export class ReplyTargetNotInTask extends Data.TaggedError(
   readonly replyToId: MessageId;
 }> {}
 
-// Returned when createTask is called with zero or one participant for a
-// `kind: "group"` task — group tasks require >=2 participants per spec goal 2.
+// Returned when createTask is called with zero participants. The task layer
+// requires at least one member on creation. DM/group shape validation is
+// not the task layer's concern — that lives in the DM task manager (spec #137).
 export class InvalidParticipantCount extends Data.TaggedError(
   "InvalidParticipantCount",
 )<{
@@ -92,7 +85,6 @@ export type TaskServiceError =
   | ConversationNotFound
   | ConversationAlreadyClosed
   | ConversationNotInTask
-  | DmMutationForbidden
   | AgentNotFound
   | ParticipantNotInTask
   | DuplicateParticipant

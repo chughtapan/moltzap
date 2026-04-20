@@ -5,6 +5,10 @@
 // `conversations`, and `messages` tables. No routing, no hook dispatch, no
 // payload parsing (invariant 4, spec #136).
 //
+// The task layer has no concept of DM vs group (invariant 3). DM uniqueness
+// and immutability are enforced by the default DM task manager (spec #137)
+// before calls reach this service.
+//
 // Every method returns `Effect<T, TaskServiceError, never>`. No method throws;
 // the E channel is exhaustive and discriminated (principle 3, principle 4).
 
@@ -16,7 +20,6 @@ import type {
   ConversationRecord,
   CreateConversationInput,
   CreateTaskInput,
-  CreateTaskOutput,
   GetMessagesInput,
   GetMessagesSinceInput,
   MessagePage,
@@ -30,14 +33,13 @@ import type { TaskServiceError } from "./task.errors.js";
 export class TaskService {
   constructor(private readonly db: Db) {}
 
-  // 1/12 — createTask.
-  // Computes `participant_set_hash`, inserts (tasks, task_participants) in one
-  // transaction, and relies on the partial unique index (spec AC 3) to
-  // collapse duplicate DMs. On index conflict for a DM, returns the existing
-  // task with `created: false`.
+  // 1/12 — createTask. Unconditionally inserts a new task row + its
+  // task_participants rows in one transaction. No DM uniqueness collapse
+  // here (the task layer has no DM concept); the DM task manager handles
+  // idempotence via SELECT-before-INSERT using listParticipants / getTask.
   createTask(
     input: CreateTaskInput,
-  ): Effect.Effect<CreateTaskOutput, TaskServiceError, never> {
+  ): Effect.Effect<TaskRecord, TaskServiceError, never> {
     throw new Error("not implemented");
   }
 
@@ -60,7 +62,9 @@ export class TaskService {
     throw new Error("not implemented");
   }
 
-  // 5/12 — addParticipant. Rejects with DmMutationForbidden on DM-shape tasks.
+  // 5/12 — addParticipant. Mechanical CRUD — inserts into task_participants
+  // regardless of the current participant count. DM-shape rejection is a
+  // task-manager concern (spec #137), not the task layer's.
   addParticipant(
     taskId: TaskId,
     agentId: AgentId,
@@ -68,7 +72,8 @@ export class TaskService {
     throw new Error("not implemented");
   }
 
-  // 6/12 — removeParticipant. Same DM-shape guard as addParticipant.
+  // 6/12 — removeParticipant. Mechanical CRUD counterpart to addParticipant;
+  // no DM-shape check.
   removeParticipant(
     taskId: TaskId,
     agentId: AgentId,
@@ -98,7 +103,8 @@ export class TaskService {
   }
 
   // 10/12 — getTask. Metadata read: returns identity and lifecycle fields of
-  // the task row. Narrow error channel: TaskNotFound | TaskDbError.
+  // the task row plus participant_count (computed at read time from
+  // task_participants). Narrow error channel: TaskNotFound | TaskDbError.
   getTask(
     taskId: TaskId,
   ): Effect.Effect<TaskRecord, TaskServiceError, never> {
