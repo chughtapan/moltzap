@@ -36,7 +36,7 @@ export class WebhookHttpError extends Data.TaggedError("WebhookHttpError")<{
   readonly status: number;
   readonly body: string;
 }> {
-  get message(): string {
+  override get message(): string {
     return `Webhook ${this.event} returned ${this.status}: ${this.body}`;
   }
 }
@@ -53,7 +53,7 @@ export class WebhookTimeoutError extends Data.TaggedError(
   readonly event: string;
   readonly timeoutMs: number;
 }> {
-  get message(): string {
+  override get message(): string {
     return `Webhook ${this.event} timed out after ${this.timeoutMs}ms`;
   }
 }
@@ -70,7 +70,7 @@ export class WebhookNetworkError extends Data.TaggedError(
   readonly event: string;
   readonly cause: unknown;
 }> {
-  get message(): string {
+  override get message(): string {
     const detail =
       this.cause instanceof Error ? this.cause.message : String(this.cause);
     return `Webhook ${this.event} failed: ${detail}`;
@@ -87,7 +87,7 @@ export class WebhookDestroyedError extends Data.TaggedError(
 )<{
   readonly requestId: string;
 }> {
-  get message(): string {
+  override get message(): string {
     return `Webhook adapter destroyed while request ${this.requestId} was pending`;
   }
 }
@@ -103,7 +103,7 @@ export class WebhookDecodeError extends Data.TaggedError("WebhookDecodeError")<{
   readonly event: string;
   readonly cause: unknown;
 }> {
-  get message(): string {
+  override get message(): string {
     const detail =
       this.cause instanceof Error ? this.cause.message : String(this.cause);
     return `Webhook ${this.event} response did not match schema: ${detail}`;

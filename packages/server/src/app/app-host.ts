@@ -93,7 +93,7 @@ export class PermissionDeniedError extends Data.TaggedError(
 )<{
   readonly resource: string;
 }> {
-  get message(): string {
+  override get message(): string {
     return `Permission denied for resource: ${this.resource}`;
   }
 }
@@ -103,7 +103,7 @@ export class PermissionTimeoutError extends Data.TaggedError(
 )<{
   readonly resource: string;
 }> {
-  get message(): string {
+  override get message(): string {
     return `Permission timeout for resource: ${this.resource}`;
   }
 }
@@ -111,7 +111,7 @@ export class PermissionTimeoutError extends Data.TaggedError(
 class AttestationTimeoutError extends Data.TaggedError("AttestationTimeout")<{
   readonly challengeId: string;
 }> {
-  get message(): string {
+  override get message(): string {
     return "attestation timeout";
   }
 }
@@ -119,7 +119,7 @@ class AttestationTimeoutError extends Data.TaggedError("AttestationTimeout")<{
 class SkillAttestationError extends Data.TaggedError("SkillAttestation")<{
   readonly reason: string;
 }> {
-  get message(): string {
+  override get message(): string {
     return this.reason;
   }
 }
