@@ -5,6 +5,10 @@ import {
   OpenClawAdapter,
   type OpenClawAdapterDeps,
 } from "../runtimes/openclaw-adapter.js";
+import {
+  NanoclawAdapter,
+  type NanoclawAdapterDeps,
+} from "../runtimes/nanoclaw-adapter.js";
 import type {
   Runtime,
   SpawnInput,
@@ -34,7 +38,7 @@ function stubDeps(): OpenClawAdapterDeps {
 
 function brand<T extends string>(
   value: string,
-  tag: T,
+  _tag: T,
 ): string & { readonly __brand: T } {
   return value as string & { readonly __brand: T };
 }
@@ -275,6 +279,40 @@ describe("SpawnFailed", () => {
     expect(err._tag).toBe("SpawnFailed");
     expect(err.agentName).toBe("alice");
     expect(err.cause).toBe(cause);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// NanoclawAdapter — interface contract
+// ---------------------------------------------------------------------------
+
+function stubNanoclawDeps(): NanoclawAdapterDeps {
+  return { coreApp: stubCoreApp() };
+}
+
+describe("NanoclawAdapter", () => {
+  it("satisfies the Runtime interface (structural typing)", () => {
+    const adapter: Runtime = new NanoclawAdapter(stubNanoclawDeps());
+
+    expect(typeof adapter.spawn).toBe("function");
+    expect(typeof adapter.waitUntilReady).toBe("function");
+    expect(typeof adapter.teardown).toBe("function");
+    expect(typeof adapter.getLogs).toBe("function");
+    expect(typeof adapter.getInboundMarker).toBe("function");
+  });
+
+  it("getLogs returns empty slice when not spawned", () => {
+    const adapter = new NanoclawAdapter(stubNanoclawDeps());
+    const slice: LogSlice = adapter.getLogs(0);
+    expect(slice.text).toBe("");
+    expect(slice.nextOffset).toBe(0);
+  });
+
+  it("getInboundMarker returns non-empty string", () => {
+    const adapter = new NanoclawAdapter(stubNanoclawDeps());
+    const marker = adapter.getInboundMarker();
+    expect(typeof marker).toBe("string");
+    expect(marker.length).toBeGreaterThan(0);
   });
 });
 
