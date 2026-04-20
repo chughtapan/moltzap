@@ -8,6 +8,12 @@
  */
 
 import { Schema } from "effect";
+// Reach into the network sibling for EndpointAddress. Slice A's
+// `@moltzap/protocol/network` is the canonical home. Importing the type-only
+// reference preserves the one-way protocol dependency (task may import from
+// network; network may NOT import from task — enforced by ESLint rule per
+// spec #135).
+import type { EndpointAddress } from "../network/index.js";
 import type { Part } from "./index.js";
 
 /* ── Branded IDs ─────────────────────────────────────────────────────────── */
@@ -45,8 +51,15 @@ export const TaskMessagePayloadSchema: Schema.Schema<TaskMessagePayload, unknown
 
 /* ── Exhaustive action set the TM may return ─────────────────────────────── */
 
+// Forward targets are wire-layer addresses, not agent ids. The task layer's
+// listParticipants returns AgentId[]; the TM resolves those to
+// EndpointAddress values via the network-layer identity service before
+// constructing a Forward action. This matches NetworkDeliveryService.send,
+// which only accepts EndpointAddress. The AgentId → EndpointAddress
+// resolution is a dedicated task-layer service (see §4 data flow) with its
+// own typed error surface; never a hidden best-effort inside this union.
 export type TaskManagerAction =
-  | { readonly _tag: "Forward"; readonly recipients: readonly AgentId[] }
+  | { readonly _tag: "Forward"; readonly recipients: readonly EndpointAddress[] }
   | { readonly _tag: "Block"; readonly reason: string }
   | { readonly _tag: "Modify"; readonly payload: TaskMessagePayload }
   | { readonly _tag: "Close"; readonly reason: string }
@@ -55,6 +68,16 @@ export type TaskManagerAction =
       readonly conversationId: ConversationId;
       readonly participantIds: readonly AgentId[];
     };
+
+// Typed attempt vocabulary for task-layer mutations that must be validated
+// against the TM policy BEFORE they hit the CRUD surface. Distinct from
+// TaskManagerAction (which is a TM→task-layer RETURN type); this is a
+// task-layer→TM CALL-GATE type. DmImmutableError on addParticipant lives
+// here, keeping DM policy out of the task-layer CRUD entirely.
+export type MutationAttempt =
+  | { readonly _tag: "AddParticipantAttempt"; readonly taskId: TaskId; readonly agentId: AgentId }
+  | { readonly _tag: "RemoveParticipantAttempt"; readonly taskId: TaskId; readonly agentId: AgentId }
+  | { readonly _tag: "CloseTaskAttempt"; readonly taskId: TaskId };
 
 export const TaskManagerActionSchema: Schema.Schema<TaskManagerAction, unknown> = Schema.declare(
   (_u: unknown): _u is TaskManagerAction => {

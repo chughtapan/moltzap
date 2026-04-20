@@ -2,6 +2,7 @@ import { Context, Data, Effect } from "effect";
 import type {
   AgentId,
   ConversationId,
+  MutationAttempt,
   TaskId,
   TaskManagerAction,
   TaskMessagePayload,
@@ -96,9 +97,16 @@ export interface DefaultDmTaskManager {
     b: AgentId,
   ) => Effect.Effect<TaskId | null, DefaultTmStorageFailed, never>;
 
+  // Validates a task-layer mutation attempt (NOT a TaskManagerAction return
+  // value). `MutationAttempt` is the typed CRUD-call-gate union defined in
+  // @moltzap/protocol/task covering {AddParticipantAttempt,
+  // RemoveParticipantAttempt, CloseTaskAttempt}. The task-layer wire surface
+  // calls this BEFORE invoking the corresponding TaskService mutation, and
+  // bounces the caller with DmImmutableError on reject. This removes the
+  // round-3 special case `kind === "default-dm"` from the task-layer code path.
   readonly validateAction: (
     taskId: TaskId,
-    action: TaskManagerAction,
+    attempt: MutationAttempt,
   ) => Effect.Effect<void, DmImmutableError, never>;
 }
 

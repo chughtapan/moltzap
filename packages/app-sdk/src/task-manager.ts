@@ -92,18 +92,24 @@ export class CreateTaskError extends Data.TaggedError("CreateTaskError")<{
 
 /**
  * SDK helpers that bind a task to the correct TM at creation time (spec #137
- * round-2 goal 2). Each sends a `tmKind` discriminator on the `task/create`
- * RPC so the server mints the right default-DM / default-group / app endpoint.
+ * round-2 goal 2). Each is a thin wrapper around exactly one RPC call:
+ * `task/create` with a `tmKind` discriminator. The server owns lookup, create,
+ * and registration atomically inside that single RPC — the SDK never calls
+ * `DefaultDmTaskManager.lookupExistingDm` or any other server-side helper
+ * directly. Response carries the task id (new or pre-existing).
  *
- *   - `createDmTask(A, B)`       → binds to the platform default DM TM.
- *                                   Before calling `task/create` the server
- *                                   consults `DefaultDmTaskManager.lookupExistingDm`
- *                                   and returns the existing task id on hit
- *                                   (best-effort; see spec #137 Q7).
- *   - `createGroupTask([...])`   → binds to the platform default group
- *                                   passthrough TM.
- *   - `createAppTask(appId, ...)`→ binds to the app's TM registered via
- *                                   `registerTaskManager`.
+ *   - `createDmTask(A, B)`       → `task/create { tmKind: "default-dm", participants: [A, B] }`.
+ *                                   Server-side handler: (1) looks up existing DM for
+ *                                   (A, B) via the default DM TM's internal
+ *                                   lookup; (2) returns that task id if found;
+ *                                   (3) else calls `TaskService.createTask` +
+ *                                   `TaskManagerRegistry.register` in one
+ *                                   transaction. No client-side cross-layer call.
+ *   - `createGroupTask([...])`   → `task/create { tmKind: "default-group", participants: [...] }`.
+ *   - `createAppTask(appId, ...)`→ `task/create { tmKind: "app", appId, participants: [...] }`.
+ *                                   Server-side handler registers the calling
+ *                                   app as the TM via its prior
+ *                                   `registerTaskManager` handle.
  */
 export const createDmTask = (
   _a: AgentId,

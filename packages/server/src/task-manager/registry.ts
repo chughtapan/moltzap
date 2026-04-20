@@ -24,6 +24,16 @@ export class TaskManagerAddressTaken extends Data.TaggedError("TaskManagerAddres
   readonly address: TaskManagerAddress;
 }> {}
 
+// Emitted by register() when the taskId is already bound to a TM endpoint
+// (distinct from AddressTaken, which is about the address string). The taskId
+// conflict path was previously untyped — codex round-3 finding #4.
+export class TaskManagerTaskAlreadyRegistered extends Data.TaggedError(
+  "TaskManagerTaskAlreadyRegistered",
+)<{
+  readonly taskId: TaskId;
+  readonly existingAddress: TaskManagerAddress;
+}> {}
+
 export class TaskManagerTaskNotFound extends Data.TaggedError("TaskManagerTaskNotFound")<{
   readonly taskId: TaskId;
 }> {}
@@ -40,6 +50,7 @@ export class TaskManagerDispatchFailed extends Data.TaggedError("TaskManagerDisp
 
 export type TaskManagerRegistryError =
   | TaskManagerAddressTaken
+  | TaskManagerTaskAlreadyRegistered
   | TaskManagerTaskNotFound
   | TaskManagerAddressNotFound;
 
@@ -50,7 +61,13 @@ export type TaskManagerInvokeError =
 export interface TaskManagerRegistry {
   readonly register: (
     registration: TaskManagerEndpointRegistration,
-  ) => Effect.Effect<void, TaskManagerAddressTaken | TaskManagerTaskNotFound, never>;
+  ) => Effect.Effect<
+    void,
+    | TaskManagerAddressTaken
+    | TaskManagerTaskAlreadyRegistered
+    | TaskManagerTaskNotFound,
+    never
+  >;
 
   readonly resolveByTask: (
     taskId: TaskId,
