@@ -39,6 +39,7 @@ const REPO_ROOT = path.resolve(
   "..",
   "..",
   "..",
+  "..",
 );
 
 const CHANNEL_DIST = path.join(REPO_ROOT, "packages", "openclaw-channel");
