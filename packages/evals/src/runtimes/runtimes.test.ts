@@ -128,7 +128,7 @@ describe("OpenClawAdapter.getInboundMarker", () => {
 
   it("returns the expected openclaw-channel inbound log prefix", () => {
     const adapter = new OpenClawAdapter(stubDeps());
-    expect(adapter.getInboundMarker()).toBe("MoltZap: inbound from agent:");
+    expect(adapter.getInboundMarker()).toBe("inbound from agent:");
   });
 });
 

@@ -158,7 +158,7 @@ export class OpenClawAdapter implements Runtime {
   }
 
   getInboundMarker(): string {
-    return "MoltZap: inbound from agent:";
+    return "inbound from agent:";
   }
 
   /** Async teardown: SIGTERM → await exit event (≤10s) → SIGKILL → rm workdir. */
