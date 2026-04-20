@@ -32,11 +32,19 @@ export class AttachParticipantInvalid extends Data.TaggedError(
   readonly reason: "not_a_task_participant" | "duplicate" | "unknown_agent";
 }> {}
 
+export class AttachPartialFailure extends Data.TaggedError("AttachPartialFailure")<{
+  readonly taskId: TaskId;
+  readonly conversationId: ConversationId;
+  readonly step: "create_conversation" | "add_participant";
+  readonly detail: string;
+}> {}
+
 export type AttachConversationError =
   | AttachUnauthorized
   | AttachTaskNotFound
   | AttachConversationConflict
-  | AttachParticipantInvalid;
+  | AttachParticipantInvalid
+  | AttachPartialFailure;
 
 export interface AttachCallerIdentity {
   readonly callerAgentId: AgentId | null;
@@ -55,6 +63,15 @@ export interface AttachConversationResult {
   readonly participantIds: readonly AgentId[];
 }
 
+/**
+ * Authority-checked task-layer RPC. Calls slice B `TaskService.createConversation`
+ * then `TaskService.addParticipant` per participant, sequentially. Partial
+ * failure after `createConversation` succeeds but before all `addParticipant`
+ * calls finish surfaces as `AttachPartialFailure`; the caller is responsible
+ * for reconciliation. Cross-call atomicity (a single DB transaction around the
+ * two-step sequence) is NOT guaranteed and is an open ratchet to spec #136 if
+ * stronger guarantees become necessary.
+ */
 export interface AttachConversationHandler {
   readonly attach: (
     params: AttachConversationParams,

@@ -3,11 +3,21 @@ import type {
   AgentId,
   AppId,
   TaskId,
+  TaskManagerAction,
   TaskManagerAddress,
   TaskManagerEndpointRegistration,
   TaskMessagePayload,
 } from "@moltzap/protocol/task";
-import type { TaskManagerAction } from "@moltzap/protocol/task";
+import type { EndpointAddress } from "../app/network-layer.js";
+
+/**
+ * Narrowing coercion: a `TaskManagerAddress` IS an endpoint address in the
+ * slice-A sense. The branded subtype is re-branded at the boundary where a
+ * `NetworkDeliveryService.send` call needs an `EndpointAddress`.
+ */
+export const toEndpointAddress = (_address: TaskManagerAddress): EndpointAddress => {
+  throw new Error("not implemented");
+};
 
 export class TaskManagerAddressTaken extends Data.TaggedError("TaskManagerAddressTaken")<{
   readonly taskId: TaskId;

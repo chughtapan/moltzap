@@ -1,4 +1,16 @@
+/**
+ * Task-manager public surface — slice C additions to `@moltzap/protocol/task`.
+ *
+ * Re-exported from `./index.ts` (the entry point slice A declares). An intra-
+ * `/task/` import; the slice A ESLint `no-restricted-imports` rule targets
+ * `@moltzap/protocol/network` ↔ `@moltzap/protocol/task` cross-imports only
+ * and does not restrict intra-`/task/*` references.
+ */
+
 import { Schema } from "effect";
+import type { Part } from "./index.js";
+
+/* ── Branded IDs ─────────────────────────────────────────────────────────── */
 
 export type TaskManagerAddress = string & { readonly __brand: "TaskManagerAddress" };
 export type TaskId = string & { readonly __brand: "TaskId" };
@@ -13,20 +25,24 @@ export const TaskManagerAddressSchema: Schema.Schema<TaskManagerAddress, string>
   { identifier: "TaskManagerAddress" },
 );
 
+/* ── Payload the sender publishes to a TM address ────────────────────────── */
+
 export interface TaskMessagePayload {
   readonly taskId: TaskId;
   readonly conversationId: ConversationId;
   readonly senderAgentId: AgentId;
-  readonly parts: readonly unknown[];
+  readonly parts: readonly Part[];
   readonly replyToId?: MessageId;
 }
 
 export const TaskMessagePayloadSchema: Schema.Schema<TaskMessagePayload, unknown> = Schema.declare(
-  (u: unknown): u is TaskMessagePayload => {
+  (_u: unknown): _u is TaskMessagePayload => {
     throw new Error("not implemented");
   },
   { identifier: "TaskMessagePayload" },
 );
+
+/* ── Exhaustive action set the TM may return ─────────────────────────────── */
 
 export type TaskManagerAction =
   | { readonly _tag: "Forward"; readonly recipients: readonly AgentId[] }
@@ -40,11 +56,13 @@ export type TaskManagerAction =
     };
 
 export const TaskManagerActionSchema: Schema.Schema<TaskManagerAction, unknown> = Schema.declare(
-  (u: unknown): u is TaskManagerAction => {
+  (_u: unknown): _u is TaskManagerAction => {
     throw new Error("not implemented");
   },
   { identifier: "TaskManagerAction" },
 );
+
+/* ── Endpoint-registration record, stored at createTask time ─────────────── */
 
 export interface TaskManagerEndpointRegistration {
   readonly taskId: TaskId;

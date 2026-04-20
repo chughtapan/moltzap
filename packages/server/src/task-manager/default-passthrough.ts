@@ -34,6 +34,12 @@ export type DefaultPassthroughError =
   | DefaultPassthroughFanoutFailed
   | DefaultPassthroughTaskClosed;
 
+/**
+ * The platform-default passthrough TM runs in-process with the task layer
+ * (no network hop). It calls slice B `TaskService.storeMessage` and returns
+ * `Forward(participants \ sender)`; the task layer is responsible for the
+ * per-recipient `NetworkDeliveryService.send` fan-out.
+ */
 export interface DefaultPassthroughTaskManager {
   readonly handle: (
     payload: TaskMessagePayload,
