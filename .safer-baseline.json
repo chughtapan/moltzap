@@ -1,0 +1,16 @@
+{
+  "@typescript-eslint/no-magic-numbers": 440,
+  "agent-code-guard/promise-type": 84,
+  "agent-code-guard/async-keyword": 62,
+  "agent-code-guard/no-raw-throw-new-error": 25,
+  "@typescript-eslint/no-unused-vars": 15,
+  "agent-code-guard/bare-catch": 14,
+  "eslint-comments/require-description": 10,
+  "sonarjs/no-duplicate-string": 7,
+  "@typescript-eslint/no-explicit-any": 6,
+  "agent-code-guard/no-raw-sql": 6,
+  "agent-code-guard/record-cast": 4,
+  "agent-code-guard/then-chain": 3,
+  "agent-code-guard/no-manual-enum-cast": 1,
+  "agent-code-guard/no-hardcoded-secrets": 1
+}
