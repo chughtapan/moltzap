@@ -26,7 +26,7 @@ import {
   RpcServerError,
   RpcTimeoutError,
 } from "./runtime/errors.js";
-import { decodeFrame } from "./runtime/frame.js";
+import { decodeFrames } from "./runtime/frame.js";
 
 /**
  * Default per-RPC timeout. Exported so tests driving `TestClock` can match
@@ -518,7 +518,7 @@ export class MoltZapWsClient {
    * frames dispatch to `onEvent` after the shape check. */
   private handleIncoming(raw: string): Effect.Effect<void> {
     return Effect.gen(this, function* () {
-      const decoded = yield* decodeFrame(raw).pipe(
+      const decodedFrames = yield* decodeFrames(raw).pipe(
         Effect.catchTag("MalformedFrameError", (err) =>
           Effect.gen(this, function* () {
             const n = yield* Ref.updateAndGet(this.malformedRef, (c) => c + 1);
@@ -532,63 +532,63 @@ export class MoltZapWsClient {
           }),
         ),
       );
-      if (decoded === null) return;
+      if (decodedFrames === null) return;
 
-      if (decoded._tag === "Response") {
-        const { id, result, error } = decoded;
-        const pending = yield* Ref.modify(this.pendingRef, (m) => {
-          const entry = HashMap.get(m, id);
-          return entry._tag === "Some"
-            ? [entry.value, HashMap.remove(m, id)]
-            : [null, m];
-        });
-        if (pending === null) return;
+      for (const decoded of decodedFrames) {
+        if (decoded._tag === "Response") {
+          const { id, result, error } = decoded;
+          const pending = yield* Ref.modify(this.pendingRef, (m) => {
+            const entry = HashMap.get(m, id);
+            return entry._tag === "Some"
+              ? [entry.value, HashMap.remove(m, id)]
+              : [null, m];
+          });
+          if (pending === null) continue;
 
-        if (error) {
-          yield* Deferred.fail(
-            pending,
-            new RpcServerError({
-              code: typeof error.code === "number" ? error.code : -32603,
-              message: error.message ?? MSG_RPC_ERROR_FALLBACK,
-              data: error.data,
-            }),
-          );
-        } else {
-          yield* Deferred.succeed(pending, result);
-        }
-        return;
-      }
-
-      if (decoded._tag === "Event") {
-        if (this.options.onEvent) {
-          try {
-            this.options.onEvent(decoded.frame);
-          } catch (err) {
-            this.options.logger?.error("onEvent handler threw", err);
+          if (error) {
+            yield* Deferred.fail(
+              pending,
+              new RpcServerError({
+                code: typeof error.code === "number" ? error.code : -32603,
+                message: error.message ?? MSG_RPC_ERROR_FALLBACK,
+                data: error.data,
+              }),
+            );
+          } else {
+            yield* Deferred.succeed(pending, result);
           }
+          continue;
         }
-        // Deliver to the most recent matching `waitForEvent` awaiter;
-        // otherwise buffer for later consumption via `drainEvents` or a
-        // future `waitForEvent`.
-        const delivered = yield* Ref.modify(this.eventWaitersRef, (m) => {
-          const bucket = HashMap.get(m, decoded.frame.event);
-          if (bucket._tag === "None" || bucket.value.length === 0) {
-            return [null as EventWaiter | null, m];
+
+        if (decoded._tag === "Event") {
+          if (this.options.onEvent) {
+            try {
+              this.options.onEvent(decoded.frame);
+            } catch (err) {
+              this.options.logger?.error("onEvent handler threw", err);
+            }
           }
-          const arr = bucket.value;
-          const chosen = arr[arr.length - 1]!;
-          const rest = arr.slice(0, -1);
-          const nextMap =
-            rest.length === 0
-              ? HashMap.remove(m, decoded.frame.event)
-              : HashMap.set(m, decoded.frame.event, rest);
-          return [chosen, nextMap];
-        });
-        if (delivered !== null) {
-          yield* Deferred.succeed(delivered.deferred, decoded.frame).pipe(
-            Effect.ignore,
-          );
-        } else {
+          const delivered = yield* Ref.modify(this.eventWaitersRef, (m) => {
+            const bucket = HashMap.get(m, decoded.frame.event);
+            if (bucket._tag === "None" || bucket.value.length === 0) {
+              return [null as EventWaiter | null, m];
+            }
+            const arr = bucket.value;
+            const chosen = arr[arr.length - 1]!;
+            const rest = arr.slice(0, -1);
+            const nextMap =
+              rest.length === 0
+                ? HashMap.remove(m, decoded.frame.event)
+                : HashMap.set(m, decoded.frame.event, rest);
+            return [chosen, nextMap];
+          });
+          if (delivered !== null) {
+            yield* Deferred.succeed(delivered.deferred, decoded.frame).pipe(
+              Effect.ignore,
+            );
+            continue;
+          }
+
           yield* Ref.update(this.eventsBufferRef, (xs) => {
             const appended = [...xs, decoded.frame];
             return appended.length > MAX_EVENT_BUFFER
