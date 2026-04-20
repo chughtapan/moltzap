@@ -55,14 +55,25 @@ export type RpcError = {
   readonly data?: unknown;
 };
 
-/* ── Network primitives — endpoint + opaque payload ─────────────────────── */
+/* ── Actor-model identity + endpoint types (arch-F) ─────────────────────── */
 
 /**
- * Branded identifier for a network-addressable endpoint (an agent, a session
- * participant, a session). Decoded at the network boundary; passed opaquely
- * by the task layer. Never parsed at the network layer beyond schema check.
+ * Actor-model types live in `./actor-model.ts`. Re-exported here so consumers
+ * reach them via `@moltzap/protocol/network` without a deeper subpath. The
+ * flat package barrel (`packages/protocol/src/index.ts`) MUST NOT re-export
+ * these types; spec #135 Invariant 18 binds this constraint.
  */
-export type EndpointAddress = string & { readonly __brand: "EndpointAddress" };
+export type {
+  UserId,
+  AgentId,
+  EndpointAddress,
+  EndpointKind,
+  EndpointRegistration,
+  AuthenticatedIdentity,
+  ConversationPeer,
+} from "./actor-model.js";
+
+/* ── Network primitives — opaque payload ────────────────────────────────── */
 
 /**
  * Opaque payload bytes carried end-to-end by the network layer. The network
