@@ -225,7 +225,7 @@ async function runChat(): Promise<ChatResult> {
     const bobOffset = bob.getLogs(0).nextOffset;
 
     const aliceService = new MoltZapService({
-      serverUrl: server.wsUrl,
+      serverUrl: server.baseUrl,
       agentKey: senderReg.apiKey,
     });
     services.push(aliceService);
