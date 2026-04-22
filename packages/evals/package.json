@@ -54,7 +54,7 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.101",
     "@sinclair/typebox": "^0.34.0",
-    "cc-judge": "git+https://github.com/chughtapan/cc-judge.git#39debed2606f2da7455e7cdc7ee78e9b46c4e0de",
+    "cc-judge": "git+https://github.com/chughtapan/cc-judge.git#cf049f0e51321704c79bdfd50f7b6ec04b6fd40b",
     "dotenv": "^16.0.0",
     "effect": "3.21.0",
     "pg": "^8.13.0",

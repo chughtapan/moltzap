@@ -71,7 +71,7 @@ describe("runE2EEvals shared contract against actual cc-judge", () => {
           scenarios: [scenario.id],
           agentModelId,
           runtime: "openclaw",
-          contractMode: "shared",
+          executionMode: "cc-judge",
           resultsDir: outputDir,
           cleanResults: true,
         }),

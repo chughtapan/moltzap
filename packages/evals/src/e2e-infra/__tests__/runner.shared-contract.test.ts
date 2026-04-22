@@ -5,7 +5,6 @@ import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TIER5_SCENARIOS } from "../scenarios.js";
 import { telemetry } from "../telemetry.js";
-import { deriveJudgmentRunId } from "../judgment-bundle.js";
 
 afterEach(() => {
   telemetry.reset();
@@ -21,9 +20,10 @@ describe("runE2EEvals shared contract", () => {
       const serverCore = await import("@moltzap/server-core/test-utils");
       const client = await import("@moltzap/client");
       const clientTest = await import("@moltzap/client/test");
-      const agentFleet = await import("../agent-fleet.js");
+      const evalRuntime = await import("../eval-runtime.js");
       const judge = await import("../llm-judge.js");
       const report = await import("../report.js");
+      const sharedContract = await import("../shared-contract-evaluation.js");
 
       vi.spyOn(serverCore, "startCoreTestServer").mockResolvedValue({
         baseUrl: "http://core.test",
@@ -31,9 +31,28 @@ describe("runE2EEvals shared contract", () => {
       } as never);
       vi.spyOn(serverCore, "stopCoreTestServer").mockResolvedValue(undefined);
       vi.spyOn(serverCore, "resetCoreTestDb").mockResolvedValue(undefined);
-      vi.spyOn(agentFleet, "launchFleet").mockResolvedValue({
-        stopAll: vi.fn().mockResolvedValue(undefined),
-      } as never);
+      vi.spyOn(evalRuntime, "launchEvalRuntime").mockReturnValue(
+        Effect.succeed({
+          name: "eval-target-agent",
+          waitUntilReady: () => Effect.succeed({ _tag: "Ready" as const }),
+          teardown: () => Effect.succeed(undefined),
+          getLogs: () => ({ text: "", nextOffset: 0 }),
+          getInboundMarker: () => "inbound from agent:",
+        }),
+      );
+      vi.spyOn(sharedContract, "runSharedContractEvaluation").mockReturnValue(
+        Effect.succeed({
+          result: {
+            results: [],
+            summary: {
+              total: 1,
+              passed: 1,
+              failed: 0,
+              avgLatencyMs: 0,
+            },
+          },
+        }) as never,
+      );
       vi.spyOn(clientTest, "registerAgent").mockImplementation((_, name) =>
         Effect.succeed({
           agentId: `${name}-id`,
@@ -74,40 +93,23 @@ describe("runE2EEvals shared contract", () => {
           scenarios: ["EVAL-018"],
           agentModelId: "openclaw-eval",
           runtime: "openclaw",
-          contractMode: "shared",
           resultsDir: outputDir,
           cleanResults: true,
           signal: AbortSignal.abort(),
         }),
       );
 
-      const runId = deriveJudgmentRunId({
-        scenarioId: "EVAL-018",
-        runNumber: 1,
-        modelName: "openclaw-eval",
-      });
-      const bundleDir = path.join(outputDir, "bundles");
-      const bundleJsonPath = path.join(bundleDir, `${runId}.json`);
-      const bundleYamlPath = path.join(bundleDir, `${runId}.yaml`);
-      const summaryPath = path.join(outputDir, "summary.md");
-      const bundle = JSON.parse(fs.readFileSync(bundleJsonPath, "utf8")) as {
-        metadata: { contractMode: string };
-        events: Array<{ type: string }>;
-      };
-
       expect(result.summary.total).toBe(1);
-      expect(result.summary.passed).toBe(0);
-      expect(result.summary.failed).toBe(1);
-      expect(fs.existsSync(bundleJsonPath)).toBe(true);
-      expect(fs.existsSync(bundleYamlPath)).toBe(true);
-      expect(fs.existsSync(summaryPath)).toBe(false);
-      expect(bundle.metadata.contractMode).toBe("shared");
-      expect(bundle.events.map((event) => event.type)).toEqual(["phase"]);
+      expect(result.summary.passed).toBe(1);
+      expect(result.summary.failed).toBe(0);
       expect(judge.judgeAgentResponse).not.toHaveBeenCalled();
       expect(judge.analyzeFailures).not.toHaveBeenCalled();
       expect(report.generateReport).not.toHaveBeenCalled();
       expect(serverCore.startCoreTestServer).toHaveBeenCalledTimes(1);
-      expect(agentFleet.launchFleet).toHaveBeenCalledTimes(1);
+      expect(evalRuntime.launchEvalRuntime).toHaveBeenCalledTimes(1);
+      expect(sharedContract.runSharedContractEvaluation).toHaveBeenCalledTimes(
+        1,
+      );
       expect(clientTest.registerAgent).toHaveBeenCalledTimes(3);
     },
   );

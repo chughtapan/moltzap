@@ -24,7 +24,6 @@ describe("telemetry", () => {
         scenarioId: "EVAL-001",
         runNumber: 1,
         runtime: "openclaw",
-        contractMode: "shared",
         modelName: "test-model",
       }),
     );
