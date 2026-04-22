@@ -72,7 +72,6 @@ const EVENTS: SharedContractTelemetryEvent[] = [
     scenarioId: SCENARIO.id,
     runNumber: 1,
     runtime: "openclaw",
-    contractMode: "shared",
     modelName: "openclaw-eval",
   }),
   createMessageSentTelemetryEvent({
@@ -98,7 +97,6 @@ const EVENTS: SharedContractTelemetryEvent[] = [
     runId: "moltzap-EVAL-001-1-openclaw-eval",
     scenarioId: SCENARIO.id,
     runNumber: 1,
-    contractMode: "shared",
     status: "success",
   }),
 ];
@@ -114,7 +112,6 @@ describe("buildJudgmentBundle", () => {
       agentId: "agent-1",
       agentName: "openclaw-eval-agent",
       runtime: "openclaw",
-      contractMode: "shared",
       telemetryEvents: EVENTS,
     });
 
@@ -151,7 +148,6 @@ describe("buildJudgmentBundle", () => {
       agentId: "agent-1",
       agentName: "openclaw-eval-agent",
       runtime: "openclaw",
-      contractMode: "shared",
       telemetryEvents: EVENTS,
     });
 
