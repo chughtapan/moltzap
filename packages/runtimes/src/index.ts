@@ -1,13 +1,4 @@
-export {
-  type Runtime,
-  type RuntimeServerHandle,
-  type SpawnInput,
-  type LogSlice,
-  type ReadyOutcome,
-  type AgentName,
-  type ApiKey,
-  type ServerUrl,
-} from "./runtime.js";
+export * from "./runtime.js";
 
 export {
   type OpenClawAdapterDeps,
@@ -21,4 +12,20 @@ export {
   NanoclawAdapter,
 } from "./nanoclaw-adapter.js";
 
-export { SpawnFailed } from "./errors.js";
+export {
+  SpawnFailed,
+  RuntimeExitedBeforeReady,
+  RuntimeReadyTimedOut,
+  type RuntimeLaunchFailed,
+} from "./errors.js";
+
+export {
+  type RuntimeKind,
+  type RuntimeAgentSpec,
+  type RuntimeFleet,
+  type RuntimeFleetAgent,
+  type RuntimeFleetLaunchOptions,
+  type RuntimeStartOptions,
+  startRuntimeAgent,
+  launchRuntimeFleet,
+} from "./fleet.js";

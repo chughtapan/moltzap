@@ -10,7 +10,7 @@ requirements:
     - Response tone is helpful and professional
     - No error messages or refusal to engage
 harness:
-  module: ../cc-judge-harness.mjs
+  module: ../../runtimes/dist/trace-capture-harness.js
   payload:
     runtime:
       kind: openclaw

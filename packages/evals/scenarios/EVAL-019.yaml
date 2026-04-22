@@ -10,7 +10,7 @@ requirements:
     - Conversation ID matches the DM conversation used for the test
     - Response text is relevant to the query about conversations
 harness:
-  module: ../cc-judge-harness.mjs
+  module: ../../runtimes/dist/trace-capture-harness.js
   payload:
     runtime:
       kind: openclaw

@@ -40,6 +40,7 @@ export class NanoclawAdapter implements Runtime {
         const handle = await startNanoclawRuntime({
           apiKey: input.apiKey,
           serverUrl: input.serverUrl,
+          workspaceFiles: input.workspaceFiles,
         });
         this.state = { handle, spawnInput: input, tornDown: false };
       },

@@ -10,7 +10,7 @@ requirements:
     - Response does not parrot the bystander's message
     - Response is relevant - agent describes its own status or capabilities
 harness:
-  module: ../cc-judge-harness.mjs
+  module: ../../runtimes/dist/trace-capture-harness.js
   payload:
     runtime:
       kind: openclaw

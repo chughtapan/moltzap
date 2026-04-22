@@ -10,7 +10,7 @@ requirements:
     - Both responses have sender ref type 'agent' with a valid agent ID
     - Both responses use the same conversation ID
 harness:
-  module: ../cc-judge-harness.mjs
+  module: ../../runtimes/dist/trace-capture-harness.js
   payload:
     runtime:
       kind: openclaw
