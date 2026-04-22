@@ -14,7 +14,7 @@ afterEach(() => {
 
 describe("runE2EEvals shared contract", () => {
   it(
-    "emits bundles and skips the judge/report stack",
+    "emits bundles and skips the legacy judge path",
     { timeout: 30_000 },
     async () => {
       const serverCore = await import("@moltzap/server-core/test-utils");
