@@ -4,6 +4,8 @@ import type { Message } from "@moltzap/protocol";
 export interface TraceMessageEvent {
   readonly _tag: "Message";
   readonly message: Message;
+  readonly channelKey: string;
+  readonly senderDisplayName: string;
   readonly recipientAgentIds: readonly string[];
   readonly deliveredAgentIds: readonly string[];
 }

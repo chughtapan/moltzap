@@ -52,6 +52,8 @@ describe("trace capture", () => {
       expect(events).toHaveLength(1);
       expect(events[0]).toMatchObject({
         _tag: "Message",
+        channelKey: conv.conversation.id,
+        senderDisplayName: alice.name,
         recipientAgentIds: [bob.agentId],
         deliveredAgentIds: [bob.agentId],
         message: {

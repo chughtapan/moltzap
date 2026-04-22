@@ -221,9 +221,15 @@ export class MessageService {
         }
 
         if (this.traceCapture) {
+          const traceMetadata = yield* this.getTraceMessageMetadata(
+            conversationId,
+            senderAgentId,
+          );
           yield* this.traceCapture.record({
             _tag: "Message",
             message,
+            channelKey: traceMetadata.channelKey,
+            senderDisplayName: traceMetadata.senderDisplayName,
             recipientAgentIds: participants.filter(
               (id) => id !== senderAgentId,
             ),
@@ -496,6 +502,50 @@ export class MessageService {
           dek,
         );
         return { encrypted: ciphertext, iv, tag, dekVersion, kekVersion };
+      }),
+    );
+  }
+
+  private getTraceMessageMetadata(
+    conversationId: string,
+    senderAgentId: string,
+  ): Effect.Effect<
+    { channelKey: string; senderDisplayName: string },
+    RpcFailure
+  > {
+    return catchSqlErrorAsDefect(
+      Effect.gen(this, function* () {
+        const [channelKeyRowOpt, senderRowOpt] = yield* Effect.all([
+          takeFirstOption(
+            this.db
+              .selectFrom("app_session_conversations")
+              .select("conversation_key")
+              .where("conversation_id", "=", conversationId)
+              .limit(1),
+          ),
+          takeFirstOption(
+            this.db
+              .selectFrom("agents")
+              .select(["display_name", "name"])
+              .where("id", "=", senderAgentId)
+              .limit(1),
+          ),
+        ]);
+
+        const channelKey = Option.match(channelKeyRowOpt, {
+          onNone: () => conversationId,
+          onSome: (row) => row.conversation_key,
+        });
+
+        const senderDisplayName = Option.match(senderRowOpt, {
+          onNone: () => senderAgentId,
+          onSome: (row) => row.display_name ?? row.name,
+        });
+
+        return {
+          channelKey,
+          senderDisplayName,
+        };
       }),
     );
   }
