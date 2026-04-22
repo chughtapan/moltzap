@@ -3,6 +3,9 @@
  * analyze. Each phase's own JSDoc documents its shape and concurrency.
  */
 
+import { mkdirSync, writeFileSync } from "node:fs";
+import * as path from "node:path";
+import { stringify as stringifyYaml } from "yaml";
 import { Duration, Effect, Either, Schema } from "effect";
 import {
   startCoreTestServer,
@@ -30,6 +33,11 @@ import {
   type EvalRuntimeSession,
 } from "./eval-runtime.js";
 import { runSharedContractEvaluation } from "./shared-contract-evaluation.js";
+import { runEvalCatalog } from "../runtime-surface/runner.js";
+import type {
+  EvalResultsDirectory,
+  EvalScenarioDocumentPath,
+} from "../runtime-surface/types.js";
 import type {
   EvalScenario,
   GeneratedResult,
@@ -109,6 +117,77 @@ type RawMessage = {
 
 function tailLines(text: string, count: number): string {
   return text.split("\n").slice(-count).join("\n");
+}
+
+function brandRuntimeSurfacePath<T extends string>(
+  value: string,
+  _brand: T,
+): string & { readonly __brand: T } {
+  return value as string & { readonly __brand: T };
+}
+
+function toRuntimeSurfaceDocument(
+  scenario: EvalScenario,
+  runtime: AgentRuntime,
+): Record<string, unknown> {
+  const conversation =
+    scenario.crossConversationProbe !== undefined
+      ? {
+          _tag: "CrossConversation",
+          setupMessage: scenario.setupMessage,
+          followUpMessages: scenario.followUpMessages ?? [],
+          probeMessage: scenario.crossConversationProbe,
+        }
+      : scenario.conversationType === "group"
+        ? {
+            _tag: "GroupConversation",
+            setupMessage: scenario.setupMessage,
+            followUpMessages: scenario.followUpMessages ?? [],
+            bystanderCount: scenario.groupBystanders ?? 0,
+            bystanderMessages: scenario.bystanderMessages ?? [],
+          }
+        : {
+            _tag: "DirectMessage",
+            setupMessage: scenario.setupMessage,
+            followUpMessages: scenario.followUpMessages ?? [],
+          };
+
+  return {
+    id: scenario.id,
+    name: scenario.name,
+    description: scenario.description,
+    runtime,
+    conversation,
+    expectedBehavior: scenario.expectedBehavior,
+    assertions: [],
+  };
+}
+
+function writeRuntimeSurfaceScenarioDocs(input: {
+  readonly scenarios: readonly EvalScenario[];
+  readonly runtime: AgentRuntime;
+  readonly outputDir: string;
+}): readonly [EvalScenarioDocumentPath, ...EvalScenarioDocumentPath[]] {
+  const scenarioDir = path.join(input.outputDir, "runtime-surface-scenarios");
+  mkdirSync(scenarioDir, { recursive: true });
+
+  const documents = input.scenarios.map((scenario) => {
+    const target: EvalScenarioDocumentPath = brandRuntimeSurfacePath(
+      path.join(scenarioDir, `${scenario.id}.yaml`),
+      "EvalScenarioDocumentPath",
+    );
+    writeFileSync(
+      target,
+      stringifyYaml(toRuntimeSurfaceDocument(scenario, input.runtime)),
+    );
+    return target;
+  });
+
+  const [first, ...rest] = documents;
+  if (first === undefined) {
+    throw new Error("runtime-surface staging requires at least one scenario");
+  }
+  return [first, ...rest];
 }
 
 /** Effect-native: send a message and wait for a matching response. */
@@ -912,6 +991,41 @@ async function runE2EEvalsImpl(
       }
     }
 
+    const runtimeSurfaceScenarioPaths = writeRuntimeSurfaceScenarioDocs({
+      scenarios: selectedScenarios,
+      runtime,
+      outputDir,
+    });
+    const runtimeSurfaceReceipt = await Effect.runPromise(
+      runEvalCatalog(
+        {
+          runtimeConfig: { configPath: "moltzap.yaml" } as never,
+          observability: {
+            logger,
+            config: { configPath: "moltzap.yaml" },
+            annotate: <A, E, R>(
+              _context: unknown,
+              effect: Effect.Effect<A, E, R>,
+            ): Effect.Effect<A, E, R> => effect,
+            span: <A, E, R>(
+              _span: unknown,
+              effect: Effect.Effect<A, E, R>,
+            ): Effect.Effect<A, E, R> => effect,
+          } as never,
+        },
+        {
+          scenarioDocuments: runtimeSurfaceScenarioPaths,
+          runtime,
+          resultsDirectory: brandRuntimeSurfacePath(
+            outputDir,
+            "EvalResultsDirectory",
+          ),
+          retainArtifacts: true,
+          requestedMode: executionMode,
+        },
+      ),
+    );
+
     // Run the pipeline as a single Effect so each phase's failures compose.
     const pipeline = Effect.gen(function* () {
       const generated = yield* generatePhase(jobs, {
@@ -926,7 +1040,7 @@ async function runE2EEvalsImpl(
       });
       const validated = validatePhase(generated);
 
-      if (executionMode === "legacy-llm-judge") {
+      if (runtimeSurfaceReceipt.executionMode._tag === "LegacyLlmJudgeExplicit") {
         const evaluated = yield* evaluatePhase(validated, {
           evalModel,
           signal: opts.signal,
@@ -953,7 +1067,9 @@ async function runE2EEvalsImpl(
       return result;
     });
 
-    logger.info(`Execution mode: ${executionMode}`);
+    logger.info(
+      `Execution mode: ${runtimeSurfaceReceipt.executionMode._tag} (${runtimeSurfaceReceipt.stagedHarness.executionInput.pathOrGlob})`,
+    );
     return await Effect.runPromise(pipeline);
   } finally {
     if (runtimeSession) {
