@@ -56,7 +56,9 @@ export class OpenClawAdapter implements Runtime {
           serverUrl: input.serverUrl,
           apiKey: input.apiKey,
           agentName: input.agentName,
+          modelId: input.modelId,
         });
+        seedWorkspaceFiles(stateDir, input.workspaceFiles);
 
         installChannelPlugin(
           stateDir,
@@ -304,6 +306,7 @@ function writeOpenClawConfig(opts: {
   serverUrl: string;
   apiKey: string;
   agentName: string;
+  modelId?: string;
 }): void {
   const serverUrl = opts.serverUrl
     .replace(/\/ws$/, "")
@@ -312,7 +315,7 @@ function writeOpenClawConfig(opts: {
   const config: OpenClawConfig = {
     agents: {
       defaults: {
-        model: { primary: "anthropic/claude-sonnet-4-5" },
+        model: { primary: opts.modelId ?? "anthropic/claude-sonnet-4-5" },
         workspace: path.join(opts.stateDir, "workspace"),
         compaction: { mode: "safeguard" },
       },
@@ -345,6 +348,21 @@ function writeOpenClawConfig(opts: {
     path.join(opts.stateDir, "openclaw.json"),
     JSON.stringify(config, null, 2),
   );
+}
+
+function seedWorkspaceFiles(
+  stateDir: string,
+  workspaceFiles: SpawnInput["workspaceFiles"],
+): void {
+  if (workspaceFiles === undefined) {
+    return;
+  }
+  const workspaceDir = path.join(stateDir, "workspace");
+  for (const file of workspaceFiles) {
+    const destination = path.join(workspaceDir, file.relativePath);
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
+    fs.writeFileSync(destination, file.content);
+  }
 }
 
 function installChannelPlugin(

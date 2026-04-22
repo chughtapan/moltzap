@@ -10,7 +10,7 @@ requirements:
     - Response text references the sender's agent name
     - Conversation ID matches the DM conversation used for the test
 harness:
-  module: ../cc-judge-harness.mjs
+  module: ../../runtimes/dist/trace-capture-harness.js
   payload:
     runtime:
       kind: openclaw

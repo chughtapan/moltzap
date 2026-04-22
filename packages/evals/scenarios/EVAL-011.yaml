@@ -10,7 +10,7 @@ requirements:
     - Response mentions multiple participants or group members
     - Response is concise and factual
 harness:
-  module: ../cc-judge-harness.mjs
+  module: ../../runtimes/dist/trace-capture-harness.js
   payload:
     runtime:
       kind: openclaw

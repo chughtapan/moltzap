@@ -1,11 +1,19 @@
-import type * as Effect from "effect/Effect";
+import { Brand, type Effect } from "effect";
 import type { SpawnFailed } from "./errors.js";
 
 // Branded types for Runtime inputs.
 
-export type AgentName = string & { readonly __brand: "AgentName" };
-export type ApiKey = string & { readonly __brand: "ApiKey" };
-export type ServerUrl = string & { readonly __brand: "ServerUrl" };
+export type AgentName = string & Brand.Brand<"AgentName">;
+export type ApiKey = string & Brand.Brand<"ApiKey">;
+export type ServerUrl = string & Brand.Brand<"ServerUrl">;
+export const AgentName = Brand.nominal<AgentName>();
+export const ApiKey = Brand.nominal<ApiKey>();
+export const ServerUrl = Brand.nominal<ServerUrl>();
+
+export interface WorkspaceFile {
+  readonly relativePath: string;
+  readonly content: string;
+}
 
 export interface RuntimeConnection {
   readonly auth: unknown | null;
@@ -22,6 +30,8 @@ export interface SpawnInput {
   readonly apiKey: ApiKey;
   readonly agentId: string;
   readonly serverUrl: ServerUrl;
+  readonly workspaceFiles?: ReadonlyArray<WorkspaceFile>;
+  readonly modelId?: string;
 }
 
 export interface LogSlice {

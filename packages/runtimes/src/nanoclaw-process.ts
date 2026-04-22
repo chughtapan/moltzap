@@ -335,6 +335,10 @@ export async function ensureNanoclawRuntimeInstalled(): Promise<void> {
 export async function startNanoclawRuntime(opts: {
   apiKey: string;
   serverUrl: string;
+  workspaceFiles?: ReadonlyArray<{
+    relativePath: string;
+    content: string;
+  }>;
   // #ignore-sloppy-code-next-line[promise-type]: node child_process.spawn boundary
 }): Promise<NanoclawRuntimeHandle> {
   const dataDir = await fsp.mkdtemp(
@@ -351,6 +355,14 @@ export async function startNanoclawRuntime(opts: {
     .replace(/^wss:/, "https:");
 
   await ensureOnecliRunning();
+  if (opts.workspaceFiles !== undefined) {
+    const workspaceRoot = path.join(NANOCLAW_RUNTIME_CACHE, "container/skills");
+    for (const file of opts.workspaceFiles) {
+      const destination = path.join(workspaceRoot, file.relativePath);
+      await fsp.mkdir(path.dirname(destination), { recursive: true });
+      await fsp.writeFile(destination, file.content);
+    }
+  }
 
   const proc = spawn("node", ["dist/index.js"], {
     cwd: NANOCLAW_RUNTIME_CACHE,
