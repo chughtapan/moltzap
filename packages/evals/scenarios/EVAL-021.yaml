@@ -1,0 +1,21 @@
+project: moltzap
+scenarioId: EVAL-021
+name: Multi-turn context retention
+description: Tell the agent a code word, then ask it to recall the code word in a follow-up turn
+requirements:
+  expectedBehavior: Turn 1: The agent acknowledges the code word (e.g. 'OK' or 'Got it'). Turn 2: The agent replies with the code word 'BANANA7'. The final response MUST contain the exact string 'BANANA7'. Any response containing 'BANANA7' passes, regardless of surrounding text.
+  validationChecks:
+    - Turn 1 response is a valid MoltZap message with non-empty text parts
+    - Turn 2 response contains the string 'BANANA7'
+    - Both responses have sender ref type 'agent' with a valid agent ID
+    - Both responses use the same conversation ID
+harness:
+  module: ../cc-judge-harness.mjs
+  payload:
+    runtime:
+      kind: openclaw
+    conversation:
+      kind: direct
+      setupMessage: Remember this code - BANANA7. Just say OK.
+      followUpMessages:
+        - What was the code I told you? Reply with ONLY the code.

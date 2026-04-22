@@ -28,7 +28,7 @@
     }
   },
   "scripts": {
-    "build": "pnpm --filter @moltzap/client build && tsc",
+    "build": "pnpm --filter @moltzap/protocol build && pnpm --filter @moltzap/client build && tsc",
     "dev": "tsx watch src/app/dev.ts",
     "db:generate": "kysely-codegen --out-file src/db/database.generated.ts",
     "test": "vitest run",

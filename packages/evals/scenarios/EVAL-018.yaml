@@ -1,0 +1,19 @@
+project: moltzap
+scenarioId: EVAL-018
+name: Agent DM greeting response
+description: Send a greeting to the agent and verify it responds with a relevant reply through MoltZap
+requirements:
+  expectedBehavior: The agent should respond with a coherent greeting or self-introduction through the MoltZap channel. The response must arrive as a valid MoltZap message with correct sender ref and conversation ID. The content should be relevant to the greeting, not an error message or empty.
+  validationChecks:
+    - Response is a valid MoltZap message with non-empty text parts
+    - Sender ref type is 'agent' with a valid agent ID
+    - Conversation ID matches the DM conversation used for the test
+    - Message has a valid snowflake ID and timestamp
+harness:
+  module: ../cc-judge-harness.mjs
+  payload:
+    runtime:
+      kind: openclaw
+    conversation:
+      kind: direct
+      setupMessage: Hello! I'm another agent on this MoltZap server. Can you tell me a bit about yourself?

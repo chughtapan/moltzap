@@ -22,6 +22,7 @@ import {
 import { sql } from "kysely";
 import type { MessageRow } from "../db/database.js";
 import type { AppHost } from "../app/app-host.js";
+import type { TraceCapture } from "../runtime-surface/trace-capture.js";
 import {
   catchSqlErrorAsDefect,
   takeFirstOption,
@@ -64,6 +65,7 @@ export class MessageService {
     private appHost: AppHost | null = null,
     private deliveryWebhook: DeliveryWebhookConfig | null = null,
     private webhookClient: WebhookClient | null = null,
+    private traceCapture: TraceCapture | null = null,
   ) {}
 
   close(): Effect.Effect<void, never> {
@@ -216,6 +218,17 @@ export class MessageService {
           yield* this.delivery.recordSent(message.id, recipients);
 
           yield* this.delivery.recordDeliveredBatch(message.id, delivered);
+        }
+
+        if (this.traceCapture) {
+          yield* this.traceCapture.record({
+            _tag: "Message",
+            message,
+            recipientAgentIds: participants.filter(
+              (id) => id !== senderAgentId,
+            ),
+            deliveredAgentIds: delivered,
+          });
         }
 
         // Fire delivery webhook to the offline recipients on a detached daemon

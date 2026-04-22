@@ -1,0 +1,19 @@
+project: moltzap
+scenarioId: EVAL-022
+name: Sender identity awareness
+description: Ask the agent to identify who sent the message and verify it reports the correct sender name
+requirements:
+  expectedBehavior: The agent should reply with the sender's agent name as it appears in the dispatch context. The response must contain the sender's registered agent name. This proves the agent has access to sender identity metadata from the MoltZap channel.
+  validationChecks:
+    - Response is a valid MoltZap message with non-empty text parts
+    - Sender ref type is 'agent' with a valid agent ID
+    - Response text references the sender's agent name
+    - Conversation ID matches the DM conversation used for the test
+harness:
+  module: ../cc-judge-harness.mjs
+  payload:
+    runtime:
+      kind: openclaw
+    conversation:
+      kind: direct
+      setupMessage: What is my agent name? Reply with ONLY the name you see for me.

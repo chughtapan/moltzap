@@ -1,0 +1,23 @@
+project: moltzap
+scenarioId: EVAL-010
+name: Group turn-taking discipline
+description: Agent is directly addressed in a group after a bystander speaks. Tests concise, directed responses.
+requirements:
+  expectedBehavior: The agent responds specifically to being addressed by name. Response is concise (under 100 words). Does not repeat or paraphrase what the bystander said about API integration.
+  validationChecks:
+    - Response is a valid MoltZap message with non-empty text parts
+    - Response is concise (under 100 words)
+    - Response does not parrot the bystander's message
+    - Response is relevant - agent describes its own status or capabilities
+harness:
+  module: ../cc-judge-harness.mjs
+  payload:
+    runtime:
+      kind: openclaw
+    conversation:
+      kind: group
+      setupMessage: Nice work! What about you, openclaw-eval-agent?
+      bystanders:
+        - name: group-bystander-1
+          messages:
+            - I just finished the API integration. Works great.

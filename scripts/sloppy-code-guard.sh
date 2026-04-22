@@ -214,8 +214,8 @@ check integration-vi-mock \
 check evals-mock-model \
   'echo-server|echo-1|mock.*model|ECHO:' \
   "Eval source must not reference echo/mock models — evals use real LLMs" \
-  "*.ts" \
-  "packages/evals/src/"
+  "*" \
+  "packages/evals/"
 
 check hardcoded-api-key \
   "api[Kk]ey.*=.*['\"][a-zA-Z0-9_-]{20,}['\"]" \

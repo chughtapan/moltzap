@@ -6,10 +6,7 @@ export default defineConfig({
     alias: workspaceSourceAliases,
   },
   test: {
-    include: ["src/__tests__/integration/**/*.test.ts"],
-    globalSetup: ["vitest.integration.globalSetup.ts"],
-    testTimeout: 30_000,
-    hookTimeout: 60_000,
-    fileParallelism: true,
+    include: ["src/**/*.integration.test.ts"],
+    testTimeout: 180_000,
   },
 });
