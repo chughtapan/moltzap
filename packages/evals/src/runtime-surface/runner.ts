@@ -46,12 +46,10 @@ export class EvalRuntimeSurfaceError extends Data.TaggedError(
       };
 }> {}
 
-export function resolveEvalExecutionMode(
-  _input: {
-    readonly request: EvalRunRequest;
-    readonly stagedHarness: StagedPlannedHarnessCatalog;
-  },
-): Effect.Effect<EvalExecutionMode, EvalRuntimeSurfaceError, never> {
+export function resolveEvalExecutionMode(_input: {
+  readonly request: EvalRunRequest;
+  readonly stagedHarness: StagedPlannedHarnessCatalog;
+}): Effect.Effect<EvalExecutionMode, EvalRuntimeSurfaceError, never> {
   throw new Error("not implemented");
 }
 
