@@ -1040,7 +1040,9 @@ async function runE2EEvalsImpl(
       });
       const validated = validatePhase(generated);
 
-      if (runtimeSurfaceReceipt.executionMode._tag === "LegacyLlmJudgeExplicit") {
+      if (
+        runtimeSurfaceReceipt.executionMode._tag === "LegacyLlmJudgeExplicit"
+      ) {
         const evaluated = yield* evaluatePhase(validated, {
           evalModel,
           signal: opts.signal,

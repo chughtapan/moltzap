@@ -94,7 +94,9 @@ function asOptionalStringArray(
   }
   if (
     !Array.isArray(value) ||
-    value.some((entry) => typeof entry !== "string" || entry.trim().length === 0)
+    value.some(
+      (entry) => typeof entry !== "string" || entry.trim().length === 0,
+    )
   ) {
     throw new EvalScenarioSourceError({
       cause: {
@@ -237,10 +239,7 @@ function decodeConversation(
         sourcePath,
         "conversation.bystanderMessages",
       );
-      if (
-        !Number.isInteger(bystanderCount) ||
-        (bystanderCount as number) < 0
-      ) {
+      if (!Number.isInteger(bystanderCount) || (bystanderCount as number) < 0) {
         throw new EvalScenarioSourceError({
           cause: {
             _tag: "ConversationDocumentInvalid",
@@ -300,7 +299,8 @@ function decodeConversation(
         cause: {
           _tag: "ScenarioSchemaInvalid",
           path: sourcePath,
-          message: "conversation._tag must be DirectMessage, GroupConversation, or CrossConversation",
+          message:
+            "conversation._tag must be DirectMessage, GroupConversation, or CrossConversation",
         },
       });
   }
@@ -425,7 +425,10 @@ function promptsForConversation(
         conversation.bystanderMessages.length === 0
           ? conversation.setupMessage
           : `${conversation.bystanderMessages
-              .map((message, index) => `Bystander ${String(index + 1)}: ${message}`)
+              .map(
+                (message, index) =>
+                  `Bystander ${String(index + 1)}: ${message}`,
+              )
               .join("\n")}\n\n${conversation.setupMessage}`;
       return [groupSetup, ...conversation.followUpMessages];
     }
@@ -438,9 +441,7 @@ function promptsForConversation(
   }
 }
 
-function toPlannedHarnessDocument(
-  loaded: LoadedEvalScenarioDocument,
-) {
+function toPlannedHarnessDocument(loaded: LoadedEvalScenarioDocument) {
   const prompts = promptsForConversation(loaded.document.conversation);
   return {
     plan: {
@@ -547,10 +548,7 @@ function toMatchedDocumentsTuple(
 
 function toArtifactTuple(
   artifacts: readonly StagedPlannedHarnessArtifact[],
-): readonly [
-  StagedPlannedHarnessArtifact,
-  ...StagedPlannedHarnessArtifact[],
-] {
+): readonly [StagedPlannedHarnessArtifact, ...StagedPlannedHarnessArtifact[]] {
   const [first, ...rest] = artifacts;
   if (first === undefined) {
     throw new EvalScenarioSourceError({
