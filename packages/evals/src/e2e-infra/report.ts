@@ -6,7 +6,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import * as yaml from "js-yaml";
+import { stringify as stringifyYaml } from "yaml";
 import type { EvaluatedResult } from "./types.js";
 import { logger } from "./logger.js";
 
@@ -202,7 +202,7 @@ export function generateReport(
 
     fs.writeFileSync(
       path.join(detailsDir, `${baseName}.failed.yaml`),
-      yaml.dump(failureData),
+      stringifyYaml(failureData),
     );
 
     // Write the eval prompt if available
@@ -230,7 +230,7 @@ export function generateReport(
     };
     fs.writeFileSync(
       path.join(detailsDir, `${baseName}.${suffix}.transcript.yaml`),
-      yaml.dump(transcriptData),
+      stringifyYaml(transcriptData),
     );
   }
 
