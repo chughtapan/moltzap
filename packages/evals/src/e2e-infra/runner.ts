@@ -3,6 +3,9 @@
  * analyze. Each phase's own JSDoc documents its shape and concurrency.
  */
 
+import { mkdirSync, writeFileSync } from "node:fs";
+import * as path from "node:path";
+import { stringify as stringifyYaml } from "yaml";
 import { Duration, Effect, Either, Schema } from "effect";
 import {
   startCoreTestServer,
@@ -11,11 +14,6 @@ import {
 } from "@moltzap/server-core/test-utils";
 import { MoltZapWsClient } from "@moltzap/client";
 import { registerAgent, stripWsPath } from "@moltzap/client/test";
-import {
-  launchFleet,
-  type AgentFleet,
-  type AgentRuntime,
-} from "./agent-fleet.js";
 import { TIER5_SCENARIOS } from "./scenarios.js";
 import { analyzeFailures, judgeAgentResponse } from "./llm-judge.js";
 import { generateReport, generateSummaryMarkdown } from "./report.js";
@@ -24,16 +22,22 @@ import { logger } from "./logger.js";
 import {
   createMessageReceivedTelemetryEvent,
   createMessageSentTelemetryEvent,
-  createRunCompletedTelemetryEvent,
   createRunStartedTelemetryEvent,
   telemetry,
   type SharedContractTelemetryEvent,
 } from "./telemetry.js";
+import { deriveJudgmentRunId } from "./judgment-bundle.js";
 import {
-  buildJudgmentBundle,
-  deriveJudgmentRunId,
-  writeJudgmentBundleArtifacts,
-} from "./judgment-bundle.js";
+  launchEvalRuntime,
+  type EvalRuntimeKind as AgentRuntime,
+  type EvalRuntimeSession,
+} from "./eval-runtime.js";
+import { runSharedContractEvaluation } from "./shared-contract-evaluation.js";
+import { runEvalCatalog } from "../runtime-surface/runner.js";
+import type {
+  EvalResultsDirectory,
+  EvalScenarioDocumentPath,
+} from "../runtime-surface/types.js";
 import type {
   EvalScenario,
   GeneratedResult,
@@ -110,6 +114,81 @@ type RawMessage = {
   parts: Array<{ type: string; text?: string }>;
   createdAt: string;
 };
+
+function tailLines(text: string, count: number): string {
+  return text.split("\n").slice(-count).join("\n");
+}
+
+function brandRuntimeSurfacePath<T extends string>(
+  value: string,
+  _brand: T,
+): string & { readonly __brand: T } {
+  return value as string & { readonly __brand: T };
+}
+
+function toRuntimeSurfaceDocument(
+  scenario: EvalScenario,
+  runtime: AgentRuntime,
+): Record<string, unknown> {
+  const conversation =
+    scenario.crossConversationProbe !== undefined
+      ? {
+          _tag: "CrossConversation",
+          setupMessage: scenario.setupMessage,
+          followUpMessages: scenario.followUpMessages ?? [],
+          probeMessage: scenario.crossConversationProbe,
+        }
+      : scenario.conversationType === "group"
+        ? {
+            _tag: "GroupConversation",
+            setupMessage: scenario.setupMessage,
+            followUpMessages: scenario.followUpMessages ?? [],
+            bystanderCount: scenario.groupBystanders ?? 0,
+            bystanderMessages: scenario.bystanderMessages ?? [],
+          }
+        : {
+            _tag: "DirectMessage",
+            setupMessage: scenario.setupMessage,
+            followUpMessages: scenario.followUpMessages ?? [],
+          };
+
+  return {
+    id: scenario.id,
+    name: scenario.name,
+    description: scenario.description,
+    runtime,
+    conversation,
+    expectedBehavior: scenario.expectedBehavior,
+    assertions: [],
+  };
+}
+
+function writeRuntimeSurfaceScenarioDocs(input: {
+  readonly scenarios: readonly EvalScenario[];
+  readonly runtime: AgentRuntime;
+  readonly outputDir: string;
+}): readonly [EvalScenarioDocumentPath, ...EvalScenarioDocumentPath[]] {
+  const scenarioDir = path.join(input.outputDir, "runtime-surface-scenarios");
+  mkdirSync(scenarioDir, { recursive: true });
+
+  const documents = input.scenarios.map((scenario) => {
+    const target: EvalScenarioDocumentPath = brandRuntimeSurfacePath(
+      path.join(scenarioDir, `${scenario.id}.yaml`),
+      "EvalScenarioDocumentPath",
+    );
+    writeFileSync(
+      target,
+      stringifyYaml(toRuntimeSurfaceDocument(scenario, input.runtime)),
+    );
+    return target;
+  });
+
+  const [first, ...rest] = documents;
+  if (first === undefined) {
+    throw new Error("runtime-surface staging requires at least one scenario");
+  }
+  return [first, ...rest];
+}
 
 /** Effect-native: send a message and wait for a matching response. */
 export const sendAndWaitForResponseEffect = (opts: {
@@ -402,7 +481,7 @@ async function generateResult(opts: {
   }
 }
 
-export { type AgentRuntime } from "./agent-fleet.js";
+export { type EvalRuntimeKind as AgentRuntime } from "./eval-runtime.js";
 
 interface ScenarioJob {
   scenario: EvalScenario;
@@ -420,7 +499,6 @@ function generatePhase(
     agentId: string;
     modelName: string;
     runtime: AgentRuntime;
-    contractMode: "legacy" | "shared";
     bystanders: Array<{ client: MoltZapWsClient; agentId: string }>;
     totalJobs: number;
     signal?: AbortSignal;
@@ -453,7 +531,6 @@ function generatePhase(
           scenarioId: job.scenario.id,
           runNumber: job.run,
           runtime: ctx.runtime,
-          contractMode: ctx.contractMode,
           modelName: ctx.modelName,
         }),
       );
@@ -714,102 +791,6 @@ function analyzePhase(
   });
 }
 
-function isScenarioScopedTelemetryEvent(
-  event: SharedContractTelemetryEvent,
-): event is Extract<
-  SharedContractTelemetryEvent,
-  { scenarioId: string; runNumber: number }
-> {
-  return "scenarioId" in event && "runNumber" in event;
-}
-
-function sharedContractPhase(
-  validated: ValidatedResult[],
-  opts: {
-    outputDir?: string;
-    project: string;
-    agentId: string;
-    agentName: string;
-    runtime: AgentRuntime;
-    contractMode: "legacy" | "shared";
-    telemetryEvents: ReadonlyArray<SharedContractTelemetryEvent>;
-  },
-): Effect.Effect<{ result: E2ERunResult; analysisText: undefined }> {
-  return Effect.gen(function* () {
-    const bundlesDir = opts.outputDir ? `${opts.outputDir}/bundles` : undefined;
-    yield* Effect.sync(() => {
-      for (const result of validated) {
-        const runId = deriveJudgmentRunId({
-          scenarioId: result.scenarioId,
-          runNumber: result.runNumber,
-          modelName: result.modelName,
-        });
-        const status = result.error
-          ? "runtime_failure"
-          : result.validationErrors.length > 0
-            ? "validation_failure"
-            : "success";
-        telemetry.emit(
-          createRunCompletedTelemetryEvent({
-            ts: new Date().toISOString(),
-            runId,
-            scenarioId: result.scenarioId,
-            runNumber: result.runNumber,
-            contractMode: opts.contractMode,
-            status,
-          }),
-        );
-        if (!bundlesDir) continue;
-        const bundle = buildJudgmentBundle({
-          project: opts.project,
-          runId,
-          scenario: result.scenario,
-          generated: result,
-          validated: result,
-          agentId: opts.agentId,
-          agentName: opts.agentName,
-          runtime: opts.runtime,
-          contractMode: opts.contractMode,
-          telemetryEvents: opts.telemetryEvents.filter(
-            (event) =>
-              event._tag === "fleet.started" ||
-              event._tag === "fleet.stopped" ||
-              (isScenarioScopedTelemetryEvent(event) &&
-                event.scenarioId === result.scenarioId &&
-                event.runNumber === result.runNumber),
-          ),
-        });
-        writeJudgmentBundleArtifacts(bundle, bundlesDir);
-      }
-    });
-
-    const allResults: EvaluatedResult[] = validated.map((result) => ({
-      ...result,
-    }));
-    const passed = allResults.filter(
-      (r) =>
-        !r.error &&
-        r.validationErrors.length === 0 &&
-        (!r.judgeResult || r.judgeResult.pass),
-    ).length;
-    const totalLatency = allResults.reduce((sum, r) => sum + r.latencyMs, 0);
-
-    return {
-      result: {
-        results: allResults,
-        summary: {
-          total: allResults.length,
-          passed,
-          failed: allResults.length - passed,
-          avgLatencyMs:
-            allResults.length > 0 ? totalLatency / allResults.length : 0,
-        },
-      },
-      analysisText: undefined,
-    };
-  });
-}
-
 /** Error surfaced from `runE2EEvals`. Tests + callers at the process edge
  * unwrap this via `Effect.runPromise`, which throws a `FiberFailure`. */
 export class RunError extends Error {
@@ -830,7 +811,7 @@ export interface RunE2EEvalsOptions {
   logLevel?: string;
   signal?: AbortSignal;
   runtime?: AgentRuntime;
-  contractMode?: "legacy" | "shared";
+  executionMode?: "cc-judge" | "legacy-llm-judge";
 }
 
 export const runE2EEvals = (
@@ -883,13 +864,12 @@ async function runE2EEvalsImpl(
   }
 
   const runtime: AgentRuntime = opts.runtime ?? "openclaw";
-  const contractMode: "legacy" | "shared" =
-    opts.contractMode ?? (runtime === "openclaw" ? "shared" : "legacy");
+  const executionMode = opts.executionMode ?? "cc-judge";
   const telemetryEvents: SharedContractTelemetryEvent[] = [];
   const unsubscribeTelemetry = telemetry.subscribe((event) => {
     telemetryEvents.push(event);
   });
-  let fleet: AgentFleet | null = null;
+  let runtimeSession: EvalRuntimeSession | null = null;
   let testServerBaseUrl = "";
   let testServerWsUrl = "";
   const clientsToClose: MoltZapWsClient[] = [];
@@ -911,9 +891,11 @@ async function runE2EEvalsImpl(
       agentKey: evalReg.apiKey,
     });
 
-    // Register the OpenClaw agent account
+    const evalAgentName = "eval-target-agent";
+
+    // Register the target agent account used by whichever runtime is selected.
     const agentReg = await Effect.runPromise(
-      registerAgent(testServerBaseUrl, "openclaw-eval-agent"),
+      registerAgent(testServerBaseUrl, evalAgentName),
     );
 
     // Connect eval client
@@ -967,13 +949,37 @@ async function runE2EEvalsImpl(
       ),
     );
 
-    // Start the agent runtime via fleet API (blocks until connected).
-    fleet = await launchFleet({
-      runtime,
-      agents: [{ name: "openclaw-eval-agent", apiKey: agentReg.apiKey }],
-      serverUrl: testServerWsUrl,
-      modelId: opts.agentModelId,
-    });
+    const launchedRuntimeSession = await Effect.runPromise(
+      launchEvalRuntime({
+        runtime,
+        agentName: evalAgentName,
+        agentId: agentReg.agentId,
+        apiKey: agentReg.apiKey,
+        serverUrl: testServerWsUrl,
+        coreApp: server.coreApp,
+        modelId: opts.agentModelId,
+      }),
+    );
+    runtimeSession = launchedRuntimeSession;
+    const readyOutcome = await Effect.runPromise(
+      launchedRuntimeSession.waitUntilReady(180_000),
+    );
+    if (readyOutcome._tag !== "Ready") {
+      const detail =
+        readyOutcome._tag === "Timeout"
+          ? `Timed out after ${readyOutcome.timeoutMs}ms`
+          : `Process exited with code ${readyOutcome.exitCode}`;
+      const logs =
+        readyOutcome._tag === "ProcessExited"
+          ? readyOutcome.stderr
+          : launchedRuntimeSession.getLogs(0).text;
+      const logExcerpt = tailLines(logs, 20);
+      throw new Error(
+        logExcerpt
+          ? `Agent runtime "${runtime}" failed readiness: ${detail}\n${logExcerpt}`
+          : `Agent runtime "${runtime}" failed readiness: ${detail}`,
+      );
+    }
     logger.info("Agent connected. Starting eval scenarios...");
 
     // Build the job list (scenario × run).
@@ -985,6 +991,41 @@ async function runE2EEvalsImpl(
       }
     }
 
+    const runtimeSurfaceScenarioPaths = writeRuntimeSurfaceScenarioDocs({
+      scenarios: selectedScenarios,
+      runtime,
+      outputDir,
+    });
+    const runtimeSurfaceReceipt = await Effect.runPromise(
+      runEvalCatalog(
+        {
+          runtimeConfig: { configPath: "moltzap.yaml" } as never,
+          observability: {
+            logger,
+            config: { configPath: "moltzap.yaml" },
+            annotate: <A, E, R>(
+              _context: unknown,
+              effect: Effect.Effect<A, E, R>,
+            ): Effect.Effect<A, E, R> => effect,
+            span: <A, E, R>(
+              _span: unknown,
+              effect: Effect.Effect<A, E, R>,
+            ): Effect.Effect<A, E, R> => effect,
+          } as never,
+        },
+        {
+          scenarioDocuments: runtimeSurfaceScenarioPaths,
+          runtime,
+          resultsDirectory: brandRuntimeSurfacePath(
+            outputDir,
+            "EvalResultsDirectory",
+          ),
+          retainArtifacts: true,
+          requestedMode: executionMode,
+        },
+      ),
+    );
+
     // Run the pipeline as a single Effect so each phase's failures compose.
     const pipeline = Effect.gen(function* () {
       const generated = yield* generatePhase(jobs, {
@@ -993,40 +1034,49 @@ async function runE2EEvalsImpl(
         agentId: agentReg.agentId,
         modelName,
         runtime,
-        contractMode,
         bystanders,
         totalJobs: jobs.length,
         signal: opts.signal,
       });
       const validated = validatePhase(generated);
-      if (contractMode === "shared") {
-        const { result } = yield* sharedContractPhase(validated, {
+
+      if (
+        runtimeSurfaceReceipt.executionMode._tag === "LegacyLlmJudgeExplicit"
+      ) {
+        const evaluated = yield* evaluatePhase(validated, {
+          evalModel,
+          signal: opts.signal,
+        });
+        const { result } = yield* analyzePhase(evaluated, {
+          evalModel,
+          signal: opts.signal,
           outputDir,
-          project: "moltzap",
-          agentId: agentReg.agentId,
-          agentName: "openclaw-eval-agent",
-          runtime,
-          contractMode,
-          telemetryEvents,
         });
         return result;
       }
-      const evaluated = yield* evaluatePhase(validated, {
-        evalModel,
-        signal: opts.signal,
-      });
-      const { result } = yield* analyzePhase(evaluated, {
-        evalModel,
-        signal: opts.signal,
+
+      const { result } = yield* runSharedContractEvaluation({
+        validated,
         outputDir,
+        project: "moltzap",
+        agentId: agentReg.agentId,
+        agentName: evalAgentName,
+        runtime,
+        telemetryEvents,
+        judgeModel: evalModel,
+        signal: opts.signal,
       });
       return result;
     });
 
-    logger.info(`Contract mode: ${contractMode}`);
+    logger.info(
+      `Execution mode: ${runtimeSurfaceReceipt.executionMode._tag} (${runtimeSurfaceReceipt.stagedHarness.executionInput.pathOrGlob})`,
+    );
     return await Effect.runPromise(pipeline);
   } finally {
-    if (fleet) await fleet.stopAll();
+    if (runtimeSession) {
+      await Effect.runPromise(runtimeSession.teardown());
+    }
     for (const c of clientsToClose) await Effect.runPromise(c.close());
     await stopCoreTestServer().catch(() => {});
     unsubscribeTelemetry();

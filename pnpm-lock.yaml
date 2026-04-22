@@ -150,8 +150,8 @@ importers:
         specifier: ^0.34.0
         version: 0.34.49
       cc-judge:
-        specifier: git+https://github.com/chughtapan/cc-judge.git#39debed2606f2da7455e7cdc7ee78e9b46c4e0de
-        version: https://codeload.github.com/chughtapan/cc-judge/tar.gz/39debed2606f2da7455e7cdc7ee78e9b46c4e0de(@aws-sdk/credential-provider-web-identity@3.972.28)(react@19.2.3)(sswr@2.2.0(svelte@5.55.4(@typescript-eslint/types@8.58.2)))(svelte@5.55.4(@typescript-eslint/types@8.58.2))(vue@3.5.32(typescript@5.9.3))(zod@3.24.0)
+        specifier: git+https://github.com/chughtapan/cc-judge.git#cf049f0e51321704c79bdfd50f7b6ec04b6fd40b
+        version: https://codeload.github.com/chughtapan/cc-judge/tar.gz/cf049f0e51321704c79bdfd50f7b6ec04b6fd40b(@aws-sdk/credential-provider-web-identity@3.972.28)(react@19.2.3)(sswr@2.2.0(svelte@5.55.4(@typescript-eslint/types@8.58.2)))(svelte@5.55.4(@typescript-eslint/types@8.58.2))(vue@3.5.32(typescript@5.9.3))(zod@3.24.0)
       dotenv:
         specifier: ^16.0.0
         version: 16.6.1
@@ -3894,8 +3894,8 @@ packages:
   caniuse-lite@1.0.30001788:
     resolution: {integrity: sha512-6q8HFp+lOQtcf7wBK+uEenxymVWkGKkjFpCvw5W25cmMwEDU45p1xQFBQv8JDlMMry7eNxyBaR+qxgmTUZkIRQ==}
 
-  cc-judge@https://codeload.github.com/chughtapan/cc-judge/tar.gz/39debed2606f2da7455e7cdc7ee78e9b46c4e0de:
-    resolution: {tarball: https://codeload.github.com/chughtapan/cc-judge/tar.gz/39debed2606f2da7455e7cdc7ee78e9b46c4e0de}
+  cc-judge@https://codeload.github.com/chughtapan/cc-judge/tar.gz/cf049f0e51321704c79bdfd50f7b6ec04b6fd40b:
+    resolution: {tarball: https://codeload.github.com/chughtapan/cc-judge/tar.gz/cf049f0e51321704c79bdfd50f7b6ec04b6fd40b}
     version: 0.0.1
     engines: {node: '>=20.11.0'}
     hasBin: true
@@ -12696,7 +12696,7 @@ snapshots:
 
   caniuse-lite@1.0.30001788: {}
 
-  cc-judge@https://codeload.github.com/chughtapan/cc-judge/tar.gz/39debed2606f2da7455e7cdc7ee78e9b46c4e0de(@aws-sdk/credential-provider-web-identity@3.972.28)(react@19.2.3)(sswr@2.2.0(svelte@5.55.4(@typescript-eslint/types@8.58.2)))(svelte@5.55.4(@typescript-eslint/types@8.58.2))(vue@3.5.32(typescript@5.9.3))(zod@3.24.0):
+  cc-judge@https://codeload.github.com/chughtapan/cc-judge/tar.gz/cf049f0e51321704c79bdfd50f7b6ec04b6fd40b(@aws-sdk/credential-provider-web-identity@3.972.28)(react@19.2.3)(sswr@2.2.0(svelte@5.55.4(@typescript-eslint/types@8.58.2)))(svelte@5.55.4(@typescript-eslint/types@8.58.2))(vue@3.5.32(typescript@5.9.3))(zod@3.24.0):
     dependencies:
       '@anthropic-ai/claude-agent-sdk': 0.1.45(zod@3.24.0)
       '@sinclair/typebox': 0.33.22
