@@ -1,15 +1,14 @@
-/**
- * Architecture-only contract for the MoltZap eval runtime entrypoint.
- *
- * Implementers fill this in during the approved runtime cleanup slice.
- */
-
+import { randomUUID } from "node:crypto";
 import { Data, Effect } from "effect";
 import type {
   RuntimeObservability,
   RuntimeProcessConfig,
 } from "@moltzap/server-core";
-import type { EvalScenarioSourceError } from "./scenario-source.js";
+import {
+  loadEvalScenarioDocuments,
+  stagePlannedHarnessArtifacts,
+  type EvalScenarioSourceError,
+} from "./scenario-source.js";
 import type {
   EvalExecutionMode,
   EvalRunReceipt,
@@ -46,20 +45,76 @@ export class EvalRuntimeSurfaceError extends Data.TaggedError(
       };
 }> {}
 
-export function resolveEvalExecutionMode(_input: {
+function brandRunId(value: string) {
+  return value as EvalRunReceipt["runId"];
+}
+
+export function resolveEvalExecutionMode(input: {
   readonly request: EvalRunRequest;
   readonly stagedHarness: StagedPlannedHarnessCatalog;
 }): Effect.Effect<EvalExecutionMode, EvalRuntimeSurfaceError, never> {
-  throw new Error("not implemented");
+  if (input.request.requestedMode === "legacy-llm-judge") {
+    return Effect.succeed({
+      _tag: "LegacyLlmJudgeExplicit",
+      requestedBy: "cli-flag",
+      surface: "llm-judge",
+    });
+  }
+
+  if (input.stagedHarness.artifacts.length === 0) {
+    return Effect.fail(
+      new EvalRuntimeSurfaceError({
+        cause: {
+          _tag: "CcJudgeSurfaceUnavailable",
+          message: "no planned-harness artifacts were staged",
+        },
+      }),
+    );
+  }
+
+  return Effect.succeed({
+    _tag: "CcJudgeDefault",
+    plannedHarnessInput: input.stagedHarness.executionInput,
+  });
 }
 
 export function runEvalCatalog(
-  _deps: EvalRuntimeDependencies,
-  _request: EvalRunRequest,
+  deps: EvalRuntimeDependencies,
+  request: EvalRunRequest,
 ): Effect.Effect<
   EvalRunReceipt,
   EvalRuntimeSurfaceError | EvalScenarioSourceError,
   never
 > {
-  throw new Error("not implemented");
+  const effect = Effect.gen(function* () {
+    const loaded = yield* loadEvalScenarioDocuments(request.scenarioDocuments);
+    const stagedHarness = yield* stagePlannedHarnessArtifacts({
+      documents: loaded,
+      resultsDirectory: request.resultsDirectory,
+    });
+    const executionMode = yield* resolveEvalExecutionMode({
+      request,
+      stagedHarness,
+    });
+
+    yield* Effect.sync(() => {
+      deps.observability.logger.info(
+        {
+          configPath: deps.runtimeConfig.configPath,
+          stagedDocuments: loaded.length,
+          executionMode: executionMode._tag,
+        },
+        "staged eval runtime surface",
+      );
+    });
+
+    return {
+      runId: brandRunId(randomUUID()),
+      executionMode,
+      resultsDirectory: request.resultsDirectory,
+      stagedHarness,
+    } satisfies EvalRunReceipt;
+  });
+
+  return deps.observability.annotate({ workflow: "eval" }, effect);
 }

@@ -1,14 +1,9 @@
 /**
- * Nanoclaw smoke test harness.
+ * Internal nanoclaw runtime-process helpers for the eval runtime adapter.
  *
- * Throwaway infrastructure to prove moltzap can talk to a real nanoclaw process
- * via the channel file in packages/nanoclaw-channel/. Not a production runtime
- * adapter. When the stable interface lands, this file is rewritten or deleted.
- *
- * Pinned to a specific nanoclaw upstream SHA. Bumping the SHA means:
- *   1. Delete ~/.cache/moltzap-evals/nanoclaw/<old-sha> manually
- *   2. Update NANOCLAW_SHA below
- *   3. Re-run the smoke eval; fix any type drift in packages/nanoclaw-channel/src/types.ts
+ * This file owns the warm-cache install/bootstrap and subprocess lifecycle for
+ * the nanoclaw runtime. It is intentionally kept under `runtimes/` so the old
+ * `e2e-infra/nanoclaw-smoke` surface is no longer first-class.
  */
 import { spawn, type ChildProcess } from "node:child_process";
 import { exec as execCb } from "node:child_process";
@@ -21,7 +16,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { Duration, Effect } from "effect";
 
-import { logger } from "./logger.js";
+import { logger } from "../e2e-infra/logger.js";
 
 const exec = promisify(execCb);
 
@@ -38,7 +33,7 @@ const ONECLI_COMPOSE_PATH = path.join(
 const NANOCLAW_SHA = "934f063aff5c30e7b49ce58b53b41901d3472a3e";
 const NANOCLAW_URL = `https://github.com/qwibitai/nanoclaw/archive/${NANOCLAW_SHA}.tar.gz`;
 
-export const NANOCLAW_CACHE = path.join(
+export const NANOCLAW_RUNTIME_CACHE = path.join(
   os.homedir(),
   ".cache/moltzap-evals/nanoclaw",
   NANOCLAW_SHA.slice(0, 12),
@@ -52,7 +47,7 @@ const CONNECTED_MARKER = /\[info\].*MoltZap connected|MoltZap connected/;
 const CONNECT_TIMEOUT_MS = 60_000;
 const GRACEFUL_STOP_MS = 3_000;
 
-export interface NanoclawSmokeHandle {
+export interface NanoclawRuntimeHandle {
   proc: ChildProcess;
   dataDir: string;
   capturedLogs: string[];
@@ -121,7 +116,7 @@ async function preflightDocker(): Promise<void> {
     await exec("docker info", { timeout: 5_000 });
   } catch (err) {
     throw new Error(
-      "Nanoclaw smoke requires docker to be running on the host " +
+      "Nanoclaw runtime requires docker to be running on the host " +
         "(nanoclaw spawns agent subcontainers via its container-runner). " +
         `docker info failed: ${(err as Error).message}`,
     );
@@ -146,8 +141,8 @@ async function downloadTarball(url: string, destDir: string): Promise<void> {
 }
 
 function resolveChannelFilePath(): string {
-  // When compiled: packages/evals/dist/e2e-infra/nanoclaw-smoke.js
-  // When running via tsx: packages/evals/src/e2e-infra/nanoclaw-smoke.ts
+  // When compiled: packages/evals/dist/runtimes/nanoclaw-process.js
+  // When running via tsx: packages/evals/src/runtimes/nanoclaw-process.ts
   // We want:       packages/nanoclaw-channel/src/channels/moltzap.ts
   const here = fileURLToPath(import.meta.url);
   // Walk up to the packages/ directory regardless of dist/ vs src/ location.
@@ -196,7 +191,7 @@ async function channelFileDrift(): Promise<{
   content: string;
 } | null> {
   const src = resolveChannelFilePath();
-  const dst = path.join(NANOCLAW_CACHE, "src/channels/moltzap.ts");
+  const dst = path.join(NANOCLAW_RUNTIME_CACHE, "src/channels/moltzap.ts");
   if (!fs.existsSync(src) || !fs.existsSync(dst)) return null;
   const [srcContent, dstContent] = await Promise.all([
     fsp.readFile(src, "utf8"),
@@ -211,7 +206,10 @@ async function clientDistDrift(): Promise<{
   dst: string;
 } | null> {
   const src = resolveClientDistPath();
-  const dst = path.join(NANOCLAW_CACHE, "node_modules/@moltzap/client/dist");
+  const dst = path.join(
+    NANOCLAW_RUNTIME_CACHE,
+    "node_modules/@moltzap/client/dist",
+  );
   if (!fs.existsSync(src) || !fs.existsSync(dst)) return null;
   const srcCoreJs = path.join(src, "channel-core.js");
   const dstCoreJs = path.join(dst, "channel-core.js");
@@ -249,15 +247,18 @@ async function syncChannelFileIntoCache(): Promise<void> {
 
   if (chDrift || clDrift) {
     logger.info("Rebuilding nanoclaw after sync");
-    await exec("npm run build", { cwd: NANOCLAW_CACHE, timeout: 120_000 });
+    await exec("npm run build", {
+      cwd: NANOCLAW_RUNTIME_CACHE,
+      timeout: 120_000,
+    });
   }
 }
 
 // #ignore-sloppy-code-next-line[async-keyword, promise-type]: npm install + docker build orchestration boundary
-export async function ensureNanoclawInstalled(): Promise<void> {
-  const readyMarker = path.join(NANOCLAW_CACHE, ".ready");
+export async function ensureNanoclawRuntimeInstalled(): Promise<void> {
+  const readyMarker = path.join(NANOCLAW_RUNTIME_CACHE, ".ready");
   if (fs.existsSync(readyMarker)) {
-    logger.info(`Nanoclaw smoke cache found at ${NANOCLAW_CACHE}`);
+    logger.info(`Nanoclaw runtime cache found at ${NANOCLAW_RUNTIME_CACHE}`);
     await syncChannelFileIntoCache();
     return;
   }
@@ -268,7 +269,7 @@ export async function ensureNanoclawInstalled(): Promise<void> {
     `Installing nanoclaw@${NANOCLAW_SHA.slice(0, 12)} — this can take 3–5 minutes on first run...`,
   );
 
-  const tmpDir = `${NANOCLAW_CACHE}.tmp`;
+  const tmpDir = `${NANOCLAW_RUNTIME_CACHE}.tmp`;
   await fsp.rm(tmpDir, { recursive: true, force: true });
 
   // Download upstream nanoclaw source
@@ -348,22 +349,22 @@ export async function ensureNanoclawInstalled(): Promise<void> {
   });
 
   // Atomic rename — only mark .ready on full success
-  await fsp.rm(NANOCLAW_CACHE, { recursive: true, force: true });
-  await fsp.mkdir(path.dirname(NANOCLAW_CACHE), { recursive: true });
-  await fsp.rename(tmpDir, NANOCLAW_CACHE);
+  await fsp.rm(NANOCLAW_RUNTIME_CACHE, { recursive: true, force: true });
+  await fsp.mkdir(path.dirname(NANOCLAW_RUNTIME_CACHE), { recursive: true });
+  await fsp.rename(tmpDir, NANOCLAW_RUNTIME_CACHE);
   await fsp.writeFile(readyMarker, "");
 
-  logger.info(`Nanoclaw smoke cache ready at ${NANOCLAW_CACHE}`);
+  logger.info(`Nanoclaw runtime cache ready at ${NANOCLAW_RUNTIME_CACHE}`);
 }
 
 // #ignore-sloppy-code-next-line[async-keyword]: node child_process.spawn boundary
-export async function startNanoclawSmoke(opts: {
+export async function startNanoclawRuntime(opts: {
   apiKey: string;
   serverUrl: string;
   // #ignore-sloppy-code-next-line[promise-type]: node child_process.spawn boundary
-}): Promise<NanoclawSmokeHandle> {
+}): Promise<NanoclawRuntimeHandle> {
   const dataDir = await fsp.mkdtemp(
-    path.join(os.tmpdir(), "moltzap-nanoclaw-smoke-"),
+    path.join(os.tmpdir(), "moltzap-nanoclaw-runtime-"),
   );
 
   // @moltzap/client's MoltZapWsClient appends "/ws" and rewrites http→ws itself.
@@ -378,11 +379,11 @@ export async function startNanoclawSmoke(opts: {
   await ensureOnecliRunning();
 
   logger.info(
-    `Starting nanoclaw subprocess (dataDir: ${dataDir}, server: ${normalizedServerUrl})`,
+    `Starting nanoclaw runtime subprocess (dataDir: ${dataDir}, server: ${normalizedServerUrl})`,
   );
 
   const proc = spawn("node", ["dist/index.js"], {
-    cwd: NANOCLAW_CACHE,
+    cwd: NANOCLAW_RUNTIME_CACHE,
     env: {
       ...process.env,
       MOLTZAP_API_KEY: opts.apiKey,
@@ -422,7 +423,7 @@ export async function startNanoclawSmoke(opts: {
       settle(
         Effect.fail(
           new Error(
-            `nanoclaw exited before connecting (code=${code}, signal=${signal}).\nLast 50 log lines:\n${tail}`,
+            `nanoclaw runtime exited before connecting (code=${code}, signal=${signal}).\nLast 50 log lines:\n${tail}`,
           ),
         ),
       );
@@ -449,23 +450,23 @@ export async function startNanoclawSmoke(opts: {
       onTimeout: () => {
         const tail = capturedLogs.join("").split("\n").slice(-50).join("\n");
         return new Error(
-          `nanoclaw did not connect within ${CONNECT_TIMEOUT_MS / 1000}s.\nLast 50 log lines:\n${tail}`,
+          `nanoclaw runtime did not connect within ${CONNECT_TIMEOUT_MS / 1000}s.\nLast 50 log lines:\n${tail}`,
         );
       },
     }),
   );
   await Effect.runPromise(waitForConnection);
 
-  logger.info("Nanoclaw subprocess connected to MoltZap server");
+  logger.info("Nanoclaw runtime subprocess connected to MoltZap server");
   return { proc, dataDir, capturedLogs };
 }
 
 // #ignore-sloppy-code-next-line[async-keyword]: child_process kill + fs.rm boundary
-export async function stopNanoclawSmoke(
-  handle: NanoclawSmokeHandle,
+export async function stopNanoclawRuntime(
+  handle: NanoclawRuntimeHandle,
   // #ignore-sloppy-code-next-line[promise-type]: child_process kill + fs.rm boundary
 ): Promise<void> {
-  logger.info("Stopping nanoclaw subprocess...");
+  logger.info("Stopping nanoclaw runtime subprocess...");
   if (!handle.proc.killed) {
     handle.proc.kill("SIGTERM");
     await new Promise((r) => setTimeout(r, GRACEFUL_STOP_MS));
@@ -476,6 +477,6 @@ export async function stopNanoclawSmoke(
   await fsp.rm(handle.dataDir, { recursive: true, force: true });
 }
 
-export function getNanoclawLogs(handle: NanoclawSmokeHandle): string {
+export function getNanoclawRuntimeLogs(handle: NanoclawRuntimeHandle): string {
   return handle.capturedLogs.join("");
 }

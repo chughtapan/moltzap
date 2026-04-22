@@ -7,7 +7,6 @@ export type SharedContractTelemetryEvent =
       scenarioId: string;
       runNumber: number;
       runtime: "openclaw" | "nanoclaw";
-      contractMode: "legacy" | "shared";
       modelName: string;
     }
   | {
@@ -54,7 +53,6 @@ export type SharedContractTelemetryEvent =
       runId: string;
       scenarioId: string;
       runNumber: number;
-      contractMode: "legacy" | "shared";
       status: "success" | "validation_failure" | "runtime_failure" | "aborted";
     };
 
