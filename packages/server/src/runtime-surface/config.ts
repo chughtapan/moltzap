@@ -4,20 +4,12 @@
 
 import { dirname } from "node:path";
 import { realpathSync } from "node:fs";
-import {
-  ConfigProvider,
-  Data,
-  Effect,
-  Match,
-} from "effect";
+import { ConfigProvider, Data, Effect, Match } from "effect";
 import type { ConfigError } from "effect/ConfigError";
 import type { LoadedConfig } from "../app/config.js";
 import { ServerConfigLoader } from "../app/config.js";
 import type { MoltZapAppConfig } from "../config/effect-config.js";
-import {
-  ConfigLoadError,
-  loadConfigFromFile,
-} from "../config/loader.js";
+import { ConfigLoadError, loadConfigFromFile } from "../config/loader.js";
 
 export type RuntimeConfigPath = string & {
   readonly __brand: "RuntimeConfigPath";
@@ -395,7 +387,9 @@ export function loadRuntimeProcessConfig(
         }),
     });
 
-    const environment = yield* resolveRuntimeEnvironment(processEnv["NODE_ENV"]);
+    const environment = yield* resolveRuntimeEnvironment(
+      processEnv["NODE_ENV"],
+    );
     const loggingLevel = yield* resolveRuntimeLogLevel(
       processEnv["LOG_LEVEL"] ?? loadedAppConfig.log_level,
     );

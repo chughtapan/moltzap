@@ -144,7 +144,10 @@ export function createRuntimeObservability(
           context: RuntimeLogContext,
           effect: Effect.Effect<A, E, R>,
         ): Effect.Effect<A, E, R> =>
-          withRuntimeLogContext(filterContextForConfig(config, context), effect),
+          withRuntimeLogContext(
+            filterContextForConfig(config, context),
+            effect,
+          ),
         span: <A, E, R>(
           span: RuntimeTraceSpan,
           effect: Effect.Effect<A, E, R>,

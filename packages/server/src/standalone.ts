@@ -327,9 +327,10 @@ export async function startServer(configPath?: string): Promise<{
 
   // Auto-migrate
   await Effect.runPromise(
-    autoMigrateEffect(handle, runtimeConfig.server.encryption.masterSecret).pipe(
-      Effect.provide(NodeFileSystem.layer),
-    ),
+    autoMigrateEffect(
+      handle,
+      runtimeConfig.server.encryption.masterSecret,
+    ).pipe(Effect.provide(NodeFileSystem.layer)),
   );
 
   // Build CoreConfig
