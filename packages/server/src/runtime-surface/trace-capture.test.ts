@@ -18,6 +18,8 @@ const sampleEvent: TraceEvent = {
     parts: [{ type: "text", text: "hello" }],
     createdAt: "2026-04-22T00:00:00.000Z",
   },
+  channelKey: "conversation-1",
+  senderDisplayName: "Agent 1",
   recipientAgentIds: ["agent-2"],
   deliveredAgentIds: ["agent-2"],
 };
