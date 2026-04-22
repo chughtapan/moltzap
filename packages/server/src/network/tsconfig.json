@@ -1,0 +1,11 @@
+{
+  "_comment": "Architect stub. Part of the network <-> task boundary (spec #135 AC7/AC8). composite:true makes this a TS project. It declares NO references to ../task, so imports from network/** to task/** fail to resolve at build time. The implementer tunes outDir/rootDir/moduleResolution (nodenext may be required for airtight enforcement) when moving sources into this subtree.",
+  "extends": "../../../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "outDir": "../../dist/network",
+    "rootDir": "."
+  },
+  "include": ["**/*.ts"],
+  "exclude": ["**/*.test.ts", "**/*.type-test.ts"]
+}
