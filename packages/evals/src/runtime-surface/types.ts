@@ -1,7 +1,5 @@
 /**
- * Architecture-only contracts for MoltZap-owned eval runtime surfaces.
- *
- * Implementers fill this in during the approved runtime cleanup slice.
+ * MoltZap-owned eval runtime contracts used by the runtime-surface staging path.
  */
 
 export type EvalScenarioDocumentPath = string & {
