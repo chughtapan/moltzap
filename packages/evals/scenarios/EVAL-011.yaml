@@ -1,0 +1,22 @@
+project: moltzap
+scenarioId: EVAL-011
+name: Group context awareness
+description: Ask the agent to identify the conversation type and participant count in a group
+requirements:
+  expectedBehavior: The agent correctly identifies this as a group conversation. It indicates there are multiple participants (at least 3). The response should be factual and concise.
+  validationChecks:
+    - Response is a valid MoltZap message with non-empty text parts
+    - Response identifies this as a group conversation (not a DM)
+    - Response mentions multiple participants or group members
+    - Response is concise and factual
+harness:
+  module: ../cc-judge-harness.mjs
+  payload:
+    runtime:
+      kind: openclaw
+    conversation:
+      kind: group
+      setupMessage: Is this a group conversation or a direct message? How many of us are here?
+      bystanders:
+        - name: group-bystander-1
+        - name: group-bystander-2

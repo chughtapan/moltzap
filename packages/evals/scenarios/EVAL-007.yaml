@@ -1,0 +1,19 @@
+project: moltzap
+scenarioId: EVAL-007
+name: Conciseness under complexity
+description: Ask a complex question and verify the agent responds concisely rather than producing a wall of text
+requirements:
+  expectedBehavior: The agent should respond with a single concise sentence (or at most two). The response must be accurate and directly answer the question. Verbose multi-paragraph responses fail this eval even if technically correct.
+  validationChecks:
+    - Response is a valid MoltZap message with non-empty text parts
+    - Response is one to two sentences (under 50 words)
+    - Response accurately distinguishes symmetric from asymmetric encryption
+    - No unnecessary preamble or follow-up
+harness:
+  module: ../cc-judge-harness.mjs
+  payload:
+    runtime:
+      kind: openclaw
+    conversation:
+      kind: direct
+      setupMessage: In one sentence, what is the difference between symmetric and asymmetric encryption?

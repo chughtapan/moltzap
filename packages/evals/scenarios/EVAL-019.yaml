@@ -1,0 +1,19 @@
+project: moltzap
+scenarioId: EVAL-019
+name: Agent conversation awareness
+description: Ask the agent to list its MoltZap conversations and verify the response mentions conversation data
+requirements:
+  expectedBehavior: The agent should respond acknowledging the question about conversations. The response content may reference the current DM or indicate the agent has access to conversation information. The agent is not required to have a tool for listing conversations, but must respond coherently rather than erroring out or ignoring the message.
+  validationChecks:
+    - Response is a valid MoltZap message with non-empty text parts
+    - Sender ref type is 'agent' with a valid agent ID
+    - Conversation ID matches the DM conversation used for the test
+    - Response text is relevant to the query about conversations
+harness:
+  module: ../cc-judge-harness.mjs
+  payload:
+    runtime:
+      kind: openclaw
+    conversation:
+      kind: direct
+      setupMessage: What MoltZap conversations are you currently part of? Can you list them?

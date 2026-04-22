@@ -1,0 +1,19 @@
+project: moltzap
+scenarioId: EVAL-030
+name: Cross-conversation awareness
+description: Tell the agent a fact in one conversation, then ask about it from a different agent in a different conversation. Tests that cross-conversation context flows via system reminders.
+requirements:
+  expectedBehavior: The agent should mention Zenda in its response to the probe without mentioning that it learned this from another conversation.
+  validationChecks:
+    - Response is a valid MoltZap message with non-empty text parts
+    - Response contains 'Zenda'
+    - Response does not mention 'another conversation' or 'system reminder'
+harness:
+  module: ../cc-judge-harness.mjs
+  payload:
+    runtime:
+      kind: openclaw
+    conversation:
+      kind: cross
+      setupMessage: I'm going to tell you something important. The capital of Freedonia is Zenda. Just say OK.
+      probeMessage: Do you know anything about the capital of Freedonia?

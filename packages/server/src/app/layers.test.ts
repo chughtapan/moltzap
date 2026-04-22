@@ -4,6 +4,7 @@ import { Effect, Layer } from "effect";
 import { expect } from "vitest";
 import type { Db } from "../db/client.js";
 import type { Database } from "../db/database.js";
+import { NoopTraceCaptureLive } from "../runtime-surface/trace-capture.js";
 import { LoggerLive, getLogger } from "../logger.js";
 import { Broadcaster } from "../ws/broadcaster.js";
 import { ConnectionManager } from "../ws/connection.js";
@@ -40,6 +41,7 @@ const BaseLive = Layer.mergeAll(
   Layer.succeed(UserServiceTag, null),
   Layer.succeed(WebhookClientTag, new WebhookClient()),
   Layer.succeed(DeliveryWebhookTag, null),
+  NoopTraceCaptureLive,
   LoggerLive,
 );
 
@@ -73,10 +75,11 @@ it.effect("ServicesLive resolves every service via resolveServices", () =>
       DefaultPermissionService,
     );
     expect(services.messageService).toBeInstanceOf(MessageService);
+    expect(typeof services.traceCapture.record).toBe("function");
 
-    // All 13 slots are populated — `null` counts for encryption.
+    // All 14 slots are populated — `null` counts for encryption.
     const keys = Object.keys(services);
-    expect(keys.length).toBe(13);
+    expect(keys.length).toBe(14);
     for (const k of keys) {
       if (k === "encryption") continue;
       expect(services[k as keyof typeof services]).not.toBeNull();

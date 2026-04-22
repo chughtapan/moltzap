@@ -4,7 +4,7 @@
 //
 // Pinned to nanoclaw 1.2.52 types as of 2026-04-10. If nanoclaw upstream refactors
 // these signatures, bump the stubs together with the pinned NANOCLAW_SHA in
-// packages/evals/src/e2e-infra/nanoclaw-smoke.ts.
+// packages/runtimes/src/nanoclaw-process.ts.
 
 export interface RegisteredGroup {
   name: string;

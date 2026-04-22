@@ -20,6 +20,7 @@ import {
 } from "effect";
 
 import { logger, LoggerLive } from "../logger.js";
+import { NoopTraceCaptureLive } from "../runtime-surface/trace-capture.js";
 import { createRpcRouter } from "../rpc/router.js";
 import type {
   AuthenticatedContext,
@@ -122,6 +123,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     Layer.succeed(UserServiceTag, config.userService ?? null),
     Layer.succeed(WebhookClientTag, webhookClient),
     Layer.succeed(DeliveryWebhookTag, config.deliveryWebhook ?? null),
+    config.traceCaptureLayer ?? NoopTraceCaptureLive,
     // Provides LoggerTag (pino built from Effect.Config) and replaces the
     // default Effect logger so `Effect.log*` routes through the same stream.
     LoggerLive,
@@ -145,6 +147,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     messageService,
     appHost,
     defaultPermissionService,
+    traceCapture,
   } = services;
 
   appHost.setPermissionService(defaultPermissionService);
@@ -576,6 +579,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
       disconnectionHooks.push(hook);
     },
     broadcaster,
+    traceCapture,
     connections,
     registerApp(manifest) {
       appHost.registerApp(manifest);

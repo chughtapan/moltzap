@@ -9,6 +9,10 @@ import { Context, Deferred, Effect, HashMap, Layer, Ref } from "effect";
 import type { Db } from "../db/client.js";
 import type { Logger } from "../logger.js";
 import { LoggerTag } from "../logger.js";
+import {
+  TraceCaptureTag,
+  type TraceCapture,
+} from "../runtime-surface/trace-capture.js";
 import { ConnectionManager } from "../ws/connection.js";
 import { Broadcaster } from "../ws/broadcaster.js";
 import { AuthService } from "../services/auth.service.js";
@@ -228,6 +232,7 @@ export const MessageServiceLive = Layer.effect(
     const appHost = yield* AppHostTag;
     const deliveryWebhook = yield* DeliveryWebhookTag;
     const webhookClient = yield* WebhookClientTag;
+    const traceCapture = yield* TraceCaptureTag;
     return new MessageService(
       db,
       conversations,
@@ -237,6 +242,7 @@ export const MessageServiceLive = Layer.effect(
       appHost,
       deliveryWebhook,
       webhookClient,
+      traceCapture,
     );
   }),
 );
@@ -302,6 +308,7 @@ export interface ResolvedServices {
   readonly defaultPermissionService: DefaultPermissionService;
   readonly messageService: MessageService;
   readonly encryption: EnvelopeEncryption | null;
+  readonly traceCapture: TraceCapture;
 }
 
 /**
@@ -323,4 +330,5 @@ export const resolveServices = Effect.all({
   appHost: AppHostTag,
   defaultPermissionService: DefaultPermissionServiceTag,
   messageService: MessageServiceTag,
+  traceCapture: TraceCaptureTag,
 }) satisfies Effect.Effect<ResolvedServices, never, unknown>;
