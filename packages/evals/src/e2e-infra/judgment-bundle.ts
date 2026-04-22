@@ -1,8 +1,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import * as yaml from "js-yaml";
 import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
+import { stringify as stringifyYaml } from "yaml";
 import type {
   EvalScenario,
   GeneratedResult,
@@ -443,7 +443,7 @@ export function writeJudgmentBundleArtifacts(
   const yamlPath = path.join(outputDir, `${baseName}.yaml`);
 
   fs.writeFileSync(jsonPath, `${JSON.stringify(bundle, null, 2)}\n`);
-  fs.writeFileSync(yamlPath, `${yaml.dump(bundle, { noRefs: true })}`);
+  fs.writeFileSync(yamlPath, `${stringifyYaml(bundle)}`);
 
   return { jsonPath, yamlPath };
 }
