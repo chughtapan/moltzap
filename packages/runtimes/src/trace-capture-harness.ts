@@ -33,6 +33,8 @@ interface MessagePart {
 
 interface TraceCaptureEvent {
   readonly _tag: "Message";
+  readonly channelKey: string;
+  readonly senderDisplayName: string;
   readonly message: {
     readonly senderId: string;
     readonly conversationId: string;
@@ -970,7 +972,7 @@ function toBundleEvent(
     .join("\n");
   return {
     type: "message",
-    from: namesById.get(event.message.senderId) ?? event.message.senderId,
+    from: event.senderDisplayName,
     ...(event.recipientAgentIds.length === 1
       ? {
           to:
@@ -978,7 +980,7 @@ function toBundleEvent(
             event.recipientAgentIds[0]!,
         }
       : {}),
-    channel: event.message.conversationId,
+    channel: event.channelKey,
     text,
     ts: Date.parse(event.message.createdAt),
   };
