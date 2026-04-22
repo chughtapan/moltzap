@@ -16,6 +16,7 @@ import type {
   EvalRunRequest,
   EvalRuntimeKind,
   LegacyEvalSurface,
+  StagedPlannedHarnessCatalog,
 } from "./types.js";
 
 export interface EvalRuntimeDependencies {
@@ -46,7 +47,10 @@ export class EvalRuntimeSurfaceError extends Data.TaggedError(
 }> {}
 
 export function resolveEvalExecutionMode(
-  _request: EvalRunRequest,
+  _input: {
+    readonly request: EvalRunRequest;
+    readonly stagedHarness: StagedPlannedHarnessCatalog;
+  },
 ): Effect.Effect<EvalExecutionMode, EvalRuntimeSurfaceError, never> {
   throw new Error("not implemented");
 }
