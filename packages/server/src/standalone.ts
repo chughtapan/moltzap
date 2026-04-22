@@ -8,7 +8,6 @@ import { Kysely, PostgresDialect, sql } from "kysely";
 import { Duration, Effect } from "effect";
 import { FileSystem, HttpClient, HttpClientRequest } from "@effect/platform";
 import { NodeFileSystem, NodeHttpClient } from "@effect/platform-node";
-import { loadConfigFromFile } from "./config/loader.js";
 import type { MoltZapAppConfig as MoltZapConfig } from "./config/effect-config.js";
 import { createCoreApp } from "./app/server.js";
 import { seedInitialKek } from "./crypto/key-rotation.js";
@@ -24,6 +23,9 @@ import { WebhookUserService } from "./services/user.service.js";
 import { logger } from "./logger.js";
 import type { CoreApp, CoreConfig } from "./app/types.js";
 import type { Database } from "./db/database.js";
+import { loadRuntimeProcessConfig } from "./runtime-surface/config.js";
+import type { RuntimeConfigPath } from "./runtime-surface/config.js";
+import { createRuntimeObservability } from "./runtime-surface/logging.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -295,25 +297,40 @@ export async function startServer(configPath?: string): Promise<{
   config: MoltZapConfig;
   stop: () => Promise<void>;
 }> {
-  const yamlConfig = await Effect.runPromise(loadConfigFromFile(configPath));
+  const runtimeConfig = await Effect.runPromise(
+    loadRuntimeProcessConfig(
+      configPath === undefined
+        ? {}
+        : { configPath: configPath as RuntimeConfigPath },
+    ),
+  );
+  const observability = await Effect.runPromise(
+    createRuntimeObservability(runtimeConfig),
+  );
+  const log = observability.logger;
+
+  process.env["LOG_LEVEL"] = runtimeConfig.logging.level;
+  process.env["NODE_ENV"] = runtimeConfig.environment;
+  process.env["OTEL_SERVICE_NAME"] = runtimeConfig.tracing.serviceName;
 
   // Create database (PGlite if no URL, Postgres otherwise)
-  // DATABASE_URL env var is a fallback when YAML doesn't specify database.url
-  const databaseUrl = yamlConfig.database?.url || process.env["DATABASE_URL"];
-  const usePgLite = !databaseUrl;
+  const appConfig = runtimeConfig.app;
+  const databaseUrl = runtimeConfig.server.database.url;
+  const usePgLite = databaseUrl.length === 0;
   const handle = usePgLite
-    ? await createPgLiteDb(yamlConfig.database?.data_dir)
-    : await createPostgresDb(databaseUrl!);
+    ? await createPgLiteDb(appConfig.database?.data_dir)
+    : await createPostgresDb(databaseUrl);
 
   if (usePgLite) {
-    logger.info("Using embedded PGlite database (no external Postgres needed)");
+    log.info("Using embedded PGlite database (no external Postgres needed)");
   }
 
   // Auto-migrate
   await Effect.runPromise(
-    autoMigrateEffect(handle, yamlConfig.encryption?.master_secret).pipe(
-      Effect.provide(NodeFileSystem.layer),
-    ),
+    autoMigrateEffect(
+      handle,
+      runtimeConfig.server.encryption.masterSecret,
+    ).pipe(Effect.provide(NodeFileSystem.layer)),
   );
 
   // Build CoreConfig
@@ -323,14 +340,14 @@ export async function startServer(configPath?: string): Promise<{
   // after createCoreApp since they gate per-request behavior.
   const webhookClient = new WebhookClient();
 
-  const userServiceCfg = yamlConfig.services?.users;
+  const userServiceCfg = appConfig.services?.users;
   const userService =
     userServiceCfg?.type === "webhook" && userServiceCfg.webhook_url
       ? new WebhookUserService(
           webhookClient,
           userServiceCfg.webhook_url,
           userServiceCfg.timeout_ms ?? 10000,
-          logger,
+          log,
         )
       : undefined;
 
@@ -339,11 +356,11 @@ export async function startServer(configPath?: string): Promise<{
   // "developer at the keyboard". Skips the external-claim handshake so
   // the quickstart can reach the app-session flow without Supabase etc.
   // Production MUST leave `dev_mode.enabled` false (or absent).
-  const devModeUserId = yamlConfig.dev_mode?.enabled
-    ? (yamlConfig.dev_mode.user_id ?? randomUUID())
+  const devModeUserId = appConfig.dev_mode?.enabled
+    ? (appConfig.dev_mode.user_id ?? randomUUID())
     : undefined;
   if (devModeUserId) {
-    logger.warn(
+    log.warn(
       { devModeUserId },
       "dev_mode.enabled=true — registered agents will be auto-owned; do not use in production",
     );
@@ -352,10 +369,11 @@ export async function startServer(configPath?: string): Promise<{
   const coreConfig: CoreConfig = {
     db: handle.db,
     dbCleanup: handle.cleanup,
-    encryptionMasterSecret: yamlConfig.encryption?.master_secret,
-    port: yamlConfig.server?.port ?? 41973,
-    corsOrigins: yamlConfig.server?.cors_origins ?? ["*"],
-    registrationSecret: yamlConfig.registration?.secret,
+    encryptionMasterSecret: runtimeConfig.server.encryption.masterSecret,
+    port: runtimeConfig.server.server.port,
+    corsOrigins: runtimeConfig.server.server.corsOrigins.exact,
+    registrationSecret: appConfig.registration?.secret,
+    devMode: runtimeConfig.server.devMode,
     devModeUserId,
     userService,
     webhookClient,
@@ -364,41 +382,41 @@ export async function startServer(configPath?: string): Promise<{
   const app = createCoreApp(coreConfig);
 
   if (
-    yamlConfig.services?.contacts?.type === "webhook" &&
-    yamlConfig.services.contacts.webhook_url
+    appConfig.services?.contacts?.type === "webhook" &&
+    appConfig.services.contacts.webhook_url
   ) {
     app.setContactService(
       new WebhookContactService(
         webhookClient,
-        yamlConfig.services.contacts.webhook_url,
-        yamlConfig.services.contacts.timeout_ms ?? 10000,
-        logger,
+        appConfig.services.contacts.webhook_url,
+        appConfig.services.contacts.timeout_ms ?? 10000,
+        log,
       ),
     );
   }
 
   if (
-    yamlConfig.services?.permissions?.type === "webhook" &&
-    yamlConfig.services.permissions.webhook_url
+    appConfig.services?.permissions?.type === "webhook" &&
+    appConfig.services.permissions.webhook_url
   ) {
     const adapter = new AsyncWebhookAdapter();
     const token =
-      yamlConfig.services.permissions.callback_token ?? crypto.randomUUID();
+      appConfig.services.permissions.callback_token ?? crypto.randomUUID();
     const callbackBaseUrl = `http://127.0.0.1:${app.port}`;
     const permService = new WebhookPermissionService(
       adapter,
-      yamlConfig.services.permissions.webhook_url,
+      appConfig.services.permissions.webhook_url,
       callbackBaseUrl,
       token,
-      logger,
+      log,
     );
     app.setPermissionService(permService);
     app.setWebhookPermissionCallback(adapter, token);
   }
 
   // Register app manifests (resolve paths relative to config file location)
-  if (yamlConfig.apps) {
-    const configDir = yamlConfig._configDir;
+  if (appConfig.apps) {
+    const configDir = runtimeConfig.configDirectory;
     const fsReadAppManifest = (manifestPath: string) =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
@@ -407,7 +425,7 @@ export async function startServer(configPath?: string): Promise<{
           .pipe(Effect.mapError((e) => new Error(e.message)));
       }).pipe(Effect.provide(NodeFileSystem.layer));
 
-    for (const appRef of yamlConfig.apps) {
+    for (const appRef of appConfig.apps) {
       const manifestPath = isAbsolute(appRef.manifest)
         ? appRef.manifest
         : resolve(configDir, appRef.manifest);
@@ -418,7 +436,7 @@ export async function startServer(configPath?: string): Promise<{
         ),
       );
       if (!loadResult.ok) {
-        logger.error(
+        log.error(
           { err: loadResult.err, path: appRef.manifest },
           "Failed to load app manifest",
         );
@@ -427,12 +445,12 @@ export async function startServer(configPath?: string): Promise<{
       try {
         const manifest = JSON.parse(loadResult.json);
         app.registerApp(manifest);
-        logger.info(
+        log.info(
           { appId: manifest.appId, path: appRef.manifest },
           "App manifest registered",
         );
       } catch (err) {
-        logger.error(
+        log.error(
           { err, path: appRef.manifest },
           "Failed to load app manifest",
         );
@@ -441,21 +459,21 @@ export async function startServer(configPath?: string): Promise<{
   }
 
   // Seed agents (after server is listening)
-  if (yamlConfig.seed?.agents?.length) {
+  if (appConfig.seed?.agents?.length) {
     const baseUrl = `http://127.0.0.1:${app.port}`;
     // Wait for the server to be ready, then seed. Fire-and-forget at the
     // process edge; logs are the feedback loop.
     const seedTask = waitForReadyEffect(baseUrl, 10).pipe(
-      Effect.flatMap(() => seedAgentsEffect(yamlConfig, handle.db, baseUrl)),
+      Effect.flatMap(() => seedAgentsEffect(appConfig, handle.db, baseUrl)),
       Effect.provide(NodeHttpClient.layer),
       Effect.catchAll((err) =>
-        Effect.sync(() => logger.error({ err }, "Seed failed")),
+        Effect.sync(() => log.error({ err }, "Seed failed")),
       ),
     );
     Effect.runFork(seedTask);
   }
 
-  logger.info(
+  log.info(
     {
       port: app.port,
       mode: "standalone",
@@ -466,7 +484,7 @@ export async function startServer(configPath?: string): Promise<{
 
   return {
     app,
-    config: yamlConfig,
+    config: appConfig,
     // `app.close()` already returns `Promise<void>` — forward it directly.
     stop: () => app.close(),
   };

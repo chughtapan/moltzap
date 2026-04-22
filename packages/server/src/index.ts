@@ -53,6 +53,35 @@ export {
   MoltZapConfigSchema,
 } from "./config/schema.js";
 export type { MoltZapConfig, ConfigError } from "./config/schema.js";
+export {
+  RuntimeConfigSurfaceError,
+  loadRuntimeProcessConfig,
+} from "./runtime-surface/config.js";
+export type {
+  LoadRuntimeConfigInput,
+  RuntimeConfigPath,
+  RuntimeEnvironment,
+  RuntimeLogLevel,
+  RuntimeLoggingConfig,
+  RuntimeTracingConfig,
+  RuntimeProcessConfig,
+} from "./runtime-surface/config.js";
+export {
+  RuntimeObservabilityError,
+  createRuntimeObservability,
+  withRuntimeLogContext,
+  withRuntimeTraceSpan,
+} from "./runtime-surface/logging.js";
+export type {
+  RuntimeRequestId,
+  RuntimeSessionId,
+  RuntimeAgentId,
+  RuntimeFiberId,
+  RuntimeSpanName,
+  RuntimeLogContext,
+  RuntimeTraceSpan,
+  RuntimeObservability,
+} from "./runtime-surface/logging.js";
 
 // Standalone
 export { startServer } from "./standalone.js";
