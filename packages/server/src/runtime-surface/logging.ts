@@ -64,11 +64,6 @@ export class RuntimeObservabilityError extends Data.TaggedError(
         readonly message: string;
       }
     | {
-        readonly _tag: "AnnotationRejected";
-        readonly field: string;
-        readonly message: string;
-      }
-    | {
         readonly _tag: "FiberSupervisorUnavailable";
         readonly message: string;
       };
