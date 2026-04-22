@@ -107,7 +107,7 @@ async function main(): Promise<void> {
     .option("execution-mode", {
       type: "string",
       description:
-        "Evaluation path: cc-judge (default) or the legacy local judge/report stack",
+        "Evaluation path: cc-judge (default) or the legacy local judge path",
       default: "cc-judge",
       choices: ["cc-judge", "legacy-llm-judge"],
     })

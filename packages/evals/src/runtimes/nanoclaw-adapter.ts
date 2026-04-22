@@ -5,12 +5,12 @@ import type { CoreApp } from "@moltzap/server-core";
 import type { Runtime, SpawnInput, LogSlice, ReadyOutcome } from "./runtime.js";
 import { SpawnFailed } from "./errors.js";
 import {
-  ensureNanoclawInstalled,
-  startNanoclawSmoke,
-  stopNanoclawSmoke,
-  getNanoclawLogs,
-  type NanoclawSmokeHandle,
-} from "../e2e-infra/nanoclaw-smoke.js";
+  ensureNanoclawRuntimeInstalled,
+  startNanoclawRuntime,
+  stopNanoclawRuntime,
+  getNanoclawRuntimeLogs,
+  type NanoclawRuntimeHandle,
+} from "./nanoclaw-process.js";
 
 export interface NanoclawAdapterDeps {
   readonly coreApp: CoreApp;
@@ -18,7 +18,7 @@ export interface NanoclawAdapterDeps {
 }
 
 interface AdapterState {
-  handle: NanoclawSmokeHandle;
+  handle: NanoclawRuntimeHandle;
   spawnInput: SpawnInput;
   tornDown: boolean;
 }
@@ -30,10 +30,10 @@ export class NanoclawAdapter implements Runtime {
 
   spawn(input: SpawnInput): Effect.Effect<void, SpawnFailed, never> {
     return Effect.tryPromise({
-      // #ignore-sloppy-code-next-line[async-keyword, promise-type]: ensureNanoclawInstalled + startNanoclawSmoke subprocess install boundary
+      // #ignore-sloppy-code-next-line[async-keyword, promise-type]: nanoclaw runtime install + subprocess spawn boundary
       try: async () => {
-        await ensureNanoclawInstalled();
-        const handle = await startNanoclawSmoke({
+        await ensureNanoclawRuntimeInstalled();
+        const handle = await startNanoclawRuntime({
           apiKey: input.apiKey,
           serverUrl: input.serverUrl,
         });
@@ -60,7 +60,7 @@ export class NanoclawAdapter implements Runtime {
 
       const check = () => {
         if (handle.proc.exitCode !== null) {
-          const stderr = getNanoclawLogs(handle);
+          const stderr = getNanoclawRuntimeLogs(handle);
           this.runTeardown();
           resume(
             Effect.succeed({
@@ -98,7 +98,7 @@ export class NanoclawAdapter implements Runtime {
 
   getLogs(offset: number): LogSlice {
     if (!this.state) return { text: "", nextOffset: 0 };
-    const full = getNanoclawLogs(this.state.handle);
+    const full = getNanoclawRuntimeLogs(this.state.handle);
     const text = full.slice(offset);
     return { text, nextOffset: full.length };
   }
@@ -107,11 +107,11 @@ export class NanoclawAdapter implements Runtime {
     return "New messages";
   }
 
-  // #ignore-sloppy-code-next-line[async-keyword, promise-type]: stopNanoclawSmoke boundary
+  // #ignore-sloppy-code-next-line[async-keyword, promise-type]: nanoclaw runtime teardown boundary
   private async doTeardown(): Promise<void> {
     if (!this.state || this.state.tornDown) return;
     this.state.tornDown = true;
-    await stopNanoclawSmoke(this.state.handle);
+    await stopNanoclawRuntime(this.state.handle);
   }
 
   private runTeardown(): void {

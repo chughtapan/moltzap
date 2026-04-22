@@ -97,11 +97,7 @@ export interface StagedPlannedHarnessCatalog {
   readonly executionInput: PlannedHarnessExecutionInput;
 }
 
-export type LegacyEvalSurface =
-  | "llm-judge"
-  | "report"
-  | "judgment-bundle"
-  | "nanoclaw-smoke";
+export type LegacyEvalSurface = "llm-judge";
 
 export type EvalExecutionMode =
   | {
