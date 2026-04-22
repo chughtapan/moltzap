@@ -82,7 +82,7 @@ importers:
         specifier: workspace:*
         version: link:../protocol
       effect:
-        specifier: ^3.18.0
+        specifier: 3.21.0
         version: 3.21.0
     devDependencies:
       '@types/node':
@@ -110,7 +110,7 @@ importers:
         specifier: workspace:*
         version: link:../protocol
       effect:
-        specifier: ^3.21.0
+        specifier: 3.21.0
         version: 3.21.0
       pino:
         specifier: ^9.5.0
@@ -150,7 +150,7 @@ importers:
         specifier: workspace:*
         version: link:../protocol
       effect:
-        specifier: ^3.21.0
+        specifier: 3.21.0
         version: 3.21.0
     devDependencies:
       typescript:
@@ -169,7 +169,7 @@ importers:
         specifier: workspace:*
         version: link:../protocol
       effect:
-        specifier: ^3.21.0
+        specifier: 3.21.0
         version: 3.21.0
       openclaw:
         specifier: '>=2026.0.0'
