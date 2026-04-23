@@ -5,24 +5,37 @@
  * composes these with per-RPC params to produce inbound-frame arbitraries
  * the real server must absorb without crashing.
  */
-import type { Arbitrary } from "fast-check";
-import type {
-  RequestFrame,
-  ResponseFrame,
-  EventFrame,
+import * as fc from "fast-check";
+import {
+  RequestFrameSchema,
+  ResponseFrameSchema,
+  EventFrameSchema,
+  type RequestFrame,
+  type ResponseFrame,
+  type EventFrame,
 } from "../../schema/frames.js";
 import type { MalformedFrameKind, AnyFrame } from "../codec.js";
+import { arbitraryFromSchema } from "./from-typebox.js";
 
-export function arbitraryRequestFrame(): Arbitrary<RequestFrame> {
-  throw new Error("not implemented");
+const malformedKinds = [
+  "bit-flip",
+  "truncated",
+  "oversized",
+  "invalid-utf8",
+  "missing-required-field",
+  "extra-property",
+] as const satisfies readonly MalformedFrameKind[];
+
+export function arbitraryRequestFrame(): fc.Arbitrary<RequestFrame> {
+  return arbitraryFromSchema(RequestFrameSchema);
 }
 
-export function arbitraryResponseFrame(): Arbitrary<ResponseFrame> {
-  throw new Error("not implemented");
+export function arbitraryResponseFrame(): fc.Arbitrary<ResponseFrame> {
+  return arbitraryFromSchema(ResponseFrameSchema);
 }
 
-export function arbitraryEventFrame(): Arbitrary<EventFrame> {
-  throw new Error("not implemented");
+export function arbitraryEventFrame(): fc.Arbitrary<EventFrame> {
+  return arbitraryFromSchema(EventFrameSchema);
 }
 
 /**
@@ -35,6 +48,15 @@ export interface ArbitraryMalformedFrame {
   readonly seed: number;
 }
 
-export function arbitraryMalformedFrame(): Arbitrary<ArbitraryMalformedFrame> {
-  throw new Error("not implemented");
+export function arbitraryMalformedFrame(): fc.Arbitrary<ArbitraryMalformedFrame> {
+  const baseArb: fc.Arbitrary<AnyFrame> = fc.oneof(
+    arbitraryRequestFrame().map((f) => f as AnyFrame),
+    arbitraryResponseFrame().map((f) => f as AnyFrame),
+    arbitraryEventFrame().map((f) => f as AnyFrame),
+  );
+  return fc.record({
+    base: baseArb,
+    kind: fc.constantFrom(...malformedKinds),
+    seed: fc.integer({ min: 1, max: 2 ** 31 - 1 }),
+  });
 }

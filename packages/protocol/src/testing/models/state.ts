@@ -15,6 +15,11 @@ import type { EventFrame } from "../../schema/frames.js";
 /** Monotonic logical clock — the model does not read wall time. */
 export type LogicalTick = number & { readonly __brand: "LogicalTick" };
 
+/** Construct a `LogicalTick` from a raw number. Only call in this module. */
+export function mkTick(n: number): LogicalTick {
+  return n as LogicalTick;
+}
+
 /** Every kind of entity the model tracks. */
 export interface ReferenceState {
   readonly tick: LogicalTick;
@@ -35,6 +40,12 @@ export interface ReferenceState {
   readonly seenRequestIds: ReadonlySet<string>;
 }
 
-export const initialReferenceState: ReferenceState = (() => {
-  throw new Error("not implemented");
-})();
+export const initialReferenceState: ReferenceState = {
+  tick: mkTick(0),
+  agents: new Map(),
+  conversations: new Map(),
+  messages: new Map(),
+  pendingEvents: new Map(),
+  authz: new Map(),
+  seenRequestIds: new Set(),
+};
