@@ -21,6 +21,10 @@
     "./schemas": {
       "types": "./dist/schema/index.d.ts",
       "import": "./dist/schema/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "import": "./dist/testing/index.js"
     }
   },
   "scripts": {
@@ -32,10 +36,12 @@
   "dependencies": {
     "@sinclair/typebox": "^0.34.0",
     "ajv": "^8.17.0",
-    "ajv-formats": "^3.0.0"
+    "ajv-formats": "^3.0.0",
+    "effect": "^3.21.0"
   },
   "devDependencies": {
     "@types/node": "^25.5.0",
+    "fast-check": "^4.6.0",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
