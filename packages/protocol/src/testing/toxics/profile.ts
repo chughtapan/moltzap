@@ -64,6 +64,35 @@ export type ToxicTag = (typeof allToxicTags)[number];
  * names are the canonical Tier C property ids (`"C1"` | `"C2"` | …).
  * Per D2, every toxic maps to exactly one Tier C invariant.
  */
+/**
+ * Per spec #181 §5 D1–D6: every toxic maps to one Tier C invariant.
+ *
+ * | Toxic        | Exercises   |
+ * |--------------|-------------|
+ * | latency      | C1 (fan-out cardinality under reorder) |
+ * | bandwidth    | C1 (fan-out still lands under throttle) |
+ * | slicer       | C3 (payload opacity under partial-frame) |
+ * | reset_peer   | C2 (store-and-replay after reconnect) |
+ * | timeout      | C1 (fan-out + eventual consistency) |
+ * | slow_close   | C4 (task-isolation survives slow close) |
+ */
 export function tierCInvariantFor(toxic: ToxicTag): "C1" | "C2" | "C3" | "C4" {
-  throw new Error("not implemented");
+  switch (toxic) {
+    case "latency":
+    case "bandwidth":
+    case "timeout":
+      return "C1";
+    case "reset_peer":
+      return "C2";
+    case "slicer":
+      return "C3";
+    case "slow_close":
+      return "C4";
+    default: {
+      const _exhaustive: never = toxic;
+      throw new Error(
+        `tierCInvariantFor: unexpected toxic ${String(_exhaustive)}`,
+      );
+    }
+  }
 }
