@@ -1,0 +1,115 @@
+Spike: can `process.kill(pid, 'SIGKILL')` be applied to the `startCoreTestServer`
+fixture such that pending `humanContact` Deferreds drop with a typed error
+observable at the test level?
+
+================================================================================
+Probe 1 — Does the fixture run the server in-process or as a child process?
+================================================================================
+
+File: packages/server/src/test-utils/index.ts (167 lines)
+Key lines:
+  L22-27: module-level mutable singletons (coreApp, appDb, pgliteClient)
+  L56-58: KyselyPGlite created in the same process
+  L81-91: `coreApp = createCoreApp({ db: appDb, ... })` — in-process construction
+  L93:    200ms sleep waits on the in-process server's async startup
+  L95-97: port/URLs are read back from the in-process CoreApp object
+
+No child_process spawn/fork, no worker_thread, no exec.
+
+File: packages/server/src/app/server.ts (645 lines)
+Key lines:
+  L551-554: `NodeHttpServer.make(() => http.createServer(), { port, host })`
+  L544-546: `ManagedRuntime.make(Layer.mergeAll(NodeHttpServer.layerContext, ...))`
+  L547:     `Scope.make()` retains shutdown ownership in the same runtime
+  L561-563: `runtime.runPromise(startup)` — listener installed in current process
+
+Conclusion: the server and its HTTP listener live in the *same Node process* as
+the Vitest worker. `process.kill(process.pid, 'SIGKILL')` would kill the test
+runner itself, not the server.
+
+`grep -rn "child_process\|spawn\|fork" packages/server/src/test-utils/ \
+  packages/server/src/app/ packages/server/src/__tests__/` returns only
+Effect.fork / Effect.forkDaemon matches (in-runtime fibers, not OS processes).
+
+Verdict on Probe 1: IN-PROCESS. No pid distinct from the test runner.
+
+================================================================================
+Probe 2 — Does `humanContact` exist in the codebase today?
+================================================================================
+
+  $ grep -rn "humanContact\|HumanContact" packages/   # zero matches
+  $ grep -rn "ServerRestart"              packages/   # zero matches
+
+Neither the RPC method nor the typed error that E1 probes exists. The closest
+extant analog is `AsyncWebhookAdapter` at packages/server/src/adapters/webhook.ts:
+
+  L297-345: in-process `Deferred` map keyed by request_id
+  L393-406: `awaitCallback = Deferred.await(deferred)` in the RPC path
+  L452-462: `shutdown` fails every pending Deferred with a typed `WebhookError`
+
+This is the *shape* E1 wants (pending Deferreds → typed failure on shutdown) but
+it is driven by `AsyncWebhookAdapter.shutdown`, i.e., a graceful close path, not
+OS-level process death. There is no existing code path where SIGKILL of a server
+process surfaces a typed `ServerRestart` error to a caller, because (a) the
+fixture is in-process and (b) the feature does not exist.
+
+Verdict on Probe 2: ABSENT. E1 has no implementation to test against even if
+the fixture did support SIGKILL.
+
+================================================================================
+Probe 3 — What would it take to enable SIGKILL?
+================================================================================
+
+Fixture enhancement (independent of humanContact):
+
+  Option A — Fork the whole server into a child node process.
+    - New file: packages/server/src/test-utils/child-entrypoint.ts (~60 LOC)
+      boots startCoreTestServer, prints {baseUrl, wsUrl} on stdout.
+    - Refactor: packages/server/src/test-utils/index.ts split into
+      in-process path (kept for the existing 79 integration tests) +
+      child-process path returning { baseUrl, wsUrl, pid, kill(sig) }.
+      ~80-120 new LOC.
+    - Blocker: existing fixture returns Kysely<Database> and coreApp
+      handles to tests for seed/inspection. A child-process variant
+      cannot share PGlite in-memory; tests either (a) only use the
+      wire, or (b) use a separate admin RPC for seed. E1 can be (a).
+    - Risk: MEDIUM. Child-process boot adds ~1-2s per test invocation;
+      cleanup must reap the child on parent-side crash; stdout framing
+      must be robust.
+    - LOC estimate: 150-200 added, ~20 touched.
+
+  Option B — Keep in-process but simulate SIGKILL via abrupt close.
+    - Feasible today: call `coreApp.close()` with a forced path, then
+      assert pending Deferreds fail with a typed error.
+    - Gap vs E1: this is a graceful shutdown, not SIGKILL. Does not
+      exercise the kernel-level abrupt death case E1 is written for.
+    - Verdict: does NOT satisfy I1/E1 as ratified. Reject.
+
+humanContact + ServerRestart (separate work, must land before E1):
+
+  - New RPC method humanContact/* (TBD shape, outside spike scope).
+  - New typed error ServerRestart surfaced to callers when their
+    pending Deferred is dropped by server restart or crash.
+  - On reconnect-after-restart, client correlates pending request-ids
+    to surface ServerRestart rather than hang on a lost response.
+  - LOC estimate: unknown; material feature work, not a one-liner.
+
+================================================================================
+Verdict
+================================================================================
+
+NEEDS-ENHANCEMENT. Confidence: HIGH.
+
+Two separable gaps must close before E1 is testable:
+  1. Fixture runs the server in a child process (Option A above).
+  2. humanContact RPC + ServerRestart typed error exist in the impl.
+
+Recommendation: defer E1 from v1 of the conformance suite, or sequence it
+as a follow-up slice after both gaps land. The other twelve ACs (A*, B*,
+C*, D*) do not depend on either gap and can proceed on the in-process
+fixture via TestClient↔RealServer over WebSocket.
+
+No throwaway "GO" test was written: the premise of the task ("SIGKILL the
+server and assert a typed error on a pending humanContact Deferred")
+cannot be exercised today in either of its two clauses. Writing such a
+test against the current fixture would kill the Vitest runner.
