@@ -16,6 +16,9 @@
  * named export of `config.ts`. The public interface defined below is the
  * contract impl-staff preserves regardless of layout.
  */
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { Data, Effect } from "effect";
 
 // ─── Branded names ─────────────────────────────────────────────────────────
@@ -28,6 +31,16 @@ export type ProfileName = string & { readonly __brand: "ProfileName" };
 
 /** Sentinel used when the caller addresses the legacy top-level record. */
 export type DefaultProfileId = "default";
+
+const NAME_PATTERN = /^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$/;
+
+const DEFAULT_SERVER_URL = "wss://api.moltzap.xyz";
+
+const getConfigDir = (): string =>
+  process.env.MOLTZAP_CONFIG_HOME ?? path.join(os.homedir(), ".moltzap");
+
+const getConfigFilePathSync = (): string =>
+  path.join(getConfigDir(), "config.json");
 
 // ─── Records ───────────────────────────────────────────────────────────────
 
@@ -107,10 +120,82 @@ export class ProfileConfigWriteError extends Data.TaggedError(
  * string that fails NAME_PATTERN.
  */
 export const parseProfileName = (
-  _raw: string,
+  raw: string,
 ): Effect.Effect<ProfileName, ProfileInvalidNameError> => {
-  throw new Error("not implemented");
+  if (raw.length === 0) {
+    return Effect.fail(
+      new ProfileInvalidNameError({ name: raw, reason: "empty string" }),
+    );
+  }
+  if (!NAME_PATTERN.test(raw)) {
+    return Effect.fail(
+      new ProfileInvalidNameError({
+        name: raw,
+        reason:
+          "must be 3-32 chars, lowercase alphanumeric and hyphens, cannot start or end with a hyphen",
+      }),
+    );
+  }
+  return Effect.succeed(raw as ProfileName);
 };
+
+interface RawConfig {
+  readonly serverUrl?: string;
+  readonly apiKey?: string;
+  readonly agentName?: string;
+  readonly profiles?: Record<string, unknown>;
+}
+
+const isRecord = (x: unknown): x is Record<string, unknown> =>
+  typeof x === "object" && x !== null && !Array.isArray(x);
+
+const decodeProfileRecord = (
+  raw: unknown,
+  fallbackServerUrl: string,
+): ProfileRecord | undefined => {
+  if (!isRecord(raw)) return undefined;
+  const apiKey = raw.apiKey;
+  const agentName = raw.agentName;
+  if (typeof apiKey !== "string" || typeof agentName !== "string") {
+    return undefined;
+  }
+  const serverUrl =
+    typeof raw.serverUrl === "string" ? raw.serverUrl : fallbackServerUrl;
+  const record: ProfileRecord = { apiKey, agentName, serverUrl };
+  if (typeof raw.registeredAt === "string") {
+    return { ...record, registeredAt: raw.registeredAt };
+  }
+  return record;
+};
+
+const readRawConfig = (): Effect.Effect<
+  { raw: RawConfig; existed: boolean },
+  ProfileConfigReadError
+> =>
+  Effect.try({
+    try: () => {
+      const p = getConfigFilePathSync();
+      try {
+        const text = fs.readFileSync(p, "utf-8");
+        const parsed: unknown = JSON.parse(text);
+        if (!isRecord(parsed)) {
+          throw new Error("config root is not a JSON object");
+        }
+        return { raw: parsed as RawConfig, existed: true };
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code === "ENOENT") {
+          return { raw: {} as RawConfig, existed: false };
+        }
+        throw err;
+      }
+    },
+    catch: (err) =>
+      new ProfileConfigReadError({
+        path: getConfigFilePathSync(),
+        cause: err,
+      }),
+  });
 
 /**
  * Load the full layered config view. Missing file resolves to an empty
@@ -124,8 +209,32 @@ export const parseProfileName = (
 export const loadLayeredConfig: Effect.Effect<
   LayeredConfig,
   ProfileConfigReadError
-> = Effect.sync(() => {
-  throw new Error("not implemented");
+> = Effect.gen(function* () {
+  const { raw } = yield* readRawConfig();
+  const serverUrl =
+    typeof raw.serverUrl === "string" ? raw.serverUrl : DEFAULT_SERVER_URL;
+
+  let defaultRecord: ProfileRecord | undefined;
+  if (typeof raw.apiKey === "string" && typeof raw.agentName === "string") {
+    defaultRecord = {
+      apiKey: raw.apiKey,
+      agentName: raw.agentName,
+      serverUrl,
+    };
+  }
+
+  const profiles = new Map<ProfileName, ProfileRecord>();
+  if (isRecord(raw.profiles)) {
+    for (const [name, value] of Object.entries(raw.profiles)) {
+      if (!NAME_PATTERN.test(name)) continue; // tolerate malformed entries
+      const record = decodeProfileRecord(value, serverUrl);
+      if (record !== undefined) {
+        profiles.set(name as ProfileName, record);
+      }
+    }
+  }
+
+  return { default: defaultRecord, profiles, serverUrl };
 });
 
 /**
@@ -138,13 +247,27 @@ export const loadLayeredConfig: Effect.Effect<
  * "takes precedence" clause in the opposite direction.
  */
 export const resolveProfileAuth = (
-  _name: ProfileName | undefined,
+  name: ProfileName | undefined,
 ): Effect.Effect<
   ProfileRecord,
   ProfileNotFoundError | ProfileConfigReadError
-> => {
-  throw new Error("not implemented");
-};
+> =>
+  Effect.gen(function* () {
+    const layered = yield* loadLayeredConfig;
+    if (name === undefined) {
+      if (layered.default === undefined) {
+        return yield* Effect.fail(
+          new ProfileNotFoundError({ name: "default" }),
+        );
+      }
+      return layered.default;
+    }
+    const found = layered.profiles.get(name);
+    if (found === undefined) {
+      return yield* Effect.fail(new ProfileNotFoundError({ name }));
+    }
+    return found;
+  });
 
 /**
  * Persist a new profile record under `profiles.<name>`, or replace the
@@ -155,11 +278,47 @@ export const resolveProfileAuth = (
  * keep working (Invariant §4.3).
  */
 export const writeProfile = (
-  _name: ProfileName | DefaultProfileId,
-  _record: ProfileRecord,
-): Effect.Effect<void, ProfileConfigWriteError | ProfileConfigReadError> => {
-  throw new Error("not implemented");
-};
+  name: ProfileName | DefaultProfileId,
+  record: ProfileRecord,
+): Effect.Effect<void, ProfileConfigWriteError | ProfileConfigReadError> =>
+  Effect.gen(function* () {
+    const { raw } = yield* readRawConfig();
+    const next: Record<string, unknown> = { ...raw };
+
+    if (name === "default") {
+      next.serverUrl = record.serverUrl;
+      next.apiKey = record.apiKey;
+      next.agentName = record.agentName;
+    } else {
+      const existingProfiles = isRecord(next.profiles) ? next.profiles : {};
+      const profileBody: Record<string, unknown> = {
+        apiKey: record.apiKey,
+        agentName: record.agentName,
+        serverUrl: record.serverUrl,
+      };
+      if (record.registeredAt !== undefined) {
+        profileBody.registeredAt = record.registeredAt;
+      }
+      next.profiles = { ...existingProfiles, [name]: profileBody };
+      // serverUrl at top level stays as-is for legacy readers.
+      if (typeof next.serverUrl !== "string") {
+        next.serverUrl = record.serverUrl;
+      }
+    }
+
+    const configDir = getConfigDir();
+    const configPath = getConfigFilePathSync();
+    yield* Effect.try({
+      try: () => {
+        fs.mkdirSync(configDir, { recursive: true });
+        fs.writeFileSync(configPath, JSON.stringify(next, null, 2) + "\n", {
+          mode: 0o600,
+        });
+      },
+      catch: (err) =>
+        new ProfileConfigWriteError({ path: configPath, cause: err }),
+    });
+  });
 
 /**
  * `--no-persist` contract for `moltzap register`. Revised Invariant §4.4
@@ -177,10 +336,9 @@ export const writeProfile = (
  * callers can `$(moltzap register --no-persist ...)` into env).
  */
 export const emitNoPersist = (
-  _record: ProfileRecord,
-): Effect.Effect<{ readonly record: ProfileRecord }, never> => {
-  throw new Error("not implemented");
-};
+  record: ProfileRecord,
+): Effect.Effect<{ readonly record: ProfileRecord }, never> =>
+  Effect.succeed({ record });
 
 // ─── Test seam ─────────────────────────────────────────────────────────────
 
@@ -190,7 +348,5 @@ export const emitNoPersist = (
  * Exported so assertions can diff the file after a command run.
  */
 export const getConfigFilePath: Effect.Effect<string, never> = Effect.sync(
-  () => {
-    throw new Error("not implemented");
-  },
+  () => getConfigFilePathSync(),
 );

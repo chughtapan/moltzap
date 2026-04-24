@@ -314,7 +314,12 @@ const historySubcommand = Command.make(
 // signatures and traceability: https://github.com/chughtapan/safer-by-default/issues/177
 // (architect design doc rev 2).
 
-import type { Transport, TransportError } from "../transport.js";
+import {
+  rpc as transportRpc,
+  runHandler as runConversationsHandler,
+  type Transport,
+  type TransportError,
+} from "../transport.js";
 
 /** Discriminated error union for the three v2 conversation subcommands. */
 export type ConversationsCommandError =
@@ -331,40 +336,69 @@ export class ConversationsInputError extends Error {
 
 /** `moltzap conversations get <id>` → conversations/get; prints { conversation, participants }. */
 export const conversationsGetHandler = (
-  _args: { readonly conversationId: string },
-): import("effect").Effect.Effect<
-  void,
-  ConversationsCommandError,
-  Transport
-> => {
-  throw new Error("not implemented");
-};
+  args: { readonly conversationId: string },
+): Effect.Effect<void, ConversationsCommandError, Transport> =>
+  Effect.gen(function* () {
+    const result = yield* transportRpc<{
+      conversation: unknown;
+      participants: unknown;
+    }>("conversations/get", { conversationId: args.conversationId });
+    yield* Effect.sync(() => {
+      console.log(JSON.stringify(result, null, 2));
+    });
+  });
 
 /** `moltzap conversations archive <id>` → conversations/archive; prints success marker. */
 export const conversationsArchiveHandler = (
-  _args: { readonly conversationId: string },
-): import("effect").Effect.Effect<
-  void,
-  ConversationsCommandError,
-  Transport
-> => {
-  throw new Error("not implemented");
-};
+  args: { readonly conversationId: string },
+): Effect.Effect<void, ConversationsCommandError, Transport> =>
+  Effect.gen(function* () {
+    yield* transportRpc<Record<string, never>>("conversations/archive", {
+      conversationId: args.conversationId,
+    });
+    yield* Effect.sync(() => {
+      console.log(`archived: ${args.conversationId}`);
+    });
+  });
 
 /** `moltzap conversations unarchive <id>` → conversations/unarchive; prints success marker. */
 export const conversationsUnarchiveHandler = (
-  _args: { readonly conversationId: string },
-): import("effect").Effect.Effect<
-  void,
-  ConversationsCommandError,
-  Transport
-> => {
-  throw new Error("not implemented");
-};
+  args: { readonly conversationId: string },
+): Effect.Effect<void, ConversationsCommandError, Transport> =>
+  Effect.gen(function* () {
+    yield* transportRpc<Record<string, never>>("conversations/unarchive", {
+      conversationId: args.conversationId,
+    });
+    yield* Effect.sync(() => {
+      console.log(`unarchived: ${args.conversationId}`);
+    });
+  });
 
-// NOTE (architect): impl-staff builds the `Command.make(...)` wrappings for
-// these three handlers and adds them to the `Command.withSubcommands` array
-// below. The handlers live here so the barrel edit is one file, one diff.
+// ── Command.make wrappers for the three v2 handlers ───────────────────────
+const getConversationCommand = Command.make(
+  "get",
+  { conversationId: conversationIdArg },
+  ({ conversationId }) =>
+    runConversationsHandler(conversationsGetHandler({ conversationId })),
+).pipe(Command.withDescription("Get a conversation and its participants"));
+
+const archiveConversationCommand = Command.make(
+  "archive",
+  { conversationId: conversationIdArg },
+  ({ conversationId }) =>
+    runConversationsHandler(
+      conversationsArchiveHandler({ conversationId }),
+    ),
+).pipe(Command.withDescription("Archive a conversation"));
+
+const unarchiveConversationCommand = Command.make(
+  "unarchive",
+  { conversationId: conversationIdArg },
+  ({ conversationId }) =>
+    runConversationsHandler(
+      conversationsUnarchiveHandler({ conversationId }),
+    ),
+).pipe(Command.withDescription("Unarchive a conversation"));
 
 /**
  * `moltzap conversations [list|create|leave|mute|unmute|update|add-participant|remove-participant|history|get|archive|unarchive]`
@@ -386,8 +420,9 @@ export const conversationsCommand = Command.make("conversations", {}, () =>
     addParticipantCommand,
     removeParticipantCommand,
     historySubcommand,
-    // impl-staff adds: getConversationCommand, archiveConversationCommand,
-    // unarchiveConversationCommand (see handler stubs above).
+    getConversationCommand,
+    archiveConversationCommand,
+    unarchiveConversationCommand,
   ]),
 );
 

@@ -10,16 +10,18 @@
  * is a subcommand group whose future v1.1 member (`messages tail`, deferred
  * per Non-goal §3.1) lands in the same file.
  *
- * Open question Q-M-1 (see design doc §8): the spec specifies a
- * `--cursor <c>` flag, but `packages/protocol/src/schema/methods/messages.ts`
- * `MessagesList.params` defines only `{ conversationId, limit }`. The
- * cursor flag has no server support in the current protocol. Architect
- * recommended default: drop `--cursor` from v1 and escalate to `/safer:spec`
- * for rev 4; do not invent a client-side cursor. See design doc §8 for the
- * full escalation.
+ * Open question Q-M-1 (see design doc §8): `--cursor` has no server
+ * backing in the current protocol; ESCALATED to spec rev 4. The flag is
+ * deliberately absent from this interface until resolved.
  */
-import type { Effect } from "effect";
-import type { Transport, TransportError } from "../transport.js";
+import { Command, Options } from "@effect/cli";
+import { Effect, Option } from "effect";
+import {
+  rpc,
+  runHandler,
+  type Transport,
+  type TransportError,
+} from "../transport.js";
 
 // ─── Errors ────────────────────────────────────────────────────────────────
 
@@ -44,6 +46,15 @@ export interface MessagesListArgs {
   readonly limit?: number;
 }
 
+interface WireMessage {
+  readonly id: string;
+  readonly seq: number;
+  readonly senderId: string;
+  readonly senderName?: string;
+  readonly createdAt: string;
+  readonly parts: ReadonlyArray<{ type: string; text?: string }>;
+}
+
 // ─── Handlers ──────────────────────────────────────────────────────────────
 
 /**
@@ -52,7 +63,54 @@ export interface MessagesListArgs {
  * `conversations list` output style (not fixed by spec).
  */
 export const messagesListHandler = (
-  _args: MessagesListArgs,
-): Effect.Effect<void, MessagesCommandError, Transport> => {
-  throw new Error("not implemented");
-};
+  args: MessagesListArgs,
+): Effect.Effect<void, MessagesCommandError, Transport> =>
+  Effect.gen(function* () {
+    const params: Record<string, unknown> = {
+      conversationId: args.conversationId,
+    };
+    if (args.limit !== undefined) params.limit = args.limit;
+    const result = yield* rpc<{
+      messages: ReadonlyArray<WireMessage>;
+      hasMore: boolean;
+    }>("messages/list", params);
+    yield* Effect.sync(() => {
+      for (const m of result.messages) {
+        const text = m.parts.find((p) => p.type === "text")?.text ?? "";
+        const sender = m.senderName ?? m.senderId;
+        console.log(`${m.seq}\t${sender}\t${text}`);
+      }
+      if (result.hasMore) {
+        console.log("... more messages available");
+      }
+    });
+  });
+
+// ─── CLI commands ──────────────────────────────────────────────────────────
+
+const conversationOption = Options.text("conversation").pipe(
+  Options.withDescription("Conversation id"),
+);
+const msgLimitOption = Options.integer("limit").pipe(Options.optional);
+
+const messagesListCommand = Command.make(
+  "list",
+  { conversation: conversationOption, limit: msgLimitOption },
+  ({ conversation, limit }) => {
+    const args: MessagesListArgs = {
+      conversationId: conversation,
+      ...(Option.isSome(limit) ? { limit: limit.value } : {}),
+    };
+    return runHandler(messagesListHandler(args));
+  },
+).pipe(Command.withDescription("List messages in a conversation"));
+
+/** `moltzap messages [list]` subcommand group. */
+export const messagesCommand = Command.make("messages", {}, () =>
+  Effect.sync(() => {
+    console.log("Usage: moltzap messages list --conversation <id> [--limit N]");
+  }),
+).pipe(
+  Command.withDescription("Query message history"),
+  Command.withSubcommands([messagesListCommand]),
+);
