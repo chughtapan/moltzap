@@ -200,20 +200,19 @@ export const appsCloseHandler = (
   });
 
 /**
- * Wraps `apps/attestSkill`. ESCALATED (Q-AS-1, spec rev 4).
+ * Wraps `apps/attestSkill` — spec rev 4 addendum §3 (Q-AS-1 resolved).
  *
- * Stub retained for type-level completeness; NOT wired into the CLI
- * Command tree in v1. Spec rev 4 must resolve: `--session → challengeId`
- * rename, `--version` flag, or drop required `version` from the RPC.
+ * All three flags are required; the RPC result is `{}`.
+ * Exit 0 on success with no stdout payload (Invariant §4.6; result is void).
  */
 export const appsAttestSkillHandler = (
-  _args: AppsAttestSkillArgs,
+  args: AppsAttestSkillArgs,
 ): Effect.Effect<void, AppsCommandError, Transport> =>
-  Effect.fail(
-    new AppsInputError(
-      "apps attest-skill is ESCALATED to spec rev 4 (Q-AS-1) and not wired in v1",
-    ),
-  );
+  rpc<Record<string, never>>("apps/attestSkill", {
+    challengeId: args.challengeId,
+    skillUrl: args.skillUrl,
+    version: args.version,
+  }).pipe(Effect.asVoid);
 
 // ─── CLI commands ──────────────────────────────────────────────────────────
 
@@ -318,14 +317,43 @@ const appsCloseCommand = Command.make(
   ({ sessionId }) => runHandler(appsCloseHandler({ sessionId })),
 ).pipe(Command.withDescription("Close an app session"));
 
+const challengeIdOption = Options.text("challenge-id").pipe(
+  Options.withDescription("Challenge id (UUID) from the attestation challenge"),
+);
+const skillUrlOption = Options.text("skill-url").pipe(
+  Options.withDescription("Skill URL being attested"),
+);
+const versionOption = Options.text("version").pipe(
+  Options.withDescription("Skill version string"),
+);
+
 /**
- * `moltzap apps [register|create|list|get|close]` — subcommand group.
- * `apps attest-skill` is NOT wired (Q-AS-1 ESCALATED to spec rev 4).
+ * `moltzap apps attest-skill --challenge-id <id> --skill-url <url> --version <v>`
+ *
+ * Wraps `apps/attestSkill`. All three flags required.
+ * Exits 0 on success with no stdout; error to stderr with non-zero exit
+ * (spec rev 4 addendum §3 Q-AS-1; Invariant §4.6).
  */
+const appsAttestSkillCommand = Command.make(
+  "attest-skill",
+  {
+    challengeId: challengeIdOption,
+    skillUrl: skillUrlOption,
+    version: versionOption,
+  },
+  ({ challengeId, skillUrl, version }) =>
+    runHandler(appsAttestSkillHandler({ challengeId, skillUrl, version })),
+).pipe(
+  Command.withDescription(
+    "Attest a skill for a session. All three flags are required.",
+  ),
+);
+
+/** `moltzap apps [register|create|list|get|close|attest-skill]` — subcommand group. */
 export const appsCommand = Command.make("apps", {}, () =>
   Effect.sync(() => {
     console.log(
-      "Usage: moltzap apps <register|create|list|get|close> [options]",
+      "Usage: moltzap apps <register|create|list|get|close|attest-skill> [options]",
     );
   }),
 ).pipe(
@@ -341,5 +369,6 @@ export const appsCommand = Command.make("apps", {}, () =>
     appsListCommand,
     appsGetCommand,
     appsCloseCommand,
+    appsAttestSkillCommand,
   ]),
 );
