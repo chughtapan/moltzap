@@ -1,2 +1,5 @@
 results/
 *.tgz
+dist/
+node_modules/
+*.tsbuildinfo

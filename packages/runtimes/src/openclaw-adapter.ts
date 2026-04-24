@@ -315,7 +315,7 @@ function writeOpenClawConfig(opts: {
   const config: OpenClawConfig = {
     agents: {
       defaults: {
-        model: { primary: opts.modelId ?? "anthropic/claude-sonnet-4-5" },
+        model: { primary: opts.modelId ?? "minimax/MiniMax-M2.7-highspeed" },
         workspace: path.join(opts.stateDir, "workspace"),
         compaction: { mode: "safeguard" },
       },
