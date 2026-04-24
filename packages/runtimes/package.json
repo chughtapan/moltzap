@@ -15,7 +15,7 @@
     }
   },
   "scripts": {
-    "build": "rm -rf dist tsconfig.tsbuildinfo && tsc",
+    "build": "rm -rf dist.build tsconfig.build.tsbuildinfo && tsc --outDir dist.build --tsBuildInfoFile tsconfig.build.tsbuildinfo && rm -rf dist && mv dist.build dist && rm -f tsconfig.build.tsbuildinfo",
     "test": "vitest run --passWithNoTests",
     "test:integration": "vitest run --config vitest.integration.config.ts"
   },

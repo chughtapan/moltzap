@@ -11,8 +11,8 @@ The current split is:
 
 1. `@moltzap/server-core` owns `TraceCapture` through Effect Layer DI.
 2. The server records message-delivery trace events directly where they happen.
-3. `packages/evals/` only keeps the scenario YAML catalog plus the local `cc-judge` harness module under `packages/evals/`.
-4. `@moltzap/runtimes` keeps the runtime adapters used by that harness.
+3. `packages/evals/` only keeps the scenario YAML catalog.
+4. `@moltzap/runtimes` owns the runtime adapters and the compiled `trace-capture-harness` module loaded by `cc-judge`.
 5. External `cc-judge` runners own scenario loading, harness dispatch, scoring, and report emission.
 
 ## What Changed
@@ -63,6 +63,16 @@ That means:
 
 - MoltZap scenario YAML stays in `packages/evals/scenarios/`
 - the server emits trace data through `TraceCapture`
+- the harness module is `packages/runtimes/dist/trace-capture-harness.js`
 - a consuming repo or local environment must install `cc-judge` separately
 
-The local `cc-judge` repo still documents only the simple `cc-judge run <scenario-path-or-glob>` schema, so MoltZap should not document a stable end-to-end command here until the planned-harness ingress is actually shipped there.
+Current operator path:
+
+```bash
+pnpm build
+cc-judge run packages/evals/scenarios/EVAL-005.yaml --results ./eval-results
+```
+
+For OpenClaw-backed eval runs, the default agent model is now
+`minimax/MiniMax-M2.7-highspeed` unless a harness payload or runtime caller
+overrides it.
