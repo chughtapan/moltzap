@@ -335,9 +335,9 @@ export class ConversationsInputError extends Error {
 }
 
 /** `moltzap conversations get <id>` → conversations/get; prints { conversation, participants }. */
-export const conversationsGetHandler = (
-  args: { readonly conversationId: string },
-): Effect.Effect<void, ConversationsCommandError, Transport> =>
+export const conversationsGetHandler = (args: {
+  readonly conversationId: string;
+}): Effect.Effect<void, ConversationsCommandError, Transport> =>
   Effect.gen(function* () {
     const result = yield* transportRpc<{
       conversation: unknown;
@@ -349,9 +349,9 @@ export const conversationsGetHandler = (
   });
 
 /** `moltzap conversations archive <id>` → conversations/archive; prints success marker. */
-export const conversationsArchiveHandler = (
-  args: { readonly conversationId: string },
-): Effect.Effect<void, ConversationsCommandError, Transport> =>
+export const conversationsArchiveHandler = (args: {
+  readonly conversationId: string;
+}): Effect.Effect<void, ConversationsCommandError, Transport> =>
   Effect.gen(function* () {
     yield* transportRpc<Record<string, never>>("conversations/archive", {
       conversationId: args.conversationId,
@@ -362,9 +362,9 @@ export const conversationsArchiveHandler = (
   });
 
 /** `moltzap conversations unarchive <id>` → conversations/unarchive; prints success marker. */
-export const conversationsUnarchiveHandler = (
-  args: { readonly conversationId: string },
-): Effect.Effect<void, ConversationsCommandError, Transport> =>
+export const conversationsUnarchiveHandler = (args: {
+  readonly conversationId: string;
+}): Effect.Effect<void, ConversationsCommandError, Transport> =>
   Effect.gen(function* () {
     yield* transportRpc<Record<string, never>>("conversations/unarchive", {
       conversationId: args.conversationId,
@@ -386,18 +386,14 @@ const archiveConversationCommand = Command.make(
   "archive",
   { conversationId: conversationIdArg },
   ({ conversationId }) =>
-    runConversationsHandler(
-      conversationsArchiveHandler({ conversationId }),
-    ),
+    runConversationsHandler(conversationsArchiveHandler({ conversationId })),
 ).pipe(Command.withDescription("Archive a conversation"));
 
 const unarchiveConversationCommand = Command.make(
   "unarchive",
   { conversationId: conversationIdArg },
   ({ conversationId }) =>
-    runConversationsHandler(
-      conversationsUnarchiveHandler({ conversationId }),
-    ),
+    runConversationsHandler(conversationsUnarchiveHandler({ conversationId })),
 ).pipe(Command.withDescription("Unarchive a conversation"));
 
 /**

@@ -54,9 +54,7 @@ describe("decideTransport", () => {
   it("returns UseDirect{env-fallback} when MOLTZAP_API_KEY env + daemonReachable=false", async () => {
     process.env.MOLTZAP_API_KEY = "env-key";
     const decision = await Effect.runPromise(
-      decideTransport(
-        makeOpts({ probeDaemon: () => Effect.succeed(false) }),
-      ),
+      decideTransport(makeOpts({ probeDaemon: () => Effect.succeed(false) })),
     );
     expect(decision).toEqual({ _tag: "UseDirect", reason: "env-fallback" });
   });
