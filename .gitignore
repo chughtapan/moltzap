@@ -110,6 +110,9 @@ dist
 # Serverless directories
 .serverless/
 
+# Conformance suite failure artifacts (see packages/protocol/scripts/conformance.entry.test.ts)
+conformance-artifacts/
+
 # FuseBox cache
 .fusebox/
 
