@@ -1,0 +1,59 @@
+name: Conformance
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - "packages/protocol/**"
+      - "packages/server/**"
+      - "packages/client/**"
+      - "docker-compose.conformance.yml"
+      - ".github/workflows/conformance.yml"
+
+jobs:
+  conformance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TOXIPROXY_URL: http://127.0.0.1:8474
+      ARTIFACT_DIR: conformance-artifacts
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r build
+
+      - name: Start Toxiproxy
+        run: docker compose -f docker-compose.conformance.yml up -d
+
+      - name: Wait for Toxiproxy
+        run: |
+          for i in {1..30}; do
+            if curl -sf http://127.0.0.1:8474/version; then exit 0; fi
+            sleep 1
+          done
+          echo "Toxiproxy did not come up" >&2
+          exit 1
+
+      - name: Run conformance suite
+        env:
+          SKIP_DOCKER: "1"
+        run: pnpm -F @moltzap/server-core test:conformance
+
+      - name: Stop Toxiproxy
+        if: always()
+        run: docker compose -f docker-compose.conformance.yml down -v
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: conformance-artifacts
+          path: conformance-artifacts
+          if-no-files-found: ignore

@@ -110,6 +110,9 @@ dist
 # Serverless directories
 .serverless/
 
+# Conformance suite failure artifacts (see packages/protocol/scripts/conformance.entry.test.ts)
+conformance-artifacts/
+
 # FuseBox cache
 .fusebox/
 
@@ -143,3 +146,4 @@ vite.config.ts.timestamp-*
 # MoltZap runtime state (created by scripts/quickstart.sh)
 /moltzap.yaml
 /.moltzap/
+.codex

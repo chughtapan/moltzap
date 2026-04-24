@@ -32,7 +32,9 @@
     "dev": "tsx watch src/app/dev.ts",
     "db:generate": "kysely-codegen --out-file src/db/database.generated.ts",
     "test": "vitest run",
-    "test:integration": "vitest run -c vitest.integration.config.ts"
+    "test:integration": "vitest run -c vitest.integration.config.ts",
+    "test:conformance": "bash ../protocol/scripts/check-divergence-proofs.sh && vitest run -c vitest.conformance.config.ts",
+    "test:conformance:proofs": "vitest run -c vitest.conformance.config.ts"
   },
   "dependencies": {
     "@effect/platform": "^0.96.0",
