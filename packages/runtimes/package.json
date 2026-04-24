@@ -1,0 +1,32 @@
+{
+  "name": "@moltzap/runtimes",
+  "version": "0.2.0",
+  "description": "Runtime adapters for launching MoltZap trace-capture agents",
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "rm -rf dist.build tsconfig.build.tsbuildinfo && tsc --outDir dist.build --tsBuildInfoFile tsconfig.build.tsbuildinfo && rm -rf dist && mv dist.build dist && rm -f tsconfig.build.tsbuildinfo",
+    "test": "vitest run --passWithNoTests",
+    "test:integration": "vitest run --config vitest.integration.config.ts"
+  },
+  "dependencies": {
+    "effect": "3.21.0",
+    "openclaw": "2026.3.31"
+  },
+  "devDependencies": {
+    "@types/node": "^24.7.2",
+    "@effect/vitest": "^0.29.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}

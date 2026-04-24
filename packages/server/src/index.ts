@@ -72,6 +72,11 @@ export {
   withRuntimeLogContext,
   withRuntimeTraceSpan,
 } from "./runtime-surface/logging.js";
+export {
+  InMemoryTraceCaptureLive,
+  NoopTraceCaptureLive,
+  TraceCaptureTag,
+} from "./runtime-surface/trace-capture.js";
 export type {
   RuntimeRequestId,
   RuntimeSessionId,
@@ -82,6 +87,11 @@ export type {
   RuntimeTraceSpan,
   RuntimeObservability,
 } from "./runtime-surface/logging.js";
+export type {
+  TraceCapture,
+  TraceEvent,
+  TraceMessageEvent,
+} from "./runtime-surface/trace-capture.js";
 
 // Standalone
 export { startServer } from "./standalone.js";

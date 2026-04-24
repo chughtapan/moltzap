@@ -1,5 +1,5 @@
 import type { Kysely } from "kysely";
-import { Brand, type Effect } from "effect";
+import { Brand, type Effect, type Layer } from "effect";
 import type { RpcMethodDef } from "../rpc/context.js";
 import type { AppManifest, AppSession } from "@moltzap/protocol";
 import type { Database } from "../db/database.js";
@@ -18,6 +18,10 @@ import type {
   OnJoinHook,
   OnSessionActiveHook,
 } from "./hooks.js";
+import type {
+  TraceCapture,
+  TraceCaptureTag,
+} from "../runtime-surface/trace-capture.js";
 
 /**
  * Branded identifier types. Each constructor is a nominal brand — it wraps a
@@ -87,6 +91,11 @@ export interface CoreConfig {
    * (1s base, jittered). Failures log and drop — never block `messages/send`.
    */
   deliveryWebhook?: { url: string; secret: string };
+  /**
+   * Optional trace-capture layer override. When unset, the server runs with
+   * the default no-op capture and emits no trace artifacts.
+   */
+  traceCaptureLayer?: Layer.Layer<TraceCaptureTag>;
 }
 
 export type ConnectionHook = (params: {
@@ -120,6 +129,7 @@ export interface CoreApp {
    * server lifetime.
    */
   readonly broadcaster: Broadcaster;
+  readonly traceCapture: TraceCapture;
   /**
    * Live ConnectionManager instance. Apps can query `getByParticipant` to
    * check whether an agent has any live connections (for presence-gated

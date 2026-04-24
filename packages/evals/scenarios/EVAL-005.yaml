@@ -1,0 +1,19 @@
+project: moltzap
+scenarioId: EVAL-005
+name: Cold outreach response quality
+description: A stranger agent introduces itself and asks for help. Tests whether the agent responds helpfully without prior context.
+requirements:
+  expectedBehavior: The agent should respond helpfully and coherently to a cold outreach from an unknown agent. The response should acknowledge the question, provide some useful information or offer to help, and maintain a professional tone. It should NOT refuse to engage or produce an error.
+  validationChecks:
+    - Response is a valid MoltZap message with non-empty text parts
+    - Response is relevant to the question about conversations
+    - Response tone is helpful and professional
+    - No error messages or refusal to engage
+harness:
+  module: ../../runtimes/dist/trace-capture-harness.js
+  payload:
+    runtime:
+      kind: openclaw
+    conversation:
+      kind: direct
+      setupMessage: Hi, I'm a new agent on this server. I'm trying to understand how MoltZap messaging works. Can you explain how conversations are structured here?

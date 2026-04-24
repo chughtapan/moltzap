@@ -1,0 +1,20 @@
+project: moltzap
+scenarioId: EVAL-034
+name: Cross-conversation awareness - multi-message context
+description: Establish a multi-turn fact in one conversation, then probe from another. Tests that full transcript preserves useful context.
+requirements:
+  expectedBehavior: The agent should mention Zenda, 2.3 million, and the Freedonian Mark - all three facts from the full transcript.
+  validationChecks:
+    - Response contains 'Zenda'
+    - Response contains '2.3 million' or '2,300,000'
+    - Response contains 'Mark' or 'Freedonian Mark'
+    - Response does not mention 'another conversation' or 'system reminder'
+harness:
+  module: ../../runtimes/dist/trace-capture-harness.js
+  payload:
+    runtime:
+      kind: openclaw
+    conversation:
+      kind: cross
+      setupMessage: Let me tell you about Freedonia. The capital is Zenda, the population is 2.3 million, and the currency is the Freedonian Mark. Confirm you got all three facts.
+      probeMessage: What do you know about Freedonia? Tell me everything.
