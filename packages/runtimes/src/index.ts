@@ -25,7 +25,10 @@ export {
   type RuntimeFleet,
   type RuntimeFleetAgent,
   type RuntimeFleetLaunchOptions,
+  type RuntimeFleetProcessSignalOptions,
   type RuntimeStartOptions,
+  RuntimeFleetStartupInterrupted,
   startRuntimeAgent,
   launchRuntimeFleet,
+  launchRuntimeFleetWithProcessSignals,
 } from "./fleet.js";

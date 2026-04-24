@@ -8,6 +8,8 @@ import {
 } from "./openclaw-adapter.js";
 import {
   launchRuntimeFleet,
+  launchRuntimeFleetWithProcessSignals,
+  RuntimeFleetStartupInterrupted,
   startRuntimeAgent,
   type RuntimeAgentSpec,
 } from "./fleet.js";
@@ -441,6 +443,43 @@ describe("runtime fleet lifecycle", () => {
     const exit = await Effect.runPromise(Fiber.await(fiber));
 
     expect(Exit.isInterrupted(exit)).toBe(true);
+    expect(first.stats.teardownCalls).toBe(1);
+    expect(second.stats.teardownCalls).toBe(1);
+  });
+
+  it("tears down an in-flight fleet when a configured process signal arrives", async () => {
+    const first = createMockRuntime({
+      readyEffect: Effect.succeed({ _tag: "Ready" }),
+    });
+    const second = createMockRuntime({
+      readyEffect: Effect.never,
+    });
+    setMockFleetRuntimes(first.runtime, second.runtime);
+
+    const fiber = Effect.runFork(
+      Effect.either(
+        launchRuntimeFleetWithProcessSignals({
+          kind: "openclaw",
+          server: stubServer(),
+          agents: [
+            stubRuntimeAgentSpec({ agentName: "alpha", agentId: "agent-001" }),
+            stubRuntimeAgentSpec({ agentName: "beta", agentId: "agent-002" }),
+          ],
+          readyTimeoutMs: 60_000,
+          signals: ["SIGUSR2"],
+        }),
+      ),
+    );
+
+    await second.waitStarted;
+    process.emit("SIGUSR2");
+    const result = await Effect.runPromise(Fiber.join(fiber));
+
+    expect(result._tag).toBe("Left");
+    if (result._tag === "Left") {
+      expect(result.left).toBeInstanceOf(RuntimeFleetStartupInterrupted);
+      expect(result.left.signal).toBe("SIGUSR2");
+    }
     expect(first.stats.teardownCalls).toBe(1);
     expect(second.stats.teardownCalls).toBe(1);
   });
