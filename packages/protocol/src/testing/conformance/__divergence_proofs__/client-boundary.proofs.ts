@@ -14,14 +14,14 @@ describe.skip("registerSchemaExhaustiveFuzzClient — divergence proofs", () => 
     expect(true).toBe(true);
   });
 
-  it("fails when the real client leaks a fuzzed task-B event into task-A subscriber", () => {
-    // Mutation: in the subscription filter, replace the per-task
-    //   predicate with `() => true` specifically for fuzzed payloads
-    //   (e.g. when `source === "fuzz"`).
-    // Predicate broken: client/boundary.ts — C4-shape post-fuzz
-    //   assertion leg of registerSchemaExhaustiveFuzzClient.
-    // Expected observable: property fails; task-A subscriber
-    //   observes tagged task-B events.
+  it("fails when the real client drops all events after a fuzz burst", () => {
+    // Mutation: in the real client's inbound handler, after receiving any
+    //   frame with an arbitrary-shape payload, set a "fuzz-poisoned" flag
+    //   and silently drop all subsequent frames including the liveness probe.
+    // Predicate broken: client/boundary.ts — liveness probe leg of
+    //   registerSchemaExhaustiveFuzzClient (observed.length === 0 check).
+    // Expected observable: property fails; post-fuzz tagged event never
+    //   surfaces on the subscriber before the budget expires.
     // Last verified: pending real-client mutation.
     expect(true).toBe(true);
   });

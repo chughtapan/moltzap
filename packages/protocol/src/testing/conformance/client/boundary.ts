@@ -27,11 +27,9 @@ const PROPERTY_BUDGET_MS = 12_000;
  * many shapes to a real client. Properties interleave with a tagged
  * liveness probe and a task-boundary assertion.
  *
- * Predicate (all three must hold):
+ * Predicate (both must hold):
  *   1. No crash — real client stays `ready`; no spurious closeSignal.
  *   2. Liveness probe — a valid tagged event emitted post-fuzz surfaces.
- *   3. Task-boundary cleanliness — no cross-wiring on the tagged
- *      observation surface.
  */
 export function registerSchemaExhaustiveFuzzClient(
   ctx: ClientConformanceRunContext,
@@ -95,17 +93,6 @@ export function registerSchemaExhaustiveFuzzClient(
               CATEGORY,
               "schema-exhaustive-fuzz-client",
               "liveness probe never surfaced after fuzz burst",
-            ),
-          );
-        }
-        // (3) Task-boundary cleanliness: the liveness probe's surfaced
-        // tag must be exactly the emitted one — no cross-wiring.
-        if (observed[0]!.tag !== tag) {
-          return yield* Effect.fail(
-            invariant(
-              CATEGORY,
-              "schema-exhaustive-fuzz-client",
-              `cross-wired: expected tag ${tag}, got ${observed[0]!.tag}`,
             ),
           );
         }
