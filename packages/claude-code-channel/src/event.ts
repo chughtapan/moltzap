@@ -16,8 +16,6 @@
  *   EnrichedInboundMessage.createdAt (ISO)  → meta.ts
  *
  * Reference: fakechat/server.ts:135-148 (contract meta shape).
- *
- * Stubs only. Bodies fill in implement-staff.
  */
 
 import type { EnrichedInboundMessage } from "@moltzap/client";
@@ -35,6 +33,86 @@ export type EventShapeResult =
   | { readonly _tag: "Ok"; readonly value: ClaudeChannelNotification }
   | { readonly _tag: "Err"; readonly error: EventShapeError };
 
+type BrandResult<T> =
+  | { readonly _tag: "Ok"; readonly value: T }
+  | { readonly _tag: "Err"; readonly reason: string };
+
+function brandChatIdSafe(raw: string): BrandResult<ChatId> {
+  if (typeof raw !== "string" || raw.trim().length === 0) {
+    return { _tag: "Err", reason: "chat_id must be a non-empty string" };
+  }
+  return { _tag: "Ok", value: raw as ChatId };
+}
+
+function brandMessageIdSafe(raw: string): BrandResult<MessageId> {
+  if (typeof raw !== "string" || raw.trim().length === 0) {
+    return { _tag: "Err", reason: "message_id must be a non-empty string" };
+  }
+  return { _tag: "Ok", value: raw as MessageId };
+}
+
+function brandUserIdSafe(raw: string): BrandResult<UserId> {
+  if (typeof raw !== "string" || raw.trim().length === 0) {
+    return { _tag: "Err", reason: "user must be a non-empty string" };
+  }
+  return { _tag: "Ok", value: raw as UserId };
+}
+
+// Loose ISO-8601 shape: date-only or date + T + time + optional tz.
+const ISO_SHAPE =
+  /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2})?(\.\d+)?([+-]\d{2}:?\d{2}|Z)?)?$/;
+
+function brandIsoTimestampSafe(raw: string): BrandResult<IsoTimestamp> {
+  if (typeof raw !== "string" || raw.trim().length === 0) {
+    return { _tag: "Err", reason: "ts must be a non-empty string" };
+  }
+  if (!ISO_SHAPE.test(raw)) {
+    return { _tag: "Err", reason: `ts must be an ISO-8601 timestamp: ${raw}` };
+  }
+  const parsed = Date.parse(raw);
+  if (Number.isNaN(parsed)) {
+    return { _tag: "Err", reason: `ts could not be parsed as a date: ${raw}` };
+  }
+  return { _tag: "Ok", value: raw as IsoTimestamp };
+}
+
+/**
+ * Narrow a raw string into the branded `ChatId`. Throws on empty input.
+ * For boundary validation, `toClaudeChannelNotification` returns a tagged
+ * result; this helper is for callers that have already validated upstream.
+ */
+export function brandChatId(raw: string): ChatId {
+  const r = brandChatIdSafe(raw);
+  if (r._tag === "Err") {
+    throw new Error(`brandChatId: ${r.reason}`);
+  }
+  return r.value;
+}
+
+export function brandMessageId(raw: string): MessageId {
+  const r = brandMessageIdSafe(raw);
+  if (r._tag === "Err") {
+    throw new Error(`brandMessageId: ${r.reason}`);
+  }
+  return r.value;
+}
+
+export function brandUserId(raw: string): UserId {
+  const r = brandUserIdSafe(raw);
+  if (r._tag === "Err") {
+    throw new Error(`brandUserId: ${r.reason}`);
+  }
+  return r.value;
+}
+
+export function brandIsoTimestamp(raw: string): IsoTimestamp {
+  const r = brandIsoTimestampSafe(raw);
+  if (r._tag === "Err") {
+    throw new Error(`brandIsoTimestamp: ${r.reason}`);
+  }
+  return r.value;
+}
+
 /**
  * Convert a `MoltZapChannelCore`-delivered enriched inbound message into the
  * contract-conformant notification payload. Pure function; no I/O.
@@ -42,28 +120,55 @@ export type EventShapeResult =
 export function toClaudeChannelNotification(
   event: EnrichedInboundMessage,
 ): EventShapeResult {
-  throw new Error("not implemented");
-}
+  const content = typeof event.text === "string" ? event.text : "";
+  if (content.trim().length === 0) {
+    return { _tag: "Err", error: { _tag: "ContentEmpty" } };
+  }
 
-/**
- * Narrow a raw string into the branded `ChatId`. Runs at the mapping
- * boundary so the rest of the module can trust the type.
- */
-export function brandChatId(raw: string): ChatId {
-  throw new Error("not implemented");
-}
+  const chatIdR = brandChatIdSafe(event.conversationId);
+  if (chatIdR._tag === "Err") {
+    return {
+      _tag: "Err",
+      error: { _tag: "MetaInvalid", reason: chatIdR.reason },
+    };
+  }
+  const messageIdR = brandMessageIdSafe(event.id);
+  if (messageIdR._tag === "Err") {
+    return {
+      _tag: "Err",
+      error: { _tag: "MetaInvalid", reason: messageIdR.reason },
+    };
+  }
+  const senderId =
+    event.sender && typeof event.sender.id === "string" ? event.sender.id : "";
+  const userR = brandUserIdSafe(senderId);
+  if (userR._tag === "Err") {
+    return {
+      _tag: "Err",
+      error: { _tag: "MetaInvalid", reason: userR.reason },
+    };
+  }
+  const tsR = brandIsoTimestampSafe(event.createdAt);
+  if (tsR._tag === "Err") {
+    return {
+      _tag: "Err",
+      error: { _tag: "MetaInvalid", reason: tsR.reason },
+    };
+  }
 
-/** Narrow a raw string into the branded `MessageId`. */
-export function brandMessageId(raw: string): MessageId {
-  throw new Error("not implemented");
-}
-
-/** Narrow a raw string into the branded `UserId`. */
-export function brandUserId(raw: string): UserId {
-  throw new Error("not implemented");
-}
-
-/** Narrow a raw ISO-8601 string into the branded `IsoTimestamp`. */
-export function brandIsoTimestamp(raw: string): IsoTimestamp {
-  throw new Error("not implemented");
+  return {
+    _tag: "Ok",
+    value: {
+      method: "notifications/claude/channel",
+      params: {
+        content,
+        meta: {
+          chat_id: chatIdR.value,
+          message_id: messageIdR.value,
+          user: userR.value,
+          ts: tsR.value,
+        },
+      },
+    },
+  };
 }

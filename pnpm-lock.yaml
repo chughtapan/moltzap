@@ -95,6 +95,28 @@ importers:
         specifier: ^3.0.0
         version: 3.2.4(@types/debug@4.1.13)(@types/node@25.5.0)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3)
 
+  packages/claude-code-channel:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.20.2
+        version: 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)
+      '@moltzap/client':
+        specifier: workspace:*
+        version: link:../client
+      '@moltzap/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      effect:
+        specifier: ^3.21.0
+        version: 3.21.0
+    devDependencies:
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.4(@types/debug@4.1.13)(@types/node@25.5.0)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3)
+
   packages/client:
     dependencies:
       '@effect/cli':
