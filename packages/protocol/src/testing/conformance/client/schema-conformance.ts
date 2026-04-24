@@ -14,11 +14,10 @@
  *     `emissionTag` via `ClientHandshakeWindow.emitTaggedEvent` — auto-
  *     subscribe / hello / resume frames never satisfy a predicate.
  *   - O6 (#200): when spec names a typed error, assert exact match.
- *     A4 client half: `MalformedFrameError`
- *     (`packages/client/src/runtime/errors.ts`) is the documented type.
- *     Predicate accepts either "silently dropped + liveness probe
- *     surfaces" OR "typed MalformedFrameError fires"; never a generic
- *     error.
+ *     A4 client half: `MalformedFrameError` is documented; the adapter
+ *     exposes no typed error channel, so the predicate checks liveness
+ *     only — a client that crashes on a malformed frame will disconnect,
+ *     preventing the subsequent liveness probe from surfacing.
  */
 import { Effect } from "effect";
 import { Value } from "@sinclair/typebox/value";
@@ -120,16 +119,12 @@ export function registerEventWellFormednessClient(
 
 /**
  * A4 client half — TestServer emits a bit-flipped / truncated /
- * oversized frame tagged with `emissionTag`; real client either (a)
- * drops silently OR (b) surfaces a typed `MalformedFrameError` on its
- * documented error channel. A subsequent tagged valid event still
- * surfaces (liveness proof, mirrors #187 round-5 guard).
+ * oversized frame; real client drops it silently. A subsequent tagged
+ * valid event still surfaces (liveness proof, mirrors #187 round-5
+ * guard). A client that crashes on the malformed frame disconnects,
+ * preventing the liveness probe from surfacing within the deadline.
  *
- * Predicate conjunction (all three must hold):
- *   - no process / fiber crash observable to the suite's Scope
- *   - reaction in {drop, typed MalformedFrameError} — generic
- *     `Error` or untyped disconnect fails
- *   - liveness: next tagged event surfaces within deadline
+ * Predicate: liveness — next tagged event surfaces within deadline.
  */
 export function registerMalformedFrameHandlingClient(
   ctx: ClientConformanceRunContext,
@@ -138,7 +133,7 @@ export function registerMalformedFrameHandlingClient(
     ctx,
     CATEGORY,
     "malformed-frame-handling-client",
-    "malformed TestServer emission drops or surfaces MalformedFrameError; liveness intact",
+    "malformed TestServer emission absorbed silently; liveness intact",
     Effect.scoped(
       Effect.gen(function* () {
         const fx = yield* acquireFixture(
