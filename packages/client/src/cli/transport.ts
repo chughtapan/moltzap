@@ -196,6 +196,10 @@ export const resolveTransportInputs = (
     readonly impersonateKey?: string;
     readonly profileName?: string;
   },
-): Effect.Effect<TransportOptions, TransportConfigError> => {
+): Effect.Effect<
+  TransportOptions,
+  | TransportConfigError
+  | /** profile branch failures */ import("./profile.js").ProfileError
+> => {
   throw new Error("not implemented");
 };
