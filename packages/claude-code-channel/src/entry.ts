@@ -6,50 +6,169 @@
  * as the precedent for "wrap client primitives + host plugin shape."
  *
  * Spec A2: `bootClaudeCodeChannel(opts: BootOptions): Promise<Result<Handle, BootError>>`.
- *
- * Lifecycle (linear, no nontrivial state machine):
- *   1. Validate options; fail fast with `AgentKeyInvalid` if `agentKey` is
- *      absent/empty.
- *   2. Construct `MoltZapService` from `{serverUrl, agentKey, logger}`.
- *   3. Construct `MoltZapChannelCore` over that service.
- *   4. Construct `RoutingState` (fresh, per-boot).
- *   5. Boot the MCP stdio server (`bootChannelMcpServer`) with bound
- *      `sendReply` (capture `core.sendReply` + `RoutingState.resolveTarget`)
- *      and `routing`.
- *   6. Register inbound handler on `core.onInbound`: apply `gateInbound?`
- *      (Principle 4 — handle both Success / Failure branches); on Success
- *      translate via `toClaudeChannelNotification`, update `RoutingState`,
- *      push through the server handle.
- *   7. `core.connect()` — any `ServiceRpcError` maps to
- *      `ServiceConnectFailed`.
- *   8. Return `Handle`.
- *
- * Shutdown path (`Handle.stop`): `core.disconnect()` → `serverHandle.stop()`.
- * Both swallow downstream errors into `logger.error` per spec I8; the public
- * `stop` is `Effect<void>` with no error channel because no caller can
- * meaningfully react to teardown failures.
- *
- * No `Promise<T>` on internal plumbing — the spec fixes `Promise<Result<...>>`
- * only at the public boot boundary (A2); everything downstream stays in
- * Effect (Principle 3). The single `runPromise` tax lives inside this file.
  */
 
+import {
+  MoltZapChannelCore,
+  MoltZapService,
+  type EnrichedInboundMessage,
+} from "@moltzap/client";
+import { Effect } from "effect";
+import { toClaudeChannelNotification } from "./event.js";
+import { createRoutingState } from "./routing.js";
+import { bootChannelMcpServer, type ServerHandle } from "./server.js";
 import type { BootOptions, Handle } from "./types.js";
-import type { BootError } from "./errors.js";
+import type { BootError, ReplyError } from "./errors.js";
 
 export type BootResult =
   | { readonly _tag: "Ok"; readonly value: Handle }
   | { readonly _tag: "Err"; readonly error: BootError };
 
+const DEFAULT_SERVER_NAME = "@moltzap/claude-code-channel";
+const DEFAULT_INSTRUCTIONS =
+  'MoltZap messages arrive as <channel source="moltzap" chat_id="..." message_id="..." user="..." ts="...">. ' +
+  "Reply with the reply tool. Pass reply_to=<message_id> to target a specific conversation; omit to reply to the most recent inbound.";
+
+function stringifyCause(cause: unknown): string {
+  if (cause instanceof Error) return cause.message;
+  try {
+    return JSON.stringify(cause);
+  } catch {
+    return String(cause);
+  }
+}
+
 /**
  * Boot a Claude Code channel. Single public entry point of the package.
  *
- * Returns `Promise<BootResult>` — the `Promise` is a concession to callers
- * that have not adopted Effect (zapbot today). Internals are Effect; the
- * error channel stays tagged (Principle 3, not `Promise<Handle>` throws).
+ * Error channel is tagged (Principle 3). Internals run on Effect; the
+ * `Promise` wrapper lives only at this boundary.
  */
-export function bootClaudeCodeChannel(
+export async function bootClaudeCodeChannel(
   opts: BootOptions,
 ): Promise<BootResult> {
-  throw new Error("not implemented");
+  if (typeof opts.agentKey !== "string" || opts.agentKey.trim().length === 0) {
+    return {
+      _tag: "Err",
+      error: {
+        _tag: "AgentKeyInvalid",
+        cause: "agentKey must be a non-empty string",
+      },
+    };
+  }
+  if (
+    typeof opts.serverUrl !== "string" ||
+    opts.serverUrl.trim().length === 0
+  ) {
+    return {
+      _tag: "Err",
+      error: {
+        _tag: "AgentKeyInvalid",
+        cause: "serverUrl must be a non-empty string",
+      },
+    };
+  }
+
+  const logger = opts.logger;
+  const service = new MoltZapService({
+    serverUrl: opts.serverUrl,
+    agentKey: opts.agentKey,
+    logger,
+  });
+
+  const core = new MoltZapChannelCore({ service, logger });
+  const routing = createRoutingState();
+
+  const sendReply = (chatId: string, text: string) =>
+    core.sendReply(chatId, text).pipe(
+      Effect.mapError(
+        (cause): ReplyError => ({
+          _tag: "SendFailed",
+          cause: stringifyCause(cause),
+        }),
+      ),
+    );
+
+  const serverBoot = await bootChannelMcpServer(
+    {
+      serverName: opts.serverName ?? DEFAULT_SERVER_NAME,
+      instructions: opts.instructions ?? DEFAULT_INSTRUCTIONS,
+    },
+    { sendReply, routing, logger },
+  );
+  if (serverBoot._tag === "Err") {
+    return {
+      _tag: "Err",
+      error: {
+        _tag: "McpTransportFailed",
+        cause: `${serverBoot.error._tag}: ${serverBoot.error.cause}`,
+      },
+    };
+  }
+  const serverHandle: ServerHandle = serverBoot.value;
+
+  // Inbound: gate → translate → record → push. Failures log and drop —
+  // spec I5 (pure, drop on failure) + A3.
+  core.onInbound((enriched: EnrichedInboundMessage) =>
+    Effect.gen(function* () {
+      const gated = opts.gateInbound
+        ? opts.gateInbound(enriched)
+        : ({ _tag: "Success", value: enriched } as const);
+      if (gated._tag === "Failure") {
+        logger.info?.(
+          { error: gated.error },
+          "claude-code-channel: gateInbound dropped event",
+        );
+        return;
+      }
+      const translated = toClaudeChannelNotification(gated.value);
+      if (translated._tag === "Err") {
+        logger.warn?.(
+          { error: translated.error, messageId: enriched.id },
+          "claude-code-channel: translation failed, dropping event",
+        );
+        return;
+      }
+      routing.recordInbound(
+        translated.value.params.meta.message_id,
+        translated.value.params.meta.chat_id,
+      );
+      yield* serverHandle
+        .push(translated.value)
+        .pipe(
+          Effect.catchAll((err) =>
+            Effect.sync(() =>
+              logger.error?.(
+                { err, messageId: enriched.id },
+                "claude-code-channel: notification push failed",
+              ),
+            ),
+          ),
+        );
+    }),
+  );
+
+  const connectResult = await Effect.runPromise(Effect.either(core.connect()));
+  if (connectResult._tag === "Left") {
+    // Best-effort: tear down MCP transport before reporting to the caller.
+    await Effect.runPromise(serverHandle.stop());
+    return {
+      _tag: "Err",
+      error: {
+        _tag: "ServiceConnectFailed",
+        cause: stringifyCause(connectResult.left),
+      },
+    };
+  }
+
+  const handle: Handle = {
+    push: serverHandle.push,
+    stop: () =>
+      Effect.gen(function* () {
+        yield* core.disconnect();
+        yield* serverHandle.stop();
+      }),
+  };
+
+  return { _tag: "Ok", value: handle };
 }

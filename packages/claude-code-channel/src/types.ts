@@ -10,11 +10,7 @@
 
 import type { Effect } from "effect";
 import type { EnrichedInboundMessage, WsClientLogger } from "@moltzap/client";
-import type {
-  AllowlistError,
-  BootError,
-  PushError,
-} from "./errors.js";
+import type { AllowlistError, BootError, PushError } from "./errors.js";
 
 /**
  * Branded chat id — corresponds to MoltZap's `conversationId` on the wire,
