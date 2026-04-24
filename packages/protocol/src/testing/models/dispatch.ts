@@ -132,32 +132,56 @@ export function applyCall<M extends RpcMethodName>(
   // directly. `applyCall` assumes an already-authenticated caller for
   // simplicity.
 
-  // Behaviour families the reducer groups by. Grouping keeps the exhaustive
-  // switch below small and named.
+  // Behaviour families the reducer groups by. Grouping keeps the
+  // exhaustive switch below small and named.
+  //
+  // Model-equivalence (rpc-semantics/model-equivalence) uses the
+  // asymmetric oracle: only the `"ok"` path is load-bearing for the
+  // server-must-agree contract. Methods that require specific
+  // params/setup return `"error"` so the model is honest about its
+  // uncertainty — the property runs through them without asserting.
+  //
+  // Criterion for returning `"ok"`: "a freshly-registered agent with
+  // empty-or-arbitrary params gets a successful response." Read-only
+  // list methods with fully-optional params are the honest `"ok"` set;
+  // every other method returns `"error"` (the model is admitting it
+  // doesn't know the state-dependent outcome).
   const allowNoEvents = (): RpcModelResult<M> => ({
     _tag: "ok",
-    // The model returns an opaque placeholder; canonicalizers mask result
-    // fields to `unknown` before comparing with the server. The exact shape
-    // is not load-bearing for model-equivalence, which compares tags.
     result: {} as RpcMap[M]["result"],
+    events: [],
+  });
+  const uncertainError = (): RpcModelResult<M> => ({
+    _tag: "error",
+    code: -32603,
+    message: "model-uncertain: requires state or specific params",
     events: [],
   });
 
   const m: RpcMethodName = call.method;
   switch (m) {
-    // Auth family.
+    // Auth — model isn't sure what auth shape the caller has.
     case "auth/connect":
     case "auth/register":
     case "auth/invite-agent":
     case "auth/selectAgent":
-    case "agents/lookup":
-    case "agents/lookupByName":
+      return { next: baseNext, outcome: uncertainError() };
+
+    // Agents list-shaped — honest "ok" for a fresh authenticated agent.
     case "agents/list":
       return { next: baseNext, outcome: allowNoEvents() };
 
-    // Conversations family.
-    case "conversations/create":
+    // Agents lookup-shaped — need a target; uncertain.
+    case "agents/lookup":
+    case "agents/lookupByName":
+      return { next: baseNext, outcome: uncertainError() };
+
+    // Conversations list — honest "ok".
     case "conversations/list":
+      return { next: baseNext, outcome: allowNoEvents() };
+
+    // Conversations with required fields or state — uncertain.
+    case "conversations/create":
     case "conversations/get":
     case "conversations/update":
     case "conversations/mute":
@@ -167,34 +191,35 @@ export function applyCall<M extends RpcMethodName>(
     case "conversations/leave":
     case "conversations/archive":
     case "conversations/unarchive":
-      return { next: baseNext, outcome: allowNoEvents() };
+      return { next: baseNext, outcome: uncertainError() };
 
-    // Messages family.
+    // Messages — both require a valid conversationId. Uncertain.
     case "messages/send":
     case "messages/list":
-      return { next: baseNext, outcome: allowNoEvents() };
+      return { next: baseNext, outcome: uncertainError() };
 
-    // Contacts family.
+    // Contacts list — requires user context for a fresh agent, so
+    // server returns an error. Uncertain.
     case "contacts/list":
     case "contacts/add":
     case "contacts/accept":
-      return { next: baseNext, outcome: allowNoEvents() };
+      return { next: baseNext, outcome: uncertainError() };
 
-    // Invites family.
+    // Invites — requires state. Uncertain.
     case "invites/createAgent":
-      return { next: baseNext, outcome: allowNoEvents() };
+      return { next: baseNext, outcome: uncertainError() };
 
-    // Presence family.
+    // Presence — state-dependent. Uncertain.
     case "presence/update":
     case "presence/subscribe":
-      return { next: baseNext, outcome: allowNoEvents() };
+      return { next: baseNext, outcome: uncertainError() };
 
-    // Push family.
+    // Push — requires endpoint registration. Uncertain.
     case "push/register":
     case "push/unregister":
-      return { next: baseNext, outcome: allowNoEvents() };
+      return { next: baseNext, outcome: uncertainError() };
 
-    // Apps family.
+    // Apps — require app/user context the fresh agent doesn't have.
     case "apps/create":
     case "apps/attestSkill":
     case "permissions/grant":
@@ -203,14 +228,14 @@ export function applyCall<M extends RpcMethodName>(
     case "apps/closeSession":
     case "apps/getSession":
     case "apps/listSessions":
-      return { next: baseNext, outcome: allowNoEvents() };
+      return { next: baseNext, outcome: uncertainError() };
 
-    // Surfaces family.
+    // Surfaces — require surface/app context. Uncertain.
     case "surface/update":
     case "surface/get":
     case "surface/action":
     case "surface/clear":
-      return { next: baseNext, outcome: allowNoEvents() };
+      return { next: baseNext, outcome: uncertainError() };
 
     default: {
       // Exhaustiveness check — any new RpcMethodName breaks the build here

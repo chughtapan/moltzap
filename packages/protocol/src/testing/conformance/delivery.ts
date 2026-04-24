@@ -98,18 +98,25 @@ function acquireConversation(
   });
 }
 
-/** Fan-out cardinality — messages/send reaches every participant. */
+/**
+ * Fan-out cardinality — spec §5 C1: messages/send ⇒ **exactly** N
+ * inbound events (one per connection). Architect §4.4: tightened from
+ * `>=1` to `===1`; a server that duplicates events now fails.
+ *
+ * Empty-counts side channel replaced with an explicit
+ * `PropertyInvariantViolation`.
+ */
 export function registerFanOutCardinality(ctx: ConformanceRunContext): void {
   registerProperty(
     ctx,
     CATEGORY,
     "fan-out-cardinality",
-    "messages/send ⇒ every participant observes ≥1 inbound message event",
+    "messages/send ⇒ exactly N inbound message events (one per connection)",
     assertProperty(CATEGORY, "fan-out-cardinality", () =>
       fc.assert(
         // #ignore-sloppy-code-next-line[async-keyword]: fast-check asyncProperty contract requires Promise-returning callback
         fc.asyncProperty(fc.integer({ min: 2, max: 3 }), async (n) => {
-          const counts = await Effect.runPromise(
+          const result = await Effect.runPromise(
             Effect.scoped(
               Effect.gen(function* () {
                 const fixture = yield* acquireConversation(ctx, n, "fan").pipe(
@@ -121,13 +128,15 @@ export function registerFanOutCardinality(ctx: ConformanceRunContext): void {
                     parts: [{ type: "text", text: "fan-out-ping" }],
                   })
                   .pipe(Effect.either);
-                if (send._tag === "Left") return [] as number[];
+                if (send._tag === "Left") {
+                  return { kind: "send-failed" as const };
+                }
                 yield* Effect.sleep("250 millis");
                 const observed = yield* Effect.forEach(
                   fixture.participants,
                   (p) => p.client.snapshot,
                 );
-                return observed.map(
+                const counts = observed.map(
                   (snap) =>
                     snap.filter(
                       (s) =>
@@ -137,10 +146,16 @@ export function registerFanOutCardinality(ctx: ConformanceRunContext): void {
                         s.frame.event.includes("message"),
                     ).length,
                 );
+                return { kind: "ok" as const, counts };
               }),
             ),
-          ).catch(() => [] as number[]);
-          return counts.length > 0 && counts.every((c) => c >= 1);
+          );
+          if (result.kind !== "ok") return false;
+          // Exact-cardinality predicate. Duplicates and drops both fail.
+          return (
+            result.counts.length === fixture_n(n) &&
+            result.counts.every((c) => c === 1)
+          );
         }),
         { seed: ctx.seed, numRuns: ctx.opts.numRuns ?? 3 },
       ),
@@ -148,13 +163,40 @@ export function registerFanOutCardinality(ctx: ConformanceRunContext): void {
   );
 }
 
-/** Store-and-replay — every sent message lands in the participant's buffer. */
+function fixture_n(requested: number): number {
+  return Math.min(Math.max(1, requested), MAX_N);
+}
+
+/**
+ * Store-and-replay — spec §5 C2: offline-then-reconnect delivers the
+ * messages sent during the disconnect window.
+ *
+ * **Status: architect §4.5 option (b) — property split.**
+ *
+ * Option (a) (reconnect via scope composition) was attempted and is
+ * infrastructure-viable: TestClient supports re-opening with the same
+ * apiKey/agentId via `Effect.scoped`, no new public primitive needed.
+ * However, the current server implementation does not buffer events
+ * for offline subscribers (empirical observation against
+ * `startCoreTestServer` at commit time): after reconnect, the
+ * participant's capture buffer contains zero of the N messages sent
+ * during the offline window. This is a server-side gap against spec
+ * §5 C2, not a TestClient gap.
+ *
+ * Per architect §4.5 option (b), this property is scoped to
+ * **basic-delivery-landing** — the weaker invariant that N messages
+ * sent to a live conversation land in every currently-subscribed
+ * participant's capture buffer. The full offline-replay assertion is
+ * tracked as a follow-up under epic #186. If/when the server
+ * implements C2 replay, flip this body back to the reconnect form
+ * from the git history and remove the #186 pointer.
+ */
 export function registerStoreAndReplay(ctx: ConformanceRunContext): void {
   registerProperty(
     ctx,
     CATEGORY,
     "store-and-replay",
-    "every messages/send lands in the participant's capture buffer",
+    "every messages/send lands in a live participant's capture buffer (basic-delivery-landing; #186 tracks C2 offline-replay)",
     Effect.scoped(
       Effect.gen(function* () {
         const fixture = yield* acquireConversation(ctx, 1, "sr").pipe(
@@ -194,13 +236,13 @@ export function registerStoreAndReplay(ctx: ConformanceRunContext): void {
             s.frame?.type === "event" &&
             typeof s.frame.event === "string" &&
             s.frame.event.includes("message"),
-        );
-        if (delivered.length < sent) {
+        ).length;
+        if (delivered < sent) {
           return yield* Effect.fail(
             new PropertyInvariantViolation({
               category: CATEGORY,
               name: "store-and-replay",
-              reason: `sent ${sent}, participant observed ${delivered.length}`,
+              reason: `sent ${sent}, live participant observed ${delivered}`,
             }),
           );
         }

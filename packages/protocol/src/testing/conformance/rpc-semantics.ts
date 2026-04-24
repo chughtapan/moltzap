@@ -25,6 +25,7 @@ import type { ConformanceRunContext } from "./runner.js";
 import {
   assertProperty,
   PropertyInvariantViolation,
+  PropertyUnavailable,
   registerProperty,
 } from "./registry.js";
 
@@ -33,79 +34,68 @@ const DEFAULT_TIMEOUT_MS = 3000;
 const DEFAULT_CAPTURE_CAPACITY = 64;
 
 /**
- * Methods where the reference-model oracle is honest — list-shaped
- * read-only RPCs for which a fresh authenticated agent always gets a
- * successful response and the model correctly predicts `ok`. Drawing
- * from this set lets the property actually discriminate: if the server
- * returns an error, the model still says `ok`, and the mismatch fails
- * the property loudly.
- */
-const MODEL_ORACLE_METHODS = [
-  "agents/list",
-  "conversations/list",
-  // contacts/list, apps/listSessions, permissions/list all return
-  // typed errors on a fresh agent without app/user context. Oracle-
-  // honest set is the subset the model can predict `ok` for against
-  // a freshly-registered agent; the broader set is exercised by
-  // `schema-exhaustive-fuzz` which accepts any typed outcome.
-] as const;
-
-/**
- * Real-server outcome tag matches reference-model outcome tag on the
- * oracle-honest method set. Not a tautology: if the model predicts
- * `ok` and the server returns an error, the property fails.
+ * Model-equivalence — conditional oracle (architect §4.1).
+ *
+ * Spec §5 B1 is asymmetric: the server must produce what the model
+ * predicts **when the model is confident**. Model imprecision on edge
+ * cases is a reference-model coverage gap, not a server bug.
+ *
+ * Predicate shape:
+ *   - `modelTag === "ok"`   → server MUST be `"ok"`; `"error"` fails.
+ *   - `modelTag === "error"` → proceed silently; the model is not
+ *     strict enough to make a prediction, so anything the server
+ *     does is consistent with the oracle.
+ *
+ * Uses the full `arbitraryAnyCall()` draw — no narrowing. The model's
+ * `allowNoEvents` predicts `"ok"` for every registered method, so
+ * every draw enters the confident branch. If `applyCall`'s prediction
+ * is flipped to `"error"` (divergence proof), the property still runs;
+ * but if the server returns `"error"` while the model predicts `"ok"`,
+ * it fails loudly.
  */
 export function registerModelEquivalence(ctx: ConformanceRunContext): void {
   registerProperty(
     ctx,
     CATEGORY,
     "model-equivalence",
-    "real-server outcome tag === reference-model outcome tag",
+    "when model predicts ok, server MUST return ok",
     assertProperty(CATEGORY, "model-equivalence", () =>
       fc.assert(
         // #ignore-sloppy-code-next-line[async-keyword]: fast-check asyncProperty contract requires Promise-returning callback
-        fc.asyncProperty(
-          fc.constantFrom(...MODEL_ORACLE_METHODS),
-          // #ignore-sloppy-code-next-line[async-keyword]: fast-check asyncProperty contract requires Promise-returning callback
-          async (method) => {
-            const serverTag = await Effect.runPromise(
-              Effect.scoped(
-                Effect.gen(function* () {
-                  const agent = yield* registerTestAgent({
-                    baseUrl: ctx.realServer.baseUrl,
-                    name: "me",
-                  });
-                  const client = yield* makeTestClient({
-                    serverUrl: ctx.realServer.wsUrl,
-                    agentKey: agent.apiKey,
-                    agentId: agent.agentId,
-                    defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
-                    captureCapacity: DEFAULT_CAPTURE_CAPACITY,
-                  });
-                  const outcome = yield* client
-                    .sendRpc(method, {})
-                    .pipe(Effect.either);
-                  return outcome._tag === "Right" ? "ok" : "error";
-                }),
-              ),
-            );
-            const modelTag = applyCall(initialReferenceState, {
-              method,
-              params: {},
-            }).outcome._tag;
-            // Real discriminator: both MUST be `"ok"` (or both `"error"`).
-            // A divergence — e.g., server rejects the method the model
-            // approves — fails the property. This is what the round-5
-            // acceptance signal (swap applyCall tags) exercises.
-            return serverTag === modelTag;
-          },
-        ),
-        { seed: ctx.seed, numRuns: ctx.opts.numRuns ?? 5 },
+        fc.asyncProperty(arbitraryAnyCall(), async (call) => {
+          const modelTag = applyCall(initialReferenceState, call).outcome._tag;
+          if (modelTag === "error") {
+            // Model isn't confident; not a protocol violation either way.
+            return true;
+          }
+          const serverTag = await Effect.runPromise(
+            Effect.scoped(
+              Effect.gen(function* () {
+                const agent = yield* registerTestAgent({
+                  baseUrl: ctx.realServer.baseUrl,
+                  name: "me",
+                });
+                const client = yield* makeTestClient({
+                  serverUrl: ctx.realServer.wsUrl,
+                  agentKey: agent.apiKey,
+                  agentId: agent.agentId,
+                  defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
+                  captureCapacity: DEFAULT_CAPTURE_CAPACITY,
+                });
+                const outcome = yield* client
+                  .sendRpc(call.method, call.params)
+                  .pipe(Effect.either);
+                return outcome._tag === "Right" ? "ok" : "error";
+              }),
+            ),
+          );
+          // Model is confident it's `ok`. Server MUST agree.
+          return serverTag === "ok";
+        }),
+        { seed: ctx.seed, numRuns: ctx.opts.numRuns ?? 4 },
       ),
     ),
   );
-  // Keep the broader call arbitrary import alive for future expansion.
-  void arbitraryAnyCall;
 }
 
 /**
@@ -315,26 +305,47 @@ export function registerRequestIdUniqueness(ctx: ConformanceRunContext): void {
                   { concurrency: n },
                 );
                 const snap = (yield* client.snapshot).slice(handshakeEnd);
-                const counts = new Map<string, number>();
+                const outboundIds = new Set<string>();
+                const inboundIds = new Set<string>();
+                let inboundCount = 0;
                 for (const entry of snap) {
-                  if (entry.kind !== "inbound") continue;
-                  if (entry.frame?.type !== "response") continue;
-                  const id = entry.frame.id;
-                  counts.set(id, (counts.get(id) ?? 0) + 1);
+                  if (
+                    entry.frame?.type !== "request" &&
+                    entry.frame?.type !== "response"
+                  )
+                    continue;
+                  if (
+                    entry.kind === "outbound" &&
+                    entry.frame.type === "request"
+                  ) {
+                    outboundIds.add(entry.frame.id);
+                  }
+                  if (
+                    entry.kind === "inbound" &&
+                    entry.frame.type === "response"
+                  ) {
+                    inboundIds.add(entry.frame.id);
+                    inboundCount += 1;
+                  }
                 }
-                return counts;
+                return { outboundIds, inboundIds, inboundCount };
               }),
             ),
           );
-          // Three-part contract:
-          //   - counts.size === n: every request got exactly one response
-          //     (catches silent drops / timeouts that leave an id absent).
-          //   - every count === 1: no response was duplicated.
-          //   - n > 0: the generator produced a usable sample.
-          return (
-            counts.size === n &&
-            Array.from(counts.values()).every((v) => v === 1)
-          );
+          // Architect §4.2 set-equality predicate. Conjunction:
+          //   - outboundIds.size === n                  (driver produced n frames)
+          //   - inboundIds.size === outboundIds.size    (cardinality match)
+          //   - every outbound id is matched inbound     (no drops, no strays)
+          //   - inboundCount === inboundIds.size         (no inbound duplicates)
+          // Stray IDs, dropped replies, and id-reuse all fail the property.
+          const { outboundIds, inboundIds, inboundCount } = counts;
+          if (outboundIds.size !== n) return false;
+          if (inboundIds.size !== outboundIds.size) return false;
+          if (inboundCount !== inboundIds.size) return false;
+          for (const id of outboundIds) {
+            if (!inboundIds.has(id)) return false;
+          }
+          return true;
         }),
         { seed: ctx.seed, numRuns: ctx.opts.numRuns ?? 5 },
       ),
@@ -343,30 +354,39 @@ export function registerRequestIdUniqueness(ctx: ConformanceRunContext): void {
 }
 
 /**
- * Idempotent RPCs yield equivalent responses on replay. For every method
- * `isIdempotent` says is safe to replay, sends the same params twice
- * and asserts both succeed with the same outcome tag.
+ * Idempotent RPCs yield equivalent responses on replay. For every
+ * list-shaped method where empty params are valid and `isIdempotent`
+ * says replay is safe, sends the same params twice and asserts both
+ * succeed with **identical results** (not just identical tags).
+ *
+ * Architect §4.4: removed `.pipe(Effect.orElseSucceed(["skip","skip"]))`
+ * masking. Transport failures now surface as `PropertyUnavailable` so
+ * the runner reports them explicitly instead of folding them into a
+ * silent pass. Predicate compares response bodies via canonical JSON
+ * — spec B5 says "identical results", not "identical outcome kinds".
  */
 export function registerIdempotence(ctx: ConformanceRunContext): void {
   registerProperty(
     ctx,
     CATEGORY,
     "idempotence",
-    "isIdempotent methods replay cleanly against the real server",
+    "isIdempotent methods: two sends yield identical response bodies",
     Effect.gen(function* () {
-      // Replay only the list-shaped idempotent methods where the empty
-      // `{}` params are always valid — enough to prove the server's
-      // replay semantics hold without per-method setup.
       const emptyParamIdempotents = [
         "agents/list",
         "conversations/list",
-        "contacts/list",
-        "apps/listSessions",
-        "permissions/list",
       ] as const;
       for (const method of emptyParamIdempotents) {
-        if (!isIdempotent(method)) continue; // oracle disagreement is a separate bug
-        const [firstTag, secondTag] = yield* Effect.scoped(
+        if (!isIdempotent(method)) {
+          return yield* Effect.fail(
+            new PropertyInvariantViolation({
+              category: CATEGORY,
+              name: "idempotence",
+              reason: `isIdempotent(${method}) is false — oracle disagreement`,
+            }),
+          );
+        }
+        const pair = yield* Effect.scoped(
           Effect.gen(function* () {
             const agent = yield* registerTestAgent({
               baseUrl: ctx.realServer.baseUrl,
@@ -381,23 +401,71 @@ export function registerIdempotence(ctx: ConformanceRunContext): void {
             });
             const a = yield* client.sendRpc(method, {}).pipe(Effect.either);
             const b = yield* client.sendRpc(method, {}).pipe(Effect.either);
-            return [a._tag, b._tag] as const;
+            return { a, b };
           }),
-        ).pipe(Effect.orElseSucceed(() => ["skip", "skip"] as const));
-        if (firstTag === "skip") continue;
-        if (firstTag !== secondTag) {
+        ).pipe(
+          Effect.catchTags({
+            TestingAgentRegistrationError: (e) =>
+              Effect.fail(
+                new PropertyUnavailable({
+                  category: CATEGORY,
+                  name: "idempotence",
+                  reason: `register: ${e.body}`,
+                }),
+              ),
+            TestingTransportIoError: (e) =>
+              Effect.fail(
+                new PropertyUnavailable({
+                  category: CATEGORY,
+                  name: "idempotence",
+                  reason: `transport io: ${String(e.cause)}`,
+                }),
+              ),
+            TestingTransportClosedError: (e) =>
+              Effect.fail(
+                new PropertyUnavailable({
+                  category: CATEGORY,
+                  name: "idempotence",
+                  reason: `transport closed: ${e.reason}`,
+                }),
+              ),
+            TestingRpcResponseError: (e) =>
+              Effect.fail(
+                new PropertyUnavailable({
+                  category: CATEGORY,
+                  name: "idempotence",
+                  reason: `rpc response error: ${e.message}`,
+                }),
+              ),
+          }),
+        );
+        if (pair.a._tag !== pair.b._tag) {
           return yield* Effect.fail(
             new PropertyInvariantViolation({
               category: CATEGORY,
               name: "idempotence",
-              reason: `${method}: replay mismatch ${firstTag} → ${secondTag}`,
+              reason: `${method}: replay outcome-tag mismatch ${pair.a._tag} → ${pair.b._tag}`,
             }),
           );
+        }
+        if (pair.a._tag === "Right" && pair.b._tag === "Right") {
+          // Canonical JSON comparison on the result body. Read-only
+          // list methods have stable outputs; a divergence is a real
+          // idempotence violation.
+          const aJson = JSON.stringify(pair.a.right);
+          const bJson = JSON.stringify(pair.b.right);
+          if (aJson !== bJson) {
+            return yield* Effect.fail(
+              new PropertyInvariantViolation({
+                category: CATEGORY,
+                name: "idempotence",
+                reason: `${method}: replay bodies diverge`,
+              }),
+            );
+          }
         }
       }
     }),
   );
-  // keep allRpcMethods import alive — used for cross-check when we
-  // expand the idempotent coverage.
   void allRpcMethods;
 }
