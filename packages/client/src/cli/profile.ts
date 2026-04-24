@@ -31,12 +31,18 @@ export type DefaultProfileId = "default";
 
 // ─── Records ───────────────────────────────────────────────────────────────
 
-/** One profile's auth record. Shape mirrors the singleton's auth subset. */
+/**
+ * One profile's auth record. Shape mirrors the singleton's auth subset.
+ * `registeredAt` is OPTIONAL — legacy configs produced by pre-v2 `moltzap
+ * register` never wrote the field. The profile layer tolerates its absence
+ * so existing `~/.moltzap/config.json` files decode into `LayeredConfig`
+ * without rewrite (Invariant §4.3).
+ */
 export interface ProfileRecord {
   readonly apiKey: string;
   readonly agentName: string;
   readonly serverUrl: string;
-  readonly registeredAt: string; // ISO-8601 datetime
+  readonly registeredAt?: string; // ISO-8601 datetime; absent on legacy configs
 }
 
 /**
@@ -110,6 +116,10 @@ export const parseProfileName = (
  * Load the full layered config view. Missing file resolves to an empty
  * view; malformed file surfaces as ProfileConfigReadError. No silent
  * defaults on parse error.
+ *
+ * Unknown-key tolerance: the decoder accepts extra top-level keys (e.g.
+ * future experimental fields) without failing. This keeps forward and
+ * backward compatibility explicit rather than implicit.
  */
 export const loadLayeredConfig: Effect.Effect<
   LayeredConfig,

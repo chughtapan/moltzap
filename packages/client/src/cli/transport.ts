@@ -112,11 +112,13 @@ export interface TransportOptions {
   /** Daemon socket path (absent only in tests that don't set it). */
   readonly socketPath?: string;
   /**
-   * Whether the daemon socket is currently reachable. Consulted only when
-   * neither `impersonateKey` nor `profileKey` is set and `MOLTZAP_API_KEY`
-   * is present in env (spec §5.1 fall-through clause).
+   * Lazy probe: called ONLY on the env-fallback branch (step 2 below).
+   * The as-flag branch never invokes it (Invariant §4.2: --as must not
+   * touch the daemon socket, not even to check reachability). Passed as
+   * a thunk so the probe is a side effect of the fall-through branch,
+   * not of the decision input.
    */
-  readonly daemonReachable?: boolean;
+  readonly probeDaemon?: () => Effect.Effect<boolean, never>;
 }
 
 /**
@@ -132,14 +134,15 @@ export type TransportDecision =
   | { readonly _tag: "UseTest" };
 
 /**
- * Pure decision function. Exported for unit testing — the decision table
- * is covered without touching the network. Spec §5.1 + Invariant §4.2 are
- * enforced by this function: `impersonateKey` present ⇒ never returns
- * `UseDaemon`.
+ * Decision function — Effect-returning because the env-fallback branch
+ * may invoke the `probeDaemon` thunk. The as-flag branch short-circuits
+ * BEFORE any probe: `impersonateKey` present ⇒ returns
+ * `UseDirect{as-flag}` without calling `probeDaemon`, without reading
+ * env, without any side effect (Invariant §4.2).
  */
 export const decideTransport = (
   _options: TransportOptions,
-): TransportDecision => {
+): Effect.Effect<TransportDecision, never> => {
   throw new Error("not implemented");
 };
 
