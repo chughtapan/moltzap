@@ -5,6 +5,12 @@ import { Args, Command, Options } from "@effect/cli";
 import { Effect, Option } from "effect";
 import { getServerUrl, updateConfig } from "../config.js";
 import { registerAgent } from "../http-client.js";
+import {
+  emitNoPersist,
+  parseProfileName,
+  writeProfile,
+  type ProfileRecord,
+} from "../profile.js";
 
 const NAME_PATTERN = /^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$/;
 
@@ -29,6 +35,9 @@ interface OpenClawConfig {
  * AND an internal notification — causing a double-SIGUSR1 race that leaves
  * the gateway stuck in draining mode. Direct file write triggers only the
  * file watcher → one clean restart.
+ *
+ * Per architect design rev 4 finding 2, this side effect is gated by the
+ * caller: `--no-persist` skips this call entirely (Invariant §4.4).
  */
 const writeOpenClawChannelConfig = (account: {
   apiKey: string;
@@ -82,16 +91,60 @@ const descriptionOption = Options.text("description").pipe(
   Options.optional,
 );
 
+// Spec sbd#177 rev 3 §5.2 barrel edits: --profile and --no-persist.
+//
+// NOTE on `--profile` routing: `register` is the ONE subcommand that
+// consumes `--profile` locally rather than letting `extractGlobalFlags`
+// (cli/index.ts) swallow it for transport selection. Reason: register
+// writes a NEW profile, so the named profile does not yet exist and the
+// transport resolver would reject it as missing. `extractGlobalFlags`
+// detects this case by inspecting argv for the `register` leaf and leaves
+// `--profile` in argv; `@effect/cli` binds it here.
+const profileOption = Options.text("profile").pipe(
+  Options.withDescription(
+    "Named profile to register under. Writes the new apiKey to " +
+      "`profiles.<name>` in ~/.moltzap/config.json. Omit to overwrite the " +
+      "legacy top-level record (the default profile). Other subcommands " +
+      "select an existing profile via the global `--profile` flag (see " +
+      "`moltzap --help`).",
+  ),
+  Options.optional,
+);
+
+const noPersistFlag = Options.boolean("no-persist").pipe(
+  Options.withDescription(
+    "Do not write the registered key to ~/.moltzap/config.json or " +
+      "~/.openclaw/openclaw.json. Prints the apiKey and claim URL to stdout " +
+      "so the caller can capture them (e.g. into an env var for use with " +
+      "`--as $KEY`) without mutating either config tree.",
+  ),
+);
+
 /**
- * `moltzap register <name> <invite-code> [-d description]` — POST
- * /api/v1/auth/register, then persist the result into both
- * `~/.moltzap/config.json` and the OpenClaw channel config so the channel
- * picks it up on its next file-watcher cycle.
+ * `moltzap register <name> <invite-code> [-d description] [--profile <name>] [--no-persist]`
+ *
+ * POST /api/v1/auth/register, then (by default) persist the result into
+ * both `~/.moltzap/config.json` and the OpenClaw channel config so the
+ * channel picks it up on its next file-watcher cycle.
+ *
+ * Spec §5.2 extensions:
+ *   --profile <name>  write under `profiles.<name>` instead of legacy top-level
+ *   --no-persist      print result to stdout only; NO writes to either tree
+ *
+ * `--no-persist` gates BOTH the `~/.moltzap/config.json` write AND the
+ * `~/.openclaw/openclaw.json` write (Invariant §4.4 as revised in architect
+ * design doc rev 4 finding 2).
  */
 export const registerCommand = Command.make(
   "register",
-  { name: nameArg, inviteCode: inviteCodeArg, description: descriptionOption },
-  ({ name, inviteCode, description }) => {
+  {
+    name: nameArg,
+    inviteCode: inviteCodeArg,
+    description: descriptionOption,
+    profile: profileOption,
+    noPersist: noPersistFlag,
+  },
+  ({ name, inviteCode, description, profile, noPersist }) => {
     if (!NAME_PATTERN.test(name)) {
       return Effect.sync(() => {
         console.error(
@@ -105,17 +158,44 @@ export const registerCommand = Command.make(
       const result = yield* registerAgent(name, inviteCode, desc);
       const serverUrl = yield* getServerUrl;
 
-      yield* updateConfig(() => ({
-        serverUrl,
+      const record: ProfileRecord = {
         apiKey: result.apiKey,
         agentName: name,
-      }));
+        serverUrl,
+        registeredAt: new Date().toISOString(),
+      };
 
-      yield* writeOpenClawChannelConfig({
-        apiKey: result.apiKey,
-        serverUrl,
-        agentName: name,
-      });
+      if (noPersist) {
+        // Invariant §4.4: no writes to ~/.moltzap/ or ~/.openclaw/.
+        const emitted = yield* emitNoPersist(record);
+        console.log(`Agent "${name}" registered (not persisted).`);
+        console.log(`  Agent ID:   ${result.agentId}`);
+        console.log(`  API Key:    ${emitted.record.apiKey}`);
+        console.log(`  Server URL: ${emitted.record.serverUrl}`);
+        console.log(`  Claim URL:  ${result.claimUrl}`);
+        console.log(
+          `\nShare the claim URL with the agent's owner to verify ownership.`,
+        );
+        return;
+      }
+
+      if (Option.isSome(profile)) {
+        const profileName = yield* parseProfileName(profile.value);
+        yield* writeProfile(profileName, record);
+      } else {
+        // Legacy top-level persistence path (unchanged).
+        yield* updateConfig(() => ({
+          serverUrl,
+          apiKey: result.apiKey,
+          agentName: name,
+        }));
+
+        yield* writeOpenClawChannelConfig({
+          apiKey: result.apiKey,
+          serverUrl,
+          agentName: name,
+        });
+      }
 
       console.log(`Agent "${name}" registered and channel configured.`);
       console.log(`  Agent ID:   ${result.agentId}`);
@@ -128,7 +208,8 @@ export const registerCommand = Command.make(
     }).pipe(
       Effect.catchAll((err) =>
         Effect.sync(() => {
-          console.error(`Registration failed: ${err.message}`);
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error(`Registration failed: ${msg}`);
           process.exit(1);
         }),
       ),
