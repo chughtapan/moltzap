@@ -32,3 +32,14 @@ export {
   type WsClientLogger,
   type MoltZapWsClientOptions,
 } from "./ws-client.js";
+export type {
+  SubscriptionFilter,
+  SubscriptionId,
+  EventSubscription,
+  SubscriberHandler,
+} from "./runtime/subscribers.js";
+export type { CloseInfo } from "./runtime/close-info.js";
+export type {
+  TrackedRpcResponse,
+  MoltZapWsClientOptionsV2,
+} from "./runtime/observability-api.js";
