@@ -138,7 +138,7 @@ export function applyCall<M extends RpcMethodName>(
     _tag: "ok",
     // The model returns an opaque placeholder; canonicalizers mask result
     // fields to `unknown` before comparing with the server. The exact shape
-    // is not load-bearing for B1, which compares "ok vs error" + events.
+    // is not load-bearing for model-equivalence, which compares tags.
     result: {} as RpcMap[M]["result"],
     events: [],
   });

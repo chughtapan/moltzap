@@ -146,3 +146,4 @@ vite.config.ts.timestamp-*
 # MoltZap runtime state (created by scripts/quickstart.sh)
 /moltzap.yaml
 /.moltzap/
+.codex

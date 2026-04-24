@@ -69,27 +69,39 @@ export function registerRequestWellFormedness(
                   defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
                   captureCapacity: DEFAULT_CAPTURE_CAPACITY,
                 });
-                // Send the drawn call and wait for the server reply via
-                // captures. `sendRpc` either resolves with the result or
-                // fails typed — both paths produce a response frame.
+                // Mark the auto-connect boundary so we ignore frames
+                // that landed before the sampled call.
+                // Mark the auto-connect boundary so we ignore frames
+                // that landed before the sampled call.
+                const handshakeEnd = (yield* client.snapshot).length;
                 yield* client
                   .sendRpc(call.method, call.params)
                   .pipe(Effect.either);
-                const snap = yield* client.snapshot;
-                return snap.filter(
-                  (s) => s.kind === "inbound" && s.frame?.type === "response",
-                );
+                return (yield* client.snapshot).slice(handshakeEnd);
               }),
             ),
           );
-          // Every response frame the server sent parses cleanly against
-          // ResponseFrameSchema. `Value.Check` is the protocol source of
-          // truth (Invariant I3). AnyFrame and ResponseFrame share the
-          // `type: "response"` discriminator — pass the frame through.
-          return observed.every((s) => {
-            if (s.frame?.type !== "response") return false;
-            return Value.Check(ResponseFrameSchema, s.frame as ResponseFrame);
-          });
+          // Find the outbound request for the sampled call — its id is
+          // what the server's response should reference. A response
+          // frame with no matching outbound id is not proof of this
+          // property; it's stale traffic from the handshake.
+          const outbound = observed.find(
+            (s) =>
+              s.kind === "outbound" &&
+              s.frame?.type === "request" &&
+              s.frame.method === call.method,
+          );
+          if (outbound?.frame?.type !== "request") return false;
+          const expectedId = outbound.frame.id;
+          const reply = observed.find(
+            (s) =>
+              s.kind === "inbound" &&
+              s.frame?.type === "response" &&
+              s.frame.id === expectedId,
+          );
+          if (reply?.frame?.type !== "response") return false;
+          // Value.Check is the protocol source of truth (Invariant I3).
+          return Value.Check(ResponseFrameSchema, reply.frame as ResponseFrame);
         }),
         { seed: ctx.seed, numRuns: ctx.opts.numRuns ?? 3 },
       ),
@@ -204,23 +216,21 @@ export function registerMalformedFrameHandling(
                 const post = yield* client
                   .sendRpc("agents/list", {})
                   .pipe(Effect.either);
-                return {
-                  malformedReply: response,
-                  postLiveness: post._tag,
-                };
+                return { malformedReply: response, post };
               }),
             ),
           );
           // Contract: either a typed error OR a clean drop (null). Both
-          // are acceptable. State poisoning would surface as a failed
-          // follow-up RPC.
+          // are acceptable per Tier A4.
           const validReply =
             result.malformedReply === null ||
             result.malformedReply._tag === "TestingRpcResponseError";
-          // Follow-up RPC must land cleanly (Right) or surface a typed
-          // error (Left) — either proves the server is still alive.
-          const stillAlive =
-            result.postLiveness === "Right" || result.postLiveness === "Left";
+          // Follow-up RPC must land with a typed success. "Right" or
+          // "Left" would be a tautology; "Left" would allow a timeout
+          // to count as server-alive, which is exactly what the
+          // property must reject. Require the post-malformed call to
+          // return cleanly.
+          const stillAlive = result.post._tag === "Right";
           return validReply && stillAlive;
         }),
         { seed: ctx.seed, numRuns: ctx.opts.numRuns ?? 3 },
@@ -276,12 +286,27 @@ export function registerRpcMapCoverage(ctx: ConformanceRunContext): void {
               defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
               captureCapacity: DEFAULT_CAPTURE_CAPACITY,
             });
+            // Exclude handshake frames so "reached" can't be satisfied
+            // by the auto-connect reply — every method must produce its
+            // OWN response with a matching request id.
+            const handshakeEnd = (yield* client.snapshot).length;
             yield* client
               .sendRpc(sampled.method, sampled.params)
               .pipe(Effect.either);
-            const snap = yield* client.snapshot;
+            const snap = (yield* client.snapshot).slice(handshakeEnd);
+            const outbound = snap.find(
+              (s) =>
+                s.kind === "outbound" &&
+                s.frame?.type === "request" &&
+                s.frame.method === sampled.method,
+            );
+            if (outbound?.frame?.type !== "request") return false;
+            const expectedId = outbound.frame.id;
             return snap.some(
-              (s) => s.kind === "inbound" && s.frame?.type === "response",
+              (s) =>
+                s.kind === "inbound" &&
+                s.frame?.type === "response" &&
+                s.frame.id === expectedId,
             );
           }),
         ).pipe(Effect.orElseSucceed(() => false));

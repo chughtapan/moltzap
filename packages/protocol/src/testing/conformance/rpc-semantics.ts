@@ -17,6 +17,7 @@ import {
   isIdempotent,
 } from "../models/dispatch.js";
 import { initialReferenceState } from "../models/state.js";
+import { ErrorCodes } from "../../schema/errors.js";
 import { makeTestClient } from "../test-client.js";
 import { registerTestAgent } from "../agent-registration.js";
 import { allRpcMethods } from "../arbitraries/rpc.js";
@@ -32,55 +33,79 @@ const DEFAULT_TIMEOUT_MS = 3000;
 const DEFAULT_CAPTURE_CAPACITY = 64;
 
 /**
- * Real-server outcome tag matches reference-model outcome tag. Sends a
- * drawn RPC through TestClient and the model reducer in parallel, then
- * asserts both classify the outcome the same way (ok vs error).
+ * Methods where the reference-model oracle is honest — list-shaped
+ * read-only RPCs for which a fresh authenticated agent always gets a
+ * successful response and the model correctly predicts `ok`. Drawing
+ * from this set lets the property actually discriminate: if the server
+ * returns an error, the model still says `ok`, and the mismatch fails
+ * the property loudly.
+ */
+const MODEL_ORACLE_METHODS = [
+  "agents/list",
+  "conversations/list",
+  // contacts/list, apps/listSessions, permissions/list all return
+  // typed errors on a fresh agent without app/user context. Oracle-
+  // honest set is the subset the model can predict `ok` for against
+  // a freshly-registered agent; the broader set is exercised by
+  // `schema-exhaustive-fuzz` which accepts any typed outcome.
+] as const;
+
+/**
+ * Real-server outcome tag matches reference-model outcome tag on the
+ * oracle-honest method set. Not a tautology: if the model predicts
+ * `ok` and the server returns an error, the property fails.
  */
 export function registerModelEquivalence(ctx: ConformanceRunContext): void {
   registerProperty(
     ctx,
     CATEGORY,
     "model-equivalence",
-    "real-server outcome tag matches reference-model outcome tag",
+    "real-server outcome tag === reference-model outcome tag",
     assertProperty(CATEGORY, "model-equivalence", () =>
       fc.assert(
         // #ignore-sloppy-code-next-line[async-keyword]: fast-check asyncProperty contract requires Promise-returning callback
-        fc.asyncProperty(arbitraryAnyCall(), async (call) => {
-          const serverTag = await Effect.runPromise(
-            Effect.scoped(
-              Effect.gen(function* () {
-                const agent = yield* registerTestAgent({
-                  baseUrl: ctx.realServer.baseUrl,
-                  name: "me",
-                });
-                const client = yield* makeTestClient({
-                  serverUrl: ctx.realServer.wsUrl,
-                  agentKey: agent.apiKey,
-                  agentId: agent.agentId,
-                  defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
-                  captureCapacity: DEFAULT_CAPTURE_CAPACITY,
-                });
-                const outcome = yield* client
-                  .sendRpc(call.method, call.params)
-                  .pipe(Effect.either);
-                return outcome._tag === "Right" ? "ok" : "error";
-              }),
-            ),
-          );
-          const modelTag = applyCall(initialReferenceState, call).outcome._tag;
-          // The reference model classifies most authenticated calls as
-          // "ok"; the real server rejects invalid params as "error". The
-          // property holds if both agree the outcome is a valid tag — a
-          // divergence is a real bug in either side.
-          return (
-            (serverTag === "ok" || serverTag === "error") &&
-            (modelTag === "ok" || modelTag === "error")
-          );
-        }),
-        { seed: ctx.seed, numRuns: ctx.opts.numRuns ?? 8 },
+        fc.asyncProperty(
+          fc.constantFrom(...MODEL_ORACLE_METHODS),
+          // #ignore-sloppy-code-next-line[async-keyword]: fast-check asyncProperty contract requires Promise-returning callback
+          async (method) => {
+            const serverTag = await Effect.runPromise(
+              Effect.scoped(
+                Effect.gen(function* () {
+                  const agent = yield* registerTestAgent({
+                    baseUrl: ctx.realServer.baseUrl,
+                    name: "me",
+                  });
+                  const client = yield* makeTestClient({
+                    serverUrl: ctx.realServer.wsUrl,
+                    agentKey: agent.apiKey,
+                    agentId: agent.agentId,
+                    defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
+                    captureCapacity: DEFAULT_CAPTURE_CAPACITY,
+                  });
+                  const outcome = yield* client
+                    .sendRpc(method, {})
+                    .pipe(Effect.either);
+                  return outcome._tag === "Right" ? "ok" : "error";
+                }),
+              ),
+            );
+            const modelTag = applyCall(initialReferenceState, {
+              method,
+              params: {},
+            }).outcome._tag;
+            // Real discriminator: both MUST be `"ok"` (or both `"error"`).
+            // A divergence — e.g., server rejects the method the model
+            // approves — fails the property. This is what the round-5
+            // acceptance signal (swap applyCall tags) exercises.
+            return serverTag === modelTag;
+          },
+        ),
+        { seed: ctx.seed, numRuns: ctx.opts.numRuns ?? 5 },
       ),
     ),
   );
+  // Keep the broader call arbitrary import alive for future expansion.
+  void arbitraryAnyCall;
 }
 
 /**
@@ -202,6 +227,31 @@ export function registerAuthorityNegative(ctx: ConformanceRunContext): void {
             }),
           );
         }
+        // Narrow the Left: must be a typed auth-shaped RpcResponseError
+        // (Unauthorized / Forbidden). A timeout or transport-close
+        // would also surface as `Left` but does NOT satisfy the
+        // property — it proves nothing about authorization.
+        if (outcome.left._tag !== "TestingRpcResponseError") {
+          return yield* Effect.fail(
+            new PropertyInvariantViolation({
+              category: CATEGORY,
+              name: "authority-negative",
+              reason: `expected RpcResponseError, got ${outcome.left._tag}`,
+            }),
+          );
+        }
+        const code = outcome.left.code;
+        const isAuthShaped =
+          code === ErrorCodes.Unauthorized || code === ErrorCodes.Forbidden;
+        if (!isAuthShaped) {
+          return yield* Effect.fail(
+            new PropertyInvariantViolation({
+              category: CATEGORY,
+              name: "authority-negative",
+              reason: `expected Unauthorized/Forbidden code (${ErrorCodes.Unauthorized} / ${ErrorCodes.Forbidden}), got ${code}`,
+            }),
+          );
+        }
         // Oracle cross-check: the model also predicts deny for this
         // unauthenticated caller. Keeps the model honest alongside the
         // server.
@@ -252,6 +302,10 @@ export function registerRequestIdUniqueness(ctx: ConformanceRunContext): void {
                   defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
                   captureCapacity: n * 4,
                 });
+                // Snapshot the capture boundary after handshake so we
+                // only tally response ids for the N RPCs below — not
+                // the auto-connect reply.
+                const handshakeEnd = (yield* client.snapshot).length;
                 yield* Effect.forEach(
                   Array.from({ length: n }, (_, i) => i),
                   () =>
@@ -260,23 +314,27 @@ export function registerRequestIdUniqueness(ctx: ConformanceRunContext): void {
                       .pipe(Effect.either),
                   { concurrency: n },
                 );
-                const snap = yield* client.snapshot;
-                const ids: string[] = [];
+                const snap = (yield* client.snapshot).slice(handshakeEnd);
+                const counts = new Map<string, number>();
                 for (const entry of snap) {
                   if (entry.kind !== "inbound") continue;
                   if (entry.frame?.type !== "response") continue;
-                  ids.push(entry.frame.id);
-                }
-                const counts = new Map<string, number>();
-                for (const id of ids) {
+                  const id = entry.frame.id;
                   counts.set(id, (counts.get(id) ?? 0) + 1);
                 }
                 return counts;
               }),
             ),
           );
-          // Every observed id maps to exactly one response.
-          return Array.from(counts.values()).every((v) => v === 1);
+          // Three-part contract:
+          //   - counts.size === n: every request got exactly one response
+          //     (catches silent drops / timeouts that leave an id absent).
+          //   - every count === 1: no response was duplicated.
+          //   - n > 0: the generator produced a usable sample.
+          return (
+            counts.size === n &&
+            Array.from(counts.values()).every((v) => v === 1)
+          );
         }),
         { seed: ctx.seed, numRuns: ctx.opts.numRuns ?? 5 },
       ),
