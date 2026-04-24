@@ -112,7 +112,11 @@ describe("loadLayeredConfig", () => {
       {
         serverUrl: "wss://x",
         profiles: {
-          alice: { apiKey: "k-alice", agentName: "alice", serverUrl: "wss://x" },
+          alice: {
+            apiKey: "k-alice",
+            agentName: "alice",
+            serverUrl: "wss://x",
+          },
         },
       },
       async () => {
@@ -211,7 +215,11 @@ describe("resolveProfileAuth", () => {
       {
         serverUrl: "wss://x",
         profiles: {
-          alice: { apiKey: "k-alice", agentName: "alice", serverUrl: "wss://x" },
+          alice: {
+            apiKey: "k-alice",
+            agentName: "alice",
+            serverUrl: "wss://x",
+          },
         },
       },
       async () => {
@@ -272,7 +280,11 @@ describe("writeProfile", () => {
       {
         serverUrl: "wss://x",
         profiles: {
-          alice: { apiKey: "k-alice", agentName: "alice", serverUrl: "wss://x" },
+          alice: {
+            apiKey: "k-alice",
+            agentName: "alice",
+            serverUrl: "wss://x",
+          },
         },
       },
       async (tmp) => {

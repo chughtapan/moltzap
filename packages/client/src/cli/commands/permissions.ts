@@ -22,9 +22,7 @@ import {
 // ─── Errors ────────────────────────────────────────────────────────────────
 
 /** Exhaustive error union for the permissions surface. */
-export type PermissionsCommandError =
-  | TransportError
-  | PermissionsInputError;
+export type PermissionsCommandError = TransportError | PermissionsInputError;
 
 export class PermissionsInputError extends Error {
   readonly _tag = "PermissionsInputError" as const;

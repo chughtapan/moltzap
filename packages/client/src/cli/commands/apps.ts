@@ -263,9 +263,7 @@ const appsCreateCommand = Command.make(
   "create",
   { app: appOption, invite: inviteOption },
   ({ app, invite }) =>
-    runHandler(
-      appsCreateHandler({ appId: app, invitedAgentIds: invite }),
-    ),
+    runHandler(appsCreateHandler({ appId: app, invitedAgentIds: invite })),
 ).pipe(
   Command.withDescription(
     "Create a new app session. Caller becomes the initiator; --invite " +

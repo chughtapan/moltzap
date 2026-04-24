@@ -139,10 +139,4 @@ export type RpcDefinitionFor<Name extends RpcMethodName> =
  * for iteration helpers that don't care about preserving literal names.
  */
 export type AnyRpcDefinition = (typeof rpcMethods)[number] &
-  RpcDefinition<
-    string,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    any
-  >;
+  RpcDefinition<string, any, any>;

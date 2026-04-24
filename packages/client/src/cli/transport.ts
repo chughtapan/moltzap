@@ -180,7 +180,11 @@ export const decideTransport = (
 // can discriminate.
 const tagDaemonError = (method: string, err: Error): TransportError => {
   const msg = err.message;
-  if (msg.includes("not running") || msg.includes("ENOENT") || msg.includes("ECONNREFUSED")) {
+  if (
+    msg.includes("not running") ||
+    msg.includes("ENOENT") ||
+    msg.includes("ECONNREFUSED")
+  ) {
     return new ServiceUnreachableError({
       socketPath: MoltZapService.SOCKET_PATH,
       cause: err,
@@ -212,13 +216,16 @@ const makeDaemonTransport = (socketPath: string): Transport => ({
 // Map ws-client errors (NotConnectedError | RpcTimeoutError | RpcServerError)
 // to TransportError tags. Names are matched via _tag rather than instanceof
 // to avoid a circular import chain through runtime/errors.
-const tagWsError = (method: string, err: {
-  readonly _tag?: string;
-  readonly message?: string;
-  readonly code?: number;
-  readonly timeoutMs?: number;
-  readonly data?: unknown;
-}): TransportError => {
+const tagWsError = (
+  method: string,
+  err: {
+    readonly _tag?: string;
+    readonly message?: string;
+    readonly code?: number;
+    readonly timeoutMs?: number;
+    readonly data?: unknown;
+  },
+): TransportError => {
   switch (err._tag) {
     case "NotConnectedError":
       return new ServiceUnreachableError({
@@ -266,40 +273,27 @@ const makeDirectTransport = (
     // WebSocket open. Register a process-exit hook so one-shot CLI
     // invocations don't hang on the ws-client's ManagedRuntime and the
     // socket's keepalive timers.
-    let client: MoltZapWsClient | null = null;
-    let connected: Promise<unknown> | null = null;
-    const ensureConnected = (): Promise<MoltZapWsClient> => {
-      if (client === null) {
+    const ensureConnected = yield* Effect.cached(
+      Effect.gen(function* () {
         const c = new MoltZapWsClient({ serverUrl, agentKey });
-        client = c;
         const closeSync = (): void => {
-          try {
-            Effect.runSync(c.close());
-          } catch {
-            // tear-down races are fine at process exit.
-          }
+          Effect.runSync(c.close());
         };
         process.once("beforeExit", closeSync);
-      }
-      if (connected === null) {
-        connected = Effect.runPromise(
-          client.connect() as Effect.Effect<unknown, Error>,
-        );
-      }
-      return connected.then(() => client as MoltZapWsClient);
-    };
+        yield* c.connect();
+        return c;
+      }),
+    );
     return {
       kind: "direct",
       rpc: <Result>(method: string, params: Record<string, unknown>) =>
-        Effect.tryPromise({
-          try: async () => {
-            const c = await ensureConnected();
-            return (await Effect.runPromise(
-              c.sendRpc(method, params) as Effect.Effect<unknown, Error>,
-            )) as Result;
-          },
-          catch: (e) => tagWsError(method, e as { readonly _tag?: string }),
-        }) as Effect.Effect<Result, TransportError>,
+        ensureConnected.pipe(
+          Effect.flatMap((c) => c.sendRpc(method, params)),
+          Effect.map((result) => result as Result),
+          Effect.mapError((e) =>
+            tagWsError(method, e as { readonly _tag?: string }),
+          ),
+        ) as Effect.Effect<Result, TransportError>,
     };
   });
 
@@ -411,18 +405,15 @@ export const runHandler = <
  * later short-circuited. Unit tests assert on `fs.open` and `env` read
  * spies that zero calls happen on the `impersonateKey` branch.
  */
-export const resolveTransportInputs = (
-  parsed: {
-    readonly impersonateKey?: string;
-    readonly profileName?: string;
-  },
-): Effect.Effect<TransportOptions, TransportConfigError | ProfileError> =>
+export const resolveTransportInputs = (parsed: {
+  readonly impersonateKey?: string;
+  readonly profileName?: string;
+}): Effect.Effect<TransportOptions, TransportConfigError | ProfileError> =>
   Effect.gen(function* () {
     // ─── Branch A: impersonate (--as) ──────────────────────────────────────
     // Invariant §4.2: no loadConfig, no MOLTZAP_API_KEY read, no config.json open.
     if (parsed.impersonateKey !== undefined) {
-      const serverUrl =
-        process.env.MOLTZAP_SERVER_URL ?? DEFAULT_SERVER_URL;
+      const serverUrl = process.env.MOLTZAP_SERVER_URL ?? DEFAULT_SERVER_URL;
       return {
         impersonateKey: parsed.impersonateKey,
         serverUrl,
@@ -443,8 +434,7 @@ export const resolveTransportInputs = (
       };
     }
     // ─── Branch C: legacy daemon / env fallback ────────────────────────────
-    const serverUrl =
-      process.env.MOLTZAP_SERVER_URL ?? DEFAULT_SERVER_URL;
+    const serverUrl = process.env.MOLTZAP_SERVER_URL ?? DEFAULT_SERVER_URL;
     return {
       serverUrl,
       socketPath: MoltZapService.SOCKET_PATH,
