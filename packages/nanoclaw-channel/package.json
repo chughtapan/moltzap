@@ -14,9 +14,17 @@
   ],
   "main": "./dist/channels/moltzap.js",
   "types": "./dist/channels/moltzap.d.ts",
+  "exports": {
+    ".": "./dist/channels/moltzap.js",
+    "./test-support": {
+      "import": "./dist/test-support.js",
+      "types": "./dist/test-support.d.ts"
+    }
+  },
   "scripts": {
     "build": "tsc",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:conformance": "bash ../protocol/scripts/check-divergence-proofs.sh && vitest run -c vitest.conformance.config.ts"
   },
   "dependencies": {
     "@moltzap/client": "workspace:*",
