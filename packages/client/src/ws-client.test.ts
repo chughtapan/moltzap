@@ -31,8 +31,13 @@ import * as NodeSocketServer from "@effect/platform-node/NodeSocketServer";
 import * as Socket from "@effect/platform/Socket";
 import { PROTOCOL_VERSION } from "@moltzap/protocol";
 
-import { MoltZapWsClient, RPC_TIMEOUT_MS } from "./ws-client.js";
+import {
+  MoltZapWsClient,
+  RPC_TIMEOUT_MS,
+  type CloseInfo,
+} from "./ws-client.js";
 import { RpcTimeoutError } from "./runtime/errors.js";
+import type { EventFrame } from "@moltzap/protocol";
 
 // ── Test server helpers ────────────────────────────────────────────────
 
@@ -44,7 +49,7 @@ interface TestServerConnection {
   /** Send a raw string frame to this client. */
   readonly send: (raw: string) => Effect.Effect<void>;
   /** Close this client's connection (CloseEvent code 1000 = clean). */
-  readonly close: (code?: number) => Effect.Effect<void>;
+  readonly close: (code?: number, reason?: string) => Effect.Effect<void>;
   /** Every frame received from this client, in order. */
   readonly received: ReadonlyArray<string>;
 }
@@ -94,10 +99,8 @@ const startTestServer = (
             const receivedList: string[] = [];
             const conn: TestServerConnection = {
               send: (raw) => write(raw).pipe(Effect.ignore),
-              close: (code = 1000) =>
-                write(new Socket.CloseEvent(code, "test close")).pipe(
-                  Effect.ignore,
-                ),
+              close: (code = 1000, reason = "test close") =>
+                write(new Socket.CloseEvent(code, reason)).pipe(Effect.ignore),
               get received(): ReadonlyArray<string> {
                 return receivedList;
               },
@@ -254,23 +257,37 @@ async function waitFor(
   }
 }
 
+/**
+ * Build a `MoltZapWsClient`. Spec #222 OQ-4 deletion: `onEvent` is no
+ * longer a constructor option; tests that previously stashed an
+ * `onEvent` callback now register a `subscribe({}, …)` subscription
+ * post-construction. The helper accepts the same `onEvent` callback as
+ * a convenience and wires it through the new subscription registry,
+ * keeping migration noise local to the helper.
+ */
 function makeClient(
   url: string,
   overrides?: {
-    onEvent?: (evt: unknown) => void;
-    onDisconnect?: () => void;
+    onEvent?: (evt: EventFrame) => void;
+    onDisconnect?: (close: CloseInfo) => void;
     onReconnect?: (hello: unknown) => void;
     logger?: ClientHarness["logger"];
   },
 ): MoltZapWsClient {
-  return new MoltZapWsClient({
+  const client = new MoltZapWsClient({
     serverUrl: url,
     agentKey: "test-key",
-    onEvent: overrides?.onEvent ?? (() => {}),
-    onDisconnect: overrides?.onDisconnect ?? (() => {}),
+    onDisconnect: overrides?.onDisconnect ?? ((_close) => {}),
     onReconnect: overrides?.onReconnect ?? (() => {}),
     logger: overrides?.logger ?? makeLogger(),
   });
+  if (overrides?.onEvent !== undefined) {
+    const cb = overrides.onEvent;
+    Effect.runSync(
+      client.subscribe({}, (frame) => Effect.sync(() => cb(frame))),
+    );
+  }
+  return client;
 }
 
 function parseSent(raw: string): {
@@ -926,4 +943,82 @@ describe("graceful close drains ESTABLISHED sockets (AC2)", () => {
       }),
     );
   }, 15_000);
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// Spec #222 §5.4 (V7) — `onDisconnect` receives a typed `CloseInfo`
+// ─────────────────────────────────────────────────────────────────────
+
+describe("spec #222 §5.4 — onDisconnect close metadata (V7)", () => {
+  // Two distinguishable closes through the live reader-fiber path:
+  //   1. Server-initiated 1000/"bye"   → CloseInfo{1000, "normal"}
+  //      (`@effect/platform/Socket` treats 1000 as `Exit.Success` per
+  //      its default `closeCodeIsError`; `extractCloseInfo` synthesizes
+  //      the OQ-5 graceful default — the close-frame reason is dropped
+  //      because there's no `SocketCloseError` to round-trip.)
+  //   2. Server-initiated 1011/"boom" → CloseInfo{1011, "boom"}
+  //      (non-1000 codes raise `SocketCloseError`; the real code +
+  //      `closeReason` round-trip through.)
+  //
+  // The pre-deletion adapter hardcoded `{1000, "disconnect"}` regardless
+  // of the actual close. A V7 mutation that re-introduces the hardcode
+  // flips the second test's `code === 1011` assertion pass → fail,
+  // satisfying AC 5.4-4 (distinguishable payloads). The OQ-5
+  // default-fallback paths (HandshakeFailure / TransportFailure /
+  // Unknown → DEFAULT_ABNORMAL_CLOSE) are covered by the direct unit
+  // tests in `runtime/close-info.test.ts`, where synthetic `Exit`
+  // values exercise each branch without a real transport.
+  it("synthesizes the graceful default when the transport treats 1000 as Exit.Success", async () => {
+    await withTestServer(
+      Effect.gen(function* () {
+        const closes: CloseInfo[] = [];
+        const server = yield* startHandshakingServer(() => Effect.void);
+        const client = makeClient(server.url, {
+          onDisconnect: (close) => {
+            closes.push(close);
+          },
+        });
+        yield* Effect.promise(() => connectP(client));
+        yield* server.connections[0]!.close(1000, "bye");
+
+        yield* Effect.promise(() =>
+          waitFor(() => closes.length > 0, { maxMs: 2000 }),
+        );
+        yield* closeClient(client);
+
+        expect(closes.length).toBeGreaterThanOrEqual(1);
+        const first = closes[0]!;
+        expect(first.code).toBe(1000);
+        expect(first.reason).toBe("normal"); // OQ-5 default, not "bye"
+      }),
+    );
+  });
+
+  it("round-trips the server's close code + reason for a 1011 (server error) close", async () => {
+    await withTestServer(
+      Effect.gen(function* () {
+        const closes: CloseInfo[] = [];
+        const server = yield* startHandshakingServer(() => Effect.void);
+        const client = makeClient(server.url, {
+          onDisconnect: (close) => {
+            closes.push(close);
+          },
+        });
+        yield* Effect.promise(() => connectP(client));
+        yield* server.connections[0]!.close(1011, "boom");
+
+        yield* Effect.promise(() =>
+          waitFor(() => closes.length > 0, { maxMs: 2000 }),
+        );
+        yield* closeClient(client);
+
+        expect(closes.length).toBeGreaterThanOrEqual(1);
+        const first = closes[0]!;
+        // Distinguishable from the 1000 test above (AC 5.4-4):
+        // a hardcoded `{1000, "disconnect"}` would fail this assertion.
+        expect(first.code).toBe(1011);
+        expect(first.reason).toBe("boom");
+      }),
+    );
+  });
 });
