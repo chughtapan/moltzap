@@ -277,7 +277,7 @@ const makeDirectTransport = (
       Effect.gen(function* () {
         const c = new MoltZapWsClient({ serverUrl, agentKey });
         const closeSync = (): void => {
-          Effect.runSync(c.close());
+          void Effect.runPromise(c.close());
         };
         process.once("beforeExit", closeSync);
         yield* c.connect();
