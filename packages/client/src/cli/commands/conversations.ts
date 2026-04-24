@@ -308,10 +308,69 @@ const historySubcommand = Command.make(
   historyHandler,
 ).pipe(Command.withDescription("Show message history for a conversation"));
 
+// ─── ARCH sbd#185: new v2 subcommands (get / archive / unarchive) ──────────
+//
+// Stubs only — bodies are `throw new Error("not implemented")`. Full
+// signatures and traceability: https://github.com/chughtapan/safer-by-default/issues/177
+// (architect design doc rev 2).
+
+import type { Transport, TransportError } from "../transport.js";
+
+/** Discriminated error union for the three v2 conversation subcommands. */
+export type ConversationsCommandError =
+  | TransportError
+  | ConversationsInputError;
+
+/** CLI-level input was rejected (architect stage: signature only). */
+export class ConversationsInputError extends Error {
+  readonly _tag = "ConversationsInputError" as const;
+  constructor(readonly reason: string) {
+    super(reason);
+  }
+}
+
+/** `moltzap conversations get <id>` → conversations/get; prints { conversation, participants }. */
+export const conversationsGetHandler = (
+  _args: { readonly conversationId: string },
+): import("effect").Effect.Effect<
+  void,
+  ConversationsCommandError,
+  Transport
+> => {
+  throw new Error("not implemented");
+};
+
+/** `moltzap conversations archive <id>` → conversations/archive; prints success marker. */
+export const conversationsArchiveHandler = (
+  _args: { readonly conversationId: string },
+): import("effect").Effect.Effect<
+  void,
+  ConversationsCommandError,
+  Transport
+> => {
+  throw new Error("not implemented");
+};
+
+/** `moltzap conversations unarchive <id>` → conversations/unarchive; prints success marker. */
+export const conversationsUnarchiveHandler = (
+  _args: { readonly conversationId: string },
+): import("effect").Effect.Effect<
+  void,
+  ConversationsCommandError,
+  Transport
+> => {
+  throw new Error("not implemented");
+};
+
+// NOTE (architect): impl-staff builds the `Command.make(...)` wrappings for
+// these three handlers and adds them to the `Command.withSubcommands` array
+// below. The handlers live here so the barrel edit is one file, one diff.
+
 /**
- * `moltzap conversations [list|create|leave|mute|unmute|update|add-participant|remove-participant|history]`
+ * `moltzap conversations [list|create|leave|mute|unmute|update|add-participant|remove-participant|history|get|archive|unarchive]`
  * — conversation CRUD + inspection over the local Unix socket. Default (no
- * subcommand) lists.
+ * subcommand) lists. The `get`, `archive`, `unarchive` subcommands are
+ * wired by impl-staff against the handlers above (sbd#185).
  */
 export const conversationsCommand = Command.make("conversations", {}, () =>
   listConversations.handler({ limit: 20, json: false }),
@@ -327,6 +386,8 @@ export const conversationsCommand = Command.make("conversations", {}, () =>
     addParticipantCommand,
     removeParticipantCommand,
     historySubcommand,
+    // impl-staff adds: getConversationCommand, archiveConversationCommand,
+    // unarchiveConversationCommand (see handler stubs above).
   ]),
 );
 
