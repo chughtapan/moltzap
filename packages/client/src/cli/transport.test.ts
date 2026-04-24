@@ -28,3 +28,18 @@ describe("makeTransportLayer", () => {
     "daemon branch fails TransportConfigError when socketPath is missing",
   );
 });
+
+describe("resolveTransportInputs (composition-boundary gate)", () => {
+  it.todo(
+    "resolveTransportInputs({impersonateKey}) does not open ~/.moltzap/config.json (fs.open spy; zero calls)",
+  );
+  it.todo(
+    "resolveTransportInputs({impersonateKey}) does not read MOLTZAP_API_KEY env (env read spy; zero calls)",
+  );
+  it.todo(
+    "resolveTransportInputs({profileName}) reads config but not MOLTZAP_API_KEY env",
+  );
+  it.todo(
+    "resolveTransportInputs({}) falls back to legacy loadConfig behavior",
+  );
+});

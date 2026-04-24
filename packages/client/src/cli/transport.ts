@@ -177,3 +177,25 @@ export const rpc = <Result>(
 ): Effect.Effect<Result, TransportError, Transport> => {
   throw new Error("not implemented");
 };
+
+/**
+ * Lazy resolver invoked by the CLI entrypoint BEFORE constructing the
+ * transport layer. Closes the composition-boundary leak (architect design
+ * doc rev 4 finding 1): with `impersonateKey` set, this function does NOT
+ * call `cli/config.ts:loadConfig`, does NOT read `MOLTZAP_API_KEY` env,
+ * does NOT open `~/.moltzap/config.json`. The only resolution performed on
+ * the as-flag branch is `MOLTZAP_SERVER_URL` (or the hard-coded default).
+ *
+ * This function is the true CLI-boundary gate on Invariant §4.2 — without
+ * it, eager config-read side effects leak even when `decideTransport` is
+ * later short-circuited. Unit tests assert on `fs.open` and `env` read
+ * spies that zero calls happen on the `impersonateKey` branch.
+ */
+export const resolveTransportInputs = (
+  _parsed: {
+    readonly impersonateKey?: string;
+    readonly profileName?: string;
+  },
+): Effect.Effect<TransportOptions, TransportConfigError> => {
+  throw new Error("not implemented");
+};
