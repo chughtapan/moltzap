@@ -26,16 +26,14 @@ describe.skip("registerEventWellFormednessClient — divergence proofs", () => {
 });
 
 describe.skip("registerMalformedFrameHandlingClient — divergence proofs", () => {
-  it("fails when the real client crashes the process on a bit-flipped frame", () => {
+  it("fails when the real client crashes and disconnects on a bit-flipped frame", () => {
     // Mutation: in the real client's frame-decode path, remove the
     //   try/catch around `JSON.parse` so a bit-flipped inbound frame
-    //   throws out of the socket read loop.
-    // Predicate broken: client/schema-conformance.ts — "no crash" leg
-    //   of registerMalformedFrameHandlingClient's conjunction
-    //   (observable via `RealClientHandle.closeSignal` firing).
-    // Expected observable: property fails; closeSignal resolves with
-    //   reason matching the decode exception; liveness probe times
-    //   out.
+    //   throws out of the socket read loop, disconnecting the client.
+    // Predicate broken: client/schema-conformance.ts — liveness leg of
+    //   registerMalformedFrameHandlingClient; a disconnected client
+    //   cannot receive the post-malformed tagged event within deadline.
+    // Expected observable: property fails; liveness probe times out.
     // Last verified: pending real-client mutation.
     expect(true).toBe(true);
   });
@@ -44,7 +42,7 @@ describe.skip("registerMalformedFrameHandlingClient — divergence proofs", () =
     // Mutation: in the real client's reader loop, set a "poisoned"
     //   flag after the first malformed frame and return early from
     //   every subsequent decode.
-    // Predicate broken: client/schema-conformance.ts — "liveness" leg
+    // Predicate broken: client/schema-conformance.ts — liveness leg
     //   of registerMalformedFrameHandlingClient.
     // Expected observable: property fails; post-malformed tagged
     //   event never surfaces on the subscriber before deadline.
