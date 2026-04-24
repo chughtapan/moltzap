@@ -347,6 +347,6 @@ export const emitNoPersist = (
  * `MOLTZAP_CONFIG_HOME` env (tests set a tmp dir; production leaves unset).
  * Exported so assertions can diff the file after a command run.
  */
-export const getConfigFilePath: Effect.Effect<string, never> = Effect.sync(
-  () => getConfigFilePathSync(),
+export const getConfigFilePath: Effect.Effect<string, never> = Effect.sync(() =>
+  getConfigFilePathSync(),
 );

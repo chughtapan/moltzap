@@ -59,7 +59,8 @@ export const extractGlobalFlags = (
   // when register is the invoked subcommand; route globally otherwise.
   const isRegister = argv.some(
     (t, i) =>
-      t === "register" && argv.slice(0, i).every((prev) => !prev.startsWith("-")),
+      t === "register" &&
+      argv.slice(0, i).every((prev) => !prev.startsWith("-")),
   );
 
   const rest: Array<string> = [];

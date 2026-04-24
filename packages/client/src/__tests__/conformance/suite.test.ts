@@ -33,12 +33,10 @@ describe("@moltzap/client client-side conformance", () => {
     expect(Exit.isSuccess(exit)).toBe(true);
     if (!Exit.isSuccess(exit)) return;
     const result = exit.value;
-    // eslint-disable-next-line no-console
     console.log(
       `[client-conformance] seed=${result.seed} passed=${result.passed.length} deferred=${result.deferred.length} unavailable=${result.unavailable.length} failed=${result.failed.length}`,
     );
     if (result.unavailable.length > 0) {
-      // eslint-disable-next-line no-console
       console.log(
         `[client-conformance] unavailable: ${result.unavailable.map((u) => `${u.name}: ${u.reason}`).join(" | ")}`,
       );

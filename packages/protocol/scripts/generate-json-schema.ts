@@ -23,5 +23,4 @@ for (const [name, schema] of schemaEntries) {
   writeFileSync(join(outDir, filename), JSON.stringify(schema, null, 2) + "\n");
 }
 
-// eslint-disable-next-line no-console
 console.log(`Generated ${schemaEntries.length} JSON Schema files in ${outDir}`);
