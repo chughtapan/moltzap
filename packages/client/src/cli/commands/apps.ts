@@ -228,13 +228,38 @@ const appsRegisterCommand = Command.make(
 ).pipe(Command.withDescription("Register an app via apps/register"));
 
 const appOption = Options.text("app").pipe(
-  Options.withDescription("App id"),
+  Options.withDescription(
+    "App id — matches the `appId` field in the manifest previously " +
+      "submitted via `moltzap apps register --manifest ...`.",
+  ),
 );
 const inviteOption = Options.text("invite").pipe(
-  Options.withDescription("Invited agent id (repeatable)"),
+  Options.withDescription(
+    "Invited agent id (UUID, not the friendly agent-name). " +
+      "Get it from the `Agent ID:` line printed by `moltzap register` or " +
+      "from `moltzap whoami` on the peer's host. Repeat the flag to invite " +
+      "multiple agents: --invite <uuid1> --invite <uuid2>.",
+  ),
   Options.repeated,
 );
 
+/**
+ * `moltzap apps create --app <appId> --invite <agentId>...`
+ *
+ * Initiator is the CALLER: whichever identity the transport layer resolves
+ * from the global `--as` / `--profile` flags (or the default profile when
+ * neither is given) becomes `initiatorAgentId` on the server side — see
+ * `apps/create` handler at packages/server/src/app/handlers/apps.handlers.ts
+ * (uses `ctx.agentId`). The initiator is NOT passed as a CLI argument and
+ * does NOT appear in `--invite`.
+ *
+ * Typical multi-agent flow:
+ *   # as the initiator (e.g. alice):
+ *   moltzap --profile alice apps create --app myapp \
+ *     --invite $BOB_AGENT_ID --invite $CAROL_AGENT_ID
+ *
+ * Prints the new session id to stdout (one line) on success.
+ */
 const appsCreateCommand = Command.make(
   "create",
   { app: appOption, invite: inviteOption },
@@ -242,7 +267,12 @@ const appsCreateCommand = Command.make(
     runHandler(
       appsCreateHandler({ appId: app, invitedAgentIds: invite }),
     ),
-).pipe(Command.withDescription("Create a new app session with invites"));
+).pipe(
+  Command.withDescription(
+    "Create a new app session. Caller becomes the initiator; --invite " +
+      "takes an agent id (UUID) and is repeatable.",
+  ),
+);
 
 const appFilterOption = Options.text("app").pipe(
   Options.withDescription("Filter by app id"),
@@ -299,7 +329,12 @@ export const appsCommand = Command.make("apps", {}, () =>
     );
   }),
 ).pipe(
-  Command.withDescription("Manage MoltZap apps and sessions"),
+  Command.withDescription(
+    "Manage MoltZap apps and sessions. Every subcommand runs as the " +
+      "identity selected by the global --as / --profile flags (see " +
+      "`moltzap --help`); in particular `apps create` makes the caller " +
+      "the session initiator.",
+  ),
   Command.withSubcommands([
     appsRegisterCommand,
     appsCreateCommand,

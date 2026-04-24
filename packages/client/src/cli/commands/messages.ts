@@ -111,6 +111,10 @@ export const messagesCommand = Command.make("messages", {}, () =>
     console.log("Usage: moltzap messages list --conversation <id> [--limit N]");
   }),
 ).pipe(
-  Command.withDescription("Query message history"),
+  Command.withDescription(
+    "Query message history. Runs as the identity selected by the global " +
+      "--as / --profile flags (see `moltzap --help`); visibility is scoped " +
+      "to conversations that caller participates in.",
+  ),
   Command.withSubcommands([messagesListCommand]),
 );

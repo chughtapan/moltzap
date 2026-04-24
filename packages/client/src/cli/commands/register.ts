@@ -92,16 +92,31 @@ const descriptionOption = Options.text("description").pipe(
 );
 
 // Spec sbd#177 rev 3 §5.2 barrel edits: --profile and --no-persist.
+//
+// NOTE on `--profile` routing: `register` is the ONE subcommand that
+// consumes `--profile` locally rather than letting `extractGlobalFlags`
+// (cli/index.ts) swallow it for transport selection. Reason: register
+// writes a NEW profile, so the named profile does not yet exist and the
+// transport resolver would reject it as missing. `extractGlobalFlags`
+// detects this case by inspecting argv for the `register` leaf and leaves
+// `--profile` in argv; `@effect/cli` binds it here.
 const profileOption = Options.text("profile").pipe(
   Options.withDescription(
-    "Named profile to register under (default: legacy top-level record)",
+    "Named profile to register under. Writes the new apiKey to " +
+      "`profiles.<name>` in ~/.moltzap/config.json. Omit to overwrite the " +
+      "legacy top-level record (the default profile). Other subcommands " +
+      "select an existing profile via the global `--profile` flag (see " +
+      "`moltzap --help`).",
   ),
   Options.optional,
 );
 
 const noPersistFlag = Options.boolean("no-persist").pipe(
   Options.withDescription(
-    "Do not write the registered key to ~/.moltzap/ or ~/.openclaw/",
+    "Do not write the registered key to ~/.moltzap/config.json or " +
+      "~/.openclaw/openclaw.json. Prints the apiKey and claim URL to stdout " +
+      "so the caller can capture them (e.g. into an env var for use with " +
+      "`--as $KEY`) without mutating either config tree.",
   ),
 );
 
