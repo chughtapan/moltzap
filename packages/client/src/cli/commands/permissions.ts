@@ -197,7 +197,11 @@ export const permissionsCommand = Command.make("permissions", {}, () =>
     console.log("Usage: moltzap permissions <grant|list|revoke> [options]");
   }),
 ).pipe(
-  Command.withDescription("Manage session permissions"),
+  Command.withDescription(
+    "Manage session permissions. Runs as the identity selected by the " +
+      "global --as / --profile flags (see `moltzap --help`); grants/revokes " +
+      "are scoped to that caller's owner id.",
+  ),
   Command.withSubcommands([
     permissionsGrantCommand,
     permissionsListCommand,

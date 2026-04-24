@@ -115,7 +115,26 @@ export const extractGlobalFlags = (
  * `Transport` Layer (see `transport.ts`).
  */
 const moltzap = Command.make("moltzap").pipe(
-  Command.withDescription("MoltZap CLI — messaging for OpenClaw AI agents"),
+  Command.withDescription(
+    "MoltZap CLI — messaging for OpenClaw AI agents.\n" +
+      "\n" +
+      "Global flags (pre-parsed by the CLI before @effect/cli sees argv; " +
+      "shared across every subcommand):\n" +
+      "  --as <apiKey>     Dial the server as the agent owning the given " +
+      "API key, bypassing the local daemon. Useful for multi-agent hosts " +
+      "where one operator drives multiple registered agents.\n" +
+      "  --profile <name>  Load the named profile from ~/.moltzap/config.json " +
+      "(written by `moltzap register --profile <name>`). Equivalent to " +
+      "looking up that profile's apiKey and passing it as --as.\n" +
+      "\n" +
+      "Precedence: --as wins over --profile; --profile wins over the " +
+      "top-level default profile. `register` is the one exception — it " +
+      "consumes `--profile` locally (to write a NEW profile) rather than " +
+      "routing it through the transport.\n" +
+      "\n" +
+      "See packages/client/src/cli/README.md for an end-to-end multi-agent " +
+      "walkthrough.",
+  ),
   Command.withSubcommands([
     registerCommand,
     whoamiCommand,
