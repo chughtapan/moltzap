@@ -72,6 +72,44 @@ for category_file in \
   done
 done
 
+# Client-side registrars (spec amendment #200 / architect-201):
+# every `export function register<Name>Client` in
+# packages/protocol/src/testing/conformance/client/<category>.ts must
+# have a matching `describe.skip("register<Name>Client"` in
+# __divergence_proofs__/client-<category>.proofs.ts. Extends AC19/AC24.
+CLIENT_DIR="$CONFORMANCE_DIR/client"
+if [ -d "$CLIENT_DIR" ]; then
+  for client_file in \
+    "$CLIENT_DIR/schema-conformance.ts" \
+    "$CLIENT_DIR/rpc-semantics.ts" \
+    "$CLIENT_DIR/delivery.ts" \
+    "$CLIENT_DIR/adversity.ts" \
+    "$CLIENT_DIR/boundary.ts"; do
+
+    if [ ! -f "$client_file" ]; then
+      echo "ERROR: expected client-side conformance file $client_file missing" >&2
+      exit 2
+    fi
+
+    category=$(basename "$client_file" .ts)
+    proof_file="$PROOFS_DIR/client-${category}.proofs.ts"
+
+    if [ ! -f "$proof_file" ]; then
+      echo "ERROR: missing client-side proof file: $proof_file" >&2
+      exit 1
+    fi
+
+    # Extract client registrar names: `export function register<Name>Client(`.
+    client_registrars=$(grep -oE 'export function (register[A-Za-z0-9_]+Client)\b' "$client_file" | awk '{print $3}')
+
+    for registrar in $client_registrars; do
+      if ! grep -qE "describe\.skip\(['\"]${registrar}\b" "$proof_file"; then
+        missing+=("client/${category}.ts::${registrar} (expected describe.skip(\"${registrar}\") in client-${category}.proofs.ts)")
+      fi
+    done
+  done
+fi
+
 if [ ${#missing[@]} -gt 0 ]; then
   echo "Divergence-proof gate: FAIL — missing proofs for:" >&2
   for m in "${missing[@]}"; do

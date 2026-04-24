@@ -12,6 +12,11 @@ export {
   type RecordedCall,
 } from "./fake-service.js";
 
+export {
+  createMoltZapRealClientFactory,
+  type RealClientFactoryOptions,
+} from "./conformance-adapter.js";
+
 import type { Message } from "@moltzap/protocol";
 
 export function buildMessage(overrides: Partial<Message> = {}): Message {

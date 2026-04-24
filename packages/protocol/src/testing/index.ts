@@ -101,3 +101,27 @@ export * as conformance from "./conformance/index.js";
 // (`RealClientHandle`, `RealClientRpcError`), the dedicated entry
 // `runClientConformanceSuite`, and every `register*Client` registrar.
 export * as clientConformance from "./conformance/client/index.js";
+
+// Top-level type re-exports so consumer wrappers (packages/client,
+// openclaw-channel, nanoclaw-channel) can `import type {
+// RealClientHandle, ... } from "@moltzap/protocol/testing"`.
+export type {
+  ClientConformanceRunContext,
+  ClientConformanceRunOptions,
+  ObservedEvent,
+  RealClientCloseEvent,
+  RealClientEventFilter,
+  RealClientEventSubscriber,
+  RealClientFactoryArgs,
+  RealClientHandle,
+  RealClientRpcCaller,
+  RealClientSubscription,
+} from "./conformance/client/runner.js";
+export {
+  RealClientLifecycleError,
+  RealClientRpcError,
+} from "./conformance/client/runner.js";
+export type {
+  ClientConformanceSuiteOptions,
+  JointConformanceSuiteOptions,
+} from "./conformance/client/suite.js";

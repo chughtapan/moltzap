@@ -17,6 +17,14 @@ import { Data, Effect, Ref } from "effect";
 import type { ConformanceRunContext } from "./runner.js";
 
 /**
+ * Context key for a property registry. Server-side properties key by
+ * `ConformanceRunContext`; client-side properties (architect-201) key
+ * by `ClientConformanceRunContext`. The WeakMap stores per-context
+ * registries, so any object shape works as a key.
+ */
+type PropertyContext = object;
+
+/**
  * Semantic category each property belongs to. Categories match the five
  * conformance modules; the spec's tier grouping (A/B/C/D/E) is noted
  * once per module header, never in code.
@@ -86,9 +94,9 @@ export interface PropertyRegistry {
   readonly entries: Ref.Ref<ReadonlyArray<RegisteredProperty>>;
 }
 
-const registries = new WeakMap<ConformanceRunContext, PropertyRegistry>();
+const registries = new WeakMap<PropertyContext, PropertyRegistry>();
 
-function ensureRegistry(ctx: ConformanceRunContext): PropertyRegistry {
+function ensureRegistry(ctx: PropertyContext): PropertyRegistry {
   let reg = registries.get(ctx);
   if (reg === undefined) {
     reg = {
@@ -100,7 +108,7 @@ function ensureRegistry(ctx: ConformanceRunContext): PropertyRegistry {
 }
 
 export function registerProperty(
-  ctx: ConformanceRunContext,
+  ctx: PropertyContext,
   category: PropertyCategory,
   name: string,
   description: string,
@@ -116,7 +124,7 @@ export function registerProperty(
 }
 
 export function collectProperties(
-  ctx: ConformanceRunContext,
+  ctx: PropertyContext,
 ): ReadonlyArray<RegisteredProperty> {
   const reg = ensureRegistry(ctx);
   return Effect.runSync(Ref.get(reg.entries));

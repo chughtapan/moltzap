@@ -33,7 +33,8 @@
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
-    "test:integration": "vitest run --config vitest.integration.config.ts"
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:conformance": "bash ../protocol/scripts/check-divergence-proofs.sh && vitest run -c vitest.conformance.config.ts"
   },
   "dependencies": {
     "@effect/cli": "^0.73.0",

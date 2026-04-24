@@ -20,31 +20,61 @@
  * forbidden (extends AC13 to AC14). The factory injection pattern keeps
  * the protocol package leaf-of-the-graph.
  */
-import type { Effect } from "effect";
+import { Cause, Chunk, Effect, Exit, Option, type Scope } from "effect";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { acquireClientRunContext } from "./runner.js";
 import type {
   ClientConformanceRunContext,
   ClientConformanceRunOptions,
   RealClientHandle,
   RealClientLifecycleError,
 } from "./runner.js";
-import type { PropertyFailure } from "../registry.js";
+import {
+  collectProperties,
+  type PropertyFailure,
+  type RegisteredProperty,
+} from "../registry.js";
 import type {
   RealServerAcquireError,
   ToxicControlError,
 } from "../../errors.js";
 import type { SuiteResult } from "../suite.js";
+import {
+  registerEventWellFormednessClient,
+  registerMalformedFrameHandlingClient,
+} from "./schema-conformance.js";
+import {
+  registerModelEquivalenceClient,
+  registerRequestIdUniquenessClient,
+} from "./rpc-semantics.js";
+import {
+  registerFanOutCardinalityClient,
+  registerPayloadOpacityClient,
+  registerTaskBoundaryIsolationClient,
+} from "./delivery.js";
+import {
+  registerLatencyResilienceClient,
+  registerResetPeerRecoveryClient,
+  registerSlicerFramingClient,
+  registerSlowCloseCleanupClient,
+  registerTimeoutSurfaceClient,
+} from "./adversity.js";
+import { registerSchemaExhaustiveFuzzClient } from "./boundary.js";
 
 /**
  * Consumer-facing options. Mirror of `ConformanceSuiteOptions` on the
  * server side; only the factory name differs.
  */
 export interface ClientConformanceSuiteOptions {
-  /** Factory for the real MoltZap client under test, owned by the suite's Scope. */
-  readonly realClient: () => Effect.Effect<
-    RealClientHandle,
-    RealClientLifecycleError,
-    never
-  >;
+  /**
+   * Factory for the real MoltZap client under test, owned by the
+   * suite's Scope. Receives `testServerUrl` from the suite so the real
+   * client can point its WS socket at the bound TestServer substrate.
+   */
+  readonly realClient: (args: {
+    readonly testServerUrl: string;
+  }) => Effect.Effect<RealClientHandle, RealClientLifecycleError, Scope.Scope>;
   /**
    * Toxiproxy control-plane URL. When `null`, adversity properties are
    * registered and surface `PropertyUnavailable`. Mirrors server-side
@@ -72,7 +102,19 @@ export interface ClientConformanceSuiteOptions {
 export function registerAllClientProperties(
   ctx: ClientConformanceRunContext,
 ): void {
-  throw new Error("not implemented");
+  registerEventWellFormednessClient(ctx);
+  registerMalformedFrameHandlingClient(ctx);
+  registerModelEquivalenceClient(ctx);
+  registerRequestIdUniquenessClient(ctx);
+  registerFanOutCardinalityClient(ctx);
+  registerPayloadOpacityClient(ctx);
+  registerTaskBoundaryIsolationClient(ctx);
+  registerLatencyResilienceClient(ctx);
+  registerSlicerFramingClient(ctx);
+  registerResetPeerRecoveryClient(ctx);
+  registerTimeoutSurfaceClient(ctx);
+  registerSlowCloseCleanupClient(ctx);
+  registerSchemaExhaustiveFuzzClient(ctx);
 }
 
 /**
@@ -86,7 +128,137 @@ export function runClientConformanceSuite(
   SuiteResult,
   ToxicControlError | RealServerAcquireError | RealClientLifecycleError
 > {
-  throw new Error("not implemented");
+  const toxiproxyUrl = opts.toxiproxyUrl ?? null;
+  const artifactDir =
+    opts.artifactDir ?? path.resolve(process.cwd(), "conformance-artifacts");
+  const tiers: ClientConformanceRunOptions["tiers"] =
+    toxiproxyUrl === null ? ["A", "B", "C", "E"] : ["A", "B", "C", "D", "E"];
+
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const ctx = yield* acquireClientRunContext({
+        tiers,
+        realClient: opts.realClient,
+        toxiproxyUrl: toxiproxyUrl ?? undefined,
+        manageToxiproxy: false,
+        replaySeed: opts.replaySeed,
+        numRuns: opts.numRuns,
+        artifactDir,
+        bindThroughToxiproxy: opts.bindThroughToxiproxy,
+      });
+      registerAllClientProperties(ctx);
+      return yield* runAllClientProperties(ctx, artifactDir);
+    }),
+  );
+}
+
+/**
+ * Execute every registered client property and return a typed
+ * `SuiteResult`. Mirrors the server-side `runAllProperties` shape so
+ * downstream consumers share one assertion surface.
+ */
+function runAllClientProperties(
+  ctx: ClientConformanceRunContext,
+  artifactDir: string,
+): Effect.Effect<SuiteResult> {
+  return Effect.gen(function* () {
+    if (!existsSync(artifactDir)) mkdirSync(artifactDir, { recursive: true });
+    const properties = collectProperties(ctx);
+    const passed: string[] = [];
+    const deferred: { name: string; reason: string }[] = [];
+    const unavailable: { name: string; reason: string }[] = [];
+    const failed: SuiteResult["failed"][number][] = [];
+
+    for (const p of properties) {
+      const id = `${p.category}/${p.name}`;
+      const exit = yield* Effect.exit(p.run);
+      if (Exit.isSuccess(exit)) {
+        passed.push(id);
+        continue;
+      }
+      const failure = firstTypedFailure(exit);
+      if (failure === null) {
+        const msg = exit.cause.toString();
+        failed.push({ name: id, failure: { _tag: "defect", message: msg } });
+        writeArtifact(artifactDir, p, ctx.seed, { defect: msg });
+        continue;
+      }
+      switch (failure._tag) {
+        case "ConformancePropertyDeferred":
+          deferred.push({ name: id, reason: failure.followUp });
+          break;
+        case "ConformancePropertyUnavailable":
+          unavailable.push({ name: id, reason: failure.reason });
+          break;
+        case "ConformancePropertyAssertionFailure":
+        case "ConformancePropertyInvariantViolation":
+          failed.push({ name: id, failure });
+          writeArtifact(artifactDir, p, ctx.seed, failureArtifact(failure));
+          break;
+        default: {
+          const _exhaustive: never = failure;
+          failed.push({
+            name: id,
+            failure: {
+              _tag: "defect",
+              message: `unhandled failure tag: ${String(_exhaustive)}`,
+            },
+          });
+        }
+      }
+    }
+    return { seed: ctx.seed, passed, deferred, unavailable, failed };
+  });
+}
+
+function firstTypedFailure(
+  exit: Exit.Exit<void, PropertyFailure>,
+): PropertyFailure | null {
+  if (Exit.isSuccess(exit)) return null;
+  const failures = Cause.failures(exit.cause);
+  const head = Chunk.head(failures);
+  return Option.getOrNull(head);
+}
+
+function failureArtifact(failure: PropertyFailure): Record<string, unknown> {
+  switch (failure._tag) {
+    case "ConformancePropertyAssertionFailure":
+      return { tag: failure._tag, cause: String(failure.cause) };
+    case "ConformancePropertyInvariantViolation":
+    case "ConformancePropertyUnavailable":
+      return { tag: failure._tag, reason: failure.reason };
+    case "ConformancePropertyDeferred":
+      return { tag: failure._tag, followUp: failure.followUp };
+    default: {
+      const _exhaustive: never = failure;
+      return { tag: "unknown", value: String(_exhaustive) };
+    }
+  }
+}
+
+function writeArtifact(
+  dir: string,
+  property: RegisteredProperty,
+  seed: number,
+  payload: Record<string, unknown>,
+): void {
+  const file = path.join(
+    dir,
+    `client-${property.category}-${property.name}.seed.json`,
+  );
+  writeFileSync(
+    file,
+    JSON.stringify(
+      {
+        category: property.category,
+        name: property.name,
+        seed,
+        ...payload,
+      },
+      null,
+      2,
+    ),
+  );
 }
 
 /**

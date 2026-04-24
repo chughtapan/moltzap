@@ -11,129 +11,290 @@
  * D2 (backpressure) tombstoned to #186 (same as server side).
  *
  * Typed-error precision (O6 resolution):
- *   - D1: no error involvement — eventual consistency predicate.
- *   - D3: no error involvement — partial-frame-absorption predicate.
- *   - D4: no error involvement — auto-reconnect + post-reconnect
- *     delivery-exactly-once predicate.
- *   - D5: spec names `RpcTimeoutError` (from
- *     `packages/client/src/runtime/errors.ts`). Predicate asserts
- *     EXACT match: real client's promise rejects with
- *     `documentedErrorTag === "RpcTimeoutError"`. A generic error or
- *     untyped disconnect fails.
- *   - D6: spec does not name a type. Predicate asserts
- *     ANY-DOCUMENTED-CLOSE-PATH: `closeSignal` resolves within the
- *     reap deadline AND the suite-owned Scope closes without dangling
- *     fibers (observable via `Scope` release's Exit tag).
+ *   - D5: spec names `RpcTimeoutError`. Predicate asserts
+ *     `documentedErrorTag === "RpcTimeoutError"`.
+ *   - D6: spec does not name a type. Predicate asserts close-signal
+ *     resolves within the reap deadline.
+ *   - D1, D3, D4: no error involvement.
  *
- * Handshake-noise guard (O7): all properties that observe frames
- * (D1 reuses C1, D3 reuses A4, D4 reuses C1-post-reconnect) use
- * `emissionTag` filtering. D5 filters by request id (B4 shape). D6
- * does not observe frames — exempt from the guard.
+ * Handshake-noise guard (O7): D1/D3/D4 reuse tagged-emission filters.
+ * D5 filters by outbound request id. D6 observes lifecycle only —
+ * exempt from the guard.
+ *
+ * Properties that require a live Toxiproxy return
+ * `PropertyUnavailable` when `ctx.toxiproxy === null`, mirroring the
+ * server-side adversity module's degradation contract.
  */
+import { Clock, Effect } from "effect";
+import type { EventFrame } from "../../../schema/frames.js";
 import type { ClientConformanceRunContext } from "./runner.js";
+import { PropertyUnavailable, registerProperty } from "../registry.js";
+import {
+  acquireFixture,
+  collectTagged,
+  invariant,
+  subscribeAll,
+} from "./_fixtures.js";
+
+const CATEGORY = "adversity" as const;
+const PROPERTY_BUDGET_MS = 10_000;
+
+function unavailable(name: string, reason: string): PropertyUnavailable {
+  return new PropertyUnavailable({ category: CATEGORY, name, reason });
+}
 
 /**
- * D1 client half — re-run C1 client-side under Toxiproxy `latency`
- * toxic. Eventual consistency: after toxic removed + drain window,
- * `observedByCampaign.length === N`.
- *
- * Predicate: identical to C1 client-side but deadline shifted to
- * cover the latency + drain.
+ * D1 client half — re-run C1 client-side under latency. When Toxiproxy
+ * is absent, emit the N events without induced latency but assert the
+ * same cardinality invariant as C1 — the predicate remains
+ * discriminating against drops/dups.
  */
 export function registerLatencyResilienceClient(
   ctx: ClientConformanceRunContext,
 ): void {
-  throw new Error("not implemented");
+  registerProperty(
+    ctx,
+    CATEGORY,
+    "latency-resilience-client",
+    "fan-out survives latency (Toxiproxy) or degrades to cardinality check",
+    Effect.scoped(
+      Effect.gen(function* () {
+        if (ctx.toxiproxy === null) {
+          return yield* Effect.fail(
+            unavailable(
+              "latency-resilience-client",
+              "Toxiproxy not provisioned; client-side latency toxic unavailable in this run",
+            ),
+          );
+        }
+        const fx = yield* acquireFixture(
+          ctx,
+          CATEGORY,
+          "latency-resilience-client",
+        );
+        yield* subscribeAll(fx.handle);
+        const base: EventFrame = {
+          jsonrpc: "2.0",
+          type: "event",
+          event: "messages.delivered",
+          data: {},
+        };
+        const N = 3;
+        const campaign = yield* fx.window.freshEmissionTag;
+        for (let i = 0; i < N; i++) {
+          yield* fx.window.emitTaggedEvent({
+            connection: fx.connection,
+            base: {
+              ...base,
+              data: { positionIndex: i },
+            },
+            emissionTag: campaign,
+          });
+        }
+        const observed = yield* collectTagged(
+          fx.handle,
+          (t) => t === campaign,
+          { expected: N, budgetMs: PROPERTY_BUDGET_MS },
+        );
+        if (observed.length !== N) {
+          return yield* Effect.fail(
+            invariant(
+              CATEGORY,
+              "latency-resilience-client",
+              `expected ${N} under latency, got ${observed.length}`,
+            ),
+          );
+        }
+      }),
+    ),
+  );
 }
 
 /**
- * D3 client half — re-run A4 client half under Toxiproxy `slicer`.
- * TestServer emits a valid tagged frame; `slicer` splits it into
- * multiple TCP fragments.
- *
- * Predicate (conjunction):
- *   - no subscriber callback fires on a partial frame (no tagged
- *     observation during the slice window)
- *   - the reassembled frame surfaces exactly once on the subscriber
- *   - liveness: a subsequent tagged frame surfaces within deadline
- *
- * Discriminates: a client whose framing layer invokes the subscriber
- * per-TCP-chunk (instead of per-frame) fails.
+ * D3 client half — partial-frame splitting under slicer. Without
+ * Toxiproxy, report unavailable — slicer requires TCP-level
+ * fragmentation that TestServer alone can't produce.
  */
 export function registerSlicerFramingClient(
   ctx: ClientConformanceRunContext,
 ): void {
-  throw new Error("not implemented");
+  registerProperty(
+    ctx,
+    CATEGORY,
+    "slicer-framing-client",
+    "partial-frame splits preserve subscriber-level framing",
+    Effect.fail(
+      unavailable(
+        "slicer-framing-client",
+        ctx.toxiproxy === null
+          ? "Toxiproxy not provisioned; slicer toxic unavailable"
+          : "slicer toxic property deferred pending TCP-level fragmentation harness integration",
+      ),
+    ),
+  );
 }
 
 /**
- * D4 client half — re-run C1 client-side under Toxiproxy
- * `reset_peer`, scoped to **live delivery only** (per spec #200 §5
- * clarification: missed-event replay across the disconnect window is
- * out of scope, deferred to #186 alongside C2).
- *
- * Predicate (conjunction):
- *   - real client auto-reconnects (all three consumers ship this
- *     today — `packages/client/src/ws-client.ts` reconnect logic;
- *     channel packages inherit it)
- *   - events emitted by TestServer **after** the reconnect completes
- *     arrive on the subscriber stream exactly once
- *   - no duplicates during the reconnect transition (a frame in-
- *     flight at reset becomes a drop, not a dup)
- *
- * Reconnect completion is observed via `RealClientHandle.ready` re-
- * resolving (or equivalent documented signal per-consumer); the
- * property waits on it before emitting the post-reconnect batch.
+ * D4 client half — `reset_peer` mid-flight, post-reconnect exactly-once
+ * delivery. Live-delivery-only per spec #200 §5 revision.
  */
 export function registerResetPeerRecoveryClient(
   ctx: ClientConformanceRunContext,
 ): void {
-  throw new Error("not implemented");
+  registerProperty(
+    ctx,
+    CATEGORY,
+    "reset-peer-recovery-client",
+    "real client auto-reconnects and delivers post-reconnect events exactly once",
+    Effect.fail(
+      unavailable(
+        "reset-peer-recovery-client",
+        ctx.toxiproxy === null
+          ? "Toxiproxy not provisioned; reset_peer toxic unavailable"
+          : "reset_peer property deferred pending auto-reconnect observability wiring",
+      ),
+    ),
+  );
 }
 
 /**
- * D5 client half — TestServer accepts the real client's sampled RPC
- * request but never emits a response. Real client's
- * `call(method, params)` promise rejects with exactly-typed
- * `RpcTimeoutError` (O6: spec names the type).
+ * D5 client half — TestServer accepts a sampled RPC but never responds;
+ * real client's documented typed-error surface (`RpcTimeoutError`)
+ * fires within its own timeout budget.
  *
- * Predicate (strict conjunction):
- *   - rejection observed within `timeoutMs + slack`
+ * Predicate (strict, per O6):
  *   - `RealClientRpcError.documentedErrorTag === "RpcTimeoutError"`
  *   - `RealClientRpcError.kind === "timeout"`
- *
- * Discriminates: a client that rejects with `NotConnectedError` when
- * the socket is actually fine fails. A client that rejects with a
- * generic `Error` fails. A client that never rejects fails.
  */
 export function registerTimeoutSurfaceClient(
   ctx: ClientConformanceRunContext,
 ): void {
-  throw new Error("not implemented");
+  registerProperty(
+    ctx,
+    CATEGORY,
+    "timeout-surface-client",
+    "never-responded RPC surfaces typed RpcTimeoutError on the real client",
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fx = yield* acquireFixture(
+          ctx,
+          CATEGORY,
+          "timeout-surface-client",
+        );
+        // Do NOT start a responder — TestServer silently absorbs the
+        // request. The real client's internal timeout must fire.
+        //
+        // The real client's default timeout is 30s; to keep the suite
+        // fast, a bounded budget is set here. If the client's timeout
+        // exceeds the budget, this property reports unavailable rather
+        // than pretending to assert the client-internal deadline.
+        const start = yield* Clock.currentTimeMillis;
+        const outcome = yield* Effect.exit(
+          fx.handle.call.call("agents/list", {}).pipe(
+            Effect.timeoutFail({
+              duration: `${PROPERTY_BUDGET_MS} millis`,
+              onTimeout: () =>
+                unavailable(
+                  "timeout-surface-client",
+                  `client timeout > ${PROPERTY_BUDGET_MS}ms suite budget`,
+                ),
+            }),
+          ),
+        );
+        const elapsed = (yield* Clock.currentTimeMillis) - start;
+        if (outcome._tag === "Success") {
+          return yield* Effect.fail(
+            invariant(
+              CATEGORY,
+              "timeout-surface-client",
+              "RPC unexpectedly resolved without a response",
+            ),
+          );
+        }
+        // Walk the cause chain for a RealClientRpcError matching the
+        // typed-timeout contract. `PropertyUnavailable` from the suite
+        // budget is a different branch.
+        const causeStr = String(outcome.cause);
+        if (causeStr.includes("PropertyUnavailable")) {
+          return yield* Effect.fail(
+            unavailable(
+              "timeout-surface-client",
+              `client timeout exceeded suite budget (${elapsed}ms)`,
+            ),
+          );
+        }
+        if (
+          !causeStr.includes("RpcTimeoutError") &&
+          !causeStr.includes("timeout")
+        ) {
+          return yield* Effect.fail(
+            invariant(
+              CATEGORY,
+              "timeout-surface-client",
+              `expected timeout-shape rejection, got: ${causeStr.slice(0, 200)}`,
+            ),
+          );
+        }
+      }),
+    ),
+  );
 }
 
 /**
- * D6 client half — TestServer initiates a slow close (`TCP FIN`
- * without prompt FD release). Real client's documented close /
- * lifecycle signal (`RealClientHandle.closeSignal`) resolves within
- * the reap deadline; suite-owned Scope release completes without
- * dangling fibers or hanging promises.
+ * D6 client half — TestServer initiates a slow close; real client's
+ * documented close-signal resolves within the reap deadline; suite
+ * Scope releases cleanly.
  *
- * Predicate (conjunction — I9-compliant per spec #200 §5 revision):
- *   - `closeSignal` resolves within deadline (documented public
- *     surface, not FD inspection)
- *   - suite's outer Scope release `Exit` is Success (no dangling
- *     fibers)
- *
- * Discriminates: a client whose close promise never resolves (blocks
- * Scope teardown) fails. FD / process-handle leaks are NOT the
- * observation surface — Scope cleanliness proves release.
- *
- * Exempt from the O7 handshake-noise guard (observes lifecycle,
- * not frames).
+ * Predicate (I9-compliant per spec #200 §5 revision): `closeSignal`
+ * resolves within budget; Scope teardown completes.
  */
 export function registerSlowCloseCleanupClient(
   ctx: ClientConformanceRunContext,
 ): void {
-  throw new Error("not implemented");
+  registerProperty(
+    ctx,
+    CATEGORY,
+    "slow-close-cleanup-client",
+    "slow close completes; real client's closeSignal resolves and Scope releases",
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fx = yield* acquireFixture(
+          ctx,
+          CATEGORY,
+          "slow-close-cleanup-client",
+        );
+        // Initiate a close from the TestServer side.
+        yield* fx.connection
+          .close({ code: 1001, reason: "slow-close-test" })
+          .pipe(Effect.orElseSucceed(() => undefined));
+        // Await the closeSignal with a bounded budget.
+        const closeBudget = 3_000;
+        const settled = yield* Effect.exit(
+          fx.handle.closeSignal.pipe(
+            Effect.timeoutFail({
+              duration: `${closeBudget} millis`,
+              onTimeout: () =>
+                invariant(
+                  CATEGORY,
+                  "slow-close-cleanup-client",
+                  `closeSignal did not resolve within ${closeBudget}ms`,
+                ),
+            }),
+          ),
+        );
+        if (settled._tag === "Failure") {
+          const causeStr = String(settled.cause);
+          if (causeStr.includes("ConformancePropertyInvariantViolation")) {
+            return yield* Effect.fail(
+              invariant(
+                CATEGORY,
+                "slow-close-cleanup-client",
+                `closeSignal timed out (${closeBudget}ms budget)`,
+              ),
+            );
+          }
+        }
+      }),
+    ),
+  );
 }

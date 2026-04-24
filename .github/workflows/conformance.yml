@@ -8,11 +8,14 @@ on:
       - "packages/protocol/**"
       - "packages/server/**"
       - "packages/client/**"
+      - "packages/openclaw-channel/**"
+      - "packages/nanoclaw-channel/**"
       - "docker-compose.conformance.yml"
       - ".github/workflows/conformance.yml"
 
 jobs:
-  conformance:
+  server:
+    name: server-core
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -41,7 +44,7 @@ jobs:
           echo "Toxiproxy did not come up" >&2
           exit 1
 
-      - name: Run conformance suite
+      - name: Run server-side conformance suite
         env:
           SKIP_DOCKER: "1"
         run: pnpm -F @moltzap/server-core test:conformance
@@ -54,6 +57,62 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: conformance-artifacts
-          path: conformance-artifacts
+          name: conformance-artifacts-server
+          path: packages/server/conformance-artifacts
+          if-no-files-found: ignore
+
+  client:
+    name: client-side (${{ matrix.package }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - "@moltzap/client"
+          - "@moltzap/openclaw-channel"
+          - "@moltzap/nanoclaw-channel"
+    env:
+      TOXIPROXY_URL: http://127.0.0.1:8474
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r build
+
+      - name: Start Toxiproxy
+        run: docker compose -f docker-compose.conformance.yml up -d
+
+      - name: Wait for Toxiproxy
+        run: |
+          for i in {1..30}; do
+            if curl -sf http://127.0.0.1:8474/version; then exit 0; fi
+            sleep 1
+          done
+          echo "Toxiproxy did not come up" >&2
+          exit 1
+
+      - name: Run client-side conformance suite
+        env:
+          SKIP_DOCKER: "1"
+        run: pnpm -F ${{ matrix.package }} test:conformance
+
+      - name: Stop Toxiproxy
+        if: always()
+        run: docker compose -f docker-compose.conformance.yml down -v
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: conformance-artifacts-client-${{ matrix.package }}
+          path: |
+            packages/client/conformance-artifacts
+            packages/openclaw-channel/conformance-artifacts
+            packages/nanoclaw-channel/conformance-artifacts
           if-no-files-found: ignore
