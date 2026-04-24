@@ -10,7 +10,12 @@ export interface LoadedConfig {
     url: string;
   };
   encryption: {
-    masterSecret: string;
+    /**
+     * Derived from `ENCRYPTION_MASTER_SECRET`. When absent, the encryption
+     * layer is disabled and messages are stored as plaintext. Operators who
+     * want at-rest encryption must set this env var.
+     */
+    masterSecret: string | undefined;
   };
   server: {
     port: number;
@@ -74,9 +79,9 @@ export const ServerConfigLoader: Effect.Effect<
     Config.withDefault(false),
   );
 
-  const databaseUrl = devMode
-    ? yield* Config.string("DATABASE_URL").pipe(Config.withDefault(""))
-    : yield* Config.string("DATABASE_URL");
+  const databaseUrl = yield* Config.string("DATABASE_URL").pipe(
+    Config.withDefault(""),
+  );
 
   if (devMode && databaseUrl.includes(".supabase.co")) {
     return yield* Effect.fail(
@@ -87,7 +92,10 @@ export const ServerConfigLoader: Effect.Effect<
     );
   }
 
-  const masterSecret = yield* Config.string("ENCRYPTION_MASTER_SECRET");
+  const masterSecret = Option.getOrUndefined(
+    yield* Config.option(Config.string("ENCRYPTION_MASTER_SECRET")),
+  );
+
   const port = yield* Config.integer("PORT").pipe(Config.withDefault(3000));
   const corsRawOpt = yield* Config.option(Config.string("CORS_ORIGINS"));
   const corsOrigins = yield* parseCorsOrigins(
