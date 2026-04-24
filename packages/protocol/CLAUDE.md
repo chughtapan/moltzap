@@ -24,3 +24,42 @@ TypeBox schema definitions and AJV validators for the MoltZap JSON-RPC protocol.
 
 ## Dependencies
 - None on other workspace packages (this is the leaf dependency)
+
+## Client-side conformance wrapper template (AC22)
+
+External consumers (e.g. `moltzap-arena`) that want to run the
+client-side conformance suite against their real MoltZap WS client
+drop a ~20-line wrapper matching this shape. The only package-specific
+line is the factory import.
+
+```ts
+// packages/<your-pkg>/src/__tests__/conformance/suite.test.ts
+import { describe, it, expect } from "vitest";
+import { Effect, Exit } from "effect";
+import { clientConformance } from "@moltzap/protocol/testing";
+// In-repo consumers: @moltzap/client/test-utils
+// or @moltzap/openclaw-channel/test-support
+// or @moltzap/nanoclaw-channel/test-support
+import { createMoltZapRealClientFactory } from "@moltzap/client/test-utils";
+
+describe("my-package client-side conformance", () => {
+  it("passes", async () => {
+    const factory = createMoltZapRealClientFactory({
+      agentKey: "test-key",
+      agentId: "test-id",
+    });
+    const exit = await Effect.runPromiseExit(
+      clientConformance.runClientConformanceSuite({
+        realClient: factory,
+        toxiproxyUrl: process.env.TOXIPROXY_URL ?? null,
+      }),
+    );
+    expect(Exit.isSuccess(exit)).toBe(true);
+    if (Exit.isSuccess(exit) && exit.value.failed.length > 0) {
+      throw new Error(`${exit.value.failed.length} properties failed`);
+    }
+  }, 600_000);
+});
+```
+
+Arena (v2 per spec amendment #200 N8) copies this template directly.
