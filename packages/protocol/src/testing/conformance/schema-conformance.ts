@@ -19,9 +19,13 @@ import {
   arbitraryAnyCall,
   arbitraryCallFor,
 } from "../arbitraries/rpc.js";
-import { arbitraryMalformedFrame } from "../arbitraries/frames.js";
+import {
+  arbitraryEventFrame,
+  arbitraryMalformedFrame,
+} from "../arbitraries/frames.js";
 import { decodeFrame, encodeFrame, malformFrame } from "../codec.js";
 import {
+  EventFrameSchema,
   ResponseFrameSchema,
   type ResponseFrame,
 } from "../../schema/frames.js";
@@ -81,10 +85,13 @@ export function registerRequestWellFormedness(
               }),
             ),
           );
-          // Find the outbound request for the sampled call — its id is
-          // what the server's response should reference. A response
-          // frame with no matching outbound id is not proof of this
-          // property; it's stale traffic from the handshake.
+          // Architect §4.3: validate every reply in the window.
+          //   - outbound lookup → expectedId (confirms sampled call ran)
+          //   - replies.length >= 1 (server didn't drop the whole window)
+          //   - replies.every(Value.Check(ResponseFrameSchema, ...))
+          //     (a stray duplicate/malformed response in the window fails)
+          //   - replies.some(id === expectedId) (the sampled call got a
+          //     reply, not just some other request)
           const outbound = observed.find(
             (s) =>
               s.kind === "outbound" &&
@@ -93,15 +100,19 @@ export function registerRequestWellFormedness(
           );
           if (outbound?.frame?.type !== "request") return false;
           const expectedId = outbound.frame.id;
-          const reply = observed.find(
-            (s) =>
-              s.kind === "inbound" &&
-              s.frame?.type === "response" &&
-              s.frame.id === expectedId,
+          const replies = observed.filter(
+            (s) => s.kind === "inbound" && s.frame?.type === "response",
           );
-          if (reply?.frame?.type !== "response") return false;
-          // Value.Check is the protocol source of truth (Invariant I3).
-          return Value.Check(ResponseFrameSchema, reply.frame as ResponseFrame);
+          if (replies.length < 1) return false;
+          const allValid = replies.every(
+            (r) =>
+              r.frame?.type === "response" &&
+              Value.Check(ResponseFrameSchema, r.frame as ResponseFrame),
+          );
+          if (!allValid) return false;
+          return replies.some(
+            (r) => r.frame?.type === "response" && r.frame.id === expectedId,
+          );
         }),
         { seed: ctx.seed, numRuns: ctx.opts.numRuns ?? 3 },
       ),
@@ -110,31 +121,38 @@ export function registerRequestWellFormedness(
 }
 
 /**
- * Valid event frame round-trips the codec cleanly. Event-acceptance by
- * real clients is exercised by each client package's own conformance
- * wrapper against `TestServer`; here we assert the codec path preserves
- * every event frame we generate.
+ * Valid event frame round-trips the codec cleanly.
+ *
+ * `@pure-codec` — does NOT drive a real server or real client. Spec A2's
+ * "accepted by a real client" assertion requires a TestServer + real
+ * client driver; that property lives in the consumer package (e.g.,
+ * `packages/client` or `moltzap-arena`) and is tracked under #186.
+ *
+ * Tightened per architect §4.4: predicate demands `Right` AND schema
+ * check of the specific event variant — the previous `Right || Left`
+ * shape was a tautology over the union.
  */
 export function registerEventWellFormedness(ctx: ConformanceRunContext): void {
   registerProperty(
     ctx,
     CATEGORY,
     "event-well-formedness",
-    "valid event frame round-trips through codec",
+    "valid event frame decodes cleanly and re-encodes to match",
     assertProperty(CATEGORY, "event-well-formedness", () =>
       Promise.resolve(
         fc.assert(
-          fc.property(
-            arbitraryMalformedFrame().map((m) => m.base),
-            (frame) => {
-              const raw = encodeFrame(frame);
-              const decoded = Effect.runSync(
-                Effect.either(decodeFrame(raw, "inbound")),
-              );
-              return decoded._tag === "Right" || decoded._tag === "Left";
-            },
-          ),
-          { seed: ctx.seed, numRuns: ctx.opts.numRuns ?? 50 },
+          fc.property(arbitraryEventFrame(), (frame) => {
+            const raw = encodeFrame(frame);
+            const decoded = Effect.runSync(
+              Effect.either(decodeFrame(raw, "inbound")),
+            );
+            if (decoded._tag !== "Right") return false;
+            return (
+              decoded.right.type === "event" &&
+              Value.Check(EventFrameSchema, decoded.right)
+            );
+          }),
+          { seed: ctx.seed, numRuns: ctx.opts.numRuns ?? 20 },
         ),
       ),
     ),

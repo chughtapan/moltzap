@@ -52,9 +52,22 @@ export interface WebhookAdapterProbe {
 }
 
 /**
- * Webhook adapter graceful-shutdown — every pending `send` resolves
- * with the tagged `WebhookDestroyedError`, never a generic timeout,
- * never a hang.
+ * Webhook adapter graceful-shutdown — spec §5 E1: every pending send
+ * that was still in-flight when shutdown fired completes with the
+ * tagged `WebhookDestroyedError`.
+ *
+ * Architect §4.4: the `"resolved"` escape hatch was load-bearing
+ * vacuity — a server that silently drops in-flight sends passed when
+ * all callers happened to resolve before shutdown. Tightened:
+ *
+ *   - At least one outcome MUST NOT be `"resolved"` (otherwise the
+ *     probe didn't exercise the shutdown path).
+ *   - For every non-`"resolved"` outcome, the tag MUST be
+ *     `"WebhookDestroyedError"`. Any other error tag fails.
+ *
+ * Probe contract: `startPending(n)` schedules synchronously and
+ * returns before sends resolve; the consumer's `WebhookAdapterProbe`
+ * is responsible for holding at least one send in-flight at shutdown.
  */
 export function registerWebhookGracefulShutdown(
   ctx: ConformanceRunContext,
@@ -64,7 +77,7 @@ export function registerWebhookGracefulShutdown(
     ctx,
     CATEGORY,
     "webhook-graceful-shutdown",
-    "graceful shutdown completes every pending webhook send with a tagged error",
+    "in-flight sends at shutdown get typed WebhookDestroyedError",
     assertProperty(CATEGORY, "webhook-graceful-shutdown", () =>
       fc.assert(
         // #ignore-sloppy-code-next-line[async-keyword]: fast-check asyncProperty contract requires Promise-returning callback
@@ -73,10 +86,11 @@ export function registerWebhookGracefulShutdown(
           await probe.shutdown();
           const outcomes = await probe.awaitOutcomes();
           if (outcomes.length < pending.length) return false;
-          return outcomes.every(
-            (o) =>
-              o.outcome === "WebhookDestroyedError" || o.outcome === "resolved",
-          );
+          const inFlight = outcomes.filter((o) => o.outcome !== "resolved");
+          // Probe contract: at least one send must still be in-flight
+          // at shutdown. All-resolved = probe didn't exercise shutdown.
+          if (inFlight.length === 0) return false;
+          return inFlight.every((o) => o.outcome === "WebhookDestroyedError");
         }),
         { seed: ctx.seed, numRuns: ctx.opts.numRuns ?? 3 },
       ),
