@@ -146,14 +146,12 @@ function objectArbitrary(node: TBNode): fc.Arbitrary<Record<string, unknown>> {
   const props = node.properties ?? {};
   const required = new Set(node.required ?? []);
   const record: Record<string, fc.Arbitrary<unknown>> = {};
-  const requiredKeys: string[] = [];
 
   for (const [key, value] of Object.entries(props)) {
     const sub = value as TBNode;
     const arb = walk(sub);
     if (required.has(key) && !isOptional(sub)) {
       record[key] = arb;
-      requiredKeys.push(key);
     } else {
       // Optional fields: drop with 50% probability so the value is absent
       // rather than `undefined`, matching `additionalProperties: false`

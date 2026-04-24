@@ -12,6 +12,7 @@
  */
 import type { RpcMap, RpcMethodName } from "../../rpc-registry.js";
 import type { EventFrame } from "../../schema/frames.js";
+import { ErrorCodes } from "../../schema/errors.js";
 import type { ArbitraryRpcCall } from "../arbitraries/rpc.js";
 import { mkTick, type ReferenceState } from "./state.js";
 
@@ -34,18 +35,8 @@ export type RpcModelResult<M extends RpcMethodName = RpcMethodName> =
       readonly events: ReadonlyArray<EventFrame>;
     };
 
-/**
- * Canonical RPC error codes the model mirrors from the server. Matches the
- * `ErrorCode` union in `packages/protocol/src/schema/errors.ts` at the
- * values we emit.
- */
-const ErrorCodes = {
-  AUTH_REQUIRED: -32001,
-  FORBIDDEN: -32003,
-  NOT_FOUND: -32004,
-  INVALID_PARAMS: -32602,
-  INTERNAL: -32603,
-} as const;
+// `ErrorCodes` is re-used from `../../schema/errors.ts` so the model and
+// the server share one source of truth for code values.
 
 /**
  * Methods whose contract says replay is a no-op — server must return the
@@ -229,7 +220,7 @@ export function applyCall<M extends RpcMethodName>(
         next: baseNext,
         outcome: {
           _tag: "error",
-          code: ErrorCodes.INTERNAL,
+          code: ErrorCodes.InternalError,
           message: `model: unhandled method ${String(_exhaustive)}`,
           events: [],
         },

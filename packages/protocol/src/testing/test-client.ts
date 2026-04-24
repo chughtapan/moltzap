@@ -23,6 +23,7 @@ import * as Socket from "@effect/platform/Socket";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import type { RpcMap, RpcMethodName } from "../rpc-registry.js";
 import type { EventFrame } from "../schema/frames.js";
+import { PROTOCOL_VERSION } from "../version.js";
 import {
   makeCaptureBuffer,
   recordFrame,
@@ -303,23 +304,62 @@ export function makeTestClient(
         return result.result as RpcMap[typeof method]["result"];
       });
 
+    /**
+     * Send malformed bytes and await the server's reaction. Registers the
+     * request id in `pending` so a typed `RpcResponseError` surfaces
+     * through the same path as valid RPCs; if the server drops the frame
+     * without responding, resolves `null` after the quiescence window.
+     *
+     * The distinction is observable: `null` means "drop" (the property
+     * should assert no state poisoning followed); a returned
+     * `RpcResponseError` means the server parsed enough to reply with a
+     * typed error. Either is acceptable per Tier A4's contract.
+     */
     const sendMalformed: TestClient["sendMalformed"] = (opts) =>
       Effect.gen(function* () {
+        const id = nextRequestId();
         const baseFrame: AnyFrame = {
           type: "request",
           jsonrpc: "2.0",
-          id: nextRequestId(),
+          id,
           method: opts.baseMethod,
           params: {},
         };
         const raw = malformFrame(baseFrame, opts.kind, opts.seed);
+        const deferred = yield* Deferred.make<
+          AnyFrame,
+          RpcResponseError | TransportClosedError
+        >();
+        pending.set(id, deferred);
         yield* recordMalformed(captures, raw, opts.kind);
         yield* writeFrame(raw);
 
         const waitMs = config.malformedQuiescenceMs ?? 500;
-        return yield* Effect.succeed(null as RpcResponseError | null).pipe(
-          Effect.delay(Duration.millis(waitMs)),
+
+        // Race the pending Deferred against a quiescence timeout. Clean up
+        // the pending entry on both legs so no slot leaks when the server
+        // drops silently.
+        const outcome = yield* Effect.raceFirst(
+          Deferred.await(deferred).pipe(
+            Effect.matchEffect({
+              onSuccess: () => Effect.succeed(null as RpcResponseError | null),
+              onFailure: (err) =>
+                err._tag === "TestingRpcResponseError"
+                  ? Effect.succeed(err as RpcResponseError | null)
+                  : Effect.fail(err),
+            }),
+          ),
+          Effect.succeed(null as RpcResponseError | null).pipe(
+            Effect.delay(Duration.millis(waitMs)),
+          ),
+        ).pipe(
+          Effect.ensuring(
+            Effect.sync(() => {
+              pending.delete(id);
+            }),
+          ),
         );
+        return outcome;
       });
 
     // Event stream — repeatedly drain `eventQueue`, ending when the WS closes.
@@ -360,21 +400,17 @@ export function makeTestClient(
       snapshot: captures.snapshot,
     };
 
-    // Auto-connect handshake (auth/connect). Best-effort — property code can
-    // override with autoConnect=false and drive the handshake manually.
+    // Auto-connect handshake (auth/connect). Matches packages/client's
+    // real shape — `agentKey` + `minProtocol` + `maxProtocol`. Tolerant
+    // of typed rejections so properties that explicitly drive
+    // unauthenticated traffic (e.g., authority-negative) can skip
+    // autoConnect without the acquire path faulting.
     if (config.autoConnect !== false) {
-      const basicParams = {
+      const handshakeParams: RpcMap["auth/connect"]["params"] = {
         agentKey: config.agentKey,
-        agentId: config.agentId,
+        minProtocol: PROTOCOL_VERSION,
+        maxProtocol: PROTOCOL_VERSION,
       };
-      const handshakeParams =
-        // #ignore-sloppy-code-next-line[as-unknown-as]: auth/connect params shape is server-validated; handshake keeps TestClient transport-agnostic
-        basicParams as unknown as RpcMap["auth/connect"]["params"];
-      // Handshake is best-effort: the TestClient is a transport, not an
-      // identity authority. Properties that need a real identity supply
-      // a valid agentKey; otherwise the server rejects (typed
-      // `RpcResponseError`), and subsequent RPCs run unauthenticated —
-      // which is exactly what Tier B's B3 property expects.
       const handshake = sendRpc("auth/connect", handshakeParams).pipe(
         Effect.catchTag("TestingRpcTimeoutError", () => Effect.void),
         Effect.catchTag("TestingFrameSchemaError", () => Effect.void),
