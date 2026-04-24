@@ -111,11 +111,7 @@ export function createMoltZapRealClientFactory(
       });
 
       // Scope-release finalizer: close the WS client.
-      yield* Effect.addFinalizer(() =>
-        Effect.sync(() => {
-          Effect.runSync(ws.close());
-        }),
-      );
+      yield* Effect.addFinalizer(() => ws.close());
 
       // Kick off the connect; tracked via the `ready` Effect below.
       const readyDeferred = yield* Ref.make<
@@ -223,11 +219,7 @@ export function createMoltZapRealClientFactory(
         },
       );
 
-      const close: Effect.Effect<void, RealClientLifecycleError> = Effect.sync(
-        () => {
-          Effect.runSync(ws.close());
-        },
-      );
+      const close: Effect.Effect<void, RealClientLifecycleError> = ws.close();
 
       return {
         agentId: opts.agentId,

@@ -64,7 +64,9 @@ type PendingError = RpcServerError | NotConnectedError | RpcTimeoutError;
  * with `NotConnectedError`.
  */
 interface ConnState {
-  readonly write: (frame: string) => Effect.Effect<void, Socket.SocketError>;
+  readonly write: (
+    chunk: string | Socket.CloseEvent,
+  ) => Effect.Effect<void, Socket.SocketError>;
   readonly readerFiber: Fiber.RuntimeFiber<void, Socket.SocketError>;
   readonly scope: Scope.CloseableScope;
   /** Settled when the reader fiber exits, letting `connect()` race against
@@ -228,12 +230,43 @@ export class MoltZapWsClient {
   }
 
   /**
-   * Close the socket permanently (no reconnection). The internal cleanup uses
-   * Effect but is wrapped here in `Effect.sync` so callers receive an Effect
-   * that never fails.
+   * Close the socket permanently (no reconnection). Writes a clean WebSocket
+   * close frame (code 1000) before tearing down the scope so the server
+   * observes a graceful handshake rather than an abrupt disconnect, preventing
+   * lingering CLOSE_WAIT sockets on the server side.
    */
   close(): Effect.Effect<void, never> {
-    return Effect.sync(() => this.closeSync());
+    return Effect.gen(this, function* () {
+      if (this.closed) return;
+      this.closed = true;
+      this._helloOk = null;
+      if (this.reconnectFiber !== null) {
+        const f = this.reconnectFiber;
+        this.reconnectFiber = null;
+        yield* Effect.forkDaemon(Fiber.interrupt(f));
+      }
+      yield* Effect.all(
+        [
+          this.failAllPending(MSG_NOT_CONNECTED),
+          this.failAllEventWaiters(MSG_NOT_CONNECTED),
+        ],
+        { concurrency: "unbounded" },
+      );
+      const state = yield* Ref.getAndSet(this.stateRef, Option.none());
+      if (Option.isSome(state)) {
+        yield* state.value
+          .write(new Socket.CloseEvent(1000, "normal"))
+          .pipe(Effect.orDie);
+        yield* Scope.close(state.value.scope, Exit.void);
+      }
+    }).pipe(
+      Effect.asVoid,
+      Effect.ensuring(
+        Effect.sync(() => {
+          void this.runtime.dispose();
+        }),
+      ),
+    );
   }
 
   /** Wait for the next inbound event whose `event` field equals `eventName`.
@@ -304,32 +337,6 @@ export class MoltZapWsClient {
     this.runtime.runFork(Fiber.interrupt(state.value.readerFiber));
     // Close the per-connection scope as a belt-and-braces guarantee.
     this.runtime.runFork(Scope.close(state.value.scope, Exit.void));
-  }
-
-  /**
-   * Internal synchronous close: invoked from the public `close()` Effect.
-   * Side-effectful. Runs cleanup under the client's runtime then disposes it.
-   */
-  private closeSync(): void {
-    if (this.closed) return;
-    this.closed = true;
-    this._helloOk = null;
-    // Interrupt any in-flight reconnect scheduling.
-    if (this.reconnectFiber !== null) {
-      this.runtime.runFork(Fiber.interrupt(this.reconnectFiber));
-      this.reconnectFiber = null;
-    }
-    // Fail pending Deferreds synchronously — no race with dispose().
-    this.runtime.runSync(this.failAllPending(MSG_NOT_CONNECTED));
-    this.runtime.runSync(this.failAllEventWaiters(MSG_NOT_CONNECTED));
-    const state = this.runtime.runSync(Ref.get(this.stateRef));
-    this.runtime.runSync(Ref.set(this.stateRef, Option.none()));
-    if (Option.isSome(state)) {
-      // Close the connection's scope synchronously inside the runtime so the
-      // reader fiber is torn down before we dispose.
-      this.runtime.runSync(Scope.close(state.value.scope, Exit.void));
-    }
-    void this.runtime.dispose();
   }
 
   private connectEffect(): Effect.Effect<
