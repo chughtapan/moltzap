@@ -2,22 +2,25 @@
  * TestClient — connects to a REAL MoltZap server URL and drives the wire.
  *
  * Per D1 (WS-only) and Invariant I1 (primitives never bypass the wire),
- * every request is serialized and pushed through a real WebSocket transport.
- * We use Node.js 22+'s built-in global `WebSocket` which matches the
- * browser shape the `packages/client` transport targets — bytes on the wire
- * are identical.
+ * every request is serialized and pushed through a real WebSocket transport
+ * — `@effect/platform/Socket.makeWebSocket` backed by
+ * `@effect/platform-node/NodeSocket.layerWebSocketConstructor` so the wire
+ * bytes match `packages/client`'s real production path.
  *
  * Satisfies AC2. Consumed by Tier A / B / C / D / E properties.
  */
 import {
+  Chunk,
   Context,
   Deferred,
+  Duration,
   Effect,
   Ref,
   type Scope,
   Stream,
-  Chunk,
 } from "effect";
+import * as Socket from "@effect/platform/Socket";
+import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import type { RpcMap, RpcMethodName } from "../rpc-registry.js";
 import type { EventFrame } from "../schema/frames.js";
 import {
@@ -55,8 +58,8 @@ export interface TestClientConfig {
   /** Soft cap on captured frames before the ring buffer drops oldest. */
   readonly captureCapacity: number;
   /**
-   * When `true`, send the `auth/connect` + `auth/selectAgent` handshake
-   * automatically after the WS upgrade. Defaults to `true`.
+   * When `true`, send the `auth/connect` handshake automatically after the
+   * WS upgrade. Defaults to `true`.
    */
   readonly autoConnect?: boolean;
   /** Quiescence window (ms) for `sendMalformed` to wait for a response. */
@@ -122,7 +125,7 @@ function nextRequestId(): string {
 /**
  * Open a real WS connection to `config.serverUrl`, complete the `connect`
  * handshake, and yield a `TestClient`. The surrounding `Scope` owns the
- * socket; releasing it sends the WS close frame and drains captures.
+ * socket; releasing it closes the WS and drains captures.
  */
 export function makeTestClient(
   config: TestClientConfig,
@@ -142,126 +145,97 @@ export function makeTestClient(
       reason: "",
     });
     const eventQueue = yield* Ref.make<ReadonlyArray<EventFrame>>([]);
-    const eventSignal = yield* Deferred.make<void>();
 
-    // Acquire the WS inside the ambient Scope so the release closes it.
-    const ws = yield* Effect.acquireRelease(
-      Effect.async<WebSocket, TransportIoError>((resume) => {
-        let sock: WebSocket;
-        try {
-          sock = new WebSocket(config.serverUrl);
-        } catch (err) {
-          resume(
-            Effect.fail(
-              new TransportIoError({ direction: "outbound", cause: err }),
-            ),
-          );
-          return;
-        }
-        sock.binaryType = "arraybuffer";
-        sock.addEventListener("open", () => resume(Effect.succeed(sock)));
-        sock.addEventListener("error", (evt) =>
-          resume(
-            Effect.fail(
-              new TransportIoError({ direction: "outbound", cause: evt }),
-            ),
-          ),
-        );
-      }),
-      (sock) =>
-        Effect.sync(() => {
-          try {
-            sock.close(1000, "test-client-teardown");
-            // #ignore-sloppy-code-next-line[bare-catch]: release must be total; double-close throws but there is no logger available in Effect.sync finalizers here
-          } catch {
-            /* best-effort teardown: WebSocket.close() throws when already closed */
-          }
-        }),
+    // Acquire the WS socket via @effect/platform. The Node WebSocket
+    // constructor layer is provided via `Effect.provide` at each use site
+    // so the test harness stays self-contained.
+    const socket: Socket.Socket = yield* Socket.makeWebSocket(
+      config.serverUrl,
+      {
+        openTimeout: Duration.millis(config.defaultTimeoutMs),
+      },
+    ).pipe(
+      Effect.provide(NodeSocket.layerWebSocketConstructor),
+      Effect.mapError(
+        (err) => new TransportIoError({ direction: "outbound", cause: err }),
+      ),
     );
 
-    // Wire the incoming frame handler. Closes over pending + captures + ref.
-    const onMessage = (data: string | ArrayBuffer | Buffer): void => {
-      const raw =
-        typeof data === "string"
-          ? data
-          : data instanceof ArrayBuffer
-            ? Buffer.from(data).toString("utf8")
-            : data.toString("utf8");
-      // Decode synchronously via runSync: decodeFrame is pure.
-      const decoded = Effect.runSync(
-        Effect.either(decodeFrame(raw, "inbound")),
-      );
-      if (decoded._tag === "Left") {
-        // Record as malformed and drop — matches Tier A A4 "drop or typed error, never crash".
-        Effect.runFork(recordMalformed(captures, raw, "bit-flip"));
-        return;
-      }
-      const frame = decoded.right;
-      Effect.runFork(recordFrame(captures, "inbound", raw, frame));
+    const writer = yield* socket.writer.pipe(
+      Effect.mapError(
+        (err) => new TransportIoError({ direction: "outbound", cause: err }),
+      ),
+    );
 
-      if (frame.type === "response") {
-        const id = frame.id;
-        const def = pending.get(id);
-        if (def !== undefined) {
-          pending.delete(id);
-          if (frame.error !== undefined) {
-            Effect.runFork(
-              Deferred.fail(
+    const handleInbound = (raw: string): Effect.Effect<void> =>
+      Effect.gen(function* () {
+        const decoded = yield* Effect.either(decodeFrame(raw, "inbound"));
+        if (decoded._tag === "Left") {
+          yield* recordMalformed(captures, raw, "bit-flip");
+          return;
+        }
+        const frame = decoded.right;
+        yield* recordFrame(captures, "inbound", raw, frame);
+
+        if (frame.type === "response") {
+          const def = pending.get(frame.id);
+          if (def !== undefined) {
+            pending.delete(frame.id);
+            if (frame.error !== undefined) {
+              yield* Deferred.fail(
                 def,
                 new RpcResponseError({
                   method: "",
-                  requestId: id,
+                  requestId: frame.id,
                   code: frame.error.code,
                   message: frame.error.message,
                   data: frame.error.data,
                 }),
-              ),
-            );
-          } else {
-            Effect.runFork(Deferred.succeed(def, frame));
+              );
+            } else {
+              yield* Deferred.succeed(def, frame);
+            }
           }
+          return;
         }
-      } else if (frame.type === "event") {
-        Effect.runFork(
-          Ref.update(eventQueue, (q) => [...q, frame as EventFrame]),
-        );
-        Effect.runFork(
-          Deferred.succeed(eventSignal, undefined).pipe(
-            Effect.orElseSucceed(() => undefined),
-          ),
-        );
-      }
-      // request frames from server are not expected in v1.
-    };
-
-    const onClose = (code: number, reason: string): void => {
-      Effect.runFork(Ref.set(closeRef, { closed: true, code, reason }));
-      const closedErr = new TransportClosedError({
-        direction: "inbound",
-        code,
-        reason,
+        if (frame.type === "event") {
+          yield* Ref.update(eventQueue, (q) => [...q, frame as EventFrame]);
+        }
       });
-      for (const [id, def] of pending) {
-        pending.delete(id);
-        Effect.runFork(Deferred.fail(def, closedErr));
-      }
-    };
 
-    ws.addEventListener("message", (ev) => {
-      const data = ev.data as unknown;
-      if (
-        typeof data === "string" ||
-        data instanceof ArrayBuffer ||
-        Buffer.isBuffer(data)
-      ) {
-        onMessage(data as string | ArrayBuffer | Buffer);
-      }
-    });
-    ws.addEventListener("close", (ev) => onClose(ev.code, ev.reason));
-    ws.addEventListener("error", (ev) => {
-      // Error surfacing here is a best-effort; the close handler will fire next.
-      void ev;
-    });
+    // Fork the reader fiber into the ambient scope. `socket.runRaw` yields
+    // every received string/bytes chunk; teardown is on scope close.
+    yield* Effect.forkScoped(
+      socket
+        .runRaw((data) => {
+          const raw =
+            typeof data === "string"
+              ? data
+              : new TextDecoder("utf-8").decode(data);
+          return handleInbound(raw);
+        })
+        .pipe(
+          Effect.catchAllCause((cause) =>
+            Effect.gen(function* () {
+              const failure = cause.toString();
+              yield* Ref.set(closeRef, {
+                closed: true,
+                code: 1006,
+                reason: failure,
+              });
+              const closedErr = new TransportClosedError({
+                direction: "inbound",
+                code: 1006,
+                reason: failure,
+              });
+              for (const [id, def] of pending) {
+                pending.delete(id);
+                yield* Deferred.fail(def, closedErr);
+              }
+            }),
+          ),
+        ),
+    );
 
     const writeFrame = (
       raw: string,
@@ -277,13 +251,12 @@ export function makeTestClient(
             }),
           );
         }
-        try {
-          ws.send(raw);
-        } catch (err) {
-          return yield* Effect.fail(
-            new TransportIoError({ direction: "outbound", cause: err }),
-          );
-        }
+        yield* writer(raw).pipe(
+          Effect.mapError(
+            (err) =>
+              new TransportIoError({ direction: "outbound", cause: err }),
+          ),
+        );
       });
 
     const sendRpc: TestClient["sendRpc"] = (method, params, opts) =>
@@ -307,7 +280,7 @@ export function makeTestClient(
         yield* writeFrame(raw);
         const result = yield* Deferred.await(deferred).pipe(
           Effect.timeoutFail({
-            duration: `${timeoutMs} millis`,
+            duration: Duration.millis(timeoutMs),
             onTimeout: () =>
               new RpcTimeoutError({ method, requestId: id, timeoutMs }),
           }),
@@ -327,13 +300,11 @@ export function makeTestClient(
             }),
           );
         }
-        // Cast: the result shape is determined by the method and server contract.
         return result.result as RpcMap[typeof method]["result"];
       });
 
     const sendMalformed: TestClient["sendMalformed"] = (opts) =>
       Effect.gen(function* () {
-        // Base a malformed payload on a minimal valid request shape.
         const baseFrame: AnyFrame = {
           type: "request",
           jsonrpc: "2.0",
@@ -346,9 +317,8 @@ export function makeTestClient(
         yield* writeFrame(raw);
 
         const waitMs = config.malformedQuiescenceMs ?? 500;
-        // Wait briefly to see if the server responds with a typed error.
         return yield* Effect.succeed(null as RpcResponseError | null).pipe(
-          Effect.delay(`${waitMs} millis`),
+          Effect.delay(Duration.millis(waitMs)),
         );
       });
 
@@ -373,7 +343,7 @@ export function makeTestClient(
               }
               const q = yield* Ref.getAndSet(eventQueue, []);
               if (q.length > 0) return q;
-              yield* Effect.sleep("10 millis");
+              yield* Effect.sleep(Duration.millis(10));
             }
           });
           return Stream.repeatEffectChunk(
@@ -393,11 +363,6 @@ export function makeTestClient(
     // Auto-connect handshake (auth/connect). Best-effort — property code can
     // override with autoConnect=false and drive the handshake manually.
     if (config.autoConnect !== false) {
-      // The `auth/connect` params shape drifts across protocol versions; the
-      // TestClient accepts `{ agentKey, agentId }` because that is what every
-      // current consumer passes. The server validates the params fully on
-      // receive. A single cast at this call site keeps the rest of the
-      // file precisely typed.
       const basicParams = {
         agentKey: config.agentKey,
         agentId: config.agentId,
