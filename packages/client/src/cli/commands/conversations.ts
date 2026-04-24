@@ -308,10 +308,103 @@ const historySubcommand = Command.make(
   historyHandler,
 ).pipe(Command.withDescription("Show message history for a conversation"));
 
+// ─── ARCH sbd#185: new v2 subcommands (get / archive / unarchive) ──────────
+//
+// Stubs only — bodies are `throw new Error("not implemented")`. Full
+// signatures and traceability: https://github.com/chughtapan/safer-by-default/issues/177
+// (architect design doc rev 2).
+
+import {
+  rpc as transportRpc,
+  runHandler as runConversationsHandler,
+  type Transport,
+  type TransportError,
+} from "../transport.js";
+
+/** Discriminated error union for the three v2 conversation subcommands. */
+export type ConversationsCommandError =
+  | TransportError
+  | ConversationsInputError;
+
+/** CLI-level input was rejected (architect stage: signature only). */
+export class ConversationsInputError extends Error {
+  readonly _tag = "ConversationsInputError" as const;
+  constructor(readonly reason: string) {
+    super(reason);
+  }
+}
+
+/** `moltzap conversations get <id>` → conversations/get; prints { conversation, participants }. */
+export const conversationsGetHandler = (
+  args: { readonly conversationId: string },
+): Effect.Effect<void, ConversationsCommandError, Transport> =>
+  Effect.gen(function* () {
+    const result = yield* transportRpc<{
+      conversation: unknown;
+      participants: unknown;
+    }>("conversations/get", { conversationId: args.conversationId });
+    yield* Effect.sync(() => {
+      console.log(JSON.stringify(result, null, 2));
+    });
+  });
+
+/** `moltzap conversations archive <id>` → conversations/archive; prints success marker. */
+export const conversationsArchiveHandler = (
+  args: { readonly conversationId: string },
+): Effect.Effect<void, ConversationsCommandError, Transport> =>
+  Effect.gen(function* () {
+    yield* transportRpc<Record<string, never>>("conversations/archive", {
+      conversationId: args.conversationId,
+    });
+    yield* Effect.sync(() => {
+      console.log(`archived: ${args.conversationId}`);
+    });
+  });
+
+/** `moltzap conversations unarchive <id>` → conversations/unarchive; prints success marker. */
+export const conversationsUnarchiveHandler = (
+  args: { readonly conversationId: string },
+): Effect.Effect<void, ConversationsCommandError, Transport> =>
+  Effect.gen(function* () {
+    yield* transportRpc<Record<string, never>>("conversations/unarchive", {
+      conversationId: args.conversationId,
+    });
+    yield* Effect.sync(() => {
+      console.log(`unarchived: ${args.conversationId}`);
+    });
+  });
+
+// ── Command.make wrappers for the three v2 handlers ───────────────────────
+const getConversationCommand = Command.make(
+  "get",
+  { conversationId: conversationIdArg },
+  ({ conversationId }) =>
+    runConversationsHandler(conversationsGetHandler({ conversationId })),
+).pipe(Command.withDescription("Get a conversation and its participants"));
+
+const archiveConversationCommand = Command.make(
+  "archive",
+  { conversationId: conversationIdArg },
+  ({ conversationId }) =>
+    runConversationsHandler(
+      conversationsArchiveHandler({ conversationId }),
+    ),
+).pipe(Command.withDescription("Archive a conversation"));
+
+const unarchiveConversationCommand = Command.make(
+  "unarchive",
+  { conversationId: conversationIdArg },
+  ({ conversationId }) =>
+    runConversationsHandler(
+      conversationsUnarchiveHandler({ conversationId }),
+    ),
+).pipe(Command.withDescription("Unarchive a conversation"));
+
 /**
- * `moltzap conversations [list|create|leave|mute|unmute|update|add-participant|remove-participant|history]`
+ * `moltzap conversations [list|create|leave|mute|unmute|update|add-participant|remove-participant|history|get|archive|unarchive]`
  * — conversation CRUD + inspection over the local Unix socket. Default (no
- * subcommand) lists.
+ * subcommand) lists. The `get`, `archive`, `unarchive` subcommands are
+ * wired by impl-staff against the handlers above (sbd#185).
  */
 export const conversationsCommand = Command.make("conversations", {}, () =>
   listConversations.handler({ limit: 20, json: false }),
@@ -327,6 +420,9 @@ export const conversationsCommand = Command.make("conversations", {}, () =>
     addParticipantCommand,
     removeParticipantCommand,
     historySubcommand,
+    getConversationCommand,
+    archiveConversationCommand,
+    unarchiveConversationCommand,
   ]),
 );
 

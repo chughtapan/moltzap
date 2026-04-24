@@ -61,6 +61,8 @@ describe("register command handler", () => {
         name: "my-agent",
         inviteCode: "inv_abc123",
         description: Option.none(),
+        profile: Option.none(),
+        noPersist: false,
       }),
     );
     expect(mockRegisterAgent).toHaveBeenCalledWith(
@@ -76,6 +78,8 @@ describe("register command handler", () => {
         name: "my-agent",
         inviteCode: "inv_abc123",
         description: Option.some("A test agent"),
+        profile: Option.none(),
+        noPersist: false,
       }),
     );
     expect(mockRegisterAgent).toHaveBeenCalledWith(
@@ -94,6 +98,8 @@ describe("register command handler", () => {
         name: "my-agent",
         inviteCode: "inv_bad",
         description: Option.none(),
+        profile: Option.none(),
+        noPersist: false,
       }),
     );
     expect(process.exit).toHaveBeenCalledWith(1);
