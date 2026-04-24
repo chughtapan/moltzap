@@ -11,13 +11,26 @@
  *   - `packages/nanoclaw-channel/src/test-support.ts` (same)
  *
  * Every field this adapter publishes is derived from `MoltZapWsClient`'s
- * public API (`connect`, `close`, `sendRpc`, `onEvent`, `onDisconnect`):
- * no private reads, no monkey-patching (Invariant I9 from spec #200).
+ * public API (`connect`, `close`, `sendRpcTracked`, `subscribe`,
+ * `onDisconnect`): no private reads, no monkey-patching
+ * (Invariant I9 from spec #200).
+ *
+ * Spec #222 atomic migration:
+ *   - `outboundIdsRef` is populated from `sendRpcTracked.id` — the real
+ *     `rpc-N` identity, not a `local-${random}` mirror (B4).
+ *   - `ResponseFrame.type` is forwarded from `tracked.type`, not a
+ *     hardcoded `"response"` (V5).
+ *   - `closeRef` is populated from `CloseInfo.{code, reason}` passed
+ *     into `onDisconnect`, not the hardcoded `{1000, "disconnect"}`
+ *     (V7).
+ *   - `subscribe` registers a real per-filter handle on the client; the
+ *     no-op stub is gone (C4 + subscribe-stub).
  */
 import { Effect, Ref, Scope } from "effect";
 import type { EventFrame, ResponseFrame } from "@moltzap/protocol";
 import type {
   RealClientCloseEvent,
+  RealClientEventFilter,
   RealClientHandle,
   RealClientEventSubscriber,
   RealClientLifecycleError,
@@ -25,7 +38,8 @@ import type {
   RealClientSubscription,
   ObservedEvent,
 } from "@moltzap/protocol/testing";
-import { MoltZapWsClient } from "../ws-client.js";
+import { MoltZapWsClient, type CloseInfo } from "../ws-client.js";
+import type { SubscriptionFilter } from "../runtime/subscribers.js";
 
 /**
  * Options for the adapter factory. `agentKey` and `agentId` are caller-
@@ -53,6 +67,21 @@ function lifecycleError(cause: unknown): LifecycleError {
 }
 
 /**
+ * Project a `RealClientEventFilter` (protocol-side shape) onto a
+ * `SubscriptionFilter` (client-side shape). One-for-one field mapping
+ * — both interfaces share the same three optional fields by design.
+ */
+function filterFromRealClient(
+  filter: RealClientEventFilter,
+): SubscriptionFilter {
+  return {
+    emissionTag: filter.emissionTag,
+    conversationId: filter.conversationId,
+    eventNamePrefix: filter.eventNamePrefix,
+  };
+}
+
+/**
  * Build a `RealClientHandle` factory that the protocol conformance suite
  * can invoke. The returned factory creates a fresh `MoltZapWsClient`,
  * opens its WebSocket, and exposes the client's public surface through
@@ -72,25 +101,11 @@ export function createMoltZapRealClientFactory(
       const ws = new MoltZapWsClient({
         serverUrl: args.testServerUrl,
         agentKey: opts.agentKey,
-        onEvent: (frame: EventFrame) => {
-          const encoded = new TextEncoder().encode(JSON.stringify(frame));
-          const data = frame.data as { __emissionTag?: string } | undefined;
-          const tag =
-            typeof data?.__emissionTag === "string" ? data.__emissionTag : null;
-          const obs: ObservedEvent = {
-            emissionTag: tag,
-            decoded: frame,
-            rawBytes: encoded,
-            observedAtMs: Date.now(),
-          };
-          // #ignore-sloppy-code-next-line[bare-catch]: onEvent is a sync callback boundary; surface ref-update errors to nowhere
-          try {
-            Effect.runSync(Ref.update(eventsRef, (xs) => [...xs, obs]));
-          } catch {
-            /* best-effort observation collection */
-          }
-        },
-        onDisconnect: () => {
+        // V7: real WebSocket close metadata flows through `close.code`
+        // / `close.reason`, not the deleted `{1000, "disconnect"}`
+        // hardcode. The reader fiber's `extractCloseInfo` derives these
+        // from the actual `Exit.Exit<…, Socket.SocketError>`.
+        onDisconnect: (close: CloseInfo) => {
           // #ignore-sloppy-code-next-line[bare-catch]: onDisconnect is sync; ref update is best-effort
           try {
             Effect.runSync(
@@ -98,8 +113,8 @@ export function createMoltZapRealClientFactory(
                 closeRef,
                 (cur) =>
                   cur ?? {
-                    code: 1000,
-                    reason: "disconnect",
+                    code: close.code,
+                    reason: close.reason,
                     observedAtMs: Date.now(),
                   },
               ),
@@ -110,8 +125,46 @@ export function createMoltZapRealClientFactory(
         },
       });
 
-      // Scope-release finalizer: close the WS client.
-      yield* Effect.addFinalizer(() => ws.close());
+      // C4 + subscribe-stub: register a `{}`-filter subscription that
+      // captures every frame into `eventsRef`. The previous top-level
+      // `onEvent` callback was deleted — `subscribe({})` is the
+      // replacement. Pre-`connect()` registration is supported.
+      const captureAll = yield* ws
+        .subscribe({}, (frame: EventFrame) =>
+          Effect.sync(() => {
+            const encoded = new TextEncoder().encode(JSON.stringify(frame));
+            const data = frame.data as { __emissionTag?: string } | undefined;
+            const tag =
+              typeof data?.__emissionTag === "string"
+                ? data.__emissionTag
+                : null;
+            const obs: ObservedEvent = {
+              emissionTag: tag,
+              decoded: frame,
+              rawBytes: encoded,
+              observedAtMs: Date.now(),
+            };
+            // #ignore-sloppy-code-next-line[bare-catch]: ref-update best-effort
+            try {
+              Effect.runSync(Ref.update(eventsRef, (xs) => [...xs, obs]));
+            } catch {
+              /* best-effort observation collection */
+            }
+          }),
+        )
+        .pipe(
+          Effect.mapError(
+            (cause) => lifecycleError(cause) as RealClientLifecycleError,
+          ),
+        );
+
+      // Scope-release finalizer: drop the capture subscription and
+      // close the WS client. `ws.close()` is Effect-native post-#234,
+      // so the finalizer chains them with `Effect.zipRight` and no
+      // `Effect.sync(runSync(...))` bridge.
+      yield* Effect.addFinalizer(() =>
+        captureAll.unsubscribe.pipe(Effect.zipRight(ws.close())),
+      );
 
       // Kick off the connect; tracked via the `ready` Effect below.
       const readyDeferred = yield* Ref.make<
@@ -153,12 +206,19 @@ export function createMoltZapRealClientFactory(
       );
 
       const subscribe: RealClientEventSubscriber["subscribe"] = (
-        _filter,
+        filter,
       ): Effect.Effect<RealClientSubscription, RealClientLifecycleError> =>
-        Effect.succeed({
-          id: `sub-${Math.random().toString(36).slice(2, 8)}`,
-          unsubscribe: Effect.void,
-        });
+        ws
+          .subscribe(filterFromRealClient(filter), () => Effect.void)
+          .pipe(
+            Effect.map((handle) => ({
+              id: handle.id,
+              unsubscribe: handle.unsubscribe,
+            })),
+            Effect.mapError(
+              (cause) => lifecycleError(cause) as RealClientLifecycleError,
+            ),
+          );
 
       const snapshot: RealClientEventSubscriber["snapshot"] =
         Ref.get(eventsRef);
@@ -170,7 +230,12 @@ export function createMoltZapRealClientFactory(
         params: unknown,
       ) =>
         Effect.gen(function* () {
-          const outcome = yield* Effect.either(ws.sendRpc(method, params));
+          // B4 + V5: `sendRpcTracked` returns the real outbound id and
+          // the response envelope `type`. The adapter forwards both
+          // straight through — no mirror id, no hardcoded `"response"`.
+          const outcome = yield* Effect.either(
+            ws.sendRpcTracked(method, params),
+          );
           if (outcome._tag === "Left") {
             const tag = outcome.left._tag;
             const kind =
@@ -189,18 +254,16 @@ export function createMoltZapRealClientFactory(
               cause: outcome.left,
             });
           }
-          // `sendRpc` returns the result payload; wrap into a minimal
-          // `ResponseFrame` shape for the suite's consumers.
+          const tracked = outcome.right;
+          // Record the real id (Invariant 3 from spec #222: same id
+          // minted at the `rpc-${++counter}` site, surfaced as-is).
+          yield* Ref.update(outboundIdsRef, (xs) => [...xs, tracked.id]);
           const frame: ResponseFrame = {
             jsonrpc: "2.0",
-            type: "response",
-            id: `local-${Math.random().toString(36).slice(2, 10)}`,
-            result: outcome.right,
+            type: tracked.type,
+            id: tracked.id,
+            result: tracked.result,
           };
-          // Record the id (best-effort; the real client's internal id is
-          // not exposed, so the adapter mints a mirror id for the suite's
-          // outbound-id-feed predicate).
-          yield* Ref.update(outboundIdsRef, (xs) => [...xs, frame.id]);
           return frame;
         });
 

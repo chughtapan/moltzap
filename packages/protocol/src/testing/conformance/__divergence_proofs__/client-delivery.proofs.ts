@@ -40,14 +40,20 @@ describe.skip("registerPayloadOpacityClient — divergence proofs", () => {
 });
 
 describe.skip("registerTaskBoundaryIsolationClient — divergence proofs", () => {
-  it("fails when the real client's task filter is a no-op", () => {
-    // Mutation: in the real client's subscriber registration, replace
-    //   the per-task filter with `() => true`.
-    // Predicate broken: client/delivery.ts — `observedCampaignB
-    //   .length === 0` inside registerTaskBoundaryIsolationClient.
+  it("fails when matchesFilter ignores the conversationId field", () => {
+    // Mutation: in `packages/client/src/runtime/subscribers.ts`
+    //   `matchesFilter`, force the `conversationId` predicate to a
+    //   no-op (e.g. `if (filter.conversationId !== undefined) { /* skip */ }`)
+    //   so a `{conversationId: "campaign-A"}` subscription receives
+    //   campaign-B frames as well.
+    // Predicate broken: client/delivery.ts:266-313 — `observedCampaignB
+    //   .length === 0` inside registerTaskBoundaryIsolationClient
+    //   (C4). Spec #222 §5.3 + the `RealClientEventSubscriber.subscribe`
+    //   filter stub.
     // Expected observable: property fails with campaignB leak count
-    //   equal to the emitted M.
-    // Last verified: pending real-client mutation.
+    //   equal to the emitted M (the filter is honored only by accident
+    //   via the empty default; mutation makes the leak observable).
+    // Last verified: spec #222 staff implementation (impl-staff-232).
     expect(true).toBe(true);
   });
 });
