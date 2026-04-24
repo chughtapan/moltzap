@@ -253,20 +253,19 @@ export const tagWsError = (
 /**
  * Build a direct-WebSocket transport. Requires `Scope` so `Layer.scoped`
  * can install a finalizer via `Effect.addFinalizer`. The finalizer fires on
- * fiber interruption (SIGINT/SIGTERM), closing the ws-client and its internal
- * ManagedRuntime + reader fiber. Normal command exits call `process.exit`
- * explicitly via `runHandler`, which preempts the finalizer but terminates
- * the process anyway (see `runHandler` below). This replaces the fragile
- * `process.once("beforeExit", ...)` hook which never fired because the reader
- * fiber kept the event loop non-empty.
+ * fiber interruption (SIGINT/SIGTERM) — closing the ws-client and its internal
+ * ManagedRuntime — and also runs on normal completion so the event loop drains
+ * naturally without a forced `process.exit`. This replaces the fragile
+ * `process.once("beforeExit", ...)` hook that never fired because the reader
+ * fiber kept the event loop non-empty (sbd#198 Bug-2 / moltzap#228).
+ *
+ * `MoltZapWsClient` is constructed lazily inside `Effect.cached` so commands
+ * that never reach the wire (e.g. help-text display, input validation failure)
+ * do not pay for a ManagedRuntime spin-up.
  *
  * `sendRpc` is composed entirely in Effect-land — no `Effect.runPromise`
  * bridge — so typed errors (`NotConnectedError`, `RpcTimeoutError`,
- * `RpcServerError`) flow through `tagWsError` without being wrapped in
- * `FiberFailureImpl` (the root cause of sbd#198 / moltzap#228).
- *
- * `Effect.cached` memoises the connect handshake so a command that issues
- * multiple RPCs (e.g. `apps list` then `apps get`) only opens one socket.
+ * `RpcServerError`) flow through `tagWsError` with their `_tag` intact.
  */
 const makeDirectTransport = (
   serverUrl: string,
@@ -288,17 +287,25 @@ const makeDirectTransport = (
       );
     }
 
-    const client = new MoltZapWsClient({ serverUrl, agentKey });
-
-    // Finalizer fires on SIGINT/SIGTERM (fiber interrupt). On normal exits,
-    // runHandler calls process.exit which preempts this, but the client is
-    // terminated by the OS regardless.
-    yield* Effect.addFinalizer(() => client.close());
+    // Lazily-created client: null until the first rpc() call fires connectOnce.
+    // The finalizer checks the current value at scope-close time so help/
+    // validation paths that never open a socket incur no cleanup cost.
+    let client: MoltZapWsClient | null = null;
+    yield* Effect.addFinalizer(() =>
+      client !== null ? client.close() : Effect.void,
+    );
 
     // Memoize the connect handshake: only one round-trip per invocation,
     // cached for the lifetime of this scope.
     const connectOnce = yield* Effect.cached(
-      client.connect().pipe(Effect.mapError((e) => tagWsError("connect", e))),
+      Effect.gen(function* () {
+        const c = new MoltZapWsClient({ serverUrl, agentKey });
+        client = c;
+        yield* c
+          .connect()
+          .pipe(Effect.mapError((e) => tagWsError("connect", e)));
+        return c;
+      }),
     );
 
     return {
@@ -308,8 +315,8 @@ const makeDirectTransport = (
         params: Record<string, unknown>,
       ): Effect.Effect<Result, TransportError> =>
         connectOnce.pipe(
-          Effect.flatMap(() =>
-            client
+          Effect.flatMap((c) =>
+            c
               .sendRpc(method, params)
               .pipe(Effect.mapError((e) => tagWsError(method, e))),
           ),
@@ -395,10 +402,10 @@ export const rpc = <Result>(
  * a generic fallback. Shared across every v2 subcommand wrapper so the
  * exit-code contract (Invariant §4.6) has a single implementation.
  *
- * Both branches call `process.exit` explicitly. On success, `exit(0)` flushes
- * any lingering event-loop handles (e.g. the ws-client's ManagedRuntime
- * dispose) that would otherwise prevent the one-shot CLI process from
- * terminating naturally (sbd#198 / moltzap#228 Bug-2 fix).
+ * On success, this returns normally and relies on the `Layer.scoped`
+ * finalizer in `makeDirectTransport` to close the ws-client and drain
+ * the event loop (sbd#198 / moltzap#228 Bug-2 fix). No forced
+ * `process.exit(0)` — that would truncate piped stdout on large payloads.
  */
 export const runHandler = <
   E extends { readonly message?: string; readonly _tag?: string },
@@ -416,7 +423,6 @@ export const runHandler = <
         process.exit(1);
       }),
     ),
-    Effect.zipRight(Effect.sync(() => process.exit(0))),
   );
 
 /**
