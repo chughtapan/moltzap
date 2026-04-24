@@ -226,7 +226,20 @@ export class ConversationService {
   > {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
-        const cursorParam = cursor ?? null;
+        // Validate cursor as ISO-8601 timestamp before interpolation
+        let cursorParam: string | null = null;
+        if (cursor) {
+          const parsed = new Date(cursor);
+          if (
+            isNaN(parsed.getTime()) ||
+            parsed.toISOString() !== cursor
+          ) {
+            return yield* Effect.fail(
+              invalidParams(`cursor must be a valid ISO-8601 timestamp`),
+            );
+          }
+          cursorParam = cursor;
+        }
         const archivedFilter =
           archived === "only"
             ? sql`AND c.archived_at IS NOT NULL`
