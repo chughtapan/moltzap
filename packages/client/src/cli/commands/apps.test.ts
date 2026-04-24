@@ -21,6 +21,7 @@ import {
 } from "vitest";
 import {
   AppsInputError,
+  appsAttestSkillHandler,
   appsCloseHandler,
   appsCreateHandler,
   appsGetHandler,
@@ -273,10 +274,44 @@ describe("apps close", () => {
   });
 });
 
-describe("apps attest-skill (ESCALATED Q-AS-1)", () => {
-  it("AppsInputError class is exported for downstream escalation tracking", () => {
-    const err = new AppsInputError("test");
-    expect(err._tag).toBe("AppsInputError");
-    expect(err.reason).toBe("test");
+describe("apps attest-skill", () => {
+  let stdout: MockInstance;
+  beforeEach(() => {
+    stdout = vi.spyOn(console, "log").mockImplementation(() => {});
+  });
+  afterEach(() => stdout.mockRestore());
+
+  it("calls apps/attestSkill with challengeId, skillUrl, version and emits no stdout", async () => {
+    const { calls, transport } = makeFakeTransport(() => ({}));
+    await Effect.runPromise(
+      appsAttestSkillHandler({
+        challengeId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+        skillUrl: "https://example.com/skills/my-skill",
+        version: "1.0.0",
+      }).pipe(Effect.provideService(Transport, transport)),
+    );
+    expect(calls).toEqual([
+      {
+        method: "apps/attestSkill",
+        params: {
+          challengeId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+          skillUrl: "https://example.com/skills/my-skill",
+          version: "1.0.0",
+        },
+      },
+    ]);
+    expect(stdout).not.toHaveBeenCalled();
+  });
+
+  it("surfaces TransportRpcError on RPC failure", async () => {
+    const { transport } = makeFakeTransport(() => new Error("attestation rejected"));
+    const result = await Effect.runPromiseExit(
+      appsAttestSkillHandler({
+        challengeId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+        skillUrl: "https://example.com/skills/my-skill",
+        version: "1.0.0",
+      }).pipe(Effect.provideService(Transport, transport)),
+    );
+    expect(result._tag).toBe("Failure");
   });
 });
