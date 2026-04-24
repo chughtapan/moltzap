@@ -176,9 +176,17 @@ export function applyCall<M extends RpcMethodName>(
     case "agents/lookupByName":
       return { next: baseNext, outcome: uncertainError() };
 
-    // Conversations list — honest "ok".
+    // Conversations list — NOT oracle-confident across arbitrary
+    // params. Round-8 finding (architect-197 §2.2 literal-probe
+    // widening): `conversations/list` accepts `cursor: Type.String()`
+    // (any string) at the schema layer, but the server's cursor
+    // parser errors on pathological whitespace-only values. The
+    // model would be dishonest claiming `ok` across all draws. Move
+    // to `uncertainError`; K=1 today (agents/list only). Widening
+    // K requires either per-method param filters at the arbitrary
+    // layer OR a server-side cursor-parse fix; tracked under #186.
     case "conversations/list":
-      return { next: baseNext, outcome: allowNoEvents() };
+      return { next: baseNext, outcome: uncertainError() };
 
     // Conversations with required fields or state — uncertain.
     case "conversations/create":

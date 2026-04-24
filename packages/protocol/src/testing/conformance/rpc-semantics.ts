@@ -43,22 +43,32 @@ const DEFAULT_CAPTURE_CAPACITY = 64;
  * confident set (architect #195 §4.1 + #197 §2).
  *
  * Spec §5 B1: the server must produce what the model predicts when
- * the model is confident. Drawing from `arbitraryConfidentCall()` —
- * which is MECHANICALLY derived from `applyCall` at module load, not
- * hand-curated — ensures every draw hits the discriminating "model
- * predicts ok, server must be ok" branch; the pre-round-7 shape had
- * a 2/40 hit rate and was distribution-vacuous.
+ * the model is confident. `arbitraryConfidentCall()` draws calls via
+ * the architect-literal shape `fc.constantFrom(...kept).chain(
+ * arbitraryCallFor)` — probe and execution share the same generator
+ * so confidence is checked on the same distribution the property
+ * exercises (round-8 finding: a `.map(m => ({method: m, params: {}}))`
+ * shortcut narrowed execution below the probe and hid real
+ * param-dependent divergences).
  *
  * Param-invariance safety net (#197 §2.2 + §6.1): if a drawn call
  * comes back `_tag: "error"` from the model, the single-probe
  * derivation has diverged from runtime truth (applyCall became
- * param-sensitive for that method). The property raises
- * `PropertyInvariantViolation` instead of silently short-circuiting;
- * the fix is to widen the derivation, not extend this property.
+ * param-sensitive for that method under a later draw). The property
+ * raises `PropertyInvariantViolation` instead of silently short-
+ * circuiting; the fix is to widen the derivation (probe with K > 1
+ * samples), not extend this property.
  *
- * numRuns floor: `max(10, 2K)` where K = |confidentOracleMethods|.
- * At K=2 today this is 10 (5× expected per-method, vs pre-round-7 2×
- * at numRuns=4).
+ * Current K = 1 (agents/list only). Architect #197 §2.3 notes that
+ * "when K ≤ 2, the property is operating as a small number of hand-
+ * picked examples; document it in JSDoc, don't pretend it's a fuzz
+ * property." Widening K requires either teaching `applyCall` per-
+ * method param filters (e.g. `conversations/list` confident only
+ * when cursor is undefined/valid) or fixing server-side parsers that
+ * error on pathological schema-valid params (e.g. `cursor: " "` →
+ * SqlError on pglite cursor parsing). Tracked under #186.
+ *
+ * numRuns floor: `max(10, 2K)` = 10 today.
  */
 export function registerModelEquivalence(ctx: ConformanceRunContext): void {
   const K = confidentOracleMethods.length;

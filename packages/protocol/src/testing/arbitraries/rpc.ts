@@ -96,19 +96,20 @@ export const confidentOracleMethods: ReadonlyArray<RpcMethodName> = (() => {
 })();
 
 /**
- * Draw a call from the model's confident-oracle set. Used by
- * `registerModelEquivalence` so the conditional oracle's confident
- * branch fires every draw.
+ * Draw a call from the model's confident-oracle set. Per architect
+ * #197 §2.2 literal shape: `fc.constantFrom(...kept).chain(
+ * arbitraryCallFor)`. Probe at module load uses the same
+ * `arbitraryCallFor(m)` generator as execution — so confidence is
+ * checked on the same distribution the property exercises.
  *
- * Architect #197 §2.2: "a method can be oracle-confident for one
- * param choice and uncertain for another." For the current confident
- * methods (list-shaped, fully-optional params), the server is
- * oracle-confident when params are empty; arbitrary draws that
- * populate optional fields (e.g. `cursor: " "`) can hit edge-case
- * server behaviours the model can't reliably predict. Draw
- * `{ params: {} }` for each confident method to stay honest about
- * the per-call confidence scope. Widening the params space is a
- * model-coverage change — route through `applyCall` + the safety-net.
+ * If a kept method turns out to be param-sensitive under a later
+ * draw (model predicts ok for the one probe sample but rejects a
+ * subsequent arbitrary-drawn params), the safety-net guard in
+ * `registerModelEquivalence` raises `PropertyInvariantViolation`
+ * pointing at this file — the fix is to widen the derivation (probe
+ * K > 1 samples and keep only methods where every probe predicts ok)
+ * per the architect's contract. Single-probe is sufficient when
+ * `applyCall` is method-only (today).
  */
 export function arbitraryConfidentCall(): fc.Arbitrary<ArbitraryRpcCall> {
   if (confidentOracleMethods.length === 0) {
@@ -116,11 +117,7 @@ export function arbitraryConfidentCall(): fc.Arbitrary<ArbitraryRpcCall> {
       "arbitraryConfidentCall: model has zero confident-oracle methods; flag needs-structural-rework",
     );
   }
-  return fc.constantFrom(...confidentOracleMethods).map(
-    (method) =>
-      ({
-        method,
-        params: {} as RpcMap[typeof method]["params"],
-      }) as const,
-  );
+  return fc
+    .constantFrom(...confidentOracleMethods)
+    .chain((method) => arbitraryCallFor(method));
 }
