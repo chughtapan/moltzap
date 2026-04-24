@@ -147,17 +147,20 @@ export function registerSchemaExhaustiveFuzz(ctx: ConformanceRunContext): void {
           yield* client
             .sendRpc(sampled.method, sampled.params)
             .pipe(Effect.either);
-          // Post-fuzz liveness: if the drawn call didn't crash the
-          // server, a follow-up RPC must still land cleanly.
+          // Post-fuzz liveness: a follow-up RPC must return a typed
+          // response. Accepting any `Left` would let a timeout or
+          // transport-close slip through as "server alive" — which is
+          // exactly what the property must reject. Require the post
+          // call to SUCCEED; timeouts are failures here.
           const post = yield* client
             .sendRpc("agents/list", {})
             .pipe(Effect.either);
-          if (post._tag !== "Right" && post._tag !== "Left") {
+          if (post._tag !== "Right") {
             return yield* Effect.fail(
               new PropertyInvariantViolation({
                 category: CATEGORY,
                 name: "schema-exhaustive-fuzz",
-                reason: `server became unresponsive after ${method}`,
+                reason: `server became unresponsive after ${method} (post-call ${post._tag === "Left" ? post.left._tag : "unknown"})`,
               }),
             );
           }
