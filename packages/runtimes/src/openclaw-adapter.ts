@@ -15,6 +15,10 @@ import type {
 } from "./runtime.js";
 import { SpawnFailed } from "./errors.js";
 
+const OPENCLAW_TERM_WAIT_MS = 10_000;
+const OPENCLAW_KILL_WAIT_MS = 5_000;
+const PROCESS_GROUP_POLL_INTERVAL_MS = 100;
+
 export interface OpenClawAdapterDeps {
   readonly server: RuntimeServerHandle;
   readonly openclawBin: string;
@@ -175,28 +179,26 @@ export class OpenClawAdapter implements Runtime {
     return "inbound from agent:";
   }
 
-  /** Async teardown: SIGTERM → await exit event (≤10s) → SIGKILL → rm workdir. */
+  /** Async teardown: SIGTERM → await group exit (≤10s) → SIGKILL → rm workdir. */
   // #ignore-sloppy-code-next-line[async-keyword, promise-type]: child_process exit event + fs.rm boundary
   private async doTeardown(): Promise<void> {
     if (!this.state || this.state.tornDown) return;
     this.state.tornDown = true;
 
     const { child, stateDir } = this.state;
+    const groupId = child.pid ?? null;
 
-    this.killGroup(child, "SIGTERM");
-
-    if (child.exitCode === null) {
-      await new Promise<void>((resolve) => {
-        const timer = setTimeout(resolve, 10_000);
-        child.once("exit", () => {
-          clearTimeout(timer);
-          resolve();
-        });
-      });
-    }
-
-    if (child.exitCode === null) {
-      this.killGroup(child, "SIGKILL");
+    if (groupId !== null) {
+      this.killGroup(groupId, "SIGTERM");
+      const exitedAfterTerm = await Effect.runPromise(
+        this.waitForProcessGroupExit(groupId, OPENCLAW_TERM_WAIT_MS),
+      );
+      if (!exitedAfterTerm) {
+        this.killGroup(groupId, "SIGKILL");
+        await Effect.runPromise(
+          this.waitForProcessGroupExit(groupId, OPENCLAW_KILL_WAIT_MS),
+        );
+      }
     }
 
     try {
@@ -207,11 +209,44 @@ export class OpenClawAdapter implements Runtime {
     }
   }
 
-  private killGroup(child: ChildProcess, signal: NodeJS.Signals): void {
+  private waitForProcessGroupExit(
+    groupId: number,
+    timeoutMs: number,
+  ): Effect.Effect<boolean, never, never> {
+    const deadline = Date.now() + timeoutMs;
+    const poll = (): Effect.Effect<boolean, never, never> =>
+      Effect.sync(() => this.isProcessGroupAlive(groupId)).pipe(
+        Effect.flatMap((alive) => {
+          if (!alive) {
+            return Effect.succeed(true);
+          }
+          if (Date.now() >= deadline) {
+            return Effect.succeed(false);
+          }
+          return Effect.sleep(`${PROCESS_GROUP_POLL_INTERVAL_MS} millis`).pipe(
+            Effect.flatMap(() => poll()),
+          );
+        }),
+      );
+    return poll();
+  }
+
+  private isProcessGroupAlive(groupId: number): boolean {
     try {
-      if (child.pid != null) {
-        process.kill(-child.pid, signal);
-      }
+      process.kill(-groupId, 0);
+      return true;
+    } catch (error) {
+      return !(
+        error instanceof Error &&
+        "code" in error &&
+        error.code === "ESRCH"
+      );
+    }
+  }
+
+  private killGroup(groupId: number, signal: NodeJS.Signals): void {
+    try {
+      process.kill(-groupId, signal);
       // #ignore-sloppy-code-next-line[bare-catch]: ESRCH — process already dead
     } catch (_err) {
       void _err;

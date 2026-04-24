@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events";
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { Effect, Exit, Fiber } from "effect";
 
@@ -185,6 +186,79 @@ describe("OpenClawAdapter.teardown", () => {
     const adapter = new OpenClawAdapter(stubDeps());
     await Effect.runPromise(adapter.teardown());
     await Effect.runPromise(adapter.teardown());
+  });
+
+  it("waits for detached process-group exit before returning", async () => {
+    vi.useFakeTimers();
+    const killCalls: Array<{
+      readonly pid: number;
+      readonly signal: NodeJS.Signals | 0;
+    }> = [];
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(((
+      pid: number,
+      signal?: NodeJS.Signals | 0,
+    ) => {
+      killCalls.push({ pid, signal: signal ?? 0 });
+      if (pid !== -4242) {
+        throw new Error(`Unexpected pid ${pid}`);
+      }
+      if ((signal ?? 0) === 0) {
+        if (groupAlive) {
+          return true;
+        }
+        const err = new Error("ESRCH") as Error & { code?: string };
+        err.code = "ESRCH";
+        throw err;
+      }
+      if (signal === "SIGTERM") {
+        fakeChild.exitCode = 0;
+        queueMicrotask(() => {
+          fakeChild.emit("exit", 0, null);
+        });
+        return true;
+      }
+      if (signal === "SIGKILL") {
+        groupAlive = false;
+        return true;
+      }
+      return true;
+    }) as typeof process.kill);
+    let groupAlive = true;
+    const fakeChild = new EventEmitter() as EventEmitter & {
+      exitCode: number | null;
+      pid: number;
+    };
+    fakeChild.exitCode = null;
+    fakeChild.pid = 4242;
+
+    const adapter = new OpenClawAdapter(stubDeps());
+    (adapter as OpenClawAdapterWithInjectedState).state = {
+      child: fakeChild,
+      stateDir: "/tmp/openclaw-teardown-test",
+      logBuffer: "",
+      spawnInput: stubSpawnInput(),
+      tornDown: false,
+    };
+
+    try {
+      const teardownPromise = Effect.runPromise(adapter.teardown());
+      await vi.advanceTimersByTimeAsync(15_000);
+      await teardownPromise;
+    } finally {
+      vi.useRealTimers();
+      killSpy.mockRestore();
+    }
+
+    expect(killCalls).toEqual(
+      expect.arrayContaining([
+        { pid: -4242, signal: "SIGTERM" },
+        { pid: -4242, signal: "SIGKILL" },
+      ]),
+    );
+    expect(
+      killCalls.filter((call) => call.pid === -4242 && call.signal === 0)
+        .length,
+    ).toBeGreaterThan(0);
   });
 });
 
@@ -419,6 +493,21 @@ interface MockRuntimeHandle {
   readonly stats: MockRuntimeStats;
   readonly waitStarted: Promise<void>;
 }
+
+interface InjectedOpenClawAdapterState {
+  readonly child: EventEmitter & {
+    readonly pid: number;
+    exitCode: number | null;
+  };
+  readonly stateDir: string;
+  readonly logBuffer: string;
+  readonly spawnInput: SpawnInput;
+  tornDown: boolean;
+}
+
+type OpenClawAdapterWithInjectedState = OpenClawAdapter & {
+  state: InjectedOpenClawAdapterState | null;
+};
 
 function stubRuntimeAgentSpec(
   overrides?: Partial<RuntimeAgentSpec>,
