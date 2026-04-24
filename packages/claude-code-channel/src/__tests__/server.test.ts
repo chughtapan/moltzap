@@ -330,6 +330,52 @@ describe("reply tool routing (spec OQ5)", () => {
     }
   });
 
+  it("rejects reply with non-empty files with FilesUnsupported tool error (v1, reviewer-187)", async () => {
+    const sent: Array<{ chatId: string; text: string }> = [];
+    const { client, routing, cleanup } = await setup({
+      onSendReply: (chatId, text) =>
+        Effect.sync(() => {
+          sent.push({ chatId, text });
+        }),
+    });
+    try {
+      routing.recordInbound("M-a" as MessageId, "C-a" as ChatId);
+      const result = await client.callTool({
+        name: "reply",
+        arguments: { text: "hi", reply_to: "M-a", files: ["a.png", "b.png"] },
+      });
+      expect(result.isError).toBe(true);
+      const content = Array.isArray(result.content) ? result.content : [];
+      expect(JSON.stringify(content)).toMatch(/FilesUnsupported/);
+      expect(JSON.stringify(content)).toMatch(/2 file\(s\)/);
+      // Critical: the send side-effect MUST NOT fire when files are rejected.
+      expect(sent).toEqual([]);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("accepts reply with empty files array (equivalent to omitted)", async () => {
+    const sent: Array<{ chatId: string; text: string }> = [];
+    const { client, routing, cleanup } = await setup({
+      onSendReply: (chatId, text) =>
+        Effect.sync(() => {
+          sent.push({ chatId, text });
+        }),
+    });
+    try {
+      routing.recordInbound("M-a" as MessageId, "C-a" as ChatId);
+      const result = await client.callTool({
+        name: "reply",
+        arguments: { text: "hi", reply_to: "M-a", files: [] },
+      });
+      expect(result.isError).not.toBe(true);
+      expect(sent).toEqual([{ chatId: "C-a", text: "hi" }]);
+    } finally {
+      await cleanup();
+    }
+  });
+
   it("surfaces ReplyError.SendFailed as tool error (isError: true)", async () => {
     const { client, routing, cleanup } = await setup({
       onSendReply: () =>
@@ -363,7 +409,9 @@ describe("decodeReplyArgs — boundary validation (Principle 2)", () => {
     expect(r.value.files).toBeUndefined();
   });
 
-  it("accepts {text, reply_to, files}", () => {
+  it("decodes {text, reply_to, files} — rejection happens at handler, not decoder", () => {
+    // Decoder preserves the `files` field so the handler can emit a tagged
+    // FilesUnsupported tool error. Contract surface stays intact (spec A4).
     const r = decodeReplyArgs({ text: "hi", reply_to: "M1", files: ["a.png"] });
     expect(r._tag).toBe("Ok");
     if (r._tag !== "Ok") return;

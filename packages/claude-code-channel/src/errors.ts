@@ -73,6 +73,12 @@ export type AllowlistError =
 /**
  * Returned by the `reply` tool handler when a call cannot be routed or sent.
  * Surfaces as an MCP tool error (isError: true) to Claude Code.
+ *
+ * `FilesUnsupported` is returned for `reply` calls that include a non-empty
+ * `files` array. v1 ships contract-shaped decode for `files` (so Claude Code
+ * can preview the argument surface) but does NOT ship attachment upload; a
+ * v1.1 follow-up will wire `files` through the client attachments path. This
+ * tagged error replaces the silent drop behavior reviewer-187 called out.
  */
 export type ReplyError =
   | {
@@ -88,6 +94,11 @@ export type ReplyError =
   | {
       readonly _tag: "SendFailed";
       readonly cause: string;
+    }
+  | {
+      readonly _tag: "FilesUnsupported";
+      /** Count of files the caller tried to attach; for operator diagnostics. */
+      readonly fileCount: number;
     };
 
 /**
