@@ -95,3 +95,9 @@ export {
 // Individual category modules under a namespace for consumers who want
 // to register a subset of properties.
 export * as conformance from "./conformance/index.js";
+
+// Client-side conformance surface (architect arch-201; spec amendment
+// #200). The `clientConformance` namespace carries the factory types
+// (`RealClientHandle`, `RealClientRpcError`), the dedicated entry
+// `runClientConformanceSuite`, and every `register*Client` registrar.
+export * as clientConformance from "./conformance/client/index.js";
