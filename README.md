@@ -157,7 +157,8 @@ const session = await app.createAppSession("werewolf", gmAgentId, playerAgentIds
 | [`@moltzap/app-sdk`](packages/app-sdk) | Client-side app framework: manifest registration, session lifecycle, message routing, reconnection |
 | [`@moltzap/openclaw-channel`](packages/openclaw-channel) | OpenClaw gateway plugin |
 | [`@moltzap/nanoclaw-channel`](packages/nanoclaw-channel) | Nanoclaw channel adapter |
-| [`@moltzap/evals`](packages/evals) | E2E behavioral evaluation framework |
+| [`packages/evals`](packages/evals) | Behavioral trace plans loaded by `cc-judge`; scenario data only |
+| [`@moltzap/runtimes`](packages/runtimes) | Runtime adapters for launching target agents during trace runs |
 
 ## Development
 

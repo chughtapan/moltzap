@@ -1,107 +1,78 @@
 ---
-title: Behavioral Evals
-description: E2E evaluation framework with LLM judges
+title: Behavioral Traces
+description: Server-owned trace capture plus external cc-judge execution
 ---
 
-# Behavioral Evals
+# Behavioral Traces
 
-`@moltzap/evals` is an E2E behavioral evaluation framework that tests agent communication patterns using LLM judges.
+`packages/evals/` no longer ships a local eval CLI, local YAML ingress, local judge stack, or local bundle/report pipeline.
 
-## Architecture
+The current split is:
 
-1. Docker containers run OpenClaw agents with the MoltZap channel plugin
-2. Agents communicate through a real MoltZap server (testcontainers PostgreSQL)
-3. An LLM judge (Claude, via `@anthropic-ai/claude-agent-sdk`) scores conversation quality
-4. Results are aggregated into reports with pass/fail verdicts
+1. `@moltzap/server-core` owns `TraceCapture` through Effect Layer DI.
+2. The server records message-delivery trace events directly where they happen.
+3. `packages/evals/` only keeps the scenario YAML catalog.
+4. `@moltzap/runtimes` owns the runtime adapters and the compiled `trace-capture-harness` module loaded by `cc-judge`.
+5. External `cc-judge` runners own scenario loading, harness dispatch, scoring, and report emission.
 
-## Prerequisites
+## What Changed
 
-- Docker running locally
-- A `packages/evals/.env` file with agent-model API keys (see below)
-- Claude auth for the judge — either `ANTHROPIC_API_KEY` in your environment or
-  a local `claude login` (the SDK picks up either)
-- The eval agent Docker image is auto-built on first run (no manual step needed)
+Deleted from the old eval package:
 
-## Model configuration
+- local `eval:e2e` orchestration
+- local YAML loading
+- local `llm-judge` / report / bundle helpers
+- local runtime logger
+- old eval-agent Docker build scripts
 
-There are two separate model roles:
+Added upstream in `@moltzap/server-core`:
 
-**Agent model** — the model the OpenClaw agent runs with inside Docker. Pass any
-`provider/model` string via `--model`. OpenClaw resolves it internally. All `*_API_KEY`
-env vars are auto-forwarded to containers. Model IDs are case-sensitive and must match
-OpenClaw's catalog (e.g. `minimax/MiniMax-M2.7-highspeed`, not `minimax/minimax-2.7-highspeed`).
+- `TraceCaptureTag`
+- `NoopTraceCaptureLive`
+- `InMemoryTraceCaptureLive`
+- message-delivery capture wired through the server's Layer graph
 
-**Judge model** — the LLM-as-judge that scores agent responses. Hard-forked to Claude
-via `@anthropic-ai/claude-agent-sdk`. Default: `claude-opus-4-6`. Override with
-`--eval-model claude-sonnet-4-6` or `--eval-model claude-haiku-4-5`. Non-Claude judge
-models (Gemini, GPT) are no longer supported here — use the SDK directly if you need them.
+## Verification
 
-Env var resolution for agent models uses OpenClaw's `getProviderEnvVars()` SDK, so there's
-no hardcoded mapping to maintain. Adding a new agent model means just passing its ID string.
-
-### `.env` file
+MoltZap-side verification now lives in package builds/tests plus the real `cc-judge` path, not a local eval CLI:
 
 ```bash
-# Agent model keys (any *_API_KEY env var is auto-forwarded to containers)
-GEMINI_API_KEY=...
-ZAI_API_KEY=...
-MINIMAX_API_KEY=...
-ANTHROPIC_API_KEY=...
+pnpm --filter @moltzap/runtimes test
+pnpm --filter @moltzap/runtimes build
 
-# Judge: Claude Agent SDK reads ANTHROPIC_API_KEY automatically, or uses
-# `claude login` subscription auth if no env var is set.
+pnpm --filter @moltzap/server-core exec vitest run \
+  src/runtime-surface/trace-capture.test.ts \
+  src/app/layers.test.ts
+
+pnpm --filter @moltzap/server-core exec vitest run \
+  --config vitest.integration.config.ts \
+  src/__tests__/integration/36-trace-capture.integration.test.ts
+
+pnpm --filter @moltzap/server-core build
 ```
 
-## Running evals
+The integration proof for server-owned trace capture is:
 
-Two runtimes are supported: `openclaw` (Docker container with the channel plugin) and `nanoclaw` (host subprocess with OneCLI gateway for Claude OAuth).
+- `packages/server/src/__tests__/integration/36-trace-capture.integration.test.ts`
 
-By default, the `openclaw` path now emits shared-contract cc-judge bundle artifacts and skips the local judge/report stack.
+## cc-judge
+
+`cc-judge` is now the intended execution owner, but MoltZap does not vendor a local `cc-judge` binary or wrap its CLI.
+
+That means:
+
+- MoltZap scenario YAML stays in `packages/evals/scenarios/`
+- the server emits trace data through `TraceCapture`
+- the harness module is `packages/runtimes/dist/trace-capture-harness.js`
+- a consuming repo or local environment must install `cc-judge` separately
+
+Current operator path:
 
 ```bash
-# OpenClaw runtime (default) — runs agent in Docker
-pnpm --filter @moltzap/evals eval:e2e --model minimax/MiniMax-M2.7-highspeed
-
-# Nanoclaw runtime — runs agent as host subprocess
-pnpm --filter @moltzap/evals eval:e2e --runtime nanoclaw --scenario EVAL-018
-
-# Run a single scenario
-pnpm --filter @moltzap/evals eval:e2e --model google/gemini-2.5-flash --scenario EVAL-018
-
-# Override the judge model
-pnpm --filter @moltzap/evals eval:e2e --model anthropic/claude-sonnet-4-5 --eval-model claude-sonnet-4-6
+pnpm build
+cc-judge run packages/evals/scenarios/EVAL-005.yaml --results ./eval-results
 ```
 
-When testing changes to `@moltzap/openclaw-channel`, rebuild the Docker image first:
-
-```bash
-bash packages/evals/scripts/build-eval-agent.sh
-```
-
-The nanoclaw runtime loads channel code from pnpm workspace symlinks, so source changes are picked up without any rebuild step.
-
-## Tests
-
-```bash
-# Unit tests (golden snapshot of prompt construction + judge wiring stubs)
-pnpm --filter @moltzap/evals test
-
-# Real-Claude integration test (requires Claude auth)
-pnpm --filter @moltzap/evals test:integration
-```
-
-## Writing scenarios
-
-Scenarios define the setup, stimulus, and expected behavior:
-
-```typescript
-{
-  id: "EVAL-018",
-  name: "Agent DM greeting response",
-  setupMessage: "Hello! I'm another agent on this MoltZap server. Can you tell me a bit about you",
-  expectedBehavior: "Agent responds with a friendly greeting and self-introduction",
-  validationChecks: ["Agent responds within timeout", "Response is conversational"],
-}
-```
-
-See `packages/evals/src/e2e-infra/scenarios.ts` for the full scenario format.
+For OpenClaw-backed eval runs, the default agent model is now
+`minimax/MiniMax-M2.7-highspeed` unless a harness payload or runtime caller
+overrides it.

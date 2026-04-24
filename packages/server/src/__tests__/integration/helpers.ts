@@ -10,6 +10,7 @@ import {
   getCoreApp,
 } from "../../test-utils/index.js";
 import type { UserService } from "../../services/user.service.js";
+import type { TraceCaptureTag } from "../../runtime-surface/trace-capture.js";
 import {
   registerAndConnect,
   registerOnly,
@@ -22,6 +23,7 @@ import {
 import type { Database } from "../../db/database.js";
 import type { Kysely } from "kysely";
 import type { CoreApp } from "../../app/types.js";
+import type { Layer } from "effect";
 
 export type { ConnectedAgent } from "../../test-utils/helpers.js";
 export { MoltZapWsClient } from "@moltzap/client";
@@ -43,6 +45,7 @@ export async function startTestServer(_opts?: {
   encryption?: boolean;
   /** Optional validator forwarded to `startCoreTestServer` — see its docs. */
   userService?: UserService;
+  traceCaptureLayer?: Layer.Layer<TraceCaptureTag>;
 }): Promise<{
   baseUrl: string;
   wsUrl: string;
@@ -58,6 +61,7 @@ export async function startTestServer(_opts?: {
     pgPort,
     encryption: _opts?.encryption,
     userService: _opts?.userService,
+    traceCaptureLayer: _opts?.traceCaptureLayer,
   });
   _coreApp = server.coreApp;
   return {

@@ -1,0 +1,23 @@
+project: moltzap
+scenarioId: EVAL-006
+name: Group conversation behavior
+description: Agent receives a message in a group conversation with prior bystander activity and responds appropriately
+requirements:
+  expectedBehavior: The agent should respond concisely about its capabilities or status. In a group context, responses should be focused and not overly long. The agent should address the group (not just the sender) and keep within the 'brief' instruction.
+  validationChecks:
+    - Response is a valid MoltZap message with non-empty text parts
+    - Response is concise (under 200 words)
+    - Response is relevant to the question about progress/work
+    - Response acknowledges the group context
+harness:
+  module: ../../runtimes/dist/trace-capture-harness.js
+  payload:
+    runtime:
+      kind: openclaw
+    conversation:
+      kind: group
+      setupMessage: Team, let's discuss our progress. What has everyone been working on? Keep it brief.
+      bystanders:
+        - name: group-bystander-1
+          messages:
+            - Hey everyone, quick check-in. I've been working on data pipelines.
