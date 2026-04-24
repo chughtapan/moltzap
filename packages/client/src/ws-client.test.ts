@@ -13,6 +13,7 @@
  * `ManagedRuntime`, whose default Clock is out of reach of a test-fiber's
  * `TestClock` (see the `describe("reconnect backoff")` block for details).
  */
+import { execSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { it as itEffect } from "@effect/vitest";
 import {
@@ -180,9 +181,8 @@ const sendRpcP = (
     ),
   );
 
-const closeClient = (client: MoltZapWsClient): void => {
-  Effect.runSync(client.close());
-};
+const closeClient = (client: MoltZapWsClient): Effect.Effect<void, never> =>
+  client.close();
 
 /**
  * Start a server whose handler auto-responds to `auth/connect` and forwards
@@ -315,7 +315,7 @@ describe("§5.1 connect() does not hang on pre-open failure", () => {
         );
         const elapsed = Date.now() - t0;
         expect(elapsed).toBeLessThan(3000);
-        closeClient(client);
+        yield* closeClient(client);
       }),
     );
   });
@@ -339,7 +339,7 @@ describe("§5.1 connect() does not hang on pre-open failure", () => {
     }
     const elapsed = Date.now() - t0;
     expect(elapsed).toBeLessThan(15_000);
-    closeClient(client);
+    await Effect.runPromise(client.close());
   }, 20_000);
 
   it("resolves with HelloOk on the happy open → auth/connect path", async () => {
@@ -352,7 +352,7 @@ describe("§5.1 connect() does not hang on pre-open failure", () => {
         };
         expect(hello.agentId).toBe("agent-xyz");
         expect(client.helloOk).toEqual(hello);
-        closeClient(client);
+        yield* closeClient(client);
       }),
     );
   });
@@ -388,7 +388,7 @@ describe("§5.2 pending RPCs fail on disconnect", () => {
         yield* Effect.promise(() =>
           expect(rpcP).rejects.toThrow(/WebSocket not connected/),
         );
-        closeClient(client);
+        yield* closeClient(client);
       }),
     );
   });
@@ -547,7 +547,7 @@ describe("reconnect backoff", () => {
         );
         expect((reconnectHello as { agentId: string }).agentId).toBe("agent-1");
 
-        closeClient(client);
+        yield* closeClient(client);
       }),
     );
   });
@@ -592,7 +592,7 @@ describe("§5.4 malformed frames are logged but do not affect pending RPCs", () 
         // Logger saw at least one malformed-frame warning.
         expect(logger.warn).toHaveBeenCalled();
 
-        closeClient(client);
+        yield* closeClient(client);
       }),
     );
   });
@@ -637,7 +637,7 @@ describe("§5.4 malformed frames are logged but do not affect pending RPCs", () 
         expect(events[0]).toMatchObject({ event: "messages/received" });
         expect(logger.warn).not.toHaveBeenCalled();
 
-        closeClient(client);
+        yield* closeClient(client);
       }),
     );
   });
@@ -673,7 +673,7 @@ describe("§5.4 malformed frames are logged but do not affect pending RPCs", () 
           event: "message.received",
         });
 
-        closeClient(client);
+        yield* closeClient(client);
       }),
     );
   });
@@ -699,7 +699,7 @@ describe("§5.4 malformed frames are logged but do not affect pending RPCs", () 
         expect(events).toHaveLength(0);
         expect(logger.warn).toHaveBeenCalled();
 
-        closeClient(client);
+        yield* closeClient(client);
       }),
     );
   });
@@ -743,7 +743,7 @@ describe("malformed-frame log cadence (MALFORMED_LOG_EVERY)", () => {
         expect(warnMessages[1]).toMatch(/^Malformed frame \(#50\):/);
         expect(warnMessages[2]).toMatch(/^Malformed frame \(#100\):/);
 
-        closeClient(client);
+        yield* closeClient(client);
       }),
     );
   });
@@ -768,7 +768,7 @@ describe("close() interleaved with a pending RPC", () => {
         );
 
         const beforeMs = Date.now();
-        closeClient(client);
+        yield* closeClient(client);
         yield* Effect.promise(() =>
           expect(rpcP).rejects.toThrow(/WebSocket not connected/),
         );
@@ -801,7 +801,7 @@ describe("socket error after connect", () => {
         // Logger captured the WebSocket error (warn level).
         expect(logger.warn).toHaveBeenCalled();
 
-        closeClient(client);
+        yield* closeClient(client);
       }),
     );
   });
@@ -849,7 +849,7 @@ describe("sendRpc(RpcDefinition, params) — typed manifest overload", () => {
         expect(result.echoedMethod).toBe("agents/lookupByName");
         expect(result.echoedParams).toEqual({ names: ["alice"] });
 
-        closeClient(client);
+        yield* closeClient(client);
       }),
     );
   });
@@ -875,8 +875,55 @@ describe("sendRpc(RpcDefinition, params) — typed manifest overload", () => {
         )) as { echoedMethod: string; agents: unknown[] };
         expect(result.echoedMethod).toBe("agents/lookupByName");
 
-        closeClient(client);
+        yield* closeClient(client);
       }),
     );
   });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// AC2 — graceful close drains ESTABLISHED sockets (socket-count evidence)
+// ─────────────────────────────────────────────────────────────────────
+
+describe("graceful close drains ESTABLISHED sockets (AC2)", () => {
+  it("10 clients close cleanly: no CLOSE_WAIT sockets on the server port", async () => {
+    await withTestServer(
+      Effect.gen(function* () {
+        const server = yield* startHandshakingServer(() => Effect.void);
+        const port = new URL(server.url).port;
+
+        // Connect 10 clients concurrently.
+        const clients = yield* Effect.all(
+          Array.from({ length: 10 }, () => {
+            const c = makeClient(server.url);
+            return Effect.promise(() => connectP(c)).pipe(Effect.map(() => c));
+          }),
+          { concurrency: "unbounded" },
+        );
+        expect(server.connections.length).toBe(10);
+
+        // Close all 10 via the graceful Effect-based close().
+        yield* Effect.all(
+          clients.map((c) => c.close()),
+          { concurrency: "unbounded" },
+        );
+
+        // Brief pause for TCP close handshake to complete.
+        yield* Effect.sleep("150 millis");
+
+        // Assert no CLOSE_WAIT connections remain on the server port.
+        const ssOut = yield* Effect.sync(() =>
+          execSync("ss -tn state CLOSE-WAIT 2>/dev/null || true", {
+            encoding: "utf-8",
+          }),
+        );
+        const stale = ssOut
+          .split("\n")
+          .filter(
+            (line) => line.includes(`:${port} `) || line.endsWith(`:${port}`),
+          );
+        expect(stale).toHaveLength(0);
+      }),
+    );
+  }, 15_000);
 });

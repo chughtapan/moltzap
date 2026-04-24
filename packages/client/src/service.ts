@@ -240,7 +240,7 @@ export class MoltZapService {
     this._connected = false;
     this.stopSocketServer();
     if (this.client) {
-      Effect.runSync(this.client.close());
+      void Effect.runPromise(this.client.close());
     }
     this.client = null;
     Effect.runSync(
