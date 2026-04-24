@@ -1,94 +1,93 @@
 /**
  * Divergence proofs for adversity properties.
- * See schema-conformance.proofs.ts for protocol notes.
  *
- * Note: `registerBackpressure` is deferred (→ epic #186); no proof.
+ * `registerBackpressure` is deferred (→ epic #186); no proof.
+ *
+ * Every `it` carries the 4-line author checklist per architect #197
+ * §4.3: Mutation / Predicate broken / Expected observable /
+ * Last verified.
  */
 import { describe, it, expect } from "vitest";
 
 describe.skip("registerLatencyResilience — divergence proofs", () => {
   it("fails when latency exceeds the property's observation window", () => {
-    // Mutation: in `packages/protocol/src/testing/toxics/defaults.ts`,
-    // raise `latencyMs` from 100ms to 2000ms (exceeding the 600ms
-    // `Effect.sleep` inside the property body).
-    //
-    // Expected property result: FAIL — `delivered === 0` at the
-    // snapshot moment (latency > sleep window), triggering
-    // "latency toxic dropped all events".
-    //
-    // This proves the property's snapshot timing is tuned for the
-    // default latency profile, not arbitrarily forgiving.
+    // Mutation: raise `latencyMs` from 100ms to 2000ms in
+    //   toxics/defaults.ts (exceeds the 600ms `Effect.sleep` inside
+    //   the property body).
+    // Predicate broken: adversity.ts — `delivered === 0` branch
+    //   inside registerLatencyResilience's snapshot filter.
+    // Expected observable: PropertyInvariantViolation reason
+    //   "latency toxic dropped all events".
+    // Last verified: pending toxic-profile mutation.
     expect(true).toBe(true);
   });
 });
 
 describe.skip("registerSlicerFraming — divergence proofs", () => {
   it("fails when slicing drops a byte at the boundary", () => {
-    // Mutation: write a tiny proxy shim that drops 1 byte from every
-    // sliced frame before forwarding (simulates framing corruption).
-    //
-    // Expected property result: FAIL — the token does not appear
-    // verbatim in any inbound frame, triggering "token sli-token-...
-    // not reassembled in participant's frames".
-    //
-    // The property's byte-identity substring check specifically
-    // discriminates this mutation; a round-trip encoding is not
-    // sufficient for proving opacity under fragmentation.
+    // Mutation: write a proxy shim that drops 1 byte from every
+    //   sliced frame before forwarding (simulates framing corruption
+    //   at the transport layer).
+    // Predicate broken: adversity.ts —
+    //   `snap.some(s => s.raw.includes(token))` inside
+    //   registerSlicerFraming.
+    // Expected observable: PropertyInvariantViolation reason
+    //   "token sli-token-<...> not reassembled in participant's frames".
+    // Last verified: pending local mutation.
     expect(true).toBe(true);
   });
 });
 
 describe.skip("registerResetPeerRecovery — divergence proofs", () => {
   it("PropertyUnavailable fires when toxic disabled (no reset observed)", () => {
-    // Mutation: temporarily remove the reset_peer toxic attach
-    // (comment out the `yield* attachToxic` line in the property body).
-    //
-    // Expected property result: `PropertyUnavailable("reset_peer
-    // toxic did not close within 3.5s budget")` — the property can't
-    // observe the typed TransportClosedError it needs to pass.
-    //
-    // This is the "negative-outcome" divergence proof architect §3
-    // named for this property — the predicate discriminates between
-    // "toxic fired and client surfaced typed close" vs "no toxic".
+    // Mutation: comment out `yield* attachToxic` in
+    //   registerResetPeerRecovery's body. No reset toxic attaches;
+    //   the RPC loop completes without observing a typed close.
+    // Predicate broken: adversity.ts — `if (!observed)` branch
+    //   raises PropertyUnavailable with
+    //   "reset_peer toxic did not close within 3.5s budget".
+    // Expected observable: suite reports the property as
+    //   `unavailable` (not `failed`) — expected negative-outcome
+    //   proof per architect #195 §3.
+    // Last verified: pending local mutation.
     expect(true).toBe(true);
   });
 });
 
 describe.skip("registerTimeoutSurface — divergence proofs", () => {
-  it("fails when sendRpc resolves successfully despite the timeout toxic", () => {
-    // Mutation: temporarily remove the toxic attach. Without the toxic
-    // the forwarding timeout never fires; sendRpc succeeds within the
-    // 1500ms budget.
-    //
-    // Expected property result: FAIL —
-    // "RPC through timeout toxic unexpectedly succeeded"
-    // (outcome._tag === "Right").
-    //
-    // Proves the property isn't just accepting "something went wrong";
-    // it specifically requires the documented RpcTimeoutError shape.
+  it("fails when sendRpc resolves successfully despite the toxic", () => {
+    // Mutation: remove the `yield* attachToxic` line from
+    //   registerTimeoutSurface's body.
+    // Predicate broken: adversity.ts — `if (outcomeTag === "success")`
+    //   branch raises PropertyInvariantViolation.
+    // Expected observable: PropertyInvariantViolation reason
+    //   "RPC through timeout toxic unexpectedly succeeded".
+    // Last verified: pending local mutation.
     expect(true).toBe(true);
   });
 
   it("fails when the client surfaces wrong error type", () => {
-    // Mutation: in TestClient, wrap the sendRpc timeout with a
-    // substitute error (e.g., always return TransportClosedError
-    // instead of RpcTimeoutError).
-    //
-    // Expected property result: FAIL — "expected RpcTimeoutError,
-    // got TestingTransportClosedError".
+    // Mutation: in TestClient, replace the sendRpc RpcTimeoutError
+    //   with a TransportClosedError in the timeout path.
+    // Predicate broken: adversity.ts —
+    //   `outcomeTag !== "TestingRpcTimeoutError"` branch.
+    // Expected observable: "expected RpcTimeoutError, got
+    //   TestingTransportClosedError".
+    // Last verified: pending local mutation of test-client.ts
+    //   timeout handling.
     expect(true).toBe(true);
   });
 });
 
 describe.skip("registerSlowCloseCleanup — divergence proofs", () => {
-  it("fails when slow-close delay exceeds scope budget", () => {
+  it("fails when slow-close delay exceeds the scope budget", () => {
     // Mutation: raise `slow_close.delayMs` from 250ms to 6000ms
-    // (exceeding the 5s scope-release budget).
-    //
-    // Expected property result: FAIL — "scope release took Xms under
-    // slow_close (budget 5000ms)".
-    //
-    // Proves the budget is a real constraint, not a rubber stamp.
+    //   (exceeds the 5000ms scope-release budget).
+    // Predicate broken: adversity.ts — `if (elapsed > 5000)` branch
+    //   inside registerSlowCloseCleanup.
+    // Expected observable: PropertyInvariantViolation reason
+    //   "scope release took <X>ms under slow_close (budget 5000ms)".
+    // Last verified: pending toxic-profile mutation.
     expect(true).toBe(true);
   });
 });

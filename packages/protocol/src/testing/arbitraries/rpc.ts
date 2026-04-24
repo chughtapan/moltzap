@@ -11,6 +11,8 @@ import {
   type RpcMap,
   type RpcMethodName,
 } from "../../rpc-registry.js";
+import { applyCall } from "../models/dispatch.js";
+import { initialReferenceState } from "../models/state.js";
 import { arbitraryForParams } from "./from-typebox.js";
 
 /**
@@ -60,4 +62,65 @@ export function arbitraryAnyCall(): fc.Arbitrary<ArbitraryRpcCall> {
     throw new Error("arbitraryAnyCall: rpcMethods empty");
   }
   return fc.constantFrom(...allRpcMethods).chain((m) => arbitraryCallFor(m));
+}
+
+/**
+ * The set of `RpcMethodName`s the reference model predicts `_tag: "ok"`
+ * for on `initialReferenceState` — derived mechanically at module load
+ * by probing `applyCall` with a single drawn params value per method.
+ *
+ * Per architect #197 §2.2: this is NOT a hand-curated list. Methods
+ * move in/out of the confident set automatically when `applyCall`'s
+ * `allowNoEvents` / `uncertainError` split moves, so the sampling
+ * distribution tracks the model.
+ *
+ * **Param-invariance contract:** every kept method is treated as
+ * oracle-confident for every params value. If a future `applyCall`
+ * amendment branches on `call.params`, the safety-net guard in
+ * `registerModelEquivalence` (rpc-semantics.ts) fires loudly on the
+ * first non-confident draw and the derivation must widen from the
+ * single-probe form to an `fc.sample`-based invariant check.
+ */
+export const confidentOracleMethods: ReadonlyArray<RpcMethodName> = (() => {
+  // `models/dispatch.ts` imports `ArbitraryRpcCall` as a type-only
+  // reference, so the values imported above (`applyCall`,
+  // `initialReferenceState`) are safe to call at module load.
+  const kept: RpcMethodName[] = [];
+  for (const method of allRpcMethods) {
+    const [sample] = fc.sample(arbitraryCallFor(method), 1);
+    if (sample === undefined) continue;
+    const outcome = applyCall(initialReferenceState, sample).outcome;
+    if (outcome._tag === "ok") kept.push(method);
+  }
+  return kept;
+})();
+
+/**
+ * Draw a call from the model's confident-oracle set. Used by
+ * `registerModelEquivalence` so the conditional oracle's confident
+ * branch fires every draw.
+ *
+ * Architect #197 §2.2: "a method can be oracle-confident for one
+ * param choice and uncertain for another." For the current confident
+ * methods (list-shaped, fully-optional params), the server is
+ * oracle-confident when params are empty; arbitrary draws that
+ * populate optional fields (e.g. `cursor: " "`) can hit edge-case
+ * server behaviours the model can't reliably predict. Draw
+ * `{ params: {} }` for each confident method to stay honest about
+ * the per-call confidence scope. Widening the params space is a
+ * model-coverage change — route through `applyCall` + the safety-net.
+ */
+export function arbitraryConfidentCall(): fc.Arbitrary<ArbitraryRpcCall> {
+  if (confidentOracleMethods.length === 0) {
+    throw new Error(
+      "arbitraryConfidentCall: model has zero confident-oracle methods; flag needs-structural-rework",
+    );
+  }
+  return fc.constantFrom(...confidentOracleMethods).map(
+    (method) =>
+      ({
+        method,
+        params: {} as RpcMap[typeof method]["params"],
+      }) as const,
+  );
 }
