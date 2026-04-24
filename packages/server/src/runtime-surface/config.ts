@@ -2,8 +2,6 @@
  * Shared runtime process config for server boot and eval orchestration.
  */
 
-import { dirname } from "node:path";
-import { realpathSync } from "node:fs";
 import { ConfigProvider, Data, Effect, Match } from "effect";
 import type { ConfigError } from "effect/ConfigError";
 import type { LoadedConfig } from "../app/config.js";
@@ -62,11 +60,6 @@ export class RuntimeConfigSurfaceError extends Data.TaggedError(
     | {
         readonly _tag: "EnvironmentInvalid";
         readonly key: string;
-        readonly message: string;
-      }
-    | {
-        readonly _tag: "DirectoryResolutionFailed";
-        readonly path: string;
         readonly message: string;
       };
 }> {}
@@ -361,6 +354,11 @@ function buildServerConfigProviderInput(
   });
 }
 
+/** Empty app config used when no YAML file is found on the auto-discovery path. */
+const EMPTY_APP_CONFIG: MoltZapAppConfig & { _configDir: string } = {
+  _configDir: process.cwd(),
+};
+
 export function loadRuntimeProcessConfig(
   input: LoadRuntimeConfigInput,
 ): Effect.Effect<RuntimeProcessConfig, RuntimeConfigSurfaceError, never> {
@@ -368,24 +366,30 @@ export function loadRuntimeProcessConfig(
     const processEnv = input.processEnv ?? process.env;
     const configPath = resolveRuntimeConfigPath(input, processEnv);
 
+    // Whether the operator explicitly asked for a config file (CLI arg or env
+    // var). When false, a missing file is not an error — the server boots with
+    // PGlite + no encryption as the zero-config quickstart default.
+    const isExplicitConfigPath =
+      input.configPath !== undefined ||
+      processEnv["MOLTZAP_CONFIG"] !== undefined;
+
     const loadedAppConfig = yield* withPatchedProcessEnv(
       processEnv,
       loadConfigFromFile(configPath),
-    ).pipe(Effect.mapError((error) => mapConfigLoadError(configPath, error)));
+    ).pipe(
+      Effect.catchIf(
+        (error): error is ConfigLoadError =>
+          error instanceof ConfigLoadError &&
+          error.kind === "read" &&
+          !isExplicitConfigPath,
+        () => Effect.succeed(EMPTY_APP_CONFIG),
+      ),
+      Effect.mapError((error) => mapConfigLoadError(configPath, error)),
+    );
 
-    const configDirectory = yield* Effect.try({
-      try: () => dirname(realpathSync(configPath)),
-      catch: (cause) =>
-        new RuntimeConfigSurfaceError({
-          cause: {
-            _tag: "DirectoryResolutionFailed",
-            path: configPath,
-            message: `Failed to resolve config directory for "${configPath}": ${
-              cause instanceof Error ? cause.message : String(cause)
-            }`,
-          },
-        }),
-    });
+    // `_configDir` is set by loadConfigFromFile (dirname of the resolved path)
+    // or by EMPTY_APP_CONFIG (process.cwd()) when no YAML file was found.
+    const configDirectory = loadedAppConfig._configDir;
 
     const environment = yield* resolveRuntimeEnvironment(
       processEnv["NODE_ENV"],
