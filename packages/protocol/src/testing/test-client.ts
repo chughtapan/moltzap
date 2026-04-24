@@ -370,9 +370,15 @@ export function makeTestClient(
       const handshakeParams =
         // #ignore-sloppy-code-next-line[as-unknown-as]: auth/connect params shape is server-validated; handshake keeps TestClient transport-agnostic
         basicParams as unknown as RpcMap["auth/connect"]["params"];
+      // Handshake is best-effort: the TestClient is a transport, not an
+      // identity authority. Properties that need a real identity supply
+      // a valid agentKey; otherwise the server rejects (typed
+      // `RpcResponseError`), and subsequent RPCs run unauthenticated —
+      // which is exactly what Tier B's B3 property expects.
       const handshake = sendRpc("auth/connect", handshakeParams).pipe(
         Effect.catchTag("TestingRpcTimeoutError", () => Effect.void),
         Effect.catchTag("TestingFrameSchemaError", () => Effect.void),
+        Effect.catchTag("TestingRpcResponseError", () => Effect.void),
       );
       yield* handshake;
     }
