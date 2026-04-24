@@ -39,9 +39,7 @@ export interface RoutingState {
    * - `replyTo` absent, last-active present → last-active chat_id.
    * - `replyTo` absent, no inbound yet → `{ _tag: "NoActiveChat" }`.
    */
-  readonly resolveTarget: (
-    replyTo: MessageId | undefined,
-  ) => RoutingResolution;
+  readonly resolveTarget: (replyTo: MessageId | undefined) => RoutingResolution;
 }
 
 export type RoutingResolution =
@@ -49,12 +47,56 @@ export type RoutingResolution =
   | { readonly _tag: "NoActiveChat" }
   | { readonly _tag: "ReplyToUnknown"; readonly replyTo: MessageId };
 
+const DEFAULT_CAPACITY = 256;
+
 /**
  * Construct a fresh routing state. One instance per boot.
  *
- * @param capacity bounded LRU size (default chosen by implementer, named
- *        "recent 256 message_ids" in the design doc).
+ * @param capacity bounded LRU size (default 256 recent message_ids, per
+ *        architect design doc §2.4). Exceeding the cap evicts the oldest
+ *        (FIFO) — relying on JavaScript `Map` preserving insertion order.
  */
-export function createRoutingState(capacity?: number): RoutingState {
-  throw new Error("not implemented");
+export function createRoutingState(
+  capacity: number = DEFAULT_CAPACITY,
+): RoutingState {
+  if (!Number.isFinite(capacity) || capacity <= 0) {
+    throw new Error(
+      `createRoutingState: capacity must be a positive finite number, got ${capacity}`,
+    );
+  }
+  const cap = Math.floor(capacity);
+  const map = new Map<MessageId, ChatId>();
+  let lastActive: ChatId | undefined = undefined;
+
+  function recordInbound(messageId: MessageId, chatId: ChatId): void {
+    // Refresh the LRU position if present.
+    if (map.has(messageId)) {
+      map.delete(messageId);
+    }
+    map.set(messageId, chatId);
+    while (map.size > cap) {
+      const oldest = map.keys().next();
+      if (oldest.done === true) {
+        break;
+      }
+      map.delete(oldest.value);
+    }
+    lastActive = chatId;
+  }
+
+  function resolveTarget(replyTo: MessageId | undefined): RoutingResolution {
+    if (replyTo !== undefined) {
+      const hit = map.get(replyTo);
+      if (hit !== undefined) {
+        return { _tag: "Resolved", chatId: hit };
+      }
+      return { _tag: "ReplyToUnknown", replyTo };
+    }
+    if (lastActive !== undefined) {
+      return { _tag: "Resolved", chatId: lastActive };
+    }
+    return { _tag: "NoActiveChat" };
+  }
+
+  return { recordInbound, resolveTarget };
 }
