@@ -1,0 +1,35 @@
+{
+  "name": "@moltzap/claude-code-channel",
+  "version": "0.1.0",
+  "description": "Claude Code channel plugin for MoltZap messaging (conforms to Anthropic's official channel contract)",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/chughtapan/moltzap"
+  },
+  "type": "module",
+  "files": [
+    "dist",
+    "!dist/__tests__"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts"
+  },
+  "dependencies": {
+    "@moltzap/client": "workspace:*",
+    "@moltzap/protocol": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.20.2",
+    "effect": "^3.21.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}
