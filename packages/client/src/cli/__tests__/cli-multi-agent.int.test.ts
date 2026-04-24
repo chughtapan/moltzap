@@ -20,7 +20,9 @@ describe("multi-agent CLI roster (--as + --profile)", () => {
   it.todo(
     "register alice via --profile; register bob via --profile --no-persist",
   );
-  it.todo("--no-persist leaves ~/.moltzap/ untouched (fs diff)");
+  it.todo(
+    "--no-persist leaves both ~/.moltzap/ and ~/.openclaw/ untouched (recursive fs diff on both trees)",
+  );
   it.todo("moltzap --as $KEY_A apps create --invite bob prints a session id");
   it.todo(
     "moltzap --as $KEY_B conversations list shows the new session conversation",

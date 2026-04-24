@@ -162,9 +162,15 @@ export const writeProfile = (
 };
 
 /**
- * `--no-persist` contract for `moltzap register`. Invariant §4.4: no file
- * under `~/.moltzap/` is created or modified. Returns the record so the
- * caller can print it; does no I/O.
+ * `--no-persist` contract for `moltzap register`. Revised Invariant §4.4
+ * per architect design doc rev 4 finding 2: no file under `$HOME/.moltzap/`
+ * OR `$HOME/.openclaw/` is created or modified. Returns the record so the
+ * caller can print it; does no I/O under either tree.
+ *
+ * The register command invokes either `writeProfile` + the existing
+ * `writeOpenClawChannelConfig` (default) or `emitNoPersist` (when the flag
+ * is set) — both side effects are gated by the single flag. The register
+ * handler NEVER calls both paths on the same invocation.
  *
  * The register command pipes the returned record through the printer,
  * which writes agentId / apiKey / serverUrl / claimUrl to stdout (so
