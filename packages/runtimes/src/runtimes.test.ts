@@ -1,10 +1,15 @@
-import { describe, it, expect } from "vitest";
-import { Effect } from "effect";
+import { describe, it, expect, afterEach, vi } from "vitest";
+import { Effect, Exit, Fiber } from "effect";
 
 import {
   OpenClawAdapter,
   type OpenClawAdapterDeps,
 } from "./openclaw-adapter.js";
+import {
+  launchRuntimeFleet,
+  startRuntimeAgent,
+  type RuntimeAgentSpec,
+} from "./fleet.js";
 import {
   NanoclawAdapter,
   type NanoclawAdapterDeps,
@@ -17,6 +22,28 @@ import type {
   ReadyOutcome,
 } from "./runtime.js";
 import { SpawnFailed } from "./errors.js";
+
+const fleetRuntimeFactoryState = vi.hoisted(() => ({
+  nextRuntime: null as null | (() => Runtime),
+}));
+
+vi.mock("./openclaw-adapter.js", async () => {
+  const actual = await vi.importActual<typeof import("./openclaw-adapter.js")>(
+    "./openclaw-adapter.js",
+  );
+  return {
+    ...actual,
+    createWorkspaceOpenClawAdapter: vi.fn(() => {
+      const factory = fleetRuntimeFactoryState.nextRuntime;
+      if (factory === null) {
+        throw new Error(
+          "Expected a configured runtime factory for fleet tests",
+        );
+      }
+      return factory();
+    }),
+  };
+});
 
 // Minimal stub for the live server surface the adapters poll for readiness.
 function stubServer(): RuntimeServerHandle {
@@ -52,6 +79,10 @@ function stubSpawnInput(overrides?: Partial<SpawnInput>): SpawnInput {
     ...overrides,
   };
 }
+
+afterEach(() => {
+  fleetRuntimeFactoryState.nextRuntime = null;
+});
 
 // ---------------------------------------------------------------------------
 // Runtime interface contract
@@ -281,8 +312,176 @@ describe("NanoclawAdapter", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Fleet lifecycle cleanup
+// ---------------------------------------------------------------------------
+
+describe("runtime fleet lifecycle", () => {
+  it("tears down an in-flight runtime when startRuntimeAgent is interrupted", async () => {
+    const blocked = createMockRuntime({
+      readyEffect: Effect.never,
+    });
+    setMockFleetRuntimes(blocked.runtime);
+
+    const fiber = Effect.runFork(
+      startRuntimeAgent({
+        kind: "openclaw",
+        server: stubServer(),
+        agent: stubRuntimeAgentSpec(),
+        readyTimeoutMs: 60_000,
+      }),
+    );
+
+    await blocked.waitStarted;
+    await Effect.runPromise(Fiber.interrupt(fiber));
+    const exit = await Effect.runPromise(Fiber.await(fiber));
+
+    expect(Exit.isInterrupted(exit)).toBe(true);
+    expect(blocked.stats.spawnCalls).toBe(1);
+    expect(blocked.stats.waitCalls).toBe(1);
+    expect(blocked.stats.teardownCalls).toBe(1);
+  });
+
+  it("tears down ready and in-flight runtimes when launchRuntimeFleet is interrupted mid-startup", async () => {
+    const first = createMockRuntime({
+      readyEffect: Effect.succeed({ _tag: "Ready" }),
+    });
+    const second = createMockRuntime({
+      readyEffect: Effect.never,
+    });
+    setMockFleetRuntimes(first.runtime, second.runtime);
+
+    const fiber = Effect.runFork(
+      launchRuntimeFleet({
+        kind: "openclaw",
+        server: stubServer(),
+        agents: [
+          stubRuntimeAgentSpec({ agentName: "alpha", agentId: "agent-001" }),
+          stubRuntimeAgentSpec({ agentName: "beta", agentId: "agent-002" }),
+        ],
+        readyTimeoutMs: 60_000,
+      }),
+    );
+
+    await second.waitStarted;
+    await Effect.runPromise(Fiber.interrupt(fiber));
+    const exit = await Effect.runPromise(Fiber.await(fiber));
+
+    expect(Exit.isInterrupted(exit)).toBe(true);
+    expect(first.stats.teardownCalls).toBe(1);
+    expect(second.stats.teardownCalls).toBe(1);
+  });
+
+  it("tears down previously started and failing runtimes before fleet launch returns an error", async () => {
+    const first = createMockRuntime({
+      readyEffect: Effect.succeed({ _tag: "Ready" }),
+    });
+    const second = createMockRuntime({
+      readyEffect: Effect.succeed({ _tag: "Timeout", timeoutMs: 250 }),
+    });
+    setMockFleetRuntimes(first.runtime, second.runtime);
+
+    const result = await Effect.runPromise(
+      Effect.either(
+        launchRuntimeFleet({
+          kind: "openclaw",
+          server: stubServer(),
+          agents: [
+            stubRuntimeAgentSpec({ agentName: "alpha", agentId: "agent-001" }),
+            stubRuntimeAgentSpec({ agentName: "beta", agentId: "agent-002" }),
+          ],
+          readyTimeoutMs: 250,
+        }),
+      ),
+    );
+
+    expect(result._tag).toBe("Left");
+    if (result._tag === "Left") {
+      expect(result.left._tag).toBe("RuntimeReadyTimedOut");
+      expect(result.left.agentName).toBe("beta");
+    }
+    expect(first.stats.teardownCalls).toBe(1);
+    expect(second.stats.teardownCalls).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+interface MockRuntimeStats {
+  spawnCalls: number;
+  waitCalls: number;
+  teardownCalls: number;
+}
+
+interface MockRuntimeHandle {
+  readonly runtime: Runtime;
+  readonly stats: MockRuntimeStats;
+  readonly waitStarted: Promise<void>;
+}
+
+function stubRuntimeAgentSpec(
+  overrides?: Partial<RuntimeAgentSpec>,
+): RuntimeAgentSpec {
+  return {
+    agentName: "test-agent",
+    apiKey: "test-api-key",
+    agentId: "agent-001",
+    serverUrl: "ws://localhost:9999/ws",
+    ...overrides,
+  };
+}
+
+function setMockFleetRuntimes(...runtimes: ReadonlyArray<Runtime>): void {
+  const queue = [...runtimes];
+  fleetRuntimeFactoryState.nextRuntime = () => {
+    const runtime = queue.shift();
+    if (runtime === undefined) {
+      throw new Error("No mocked runtime remaining for fleet test");
+    }
+    return runtime;
+  };
+}
+
+function createMockRuntime(options: {
+  readonly readyEffect: Effect.Effect<ReadyOutcome, never, never>;
+}): MockRuntimeHandle {
+  const stats: MockRuntimeStats = {
+    spawnCalls: 0,
+    waitCalls: 0,
+    teardownCalls: 0,
+  };
+
+  let resolveWaitStarted: (() => void) | null = null;
+  const waitStarted = new Promise<void>((resolve) => {
+    resolveWaitStarted = resolve;
+  });
+
+  const runtime: Runtime = {
+    spawn: () =>
+      Effect.sync(() => {
+        stats.spawnCalls += 1;
+      }),
+    waitUntilReady: () =>
+      Effect.sync(() => {
+        stats.waitCalls += 1;
+        resolveWaitStarted?.();
+        resolveWaitStarted = null;
+      }).pipe(Effect.zipRight(options.readyEffect)),
+    teardown: () =>
+      Effect.sync(() => {
+        stats.teardownCalls += 1;
+      }),
+    getLogs: () => ({ text: "", nextOffset: 0 }),
+    getInboundMarker: () => "inbound from agent:",
+  };
+
+  return {
+    runtime,
+    stats,
+    waitStarted,
+  };
+}
 
 function absurd(x: never): never {
   throw new Error(`unreachable: ${JSON.stringify(x)}`);
