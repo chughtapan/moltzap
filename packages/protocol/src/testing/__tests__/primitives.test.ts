@@ -24,7 +24,7 @@ import {
   isIdempotent,
   authorizationOutcome,
 } from "../models/index.js";
-import { tierCInvariantFor, allToxicTags } from "../toxics/index.js";
+import { deliveryInvariantFor, allToxicTags } from "../toxics/index.js";
 import {
   allRpcMethods,
   arbitraryCallFor,
@@ -153,10 +153,16 @@ describe("reference model", () => {
 });
 
 describe("toxics", () => {
-  it("tierCInvariantFor returns a valid tier-C id for every toxic tag", () => {
+  it("deliveryInvariantFor returns a valid delivery property for every toxic tag", () => {
+    const valid = [
+      "fan-out-cardinality",
+      "store-and-replay",
+      "payload-opacity",
+      "task-boundary-isolation",
+    ];
     for (const tag of allToxicTags) {
-      const inv = tierCInvariantFor(tag);
-      expect(["C1", "C2", "C3", "C4"]).toContain(inv);
+      const inv = deliveryInvariantFor(tag);
+      expect(valid).toContain(inv);
     }
   });
 });

@@ -14,7 +14,7 @@
  */
 import { Effect, Ref, Scope } from "effect";
 import { makeToxiproxyClient, type ToxiproxyClient } from "../toxics/client.js";
-import { ToxicControlError } from "../errors.js";
+import { RealServerAcquireError, ToxicControlError } from "../errors.js";
 
 /**
  * Opaque handle to a running real MoltZap server. The conformance runner
@@ -74,7 +74,11 @@ export interface ConformanceArtifact {
  */
 export function acquireRunContext(
   opts: ConformanceRunOptions,
-): Effect.Effect<ConformanceRunContext, ToxicControlError, Scope.Scope> {
+): Effect.Effect<
+  ConformanceRunContext,
+  ToxicControlError | RealServerAcquireError,
+  Scope.Scope
+> {
   return Effect.gen(function* () {
     const seed =
       opts.replaySeed ?? Number(process.env.FC_SEED ?? Date.now() & 0x7fffffff);
@@ -83,12 +87,7 @@ export function acquireRunContext(
     const realServer = yield* Effect.acquireRelease(
       Effect.tryPromise({
         try: () => opts.realServer(),
-        catch: (err) =>
-          new ToxicControlError({
-            op: "create-proxy",
-            status: 0,
-            body: `realServer() threw: ${err instanceof Error ? err.message : String(err)}`,
-          }),
+        catch: (cause) => new RealServerAcquireError({ cause }),
       }),
       (handle) =>
         Effect.tryPromise({

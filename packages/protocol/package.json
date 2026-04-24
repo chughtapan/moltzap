@@ -31,7 +31,6 @@
     "build": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:conformance": "vitest run --config vitest.conformance.config.ts",
     "generate-schema": "tsx scripts/generate-json-schema.ts"
   },
   "dependencies": {
@@ -43,7 +42,6 @@
   "devDependencies": {
     "@effect/platform": "^0.96.0",
     "@effect/platform-node": "^0.106.0",
-    "@moltzap/server-core": "workspace:*",
     "@types/node": "^25.5.0",
     "fast-check": "^4.6.0",
     "tsx": "^4.19.0",
