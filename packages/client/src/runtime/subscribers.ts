@@ -181,6 +181,10 @@ export function makeSubscriberRegistry(logger: {
         // Snapshot at dispatch-start: OQ-3 A. Unsubscribes during this
         // frame mutate `subsRef` but our iteration walks `snapshot`.
         const snapshot = yield* Ref.get(subsRef);
+        // Short-circuit the common pre-subscribe path (every inbound
+        // frame before any `subscribe()` call) so hot-path dispatch
+        // avoids even the `for…of` allocation.
+        if (snapshot.length === 0) return;
         for (const sub of snapshot) {
           if (!matchesFilter(sub.filter, frame)) continue;
           // Handlers must not throw; we catch defects defensively so

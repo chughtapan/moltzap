@@ -614,9 +614,19 @@ export class MoltZapWsClient {
         params,
       };
 
+      // Register the Deferred BEFORE writing. `write` yields to the
+      // scheduler; the reader could interleave, see a close, and
+      // `failAllPending` before we register — leaving us to await a
+      // never-resolved Deferred.
       const deferred = yield* Deferred.make<unknown, PendingError>();
       yield* Ref.update(this.pendingRef, (m) => HashMap.set(m, id, deferred));
 
+      // `socket.writer` gates on an internal Latch that `runRaw` only
+      // opens after the WebSocket hits OPEN. If the socket never
+      // opens, `runRaw`'s `ensuring` closes the latch and `write`
+      // blocks indefinitely — so we race the write against the
+      // pending Deferred (which the reader fails on close),
+      // short-circuiting the dead write.
       const writeAttempt = Effect.either(
         state.value.write(JSON.stringify(frame)),
       );
@@ -647,15 +657,24 @@ export class MoltZapWsClient {
       );
 
       // `type: "response"` is surfaced as an observable literal (V5):
-      // the value the caller sees comes from the same response envelope
-      // the reader fiber decoded, not a synthesized adapter constant.
-      // The Frame schema at packages/protocol/src/schema/frames.ts:18
-      // pins `type` to that literal at decode time, so this assignment
-      // is the value-level projection of that schema constraint.
+      // the value the caller sees comes from the same response
+      // envelope the reader fiber decoded, not a synthesized adapter
+      // constant. The Frame schema at
+      // `packages/protocol/src/schema/frames.ts:18` pins `type` to
+      // that literal at decode time, so this assignment is the
+      // value-level projection of that schema constraint.
       return { id, type: "response" as const, result };
     });
   }
 
+  /**
+   * Bare-result RPC — projects the tracked RPC envelope onto its
+   * `result` field, discarding the `{id, type}` observability surface.
+   * The write / race / timeout plumbing lives in `sendRpcTrackedEffect`
+   * so there is one shared site for Invariant 3 (single id source),
+   * Invariant 5 (typed error channel), and the `socket.writer` latch
+   * race described below.
+   */
   private sendRpcEffect(
     method: string,
     params: unknown,
@@ -663,63 +682,9 @@ export class MoltZapWsClient {
     unknown,
     NotConnectedError | RpcTimeoutError | RpcServerError
   > {
-    return Effect.gen(this, function* () {
-      const state = yield* Ref.get(this.stateRef);
-      if (Option.isNone(state)) {
-        return yield* Effect.fail(
-          new NotConnectedError({ message: MSG_NOT_CONNECTED }),
-        );
-      }
-
-      const id = `rpc-${++this.requestCounter}`;
-      const frame: RequestFrame = {
-        jsonrpc: "2.0",
-        type: "request",
-        id,
-        method,
-        params,
-      };
-
-      // Register the Deferred BEFORE writing. `write` yields to the scheduler;
-      // the reader could interleave, see a close, and `failAllPending` before
-      // we register — leaving us to await a never-resolved Deferred.
-      const deferred = yield* Deferred.make<unknown, PendingError>();
-      yield* Ref.update(this.pendingRef, (m) => HashMap.set(m, id, deferred));
-
-      // `socket.writer` gates on an internal Latch that `runRaw` only opens
-      // after the WebSocket hits OPEN. If the socket never opens, `runRaw`'s
-      // `ensuring` closes the latch and `write` blocks indefinitely — so we
-      // race the write against the pending Deferred (which the reader fails
-      // on close), short-circuiting the dead write.
-      const writeAttempt = Effect.either(
-        state.value.write(JSON.stringify(frame)),
-      );
-      const earlyFailure: Effect.Effect<null> = Deferred.await(deferred).pipe(
-        Effect.catchAll(() => Effect.succeed(null)),
-        Effect.as(null),
-      );
-      const writeRace = yield* Effect.race(writeAttempt, earlyFailure);
-      if (writeRace !== null && writeRace._tag === "Left") {
-        this.options.logger?.warn("ws.send failed", writeRace.left);
-        yield* Ref.update(this.pendingRef, (m) => HashMap.remove(m, id));
-        return yield* Effect.fail(
-          new NotConnectedError({ message: MSG_NOT_CONNECTED }),
-        );
-      }
-
-      return yield* Deferred.await(deferred).pipe(
-        Effect.timeoutFail({
-          duration: `${RPC_TIMEOUT_MS} millis`,
-          onTimeout: () =>
-            new RpcTimeoutError({ method, timeoutMs: RPC_TIMEOUT_MS }),
-        }),
-        Effect.onExit((exit) =>
-          Exit.isFailure(exit)
-            ? Ref.update(this.pendingRef, (m) => HashMap.remove(m, id))
-            : Effect.void,
-        ),
-      );
-    });
+    return this.sendRpcTrackedEffect(method, params).pipe(
+      Effect.map((tracked) => tracked.result),
+    );
   }
 
   /** Route an inbound frame. Malformed frames are logged + dropped; event
