@@ -8,6 +8,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   decideTransport,
   resolveTransportInputs,
+  tagWsError,
+  TransportDecodeError,
+  TransportRpcError,
+  ServiceUnreachableError,
+  TransportTimeoutError,
   type TransportOptions,
 } from "./transport.js";
 
@@ -94,6 +99,62 @@ describe("decideTransport", () => {
       ),
     );
     expect(invocations).toBe(0);
+  });
+});
+
+/**
+ * Regression guard for sbd#198: `Effect.runPromise` wrapping of `sendRpc`
+ * produced `FiberFailureImpl` (with `_tag = undefined`), causing `tagWsError`'s
+ * default branch to emit `TransportDecodeError` for every ws error. `tagWsError`
+ * is `@internal`-exported so this suite can reach it without a mock WS server.
+ */
+describe("tagWsError — maps ws-client error tags to TransportError variants", () => {
+  it("RpcServerError maps to TransportRpcError (not TransportDecodeError)", () => {
+    const err = tagWsError("apps/listSessions", {
+      _tag: "RpcServerError",
+      code: -32001,
+      message: "session not found",
+    });
+    expect(err).toBeInstanceOf(TransportRpcError);
+    expect(err._tag).toBe("TransportRpcError");
+    if (err instanceof TransportRpcError) {
+      expect(err.code).toBe(-32001);
+      expect(err.message).toBe("session not found");
+    }
+  });
+
+  it("NotConnectedError maps to ServiceUnreachableError", () => {
+    const err = tagWsError("apps/listSessions", { _tag: "NotConnectedError" });
+    expect(err).toBeInstanceOf(ServiceUnreachableError);
+    expect(err._tag).toBe("ServiceUnreachableError");
+  });
+
+  it("RpcTimeoutError maps to TransportTimeoutError with timeoutMs forwarded", () => {
+    const err = tagWsError("apps/listSessions", {
+      _tag: "RpcTimeoutError",
+      timeoutMs: 15_000,
+    });
+    expect(err).toBeInstanceOf(TransportTimeoutError);
+    if (err instanceof TransportTimeoutError) {
+      expect(err.timeoutMs).toBe(15_000);
+    }
+  });
+
+  it("default branch (unknown _tag) maps to TransportDecodeError", () => {
+    const err = tagWsError("apps/listSessions", {
+      _tag: "SomeUnknownError",
+    });
+    expect(err).toBeInstanceOf(TransportDecodeError);
+  });
+
+  it("FiberFailureImpl-shaped error (no _tag) maps to TransportDecodeError — not to TransportRpcError", () => {
+    // Simulates FiberFailureImpl (_tag absent): pre-fix behaviour hit the
+    // default branch and emitted TransportDecodeError for every server error.
+    const err = tagWsError("apps/listSessions", {
+      message: "some unknown error",
+    });
+    expect(err).toBeInstanceOf(TransportDecodeError);
+    expect(err._tag).toBe("TransportDecodeError");
   });
 });
 
