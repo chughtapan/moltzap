@@ -888,7 +888,6 @@ export class MoltZapService {
       | "disconnect"
       | "reconnect"
       | "permissionRequired",
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     handler: EventHandler<any>,
   ): void {
     switch (event) {

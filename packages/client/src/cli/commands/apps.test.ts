@@ -115,7 +115,9 @@ describe("apps register", () => {
   it("surfaces TransportRpcError as a failure", async () => {
     const manifestPath = join(tmp, "m.json");
     writeFileSync(manifestPath, JSON.stringify({}));
-    const { transport } = makeFakeTransport(() => new Error("invalid manifest"));
+    const { transport } = makeFakeTransport(
+      () => new Error("invalid manifest"),
+    );
     const result = await Effect.runPromiseExit(
       appsRegisterHandler({ manifestPath }).pipe(
         Effect.provideService(Transport, transport),
@@ -304,7 +306,9 @@ describe("apps attest-skill", () => {
   });
 
   it("surfaces TransportRpcError on RPC failure", async () => {
-    const { transport } = makeFakeTransport(() => new Error("attestation rejected"));
+    const { transport } = makeFakeTransport(
+      () => new Error("attestation rejected"),
+    );
     const result = await Effect.runPromiseExit(
       appsAttestSkillHandler({
         challengeId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",

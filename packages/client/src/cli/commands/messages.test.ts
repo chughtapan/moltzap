@@ -3,7 +3,15 @@
  * one success + one RPC-failure path.
  */
 import { Effect } from "effect";
-import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type MockInstance,
+} from "vitest";
 import { messagesListHandler } from "./messages.js";
 import {
   Transport,

@@ -27,7 +27,6 @@ describe("@moltzap/nanoclaw-channel client-side conformance", () => {
     expect(Exit.isSuccess(exit)).toBe(true);
     if (!Exit.isSuccess(exit)) return;
     const result = exit.value;
-    // eslint-disable-next-line no-console
     console.log(
       `[nanoclaw-conformance] seed=${result.seed} passed=${result.passed.length} unavailable=${result.unavailable.length} failed=${result.failed.length}`,
     );

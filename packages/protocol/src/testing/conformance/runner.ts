@@ -128,7 +128,6 @@ export function runConformance(
   ctx: ConformanceRunContext,
 ): Effect.Effect<void> {
   return Effect.sync(() => {
-    // eslint-disable-next-line no-console
     console.log(
       `[conformance] seed=${ctx.seed} tiers=${ctx.opts.tiers.join(",")} toxiproxy=${ctx.toxiproxy !== null}`,
     );
