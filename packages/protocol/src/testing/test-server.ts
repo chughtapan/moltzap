@@ -3,19 +3,18 @@
  * code script arbitrary server-side traffic (valid events, malformed
  * frames, delayed / out-of-order sequences).
  *
- * Per D1 (WS-only) and Invariant I1, TestServer listens on a real
- * `http.Server` + WS upgrade handler (same shape as
- * `packages/server/src/app/server.ts`). TestServer is *not* an
+ * Per D1 (WS-only) and Invariant I1, TestServer binds a real
+ * `@effect/platform-node/NodeSocketServer.makeWebSocket` so the wire bytes
+ * match `packages/server`'s real production path. TestServer is *not* an
  * in-process counterpart of TestClient; it exists to exercise real client
  * code (`packages/client`, `openclaw-channel`, `nanoclaw-channel`, arena).
  *
  * Satisfies AC3. Consumed by Tier A (A2), Tier B (server-emitted event
  * replay), and Tier E E2 (schema-exhaustive fuzz).
  */
-import { Context, Effect, Ref, Scope } from "effect";
-import * as http from "node:http";
-import type { AddressInfo } from "node:net";
-import { WebSocketServer, type WebSocket as WsSocket } from "ws";
+import { Context, Effect, Ref, type Scope } from "effect";
+import * as NodeSocketServer from "@effect/platform-node/NodeSocketServer";
+import * as Socket from "@effect/platform/Socket";
 import type { EventFrame, ResponseFrame } from "../schema/frames.js";
 import {
   makeCaptureBuffer,
@@ -86,8 +85,17 @@ export const TestServer = Context.GenericTag<TestServer>(
 
 let connectionCounter = 0;
 
+type Writer = (
+  chunk: string | Uint8Array | Socket.CloseEvent,
+) => Effect.Effect<void, Socket.SocketError>;
+
+/**
+ * Build a `TestServerConnection` for a freshly-accepted socket. `writer`
+ * is acquired by the caller; the per-connection receive loop is driven
+ * separately via `sock.runRaw`.
+ */
 function makeConnection(
-  sock: WsSocket,
+  writer: Writer,
   captureCapacity: number,
   remoteAddr: string,
 ): Effect.Effect<TestServerConnection> {
@@ -95,22 +103,6 @@ function makeConnection(
     connectionCounter += 1;
     const connectionId = `conn-${connectionCounter}`;
     const inbound = yield* makeCaptureBuffer({ capacity: captureCapacity });
-
-    sock.on("message", (data: Buffer | ArrayBuffer | Buffer[]) => {
-      const raw = Array.isArray(data)
-        ? Buffer.concat(data).toString("utf8")
-        : data instanceof ArrayBuffer
-          ? Buffer.from(data).toString("utf8")
-          : (data as Buffer).toString("utf8");
-      const decoded = Effect.runSync(
-        Effect.either(decodeFrame(raw, "inbound")),
-      );
-      if (decoded._tag === "Left") {
-        Effect.runFork(recordMalformed(inbound, raw, "bit-flip"));
-        return;
-      }
-      Effect.runFork(recordFrame(inbound, "inbound", raw, decoded.right));
-    });
 
     const emit = (
       frame: AnyFrame,
@@ -122,13 +114,12 @@ function makeConnection(
         if (check._tag === "Left") {
           return yield* Effect.fail(check.left);
         }
-        try {
-          sock.send(raw);
-        } catch (err) {
-          return yield* Effect.fail(
-            new TransportIoError({ direction: "outbound", cause: err }),
-          );
-        }
+        yield* writer(raw).pipe(
+          Effect.mapError(
+            (err) =>
+              new TransportIoError({ direction: "outbound", cause: err }),
+          ),
+        );
         yield* recordFrame(inbound, "outbound", raw, frame);
       });
 
@@ -142,33 +133,23 @@ function makeConnection(
         Effect.gen(function* () {
           const base: AnyFrame = opts.baseEvent as AnyFrame;
           const raw = malformFrame(base, opts.kind, opts.seed);
-          try {
-            sock.send(raw);
-          } catch (err) {
-            return yield* Effect.fail(
-              new TransportIoError({ direction: "outbound", cause: err }),
-            );
-          }
+          yield* writer(raw).pipe(
+            Effect.mapError(
+              (err) =>
+                new TransportIoError({ direction: "outbound", cause: err }),
+            ),
+          );
           yield* recordMalformed(inbound, raw, opts.kind);
         }),
       close: (opts) =>
-        Effect.sync(() => {
-          try {
-            sock.close(opts.code, opts.reason);
-          } catch (err) {
-            // Surface as a typed transport-closed — the socket already being
-            // closed means close() was a no-op, which is what callers want.
-            void err;
-          }
-        }).pipe(
-          Effect.catchAll((err) =>
-            Effect.fail(
+        writer(new Socket.CloseEvent(opts.code, opts.reason)).pipe(
+          Effect.mapError(
+            (err) =>
               new TransportClosedError({
                 direction: "outbound",
                 code: opts.code,
-                reason: String(err),
+                reason: `${opts.reason}: ${String(err)}`,
               }),
-            ),
           ),
         ),
     } satisfies TestServerConnection;
@@ -176,9 +157,9 @@ function makeConnection(
 }
 
 /**
- * Bind a real `http.Server` + WS upgrade handler. The surrounding `Scope`
- * owns the listener; releasing it closes every open connection, drains
- * captures, and awaits port release.
+ * Bind an `@effect/platform` WebSocket server. The surrounding `Scope` owns
+ * the listener; releasing it closes every open connection, drains captures,
+ * and awaits port release.
  */
 export function makeTestServer(
   config: TestServerConfig,
@@ -187,57 +168,67 @@ export function makeTestServer(
     const serverState = yield* Ref.make<ReadonlyArray<TestServerConnection>>(
       [],
     );
-    // Accept queue: resolves when a connection is pushed.
     const acceptQueue = yield* Ref.make<ReadonlyArray<TestServerConnection>>(
       [],
     );
 
-    const server = yield* Effect.acquireRelease(
-      Effect.async<http.Server, TransportIoError>((resume) => {
-        const httpServer = http.createServer();
-        const wss = new WebSocketServer({ server: httpServer });
-        wss.on("connection", (sock, req) => {
-          const remoteAddr = req.socket.remoteAddress ?? "";
-          Effect.runFork(
-            Effect.gen(function* () {
-              const conn = yield* makeConnection(
-                sock,
-                config.captureCapacity,
-                remoteAddr,
-              );
-              yield* Ref.update(serverState, (s) => [...s, conn]);
-              yield* Ref.update(acceptQueue, (q) => [...q, conn]);
-            }),
-          );
-        });
-        httpServer.on("error", (err) =>
-          resume(
-            Effect.fail(
-              new TransportIoError({ direction: "inbound", cause: err }),
-            ),
-          ),
-        );
-        httpServer.listen(config.port, config.host, () => {
-          resume(Effect.succeed(httpServer));
-        });
-      }),
-      (srv) =>
-        Effect.async<void>((resume) => {
-          srv.close(() => resume(Effect.void));
-        }),
+    const server = yield* NodeSocketServer.makeWebSocket({
+      port: config.port,
+      host: config.host,
+    }).pipe(
+      Effect.mapError(
+        (err) => new TransportIoError({ direction: "inbound", cause: err }),
+      ),
     );
 
-    const addr = server.address() as AddressInfo | string | null;
-    const port =
-      typeof addr === "string" || addr === null ? config.port : addr.port;
-    const host =
-      typeof addr === "string" || addr === null ? config.host : addr.address;
-    const wsUrl = `ws://${host === "::" ? "127.0.0.1" : host}:${port}`;
+    // Fork the accept loop into the ambient scope; scope closure tears down
+    // the listener and every per-connection fiber.
+    yield* Effect.forkScoped(
+      server
+        .run((sock) =>
+          Effect.gen(function* () {
+            const writer = yield* sock.writer;
+            const conn = yield* makeConnection(
+              writer as Writer,
+              config.captureCapacity,
+              "",
+            );
+            yield* Ref.update(serverState, (s) => [...s, conn]);
+            yield* Ref.update(acceptQueue, (q) => [...q, conn]);
+            yield* sock.runRaw((data) =>
+              Effect.gen(function* () {
+                const raw =
+                  typeof data === "string"
+                    ? data
+                    : new TextDecoder("utf-8").decode(data);
+                const decoded = yield* Effect.either(
+                  decodeFrame(raw, "inbound"),
+                );
+                if (decoded._tag === "Left") {
+                  yield* recordMalformed(conn.inbound, raw, "bit-flip");
+                  return;
+                }
+                yield* recordFrame(conn.inbound, "inbound", raw, decoded.right);
+              }),
+            );
+          }),
+        )
+        .pipe(Effect.ignore),
+    );
+
+    const addr = server.address;
+    if (addr._tag !== "TcpAddress") {
+      return yield* Effect.fail(
+        new TransportIoError({
+          direction: "inbound",
+          cause: new Error(`expected TcpAddress, got ${addr._tag}`),
+        }),
+      );
+    }
+    const wsUrl = `ws://${addr.hostname}:${addr.port}`;
 
     const accept: Effect.Effect<TestServerConnection, TransportIoError> =
       Effect.gen(function* () {
-        // Poll acceptQueue — deterministic under property runs; could be
-        // replaced with a Queue for stricter back-pressure if needed.
         while (true) {
           const q = yield* Ref.get(acceptQueue);
           if (q.length > 0) {
