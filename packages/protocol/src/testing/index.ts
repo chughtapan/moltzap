@@ -48,7 +48,15 @@ export {
   RpcTimeoutError,
   RpcResponseError,
   ToxicControlError,
+  RealServerAcquireError,
 } from "./errors.js";
+
+// Test-agent registration helper.
+export {
+  type TestAgent,
+  AgentRegistrationError,
+  registerTestAgent,
+} from "./agent-registration.js";
 
 // Arbitraries, models, toxics — namespaced to keep names scoped.
 export * as arbitraries from "./arbitraries/index.js";

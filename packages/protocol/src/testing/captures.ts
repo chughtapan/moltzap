@@ -9,7 +9,7 @@
  * same buffer can record both sides when a primitive is proxied through
  * Toxiproxy (Tier D).
  */
-import { Effect, Ref, Stream, PubSub, Chunk } from "effect";
+import { Effect, Ref, Stream, PubSub } from "effect";
 import type { AnyFrame, MalformedFrameKind } from "./codec.js";
 
 export type CaptureKind = "inbound" | "outbound";
@@ -152,6 +152,3 @@ export function recordFrame(
     malformed: null,
   });
 }
-
-/** @internal — referenced only to suppress unused warnings on `Chunk`. */
-export const _chunkSentinel = Chunk.empty<CapturedFrame>();

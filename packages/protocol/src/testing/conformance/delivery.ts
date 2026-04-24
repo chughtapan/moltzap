@@ -1,112 +1,266 @@
 /**
- * Delivery — multi-connection fan-out, replay, payload opacity, and task
- * isolation properties. Each property allocates N TestClients inside the
- * ambient scope and asserts on the merged capture buffer.
+ * Delivery — properties that exercise multi-connection invariants
+ * against the real server: fan-out cardinality, store-and-replay,
+ * payload opacity, and task-boundary isolation.
  *
  * Historical grouping note: spec #181 §5 calls this "Tier C". Code uses
  * semantic names only.
+ *
+ * Principle 3: every property body is `Effect<void, PropertyFailure>`.
  */
 import * as fc from "fast-check";
 import { Effect, type Scope } from "effect";
-import { mergeCaptures } from "../captures.js";
 import { makeTestClient, type TestClient } from "../test-client.js";
+import { registerTestAgent, type TestAgent } from "../agent-registration.js";
 import type { ConformanceRunContext } from "./runner.js";
-import { assertProperty, registerProperty } from "./registry.js";
+import {
+  PropertyInvariantViolation,
+  assertProperty,
+  registerProperty,
+} from "./registry.js";
 
 const CATEGORY = "delivery" as const;
-const DEFAULT_N = 3;
-const MAX_N = 8;
+const DEFAULT_TIMEOUT_MS = 5000;
+const DEFAULT_CAPTURE_CAPACITY = 256;
+const MAX_N = 4;
 
-/**
- * Allocate `n` TestClient handles under the ambient scope. Each gets a
- * distinct agentKey/agentId derived from the seed so replay reproduces
- * identities.
- */
-function acquireClients(
-  ctx: ConformanceRunContext,
-  n: number,
-): Effect.Effect<ReadonlyArray<TestClient>, Error, Scope.Scope> {
-  const clamped = Math.min(Math.max(1, n), MAX_N);
-  return Effect.forEach(
-    Array.from({ length: clamped }, (_, i) => i),
-    (i) =>
-      makeTestClient({
-        serverUrl: ctx.realServer.wsUrl,
-        agentKey: `c-key-${ctx.seed}-${i}`,
-        agentId: `c-agent-${ctx.seed}-${i}`,
-        defaultTimeoutMs: 3000,
-        captureCapacity: 128,
-        autoConnect: true,
-      }),
-    { concurrency: "unbounded" },
-  ).pipe(Effect.mapError((err) => new Error(`acquireClients: ${String(err)}`)));
+interface ConversationFixture {
+  readonly owner: { agent: TestAgent; client: TestClient };
+  readonly participants: ReadonlyArray<{
+    agent: TestAgent;
+    client: TestClient;
+  }>;
+  readonly conversationId: string;
 }
 
-/** Fan-out cardinality: one send ⇒ exactly N delivered events. */
+function acquireClient(
+  ctx: ConformanceRunContext,
+  name: string,
+): Effect.Effect<
+  { agent: TestAgent; client: TestClient },
+  string,
+  Scope.Scope
+> {
+  return Effect.gen(function* () {
+    const agent = yield* registerTestAgent({
+      baseUrl: ctx.realServer.baseUrl,
+      name,
+    }).pipe(Effect.mapError((e) => `register(${name}): ${e.body}`));
+    const client = yield* makeTestClient({
+      serverUrl: ctx.realServer.wsUrl,
+      agentKey: agent.apiKey,
+      agentId: agent.agentId,
+      defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
+      captureCapacity: DEFAULT_CAPTURE_CAPACITY,
+    }).pipe(Effect.mapError((e) => `makeTestClient(${name}): ${String(e)}`));
+    return { agent, client };
+  });
+}
+
+function acquireConversation(
+  ctx: ConformanceRunContext,
+  n: number,
+  namePrefix: string,
+): Effect.Effect<ConversationFixture, string, Scope.Scope> {
+  const clamped = Math.min(Math.max(1, n), MAX_N);
+  return Effect.gen(function* () {
+    const owner = yield* acquireClient(ctx, `${namePrefix}-owner`);
+    const participants = yield* Effect.forEach(
+      Array.from({ length: clamped }, (_, i) => i),
+      (i) => acquireClient(ctx, `${namePrefix}-p${i}`),
+      { concurrency: clamped },
+    );
+    const createResult = yield* owner.client
+      .sendRpc("conversations/create", {
+        type: "group",
+        name: `${namePrefix}-conv`,
+        participants: participants.map((p) => ({
+          type: "agent" as const,
+          id: p.agent.agentId,
+        })),
+      })
+      .pipe(Effect.either);
+    if (createResult._tag === "Left") {
+      return yield* Effect.fail(
+        `conversations/create failed: ${createResult.left._tag}`,
+      );
+    }
+    const created = createResult.right as {
+      conversation?: { id?: string };
+    };
+    const conversationId = created.conversation?.id;
+    if (typeof conversationId !== "string" || conversationId.length === 0) {
+      return yield* Effect.fail(
+        `conversations/create returned no conversation.id`,
+      );
+    }
+    return { owner, participants, conversationId };
+  });
+}
+
+/** Fan-out cardinality — messages/send reaches every participant. */
 export function registerFanOutCardinality(ctx: ConformanceRunContext): void {
   registerProperty(
     ctx,
     CATEGORY,
     "fan-out-cardinality",
-    "one send ⇒ exactly N delivered events across subscribers",
+    "messages/send ⇒ every participant observes ≥1 inbound message event",
     assertProperty(CATEGORY, "fan-out-cardinality", () =>
       fc.assert(
         // #ignore-sloppy-code-next-line[async-keyword]: fast-check asyncProperty contract requires Promise-returning callback
-        fc.asyncProperty(fc.integer({ min: 1, max: 4 }), async (n) => {
-          const count = await Effect.runPromise(
+        fc.asyncProperty(fc.integer({ min: 2, max: 3 }), async (n) => {
+          const counts = await Effect.runPromise(
             Effect.scoped(
               Effect.gen(function* () {
-                const clients = yield* acquireClients(ctx, n);
-                return clients.length;
+                const fixture = yield* acquireConversation(ctx, n, "fan").pipe(
+                  Effect.mapError((e) => new Error(e)),
+                );
+                const send = yield* fixture.owner.client
+                  .sendRpc("messages/send", {
+                    conversationId: fixture.conversationId,
+                    parts: [{ type: "text", text: "fan-out-ping" }],
+                  })
+                  .pipe(Effect.either);
+                if (send._tag === "Left") return [] as number[];
+                yield* Effect.sleep("250 millis");
+                const observed = yield* Effect.forEach(
+                  fixture.participants,
+                  (p) => p.client.snapshot,
+                );
+                return observed.map(
+                  (snap) =>
+                    snap.filter(
+                      (s) =>
+                        s.kind === "inbound" &&
+                        s.frame?.type === "event" &&
+                        typeof s.frame.event === "string" &&
+                        s.frame.event.includes("message"),
+                    ).length,
+                );
               }),
-            ).pipe(Effect.orElseSucceed(() => 0)),
-          );
-          // When the server is unreachable acquireClients returns 0; the
-          // property still passes so unit typecheck runs.
-          return count === 0 || count === Math.min(n, MAX_N);
+            ),
+          ).catch(() => [] as number[]);
+          return counts.length > 0 && counts.every((c) => c >= 1);
         }),
-        { seed: ctx.seed, numRuns: ctx.opts.numRuns ?? 5 },
+        { seed: ctx.seed, numRuns: ctx.opts.numRuns ?? 3 },
       ),
     ),
   );
 }
 
-/** Offline-then-reconnect delivers missed events. */
+/** Store-and-replay — every sent message lands in the participant's buffer. */
 export function registerStoreAndReplay(ctx: ConformanceRunContext): void {
   registerProperty(
     ctx,
     CATEGORY,
     "store-and-replay",
-    "offline-then-reconnect delivers missed events",
+    "every messages/send lands in the participant's capture buffer",
     Effect.scoped(
       Effect.gen(function* () {
-        const clients = yield* acquireClients(ctx, 1).pipe(
-          Effect.orElseSucceed(() => [] as ReadonlyArray<TestClient>),
+        const fixture = yield* acquireConversation(ctx, 1, "sr").pipe(
+          Effect.mapError(
+            (e) =>
+              new PropertyInvariantViolation({
+                category: CATEGORY,
+                name: "store-and-replay",
+                reason: `fixture: ${e}`,
+              }),
+          ),
         );
-        // Shape assertion: acquire path honors the ambient scope.
-        void clients;
+        const participant = fixture.participants[0];
+        if (participant === undefined) {
+          return yield* Effect.fail(
+            new PropertyInvariantViolation({
+              category: CATEGORY,
+              name: "store-and-replay",
+              reason: "fixture missing participant",
+            }),
+          );
+        }
+        const sent = 3;
+        for (let i = 0; i < sent; i++) {
+          yield* fixture.owner.client
+            .sendRpc("messages/send", {
+              conversationId: fixture.conversationId,
+              parts: [{ type: "text", text: `sr-${i}` }],
+            })
+            .pipe(Effect.either);
+        }
+        yield* Effect.sleep("350 millis");
+        const snap = yield* participant.client.snapshot;
+        const delivered = snap.filter(
+          (s) =>
+            s.kind === "inbound" &&
+            s.frame?.type === "event" &&
+            typeof s.frame.event === "string" &&
+            s.frame.event.includes("message"),
+        );
+        if (delivered.length < sent) {
+          return yield* Effect.fail(
+            new PropertyInvariantViolation({
+              category: CATEGORY,
+              name: "store-and-replay",
+              reason: `sent ${sent}, participant observed ${delivered.length}`,
+            }),
+          );
+        }
       }),
     ),
   );
 }
 
-/** Payload opacity: bytes-in ≡ bytes-out. */
+/** Payload opacity — sent text appears byte-for-byte in delivered events. */
 export function registerPayloadOpacity(ctx: ConformanceRunContext): void {
   registerProperty(
     ctx,
     CATEGORY,
     "payload-opacity",
-    "payload bytes ≡ bytes surfaced to subscribers",
-    Effect.sync(() => {
-      // Codec-level opacity is a JSON round-trip (covered by
-      // round-trip-identity under schema-conformance). End-to-end payload
-      // opacity through the server is exercised by model-equivalence.
-      void ctx;
-    }),
+    "sent message text appears verbatim in delivered event bytes",
+    assertProperty(CATEGORY, "payload-opacity", () =>
+      fc.assert(
+        // #ignore-sloppy-code-next-line[async-keyword]: fast-check asyncProperty contract requires Promise-returning callback
+        fc.asyncProperty(
+          // Exclude JSON-meta chars so a simple substring match is valid.
+          fc
+            .string({ minLength: 4, maxLength: 24 })
+            .filter((s) => !/[\\" \n\r\t]/.test(s)),
+          // #ignore-sloppy-code-next-line[async-keyword]: fast-check asyncProperty contract requires Promise-returning callback
+          async (text) => {
+            const found = await Effect.runPromise(
+              Effect.scoped(
+                Effect.gen(function* () {
+                  const fixture = yield* acquireConversation(ctx, 1, "po").pipe(
+                    Effect.mapError((e) => new Error(e)),
+                  );
+                  const participant = fixture.participants[0];
+                  if (participant === undefined) return false;
+                  yield* fixture.owner.client
+                    .sendRpc("messages/send", {
+                      conversationId: fixture.conversationId,
+                      parts: [{ type: "text", text }],
+                    })
+                    .pipe(Effect.either);
+                  yield* Effect.sleep("250 millis");
+                  const snap = yield* participant.client.snapshot;
+                  return snap.some(
+                    (s) =>
+                      s.kind === "inbound" &&
+                      s.frame?.type === "event" &&
+                      s.raw.includes(text),
+                  );
+                }),
+              ),
+            ).catch(() => false);
+            return found;
+          },
+        ),
+        { seed: ctx.seed, numRuns: ctx.opts.numRuns ?? 3 },
+      ),
+    ),
   );
 }
 
-/** Task-boundary isolation: subscribers see only their task's events. */
+/** Task-boundary isolation — conversation A's events don't leak into B. */
 export function registerTaskBoundaryIsolation(
   ctx: ConformanceRunContext,
 ): void {
@@ -114,18 +268,51 @@ export function registerTaskBoundaryIsolation(
     ctx,
     CATEGORY,
     "task-boundary-isolation",
-    "subscribers see only their task's events (merged snapshot is consistent)",
+    "participants in conversation B observe zero leaks from conversation A",
     Effect.scoped(
       Effect.gen(function* () {
-        const clients = yield* acquireClients(ctx, DEFAULT_N).pipe(
-          Effect.orElseSucceed(() => [] as ReadonlyArray<TestClient>),
+        const fxA = yield* acquireConversation(ctx, 1, "iso-a").pipe(
+          Effect.mapError(
+            (e) =>
+              new PropertyInvariantViolation({
+                category: CATEGORY,
+                name: "task-boundary-isolation",
+                reason: `fixture A: ${e}`,
+              }),
+          ),
         );
-        if (clients.length === 0) return;
-        const merged = yield* mergeCaptures(clients.map((c) => c.captures));
-        const snap = yield* merged.snapshot;
-        // Invariant: mergeCaptures preserves per-client isolation by
-        // aggregating distinct buffers rather than mutating them.
-        void snap;
+        const fxB = yield* acquireConversation(ctx, 1, "iso-b").pipe(
+          Effect.mapError(
+            (e) =>
+              new PropertyInvariantViolation({
+                category: CATEGORY,
+                name: "task-boundary-isolation",
+                reason: `fixture B: ${e}`,
+              }),
+          ),
+        );
+        yield* fxA.owner.client
+          .sendRpc("messages/send", {
+            conversationId: fxA.conversationId,
+            parts: [{ type: "text", text: "iso-leak-canary" }],
+          })
+          .pipe(Effect.either);
+        yield* Effect.sleep("250 millis");
+        const outsider = fxB.participants[0];
+        if (outsider === undefined) return;
+        const snap = yield* outsider.client.snapshot;
+        const leaked = snap.some(
+          (s) => s.kind === "inbound" && s.raw.includes(fxA.conversationId),
+        );
+        if (leaked) {
+          return yield* Effect.fail(
+            new PropertyInvariantViolation({
+              category: CATEGORY,
+              name: "task-boundary-isolation",
+              reason: `conversation ${fxA.conversationId} leaked into outsider ${outsider.agent.agentId}`,
+            }),
+          );
+        }
       }),
     ),
   );

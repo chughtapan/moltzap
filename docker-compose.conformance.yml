@@ -3,10 +3,13 @@ services:
     image: ghcr.io/shopify/toxiproxy:2.9.0
     container_name: moltzap-conformance-toxiproxy
     restart: unless-stopped
-    ports:
-      - "127.0.0.1:8474:8474" # HTTP control plane
-      - "127.0.0.1:10000-10100:10000-10100" # Dynamic proxy ports
-    command: ["-host", "0.0.0.0", "-port", "8474"]
+    # `network_mode: host` lets Toxiproxy's upstream addresses resolve
+    # `localhost` to the host where the MoltZap test server runs. The
+    # alternative (bridge + host.docker.internal) works on macOS/Windows
+    # but not reliably on Linux, and Toxiproxy allocates ephemeral
+    # listen ports that we can't port-forward up front.
+    network_mode: host
+    command: ["-host", "127.0.0.1", "-port", "8474"]
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8474/version"]
       interval: 2s

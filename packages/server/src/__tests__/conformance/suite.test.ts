@@ -132,6 +132,12 @@ describe("moltzap-server-core conformance", () => {
     console.log(
       `[conformance] seed=${result.seed} passed=${result.passed.length} deferred=${result.deferred.length} unavailable=${result.unavailable.length} failed=${result.failed.length}`,
     );
+    if (result.unavailable.length > 0) {
+      // eslint-disable-next-line no-console
+      console.log(
+        `[conformance] unavailable: ${result.unavailable.map((u) => `${u.name}: ${u.reason}`).join(" | ")}`,
+      );
+    }
     if (result.failed.length > 0) {
       const summary = result.failed
         .map((f) => {
