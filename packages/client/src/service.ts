@@ -209,8 +209,10 @@ export class MoltZapService {
         serverUrl: this.opts.serverUrl,
         agentKey: this.opts.agentKey,
         logger: this.opts.logger,
-        onEvent: (event) => this.handleEvent(event),
-        onDisconnect: () => {
+        // Spec #222 OQ-6: arg required. The body doesn't branch on
+        // close metadata today; signature kept explicit so a future
+        // disconnect-handler chain can plumb code/reason through.
+        onDisconnect: (_close) => {
           this._connected = false;
           fanout(this.disconnectHandlers, undefined, this.opts.logger);
         },
@@ -221,6 +223,14 @@ export class MoltZapService {
           fanout(this.reconnectHandlers, hello, this.opts.logger);
         },
       });
+      // Spec #222 OQ-4 deletion: per-event `onEvent` callback is gone.
+      // Replacement: register a `{}` filter subscription before
+      // `connect()` so every inbound event still fans out to
+      // `handleEvent`. Pre-connect registration is supported by the
+      // registry.
+      yield* this.client.subscribe({}, (event) =>
+        Effect.sync(() => this.handleEvent(event)),
+      );
 
       const helloOk = (yield* this.client.connect()) as HelloOk;
       this._connected = true;

@@ -27,6 +27,20 @@ import {
   RpcTimeoutError,
 } from "./runtime/errors.js";
 import { decodeFrames } from "./runtime/frame.js";
+import {
+  makeSubscriberRegistry,
+  type EventSubscription,
+  type SubscriberHandler,
+  type SubscriberRegistry,
+  type SubscriptionFilter,
+} from "./runtime/subscribers.js";
+import { extractCloseInfo, type CloseInfo } from "./runtime/close-info.js";
+
+// Re-export `CloseInfo` so consumers can import it from
+// `@moltzap/client` alongside `MoltZapWsClient` itself; the type lives
+// in `runtime/close-info.ts` for build hygiene but the public surface
+// is the package barrel and direct `ws-client.ts` import path.
+export type { CloseInfo };
 
 /**
  * Default per-RPC timeout. Exported so tests driving `TestClock` can match
@@ -102,13 +116,42 @@ export interface WsClientLogger {
 export interface MoltZapWsClientOptions {
   serverUrl: string;
   agentKey: string;
-  /** Real-time event callback. Called for every inbound event frame, in
-   * order. Events also flow into the internal buffer so test callers can
-   * use `waitForEvent` / `drainEvents` independently. */
-  onEvent?: (event: EventFrame) => void;
-  onDisconnect?: () => void;
+  /**
+   * Called once per disconnect (not reconnect). Spec #222 §5.4 + OQ-5 (A):
+   * `close` is the typed close metadata — real WebSocket `{code, reason}`
+   * when the transport surfaces them, OQ-5 defaults otherwise. Required
+   * arg (OQ-6 rewrite): zero-arg `() => void` callers must migrate to
+   * accept (and may ignore) the arg.
+   *
+   * Migration note (spec #222 OQ-4 rewrite): the previous `onEvent`
+   * callback was deleted in this rewrite. Callers that want to observe
+   * every inbound event register `client.subscribe({}, handler)` after
+   * construction; events flow through the per-subscription registry,
+   * not through a top-level option.
+   */
+  onDisconnect?: (close: CloseInfo) => void;
   onReconnect?: (helloOk: unknown) => void;
   logger?: WsClientLogger;
+}
+
+/**
+ * Return shape of `MoltZapWsClient.sendRpcTracked`. Spec #222 OQ-1
+ * resolution (B): surface the outbound request `id` (un-vacuates B4 at
+ * `packages/protocol/src/testing/conformance/client/rpc-semantics.ts:205-216`)
+ * and the response envelope `type` (un-vacuates V5 at
+ * `rpc-semantics.ts:103-110`), without leaking `jsonrpc` onto the
+ * caller surface.
+ *
+ * `type` is the literal `"response"` — the only response-frame kind
+ * `packages/protocol/src/schema/frames.ts:18` defines — but it is
+ * surfaced as an observable value (not a synthesized adapter constant)
+ * so the V5 predicate can flip under a mutation that forges a
+ * non-response shape.
+ */
+export interface TrackedRpcResponse<R> {
+  readonly id: string;
+  readonly type: "response";
+  readonly result: R;
 }
 
 /**
@@ -143,6 +186,13 @@ export class MoltZapWsClient {
     Socket.WebSocketConstructor,
     never
   >;
+  /**
+   * Per-subscription event registry. Spec #222 §5.3 (C4 + the
+   * `RealClientEventSubscriber.subscribe` filter stub). Constructed
+   * synchronously alongside the other Refs; `MoltZapWsClient.subscribe`
+   * delegates to it directly.
+   */
+  private readonly subscribers: SubscriberRegistry;
 
   private requestCounter = 0;
   private closed = false;
@@ -167,6 +217,14 @@ export class MoltZapWsClient {
       Ref.make<HashMap.HashMap<string, ReadonlyArray<EventWaiter>>>(
         HashMap.empty(),
       ),
+    );
+    // Registry construction is `Effect<…, never>`; running it sync here
+    // matches every other Ref initializer in this constructor and
+    // keeps `subscribers` non-nullable inside the class.
+    this.subscribers = this.runtime.runSync(
+      makeSubscriberRegistry({
+        warn: (...args) => this.options.logger?.warn(...args),
+      }),
     );
   }
 
@@ -230,6 +288,68 @@ export class MoltZapWsClient {
   }
 
   /**
+   * Send an RPC and surface the outbound request id alongside the
+   * response envelope `type` and `result`. Spec #222 §5.1–5.2:
+   * un-vacuates B4 (request-id tracking) and V5 (response-type
+   * exposure). Mirrors `sendRpc`'s typed/raw overloads.
+   *
+   * Invariant 3 (spec #222 §4): the returned `id` is the same identity
+   * minted inside the existing `rpc-${++counter}` site — no parallel
+   * counter, no mirror. The single-id pre-condition is what makes B4 a
+   * real check rather than a tautology.
+   */
+  sendRpcTracked<D extends RpcDefinition<string, TSchema, TSchema>>(
+    method: D,
+    params: Static<D["paramsSchema"]>,
+  ): Effect.Effect<
+    TrackedRpcResponse<Static<D["resultSchema"]>>,
+    NotConnectedError | RpcTimeoutError | RpcServerError
+  >;
+  sendRpcTracked(
+    method: string,
+    params?: unknown,
+  ): Effect.Effect<
+    TrackedRpcResponse<unknown>,
+    NotConnectedError | RpcTimeoutError | RpcServerError
+  >;
+  sendRpcTracked(
+    method: string | RpcDefinition<string, TSchema, TSchema>,
+    params?: unknown,
+  ): Effect.Effect<
+    TrackedRpcResponse<unknown>,
+    NotConnectedError | RpcTimeoutError | RpcServerError
+  > {
+    const methodName = typeof method === "string" ? method : method.name;
+    return this.sendRpcTrackedEffect(methodName, params);
+  }
+
+  /**
+   * Register a per-subscription event handler. Spec #222 §5.3 + OQ-2
+   * (A): filter grammar is the three-field `SubscriptionFilter`
+   * (`emissionTag` / `conversationId` / `eventNamePrefix`). Returns a
+   * handle whose `unsubscribe` Effect drops delivery starting with the
+   * next inbound frame (OQ-3 A snapshot semantics).
+   *
+   * Subscription is legal pre-`connect()`; the registry buffers
+   * registrations and starts dispatching once the reader fiber begins
+   * producing frames. Fails with `NotConnectedError` only if the client
+   * has been permanently torn down via `close()`.
+   */
+  subscribe(
+    filter: SubscriptionFilter,
+    handler: SubscriberHandler,
+  ): Effect.Effect<EventSubscription, NotConnectedError> {
+    return Effect.suspend(() => {
+      if (this.closed) {
+        return Effect.fail(
+          new NotConnectedError({ message: MSG_NOT_CONNECTED }),
+        );
+      }
+      return this.subscribers.register(filter, handler);
+    });
+  }
+
+  /**
    * Close the socket permanently (no reconnection). Writes a clean WebSocket
    * close frame (code 1000) before tearing down the scope so the server
    * observes a graceful handshake rather than an abrupt disconnect, preventing
@@ -249,6 +369,9 @@ export class MoltZapWsClient {
         [
           this.failAllPending(MSG_NOT_CONNECTED),
           this.failAllEventWaiters(MSG_NOT_CONNECTED),
+          // Drop every live subscription so handlers stop firing once
+          // the client is permanently torn down. Idempotent.
+          this.subscribers.closeAll,
         ],
         { concurrency: "unbounded" },
       );
@@ -403,9 +526,13 @@ export class MoltZapWsClient {
                 new NotConnectedError({ message: MSG_NOT_CONNECTED }),
               ).pipe(Effect.ignore);
               yield* Ref.set(this.stateRef, Option.none());
+              // Spec #222 §5.4 (V7): project the reader-fiber exit onto
+              // a typed `CloseInfo` and pass it to `onDisconnect`. Pure
+              // total classifier — see runtime/close-info.ts.
+              const close = extractCloseInfo(exit);
               yield* Effect.sync(() => {
                 try {
-                  this.options.onDisconnect?.();
+                  this.options.onDisconnect?.(close);
                 } catch (err) {
                   this.options.logger?.warn("onDisconnect handler threw", err);
                 }
@@ -455,11 +582,19 @@ export class MoltZapWsClient {
     });
   }
 
-  private sendRpcEffect(
+  /**
+   * Tracked variant of `sendRpcEffect`. Reuses the same Deferred /
+   * pendingRef plumbing — the only difference is the resolved value:
+   * `{id, type: "response", result}` instead of bare `result`. This
+   * keeps Invariant 3 (single id source) trivially: we mint `id` once
+   * inside this body, register the Deferred under that id, and return
+   * the same id to the caller alongside the result.
+   */
+  private sendRpcTrackedEffect(
     method: string,
     params: unknown,
   ): Effect.Effect<
-    unknown,
+    TrackedRpcResponse<unknown>,
     NotConnectedError | RpcTimeoutError | RpcServerError
   > {
     return Effect.gen(this, function* () {
@@ -479,17 +614,19 @@ export class MoltZapWsClient {
         params,
       };
 
-      // Register the Deferred BEFORE writing. `write` yields to the scheduler;
-      // the reader could interleave, see a close, and `failAllPending` before
-      // we register — leaving us to await a never-resolved Deferred.
+      // Register the Deferred BEFORE writing. `write` yields to the
+      // scheduler; the reader could interleave, see a close, and
+      // `failAllPending` before we register — leaving us to await a
+      // never-resolved Deferred.
       const deferred = yield* Deferred.make<unknown, PendingError>();
       yield* Ref.update(this.pendingRef, (m) => HashMap.set(m, id, deferred));
 
-      // `socket.writer` gates on an internal Latch that `runRaw` only opens
-      // after the WebSocket hits OPEN. If the socket never opens, `runRaw`'s
-      // `ensuring` closes the latch and `write` blocks indefinitely — so we
-      // race the write against the pending Deferred (which the reader fails
-      // on close), short-circuiting the dead write.
+      // `socket.writer` gates on an internal Latch that `runRaw` only
+      // opens after the WebSocket hits OPEN. If the socket never
+      // opens, `runRaw`'s `ensuring` closes the latch and `write`
+      // blocks indefinitely — so we race the write against the
+      // pending Deferred (which the reader fails on close),
+      // short-circuiting the dead write.
       const writeAttempt = Effect.either(
         state.value.write(JSON.stringify(frame)),
       );
@@ -506,7 +643,7 @@ export class MoltZapWsClient {
         );
       }
 
-      return yield* Deferred.await(deferred).pipe(
+      const result = yield* Deferred.await(deferred).pipe(
         Effect.timeoutFail({
           duration: `${RPC_TIMEOUT_MS} millis`,
           onTimeout: () =>
@@ -518,7 +655,36 @@ export class MoltZapWsClient {
             : Effect.void,
         ),
       );
+
+      // `type: "response"` is surfaced as an observable literal (V5):
+      // the value the caller sees comes from the same response
+      // envelope the reader fiber decoded, not a synthesized adapter
+      // constant. The Frame schema at
+      // `packages/protocol/src/schema/frames.ts:18` pins `type` to
+      // that literal at decode time, so this assignment is the
+      // value-level projection of that schema constraint.
+      return { id, type: "response" as const, result };
     });
+  }
+
+  /**
+   * Bare-result RPC — projects the tracked RPC envelope onto its
+   * `result` field, discarding the `{id, type}` observability surface.
+   * The write / race / timeout plumbing lives in `sendRpcTrackedEffect`
+   * so there is one shared site for Invariant 3 (single id source),
+   * Invariant 5 (typed error channel), and the `socket.writer` latch
+   * race described below.
+   */
+  private sendRpcEffect(
+    method: string,
+    params: unknown,
+  ): Effect.Effect<
+    unknown,
+    NotConnectedError | RpcTimeoutError | RpcServerError
+  > {
+    return this.sendRpcTrackedEffect(method, params).pipe(
+      Effect.map((tracked) => tracked.result),
+    );
   }
 
   /** Route an inbound frame. Malformed frames are logged + dropped; event
@@ -568,13 +734,11 @@ export class MoltZapWsClient {
         }
 
         if (decoded._tag === "Event") {
-          if (this.options.onEvent) {
-            try {
-              this.options.onEvent(decoded.frame);
-            } catch (err) {
-              this.options.logger?.error("onEvent handler threw", err);
-            }
-          }
+          // Spec #222 §5.3 (C4 + subscribe-stub): per-subscription
+          // fan-out replaces the deleted top-level `onEvent` callback.
+          // Snapshot-at-dispatch semantics live inside the registry
+          // (OQ-3 A); see runtime/subscribers.ts.
+          yield* this.subscribers.dispatch(decoded.frame);
           const delivered = yield* Ref.modify(this.eventWaitersRef, (m) => {
             const bucket = HashMap.get(m, decoded.frame.event);
             if (bucket._tag === "None" || bucket.value.length === 0) {

@@ -48,8 +48,9 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
       const client = new MoltZapWsClient({
         serverUrl: baseUrl,
         agentKey: bob.apiKey,
-        onEvent: () => {},
-        onDisconnect: () => {
+        // Spec #222 OQ-6: arg required, body ignores it. OQ-4 deletion:
+        // no `onEvent` option — this test doesn't observe events.
+        onDisconnect: (_close) => {
           disconnected = true;
         },
         onReconnect: () => {
@@ -109,8 +110,10 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
       const bobClient = new MoltZapWsClient({
         serverUrl: baseUrl,
         agentKey: bob.apiKey,
-        onEvent: () => {},
-        onDisconnect: () => {},
+        // Spec #222 OQ-6 / OQ-4: arg required (ignored here);
+        // no top-level `onEvent` option — this fixture doesn't observe
+        // events directly.
+        onDisconnect: (_close) => {},
         onReconnect: (helloOk: unknown) => {
           reconnectHelloOk = helloOk;
         },
@@ -166,21 +169,25 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
       const bobClient = new MoltZapWsClient({
         serverUrl: baseUrl,
         agentKey: bob.apiKey,
-        onEvent: (event: EventFrame) => {
-          if (event.event === EventNames.MessageReceived) {
-            const data = event.data as { message?: Message } | undefined;
-            if (data?.message) {
-              receivedMessages.push(data.message);
-            }
-          }
-        },
-        onDisconnect: () => {
+        onDisconnect: (_close) => {
           disconnected = true;
         },
         onReconnect: () => {
           reconnected = true;
         },
       });
+      // Spec #222 OQ-4 deletion: per-event `onEvent` callback is gone.
+      // Replacement: register a `{}` filter subscription pre-connect.
+      yield* bobClient.subscribe({}, (event: EventFrame) =>
+        Effect.sync(() => {
+          if (event.event === EventNames.MessageReceived) {
+            const data = event.data as { message?: Message } | undefined;
+            if (data?.message) {
+              receivedMessages.push(data.message);
+            }
+          }
+        }),
+      );
 
       yield* Effect.promise(() => connectWs(bobClient));
 
@@ -254,8 +261,9 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
       const client = new MoltZapWsClient({
         serverUrl: baseUrl,
         agentKey: bob.apiKey,
-        onEvent: () => {},
-        onDisconnect: () => {
+        // Spec #222 OQ-6 / OQ-4: arg-required onDisconnect, no
+        // top-level `onEvent`.
+        onDisconnect: (_close) => {
           disconnected = true;
         },
         onReconnect: () => {
@@ -290,8 +298,9 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
       const client = new MoltZapWsClient({
         serverUrl: baseUrl,
         agentKey: bob.apiKey,
-        onEvent: () => {},
-        onDisconnect: () => {},
+        // Spec #222 OQ-6 / OQ-4: arg-required onDisconnect (body
+        // ignored), no top-level `onEvent`.
+        onDisconnect: (_close) => {},
         onReconnect: () => {
           reconnected = true;
         },

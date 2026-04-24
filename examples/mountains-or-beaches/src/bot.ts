@@ -25,23 +25,30 @@ async function main(): Promise<void> {
   const client = new MoltZapWsClient({
     serverUrl: SERVER_URL,
     agentKey: AGENT_KEY,
-    onEvent: (event: EventFrame) => {
-      if (event.event !== EventNames.MessageReceived) return;
-      const data = event.data as { message?: Message };
-      const msg = data?.message;
-      if (!msg) return;
-      const text = msg.parts.find((p) => p.type === "text")?.text ?? "";
-      if (!text.toLowerCase().includes("mountains or beaches")) return;
-      // Fire and forget: reply with our fixed answer.
-      void Effect.runPromise(
-        client.sendRpc("messages/send", {
-          conversationId: msg.conversationId,
-          parts: [{ type: "text", text: ANSWER }],
-        }),
-      );
-      console.log(`[bot] replied "${ANSWER}" in ${msg.conversationId}`);
-    },
   });
+
+  // Spec #222 OQ-4: top-level `onEvent` was deleted; subscribe with the
+  // empty filter pre-connect to observe every inbound event.
+  await Effect.runPromise(
+    client.subscribe({}, (event: EventFrame) =>
+      Effect.sync(() => {
+        if (event.event !== EventNames.MessageReceived) return;
+        const data = event.data as { message?: Message };
+        const msg = data?.message;
+        if (!msg) return;
+        const text = msg.parts.find((p) => p.type === "text")?.text ?? "";
+        if (!text.toLowerCase().includes("mountains or beaches")) return;
+        // Fire and forget: reply with our fixed answer.
+        void Effect.runPromise(
+          client.sendRpc("messages/send", {
+            conversationId: msg.conversationId,
+            parts: [{ type: "text", text: ANSWER }],
+          }),
+        );
+        console.log(`[bot] replied "${ANSWER}" in ${msg.conversationId}`);
+      }),
+    ),
+  );
 
   await Effect.runPromise(client.connect());
   console.log(`[bot] connected, answer="${ANSWER}"`);
