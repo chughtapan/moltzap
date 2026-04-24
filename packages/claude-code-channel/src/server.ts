@@ -297,6 +297,14 @@ export async function bootChannelMcpServer(
       if (decoded._tag === "Err") {
         return toolErrorResult(decoded.error.reason);
       }
+      // v1 ships the contract-shaped `files` input (spec A4, fakechat parity),
+      // but attachment upload is a v1.1 follow-up. Reject explicitly with a
+      // tagged error rather than silently dropping the files (reviewer-187).
+      if (decoded.value.files !== undefined && decoded.value.files.length > 0) {
+        return toolErrorResult(
+          `FilesUnsupported: reply.files is not supported in v1 (${decoded.value.files.length.toString()} file(s) rejected). Tracked as v1.1 follow-up.`,
+        );
+      }
       const resolution = deps.routing.resolveTarget(decoded.value.replyTo);
       switch (resolution._tag) {
         case "Resolved": {
