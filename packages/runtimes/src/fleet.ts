@@ -1,4 +1,4 @@
-import { Effect, Exit } from "effect";
+import { Effect, Exit, Fiber } from "effect";
 import {
   RuntimeExitedBeforeReady,
   RuntimeReadyTimedOut,
@@ -51,6 +51,11 @@ export interface RuntimeFleetLaunchOptions {
   readonly nanoclaw?: Omit<NanoclawAdapterDeps, "server">;
 }
 
+export interface RuntimeFleetProcessSignalOptions
+  extends RuntimeFleetLaunchOptions {
+  readonly signals?: ReadonlyArray<NodeJS.Signals>;
+}
+
 export interface RuntimeFleetAgent {
   readonly name: string;
   readonly agentId: string;
@@ -60,6 +65,14 @@ export interface RuntimeFleet {
   readonly agents: ReadonlyArray<RuntimeFleetAgent>;
   stopAll(): Effect.Effect<void, never, never>;
   getLogs(name: string): string;
+}
+
+export class RuntimeFleetStartupInterrupted extends Error {
+  readonly _tag = "RuntimeFleetStartupInterrupted" as const;
+
+  constructor(readonly signal: NodeJS.Signals) {
+    super(`Runtime fleet startup interrupted by ${signal}`);
+  }
 }
 
 interface StartedRuntimeAgent {
@@ -236,4 +249,57 @@ export function launchRuntimeFleet(
       } satisfies RuntimeFleet;
     }),
   );
+}
+
+export function launchRuntimeFleetWithProcessSignals(
+  options: RuntimeFleetProcessSignalOptions,
+): Effect.Effect<
+  RuntimeFleet,
+  RuntimeLaunchFailed | RuntimeFleetStartupInterrupted,
+  never
+> {
+  const signals = options.signals ?? ["SIGINT", "SIGTERM"];
+  return Effect.async<
+    RuntimeFleet,
+    RuntimeLaunchFailed | RuntimeFleetStartupInterrupted
+  >((resume) => {
+    const fiber = Effect.runFork(launchRuntimeFleet(options));
+    let shutdownSignal: NodeJS.Signals | null = null;
+
+    const handlers = signals.map((signal) => {
+      const handler = (): void => {
+        if (shutdownSignal !== null) {
+          return;
+        }
+        shutdownSignal = signal;
+        Effect.runFork(Fiber.interrupt(fiber));
+      };
+      process.on(signal, handler);
+      return { signal, handler };
+    });
+
+    const cleanup = (): void => {
+      for (const { signal, handler } of handlers) {
+        process.off(signal, handler);
+      }
+    };
+
+    fiber.addObserver((exit) => {
+      cleanup();
+      if (Exit.isSuccess(exit)) {
+        resume(Effect.succeed(exit.value));
+        return;
+      }
+      if (shutdownSignal !== null && Exit.isInterrupted(exit)) {
+        resume(Effect.fail(new RuntimeFleetStartupInterrupted(shutdownSignal)));
+        return;
+      }
+      resume(Effect.failCause(exit.cause));
+    });
+
+    return Effect.sync(() => {
+      cleanup();
+      Effect.runFork(Fiber.interrupt(fiber));
+    });
+  });
 }
