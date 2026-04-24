@@ -1,26 +1,45 @@
 /**
  * Divergence proofs for rpc-semantics properties.
  * See schema-conformance.proofs.ts for protocol notes.
+ *
+ * Every `it` carries the 4-line author checklist per architect #197
+ * §4.3: Mutation / Predicate broken / Expected observable /
+ * Last verified.
  */
 import { describe, it, expect } from "vitest";
 
 describe.skip("registerModelEquivalence — divergence proofs", () => {
-  it("fails when applyCall returns wrong tag on an ok-predicted method", () => {
-    // Mutation: in packages/protocol/src/testing/models/dispatch.ts,
-    // swap `allowNoEvents()` for `uncertainError()` on `agents/list`
-    // (OR make `applyCall`'s result `_tag: "error"` for that case).
-    //
-    // Expected property result: FAIL — modelTag === "error" now, so
-    // the conditional oracle enters the "server must be ok" branch
-    // for other draws. If we instead break the server (force
-    // agents/list to return error), the predicate requires "server
-    // MUST be ok" and the mismatch fails the property loudly.
-    //
-    // Round-5 acceptance signal 2 executed the swap-applyCall mutation
-    // against commit b42300d: property failed at seed=42 on draw
-    // method="agents/list". The tightened conditional-oracle shape
-    // preserves this discriminating power for methods the model is
-    // confident about.
+  it("fails when the server errors on a model-confident call", () => {
+    // Mutation: break the server handler for a method in the
+    //   confident-oracle set — e.g., force `agents/list` to return a
+    //   typed error unconditionally. The model still predicts ok for
+    //   agents/list (confident-derivation), so the property enters
+    //   the "server MUST agree" branch and sees a disagreement.
+    // Predicate broken: rpc-semantics.ts — `return serverTag === "ok"`
+    //   inside registerModelEquivalence's conditional-oracle branch
+    //   (round-7 derived arbitraryConfidentCall).
+    // Expected observable: property fails; fast-check shrinks to the
+    //   broken method (agents/list); reported by the suite with
+    //   seed=<N>.
+    // Last verified: round-5 acceptance signal 2 exercised the
+    //   symmetric direction (swap applyCall tag → fails on agents/list).
+    //   Round-7 conditional oracle + confident-call derivation
+    //   pending server-side handler mutation.
+    expect(true).toBe(true);
+  });
+
+  it("safety-net fires when applyCall becomes param-sensitive", () => {
+    // Mutation: add a param-branch to `applyCall` for agents/list
+    //   that returns `_tag: "error"` on some param subset (e.g.
+    //   when params.limit > 50).
+    // Predicate broken: rpc-semantics.ts — the safety-net guard
+    //   `if (modelTag === "error") throw new Error(...)` inside
+    //   registerModelEquivalence, which architect #197 §6.1 mandated
+    //   over a silent short-circuit.
+    // Expected observable: property fails with the thrown message
+    //   "arbitraryConfidentCall drew <method> with params <...>
+    //    → model _tag: 'error'".
+    // Last verified: pending local mutation of applyCall.
     expect(true).toBe(true);
   });
 });
@@ -28,14 +47,15 @@ describe.skip("registerModelEquivalence — divergence proofs", () => {
 describe.skip("registerAuthorityPositive — divergence proofs", () => {
   it("fails when the server revokes the fresh agent's grant", () => {
     // Mutation: in packages/server, set the freshly-registered
-    // agent's status to "suspended" immediately after registration
-    // (see integration test 01-registration.integration.test.ts for
-    // the pattern). The subsequent conversations/list call will
-    // return a typed denial.
-    //
-    // Expected property result: FAIL — `outcome._tag === "Left"`,
-    // triggering the `PropertyInvariantViolation("authorized
-    // conversations/list failed: TestingRpcResponseError")`.
+    //   agent's status to "suspended" immediately after registration
+    //   (see packages/server 01-registration.integration for the
+    //   pattern). conversations/list then returns a typed denial.
+    // Predicate broken: rpc-semantics.ts —
+    //   `outcome._tag === "Left"` branch inside
+    //   registerAuthorityPositive raises PropertyInvariantViolation.
+    // Expected observable: property fails with
+    //   "authorized conversations/list failed: TestingRpcResponseError".
+    // Last verified: pending server mutation.
     expect(true).toBe(true);
   });
 });
@@ -43,25 +63,25 @@ describe.skip("registerAuthorityPositive — divergence proofs", () => {
 describe.skip("registerAuthorityNegative — divergence proofs", () => {
   it("fails when the server allows unauthenticated conversations/list", () => {
     // Mutation: remove the `requiresActive: true` guard from the
-    // `conversations/list` handler (or disable the auth middleware).
-    // Pre-handshake callers would get a typed success instead of a
-    // typed denial.
-    //
-    // Expected property result: FAIL — `outcome._tag === "Right"`,
-    // triggering "pre-handshake conversations/list returned success".
+    //   conversations/list handler (or disable the auth middleware).
+    // Predicate broken: rpc-semantics.ts —
+    //   `outcome._tag === "Right"` branch inside
+    //   registerAuthorityNegative raises PropertyInvariantViolation.
+    // Expected observable: property fails with
+    //   "pre-handshake conversations/list returned success".
+    // Last verified: pending server mutation.
     expect(true).toBe(true);
   });
 
-  it("fails when the server returns Unknown (non-auth) error for unauthenticated", () => {
+  it("fails when the server returns a non-auth error for unauthenticated", () => {
     // Mutation: replace the typed Unauthorized error in the auth
-    // middleware with a generic InternalError (code -32603).
-    //
-    // Expected property result: FAIL — code !== Unauthorized &&
-    // code !== Forbidden, triggering the "expected Unauthorized/
-    // Forbidden code" invariant violation.
-    //
-    // This proves the round-5 [P2] fix (narrow the Left type +
-    // code match) actually discriminates.
+    //   middleware with a generic InternalError (code -32603).
+    // Predicate broken: rpc-semantics.ts —
+    //   `code === ErrorCodes.Unauthorized || code === ErrorCodes.Forbidden`
+    //   inside registerAuthorityNegative (round-5 [P2] tightening).
+    // Expected observable: property fails with
+    //   "expected Unauthorized/Forbidden code (...), got -32603".
+    // Last verified: pending server mutation.
     expect(true).toBe(true);
   });
 });
@@ -69,35 +89,47 @@ describe.skip("registerAuthorityNegative — divergence proofs", () => {
 describe.skip("registerRequestIdUniqueness — divergence proofs", () => {
   it("fails when the server emits a stray response with a fresh id", () => {
     // Mutation: in the server's RPC dispatcher, after every real
-    // reply, emit an extra ResponseFrame with `id:
-    // crypto.randomUUID()`.
-    //
-    // Expected property result: FAIL — `inboundIds.size !==
-    // outboundIds.size` (stray adds a new id without a matching
-    // outbound), triggering the cardinality-match failure.
-    //
-    // This is architect §4.2's canonical divergence proof. The
-    // earlier round-5 predicate (`counts.size === n && every === 1`)
-    // would have PASSED if the stray shared an id with a real reply
-    // (count === 2 would break it) — but could pass if the stray had
-    // a unique id and the server also dropped a real reply silently.
-    // The set-equality form closes that hole.
+    //   reply, emit an extra ResponseFrame with
+    //   `id: crypto.randomUUID()`.
+    // Predicate broken: rpc-semantics.ts —
+    //   `inboundIds.size !== outboundIds.size` inside
+    //   registerRequestIdUniqueness (round-6 architect §4.2
+    //   set-equality form).
+    // Expected observable: property fails; fast-check shrinks `n` to
+    //   the minimum draw that exposes the stray.
+    // Last verified: pending server mutation; the set-equality form
+    //   is architect #195 §4.2's canonical divergence shape.
     expect(true).toBe(true);
   });
 });
 
 describe.skip("registerIdempotence — divergence proofs", () => {
   it("fails when the server returns different result bodies on replay", () => {
-    // Mutation: make `conversations/list` include a fresh
-    // `requestId: crypto.randomUUID()` field in its result so the two
-    // replays produce non-equal JSON.
-    //
-    // Expected property result: FAIL — JSON.stringify(a.right) !==
-    // JSON.stringify(b.right), triggering "replay bodies diverge".
-    //
-    // This exercises architect §4.4's tightening: the pre-round-6
-    // predicate only compared outcome tags ("Right" === "Right"),
-    // which would have passed.
+    // Mutation: make conversations/list include a fresh
+    //   `requestId: crypto.randomUUID()` field in its result so the
+    //   two replays have non-equal JSON AND the injected field isn't
+    //   one of the sorted arrays named in canonIdempotenceResult.
+    // Predicate broken: rpc-semantics.ts —
+    //   `canonIdempotenceResult(method, pair.a.right) !==
+    //    canonIdempotenceResult(method, pair.b.right)` inside
+    //   registerIdempotence (round-7 canonical-projection form).
+    // Expected observable: property fails with
+    //   "<method>: replay bodies diverge under canonical projection".
+    // Last verified: round-7 canonicalization lands; proof update
+    //   pending the server mutation run.
+    expect(true).toBe(true);
+  });
+
+  it("does NOT false-fail under pure row-order drift", () => {
+    // Mutation: make conversations/list return rows in a different
+    //   order across the two replays (no content change).
+    // Predicate broken: the canonical projection sorts
+    //   `result.conversations` by element canonicalization, so order
+    //   drift is normalized away — the property should PASS this
+    //   mutation.
+    // Expected observable: property passes; no invariant violation.
+    // Last verified: round-7; this is the spec B5 row-set semantics
+    //   architect #197 §3 named as the false-fail to close.
     expect(true).toBe(true);
   });
 });

@@ -10,7 +10,11 @@
  */
 import * as fc from "fast-check";
 import { Effect } from "effect";
-import { arbitraryAnyCall } from "../arbitraries/rpc.js";
+import {
+  arbitraryAnyCall,
+  arbitraryConfidentCall,
+  confidentOracleMethods,
+} from "../arbitraries/rpc.js";
 import {
   applyCall,
   authorizationOutcome,
@@ -18,6 +22,7 @@ import {
 } from "../models/dispatch.js";
 import { initialReferenceState } from "../models/state.js";
 import { ErrorCodes } from "../../schema/errors.js";
+import { canonicalJson, sortJsonArray } from "../canonicalize.js";
 import { makeTestClient } from "../test-client.js";
 import { registerTestAgent } from "../agent-registration.js";
 import { allRpcMethods } from "../arbitraries/rpc.js";
@@ -34,39 +39,49 @@ const DEFAULT_TIMEOUT_MS = 3000;
 const DEFAULT_CAPTURE_CAPACITY = 64;
 
 /**
- * Model-equivalence — conditional oracle (architect §4.1).
+ * Model-equivalence — conditional oracle over the model-derived
+ * confident set (architect #195 §4.1 + #197 §2).
  *
- * Spec §5 B1 is asymmetric: the server must produce what the model
- * predicts **when the model is confident**. Model imprecision on edge
- * cases is a reference-model coverage gap, not a server bug.
+ * Spec §5 B1: the server must produce what the model predicts when
+ * the model is confident. Drawing from `arbitraryConfidentCall()` —
+ * which is MECHANICALLY derived from `applyCall` at module load, not
+ * hand-curated — ensures every draw hits the discriminating "model
+ * predicts ok, server must be ok" branch; the pre-round-7 shape had
+ * a 2/40 hit rate and was distribution-vacuous.
  *
- * Predicate shape:
- *   - `modelTag === "ok"`   → server MUST be `"ok"`; `"error"` fails.
- *   - `modelTag === "error"` → proceed silently; the model is not
- *     strict enough to make a prediction, so anything the server
- *     does is consistent with the oracle.
+ * Param-invariance safety net (#197 §2.2 + §6.1): if a drawn call
+ * comes back `_tag: "error"` from the model, the single-probe
+ * derivation has diverged from runtime truth (applyCall became
+ * param-sensitive for that method). The property raises
+ * `PropertyInvariantViolation` instead of silently short-circuiting;
+ * the fix is to widen the derivation, not extend this property.
  *
- * Uses the full `arbitraryAnyCall()` draw — no narrowing. The model's
- * `allowNoEvents` predicts `"ok"` for every registered method, so
- * every draw enters the confident branch. If `applyCall`'s prediction
- * is flipped to `"error"` (divergence proof), the property still runs;
- * but if the server returns `"error"` while the model predicts `"ok"`,
- * it fails loudly.
+ * numRuns floor: `max(10, 2K)` where K = |confidentOracleMethods|.
+ * At K=2 today this is 10 (5× expected per-method, vs pre-round-7 2×
+ * at numRuns=4).
  */
 export function registerModelEquivalence(ctx: ConformanceRunContext): void {
+  const K = confidentOracleMethods.length;
+  const numRunsFloor = Math.max(10, 2 * K);
   registerProperty(
     ctx,
     CATEGORY,
     "model-equivalence",
-    "when model predicts ok, server MUST return ok",
+    `when model predicts ok, server MUST return ok (K=${K} confident methods)`,
     assertProperty(CATEGORY, "model-equivalence", () =>
       fc.assert(
         // #ignore-sloppy-code-next-line[async-keyword]: fast-check asyncProperty contract requires Promise-returning callback
-        fc.asyncProperty(arbitraryAnyCall(), async (call) => {
+        fc.asyncProperty(arbitraryConfidentCall(), async (call) => {
           const modelTag = applyCall(initialReferenceState, call).outcome._tag;
           if (modelTag === "error") {
-            // Model isn't confident; not a protocol violation either way.
-            return true;
+            // Safety-net guard: `arbitraryConfidentCall` derived this
+            // method as confident at module load. If the model now
+            // disagrees, applyCall became param-sensitive for the
+            // kept method and the derivation must widen. Surface
+            // loudly instead of silent short-circuit.
+            throw new Error(
+              `arbitraryConfidentCall drew ${call.method} with params ${JSON.stringify(call.params)} → model _tag: "error" — param-invariance contract broken; widen derivation to fc.sample-based check per architect #197 §2.2`,
+            );
           }
           const serverTag = await Effect.runPromise(
             Effect.scoped(
@@ -92,10 +107,12 @@ export function registerModelEquivalence(ctx: ConformanceRunContext): void {
           // Model is confident it's `ok`. Server MUST agree.
           return serverTag === "ok";
         }),
-        { seed: ctx.seed, numRuns: ctx.opts.numRuns ?? 4 },
+        { seed: ctx.seed, numRuns: ctx.opts.numRuns ?? numRunsFloor },
       ),
     ),
   );
+  // Keep `arbitraryAnyCall` import alive — used by sibling properties.
+  void arbitraryAnyCall;
 }
 
 /**
@@ -449,17 +466,18 @@ export function registerIdempotence(ctx: ConformanceRunContext): void {
           );
         }
         if (pair.a._tag === "Right" && pair.b._tag === "Right") {
-          // Canonical JSON comparison on the result body. Read-only
-          // list methods have stable outputs; a divergence is a real
-          // idempotence violation.
-          const aJson = JSON.stringify(pair.a.right);
-          const bJson = JSON.stringify(pair.b.right);
-          if (aJson !== bJson) {
+          // Canonical-projection comparison per architect #197 §3.3.
+          // Direct JSON.stringify on wire-derived values is byte-
+          // equality, not semantic equality; a conforming server may
+          // return the list in a different row order across replays.
+          const aCanon = canonIdempotenceResult(method, pair.a.right);
+          const bCanon = canonIdempotenceResult(method, pair.b.right);
+          if (aCanon !== bCanon) {
             return yield* Effect.fail(
               new PropertyInvariantViolation({
                 category: CATEGORY,
                 name: "idempotence",
-                reason: `${method}: replay bodies diverge`,
+                reason: `${method}: replay bodies diverge under canonical projection`,
               }),
             );
           }
@@ -468,4 +486,39 @@ export function registerIdempotence(ctx: ConformanceRunContext): void {
     }),
   );
   void allRpcMethods;
+}
+
+/**
+ * Idempotence canonical projection — architect #197 §3.3.
+ *
+ * Spec B5: agents/list.agents and conversations/list.conversations are
+ * unordered row sets across replays. Every OTHER array (including any
+ * nested `participants`, future nested message lists, and every
+ * payload field that is not one of the two named arrays) remains
+ * order-sensitive.
+ *
+ * The projection sorts ONLY the specific top-level array the spec
+ * marks unordered, then finalizes via `canonicalJson` (which
+ * normalizes object-key order but preserves every remaining array's
+ * order). A real re-ordering regression inside nested arrays still
+ * fails the property.
+ */
+function canonIdempotenceResult(
+  method: "agents/list" | "conversations/list",
+  result: unknown,
+): string {
+  if (method === "agents/list") {
+    const r = result as { agents?: unknown[] };
+    return canonicalJson({
+      ...r,
+      agents: Array.isArray(r.agents) ? sortJsonArray(r.agents) : r.agents,
+    });
+  }
+  const r = result as { conversations?: unknown[]; cursor?: string };
+  return canonicalJson({
+    ...r,
+    conversations: Array.isArray(r.conversations)
+      ? sortJsonArray(r.conversations)
+      : r.conversations,
+  });
 }
