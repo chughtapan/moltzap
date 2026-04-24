@@ -60,38 +60,49 @@ export const allToxicTags = [
 export type ToxicTag = (typeof allToxicTags)[number];
 
 /**
- * Selector: pick the Tier C invariant to re-run for a given toxic. Returned
- * names are the canonical Tier C property ids (`"C1"` | `"C2"` | …).
- * Per D2, every toxic maps to exactly one Tier C invariant.
+ * Every delivery-layer property one toxic is expected to re-exercise.
+ * Keyed by the property's semantic name (matches the register-function
+ * names in `conformance/delivery.ts`).
  */
+export type DeliveryInvariantName =
+  | "fan-out-cardinality"
+  | "store-and-replay"
+  | "payload-opacity"
+  | "task-boundary-isolation";
+
 /**
- * Per spec #181 §5 D1–D6: every toxic maps to one Tier C invariant.
+ * Selector: pick the delivery invariant a given toxic re-exercises.
+ * Adversity module uses this to pair a toxic with the single delivery
+ * property it must preserve under adversity.
  *
- * | Toxic        | Exercises   |
- * |--------------|-------------|
- * | latency      | C1 (fan-out cardinality under reorder) |
- * | bandwidth    | C1 (fan-out still lands under throttle) |
- * | slicer       | C3 (payload opacity under partial-frame) |
- * | reset_peer   | C2 (store-and-replay after reconnect) |
- * | timeout      | C1 (fan-out + eventual consistency) |
- * | slow_close   | C4 (task-isolation survives slow close) |
+ * Historical grouping: spec #181 §5 labels these "Tier C"; the code
+ * surface uses semantic names.
+ *
+ * | Toxic        | Exercises                      |
+ * |--------------|--------------------------------|
+ * | latency      | fan-out-cardinality under reorder |
+ * | bandwidth    | fan-out-cardinality under throttle |
+ * | slicer       | payload-opacity under partial-frame |
+ * | reset_peer   | store-and-replay after reconnect |
+ * | timeout      | fan-out-cardinality + eventual consistency |
+ * | slow_close   | task-boundary-isolation survives slow close |
  */
-export function tierCInvariantFor(toxic: ToxicTag): "C1" | "C2" | "C3" | "C4" {
+export function deliveryInvariantFor(toxic: ToxicTag): DeliveryInvariantName {
   switch (toxic) {
     case "latency":
     case "bandwidth":
     case "timeout":
-      return "C1";
+      return "fan-out-cardinality";
     case "reset_peer":
-      return "C2";
+      return "store-and-replay";
     case "slicer":
-      return "C3";
+      return "payload-opacity";
     case "slow_close":
-      return "C4";
+      return "task-boundary-isolation";
     default: {
       const _exhaustive: never = toxic;
       throw new Error(
-        `tierCInvariantFor: unexpected toxic ${String(_exhaustive)}`,
+        `deliveryInvariantFor: unexpected toxic ${String(_exhaustive)}`,
       );
     }
   }

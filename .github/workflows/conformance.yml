@@ -44,7 +44,7 @@ jobs:
       - name: Run conformance suite
         env:
           SKIP_DOCKER: "1"
-        run: pnpm -F @moltzap/protocol test:conformance
+        run: pnpm -F @moltzap/server-core test:conformance
 
       - name: Stop Toxiproxy
         if: always()

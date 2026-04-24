@@ -50,8 +50,40 @@ export {
   ToxicControlError,
 } from "./errors.js";
 
-// Arbitraries, models, toxics, conformance.
+// Arbitraries, models, toxics — namespaced to keep names scoped.
 export * as arbitraries from "./arbitraries/index.js";
 export * as models from "./models/index.js";
 export * as toxics from "./toxics/index.js";
+
+// Conformance suite — top-level so consumers can write
+// `import { runConformanceSuite } from "@moltzap/protocol/testing";`
+// without having to reach into a namespace.
+export {
+  type ConformanceArtifact,
+  type ConformanceRunContext,
+  type ConformanceRunOptions,
+  type ConformanceSuiteOptions,
+  type PropertyCategory,
+  type PropertyFailure,
+  type PropertyRun,
+  type RealServerHandle,
+  type RegisteredProperty,
+  type SuiteResult,
+  type WebhookAdapterProbe,
+  PropertyAssertionFailure,
+  PropertyDeferred,
+  PropertyInvariantViolation,
+  PropertyUnavailable,
+  acquireRunContext,
+  assertProperty,
+  collectProperties,
+  registerAllProperties,
+  registerProperty,
+  runAllProperties,
+  runConformance,
+  runConformanceSuite,
+} from "./conformance/index.js";
+
+// Individual category modules under a namespace for consumers who want
+// to register a subset of properties.
 export * as conformance from "./conformance/index.js";

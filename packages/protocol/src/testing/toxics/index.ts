@@ -2,7 +2,8 @@ export {
   type ToxicProfile,
   type ToxicTag,
   allToxicTags,
-  tierCInvariantFor,
+  type DeliveryInvariantName,
+  deliveryInvariantFor,
 } from "./profile.js";
 export { defaultToxicProfile } from "./defaults.js";
 export {

@@ -67,6 +67,13 @@ export class ToxicControlError extends Data.TaggedError(
   readonly body: string;
 }> {}
 
+/** Consumer-supplied `realServer()` factory threw or the handle was unusable. */
+export class RealServerAcquireError extends Data.TaggedError(
+  "TestingRealServerAcquireError",
+)<{
+  readonly cause: unknown;
+}> {}
+
 /**
  * Discriminated union of every error the testing surface can surface.
  * Exhaustiveness over optionality: properties `match` on `_tag` and the
@@ -78,4 +85,5 @@ export type TestingError =
   | FrameSchemaError
   | RpcTimeoutError
   | RpcResponseError
-  | ToxicControlError;
+  | ToxicControlError
+  | RealServerAcquireError;
