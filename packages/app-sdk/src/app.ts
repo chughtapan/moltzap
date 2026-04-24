@@ -114,8 +114,10 @@ export class MoltZapApp {
     const wsOptions: MoltZapWsClientOptions = {
       serverUrl: options.serverUrl,
       agentKey: options.agentKey,
-      onEvent: (event) => this.handleEvent(event),
-      onDisconnect: () => this.handleDisconnect(),
+      // Spec #222 OQ-6: arg required. `handleDisconnect` doesn't read
+      // close metadata today; signature kept explicit so a future
+      // disconnect-handler chain can plumb code/reason through.
+      onDisconnect: (_close) => this.handleDisconnect(),
       onReconnect: () => this.handleReconnect(),
       logger: this.logger,
     };
@@ -128,6 +130,21 @@ export class MoltZapApp {
   start(): Effect.Effect<AppSessionHandle, StartError> {
     const self = this;
     return Effect.gen(function* () {
+      // Spec #222 OQ-4 deletion: per-event `onEvent` callback is gone.
+      // Replacement: register a `{}` filter subscription before
+      // `connect()` so every inbound event still reaches `handleEvent`.
+      yield* self.client
+        .subscribe({}, (event) => Effect.sync(() => self.handleEvent(event)))
+        .pipe(
+          Effect.mapError(
+            (err) =>
+              new AuthError(
+                "Failed to register event subscription",
+                err instanceof Error ? err : undefined,
+              ),
+          ),
+        );
+
       yield* self.client
         .connect()
         .pipe(

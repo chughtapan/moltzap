@@ -23,13 +23,13 @@
  * interrupted by an unsubscribe during frame N. Frame N+1 observes the
  * unsubscribed state.
  *
- * Error channel: handlers are invoked inside a `try/catch`; a throw is
+ * Error channel: handlers are invoked inside a defect-catcher; a throw is
  * logged via the client's injected `WsClientLogger` and swallowed
  * (matching the prior `onEvent` contract at `ws-client.ts:650-655`
  * pre-deletion). The registry itself has no typed error surface —
  * `register`, `dispatch`, and `closeAll` are `Effect<T, never>`.
  */
-import type { Effect } from "effect";
+import { Effect, Ref } from "effect";
 import type { EventFrame } from "@moltzap/protocol";
 
 /** Branded identifier for a subscription handle. Minted by `register`. */
@@ -125,28 +125,86 @@ export interface SubscriberRegistry {
   readonly dispatch: (frame: EventFrame) => Effect.Effect<void, never>;
 
   /**
-   * Drop every live subscription. Called from `MoltZapWsClient.closeSync`
-   * / `disconnectSync` so handlers stop firing once the client is torn
-   * down. Idempotent.
+   * Drop every live subscription. Called from `MoltZapWsClient.close`
+   * so handlers stop firing once the client is torn down. Idempotent.
    */
   readonly closeAll: Effect.Effect<void, never>;
+}
+
+interface LiveSubscription {
+  readonly id: SubscriptionId;
+  readonly filter: SubscriptionFilter;
+  readonly handler: SubscriberHandler;
 }
 
 /**
  * Construct an empty registry. Called once from the `MoltZapWsClient`
  * constructor. Takes a logger so registry-internal error logs reach the
  * same sink as the rest of the client.
+ *
+ * Implementation notes:
+ *   - Live subscriptions are stored in a `Ref<ReadonlyArray<…>>` keyed
+ *     by registration order. Append-on-register, filter-on-unsubscribe
+ *     keeps the dispatch path O(N) with N = live subscription count.
+ *     Bigger structures aren't justified at the expected sub count
+ *     (≤ ~10 per fixture).
+ *   - `dispatch` snapshots the array at start (OQ-3 A). An
+ *     `unsubscribe` mid-dispatch mutates the Ref but the in-flight
+ *     iteration walks the snapshot.
+ *   - Handler exceptions are caught with `Effect.catchAllDefect` after
+ *     the handler Effect. Sync `throw` from a `(frame) => …` body
+ *     surfaces as a defect; we log + swallow to match the pre-deletion
+ *     `onEvent` contract.
  */
 export function makeSubscriberRegistry(logger: {
   readonly warn: (...args: ReadonlyArray<unknown>) => void;
 }): Effect.Effect<SubscriberRegistry, never> {
-  void logger;
-  throw new Error("not implemented");
+  return Effect.gen(function* () {
+    const subsRef = yield* Ref.make<ReadonlyArray<LiveSubscription>>([]);
+    const counterRef = yield* Ref.make(0);
+
+    const register: SubscriberRegistry["register"] = (filter, handler) =>
+      Effect.gen(function* () {
+        const n = yield* Ref.updateAndGet(counterRef, (c) => c + 1);
+        const id = `sub-${n}` as SubscriptionId;
+        const live: LiveSubscription = { id, filter, handler };
+        yield* Ref.update(subsRef, (xs) => [...xs, live]);
+        const unsubscribe: Effect.Effect<void, never> = Ref.update(
+          subsRef,
+          (xs) => xs.filter((s) => s.id !== id),
+        );
+        return { id, unsubscribe };
+      });
+
+    const dispatch: SubscriberRegistry["dispatch"] = (frame) =>
+      Effect.gen(function* () {
+        // Snapshot at dispatch-start: OQ-3 A. Unsubscribes during this
+        // frame mutate `subsRef` but our iteration walks `snapshot`.
+        const snapshot = yield* Ref.get(subsRef);
+        for (const sub of snapshot) {
+          if (!matchesFilter(sub.filter, frame)) continue;
+          // Handlers must not throw; we catch defects defensively so
+          // one buggy subscriber can't kill the dispatch loop or break
+          // the reader fiber.
+          yield* sub.handler(frame).pipe(
+            Effect.catchAllDefect((err) =>
+              Effect.sync(() => {
+                logger.warn("subscriber handler threw", err);
+              }),
+            ),
+          );
+        }
+      });
+
+    const closeAll: Effect.Effect<void, never> = Ref.set(subsRef, []);
+
+    return { register, dispatch, closeAll };
+  });
 }
 
 /**
- * Pure filter-match predicate. Exposed for unit testing so the B4 / C4
- * divergence proofs in
+ * Pure filter-match predicate. Exposed for unit testing so the C4
+ * divergence proof in
  * `packages/protocol/src/testing/conformance/__divergence_proofs__/client-delivery.proofs.ts`
  * can mutate this predicate (e.g., force it to always return `true`) to
  * flip the vacuity assertions.
@@ -161,7 +219,33 @@ export function matchesFilter(
   filter: SubscriptionFilter,
   frame: EventFrame,
 ): boolean {
-  void filter;
-  void frame;
-  throw new Error("not implemented");
+  if (filter.eventNamePrefix !== undefined) {
+    if (!frame.event.startsWith(filter.eventNamePrefix)) return false;
+  }
+  // `frame.data` is `unknown` per the EventFrame schema; narrow it to
+  // a record before reading the two payload-keyed fields. Anything
+  // else (string, number, array) cannot satisfy a payload-key filter.
+  // The cast is annotated below: the EventFrame schema declares `data:
+  // unknown`, and the OQ-2 A filter grammar intentionally treats
+  // payloads as untyped maps so arbitrary publisher payloads can be
+  // filtered without a per-event schema tax. The `typeof === "object"`
+  // guard is the runtime boundary; the read sites
+  // (`data?.["__emissionTag"]`, `data?.["conversationId"]`) defend
+  // against missing or wrong-typed values via `=== filter.<field>`.
+  const data: Record<string, unknown> | null =
+    typeof frame.data === "object" &&
+    frame.data !== null &&
+    !Array.isArray(frame.data)
+      ? (frame.data as Record<string, unknown>) // #ignore-sloppy-code[record-cast]: EventFrame schema declares `data: unknown`; OQ-2 A filter treats payloads as untyped maps; the typeof guard above is the runtime boundary
+      : null;
+
+  if (filter.emissionTag !== undefined) {
+    const tag = data?.["__emissionTag"];
+    if (tag !== filter.emissionTag) return false;
+  }
+  if (filter.conversationId !== undefined) {
+    const cid = data?.["conversationId"];
+    if (cid !== filter.conversationId) return false;
+  }
+  return true;
 }

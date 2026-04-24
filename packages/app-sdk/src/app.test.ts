@@ -11,62 +11,83 @@ import {
 // Mock MoltZapWsClient. Client methods return Effects (primary API), so
 // mocks return `Effect.succeed` / `Effect.fail`. Captures constructor
 // callbacks so tests can drive server-side events.
+//
+// Spec #222 OQ-4 migration: the per-event `onEvent` constructor option
+// was deleted. Tests fire events through the captured `subscribe`
+// handler instead. The mock's `subscribe` records the handler off the
+// `{}`-filter call (the in-repo "every event" pattern post-OQ-4) and
+// exposes it as `_onEvent` so the existing `fireEvent` helper keeps
+// working unchanged.
 vi.mock("@moltzap/client", () => {
   return {
     MoltZapWsClient: vi
       .fn()
       .mockImplementation(
-        (opts: {
-          onEvent?: unknown;
-          onReconnect?: unknown;
-          onDisconnect?: unknown;
-        }) => ({
-          _onEvent: opts.onEvent,
-          _onReconnect: opts.onReconnect,
-          _onDisconnect: opts.onDisconnect,
-          connect: vi
-            .fn()
-            .mockImplementation(() => Effect.succeed({ agentId: "agent-1" })),
-          sendRpc: vi.fn().mockImplementation((method: string) => {
-            if (method === "apps/register") {
-              return Effect.succeed({ appId: "test-app" });
-            }
-            if (method === "apps/create") {
+        (opts: { onReconnect?: unknown; onDisconnect?: unknown }) => {
+          let captured: ((e: unknown) => void) | null = null;
+          return {
+            _onReconnect: opts.onReconnect,
+            _onDisconnect: opts.onDisconnect,
+            // The app's `start()` calls `subscribe({}, handler)` before
+            // `connect()`. We capture the handler so tests can fire
+            // events at it via `_onEvent`.
+            subscribe: vi.fn().mockImplementation((_filter, handler) => {
+              captured = (e: unknown) => Effect.runSync(handler(e as never));
               return Effect.succeed({
-                session: {
-                  id: "session-1",
-                  appId: "test-app",
-                  initiatorAgentId: "agent-1",
-                  status: "active",
-                  conversations: { default: "conv-1" },
-                  createdAt: "2026-04-16T00:00:00.000Z",
-                },
+                id: "sub-mock",
+                unsubscribe: Effect.succeed(undefined),
               });
-            }
-            if (method === "system/ping") {
-              return Effect.succeed({ ts: new Date().toISOString() });
-            }
-            if (method === "apps/closeSession") {
-              return Effect.succeed({ closed: true });
-            }
-            if (method === "messages/send") {
-              return Effect.succeed({
-                message: {
-                  id: "msg-1",
-                  conversationId: "conv-1",
-                  senderId: "agent-1",
-                  parts: [{ type: "text", text: "hello" }],
-                  createdAt: "2026-04-16T00:00:00.000Z",
-                },
-              });
-            }
-            return Effect.succeed({});
-          }),
-          close: vi.fn().mockImplementation(() => Effect.succeed(undefined)),
-          disconnect: vi
-            .fn()
-            .mockImplementation(() => Effect.succeed(undefined)),
-        }),
+            }),
+            get _onEvent(): (e: unknown) => void {
+              if (captured === null) {
+                throw new Error("_onEvent fired before subscribe() was called");
+              }
+              return captured;
+            },
+            connect: vi
+              .fn()
+              .mockImplementation(() => Effect.succeed({ agentId: "agent-1" })),
+            sendRpc: vi.fn().mockImplementation((method: string) => {
+              if (method === "apps/register") {
+                return Effect.succeed({ appId: "test-app" });
+              }
+              if (method === "apps/create") {
+                return Effect.succeed({
+                  session: {
+                    id: "session-1",
+                    appId: "test-app",
+                    initiatorAgentId: "agent-1",
+                    status: "active",
+                    conversations: { default: "conv-1" },
+                    createdAt: "2026-04-16T00:00:00.000Z",
+                  },
+                });
+              }
+              if (method === "system/ping") {
+                return Effect.succeed({ ts: new Date().toISOString() });
+              }
+              if (method === "apps/closeSession") {
+                return Effect.succeed({ closed: true });
+              }
+              if (method === "messages/send") {
+                return Effect.succeed({
+                  message: {
+                    id: "msg-1",
+                    conversationId: "conv-1",
+                    senderId: "agent-1",
+                    parts: [{ type: "text", text: "hello" }],
+                    createdAt: "2026-04-16T00:00:00.000Z",
+                  },
+                });
+              }
+              return Effect.succeed({});
+            }),
+            close: vi.fn().mockImplementation(() => Effect.succeed(undefined)),
+            disconnect: vi
+              .fn()
+              .mockImplementation(() => Effect.succeed(undefined)),
+          };
+        },
       ),
   };
 });
