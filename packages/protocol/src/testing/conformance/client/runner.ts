@@ -16,15 +16,24 @@
  * export (see §4 O5 resolution in the design doc) that returns the same
  * factory shape.
  */
-import { Context, type Effect, type Ref, type Scope } from "effect";
+import { Context, Effect, Ref, type Scope } from "effect";
 import type { EventFrame, ResponseFrame } from "../../../schema/frames.js";
-import type { TestServer, TestServerConnection } from "../../test-server.js";
-import type { ToxiproxyClient } from "../../toxics/client.js";
-import type {
+import {
+  makeTestServer,
+  type TestServer,
+  type TestServerConnection,
+} from "../../test-server.js";
+import {
+  makeToxiproxyClient,
+  type ToxiproxyClient,
+} from "../../toxics/client.js";
+import {
   RealServerAcquireError,
-  ToxicControlError,
+  TransportIoError,
+  type ToxicControlError,
 } from "../../errors.js";
 import type { ConformanceArtifact } from "../runner.js";
+import { PROTOCOL_VERSION } from "../../../version.js";
 
 /**
  * Opaque handle to a live real MoltZap client connected to `TestServer`.
@@ -209,13 +218,20 @@ export const ClientHandshakeWindow = Context.GenericTag<ClientHandshakeWindow>(
  * `ConformanceRunContext` — same `seed`, `toxiproxy`, `artifacts`
  * plumbing; different factory pair.
  */
+/**
+ * Factory arguments the suite passes to every `realClient()` invocation.
+ * The factory uses `testServerUrl` to point its WS client at the bound
+ * TestServer substrate.
+ */
+export interface RealClientFactoryArgs {
+  readonly testServerUrl: string;
+}
+
 export interface ClientConformanceRunContext {
   readonly testServer: TestServer;
-  readonly realClientFactory: () => Effect.Effect<
-    RealClientHandle,
-    RealClientLifecycleError,
-    Scope.Scope
-  >;
+  readonly realClientFactory: (
+    args: RealClientFactoryArgs,
+  ) => Effect.Effect<RealClientHandle, RealClientLifecycleError, Scope.Scope>;
   readonly handshakeWindow: ClientHandshakeWindow;
   readonly toxiproxy: ToxiproxyClient | null;
   readonly opts: ClientConformanceRunOptions;
@@ -225,11 +241,9 @@ export interface ClientConformanceRunContext {
 
 export interface ClientConformanceRunOptions {
   readonly tiers: ReadonlyArray<"A" | "B" | "C" | "D" | "E">;
-  readonly realClient: () => Effect.Effect<
-    RealClientHandle,
-    RealClientLifecycleError,
-    Scope.Scope
-  >;
+  readonly realClient: (
+    args: RealClientFactoryArgs,
+  ) => Effect.Effect<RealClientHandle, RealClientLifecycleError, Scope.Scope>;
   readonly replaySeed?: number;
   readonly numRuns?: number;
   readonly manageToxiproxy?: boolean;
@@ -248,6 +262,10 @@ export interface ClientConformanceRunOptions {
  * live TestServer, a real-client factory ready to call, and a
  * handshake-noise guard window.
  *
+ * The TestServer binds on an ephemeral port. Optional Toxiproxy is
+ * acquired when `manageToxiproxy` is set or `toxiproxyUrl` is provided
+ * alongside tier "D".
+ *
  * Errors are typed; no raw throws.
  */
 export function acquireClientRunContext(
@@ -257,16 +275,215 @@ export function acquireClientRunContext(
   ToxicControlError | RealServerAcquireError | RealClientLifecycleError,
   Scope.Scope
 > {
-  throw new Error("not implemented");
+  return Effect.gen(function* () {
+    const seed =
+      opts.replaySeed ?? Number(process.env.FC_SEED ?? Date.now() & 0x7fffffff);
+    const artifacts = yield* Ref.make<ReadonlyArray<ConformanceArtifact>>([]);
+
+    // Bind the TestServer under the ambient Scope. Server-close on teardown.
+    const testServer = yield* makeTestServer({
+      port: 0,
+      host: "127.0.0.1",
+      captureCapacity: 256,
+    }).pipe(
+      Effect.mapError(
+        (err) =>
+          new RealServerAcquireError({
+            cause: new Error(`TestServer bind failed: ${String(err)}`),
+          }),
+      ),
+    );
+
+    // Optional Toxiproxy acquisition — matches the server-side runner's
+    // contract (only allocate when tier "D" is present).
+    let toxiproxy: ToxiproxyClient | null = null;
+    if (opts.tiers.includes("D") && opts.toxiproxyUrl !== undefined) {
+      const tp = yield* makeToxiproxyClient({ apiUrl: opts.toxiproxyUrl });
+      yield* tp.ping.pipe(Effect.orElseSucceed(() => undefined));
+      toxiproxy = tp;
+    }
+
+    // Build a placeholder handshake window; property bodies overwrite it
+    // via `makeClientHandshakeWindow(handle)` once they have a handle.
+    // The context carries the initial no-op shape so type-system contracts
+    // hold; each property body still binds a per-handle window.
+    const handshakeWindow: ClientHandshakeWindow = {
+      freshEmissionTag: Effect.sync(
+        () => `tag-${Math.random().toString(36).slice(2, 10)}`,
+      ),
+      emitTaggedEvent: ({ connection, base, emissionTag }) =>
+        emitTaggedEventDefault(connection, base, emissionTag),
+      emitTaggedResponse: ({ connection, base, emissionTag }) =>
+        emitTaggedResponseDefault(connection, base, emissionTag),
+      awaitHandshakeComplete: Effect.void,
+    };
+
+    return {
+      testServer,
+      realClientFactory: opts.realClient,
+      handshakeWindow,
+      toxiproxy,
+      opts,
+      seed,
+      artifacts,
+    } satisfies ClientConformanceRunContext;
+  });
 }
 
 /**
- * Build a `ClientHandshakeWindow` from a real-client handle. The window
- * tracks the most recent handshake-complete signal so emissions block
- * until `ready` resolves.
+ * Default tagged-event emission: stamp the event payload with the
+ * caller's `emissionTag` under the reserved `__emissionTag` key, then
+ * forward to the connection's real `emitEvent`. Returns the tag so the
+ * caller can filter subscriber observations by the same string.
+ *
+ * `EventFrame.data` is `Type.Optional(Type.Unknown())`; injecting an
+ * object field is schema-valid. The real clients under test are
+ * payload-opaque (C3 predicate), so the extra field round-trips cleanly.
+ */
+function emitTaggedEventDefault(
+  connection: TestServerConnection,
+  base: EventFrame,
+  emissionTag: string,
+): Effect.Effect<string> {
+  const base_data = (base.data ?? {}) as Record<string, unknown>; // #ignore-sloppy-code[record-cast]: EventFrame.data is Type.Optional(Type.Unknown()); opaque-payload merge, not a Kysely row
+  const tagged: EventFrame = {
+    ...base,
+    data: { ...base_data, __emissionTag: emissionTag },
+  };
+  return connection.emitEvent(tagged).pipe(
+    Effect.orElseSucceed(() => undefined),
+    Effect.as(emissionTag),
+  );
+}
+
+function emitTaggedResponseDefault(
+  connection: TestServerConnection,
+  base: ResponseFrame,
+  _emissionTag: string,
+): Effect.Effect<string> {
+  // Response frames don't carry a free-form `data` field; responses are
+  // correlated by `id` instead — the response's `id` IS its emission tag
+  // from the property's perspective (see B1 / B4 / D5 predicates).
+  return connection.emitResponse(base).pipe(
+    Effect.orElseSucceed(() => undefined),
+    Effect.as(base.id),
+  );
+}
+
+/**
+ * Build a `ClientHandshakeWindow` from a real-client handle. Returns a
+ * window whose `awaitHandshakeComplete` resolves when `handle.ready`
+ * does; emissions are passed through to the connection the property
+ * body chooses (TestServer may have multiple connections).
  */
 export function makeClientHandshakeWindow(
   handle: RealClientHandle,
 ): Effect.Effect<ClientHandshakeWindow, never, Scope.Scope> {
-  throw new Error("not implemented");
+  return Effect.gen(function* () {
+    const tagCounter = yield* Ref.make(0);
+    return {
+      freshEmissionTag: Ref.updateAndGet(tagCounter, (n) => n + 1).pipe(
+        Effect.map((n) => `emit-${handle.agentId}-${n}`),
+      ),
+      emitTaggedEvent: ({ connection, base, emissionTag }) =>
+        emitTaggedEventDefault(connection, base, emissionTag),
+      emitTaggedResponse: ({ connection, base, emissionTag }) =>
+        emitTaggedResponseDefault(connection, base, emissionTag),
+      awaitHandshakeComplete: handle.ready,
+    };
+  });
+}
+
+/**
+ * Auto-handshake responder. Spawned as a background fiber by property
+ * bodies; watches a TestServer connection's inbound capture buffer for
+ * `auth/connect` RPC requests and responds with a minimal valid
+ * `HelloOkSchema`. Required because `MoltZapWsClient.connect()` blocks
+ * on the auth/connect response before `ready` resolves.
+ *
+ * Exposed as a helper so each property body can choose whether to run
+ * the auto-responder or assert directly against the raw inbound stream
+ * (e.g., B4 spurious-id test wants to observe the inbound ids).
+ */
+export function runAutoHandshakeResponder(
+  connection: TestServerConnection,
+  agentId: string,
+): Effect.Effect<void, never, Scope.Scope> {
+  return Effect.forkScoped(
+    Effect.gen(function* () {
+      let handshakeHandled = false;
+      while (!handshakeHandled) {
+        yield* Effect.sleep("10 millis");
+        const snap = yield* connection.inbound.snapshot;
+        for (const entry of snap) {
+          if (
+            entry.kind === "inbound" &&
+            entry.frame !== null &&
+            entry.frame.type === "request" &&
+            entry.frame.method === "auth/connect"
+          ) {
+            const helloOk = {
+              protocolVersion: PROTOCOL_VERSION,
+              agentId,
+              conversations: [],
+              unreadCounts: {},
+              policy: {
+                maxMessageBytes: 65536,
+                maxPartsPerMessage: 32,
+                maxTextLength: 4096,
+                maxGroupParticipants: 64,
+                heartbeatIntervalMs: 30_000,
+                rateLimits: {
+                  messagesPerMinute: 60,
+                  requestsPerMinute: 300,
+                },
+              },
+            };
+            yield* connection
+              .emitResponse({
+                jsonrpc: "2.0",
+                type: "response",
+                id: entry.frame.id,
+                result: helloOk,
+              })
+              .pipe(Effect.orElseSucceed(() => undefined));
+            handshakeHandled = true;
+            break;
+          }
+        }
+      }
+    }),
+  ).pipe(Effect.asVoid);
+}
+
+/**
+ * Utility: resolve a fresh tag from a handshake window in synchronous-
+ * friendly Effect code. Property bodies call this at the top of each
+ * fast-check iteration.
+ */
+export function freshTag(window: ClientHandshakeWindow): Effect.Effect<string> {
+  return window.freshEmissionTag;
+}
+
+/**
+ * Fiber-safe helper to await a TestServer connection. Times out so a
+ * never-connecting real client doesn't block the property body
+ * indefinitely.
+ */
+export function awaitConnection(
+  testServer: TestServer,
+  timeoutMs = 5000,
+): Effect.Effect<TestServerConnection, TransportIoError> {
+  return testServer.accept.pipe(
+    Effect.timeoutFail({
+      duration: `${timeoutMs} millis`,
+      onTimeout: () =>
+        new TransportIoError({
+          direction: "inbound",
+          cause: new Error(
+            `TestServer accept timeout after ${timeoutMs}ms (no real client connected)`,
+          ),
+        }),
+    }),
+  );
 }
