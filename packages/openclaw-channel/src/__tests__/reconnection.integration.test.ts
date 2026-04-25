@@ -1,17 +1,11 @@
-import { describe, expect, beforeAll, afterAll, inject } from "vitest";
+import { describe, expect, inject, beforeAll } from "vitest";
 import { it } from "@effect/vitest";
 import { Effect } from "effect";
 import { MoltZapWsClient } from "@moltzap/client";
 import { stripWsPath } from "@moltzap/client/test";
 import type { EventFrame, Message } from "@moltzap/protocol";
 import { EventNames } from "@moltzap/protocol";
-import {
-  initWorker,
-  cleanupWorker,
-  registerAndClaim,
-  makeContact,
-  waitFor,
-} from "./test-helpers.js";
+import { registerAndClaim, waitFor } from "./test-helpers.js";
 
 /** The MoltZapWsClient API is Effect-native. These helpers run the Effects
  * at the test boundary so the integration flow reads like Promise code. */
@@ -25,13 +19,8 @@ let baseUrl: string;
 let wsUrl: string;
 
 beforeAll(() => {
-  initWorker();
   baseUrl = inject("baseUrl");
   wsUrl = inject("wsUrl");
-});
-
-afterAll(async () => {
-  await cleanupWorker();
 });
 
 describe("Flow 8: Reconnection + missed message catch-up", () => {
@@ -86,10 +75,6 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
       });
       const bob = yield* Effect.tryPromise({
         try: () => registerAndClaim("recon-bob-unread"),
-        catch: (err) => (err instanceof Error ? err : new Error(String(err))),
-      });
-      yield* Effect.tryPromise({
-        try: () => makeContact(alice.userId, bob.userId),
         catch: (err) => (err instanceof Error ? err : new Error(String(err))),
       });
 
@@ -155,10 +140,6 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
       });
       const bob = yield* Effect.tryPromise({
         try: () => registerAndClaim("recon-bob-evt"),
-        catch: (err) => (err instanceof Error ? err : new Error(String(err))),
-      });
-      yield* Effect.tryPromise({
-        try: () => makeContact(alice.userId, bob.userId),
         catch: (err) => (err instanceof Error ? err : new Error(String(err))),
       });
 

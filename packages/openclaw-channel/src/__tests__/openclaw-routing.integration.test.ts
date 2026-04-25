@@ -6,17 +6,14 @@
  * not LLM quality.
  */
 
-import { describe, expect, inject, beforeAll, afterAll } from "vitest";
+import { describe, expect, inject, beforeAll } from "vitest";
 import { it } from "@effect/vitest";
 import { Effect } from "effect";
 import { MoltZapWsClient } from "@moltzap/client";
 import { stripWsPath } from "@moltzap/client/test";
 import { getLogs } from "../test-utils/container-core.js";
 import {
-  initWorker,
-  cleanupWorker,
   registerAndClaim,
-  makeContact,
   extractMessage,
   extractConvId,
   extractText,
@@ -25,12 +22,7 @@ import {
 let wsUrl: string;
 
 beforeAll(() => {
-  initWorker();
   wsUrl = inject("wsUrl");
-});
-
-afterAll(async () => {
-  await cleanupWorker();
 });
 
 describe.skipIf(inject("containerAId") === "")(
@@ -38,10 +30,7 @@ describe.skipIf(inject("containerAId") === "")(
   () => {
     const containerAId = inject("containerAId");
     const containerAAgentId = inject("containerAAgentId");
-    const containerAUserId = inject("containerAUserId");
-    const containerASupabaseUid = inject("containerASupabaseUid");
     const containerBAgentId = inject("containerBAgentId");
-    const containerBUserId = inject("containerBUserId");
 
     // --- Gateway lifecycle ---
 
@@ -67,11 +56,6 @@ describe.skipIf(inject("containerAId") === "")(
           Effect.gen(function* () {
             const alice = yield* Effect.tryPromise({
               try: () => registerAndClaim("a2a-alice-dm"),
-              catch: (err) =>
-                err instanceof Error ? err : new Error(String(err)),
-            });
-            yield* Effect.tryPromise({
-              try: () => makeContact(alice.userId, containerAUserId),
               catch: (err) =>
                 err instanceof Error ? err : new Error(String(err)),
             });
@@ -121,21 +105,6 @@ describe.skipIf(inject("containerAId") === "")(
               catch: (err) =>
                 err instanceof Error ? err : new Error(String(err)),
             });
-            yield* Effect.tryPromise({
-              try: () => makeContact(alice.userId, containerAUserId),
-              catch: (err) =>
-                err instanceof Error ? err : new Error(String(err)),
-            });
-            yield* Effect.tryPromise({
-              try: () => makeContact(alice.userId, eve.userId),
-              catch: (err) =>
-                err instanceof Error ? err : new Error(String(err)),
-            });
-            yield* Effect.tryPromise({
-              try: () => makeContact(containerAUserId, eve.userId),
-              catch: (err) =>
-                err instanceof Error ? err : new Error(String(err)),
-            });
 
             const aliceClient = new MoltZapWsClient({
               serverUrl: stripWsPath(wsUrl),
@@ -180,11 +149,6 @@ describe.skipIf(inject("containerAId") === "")(
           Effect.gen(function* () {
             const alice = yield* Effect.tryPromise({
               try: () => registerAndClaim("a2a-alice-rapid"),
-              catch: (err) =>
-                err instanceof Error ? err : new Error(String(err)),
-            });
-            yield* Effect.tryPromise({
-              try: () => makeContact(alice.userId, containerAUserId),
               catch: (err) =>
                 err instanceof Error ? err : new Error(String(err)),
             });
@@ -242,16 +206,6 @@ describe.skipIf(inject("containerAId") === "")(
             catch: (err) =>
               err instanceof Error ? err : new Error(String(err)),
           });
-          yield* Effect.tryPromise({
-            try: () => makeContact(alice.userId, containerAUserId),
-            catch: (err) =>
-              err instanceof Error ? err : new Error(String(err)),
-          });
-          yield* Effect.tryPromise({
-            try: () => makeContact(alice.userId, containerBUserId),
-            catch: (err) =>
-              err instanceof Error ? err : new Error(String(err)),
-          });
 
           const aliceClient = new MoltZapWsClient({
             serverUrl: stripWsPath(wsUrl),
@@ -306,80 +260,6 @@ describe.skipIf(inject("containerAId") === "")(
       180_000,
     );
 
-    // --- Human -> Agent (control channel) ---
-
-    describe("human -> agent via control channel", () => {
-      it.live(
-        "human sends to control channel, OpenClaw replies to human",
-        () =>
-          Effect.gen(function* () {
-            const humanClient = new MoltZapWsClient({
-              serverUrl: stripWsPath(wsUrl),
-              agentKey: containerASupabaseUid,
-            });
-            yield* humanClient.connect();
-
-            const convId = extractConvId(
-              yield* humanClient.sendRpc("conversations/create", {
-                type: "dm",
-                participants: [{ type: "agent", id: containerAAgentId }],
-              }),
-            );
-
-            yield* humanClient.sendRpc("messages/send", {
-              conversationId: convId,
-              parts: [{ type: "text", text: "hello from human" }],
-            });
-
-            const reply = extractMessage(
-              yield* humanClient.waitForEvent("messages/received", 60_000),
-            );
-            expect(reply.parts.length).toBeGreaterThan(0);
-            expect(reply.conversationId).toBe(convId);
-            expect(reply.senderId).toBe(containerAAgentId);
-            expect(reply.senderId).toBe("agent");
-            expect(extractText(reply)).toContain("ECHO:");
-
-            yield* humanClient.close();
-          }),
-        90_000,
-      );
-
-      it.live(
-        "agent reply has correct sender identity",
-        () =>
-          Effect.gen(function* () {
-            const humanClient = new MoltZapWsClient({
-              serverUrl: stripWsPath(wsUrl),
-              agentKey: containerASupabaseUid,
-            });
-            yield* humanClient.connect();
-
-            const convId = extractConvId(
-              yield* humanClient.sendRpc("conversations/create", {
-                type: "dm",
-                participants: [{ type: "agent", id: containerAAgentId }],
-              }),
-            );
-
-            yield* humanClient.sendRpc("messages/send", {
-              conversationId: convId,
-              parts: [{ type: "text", text: "who are you?" }],
-            });
-
-            const reply = extractMessage(
-              yield* humanClient.waitForEvent("messages/received", 60_000),
-            );
-            expect(reply.senderId).toBe("agent");
-            expect(reply.senderId).toBe(containerAAgentId);
-            expect(extractText(reply)).toContain("ECHO:");
-
-            yield* humanClient.close();
-          }),
-        90_000,
-      );
-    });
-
     // --- Aggressive scenarios ---
 
     describe("outbound proactive messaging", () => {
@@ -389,11 +269,6 @@ describe.skipIf(inject("containerAId") === "")(
           Effect.gen(function* () {
             const receiver = yield* Effect.tryPromise({
               try: () => registerAndClaim("out-receiver-pro"),
-              catch: (err) =>
-                err instanceof Error ? err : new Error(String(err)),
-            });
-            yield* Effect.tryPromise({
-              try: () => makeContact(containerAUserId, receiver.userId),
               catch: (err) =>
                 err instanceof Error ? err : new Error(String(err)),
             });
@@ -450,11 +325,6 @@ describe.skipIf(inject("containerAId") === "")(
           Effect.gen(function* () {
             const receiver = yield* Effect.tryPromise({
               try: () => registerAndClaim("out-receiver-dup"),
-              catch: (err) =>
-                err instanceof Error ? err : new Error(String(err)),
-            });
-            yield* Effect.tryPromise({
-              try: () => makeContact(containerAUserId, receiver.userId),
               catch: (err) =>
                 err instanceof Error ? err : new Error(String(err)),
             });
@@ -550,11 +420,6 @@ describe.skipIf(inject("containerAId") === "")(
               catch: (err) =>
                 err instanceof Error ? err : new Error(String(err)),
             });
-            yield* Effect.tryPromise({
-              try: () => makeContact(alice.userId, containerAUserId),
-              catch: (err) =>
-                err instanceof Error ? err : new Error(String(err)),
-            });
 
             const aliceClient = new MoltZapWsClient({
               serverUrl: stripWsPath(wsUrl),
@@ -596,11 +461,6 @@ describe.skipIf(inject("containerAId") === "")(
           Effect.gen(function* () {
             const alice = yield* Effect.tryPromise({
               try: () => registerAndClaim("rd-alice"),
-              catch: (err) =>
-                err instanceof Error ? err : new Error(String(err)),
-            });
-            yield* Effect.tryPromise({
-              try: () => makeContact(alice.userId, containerAUserId),
               catch: (err) =>
                 err instanceof Error ? err : new Error(String(err)),
             });

@@ -3,17 +3,14 @@
  * Uses shared container from globalSetup — no per-test container startup.
  */
 
-import { describe, expect, inject, beforeAll, afterAll } from "vitest";
+import { describe, expect, inject, beforeAll } from "vitest";
 import { it } from "@effect/vitest";
 import { Effect } from "effect";
 import { MoltZapWsClient } from "@moltzap/client";
 import { stripWsPath } from "@moltzap/client/test";
 import { getLogs } from "../test-utils/container-core.js";
 import {
-  initWorker,
-  cleanupWorker,
   registerAndClaim,
-  makeContact,
   extractConvId,
   extractText,
 } from "./test-helpers.js";
@@ -38,9 +35,11 @@ async function waitForRepliesByList(params: {
       }),
     )) as { messages: Message[] };
 
+    // senderId on the Message schema is `AgentId` — every reply originates
+    // from an agent, so a separate participant-type predicate would be
+    // tautological and cannot survive the schema drop.
     const replies = result.messages.filter(
       (m) =>
-        m.sender.type === "agent" &&
         m.senderId === params.receiverAgentId &&
         extractText(m).includes("ECHO:"),
     );
@@ -59,16 +58,10 @@ async function waitForRepliesByList(params: {
 
 describe("Stress: concurrent multi-agent messaging", () => {
   const receiverAgentId = inject("containerAAgentId");
-  const receiverUserId = inject("containerAUserId");
   const containerAId = inject("containerAId");
 
   beforeAll(() => {
-    initWorker();
     wsUrl = inject("wsUrl");
-  });
-
-  afterAll(async () => {
-    await cleanupWorker();
   });
 
   it.live(
@@ -85,19 +78,6 @@ describe("Stress: concurrent multi-agent messaging", () => {
         });
         const agentC = yield* Effect.tryPromise({
           try: () => registerAndClaim("stress-c"),
-          catch: (err) => (err instanceof Error ? err : new Error(String(err))),
-        });
-
-        yield* Effect.tryPromise({
-          try: () => makeContact(agentA.userId, receiverUserId),
-          catch: (err) => (err instanceof Error ? err : new Error(String(err))),
-        });
-        yield* Effect.tryPromise({
-          try: () => makeContact(agentB.userId, receiverUserId),
-          catch: (err) => (err instanceof Error ? err : new Error(String(err))),
-        });
-        yield* Effect.tryPromise({
-          try: () => makeContact(agentC.userId, receiverUserId),
           catch: (err) => (err instanceof Error ? err : new Error(String(err))),
         });
 
