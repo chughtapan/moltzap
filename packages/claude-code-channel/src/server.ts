@@ -34,6 +34,7 @@ import {
 import type { ClaudeChannelNotification, MessageId } from "./types.js";
 import type { PushError, ReplyError } from "./errors.js";
 import type { RoutingState } from "./routing.js";
+import { stringifyCause } from "./utils.js";
 
 const REPLY_TOOL_NAME = "reply";
 
@@ -151,7 +152,7 @@ export function decodeReplyArgs(raw: unknown): ReplyArgsDecodeResult {
       },
     };
   }
-  const obj = raw as Record<string, unknown>;
+  const obj = raw as Record<string, unknown>; // #ignore-sloppy-code[record-cast]: MCP boundary decode — raw is unknown; field-level typeof checks follow immediately
 
   if (typeof obj.text !== "string") {
     return {
@@ -222,15 +223,6 @@ function toolOkResult(message: string): CallToolResult {
   return { content: [{ type: "text", text: message }] };
 }
 
-function stringifyCause(cause: unknown): string {
-  if (cause instanceof Error) return cause.message;
-  try {
-    return JSON.stringify(cause);
-  } catch {
-    return String(cause);
-  }
-}
-
 /**
  * Boot the Claude Code channel MCP stdio server.
  *
@@ -238,9 +230,11 @@ function stringifyCause(cause: unknown): string {
  * Registers exactly one tool: `reply`. No other notification methods, no
  * `send_direct_message`, no `edit_message`, no caller-injected tools.
  */
+// #ignore-sloppy-code-next-line[async-keyword]: MCP SDK connect() is Promise-based; startup sequence wraps MCP SDK primitives
 export async function bootChannelMcpServer(
   config: ServerConfig,
   deps: ServerDeps,
+  // #ignore-sloppy-code-next-line[promise-type]: public API over MCP SDK — SDK requires Promise-returning function
 ): Promise<ServerBootResult> {
   const server = new Server(
     { name: config.serverName, version: "0.1.0" },
@@ -257,6 +251,7 @@ export async function bootChannelMcpServer(
     initialized = true;
     // Best-effort flush; failures log and continue so one bad push doesn't
     // hide the rest from the client.
+    // #ignore-sloppy-code-next-line[async-keyword]: IIFE needed to await server.notification inside a sync oninitialized callback
     void (async () => {
       while (pending.length > 0) {
         const n = pending.shift();
@@ -264,7 +259,7 @@ export async function bootChannelMcpServer(
         try {
           await server.notification({
             method: n.method,
-            params: n.params as unknown as Record<string, unknown>,
+            params: n.params as unknown as Record<string, unknown>, // #ignore-sloppy-code[record-cast, as-unknown-as]: MCP SDK notification() requires Record<string,unknown>; our params is more specific
           });
         } catch (err) {
           deps.logger.error(
@@ -287,8 +282,10 @@ export async function bootChannelMcpServer(
         },
       ],
     };
+    // #ignore-sloppy-code-next-line[async-keyword]: MCP SDK setRequestHandler callback type requires Promise return
     server.setRequestHandler(ListToolsRequestSchema, async () => toolList);
 
+    // #ignore-sloppy-code-next-line[async-keyword]: MCP SDK setRequestHandler callback type requires Promise return
     server.setRequestHandler(CallToolRequestSchema, async (request) => {
       if (request.params.name !== REPLY_TOOL_NAME) {
         return toolErrorResult(`unknown tool: ${request.params.name}`);
@@ -373,7 +370,7 @@ export async function bootChannelMcpServer(
           try: () =>
             server.notification({
               method: notification.method,
-              params: notification.params as unknown as Record<string, unknown>,
+              params: notification.params as unknown as Record<string, unknown>, // #ignore-sloppy-code[record-cast, as-unknown-as]: MCP SDK notification() requires Record<string,unknown>; our params is more specific
             }),
           catch: (cause): PushError => ({
             _tag: "EmitFailed",
