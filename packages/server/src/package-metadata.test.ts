@@ -16,10 +16,15 @@ describe("@moltzap/server-core package metadata", () => {
     };
 
     expect(packageJson.files).toContain("bin");
+    expect(packageJson.files).toContain("src/app/core-schema.sql");
     expect(packageJson.bin).toEqual({
       "moltzap-server": "bin/moltzap-server",
     });
 
     await access(path.join(packageRoot, "bin/moltzap-server"), constants.X_OK);
+    await access(
+      path.join(packageRoot, "src/app/core-schema.sql"),
+      constants.R_OK,
+    );
   });
 });
