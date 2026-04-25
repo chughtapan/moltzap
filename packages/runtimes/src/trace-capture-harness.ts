@@ -353,8 +353,14 @@ function decodePayload(
   }
 
   const runtimeKind = runtime?.kind;
-  if (runtimeKind !== "openclaw" && runtimeKind !== "nanoclaw") {
-    issues.push("runtime.kind must be 'openclaw' or 'nanoclaw'");
+  if (
+    runtimeKind !== "openclaw" &&
+    runtimeKind !== "nanoclaw" &&
+    runtimeKind !== "claude-code"
+  ) {
+    issues.push(
+      "runtime.kind must be 'openclaw', 'nanoclaw', or 'claude-code'",
+    );
   }
   if (
     runtime?.targetAgentName !== undefined &&
@@ -505,7 +511,11 @@ function decodePayload(
   }
 
   const narrowedRuntimeKind: RuntimeKind =
-    runtimeKind === "openclaw" ? "openclaw" : "nanoclaw";
+    runtimeKind === "openclaw"
+      ? "openclaw"
+      : runtimeKind === "claude-code"
+        ? "claude-code"
+        : "nanoclaw";
   const targetAgentName =
     typeof runtime?.targetAgentName === "string"
       ? runtime.targetAgentName
@@ -572,7 +582,14 @@ function decodePayload(
 }
 
 function defaultTargetAgentName(kind: RuntimeKind): string {
-  return kind === "openclaw" ? "openclaw-eval-agent" : "nanoclaw-eval-agent";
+  switch (kind) {
+    case "openclaw":
+      return "openclaw-eval-agent";
+    case "nanoclaw":
+      return "nanoclaw-eval-agent";
+    case "claude-code":
+      return "claude-code-eval-agent";
+  }
 }
 
 function closeClient(client: HarnessClient): Effect.Effect<void, never, never> {
