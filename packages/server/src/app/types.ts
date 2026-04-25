@@ -14,6 +14,7 @@ import type { Broadcaster } from "../ws/broadcaster.js";
 import type { ConnectionManager } from "../ws/connection.js";
 import type {
   BeforeMessageDeliveryHook,
+  BeforeDispatchHook,
   OnCloseHook,
   OnJoinHook,
   OnSessionActiveHook,
@@ -152,6 +153,7 @@ export interface CoreApp {
     appId: string,
     handler: BeforeMessageDeliveryHook,
   ) => void;
+  onBeforeDispatch: (appId: string, handler: BeforeDispatchHook) => void;
   onAppJoin: (appId: string, handler: OnJoinHook) => void;
   onSessionClose: (appId: string, handler: OnCloseHook) => void;
   onSessionActive: (appId: string, handler: OnSessionActiveHook) => void;

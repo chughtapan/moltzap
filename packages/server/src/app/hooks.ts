@@ -4,9 +4,27 @@ import { Schema } from "effect";
 export interface BeforeMessageDeliveryContext {
   conversationId: string;
   sender: { agentId: string; ownerId: string };
-  message: { parts: Part[]; replyToId?: string };
+  message: { parts: Part[]; replyToId?: string; dispatchLeaseId?: string };
   sessionId: string;
   appId: string;
+  signal: AbortSignal;
+}
+
+export interface BeforeDispatchContext {
+  conversationId: string;
+  recipient: { agentId: string; ownerId: string };
+  message: { id: string; senderAgentId: string; parts?: Part[] };
+  sessionId: string;
+  appId: string;
+  attempt: number;
+  receivedAt?: string;
+  pending?: ReadonlyArray<{
+    messageId: string;
+    conversationId: string;
+    senderAgentId: string;
+    createdAt: string;
+    receivedAt: string;
+  }>;
   signal: AbortSignal;
 }
 
@@ -48,6 +66,27 @@ export const HookResultSchema = Schema.Struct({
   ),
 }) as Schema.Schema<HookResult, unknown>;
 
+export type DispatchAdmissionResult =
+  | { decision: "grant"; leaseId?: string }
+  | { decision: "defer"; retryAfterMs: number; reason?: string }
+  | { decision: "deny"; reason?: string };
+
+export const DispatchAdmissionResultSchema = Schema.Union(
+  Schema.Struct({
+    decision: Schema.Literal("grant"),
+    leaseId: Schema.optional(Schema.String),
+  }),
+  Schema.Struct({
+    decision: Schema.Literal("defer"),
+    retryAfterMs: Schema.Number,
+    reason: Schema.optional(Schema.String),
+  }),
+  Schema.Struct({
+    decision: Schema.Literal("deny"),
+    reason: Schema.optional(Schema.String),
+  }),
+) as Schema.Schema<DispatchAdmissionResult, unknown>;
+
 /** Fire-and-forget hooks (`on_join`, `on_close`, `on_session_active`) — any payload is ignored. */
 export const VoidHookSchema: Schema.Schema<void, unknown> = Schema.transform(
   Schema.Unknown,
@@ -58,6 +97,10 @@ export const VoidHookSchema: Schema.Schema<void, unknown> = Schema.transform(
 export type BeforeMessageDeliveryHook = (
   ctx: BeforeMessageDeliveryContext,
 ) => HookResult | Promise<HookResult>;
+
+export type BeforeDispatchHook = (
+  ctx: BeforeDispatchContext,
+) => DispatchAdmissionResult | Promise<DispatchAdmissionResult>;
 
 export interface OnJoinContext {
   conversations: Record<string, string>;
@@ -92,6 +135,7 @@ export type OnSessionActiveHook = (
 
 export interface AppHooks {
   beforeMessageDelivery?: BeforeMessageDeliveryHook;
+  beforeDispatch?: BeforeDispatchHook;
   onJoin?: OnJoinHook;
   onClose?: OnCloseHook;
   onSessionActive?: OnSessionActiveHook;

@@ -76,6 +76,7 @@ export function createMessageHandlers(deps: {
               ctx.agentId,
               params.replyToId,
               connId,
+              params.dispatchLeaseId,
             );
             return { message };
           }),

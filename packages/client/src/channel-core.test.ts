@@ -19,21 +19,23 @@ function customSetup(): {
   fake: FakeChannelService;
   core: MoltZapChannelCore;
   received: EnrichedInboundMessage[];
+  infoSpy: ReturnType<typeof vi.fn>;
   errorSpy: ReturnType<typeof vi.fn>;
 } {
   const fake = createFakeChannelService({ ownAgentId: "agent-self" });
   const received: EnrichedInboundMessage[] = [];
+  const infoSpy = vi.fn();
   const errorSpy = vi.fn();
   const core = new MoltZapChannelCore({
     service: fake.service,
-    logger: { info: () => {}, warn: () => {}, error: errorSpy },
+    logger: { info: infoSpy, warn: () => {}, error: errorSpy },
   });
   core.onInbound((m) =>
     Effect.sync(() => {
       received.push(m);
     }),
   );
-  return { fake, core, received, errorSpy };
+  return { fake, core, received, infoSpy, errorSpy };
 }
 
 /** Stub out getAgentName on the fixture's service so resolveAgentName is the only path. */
@@ -304,6 +306,248 @@ describe("MoltZapChannelCore", () => {
   });
 
   describe("dispatch chain ordering", () => {
+    it("asks optional dispatch admission before delivering inbound work", async () => {
+      const { fake, received } = customSetup();
+      fake.state.setConversation("conv-1", { type: "dm", participants: [] });
+      fake.state.setAgentName("agent-alice", "Alice");
+      const requests: Array<{ messageId: string; attempt: number }> = [];
+      fake.service.authorizeDispatch = (request) =>
+        Effect.sync(() => {
+          requests.push({
+            messageId: request.message.id,
+            attempt: request.attempt,
+          });
+          return { _tag: "grant" as const, leaseId: "lease-1" };
+        });
+
+      fake.emit.message(buildMessage({ id: "msg-1" }));
+      await flushDispatchChain();
+
+      expect(requests).toEqual([{ messageId: "msg-1", attempt: 0 }]);
+      expect(received.map((m) => m.id)).toEqual(["msg-1"]);
+    });
+
+    it("attaches the active dispatch lease to replies made during handler execution", async () => {
+      const fake = createFakeChannelService({ ownAgentId: "agent-self" });
+      fake.state.setConversation("conv-1", { type: "dm", participants: [] });
+      fake.state.setAgentName("agent-alice", "Alice");
+      fake.service.authorizeDispatch = () =>
+        Effect.succeed({ _tag: "grant" as const, leaseId: "lease-active" });
+      const core = new MoltZapChannelCore({ service: fake.service });
+      core.onInbound((msg) => core.sendReply(msg.conversationId, "reply"));
+
+      fake.emit.message(buildMessage({ id: "msg-with-lease" }));
+      await flushDispatchChain();
+
+      expect(fake.state.sent).toEqual([
+        {
+          convId: "conv-1",
+          text: "reply",
+          dispatchLeaseId: "lease-active",
+        },
+      ]);
+    });
+
+    it("preserves service binding for dispatch admission methods", async () => {
+      const { fake, received } = customSetup();
+      fake.state.setConversation("conv-1", { type: "dm", participants: [] });
+      fake.state.setAgentName("agent-alice", "Alice");
+      const boundService = fake.service as ChannelService & {
+        admissionCalls: number;
+      };
+      boundService.admissionCalls = 0;
+      boundService.authorizeDispatch = function () {
+        this.admissionCalls += 1;
+        return Effect.succeed({ _tag: "grant" as const });
+      };
+
+      fake.emit.message(buildMessage({ id: "msg-bound-admission" }));
+      await flushDispatchChain();
+
+      expect(boundService.admissionCalls).toBe(1);
+      expect(received.map((m) => m.id)).toEqual(["msg-bound-admission"]);
+    });
+
+    it("drops denied inbound dispatch work without calling the handler", async () => {
+      const { fake, received, infoSpy } = customSetup();
+      fake.service.authorizeDispatch = () =>
+        Effect.succeed({
+          _tag: "deny" as const,
+          reason: "not this slot",
+        });
+
+      fake.emit.message(buildMessage({ id: "msg-denied" }));
+      await flushDispatchChain();
+
+      expect(received).toHaveLength(0);
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          messageId: "msg-denied",
+          attempt: 0,
+          reason: "not this slot",
+        }),
+        "MoltZapChannelCore: inbound dispatch denied",
+      );
+    });
+
+    it("requeues deferred inbound dispatch work and retries later", async () => {
+      const { fake, received, infoSpy } = customSetup();
+      fake.state.setConversation("conv-1", { type: "dm", participants: [] });
+      fake.state.setAgentName("agent-alice", "Alice");
+      const attempts: number[] = [];
+      fake.service.authorizeDispatch = (request) =>
+        Effect.sync(() => {
+          attempts.push(request.attempt);
+          return request.attempt === 0
+            ? {
+                _tag: "defer" as const,
+                retryAfterMs: 1,
+                reason: "slot busy",
+              }
+            : { _tag: "grant" as const };
+        });
+
+      fake.emit.message(buildMessage({ id: "msg-deferred" }));
+      await flushDispatchChain();
+      expect(received).toHaveLength(0);
+
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      await flushDispatchChain();
+
+      expect(attempts).toEqual([0, 1]);
+      expect(received.map((m) => m.id)).toEqual(["msg-deferred"]);
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          messageId: "msg-deferred",
+          attempt: 0,
+          retryAfterMs: 1,
+          reason: "slot busy",
+        }),
+        "MoltZapChannelCore: inbound dispatch deferred",
+      );
+    });
+
+    it("keeps deferred work head-of-line and coalesces same-conversation backlog on grant", async () => {
+      const { fake, received } = customSetup();
+      fake.state.setConversation("conv-1", { type: "group", participants: [] });
+      fake.state.setAgentName("agent-alice", "Alice");
+      fake.state.setAgentName("agent-bob", "Bob");
+      const pendingSnapshots: Array<ReadonlyArray<{ messageId: string }>> = [];
+      fake.service.authorizeDispatch = (request) =>
+        Effect.sync(() => {
+          pendingSnapshots.push(request.pending);
+          return request.attempt === 0
+            ? {
+                _tag: "defer" as const,
+                retryAfterMs: 20,
+                reason: "lease active",
+              }
+            : { _tag: "grant" as const, leaseId: "lease-next" };
+        });
+
+      fake.emit.message(
+        buildMessage({
+          id: "msg-1",
+          senderId: "agent-alice",
+          conversationId: "conv-1",
+          parts: [{ type: "text", text: "first" }],
+        }),
+      );
+      await flushDispatchChain();
+      fake.emit.message(
+        buildMessage({
+          id: "msg-2",
+          senderId: "agent-bob",
+          conversationId: "conv-1",
+          parts: [{ type: "text", text: "second" }],
+        }),
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      await flushDispatchChain();
+
+      expect(
+        pendingSnapshots.map((snapshot) => snapshot.map((m) => m.messageId)),
+      ).toEqual([["msg-1"], ["msg-1", "msg-2"]]);
+      expect(received).toHaveLength(1);
+      expect(received[0]!.id).toBe("msg-1");
+      expect(received[0]!.text).toContain("first");
+      expect(received[0]!.text).toContain("second");
+      expect(received[0]!.coalescedMessages?.map((m) => m.id)).toEqual([
+        "msg-1",
+        "msg-2",
+      ]);
+    });
+
+    it("fails open when dispatch admission errors", async () => {
+      const fake = createFakeChannelService({ ownAgentId: "agent-self" });
+      const received: EnrichedInboundMessage[] = [];
+      const errorSpy = vi.fn();
+      fake.state.setConversation("conv-1", { type: "dm", participants: [] });
+      fake.state.setAgentName("agent-alice", "Alice");
+      const warnSpy = vi.fn();
+      const core = new MoltZapChannelCore({
+        service: fake.service,
+        logger: { info: () => {}, warn: warnSpy, error: errorSpy },
+      });
+      core.onInbound((m) =>
+        Effect.sync(() => {
+          received.push(m);
+        }),
+      );
+      fake.service.authorizeDispatch = () =>
+        Effect.fail(
+          new Error("admission service unavailable"),
+        ) as unknown as ReturnType<
+          NonNullable<ChannelService["authorizeDispatch"]>
+        >;
+
+      fake.emit.message(buildMessage({ id: "msg-fail-open" }));
+      await flushDispatchChain();
+
+      expect(received.map((m) => m.id)).toEqual(["msg-fail-open"]);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          messageId: "msg-fail-open",
+          attempt: 0,
+        }),
+        "MoltZapChannelCore: dispatch admission failed open",
+      );
+    });
+
+    it("fails open when dispatch admission hangs", async () => {
+      const fake = createFakeChannelService({ ownAgentId: "agent-self" });
+      const received: EnrichedInboundMessage[] = [];
+      const errorSpy = vi.fn();
+      fake.state.setConversation("conv-1", { type: "dm", participants: [] });
+      fake.state.setAgentName("agent-alice", "Alice");
+      const warnSpy = vi.fn();
+      const core = new MoltZapChannelCore({
+        service: fake.service,
+        logger: { info: () => {}, warn: warnSpy, error: errorSpy },
+        dispatchAdmissionTimeoutMs: 1,
+      });
+      core.onInbound((m) =>
+        Effect.sync(() => {
+          received.push(m);
+        }),
+      );
+      fake.service.authorizeDispatch = () => Effect.never;
+
+      fake.emit.message(buildMessage({ id: "msg-timeout-open" }));
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      await flushDispatchChain();
+
+      expect(received.map((m) => m.id)).toEqual(["msg-timeout-open"]);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          messageId: "msg-timeout-open",
+          attempt: 0,
+        }),
+        "MoltZapChannelCore: dispatch admission failed open",
+      );
+    });
+
     it("serializes handlers so message order is preserved across async resolution", async () => {
       const { fake, received } = customSetup();
       fake.state.setConversation("conv-1", { type: "dm", participants: [] });
