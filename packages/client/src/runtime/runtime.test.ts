@@ -1,6 +1,6 @@
 import { it } from "@effect/vitest";
 import { Effect, Exit } from "effect";
-import { expect } from "vitest";
+import { expect, it as itSync } from "vitest";
 import {
   NotConnectedError,
   RpcServerError,
@@ -24,21 +24,17 @@ it.effect("tagged errors discriminate by _tag", () =>
   }),
 );
 
-it.effect("RpcServerError preserves wire fields", () =>
-  Effect.gen(function* () {
-    const err = new RpcServerError({
-      code: -32002,
-      message: "Not found",
-    });
-    expect(err.code).toBe(-32002);
-    expect(err.message).toBe("Not found");
-    expect(err.data).toBeUndefined();
-  }),
-);
+itSync("RpcServerError preserves wire fields", () => {
+  const err = new RpcServerError({
+    code: -32002,
+    message: "Not found",
+  });
+  expect(err.code).toBe(-32002);
+  expect(err.message).toBe("Not found");
+  expect(err.data).toBeUndefined();
+});
 
-it.effect("NotConnectedError compiles and carries message", () =>
-  Effect.gen(function* () {
-    const err = new NotConnectedError({ message: "socket closed" });
-    expect(err.message).toBe("socket closed");
-  }),
-);
+itSync("NotConnectedError compiles and carries message", () => {
+  const err = new NotConnectedError({ message: "socket closed" });
+  expect(err.message).toBe("socket closed");
+});

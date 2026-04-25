@@ -20,7 +20,6 @@ import {
   type MockInstance,
 } from "vitest";
 import {
-  AppsInputError,
   appsAttestSkillHandler,
   appsCloseHandler,
   appsCreateHandler,

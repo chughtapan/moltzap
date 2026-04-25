@@ -18,7 +18,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { it as itEffect } from "@effect/vitest";
 import {
   Cause,
-  Deferred,
   Duration,
   Effect,
   Exit,
@@ -288,18 +287,6 @@ function makeClient(
     );
   }
   return client;
-}
-
-function parseSent(raw: string): {
-  id: string;
-  method: string;
-  params?: unknown;
-} {
-  return JSON.parse(raw) as {
-    id: string;
-    method: string;
-    params?: unknown;
-  };
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────
