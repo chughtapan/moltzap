@@ -258,7 +258,12 @@ function allowedServerCoverageGaps(
     {
       kind: "deferred",
       id: "adversity/backpressure",
-      reasonIncludes: "#186",
+      reasonIncludes: "issues/186",
+    },
+    {
+      kind: "unavailable",
+      id: "adversity/reset-peer-recovery",
+      reasonIncludes: "reset_peer toxic did not close",
     },
   ];
   if (toxiproxyUrl === null) {
