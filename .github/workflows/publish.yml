@@ -5,6 +5,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: write
+  id-token: write
+
 jobs:
   publish:
     # Skip if this push is a version commit from a previous run
@@ -36,6 +40,7 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+          registry-url: https://registry.npmjs.org
 
       - run: pnpm install --frozen-lockfile
 
@@ -109,14 +114,12 @@ jobs:
         run: pnpm -r build
 
       - name: Publish packages
-        env:
-          # Trusted publishing must use GitHub Actions OIDC, not a
-          # long-lived npm token. Keep this unset even if repository-level
-          # secrets or npmrc files are added later.
-          NODE_AUTH_TOKEN: ""
         run: |
           echo "npm version: $(npm --version)"
-          npm config delete //registry.npmjs.org/:_authToken || true
+          test -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" || {
+            echo "ERROR: GitHub OIDC token request env is missing; check id-token: write permissions"
+            exit 1
+          }
           # Publish any package whose local version is not yet on npm. This
           # covers both newly bumped versions and versions from prior runs
           # where the bump committed but the publish failed.
