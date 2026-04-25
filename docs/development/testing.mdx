@@ -14,6 +14,8 @@ pnpm test                    # all packages
 pnpm --filter @moltzap/protocol test     # protocol only
 pnpm --filter @moltzap/server-core test  # server-core unit tests
 pnpm --filter @moltzap/server-core test:integration  # integration tests (needs Docker)
+pnpm test:conformance:toxiproxy  # protocol conformance with live Toxiproxy
+pnpm test:conformance:stress     # same conformance path with more fast-check runs
 ```
 
 ## Test infrastructure
@@ -58,3 +60,31 @@ Each test file covers a specific feature: registration, DM messaging, group chat
 ## Property-based tests
 
 Protocol schema tests use `fast-check` for property-based testing of schema validation boundaries.
+
+## Protocol conformance
+
+The conformance gate exercises the real server/client surfaces through the protocol testing package. Tier D adversity requires Toxiproxy, so the root command owns the local Docker lifecycle and mirrors the CI setup:
+
+```bash
+pnpm test:conformance:toxiproxy
+```
+
+That command starts `docker-compose.conformance.yml`, waits for `TOXIPROXY_URL` (default `http://127.0.0.1:8474`), then runs conformance for:
+
+- `@moltzap/server-core`
+- `@moltzap/client`
+- `@moltzap/openclaw-channel`
+- `@moltzap/nanoclaw-channel`
+
+For heavier local stress, run:
+
+```bash
+pnpm test:conformance:stress
+```
+
+Stress mode uses the same suites and Toxiproxy path but sets `CONFORMANCE_NUM_RUNS=100` by default. Override it when chasing a flaky boundary:
+
+```bash
+CONFORMANCE_NUM_RUNS=250 pnpm test:conformance:stress
+FC_SEED=12345 pnpm test:conformance:toxiproxy
+```

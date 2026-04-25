@@ -43,6 +43,7 @@ import {
   isAllowedCoverageGap,
   type AllowedCoverageGap,
 } from "./coverage-policy.js";
+import { conformanceArtifactDirFromEnv } from "./env.js";
 
 /**
  * Input shape — consumer names the concrete implementation under test and
@@ -226,7 +227,9 @@ export function runConformanceSuite(
 ): Effect.Effect<SuiteResult, ToxicControlError | RealServerAcquireError> {
   const toxiproxyUrl = opts.toxiproxyUrl ?? null;
   const artifactDir =
-    opts.artifactDir ?? path.resolve(process.cwd(), "conformance-artifacts");
+    opts.artifactDir ??
+    conformanceArtifactDirFromEnv() ??
+    path.resolve(process.cwd(), "conformance-artifacts");
   const categories: ConformanceRunOptions["tiers"] =
     toxiproxyUrl === null ? ["A", "B", "C", "E"] : ["A", "B", "C", "D", "E"];
 

@@ -15,6 +15,7 @@
 import { Effect, Ref, Scope } from "effect";
 import { makeToxiproxyClient, type ToxiproxyClient } from "../toxics/client.js";
 import { RealServerAcquireError, ToxicControlError } from "../errors.js";
+import { conformanceNumRunsFromEnv } from "./env.js";
 
 /**
  * Opaque handle to a running real MoltZap server. The conformance runner
@@ -80,8 +81,13 @@ export function acquireRunContext(
   Scope.Scope
 > {
   return Effect.gen(function* () {
+    const effectiveOpts = {
+      ...opts,
+      numRuns: opts.numRuns ?? conformanceNumRunsFromEnv(),
+    };
     const seed =
-      opts.replaySeed ?? Number(process.env.FC_SEED ?? Date.now() & 0x7fffffff);
+      effectiveOpts.replaySeed ??
+      Number(process.env.FC_SEED ?? Date.now() & 0x7fffffff);
     const artifacts = yield* Ref.make<ReadonlyArray<ConformanceArtifact>>([]);
 
     const realServer = yield* Effect.acquireRelease(
@@ -100,8 +106,8 @@ export function acquireRunContext(
     );
 
     let toxiproxy: ToxiproxyClient | null = null;
-    if (opts.tiers.includes("D")) {
-      const url = opts.toxiproxyUrl ?? "http://127.0.0.1:8474";
+    if (effectiveOpts.tiers.includes("D")) {
+      const url = effectiveOpts.toxiproxyUrl ?? "http://127.0.0.1:8474";
       toxiproxy = yield* makeToxiproxyClient({ apiUrl: url });
       yield* toxiproxy.ping.pipe(
         Effect.retry({ times: 10, schedule: undefined }),
@@ -111,7 +117,7 @@ export function acquireRunContext(
     return {
       realServer,
       toxiproxy,
-      opts,
+      opts: effectiveOpts,
       seed,
       artifacts,
     } satisfies ConformanceRunContext;
