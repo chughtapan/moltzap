@@ -1,9 +1,14 @@
 import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { it } from "@effect/vitest";
 import { Effect } from "effect";
-import { startTestServer, stopTestServer, resetTestDb } from "./helpers.js";
-import { MoltZapWsClient } from "@moltzap/client";
-import { registerAgent, stripWsPath } from "@moltzap/client/test";
+import { PROTOCOL_VERSION } from "@moltzap/protocol";
+import {
+  connectTestClient,
+  startTestServer,
+  stopTestServer,
+  resetTestDb,
+  registerAgent,
+} from "./helpers.js";
 import { getCoreDb } from "../../test-utils/index.js";
 
 let baseUrl: string;
@@ -47,12 +52,18 @@ describe("Scenario 1: Registration", () => {
     () =>
       Effect.gen(function* () {
         const reg = yield* registerAgent(baseUrl, "active-agent");
-        const client = new MoltZapWsClient({
-          serverUrl: stripWsPath(wsUrl),
-          agentKey: reg.apiKey,
+        const client = yield* connectTestClient({
+          wsUrl,
+          agentId: reg.agentId,
+          apiKey: reg.apiKey,
+          autoConnect: false,
         });
 
-        const hello = (yield* client.connect()) as Record<string, unknown>;
+        const hello = (yield* client.sendRpc("auth/connect", {
+          agentKey: reg.apiKey,
+          minProtocol: PROTOCOL_VERSION,
+          maxProtocol: PROTOCOL_VERSION,
+        })) as Record<string, unknown>;
         expect(hello.protocolVersion).toBeDefined();
         expect(hello.agentId).toBe(reg.agentId);
 
@@ -78,11 +89,19 @@ describe("Scenario 1: Registration", () => {
           .execute(),
       );
 
-      const client = new MoltZapWsClient({
-        serverUrl: stripWsPath(wsUrl),
-        agentKey: reg.apiKey,
+      const client = yield* connectTestClient({
+        wsUrl,
+        agentId: reg.agentId,
+        apiKey: reg.apiKey,
+        autoConnect: false,
       });
-      const result = yield* Effect.exit(client.connect());
+      const result = yield* Effect.exit(
+        client.sendRpc("auth/connect", {
+          agentKey: reg.apiKey,
+          minProtocol: PROTOCOL_VERSION,
+          maxProtocol: PROTOCOL_VERSION,
+        }),
+      );
       expect(result._tag).toBe("Failure");
 
       yield* client.close();

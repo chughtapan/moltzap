@@ -7,6 +7,6 @@ export default defineConfig({
   },
   test: {
     include: ["src/**/*.test.ts"],
-    exclude: ["src/__tests__/integration/**"],
+    exclude: ["src/__tests__/conformance/**", "src/__tests__/integration/**"],
   },
 });

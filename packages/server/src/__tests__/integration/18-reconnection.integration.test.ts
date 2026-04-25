@@ -6,16 +6,14 @@ import {
   stopTestServer,
   resetTestDb,
   setupAgentPair,
+  connectTestClient,
+  type ServerTestClient,
 } from "./helpers.js";
-import { MoltZapWsClient } from "@moltzap/client";
-import { stripWsPath } from "@moltzap/client/test";
 
-let baseUrl: string;
 let wsUrl: string;
 
 beforeAll(async () => {
   const urls = await startTestServer();
-  baseUrl = urls.baseUrl;
   wsUrl = urls.wsUrl;
 }, 60_000);
 
@@ -33,7 +31,7 @@ describe("Reconnection", () => {
     () =>
       Effect.gen(function* () {
         const { alice, bob } = yield* setupAgentPair();
-        let bobClient2: MoltZapWsClient | null = null;
+        let bobClient2: ServerTestClient | null = null;
 
         try {
           const conv = (yield* alice.client.sendRpc("conversations/create", {
@@ -58,11 +56,11 @@ describe("Reconnection", () => {
           });
 
           // Bob reconnects with the same API key
-          bobClient2 = new MoltZapWsClient({
-            serverUrl: stripWsPath(wsUrl),
-            agentKey: bob.apiKey,
+          bobClient2 = yield* connectTestClient({
+            wsUrl,
+            agentId: bob.agentId,
+            apiKey: bob.apiKey,
           });
-          yield* bobClient2.connect();
 
           // Bob fetches messages — should see both
           const msgs = (yield* bobClient2.sendRpc("messages/list", {
