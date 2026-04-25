@@ -36,6 +36,15 @@ wait_for_toxiproxy() {
   return 1
 }
 
+ensure_toxiproxy() {
+  if curl -sf "$TOXIPROXY_URL/version" >/dev/null; then
+    return 0
+  fi
+  echo "Toxiproxy is not reachable; starting it"
+  docker compose -f "$COMPOSE_FILE" up -d
+  wait_for_toxiproxy
+}
+
 export TOXIPROXY_URL
 export SKIP_DOCKER=1
 export CONFORMANCE_ARTIFACT_DIR="${CONFORMANCE_ARTIFACT_DIR:-conformance-artifacts}"
@@ -65,7 +74,12 @@ for ((seed_index = 0; seed_index < CONFORMANCE_SEED_COUNT; seed_index++)); do
   export FC_SEED=$((BASE_FC_SEED + seed_index))
   echo "== seed pass $((seed_index + 1))/$CONFORMANCE_SEED_COUNT: FC_SEED=$FC_SEED"
   for pkg in "${PACKAGES[@]}"; do
+    ensure_toxiproxy
+    pkg_tmp="${pkg//@/}"
+    pkg_tmp="${pkg_tmp//\//-}"
     echo "==> $pkg"
-    pnpm -F "$pkg" test:conformance
+    MOLTZAP_TMP_SCOPE="conformance-seed-$FC_SEED-$pkg_tmp" \
+      "$ROOT_DIR/scripts/with-tempdir.sh" \
+      pnpm -F "$pkg" test:conformance
   done
 done

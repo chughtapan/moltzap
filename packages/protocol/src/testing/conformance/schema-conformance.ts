@@ -114,7 +114,14 @@ export function registerRequestWellFormedness(
             (r) => r.frame?.type === "response" && r.frame.id === expectedId,
           );
         }),
-        { seed: ctx.seed, numRuns: ctx.opts.numRuns ?? 3 },
+        {
+          seed: ctx.seed,
+          numRuns: ctx.opts.numRuns ?? 3,
+          // Dropped-response counterexamples pay the client RPC timeout.
+          // Shrinking repeats that timeout and makes executable proofs
+          // timing-sensitive under stress without increasing coverage.
+          endOnFailure: true,
+        },
       ),
     ),
   );
