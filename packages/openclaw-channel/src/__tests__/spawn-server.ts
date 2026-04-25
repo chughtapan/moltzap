@@ -12,6 +12,9 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+// Auto-start entry. `dist/index.js` is the library export surface and exits
+// immediately when invoked as a script; `dist/standalone.js` registers the
+// auto-start guard that calls startServer().
 const SERVER_ENTRY = join(
   __dirname,
   "..",
@@ -19,7 +22,7 @@ const SERVER_ENTRY = join(
   "..",
   "server",
   "dist",
-  "index.js",
+  "standalone.js",
 );
 
 export interface SpawnedServer {
@@ -65,7 +68,7 @@ async function findFreePort(): Promise<number> {
   });
 }
 
-async function pollHealth(port: number, timeoutMs = 10_000): Promise<void> {
+async function pollHealth(port: number, timeoutMs = 30_000): Promise<void> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
@@ -130,8 +133,14 @@ export async function spawnTestServer(
     stdio: ["pipe", "pipe", "pipe"],
   });
 
-  // Capture stderr for diagnostics on failure
+  // Capture stdout + stderr for diagnostics on failure. The server uses
+  // pino, which writes to stdout — surface both streams so failure messages
+  // aren't swallowed.
+  let stdout = "";
   let stderr = "";
+  child.stdout?.on("data", (chunk: Buffer) => {
+    stdout += chunk.toString();
+  });
   child.stderr?.on("data", (chunk: Buffer) => {
     stderr += chunk.toString();
   });
@@ -141,7 +150,7 @@ export async function spawnTestServer(
     child.on("exit", (code) => {
       reject(
         new Error(
-          `Server exited unexpectedly with code ${code}.\nstderr: ${stderr}`,
+          `Server exited unexpectedly with code ${code}.\nstdout: ${stdout}\nstderr: ${stderr}`,
         ),
       );
     });
