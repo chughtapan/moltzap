@@ -57,6 +57,7 @@ import {
   AppsCloseSession,
   AppsGetSession,
   AppsListSessions,
+  AppsAuthorizeDispatch,
 } from "./schema/methods/apps.js";
 import { SystemPing } from "./schema/methods/system.js";
 
@@ -140,6 +141,7 @@ export const validators = {
   appsCloseSessionParams: AppsCloseSession.validateParams,
   appsGetSessionParams: AppsGetSession.validateParams,
   appsListSessionsParams: AppsListSessions.validateParams,
+  appsAuthorizeDispatchParams: AppsAuthorizeDispatch.validateParams,
 
   // System.
   systemPingParams: SystemPing.validateParams,

@@ -41,6 +41,7 @@ import {
   AppsCloseSession,
   AppsGetSession,
   AppsListSessions,
+  AppsAuthorizeDispatch,
 } from "./schema/methods/apps.js";
 import {
   SurfaceUpdate,
@@ -101,6 +102,7 @@ export const rpcMethods = [
   AppsCloseSession,
   AppsGetSession,
   AppsListSessions,
+  AppsAuthorizeDispatch,
   // Surfaces
   SurfaceUpdate,
   SurfaceGet,
