@@ -1,4 +1,4 @@
-import { Type, type Static } from "@sinclair/typebox";
+import { Type } from "@sinclair/typebox";
 import { ContactId, UserId } from "../primitives.js";
 import { ContactSchema, ContactSourceEnum } from "../contacts.js";
 import { defineRpc } from "../../rpc.js";

@@ -135,7 +135,7 @@ export const effectLogger = EffectLogger.make(
           })\n`,
         );
         // #ignore-sloppy-code-next-line[bare-catch]: both sinks failed — nowhere left to report
-      } catch (_innerErr) {
+      } catch {
         // stderr unavailable; drop the entry rather than crash the fiber.
       }
     }
