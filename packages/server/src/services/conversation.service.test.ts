@@ -19,6 +19,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Effect } from "effect";
 import type { Kysely } from "kysely";
+import { KyselyPGlite } from "kysely-pglite";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -29,9 +30,14 @@ import { ConversationService } from "./conversation.service.js";
 import { ParticipantService } from "./participant.service.js";
 import { ConnectionManager, type MoltZapConnection } from "../ws/connection.js";
 import type { AuthenticatedContext } from "../rpc/context.js";
-import type { AgentId, UserId } from "../app/types.js";
+import type { AgentId } from "../app/types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const schema = readFileSync(
+  join(__dirname, "..", "app", "core-schema.sql"),
+  "utf-8",
+);
+const dbHookTimeoutMs = 30_000;
 
 // Track the PGlite client between tests so we can reset state cleanly.
 let db: Kysely<Database>;
@@ -41,15 +47,12 @@ let pglite: {
 };
 
 async function freshDb(): Promise<void> {
-  const { KyselyPGlite } = await import("kysely-pglite");
   const kpg = await KyselyPGlite.create();
   // kysely-pglite returns a typed client that exposes a wider interface than
   // the handful of methods (exec/close) these tests need.
   // #ignore-sloppy-code-next-line[as-unknown-as]: narrowing the PGlite client to the test-scoped subset.
   pglite = kpg.client as unknown as typeof pglite;
   db = makeEffectKysely<Database>({ dialect: kpg.dialect });
-  const srcPath = join(__dirname, "..", "app", "core-schema.sql");
-  const schema = readFileSync(srcPath, "utf-8");
   await pglite.exec(schema);
 }
 
@@ -84,7 +87,7 @@ async function seedAgent(
 }
 
 describe("ConversationService.create auto-subscribes participants", () => {
-  beforeEach(freshDb);
+  beforeEach(freshDb, dbHookTimeoutMs);
   afterEach(async () => {
     await pglite?.close();
   });
@@ -162,7 +165,7 @@ describe("ConversationService.create auto-subscribes participants", () => {
 });
 
 describe("ConversationService.addParticipant auto-subscribes the new member", () => {
-  beforeEach(freshDb);
+  beforeEach(freshDb, dbHookTimeoutMs);
   afterEach(async () => {
     await pglite?.close();
   });

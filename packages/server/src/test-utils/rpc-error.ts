@@ -1,10 +1,12 @@
 import { Effect } from "effect";
 import { expect } from "vitest";
 import {
-  NotConnectedError,
-  RpcServerError,
   RpcTimeoutError,
-} from "@moltzap/client";
+  RpcResponseError,
+  TransportClosedError,
+  TransportIoError,
+  FrameSchemaError,
+} from "@moltzap/protocol/testing";
 
 /**
  * Asserts the RPC effect fails with `RpcServerError(code)` and returns the
@@ -14,33 +16,49 @@ import {
 export const expectRpcFailure = <A, R>(
   effect: Effect.Effect<
     A,
-    NotConnectedError | RpcTimeoutError | RpcServerError,
+    | TransportClosedError
+    | TransportIoError
+    | FrameSchemaError
+    | RpcTimeoutError
+    | RpcResponseError,
     R
   >,
   expectedCode: number,
-): Effect.Effect<RpcServerError, never, R> =>
+): Effect.Effect<RpcResponseError, never, R> =>
   effect.pipe(
     Effect.flatMap((ok) =>
-      Effect.sync<RpcServerError>(() => {
+      Effect.sync<RpcResponseError>(() => {
         expect.fail(
           `expected RpcServerError(${expectedCode}), got success: ${JSON.stringify(ok)}`,
         );
       }),
     ),
     Effect.catchTags({
-      NotConnectedError: (err) =>
-        Effect.sync<RpcServerError>(() => {
+      TestingTransportClosedError: (err) =>
+        Effect.sync<RpcResponseError>(() => {
           expect.fail(
-            `expected RpcServerError(${expectedCode}), got NotConnectedError: ${err.message}`,
+            `expected RpcServerError(${expectedCode}), got TransportClosedError: ${err.reason}`,
           );
         }),
-      RpcTimeoutError: (err) =>
-        Effect.sync<RpcServerError>(() => {
+      TestingTransportIoError: (err) =>
+        Effect.sync<RpcResponseError>(() => {
+          expect.fail(
+            `expected RpcServerError(${expectedCode}), got TransportIoError: ${String(err.cause)}`,
+          );
+        }),
+      TestingFrameSchemaError: (err) =>
+        Effect.sync<RpcResponseError>(() => {
+          expect.fail(
+            `expected RpcServerError(${expectedCode}), got FrameSchemaError: ${err.reason}`,
+          );
+        }),
+      TestingRpcTimeoutError: (err) =>
+        Effect.sync<RpcResponseError>(() => {
           expect.fail(
             `expected RpcServerError(${expectedCode}), got RpcTimeoutError on ${err.method} after ${err.timeoutMs}ms`,
           );
         }),
-      RpcServerError: (err) =>
+      TestingRpcResponseError: (err) =>
         Effect.sync(() => {
           expect(err.code).toBe(expectedCode);
           return err;

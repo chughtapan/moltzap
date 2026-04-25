@@ -11,9 +11,10 @@ import {
   getKyselyDb,
   getTestCoreApp,
   trackClient,
+  registerAgent,
+  connectTestClient,
+  type ServerTestClient,
 } from "./helpers.js";
-import { MoltZapWsClient } from "@moltzap/client";
-import { registerAgent, stripWsPath } from "@moltzap/client/test";
 
 let db: Kysely<Database>;
 
@@ -33,7 +34,7 @@ const MANIFEST: AppManifest = {
 function registerWithOwner(
   name: string,
   userId: string,
-): Effect.Effect<{ client: MoltZapWsClient; agentId: string }, Error> {
+): Effect.Effect<{ client: ServerTestClient; agentId: string }, Error> {
   return Effect.gen(function* () {
     const app = getTestCoreApp();
     const baseUrl = `http://localhost:${app.port}`;
@@ -49,12 +50,12 @@ function registerWithOwner(
         .execute(),
     );
 
-    const client = new MoltZapWsClient({
-      serverUrl: stripWsPath(wsUrl),
-      agentKey: reg.apiKey,
+    const client = yield* connectTestClient({
+      wsUrl,
+      agentId: reg.agentId,
+      apiKey: reg.apiKey,
     });
     trackClient(client);
-    yield* client.connect();
 
     return { client, agentId: reg.agentId };
   });

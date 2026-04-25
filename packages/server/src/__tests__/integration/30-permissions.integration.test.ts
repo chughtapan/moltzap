@@ -11,9 +11,10 @@ import {
   getKyselyDb,
   getTestCoreApp,
   trackClient,
+  registerAgent,
+  connectTestClient,
+  type ServerTestClient,
 } from "./helpers.js";
-import { MoltZapWsClient } from "@moltzap/client";
-import { registerAgent, stripWsPath } from "@moltzap/client/test";
 
 let db: Kysely<Database>;
 
@@ -32,7 +33,7 @@ const MANIFEST: AppManifest = {
 };
 
 interface OwnedAgent {
-  client: MoltZapWsClient;
+  client: ServerTestClient;
   agentId: string;
   apiKey: string;
 }
@@ -63,12 +64,12 @@ function registerWithOwner(
     );
 
     // Step 3: reconnect — auth/connect now reads the updated owner
-    const client = new MoltZapWsClient({
-      serverUrl: stripWsPath(wsUrl),
-      agentKey: reg.apiKey,
+    const client = yield* connectTestClient({
+      wsUrl,
+      agentId: reg.agentId,
+      apiKey: reg.apiKey,
     });
     trackClient(client);
-    yield* client.connect();
 
     return { client, agentId: reg.agentId, apiKey: reg.apiKey };
   });

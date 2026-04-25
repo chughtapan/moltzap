@@ -8,9 +8,9 @@ import {
   registerAndConnect,
   getKyselyDb,
   trackClient,
+  registerAgent,
+  connectTestClient,
 } from "./helpers.js";
-import { MoltZapWsClient } from "@moltzap/client";
-import { registerAgent, stripWsPath } from "@moltzap/client/test";
 import type { AgentCard } from "@moltzap/protocol";
 
 type AgentsListResult = { agents: Record<string, AgentCard> };
@@ -37,13 +37,18 @@ beforeEach(async () => {
 function registerWithOpts(name: string, opts: { description?: string }) {
   return Effect.gen(function* () {
     const reg = yield* registerAgent(baseUrl, name, opts);
-    const client = new MoltZapWsClient({
-      serverUrl: stripWsPath(wsUrl),
-      agentKey: reg.apiKey,
+    const client = yield* connectTestClient({
+      wsUrl,
+      agentId: reg.agentId,
+      apiKey: reg.apiKey,
     });
     trackClient(client);
-    yield* client.connect();
-    return { client, agentId: reg.agentId, apiKey: reg.apiKey, name };
+    return {
+      client,
+      agentId: reg.agentId,
+      apiKey: reg.apiKey,
+      name,
+    };
   });
 }
 
