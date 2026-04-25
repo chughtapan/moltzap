@@ -1,4 +1,9 @@
-export * from "./primitives.js";
+export {
+  ConversationId,
+  MessageId,
+  ContactId,
+  InviteToken,
+} from "./primitives.js";
 export * from "./identity.js";
 export * from "./contacts.js";
 export * from "./conversations.js";
