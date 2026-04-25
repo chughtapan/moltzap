@@ -19,7 +19,6 @@ import {
 } from "./test-helpers.js";
 import type { Message } from "@moltzap/protocol";
 
-let baseUrl: string;
 let wsUrl: string;
 
 async function waitForRepliesByList(params: {
@@ -65,7 +64,6 @@ describe("Stress: concurrent multi-agent messaging", () => {
 
   beforeAll(() => {
     initWorker();
-    baseUrl = inject("baseUrl");
     wsUrl = inject("wsUrl");
   });
 
