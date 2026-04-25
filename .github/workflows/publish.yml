@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      packages:
+        description: "Space-separated package directories to force publish, e.g. 'server' or 'protocol server client'"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -34,8 +39,6 @@ jobs:
 
       - uses: pnpm/action-setup@v4
       # Node 24 ships npm >=11.5 which supports OIDC trusted publishing.
-      # Do NOT set registry-url — it writes a NODE_AUTH_TOKEN reference to
-      # .npmrc that takes priority over OIDC and breaks trusted publishing.
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -46,6 +49,8 @@ jobs:
 
       - name: Detect changed packages and compute versions
         id: versions
+        env:
+          REQUESTED_PACKAGES: ${{ inputs.packages || '' }}
         run: |
           # Find the last release commit, or use empty tree if none (bootstrap)
           BASE=$(git log --grep="^chore(release):" --format="%H" -1 2>/dev/null || true)
@@ -55,8 +60,23 @@ jobs:
           fi
 
           CHANGED=""
+          REQUESTED_PACKAGES=" ${REQUESTED_PACKAGES} "
           for pkg in protocol server client openclaw-channel; do
-            if git diff --name-only "$BASE"..HEAD -- "packages/$pkg/src/" | grep -q .; then
+            if [[ "$REQUESTED_PACKAGES" == *" $pkg "* ]]; then
+              SHOULD_RELEASE=1
+              echo "Package $pkg requested by workflow_dispatch input"
+            elif git diff --name-only "$BASE"..HEAD -- \
+              "packages/$pkg/src/" \
+              "packages/$pkg/bin/" \
+              "packages/$pkg/package.json" \
+              "packages/$pkg/tsconfig.json" \
+              "packages/$pkg/openclaw.plugin.json" | grep -q .; then
+              SHOULD_RELEASE=1
+            else
+              SHOULD_RELEASE=0
+            fi
+
+            if [ "$SHOULD_RELEASE" -eq 1 ]; then
               VERSION=$(scripts/compute-next-version.sh "$pkg")
               echo "${pkg}_version=$VERSION" >> "$GITHUB_OUTPUT"
               CHANGED="$CHANGED $pkg"
