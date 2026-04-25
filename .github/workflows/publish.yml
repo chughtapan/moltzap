@@ -134,6 +134,8 @@ jobs:
             echo "Publishing ${NAME}@${VER}..."
             (
               cd "packages/$pkg"
-              npm publish --access public --provenance
+              TARBALL=$(pnpm pack --pack-gzip-level 9 | tail -1)
+              [ -f "$TARBALL" ] || { echo "ERROR: pack failed, tarball not found"; exit 1; }
+              npm publish "$TARBALL" --access public --provenance
             )
           done
