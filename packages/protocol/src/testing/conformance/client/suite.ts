@@ -40,6 +40,7 @@ import type {
   ToxicControlError,
 } from "../../errors.js";
 import type { SuiteResult } from "../suite.js";
+import { conformanceArtifactDirFromEnv } from "../env.js";
 import {
   isAllowedCoverageGap,
   type AllowedCoverageGap,
@@ -134,7 +135,9 @@ export function runClientConformanceSuite(
 > {
   const toxiproxyUrl = opts.toxiproxyUrl ?? null;
   const artifactDir =
-    opts.artifactDir ?? path.resolve(process.cwd(), "conformance-artifacts");
+    opts.artifactDir ??
+    conformanceArtifactDirFromEnv() ??
+    path.resolve(process.cwd(), "conformance-artifacts");
   const tiers: ClientConformanceRunOptions["tiers"] =
     toxiproxyUrl === null ? ["A", "B", "C", "E"] : ["A", "B", "C", "D", "E"];
 

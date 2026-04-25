@@ -47,9 +47,11 @@ export function registerSchemaExhaustiveFuzzClient(
           "schema-exhaustive-fuzz-client",
         );
         yield* subscribeAll(fx.handle);
-        // Fuzz burst: 10 arbitrary EventFrames seeded by ctx.seed.
+        // Fuzz burst: default 10 frames; stress mode scales with
+        // CONFORMANCE_NUM_RUNS through ctx.opts.numRuns.
+        const fuzzRuns = ctx.opts.numRuns ?? 10;
         const burst = fc.sample(arbitraryEventFrame(), {
-          numRuns: 10,
+          numRuns: fuzzRuns,
           seed: ctx.seed,
         });
         for (const frame of burst) {
