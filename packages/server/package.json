@@ -5,14 +5,14 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/chughtapan/moltzap"
+    "url": "git+https://github.com/chughtapan/moltzap.git"
   },
   "files": [
     "dist",
     "bin"
   ],
   "bin": {
-    "moltzap-server": "./bin/moltzap-server"
+    "moltzap-server": "bin/moltzap-server"
   },
   "type": "module",
   "main": "dist/index.js",
