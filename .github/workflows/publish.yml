@@ -108,17 +108,18 @@ jobs:
       - name: Build all packages
         run: pnpm -r build
 
-      - name: Pack and publish
+      - name: Publish packages
         env:
-          # Clear any residual NODE_AUTH_TOKEN so npm uses OIDC trusted
-          # publishing via id-token: write. See:
-          # https://github.com/orgs/community/discussions/176761
+          # Trusted publishing must use GitHub Actions OIDC, not a
+          # long-lived npm token. Keep this unset even if repository-level
+          # secrets or npmrc files are added later.
           NODE_AUTH_TOKEN: ""
         run: |
           echo "npm version: $(npm --version)"
-          # Publish any package whose local version is not yet on npm.
-          # This covers both newly bumped versions AND versions from prior
-          # runs where the bump committed but the publish failed.
+          npm config delete //registry.npmjs.org/:_authToken || true
+          # Publish any package whose local version is not yet on npm. This
+          # covers both newly bumped versions and versions from prior runs
+          # where the bump committed but the publish failed.
           for pkg in protocol server client openclaw-channel; do
             PKG_JSON="./packages/$pkg/package.json"
             VER=$(node -p "require('$PKG_JSON').version")
@@ -130,8 +131,6 @@ jobs:
             echo "Publishing ${NAME}@${VER}..."
             (
               cd "packages/$pkg"
-              TARBALL=$(pnpm pack --pack-gzip-level 9 | tail -1)
-              [ -f "$TARBALL" ] || { echo "ERROR: pack failed, tarball not found"; exit 1; }
-              npm publish "$TARBALL" --access public --provenance
+              npm publish --access public
             )
           done
