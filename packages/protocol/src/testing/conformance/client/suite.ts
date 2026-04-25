@@ -41,6 +41,10 @@ import type {
 } from "../../errors.js";
 import type { SuiteResult } from "../suite.js";
 import {
+  isAllowedCoverageGap,
+  type AllowedCoverageGap,
+} from "../coverage-policy.js";
+import {
   registerEventWellFormednessClient,
   registerMalformedFrameHandlingClient,
 } from "./schema-conformance.js";
@@ -147,9 +151,55 @@ export function runClientConformanceSuite(
         bindThroughToxiproxy: opts.bindThroughToxiproxy,
       });
       registerAllClientProperties(ctx);
-      return yield* runAllClientProperties(ctx, artifactDir);
+      return yield* runAllClientProperties(
+        ctx,
+        artifactDir,
+        allowedClientCoverageGaps(toxiproxyUrl),
+      );
     }),
   );
+}
+
+function allowedClientCoverageGaps(
+  toxiproxyUrl: string | null,
+): ReadonlyArray<AllowedCoverageGap> {
+  const gaps: AllowedCoverageGap[] = [
+    {
+      kind: "unavailable",
+      id: "adversity/slicer-framing-client",
+      reasonIncludes: "slicer toxic property deferred",
+    },
+    {
+      kind: "unavailable",
+      id: "adversity/reset-peer-recovery-client",
+      reasonIncludes: "reset_peer property deferred",
+    },
+  ];
+  if (toxiproxyUrl === null) {
+    gaps.push(
+      {
+        kind: "unavailable",
+        id: "adversity/latency-resilience-client",
+        reasonIncludes: "Toxiproxy not provisioned",
+      },
+      {
+        kind: "unavailable",
+        id: "adversity/slicer-framing-client",
+        reasonIncludes: "Toxiproxy not provisioned",
+      },
+      {
+        kind: "unavailable",
+        id: "adversity/reset-peer-recovery-client",
+        reasonIncludes: "Toxiproxy not provisioned",
+      },
+    );
+  }
+  gaps.push({
+    kind: "unavailable",
+    id: "boundary/schema-exhaustive-fuzz-client",
+    reasonIncludes: "real client did not complete handshake",
+  });
+  return gaps;
 }
 
 /**
@@ -160,6 +210,7 @@ export function runClientConformanceSuite(
 function runAllClientProperties(
   ctx: ClientConformanceRunContext,
   artifactDir: string,
+  allowedCoverageGaps: ReadonlyArray<AllowedCoverageGap>,
 ): Effect.Effect<SuiteResult> {
   return Effect.gen(function* () {
     if (!existsSync(artifactDir)) mkdirSync(artifactDir, { recursive: true });
@@ -185,10 +236,34 @@ function runAllClientProperties(
       }
       switch (failure._tag) {
         case "ConformancePropertyDeferred":
-          deferred.push({ name: id, reason: failure.followUp });
+          if (
+            isAllowedCoverageGap(
+              allowedCoverageGaps,
+              "deferred",
+              id,
+              failure.followUp,
+            )
+          ) {
+            deferred.push({ name: id, reason: failure.followUp });
+            break;
+          }
+          failed.push({ name: id, failure });
+          writeArtifact(artifactDir, p, ctx.seed, failureArtifact(failure));
           break;
         case "ConformancePropertyUnavailable":
-          unavailable.push({ name: id, reason: failure.reason });
+          if (
+            isAllowedCoverageGap(
+              allowedCoverageGaps,
+              "unavailable",
+              id,
+              failure.reason,
+            )
+          ) {
+            unavailable.push({ name: id, reason: failure.reason });
+            break;
+          }
+          failed.push({ name: id, failure });
+          writeArtifact(artifactDir, p, ctx.seed, failureArtifact(failure));
           break;
         case "ConformancePropertyAssertionFailure":
         case "ConformancePropertyInvariantViolation":
