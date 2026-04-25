@@ -31,13 +31,19 @@ fi
 
 required_registrars=(
   registerEventWellFormednessClient
+  registerMalformedFrameHandlingClient
   registerFanOutCardinalityClient
   registerPayloadOpacityClient
+  registerTaskBoundaryIsolationClient
   registerSchemaExhaustiveFuzzClient
   registerModelEquivalenceClient
   registerRequestIdUniquenessClient
+  registerRequestWellFormedness
+  registerRpcMapCoverage
   registerAuthorityNegative
+  registerAuthorityPositive
   registerModelEquivalence
+  registerRequestIdUniqueness
   registerIdempotence
 )
 
