@@ -82,9 +82,10 @@ For heavier local stress, run:
 pnpm test:conformance:stress
 ```
 
-Stress mode uses the same suites and Toxiproxy path but sets `CONFORMANCE_NUM_RUNS=100` by default. Override it when chasing a flaky boundary:
+Stress mode uses the same suites and Toxiproxy path but sets `CONFORMANCE_NUM_RUNS=100` and `CONFORMANCE_SEED_COUNT=3` by default. That means each package runs three deterministic seed passes, and properties that consume `numRuns` increase their generated samples. Override either knob when chasing a flaky boundary:
 
 ```bash
 CONFORMANCE_NUM_RUNS=250 pnpm test:conformance:stress
+CONFORMANCE_SEED_COUNT=10 pnpm test:conformance:stress
 FC_SEED=12345 pnpm test:conformance:toxiproxy
 ```
