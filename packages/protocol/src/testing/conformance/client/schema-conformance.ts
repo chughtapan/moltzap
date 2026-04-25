@@ -8,8 +8,8 @@
  * Predicate-authoring discipline:
  *   - P1 (#195): every predicate names a client-realistic misbehaviour.
  *     Here it's "real client surfaces a malformed or dropped event."
- *   - P2 (#195): every property ships a divergence proof in
- *     `__divergence_proofs__/client-schema-conformance.proofs.ts`.
+ *   - P2 (#195): executable divergence proofs live under
+ *     `__divergence_proofs__/*-executable.proofs.test.ts`.
  *   - O7 (#200): every observation filters by property-authored
  *     `emissionTag` via `ClientHandshakeWindow.emitTaggedEvent` — auto-
  *     subscribe / hello / resume frames never satisfy a predicate.

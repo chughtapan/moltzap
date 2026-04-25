@@ -39,6 +39,10 @@ import * as adversity from "./adversity.js";
 import * as boundary from "./boundary.js";
 import type { WebhookAdapterProbe } from "./boundary.js";
 import type { RealServerAcquireError, ToxicControlError } from "../errors.js";
+import {
+  isAllowedCoverageGap,
+  type AllowedCoverageGap,
+} from "./coverage-policy.js";
 
 /**
  * Input shape — consumer names the concrete implementation under test and
@@ -132,6 +136,7 @@ export function registerAllProperties(
 export function runAllProperties(
   ctx: ConformanceRunContext,
   artifactDir: string,
+  allowedCoverageGaps: ReadonlyArray<AllowedCoverageGap> = [],
 ): Effect.Effect<SuiteResult> {
   return Effect.gen(function* () {
     if (!existsSync(artifactDir)) mkdirSync(artifactDir, { recursive: true });
@@ -157,10 +162,34 @@ export function runAllProperties(
       }
       switch (failure._tag) {
         case "ConformancePropertyDeferred":
-          deferred.push({ name: id, reason: failure.followUp });
+          if (
+            isAllowedCoverageGap(
+              allowedCoverageGaps,
+              "deferred",
+              id,
+              failure.followUp,
+            )
+          ) {
+            deferred.push({ name: id, reason: failure.followUp });
+            break;
+          }
+          failed.push({ name: id, failure });
+          writeArtifact(artifactDir, p, ctx.seed, failureArtifact(failure));
           break;
         case "ConformancePropertyUnavailable":
-          unavailable.push({ name: id, reason: failure.reason });
+          if (
+            isAllowedCoverageGap(
+              allowedCoverageGaps,
+              "unavailable",
+              id,
+              failure.reason,
+            )
+          ) {
+            unavailable.push({ name: id, reason: failure.reason });
+            break;
+          }
+          failed.push({ name: id, failure });
+          writeArtifact(artifactDir, p, ctx.seed, failureArtifact(failure));
           break;
         case "ConformancePropertyAssertionFailure":
         case "ConformancePropertyInvariantViolation":
@@ -213,9 +242,60 @@ export function runConformanceSuite(
         artifactDir,
       });
       registerAllProperties(ctx, opts.webhookProbe ?? null);
-      return yield* runAllProperties(ctx, artifactDir);
+      return yield* runAllProperties(
+        ctx,
+        artifactDir,
+        allowedServerCoverageGaps(toxiproxyUrl),
+      );
     }),
   );
+}
+
+function allowedServerCoverageGaps(
+  toxiproxyUrl: string | null,
+): ReadonlyArray<AllowedCoverageGap> {
+  const gaps: AllowedCoverageGap[] = [
+    {
+      kind: "deferred",
+      id: "adversity/backpressure",
+      reasonIncludes: "issues/186",
+    },
+    {
+      kind: "unavailable",
+      id: "adversity/reset-peer-recovery",
+      reasonIncludes: "reset_peer toxic did not close",
+    },
+  ];
+  if (toxiproxyUrl === null) {
+    gaps.push(
+      {
+        kind: "unavailable",
+        id: "adversity/latency-resilience",
+        reasonIncludes: "Toxiproxy client not provisioned",
+      },
+      {
+        kind: "unavailable",
+        id: "adversity/slicer-framing",
+        reasonIncludes: "Toxiproxy client not provisioned",
+      },
+      {
+        kind: "unavailable",
+        id: "adversity/reset-peer-recovery",
+        reasonIncludes: "Toxiproxy client not provisioned",
+      },
+      {
+        kind: "unavailable",
+        id: "adversity/timeout-surface",
+        reasonIncludes: "Toxiproxy client not provisioned",
+      },
+      {
+        kind: "unavailable",
+        id: "adversity/slow-close-cleanup",
+        reasonIncludes: "Toxiproxy client not provisioned",
+      },
+    );
+  }
+  return gaps;
 }
 
 /**

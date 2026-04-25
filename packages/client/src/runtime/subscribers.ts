@@ -207,11 +207,9 @@ export function makeSubscriberRegistry(logger: {
 }
 
 /**
- * Pure filter-match predicate. Exposed for unit testing so the C4
- * divergence proof in
- * `packages/protocol/src/testing/conformance/__divergence_proofs__/client-delivery.proofs.ts`
- * can mutate this predicate (e.g., force it to always return `true`) to
- * flip the vacuity assertions.
+ * Pure filter-match predicate. Exposed for unit testing so executable
+ * client-side divergence proofs can force known-bad subscription
+ * behavior without bypassing the production dispatch path.
  *
  * Returns `true` iff `frame` matches every set field on `filter`:
  *   - `filter.emissionTag === frame.data.__emissionTag` (strict ===)
