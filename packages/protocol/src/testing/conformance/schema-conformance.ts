@@ -23,7 +23,7 @@ import {
   arbitraryEventFrame,
   arbitraryMalformedFrame,
 } from "../arbitraries/frames.js";
-import { decodeFrame, encodeFrame, malformFrame } from "../codec.js";
+import { decodeFrame, encodeFrame } from "../codec.js";
 import {
   EventFrameSchema,
   ResponseFrameSchema,

@@ -5,7 +5,6 @@
  */
 import { Cause, Effect, Exit, Option } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { RpcServerError } from "../runtime/errors.js";
 import {
   decideTransport,
   makeTransportLayer,

@@ -22,12 +22,10 @@ import {
   extractText,
 } from "./test-helpers.js";
 
-let baseUrl: string;
 let wsUrl: string;
 
 beforeAll(() => {
   initWorker();
-  baseUrl = inject("baseUrl");
   wsUrl = inject("wsUrl");
 });
 
