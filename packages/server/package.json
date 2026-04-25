@@ -9,7 +9,8 @@
   },
   "files": [
     "dist",
-    "bin"
+    "bin",
+    "src/app/core-schema.sql"
   ],
   "bin": {
     "moltzap-server": "bin/moltzap-server"
