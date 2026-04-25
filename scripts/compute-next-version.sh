@@ -6,6 +6,12 @@
 set -euo pipefail
 
 PKG="$1"
+PKG_JSON="packages/${PKG}/package.json"
+if [ -f "$PKG_JSON" ]; then
+  NPM_PACKAGE=$(node -p "require('./${PKG_JSON}').name")
+else
+  NPM_PACKAGE="@moltzap/${PKG}"
+fi
 YEAR=$(date -u +%Y)
 # MDD = month (no leading zero) * 100 + day (e.g., March 18 = 318, December 1 = 1201)
 MDD=$(date -u +%-m%d)
@@ -14,7 +20,7 @@ PREFIX="${YEAR}.${MDD}."
 # Query npm for all published versions
 # On 404 (deleted/new packages), npm exits non-zero — fall back to empty array
 set +e
-VERSIONS=$(npm view "@moltzap/${PKG}" versions --json 2>/dev/null)
+VERSIONS=$(npm view "$NPM_PACKAGE" versions --json 2>/dev/null)
 NPM_EXIT=$?
 set -e
 if [ "$NPM_EXIT" -ne 0 ]; then
