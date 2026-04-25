@@ -17,6 +17,10 @@ import {
   NanoclawAdapter,
   type NanoclawAdapterDeps,
 } from "./nanoclaw-adapter.js";
+import {
+  ClaudeCodeAdapter,
+  type ClaudeCodeAdapterDeps,
+} from "./claude-code-adapter.js";
 import type {
   Runtime,
   RuntimeServerHandle,
@@ -384,6 +388,75 @@ describe("NanoclawAdapter", () => {
     const marker = adapter.getInboundMarker();
     expect(typeof marker).toBe("string");
     expect(marker.length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ClaudeCodeAdapter — interface contract (issue #255)
+//
+// Mirror of the OpenClawAdapter unit suite: spawn against a non-existent
+// bin yields SpawnFailed, getLogs / getInboundMarker / waitUntilReady /
+// teardown all behave deterministically when no process has been spawned.
+// ---------------------------------------------------------------------------
+
+function stubClaudeCodeDeps(): ClaudeCodeAdapterDeps {
+  return {
+    server: stubServer(),
+    claudeBin: "/bin/false",
+    channelDistDir: "/nonexistent/cc-channel/dist",
+    repoRoot: "/nonexistent/repo",
+  };
+}
+
+describe("ClaudeCodeAdapter", () => {
+  it("satisfies the Runtime interface (structural typing)", () => {
+    const adapter: Runtime = new ClaudeCodeAdapter(stubClaudeCodeDeps());
+
+    expect(typeof adapter.spawn).toBe("function");
+    expect(typeof adapter.waitUntilReady).toBe("function");
+    expect(typeof adapter.teardown).toBe("function");
+    expect(typeof adapter.getLogs).toBe("function");
+    expect(typeof adapter.getInboundMarker).toBe("function");
+  });
+
+  it("getLogs returns empty slice when not spawned", () => {
+    const adapter = new ClaudeCodeAdapter(stubClaudeCodeDeps());
+    const slice: LogSlice = adapter.getLogs(0);
+    expect(slice.text).toBe("");
+    expect(slice.nextOffset).toBe(0);
+  });
+
+  it("getInboundMarker returns non-empty string", () => {
+    const adapter = new ClaudeCodeAdapter(stubClaudeCodeDeps());
+    const marker = adapter.getInboundMarker();
+    expect(typeof marker).toBe("string");
+    expect(marker.length).toBeGreaterThan(0);
+  });
+
+  it("waitUntilReady returns Ready when no process has been spawned", async () => {
+    const adapter = new ClaudeCodeAdapter(stubClaudeCodeDeps());
+    const outcome: ReadyOutcome = await Effect.runPromise(
+      adapter.waitUntilReady(1000),
+    );
+    expect(outcome._tag).toBe("Ready");
+  });
+
+  it("teardown is idempotent when no process has been spawned", async () => {
+    const adapter = new ClaudeCodeAdapter(stubClaudeCodeDeps());
+    await Effect.runPromise(adapter.teardown());
+    await Effect.runPromise(adapter.teardown());
+  });
+
+  it("spawn fails with SpawnFailed when the channel dist dir does not exist", async () => {
+    const adapter = new ClaudeCodeAdapter(stubClaudeCodeDeps());
+    const result = await Effect.runPromise(
+      Effect.either(adapter.spawn(stubSpawnInput())),
+    );
+    expect(result._tag).toBe("Left");
+    if (result._tag === "Left") {
+      expect(result.left._tag).toBe("SpawnFailed");
+      expect(result.left.agentName).toBe("test-agent");
+    }
   });
 });
 
