@@ -23,7 +23,6 @@ fi
 
 cleanup() {
   docker compose -f "$COMPOSE_FILE" down -v
-  rm -rf "$ROOT_DIR/.tmp/conformance"
 }
 
 wait_for_toxiproxy() {
@@ -78,11 +77,9 @@ for ((seed_index = 0; seed_index < CONFORMANCE_SEED_COUNT; seed_index++)); do
     ensure_toxiproxy
     pkg_tmp="${pkg//@/}"
     pkg_tmp="${pkg_tmp//\//-}"
-    export TMPDIR="$ROOT_DIR/.tmp/conformance/seed-$FC_SEED/$pkg_tmp"
-    rm -rf "$TMPDIR"
-    mkdir -p "$TMPDIR"
     echo "==> $pkg"
-    pnpm -F "$pkg" test:conformance
-    rm -rf "$TMPDIR"
+    MOLTZAP_TMP_SCOPE="conformance-seed-$FC_SEED-$pkg_tmp" \
+      "$ROOT_DIR/scripts/with-tempdir.sh" \
+      pnpm -F "$pkg" test:conformance
   done
 done
