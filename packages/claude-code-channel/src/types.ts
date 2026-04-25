@@ -10,6 +10,7 @@
 
 import type { Effect } from "effect";
 import type { EnrichedInboundMessage, WsClientLogger } from "@moltzap/client";
+import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { AllowlistError, BootError, PushError } from "./errors.js";
 
 /**
@@ -92,6 +93,17 @@ export interface BootOptions {
    * shape and the `reply` tool.
    */
   readonly instructions?: string;
+  /**
+   * Internal test seam. When present, replaces the default
+   * `StdioServerTransport` with an injected `Transport` (e.g.
+   * `InMemoryTransport`) so integration tests can drive the real
+   * `bootClaudeCodeChannel` boot path end-to-end without a subprocess.
+   *
+   * Field is prefixed `_` and explicitly tagged "tests-only" because no
+   * production caller has reason to override the transport — production
+   * always uses stdio. Reviewer #256: keep this seam narrow.
+   */
+  readonly _testTransportFactory?: () => Transport;
 }
 
 /**

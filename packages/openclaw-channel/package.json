@@ -39,6 +39,7 @@
   },
   "devDependencies": {
     "@testcontainers/postgresql": "^10.18.0",
+    "@types/node": "^25.5.0",
     "@types/pg": "^8.11.0",
     "openai": "^6.26.0",
     "pg": "^8.13.0",
