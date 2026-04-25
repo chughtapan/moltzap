@@ -50,19 +50,15 @@ async function main(): Promise<void> {
     },
   };
 
-  const opts: Parameters<typeof bootClaudeCodeChannel>[0] = {
+  const serverName = process.env.MOLTZAP_SERVER_NAME;
+  const result = await bootClaudeCodeChannel({
     serverUrl,
     agentKey: apiKey,
     logger,
-  };
-  if (
-    typeof process.env.MOLTZAP_SERVER_NAME === "string" &&
-    process.env.MOLTZAP_SERVER_NAME.length > 0
-  ) {
-    Object.assign(opts, { serverName: process.env.MOLTZAP_SERVER_NAME });
-  }
-
-  const result = await bootClaudeCodeChannel(opts);
+    ...(typeof serverName === "string" && serverName.length > 0
+      ? { serverName }
+      : {}),
+  });
   if (result._tag === "Err") {
     process.stderr.write(
       `[error] moltzap-claude-code-channel: bootClaudeCodeChannel failed: ${result.error._tag}: ${result.error.cause}\n`,

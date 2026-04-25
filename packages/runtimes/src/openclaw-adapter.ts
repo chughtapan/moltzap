@@ -14,6 +14,10 @@ import type {
   ReadyOutcome,
 } from "./runtime.js";
 import { SpawnFailed } from "./errors.js";
+import {
+  installChannelPlugin as installSharedChannelPlugin,
+  seedWorkspaceFiles as seedSharedWorkspaceFiles,
+} from "./channel-plugin-install.js";
 
 const OPENCLAW_TERM_WAIT_MS = 10_000;
 const OPENCLAW_KILL_WAIT_MS = 5_000;
@@ -389,15 +393,7 @@ function seedWorkspaceFiles(
   stateDir: string,
   workspaceFiles: SpawnInput["workspaceFiles"],
 ): void {
-  if (workspaceFiles === undefined) {
-    return;
-  }
-  const workspaceDir = path.join(stateDir, "workspace");
-  for (const file of workspaceFiles) {
-    const destination = path.join(workspaceDir, file.relativePath);
-    fs.mkdirSync(path.dirname(destination), { recursive: true });
-    fs.writeFileSync(destination, file.content);
-  }
+  seedSharedWorkspaceFiles(stateDir, workspaceFiles);
 }
 
 function installChannelPlugin(
@@ -405,53 +401,22 @@ function installChannelPlugin(
   channelDistDir: string,
   repoRoot: string,
 ): void {
-  const extDir = path.join(stateDir, "extensions", "openclaw-channel");
-  const channelPackageDir = path.dirname(channelDistDir);
-  fs.mkdirSync(path.dirname(extDir), { recursive: true });
-
-  // Copy the plugin package root, not just dist/. OpenClaw discovers channel
-  // ids via the package metadata (`openclaw.extensions`) and then loads the
-  // dist entrypoint from there.
-  fs.mkdirSync(extDir, { recursive: true });
-  fs.cpSync(channelDistDir, path.join(extDir, "dist"), {
-    recursive: true,
-    dereference: true,
-    filter: (src) => {
-      const rel = path.relative(channelDistDir, src);
-      return !rel.startsWith("node_modules") && !rel.startsWith("src");
-    },
+  installSharedChannelPlugin({
+    stateDir,
+    channelDistDir,
+    repoRoot,
+    extName: "openclaw-channel",
+    // OpenClaw discovers channels via `openclaw.plugin.json` in the
+    // package root; cc-channel has no equivalent manifest.
+    extraPackageFiles: ["openclaw.plugin.json"],
+    // OpenClaw's plugin imports `effect` at load time. Match the
+    // pre-refactor sourcing exactly (single candidate inside the
+    // channel's bundled node_modules).
+    extraSymlinks: [
+      {
+        linkPath: "effect",
+        candidates: [path.join(channelDistDir, "node_modules", "effect")],
+      },
+    ],
   });
-  const packageJsonPath = path.join(channelPackageDir, "package.json");
-  if (fs.existsSync(packageJsonPath)) {
-    fs.copyFileSync(packageJsonPath, path.join(extDir, "package.json"));
-  }
-  const pluginManifestPath = path.join(
-    channelPackageDir,
-    "openclaw.plugin.json",
-  );
-  if (fs.existsSync(pluginManifestPath)) {
-    fs.copyFileSync(
-      pluginManifestPath,
-      path.join(extDir, "openclaw.plugin.json"),
-    );
-  }
-
-  // Link workspace packages so the plugin's imports resolve.
-  const pluginNm = path.join(extDir, "node_modules");
-  fs.mkdirSync(path.join(pluginNm, "@moltzap"), { recursive: true });
-  fs.symlinkSync(
-    path.join(repoRoot, "packages/protocol"),
-    path.join(pluginNm, "@moltzap/protocol"),
-    "dir",
-  );
-  fs.symlinkSync(
-    path.join(repoRoot, "packages/client"),
-    path.join(pluginNm, "@moltzap/client"),
-    "dir",
-  );
-  fs.symlinkSync(
-    path.join(channelDistDir, "node_modules", "effect"),
-    path.join(pluginNm, "effect"),
-    "dir",
-  );
 }
