@@ -15,8 +15,9 @@ import {
   Deferred,
   Duration,
   Effect,
+  Exit,
   Ref,
-  type Scope,
+  Scope,
   Stream,
 } from "effect";
 import * as Socket from "@effect/platform/Socket";
@@ -98,6 +99,15 @@ export interface TestClient {
   readonly events: Stream.Stream<EventFrame, TransportClosedError>;
   readonly captures: CaptureBuffer;
   readonly snapshot: Effect.Effect<ReadonlyArray<CapturedFrame>>;
+  readonly waitForEvent: (
+    eventName: string,
+    timeoutMs?: number,
+  ) => Effect.Effect<EventFrame, Error>;
+  readonly drainEvents: Effect.Effect<ReadonlyArray<EventFrame>>;
+}
+
+export interface CloseableTestClient extends TestClient {
+  readonly close: Effect.Effect<void, never>;
 }
 
 /** Context tag so property code can `Effect.serviceWith(TestClient, …)`. */
@@ -304,6 +314,41 @@ export function makeTestClient(
         return result.result as RpcMap[typeof method]["result"];
       });
 
+    const takeEvent = (eventName: string): Effect.Effect<EventFrame | null> =>
+      Ref.modify(eventQueue, (events) => {
+        const idx = events.findIndex((event) => event.event === eventName);
+        if (idx === -1) return [null, events];
+        const event = events[idx]!;
+        return [event, [...events.slice(0, idx), ...events.slice(idx + 1)]];
+      });
+
+    const waitForEvent: TestClient["waitForEvent"] = (
+      eventName,
+      timeoutMs = 5000,
+    ) =>
+      Effect.gen(function* () {
+        while (true) {
+          const event = yield* takeEvent(eventName);
+          if (event !== null) return event;
+
+          const state = yield* Ref.get(closeRef);
+          if (state.closed) {
+            return yield* Effect.fail(
+              new Error(
+                `Connection closed while waiting for event: ${eventName}`,
+              ),
+            );
+          }
+
+          yield* Effect.sleep(Duration.millis(10));
+        }
+      }).pipe(
+        Effect.timeoutFail({
+          duration: Duration.millis(timeoutMs),
+          onTimeout: () => new Error(`Timeout waiting for event: ${eventName}`),
+        }),
+      );
+
     /**
      * Send malformed bytes and await the server's reaction. Registers the
      * request id in `pending` so a typed `RpcResponseError` surfaces
@@ -398,6 +443,8 @@ export function makeTestClient(
       events,
       captures,
       snapshot: captures.snapshot,
+      waitForEvent,
+      drainEvents: Ref.getAndSet(eventQueue, []),
     };
 
     // Auto-connect handshake (auth/connect). Matches packages/client's
@@ -420,5 +467,21 @@ export function makeTestClient(
     }
 
     return client;
+  });
+}
+
+export function makeCloseableTestClient(
+  config: TestClientConfig,
+): Effect.Effect<
+  CloseableTestClient,
+  TransportIoError | TransportClosedError | RpcResponseError
+> {
+  return Effect.gen(function* () {
+    const scope = yield* Scope.make();
+    const client = yield* Scope.extend(makeTestClient(config), scope);
+    return {
+      ...client,
+      close: Scope.close(scope, Exit.void),
+    };
   });
 }

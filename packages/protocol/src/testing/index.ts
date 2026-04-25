@@ -10,8 +10,10 @@
 
 // Primitives.
 export {
+  type CloseableTestClient,
   type TestClient,
   type TestClientConfig,
+  makeCloseableTestClient,
   makeTestClient,
 } from "./test-client.js";
 export {

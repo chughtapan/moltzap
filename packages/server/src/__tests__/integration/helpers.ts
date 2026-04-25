@@ -18,7 +18,10 @@ import {
   setupAgentGroup,
   closeAllClients,
   trackClient,
+  registerAgent,
+  connectTestClient,
   type ConnectedAgent,
+  type ServerTestClient,
 } from "../../test-utils/helpers.js";
 import type { Database } from "../../db/database.js";
 import type { Kysely } from "kysely";
@@ -26,14 +29,16 @@ import type { CoreApp } from "../../app/types.js";
 import type { Layer } from "effect";
 
 export type { ConnectedAgent } from "../../test-utils/helpers.js";
-export { MoltZapWsClient } from "@moltzap/client";
 export {
+  connectTestClient,
+  registerAgent,
   registerAndConnect,
   registerOnly,
   setupAgentPair,
   setupAgentGroup,
   trackClient,
 };
+export type { ServerTestClient };
 
 let _coreApp: CoreApp | null = null;
 
