@@ -12,6 +12,7 @@ describe("@moltzap/server-core package metadata", () => {
   it("publishes a single executable bin for npx invocation", async () => {
     const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8")) as {
       bin?: Record<string, string>;
+      dependencies?: Record<string, string>;
       files?: string[];
     };
 
@@ -20,6 +21,7 @@ describe("@moltzap/server-core package metadata", () => {
     expect(packageJson.bin).toEqual({
       "moltzap-server": "bin/moltzap-server",
     });
+    expect(packageJson.dependencies).toHaveProperty("pino-pretty");
 
     await access(path.join(packageRoot, "bin/moltzap-server"), constants.X_OK);
     await access(
