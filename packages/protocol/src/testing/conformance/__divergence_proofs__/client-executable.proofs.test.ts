@@ -12,10 +12,12 @@ import type { ConformanceArtifact } from "../runner.js";
 import { collectProperties, type PropertyFailure } from "../registry.js";
 import {
   registerEventWellFormednessClient,
+  registerMalformedFrameHandlingClient,
   registerModelEquivalenceClient,
   registerRequestIdUniquenessClient,
   registerFanOutCardinalityClient,
   registerPayloadOpacityClient,
+  registerTaskBoundaryIsolationClient,
   registerSchemaExhaustiveFuzzClient,
 } from "../client/index.js";
 import type {
@@ -39,6 +41,8 @@ type EventBehavior =
   | "scramble-position-index"
   | "strip-required-field"
   | "rewrite-payload"
+  | "rewrite-conversation-id"
+  | "close-on-malformed"
   | "close-on-untagged-fuzz";
 
 type RpcBehavior = "normal" | "non-response-type" | "spurious-id";
@@ -72,6 +76,22 @@ describe("client-side conformance executable divergence proofs", () => {
       eventBehavior: "rewrite-payload",
     });
     expectInvariant(failure, "payload-opacity-client");
+  });
+
+  it("registerMalformedFrameHandlingClient fails when malformed frames poison liveness", async () => {
+    const failure = await runSingleClientProof(
+      registerMalformedFrameHandlingClient,
+      { eventBehavior: "close-on-malformed" },
+    );
+    expectInvariant(failure, "malformed-frame-handling-client");
+  }, 10_000);
+
+  it("registerTaskBoundaryIsolationClient fails when task ids are cross-wired", async () => {
+    const failure = await runSingleClientProof(
+      registerTaskBoundaryIsolationClient,
+      { eventBehavior: "rewrite-conversation-id" },
+    );
+    expectInvariant(failure, "task-boundary-isolation-client");
   });
 
   it("registerSchemaExhaustiveFuzzClient fails when post-fuzz liveness is poisoned", async () => {
@@ -141,6 +161,8 @@ function makeBadClientContext(
     const publishEvent = (frame: EventFrame): Effect.Effect<void> =>
       Effect.gen(function* () {
         const behavior = opts.eventBehavior ?? "normal";
+        const close = yield* Ref.get(closeRef);
+        if (close !== null && behavior === "close-on-malformed") return;
         const data = frame.data as { __emissionTag?: string } | undefined;
         const tag =
           typeof data?.__emissionTag === "string" ? data.__emissionTag : null;
@@ -158,7 +180,11 @@ function makeBadClientContext(
               ? rewriteEventData(frame, { positionIndex: 999 })
               : behavior === "rewrite-payload"
                 ? rewriteEventData(frame, { opaqueToken: "rewritten" })
-                : frame;
+                : behavior === "rewrite-conversation-id"
+                  ? rewriteEventData(frame, {
+                      conversationId: "cross-wired-task",
+                    })
+                  : frame;
         const encoded = new TextEncoder().encode(JSON.stringify(surfaceFrame));
         yield* Ref.update(eventsRef, (events) => [
           ...events,
@@ -197,7 +223,14 @@ function makeBadClientContext(
       inbound,
       emitEvent: (event) => publishEvent(event),
       emitResponse: (response) => resolveResponse(response),
-      emitMalformed: () => Effect.void,
+      emitMalformed: () =>
+        opts.eventBehavior === "close-on-malformed"
+          ? Ref.set(closeRef, {
+              code: 1002,
+              reason: "bad client closed on malformed frame",
+              observedAtMs: Date.now(),
+            })
+          : Effect.void,
       close: (close) =>
         Ref.set(closeRef, {
           code: close.code,

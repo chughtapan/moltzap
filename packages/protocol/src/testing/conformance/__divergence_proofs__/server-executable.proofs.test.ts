@@ -10,10 +10,16 @@ import type { ConformanceArtifact } from "../runner.js";
 import type { ConformanceRunContext, RealServerHandle } from "../runner.js";
 import { collectProperties, type PropertyFailure } from "../registry.js";
 import {
+  registerAuthorityPositive,
   registerAuthorityNegative,
   registerIdempotence,
   registerModelEquivalence,
+  registerRequestIdUniqueness,
 } from "../rpc-semantics.js";
+import {
+  registerRequestWellFormedness,
+  registerRpcMapCoverage,
+} from "../schema-conformance.js";
 import {
   expectAssertionFailure,
   expectInvariant,
@@ -22,7 +28,11 @@ import {
 
 type BadServerBehavior =
   | "allow-unauthenticated"
+  | "duplicate-response-id"
+  | "drop-contacts-list"
+  | "drop-sampled-response"
   | "reject-confident-model-call"
+  | "reject-authorized"
   | "drift-idempotent-result";
 
 describe("server-side conformance executable divergence proofs", () => {
@@ -40,11 +50,39 @@ describe("server-side conformance executable divergence proofs", () => {
     expectAssertionFailure(failure, "model-equivalence");
   });
 
+  it("registerAuthorityPositive fails when an authorized RPC is denied", async () => {
+    const failure = await runSingleServerProof(registerAuthorityPositive, {
+      behavior: "reject-authorized",
+    });
+    expectInvariant(failure, "authority-positive");
+  });
+
+  it("registerRequestIdUniqueness fails when responses duplicate an id", async () => {
+    const failure = await runSingleServerProof(registerRequestIdUniqueness, {
+      behavior: "duplicate-response-id",
+    });
+    expectAssertionFailure(failure, "request-id-uniqueness");
+  });
+
   it("registerIdempotence fails when list results drift across replays", async () => {
     const failure = await runSingleServerProof(registerIdempotence, {
       behavior: "drift-idempotent-result",
     });
     expectInvariant(failure, "idempotence");
+  });
+
+  it("registerRequestWellFormedness fails when sampled calls receive no reply", async () => {
+    const failure = await runSingleServerProof(registerRequestWellFormedness, {
+      behavior: "drop-sampled-response",
+    });
+    expectAssertionFailure(failure, "request-well-formedness");
+  }, 12_000);
+
+  it("registerRpcMapCoverage fails when a sampled method never responds", async () => {
+    const failure = await runSingleServerProof(registerRpcMapCoverage, {
+      behavior: "drop-contacts-list",
+    });
+    expectInvariant(failure, "rpc-map-coverage");
   });
 });
 
@@ -189,7 +227,14 @@ function makeBadWebSocketServer(
                   behavior,
                   ordinal,
                 );
+                if (response === null) return;
                 yield* writer(encodeFrame(response)).pipe(Effect.orDie);
+                if (
+                  behavior === "duplicate-response-id" &&
+                  decoded.right.method === "conversations/list"
+                ) {
+                  yield* writer(encodeFrame(response)).pipe(Effect.orDie);
+                }
               });
             });
           }),
@@ -211,10 +256,22 @@ function makeBadResponse(
   request: RequestFrame,
   behavior: BadServerBehavior,
   ordinal: number,
-): ResponseFrame {
+): ResponseFrame | null {
+  if (behavior === "drop-contacts-list" && request.method === "contacts/list") {
+    return null;
+  }
   if (
-    behavior === "reject-confident-model-call" &&
-    request.method === "agents/list"
+    behavior === "drop-sampled-response" &&
+    ordinal > 1 &&
+    request.method !== "auth/connect"
+  ) {
+    return null;
+  }
+  if (
+    (behavior === "reject-confident-model-call" &&
+      request.method === "agents/list") ||
+    (behavior === "reject-authorized" &&
+      request.method === "conversations/list")
   ) {
     return {
       jsonrpc: "2.0",
