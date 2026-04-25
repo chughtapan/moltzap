@@ -3,13 +3,45 @@
  * boundary checks. Integration coverage of the direct-WS branch lives in
  * the E2E fixture (`__tests__/cli-multi-agent.int.test.ts`).
  */
-import { Effect } from "effect";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { Cause, Effect, Exit, Option } from "effect";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { RpcServerError } from "../runtime/errors.js";
 import {
   decideTransport,
+  makeTransportLayer,
   resolveTransportInputs,
+  tagWsError,
+  Transport,
+  TransportDecodeError,
+  TransportRpcError,
+  ServiceUnreachableError,
+  TransportTimeoutError,
   type TransportOptions,
 } from "./transport.js";
+
+/**
+ * Module-level mock so transport.ts's `new MoltZapWsClient(...)` call is
+ * intercepted for the composed-rpc test below. Existing tests (decideTransport,
+ * tagWsError, resolveTransportInputs) do not exercise the ws-client path, so
+ * the mock is a no-op for them.
+ */
+vi.mock("../ws-client.js", async () => {
+  const effect = await import("effect");
+  const errors = await import("../runtime/errors.js");
+  return {
+    MoltZapWsClient: vi.fn().mockImplementation(() => ({
+      connect: () => effect.Effect.void,
+      sendRpc: (_method: string, _params: unknown) =>
+        effect.Effect.fail(
+          new errors.RpcServerError({
+            code: -32001,
+            message: "item not found",
+          }),
+        ),
+      close: () => effect.Effect.void,
+    })),
+  };
+});
 
 const makeOpts = (over: Partial<TransportOptions> = {}): TransportOptions => ({
   serverUrl: "wss://example.test",
@@ -97,6 +129,61 @@ describe("decideTransport", () => {
   });
 });
 
+/**
+ * Regression guard for sbd#198: the original v2 implementation at 069135d
+ * used `Effect.runPromise(sendRpc)` inside `Effect.tryPromise`. In Effect 3.21,
+ * `runPromise` wraps typed failures in `FiberFailureImpl` (no `_tag`), so
+ * `tagWsError`'s switch hit the default branch and emitted `TransportDecodeError`
+ * for every ws error. Fixed by code-guard commit ff2de0d; these tests guard
+ * against regression to that pattern.
+ *
+ * `tagWsError` is `@internal`-exported so this suite can reach it directly
+ * without a mock WS server.
+ */
+describe("tagWsError — maps ws-client error tags to TransportError variants", () => {
+  it("RpcServerError maps to TransportRpcError (not TransportDecodeError)", () => {
+    const err = tagWsError("apps/listSessions", {
+      _tag: "RpcServerError",
+      code: -32001,
+      message: "session not found",
+    });
+    expect(err).toBeInstanceOf(TransportRpcError);
+    expect(err._tag).toBe("TransportRpcError");
+    if (err instanceof TransportRpcError) {
+      expect(err.code).toBe(-32001);
+      expect(err.message).toBe("session not found");
+    }
+  });
+
+  it("NotConnectedError maps to ServiceUnreachableError", () => {
+    const err = tagWsError("apps/listSessions", { _tag: "NotConnectedError" });
+    expect(err).toBeInstanceOf(ServiceUnreachableError);
+    expect(err._tag).toBe("ServiceUnreachableError");
+  });
+
+  it("RpcTimeoutError maps to TransportTimeoutError with timeoutMs forwarded", () => {
+    const err = tagWsError("apps/listSessions", {
+      _tag: "RpcTimeoutError",
+      timeoutMs: 15_000,
+    });
+    expect(err).toBeInstanceOf(TransportTimeoutError);
+    if (err instanceof TransportTimeoutError) {
+      expect(err.timeoutMs).toBe(15_000);
+    }
+  });
+
+  it("FiberFailureImpl-shaped error (no _tag) maps to TransportDecodeError — not to TransportRpcError", () => {
+    // Guards the regression: a future runPromise bridge would produce an object
+    // with no _tag (FiberFailureImpl shape). This pins the default branch to
+    // TransportDecodeError so the error is observable, not silently swallowed.
+    const err = tagWsError("apps/listSessions", {
+      message: "some unknown error",
+    });
+    expect(err).toBeInstanceOf(TransportDecodeError);
+    expect(err._tag).toBe("TransportDecodeError");
+  });
+});
+
 describe("resolveTransportInputs (composition-boundary gate)", () => {
   const originalEnv = process.env;
   beforeEach(() => {
@@ -131,5 +218,41 @@ describe("resolveTransportInputs (composition-boundary gate)", () => {
     expect(opts.impersonateKey).toBeUndefined();
     expect(opts.profileKey).toBeUndefined();
     expect(opts.socketPath).toBeDefined();
+  });
+});
+
+/**
+ * Composed rpc() failure path — pins the full call chain so a future
+ * regression to `Effect.runPromise(sendRpc)` inside `Effect.tryPromise`
+ * is caught here, not just in the isolated `tagWsError` suite above.
+ *
+ * The ws-client mock (module-level `vi.mock("../ws-client.js")`) makes
+ * `sendRpc` return `Effect.fail(new RpcServerError(...))` so the test
+ * exercises: connect (success) → sendRpc (RpcServerError) → tagWsError
+ * → TransportRpcError. A runPromise bridge would wrap RpcServerError in
+ * FiberFailureImpl (no _tag) and the result would be TransportDecodeError.
+ */
+describe("makeDirectTransport — composed rpc() failure path", () => {
+  it("RpcServerError from sendRpc propagates as TransportRpcError through tagWsError", async () => {
+    const opts: TransportOptions = {
+      impersonateKey: "test-key",
+      serverUrl: "wss://test.example",
+    };
+    const exit = await Effect.runPromise(
+      Transport.pipe(
+        Effect.flatMap((t) => t.rpc("apps/listSessions", {})),
+        Effect.exit,
+        Effect.provide(makeTransportLayer(opts)),
+      ),
+    );
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      const failure = Cause.failureOption(exit.cause);
+      expect(Option.isSome(failure)).toBe(true);
+      if (Option.isSome(failure)) {
+        expect(failure.value).toBeInstanceOf(TransportRpcError);
+        expect(failure.value._tag).toBe("TransportRpcError");
+      }
+    }
   });
 });

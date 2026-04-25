@@ -14,7 +14,7 @@
  * directly via `Effect.provideService`.
  */
 import * as net from "node:net";
-import { Context, Data, Effect, Layer } from "effect";
+import { Context, Data, Effect, Layer, Scope } from "effect";
 import { MoltZapService } from "../service.js";
 import { MoltZapWsClient } from "../ws-client.js";
 import { request as daemonRequest } from "./socket-client.js";
@@ -216,7 +216,8 @@ const makeDaemonTransport = (socketPath: string): Transport => ({
 // Map ws-client errors (NotConnectedError | RpcTimeoutError | RpcServerError)
 // to TransportError tags. Names are matched via _tag rather than instanceof
 // to avoid a circular import chain through runtime/errors.
-const tagWsError = (
+/** @internal exported for decoder-fixture tests only (sbd#198). */
+export const tagWsError = (
   method: string,
   err: {
     readonly _tag?: string;
@@ -249,10 +250,27 @@ const tagWsError = (
   }
 };
 
+/**
+ * Build a direct-WebSocket transport. Requires `Scope` so `Layer.scoped`
+ * can install a finalizer via `Effect.addFinalizer`. The finalizer fires on
+ * fiber interruption (SIGINT/SIGTERM) — closing the ws-client and its internal
+ * ManagedRuntime — and also runs on normal completion so the event loop drains
+ * naturally without a forced `process.exit`. This replaces the fragile
+ * `process.once("beforeExit", ...)` hook that never fired because the reader
+ * fiber kept the event loop non-empty (sbd#198 Bug-2 / moltzap#228).
+ *
+ * `MoltZapWsClient` is constructed lazily inside `Effect.cached` so commands
+ * that never reach the wire (e.g. help-text display, input validation failure)
+ * do not pay for a ManagedRuntime spin-up.
+ *
+ * `sendRpc` is composed entirely in Effect-land — no `Effect.runPromise`
+ * bridge — so typed errors (`NotConnectedError`, `RpcTimeoutError`,
+ * `RpcServerError`) flow through `tagWsError` with their `_tag` intact.
+ */
 const makeDirectTransport = (
   serverUrl: string,
   agentKey: string,
-): Effect.Effect<Transport, TransportConfigError> =>
+): Effect.Effect<Transport, TransportConfigError, Scope.Scope> =>
   Effect.gen(function* () {
     if (!serverUrl) {
       return yield* Effect.fail(
@@ -268,32 +286,42 @@ const makeDirectTransport = (
         }),
       );
     }
-    // Construct lazily on first RPC so commands that never reach the
-    // wire (e.g. help text, input validation failure) don't pay for a
-    // WebSocket open. Register a process-exit hook so one-shot CLI
-    // invocations don't hang on the ws-client's ManagedRuntime and the
-    // socket's keepalive timers.
-    const ensureConnected = yield* Effect.cached(
+
+    // Lazily-created client: null until the first rpc() call fires connectOnce.
+    // The finalizer checks the current value at scope-close time so help/
+    // validation paths that never open a socket incur no cleanup cost.
+    let client: MoltZapWsClient | null = null;
+    yield* Effect.addFinalizer(() =>
+      client !== null ? client.close() : Effect.void,
+    );
+
+    // Memoize the connect handshake: only one round-trip per invocation,
+    // cached for the lifetime of this scope.
+    const connectOnce = yield* Effect.cached(
       Effect.gen(function* () {
         const c = new MoltZapWsClient({ serverUrl, agentKey });
-        const closeSync = (): void => {
-          void Effect.runPromise(c.close());
-        };
-        process.once("beforeExit", closeSync);
-        yield* c.connect();
+        client = c;
+        yield* c
+          .connect()
+          .pipe(Effect.mapError((e) => tagWsError("connect", e)));
         return c;
       }),
     );
+
     return {
-      kind: "direct",
-      rpc: <Result>(method: string, params: Record<string, unknown>) =>
-        ensureConnected.pipe(
-          Effect.flatMap((c) => c.sendRpc(method, params)),
-          Effect.map((result) => result as Result),
-          Effect.mapError((e) =>
-            tagWsError(method, e as { readonly _tag?: string }),
+      kind: "direct" as const,
+      rpc: <Result>(
+        method: string,
+        params: Record<string, unknown>,
+      ): Effect.Effect<Result, TransportError> =>
+        connectOnce.pipe(
+          Effect.flatMap((c) =>
+            c
+              .sendRpc(method, params)
+              .pipe(Effect.mapError((e) => tagWsError(method, e))),
           ),
-        ) as Effect.Effect<Result, TransportError>,
+          Effect.map((v) => v as Result),
+        ),
     };
   });
 
@@ -314,7 +342,7 @@ const makeDirectTransport = (
 export const makeTransportLayer = (
   options: TransportOptions,
 ): Layer.Layer<Transport, TransportConfigError> =>
-  Layer.effect(
+  Layer.scoped(
     Transport,
     Effect.gen(function* () {
       const decision = yield* decideTransport(options);
@@ -373,6 +401,11 @@ export const rpc = <Result>(
  * tagged-error `message` field if present, otherwise the `_tag`, otherwise
  * a generic fallback. Shared across every v2 subcommand wrapper so the
  * exit-code contract (Invariant §4.6) has a single implementation.
+ *
+ * On success, this returns normally and relies on the `Layer.scoped`
+ * finalizer in `makeDirectTransport` to close the ws-client and drain
+ * the event loop (sbd#198 / moltzap#228 Bug-2 fix). No forced
+ * `process.exit(0)` — that would truncate piped stdout on large payloads.
  */
 export const runHandler = <
   E extends { readonly message?: string; readonly _tag?: string },
