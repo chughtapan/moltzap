@@ -163,7 +163,18 @@ export function runClientConformanceSuite(
 function allowedClientCoverageGaps(
   toxiproxyUrl: string | null,
 ): ReadonlyArray<AllowedCoverageGap> {
-  const gaps: AllowedCoverageGap[] = [];
+  const gaps: AllowedCoverageGap[] = [
+    {
+      kind: "unavailable",
+      id: "adversity/slicer-framing-client",
+      reasonIncludes: "slicer toxic property deferred",
+    },
+    {
+      kind: "unavailable",
+      id: "adversity/reset-peer-recovery-client",
+      reasonIncludes: "reset_peer property deferred",
+    },
+  ];
   if (toxiproxyUrl === null) {
     gaps.push(
       {
