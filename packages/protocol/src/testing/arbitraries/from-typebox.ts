@@ -132,9 +132,9 @@ function stringArbitrary(node: TBNode): fc.Arbitrary<string> {
     return fc.uuid();
   }
   if (node.format === "date-time") {
-    return fc
-      .date({ min: new Date(2000, 0, 1), max: new Date(2100, 0, 1) })
-      .map((d) => d.toISOString());
+    const min = Date.UTC(2000, 0, 1);
+    const max = Date.UTC(2100, 0, 1);
+    return fc.integer({ min, max }).map((ms) => new Date(ms).toISOString());
   }
   return fc.string({
     minLength: node.minLength ?? 0,
