@@ -209,6 +209,23 @@ describe("MoltZapApp", () => {
       });
       expect(app.client.close).toHaveBeenCalledTimes(1);
     });
+
+    it("unsubscribes the event subscription on shutdown", async () => {
+      const subscribe = app.client.subscribe as ReturnType<typeof vi.fn>;
+      let unsubscribeCalled = false;
+      subscribe.mockImplementationOnce(() =>
+        Effect.succeed({
+          id: "sub-shutdown-test",
+          unsubscribe: Effect.sync(() => {
+            unsubscribeCalled = true;
+          }),
+        }),
+      );
+
+      await Effect.runPromise(app.start());
+      await Effect.runPromise(app.stop());
+      expect(unsubscribeCalled).toBe(true);
+    });
   });
 
   describe("session management", () => {
@@ -494,6 +511,26 @@ describe("MoltZapApp", () => {
       } else {
         throw new Error("expected typed Fail");
       }
+    });
+
+    it("unsubscribes the event subscription when start() fails after subscribe", async () => {
+      const subscribe = app.client.subscribe as ReturnType<typeof vi.fn>;
+      let unsubscribeCalled = false;
+      subscribe.mockImplementationOnce(() =>
+        Effect.succeed({
+          id: "sub-leak-test",
+          unsubscribe: Effect.sync(() => {
+            unsubscribeCalled = true;
+          }),
+        }),
+      );
+
+      const connect = app.client.connect as ReturnType<typeof vi.fn>;
+      connect.mockImplementationOnce(() => Effect.fail(new Error("tcp reset")));
+
+      const exit = await Effect.runPromiseExit(app.start());
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(unsubscribeCalled).toBe(true);
     });
 
     it("fails with SessionError when apps/create fails", async () => {
