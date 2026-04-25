@@ -134,6 +134,6 @@ jobs:
             echo "Publishing ${NAME}@${VER}..."
             (
               cd "packages/$pkg"
-              npm publish --access public
+              npm publish --access public --provenance
             )
           done
