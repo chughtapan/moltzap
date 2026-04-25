@@ -23,6 +23,7 @@ fi
 
 cleanup() {
   docker compose -f "$COMPOSE_FILE" down -v
+  rm -rf "$ROOT_DIR/.tmp/conformance"
 }
 
 wait_for_toxiproxy() {
@@ -34,6 +35,15 @@ wait_for_toxiproxy() {
   done
   echo "Toxiproxy did not become healthy at $TOXIPROXY_URL" >&2
   return 1
+}
+
+ensure_toxiproxy() {
+  if curl -sf "$TOXIPROXY_URL/version" >/dev/null; then
+    return 0
+  fi
+  echo "Toxiproxy is not reachable; starting it"
+  docker compose -f "$COMPOSE_FILE" up -d
+  wait_for_toxiproxy
 }
 
 export TOXIPROXY_URL
@@ -65,7 +75,14 @@ for ((seed_index = 0; seed_index < CONFORMANCE_SEED_COUNT; seed_index++)); do
   export FC_SEED=$((BASE_FC_SEED + seed_index))
   echo "== seed pass $((seed_index + 1))/$CONFORMANCE_SEED_COUNT: FC_SEED=$FC_SEED"
   for pkg in "${PACKAGES[@]}"; do
+    ensure_toxiproxy
+    pkg_tmp="${pkg//@/}"
+    pkg_tmp="${pkg_tmp//\//-}"
+    export TMPDIR="$ROOT_DIR/.tmp/conformance/seed-$FC_SEED/$pkg_tmp"
+    rm -rf "$TMPDIR"
+    mkdir -p "$TMPDIR"
     echo "==> $pkg"
     pnpm -F "$pkg" test:conformance
+    rm -rf "$TMPDIR"
   done
 done
