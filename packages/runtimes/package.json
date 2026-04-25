@@ -20,12 +20,18 @@
     "test:integration": "vitest run --config vitest.integration.config.ts"
   },
   "dependencies": {
+    "@effect/platform": "^0.96.0",
+    "@effect/platform-node": "^0.106.0",
+    "@moltzap/claude-code-channel": "workspace:*",
     "effect": "3.21.0",
     "openclaw": "2026.3.31"
   },
   "devDependencies": {
-    "@types/node": "^24.7.2",
+    "@anthropic-ai/claude-code": "^2.1.119",
     "@effect/vitest": "^0.29.0",
+    "@moltzap/client": "workspace:*",
+    "@moltzap/server-core": "workspace:*",
+    "@types/node": "^24.7.2",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
   }
