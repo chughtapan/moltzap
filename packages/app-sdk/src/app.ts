@@ -1,5 +1,9 @@
 import { MoltZapWsClient } from "@moltzap/client";
-import type { WsClientLogger, MoltZapWsClientOptions } from "@moltzap/client";
+import type {
+  WsClientLogger,
+  MoltZapWsClientOptions,
+  EventSubscription,
+} from "@moltzap/client";
 import type {
   AppManifest,
   EventFrame,
@@ -84,6 +88,10 @@ export class MoltZapApp {
   private recoveringSessions = new Set<string>();
 
   private started = false;
+  /** Handle from the `{}` event subscription registered in `start()`. Stored so
+   *  `stop()` can unsubscribe cleanly, and `start()` can unsubscribe before
+   *  rethrowing if a later step fails (preventing subscription leaks on retry). */
+  private activeSubscription: EventSubscription | null = null;
 
   constructor(options: MoltZapAppOptions) {
     if (!options.appId && !options.manifest) {
@@ -133,7 +141,7 @@ export class MoltZapApp {
       // Spec #222 OQ-4 deletion: per-event `onEvent` callback is gone.
       // Replacement: register a `{}` filter subscription before
       // `connect()` so every inbound event still reaches `handleEvent`.
-      yield* self.client
+      const sub = yield* self.client
         .subscribe({}, (event) => Effect.sync(() => self.handleEvent(event)))
         .pipe(
           Effect.mapError(
@@ -144,6 +152,10 @@ export class MoltZapApp {
               ),
           ),
         );
+
+      // Track the handle so stop() can unsubscribe, and so tapError below
+      // can clean up if a later step fails (preventing subscription leaks).
+      self.activeSubscription = sub;
 
       yield* self.client
         .connect()
@@ -204,7 +216,18 @@ export class MoltZapApp {
       }
 
       return handle;
-    });
+    }).pipe(
+      // If any step after subscribe() fails, clean up the subscription so
+      // a retry does not accumulate orphaned subscriptions.
+      Effect.tapError(() => {
+        const sub = self.activeSubscription;
+        if (sub !== null) {
+          self.activeSubscription = null;
+          return sub.unsubscribe;
+        }
+        return Effect.void;
+      }),
+    );
   }
 
   stop(): Effect.Effect<void, never> {
@@ -230,6 +253,12 @@ export class MoltZapApp {
       self.sessions.clear();
       self.reverseConvMap.clear();
       self.firedSessionReady.clear();
+
+      if (self.activeSubscription !== null) {
+        yield* self.activeSubscription.unsubscribe;
+        self.activeSubscription = null;
+      }
+
       yield* self.client.close();
       self.started = false;
     });

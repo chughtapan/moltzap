@@ -190,7 +190,7 @@ export function makeSubscriberRegistry(logger: {
           // Handlers must not throw; we catch defects defensively so
           // one buggy subscriber can't kill the dispatch loop or break
           // the reader fiber.
-          yield* sub.handler(frame).pipe(
+          yield* Effect.suspend(() => sub.handler(frame)).pipe(
             Effect.catchAllDefect((err) =>
               Effect.sync(() => {
                 logger.warn("subscriber handler threw", err);

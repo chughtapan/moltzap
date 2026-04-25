@@ -186,6 +186,26 @@ describe("SubscriberRegistry", () => {
     expect(otherCalls).toEqual([1]); // other subscribers still fire.
   });
 
+  it("construction-time throw from handler is caught + logged (not escaped)", async () => {
+    const warn = vi.fn();
+    const registry = await Effect.runPromise(makeSubscriberRegistry({ warn }));
+    const otherCalls: number[] = [];
+
+    await Effect.runPromise(
+      registry.register({}, (_frame) => {
+        throw new Error("construction-time throw");
+      }),
+    );
+    await Effect.runPromise(
+      registry.register({}, () => Effect.sync(() => void otherCalls.push(1))),
+    );
+
+    await Effect.runPromise(registry.dispatch(eventFrame("e", {})));
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(otherCalls).toEqual([1]); // subsequent subscribers still fire.
+  });
+
   it("closeAll drops every subscription", async () => {
     const registry = await Effect.runPromise(
       makeSubscriberRegistry(noopLogger),

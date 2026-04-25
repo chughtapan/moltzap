@@ -50,7 +50,7 @@ jobs:
           fi
 
           CHANGED=""
-          for pkg in protocol server-core client openclaw-channel; do
+          for pkg in protocol server client openclaw-channel; do
             if git diff --name-only "$BASE"..HEAD -- "packages/$pkg/src/" | grep -q .; then
               VERSION=$(scripts/compute-next-version.sh "$pkg")
               echo "${pkg}_version=$VERSION" >> "$GITHUB_OUTPUT"
@@ -82,8 +82,10 @@ jobs:
           # Build commit message from package.json versions
           MSG="chore(release):"
           for pkg in ${{ steps.versions.outputs.changed }}; do
-            VER=$(node -p "require('./packages/$pkg/package.json').version")
-            MSG="$MSG @moltzap/${pkg}@${VER}"
+            PKG_JSON="./packages/$pkg/package.json"
+            VER=$(node -p "require('$PKG_JSON').version")
+            NAME=$(node -p "require('$PKG_JSON').name")
+            MSG="$MSG ${NAME}@${VER}"
           done
 
           # Update lockfile with new versions (skip scripts — full build happens in next step)
@@ -117,13 +119,15 @@ jobs:
           # Publish any package whose local version is not yet on npm.
           # This covers both newly bumped versions AND versions from prior
           # runs where the bump committed but the publish failed.
-          for pkg in protocol server-core client openclaw-channel; do
-            VER=$(node -p "require('./packages/$pkg/package.json').version")
-            if npm view "@moltzap/${pkg}@${VER}" version 2>/dev/null | grep -q "$VER"; then
-              echo "@moltzap/${pkg}@${VER} already on npm — skipping"
+          for pkg in protocol server client openclaw-channel; do
+            PKG_JSON="./packages/$pkg/package.json"
+            VER=$(node -p "require('$PKG_JSON').version")
+            NAME=$(node -p "require('$PKG_JSON').name")
+            if npm view "${NAME}@${VER}" version 2>/dev/null | grep -q "$VER"; then
+              echo "${NAME}@${VER} already on npm — skipping"
               continue
             fi
-            echo "Publishing @moltzap/${pkg}@${VER}..."
+            echo "Publishing ${NAME}@${VER}..."
             (
               cd "packages/$pkg"
               TARBALL=$(pnpm pack --pack-gzip-level 9 | tail -1)
