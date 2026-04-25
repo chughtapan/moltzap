@@ -102,7 +102,7 @@ describe("toClaudeChannelNotification — meta-key mapping (spec A5, A12)", () =
     const r = toClaudeChannelNotification(makeEvent());
     expect(r._tag).toBe("Ok");
     if (r._tag !== "Ok") return;
-    const meta = r.value.params.meta as unknown as Record<string, unknown>;
+    const meta = r.value.params.meta as unknown as Record<string, unknown>; // #ignore-sloppy-code[as-unknown-as]: test probes for absence of extra keys; Record<string,unknown> is the right lens
     expect("conversation_id" in meta).toBe(false);
     expect("sender_id" in meta).toBe(false);
     expect("received_at_ms" in meta).toBe(false);

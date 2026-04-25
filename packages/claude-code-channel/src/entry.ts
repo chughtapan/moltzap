@@ -5,7 +5,7 @@
  * a single `Handle`. Mirrors `~/moltzap/packages/openclaw-channel/src/openclaw-entry.ts`
  * as the precedent for "wrap client primitives + host plugin shape."
  *
- * Spec A2: `bootClaudeCodeChannel(opts: BootOptions): Promise<Result<Handle, BootError>>`.
+ * Spec A2: `bootClaudeCodeChannel` returns a `BootResult` wrapped in a promise.
  */
 
 import {
@@ -19,6 +19,7 @@ import { createRoutingState } from "./routing.js";
 import { bootChannelMcpServer, type ServerHandle } from "./server.js";
 import type { BootOptions, Handle } from "./types.js";
 import type { BootError, ReplyError } from "./errors.js";
+import { stringifyCause } from "./utils.js";
 
 export type BootResult =
   | { readonly _tag: "Ok"; readonly value: Handle }
@@ -29,23 +30,16 @@ const DEFAULT_INSTRUCTIONS =
   'MoltZap messages arrive as <channel source="moltzap" chat_id="..." message_id="..." user="..." ts="...">. ' +
   "Reply with the reply tool. Pass reply_to=<message_id> to target a specific conversation; omit to reply to the most recent inbound.";
 
-function stringifyCause(cause: unknown): string {
-  if (cause instanceof Error) return cause.message;
-  try {
-    return JSON.stringify(cause);
-  } catch {
-    return String(cause);
-  }
-}
-
 /**
  * Boot a Claude Code channel. Single public entry point of the package.
  *
  * Error channel is tagged (Principle 3). Internals run on Effect; the
  * `Promise` wrapper lives only at this boundary.
  */
+// #ignore-sloppy-code-next-line[async-keyword]: public API boundary — callers are not Effect-native; wraps Effect internals
 export async function bootClaudeCodeChannel(
   opts: BootOptions,
+  // #ignore-sloppy-code-next-line[promise-type]: public API boundary — callers are not Effect-native; wraps Effect internals
 ): Promise<BootResult> {
   if (typeof opts.agentKey !== "string" || opts.agentKey.trim().length === 0) {
     return {
