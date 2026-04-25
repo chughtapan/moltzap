@@ -113,12 +113,12 @@ export function registerAllClientProperties(
   registerFanOutCardinalityClient(ctx);
   registerPayloadOpacityClient(ctx);
   registerTaskBoundaryIsolationClient(ctx);
+  registerSchemaExhaustiveFuzzClient(ctx);
   registerLatencyResilienceClient(ctx);
   registerSlicerFramingClient(ctx);
   registerResetPeerRecoveryClient(ctx);
   registerTimeoutSurfaceClient(ctx);
   registerSlowCloseCleanupClient(ctx);
-  registerSchemaExhaustiveFuzzClient(ctx);
 }
 
 /**
@@ -194,11 +194,6 @@ function allowedClientCoverageGaps(
       },
     );
   }
-  gaps.push({
-    kind: "unavailable",
-    id: "boundary/schema-exhaustive-fuzz-client",
-    reasonIncludes: "real client did not complete handshake",
-  });
   return gaps;
 }
 
