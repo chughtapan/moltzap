@@ -40,3 +40,7 @@ jobs:
       - run: pnpm --filter @moltzap/protocol build
       - run: pnpm --filter @moltzap/server-core build
       - run: pnpm --filter @moltzap/server-core test:integration
+      # Openclaw integration suite skips at suite level via isImageAvailable()
+      # when the openclaw container image is unavailable; the globalSetup itself
+      # only requires Docker (Postgres testcontainer) and the built server.
+      - run: pnpm --filter @moltzap/openclaw-channel test:integration

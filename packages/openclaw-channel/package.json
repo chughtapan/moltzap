@@ -38,6 +38,7 @@
     "effect": "3.21.0"
   },
   "devDependencies": {
+    "@effect/vitest": "^0.29.0",
     "@testcontainers/postgresql": "^10.18.0",
     "@types/pg": "^8.11.0",
     "openai": "^6.26.0",
