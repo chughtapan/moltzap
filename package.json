@@ -10,6 +10,8 @@
     "format:check": "oxfmt --check .",
     "typecheck": "pnpm -r exec tsc --noEmit",
     "check": "pnpm lint && pnpm format:check",
+    "test:conformance:toxiproxy": "bash scripts/conformance-toxiproxy.sh",
+    "test:conformance:stress": "CONFORMANCE_STRESS=1 bash scripts/conformance-toxiproxy.sh",
     "docs": "cd docs && mint dev",
     "docs:generate": "cd packages/protocol && npx tsx ../../scripts/generate-protocol-docs.ts",
     "docs:check": "cd docs && mint broken-links",

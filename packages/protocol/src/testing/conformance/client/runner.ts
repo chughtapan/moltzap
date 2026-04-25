@@ -32,6 +32,7 @@ import {
   TransportIoError,
   type ToxicControlError,
 } from "../../errors.js";
+import { conformanceNumRunsFromEnv } from "../env.js";
 import type { ConformanceArtifact } from "../runner.js";
 import { PROTOCOL_VERSION } from "../../../version.js";
 
@@ -276,8 +277,13 @@ export function acquireClientRunContext(
   Scope.Scope
 > {
   return Effect.gen(function* () {
+    const effectiveOpts = {
+      ...opts,
+      numRuns: opts.numRuns ?? conformanceNumRunsFromEnv(),
+    };
     const seed =
-      opts.replaySeed ?? Number(process.env.FC_SEED ?? Date.now() & 0x7fffffff);
+      effectiveOpts.replaySeed ??
+      Number(process.env.FC_SEED ?? Date.now() & 0x7fffffff);
     const artifacts = yield* Ref.make<ReadonlyArray<ConformanceArtifact>>([]);
 
     // Bind the TestServer under the ambient Scope. Server-close on teardown.
@@ -297,8 +303,13 @@ export function acquireClientRunContext(
     // Optional Toxiproxy acquisition — matches the server-side runner's
     // contract (only allocate when tier "D" is present).
     let toxiproxy: ToxiproxyClient | null = null;
-    if (opts.tiers.includes("D") && opts.toxiproxyUrl !== undefined) {
-      const tp = yield* makeToxiproxyClient({ apiUrl: opts.toxiproxyUrl });
+    if (
+      effectiveOpts.tiers.includes("D") &&
+      effectiveOpts.toxiproxyUrl !== undefined
+    ) {
+      const tp = yield* makeToxiproxyClient({
+        apiUrl: effectiveOpts.toxiproxyUrl,
+      });
       yield* tp.ping.pipe(Effect.orElseSucceed(() => undefined));
       toxiproxy = tp;
     }
@@ -320,10 +331,10 @@ export function acquireClientRunContext(
 
     return {
       testServer,
-      realClientFactory: opts.realClient,
+      realClientFactory: effectiveOpts.realClient,
       handshakeWindow,
       toxiproxy,
-      opts,
+      opts: effectiveOpts,
       seed,
       artifacts,
     } satisfies ClientConformanceRunContext;
