@@ -146,10 +146,14 @@ export function registerSchemaExhaustiveFuzz(ctx: ConformanceRunContext): void {
               }),
           ),
         );
+        const samplesPerMethod = ctx.opts.numRuns ?? 1;
         for (const method of allRpcMethods) {
           const callArb = arbitraryCallFor(method);
-          const [sampled] = fc.sample(callArb, { numRuns: 1, seed: ctx.seed });
-          if (sampled === undefined) {
+          const samples = fc.sample(callArb, {
+            numRuns: samplesPerMethod,
+            seed: ctx.seed,
+          });
+          if (samples.length === 0) {
             return yield* Effect.fail(
               new PropertyInvariantViolation({
                 category: CATEGORY,
@@ -158,25 +162,27 @@ export function registerSchemaExhaustiveFuzz(ctx: ConformanceRunContext): void {
               }),
             );
           }
-          yield* client
-            .sendRpc(sampled.method, sampled.params)
-            .pipe(Effect.either);
-          // Post-fuzz liveness: a follow-up RPC must return a typed
-          // response. Accepting any `Left` would let a timeout or
-          // transport-close slip through as "server alive" — which is
-          // exactly what the property must reject. Require the post
-          // call to SUCCEED; timeouts are failures here.
-          const post = yield* client
-            .sendRpc("agents/list", {})
-            .pipe(Effect.either);
-          if (post._tag !== "Right") {
-            return yield* Effect.fail(
-              new PropertyInvariantViolation({
-                category: CATEGORY,
-                name: "schema-exhaustive-fuzz",
-                reason: `server became unresponsive after ${method} (post-call ${post._tag === "Left" ? post.left._tag : "unknown"})`,
-              }),
-            );
+          for (const sampled of samples) {
+            yield* client
+              .sendRpc(sampled.method, sampled.params)
+              .pipe(Effect.either);
+            // Post-fuzz liveness: a follow-up RPC must return a typed
+            // response. Accepting any `Left` would let a timeout or
+            // transport-close slip through as "server alive" — which is
+            // exactly what the property must reject. Require the post
+            // call to SUCCEED; timeouts are failures here.
+            const post = yield* client
+              .sendRpc("agents/list", {})
+              .pipe(Effect.either);
+            if (post._tag !== "Right") {
+              return yield* Effect.fail(
+                new PropertyInvariantViolation({
+                  category: CATEGORY,
+                  name: "schema-exhaustive-fuzz",
+                  reason: `server became unresponsive after ${method} (post-call ${post._tag === "Left" ? post.left._tag : "unknown"})`,
+                }),
+              );
+            }
           }
         }
       }),
