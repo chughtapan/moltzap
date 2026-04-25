@@ -37,7 +37,7 @@
     "@sinclair/typebox": "^0.34.0",
     "ajv": "^8.17.0",
     "ajv-formats": "^3.0.0",
-    "effect": "^3.21.0"
+    "effect": "3.21.0"
   },
   "devDependencies": {
     "@effect/platform": "^0.96.0",
