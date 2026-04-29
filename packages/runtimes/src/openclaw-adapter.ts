@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, pipe } from "effect";
 import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
@@ -123,49 +123,43 @@ export class OpenClawAdapter implements Runtime {
   }
 
   waitUntilReady(timeoutMs: number): Effect.Effect<ReadyOutcome, never, never> {
-    return Effect.async<ReadyOutcome, never, never>((resume) => {
-      if (!this.state) {
-        resume(Effect.succeed({ _tag: "Ready" as const }));
-        return;
-      }
+    if (!this.state) {
+      return Effect.succeed({ _tag: "Ready" as const });
+    }
+    const { child, spawnInput } = this.state;
+    const agentId = spawnInput.agentId;
 
-      const deadline = Date.now() + timeoutMs;
-      const { child, spawnInput } = this.state;
-      const agentId = spawnInput.agentId;
+    const serverReady = this.deps.server.awaitAgentReady(agentId, timeoutMs);
 
-      const check = () => {
-        if (child.exitCode !== null) {
-          const stderr = this.state?.logBuffer ?? "";
-          // #ignore-sloppy-code-next-line[promise-type]: fire-and-forget cleanup — resume callback cannot await
-          void this.doTeardown();
-          resume(
-            Effect.succeed({
-              _tag: "ProcessExited" as const,
-              exitCode: child.exitCode,
-              stderr,
-            }),
-          );
-          return;
-        }
+    // Adapter-side `ProcessExited` detector. Polls `child.exitCode` until
+    // the process exits, then returns the outcome with stderr captured
+    // from the live log buffer.
+    const exitTick: Effect.Effect<ReadyOutcome | null, never, never> =
+      Effect.sync(() => {
+        if (child.exitCode === null) return null;
+        return {
+          _tag: "ProcessExited" as const,
+          exitCode: child.exitCode,
+          stderr: this.state?.logBuffer ?? "",
+        };
+      });
+    const exitLoop: Effect.Effect<ReadyOutcome, never, never> = pipe(
+      Effect.iterate(null as ReadyOutcome | null, {
+        while: (s) => s === null,
+        body: () => Effect.sleep("250 millis").pipe(Effect.zipRight(exitTick)),
+      }),
+      Effect.map(
+        (s): ReadyOutcome => s ?? { _tag: "Timeout" as const, timeoutMs },
+      ),
+    );
 
-        const connections = this.deps.server.connections.getByAgent(agentId);
-        if (connections.length > 0 && connections[0]!.auth !== null) {
-          resume(Effect.succeed({ _tag: "Ready" as const }));
-          return;
-        }
-
-        if (Date.now() > deadline) {
-          // #ignore-sloppy-code-next-line[promise-type]: fire-and-forget cleanup — resume callback cannot await
-          void this.doTeardown();
-          resume(Effect.succeed({ _tag: "Timeout" as const, timeoutMs }));
-          return;
-        }
-
-        setTimeout(check, 500);
-      };
-
-      check();
-    });
+    return pipe(
+      Effect.race(serverReady, exitLoop),
+      // Failure outcomes (Timeout, ProcessExited) tear down before returning.
+      Effect.tap((outcome) =>
+        outcome._tag === "Ready" ? Effect.void : this.teardown(),
+      ),
+    );
   }
 
   teardown(): Effect.Effect<void, never, never> {

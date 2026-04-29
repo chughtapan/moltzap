@@ -106,20 +106,36 @@ interface ClientTestModule {
 }
 
 interface CoreAppHandle {
-  readonly connections: {
-    getByAgent(
-      agentId: string,
-    ): ReadonlyArray<{ readonly auth: unknown | null }>;
-  };
   readonly traceCapture: {
     snapshot(): Effect.Effect<readonly TraceCaptureEvent[], never, never>;
   };
+}
+
+// Pre-wired RuntimeServerHandle that startCoreTestServer now exposes — the
+// harness threads this directly into startRuntimeAgent. Structural shape only;
+// the concrete implementation lives in @moltzap/server-core's test-utils.
+interface RuntimeServerLike {
+  awaitAgentReady(
+    agentId: string,
+    timeoutMs: number,
+  ): Effect.Effect<
+    | { readonly _tag: "Ready" }
+    | { readonly _tag: "Timeout"; readonly timeoutMs: number }
+    | {
+        readonly _tag: "ProcessExited";
+        readonly exitCode: number | null;
+        readonly stderr: string;
+      },
+    never,
+    never
+  >;
 }
 
 interface CoreTestServer {
   readonly baseUrl: string;
   readonly wsUrl: string;
   readonly coreApp: CoreAppHandle;
+  readonly runtimeServer: RuntimeServerLike;
 }
 
 interface ServerIndexModule {
@@ -1101,7 +1117,7 @@ function createCoordinator(sourcePath: string, payload: HarnessPayload) {
               return yield* Effect.acquireUseRelease(
                 startRuntimeAgent({
                   kind: payload.runtime.kind,
-                  server: server.coreApp,
+                  server: server.runtimeServer,
                   readyTimeoutMs:
                     payload.runtime.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS,
                   agent: {
