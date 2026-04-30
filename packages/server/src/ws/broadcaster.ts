@@ -14,8 +14,11 @@ function appendBroadcastTrace(record: Record<string, unknown>): void {
       path.join(dir, "server-broadcasts.jsonl"),
       JSON.stringify(record) + "\n",
     );
-  } catch {
-    // Best-effort diagnostics only.
+  } catch (err) {
+    logger.debug(
+      { err },
+      "server broadcast trace write failed; continuing without diagnostics",
+    );
   }
 }
 

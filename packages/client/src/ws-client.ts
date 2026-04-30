@@ -48,6 +48,10 @@ export type { CloseInfo };
  */
 export const RPC_TIMEOUT_MS = 30_000;
 
+export interface RpcCallOptions {
+  readonly timeoutMs?: number;
+}
+
 /** Reconnect backoff: 1s base, doubling per attempt up to the cap. */
 const BASE_RECONNECT_DELAY_MS = 1000;
 const MAX_RECONNECT_DELAY_MS = 30_000;
@@ -265,6 +269,7 @@ export class MoltZapWsClient {
   sendRpc<D extends RpcDefinition<string, TSchema, TSchema>>(
     method: D,
     params: Static<D["paramsSchema"]>,
+    opts?: RpcCallOptions,
   ): Effect.Effect<
     Static<D["resultSchema"]>,
     NotConnectedError | RpcTimeoutError | RpcServerError
@@ -272,6 +277,7 @@ export class MoltZapWsClient {
   sendRpc(
     method: string,
     params?: unknown,
+    opts?: RpcCallOptions,
   ): Effect.Effect<
     unknown,
     NotConnectedError | RpcTimeoutError | RpcServerError
@@ -279,12 +285,13 @@ export class MoltZapWsClient {
   sendRpc(
     method: string | RpcDefinition<string, TSchema, TSchema>,
     params?: unknown,
+    opts?: RpcCallOptions,
   ): Effect.Effect<
     unknown,
     NotConnectedError | RpcTimeoutError | RpcServerError
   > {
     const methodName = typeof method === "string" ? method : method.name;
-    return this.sendRpcEffect(methodName, params);
+    return this.sendRpcEffect(methodName, params, opts);
   }
 
   /**
@@ -593,6 +600,7 @@ export class MoltZapWsClient {
   private sendRpcTrackedEffect(
     method: string,
     params: unknown,
+    opts?: RpcCallOptions,
   ): Effect.Effect<
     TrackedRpcResponse<unknown>,
     NotConnectedError | RpcTimeoutError | RpcServerError
@@ -643,11 +651,11 @@ export class MoltZapWsClient {
         );
       }
 
+      const timeoutMs = opts?.timeoutMs ?? RPC_TIMEOUT_MS;
       const result = yield* Deferred.await(deferred).pipe(
         Effect.timeoutFail({
-          duration: `${RPC_TIMEOUT_MS} millis`,
-          onTimeout: () =>
-            new RpcTimeoutError({ method, timeoutMs: RPC_TIMEOUT_MS }),
+          duration: `${timeoutMs} millis`,
+          onTimeout: () => new RpcTimeoutError({ method, timeoutMs }),
         }),
         Effect.onExit((exit) =>
           Exit.isFailure(exit)
@@ -678,11 +686,12 @@ export class MoltZapWsClient {
   private sendRpcEffect(
     method: string,
     params: unknown,
+    opts?: RpcCallOptions,
   ): Effect.Effect<
     unknown,
     NotConnectedError | RpcTimeoutError | RpcServerError
   > {
-    return this.sendRpcTrackedEffect(method, params).pipe(
+    return this.sendRpcTrackedEffect(method, params, opts).pipe(
       Effect.map((tracked) => tracked.result),
     );
   }

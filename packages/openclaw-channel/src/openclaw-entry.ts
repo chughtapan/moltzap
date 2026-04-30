@@ -388,6 +388,9 @@ export function createMoltzapChannelPlugin() {
               ctx.channelRuntime?.reply
                 ?.dispatchReplyWithBufferedBlockDispatcher;
             if (!dispatch) {
+              log?.warn?.(
+                `MoltZap: no OpenClaw reply dispatcher for ${enriched.conversationId}`,
+              );
               return;
             }
 
@@ -400,6 +403,9 @@ export function createMoltzapChannelPlugin() {
             // Bridge OpenClaw's Promise-shaped dispatch into Effect, then
             // catchAll back to a logged no-op so a single failed reply doesn't
             // crash the consumer fiber.
+            log?.info?.(
+              `MoltZap: dispatch start for ${enriched.conversationId} message ${enriched.id}`,
+            );
             const result = yield* Effect.tryPromise({
               try: () =>
                 dispatch({
@@ -465,6 +471,9 @@ export function createMoltzapChannelPlugin() {
                   return null;
                 }),
               ),
+            );
+            log?.info?.(
+              `MoltZap: dispatch finished for ${enriched.conversationId} message ${enriched.id}`,
             );
             if (result && !result.queuedFinal) {
               log?.debug?.(

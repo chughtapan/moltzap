@@ -134,6 +134,7 @@ export function createAppHandlers(deps: {
               senderAgentId: params.senderAgentId,
               parts: params.parts,
               receivedAt: params.receivedAt,
+              clock: params.clock,
               pending: params.pending,
               attempt: params.attempt,
             },

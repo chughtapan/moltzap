@@ -1,4 +1,4 @@
-import type { Part } from "@moltzap/protocol";
+import type { LogicalClock, Part } from "@moltzap/protocol";
 import { Schema } from "effect";
 
 export interface BeforeMessageDeliveryContext {
@@ -18,12 +18,15 @@ export interface BeforeDispatchContext {
   appId: string;
   attempt: number;
   receivedAt?: string;
+  clock?: LogicalClock;
   pending?: ReadonlyArray<{
     messageId: string;
     conversationId: string;
     senderAgentId: string;
     createdAt: string;
     receivedAt: string;
+    clock?: LogicalClock;
+    parts?: Part[];
   }>;
   signal: AbortSignal;
 }
@@ -67,22 +70,28 @@ export const HookResultSchema = Schema.Struct({
 }) as Schema.Schema<HookResult, unknown>;
 
 export type DispatchAdmissionResult =
-  | { decision: "grant"; leaseId?: string }
-  | { decision: "defer"; retryAfterMs: number; reason?: string }
-  | { decision: "deny"; reason?: string };
+  | {
+      decision: "grant";
+      leaseId?: string;
+      leaseTimeoutMs?: number;
+      dispatchMessageId?: string;
+    }
+  | { decision: "deny"; reason?: string }
+  | { decision: "hold"; reason?: string };
 
 export const DispatchAdmissionResultSchema = Schema.Union(
   Schema.Struct({
     decision: Schema.Literal("grant"),
     leaseId: Schema.optional(Schema.String),
-  }),
-  Schema.Struct({
-    decision: Schema.Literal("defer"),
-    retryAfterMs: Schema.Number,
-    reason: Schema.optional(Schema.String),
+    leaseTimeoutMs: Schema.optional(Schema.Number),
+    dispatchMessageId: Schema.optional(Schema.String),
   }),
   Schema.Struct({
     decision: Schema.Literal("deny"),
+    reason: Schema.optional(Schema.String),
+  }),
+  Schema.Struct({
+    decision: Schema.Literal("hold"),
     reason: Schema.optional(Schema.String),
   }),
 ) as Schema.Schema<DispatchAdmissionResult, unknown>;

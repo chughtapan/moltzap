@@ -13,7 +13,11 @@ import {
   EventNames,
 } from "@moltzap/protocol";
 import { Effect, HashMap, Match, Option, Ref } from "effect";
-import { MoltZapWsClient, type WsClientLogger } from "./ws-client.js";
+import {
+  MoltZapWsClient,
+  type RpcCallOptions,
+  type WsClientLogger,
+} from "./ws-client.js";
 import {
   AgentNotFoundError,
   NotConnectedError,
@@ -25,6 +29,9 @@ import type {
   DispatchAdmissionDecision,
   DispatchAdmissionRequest,
 } from "./channel-core.js";
+
+const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
 
 function appendClientEventTrace(record: Record<string, unknown>): void {
   const dir = process.env["MOLTZAP_CLIENT_EVENT_LOG_DIR"];
@@ -38,8 +45,14 @@ function appendClientEventTrace(record: Record<string, unknown>): void {
       path.join(dir, `client-events-${safeAgentId}.jsonl`),
       JSON.stringify(record) + "\n",
     );
-  } catch {
-    // Best-effort diagnostics only.
+  } catch (err) {
+    try {
+      process.stderr.write(
+        `moltzap client event trace write failed: ${err instanceof Error ? err.message : String(err)}\n`,
+      );
+    } catch (stderrErr) {
+      void stderrErr;
+    }
   }
 }
 
@@ -111,6 +124,8 @@ export interface ServiceOptions {
 }
 
 type EventHandler<T> = (data: T) => void;
+
+const DISPATCH_AUTHORIZATION_RPC_TIMEOUT_MS = 900_000;
 
 interface HelloOk {
   agentId: string;
@@ -687,22 +702,32 @@ export class MoltZapService {
   authorizeDispatch(
     request: DispatchAdmissionRequest,
   ): Effect.Effect<DispatchAdmissionDecision, ServiceRpcError> {
-    return this.sendRpc("apps/authorizeDispatch", {
-      conversationId: request.conversationId,
-      messageId: request.message.id,
-      senderAgentId: request.senderAgentId,
-      parts: request.message.parts,
-      receivedAt: request.receivedAt,
-      pending: request.pending,
-      attempt: request.attempt,
-    }).pipe(
+    return this.sendRpc(
+      "apps/authorizeDispatch",
+      {
+        conversationId: request.conversationId,
+        messageId: request.message.id,
+        senderAgentId: request.senderAgentId,
+        parts: request.message.parts,
+        receivedAt: request.receivedAt,
+        clock: request.clock,
+        pending: request.pending,
+        attempt: request.attempt,
+      },
+      { timeoutMs: DISPATCH_AUTHORIZATION_RPC_TIMEOUT_MS },
+    ).pipe(
       Effect.map((result) => {
         const admission = (
           result as {
             admission:
-              | { decision: "grant"; leaseId?: string }
-              | { decision: "defer"; retryAfterMs: number; reason?: string }
-              | { decision: "deny"; reason?: string };
+              | {
+                  decision: "grant";
+                  leaseId?: string;
+                  leaseTimeoutMs?: number;
+                  dispatchMessageId?: string;
+                }
+              | { decision: "deny"; reason?: string }
+              | { decision: "hold"; reason?: string };
           }
         ).admission;
         switch (admission.decision) {
@@ -710,16 +735,19 @@ export class MoltZapService {
             return {
               _tag: "grant" as const,
               leaseId: admission.leaseId,
-            };
-          case "defer":
-            return {
-              _tag: "defer" as const,
-              retryAfterMs: admission.retryAfterMs,
-              reason: admission.reason,
+              leaseTimeoutMs: admission.leaseTimeoutMs,
+              ...(admission.dispatchMessageId
+                ? { dispatchMessageId: admission.dispatchMessageId }
+                : {}),
             };
           case "deny":
             return {
               _tag: "deny" as const,
+              reason: admission.reason,
+            };
+          case "hold":
+            return {
+              _tag: "hold" as const,
               reason: admission.reason,
             };
         }
@@ -993,12 +1021,13 @@ export class MoltZapService {
   sendRpc(
     method: string,
     params?: unknown,
+    opts?: RpcCallOptions,
   ): Effect.Effect<unknown, ServiceRpcError> {
     return Effect.suspend(() => {
       if (!this.client) {
         return Effect.fail(new NotConnectedError({ message: "Not connected" }));
       }
-      return this.client.sendRpc(method, params);
+      return this.client.sendRpc(method, params, opts);
     });
   }
 
@@ -1067,19 +1096,13 @@ export class MoltZapService {
   }
 
   private handleEvent(event: EventFrame): void {
-    const eventData =
-      typeof event.data === "object" && event.data !== null
-        ? (event.data as Record<string, unknown>)
-        : {};
-    const message =
-      typeof eventData["message"] === "object" && eventData["message"] !== null
-        ? (eventData["message"] as Record<string, unknown>)
-        : undefined;
-    const conversation =
-      typeof eventData["conversation"] === "object" &&
-      eventData["conversation"] !== null
-        ? (eventData["conversation"] as Record<string, unknown>)
-        : undefined;
+    const eventData = isPlainRecord(event.data) ? event.data : {};
+    const message = isPlainRecord(eventData["message"])
+      ? eventData["message"]
+      : undefined;
+    const conversation = isPlainRecord(eventData["conversation"])
+      ? eventData["conversation"]
+      : undefined;
     appendClientEventTrace({
       ts: new Date().toISOString(),
       agentId: this._ownAgentId ?? "unknown",
