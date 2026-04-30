@@ -125,7 +125,7 @@ const withClient = <A>(
         yield* server.connected;
         return yield* body(client, server);
       }),
-    ) as Effect.Effect<A>,
+    ).pipe(Effect.orDie),
   );
 
 const findResponse = (
