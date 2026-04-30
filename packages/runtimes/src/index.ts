@@ -1,5 +1,7 @@
 export * from "./runtime.js";
 
+export { awaitAgentReadyByPolling } from "./await-agent-ready.js";
+
 export {
   type OpenClawAdapterDeps,
   type WorkspaceOpenClawAdapterInput,
