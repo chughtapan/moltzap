@@ -112,9 +112,6 @@ interface ConnState {
    * cap; caller controls).
    */
   readonly s2cInboundQueue: Queue.Queue<DecodedServerRequest>;
-  /** Dispatcher fiber that runs `Stream.runForEach` over `s2cInboundQueue`.
-   * Forked into the per-connect `scope` so disconnect tears it down. */
-  readonly s2cDispatcherFiber: Fiber.RuntimeFiber<void, never>;
 }
 
 /**
@@ -651,9 +648,10 @@ export class MoltZapWsClient {
         ),
         Effect.asVoid,
       );
-      const s2cDispatcherFiber = yield* Effect.forkScoped(
-        dispatcherEffect,
-      ).pipe(Scope.extend(scope));
+      // Dispatcher fiber is bound to the connect scope via `forkScoped` —
+      // disconnect closes the scope, which interrupts the fiber. No need
+      // to retain a reference; the scope owns the lifetime.
+      yield* Effect.forkScoped(dispatcherEffect).pipe(Scope.extend(scope));
 
       // Use `onExit` (not `tapErrorCause`) so the clean-close path also
       // triggers pending-drain. `@effect/platform/Socket` treats code 1000
@@ -713,7 +711,6 @@ export class MoltZapWsClient {
           scope,
           handshakeSettled,
           s2cInboundQueue,
-          s2cDispatcherFiber,
         }),
       );
 
