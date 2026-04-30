@@ -382,6 +382,27 @@ export class ClaudeCodeAdapter implements Runtime {
 
     return pipe(
       Effect.race(serverReady, exitLoop),
+      // Final-check: if the race resolved `Timeout`, the process may have
+      // exited within the last `exitLoop` tick window — give the adapter one
+      // last sync poll so a near-deadline exit still surfaces with stderr
+      // instead of an opaque `Timeout`.
+      Effect.flatMap((outcome) =>
+        outcome._tag !== "Timeout"
+          ? Effect.succeed(outcome)
+          : pipe(
+              pollExitCode(proc.exitFiber),
+              Effect.map(
+                (exitOpt): ReadyOutcome =>
+                  Option.isSome(exitOpt)
+                    ? {
+                        _tag: "ProcessExited" as const,
+                        exitCode: exitOpt.value,
+                        stderr: logBuffer.value,
+                      }
+                    : outcome,
+              ),
+            ),
+      ),
       // Failure outcomes (Timeout, ProcessExited) tear down before returning
       // — keeps the Runtime contract that the adapter cleans up after itself.
       Effect.tap((outcome) =>

@@ -85,6 +85,26 @@ export class NanoclawAdapter implements Runtime {
 
     return pipe(
       Effect.race(serverReady, exitLoop),
+      // Final-check: if the race resolved `Timeout`, nanoclaw's subprocess
+      // may have exited within the last `exitLoop` tick window — one last
+      // sync probe promotes that case to `ProcessExited` with the actual
+      // exit code so the diagnostic stderr isn't lost behind an opaque
+      // `Timeout`.
+      Effect.flatMap(
+        (outcome): Effect.Effect<ReadyOutcome, never, never> =>
+          outcome._tag !== "Timeout"
+            ? Effect.succeed(outcome)
+            : Effect.sync(
+                (): ReadyOutcome =>
+                  handle.proc.exitCode !== null
+                    ? {
+                        _tag: "ProcessExited" as const,
+                        exitCode: handle.proc.exitCode,
+                        stderr: getNanoclawRuntimeLogs(handle),
+                      }
+                    : outcome,
+              ),
+      ),
       Effect.tap((outcome) =>
         outcome._tag === "Ready" ? Effect.void : this.teardown(),
       ),
