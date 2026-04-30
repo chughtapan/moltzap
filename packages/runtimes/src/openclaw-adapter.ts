@@ -18,6 +18,7 @@ import { SpawnFailed } from "./errors.js";
 const OPENCLAW_TERM_WAIT_MS = 10_000;
 const OPENCLAW_KILL_WAIT_MS = 5_000;
 const PROCESS_GROUP_POLL_INTERVAL_MS = 100;
+const DEFAULT_OPENCLAW_MODEL_ID = "openai-codex/gpt-5.4";
 
 export interface OpenClawAdapterDeps {
   readonly server: RuntimeServerHandle;
@@ -350,7 +351,7 @@ function writeOpenClawConfig(opts: {
   const config: OpenClawConfig = {
     agents: {
       defaults: {
-        model: { primary: opts.modelId ?? "minimax/MiniMax-M2.7-highspeed" },
+        model: { primary: opts.modelId ?? DEFAULT_OPENCLAW_MODEL_ID },
         workspace: path.join(opts.stateDir, "workspace"),
         compaction: { mode: "safeguard" },
       },

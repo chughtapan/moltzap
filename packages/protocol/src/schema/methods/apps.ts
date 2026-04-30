@@ -2,6 +2,7 @@ import { Type } from "@sinclair/typebox";
 import { AgentId, ConversationId, MessageId } from "../primitives.js";
 import { AppManifestSchema, AppSessionSchema } from "../apps.js";
 import { PartSchema } from "../messages.js";
+import { LogicalClockSchema } from "../logical-clock.js";
 import { DateTimeString, stringEnum } from "../../helpers.js";
 import { defineRpc } from "../../rpc.js";
 
@@ -156,20 +157,21 @@ const DispatchAdmissionDecision = Type.Union([
     {
       decision: Type.Literal("grant"),
       leaseId: Type.Optional(Type.String()),
-    },
-    { additionalProperties: false },
-  ),
-  Type.Object(
-    {
-      decision: Type.Literal("defer"),
-      retryAfterMs: Type.Integer({ minimum: 0, maximum: 60_000 }),
-      reason: Type.Optional(Type.String()),
+      leaseTimeoutMs: Type.Optional(Type.Integer({ minimum: 1 })),
+      dispatchMessageId: Type.Optional(MessageId),
     },
     { additionalProperties: false },
   ),
   Type.Object(
     {
       decision: Type.Literal("deny"),
+      reason: Type.Optional(Type.String()),
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      decision: Type.Literal("hold"),
       reason: Type.Optional(Type.String()),
     },
     { additionalProperties: false },
@@ -196,12 +198,17 @@ export const AppsAuthorizeDispatch = defineRpc({
               senderAgentId: AgentId,
               createdAt: DateTimeString,
               receivedAt: DateTimeString,
+              clock: Type.Optional(LogicalClockSchema),
+              parts: Type.Optional(
+                Type.Array(PartSchema, { minItems: 1, maxItems: 10 }),
+              ),
             },
             { additionalProperties: false },
           ),
           { maxItems: 100 },
         ),
       ),
+      clock: Type.Optional(LogicalClockSchema),
       attempt: Type.Optional(Type.Integer({ minimum: 0 })),
     },
     { additionalProperties: false },

@@ -14,6 +14,7 @@ import {
   flushDispatchChain,
   type FakeChannelService,
 } from "./test-utils/index.js";
+import { RpcServerError } from "./runtime/errors.js";
 
 function customSetup(): {
   fake: FakeChannelService;
@@ -327,6 +328,47 @@ describe("MoltZapChannelCore", () => {
       expect(received.map((m) => m.id)).toEqual(["msg-1"]);
     });
 
+    it("reports a per-conversation observed logical clock to admission", async () => {
+      const { fake } = customSetup();
+      const clocks: unknown[] = [];
+      fake.service.authorizeDispatch = (request) =>
+        Effect.sync(() => {
+          clocks.push(request.clock);
+          expect(request.pending[0]?.clock).toEqual(request.clock);
+          return { _tag: "grant" as const };
+        });
+
+      fake.emit.message(
+        buildMessage({
+          id: "msg-1",
+          senderId: "agent-alice",
+          conversationId: "conv-1",
+        }),
+      );
+      await flushDispatchChain();
+      fake.emit.message(
+        buildMessage({
+          id: "msg-2",
+          senderId: "agent-bob",
+          conversationId: "conv-1",
+        }),
+      );
+      await flushDispatchChain();
+
+      expect(clocks).toEqual([
+        {
+          domainId: "conv-1",
+          epoch: 1,
+          vector: { "agent-alice": 1 },
+        },
+        {
+          domainId: "conv-1",
+          epoch: 2,
+          vector: { "agent-alice": 1, "agent-bob": 1 },
+        },
+      ]);
+    });
+
     it("attaches the active dispatch lease to replies made during handler execution", async () => {
       const fake = createFakeChannelService({ ownAgentId: "agent-self" });
       fake.state.setConversation("conv-1", { type: "dm", participants: [] });
@@ -346,6 +388,26 @@ describe("MoltZapChannelCore", () => {
           dispatchLeaseId: "lease-active",
         },
       ]);
+    });
+
+    it("passes the active dispatch lease to the inbound handler for async runtimes", async () => {
+      const fake = createFakeChannelService({ ownAgentId: "agent-self" });
+      fake.state.setConversation("conv-1", { type: "dm", participants: [] });
+      fake.state.setAgentName("agent-alice", "Alice");
+      fake.service.authorizeDispatch = () =>
+        Effect.succeed({ _tag: "grant" as const, leaseId: "lease-visible" });
+      const core = new MoltZapChannelCore({ service: fake.service });
+      const leases: Array<string | undefined> = [];
+      core.onInbound((msg) =>
+        Effect.sync(() => {
+          leases.push(msg.dispatchLeaseId);
+        }),
+      );
+
+      fake.emit.message(buildMessage({ id: "msg-with-visible-lease" }));
+      await flushDispatchChain();
+
+      expect(leases).toEqual(["lease-visible"]);
     });
 
     it("preserves service binding for dispatch admission methods", async () => {
@@ -390,59 +452,20 @@ describe("MoltZapChannelCore", () => {
       );
     });
 
-    it("requeues deferred inbound dispatch work and retries later", async () => {
+    it("holds head-of-line work until a new inbound message refreshes the snapshot", async () => {
       const { fake, received, infoSpy } = customSetup();
-      fake.state.setConversation("conv-1", { type: "dm", participants: [] });
-      fake.state.setAgentName("agent-alice", "Alice");
-      const attempts: number[] = [];
-      fake.service.authorizeDispatch = (request) =>
-        Effect.sync(() => {
-          attempts.push(request.attempt);
-          return request.attempt === 0
-            ? {
-                _tag: "defer" as const,
-                retryAfterMs: 1,
-                reason: "slot busy",
-              }
-            : { _tag: "grant" as const };
-        });
-
-      fake.emit.message(buildMessage({ id: "msg-deferred" }));
-      await flushDispatchChain();
-      expect(received).toHaveLength(0);
-
-      await new Promise((resolve) => setTimeout(resolve, 5));
-      await flushDispatchChain();
-
-      expect(attempts).toEqual([0, 1]);
-      expect(received.map((m) => m.id)).toEqual(["msg-deferred"]);
-      expect(infoSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          messageId: "msg-deferred",
-          attempt: 0,
-          retryAfterMs: 1,
-          reason: "slot busy",
-        }),
-        "MoltZapChannelCore: inbound dispatch deferred",
-      );
-    });
-
-    it("keeps deferred work head-of-line and coalesces same-conversation backlog on grant", async () => {
-      const { fake, received } = customSetup();
       fake.state.setConversation("conv-1", { type: "group", participants: [] });
       fake.state.setAgentName("agent-alice", "Alice");
       fake.state.setAgentName("agent-bob", "Bob");
-      const pendingSnapshots: Array<ReadonlyArray<{ messageId: string }>> = [];
+      const pendingSnapshots: Array<ReadonlyArray<string>> = [];
+      let calls = 0;
       fake.service.authorizeDispatch = (request) =>
         Effect.sync(() => {
-          pendingSnapshots.push(request.pending);
-          return request.attempt === 0
-            ? {
-                _tag: "defer" as const,
-                retryAfterMs: 20,
-                reason: "lease active",
-              }
-            : { _tag: "grant" as const, leaseId: "lease-next" };
+          calls += 1;
+          pendingSnapshots.push(request.pending.map((m) => m.messageId));
+          return calls === 1
+            ? { _tag: "hold" as const, reason: "not_yet" }
+            : { _tag: "grant" as const, leaseId: "lease-after-hold" };
         });
 
       fake.emit.message(
@@ -454,6 +477,132 @@ describe("MoltZapChannelCore", () => {
         }),
       );
       await flushDispatchChain();
+
+      expect(calls).toBe(1);
+      expect(received).toHaveLength(0);
+
+      fake.emit.message(
+        buildMessage({
+          id: "msg-2",
+          senderId: "agent-bob",
+          conversationId: "conv-1",
+          parts: [{ type: "text", text: "second" }],
+        }),
+      );
+      await flushDispatchChain();
+
+      expect(pendingSnapshots).toEqual([["msg-1"], ["msg-1", "msg-2"]]);
+      expect(received).toHaveLength(1);
+      expect(received[0]!.id).toBe("msg-1");
+      expect(received[0]!.text).toContain("first");
+      expect(received[0]!.text).toContain("second");
+      expect(received[0]!.coalescedMessages?.map((m) => m.id)).toEqual([
+        "msg-1",
+        "msg-2",
+      ]);
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          messageId: "msg-1",
+          attempt: 0,
+          reason: "not_yet",
+        }),
+        "MoltZapChannelCore: inbound dispatch held",
+      );
+    });
+
+    it("does not let held work in one conversation block another conversation", async () => {
+      const { fake, received } = customSetup();
+      fake.state.setConversation("town-square", {
+        type: "group",
+        participants: [],
+      });
+      fake.state.setConversation("werewolf-den", {
+        type: "group",
+        participants: [],
+      });
+      fake.state.setAgentName("agent-gm", "GM");
+      const requests: Array<{
+        messageId: string;
+        conversationId: string;
+        pending: ReadonlyArray<string>;
+      }> = [];
+
+      fake.service.authorizeDispatch = (request) =>
+        Effect.sync(() => {
+          requests.push({
+            messageId: request.message.id,
+            conversationId: request.conversationId,
+            pending: request.pending.map((m) => m.messageId),
+          });
+          if (request.conversationId === "town-square") {
+            return { _tag: "hold" as const, reason: "town_square_night" };
+          }
+          return { _tag: "grant" as const, leaseId: "lease-den" };
+        });
+
+      fake.emit.message(
+        buildMessage({
+          id: "town-night-narration",
+          senderId: "agent-gm",
+          conversationId: "town-square",
+          parts: [{ type: "text", text: "Night falls." }],
+        }),
+      );
+      await flushDispatchChain();
+
+      fake.emit.message(
+        buildMessage({
+          id: "den-kill-prompt",
+          senderId: "agent-gm",
+          conversationId: "werewolf-den",
+          parts: [{ type: "text", text: "Werewolves, choose a target." }],
+        }),
+      );
+      await flushDispatchChain();
+
+      expect(requests).toEqual([
+        {
+          messageId: "town-night-narration",
+          conversationId: "town-square",
+          pending: ["town-night-narration"],
+        },
+        {
+          messageId: "den-kill-prompt",
+          conversationId: "werewolf-den",
+          pending: ["den-kill-prompt", "town-night-narration"],
+        },
+      ]);
+      expect(received.map((m) => m.id)).toEqual(["den-kill-prompt"]);
+      expect(received[0]!.conversationId).toBe("werewolf-den");
+      expect(received[0]!.dispatchLeaseId).toBe("lease-den");
+    });
+
+    it("keeps blocked authorization head-of-line and coalesces same-conversation backlog on grant", async () => {
+      const { fake, received } = customSetup();
+      fake.state.setConversation("conv-1", { type: "group", participants: [] });
+      fake.state.setAgentName("agent-alice", "Alice");
+      fake.state.setAgentName("agent-bob", "Bob");
+      const pendingSnapshots: Array<ReadonlyArray<{ messageId: string }>> = [];
+      let grant!: () => void;
+      fake.service.authorizeDispatch = (request) =>
+        Effect.gen(function* () {
+          pendingSnapshots.push(request.pending);
+          yield* Effect.async<void>((resume) => {
+            grant = () => resume(Effect.void);
+          });
+          return { _tag: "grant" as const, leaseId: "lease-next" };
+        });
+
+      fake.emit.message(
+        buildMessage({
+          id: "msg-1",
+          senderId: "agent-alice",
+          conversationId: "conv-1",
+          parts: [{ type: "text", text: "first" }],
+        }),
+      );
+      await flushDispatchChain();
+      expect(received).toHaveLength(0);
       fake.emit.message(
         buildMessage({
           id: "msg-2",
@@ -463,12 +612,12 @@ describe("MoltZapChannelCore", () => {
         }),
       );
 
-      await new Promise((resolve) => setTimeout(resolve, 30));
+      grant();
       await flushDispatchChain();
 
       expect(
         pendingSnapshots.map((snapshot) => snapshot.map((m) => m.messageId)),
-      ).toEqual([["msg-1"], ["msg-1", "msg-2"]]);
+      ).toEqual([["msg-1"]]);
       expect(received).toHaveLength(1);
       expect(received[0]!.id).toBe("msg-1");
       expect(received[0]!.text).toContain("first");
@@ -479,7 +628,66 @@ describe("MoltZapChannelCore", () => {
       ]);
     });
 
-    it("fails open when dispatch admission errors", async () => {
+    it("dispatches an admitted pending marker and drops older same-conversation work", async () => {
+      const { fake, received } = customSetup();
+      fake.state.setConversation("conv-1", { type: "group", participants: [] });
+      fake.state.setAgentName("agent-alice", "Alice");
+      fake.state.setAgentName("agent-gm", "GM");
+      let grant!: () => void;
+      fake.service.authorizeDispatch = () =>
+        Effect.gen(function* () {
+          yield* Effect.async<void>((resume) => {
+            grant = () => resume(Effect.void);
+          });
+          return {
+            _tag: "grant" as const,
+            leaseId: "lease-marker",
+            dispatchMessageId: "msg-marker",
+          };
+        });
+
+      fake.emit.message(
+        buildMessage({
+          id: "msg-old",
+          senderId: "agent-alice",
+          conversationId: "conv-1",
+          parts: [{ type: "text", text: "old discussion" }],
+        }),
+      );
+      await flushDispatchChain();
+      fake.emit.message(
+        buildMessage({
+          id: "msg-marker",
+          senderId: "agent-gm",
+          conversationId: "conv-1",
+          parts: [{ type: "text", text: "Time to vote" }],
+        }),
+      );
+      fake.emit.message(
+        buildMessage({
+          id: "msg-after",
+          senderId: "agent-alice",
+          conversationId: "conv-1",
+          parts: [{ type: "text", text: "after marker" }],
+        }),
+      );
+
+      grant();
+      await flushDispatchChain();
+
+      expect(received).toHaveLength(1);
+      expect(received[0]!.id).toBe("msg-marker");
+      expect(received[0]!.text).toContain("Time to vote");
+      expect(received[0]!.text).toContain("after marker");
+      expect(received[0]!.text).not.toContain("old discussion");
+      expect(received[0]!.coalescedMessages?.map((m) => m.id)).toEqual([
+        "msg-marker",
+        "msg-after",
+      ]);
+      expect(received[0]!.dispatchLeaseId).toBe("lease-marker");
+    });
+
+    it("fails closed when dispatch admission errors", async () => {
       const fake = createFakeChannelService({ ownAgentId: "agent-self" });
       const received: EnrichedInboundMessage[] = [];
       const errorSpy = vi.fn();
@@ -497,25 +705,26 @@ describe("MoltZapChannelCore", () => {
       );
       fake.service.authorizeDispatch = () =>
         Effect.fail(
-          new Error("admission service unavailable"),
-        ) as unknown as ReturnType<
-          NonNullable<ChannelService["authorizeDispatch"]>
-        >;
+          new RpcServerError({
+            code: -32603,
+            message: "admission service unavailable",
+          }),
+        );
 
-      fake.emit.message(buildMessage({ id: "msg-fail-open" }));
+      fake.emit.message(buildMessage({ id: "msg-fail-closed" }));
       await flushDispatchChain();
 
-      expect(received.map((m) => m.id)).toEqual(["msg-fail-open"]);
+      expect(received).toHaveLength(0);
       expect(warnSpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          messageId: "msg-fail-open",
+          messageId: "msg-fail-closed",
           attempt: 0,
         }),
-        "MoltZapChannelCore: dispatch admission failed open",
+        "MoltZapChannelCore: dispatch admission failed closed",
       );
     });
 
-    it("fails open when dispatch admission hangs", async () => {
+    it("fails closed when dispatch admission hangs", async () => {
       const fake = createFakeChannelService({ ownAgentId: "agent-self" });
       const received: EnrichedInboundMessage[] = [];
       const errorSpy = vi.fn();
@@ -534,17 +743,58 @@ describe("MoltZapChannelCore", () => {
       );
       fake.service.authorizeDispatch = () => Effect.never;
 
-      fake.emit.message(buildMessage({ id: "msg-timeout-open" }));
+      fake.emit.message(buildMessage({ id: "msg-timeout-closed" }));
       await new Promise((resolve) => setTimeout(resolve, 5));
       await flushDispatchChain();
 
-      expect(received.map((m) => m.id)).toEqual(["msg-timeout-open"]);
+      expect(received).toHaveLength(0);
       expect(warnSpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          messageId: "msg-timeout-open",
+          messageId: "msg-timeout-closed",
           attempt: 0,
         }),
-        "MoltZapChannelCore: dispatch admission failed open",
+        "MoltZapChannelCore: dispatch admission failed closed",
+      );
+    });
+
+    it("continues draining inbound work after a dispatch lease expires", async () => {
+      const fake = createFakeChannelService({ ownAgentId: "agent-self" });
+      const received: string[] = [];
+      const warnSpy = vi.fn();
+      const errorSpy = vi.fn();
+      fake.state.setConversation("conv-1", { type: "dm", participants: [] });
+      fake.state.setAgentName("agent-alice", "Alice");
+      fake.service.authorizeDispatch = (request) =>
+        Effect.succeed({
+          _tag: "grant" as const,
+          leaseId: `lease-${request.message.id}`,
+          leaseTimeoutMs: request.message.id === "msg-stuck" ? 1 : 50,
+        });
+      const core = new MoltZapChannelCore({
+        service: fake.service,
+        logger: { info: () => {}, warn: warnSpy, error: errorSpy },
+      });
+      core.onInbound((m) => {
+        if (m.id === "msg-stuck") return Effect.never;
+        return Effect.sync(() => {
+          received.push(m.id);
+        });
+      });
+
+      fake.emit.message(buildMessage({ id: "msg-stuck" }));
+      await flushDispatchChain();
+      fake.emit.message(buildMessage({ id: "msg-next" }));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      await flushDispatchChain();
+
+      expect(received).toEqual(["msg-next"]);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          messageId: "msg-stuck",
+          leaseId: "lease-msg-stuck",
+          timeoutMs: 1,
+        }),
+        "MoltZapChannelCore: inbound dispatch lease expired",
       );
     });
 

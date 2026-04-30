@@ -6,7 +6,12 @@ import type { ConnectionManager } from "../ws/connection.js";
 import type { UserService } from "../services/user.service.js";
 import { UserId } from "./types.js";
 import { logger } from "../logger.js";
-import type { AppManifest, AppSession, Part } from "@moltzap/protocol";
+import type {
+  AppManifest,
+  AppSession,
+  LogicalClock,
+  Part,
+} from "@moltzap/protocol";
 import { ErrorCodes, EventNames, eventFrame } from "@moltzap/protocol";
 import {
   DispatchAdmissionResultSchema,
@@ -476,12 +481,15 @@ export class AppHost {
       parts?: Part[];
       attempt?: number;
       receivedAt?: string;
+      clock?: LogicalClock;
       pending?: ReadonlyArray<{
         messageId: string;
         conversationId: string;
         senderAgentId: string;
         createdAt: string;
         receivedAt: string;
+        clock?: LogicalClock;
+        parts?: Part[];
       }>;
     },
   ): Effect.Effect<DispatchAdmissionResult, RpcFailure> {
@@ -521,6 +529,7 @@ export class AppHost {
           appId: session.appId,
           attempt: params.attempt ?? 0,
           receivedAt: params.receivedAt,
+          clock: params.clock,
           pending: params.pending,
         };
 
@@ -539,6 +548,7 @@ export class AppHost {
                 message: ctx.message,
                 attempt: ctx.attempt,
                 receivedAt: ctx.receivedAt,
+                clock: ctx.clock,
                 pending: ctx.pending,
               },
               timeoutMs,
@@ -567,16 +577,14 @@ export class AppHost {
             }),
           );
           return {
-            decision: "defer",
-            retryAfterMs: Math.min(timeoutMs, 5000),
+            decision: "deny",
             reason: "before_dispatch hook timed out",
           };
         }
 
         if (!outcome.result) {
           return {
-            decision: "defer",
-            retryAfterMs: 1000,
+            decision: "deny",
             reason: "before_dispatch hook error",
           };
         }
