@@ -237,6 +237,7 @@ export function applyCall<M extends RpcMethodName>(
     case "apps/getSession":
     case "apps/listSessions":
     case "apps/authorizeDispatch":
+    case "apps/attachConversation":
       return { next: baseNext, outcome: uncertainError() };
 
     // Surfaces — require surface/app context. Uncertain.
