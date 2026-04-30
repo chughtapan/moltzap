@@ -547,6 +547,24 @@ export function createCoreApp(config: CoreConfig): CoreApp {
             }
 
             const frame = parsed as RequestFrame;
+            // Wrong-direction guard (codex P2): the schema accepts both
+            // `c2s` and `s2c` request frames, but only `c2s` are
+            // legitimate inbound at the server. A peer sending
+            // `direction: "s2c"` would otherwise hit the c2s RPC router
+            // and execute side effects. Reject explicitly.
+            if (frame.direction !== "c2s") {
+              yield* sendFrame({
+                jsonrpc: "2.0",
+                type: "response",
+                direction: "c2s",
+                id: frame.id,
+                error: {
+                  code: ErrorCodes.InvalidRequest,
+                  message: `request frame must be direction:"c2s" inbound; got direction:"${frame.direction}"`,
+                },
+              });
+              return;
+            }
             if (frame.method !== "auth/connect" && !conn.auth) {
               yield* sendFrame({
                 jsonrpc: "2.0",
