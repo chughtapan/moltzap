@@ -25,12 +25,14 @@
 import type { Message, RpcMap, RpcMethodName } from "@moltzap/protocol";
 import { Effect, HashMap, Option, Ref } from "effect";
 import { MoltZapService, type ServiceRpcError } from "../service.js";
+import type { RpcCallOptions } from "../ws-client.js";
 import { RpcServerError } from "../runtime/errors.js";
 
 /** A tracked `sendRpc` invocation. */
 export interface RecordedCall {
   method: string;
   params: unknown;
+  opts?: RpcCallOptions;
 }
 
 /**
@@ -94,9 +96,12 @@ export class FakeMoltZapService extends MoltZapService {
   override sendRpc(
     method: string,
     params?: unknown,
+    opts?: RpcCallOptions,
   ): Effect.Effect<unknown, ServiceRpcError> {
     return Effect.suspend(() => {
-      this.calls.push({ method, params });
+      this.calls.push(
+        opts === undefined ? { method, params } : { method, params, opts },
+      );
       if (this.responses.has(method)) {
         const entry = this.responses.get(method);
         if (typeof entry === "function") {

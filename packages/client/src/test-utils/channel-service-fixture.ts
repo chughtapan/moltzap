@@ -37,7 +37,11 @@ export interface ChannelServiceState {
   setFullMessages(currentConvId: string, messages: CrossConvMessage[]): void;
   setResolveAgentNameFailure(agentId: string, err: Error): void;
   setConnectResult(result: unknown): void;
-  readonly sent: ReadonlyArray<{ convId: string; text: string }>;
+  readonly sent: ReadonlyArray<{
+    convId: string;
+    text: string;
+    dispatchLeaseId?: string;
+  }>;
   readonly connectCalls: { count: number };
   readonly closeCalls: { count: number };
   resolveAgentNameCallCount(agentId: string): number;
@@ -67,7 +71,11 @@ export function createFakeChannelService(
   const fullMessagesByConv = new Map<string, CrossConvMessage[]>();
   const resolveFailures = new Map<string, Error>();
   const resolveCalls: string[] = [];
-  const sent: Array<{ convId: string; text: string }> = [];
+  const sent: Array<{
+    convId: string;
+    text: string;
+    dispatchLeaseId?: string;
+  }> = [];
   const connectCalls = { count: 0 };
   const closeCalls = { count: 0 };
   let connectResult: unknown = {};
@@ -104,9 +112,19 @@ export function createFakeChannelService(
       closeCalls.count++;
     },
 
-    send(conversationId: string, text: string) {
+    send(
+      conversationId: string,
+      text: string,
+      opts?: { dispatchLeaseId?: string },
+    ) {
       return Effect.sync(() => {
-        sent.push({ convId: conversationId, text });
+        sent.push({
+          convId: conversationId,
+          text,
+          ...(opts?.dispatchLeaseId
+            ? { dispatchLeaseId: opts.dispatchLeaseId }
+            : {}),
+        });
       });
     },
 

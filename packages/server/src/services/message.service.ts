@@ -80,6 +80,7 @@ export class MessageService {
     senderAgentId: string,
     replyToId?: string,
     excludeConnectionId?: string,
+    dispatchLeaseId?: string,
   ): Effect.Effect<Message, RpcFailure> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
@@ -125,6 +126,7 @@ export class MessageService {
             senderAgentId,
             parts,
             replyToId,
+            dispatchLeaseId,
           );
           if (hookResponse?.result.block) {
             return yield* Effect.fail(

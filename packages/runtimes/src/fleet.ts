@@ -52,6 +52,7 @@ export interface RuntimeFleetLaunchOptions {
   readonly server: RuntimeServerHandle;
   readonly agents: ReadonlyArray<RuntimeAgentSpec>;
   readonly readyTimeoutMs: number;
+  readonly concurrency?: number | "unbounded";
   readonly openclaw?: Omit<WorkspaceOpenClawAdapterInput, "server">;
   readonly nanoclaw?: Omit<NanoclawAdapterDeps, "server">;
   readonly claudeCode?: Omit<WorkspaceClaudeCodeAdapterInput, "server">;
@@ -234,7 +235,7 @@ export function launchRuntimeFleet(
         });
 
       const started = yield* Effect.forEach(options.agents, launchOne, {
-        concurrency: 1,
+        concurrency: options.concurrency ?? 1,
       }).pipe(
         Effect.onExit((exit) =>
           Exit.isSuccess(exit)

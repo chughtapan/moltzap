@@ -11,6 +11,7 @@ export const MessagesSend = defineRpc({
       to: Type.Optional(Type.String()),
       parts: Type.Array(PartSchema, { minItems: 1, maxItems: 10 }),
       replyToId: Type.Optional(MessageId),
+      dispatchLeaseId: Type.Optional(Type.String()),
     },
     { additionalProperties: false },
   ),

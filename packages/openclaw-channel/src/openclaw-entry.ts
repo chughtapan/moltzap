@@ -20,6 +20,7 @@ import {
 } from "@moltzap/client";
 import { Effect } from "effect";
 import { formatCrossConvOpenClaw } from "./format-cross-conv.js";
+import { writeOpenClawContextLog } from "./context-log.js";
 import {
   extractDelivery,
   extractConversationCreated,
@@ -39,6 +40,24 @@ const MOLTZAP_TARGET_RE = /^(agent|conv):.+$/;
 
 function isMoltZapTarget(raw: string): boolean {
   return MOLTZAP_TARGET_RE.test(raw);
+}
+
+function adaptOpenClawLogger(
+  logMethod: ((...args: unknown[]) => void) | undefined,
+): (...args: unknown[]) => void {
+  return (...args: unknown[]) => {
+    if (!logMethod) return;
+    if (
+      args.length >= 2 &&
+      typeof args[0] === "object" &&
+      args[0] !== null &&
+      typeof args[1] === "string"
+    ) {
+      logMethod(args[1], args[0]);
+      return;
+    }
+    logMethod(...args);
+  };
 }
 
 type MoltZapAccount = {
@@ -298,9 +317,9 @@ export function createMoltzapChannelPlugin() {
 
         const wsLogger: WsClientLogger | undefined = log
           ? {
-              info: log.info ?? (() => {}),
-              warn: log.warn ?? (() => {}),
-              error: log.error ?? (() => {}),
+              info: adaptOpenClawLogger(log.info),
+              warn: adaptOpenClawLogger(log.warn),
+              error: adaptOpenClawLogger(log.error),
             }
           : undefined;
 
@@ -332,13 +351,36 @@ export function createMoltzapChannelPlugin() {
               enriched.contextBlocks.crossConversationMessages ?? [],
               { ownAgentId: service.ownAgentId ?? "" },
             );
+            const crossConversationMessages =
+              enriched.contextBlocks.crossConversationMessages ?? [];
             const bodyForAgent = crossConvBlock
               ? `${crossConvBlock}\n\n${enriched.text}`
               : enriched.text;
 
+            try {
+              writeOpenClawContextLog({
+                logDir: process.env["MOLTZAP_OPENCLAW_CONTEXT_LOG_DIR"],
+                accountId,
+                accountAgentName: account.agentName,
+                ownAgentId: service.ownAgentId,
+                conversationId: enriched.conversationId,
+                conversationName: enriched.conversationMeta?.name,
+                conversationType: chatType,
+                from: fromId,
+                to: account.agentName ?? accountId,
+                body: enriched.text,
+                bodyForAgent,
+                crossConversationMessages,
+              });
+            } catch (error) {
+              log?.warn?.(
+                `MoltZap: failed to write OpenClaw context log: ${error instanceof Error ? error.message : String(error)}`,
+              );
+            }
+
             if (crossConvBlock) {
               log?.info?.(
-                `MoltZap: BodyForAgent has cross-conv context (${enriched.contextBlocks.crossConversationMessages?.length ?? 0} msgs) for ${enriched.conversationId}: ${bodyForAgent.slice(0, 500)}`,
+                `MoltZap: BodyForAgent has cross-conv context (${crossConversationMessages.length} msgs) for ${enriched.conversationId}: ${bodyForAgent.slice(0, 500)}`,
               );
             }
 
@@ -346,6 +388,9 @@ export function createMoltzapChannelPlugin() {
               ctx.channelRuntime?.reply
                 ?.dispatchReplyWithBufferedBlockDispatcher;
             if (!dispatch) {
+              log?.warn?.(
+                `MoltZap: no OpenClaw reply dispatcher for ${enriched.conversationId}`,
+              );
               return;
             }
 
@@ -358,6 +403,9 @@ export function createMoltzapChannelPlugin() {
             // Bridge OpenClaw's Promise-shaped dispatch into Effect, then
             // catchAll back to a logged no-op so a single failed reply doesn't
             // crash the consumer fiber.
+            log?.info?.(
+              `MoltZap: dispatch start for ${enriched.conversationId} message ${enriched.id}`,
+            );
             const result = yield* Effect.tryPromise({
               try: () =>
                 dispatch({
@@ -423,6 +471,9 @@ export function createMoltzapChannelPlugin() {
                   return null;
                 }),
               ),
+            );
+            log?.info?.(
+              `MoltZap: dispatch finished for ${enriched.conversationId} message ${enriched.id}`,
             );
             if (result && !result.queuedFinal) {
               log?.debug?.(

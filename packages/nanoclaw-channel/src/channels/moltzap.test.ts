@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { Effect } from "effect";
 import { MoltZapChannelCore } from "@moltzap/client";
 import {
   createFakeChannelService,
@@ -110,6 +111,30 @@ describe("MoltZapChannel (nanoclaw adapter)", () => {
       await harness.channel.sendMessage("mz:conv-42", "hello there");
       expect(harness.fake.state.sent).toEqual([
         { convId: "conv-42", text: "hello there" },
+      ]);
+    });
+
+    it("uses the dispatch lease from the inbound message for the next reply", async () => {
+      harness.fake.state.setConversation("conv-42", {
+        type: "dm",
+        participants: [],
+      });
+      harness.fake.state.setAgentName("agent-alice", "Alice");
+      harness.fake.service.authorizeDispatch = () =>
+        Effect.succeed({ _tag: "grant" as const, leaseId: "lease-nano" });
+
+      harness.fake.emit.message(
+        buildMessage({ id: "msg-lease", conversationId: "conv-42" }),
+      );
+      await flushDispatchChain();
+      await harness.channel.sendMessage("mz:conv-42", "hello with lease");
+
+      expect(harness.fake.state.sent).toEqual([
+        {
+          convId: "conv-42",
+          text: "hello with lease",
+          dispatchLeaseId: "lease-nano",
+        },
       ]);
     });
 
