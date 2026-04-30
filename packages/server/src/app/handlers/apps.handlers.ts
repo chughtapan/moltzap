@@ -10,6 +10,7 @@ import {
   AppsCloseSession,
   AppsGetSession,
   AppsListSessions,
+  AppsAuthorizeDispatch,
 } from "@moltzap/protocol";
 import { Effect } from "effect";
 import { defineMethod } from "../../rpc/context.js";
@@ -118,6 +119,27 @@ export function createAppHandlers(deps: {
             limit: params.limit ?? 50,
           });
           return { sessions };
+        }),
+    }),
+
+    "apps/authorizeDispatch": defineMethod(AppsAuthorizeDispatch, {
+      requiresActive: true,
+      handler: (params, ctx) =>
+        Effect.gen(function* () {
+          const admission = yield* deps.appHost.runBeforeDispatch(
+            params.conversationId,
+            ctx.agentId,
+            {
+              messageId: params.messageId,
+              senderAgentId: params.senderAgentId,
+              parts: params.parts,
+              receivedAt: params.receivedAt,
+              clock: params.clock,
+              pending: params.pending,
+              attempt: params.attempt,
+            },
+          );
+          return { admission };
         }),
     }),
   };

@@ -197,6 +197,52 @@ describe("sanitizeForSystemReminder", () => {
   });
 });
 
+describe("MoltZapService.authorizeDispatch", () => {
+  it("uses the long app-dispatch RPC timeout instead of the generic RPC timeout", async () => {
+    const service = new FakeMoltZapService();
+    service.setResponse("apps/authorizeDispatch", {
+      admission: {
+        decision: "grant",
+        leaseId: "lease-1",
+        leaseTimeoutMs: 90_000,
+      },
+    });
+
+    const result = await run(
+      service.authorizeDispatch({
+        conversationId: "conv-1",
+        senderAgentId: "agent-gm",
+        attempt: 0,
+        receivedAt: "2026-04-29T22:00:00.000Z",
+        clock: {
+          domainId: "conv-1",
+          epoch: 1,
+          vector: { "agent-gm": 1 },
+        },
+        pending: [],
+        message: {
+          id: "msg-1",
+          conversationId: "conv-1",
+          senderId: "agent-gm",
+          parts: [{ type: "text", text: "Time to vote!" }],
+          createdAt: "2026-04-29T22:00:00.000Z",
+        },
+      }),
+    );
+
+    expect(result).toEqual({
+      _tag: "grant",
+      leaseId: "lease-1",
+      leaseTimeoutMs: 90_000,
+    });
+    expect(service.calls).toHaveLength(1);
+    expect(service.calls[0]).toMatchObject({
+      method: "apps/authorizeDispatch",
+      opts: { timeoutMs: 900_000 },
+    });
+  });
+});
+
 describe("MoltZapService.getContext — XML injection hardening", () => {
   /** Build a message that lands in `messages` via addMessage(). */
   function msg(overrides: Partial<Message>): Message {

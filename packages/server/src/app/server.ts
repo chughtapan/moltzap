@@ -600,6 +600,9 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     onBeforeMessageDelivery(appId, handler) {
       appHost.onBeforeMessageDelivery(appId, handler);
     },
+    onBeforeDispatch(appId, handler) {
+      appHost.onBeforeDispatch(appId, handler);
+    },
     onAppJoin(appId, handler) {
       appHost.onAppJoin(appId, handler);
     },

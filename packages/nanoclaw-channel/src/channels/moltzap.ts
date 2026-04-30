@@ -65,6 +65,7 @@ function formatGroupBlock(meta: EnrichedConversationMeta): string {
 
 export class MoltZapChannel implements Channel {
   readonly name = "moltzap";
+  private readonly dispatchLeasesByJid = new Map<string, string>();
 
   constructor(
     private readonly opts: ChannelOpts,
@@ -104,8 +105,11 @@ export class MoltZapChannel implements Channel {
       throw new Error(`MoltZap channel does not own jid: ${jid}`);
     }
     await Effect.runPromise(
-      this.core.sendReply(conversationIdFromJid(jid), text),
+      this.core.sendReply(conversationIdFromJid(jid), text, {
+        dispatchLeaseId: this.dispatchLeasesByJid.get(jid),
+      }),
     );
+    this.dispatchLeasesByJid.delete(jid);
   }
 
   isConnected(): boolean {
@@ -124,6 +128,9 @@ export class MoltZapChannel implements Channel {
 
   private handleInbound(enriched: EnrichedInboundMessage): void {
     const chatJid = jidFromConversationId(enriched.conversationId);
+    if (enriched.dispatchLeaseId) {
+      this.dispatchLeasesByJid.set(chatJid, enriched.dispatchLeaseId);
+    }
 
     // SMOKE-TEST ONLY: auto-register unknown convs in MOLTZAP_EVAL_MODE.
     // Remove when the runtime-adapter interface lands.

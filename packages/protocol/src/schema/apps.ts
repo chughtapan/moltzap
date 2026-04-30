@@ -72,6 +72,23 @@ export const AppManifestSchema = Type.Object(
               { additionalProperties: false },
             ),
           ),
+          before_dispatch: Type.Optional(
+            Type.Object(
+              {
+                /**
+                 * Optional HTTPS endpoint. When set the MoltZap server POSTs
+                 * dispatch-admission context to this URL before a channel
+                 * endpoint starts local LLM/runtime dispatch for an inbound
+                 * message.
+                 */
+                webhook: Type.Optional(Type.String({ format: "uri" })),
+                timeout_ms: Type.Optional(
+                  Type.Integer({ default: 5000, minimum: 100, maximum: 30000 }),
+                ),
+              },
+              { additionalProperties: false },
+            ),
+          ),
           on_join: Type.Optional(
             Type.Object(
               {

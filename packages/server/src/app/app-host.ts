@@ -6,13 +6,21 @@ import type { ConnectionManager } from "../ws/connection.js";
 import type { UserService } from "../services/user.service.js";
 import { UserId } from "./types.js";
 import { logger } from "../logger.js";
-import type { AppManifest, AppSession, Part } from "@moltzap/protocol";
+import type {
+  AppManifest,
+  AppSession,
+  LogicalClock,
+  Part,
+} from "@moltzap/protocol";
 import { ErrorCodes, EventNames, eventFrame } from "@moltzap/protocol";
 import {
+  DispatchAdmissionResultSchema,
   HookResultSchema,
   VoidHookSchema,
   type AppHooks,
+  type BeforeDispatchHook,
   type BeforeMessageDeliveryHook,
+  type DispatchAdmissionResult,
   type HookResult,
   type OnCloseHook,
   type OnJoinHook,
@@ -355,6 +363,11 @@ export class AppHost {
         inProcessSet: Boolean(existing?.beforeMessageDelivery),
       },
       {
+        hookName: "before_dispatch",
+        webhookSet: Boolean(hooks.before_dispatch?.webhook),
+        inProcessSet: Boolean(existing?.beforeDispatch),
+      },
+      {
         hookName: "on_join",
         webhookSet: Boolean(hooks.on_join?.webhook),
         inProcessSet: Boolean(existing?.onJoin),
@@ -406,6 +419,13 @@ export class AppHost {
     this.warnIfWebhookConfigured(appId, "before_message_delivery");
   }
 
+  onBeforeDispatch(appId: string, handler: BeforeDispatchHook): void {
+    const existing = this.hooks.get(appId) ?? {};
+    existing.beforeDispatch = handler;
+    this.hooks.set(appId, existing);
+    this.warnIfWebhookConfigured(appId, "before_dispatch");
+  }
+
   onAppJoin(appId: string, handler: OnJoinHook): void {
     const existing = this.hooks.get(appId) ?? {};
     existing.onJoin = handler;
@@ -436,6 +456,7 @@ export class AppHost {
     appId: string,
     hookName:
       | "before_message_delivery"
+      | "before_dispatch"
       | "on_join"
       | "on_close"
       | "on_session_active",
@@ -451,11 +472,134 @@ export class AppHost {
     }
   }
 
+  runBeforeDispatch(
+    conversationId: string,
+    recipientAgentId: string,
+    params: {
+      messageId: string;
+      senderAgentId: string;
+      parts?: Part[];
+      attempt?: number;
+      receivedAt?: string;
+      clock?: LogicalClock;
+      pending?: ReadonlyArray<{
+        messageId: string;
+        conversationId: string;
+        senderAgentId: string;
+        createdAt: string;
+        receivedAt: string;
+        clock?: LogicalClock;
+        parts?: Part[];
+      }>;
+    },
+  ): Effect.Effect<DispatchAdmissionResult, RpcFailure> {
+    return catchSqlErrorAsDefect(
+      Effect.gen(this, function* () {
+        const session = this.conversationToSession.get(conversationId);
+        if (!session) return { decision: "grant" as const };
+
+        const manifest = this.manifests.get(session.appId);
+        const webhookUrl = manifest?.hooks?.before_dispatch?.webhook;
+        const appHooks = this.hooks.get(session.appId);
+
+        if (!webhookUrl && !appHooks?.beforeDispatch) {
+          return { decision: "grant" as const };
+        }
+
+        const agentOpt = yield* takeFirstOption(
+          this.db
+            .selectFrom("agents")
+            .select("owner_user_id")
+            .where("id", "=", recipientAgentId),
+        );
+        const agent = Option.getOrNull(agentOpt);
+
+        const ctx = {
+          conversationId,
+          recipient: {
+            agentId: recipientAgentId,
+            ownerId: agent?.owner_user_id ?? "",
+          },
+          message: {
+            id: params.messageId,
+            senderAgentId: params.senderAgentId,
+            parts: params.parts,
+          },
+          sessionId: session.id,
+          appId: session.appId,
+          attempt: params.attempt ?? 0,
+          receivedAt: params.receivedAt,
+          clock: params.clock,
+          pending: params.pending,
+        };
+
+        const timeoutMs = manifest?.hooks?.before_dispatch?.timeout_ms ?? 5000;
+
+        const outcome: HookOutcome<DispatchAdmissionResult> = webhookUrl
+          ? yield* this.dispatchWebhookHook<DispatchAdmissionResult>({
+              url: webhookUrl,
+              event: "app.before_dispatch",
+              secret: manifest?.hooks?.secret,
+              body: {
+                sessionId: session.id,
+                appId: session.appId,
+                conversationId: ctx.conversationId,
+                recipient: ctx.recipient,
+                message: ctx.message,
+                attempt: ctx.attempt,
+                receivedAt: ctx.receivedAt,
+                clock: ctx.clock,
+                pending: ctx.pending,
+              },
+              timeoutMs,
+              schema: DispatchAdmissionResultSchema,
+            })
+          : yield* this.runHookWithTimeout<DispatchAdmissionResult>(
+              (signal) => appHooks!.beforeDispatch!({ ...ctx, signal }),
+              timeoutMs,
+            );
+
+        if (outcome.timedOut) {
+          this.broadcaster.sendToAgent(
+            ctx.recipient.agentId,
+            eventFrame("app/hookTimeout", {
+              sessionId: session.id,
+              appId: session.appId,
+              hookName: "before_dispatch",
+              timeoutMs,
+            }),
+          );
+          yield* Effect.logWarning("before_dispatch hook timed out").pipe(
+            Effect.annotateLogs({
+              sessionId: session.id,
+              appId: session.appId,
+              timeoutMs,
+            }),
+          );
+          return {
+            decision: "deny",
+            reason: "before_dispatch hook timed out",
+          };
+        }
+
+        if (!outcome.result) {
+          return {
+            decision: "deny",
+            reason: "before_dispatch hook error",
+          };
+        }
+
+        return outcome.result;
+      }),
+    );
+  }
+
   runBeforeMessageDelivery(
     conversationId: string,
     senderAgentId: string,
     parts: Part[],
     replyToId?: string,
+    dispatchLeaseId?: string,
   ): Effect.Effect<{ result: HookResult; appId: string } | null, RpcFailure> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
@@ -483,7 +627,7 @@ export class AppHost {
             agentId: senderAgentId,
             ownerId: agent?.owner_user_id ?? "",
           },
-          message: { parts, replyToId },
+          message: { parts, replyToId, dispatchLeaseId },
           sessionId: session.id,
           appId: session.appId,
         };

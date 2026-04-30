@@ -6,12 +6,19 @@ import {
   AppSessionSchema,
   AppParticipantStatusEnum,
 } from "./apps.js";
+import { AppsAuthorizeDispatch } from "./methods/apps.js";
 
 const ajv = addFormats(new Ajv({ strict: true, allErrors: true }));
 
 const validateManifest = ajv.compile(AppManifestSchema);
 const validateSession = ajv.compile(AppSessionSchema);
 const validateStatus = ajv.compile(AppParticipantStatusEnum);
+const validateAuthorizeDispatchResult = ajv.compile(
+  AppsAuthorizeDispatch.resultSchema,
+);
+const validateAuthorizeDispatchParams = ajv.compile(
+  AppsAuthorizeDispatch.paramsSchema,
+);
 
 describe("AppManifestSchema", () => {
   it("accepts a valid manifest", () => {
@@ -149,5 +156,63 @@ describe("AppParticipantStatusEnum", () => {
   it("rejects invalid values", () => {
     expect(validateStatus("invalid")).toBe(false);
     expect(validateStatus("")).toBe(false);
+  });
+});
+
+describe("AppsAuthorizeDispatch", () => {
+  it("rejects retry/defer admission results", () => {
+    expect(
+      validateAuthorizeDispatchResult({
+        admission: {
+          decision: "defer",
+          retryAfterMs: 100,
+          reason: "slot busy",
+        },
+      }),
+    ).toBe(false);
+  });
+
+  it("accepts grant, hold, and deny admission results", () => {
+    expect(
+      validateAuthorizeDispatchResult({
+        admission: {
+          decision: "grant",
+          leaseId: "lease-1",
+          leaseTimeoutMs: 90_000,
+          dispatchMessageId: "550e8400-e29b-41d4-a716-446655440010",
+        },
+      }),
+    ).toBe(true);
+    expect(
+      validateAuthorizeDispatchResult({
+        admission: { decision: "deny", reason: "phase closed" },
+      }),
+    ).toBe(true);
+    expect(
+      validateAuthorizeDispatchResult({
+        admission: { decision: "hold", reason: "waiting for turn" },
+      }),
+    ).toBe(true);
+  });
+
+  it("accepts pending message parts in authorization params", () => {
+    expect(
+      validateAuthorizeDispatchParams({
+        conversationId: "550e8400-e29b-41d4-a716-446655440002",
+        messageId: "550e8400-e29b-41d4-a716-446655440003",
+        senderAgentId: "550e8400-e29b-41d4-a716-446655440004",
+        parts: [{ type: "text", text: "old discussion" }],
+        pending: [
+          {
+            messageId: "550e8400-e29b-41d4-a716-446655440010",
+            conversationId: "550e8400-e29b-41d4-a716-446655440002",
+            senderAgentId: "550e8400-e29b-41d4-a716-446655440001",
+            createdAt: "2026-04-29T22:00:00.000Z",
+            receivedAt: "2026-04-29T22:00:00.000Z",
+            parts: [{ type: "text", text: "Time to vote" }],
+          },
+        ],
+      }),
+    ).toBe(true);
   });
 });
