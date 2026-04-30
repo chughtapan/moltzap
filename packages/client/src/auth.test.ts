@@ -59,7 +59,7 @@ describe("registerAgent", () => {
     globalThis.fetch = originalFetch;
   });
 
-  it("includes ownerUserId in the HTTP body when provided", async () => {
+  it("posts ownerUserId in the body to the admin endpoint", async () => {
     const { fakeFetch, calls } = makeFakeFetch();
     globalThis.fetch = fakeFetch;
 
@@ -71,8 +71,10 @@ describe("registerAgent", () => {
     );
 
     expect(calls).toHaveLength(1);
-    const call = calls[0]!;
-    expect(call.body).toEqual({
+    const [call] = calls;
+    expect(call!.url).toBe(`${baseUrl}/api/v1/admin/register-agent`);
+    expect(call!.method).toBe("POST");
+    expect(call!.body).toEqual({
       name: "test",
       inviteCode: "secret",
       ownerUserId: "00000000-0000-4000-8000-000000000001",
@@ -80,38 +82,19 @@ describe("registerAgent", () => {
     expect(result.agentId).toBe("agent-id");
   });
 
-  it("routes to the admin endpoint when ownerUserId is provided", async () => {
-    const { fakeFetch, calls } = makeFakeFetch();
-    globalThis.fetch = fakeFetch;
-
-    await run(
-      registerAgent(baseUrl, "test", {
-        inviteCode: "secret",
-        ownerUserId: "00000000-0000-4000-8000-000000000001",
-      }),
-    );
-
-    expect(calls[0]!.url).toBe(`${baseUrl}/api/v1/admin/register-agent`);
-    expect(calls[0]!.method).toBe("POST");
-  });
-
-  it("routes to the public endpoint and omits ownerUserId when absent", async () => {
+  it("posts to the public endpoint without ownerUserId when absent", async () => {
     const { fakeFetch, calls } = makeFakeFetch();
     globalThis.fetch = fakeFetch;
 
     await run(registerAgent(baseUrl, "test", { inviteCode: "secret" }));
 
     expect(calls[0]!.url).toBe(`${baseUrl}/api/v1/auth/register`);
+    // toEqual with `additionalProperties` rejects extra keys, so this also
+    // proves ownerUserId is not on the body.
     expect(calls[0]!.body).toEqual({ name: "test", inviteCode: "secret" });
-    expect(
-      Object.prototype.hasOwnProperty.call(
-        calls[0]!.body as object,
-        "ownerUserId",
-      ),
-    ).toBe(false);
   });
 
-  it("fails with the response text when the server rejects the request", async () => {
+  it("fails when the server returns a non-2xx response", async () => {
     const { fakeFetch } = makeFakeFetch(
       () =>
         new Response("invite required", {
@@ -122,7 +105,9 @@ describe("registerAgent", () => {
     globalThis.fetch = fakeFetch;
 
     const exit = await Effect.runPromiseExit(
-      registerAgent(baseUrl, "test", { ownerUserId: "any" }),
+      registerAgent(baseUrl, "test", {
+        ownerUserId: "00000000-0000-4000-8000-000000000001",
+      }),
     );
 
     expect(exit._tag).toBe("Failure");

@@ -9,15 +9,12 @@ export interface RegisterResponse {
   claimToken: string;
 }
 
-/** Options for {@link registerAgent}.
- *
- * `ownerUserId` selects the admin endpoint
- * (`/api/v1/admin/register-agent`), which pre-claims the agent for the
- * given owner at insert time. When omitted, the public endpoint
- * (`/api/v1/auth/register`) is used. */
+/** Options for {@link registerAgent}. */
 export interface RegisterAgentOptions {
   description?: string;
   inviteCode?: string;
+  /** When set, registers via the secret-gated admin endpoint and pre-claims
+   * the agent for this user. See {@link registerAgent}. */
   ownerUserId?: string;
 }
 
