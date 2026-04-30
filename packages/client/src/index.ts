@@ -40,3 +40,8 @@ export type {
   SubscriberHandler,
 } from "./runtime/subscribers.js";
 export type { CloseInfo } from "./runtime/close-info.js";
+export {
+  registerAgent,
+  type RegisterAgentOptions,
+  type RegisterResponse,
+} from "./auth.js";
