@@ -212,8 +212,9 @@ describe("notification emission (spec A5, A6)", () => {
       await new Promise((r) => setTimeout(r, 10));
       expect(notifications).toHaveLength(1);
       const n = notifications[0];
-      expect(n?.method).toBe("notifications/claude/channel");
-      const meta = (n?.params as { meta: Record<string, unknown> }).meta;
+      expect(n).toBeDefined();
+      expect(n!.method).toBe("notifications/claude/channel");
+      const meta = (n!.params as { meta: Record<string, unknown> }).meta;
       expect(meta).toMatchObject({
         chat_id: "C1",
         message_id: "M1",

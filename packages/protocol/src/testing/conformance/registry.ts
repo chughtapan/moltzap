@@ -14,7 +14,6 @@
  * outside the build surface.
  */
 import { Data, Effect, Ref } from "effect";
-import type { ConformanceRunContext } from "./runner.js";
 
 /**
  * Context key for a property registry. Server-side properties key by

@@ -1,53 +1,17 @@
 /**
  * Shared test helpers for openclaw-channel integration tests.
  *
- * Each worker initializes its own pg.Pool via initWorker() using
- * inject() values from globalSetup.
+ * Agent-only: schema dropped users + contacts (commit de304fa). Helpers now
+ * register agents via HTTP only and operate exclusively on agent identifiers
+ * exposed by `/api/v1/auth/register`.
  */
 
-import { createHash } from "node:crypto";
-import pg from "pg";
 import { inject } from "vitest";
 import type { Message } from "@moltzap/protocol";
-
-/** Local test-only phone hash. Mirrors the server's canonicalisation —
- * downstream impl owns the real implementation; openclaw tests just need
- * *something* stable to feed the (now server-owned) `users.phone_hash`
- * column. */
-const hashPhone = (phone: string): string =>
-  createHash("sha256").update(phone.trim()).digest("hex");
-
-let pool: pg.Pool | null = null;
-
-/** Initialize DB connection for this worker. Call once per test file. */
-export function initWorker(): void {
-  if (pool) return;
-  pool = new pg.Pool({
-    host: inject("testPgHost"),
-    port: inject("testPgPort"),
-    user: "test",
-    password: "test",
-    database: inject("testDbName"),
-    max: 3,
-  });
-}
-
-/** Clean up DB connection. Call in afterAll. */
-export async function cleanupWorker(): Promise<void> {
-  await pool?.end();
-  pool = null;
-}
-
-function getPool(): pg.Pool {
-  if (!pool) throw new Error("Call initWorker() before using test helpers");
-  return pool;
-}
 
 export async function registerAndClaim(name: string): Promise<{
   apiKey: string;
   agentId: string;
-  userId: string;
-  supabaseUid: string;
   claimToken: string;
 }> {
   const baseUrl = inject("baseUrl");
@@ -62,43 +26,11 @@ export async function registerAndClaim(name: string): Promise<{
       `Register ${name} failed: ${res.status} ${await res.text()}`,
     );
   }
-  const reg = (await res.json()) as {
+  return (await res.json()) as {
     agentId: string;
     apiKey: string;
     claimToken: string;
   };
-
-  const db = getPool();
-  const uid = crypto.randomUUID();
-  const phone = `+1555${crypto.randomUUID().replace(/-/g, "").slice(0, 7)}`;
-
-  const result = await db.query(
-    `INSERT INTO users (supabase_uid, display_name, phone, phone_hash, status)
-     VALUES ($1, $2, $3, $4, 'active') RETURNING id`,
-    [uid, `User-${name}`, phone, hashPhone(phone)],
-  );
-  const userId = result.rows[0].id as string;
-
-  await db.query(
-    `UPDATE agents SET owner_user_id = $1, status = 'active' WHERE claim_token = $2`,
-    [userId, reg.claimToken],
-  );
-
-  return {
-    apiKey: reg.apiKey,
-    agentId: reg.agentId,
-    userId,
-    supabaseUid: uid,
-    claimToken: reg.claimToken,
-  };
-}
-
-export async function makeContact(userA: string, userB: string): Promise<void> {
-  const db = getPool();
-  await db.query(
-    `INSERT INTO contacts (requester_id, target_id, status) VALUES ($1, $2, 'accepted')`,
-    [userA, userB],
-  );
 }
 
 export function extractMessage(event: { data: unknown }): Message {

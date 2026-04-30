@@ -1,5 +1,7 @@
 export * from "./runtime.js";
 
+export { awaitAgentReadyByPolling } from "./await-agent-ready.js";
+
 export {
   type OpenClawAdapterDeps,
   type WorkspaceOpenClawAdapterInput,
@@ -11,6 +13,13 @@ export {
   type NanoclawAdapterDeps,
   NanoclawAdapter,
 } from "./nanoclaw-adapter.js";
+
+export {
+  type ClaudeCodeAdapterDeps,
+  type WorkspaceClaudeCodeAdapterInput,
+  ClaudeCodeAdapter,
+  createWorkspaceClaudeCodeAdapter,
+} from "./claude-code-adapter.js";
 
 export {
   SpawnFailed,

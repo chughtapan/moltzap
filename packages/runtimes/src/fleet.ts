@@ -5,6 +5,10 @@ import {
   type RuntimeLaunchFailed,
 } from "./errors.js";
 import {
+  createWorkspaceClaudeCodeAdapter,
+  type WorkspaceClaudeCodeAdapterInput,
+} from "./claude-code-adapter.js";
+import {
   NanoclawAdapter,
   type NanoclawAdapterDeps,
 } from "./nanoclaw-adapter.js";
@@ -22,7 +26,7 @@ import {
   type WorkspaceFile,
 } from "./runtime.js";
 
-export type RuntimeKind = "openclaw" | "nanoclaw";
+export type RuntimeKind = "openclaw" | "nanoclaw" | "claude-code";
 
 export interface RuntimeAgentSpec {
   readonly agentName: string;
@@ -40,6 +44,7 @@ export interface RuntimeStartOptions {
   readonly readyTimeoutMs: number;
   readonly openclaw?: Omit<WorkspaceOpenClawAdapterInput, "server">;
   readonly nanoclaw?: Omit<NanoclawAdapterDeps, "server">;
+  readonly claudeCode?: Omit<WorkspaceClaudeCodeAdapterInput, "server">;
 }
 
 export interface RuntimeFleetLaunchOptions {
@@ -50,6 +55,7 @@ export interface RuntimeFleetLaunchOptions {
   readonly concurrency?: number | "unbounded";
   readonly openclaw?: Omit<WorkspaceOpenClawAdapterInput, "server">;
   readonly nanoclaw?: Omit<NanoclawAdapterDeps, "server">;
+  readonly claudeCode?: Omit<WorkspaceClaudeCodeAdapterInput, "server">;
 }
 
 export interface RuntimeFleetProcessSignalOptions
@@ -100,16 +106,23 @@ class UnknownRuntimeAgent extends Error {
 }
 
 function createRuntime(options: RuntimeStartOptions): Runtime {
-  if (options.kind === "openclaw") {
-    return createWorkspaceOpenClawAdapter({
-      server: options.server,
-      ...options.openclaw,
-    });
+  switch (options.kind) {
+    case "openclaw":
+      return createWorkspaceOpenClawAdapter({
+        server: options.server,
+        ...options.openclaw,
+      });
+    case "nanoclaw":
+      return new NanoclawAdapter({
+        server: options.server,
+        ...options.nanoclaw,
+      });
+    case "claude-code":
+      return createWorkspaceClaudeCodeAdapter({
+        server: options.server,
+        ...options.claudeCode,
+      });
   }
-  return new NanoclawAdapter({
-    server: options.server,
-    ...options.nanoclaw,
-  });
 }
 
 function toSpawnInput(agent: RuntimeAgentSpec): SpawnInput {
@@ -207,6 +220,9 @@ export function launchRuntimeFleet(
               : {}),
             ...(options.nanoclaw !== undefined
               ? { nanoclaw: options.nanoclaw }
+              : {}),
+            ...(options.claudeCode !== undefined
+              ? { claudeCode: options.claudeCode }
               : {}),
           });
           const startedAgent = {
