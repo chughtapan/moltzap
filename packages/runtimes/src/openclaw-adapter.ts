@@ -155,6 +155,25 @@ export class OpenClawAdapter implements Runtime {
 
     return pipe(
       Effect.race(serverReady, exitLoop),
+      // Final-check: if the race resolved `Timeout`, the child may have
+      // exited within the last `exitLoop` tick window — one last sync probe
+      // promotes that case to `ProcessExited` with the actual exit code so
+      // the diagnostic stderr isn't lost behind an opaque `Timeout`.
+      Effect.flatMap(
+        (outcome): Effect.Effect<ReadyOutcome, never, never> =>
+          outcome._tag !== "Timeout"
+            ? Effect.succeed(outcome)
+            : Effect.sync(
+                (): ReadyOutcome =>
+                  child.exitCode !== null
+                    ? {
+                        _tag: "ProcessExited" as const,
+                        exitCode: child.exitCode,
+                        stderr: this.state?.logBuffer ?? "",
+                      }
+                    : outcome,
+              ),
+      ),
       // Failure outcomes (Timeout, ProcessExited) tear down before returning.
       Effect.tap((outcome) =>
         outcome._tag === "Ready" ? Effect.void : this.teardown(),
