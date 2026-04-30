@@ -25,7 +25,12 @@ import {
 } from "effect";
 import * as Socket from "@effect/platform/Socket";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
-import type { RpcMap, RpcMethodName } from "../rpc-registry.js";
+import type {
+  RpcMap,
+  RpcMethodName,
+  S2cRpcMap,
+  S2cRpcMethodName,
+} from "../rpc-registry.js";
 import type { EventFrame } from "../schema/frames.js";
 import { responseFrame } from "../helpers.js";
 import { PROTOCOL_VERSION } from "../version.js";
@@ -109,44 +114,82 @@ export interface TestClient {
   ) => Effect.Effect<EventFrame, Error>;
   readonly drainEvents: Effect.Effect<ReadonlyArray<EventFrame>>;
 
-  // ── PHASE 1.6 STUBS — server-initiated RPC test surface (B.0 architect) ──
-  //
-  // `handleServerRpc(method, handler)` registers a handler for a server-
-  // initiated RPC method. When `handleInbound` (line ~181) sees a `request`
-  // frame with `direction: "s2c"`, it looks up the handler, runs it as an
-  // Effect, encodes the response, and writes back over the WS.
-  //
-  // `awaitServerRequest(method, predicate?)` lets a test inspect the inbound
-  // request payload BEFORE replying — used to assert e.g. the multi-app
-  // FIFO short-circuit (the test must verify the FIRST app's request landed
-  // and the SECOND app's did not).
-  //
-  // Implementer (B.7): the inbound dispatch in `handleInbound` currently
-  // routes only `response` and `event`. Add a third branch for
-  // `frame.type === "request"` that:
-  //   1. Looks up the registered handler by `frame.method` in a
-  //      `Ref<Map<string, Handler>>`.
-  //   2. Decodes `params` against the s2c method's params schema.
-  //   3. Runs the handler as an Effect.
-  //   4. Encodes a response frame with `direction: "s2c"` and `id =
-  //      frame.id`, writes it over the socket.
-  //   5. Records both inbound request and outbound response in `captures`.
-  //
-  // Type ergonomics: the stub uses `string` for the method name; B.7 narrows
-  // to a `S2cRpcMethodName` union once `s2cRpcMethods` exists in
-  // `rpc-registry.ts`.
-
-  readonly handleServerRpc: (
-    method: string,
-    handler: (params: unknown) => Effect.Effect<unknown, RpcResponseError>,
+  /**
+   * Register a handler for a server-initiated (`direction: "s2c"`) RPC.
+   * When `handleInbound` sees a request frame whose method matches, the
+   * handler runs and its outcome is encoded as the s2c response:
+   *   - `Effect.succeed(value)` → `{ result: value }`
+   *   - `Effect.fail(err: RpcResponseError)` → `{ error: { code, message, data? } }`
+   *   - defects collapse to a generic `-32603 InternalError` reply so the
+   *     server's `Deferred.await` cannot hang on a crashing handler.
+   *
+   * Re-registration replaces the prior handler (later wins) — mirrors
+   * `HashMap.set`. The TestClient does NOT raise on duplicates the way the
+   * production client does; tests routinely swap behaviour mid-scenario.
+   *
+   * Type narrowing: once `s2cRpcMethods` (`packages/protocol/src/rpc-registry.ts`)
+   * registers verbs in B.2, `M` constrains to the registered method names
+   * and `params`/`result` bind to `S2cRpcMap[M]`. While the registry is
+   * empty, the constraint falls through to `string` / `unknown` so callers
+   * can still drive the surface — see {@link ServerRpcMethod}.
+   */
+  readonly handleServerRpc: <M extends ServerRpcMethod>(
+    method: M,
+    handler: (
+      params: ServerRpcParams<M>,
+    ) => Effect.Effect<ServerRpcResult<M>, RpcResponseError>,
   ) => Effect.Effect<void>;
 
-  readonly awaitServerRequest: (
-    method: string,
-    predicate?: (params: unknown) => boolean,
+  /**
+   * Park until the server sends an s2c request for `method`. The handler
+   * registered via {@link handleServerRpc} (if any) still runs and replies;
+   * `awaitServerRequest` is an OBSERVATION primitive — it lets a test
+   * assert the request payload before the response goes back without
+   * stealing the dispatch.
+   *
+   * `predicate` narrows to the first request whose params satisfy it.
+   * Multiple awaiters per method form a FIFO queue (registration order).
+   *
+   * `timeoutMs` defaults to 5_000; callers wanting to drive timing
+   * themselves can pass a generous value here and gate the returned
+   * Effect with `Effect.timeout` at the call site (architect plan §3.6
+   * "Effect.timeout at call site, not schema cap").
+   */
+  readonly awaitServerRequest: <M extends ServerRpcMethod>(
+    method: M,
+    predicate?: (params: ServerRpcParams<M>) => boolean,
     timeoutMs?: number,
-  ) => Effect.Effect<unknown, Error>;
+  ) => Effect.Effect<ServerRpcParams<M>, Error>;
 }
+
+/**
+ * Method-name constraint for server-initiated RPC test surface. Narrows to
+ * the registered s2c methods (`S2cRpcMethodName`) once B.2 populates
+ * `s2cRpcMethods` in `rpc-registry.ts`. While the registry is empty, the
+ * constraint falls through to `string` so the test surface remains usable
+ * during Phase 1.0 — `[never] extends [never]` is true, but `never` as a
+ * generic constraint blocks every caller. The fallback collapses
+ * automatically the moment a verb registers.
+ */
+export type ServerRpcMethod = [S2cRpcMethodName] extends [never]
+  ? string
+  : S2cRpcMethodName;
+
+/**
+ * Inbound params type for an s2c method. Resolves to the registered
+ * params schema via `S2cRpcMap[M]["params"]` once verbs land; falls
+ * through to `unknown` for the bootstrap window — same condition as
+ * {@link ServerRpcMethod}.
+ */
+export type ServerRpcParams<M extends ServerRpcMethod> =
+  M extends S2cRpcMethodName ? S2cRpcMap[M]["params"] : unknown;
+
+/**
+ * Outbound result type for an s2c method handler. See {@link ServerRpcParams}
+ * for the bootstrap fallback rationale.
+ */
+export type ServerRpcResult<M extends ServerRpcMethod> =
+  M extends S2cRpcMethodName ? S2cRpcMap[M]["result"] : unknown;
 
 export interface CloseableTestClient extends TestClient {
   readonly close: Effect.Effect<void, never>;
@@ -204,6 +247,12 @@ export function makeTestClient(
     // `result`, typed errors encode as `error`. Defects collapse to a
     // generic InternalError reply so the server's `Deferred.await` never
     // hangs on a crashing test handler.
+    //
+    // The internal type is intentionally `unknown → unknown`: handlers
+    // registered via the typed `handleServerRpc<M>` overload are widened
+    // at the registration boundary so the dispatcher can dispatch by
+    // string method name regardless of which method-specific shape was
+    // registered. Type narrowing is restored at the public surface.
     type S2cHandler = (
       params: unknown,
     ) => Effect.Effect<unknown, RpcResponseError>;
@@ -615,23 +664,30 @@ export function makeTestClient(
         HashMap.set(m, method, handler as S2cHandler),
       );
 
-    const awaitServerRequest: TestClient["awaitServerRequest"] = (
-      method,
-      predicate,
+    const awaitServerRequest: TestClient["awaitServerRequest"] = <
+      M extends ServerRpcMethod,
+    >(
+      method: M,
+      predicate?: (params: ServerRpcParams<M>) => boolean,
       timeoutMs = 5_000,
-    ) =>
+    ): Effect.Effect<ServerRpcParams<M>, Error> =>
       Effect.gen(function* () {
         const deferred = yield* Deferred.make<unknown, Error>();
-        const entry: AwaitEntry = predicate
-          ? { predicate, deferred }
-          : { deferred };
+        const entry: AwaitEntry = {
+          deferred,
+          ...(predicate !== undefined
+            ? {
+                predicate: predicate as (params: unknown) => boolean,
+              }
+            : {}),
+        };
         yield* Ref.update(awaitersRef, (m) => {
           const bucket = HashMap.get(m, method);
           const next =
             bucket._tag === "Some" ? [...bucket.value, entry] : [entry];
           return HashMap.set(m, method, next as ReadonlyArray<AwaitEntry>);
         });
-        return yield* Deferred.await(deferred).pipe(
+        const result = yield* Deferred.await(deferred).pipe(
           Effect.timeoutFail({
             duration: Duration.millis(timeoutMs),
             onTimeout: () =>
@@ -652,6 +708,7 @@ export function makeTestClient(
               : Effect.void,
           ),
         );
+        return result as ServerRpcParams<M>;
       });
 
     const client: TestClient = {
