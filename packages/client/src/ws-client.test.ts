@@ -35,7 +35,7 @@ import {
   RPC_TIMEOUT_MS,
   type CloseInfo,
 } from "./ws-client.js";
-import { RpcTimeoutError } from "./runtime/errors.js";
+import { RpcServerError, RpcTimeoutError } from "./runtime/errors.js";
 import type { EventFrame } from "@moltzap/protocol";
 
 // ── Test server helpers ────────────────────────────────────────────────
@@ -210,6 +210,7 @@ const startHandshakingServer = (
           JSON.stringify({
             jsonrpc: "2.0",
             type: "response",
+            direction: "c2s",
             id: frame.id,
             result: { agentId: "agent-xyz", protocol: PROTOCOL_VERSION },
           }),
@@ -515,6 +516,7 @@ describe("reconnect backoff", () => {
                 JSON.stringify({
                   jsonrpc: "2.0",
                   type: "response",
+                  direction: "c2s",
                   id: frame.id,
                   result: { agentId: "agent-1" },
                 }),
@@ -580,6 +582,7 @@ describe("§5.4 malformed frames are logged but do not affect pending RPCs", () 
               JSON.stringify({
                 jsonrpc: "2.0",
                 type: "response",
+                direction: "c2s",
                 id: frame.id,
                 result: { conversations: [] },
               }),
@@ -620,6 +623,7 @@ describe("§5.4 malformed frames are logged but do not affect pending RPCs", () 
                 JSON.stringify({
                   jsonrpc: "2.0",
                   type: "response",
+                  direction: "c2s",
                   id: frame.id,
                   result: { conversations: [] },
                 }),
@@ -829,6 +833,7 @@ describe("sendRpc(RpcDefinition, params) — typed manifest overload", () => {
             JSON.stringify({
               jsonrpc: "2.0",
               type: "response",
+              direction: "c2s",
               id: frame.id,
               result: {
                 echoedMethod: frame.method,
@@ -866,6 +871,7 @@ describe("sendRpc(RpcDefinition, params) — typed manifest overload", () => {
             JSON.stringify({
               jsonrpc: "2.0",
               type: "response",
+              direction: "c2s",
               id: frame.id,
               result: { echoedMethod: frame.method, agents: [] },
             }),
@@ -1007,5 +1013,219 @@ describe("spec #222 §5.4 — onDisconnect close metadata (V7)", () => {
         expect(first.reason).toBe("boom");
       }),
     );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// Phase 1.0 (B.1) gating tests — client-side server-initiated RPC
+// (handleServerRpc + dispatcher fiber + s2c response write-back)
+// ─────────────────────────────────────────────────────────────────────
+
+describe("Phase 1.0 (B.1) — handleServerRpc round-trip", () => {
+  it("dispatches an inbound s2c request to the registered handler and writes the response back", async () => {
+    await withTestServer(
+      Effect.gen(function* () {
+        // Server: auto-handshake; immediately AFTER replying to
+        // auth/connect, send an s2c request to the client; capture every
+        // subsequent inbound frame the client writes back. We're testing
+        // the client's dispatcher fiber + handler registry + response
+        // encoding.
+        const server = yield* startTestServer((conn, raw) =>
+          Effect.gen(function* () {
+            const frame = JSON.parse(raw) as { id: string; method: string };
+            if (frame.method === "auth/connect") {
+              yield* conn.send(
+                JSON.stringify({
+                  jsonrpc: "2.0",
+                  type: "response",
+                  direction: "c2s",
+                  id: frame.id,
+                  result: { agentId: "agent-xyz", protocol: PROTOCOL_VERSION },
+                }),
+              );
+              // Fire the s2c request straight after auth response. The
+              // client's dispatcher fiber was forked into the connect
+              // scope BEFORE auth/connect was sent, so the inbound queue
+              // is live the moment we land here.
+              yield* conn.send(
+                JSON.stringify({
+                  jsonrpc: "2.0",
+                  type: "request",
+                  direction: "s2c",
+                  id: "srv-test-1",
+                  method: "apps/onJoin",
+                  params: { sessionId: "sess-A" },
+                }),
+              );
+            }
+          }),
+        );
+        const client = makeClient(server.url);
+        // Register a handler BEFORE connect so the dispatcher fiber sees
+        // it on the very first inbound s2c request.
+        yield* client.handleServerRpc("apps/onJoin", (params) =>
+          Effect.succeed({
+            ack: true,
+            saw: (params as { sessionId: string }).sessionId,
+          }),
+        );
+        yield* Effect.promise(() => connectP(client));
+
+        // Wait for the response frame the dispatcher writes back. The
+        // server records every inbound frame in `received` — the s2c
+        // response should appear after the client's auth/connect.
+        const responseRaw = yield* Effect.promise(() =>
+          waitFor(
+            () =>
+              server.connections[0]!.received.some((r) => {
+                try {
+                  const parsed = JSON.parse(r) as {
+                    type?: string;
+                    id?: string;
+                  };
+                  return (
+                    parsed.type === "response" && parsed.id === "srv-test-1"
+                  );
+                } catch {
+                  return false;
+                }
+              }),
+            { maxMs: 2000 },
+          ),
+        ).pipe(
+          Effect.flatMap(() =>
+            Effect.sync(() =>
+              server.connections[0]!.received.find((r) => {
+                try {
+                  const parsed = JSON.parse(r) as { id?: string };
+                  return parsed.id === "srv-test-1";
+                } catch {
+                  return false;
+                }
+              }),
+            ),
+          ),
+        );
+
+        const parsedResponse = JSON.parse(responseRaw!) as {
+          type: string;
+          direction: string;
+          id: string;
+          result: { ack: boolean; saw: string };
+        };
+        expect(parsedResponse.type).toBe("response");
+        expect(parsedResponse.direction).toBe("s2c");
+        expect(parsedResponse.id).toBe("srv-test-1");
+        expect(parsedResponse.result.ack).toBe(true);
+        expect(parsedResponse.result.saw).toBe("sess-A");
+
+        yield* closeClient(client);
+      }),
+    );
+  });
+
+  it("encodes a typed RpcServerError from the handler as a `response` frame with `error`", async () => {
+    await withTestServer(
+      Effect.gen(function* () {
+        const server = yield* startTestServer((conn, raw) =>
+          Effect.gen(function* () {
+            const frame = JSON.parse(raw) as { id: string; method: string };
+            if (frame.method === "auth/connect") {
+              yield* conn.send(
+                JSON.stringify({
+                  jsonrpc: "2.0",
+                  type: "response",
+                  direction: "c2s",
+                  id: frame.id,
+                  result: { agentId: "agent-xyz", protocol: PROTOCOL_VERSION },
+                }),
+              );
+              yield* conn.send(
+                JSON.stringify({
+                  jsonrpc: "2.0",
+                  type: "request",
+                  direction: "s2c",
+                  id: "srv-err-1",
+                  method: "apps/onClose",
+                  params: {},
+                }),
+              );
+            }
+          }),
+        );
+        const client = makeClient(server.url);
+        yield* client.handleServerRpc("apps/onClose", () =>
+          Effect.fail(
+            new RpcServerError({
+              code: -32099,
+              message: "domain-rejected",
+              data: { reason: "test" },
+            }),
+          ),
+        );
+        yield* Effect.promise(() => connectP(client));
+
+        yield* Effect.promise(() =>
+          waitFor(
+            () =>
+              server.connections[0]!.received.some((r) => {
+                try {
+                  const parsed = JSON.parse(r) as {
+                    id?: string;
+                    error?: unknown;
+                  };
+                  return (
+                    parsed.id === "srv-err-1" && parsed.error !== undefined
+                  );
+                } catch {
+                  return false;
+                }
+              }),
+            { maxMs: 2000 },
+          ),
+        );
+
+        const found = server.connections[0]!.received.find((r) => {
+          try {
+            return (JSON.parse(r) as { id?: string }).id === "srv-err-1";
+          } catch {
+            return false;
+          }
+        });
+        const parsed = JSON.parse(found!) as {
+          direction: string;
+          error: { code: number; message: string; data: { reason: string } };
+        };
+        expect(parsed.direction).toBe("s2c");
+        expect(parsed.error.code).toBe(-32099);
+        expect(parsed.error.message).toBe("domain-rejected");
+        expect(parsed.error.data.reason).toBe("test");
+
+        yield* closeClient(client);
+      }),
+    );
+  });
+
+  it("rejects a duplicate handleServerRpc registration with DuplicateServerRpcHandlerError", async () => {
+    const client = new MoltZapWsClient({
+      serverUrl: "http://127.0.0.1:1",
+      agentKey: "test",
+    });
+    const first = await Effect.runPromiseExit(
+      client.handleServerRpc("apps/onJoin", () => Effect.succeed({})),
+    );
+    expect(Exit.isSuccess(first)).toBe(true);
+    const second = await Effect.runPromiseExit(
+      client.handleServerRpc("apps/onJoin", () => Effect.succeed({})),
+    );
+    expect(Exit.isFailure(second)).toBe(true);
+    if (Exit.isFailure(second)) {
+      const err = Cause.failureOption(second.cause);
+      expect(err._tag).toBe("Some");
+      if (err._tag === "Some") {
+        expect(err.value._tag).toBe("DuplicateServerRpcHandlerError");
+      }
+    }
+    await Effect.runPromise(client.close());
   });
 });

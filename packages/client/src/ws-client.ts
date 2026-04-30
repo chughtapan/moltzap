@@ -1,6 +1,7 @@
 import * as Socket from "@effect/platform/Socket";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import {
+  Cause,
   Deferred,
   Duration,
   Effect,
@@ -9,19 +10,23 @@ import {
   HashMap,
   ManagedRuntime,
   Option,
+  Queue,
   Ref,
   Schedule,
   Scope,
+  Stream,
 } from "effect";
 import {
   PROTOCOL_VERSION,
   type RequestFrame,
+  type ResponseFrame,
   type EventFrame,
   type RpcDefinition,
   type TSchema,
   type Static,
 } from "@moltzap/protocol";
 import {
+  DuplicateServerRpcHandlerError,
   NotConnectedError,
   RpcServerError,
   RpcTimeoutError,
@@ -90,7 +95,49 @@ interface ConnState {
   /** Settled when the reader fiber exits, letting `connect()` race against
    * pre-open close and fail fast instead of waiting the RPC timeout. */
   readonly handshakeSettled: Deferred.Deferred<unknown, PendingError>;
+  /**
+   * Inbound queue of decoded server-initiated request frames. The reader
+   * fiber `Queue.offer`s every well-formed s2c request; a separate
+   * dispatcher fiber drains via `Stream.runForEach`, looking up the
+   * registered handler, running it, encoding the response, and writing
+   * back over `write`. Bounded so a misbehaving server can't unbound-grow
+   * memory; oldest frames are dropped under sustained back-pressure.
+   */
+  readonly s2cInboundQueue: Queue.Queue<DecodedServerRequest>;
+  /** Dispatcher fiber that runs `Stream.runForEach` over `s2cInboundQueue`.
+   * Forked into the per-connect `scope` so disconnect tears it down. */
+  readonly s2cDispatcherFiber: Fiber.RuntimeFiber<void, never>;
 }
+
+/**
+ * Internal type for a decoded inbound s2c request handed off to the
+ * dispatcher. Mirrors `DecodedServerRequest` from `runtime/frame.ts`
+ * but lives here so the dispatcher does not need a `runtime/` import
+ * cycle.
+ */
+interface DecodedServerRequest {
+  readonly id: string;
+  readonly method: string;
+  readonly params: unknown;
+}
+
+/** Cap on inbound s2c request queue. Slow handlers cannot leak memory. */
+const MAX_S2C_QUEUE = 256;
+
+/**
+ * Handler signature for `handleServerRpc`. The handler returns an
+ * `Effect<unknown, RpcServerError>` — success values are encoded as the
+ * response `result`; typed RPC errors are encoded as the response
+ * `error`. Defects (handler crashes, non-tagged exceptions) collapse to a
+ * generic InternalError reply.
+ *
+ * The `unknown`/`unknown` parameter and result types are transitional —
+ * once Phase 1.1 (B.2) registers admission verbs in `s2cRpcMethods`, this
+ * narrows generically against `S2cRpcMap[M]`.
+ */
+export type ServerRpcHandler = (
+  params: unknown,
+) => Effect.Effect<unknown, RpcServerError>;
 
 interface EventWaiter {
   readonly eventName: string;
@@ -198,6 +245,16 @@ export class MoltZapWsClient {
    */
   private readonly subscribers: SubscriberRegistry;
 
+  /**
+   * Per-method handler registry for server-initiated RPCs. Survives
+   * reconnects so apps register once and re-attach automatically when the
+   * socket comes back. Each entry is invoked by the per-connection
+   * dispatcher fiber when an s2c request frame arrives.
+   */
+  private readonly s2cHandlersRef: Ref.Ref<
+    HashMap.HashMap<string, ServerRpcHandler>
+  >;
+
   private requestCounter = 0;
   private closed = false;
   private reconnectFiber: Fiber.RuntimeFiber<void, never> | null = null;
@@ -230,6 +287,39 @@ export class MoltZapWsClient {
         warn: (...args) => this.options.logger?.warn(...args),
       }),
     );
+    this.s2cHandlersRef = this.runtime.runSync(
+      Ref.make<HashMap.HashMap<string, ServerRpcHandler>>(HashMap.empty()),
+    );
+  }
+
+  /**
+   * Register a handler for a server-initiated RPC method. Survives
+   * reconnects — the registry lives on the client, not the per-connection
+   * `ConnState`. Returns `Effect<void>` that fails with
+   * `DuplicateServerRpcHandlerError` if a handler for `method` is already
+   * registered (shadowing the existing one would silently swap behaviour
+   * mid-flight).
+   *
+   * The dispatcher fiber forked at `connect()` time picks up handlers via
+   * `Ref.get` per-frame, so a registration made BEFORE `connect()` is
+   * visible to the very first inbound s2c request, and a registration
+   * made AFTER `connect()` takes effect on the next inbound frame.
+   */
+  handleServerRpc(
+    method: string,
+    handler: ServerRpcHandler,
+  ): Effect.Effect<void, DuplicateServerRpcHandlerError> {
+    return Effect.gen(this, function* () {
+      const swapped = yield* Ref.modify(this.s2cHandlersRef, (m) => {
+        if (HashMap.has(m, method)) return [false, m];
+        return [true, HashMap.set(m, method, handler)];
+      });
+      if (!swapped) {
+        return yield* Effect.fail(
+          new DuplicateServerRpcHandlerError({ method }),
+        );
+      }
+    });
   }
 
   get helloOk(): unknown {
@@ -509,6 +599,54 @@ export class MoltZapWsClient {
       // reader-fiber exit on any close/error before handshake.
       const handshakeSettled = yield* Deferred.make<unknown, PendingError>();
 
+      // Inbound s2c request pipeline: the reader fiber `Queue.offer`s
+      // every well-formed s2c request frame; a forked dispatcher fiber
+      // drains via `Stream.runForEach`, looks up the registered handler,
+      // runs it, encodes the response, and writes back. The Queue +
+      // Stream pair is the architect's "Stream" — `Stream.fromQueue`
+      // produces a totally-ordered stream the dispatcher iterates per
+      // `runForEach`, exactly matching the architect plan's "Effect
+      // primitives compose" mandate (no bespoke promise pool, no callback
+      // registry). Both Queue and dispatcher fiber are scoped to this
+      // connect attempt, so `disconnect()` shutters them deterministically.
+      const s2cInboundQueue = yield* Effect.acquireRelease(
+        Queue.bounded<DecodedServerRequest>(MAX_S2C_QUEUE),
+        (q) => Queue.shutdown(q),
+      ).pipe(Scope.extend(scope));
+
+      const dispatcherEffect: Effect.Effect<void, never> = Stream.fromQueue(
+        s2cInboundQueue,
+      ).pipe(
+        Stream.runForEach((req) =>
+          this.dispatchInboundServerRequest(req, write).pipe(
+            Effect.catchAllCause((cause) =>
+              Effect.sync(() =>
+                this.options.logger?.warn(
+                  "s2c handler dispatch defected",
+                  Cause.pretty(cause),
+                ),
+              ),
+            ),
+          ),
+        ),
+        Effect.catchAllCause((cause) =>
+          // Queue shutdown closes the stream; that's expected on
+          // disconnect. Other defects log + swallow — the dispatcher
+          // fiber must never leak into the connection scope's failure
+          // channel.
+          Effect.sync(() =>
+            this.options.logger?.warn(
+              "s2c dispatcher fiber exited",
+              Cause.pretty(cause),
+            ),
+          ),
+        ),
+        Effect.asVoid,
+      );
+      const s2cDispatcherFiber = yield* Effect.forkScoped(
+        dispatcherEffect,
+      ).pipe(Scope.extend(scope));
+
       // Use `onExit` (not `tapErrorCause`) so the clean-close path also
       // triggers pending-drain. `@effect/platform/Socket` treats code 1000
       // as a SUCCESS exit, so error-only handlers miss it and pending RPCs
@@ -561,7 +699,14 @@ export class MoltZapWsClient {
       // `sendRpcEffect`, which reads `stateRef`.
       yield* Ref.set(
         this.stateRef,
-        Option.some({ write, readerFiber, scope, handshakeSettled }),
+        Option.some({
+          write,
+          readerFiber,
+          scope,
+          handshakeSettled,
+          s2cInboundQueue,
+          s2cDispatcherFiber,
+        }),
       );
 
       const authEffect = this.sendRpcEffect("auth/connect", {
@@ -617,6 +762,7 @@ export class MoltZapWsClient {
       const frame: RequestFrame = {
         jsonrpc: "2.0",
         type: "request",
+        direction: "c2s",
         id,
         method,
         params,
@@ -696,6 +842,84 @@ export class MoltZapWsClient {
     );
   }
 
+  /**
+   * Dispatch one inbound s2c request to the registered handler, encode
+   * the response, and write it back to the server. Errors are projected
+   * onto an error response so the server's `Deferred.await` always
+   * settles deterministically — never hangs on a missing or crashing
+   * handler.
+   *
+   * Cases:
+   *   - Handler registered + Effect succeeds → encode `result`.
+   *   - Handler registered + Effect fails (RpcServerError) → encode
+   *     `error` from the tag.
+   *   - Handler registered + Effect defects (untagged crash) →
+   *     encode generic InternalError, log the cause.
+   *   - No handler registered → encode MethodNotFound error response.
+   */
+  private dispatchInboundServerRequest(
+    request: DecodedServerRequest,
+    write: ConnState["write"],
+  ): Effect.Effect<void, never> {
+    return Effect.gen(this, function* () {
+      const handlers = yield* Ref.get(this.s2cHandlersRef);
+      const lookup = HashMap.get(handlers, request.method);
+      const response: ResponseFrame = yield* lookup._tag === "None"
+        ? Effect.succeed(
+            this.encodeS2cResponse(request.id, undefined, {
+              code: -32601,
+              message: `No handler registered for method: ${request.method}`,
+            }),
+          )
+        : lookup.value(request.params).pipe(
+            Effect.match({
+              onSuccess: (result) =>
+                this.encodeS2cResponse(request.id, result, undefined),
+              onFailure: (err) =>
+                this.encodeS2cResponse(request.id, undefined, {
+                  code: err.code,
+                  message: err.message,
+                  ...(err.data !== undefined ? { data: err.data } : {}),
+                }),
+            }),
+            Effect.catchAllCause((cause) =>
+              Effect.sync(() => {
+                this.options.logger?.warn(
+                  `s2c handler ${request.method} defected`,
+                  Cause.pretty(cause),
+                );
+                return this.encodeS2cResponse(request.id, undefined, {
+                  code: -32603,
+                  message: "Internal error",
+                });
+              }),
+            ),
+          );
+      const raw = JSON.stringify(response);
+      yield* write(raw).pipe(
+        Effect.catchAll((err) =>
+          Effect.sync(() =>
+            this.options.logger?.warn("s2c response write failed", err),
+          ),
+        ),
+      );
+    });
+  }
+
+  private encodeS2cResponse(
+    id: string,
+    result: unknown,
+    error: { code: number; message: string; data?: unknown } | undefined,
+  ): ResponseFrame {
+    const base = {
+      jsonrpc: "2.0" as const,
+      type: "response" as const,
+      direction: "s2c" as const,
+      id,
+    };
+    return error !== undefined ? { ...base, error } : { ...base, result };
+  }
+
   /** Route an inbound frame. Malformed frames are logged + dropped; event
    * frames dispatch to `onEvent` after the shape check. */
   private handleIncoming(raw: string): Effect.Effect<void> {
@@ -739,6 +963,31 @@ export class MoltZapWsClient {
           } else {
             yield* Deferred.succeed(pending, result);
           }
+          continue;
+        }
+
+        if (decoded._tag === "ServerRequest") {
+          // s2c request — hand off to the per-connection dispatcher
+          // queue. The dispatcher fiber (forked at `connectEffect` time)
+          // runs `Stream.runForEach` over the queue, looks up the
+          // handler from `s2cHandlersRef`, runs it, and writes the
+          // response back. Decoupling via Queue keeps the reader fiber
+          // back-pressure-bounded; the handler runs on the dispatcher
+          // fiber instead of stalling subsequent inbound frames.
+          const state = yield* Ref.get(this.stateRef);
+          if (Option.isNone(state)) {
+            // Reader fiber observed a frame without a corresponding
+            // ConnState — the only path that reaches here is a frame
+            // arriving between scope-close finalization and reader-exit
+            // observation. Drop silently: the dispatcher is already
+            // gone too.
+            continue;
+          }
+          yield* Queue.offer(state.value.s2cInboundQueue, {
+            id: decoded.id,
+            method: decoded.method,
+            params: decoded.params,
+          }).pipe(Effect.ignore);
           continue;
         }
 

@@ -270,6 +270,7 @@ function makeBadClientContext(
         const request: RequestFrame = {
           jsonrpc: "2.0",
           type: "request",
+          direction: "c2s",
           id,
           method,
           params: _params,

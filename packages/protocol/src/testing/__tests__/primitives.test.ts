@@ -35,6 +35,7 @@ describe("codec", () => {
   it("round-trips a valid request frame", async () => {
     const frame: AnyFrame = {
       type: "request",
+      direction: "c2s",
       jsonrpc: "2.0",
       id: "req-1",
       method: "auth/connect",
@@ -63,6 +64,7 @@ describe("codec", () => {
   it("malformFrame never throws for any kind + seed", () => {
     const base: AnyFrame = {
       type: "request",
+      direction: "c2s",
       jsonrpc: "2.0",
       id: "r",
       method: "auth/connect",

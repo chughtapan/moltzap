@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { Effect } from "effect";
+import { Effect, HashMap, Ref } from "effect";
 import type { AuthenticatedContext } from "../rpc/context.js";
 import type { AgentId } from "../app/types.js";
-import { ConnectionManager, type MoltZapConnection } from "./connection.js";
+import {
+  ConnectionManager,
+  type MoltZapConnection,
+  type S2cPendingMap,
+} from "./connection.js";
 
 /**
  * Pure-unit coverage for ConnectionManager.subscribeAgentsToConversation.
@@ -32,6 +36,8 @@ function makeConn(id: string, agentId: string | null): MoltZapConnection {
     lastPong: Date.now(),
     conversationIds: new Set<string>(),
     mutedConversations: new Set<string>(),
+    s2cPending: Ref.unsafeMake<S2cPendingMap>(HashMap.empty()),
+    s2cRequestCounter: Ref.unsafeMake(0),
   };
 }
 

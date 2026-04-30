@@ -454,6 +454,7 @@ export function runAutoHandshakeResponder(
               .emitResponse({
                 jsonrpc: "2.0",
                 type: "response",
+                direction: "c2s",
                 id: entry.frame.id,
                 result: helloOk,
               })

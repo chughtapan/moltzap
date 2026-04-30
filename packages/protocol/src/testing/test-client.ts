@@ -10,12 +10,15 @@
  * Satisfies AC2. Consumed by Tier A / B / C / D / E properties.
  */
 import {
+  Cause,
   Chunk,
   Context,
   Deferred,
   Duration,
   Effect,
   Exit,
+  HashMap,
+  Option,
   Ref,
   Scope,
   Stream,
@@ -195,6 +198,34 @@ export function makeTestClient(
     });
     const eventQueue = yield* Ref.make<ReadonlyArray<EventFrame>>([]);
 
+    // Per-method registry of server-initiated RPC handlers. The handler
+    // returns `Effect<unknown, RpcResponseError>` — successes encode as
+    // `result`, typed errors encode as `error`. Defects collapse to a
+    // generic InternalError reply so the server's `Deferred.await` never
+    // hangs on a crashing test handler.
+    type S2cHandler = (
+      params: unknown,
+    ) => Effect.Effect<unknown, RpcResponseError>;
+    const s2cHandlersRef = yield* Ref.make<HashMap.HashMap<string, S2cHandler>>(
+      HashMap.empty(),
+    );
+
+    // `awaitServerRequest` parks a `Deferred<inbound params>` in this map.
+    // When `handleInbound` decodes a matching s2c request, it offers the
+    // params payload to the matching deferred AND continues the dispatch
+    // path (so the registered handler still replies). `awaitServerRequest`
+    // is therefore an observation primitive, not a replacement for
+    // `handleServerRpc`. Multiple awaiters for the same method are
+    // registration-order FIFO; the predicate filter narrows to the first
+    // request whose params satisfy it.
+    interface AwaitEntry {
+      readonly predicate?: (params: unknown) => boolean;
+      readonly deferred: Deferred.Deferred<unknown, Error>;
+    }
+    const awaitersRef = yield* Ref.make<
+      HashMap.HashMap<string, ReadonlyArray<AwaitEntry>>
+    >(HashMap.empty());
+
     // Acquire the WS socket via @effect/platform. The Node WebSocket
     // constructor layer is provided via `Effect.provide` at each use site
     // so the test harness stays self-contained.
@@ -227,6 +258,11 @@ export function makeTestClient(
         yield* recordFrame(captures, "inbound", raw, frame);
 
         if (frame.type === "response") {
+          // c2s response (server's reply to a TestClient-initiated RPC).
+          // s2c responses (the TestClient's reply to the server's
+          // request) never arrive inbound — TestClient is the originator
+          // of c2s, the responder for s2c.
+          if (frame.direction !== "c2s") return;
           const def = pending.get(frame.id);
           if (def !== undefined) {
             pending.delete(frame.id);
@@ -247,9 +283,121 @@ export function makeTestClient(
           }
           return;
         }
+        if (frame.type === "request") {
+          // s2c request (server-initiated). Architect plan §3.6 third
+          // dispatch branch: notify any `awaitServerRequest` observer
+          // that matches, then run the registered handler (if any) and
+          // write the response back. Both legs are independent — the
+          // observer fires regardless of whether a handler is registered.
+          if (frame.direction !== "s2c") return;
+          yield* notifyAwaiters(frame.method, frame.params);
+          yield* dispatchHandler(frame.id, frame.method, frame.params);
+          return;
+        }
         if (frame.type === "event") {
           yield* Ref.update(eventQueue, (q) => [...q, frame as EventFrame]);
         }
+      });
+
+    // ── handleServerRpc / awaitServerRequest internals ────────────────
+    //
+    // `dispatchHandler` looks up the registered handler in
+    // `s2cHandlersRef`, runs it as an Effect, and writes the response.
+    // Defects (untagged crashes) collapse to a generic InternalError so
+    // the server's `Deferred.await` never hangs.
+
+    const dispatchHandler = (
+      requestId: string,
+      method: string,
+      params: unknown,
+    ): Effect.Effect<void> =>
+      Effect.gen(function* () {
+        const handlers = yield* Ref.get(s2cHandlersRef);
+        const lookup = HashMap.get(handlers, method);
+
+        const responseFrame = yield* lookup._tag === "None"
+          ? Effect.succeed({
+              jsonrpc: "2.0" as const,
+              type: "response" as const,
+              direction: "s2c" as const,
+              id: requestId,
+              error: {
+                code: -32601,
+                message: `No handler registered for method: ${method}`,
+              },
+            })
+          : lookup.value(params).pipe(
+              Effect.match({
+                onSuccess: (result) => ({
+                  jsonrpc: "2.0" as const,
+                  type: "response" as const,
+                  direction: "s2c" as const,
+                  id: requestId,
+                  result,
+                }),
+                onFailure: (err) => ({
+                  jsonrpc: "2.0" as const,
+                  type: "response" as const,
+                  direction: "s2c" as const,
+                  id: requestId,
+                  error: {
+                    code: err.code,
+                    message: err.message,
+                    ...(err.data !== undefined ? { data: err.data } : {}),
+                  },
+                }),
+              }),
+              Effect.catchAllCause((cause) =>
+                Effect.succeed({
+                  jsonrpc: "2.0" as const,
+                  type: "response" as const,
+                  direction: "s2c" as const,
+                  id: requestId,
+                  error: {
+                    code: -32603,
+                    message: `Handler defected: ${Cause.pretty(cause).slice(0, 200)}`,
+                  },
+                }),
+              ),
+            );
+
+        const raw = JSON.stringify(responseFrame);
+        yield* recordFrame(
+          captures,
+          "outbound",
+          raw,
+          responseFrame as AnyFrame,
+        );
+        yield* writeFrame(raw).pipe(Effect.ignore);
+      });
+
+    const notifyAwaiters = (
+      method: string,
+      params: unknown,
+    ): Effect.Effect<void> =>
+      Effect.gen(function* () {
+        const matched = yield* Ref.modify(awaitersRef, (m) => {
+          const bucket = HashMap.get(m, method);
+          if (Option.isNone(bucket)) return [Option.none<AwaitEntry>(), m];
+          const idx = bucket.value.findIndex(
+            (e) => e.predicate === undefined || e.predicate(params),
+          );
+          if (idx === -1) return [Option.none<AwaitEntry>(), m];
+          const chosen = bucket.value[idx]!;
+          const rest = [
+            ...bucket.value.slice(0, idx),
+            ...bucket.value.slice(idx + 1),
+          ];
+          const next =
+            rest.length === 0
+              ? HashMap.remove(m, method)
+              : HashMap.set(m, method, rest);
+          return [Option.some(chosen), next];
+        });
+        if (Option.isNone(matched)) return;
+        yield* Deferred.succeed(matched.value.deferred, params).pipe(
+          Effect.ignore,
+        );
       });
 
     // Fork the reader fiber into the ambient scope. `socket.runRaw` yields
@@ -315,6 +463,7 @@ export function makeTestClient(
         const request: AnyFrame = {
           type: "request",
           jsonrpc: "2.0",
+          direction: "c2s",
           id,
           method,
           params,
@@ -404,6 +553,7 @@ export function makeTestClient(
         const baseFrame: AnyFrame = {
           type: "request",
           jsonrpc: "2.0",
+          direction: "c2s",
           id,
           method: opts.baseMethod,
           params: {},
@@ -475,6 +625,50 @@ export function makeTestClient(
         }),
       );
 
+    const handleServerRpc: TestClient["handleServerRpc"] = (method, handler) =>
+      Ref.update(s2cHandlersRef, (m) =>
+        HashMap.set(m, method, handler as S2cHandler),
+      );
+
+    const awaitServerRequest: TestClient["awaitServerRequest"] = (
+      method,
+      predicate,
+      timeoutMs = 5_000,
+    ) =>
+      Effect.gen(function* () {
+        const deferred = yield* Deferred.make<unknown, Error>();
+        const entry: AwaitEntry = predicate
+          ? { predicate, deferred }
+          : { deferred };
+        yield* Ref.update(awaitersRef, (m) => {
+          const bucket = HashMap.get(m, method);
+          const next =
+            bucket._tag === "Some" ? [...bucket.value, entry] : [entry];
+          return HashMap.set(m, method, next as ReadonlyArray<AwaitEntry>);
+        });
+        return yield* Deferred.await(deferred).pipe(
+          Effect.timeoutFail({
+            duration: Duration.millis(timeoutMs),
+            onTimeout: () =>
+              new Error(
+                `Timeout waiting for server-initiated request: ${method}`,
+              ),
+          }),
+          Effect.onExit((exit) =>
+            exit._tag === "Failure"
+              ? Ref.update(awaitersRef, (m) => {
+                  const bucket = HashMap.get(m, method);
+                  if (Option.isNone(bucket)) return m;
+                  const filtered = bucket.value.filter((e) => e !== entry);
+                  return filtered.length === 0
+                    ? HashMap.remove(m, method)
+                    : HashMap.set(m, method, filtered);
+                })
+              : Effect.void,
+          ),
+        );
+      });
+
     const client: TestClient = {
       sendRpc,
       sendMalformed,
@@ -483,14 +677,8 @@ export function makeTestClient(
       snapshot: captures.snapshot,
       waitForEvent,
       drainEvents: Ref.getAndSet(eventQueue, []),
-      // PHASE 1.6 STUBS — implementer (B.7) replaces with real registry +
-      // inbound dispatch branch in `handleInbound`.
-      handleServerRpc: () => {
-        throw new Error("not implemented");
-      },
-      awaitServerRequest: () => {
-        throw new Error("not implemented");
-      },
+      handleServerRpc,
+      awaitServerRequest,
     };
 
     // Auto-connect handshake (auth/connect). Matches packages/client's

@@ -94,7 +94,7 @@ export function createRpcRouter(methods: RpcMethodRegistry) {
 }
 
 function successResponse(id: string, result: unknown): ResponseFrame {
-  return { jsonrpc: "2.0", type: "response", id, result };
+  return { jsonrpc: "2.0", type: "response", direction: "c2s", id, result };
 }
 
 function errorResponse(
@@ -108,5 +108,11 @@ function errorResponse(
     message,
   };
   if (data !== undefined) error.data = data;
-  return { jsonrpc: "2.0", type: "response", id, error };
+  return {
+    jsonrpc: "2.0",
+    type: "response",
+    direction: "c2s",
+    id,
+    error,
+  };
 }
