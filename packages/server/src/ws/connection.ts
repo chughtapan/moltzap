@@ -54,13 +54,15 @@ export type S2cRpcError =
   | S2cRpcSocketError;
 
 /**
- * Per-connection s2c pending map. Each entry correlates an outbound
- * `S2cRequestFrame` with the `Deferred` that `sendRpcToClient` is awaiting.
+ * Per-connection s2c pending map. Each entry correlates an outbound s2c
+ * request with the `Deferred` that `sendRpcToClient` is awaiting.
  *
  * Entries are inserted by `sendRpcToClient` and drained by either:
- *   - the inbound s2c response router (success or typed error response), or
- *   - the connection's `Scope` finalizer (`failPendingS2cRequests`) on
- *     disconnect, which fails every entry with `AppDisconnected`.
+ *   - the inbound s2c response router (`completeS2cResponse`), on success
+ *     or typed error response, or
+ *   - the connection's `Scope` finalizer (`drainPendingWithAppDisconnected`,
+ *     wired by `acquireS2cConnectionState`), which fails every entry with
+ *     `AppDisconnected` on disconnect.
  *
  * Routing is `(side, type)`-disjoint: c2s requests/responses go through
  * separate paths and never key into this map.
@@ -85,10 +87,11 @@ export interface MoltZapConnection {
   mutedConversations: Set<string>;
   /**
    * Per-connection map of pending server-initiated RPC requests.
-   * `sendRpcToClient` inserts on send; the inbound `s2c` response router
-   * deletes + resolves on reply; the connection scope's finalizer
-   * (`failPendingS2cRequests`) fails every entry with `AppDisconnected` on
-   * disconnect.
+   * `sendRpcToClient` inserts on send; the inbound s2c response router
+   * (`completeS2cResponse`) deletes + resolves on reply; the connection
+   * scope's finalizer (`drainPendingWithAppDisconnected`, wired by
+   * `acquireS2cConnectionState`) fails every entry with `AppDisconnected`
+   * on disconnect.
    */
   readonly s2cPending: Ref.Ref<S2cPendingMap>;
   /**
@@ -196,6 +199,15 @@ export function sendRpcToClient(
     // Write under `Effect.onError`-style cleanup: if write fails, drop the
     // pending entry and fail the Deferred so the caller's `await` observes
     // the typed socket error rather than hanging.
+    //
+    // Race note (intentional, benign): if a disconnect-finalizer fires
+    // between the pending insert above and the write attempt below, the
+    // finalizer drains the entry first and fails the Deferred with
+    // `AppDisconnected`. The cleanup branch then runs `HashMap.remove`
+    // (no-op on the already-empty map) and `Deferred.fail` with
+    // `S2cRpcSocketError` — which `Effect.ignore` swallows because the
+    // Deferred is already settled. Caller observes whichever completion
+    // landed first; both error tags are correct readings of the failure.
     const writeOutcome = yield* Effect.either(connection.write(raw));
     if (writeOutcome._tag === "Left") {
       yield* Ref.update(connection.s2cPending, (m) =>
@@ -224,12 +236,12 @@ export function sendRpcToClient(
  *
  *   - `frame.error` present → `Deferred.fail` with `S2cRpcResponseError`.
  *   - `frame.error` absent  → `Deferred.succeed` with `frame.result`.
- *   - id not in map         → log + drop (likely a stale reply after
+ *   - id not in map         → returns `Option.none()`; caller decides
+ *                              whether to log (likely a stale reply after
  *                              disconnect-finalize already fired).
  *
  * Returns `Option.some(method)` when a pending entry was completed, so the
- * caller can record telemetry or decide whether to log an unmatched-id
- * warning.
+ * caller can record telemetry or attribute the response to its method.
  */
 export function completeS2cResponse(
   connection: MoltZapConnection,
