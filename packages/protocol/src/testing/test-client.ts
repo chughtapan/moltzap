@@ -104,6 +104,44 @@ export interface TestClient {
     timeoutMs?: number,
   ) => Effect.Effect<EventFrame, Error>;
   readonly drainEvents: Effect.Effect<ReadonlyArray<EventFrame>>;
+
+  // ── PHASE 1.6 STUBS — server-initiated RPC test surface (B.0 architect) ──
+  //
+  // `handleServerRpc(method, handler)` registers a handler for a server-
+  // initiated RPC method. When `handleInbound` (line ~181) sees a `request`
+  // frame with `direction: "s2c"`, it looks up the handler, runs it as an
+  // Effect, encodes the response, and writes back over the WS.
+  //
+  // `awaitServerRequest(method, predicate?)` lets a test inspect the inbound
+  // request payload BEFORE replying — used to assert e.g. the multi-app
+  // FIFO short-circuit (the test must verify the FIRST app's request landed
+  // and the SECOND app's did not).
+  //
+  // Implementer (B.7): the inbound dispatch in `handleInbound` currently
+  // routes only `response` and `event`. Add a third branch for
+  // `frame.type === "request"` that:
+  //   1. Looks up the registered handler by `frame.method` in a
+  //      `Ref<Map<string, Handler>>`.
+  //   2. Decodes `params` against the s2c method's params schema.
+  //   3. Runs the handler as an Effect.
+  //   4. Encodes a response frame with `direction: "s2c"` and `id =
+  //      frame.id`, writes it over the socket.
+  //   5. Records both inbound request and outbound response in `captures`.
+  //
+  // Type ergonomics: the stub uses `string` for the method name; B.7 narrows
+  // to a `S2cRpcMethodName` union once `s2cRpcMethods` exists in
+  // `rpc-registry.ts`.
+
+  readonly handleServerRpc: (
+    method: string,
+    handler: (params: unknown) => Effect.Effect<unknown, RpcResponseError>,
+  ) => Effect.Effect<void>;
+
+  readonly awaitServerRequest: (
+    method: string,
+    predicate?: (params: unknown) => boolean,
+    timeoutMs?: number,
+  ) => Effect.Effect<unknown, Error>;
 }
 
 export interface CloseableTestClient extends TestClient {
@@ -445,6 +483,14 @@ export function makeTestClient(
       snapshot: captures.snapshot,
       waitForEvent,
       drainEvents: Ref.getAndSet(eventQueue, []),
+      // PHASE 1.6 STUBS — implementer (B.7) replaces with real registry +
+      // inbound dispatch branch in `handleInbound`.
+      handleServerRpc: () => {
+        throw new Error("not implemented");
+      },
+      awaitServerRequest: () => {
+        throw new Error("not implemented");
+      },
     };
 
     // Auto-connect handshake (auth/connect). Matches packages/client's

@@ -31,6 +31,29 @@ import {
   SendError,
 } from "./errors.js";
 
+// ── PHASE 1.4 STUB TYPE PLACEHOLDERS (B.0 architect) ────────────────────────
+// `BeforeDispatchContext` etc. live in `@moltzap/server`'s `app/hooks.ts`
+// today. Implementer (B.1) MOVES the context type *definitions* into
+// `@moltzap/protocol` (so app-sdk does not depend on server) and re-exports
+// them from app-sdk's `index.ts`. `AttachError` is a new tagged-error class
+// added by B.5 in `./errors.ts`.
+//
+// Local placeholder aliases below let the architect stubs typecheck without
+// requiring the moves to happen first. Implementer REPLACES these with real
+// imports from `@moltzap/protocol` in B.1.
+type _StubCtx = { readonly sessionId: string; readonly appId: string };
+type BeforeDispatchContext = _StubCtx;
+type BeforeMessageDeliveryContext = _StubCtx;
+type OnSessionActiveContext = _StubCtx;
+type OnJoinContext = _StubCtx;
+type OnCloseContext = _StubCtx;
+type DispatchAdmissionResult =
+  | { readonly decision: "grant"; readonly leaseId?: string }
+  | { readonly decision: "deny"; readonly reason?: string }
+  | { readonly decision: "hold"; readonly reason?: string };
+type HookResult = { readonly block: boolean };
+type AttachError = AppError;
+
 type MessageHandler = (message: Message) => void | Promise<void>;
 type SessionReadyHandler = (session: AppSessionHandle) => void | Promise<void>;
 
@@ -341,6 +364,95 @@ export class MoltZapApp {
 
   onError(handler: (error: AppError) => void): void {
     this.errorHandler = handler;
+  }
+
+  // ── PHASE 1.4 STUBS — admission RPC handler surface (B.0 architect) ─────
+  //
+  // These five handlers register against s2c admission RPC verbs from
+  // protocol/methods/apps.ts (B.1). The SDK auto-replies via
+  // `client.handleServerRpc(...)` from B.1's WS-client extension, decoding
+  // params with the corresponding TypeBox schema and encoding the verdict
+  // using `DispatchAdmissionResultSchema` / `HookResultSchema`.
+  //
+  // FAIL-CLOSED HANDLER ERRORS: the SDK wraps each user handler in
+  // `Effect.catchAll`. On thrown / failed handler:
+  //   - onBeforeDispatch    → reply { decision: "deny", reason: "app_handler_error" }
+  //   - onBeforeMessageDelivery → reply { block: true, reason: "app_handler_error" }
+  //   - onSessionActive / onJoin / onClose → reply void; SDK logs the error
+  //     via `logger`. The hook is treated as completed (the spec calls these
+  //     "awaitable void"; their failure must not leave the AppHost waiting).
+  //
+  // CONTEXT TYPES re-exported from the protocol package by B.1:
+  //   `BeforeDispatchContext`, `BeforeMessageDeliveryContext`,
+  //   `OnSessionActiveContext`, `OnJoinContext`, `OnCloseContext`,
+  //   `DispatchAdmissionResult`, `HookResult`. Implementers MUST NOT redefine
+  //   these in app-sdk; they live in `@moltzap/protocol` and re-export from
+  //   the SDK's `index.ts` to give downstream apps direct IntelliSense.
+  // ────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Register a `before_dispatch` admission handler.
+   *
+   * Implementer (B.5): wire via `client.handleServerRpc("apps/onBeforeDispatch",
+   * (params) => handler(decode(params)).pipe(Effect.catchAll(synthesizeDeny)))`.
+   * Multiple registrations on the same hook MUST throw at registration time —
+   * the manifest declares one handler per hook kind.
+   */
+  onBeforeDispatch(
+    _handler: (
+      ctx: BeforeDispatchContext,
+    ) => Effect.Effect<DispatchAdmissionResult, never>,
+  ): void {
+    throw new Error("not implemented");
+  }
+
+  /**
+   * Register a `before_message_delivery` admission handler. Returning
+   * `{ block: false }` allows; `{ block: true, reason }` drops; supplying
+   * `patch.parts` mutates the recipient view; `feedback` emits an
+   * observability hook.
+   */
+  onBeforeMessageDelivery(
+    _handler: (
+      ctx: BeforeMessageDeliveryContext,
+    ) => Effect.Effect<HookResult, never>,
+  ): void {
+    throw new Error("not implemented");
+  }
+
+  /**
+   * Register an awaitable `on_session_active` lifecycle handler. AppHost
+   * gates `app/sessionReady` delivery on the handler completing (preserves
+   * 31-on-session-active.integration.test.ts:200-230 ordering).
+   */
+  onSessionActive(
+    _handler: (ctx: OnSessionActiveContext) => Effect.Effect<void, never>,
+  ): void {
+    throw new Error("not implemented");
+  }
+
+  /** Register an awaitable `on_join` lifecycle handler. */
+  onJoin(_handler: (ctx: OnJoinContext) => Effect.Effect<void, never>): void {
+    throw new Error("not implemented");
+  }
+
+  /** Register an awaitable `on_close` lifecycle handler. */
+  onClose(_handler: (ctx: OnCloseContext) => Effect.Effect<void, never>): void {
+    throw new Error("not implemented");
+  }
+
+  /**
+   * Attach an existing conversation to a session for membership / role-DM
+   * purposes. Wraps the c2s RPC `apps/attachConversation` (B.1).
+   *
+   * Errors: `AttachError` carries the underlying RPC code
+   * (SessionNotFound | ConversationNotFound | NotAuthorized).
+   */
+  attachConversation(
+    _sessionId: string,
+    _conversationId: string,
+  ): Effect.Effect<void, AttachError> {
+    throw new Error("not implemented");
   }
 
   // ── Messaging ──────────────────────────────────────────────────────
