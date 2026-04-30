@@ -12,7 +12,33 @@ const ajv = addFormats(new Ajv({ strict: true }));
 describe("RequestFrameSchema", () => {
   const validate = ajv.compile(RequestFrameSchema);
 
-  it("accepts valid request frame", () => {
+  it("accepts valid c2s request frame", () => {
+    expect(
+      validate({
+        jsonrpc: "2.0",
+        type: "request",
+        direction: "c2s",
+        id: "req-1",
+        method: "messages/send",
+        params: { text: "hello" },
+      }),
+    ).toBe(true);
+  });
+
+  it("accepts valid s2c request frame", () => {
+    expect(
+      validate({
+        jsonrpc: "2.0",
+        type: "request",
+        direction: "s2c",
+        id: "srv-1",
+        method: "apps/onJoin",
+        params: { sessionId: "s-1" },
+      }),
+    ).toBe(true);
+  });
+
+  it("rejects missing direction", () => {
     expect(
       validate({
         jsonrpc: "2.0",
@@ -21,13 +47,30 @@ describe("RequestFrameSchema", () => {
         method: "messages/send",
         params: { text: "hello" },
       }),
-    ).toBe(true);
+    ).toBe(false);
+  });
+
+  it("rejects unknown direction", () => {
+    expect(
+      validate({
+        jsonrpc: "2.0",
+        type: "request",
+        direction: "broadcast",
+        id: "req-1",
+        method: "messages/send",
+      }),
+    ).toBe(false);
   });
 
   it("rejects missing jsonrpc field", () => {
-    expect(validate({ type: "request", id: "req-1", method: "test" })).toBe(
-      false,
-    );
+    expect(
+      validate({
+        type: "request",
+        direction: "c2s",
+        id: "req-1",
+        method: "test",
+      }),
+    ).toBe(false);
   });
 
   it("rejects wrong type", () => {
@@ -35,6 +78,7 @@ describe("RequestFrameSchema", () => {
       validate({
         jsonrpc: "2.0",
         type: "response",
+        direction: "c2s",
         id: "req-1",
         method: "test",
       }),
@@ -45,13 +89,26 @@ describe("RequestFrameSchema", () => {
 describe("ResponseFrameSchema", () => {
   const validate = ajv.compile(ResponseFrameSchema);
 
-  it("accepts success response", () => {
+  it("accepts c2s success response", () => {
     expect(
       validate({
         jsonrpc: "2.0",
         type: "response",
+        direction: "c2s",
         id: "req-1",
         result: { ok: true },
+      }),
+    ).toBe(true);
+  });
+
+  it("accepts s2c success response", () => {
+    expect(
+      validate({
+        jsonrpc: "2.0",
+        type: "response",
+        direction: "s2c",
+        id: "srv-1",
+        result: {},
       }),
     ).toBe(true);
   });
@@ -61,10 +118,22 @@ describe("ResponseFrameSchema", () => {
       validate({
         jsonrpc: "2.0",
         type: "response",
+        direction: "c2s",
         id: "req-1",
         error: { code: -32000, message: "Unauthorized" },
       }),
     ).toBe(true);
+  });
+
+  it("rejects missing direction", () => {
+    expect(
+      validate({
+        jsonrpc: "2.0",
+        type: "response",
+        id: "req-1",
+        result: { ok: true },
+      }),
+    ).toBe(false);
   });
 });
 

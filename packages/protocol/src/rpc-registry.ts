@@ -142,3 +142,44 @@ export type RpcDefinitionFor<Name extends RpcMethodName> =
  */
 export type AnyRpcDefinition = (typeof rpcMethods)[number] &
   RpcDefinition<string, any, any>;
+
+/**
+ * Server-initiated RPC manifests (server → client). Parallel to `rpcMethods`
+ * for c2s. Direction-namespaced so c2s dispatch (server router) cannot
+ * collide with s2c dispatch (client handler registry).
+ *
+ * The tuple is intentionally empty in Phase 1.0 — the primitives ship before
+ * any verbs do. Phase 1.1 (B.2) populates it with the admission/lifecycle
+ * verbs (`apps/onBeforeDispatch`, `apps/onBeforeMessageDelivery`,
+ * `apps/onSessionActive`, `apps/onJoin`, `apps/onClose`).
+ *
+ * Shape parity with `rpcMethods` is load-bearing: once verbs land, callers
+ * type against `S2cRpcMethodName` and `S2cRpcMap[M]`, and the `as const`
+ * preserves literal names for the projection.
+ */
+export const s2cRpcMethods = [] as const satisfies ReadonlyArray<
+  RpcDefinition<string, any, any>
+>;
+
+/**
+ * Projection of `s2cRpcMethods` by wire name. Empty until Phase 1.1 verbs
+ * register. The shape mirrors `RpcMap`.
+ */
+export type S2cRpcMap = {
+  [M in (typeof s2cRpcMethods)[number] as M["name"]]: {
+    params: M["Params"];
+    result: M["Result"];
+    definition: M;
+  };
+};
+
+/**
+ * `S2cRpcMethodName = never` until verbs land in `s2cRpcMethods`. Once
+ * populated, every `sendRpcToClient` / `handleServerRpc` call site narrows
+ * against this union.
+ */
+export type S2cRpcMethodName = keyof S2cRpcMap;
+
+/** Helper for callers that want the manifest type for a given s2c method. */
+export type S2cRpcDefinitionFor<Name extends S2cRpcMethodName> =
+  S2cRpcMap[Name]["definition"];

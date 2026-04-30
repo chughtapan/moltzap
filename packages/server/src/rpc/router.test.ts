@@ -26,7 +26,14 @@ const pendingAgent: AuthenticatedContext = {
 };
 
 function frame(method: string, params?: unknown): RequestFrame {
-  return { jsonrpc: "2.0", type: "request", id: "req-1", method, params };
+  return {
+    jsonrpc: "2.0",
+    type: "request",
+    direction: "c2s",
+    id: "req-1",
+    method,
+    params,
+  };
 }
 
 describe("createRpcRouter", () => {

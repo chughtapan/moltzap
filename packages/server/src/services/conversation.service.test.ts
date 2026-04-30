@@ -28,7 +28,12 @@ import type { Database } from "../db/database.js";
 import { AuthService } from "./auth.service.js";
 import { ConversationService } from "./conversation.service.js";
 import { ParticipantService } from "./participant.service.js";
-import { ConnectionManager, type MoltZapConnection } from "../ws/connection.js";
+import {
+  ConnectionManager,
+  type MoltZapConnection,
+  type S2cPendingMap,
+} from "../ws/connection.js";
+import { HashMap, Ref } from "effect";
 import type { AuthenticatedContext } from "../rpc/context.js";
 import type { AgentId } from "../app/types.js";
 
@@ -73,6 +78,8 @@ function makeConn(connId: string, agentId: string): MoltZapConnection {
     lastPong: Date.now(),
     conversationIds: new Set<string>(),
     mutedConversations: new Set<string>(),
+    s2cPending: Ref.unsafeMake<S2cPendingMap>(HashMap.empty()),
+    s2cRequestCounter: Ref.unsafeMake(0),
   };
 }
 
