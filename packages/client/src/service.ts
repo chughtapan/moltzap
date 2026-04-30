@@ -13,7 +13,11 @@ import {
   EventNames,
 } from "@moltzap/protocol";
 import { Effect, HashMap, Match, Option, Ref } from "effect";
-import { MoltZapWsClient, type WsClientLogger } from "./ws-client.js";
+import {
+  MoltZapWsClient,
+  type RpcCallOptions,
+  type WsClientLogger,
+} from "./ws-client.js";
 import {
   AgentNotFoundError,
   NotConnectedError,
@@ -21,6 +25,36 @@ import {
   RpcTimeoutError,
 } from "./runtime/errors.js";
 import { getOr, snapshot } from "./runtime/refs.js";
+import type {
+  DispatchAdmissionDecision,
+  DispatchAdmissionRequest,
+} from "./channel-core.js";
+
+const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+function appendClientEventTrace(record: Record<string, unknown>): void {
+  const dir = process.env["MOLTZAP_CLIENT_EVENT_LOG_DIR"];
+  if (!dir) return;
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    const agentId =
+      typeof record["agentId"] === "string" ? record["agentId"] : "unknown";
+    const safeAgentId = /^[A-Za-z0-9_-]+$/.test(agentId) ? agentId : "unknown";
+    fs.appendFileSync(
+      path.join(dir, `client-events-${safeAgentId}.jsonl`),
+      JSON.stringify(record) + "\n",
+    );
+  } catch (err) {
+    try {
+      process.stderr.write(
+        `moltzap client event trace write failed: ${err instanceof Error ? err.message : String(err)}\n`,
+      );
+    } catch (stderrErr) {
+      void stderrErr;
+    }
+  }
+}
 
 /**
  * Errors that can surface from the Effect-based service API. Matches the
@@ -90,6 +124,8 @@ export interface ServiceOptions {
 }
 
 type EventHandler<T> = (data: T) => void;
+
+const DISPATCH_AUTHORIZATION_RPC_TIMEOUT_MS = 900_000;
 
 interface HelloOk {
   agentId: string;
@@ -649,13 +685,72 @@ export class MoltZapService {
   send(
     convId: string,
     text: string,
-    opts?: { replyTo?: string },
+    opts?: { replyTo?: string; dispatchLeaseId?: string },
   ): Effect.Effect<void, ServiceRpcError> {
     return Effect.asVoid(
       this.sendRpc("messages/send", {
         conversationId: convId,
         parts: [{ type: "text", text }],
         ...(opts?.replyTo ? { replyToId: opts.replyTo } : {}),
+        ...(opts?.dispatchLeaseId
+          ? { dispatchLeaseId: opts.dispatchLeaseId }
+          : {}),
+      }),
+    );
+  }
+
+  authorizeDispatch(
+    request: DispatchAdmissionRequest,
+  ): Effect.Effect<DispatchAdmissionDecision, ServiceRpcError> {
+    return this.sendRpc(
+      "apps/authorizeDispatch",
+      {
+        conversationId: request.conversationId,
+        messageId: request.message.id,
+        senderAgentId: request.senderAgentId,
+        parts: request.message.parts,
+        receivedAt: request.receivedAt,
+        clock: request.clock,
+        pending: request.pending,
+        attempt: request.attempt,
+      },
+      { timeoutMs: DISPATCH_AUTHORIZATION_RPC_TIMEOUT_MS },
+    ).pipe(
+      Effect.map((result) => {
+        const admission = (
+          result as {
+            admission:
+              | {
+                  decision: "grant";
+                  leaseId?: string;
+                  leaseTimeoutMs?: number;
+                  dispatchMessageId?: string;
+                }
+              | { decision: "deny"; reason?: string }
+              | { decision: "hold"; reason?: string };
+          }
+        ).admission;
+        switch (admission.decision) {
+          case "grant":
+            return {
+              _tag: "grant" as const,
+              leaseId: admission.leaseId,
+              leaseTimeoutMs: admission.leaseTimeoutMs,
+              ...(admission.dispatchMessageId
+                ? { dispatchMessageId: admission.dispatchMessageId }
+                : {}),
+            };
+          case "deny":
+            return {
+              _tag: "deny" as const,
+              reason: admission.reason,
+            };
+          case "hold":
+            return {
+              _tag: "hold" as const,
+              reason: admission.reason,
+            };
+        }
       }),
     );
   }
@@ -926,12 +1021,13 @@ export class MoltZapService {
   sendRpc(
     method: string,
     params?: unknown,
+    opts?: RpcCallOptions,
   ): Effect.Effect<unknown, ServiceRpcError> {
     return Effect.suspend(() => {
       if (!this.client) {
         return Effect.fail(new NotConnectedError({ message: "Not connected" }));
       }
-      return this.client.sendRpc(method, params);
+      return this.client.sendRpc(method, params, opts);
     });
   }
 
@@ -1000,6 +1096,24 @@ export class MoltZapService {
   }
 
   private handleEvent(event: EventFrame): void {
+    const eventData = isPlainRecord(event.data) ? event.data : {};
+    const message = isPlainRecord(eventData["message"])
+      ? eventData["message"]
+      : undefined;
+    const conversation = isPlainRecord(eventData["conversation"])
+      ? eventData["conversation"]
+      : undefined;
+    appendClientEventTrace({
+      ts: new Date().toISOString(),
+      agentId: this._ownAgentId ?? "unknown",
+      event: event.event,
+      messageId: message?.["id"],
+      messageConversationId: message?.["conversationId"],
+      messageSenderId: message?.["senderId"],
+      conversationId: conversation?.["id"],
+      conversationName: conversation?.["name"],
+    });
+
     fanout(this.rawEventHandlers, event, this.opts.logger);
 
     // The server validates event.data against each event's schema before

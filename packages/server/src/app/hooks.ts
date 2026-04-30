@@ -1,12 +1,33 @@
-import type { Part } from "@moltzap/protocol";
+import type { LogicalClock, Part } from "@moltzap/protocol";
 import { Schema } from "effect";
 
 export interface BeforeMessageDeliveryContext {
   conversationId: string;
   sender: { agentId: string; ownerId: string };
-  message: { parts: Part[]; replyToId?: string };
+  message: { parts: Part[]; replyToId?: string; dispatchLeaseId?: string };
   sessionId: string;
   appId: string;
+  signal: AbortSignal;
+}
+
+export interface BeforeDispatchContext {
+  conversationId: string;
+  recipient: { agentId: string; ownerId: string };
+  message: { id: string; senderAgentId: string; parts?: Part[] };
+  sessionId: string;
+  appId: string;
+  attempt: number;
+  receivedAt?: string;
+  clock?: LogicalClock;
+  pending?: ReadonlyArray<{
+    messageId: string;
+    conversationId: string;
+    senderAgentId: string;
+    createdAt: string;
+    receivedAt: string;
+    clock?: LogicalClock;
+    parts?: Part[];
+  }>;
   signal: AbortSignal;
 }
 
@@ -48,6 +69,33 @@ export const HookResultSchema = Schema.Struct({
   ),
 }) as Schema.Schema<HookResult, unknown>;
 
+export type DispatchAdmissionResult =
+  | {
+      decision: "grant";
+      leaseId?: string;
+      leaseTimeoutMs?: number;
+      dispatchMessageId?: string;
+    }
+  | { decision: "deny"; reason?: string }
+  | { decision: "hold"; reason?: string };
+
+export const DispatchAdmissionResultSchema = Schema.Union(
+  Schema.Struct({
+    decision: Schema.Literal("grant"),
+    leaseId: Schema.optional(Schema.String),
+    leaseTimeoutMs: Schema.optional(Schema.Number),
+    dispatchMessageId: Schema.optional(Schema.String),
+  }),
+  Schema.Struct({
+    decision: Schema.Literal("deny"),
+    reason: Schema.optional(Schema.String),
+  }),
+  Schema.Struct({
+    decision: Schema.Literal("hold"),
+    reason: Schema.optional(Schema.String),
+  }),
+) as Schema.Schema<DispatchAdmissionResult, unknown>;
+
 /** Fire-and-forget hooks (`on_join`, `on_close`, `on_session_active`) — any payload is ignored. */
 export const VoidHookSchema: Schema.Schema<void, unknown> = Schema.transform(
   Schema.Unknown,
@@ -58,6 +106,10 @@ export const VoidHookSchema: Schema.Schema<void, unknown> = Schema.transform(
 export type BeforeMessageDeliveryHook = (
   ctx: BeforeMessageDeliveryContext,
 ) => HookResult | Promise<HookResult>;
+
+export type BeforeDispatchHook = (
+  ctx: BeforeDispatchContext,
+) => DispatchAdmissionResult | Promise<DispatchAdmissionResult>;
 
 export interface OnJoinContext {
   conversations: Record<string, string>;
@@ -92,6 +144,7 @@ export type OnSessionActiveHook = (
 
 export interface AppHooks {
   beforeMessageDelivery?: BeforeMessageDeliveryHook;
+  beforeDispatch?: BeforeDispatchHook;
   onJoin?: OnJoinHook;
   onClose?: OnCloseHook;
   onSessionActive?: OnSessionActiveHook;
