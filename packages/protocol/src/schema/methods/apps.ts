@@ -222,31 +222,21 @@ export const AppsAuthorizeDispatch = defineRpc({
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PHASE 1.1 STUBS — admission RPC verbs (server-initiated) and apps/attachConversation.
+// Admission + lifecycle RPC verbs.
 //
-// All five s2c verbs are AWAITABLE (NOT fire-and-forget):
-//   - onBeforeDispatch / onBeforeMessageDelivery → carry verdict in result.
-//   - onSessionActive / onJoin / onClose → awaitable void; AppHost waits for
-//     completion before emitting `app/sessionReady` (per
-//     31-on-session-active.integration.test.ts:200-230) and analogous ordering
-//     for the other lifecycle hooks. Result schema = empty object so the
-//     reply round-trip happens; payload is ignored.
+// All five s2c verbs are AWAITABLE — `onSessionActive` / `onJoin` / `onClose`
+// reply with an empty object so AppHost can `Deferred.await` and apply the
+// manifest hook timeout. They are NOT fire-and-forget; `app/sessionReady`
+// delivery is gated on the `onSessionActive` reply (existing ordering
+// invariant — see `31-on-session-active.integration.test.ts:200-230`).
 //
-// VERDICT SHAPES PRESERVED — DO NOT INVENT NEW SHAPES:
-//   - `DispatchAdmissionResult` matches `app/hooks.ts:72-80` exactly:
-//     grant + leaseId + leaseTimeoutMs + dispatchMessageId | deny + reason | hold + reason.
-//     `DispatchAdmissionDecision` constant above is already that shape and
-//     is reused below by `AppsOnBeforeDispatch`.
-//   - `HookResult` matches `app/hooks.ts:34-43`: { block, reason?, patch?, feedback? }.
+// Verdict shapes mirror `packages/server/src/app/hooks.ts` verbatim — the
+// `DispatchAdmissionDecision` constant defined above (and reused here) is the
+// same union, and `HookResultSchema` matches `HookResult` field-for-field.
+// Adding a new verdict tag is a protocol change; do it in the spec, not here.
 //
-// SCHEMA REGISTRATION: implementer (B.1) adds these definitions to a NEW
-// `s2cRpcMethods` tuple parallel to `rpcMethods` in `rpc-registry.ts`, with
-// a parallel `S2cRpcMap` and `S2cRpcMethodName`. Direction-namespaced so c2s
-// dispatch (server router) cannot collide with s2c dispatch (client handler
-// registry).
-//
-// `apps/attachConversation` is c2s (client-originated) and therefore registers
-// in the existing `rpcMethods` tuple alongside `apps/closeSession` etc.
+// `apps/attachConversation` is the only c2s verb in this block and is
+// registered in the c2s `rpcMethods` tuple, not `s2cRpcMethods`.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const HookSenderSchema = Type.Object(

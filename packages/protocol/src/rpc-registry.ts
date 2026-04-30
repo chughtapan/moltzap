@@ -42,6 +42,12 @@ import {
   AppsGetSession,
   AppsListSessions,
   AppsAuthorizeDispatch,
+  AppsAttachConversation,
+  AppsOnBeforeDispatch,
+  AppsOnBeforeMessageDelivery,
+  AppsOnSessionActive,
+  AppsOnJoin,
+  AppsOnClose,
 } from "./schema/methods/apps.js";
 import {
   SurfaceUpdate,
@@ -103,6 +109,7 @@ export const rpcMethods = [
   AppsGetSession,
   AppsListSessions,
   AppsAuthorizeDispatch,
+  AppsAttachConversation,
   // Surfaces
   SurfaceUpdate,
   SurfaceGet,
@@ -144,22 +151,22 @@ export type AnyRpcDefinition = (typeof rpcMethods)[number] &
   RpcDefinition<string, any, any>;
 
 /**
- * Server-initiated RPC manifests (server → client). Parallel to `rpcMethods`
- * for c2s. Direction-namespaced so c2s dispatch (server router) cannot
- * collide with s2c dispatch (client handler registry).
+ * Server-initiated RPC manifests (server → client). Direction-namespaced so
+ * c2s dispatch (server router) cannot collide with s2c dispatch (client
+ * handler registry); the two pools may share `id` values without confusion.
  *
- * The tuple is intentionally empty in Phase 1.0 — the primitives ship before
- * any verbs do. Phase 1.1 (B.2) populates it with the admission/lifecycle
- * verbs (`apps/onBeforeDispatch`, `apps/onBeforeMessageDelivery`,
- * `apps/onSessionActive`, `apps/onJoin`, `apps/onClose`).
- *
- * Shape parity with `rpcMethods` is load-bearing: once verbs land, callers
- * type against `S2cRpcMethodName` and `S2cRpcMap[M]`, and the `as const`
- * preserves literal names for the projection.
+ * Shape parity with `rpcMethods` is load-bearing: callers type against
+ * `S2cRpcMethodName` / `S2cRpcMap[M]`, and the `as const` preserves literal
+ * names for the projection. All entries are AWAITABLE; void-result verbs
+ * still reply (with `{}`) so the caller's `Deferred.await` can fire.
  */
-export const s2cRpcMethods = [] as const satisfies ReadonlyArray<
-  RpcDefinition<string, any, any>
->;
+export const s2cRpcMethods = [
+  AppsOnBeforeDispatch,
+  AppsOnBeforeMessageDelivery,
+  AppsOnSessionActive,
+  AppsOnJoin,
+  AppsOnClose,
+] as const satisfies ReadonlyArray<RpcDefinition<string, any, any>>;
 
 /**
  * Projection of `s2cRpcMethods` by wire name. Empty until Phase 1.1 verbs
@@ -174,9 +181,10 @@ export type S2cRpcMap = {
 };
 
 /**
- * `S2cRpcMethodName = never` until verbs land in `s2cRpcMethods`. Once
- * populated, every `sendRpcToClient` / `handleServerRpc` call site narrows
- * against this union.
+ * Union of every s2c method's wire name. `sendRpcToClient` / `handleServerRpc`
+ * narrow against this — adding a verb to `s2cRpcMethods` widens the union
+ * automatically; renaming the wire `name` of a manifest fails every typed
+ * call site at compile time.
  */
 export type S2cRpcMethodName = keyof S2cRpcMap;
 
