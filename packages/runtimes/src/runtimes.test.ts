@@ -53,11 +53,12 @@ vi.mock("./openclaw-adapter.js", async () => {
 });
 
 // Minimal stub for the live server surface the adapters poll for readiness.
+// `awaitAgentReady` returns `Effect.never` to model "agent never authenticates" —
+// adapters under test either short-circuit on no-spawn or rely on their own
+// process-exit detector to resolve the race.
 function stubServer(): RuntimeServerHandle {
   return {
-    connections: {
-      getByAgent: (_agentId: string) => [],
-    },
+    awaitAgentReady: (_agentId: string, _timeoutMs: number) => Effect.never,
   };
 }
 

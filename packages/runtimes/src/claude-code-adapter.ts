@@ -346,13 +346,17 @@ export class ClaudeCodeAdapter implements Runtime {
     const { process: proc, spawnInput, logBuffer } = this.state;
     const agentId = spawnInput.agentId;
 
-    // One probe per tick: returns a `ReadyOutcome` once the agent is
-    // authenticated or the subprocess has exited; returns `null` to
-    // signal "keep polling." The exit check uses `Fiber.poll` (no
-    // side-channel mutable — issue #272 item 5).
-    const tick: Effect.Effect<ReadyOutcome | null, never, never> = Effect.gen(
-      this,
-      function* () {
+    // The server side of readiness — Ready when ConnectionManager records
+    // an authenticated connection, Timeout if it never does. Pluggable per
+    // server-handle implementation (in-process polling vs. out-of-process
+    // WS-presence subscription).
+    const serverReady = this.deps.server.awaitAgentReady(agentId, timeoutMs);
+
+    // The adapter side of readiness — only resolves on `ProcessExited`.
+    // Effect.race interrupts whichever branch loses, so as long as one
+    // side resolves the other gets cancelled cleanly.
+    const exitTick: Effect.Effect<ReadyOutcome | null, never, never> =
+      Effect.gen(function* () {
         const exitOpt = yield* pollExitCode(proc.exitFiber);
         if (Option.isSome(exitOpt)) {
           return {
@@ -361,41 +365,44 @@ export class ClaudeCodeAdapter implements Runtime {
             stderr: logBuffer.value,
           };
         }
-        const connections = this.deps.server.connections.getByAgent(agentId);
-        if (connections.length > 0 && connections[0]!.auth !== null) {
-          return { _tag: "Ready" as const };
-        }
         return null;
-      },
-    );
-
-    // Probe once, then iterate-with-sleep until probe yields a non-null
-    // outcome. `Effect.iterate` is the Effect-native equivalent of a
-    // `while (state === null) { sleep; state = probe(); }` loop and
-    // returns the final state.
-    const pollLoop = pipe(
-      tick,
-      Effect.flatMap((initial) =>
-        Effect.iterate(initial, {
-          while: (state) => state === null,
-          body: () => Effect.sleep("500 millis").pipe(Effect.zipRight(tick)),
-        }),
+      });
+    const exitLoop: Effect.Effect<ReadyOutcome, never, never> = pipe(
+      Effect.iterate(null as ReadyOutcome | null, {
+        while: (s) => s === null,
+        body: () => Effect.sleep("250 millis").pipe(Effect.zipRight(exitTick)),
+      }),
+      // The `?? Timeout` fallback is unreachable (iterate exits only on
+      // non-null), but TypeScript narrows away the `null` branch and gives
+      // us a uniform `ReadyOutcome` for the race.
+      Effect.map(
+        (s): ReadyOutcome => s ?? { _tag: "Timeout" as const, timeoutMs },
       ),
     );
 
     return pipe(
-      pollLoop,
-      // Timeout fans the never-ready case into a `Timeout` outcome and
-      // hands the rest of the pipeline a uniform `ReadyOutcome` value.
-      Effect.timeoutTo({
-        duration: `${timeoutMs} millis`,
-        onSuccess: (outcome): ReadyOutcome =>
-          outcome ?? { _tag: "Ready" as const },
-        onTimeout: (): ReadyOutcome => ({
-          _tag: "Timeout" as const,
-          timeoutMs,
-        }),
-      }),
+      Effect.race(serverReady, exitLoop),
+      // Final-check: if the race resolved `Timeout`, the process may have
+      // exited within the last `exitLoop` tick window — give the adapter one
+      // last sync poll so a near-deadline exit still surfaces with stderr
+      // instead of an opaque `Timeout`.
+      Effect.flatMap((outcome) =>
+        outcome._tag !== "Timeout"
+          ? Effect.succeed(outcome)
+          : pipe(
+              pollExitCode(proc.exitFiber),
+              Effect.map(
+                (exitOpt): ReadyOutcome =>
+                  Option.isSome(exitOpt)
+                    ? {
+                        _tag: "ProcessExited" as const,
+                        exitCode: exitOpt.value,
+                        stderr: logBuffer.value,
+                      }
+                    : outcome,
+              ),
+            ),
+      ),
       // Failure outcomes (Timeout, ProcessExited) tear down before returning
       // — keeps the Runtime contract that the adapter cleans up after itself.
       Effect.tap((outcome) =>

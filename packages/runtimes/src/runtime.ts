@@ -15,14 +15,24 @@ export interface WorkspaceFile {
   readonly content: string;
 }
 
-export interface RuntimeConnection {
-  readonly auth: unknown | null;
-}
-
 export interface RuntimeServerHandle {
-  readonly connections: {
-    getByAgent(agentId: string): ReadonlyArray<RuntimeConnection>;
-  };
+  /**
+   * Resolves to `Ready` when the named agent has authenticated against the
+   * server. Resolves to `Timeout` after `timeoutMs` if no authenticated
+   * connection ever appears. Resolves to `ProcessExited` only if the
+   * implementation can detect that the agent's owning process exited before
+   * authenticating; otherwise `Timeout` covers that case (the runtime
+   * adapters layer their own exit-detection on top via `Effect.race`).
+   *
+   * In-process implementations wire this through `awaitAgentReadyByPolling`.
+   * Out-of-process implementations (e.g., a zapbot orchestrator talking to
+   * a standalone moltzap-server) implement it directly, typically via a
+   * presence-event subscription on the server's WebSocket API.
+   */
+  awaitAgentReady(
+    agentId: string,
+    timeoutMs: number,
+  ): Effect.Effect<ReadyOutcome, never, never>;
 }
 
 export interface SpawnInput {

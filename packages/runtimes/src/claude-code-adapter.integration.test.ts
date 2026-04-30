@@ -86,7 +86,7 @@ if (CLAUDE_BIN === null) {
       );
 
       const adapter = createWorkspaceClaudeCodeAdapter({
-        server: { connections: server.coreApp.connections },
+        server: server.runtimeServer,
         claudeBin: CLAUDE_BIN,
         channelDistDir: CC_CHANNEL_DIST,
         repoRoot: REPO_ROOT,

@@ -5,6 +5,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Kysely } from "kysely";
+import { Effect, pipe, type Layer } from "effect";
 import { createCoreApp } from "../app/server.js";
 import { seedInitialKek } from "../crypto/key-rotation.js";
 import { EnvelopeEncryption } from "../crypto/envelope.js";
@@ -13,12 +14,68 @@ import type { TraceCaptureTag } from "../runtime-surface/trace-capture.js";
 import type { Database } from "../db/database.js";
 import type { UserService } from "../services/user.service.js";
 import { makeEffectKysely } from "../db/effect-kysely-toolkit.js";
-import type { Layer } from "effect";
 
 export type { Database } from "../db/database.js";
 export type { CoreApp } from "../app/types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// Minimal duplicate of `@moltzap/runtimes`'s `awaitAgentReadyByPolling` and
+// `RuntimeServerHandle`/`ReadyOutcome` shapes. We can't import from
+// `@moltzap/runtimes` here without flipping the workspace dep direction
+// (runtimes already devDeps server-core); structural typing keeps both
+// sides honest — the integration test threads `runtimeServer` directly into
+// the adapter's `RuntimeServerHandle` slot, so any drift surfaces at compile
+// time on the consumer.
+type CoreTestReadyOutcome =
+  | { readonly _tag: "Ready" }
+  | { readonly _tag: "Timeout"; readonly timeoutMs: number }
+  | {
+      readonly _tag: "ProcessExited";
+      readonly exitCode: number | null;
+      readonly stderr: string;
+    };
+
+export interface CoreTestRuntimeServerHandle {
+  awaitAgentReady(
+    agentId: string,
+    timeoutMs: number,
+  ): Effect.Effect<CoreTestReadyOutcome, never, never>;
+}
+
+function awaitAgentReadyByPolling(
+  connections: {
+    getByAgent(id: string): ReadonlyArray<{ readonly auth: unknown | null }>;
+  },
+  agentId: string,
+  timeoutMs: number,
+): Effect.Effect<CoreTestReadyOutcome, never, never> {
+  const tick = Effect.sync(() => {
+    const conns = connections.getByAgent(agentId);
+    return conns.length > 0 && conns[0]!.auth !== null;
+  });
+  const pollLoop = pipe(
+    tick,
+    Effect.flatMap((ready) =>
+      Effect.iterate(ready, {
+        while: (s) => !s,
+        body: () => Effect.sleep("500 millis").pipe(Effect.zipRight(tick)),
+      }),
+    ),
+    Effect.as<CoreTestReadyOutcome>({ _tag: "Ready" as const }),
+  );
+  return pipe(
+    pollLoop,
+    Effect.timeoutTo({
+      duration: `${timeoutMs} millis`,
+      onSuccess: (outcome): CoreTestReadyOutcome => outcome,
+      onTimeout: (): CoreTestReadyOutcome => ({
+        _tag: "Timeout" as const,
+        timeoutMs,
+      }),
+    }),
+  );
+}
 
 let coreApp: CoreApp | null = null;
 let appDb: Kysely<Database> | null = null;
@@ -35,6 +92,14 @@ export interface CoreTestServer {
   wsUrl: string;
   db: Kysely<Database>;
   coreApp: CoreApp;
+  /**
+   * Pre-wired `RuntimeServerHandle` for runtime-adapter tests. Implements
+   * `awaitAgentReady` by polling the live `ConnectionManager` — the same
+   * pattern `@moltzap/runtimes`'s `awaitAgentReadyByPolling` exports for
+   * downstream in-process consumers. Out-of-process consumers (zapbot's
+   * orchestrator) construct their own handle over WebSocket presence.
+   */
+  runtimeServer: CoreTestRuntimeServerHandle;
 }
 
 export async function startCoreTestServer(_opts?: {
@@ -96,7 +161,18 @@ export async function startCoreTestServer(_opts?: {
   _baseUrl = `http://localhost:${assignedPort}`;
   _wsUrl = `ws://localhost:${assignedPort}/ws`;
 
-  return { baseUrl: _baseUrl, wsUrl: _wsUrl, db: appDb, coreApp };
+  const runtimeServer: CoreTestRuntimeServerHandle = {
+    awaitAgentReady: (agentId, timeoutMs) =>
+      awaitAgentReadyByPolling(coreApp!.connections, agentId, timeoutMs),
+  };
+
+  return {
+    baseUrl: _baseUrl,
+    wsUrl: _wsUrl,
+    db: appDb,
+    coreApp,
+    runtimeServer,
+  };
 }
 
 export async function stopCoreTestServer(): Promise<void> {

@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, pipe } from "effect";
 
 import type {
   Runtime,
@@ -53,47 +53,62 @@ export class NanoclawAdapter implements Runtime {
   }
 
   waitUntilReady(timeoutMs: number): Effect.Effect<ReadyOutcome, never, never> {
-    return Effect.async<ReadyOutcome, never, never>((resume) => {
-      if (!this.state) {
-        resume(Effect.succeed({ _tag: "Ready" as const }));
-        return;
-      }
+    if (!this.state) {
+      return Effect.succeed({ _tag: "Ready" as const });
+    }
+    const { handle, spawnInput } = this.state;
+    const agentId = spawnInput.agentId;
 
-      const deadline = Date.now() + timeoutMs;
-      const { handle, spawnInput } = this.state;
-      const agentId = spawnInput.agentId;
+    const serverReady = this.deps.server.awaitAgentReady(agentId, timeoutMs);
 
-      const check = () => {
-        if (handle.proc.exitCode !== null) {
-          const stderr = getNanoclawRuntimeLogs(handle);
-          this.runTeardown();
-          resume(
-            Effect.succeed({
-              _tag: "ProcessExited" as const,
-              exitCode: handle.proc.exitCode,
-              stderr,
-            }),
-          );
-          return;
-        }
+    // Adapter-side `ProcessExited` detector. Polls the nanoclaw subprocess'
+    // exit code until it terminates, then surfaces stderr from the runtime's
+    // log accumulator.
+    const exitTick: Effect.Effect<ReadyOutcome | null, never, never> =
+      Effect.sync(() => {
+        if (handle.proc.exitCode === null) return null;
+        return {
+          _tag: "ProcessExited" as const,
+          exitCode: handle.proc.exitCode,
+          stderr: getNanoclawRuntimeLogs(handle),
+        };
+      });
+    const exitLoop: Effect.Effect<ReadyOutcome, never, never> = pipe(
+      Effect.iterate(null as ReadyOutcome | null, {
+        while: (s) => s === null,
+        body: () => Effect.sleep("250 millis").pipe(Effect.zipRight(exitTick)),
+      }),
+      Effect.map(
+        (s): ReadyOutcome => s ?? { _tag: "Timeout" as const, timeoutMs },
+      ),
+    );
 
-        const connections = this.deps.server.connections.getByAgent(agentId);
-        if (connections.length > 0 && connections[0]!.auth !== null) {
-          resume(Effect.succeed({ _tag: "Ready" as const }));
-          return;
-        }
-
-        if (Date.now() > deadline) {
-          this.runTeardown();
-          resume(Effect.succeed({ _tag: "Timeout" as const, timeoutMs }));
-          return;
-        }
-
-        setTimeout(check, 500);
-      };
-
-      check();
-    });
+    return pipe(
+      Effect.race(serverReady, exitLoop),
+      // Final-check: if the race resolved `Timeout`, nanoclaw's subprocess
+      // may have exited within the last `exitLoop` tick window — one last
+      // sync probe promotes that case to `ProcessExited` with the actual
+      // exit code so the diagnostic stderr isn't lost behind an opaque
+      // `Timeout`.
+      Effect.flatMap(
+        (outcome): Effect.Effect<ReadyOutcome, never, never> =>
+          outcome._tag !== "Timeout"
+            ? Effect.succeed(outcome)
+            : Effect.sync(
+                (): ReadyOutcome =>
+                  handle.proc.exitCode !== null
+                    ? {
+                        _tag: "ProcessExited" as const,
+                        exitCode: handle.proc.exitCode,
+                        stderr: getNanoclawRuntimeLogs(handle),
+                      }
+                    : outcome,
+              ),
+      ),
+      Effect.tap((outcome) =>
+        outcome._tag === "Ready" ? Effect.void : this.teardown(),
+      ),
+    );
   }
 
   teardown(): Effect.Effect<void, never, never> {
@@ -117,10 +132,5 @@ export class NanoclawAdapter implements Runtime {
     if (!this.state || this.state.tornDown) return;
     this.state.tornDown = true;
     await stopNanoclawRuntime(this.state.handle);
-  }
-
-  private runTeardown(): void {
-    // #ignore-sloppy-code-next-line[promise-type]: fire-and-forget cleanup — resume callback cannot await
-    void this.doTeardown();
   }
 }
