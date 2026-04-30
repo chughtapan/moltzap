@@ -169,8 +169,7 @@ export const s2cRpcMethods = [
 ] as const satisfies ReadonlyArray<RpcDefinition<string, any, any>>;
 
 /**
- * Projection of `s2cRpcMethods` by wire name. Empty until Phase 1.1 verbs
- * register. The shape mirrors `RpcMap`.
+ * Projection of `s2cRpcMethods` by wire name. Shape mirrors `RpcMap`.
  */
 export type S2cRpcMap = {
   [M in (typeof s2cRpcMethods)[number] as M["name"]]: {
