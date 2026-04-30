@@ -110,8 +110,23 @@ interface ConnState {
    * invariant; the dropped requests' server-side `Deferred`s eventually
    * fail via `Effect.timeout` at the AppHost call site (no schema-level
    * cap; caller controls).
+   *
+   * The Queue is allocated INSIDE `connectEffect` (sync yield, fine) but
+   * is NOT bound to the per-connect `Scope` — `Queue.shutdown` is async
+   * and the scope is closed by `runSync(close())` callsites
+   * (`packages/openclaw-channel/src/__tests__/reconnection.integration.test.ts:14`).
+   * Instead the queue is shut down via `runFork` from `close()` /
+   * `disconnectSync()` alongside `Fiber.interrupt(s2cDispatcherFiber)`,
+   * mirroring the reader-fiber teardown pattern.
    */
   readonly s2cInboundQueue: Queue.Queue<DecodedServerRequest>;
+  /**
+   * Dispatcher fiber that runs `Stream.runForEach` over `s2cInboundQueue`.
+   * Forked via `this.runtime.runFork` (NOT `forkScoped`) so disconnect
+   * can interrupt it asynchronously without blocking `runSync(close())`.
+   * Mirrors `readerFiber` ownership.
+   */
+  readonly s2cDispatcherFiber: Fiber.RuntimeFiber<void, never>;
 }
 
 /**
@@ -483,6 +498,14 @@ export class MoltZapWsClient {
           .write(new Socket.CloseEvent(1000, "normal"))
           .pipe(Effect.orDie);
         yield* Scope.close(state.value.scope, Exit.void);
+        // s2c queue + dispatcher are NOT scope-bound (see ConnState
+        // doc): tear them down via runFork so this Effect remains
+        // sync-runnable for callers using `runSync(client.close())`.
+        // Queue.shutdown ends the dispatcher's `Stream.fromQueue`
+        // naturally; the explicit `Fiber.interrupt` is belt-and-braces
+        // for any handler currently mid-Effect.
+        this.runtime.runFork(Queue.shutdown(state.value.s2cInboundQueue));
+        this.runtime.runFork(Fiber.interrupt(state.value.s2cDispatcherFiber));
       }
     }).pipe(
       Effect.asVoid,
@@ -562,6 +585,11 @@ export class MoltZapWsClient {
     this.runtime.runFork(Fiber.interrupt(state.value.readerFiber));
     // Close the per-connection scope as a belt-and-braces guarantee.
     this.runtime.runFork(Scope.close(state.value.scope, Exit.void));
+    // Tear down the s2c queue + dispatcher (off-scope, see ConnState
+    // doc). Both calls are runFork so disconnectSync stays synchronous
+    // for callers using `runSync(client.disconnect())`.
+    this.runtime.runFork(Queue.shutdown(state.value.s2cInboundQueue));
+    this.runtime.runFork(Fiber.interrupt(state.value.s2cDispatcherFiber));
   }
 
   private connectEffect(): Effect.Effect<
@@ -610,14 +638,22 @@ export class MoltZapWsClient {
       // runs it, encodes the response, and writes back. The Queue +
       // Stream pair is the architect's "Stream" — `Stream.fromQueue`
       // produces a totally-ordered stream the dispatcher iterates per
-      // `runForEach`, exactly matching the architect plan's "Effect
-      // primitives compose" mandate (no bespoke promise pool, no callback
-      // registry). Both Queue and dispatcher fiber are scoped to this
-      // connect attempt, so `disconnect()` shutters them deterministically.
-      const s2cInboundQueue = yield* Effect.acquireRelease(
-        Queue.dropping<DecodedServerRequest>(MAX_S2C_QUEUE),
-        (q) => Queue.shutdown(q),
-      ).pipe(Scope.extend(scope));
+      // `runForEach`, matching the architect plan's "Effect primitives
+      // compose" mandate (no bespoke promise pool, no callback registry).
+      //
+      // The queue and dispatcher fiber are NOT bound to the per-connect
+      // `Scope`. `Scope.close` would have to run `Queue.shutdown` and
+      // interrupt the dispatcher fiber, both of which yield through the
+      // fiber runtime — and `close()` is a documented `runSync` site
+      // (see `MoltZapWsClient.close` doc and the `runSync(c.close())`
+      // call in
+      // `packages/openclaw-channel/src/__tests__/reconnection.integration.test.ts:14`).
+      // Instead the queue + dispatcher are torn down via `runFork` in
+      // `close()` and `disconnectSync()`, mirroring the reader-fiber
+      // ownership pattern (`readerFiber` is `runFork`-owned for the
+      // same reason).
+      const s2cInboundQueue =
+        yield* Queue.dropping<DecodedServerRequest>(MAX_S2C_QUEUE);
 
       const dispatcherEffect: Effect.Effect<void, never> = Stream.fromQueue(
         s2cInboundQueue,
@@ -635,10 +671,10 @@ export class MoltZapWsClient {
           ),
         ),
         Effect.catchAllCause((cause) =>
-          // Queue shutdown closes the stream; that's expected on
-          // disconnect. Other defects log + swallow — the dispatcher
-          // fiber must never leak into the connection scope's failure
-          // channel.
+          // Queue shutdown closes the stream; that's the expected
+          // disconnect path. Other defects log + swallow — the
+          // dispatcher fiber must never leak into the connection scope's
+          // failure channel.
           Effect.sync(() =>
             this.options.logger?.warn(
               "s2c dispatcher fiber exited",
@@ -648,10 +684,7 @@ export class MoltZapWsClient {
         ),
         Effect.asVoid,
       );
-      // Dispatcher fiber is bound to the connect scope via `forkScoped` —
-      // disconnect closes the scope, which interrupts the fiber. No need
-      // to retain a reference; the scope owns the lifetime.
-      yield* Effect.forkScoped(dispatcherEffect).pipe(Scope.extend(scope));
+      const s2cDispatcherFiber = this.runtime.runFork(dispatcherEffect);
 
       // Use `onExit` (not `tapErrorCause`) so the clean-close path also
       // triggers pending-drain. `@effect/platform/Socket` treats code 1000
@@ -676,6 +709,13 @@ export class MoltZapWsClient {
                 handshakeSettled,
                 new NotConnectedError({ message: MSG_NOT_CONNECTED }),
               ).pipe(Effect.ignore);
+              // Tear down the s2c queue + dispatcher on socket-level
+              // close (e.g. server-initiated). `close()` /
+              // `disconnectSync()` already handle their own teardown for
+              // client-initiated paths; this branch covers the case
+              // where the server closes us. Idempotent.
+              yield* Queue.shutdown(s2cInboundQueue).pipe(Effect.ignore);
+              yield* Fiber.interrupt(s2cDispatcherFiber).pipe(Effect.ignore);
               yield* Ref.set(this.stateRef, Option.none());
               // Spec #222 §5.4 (V7): project the reader-fiber exit onto
               // a typed `CloseInfo` and pass it to `onDisconnect`. Pure
@@ -711,6 +751,7 @@ export class MoltZapWsClient {
           scope,
           handshakeSettled,
           s2cInboundQueue,
+          s2cDispatcherFiber,
         }),
       );
 

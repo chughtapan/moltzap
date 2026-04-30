@@ -1229,3 +1229,46 @@ describe("Phase 1.0 (B.1) — handleServerRpc round-trip", () => {
     await Effect.runPromise(client.close());
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────
+// Regression gate (review-295): runSync(client.close()) and
+// runSync(client.disconnect()) must not throw AsyncFiberException after
+// the s2c queue + dispatcher were added. The s2c machinery lives off the
+// per-connect Scope (allocated inline + forked via runtime.runFork) so
+// `Scope.close` stays sync; teardown of the queue and dispatcher fiber
+// is dispatched via `runFork` from close()/disconnectSync().
+//
+// Failure mode this guards: `Effect.acquireRelease(Queue.dropping, Queue.shutdown)
+// .pipe(Scope.extend(scope))` + `Effect.forkScoped` would have made the
+// scope teardown async, breaking
+// packages/openclaw-channel/src/__tests__/reconnection.integration.test.ts:14
+// (`closeWs = (c) => Effect.runSync(c.close())`).
+// ─────────────────────────────────────────────────────────────────────
+
+describe("Phase 1.0 (B.1) — runSync teardown contract", () => {
+  it("client.close() runs synchronously after a successful connect", async () => {
+    await withTestServer(
+      Effect.gen(function* () {
+        const server = yield* startHandshakingServer(() => Effect.void);
+        const client = makeClient(server.url);
+        yield* Effect.promise(() => connectP(client));
+        // Critical: this MUST be runSync, not runPromise. Throwing
+        // AsyncFiberException here is the regression we're guarding.
+        expect(() => Effect.runSync(client.close())).not.toThrow();
+      }),
+    );
+  });
+
+  it("client.disconnect() runs synchronously after a successful connect", async () => {
+    await withTestServer(
+      Effect.gen(function* () {
+        const server = yield* startHandshakingServer(() => Effect.void);
+        const client = makeClient(server.url);
+        yield* Effect.promise(() => connectP(client));
+        expect(() => Effect.runSync(client.disconnect())).not.toThrow();
+        // Drain reconnect-fiber + runtime so vitest doesn't flag dangling work.
+        yield* closeClient(client);
+      }),
+    );
+  });
+});
