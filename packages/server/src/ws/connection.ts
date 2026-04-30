@@ -2,18 +2,13 @@ import {
   Data,
   Deferred,
   Effect,
-  Exit,
   HashMap,
   Option,
   Ref,
-  Scope,
+  type Scope,
 } from "effect";
 import * as Socket from "@effect/platform/Socket";
-import type {
-  ResponseFrame,
-  RequestFrame,
-  FrameDirection,
-} from "@moltzap/protocol";
+import type { ResponseFrame, RequestFrame } from "@moltzap/protocol";
 import type { AuthenticatedContext } from "../rpc/context.js";
 
 /**
@@ -106,38 +101,26 @@ export interface MoltZapConnection {
 }
 
 /**
- * Allocate the per-connection s2c machinery. Caller wires the resulting
- * Refs onto the `MoltZapConnection` record and registers
- * `failPendingS2cRequests(...)` as a scope finalizer.
+ * Drain a pending-map Ref by failing every Deferred with
+ * `AppDisconnected(connectionId, method, requestId)`. Used by the
+ * connection scope finalizer in `acquireS2cConnectionState` and by any
+ * direct teardown path. Idempotent — `getAndSet(..., empty())` means a
+ * second call observes an empty map and is a no-op.
  */
-export const makeS2cConnectionState: Effect.Effect<{
-  readonly s2cPending: Ref.Ref<S2cPendingMap>;
-  readonly s2cRequestCounter: Ref.Ref<number>;
-}> = Effect.gen(function* () {
-  const s2cPending = yield* Ref.make<S2cPendingMap>(HashMap.empty());
-  const s2cRequestCounter = yield* Ref.make(0);
-  return { s2cPending, s2cRequestCounter };
-});
-
-/**
- * Fail every outstanding s2c request with `AppDisconnected`. Wired as a
- * `Scope.addFinalizer` on the per-connection scope so disconnect (clean or
- * abrupt) drains the map deterministically. Idempotent: running twice is
- * a no-op because the second call observes an empty map.
- */
-export function failPendingS2cRequests(
-  connection: MoltZapConnection,
+function drainPendingWithAppDisconnected(
+  connectionId: string,
+  pendingRef: Ref.Ref<S2cPendingMap>,
 ): Effect.Effect<void> {
   return Effect.gen(function* () {
     const pending = yield* Ref.getAndSet(
-      connection.s2cPending,
+      pendingRef,
       HashMap.empty<string, S2cPendingEntry<unknown>>(),
     );
     for (const [id, entry] of HashMap.entries(pending)) {
       yield* Deferred.fail(
         entry.deferred,
         new AppDisconnected({
-          connectionId: connection.id,
+          connectionId,
           method: entry.method,
           requestId: id,
         }),
@@ -203,7 +186,7 @@ export function sendRpcToClient(
     const frame: RequestFrame = {
       jsonrpc: "2.0",
       type: "request",
-      direction: "s2c" satisfies FrameDirection,
+      direction: "s2c",
       id: requestId,
       method,
       params,
@@ -298,33 +281,14 @@ export function acquireS2cConnectionState(connectionId: string): Effect.Effect<
   Scope.Scope
 > {
   return Effect.gen(function* () {
-    const state = yield* makeS2cConnectionState;
+    const s2cPending = yield* Ref.make<S2cPendingMap>(HashMap.empty());
+    const s2cRequestCounter = yield* Ref.make(0);
     yield* Effect.addFinalizer(() =>
-      Effect.gen(function* () {
-        const pending = yield* Ref.getAndSet(
-          state.s2cPending,
-          HashMap.empty<string, S2cPendingEntry<unknown>>(),
-        );
-        for (const [id, entry] of HashMap.entries(pending)) {
-          yield* Deferred.fail(
-            entry.deferred,
-            new AppDisconnected({
-              connectionId,
-              method: entry.method,
-              requestId: id,
-            }),
-          ).pipe(Effect.ignore);
-        }
-      }).pipe(Effect.ignore),
+      drainPendingWithAppDisconnected(connectionId, s2cPending),
     );
-    return state;
+    return { s2cPending, s2cRequestCounter };
   });
 }
-
-// Re-export `Exit` so the layers module's existing imports keep resolving
-// without a separate `from "effect"` import. (Internal convenience; not a
-// public surface contract.)
-export { Exit };
 
 export class ConnectionManager {
   private connections = new Map<string, MoltZapConnection>();

@@ -4,25 +4,18 @@ import { RpcErrorSchema } from "./errors.js";
 /**
  * Direction discriminator for `request` / `response` frames.
  *
- * - `c2s` = client→server (the historical-only direction; client-initiated
- *   RPC, server replies).
- * - `s2c` = server→client (server-initiated RPC, client replies).
+ * `c2s` (client→server) and `s2c` (server→client) request-id pools live in
+ * disjoint pending maps keyed on `(side, type)`. The `direction` field is
+ * required so wire-level inspection can route without re-deriving who
+ * originated a frame. Events remain s2c-only and do NOT carry a
+ * `direction` field — they're not request/response.
  *
- * Required on every request/response envelope so a request id minted on the
- * client and a request id minted on the server can collide on the wire
- * without confusing routing — c2s and s2c pending maps are disjoint per
- * `(side, type)`, and `direction` makes the side the frame originated on
- * explicit at the schema layer too.
- *
- * Events remain s2c-only and do NOT carry a `direction` field — they are
- * not request/response and have no correlation surface.
- *
- * Implemented as `Type.Union([Type.Literal, ...])` rather than `stringEnum`
- * because `Value.Check` (used by `packages/protocol/src/testing/codec.ts`
- * for the conformance frame round-trip) requires every node to carry a
- * native TypeBox `[Kind]`. `stringEnum` produces a `Type.Unsafe` node and
- * `Value.Check` rejects it with `"Unknown type"`. AJV strict mode accepts
- * the resulting `anyOf` shape.
+ * Implemented as `Type.Union([Type.Literal, ...])` rather than the
+ * `stringEnum` helper because `Value.Check` — used by
+ * `packages/protocol/src/testing/codec.ts` for the conformance round-trip
+ * — requires a native TypeBox `[Kind]` on every node, and `stringEnum`
+ * produces a `Type.Unsafe` node that `Value.Check` rejects with
+ * `"Unknown type"`. AJV strict mode accepts the resulting `anyOf` shape.
  */
 export const FrameDirectionSchema = Type.Union([
   Type.Literal("c2s"),

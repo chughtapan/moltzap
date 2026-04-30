@@ -40,3 +40,46 @@ export function eventFrame(
     ...(data !== undefined ? { data } : {}),
   };
 }
+
+/**
+ * Construct a typed ResponseFrame literal. Centralizes the
+ * `{ jsonrpc, type: "response", direction, id, result | error }` shape
+ * so c2s and s2c response sites do not drift on field order, escaping,
+ * or `direction` typing. Mirrors `eventFrame()` for the symmetric
+ * surface.
+ *
+ * Pass `{ result }` for success, `{ error }` for failure; the schema
+ * permits both fields to be `Type.Optional` but exactly one of them is
+ * present in any well-formed reply, so the discriminated body argument
+ * keeps the type system aligned with the wire contract.
+ */
+export type ResponseFrameDirection = "c2s" | "s2c";
+export type ResponseFrameError = {
+  code: number;
+  message: string;
+  data?: unknown;
+};
+export type ResponseFrameBody =
+  | { result: unknown }
+  | { error: ResponseFrameError };
+
+export function responseFrame(
+  direction: ResponseFrameDirection,
+  id: string,
+  body: ResponseFrameBody,
+): {
+  jsonrpc: "2.0";
+  type: "response";
+  direction: ResponseFrameDirection;
+  id: string;
+  result?: unknown;
+  error?: ResponseFrameError;
+} {
+  return {
+    jsonrpc: "2.0",
+    type: "response",
+    direction,
+    id,
+    ...body,
+  };
+}

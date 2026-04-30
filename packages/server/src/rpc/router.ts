@@ -1,6 +1,6 @@
 import { Cause, Effect, Exit } from "effect";
 import type { RequestFrame, ResponseFrame } from "@moltzap/protocol";
-import { ErrorCodes } from "@moltzap/protocol";
+import { ErrorCodes, responseFrame } from "@moltzap/protocol";
 import type { AuthenticatedContext, RpcMethodRegistry } from "./context.js";
 import {
   ForbiddenError,
@@ -94,7 +94,7 @@ export function createRpcRouter(methods: RpcMethodRegistry) {
 }
 
 function successResponse(id: string, result: unknown): ResponseFrame {
-  return { jsonrpc: "2.0", type: "response", direction: "c2s", id, result };
+  return responseFrame("c2s", id, { result });
 }
 
 function errorResponse(
@@ -103,16 +103,11 @@ function errorResponse(
   message: string,
   data?: unknown,
 ): ResponseFrame {
-  const error: { code: number; message: string; data?: unknown } = {
-    code,
-    message,
-  };
-  if (data !== undefined) error.data = data;
-  return {
-    jsonrpc: "2.0",
-    type: "response",
-    direction: "c2s",
-    id,
-    error,
-  };
+  return responseFrame("c2s", id, {
+    error: {
+      code,
+      message,
+      ...(data !== undefined ? { data } : {}),
+    },
+  });
 }

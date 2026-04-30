@@ -14,7 +14,6 @@
 import { describe, expect, it } from "vitest";
 import {
   Cause,
-  Deferred,
   Duration,
   Effect,
   Exit,
@@ -31,7 +30,6 @@ import {
   completeS2cResponse,
   sendRpcToClient,
   type MoltZapConnection,
-  type S2cPendingMap,
 } from "./connection.js";
 
 const noopShutdown: MoltZapConnection["shutdown"] = Effect.void;
@@ -386,12 +384,8 @@ describe("sendRpcToClient — caller timeout", () => {
   });
 });
 
-// Type-level smoke: the discriminated union is exhaustive over every
-// tag we surface to AppHost (B.3). If a new variant lands without a
-// matching test branch, this check stops compiling.
-//
-// (`Deferred` and `S2cPendingMap` are imported above so the surface
-// stays public — this file is the canonical primitive smoke test.)
+// Compile-time guard: if a new tagged variant lands in `S2cRpcError`
+// without a matching test branch above, this assignment stops compiling.
 type _ExhaustiveS2cTags =
   | "AppDisconnected"
   | "S2cRpcResponseError"
@@ -399,10 +393,3 @@ type _ExhaustiveS2cTags =
   | "S2cRpcSocketError";
 const _exhaustive: _ExhaustiveS2cTags = "AppDisconnected";
 void _exhaustive;
-type _MapPlaceholder = S2cPendingMap;
-type _DeferredPlaceholder = Deferred.Deferred<unknown, never>;
-type _Placeholders = [_MapPlaceholder, _DeferredPlaceholder];
-const _placeholdersWidthChecker = 0 as 0 & {
-  placeholders?: _Placeholders;
-};
-void _placeholdersWidthChecker;

@@ -27,6 +27,7 @@ import * as Socket from "@effect/platform/Socket";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import type { RpcMap, RpcMethodName } from "../rpc-registry.js";
 import type { EventFrame } from "../schema/frames.js";
+import { responseFrame } from "../helpers.js";
 import { PROTOCOL_VERSION } from "../version.js";
 import {
   makeCaptureBuffer,
@@ -210,14 +211,13 @@ export function makeTestClient(
       HashMap.empty(),
     );
 
-    // `awaitServerRequest` parks a `Deferred<inbound params>` in this map.
-    // When `handleInbound` decodes a matching s2c request, it offers the
-    // params payload to the matching deferred AND continues the dispatch
-    // path (so the registered handler still replies). `awaitServerRequest`
-    // is therefore an observation primitive, not a replacement for
-    // `handleServerRpc`. Multiple awaiters for the same method are
-    // registration-order FIFO; the predicate filter narrows to the first
-    // request whose params satisfy it.
+    // `awaitServerRequest` is an observation primitive — it parks a
+    // `Deferred<inbound params>`, then `notifyAwaiters` fans out the
+    // inbound params to the matching deferred AND `dispatchHandler` still
+    // runs (so the handler replies). Awaiters and handlers fire
+    // independently. Multiple awaiters per method are registration-order
+    // FIFO; the predicate filter narrows to the first request whose
+    // params satisfy it.
     interface AwaitEntry {
       readonly predicate?: (params: unknown) => boolean;
       readonly deferred: Deferred.Deferred<unknown, Error>;
@@ -315,59 +315,44 @@ export function makeTestClient(
         const handlers = yield* Ref.get(s2cHandlersRef);
         const lookup = HashMap.get(handlers, method);
 
-        const responseFrame = yield* lookup._tag === "None"
-          ? Effect.succeed({
-              jsonrpc: "2.0" as const,
-              type: "response" as const,
-              direction: "s2c" as const,
-              id: requestId,
-              error: {
-                code: -32601,
-                message: `No handler registered for method: ${method}`,
-              },
-            })
-          : lookup.value(params).pipe(
-              Effect.match({
-                onSuccess: (result) => ({
-                  jsonrpc: "2.0" as const,
-                  type: "response" as const,
-                  direction: "s2c" as const,
-                  id: requestId,
-                  result,
-                }),
-                onFailure: (err) => ({
-                  jsonrpc: "2.0" as const,
-                  type: "response" as const,
-                  direction: "s2c" as const,
-                  id: requestId,
+        const buildReply =
+          lookup._tag === "None"
+            ? Effect.succeed(
+                responseFrame("s2c", requestId, {
                   error: {
-                    code: err.code,
-                    message: err.message,
-                    ...(err.data !== undefined ? { data: err.data } : {}),
+                    code: -32601,
+                    message: `No handler registered for method: ${method}`,
                   },
                 }),
-              }),
-              Effect.catchAllCause((cause) =>
-                Effect.succeed({
-                  jsonrpc: "2.0" as const,
-                  type: "response" as const,
-                  direction: "s2c" as const,
-                  id: requestId,
-                  error: {
-                    code: -32603,
-                    message: `Handler defected: ${Cause.pretty(cause).slice(0, 200)}`,
-                  },
+              )
+            : lookup.value(params).pipe(
+                Effect.match({
+                  onSuccess: (result) =>
+                    responseFrame("s2c", requestId, { result }),
+                  onFailure: (err) =>
+                    responseFrame("s2c", requestId, {
+                      error: {
+                        code: err.code,
+                        message: err.message,
+                        ...(err.data !== undefined ? { data: err.data } : {}),
+                      },
+                    }),
                 }),
-              ),
-            );
+                Effect.catchAllCause((cause) =>
+                  Effect.succeed(
+                    responseFrame("s2c", requestId, {
+                      error: {
+                        code: -32603,
+                        message: `Handler defected: ${Cause.pretty(cause).slice(0, 200)}`,
+                      },
+                    }),
+                  ),
+                ),
+              );
 
-        const raw = JSON.stringify(responseFrame);
-        yield* recordFrame(
-          captures,
-          "outbound",
-          raw,
-          responseFrame as AnyFrame,
-        );
+        const reply = yield* buildReply;
+        const raw = JSON.stringify(reply);
+        yield* recordFrame(captures, "outbound", raw, reply as AnyFrame);
         yield* writeFrame(raw).pipe(Effect.ignore);
       });
 
