@@ -58,6 +58,7 @@ import {
   AppsGetSession,
   AppsListSessions,
   AppsAuthorizeDispatch,
+  AppsAttachConversation,
 } from "./schema/methods/apps.js";
 import { SystemPing } from "./schema/methods/system.js";
 
@@ -142,6 +143,7 @@ export const validators = {
   appsGetSessionParams: AppsGetSession.validateParams,
   appsListSessionsParams: AppsListSessions.validateParams,
   appsAuthorizeDispatchParams: AppsAuthorizeDispatch.validateParams,
+  appsAttachConversationParams: AppsAttachConversation.validateParams,
 
   // System.
   systemPingParams: SystemPing.validateParams,
