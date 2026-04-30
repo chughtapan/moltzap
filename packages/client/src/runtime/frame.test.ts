@@ -15,6 +15,7 @@ describe("decodeFrames", () => {
       JSON.stringify({
         jsonrpc: "2.0",
         type: "response",
+        direction: "c2s",
         id: "rpc-7",
         result: { ok: true },
       });
