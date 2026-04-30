@@ -65,6 +65,7 @@ export function registerModelEquivalenceClient(
                   const response: ResponseFrame = {
                     jsonrpc: "2.0",
                     type: "response",
+                    direction: "c2s",
                     id: entry.frame.id,
                     result: { agents: {} },
                   };
@@ -148,6 +149,7 @@ export function registerRequestIdUniquenessClient(
           .emitResponse({
             jsonrpc: "2.0",
             type: "response",
+            direction: "c2s",
             id: spuriousId,
             result: { agents: {} },
           })
@@ -170,6 +172,7 @@ export function registerRequestIdUniquenessClient(
                     .emitResponse({
                       jsonrpc: "2.0",
                       type: "response",
+                      direction: "c2s",
                       id: entry.frame.id,
                       result: { agents: {} },
                     })

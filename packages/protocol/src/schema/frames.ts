@@ -1,11 +1,49 @@
 import { Type, type Static } from "@sinclair/typebox";
 import { RpcErrorSchema } from "./errors.js";
-import { stringEnum } from "../helpers.js";
 
+/**
+ * Direction discriminator for `request` / `response` frames.
+ *
+ * - `c2s` = client→server (the historical-only direction; client-initiated
+ *   RPC, server replies).
+ * - `s2c` = server→client (server-initiated RPC, client replies).
+ *
+ * Required on every request/response envelope so a request id minted on the
+ * client and a request id minted on the server can collide on the wire
+ * without confusing routing — c2s and s2c pending maps are disjoint per
+ * `(side, type)`, and `direction` makes the side the frame originated on
+ * explicit at the schema layer too.
+ *
+ * Events remain s2c-only and do NOT carry a `direction` field — they are
+ * not request/response and have no correlation surface.
+ *
+ * Implemented as `Type.Union([Type.Literal, ...])` rather than `stringEnum`
+ * because `Value.Check` (used by `packages/protocol/src/testing/codec.ts`
+ * for the conformance frame round-trip) requires every node to carry a
+ * native TypeBox `[Kind]`. `stringEnum` produces a `Type.Unsafe` node and
+ * `Value.Check` rejects it with `"Unknown type"`. AJV strict mode accepts
+ * the resulting `anyOf` shape.
+ */
+export const FrameDirectionSchema = Type.Union([
+  Type.Literal("c2s"),
+  Type.Literal("s2c"),
+]);
+export type FrameDirection = Static<typeof FrameDirectionSchema>;
+
+/**
+ * Bidirectional request envelope.
+ *
+ * - `direction: "c2s"` — client-initiated RPC. Routed on the server to the
+ *   existing `RpcRouter` dispatcher.
+ * - `direction: "s2c"` — server-initiated RPC. Routed on the client to the
+ *   per-method handler registry registered via
+ *   `MoltZapWsClient.handleServerRpc` / `TestClient.handleServerRpc`.
+ */
 export const RequestFrameSchema = Type.Object(
   {
     jsonrpc: Type.Literal("2.0"),
     type: Type.Literal("request"),
+    direction: FrameDirectionSchema,
     id: Type.String(),
     method: Type.String(),
     params: Type.Optional(Type.Unknown()),
@@ -13,10 +51,19 @@ export const RequestFrameSchema = Type.Object(
   { additionalProperties: false },
 );
 
+/**
+ * Bidirectional response envelope.
+ *
+ * - `direction: "c2s"` — server's reply to a client-initiated request. Routed
+ *   on the client to the c2s pending map keyed by `id`.
+ * - `direction: "s2c"` — client's reply to a server-initiated request. Routed
+ *   on the server to the per-connection s2c pending map keyed by `id`.
+ */
 export const ResponseFrameSchema = Type.Object(
   {
     jsonrpc: Type.Literal("2.0"),
     type: Type.Literal("response"),
+    direction: FrameDirectionSchema,
     id: Type.String(),
     result: Type.Optional(Type.Unknown()),
     error: Type.Optional(RpcErrorSchema),
@@ -37,73 +84,3 @@ export const EventFrameSchema = Type.Object(
 export type RequestFrame = Static<typeof RequestFrameSchema>;
 export type ResponseFrame = Static<typeof ResponseFrameSchema>;
 export type EventFrame = Static<typeof EventFrameSchema>;
-
-// ─────────────────────────────────────────────────────────────────────────────
-// PHASE 1.0 STUBS — server-initiated awaitable RPC frame surface (B.0 architect)
-//
-// The new bidirectional RPC layer reuses the existing `request` / `response`
-// frame shape and adds a single `direction` discriminator. Implementer (B.1)
-// folds these new schemas INTO `RequestFrameSchema` / `ResponseFrameSchema` as
-// a required `direction: "c2s" | "s2c"` field — webhook deletion in the same
-// wave (B.4) means there is no back-compat constraint and no need to keep
-// shape-distinct schemas. Standalone schemas appear here only as architecture
-// stubs: the implementer's job is to collapse them into the canonical Request
-// and Response schemas, not to keep two shapes in production.
-//
-// Key design decision: directions are NAMESPACED, so a c2s request id
-// `tc-xxx-1` and an s2c request id `srv-yyy-1` route to disjoint pending maps
-// and CAN collide on the wire without confusing routing. See conformance
-// property "dual-direction request-ID collision" (B.8).
-//
-// Routing table after collapse (all four cells must be exercised by tests):
-//   {client side}  recv request, direction=s2c → handler registry
-//   {client side}  recv response, direction=c2s → client pending map
-//   {server side}  recv request, direction=c2s → server RPC router (existing)
-//   {server side}  recv response, direction=s2c → server per-conn pending map
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Direction discriminator for `request` / `response` frames after the Phase 1
- * collapse. `c2s` = client→server (today's only direction). `s2c` =
- * server→client (admission RPC). Events remain s2c-only and do not carry a
- * direction field — they are not request/response.
- */
-export const FrameDirectionSchema = stringEnum(["c2s", "s2c"]);
-export type FrameDirection = Static<typeof FrameDirectionSchema>;
-
-/**
- * Server-initiated request envelope. Identical to `RequestFrameSchema` plus
- * a `direction: "s2c"` literal. Implementer collapses this into the canonical
- * `RequestFrameSchema` by adding `direction: FrameDirectionSchema` (required).
- */
-export const S2cRequestFrameSchema = Type.Object(
-  {
-    jsonrpc: Type.Literal("2.0"),
-    type: Type.Literal("request"),
-    direction: Type.Literal("s2c"),
-    id: Type.String(),
-    method: Type.String(),
-    params: Type.Optional(Type.Unknown()),
-  },
-  { additionalProperties: false },
-);
-
-/**
- * Client-originated response to an `S2cRequestFrame`. Implementer collapses
- * this into `ResponseFrameSchema` by adding `direction: FrameDirectionSchema`
- * (required). The `id` MUST match the originating server request.
- */
-export const S2cResponseFrameSchema = Type.Object(
-  {
-    jsonrpc: Type.Literal("2.0"),
-    type: Type.Literal("response"),
-    direction: Type.Literal("s2c"),
-    id: Type.String(),
-    result: Type.Optional(Type.Unknown()),
-    error: Type.Optional(RpcErrorSchema),
-  },
-  { additionalProperties: false },
-);
-
-export type S2cRequestFrame = Static<typeof S2cRequestFrameSchema>;
-export type S2cResponseFrame = Static<typeof S2cResponseFrameSchema>;

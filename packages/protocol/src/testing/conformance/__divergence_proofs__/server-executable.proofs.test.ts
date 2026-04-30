@@ -276,6 +276,7 @@ function makeBadResponse(
     return {
       jsonrpc: "2.0",
       type: "response",
+      direction: "c2s",
       id: request.id,
       error: {
         code: ErrorCodes.InternalError,
@@ -286,6 +287,7 @@ function makeBadResponse(
   return {
     jsonrpc: "2.0",
     type: "response",
+    direction: "c2s",
     id: request.id,
     result: makeBadResult(request, behavior, ordinal),
   };

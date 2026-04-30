@@ -26,8 +26,12 @@ import type {
   AuthenticatedContext,
   RpcMethodRegistry,
 } from "../rpc/context.js";
-import type { RequestFrame } from "@moltzap/protocol";
+import type { RequestFrame, ResponseFrame } from "@moltzap/protocol";
 import { ErrorCodes, validators } from "@moltzap/protocol";
+import {
+  acquireS2cConnectionState,
+  completeS2cResponse,
+} from "../ws/connection.js";
 import { EnvelopeEncryption } from "../crypto/envelope.js";
 
 // Handlers
@@ -343,6 +347,12 @@ export function createCoreApp(config: CoreConfig): CoreApp {
             ),
           );
 
+        // Acquire per-connection s2c state and bind the disconnect-finalizer
+        // to this socket's scope. The finalizer fails every still-pending
+        // s2c Deferred with `AppDisconnected` when the socket closes —
+        // before, during, or after a typical connection lifecycle.
+        const s2cState = yield* acquireS2cConnectionState(connId);
+
         connections.add({
           id: connId,
           write,
@@ -353,6 +363,8 @@ export function createCoreApp(config: CoreConfig): CoreApp {
           lastPong: Date.now(),
           conversationIds: new Set(),
           mutedConversations: new Set(),
+          s2cPending: s2cState.s2cPending,
+          s2cRequestCounter: s2cState.s2cRequestCounter,
         });
         logger.info({ connId }, "WebSocket connected");
 
@@ -375,12 +387,36 @@ export function createCoreApp(config: CoreConfig): CoreApp {
               yield* sendFrame({
                 jsonrpc: "2.0",
                 type: "response",
+                direction: "c2s",
                 id: null,
                 error: {
                   code: ErrorCodes.ParseError,
                   message: "Invalid JSON",
                 },
               });
+              return;
+            }
+
+            // Inbound `s2c` response: route to the connection's s2c
+            // pending map, NOT to the c2s RPC router. Direction-keyed
+            // dispatch keeps c2s and s2c id pools disjoint even when ids
+            // numerically collide.
+            if (validators.responseFrame(parsed)) {
+              const responseFrame = parsed as ResponseFrame;
+              if (responseFrame.direction !== "s2c") {
+                logger.warn(
+                  { connId, id: responseFrame.id },
+                  "client sent a non-s2c response; ignoring",
+                );
+                return;
+              }
+              const completed = yield* completeS2cResponse(conn, responseFrame);
+              if (completed._tag === "None") {
+                logger.warn(
+                  { connId, id: responseFrame.id },
+                  "no pending s2c request matched inbound response",
+                );
+              }
               return;
             }
 
@@ -394,6 +430,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
               yield* sendFrame({
                 jsonrpc: "2.0",
                 type: "response",
+                direction: "c2s",
                 id,
                 error: {
                   code: ErrorCodes.InvalidRequest,
@@ -408,6 +445,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
               yield* sendFrame({
                 jsonrpc: "2.0",
                 type: "response",
+                direction: "c2s",
                 id: frame.id,
                 error: {
                   code: ErrorCodes.Unauthorized,
@@ -428,6 +466,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
                   return {
                     jsonrpc: "2.0",
                     type: "response",
+                    direction: "c2s",
                     id: frame.id,
                     error: {
                       code: ErrorCodes.InternalError,

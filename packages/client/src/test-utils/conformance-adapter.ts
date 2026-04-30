@@ -261,6 +261,7 @@ export function createMoltZapRealClientFactory(
           const frame: ResponseFrame = {
             jsonrpc: "2.0",
             type: tracked.type,
+            direction: "c2s",
             id: tracked.id,
             result: tracked.result,
           };
