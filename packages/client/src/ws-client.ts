@@ -18,6 +18,7 @@ import {
 } from "effect";
 import {
   PROTOCOL_VERSION,
+  responseFrame,
   type RequestFrame,
   type ResponseFrame,
   type EventFrame,
@@ -100,8 +101,15 @@ interface ConnState {
    * fiber `Queue.offer`s every well-formed s2c request; a separate
    * dispatcher fiber drains via `Stream.runForEach`, looking up the
    * registered handler, running it, encoding the response, and writing
-   * back over `write`. Bounded so a misbehaving server can't unbound-grow
-   * memory; oldest frames are dropped under sustained back-pressure.
+   * back over `write`.
+   *
+   * `Queue.dropping(N)` (NOT `bounded`): a slow s2c handler must NOT back-
+   * pressure the reader fiber, because the reader is also delivering c2s
+   * RPC responses on the same socket. Dropping the OLDEST queued s2c
+   * request when capacity is exceeded preserves the c2s liveness
+   * invariant; the dropped requests' server-side `Deferred`s eventually
+   * fail via `Effect.timeout` at the AppHost call site (no schema-level
+   * cap; caller controls).
    */
   readonly s2cInboundQueue: Queue.Queue<DecodedServerRequest>;
   /** Dispatcher fiber that runs `Stream.runForEach` over `s2cInboundQueue`.
@@ -610,7 +618,7 @@ export class MoltZapWsClient {
       // registry). Both Queue and dispatcher fiber are scoped to this
       // connect attempt, so `disconnect()` shutters them deterministically.
       const s2cInboundQueue = yield* Effect.acquireRelease(
-        Queue.bounded<DecodedServerRequest>(MAX_S2C_QUEUE),
+        Queue.dropping<DecodedServerRequest>(MAX_S2C_QUEUE),
         (q) => Queue.shutdown(q),
       ).pipe(Scope.extend(scope));
 
@@ -864,39 +872,45 @@ export class MoltZapWsClient {
     return Effect.gen(this, function* () {
       const handlers = yield* Ref.get(this.s2cHandlersRef);
       const lookup = HashMap.get(handlers, request.method);
-      const response: ResponseFrame = yield* lookup._tag === "None"
-        ? Effect.succeed(
-            this.encodeS2cResponse(request.id, undefined, {
-              code: -32601,
-              message: `No handler registered for method: ${request.method}`,
-            }),
-          )
-        : lookup.value(request.params).pipe(
-            Effect.match({
-              onSuccess: (result) =>
-                this.encodeS2cResponse(request.id, result, undefined),
-              onFailure: (err) =>
-                this.encodeS2cResponse(request.id, undefined, {
-                  code: err.code,
-                  message: err.message,
-                  ...(err.data !== undefined ? { data: err.data } : {}),
-                }),
-            }),
-            Effect.catchAllCause((cause) =>
-              Effect.sync(() => {
-                this.options.logger?.warn(
-                  `s2c handler ${request.method} defected`,
-                  Cause.pretty(cause),
-                );
-                return this.encodeS2cResponse(request.id, undefined, {
-                  code: -32603,
-                  message: "Internal error",
-                });
+      const buildReply =
+        lookup._tag === "None"
+          ? Effect.succeed(
+              responseFrame("s2c", request.id, {
+                error: {
+                  code: -32601,
+                  message: `No handler registered for method: ${request.method}`,
+                },
+              }) satisfies ResponseFrame,
+            )
+          : lookup.value(request.params).pipe(
+              Effect.match({
+                onSuccess: (result) =>
+                  responseFrame("s2c", request.id, {
+                    result,
+                  }) satisfies ResponseFrame,
+                onFailure: (err) =>
+                  responseFrame("s2c", request.id, {
+                    error: {
+                      code: err.code,
+                      message: err.message,
+                      ...(err.data !== undefined ? { data: err.data } : {}),
+                    },
+                  }) satisfies ResponseFrame,
               }),
-            ),
-          );
-      const raw = JSON.stringify(response);
-      yield* write(raw).pipe(
+              Effect.catchAllCause((cause) =>
+                Effect.sync(() => {
+                  this.options.logger?.warn(
+                    `s2c handler ${request.method} defected`,
+                    Cause.pretty(cause),
+                  );
+                  return responseFrame("s2c", request.id, {
+                    error: { code: -32603, message: "Internal error" },
+                  }) satisfies ResponseFrame;
+                }),
+              ),
+            );
+      const reply = yield* buildReply;
+      yield* write(JSON.stringify(reply)).pipe(
         Effect.catchAll((err) =>
           Effect.sync(() =>
             this.options.logger?.warn("s2c response write failed", err),
@@ -904,20 +918,6 @@ export class MoltZapWsClient {
         ),
       );
     });
-  }
-
-  private encodeS2cResponse(
-    id: string,
-    result: unknown,
-    error: { code: number; message: string; data?: unknown } | undefined,
-  ): ResponseFrame {
-    const base = {
-      jsonrpc: "2.0" as const,
-      type: "response" as const,
-      direction: "s2c" as const,
-      id,
-    };
-    return error !== undefined ? { ...base, error } : { ...base, result };
   }
 
   /** Route an inbound frame. Malformed frames are logged + dropped; event

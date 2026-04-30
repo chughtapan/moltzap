@@ -27,7 +27,7 @@ import type {
   RpcMethodRegistry,
 } from "../rpc/context.js";
 import type { RequestFrame, ResponseFrame } from "@moltzap/protocol";
-import { ErrorCodes, validators } from "@moltzap/protocol";
+import { ErrorCodes, responseFrame, validators } from "@moltzap/protocol";
 import {
   acquireS2cConnectionState,
   completeS2cResponse,
@@ -490,19 +490,36 @@ export function createCoreApp(config: CoreConfig): CoreApp {
             // pending map, NOT to the c2s RPC router. Direction-keyed
             // dispatch keeps c2s and s2c id pools disjoint even when ids
             // numerically collide.
-            if (validators.responseFrame(parsed)) {
-              const responseFrame = parsed as ResponseFrame;
-              if (responseFrame.direction !== "s2c") {
+            //
+            // Hot-path order: dispatch on `parsed.type` BEFORE running
+            // either AJV validator. The schemas pin `type` to a literal,
+            // so the discriminator is cheaper than two failed AJV calls
+            // on every c2s request.
+            const inboundType =
+              typeof parsed === "object" &&
+              parsed !== null &&
+              typeof (parsed as { type?: unknown }).type === "string"
+                ? (parsed as { type: string }).type
+                : null;
+            if (
+              inboundType === "response" &&
+              validators.responseFrame(parsed)
+            ) {
+              const inboundResponse = parsed as ResponseFrame;
+              if (inboundResponse.direction !== "s2c") {
                 logger.warn(
-                  { connId, id: responseFrame.id },
+                  { connId, id: inboundResponse.id },
                   "client sent a non-s2c response; ignoring",
                 );
                 return;
               }
-              const completed = yield* completeS2cResponse(conn, responseFrame);
+              const completed = yield* completeS2cResponse(
+                conn,
+                inboundResponse,
+              );
               if (completed._tag === "None") {
                 logger.warn(
-                  { connId, id: responseFrame.id },
+                  { connId, id: inboundResponse.id },
                   "no pending s2c request matched inbound response",
                 );
               }
@@ -552,16 +569,12 @@ export function createCoreApp(config: CoreConfig): CoreApp {
               Effect.catchAll((err) =>
                 Effect.sync(() => {
                   logger.error({ err, connId }, "RPC dispatch failed");
-                  return {
-                    jsonrpc: "2.0",
-                    type: "response",
-                    direction: "c2s",
-                    id: frame.id,
+                  return responseFrame("c2s", frame.id, {
                     error: {
                       code: ErrorCodes.InternalError,
                       message: "Internal error",
                     },
-                  };
+                  });
                 }),
               ),
             );
