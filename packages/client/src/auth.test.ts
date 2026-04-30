@@ -16,9 +16,10 @@ interface CapturedCall {
  * verify URL and body shape without standing up the real server. The
  * fake matches `typeof globalThis.fetch` so it can replace the real
  * binding without a cast. */
-function makeFakeFetch(
-  responder?: (url: string) => Response,
-): { fakeFetch: typeof globalThis.fetch; calls: CapturedCall[] } {
+function makeFakeFetch(responder?: (url: string) => Response): {
+  fakeFetch: typeof globalThis.fetch;
+  calls: CapturedCall[];
+} {
   const calls: CapturedCall[] = [];
   const fakeFetch: typeof globalThis.fetch = async (input, init) => {
     const url =
