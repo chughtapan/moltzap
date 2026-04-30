@@ -1,52 +1,16 @@
 import { Effect } from "effect";
 import { MoltZapWsClient } from "../ws-client.js";
+import { registerAgent, type RegisterAgentOptions } from "../auth.js";
 
-export interface RegisterResponse {
-  agentId: string;
-  apiKey: string;
-  claimUrl: string;
-  claimToken: string;
-}
-
-/** Register a new agent via HTTP. Thin wrapper around the `/api/v1/auth/register`
- * endpoint — the WebSocket dance is {@link MoltZapWsClient}'s job; this just
- * returns the credentials tests need to feed it `agentKey` at construction. */
-export const registerAgent = (
-  baseUrl: string,
-  name: string,
-  opts?: { description?: string; inviteCode?: string },
-): Effect.Effect<RegisterResponse, Error> =>
-  Effect.tryPromise({
-    try: () => {
-      const body: Record<string, string> = { name };
-      if (opts?.description) body.description = opts.description;
-      if (opts?.inviteCode) body.inviteCode = opts.inviteCode;
-      return fetch(`${baseUrl}/api/v1/auth/register`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-    },
-    catch: (err) => (err instanceof Error ? err : new Error(String(err))),
-  }).pipe(
-    Effect.flatMap((res) =>
-      res.ok
-        ? Effect.tryPromise({
-            try: () => res.json() as Promise<RegisterResponse>,
-            catch: (err) =>
-              err instanceof Error ? err : new Error(String(err)),
-          })
-        : Effect.tryPromise({
-            try: () => res.text(),
-            catch: (err) =>
-              err instanceof Error ? err : new Error(String(err)),
-          }).pipe(
-            Effect.flatMap((text) =>
-              Effect.fail(new Error(`Register failed: ${res.status} ${text}`)),
-            ),
-          ),
-    ),
-  );
+/** Back-compat re-exports. `registerAgent` and its types were promoted to
+ * the `@moltzap/client` root; this surface stays so existing test imports
+ * (`@moltzap/client/test`) keep working unchanged. New callers should
+ * import from `@moltzap/client` directly. */
+export {
+  registerAgent,
+  type RegisterAgentOptions,
+  type RegisterResponse,
+} from "../auth.js";
 
 /** Strip the `/ws` suffix that test harnesses tack onto the WebSocket URL —
  * `MoltZapWsClient` re-appends it internally. */
@@ -68,7 +32,7 @@ export const registerAndConnect = (
   baseUrl: string,
   wsUrl: string,
   name: string,
-  opts?: { description?: string; inviteCode?: string },
+  opts?: RegisterAgentOptions,
 ): Effect.Effect<ConnectedTestAgent, Error> =>
   Effect.gen(function* () {
     const reg = yield* registerAgent(baseUrl, name, opts);
