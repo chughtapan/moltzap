@@ -113,6 +113,13 @@ export async function startCoreTestServer(_opts?: {
    * harness (admit all owners).
    */
   userService?: UserService;
+  /**
+   * When set, the server requires `inviteCode` matching this value on
+   * `/api/v1/auth/register` and enables the `/api/v1/admin/register-agent`
+   * route. Default `undefined` keeps the open-registration behavior the
+   * existing tests depend on.
+   */
+  registrationSecret?: string;
   traceCaptureLayer?: Layer.Layer<TraceCaptureTag>;
 }): Promise<CoreTestServer> {
   if (coreApp)
@@ -152,6 +159,7 @@ export async function startCoreTestServer(_opts?: {
     corsOrigins: ["*"],
     devMode: true,
     userService: _opts?.userService,
+    registrationSecret: _opts?.registrationSecret,
     traceCaptureLayer: _opts?.traceCaptureLayer,
   });
 

@@ -75,6 +75,10 @@ function safeEqual(a: string, b: string): boolean {
   return timingSafeEqual(bufA, bufB);
 }
 
+/** RFC 4122 canonical-string check (any version, any variant). */
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const USER_HOOK_TIMEOUT_MS = 2_000;
 
 function runUserHook<TArgs>(
@@ -247,6 +251,91 @@ export function createCoreApp(config: CoreConfig): CoreApp {
       // registerAgent's error channel is `never` — any failure here is a defect
       // (DB error, etc.) which maps to a 500.
       logger.error({ cause: Cause.pretty(exit.cause) }, "Registration failed");
+      return HttpServerResponse.unsafeJson(
+        { error: "Registration failed" },
+        { status: 500 },
+      );
+    }),
+  );
+
+  // Secret-gated admin registration. Accepts `ownerUserId` so the caller
+  // can pre-claim the agent at insert time, skipping the post-register
+  // `UPDATE agents SET owner_user_id = ...` two-step. The route is mounted
+  // only when `config.registrationSecret` is set (see the `httpApp` pipe
+  // below) — there's no anonymous admin flow.
+  const registrationSecret = config.registrationSecret;
+  const adminRegisterAgentRoute = HttpRouter.post(
+    "/api/v1/admin/register-agent",
+    Effect.gen(function* () {
+      // Defense-in-depth: the route is conditionally mounted, but if a
+      // future caller wires this route without the secret, fail closed.
+      if (!registrationSecret) {
+        return HttpServerResponse.unsafeJson(
+          { error: "Admin registration unavailable" },
+          { status: 404 },
+        );
+      }
+
+      const request = yield* HttpServerRequest.HttpServerRequest;
+      const bodyResult = yield* Effect.either(request.json);
+      if (bodyResult._tag === "Left") {
+        return HttpServerResponse.unsafeJson(
+          { error: "Invalid JSON" },
+          { status: 400 },
+        );
+      }
+
+      // `validators.registerParams` is built from the protocol Register
+      // schema with `additionalProperties: false`. Strip ownerUserId
+      // before validating the rest of the body against that strict schema.
+      // #ignore-sloppy-code-next-line[record-cast]: `request.json` returns `unknown` from untrusted HTTP input; we re-validate `registerBody` via `validators.registerParams` immediately below
+      const fullBody = bodyResult.right as Record<string, unknown>;
+      const ownerUserIdRaw = fullBody["ownerUserId"];
+      const { ownerUserId: _stripped, ...registerBody } = fullBody;
+
+      if (!validators.registerParams(registerBody)) {
+        return HttpServerResponse.unsafeJson(
+          { error: "Invalid parameters" },
+          { status: 400 },
+        );
+      }
+
+      const inviteCode = (registerBody as { inviteCode?: string }).inviteCode;
+      if (!inviteCode || !safeEqual(inviteCode, registrationSecret)) {
+        return HttpServerResponse.unsafeJson(
+          { error: "Invalid or missing invite code" },
+          { status: 403 },
+        );
+      }
+
+      let resolvedOwnerUserId: string | undefined;
+      if (ownerUserIdRaw !== undefined) {
+        if (
+          typeof ownerUserIdRaw !== "string" ||
+          !UUID_RE.test(ownerUserIdRaw)
+        ) {
+          return HttpServerResponse.unsafeJson(
+            { error: "ownerUserId must be a UUID" },
+            { status: 400 },
+          );
+        }
+        resolvedOwnerUserId = ownerUserIdRaw;
+      }
+
+      const exit = yield* Effect.exit(
+        authService.registerAgent(
+          registerBody as Parameters<typeof authService.registerAgent>[0],
+          // Explicit body owner wins; dev-mode auto-owner is the fallback.
+          resolvedOwnerUserId ?? config.devModeUserId,
+        ),
+      );
+      if (Exit.isSuccess(exit)) {
+        return HttpServerResponse.unsafeJson(exit.value, { status: 201 });
+      }
+      logger.error(
+        { cause: Cause.pretty(exit.cause) },
+        "Admin registration failed",
+      );
       return HttpServerResponse.unsafeJson(
         { error: "Registration failed" },
         { status: 500 },
@@ -526,15 +615,29 @@ export function createCoreApp(config: CoreConfig): CoreApp {
 
   // `skipDefaultRegisterRoute` lets apps opt out of core's default register
   // handler so they can mount their own invite-gated / rate-limited flow.
+  // The admin route is mounted only when (a) the default register flow
+  // is in use AND (b) a `registrationSecret` is configured. Without the
+  // secret there's no admin credential, so the route is absent — turning
+  // "no secret = no admin route" into a router-level invariant.
+  const adminRouteEnabled =
+    !config.skipDefaultRegisterRoute && config.registrationSecret !== undefined;
   const httpApp = (
     config.skipDefaultRegisterRoute
       ? HttpRouter.empty.pipe(healthRoute, permissionsResolveRoute, wsRoute)
-      : HttpRouter.empty.pipe(
-          healthRoute,
-          registerRoute,
-          permissionsResolveRoute,
-          wsRoute,
-        )
+      : adminRouteEnabled
+        ? HttpRouter.empty.pipe(
+            healthRoute,
+            registerRoute,
+            adminRegisterAgentRoute,
+            permissionsResolveRoute,
+            wsRoute,
+          )
+        : HttpRouter.empty.pipe(
+            healthRoute,
+            registerRoute,
+            permissionsResolveRoute,
+            wsRoute,
+          )
   ).pipe(
     HttpMiddleware.cors({
       allowedOrigins: allowedOriginsPredicate,

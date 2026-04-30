@@ -50,6 +50,8 @@ export async function startTestServer(_opts?: {
   encryption?: boolean;
   /** Optional validator forwarded to `startCoreTestServer` — see its docs. */
   userService?: UserService;
+  /** Optional secret forwarded to `startCoreTestServer` — see its docs. */
+  registrationSecret?: string;
   traceCaptureLayer?: Layer.Layer<TraceCaptureTag>;
 }): Promise<{
   baseUrl: string;
@@ -66,6 +68,7 @@ export async function startTestServer(_opts?: {
     pgPort,
     encryption: _opts?.encryption,
     userService: _opts?.userService,
+    registrationSecret: _opts?.registrationSecret,
     traceCaptureLayer: _opts?.traceCaptureLayer,
   });
   _coreApp = server.coreApp;

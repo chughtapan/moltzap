@@ -23,11 +23,10 @@ export class AuthService {
   registerAgent(
     params: RegisterParams,
     /**
-     * Optional dev-mode ownership — when set, the new agent is registered
-     * pre-claimed to this user id. Routed from `CoreConfig.devModeUserId`;
-     * never flows from untrusted HTTP input.
+     * When set, populates `owner_user_id` at insert time. Callers MUST
+     * validate the value upstream — this argument is treated as trusted.
      */
-    devModeOwnerId?: string,
+    ownerUserId?: string,
   ): Effect.Effect<{ agentId: AgentId; apiKey: string }, never> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
@@ -43,7 +42,7 @@ export class AuthService {
               api_key_secret_hash: secretHash,
               claim_token: generateClaimToken(),
               status: "active",
-              owner_user_id: devModeOwnerId ?? null,
+              owner_user_id: ownerUserId ?? null,
             })
             .returning(["id"]),
           "Failed to insert agent",
