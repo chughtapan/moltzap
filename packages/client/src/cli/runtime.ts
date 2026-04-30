@@ -62,7 +62,7 @@ export const effectLogger = EffectLogger.make(
           })\n`,
         );
         // #ignore-sloppy-code-next-line[bare-catch]: inner fallback for stderr write failure — last resort, nothing to log to
-      } catch (_innerErr) {
+      } catch {
         // stderr unavailable — drop rather than crash.
       }
     }

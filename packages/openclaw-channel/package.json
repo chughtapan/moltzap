@@ -1,6 +1,6 @@
 {
   "name": "@moltzap/openclaw-channel",
-  "version": "2026.425.0",
+  "version": "2026.425.3",
   "description": "OpenClaw channel plugin for MoltZap messaging",
   "license": "Apache-2.0",
   "repository": {
@@ -38,7 +38,9 @@
     "effect": "3.21.0"
   },
   "devDependencies": {
+    "@effect/vitest": "^0.29.0",
     "@testcontainers/postgresql": "^10.18.0",
+    "@types/node": "^25.5.0",
     "@types/pg": "^8.11.0",
     "openai": "^6.26.0",
     "pg": "^8.13.0",

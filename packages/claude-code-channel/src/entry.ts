@@ -88,7 +88,14 @@ export async function bootClaudeCodeChannel(
       serverName: opts.serverName ?? DEFAULT_SERVER_NAME,
       instructions: opts.instructions ?? DEFAULT_INSTRUCTIONS,
     },
-    { sendReply, routing, logger },
+    {
+      sendReply,
+      routing,
+      logger,
+      ...(opts._testTransportFactory !== undefined
+        ? { transportFactory: opts._testTransportFactory }
+        : {}),
+    },
   );
   if (serverBoot._tag === "Err") {
     return {

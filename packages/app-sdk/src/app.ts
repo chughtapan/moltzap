@@ -136,13 +136,12 @@ export class MoltZapApp {
   // ── Lifecycle ──────────────────────────────────────────────────────
 
   start(): Effect.Effect<AppSessionHandle, StartError> {
-    const self = this;
-    return Effect.gen(function* () {
+    return Effect.gen(this, function* () {
       // Spec #222 OQ-4 deletion: per-event `onEvent` callback is gone.
       // Replacement: register a `{}` filter subscription before
       // `connect()` so every inbound event still reaches `handleEvent`.
-      const sub = yield* self.client
-        .subscribe({}, (event) => Effect.sync(() => self.handleEvent(event)))
+      const sub = yield* this.client
+        .subscribe({}, (event) => Effect.sync(() => this.handleEvent(event)))
         .pipe(
           Effect.mapError(
             (err) =>
@@ -155,9 +154,9 @@ export class MoltZapApp {
 
       // Track the handle so stop() can unsubscribe, and so tapError below
       // can clean up if a later step fails (preventing subscription leaks).
-      self.activeSubscription = sub;
+      this.activeSubscription = sub;
 
-      yield* self.client
+      yield* this.client
         .connect()
         .pipe(
           Effect.mapError(
@@ -169,22 +168,22 @@ export class MoltZapApp {
           ),
         );
 
-      yield* self.client
-        .sendRpc("apps/register", { manifest: self.manifest })
+      yield* this.client
+        .sendRpc("apps/register", { manifest: this.manifest })
         .pipe(
           Effect.mapError(
             (err) =>
               new ManifestRegistrationError(
-                `Failed to register manifest for "${self.manifest.appId}"`,
+                `Failed to register manifest for "${this.manifest.appId}"`,
                 err instanceof Error ? err : undefined,
               ),
           ),
         );
 
-      const sessionResult = (yield* self.client
+      const sessionResult = (yield* this.client
         .sendRpc("apps/create", {
-          appId: self.manifest.appId,
-          invitedAgentIds: self.invitedAgentIds,
+          appId: this.manifest.appId,
+          invitedAgentIds: this.invitedAgentIds,
         })
         .pipe(
           Effect.mapError(
@@ -197,22 +196,22 @@ export class MoltZapApp {
         )) as { session: AppSession };
 
       const handle = new AppSessionHandle(sessionResult.session);
-      self.sessions.set(handle.id, handle);
-      self.buildReverseConvMap(handle);
+      this.sessions.set(handle.id, handle);
+      this.buildReverseConvMap(handle);
 
-      self.heartbeat.start(
-        () => self.sendPing(),
-        self.heartbeatIntervalMs,
+      this.heartbeat.start(
+        () => this.sendPing(),
+        this.heartbeatIntervalMs,
         (err) => {
-          self.logger.warn("Heartbeat ping failed:", err.message);
-          self.trackFork(self.client.disconnect());
+          this.logger.warn("Heartbeat ping failed:", err.message);
+          this.trackFork(this.client.disconnect());
         },
       );
 
-      self.started = true;
+      this.started = true;
 
       if (handle.isActive) {
-        self.fireSessionReady(handle);
+        this.fireSessionReady(handle);
       }
 
       return handle;
@@ -220,9 +219,9 @@ export class MoltZapApp {
       // If any step after subscribe() fails, clean up the subscription so
       // a retry does not accumulate orphaned subscriptions.
       Effect.tapError(() => {
-        const sub = self.activeSubscription;
+        const sub = this.activeSubscription;
         if (sub !== null) {
-          self.activeSubscription = null;
+          this.activeSubscription = null;
           return sub.unsubscribe;
         }
         return Effect.void;
@@ -231,36 +230,35 @@ export class MoltZapApp {
   }
 
   stop(): Effect.Effect<void, never> {
-    const self = this;
-    return Effect.gen(function* () {
-      self.heartbeat.destroy();
+    return Effect.gen(this, function* () {
+      this.heartbeat.destroy();
 
-      const pending = [...self.backgroundFibers];
-      self.backgroundFibers.clear();
-      self.recoveringSessions.clear();
+      const pending = [...this.backgroundFibers];
+      this.backgroundFibers.clear();
+      this.recoveringSessions.clear();
       if (pending.length > 0) {
         yield* Fiber.interruptAll(pending);
       }
 
-      for (const session of self.sessions.values()) {
+      for (const session of this.sessions.values()) {
         if (session.isActive) {
-          yield* self.client
+          yield* this.client
             .sendRpc("apps/closeSession", { sessionId: session.id })
             .pipe(Effect.ignore);
         }
       }
 
-      self.sessions.clear();
-      self.reverseConvMap.clear();
-      self.firedSessionReady.clear();
+      this.sessions.clear();
+      this.reverseConvMap.clear();
+      this.firedSessionReady.clear();
 
-      if (self.activeSubscription !== null) {
-        yield* self.activeSubscription.unsubscribe;
-        self.activeSubscription = null;
+      if (this.activeSubscription !== null) {
+        yield* this.activeSubscription.unsubscribe;
+        this.activeSubscription = null;
       }
 
-      yield* self.client.close();
-      self.started = false;
+      yield* this.client.close();
+      this.started = false;
     });
   }
 
@@ -286,11 +284,10 @@ export class MoltZapApp {
   createSession(
     invitedAgentIds?: string[],
   ): Effect.Effect<AppSessionHandle, SessionError> {
-    const self = this;
-    return Effect.gen(function* () {
-      const result = (yield* self.client
+    return Effect.gen(this, function* () {
+      const result = (yield* this.client
         .sendRpc("apps/create", {
-          appId: self.manifest.appId,
+          appId: this.manifest.appId,
           invitedAgentIds: invitedAgentIds ?? [],
         })
         .pipe(
@@ -304,8 +301,8 @@ export class MoltZapApp {
         )) as { session: AppSession };
 
       const handle = new AppSessionHandle(result.session);
-      self.sessions.set(handle.id, handle);
-      self.buildReverseConvMap(handle);
+      this.sessions.set(handle.id, handle);
+      this.buildReverseConvMap(handle);
       return handle;
     });
   }
@@ -353,11 +350,10 @@ export class MoltZapApp {
     conversationKey: string,
     parts: Part[],
   ): Effect.Effect<void, SendError | ConversationKeyError> {
-    const self = this;
-    return Effect.gen(function* () {
+    return Effect.gen(this, function* () {
       const conversationId =
-        yield* self.resolveConversationKey(conversationKey);
-      yield* self.sendTo(conversationId, parts);
+        yield* this.resolveConversationKey(conversationKey);
+      yield* this.sendTo(conversationId, parts);
     });
   }
 
@@ -652,7 +648,6 @@ export class MoltZapApp {
   private recoverSessionOnReconnect(
     session: AppSessionHandle,
   ): Effect.Effect<void, never> {
-    const self = this;
     return this.client
       .sendRpc("apps/getSession", { sessionId: session.id })
       .pipe(
@@ -665,26 +660,26 @@ export class MoltZapApp {
               freshSession.status === "closed" ||
               freshSession.status === "failed"
             ) {
-              self.sessions.delete(session.id);
-              self.firedSessionReady.delete(session.id);
+              this.sessions.delete(session.id);
+              this.firedSessionReady.delete(session.id);
               for (const convId of Object.values(session.conversations)) {
-                self.reverseConvMap.delete(convId);
+                this.reverseConvMap.delete(convId);
               }
-              self.emitError(
+              this.emitError(
                 new SessionClosedError(
                   `Session ${session.id} closed during disconnect`,
                 ),
               );
             } else {
               const updated = new AppSessionHandle(freshSession);
-              self.sessions.set(session.id, updated);
-              self.buildReverseConvMap(updated);
+              this.sessions.set(session.id, updated);
+              this.buildReverseConvMap(updated);
             }
           }),
         ),
         Effect.catchAll((err) =>
           Effect.sync(() => {
-            self.emitError(
+            this.emitError(
               new SessionError(
                 `Failed to recover session ${session.id} after reconnect`,
                 err instanceof Error ? err : undefined,
@@ -694,7 +689,7 @@ export class MoltZapApp {
         ),
         Effect.ensuring(
           Effect.sync(() => {
-            self.recoveringSessions.delete(session.id);
+            this.recoveringSessions.delete(session.id);
           }),
         ),
       );

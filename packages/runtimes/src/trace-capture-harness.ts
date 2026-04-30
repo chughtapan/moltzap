@@ -106,20 +106,36 @@ interface ClientTestModule {
 }
 
 interface CoreAppHandle {
-  readonly connections: {
-    getByAgent(
-      agentId: string,
-    ): ReadonlyArray<{ readonly auth: unknown | null }>;
-  };
   readonly traceCapture: {
     snapshot(): Effect.Effect<readonly TraceCaptureEvent[], never, never>;
   };
+}
+
+// Pre-wired RuntimeServerHandle that startCoreTestServer now exposes — the
+// harness threads this directly into startRuntimeAgent. Structural shape only;
+// the concrete implementation lives in @moltzap/server-core's test-utils.
+interface RuntimeServerLike {
+  awaitAgentReady(
+    agentId: string,
+    timeoutMs: number,
+  ): Effect.Effect<
+    | { readonly _tag: "Ready" }
+    | { readonly _tag: "Timeout"; readonly timeoutMs: number }
+    | {
+        readonly _tag: "ProcessExited";
+        readonly exitCode: number | null;
+        readonly stderr: string;
+      },
+    never,
+    never
+  >;
 }
 
 interface CoreTestServer {
   readonly baseUrl: string;
   readonly wsUrl: string;
   readonly coreApp: CoreAppHandle;
+  readonly runtimeServer: RuntimeServerLike;
 }
 
 interface ServerIndexModule {
@@ -353,8 +369,14 @@ function decodePayload(
   }
 
   const runtimeKind = runtime?.kind;
-  if (runtimeKind !== "openclaw" && runtimeKind !== "nanoclaw") {
-    issues.push("runtime.kind must be 'openclaw' or 'nanoclaw'");
+  if (
+    runtimeKind !== "openclaw" &&
+    runtimeKind !== "nanoclaw" &&
+    runtimeKind !== "claude-code"
+  ) {
+    issues.push(
+      "runtime.kind must be 'openclaw', 'nanoclaw', or 'claude-code'",
+    );
   }
   if (
     runtime?.targetAgentName !== undefined &&
@@ -505,7 +527,11 @@ function decodePayload(
   }
 
   const narrowedRuntimeKind: RuntimeKind =
-    runtimeKind === "openclaw" ? "openclaw" : "nanoclaw";
+    runtimeKind === "openclaw"
+      ? "openclaw"
+      : runtimeKind === "claude-code"
+        ? "claude-code"
+        : "nanoclaw";
   const targetAgentName =
     typeof runtime?.targetAgentName === "string"
       ? runtime.targetAgentName
@@ -572,7 +598,14 @@ function decodePayload(
 }
 
 function defaultTargetAgentName(kind: RuntimeKind): string {
-  return kind === "openclaw" ? "openclaw-eval-agent" : "nanoclaw-eval-agent";
+  switch (kind) {
+    case "openclaw":
+      return "openclaw-eval-agent";
+    case "nanoclaw":
+      return "nanoclaw-eval-agent";
+    case "claude-code":
+      return "claude-code-eval-agent";
+  }
 }
 
 function closeClient(client: HarnessClient): Effect.Effect<void, never, never> {
@@ -1084,7 +1117,7 @@ function createCoordinator(sourcePath: string, payload: HarnessPayload) {
               return yield* Effect.acquireUseRelease(
                 startRuntimeAgent({
                   kind: payload.runtime.kind,
-                  server: server.coreApp,
+                  server: server.runtimeServer,
                   readyTimeoutMs:
                     payload.runtime.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS,
                   agent: {

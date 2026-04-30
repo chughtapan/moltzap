@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, pipe } from "effect";
 import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
@@ -14,6 +14,10 @@ import type {
   ReadyOutcome,
 } from "./runtime.js";
 import { SpawnFailed } from "./errors.js";
+import {
+  installChannelPlugin as installSharedChannelPlugin,
+  seedWorkspaceFiles as seedSharedWorkspaceFiles,
+} from "./channel-plugin-install.js";
 
 const OPENCLAW_TERM_WAIT_MS = 10_000;
 const OPENCLAW_KILL_WAIT_MS = 5_000;
@@ -120,49 +124,62 @@ export class OpenClawAdapter implements Runtime {
   }
 
   waitUntilReady(timeoutMs: number): Effect.Effect<ReadyOutcome, never, never> {
-    return Effect.async<ReadyOutcome, never, never>((resume) => {
-      if (!this.state) {
-        resume(Effect.succeed({ _tag: "Ready" as const }));
-        return;
-      }
+    if (!this.state) {
+      return Effect.succeed({ _tag: "Ready" as const });
+    }
+    const { child, spawnInput } = this.state;
+    const agentId = spawnInput.agentId;
 
-      const deadline = Date.now() + timeoutMs;
-      const { child, spawnInput } = this.state;
-      const agentId = spawnInput.agentId;
+    const serverReady = this.deps.server.awaitAgentReady(agentId, timeoutMs);
 
-      const check = () => {
-        if (child.exitCode !== null) {
-          const stderr = this.state?.logBuffer ?? "";
-          // #ignore-sloppy-code-next-line[promise-type]: fire-and-forget cleanup — resume callback cannot await
-          void this.doTeardown();
-          resume(
-            Effect.succeed({
-              _tag: "ProcessExited" as const,
-              exitCode: child.exitCode,
-              stderr,
-            }),
-          );
-          return;
-        }
+    // Adapter-side `ProcessExited` detector. Polls `child.exitCode` until
+    // the process exits, then returns the outcome with stderr captured
+    // from the live log buffer.
+    const exitTick: Effect.Effect<ReadyOutcome | null, never, never> =
+      Effect.sync(() => {
+        if (child.exitCode === null) return null;
+        return {
+          _tag: "ProcessExited" as const,
+          exitCode: child.exitCode,
+          stderr: this.state?.logBuffer ?? "",
+        };
+      });
+    const exitLoop: Effect.Effect<ReadyOutcome, never, never> = pipe(
+      Effect.iterate(null as ReadyOutcome | null, {
+        while: (s) => s === null,
+        body: () => Effect.sleep("250 millis").pipe(Effect.zipRight(exitTick)),
+      }),
+      Effect.map(
+        (s): ReadyOutcome => s ?? { _tag: "Timeout" as const, timeoutMs },
+      ),
+    );
 
-        const connections = this.deps.server.connections.getByAgent(agentId);
-        if (connections.length > 0 && connections[0]!.auth !== null) {
-          resume(Effect.succeed({ _tag: "Ready" as const }));
-          return;
-        }
-
-        if (Date.now() > deadline) {
-          // #ignore-sloppy-code-next-line[promise-type]: fire-and-forget cleanup — resume callback cannot await
-          void this.doTeardown();
-          resume(Effect.succeed({ _tag: "Timeout" as const, timeoutMs }));
-          return;
-        }
-
-        setTimeout(check, 500);
-      };
-
-      check();
-    });
+    return pipe(
+      Effect.race(serverReady, exitLoop),
+      // Final-check: if the race resolved `Timeout`, the child may have
+      // exited within the last `exitLoop` tick window — one last sync probe
+      // promotes that case to `ProcessExited` with the actual exit code so
+      // the diagnostic stderr isn't lost behind an opaque `Timeout`.
+      Effect.flatMap(
+        (outcome): Effect.Effect<ReadyOutcome, never, never> =>
+          outcome._tag !== "Timeout"
+            ? Effect.succeed(outcome)
+            : Effect.sync(
+                (): ReadyOutcome =>
+                  child.exitCode !== null
+                    ? {
+                        _tag: "ProcessExited" as const,
+                        exitCode: child.exitCode,
+                        stderr: this.state?.logBuffer ?? "",
+                      }
+                    : outcome,
+              ),
+      ),
+      // Failure outcomes (Timeout, ProcessExited) tear down before returning.
+      Effect.tap((outcome) =>
+        outcome._tag === "Ready" ? Effect.void : this.teardown(),
+      ),
+    );
   }
 
   teardown(): Effect.Effect<void, never, never> {
@@ -390,15 +407,7 @@ function seedWorkspaceFiles(
   stateDir: string,
   workspaceFiles: SpawnInput["workspaceFiles"],
 ): void {
-  if (workspaceFiles === undefined) {
-    return;
-  }
-  const workspaceDir = path.join(stateDir, "workspace");
-  for (const file of workspaceFiles) {
-    const destination = path.join(workspaceDir, file.relativePath);
-    fs.mkdirSync(path.dirname(destination), { recursive: true });
-    fs.writeFileSync(destination, file.content);
-  }
+  seedSharedWorkspaceFiles(stateDir, workspaceFiles);
 }
 
 function installChannelPlugin(
@@ -406,53 +415,22 @@ function installChannelPlugin(
   channelDistDir: string,
   repoRoot: string,
 ): void {
-  const extDir = path.join(stateDir, "extensions", "openclaw-channel");
-  const channelPackageDir = path.dirname(channelDistDir);
-  fs.mkdirSync(path.dirname(extDir), { recursive: true });
-
-  // Copy the plugin package root, not just dist/. OpenClaw discovers channel
-  // ids via the package metadata (`openclaw.extensions`) and then loads the
-  // dist entrypoint from there.
-  fs.mkdirSync(extDir, { recursive: true });
-  fs.cpSync(channelDistDir, path.join(extDir, "dist"), {
-    recursive: true,
-    dereference: true,
-    filter: (src) => {
-      const rel = path.relative(channelDistDir, src);
-      return !rel.startsWith("node_modules") && !rel.startsWith("src");
-    },
+  installSharedChannelPlugin({
+    stateDir,
+    channelDistDir,
+    repoRoot,
+    extName: "openclaw-channel",
+    // OpenClaw discovers channels via `openclaw.plugin.json` in the
+    // package root; cc-channel has no equivalent manifest.
+    extraPackageFiles: ["openclaw.plugin.json"],
+    // OpenClaw's plugin imports `effect` at load time. Match the
+    // pre-refactor sourcing exactly (single candidate inside the
+    // channel's bundled node_modules).
+    extraSymlinks: [
+      {
+        linkPath: "effect",
+        candidates: [path.join(channelDistDir, "node_modules", "effect")],
+      },
+    ],
   });
-  const packageJsonPath = path.join(channelPackageDir, "package.json");
-  if (fs.existsSync(packageJsonPath)) {
-    fs.copyFileSync(packageJsonPath, path.join(extDir, "package.json"));
-  }
-  const pluginManifestPath = path.join(
-    channelPackageDir,
-    "openclaw.plugin.json",
-  );
-  if (fs.existsSync(pluginManifestPath)) {
-    fs.copyFileSync(
-      pluginManifestPath,
-      path.join(extDir, "openclaw.plugin.json"),
-    );
-  }
-
-  // Link workspace packages so the plugin's imports resolve.
-  const pluginNm = path.join(extDir, "node_modules");
-  fs.mkdirSync(path.join(pluginNm, "@moltzap"), { recursive: true });
-  fs.symlinkSync(
-    path.join(repoRoot, "packages/protocol"),
-    path.join(pluginNm, "@moltzap/protocol"),
-    "dir",
-  );
-  fs.symlinkSync(
-    path.join(repoRoot, "packages/client"),
-    path.join(pluginNm, "@moltzap/client"),
-    "dir",
-  );
-  fs.symlinkSync(
-    path.join(channelDistDir, "node_modules", "effect"),
-    path.join(pluginNm, "effect"),
-    "dir",
-  );
 }

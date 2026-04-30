@@ -5,34 +5,31 @@
  *   - globalSetup spawns a real `@moltzap/server` standalone via spike-182's
  *     PGlite subprocess pattern; registers two agents (`A` for the channel,
  *     `B` for the peer).
- *   - Test boots the channel plumbing against agent A, connects an in-process
- *     MCP client to the channel's stdio server via `InMemoryTransport`, and
- *     uses an in-process `MoltZapService` as agent B to drive inbound traffic.
+ *   - Test boots the channel via the public `bootClaudeCodeChannel` entry
+ *     against agent A, connects an in-process MCP client to the channel's
+ *     stdio server via `InMemoryTransport` (injected through the
+ *     `_testTransportFactory` test seam — issue #256), and uses an in-process
+ *     `MoltZapService` as agent B to drive inbound traffic.
  *
  * Notes:
- *   - We wire `bootChannelMcpServer` directly rather than through
- *     `bootClaudeCodeChannel` because the only way to attach the in-process
- *     MCP client is via `transportFactory` (internal seam). The wiring
- *     mirrors `entry.ts` so changes there must stay in sync.
+ *   - We route through `bootClaudeCodeChannel` rather than reproducing
+ *     `entry.ts:106-143` inline. The `_testTransportFactory` field on
+ *     `BootOptions` is the only addition to the public surface; underscore-
+ *     prefixed and tagged "tests-only" so production callers do not reach
+ *     for it (reviewer-256, option (a)).
  *   - Every meta assertion pins the contract key names (`chat_id`, `user`,
  *     `message_id`, `ts`) per spec A5, A6, A14.
  */
 
 import { describe, it, expect, beforeAll, afterAll, inject } from "vitest";
 import { Effect } from "effect";
-import {
-  MoltZapChannelCore,
-  MoltZapService,
-  type EnrichedInboundMessage,
-} from "@moltzap/client";
+import { MoltZapService } from "@moltzap/client";
 import type { Message } from "@moltzap/protocol";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { Notification } from "@modelcontextprotocol/sdk/types.js";
-import { bootChannelMcpServer } from "../server.js";
-import { createRoutingState } from "../routing.js";
-import { toClaudeChannelNotification } from "../event.js";
-import type { ReplyError } from "../errors.js";
+import { bootClaudeCodeChannel } from "../entry.js";
+import type { Handle } from "../types.js";
 
 const silentLogger = {
   info: () => {},
@@ -41,8 +38,7 @@ const silentLogger = {
 };
 
 interface Harness {
-  channelService: MoltZapService;
-  channelCore: MoltZapChannelCore;
+  channelHandle: Handle;
   peerService: MoltZapService;
   mcpClient: Client;
   channelAgentId: string;
@@ -65,45 +61,20 @@ async function bootHarness(): Promise<Harness> {
   const [serverTransport, clientTransport] =
     InMemoryTransport.createLinkedPair();
 
-  const channelService = new MoltZapService({
+  const boot = await bootClaudeCodeChannel({
     serverUrl: wsUrl,
     agentKey: agentAApiKey,
     logger: silentLogger,
+    serverName: "test-claude-code-channel",
+    instructions: "integration test",
+    _testTransportFactory: () => serverTransport,
   });
-  const channelCore = new MoltZapChannelCore({
-    service: channelService,
-    logger: silentLogger,
-  });
-  const routing = createRoutingState();
-
-  const sendReply = (chatId: string, text: string) =>
-    channelCore.sendReply(chatId, text).pipe(
-      Effect.mapError(
-        (cause): ReplyError => ({
-          _tag: "SendFailed",
-          cause: cause instanceof Error ? cause.message : String(cause),
-        }),
-      ),
-    );
-
-  const boot = await bootChannelMcpServer(
-    {
-      serverName: "test-claude-code-channel",
-      instructions: "integration test",
-    },
-    {
-      sendReply,
-      routing,
-      logger: silentLogger,
-      transportFactory: () => serverTransport,
-    },
-  );
   if (boot._tag === "Err") {
     throw new Error(
-      `server boot failed: ${boot.error._tag}: ${boot.error.cause}`,
+      `bootClaudeCodeChannel failed: ${boot.error._tag}: ${boot.error.cause}`,
     );
   }
-  const serverHandle = boot.value;
+  const channelHandle = boot.value;
 
   const mcpClient = new Client(
     { name: "integration-test", version: "0.1.0" },
@@ -116,24 +87,7 @@ async function bootHarness(): Promise<Harness> {
   };
   await mcpClient.connect(clientTransport);
 
-  // Mirror entry.ts wiring: gate → translate → record → push.
-  channelCore.onInbound((enriched: EnrichedInboundMessage) =>
-    Effect.gen(function* () {
-      const translated = toClaudeChannelNotification(enriched);
-      if (translated._tag === "Err") return;
-      routing.recordInbound(
-        translated.value.params.meta.message_id,
-        translated.value.params.meta.chat_id,
-      );
-      yield* serverHandle
-        .push(translated.value)
-        .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
-    }),
-  );
-
-  // Connect channel (agent A) + peer (agent B).
-  await Effect.runPromise(channelService.connect());
-
+  // Peer (agent B) is a separate MoltZapService used to drive inbound traffic.
   const peerService = new MoltZapService({
     serverUrl: wsUrl,
     agentKey: agentBApiKey,
@@ -155,8 +109,7 @@ async function bootHarness(): Promise<Harness> {
   const conversationId = convResponse.conversation.id;
 
   return {
-    channelService,
-    channelCore,
+    channelHandle,
     peerService,
     mcpClient,
     channelAgentId,
@@ -171,12 +124,7 @@ async function bootHarness(): Promise<Harness> {
         // best effort
       }
       try {
-        await Effect.runPromise(serverHandle.stop());
-      } catch {
-        // best effort
-      }
-      try {
-        await Effect.runPromise(channelCore.disconnect());
+        await Effect.runPromise(channelHandle.stop());
       } catch {
         // best effort
       }

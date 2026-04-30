@@ -89,3 +89,13 @@ CONFORMANCE_NUM_RUNS=250 pnpm test:conformance:stress
 CONFORMANCE_SEED_COUNT=10 pnpm test:conformance:stress
 FC_SEED=12345 pnpm test:conformance:toxiproxy
 ```
+
+Long-running local commands that create large Vitest/esbuild/temp artifacts can use the same
+temporary-directory isolation directly:
+
+```bash
+MOLTZAP_TMP_SCOPE=my-run scripts/with-tempdir.sh pnpm test
+```
+
+The wrapper sets `TMPDIR` to a repo-local directory under `.tmp/` for the child process and removes
+that per-run directory on exit or interruption.

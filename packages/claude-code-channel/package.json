@@ -14,13 +14,21 @@
   ],
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "bin": {
+    "moltzap-claude-code-channel": "./dist/bin.js"
+  },
   "exports": {
-    ".": "./dist/index.js"
+    ".": "./dist/index.js",
+    "./test-support": {
+      "import": "./dist/test-support.js",
+      "types": "./dist/test-support.d.ts"
+    }
   },
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
-    "test:integration": "vitest run --config vitest.integration.config.ts"
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:conformance": "bash ../protocol/scripts/check-divergence-proofs.sh && vitest run -c vitest.conformance.config.ts"
   },
   "dependencies": {
     "@moltzap/client": "workspace:*",
