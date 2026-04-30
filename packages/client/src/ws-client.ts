@@ -709,14 +709,20 @@ export class MoltZapWsClient {
                 handshakeSettled,
                 new NotConnectedError({ message: MSG_NOT_CONNECTED }),
               ).pipe(Effect.ignore);
+              // Clear connection state BEFORE the s2c teardown so
+              // `sendRpc` and observers see the closed state immediately.
+              // Awaiting `Fiber.interrupt` would block this branch on a
+              // slow s2c handler still draining (codex P2).
+              yield* Ref.set(this.stateRef, Option.none());
               // Tear down the s2c queue + dispatcher on socket-level
               // close (e.g. server-initiated). `close()` /
               // `disconnectSync()` already handle their own teardown for
               // client-initiated paths; this branch covers the case
-              // where the server closes us. Idempotent.
-              yield* Queue.shutdown(s2cInboundQueue).pipe(Effect.ignore);
-              yield* Fiber.interrupt(s2cDispatcherFiber).pipe(Effect.ignore);
-              yield* Ref.set(this.stateRef, Option.none());
+              // where the server closes us. Forked so a slow handler
+              // does not delay the rest of the disconnect path.
+              // Idempotent with the explicit teardown in close().
+              this.runtime.runFork(Queue.shutdown(s2cInboundQueue));
+              this.runtime.runFork(Fiber.interrupt(s2cDispatcherFiber));
               // Spec #222 §5.4 (V7): project the reader-fiber exit onto
               // a typed `CloseInfo` and pass it to `onDisconnect`. Pure
               // total classifier — see runtime/close-info.ts.
