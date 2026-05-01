@@ -90,6 +90,7 @@ export type {
 export type {
   TraceCapture,
   TraceEvent,
+  TraceHookBlockedEvent,
   TraceMessageEvent,
 } from "./runtime-surface/trace-capture.js";
 
