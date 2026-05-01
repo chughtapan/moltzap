@@ -14,7 +14,6 @@ import type { Kysely } from "kysely";
 import type { Database } from "../db/database.js";
 import type { Broadcaster } from "../ws/broadcaster.js";
 import type { ConnectionManager } from "../ws/connection.js";
-import type { WebhookClient } from "../adapters/webhook.js";
 import { makeFakeService } from "../test-utils/fakes.js";
 import {
   AppHost,
@@ -264,9 +263,6 @@ function makeAppHost(): {
   const connections = makeFakeService<ConnectionManager>(
     {} as Partial<ConnectionManager>,
   );
-  const webhookClient = makeFakeService<WebhookClient>(
-    {} as Partial<WebhookClient>,
-  );
   // No DB methods are exercised by pure registration tests.
   const db = makeFakeService<Kysely<Database>>({} as Partial<Kysely<Database>>);
   const inflightPermissions = Effect.runSync(
@@ -278,7 +274,6 @@ function makeAppHost(): {
     broadcaster,
     connections,
     null,
-    webhookClient,
     inflightPermissions,
   );
   return { host, sent };

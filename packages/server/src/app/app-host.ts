@@ -1,4 +1,3 @@
-import { signWebhookPayload } from "../adapters/webhook.js";
 import type { Kysely } from "kysely";
 import type { AppSessionStatus, Database } from "../db/database.js";
 import type { Broadcaster } from "../ws/broadcaster.js";
@@ -14,9 +13,6 @@ import type {
 } from "@moltzap/protocol";
 import { ErrorCodes, EventNames, eventFrame } from "@moltzap/protocol";
 import {
-  DispatchAdmissionResultSchema,
-  HookResultSchema,
-  VoidHookSchema,
   type AppHooks,
   type BeforeDispatchHook,
   type BeforeMessageDeliveryHook,
@@ -26,7 +22,6 @@ import {
   type OnJoinHook,
   type OnSessionActiveHook,
 } from "./hooks.js";
-import type { WebhookClient } from "../adapters/webhook.js";
 import {
   Cause,
   Data,
@@ -37,7 +32,6 @@ import {
   HashMap,
   Option,
   Ref,
-  Schema,
 } from "effect";
 import {
   RpcFailure,
@@ -163,16 +157,16 @@ interface PendingChallenge {
 }
 
 /**
- * Outcome of any hook dispatch (in-process OR webhook). Callers treat the
- * three variants uniformly:
+ * Outcome of an in-process hook dispatch. Callers treat the three
+ * variants uniformly:
  *
  *   - `{ result: T, timedOut: false }` — hook returned successfully
  *   - `{ result: null, timedOut: true }` — hook timed out (fail-closed)
- *   - `{ result: null, timedOut: false }` — hook threw / webhook error (fail-closed)
+ *   - `{ result: null, timedOut: false }` — hook threw (fail-closed)
  *
- * Centralising the shape lets us swap in-process ↔ webhook dispatch without
- * changing the fail-closed plumbing in `runBeforeMessageDelivery` /
- * `closeSession` / `admitAgentToSession`.
+ * Centralising the shape keeps the fail-closed plumbing in
+ * `runBeforeMessageDelivery` / `closeSession` / `admitAgentToSession`
+ * uniform across hook dispatch sites.
  */
 type HookOutcome<T> =
   | { result: T; timedOut: false }
@@ -314,13 +308,6 @@ export class AppHost {
     /** null → no user validation (admit all owners). */
     private userService: UserService | null,
     /**
-     * Outbound HTTP client used to POST hook payloads to webhook URLs
-     * declared in {@link AppManifest.hooks}. Always present (core wires a
-     * default instance) — null would force callers to branch on every hook
-     * path, which we deliberately avoid.
-     */
-    private webhookClient: WebhookClient,
-    /**
      * Coalesce map for in-flight permission requests. Constructed in the
      * AppHost Layer so `Ref.make` runs inside an Effect rather than via
      * `Effect.runSync` at field-initializer time.
@@ -332,65 +319,7 @@ export class AppHost {
 
   registerApp(manifest: AppManifest): void {
     this.manifests.set(manifest.appId, manifest);
-    this.warnOnHookConfigConflict(manifest);
     logger.info({ appId: manifest.appId }, "App registered");
-  }
-
-  /**
-   * Precedence rule (documented in docs/guides/app-hooks.mdx):
-   *
-   *   webhook URL > in-process handler > no hook
-   *
-   * If both are configured for the same hook on the same appId, log a
-   * warning. The dispatch path picks the webhook; the in-process handler
-   * is silently ignored. We do NOT reject at registration — the manifest
-   * is loaded from config/yaml and the app layer may register the
-   * handler later at runtime, so the two-arg order is not observable
-   * from here.
-   */
-  private warnOnHookConfigConflict(manifest: AppManifest): void {
-    const hooks = manifest.hooks;
-    if (!hooks) return;
-    const existing = this.hooks.get(manifest.appId);
-    const pairs: Array<{
-      hookName: string;
-      webhookSet: boolean;
-      inProcessSet: boolean;
-    }> = [
-      {
-        hookName: "before_message_delivery",
-        webhookSet: Boolean(hooks.before_message_delivery?.webhook),
-        inProcessSet: Boolean(existing?.beforeMessageDelivery),
-      },
-      {
-        hookName: "before_dispatch",
-        webhookSet: Boolean(hooks.before_dispatch?.webhook),
-        inProcessSet: Boolean(existing?.beforeDispatch),
-      },
-      {
-        hookName: "on_join",
-        webhookSet: Boolean(hooks.on_join?.webhook),
-        inProcessSet: Boolean(existing?.onJoin),
-      },
-      {
-        hookName: "on_close",
-        webhookSet: Boolean(hooks.on_close?.webhook),
-        inProcessSet: Boolean(existing?.onClose),
-      },
-      {
-        hookName: "on_session_active",
-        webhookSet: Boolean(hooks.on_session_active?.webhook),
-        inProcessSet: Boolean(existing?.onSessionActive),
-      },
-    ];
-    for (const p of pairs) {
-      if (p.webhookSet && p.inProcessSet) {
-        logger.warn(
-          { appId: manifest.appId, hookName: p.hookName },
-          "Both webhook URL and in-process handler configured; webhook takes precedence",
-        );
-      }
-    }
   }
 
   getManifest(appId: string): AppManifest | undefined {
@@ -416,60 +345,30 @@ export class AppHost {
     const existing = this.hooks.get(appId) ?? {};
     existing.beforeMessageDelivery = handler;
     this.hooks.set(appId, existing);
-    this.warnIfWebhookConfigured(appId, "before_message_delivery");
   }
 
   onBeforeDispatch(appId: string, handler: BeforeDispatchHook): void {
     const existing = this.hooks.get(appId) ?? {};
     existing.beforeDispatch = handler;
     this.hooks.set(appId, existing);
-    this.warnIfWebhookConfigured(appId, "before_dispatch");
   }
 
   onAppJoin(appId: string, handler: OnJoinHook): void {
     const existing = this.hooks.get(appId) ?? {};
     existing.onJoin = handler;
     this.hooks.set(appId, existing);
-    this.warnIfWebhookConfigured(appId, "on_join");
   }
 
   onSessionClose(appId: string, handler: OnCloseHook): void {
     const existing = this.hooks.get(appId) ?? {};
     existing.onClose = handler;
     this.hooks.set(appId, existing);
-    this.warnIfWebhookConfigured(appId, "on_close");
   }
 
   onSessionActive(appId: string, handler: OnSessionActiveHook): void {
     const existing = this.hooks.get(appId) ?? {};
     existing.onSessionActive = handler;
     this.hooks.set(appId, existing);
-    this.warnIfWebhookConfigured(appId, "on_session_active");
-  }
-
-  /**
-   * Log a warning when an in-process handler is registered for a hook
-   * that already has a webhook URL in the manifest. Complements
-   * {@link warnOnHookConfigConflict} which fires in the other order.
-   */
-  private warnIfWebhookConfigured(
-    appId: string,
-    hookName:
-      | "before_message_delivery"
-      | "before_dispatch"
-      | "on_join"
-      | "on_close"
-      | "on_session_active",
-  ): void {
-    const manifest = this.manifests.get(appId);
-    if (!manifest?.hooks) return;
-    const webhook = manifest.hooks[hookName]?.webhook;
-    if (webhook) {
-      logger.warn(
-        { appId, hookName },
-        "In-process hook registered but manifest declares a webhook URL; webhook takes precedence",
-      );
-    }
   }
 
   runBeforeDispatch(
@@ -499,10 +398,9 @@ export class AppHost {
         if (!session) return { decision: "grant" as const };
 
         const manifest = this.manifests.get(session.appId);
-        const webhookUrl = manifest?.hooks?.before_dispatch?.webhook;
         const appHooks = this.hooks.get(session.appId);
 
-        if (!webhookUrl && !appHooks?.beforeDispatch) {
+        if (!appHooks?.beforeDispatch) {
           return { decision: "grant" as const };
         }
 
@@ -535,29 +433,11 @@ export class AppHost {
 
         const timeoutMs = manifest?.hooks?.before_dispatch?.timeout_ms ?? 5000;
 
-        const outcome: HookOutcome<DispatchAdmissionResult> = webhookUrl
-          ? yield* this.dispatchWebhookHook<DispatchAdmissionResult>({
-              url: webhookUrl,
-              event: "app.before_dispatch",
-              secret: manifest?.hooks?.secret,
-              body: {
-                sessionId: session.id,
-                appId: session.appId,
-                conversationId: ctx.conversationId,
-                recipient: ctx.recipient,
-                message: ctx.message,
-                attempt: ctx.attempt,
-                receivedAt: ctx.receivedAt,
-                clock: ctx.clock,
-                pending: ctx.pending,
-              },
-              timeoutMs,
-              schema: DispatchAdmissionResultSchema,
-            })
-          : yield* this.runHookWithTimeout<DispatchAdmissionResult>(
-              (signal) => appHooks!.beforeDispatch!({ ...ctx, signal }),
-              timeoutMs,
-            );
+        const outcome: HookOutcome<DispatchAdmissionResult> =
+          yield* this.runHookWithTimeout<DispatchAdmissionResult>(
+            (signal) => appHooks.beforeDispatch!({ ...ctx, signal }),
+            timeoutMs,
+          );
 
         if (outcome.timedOut) {
           this.broadcaster.sendToAgent(
@@ -607,11 +487,9 @@ export class AppHost {
         if (!session) return null;
 
         const manifest = this.manifests.get(session.appId);
-        const webhookUrl = manifest?.hooks?.before_message_delivery?.webhook;
         const appHooks = this.hooks.get(session.appId);
 
-        // Dispatch precedence: webhook > in-process handler > no hook.
-        if (!webhookUrl && !appHooks?.beforeMessageDelivery) return null;
+        if (!appHooks?.beforeMessageDelivery) return null;
 
         const agentOpt = yield* takeFirstOption(
           this.db
@@ -635,25 +513,11 @@ export class AppHost {
         const timeoutMs =
           manifest?.hooks?.before_message_delivery?.timeout_ms ?? 5000;
 
-        const outcome: HookOutcome<HookResult> = webhookUrl
-          ? yield* this.dispatchWebhookHook<HookResult>({
-              url: webhookUrl,
-              event: "app.before_message_delivery",
-              secret: manifest?.hooks?.secret,
-              body: {
-                sessionId: session.id,
-                appId: session.appId,
-                conversationId: ctx.conversationId,
-                sender: ctx.sender,
-                message: ctx.message,
-              },
-              timeoutMs,
-              schema: HookResultSchema,
-            })
-          : yield* this.runHookWithTimeout<HookResult>(
-              (signal) => appHooks!.beforeMessageDelivery!({ ...ctx, signal }),
-              timeoutMs,
-            );
+        const outcome: HookOutcome<HookResult> =
+          yield* this.runHookWithTimeout<HookResult>(
+            (signal) => appHooks.beforeMessageDelivery!({ ...ctx, signal }),
+            timeoutMs,
+          );
 
         // Fail-closed policy: on hook timeout or hook exception, synthesize
         // a `{ block: true }` result so security/moderation hooks cannot be
@@ -688,9 +552,9 @@ export class AppHost {
         }
 
         if (!outcome.result) {
-          // Hook threw — `runHookWithTimeout` / `dispatchWebhookHook` already
-          // logged via `Effect.logError`. Block the message rather than
-          // silently passing it through.
+          // Hook threw — `runHookWithTimeout` already logged via
+          // `Effect.logError`. Block the message rather than silently
+          // passing it through.
           return {
             result: {
               block: true,
@@ -985,13 +849,11 @@ export class AppHost {
           this.sessionToConversations.get(sessionId) ??
           new Set(convEntries.map((r) => r.conversation_id));
 
-        // Fire on_close hook with timeout (fail-open). Precedence:
-        // webhook > in-process handler.
+        // Fire on_close hook with timeout (fail-open).
         const manifest = this.manifests.get(sessionRow.app_id);
-        const onCloseWebhook = manifest?.hooks?.on_close?.webhook;
         const appHooks = this.hooks.get(sessionRow.app_id);
 
-        if (onCloseWebhook || appHooks?.onClose) {
+        if (appHooks?.onClose) {
           const timeoutMs = manifest?.hooks?.on_close?.timeout_ms ?? 5000;
 
           const initiatorOpt = yield* takeFirstOption(
@@ -1006,31 +868,18 @@ export class AppHost {
             ownerId: initiator?.owner_user_id ?? "",
           };
 
-          const outcome: HookOutcome<void> = onCloseWebhook
-            ? yield* this.dispatchWebhookHook<void>({
-                url: onCloseWebhook,
-                event: "app.on_close",
-                secret: manifest?.hooks?.secret,
-                body: {
+          const outcome: HookOutcome<void> =
+            yield* this.runHookWithTimeout<void>(
+              (signal) =>
+                appHooks.onClose!({
                   sessionId,
                   appId: sessionRow.app_id,
                   conversations,
                   closedBy,
-                },
-                timeoutMs,
-                schema: VoidHookSchema,
-              })
-            : yield* this.runHookWithTimeout<void>(
-                (signal) =>
-                  appHooks!.onClose!({
-                    sessionId,
-                    appId: sessionRow.app_id,
-                    conversations,
-                    closedBy,
-                    signal,
-                  }),
-                timeoutMs,
-              );
+                  signal,
+                }),
+              timeoutMs,
+            );
 
           if (outcome.timedOut) {
             this.broadcaster.sendToAgent(
@@ -1451,72 +1300,6 @@ export class AppHost {
     });
   }
 
-  /**
-   * Dispatch a hook by POSTing its payload to an HTTPS webhook URL.
-   *
-   * - Serializes `body` to JSON.
-   * - If a `secret` is provided, signs the JSON with HMAC-SHA256 and sets
-   *   `X-MoltZap-Signature: sha256=<hex>`. The signature covers exactly the
-   *   bytes that go on the wire — we pre-serialize and hand the client
-   *   `bodyJson` so it can't rewrite whitespace or reorder keys.
-   * - Enforces the hook's `timeoutMs` via `WebhookClient.call` (which
-   *   wraps fetch in `Effect.timeoutFail` → `WebhookTimeoutError`).
-   *   Tagged transport errors (non-2xx, network drop, timeout) fan into
-   *   the `catchTag` branches below — matching the in-process
-   *   `runHookWithTimeout` semantics so the caller's fail-closed plumbing
-   *   stays identical regardless of dispatch mechanism.
-   */
-  private dispatchWebhookHook<T>(opts: {
-    url: string;
-    event: string;
-    body: object;
-    timeoutMs: number;
-    schema: Schema.Schema<T, any>;
-    secret?: string;
-  }): Effect.Effect<HookOutcome<T>, RpcFailure> {
-    return Effect.gen(this, function* () {
-      const bodyJson = JSON.stringify(opts.body);
-      const signature = opts.secret
-        ? signWebhookPayload(opts.secret, bodyJson)
-        : undefined;
-
-      const request = this.webhookClient.call({
-        url: opts.url,
-        event: opts.event,
-        body: undefined,
-        bodyJson,
-        headers: signature ? { "X-MoltZap-Signature": signature } : undefined,
-        timeoutMs: opts.timeoutMs,
-        schema: opts.schema,
-      });
-
-      return yield* request.pipe(
-        Effect.map((result) => ({ result, timedOut: false }) as HookOutcome<T>),
-        Effect.catchTag("WebhookTimeoutError", () =>
-          Effect.succeed({
-            result: null,
-            timedOut: true as const,
-          } as HookOutcome<T>),
-        ),
-        Effect.catchAll((err) =>
-          Effect.gen(function* () {
-            yield* Effect.logError("Webhook hook dispatch error").pipe(
-              Effect.annotateLogs({
-                err: errorMessage(err),
-                url: opts.url,
-                event: opts.event,
-              }),
-            );
-            return {
-              result: null,
-              timedOut: false as const,
-            } as HookOutcome<T>;
-          }),
-        ),
-      );
-    });
-  }
-
   // ── Internal ───────────────────────────────────────────────────────
 
   private admitAgentsAsync(
@@ -1607,7 +1390,7 @@ export class AppHost {
         // active but BEFORE app/sessionReady is broadcast. Fail-open matches
         // on_join/on_close: timeout or handler throw logs + emits
         // app/hookTimeout, but admission still completes and sessionReady
-        // still fires. Precedence: webhook > in-process handler.
+        // still fires.
         yield* this.runOnSessionActive(
           session,
           manifest,
@@ -1633,52 +1416,30 @@ export class AppHost {
     admittedAgentIds: string[],
   ): Effect.Effect<void, never> {
     return Effect.gen(this, function* () {
-      const webhookUrl = manifest.hooks?.on_session_active?.webhook;
       const appHooks = this.hooks.get(session.appId);
 
-      if (!webhookUrl && !appHooks?.onSessionActive) return;
+      if (!appHooks?.onSessionActive) return;
 
       const timeoutMs = manifest.hooks?.on_session_active?.timeout_ms ?? 5000;
 
-      const outcome: HookOutcome<void> = webhookUrl
-        ? yield* this.dispatchWebhookHook<void>({
-            url: webhookUrl,
-            event: "app.on_session_active",
-            secret: manifest.hooks?.secret,
-            body: {
-              sessionId: session.id,
-              appId: session.appId,
-              conversations: session.conversations,
-              admittedAgentIds,
-            },
-            timeoutMs,
-            schema: VoidHookSchema,
-          }).pipe(
-            Effect.catchAllCause(() =>
-              Effect.succeed({
-                result: null,
-                timedOut: false as const,
-              } as HookOutcome<void>),
-            ),
-          )
-        : yield* this.runHookWithTimeout<void>(
-            (signal) =>
-              appHooks!.onSessionActive!({
-                sessionId: session.id,
-                appId: session.appId,
-                conversations: session.conversations,
-                admittedAgentIds,
-                signal,
-              }),
-            timeoutMs,
-          ).pipe(
-            Effect.catchAllCause(() =>
-              Effect.succeed({
-                result: null,
-                timedOut: false as const,
-              } as HookOutcome<void>),
-            ),
-          );
+      const outcome: HookOutcome<void> = yield* this.runHookWithTimeout<void>(
+        (signal) =>
+          appHooks.onSessionActive!({
+            sessionId: session.id,
+            appId: session.appId,
+            conversations: session.conversations,
+            admittedAgentIds,
+            signal,
+          }),
+        timeoutMs,
+      ).pipe(
+        Effect.catchAllCause(() =>
+          Effect.succeed({
+            result: null,
+            timedOut: false as const,
+          } as HookOutcome<void>),
+        ),
+      );
 
       if (outcome.timedOut) {
         this.broadcaster.sendToAgent(
@@ -1699,8 +1460,8 @@ export class AppHost {
         );
       }
       // Errors inside the hook are already logged by
-      // runHookWithTimeout/dispatchWebhookHook; fail-open means we fall
-      // through and continue to broadcast sessionReady regardless.
+      // runHookWithTimeout; fail-open means we fall through and continue
+      // to broadcast sessionReady regardless.
     });
   }
 
@@ -2282,46 +2043,11 @@ export class AppHost {
           }),
         );
 
-        // on_join hook dispatch. Precedence: webhook > in-process handler.
-        // Both paths are fire-and-forget (the hook can't block admission);
-        // errors are logged but do not fail the fiber.
-        const webhookUrl = manifest.hooks?.on_join?.webhook;
+        // on_join hook dispatch — fire-and-forget (the hook can't block
+        // admission); errors are logged but do not fail the fiber.
         const appHooks = this.hooks.get(session.appId);
 
-        if (webhookUrl) {
-          const timeoutMs = manifest.hooks?.on_join?.timeout_ms ?? 5000;
-          const outcome = yield* this.dispatchWebhookHook<void>({
-            url: webhookUrl,
-            event: "app.on_join",
-            secret: manifest.hooks?.secret,
-            body: {
-              sessionId: session.id,
-              appId: session.appId,
-              conversations: session.conversations,
-              agent: { agentId, ownerId },
-            },
-            timeoutMs,
-            schema: VoidHookSchema,
-          });
-          if (outcome.timedOut) {
-            this.broadcaster.sendToAgent(
-              agentId,
-              eventFrame("app/hookTimeout", {
-                sessionId: session.id,
-                appId: session.appId,
-                hookName: "on_join",
-                timeoutMs,
-              }),
-            );
-            yield* Effect.logWarning("on_join hook timed out").pipe(
-              Effect.annotateLogs({
-                sessionId: session.id,
-                appId: session.appId,
-                timeoutMs,
-              }),
-            );
-          }
-        } else if (appHooks?.onJoin) {
+        if (appHooks?.onJoin) {
           // `tryPromise` catches both synchronous throws inside the hook
           // and Promise rejections, keeping the failure in the typed
           // error channel rather than becoming a defect.

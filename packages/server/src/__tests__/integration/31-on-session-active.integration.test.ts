@@ -14,8 +14,6 @@
 import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { it } from "@effect/vitest";
 import { Effect } from "effect";
-import * as http from "node:http";
-import type { AddressInfo } from "node:net";
 
 import {
   startTestServer,
@@ -60,7 +58,7 @@ function registerAppAgent(name: string): Effect.Effect<ConnectedAgent, Error> {
 function registerTestApp(
   app: CoreApp,
   appId: string,
-  opts?: { onSessionActiveTimeoutMs?: number; onSessionActiveWebhook?: string },
+  opts?: { onSessionActiveTimeoutMs?: number },
 ) {
   app.registerApp({
     appId,
@@ -72,81 +70,12 @@ function registerTestApp(
     hooks: {
       before_message_delivery: { timeout_ms: 5000 },
       on_join: {},
-      on_session_active: {
-        ...(opts?.onSessionActiveWebhook
-          ? { webhook: opts.onSessionActiveWebhook }
-          : {}),
-        ...(opts?.onSessionActiveTimeoutMs !== undefined
+      on_session_active:
+        opts?.onSessionActiveTimeoutMs !== undefined
           ? { timeout_ms: opts.onSessionActiveTimeoutMs }
-          : {}),
-      },
+          : {},
     },
   });
-}
-
-interface HookServerRecord {
-  method: string;
-  path: string;
-  headers: Record<string, string | string[] | undefined>;
-  body: string;
-}
-
-interface HookServer {
-  url: string;
-  requests: HookServerRecord[];
-  close: () => Promise<void>;
-}
-
-async function startHookServer(
-  handler: (
-    req: HookServerRecord,
-  ) =>
-    | { status?: number; body?: unknown; delayMs?: number }
-    | Promise<{ status?: number; body?: unknown; delayMs?: number }>,
-): Promise<HookServer> {
-  const requests: HookServerRecord[] = [];
-  const server = http.createServer((req, res) => {
-    const chunks: Buffer[] = [];
-    req.on("data", (chunk: Buffer) => chunks.push(chunk));
-    req.on("end", () => {
-      void (async () => {
-        const record: HookServerRecord = {
-          method: req.method ?? "",
-          path: req.url ?? "",
-          headers: { ...req.headers },
-          body: Buffer.concat(chunks).toString("utf-8"),
-        };
-        requests.push(record);
-        try {
-          const response = await handler(record);
-          if (response.delayMs) {
-            await new Promise((r) => setTimeout(r, response.delayMs));
-          }
-          const status = response.status ?? 200;
-          if (response.body === undefined || response.body === null) {
-            res.writeHead(status);
-            res.end();
-          } else {
-            res.writeHead(status, { "Content-Type": "application/json" });
-            res.end(JSON.stringify(response.body));
-          }
-        } catch (err) {
-          res.writeHead(500);
-          res.end(String(err));
-        }
-      })();
-    });
-  });
-  await new Promise<void>((resolve) => server.listen(0, resolve));
-  const address = server.address() as AddressInfo;
-  return {
-    url: `http://127.0.0.1:${address.port}`,
-    requests,
-    close: () =>
-      new Promise<void>((resolve, reject) =>
-        server.close((err) => (err ? reject(err) : resolve())),
-      ),
-  };
 }
 
 describe("Scenario 31b: on_session_active hook", () => {
@@ -304,49 +233,6 @@ describe("Scenario 31b: on_session_active hook", () => {
           .executeTakeFirstOrThrow(),
       );
       expect(sessionRow.status).toBe("active");
-    }),
-  );
-
-  it.live("webhook: POSTs hook context and admission proceeds", () =>
-    Effect.gen(function* () {
-      const initiator = yield* registerAppAgent("osa-webhook-init");
-      const invitee = yield* registerAppAgent("osa-webhook-invitee");
-
-      const hook = yield* Effect.promise(() =>
-        startHookServer(() => ({ status: 200, body: null })),
-      );
-
-      try {
-        registerTestApp(coreApp, "osa-webhook-app", {
-          onSessionActiveWebhook: hook.url + "/on-session-active",
-        });
-
-        const session = (yield* initiator.client.sendRpc("apps/create", {
-          appId: "osa-webhook-app",
-          invitedAgentIds: [invitee.agentId],
-        })) as { session: { id: string } };
-
-        yield* initiator.client.waitForEvent("app/sessionReady", 5000);
-
-        expect(hook.requests).toHaveLength(1);
-        const req = hook.requests[0]!;
-        expect(req.method).toBe("POST");
-        expect(req.path).toBe("/on-session-active");
-        expect(req.headers["x-moltzap-event"]).toBe("app.on_session_active");
-
-        const payload = JSON.parse(req.body) as {
-          sessionId: string;
-          appId: string;
-          conversations: Record<string, string>;
-          admittedAgentIds: string[];
-        };
-        expect(payload.sessionId).toBe(session.session.id);
-        expect(payload.appId).toBe("osa-webhook-app");
-        expect(payload.conversations).toHaveProperty("main");
-        expect(payload.admittedAgentIds).toEqual([invitee.agentId]);
-      } finally {
-        yield* Effect.promise(() => hook.close());
-      }
     }),
   );
 });

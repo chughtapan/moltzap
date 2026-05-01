@@ -10,7 +10,7 @@
  *   - Protocol imports nothing from consumers (no `packages/server`, no
  *     `packages/client`, no test-runner globals).
  *   - Consumers import `@moltzap/protocol/testing` and pass their real
- *     server handle (and optionally a Toxiproxy URL + a webhook probe).
+ *     server handle (and optionally a Toxiproxy URL).
  *     That's the only cross-package coupling.
  *
  * Docker-compose spinup and vitest describe/it scaffolding are consumer
@@ -37,7 +37,6 @@ import * as rpcSemantics from "./rpc-semantics.js";
 import * as delivery from "./delivery.js";
 import * as adversity from "./adversity.js";
 import * as boundary from "./boundary.js";
-import type { WebhookAdapterProbe } from "./boundary.js";
 import type { RealServerAcquireError, ToxicControlError } from "../errors.js";
 import {
   isAllowedCoverageGap,
@@ -47,7 +46,7 @@ import { conformanceArtifactDirFromEnv } from "./env.js";
 
 /**
  * Input shape — consumer names the concrete implementation under test and
- * any optional capabilities they can provide (Toxiproxy, webhook probe).
+ * any optional capabilities they can provide (Toxiproxy).
  */
 export interface ConformanceSuiteOptions {
   /** Factory for the implementation under test (server handle). */
@@ -57,11 +56,6 @@ export interface ConformanceSuiteOptions {
    * skipped (registered properties return `PropertyUnavailable`).
    */
   readonly toxiproxyUrl?: string | null;
-  /**
-   * Webhook adapter probe. When provided, registers the graceful-shutdown
-   * boundary property. Consumers without a webhook surface omit it.
-   */
-  readonly webhookProbe?: WebhookAdapterProbe | null;
   /** Replay seed. Defaults to `FC_SEED` env var or a timestamp. */
   readonly replaySeed?: number;
   /** Per-property fast-check `numRuns` override. Default: library default. */
@@ -95,10 +89,7 @@ export interface SuiteResult {
  * they need; `runConformanceSuite` uses this helper to register the full
  * set.
  */
-export function registerAllProperties(
-  ctx: ConformanceRunContext,
-  webhookProbe: WebhookAdapterProbe | null,
-): void {
+export function registerAllProperties(ctx: ConformanceRunContext): void {
   schemaConformance.registerRequestWellFormedness(ctx);
   schemaConformance.registerEventWellFormedness(ctx);
   schemaConformance.registerRoundTripIdentity(ctx);
@@ -124,9 +115,6 @@ export function registerAllProperties(
   adversity.registerSlowCloseCleanup(ctx);
 
   boundary.registerSchemaExhaustiveFuzz(ctx);
-  if (webhookProbe !== null) {
-    boundary.registerWebhookGracefulShutdown(ctx, webhookProbe);
-  }
 }
 
 /**
@@ -244,7 +232,7 @@ export function runConformanceSuite(
         numRuns: opts.numRuns,
         artifactDir,
       });
-      registerAllProperties(ctx, opts.webhookProbe ?? null);
+      registerAllProperties(ctx);
       return yield* runAllProperties(
         ctx,
         artifactDir,

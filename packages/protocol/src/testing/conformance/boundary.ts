@@ -1,16 +1,11 @@
 /**
- * Boundary — server-side safety surfaces that no single RPC exercises:
- * webhook graceful-shutdown Deferred-drop and schema-exhaustive fuzz.
- *
+ * Boundary — server-side safety surfaces that no single RPC exercises.
  * Historical grouping note: spec #181 §5 calls this "Tier E". Code uses
  * semantic names only.
  *
- * AC13 preservation: `WebhookAdapterProbe` is an opaque injected
- * interface; the consuming server-side suite wires it. No
- * `packages/server` import appears under `packages/protocol/src/testing/`.
- *
- * DEFERRED: the original SIGKILL / humanContact variant of the webhook
- * property belongs to epic #186 and is not wired here.
+ * The s2c-RPC fail-on-app-disconnect invariant (the equivalent of the
+ * deleted webhook-graceful-shutdown property under B.1's awaitable RPC
+ * transport) is owned by B.8 / sub-issue #305.
  */
 import * as fc from "fast-check";
 import { Effect } from "effect";
@@ -18,85 +13,11 @@ import { allRpcMethods, arbitraryCallFor } from "../arbitraries/rpc.js";
 import { makeTestClient } from "../test-client.js";
 import { registerTestAgent } from "../agent-registration.js";
 import type { ConformanceRunContext } from "./runner.js";
-import {
-  assertProperty,
-  PropertyInvariantViolation,
-  registerProperty,
-} from "./registry.js";
+import { PropertyInvariantViolation, registerProperty } from "./registry.js";
 
 const CATEGORY = "boundary" as const;
 const DEFAULT_TIMEOUT_MS = 3000;
 const DEFAULT_CAPTURE_CAPACITY = 32;
-
-/**
- * The webhook-shutdown probe is supplied by the consuming server-side
- * suite (which owns access to `AsyncWebhookAdapter`). Protocol code sees
- * only this opaque interface — no compile-time import of `packages/
- * server`.
- */
-export interface WebhookAdapterProbe {
-  /** Kick off N concurrent `send` calls; return their pending request ids. */
-  readonly startPending: (
-    n: number,
-  ) => Promise<ReadonlyArray<{ readonly requestId: string }>>;
-  /** Fire the adapter's `shutdown` Effect. */
-  readonly shutdown: () => Promise<void>;
-  /**
-   * Resolve each pending send. Returns the observed tagged-error name
-   * (e.g. `"WebhookDestroyedError"`) or `"resolved"` if the send
-   * resolved cleanly before shutdown landed.
-   */
-  readonly awaitOutcomes: () => Promise<
-    ReadonlyArray<{ readonly requestId: string; readonly outcome: string }>
-  >;
-}
-
-/**
- * Webhook adapter graceful-shutdown — spec §5 E1: every pending send
- * that was still in-flight when shutdown fired completes with the
- * tagged `WebhookDestroyedError`.
- *
- * Architect §4.4: the `"resolved"` escape hatch was load-bearing
- * vacuity — a server that silently drops in-flight sends passed when
- * all callers happened to resolve before shutdown. Tightened:
- *
- *   - At least one outcome MUST NOT be `"resolved"` (otherwise the
- *     probe didn't exercise the shutdown path).
- *   - For every non-`"resolved"` outcome, the tag MUST be
- *     `"WebhookDestroyedError"`. Any other error tag fails.
- *
- * Probe contract: `startPending(n)` schedules synchronously and
- * returns before sends resolve; the consumer's `WebhookAdapterProbe`
- * is responsible for holding at least one send in-flight at shutdown.
- */
-export function registerWebhookGracefulShutdown(
-  ctx: ConformanceRunContext,
-  probe: WebhookAdapterProbe,
-): void {
-  registerProperty(
-    ctx,
-    CATEGORY,
-    "webhook-graceful-shutdown",
-    "in-flight sends at shutdown get typed WebhookDestroyedError",
-    assertProperty(CATEGORY, "webhook-graceful-shutdown", () =>
-      fc.assert(
-        // #ignore-sloppy-code-next-line[async-keyword]: fast-check asyncProperty contract requires Promise-returning callback
-        fc.asyncProperty(fc.integer({ min: 1, max: 4 }), async (n) => {
-          const pending = await probe.startPending(n);
-          await probe.shutdown();
-          const outcomes = await probe.awaitOutcomes();
-          if (outcomes.length < pending.length) return false;
-          const inFlight = outcomes.filter((o) => o.outcome !== "resolved");
-          // Probe contract: at least one send must still be in-flight
-          // at shutdown. All-resolved = probe didn't exercise shutdown.
-          if (inFlight.length === 0) return false;
-          return inFlight.every((o) => o.outcome === "WebhookDestroyedError");
-        }),
-        { seed: ctx.seed, numRuns: ctx.opts.numRuns ?? 3 },
-      ),
-    ),
-  );
-}
 
 /**
  * Schema-exhaustive fuzz — for every `RpcMethodName`, draws arbitrary
