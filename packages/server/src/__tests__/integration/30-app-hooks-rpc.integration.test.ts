@@ -1123,30 +1123,36 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
       "ConversationNotFound (-32002) → SDK maps to AttachError('ConversationNotFound') for missing convId",
       () =>
         Effect.gen(function* () {
-          const userAgent = yield* registerAppAgent("att-cnf-user");
-
-          coreApp.registerApp({
-            appId: "att-cnf-app",
-            name: "Att CNF",
-            permissions: { required: [], optional: [] },
-            conversations: [
-              { key: "main", name: "Main", participantFilter: "all" },
-            ],
+          // Mirrors the happy-path setup: remote-app of record (via
+          // `registerAppClient`) creates the session, then attempts to
+          // attach a UUID that doesn't exist in `conversations`. Without
+          // the pre-check (issue #328) the bogus convId falls through to
+          // a PG FK violation on `app_session_conversations.conversation_id`
+          // and surfaces as an internal error / `AttachFailed`. With the
+          // pre-check, the typed `NotFound` (-32002) round-trips to the
+          // SDK as `AttachError('ConversationNotFound')`.
+          const app = yield* registerAppClient({
+            name: "att-cnf-app-agent",
+            manifest: manifestFor("att-cnf-app"),
+            handlers: {},
           });
 
-          const session = (yield* userAgent.client.sendRpc("apps/create", {
+          const db = getKyselyDb();
+          yield* Effect.tryPromise(() =>
+            db
+              .updateTable("agents")
+              .set({ owner_user_id: crypto.randomUUID() })
+              .where("id", "=", app.appAgentId)
+              .execute(),
+          );
+
+          const session = (yield* app.client.sendRpc("apps/create", {
             appId: "att-cnf-app",
             invitedAgentIds: [],
           })) as { session: { id: string } };
 
-          // Well-formed UUID that does not exist in `conversations`.
-          // Without the pre-check (issue #328), this falls through to a
-          // PG FK violation on `app_session_conversations.conversation_id`
-          // and surfaces as an internal error / `AttachFailed`. With the
-          // pre-check, the typed `NotFound` (-32002) round-trips to the
-          // SDK as `AttachError('ConversationNotFound')`.
           const rpcErr = yield* expectRpcFailure(
-            userAgent.client.sendRpc("apps/attachConversation", {
+            app.client.sendRpc("apps/attachConversation", {
               sessionId: session.session.id,
               conversationId: crypto.randomUUID(),
             }),
@@ -1163,37 +1169,42 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
       "Conflict (-32003) → SDK maps to AttachError('AlreadyAttached') when convId is already attached to another session",
       () =>
         Effect.gen(function* () {
-          const userAgent = yield* registerAppAgent("att-aa-user");
+          // Two sessions owned by the same remote-app of record so the
+          // app-of-record auth check passes on both attach calls; the
+          // collision under test is the 1:1 `AppHost.conversationToSession`
+          // invariant, not authorization.
           const peer = yield* registerAppAgent("att-aa-peer");
-
-          coreApp.registerApp({
-            appId: "att-aa-app",
-            name: "Att AA",
-            permissions: { required: [], optional: [] },
-            conversations: [
-              { key: "main", name: "Main", participantFilter: "all" },
-            ],
+          const app = yield* registerAppClient({
+            name: "att-aa-app-agent",
+            manifest: manifestFor("att-aa-app"),
+            handlers: {},
           });
 
-          // Two sessions owned by the same initiator so auth checks pass
-          // for both attach calls; the collision under test is the 1:1
-          // `AppHost.conversationToSession` invariant, not authorization.
-          const sessionA = (yield* userAgent.client.sendRpc("apps/create", {
+          const db = getKyselyDb();
+          yield* Effect.tryPromise(() =>
+            db
+              .updateTable("agents")
+              .set({ owner_user_id: crypto.randomUUID() })
+              .where("id", "=", app.appAgentId)
+              .execute(),
+          );
+
+          const sessionA = (yield* app.client.sendRpc("apps/create", {
             appId: "att-aa-app",
             invitedAgentIds: [],
           })) as { session: { id: string } };
-          const sessionB = (yield* userAgent.client.sendRpc("apps/create", {
+          const sessionB = (yield* app.client.sendRpc("apps/create", {
             appId: "att-aa-app",
             invitedAgentIds: [],
           })) as { session: { id: string } };
 
-          const dm = (yield* userAgent.client.sendRpc("conversations/create", {
+          const dm = (yield* app.client.sendRpc("conversations/create", {
             type: "dm",
             participants: [{ type: "agent", id: peer.agentId }],
           })) as { conversation: { id: string } };
 
           // First attach: succeeds, binds dm.conversation.id → sessionA.
-          yield* userAgent.client.sendRpc("apps/attachConversation", {
+          yield* app.client.sendRpc("apps/attachConversation", {
             sessionId: sessionA.session.id,
             conversationId: dm.conversation.id,
           });
@@ -1201,7 +1212,7 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
           // Second attach for the same convId against sessionB collides
           // with the cross-session map; AppHost emits Conflict (-32003).
           const rpcErr = yield* expectRpcFailure(
-            userAgent.client.sendRpc("apps/attachConversation", {
+            app.client.sendRpc("apps/attachConversation", {
               sessionId: sessionB.session.id,
               conversationId: dm.conversation.id,
             }),
