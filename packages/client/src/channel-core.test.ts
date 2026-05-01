@@ -744,17 +744,21 @@ describe("MoltZapChannelCore", () => {
       fake.service.authorizeDispatch = () => Effect.never;
 
       fake.emit.message(buildMessage({ id: "msg-timeout-closed" }));
-      await new Promise((resolve) => setTimeout(resolve, 5));
+
+      await vi.waitFor(
+        () =>
+          expect(warnSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+              messageId: "msg-timeout-closed",
+              attempt: 0,
+            }),
+            "MoltZapChannelCore: dispatch admission failed closed",
+          ),
+        { timeout: 1_000 },
+      );
       await flushDispatchChain();
 
       expect(received).toHaveLength(0);
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          messageId: "msg-timeout-closed",
-          attempt: 0,
-        }),
-        "MoltZapChannelCore: dispatch admission failed closed",
-      );
     });
 
     it("continues draining inbound work after a dispatch lease expires", async () => {
