@@ -463,6 +463,8 @@ export class AppDisconnected extends AppError {
  * - `SessionNotFound` — session id does not refer to a session this app owns
  * - `ConversationNotFound` — conversation id does not exist
  * - `NotAuthorized` — the caller is not the session owner
+ * - `AlreadyAttached` — the conversation is already attached to a different
+ *   session (the 1:1 cross-session invariant on `AppHost.conversationToSession`)
  * - `AttachFailed` — generic transport / server failure (timeout, network)
  *
  * **Triggered by:** {@link MoltZapApp.attachConversation} resolving
@@ -499,6 +501,10 @@ export class AppDisconnected extends AppError {
  *         case "SessionNotFound":
  *         case "ConversationNotFound":
  *           return Effect.sync(() => console.warn(`gone: ${err.code}`));
+ *         case "AlreadyAttached":
+ *           return Effect.sync(() =>
+ *             console.warn("convId already bound to another session"),
+ *           );
  *         case "NotAuthorized":
  *           return Effect.fail(err); // programming error; surface it
  *         case "AttachFailed":
@@ -513,6 +519,7 @@ export type AttachErrorCode =
   | "SessionNotFound"
   | "ConversationNotFound"
   | "NotAuthorized"
+  | "AlreadyAttached"
   | "AttachFailed";
 
 export class AttachError extends AppError {
