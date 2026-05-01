@@ -13,9 +13,15 @@ import { Effect, Ref, type Scope } from "effect";
 import { ErrorCodes } from "../../schema/errors.js";
 import { EventNames } from "../../schema/events.js";
 import {
+  AppsCloseSession,
+  AppsCreate,
+  AppsRegister,
+} from "../../schema/methods/apps.js";
+import {
   ConversationsArchive,
   ConversationsCreate,
   ConversationsUnarchive,
+  ConversationsUpdate,
 } from "../../schema/methods/conversations.js";
 import { MessagesSend } from "../../schema/methods/messages.js";
 import { makeTestClient, type TestClient } from "../test-client.js";
@@ -34,6 +40,8 @@ const CATEGORY = "delivery" as const;
 const DEFAULT_TIMEOUT_MS = 5000;
 const DEFAULT_CAPTURE_CAPACITY = 256;
 const MAX_N = 4;
+const CONVERSATION_LIFECYCLE_PROPERTY = "conversation-lifecycle";
+const APP_SESSION_CLOSE_LIFECYCLE_PROPERTY = "app-session-close-lifecycle";
 const ARCHIVE_LIFECYCLE_PROPERTY = "archive-lifecycle";
 
 interface ConversationFixture {
@@ -54,6 +62,24 @@ type ArchiveEventData = {
   readonly conversationId?: unknown;
   readonly archivedAt?: unknown;
   readonly by?: unknown;
+};
+
+type ConversationEventData = {
+  readonly conversation?: {
+    readonly id?: unknown;
+    readonly name?: unknown;
+  };
+};
+
+type MessageEventData = {
+  readonly message?: {
+    readonly conversationId?: unknown;
+  };
+};
+
+type AppSessionClosedEventData = {
+  readonly sessionId?: unknown;
+  readonly closedBy?: unknown;
 };
 
 type UnarchiveEventData = {
@@ -100,11 +126,127 @@ function archiveConversation(actor: ConversationActor, conversationId: string) {
   return actor.client.sendRpc(ConversationsArchive.name, { conversationId });
 }
 
+function updateConversationName(
+  actor: ConversationActor,
+  conversationId: string,
+  name: string,
+) {
+  return actor.client.sendRpc(ConversationsUpdate.name, {
+    conversationId,
+    name,
+  });
+}
+
 function unarchiveConversation(
   actor: ConversationActor,
   conversationId: string,
 ) {
   return actor.client.sendRpc(ConversationsUnarchive.name, { conversationId });
+}
+
+function waitForConversationCreatedEvent(
+  observer: ConversationActor,
+  conversationId: string,
+  propertyName: string,
+): Effect.Effect<void, PropertyInvariantViolation> {
+  return Effect.gen(function* () {
+    const event = yield* observer.client
+      .waitForEvent(EventNames.ConversationCreated, DEFAULT_TIMEOUT_MS)
+      .pipe(
+        Effect.mapError((e) =>
+          violation(propertyName, `created event missing: ${e.message}`),
+        ),
+      );
+    const data = event.data as ConversationEventData | undefined;
+    if (data?.conversation?.id !== conversationId) {
+      return yield* Effect.fail(
+        violation(
+          propertyName,
+          `bad created event payload: ${JSON.stringify(event.data)}`,
+        ),
+      );
+    }
+  });
+}
+
+function waitForConversationUpdatedEvent(
+  observer: ConversationActor,
+  conversationId: string,
+  name: string,
+  propertyName: string,
+): Effect.Effect<void, PropertyInvariantViolation> {
+  return Effect.gen(function* () {
+    const event = yield* observer.client
+      .waitForEvent(EventNames.ConversationUpdated, DEFAULT_TIMEOUT_MS)
+      .pipe(
+        Effect.mapError((e) =>
+          violation(propertyName, `updated event missing: ${e.message}`),
+        ),
+      );
+    const data = event.data as ConversationEventData | undefined;
+    if (
+      data?.conversation?.id !== conversationId ||
+      data.conversation.name !== name
+    ) {
+      return yield* Effect.fail(
+        violation(
+          propertyName,
+          `bad updated event payload: ${JSON.stringify(event.data)}`,
+        ),
+      );
+    }
+  });
+}
+
+function waitForMessageReceivedEvent(
+  observer: ConversationActor,
+  conversationId: string,
+  propertyName: string,
+): Effect.Effect<void, PropertyInvariantViolation> {
+  return Effect.gen(function* () {
+    const event = yield* observer.client
+      .waitForEvent(EventNames.MessageReceived, DEFAULT_TIMEOUT_MS)
+      .pipe(
+        Effect.mapError((e) =>
+          violation(propertyName, `message event missing: ${e.message}`),
+        ),
+      );
+    const data = event.data as MessageEventData | undefined;
+    if (data?.message?.conversationId !== conversationId) {
+      return yield* Effect.fail(
+        violation(
+          propertyName,
+          `bad message event payload: ${JSON.stringify(event.data)}`,
+        ),
+      );
+    }
+  });
+}
+
+function waitForAppSessionClosedEvent(
+  observer: ConversationActor,
+  sessionId: string,
+  closedBy: string,
+  propertyName: string,
+): Effect.Effect<void, PropertyInvariantViolation> {
+  return Effect.gen(function* () {
+    const event = yield* observer.client
+      .waitForEvent(EventNames.AppSessionClosed, DEFAULT_TIMEOUT_MS)
+      .pipe(
+        Effect.mapError((e) =>
+          violation(propertyName, `session closed event missing: ${e.message}`),
+        ),
+      );
+    const data = event.data as AppSessionClosedEventData | undefined;
+    if (data?.sessionId !== sessionId || data.closedBy !== closedBy) {
+      return yield* Effect.fail(
+        violation(
+          propertyName,
+          `bad session closed event payload: ${JSON.stringify(event.data)}`,
+        ),
+      );
+    }
+  });
 }
 
 function waitForArchivedEvent(
@@ -587,6 +729,20 @@ interface AppSessionFixture {
   readonly dispatchHits: Ref.Ref<number>;
 }
 
+interface AppSessionCloseFixture {
+  readonly initiator: { agent: TestAgent; client: TestClient };
+  readonly invitee: { agent: TestAgent; client: TestClient };
+  readonly sessionId: string;
+  readonly conversationId: string;
+}
+
+type AppCreateResultData = {
+  readonly session?: {
+    readonly id?: unknown;
+    readonly conversations?: Record<string, unknown>;
+  };
+};
+
 function acquireAppSessionFixture(
   ctx: ConformanceRunContext,
   namePrefix: string,
@@ -612,20 +768,24 @@ function acquireAppSessionFixture(
     );
 
     const appId = `${namePrefix}-${Date.now().toString(36)}`;
-    const registerOutcome = yield* sendUntypedRpc(appClient, "apps/register", {
-      manifest: {
-        appId,
-        name: `Hook-gated app ${appId}`,
-        permissions: { required: [], optional: [] },
-        conversations: [
-          { key: "main", name: "Main", participantFilter: "all" },
-        ],
-        hooks: {
-          before_message_delivery: { timeout_ms: 5000 },
-          on_join: {},
+    const registerOutcome = yield* sendUntypedRpc(
+      appClient,
+      AppsRegister.name,
+      {
+        manifest: {
+          appId,
+          name: `Hook-gated app ${appId}`,
+          permissions: { required: [], optional: [] },
+          conversations: [
+            { key: "main", name: "Main", participantFilter: "all" },
+          ],
+          hooks: {
+            before_message_delivery: { timeout_ms: 5000 },
+            on_join: {},
+          },
         },
       },
-    }).pipe(Effect.either);
+    ).pipe(Effect.either);
     if (registerOutcome._tag === "Left") {
       return yield* Effect.fail(
         unavailable(`apps/register failed: ${registerOutcome.left._tag}`),
@@ -649,7 +809,7 @@ function acquireAppSessionFixture(
     );
 
     const createOutcome = yield* senderClient
-      .sendRpc("apps/create", { appId, invitedAgentIds: [] })
+      .sendRpc(AppsCreate.name, { appId, invitedAgentIds: [] })
       .pipe(Effect.either);
     if (createOutcome._tag === "Left") {
       // Most common cause: owner_user_id is null on the sender (see
@@ -678,6 +838,129 @@ function acquireAppSessionFixture(
       sessionId,
       dispatchHits,
     } satisfies AppSessionFixture;
+  });
+}
+
+function acquireAppSessionCloseFixture(
+  ctx: ConformanceRunContext,
+): Effect.Effect<
+  AppSessionCloseFixture,
+  PropertyUnavailable | PropertyInvariantViolation,
+  Scope.Scope
+> {
+  const propertyName = APP_SESSION_CLOSE_LIFECYCLE_PROPERTY;
+  const unavailable = (reason: string): PropertyUnavailable =>
+    new PropertyUnavailable({ category: CATEGORY, name: propertyName, reason });
+  return Effect.gen(function* () {
+    const appAgent = yield* registerTestAgent({
+      baseUrl: ctx.realServer.baseUrl,
+      name: "clapp",
+      uniqueSuffix: false,
+    }).pipe(
+      Effect.mapError((e) => unavailable(`app agent register: ${e.body}`)),
+    );
+    const appClient = yield* makeTestClient({
+      serverUrl: ctx.realServer.wsUrl,
+      agentKey: appAgent.apiKey,
+      agentId: appAgent.agentId,
+      defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
+      captureCapacity: DEFAULT_CAPTURE_CAPACITY,
+    }).pipe(
+      Effect.mapError((e) => unavailable(`app client acquire: ${String(e)}`)),
+    );
+
+    const appId = `close-life-${Date.now().toString(36)}`;
+    const registerOutcome = yield* sendUntypedRpc(
+      appClient,
+      AppsRegister.name,
+      {
+        manifest: {
+          appId,
+          name: `Close lifecycle app ${appId}`,
+          permissions: { required: [], optional: [] },
+          conversations: [
+            { key: "main", name: "Main", participantFilter: "all" },
+          ],
+        },
+      },
+    ).pipe(Effect.either);
+    if (registerOutcome._tag === "Left") {
+      return yield* Effect.fail(
+        unavailable(`apps/register failed: ${registerOutcome.left._tag}`),
+      );
+    }
+
+    const initiatorAgent = yield* registerTestAgent({
+      baseUrl: ctx.realServer.baseUrl,
+      name: "clinit",
+      uniqueSuffix: false,
+    }).pipe(
+      Effect.mapError((e) => unavailable(`initiator register: ${e.body}`)),
+    );
+    const initiatorClient = yield* makeTestClient({
+      serverUrl: ctx.realServer.wsUrl,
+      agentKey: initiatorAgent.apiKey,
+      agentId: initiatorAgent.agentId,
+      defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
+      captureCapacity: DEFAULT_CAPTURE_CAPACITY,
+    }).pipe(
+      Effect.mapError((e) =>
+        unavailable(`initiator client acquire: ${String(e)}`),
+      ),
+    );
+
+    const inviteeAgent = yield* registerTestAgent({
+      baseUrl: ctx.realServer.baseUrl,
+      name: "clinv",
+      uniqueSuffix: false,
+    }).pipe(Effect.mapError((e) => unavailable(`invitee register: ${e.body}`)));
+    const inviteeClient = yield* makeTestClient({
+      serverUrl: ctx.realServer.wsUrl,
+      agentKey: inviteeAgent.apiKey,
+      agentId: inviteeAgent.agentId,
+      defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
+      captureCapacity: DEFAULT_CAPTURE_CAPACITY,
+    }).pipe(
+      Effect.mapError((e) =>
+        unavailable(`invitee client acquire: ${String(e)}`),
+      ),
+    );
+
+    const createOutcome = yield* initiatorClient
+      .sendRpc(AppsCreate.name, {
+        appId,
+        invitedAgentIds: [inviteeAgent.agentId],
+      })
+      .pipe(Effect.either);
+    if (createOutcome._tag === "Left") {
+      return yield* Effect.fail(
+        unavailable(
+          `apps/create failed (likely agents lack owner_user_id): ${createOutcome.left._tag}`,
+        ),
+      );
+    }
+
+    const session = (createOutcome.right as AppCreateResultData).session;
+    const sessionId = session?.id;
+    const mainConversationId = session?.conversations?.["main"];
+    if (
+      typeof sessionId !== "string" ||
+      typeof mainConversationId !== "string"
+    ) {
+      return yield* Effect.fail(
+        violation(
+          propertyName,
+          `apps/create response missing session id or main conversation: ${JSON.stringify(createOutcome.right)}`,
+        ),
+      );
+    }
+
+    return {
+      initiator: { agent: initiatorAgent, client: initiatorClient },
+      invitee: { agent: inviteeAgent, client: inviteeClient },
+      sessionId,
+      conversationId: mainConversationId,
+    } satisfies AppSessionCloseFixture;
   });
 }
 
@@ -734,6 +1017,202 @@ export function registerTaskBoundaryIsolation(
             }),
           );
         }
+      }),
+    ),
+  );
+}
+
+/**
+ * Conversation lifecycle — the supported reversible path is observable
+ * and enforced:
+ *   - conversations/create broadcasts conversations/created
+ *   - messages/send broadcasts messages/received
+ *   - conversations/update broadcasts conversations/updated
+ *   - archive/unarchive form the only reversible terminal state
+ *   - archived conversations reject messages/send
+ *   - messages/send succeeds again after unarchive
+ */
+export function registerConversationLifecycle(
+  ctx: ConformanceRunContext,
+): void {
+  registerProperty(
+    ctx,
+    CATEGORY,
+    CONVERSATION_LIFECYCLE_PROPERTY,
+    "create/send/update/archive/unarchive lifecycle is observable and enforced",
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* acquirePropertyConversation(
+          ctx,
+          CONVERSATION_LIFECYCLE_PROPERTY,
+          "life",
+        );
+        const participant = yield* firstParticipant(
+          fixture,
+          CONVERSATION_LIFECYCLE_PROPERTY,
+        );
+
+        yield* waitForConversationCreatedEvent(
+          participant,
+          fixture.conversationId,
+          CONVERSATION_LIFECYCLE_PROPERTY,
+        );
+
+        const firstSend = yield* sendText(
+          fixture.owner,
+          fixture.conversationId,
+          "lifecycle-before-update",
+        ).pipe(Effect.either);
+        if (firstSend._tag === "Left") {
+          return yield* Effect.fail(
+            violation(
+              CONVERSATION_LIFECYCLE_PROPERTY,
+              `messages/send failed before archive: ${firstSend.left._tag}`,
+            ),
+          );
+        }
+        yield* waitForMessageReceivedEvent(
+          participant,
+          fixture.conversationId,
+          CONVERSATION_LIFECYCLE_PROPERTY,
+        );
+
+        const updatedName = `Lifecycle ${ctx.seed}`;
+        const update = yield* updateConversationName(
+          fixture.owner,
+          fixture.conversationId,
+          updatedName,
+        ).pipe(Effect.either);
+        if (update._tag === "Left") {
+          return yield* Effect.fail(
+            violation(
+              CONVERSATION_LIFECYCLE_PROPERTY,
+              `conversations/update failed: ${update.left._tag}`,
+            ),
+          );
+        }
+        yield* waitForConversationUpdatedEvent(
+          participant,
+          fixture.conversationId,
+          updatedName,
+          CONVERSATION_LIFECYCLE_PROPERTY,
+        );
+
+        const archive = yield* archiveConversation(
+          fixture.owner,
+          fixture.conversationId,
+        ).pipe(Effect.either);
+        if (archive._tag === "Left") {
+          return yield* Effect.fail(
+            violation(
+              CONVERSATION_LIFECYCLE_PROPERTY,
+              `archive failed: ${archive.left._tag}`,
+            ),
+          );
+        }
+        yield* waitForArchivedEvent(
+          participant,
+          fixture.conversationId,
+          fixture.owner.agent.agentId,
+          CONVERSATION_LIFECYCLE_PROPERTY,
+        );
+        yield* assertConversationRejectsMessages(
+          participant,
+          fixture.conversationId,
+          CONVERSATION_LIFECYCLE_PROPERTY,
+        );
+
+        const unarchive = yield* unarchiveConversation(
+          fixture.owner,
+          fixture.conversationId,
+        ).pipe(Effect.either);
+        if (unarchive._tag === "Left") {
+          return yield* Effect.fail(
+            violation(
+              CONVERSATION_LIFECYCLE_PROPERTY,
+              `unarchive failed: ${unarchive.left._tag}`,
+            ),
+          );
+        }
+        yield* waitForUnarchivedEvent(
+          participant,
+          fixture.conversationId,
+          fixture.owner.agent.agentId,
+          CONVERSATION_LIFECYCLE_PROPERTY,
+        );
+
+        const resumedSend = yield* sendText(
+          participant,
+          fixture.conversationId,
+          "lifecycle-after-unarchive",
+        ).pipe(Effect.either);
+        if (resumedSend._tag === "Left") {
+          return yield* Effect.fail(
+            violation(
+              CONVERSATION_LIFECYCLE_PROPERTY,
+              `messages/send failed after unarchive: ${resumedSend.left._tag}`,
+            ),
+          );
+        }
+      }),
+    ),
+  );
+}
+
+/**
+ * App-session close lifecycle — when app sessions are reachable, close is
+ * observable as both conversation archival and app/sessionClosed, and the
+ * archived app conversation rejects later traffic.
+ */
+export function registerAppSessionCloseLifecycle(
+  ctx: ConformanceRunContext,
+): void {
+  registerProperty(
+    ctx,
+    CATEGORY,
+    APP_SESSION_CLOSE_LIFECYCLE_PROPERTY,
+    "apps/closeSession archives app conversations and broadcasts session close",
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* acquireAppSessionCloseFixture(ctx);
+
+        const close = yield* fixture.initiator.client
+          .sendRpc(AppsCloseSession.name, { sessionId: fixture.sessionId })
+          .pipe(Effect.either);
+        if (close._tag === "Left") {
+          return yield* Effect.fail(
+            violation(
+              APP_SESSION_CLOSE_LIFECYCLE_PROPERTY,
+              `apps/closeSession failed: ${close.left._tag}`,
+            ),
+          );
+        }
+        if ((close.right as { closed?: unknown }).closed !== true) {
+          return yield* Effect.fail(
+            violation(
+              APP_SESSION_CLOSE_LIFECYCLE_PROPERTY,
+              `apps/closeSession returned unexpected result: ${JSON.stringify(close.right)}`,
+            ),
+          );
+        }
+
+        yield* waitForArchivedEvent(
+          fixture.invitee,
+          fixture.conversationId,
+          fixture.initiator.agent.agentId,
+          APP_SESSION_CLOSE_LIFECYCLE_PROPERTY,
+        );
+        yield* waitForAppSessionClosedEvent(
+          fixture.invitee,
+          fixture.sessionId,
+          fixture.initiator.agent.agentId,
+          APP_SESSION_CLOSE_LIFECYCLE_PROPERTY,
+        );
+        yield* assertConversationRejectsMessages(
+          fixture.initiator,
+          fixture.conversationId,
+          APP_SESSION_CLOSE_LIFECYCLE_PROPERTY,
+        );
       }),
     ),
   );
