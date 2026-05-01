@@ -94,13 +94,13 @@ describe("AppManifestSchema", () => {
     expect(validateManifest(manifest)).toBe(true);
   });
 
-  it("rejects unknown hook fields", () => {
+  it("rejects additional properties on hook entries", () => {
     const manifest = {
       appId: "test",
       name: "Test",
       permissions: { required: [], optional: [] },
       hooks: {
-        before_message_delivery: { webhook: "https://x.test/y" },
+        before_message_delivery: { unexpected: "value" },
       },
     };
     expect(validateManifest(manifest)).toBe(false);
