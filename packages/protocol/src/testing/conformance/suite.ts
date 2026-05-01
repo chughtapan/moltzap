@@ -114,6 +114,8 @@ export function registerAllProperties(ctx: ConformanceRunContext): void {
   delivery.registerTaskBoundaryIsolation(ctx);
   delivery.registerHookGatedDelivery(ctx);
   delivery.registerMultiAppFifoShortCircuit(ctx);
+  delivery.registerConversationLifecycle(ctx);
+  delivery.registerAppSessionCloseLifecycle(ctx);
   delivery.registerArchiveLifecycle(ctx);
 
   adversity.registerLatencyResilience(ctx);
