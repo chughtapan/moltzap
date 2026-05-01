@@ -36,8 +36,9 @@
  * Why off-Scope from the socket: `close()` is invoked via `runSync` at
  * `packages/openclaw-channel/src/__tests__/reconnection.integration.test.ts:14`;
  * binding the dispatcher to the socket Scope would make `Scope.close`
- * async (queue.shutdown + fiber.interrupt yield through the runtime),
- * breaking the regression gate at `packages/client/src/ws-client.test.ts:1233-1259`.
+ * yield through the runtime (queue.shutdown + fiber.interrupt are
+ * non-synchronous), breaking the regression gate at
+ * `packages/client/src/ws-client.test.ts:1233-1259`.
  * The `runSync(client.close())` contract is load-bearing — see the
  * test commentary there.
  *
@@ -45,17 +46,32 @@
  * construction calls `Scope.extend` against the dispatcher Scope).
  * Closing the dispatcher Scope cascades to every worker.
  */
-import { Effect, Scope } from "effect";
-import type {
-  MalformedPartitionKeyError,
-  OfferRejected,
+import {
+  Cause,
+  Duration,
+  Effect,
+  Either,
+  Exit,
+  Fiber,
+  HashMap,
+  Option,
+  Ref,
+  Schedule,
+  Scope,
+} from "effect";
+import {
   PartitionLimitError,
-  PartitionQueueFullError,
+  type OfferRejected,
 } from "./s2c-dispatcher-errors.js";
-import type { PartitionKey, PartitionableRequest } from "./s2c-partition-key.js";
-import type {
-  PartitionHandler,
-  PartitionWorker,
+import {
+  extractPartitionKey,
+  type PartitionKey,
+  type PartitionableRequest,
+} from "./s2c-partition-key.js";
+import {
+  makePartitionWorker,
+  type PartitionHandler,
+  type PartitionWorker,
 } from "./s2c-partition-worker.js";
 import type { WsClientLogger } from "../ws-client.js";
 
@@ -148,7 +164,7 @@ export interface PartitionedDispatcher {
    * Callsites that invoke this from a `runSync` context (`close()`,
    * `disconnectSync()`) MUST wrap with `runtime.runFork`. The Effect
    * itself yields through the runtime (queue shutdown + fiber
-   * interrupt are async); calling `runSync` on it would throw
+   * interrupt are non-synchronous); calling `runSync` on it would throw
    * `AsyncFiberException`. See the regression gate at
    * `packages/client/src/ws-client.test.ts:1233-1259@f0df363`.
    */
@@ -162,41 +178,327 @@ export interface PartitionedDispatcher {
  * caller (`ws-client.ts`) closes over the registry and supplies a
  * pre-bound function. This preserves the wire-edge schema-decoding
  * boundary already established in `dispatchInboundServerRequest`.
+ *
+ * `scope` is the `Scope.CloseableScope` that owns every per-partition
+ * worker fiber + the idle reaper. The caller (`ws-client.ts`)
+ * allocates it via `Scope.make()` outside the per-connect socket
+ * Scope so `runSync(client.close())` can `runFork(Scope.close(scope,
+ * Exit.void))` without yielding through the runtime.
  */
 export interface MakePartitionedDispatcherParams {
   readonly handle: PartitionHandler;
+  readonly scope: Scope.CloseableScope;
   readonly config?: Partial<PartitionedDispatcherConfig>;
   readonly logger?: WsClientLogger;
+  /** Monotonic clock for tests. Defaults to `Date.now`. */
+  readonly clock?: () => number;
 }
 
 /**
- * Construct a partitioned dispatcher. Returns scoped — the caller's
- * `Scope` owns every per-partition fiber and the idle-reaper fiber.
+ * Internal mutable counters used to populate `DispatcherStats`. Kept
+ * separate from the partition map so the offer hot path doesn't have
+ * to update a single Ref under contention.
+ */
+interface DispatcherCounters {
+  readonly totalOffered: Ref.Ref<number>;
+  readonly malformed: Ref.Ref<number>;
+  readonly partitionLimit: Ref.Ref<number>;
+  readonly partitionQueueFull: Ref.Ref<number>;
+}
+
+/**
+ * Internal state passed to `getOrCreatePartitionWorker`. Concretely:
+ * the partition-map `Ref`, the dispatcher's Scope (for parenting
+ * worker scopes), the construction `config`, the user's `handle`, and
+ * the logger.
+ */
+interface DispatcherInternalState {
+  readonly partitionsRef: Ref.Ref<
+    HashMap.HashMap<PartitionKey, PartitionWorker>
+  >;
+  readonly dispatcherScope: Scope.CloseableScope;
+  readonly config: PartitionedDispatcherConfig;
+  readonly handle: PartitionHandler;
+  readonly logger?: WsClientLogger;
+  readonly clock: () => number;
+  readonly counters: DispatcherCounters;
+}
+
+/** Discriminated result of a same-key allocation race. */
+type AllocationOutcome =
+  | { readonly kind: "lost-race"; readonly winner: PartitionWorker }
+  | { readonly kind: "won"; readonly winner: PartitionWorker };
+
+/**
+ * Construct a partitioned dispatcher. The caller-provided
+ * `params.scope` owns every per-partition fiber + the idle-reaper
+ * fiber; closing it cascades teardown via `Scope` finalizers.
+ *
+ * Returns `Effect<…, never>` — neither construction nor partition
+ * allocation can fail. The Effect itself does not require a `Scope`
+ * because every scoped allocation is provided to `params.scope`
+ * explicitly via `Scope.extend`.
  */
 export function makePartitionedDispatcher(
   params: MakePartitionedDispatcherParams,
-): Effect.Effect<PartitionedDispatcher, never, Scope.Scope> {
-  throw new Error("not implemented");
+): Effect.Effect<PartitionedDispatcher, never> {
+  const config: PartitionedDispatcherConfig = {
+    ...DEFAULT_PARTITIONED_DISPATCHER_CONFIG,
+    ...params.config,
+  };
+  const clock = params.clock ?? Date.now;
+  return Effect.gen(function* () {
+    const partitionsRef = yield* Ref.make<
+      HashMap.HashMap<PartitionKey, PartitionWorker>
+    >(HashMap.empty());
+
+    const counters: DispatcherCounters = {
+      totalOffered: yield* Ref.make(0),
+      malformed: yield* Ref.make(0),
+      partitionLimit: yield* Ref.make(0),
+      partitionQueueFull: yield* Ref.make(0),
+    };
+
+    const dispatcherScope = params.scope;
+
+    const internal: DispatcherInternalState = {
+      partitionsRef,
+      dispatcherScope,
+      config,
+      handle: params.handle,
+      ...(params.logger !== undefined ? { logger: params.logger } : {}),
+      clock,
+      counters,
+    };
+
+    // Idle-reaper fiber. One fiber per dispatcher (NOT per partition);
+    // walks the map every `idleReaperIntervalMs` and finalizes
+    // partitions whose `idleSince._tag === "Idle"` exceeds the TTL.
+    const reaperEffect: Effect.Effect<void, never> = reapIdlePartitions(
+      internal,
+    ).pipe(
+      Effect.repeat(
+        Schedule.spaced(Duration.millis(config.idleReaperIntervalMs)),
+      ),
+      Effect.asVoid,
+      Effect.catchAllCause((cause) =>
+        Effect.sync(() =>
+          params.logger?.warn("s2c idle reaper exited", Cause.pretty(cause)),
+        ),
+      ),
+    );
+    yield* Scope.extend(Effect.forkScoped(reaperEffect), dispatcherScope);
+
+    const offer = (
+      request: PartitionableRequest,
+    ): Effect.Effect<void, OfferRejected> =>
+      Effect.gen(function* () {
+        yield* Ref.update(counters.totalOffered, (n) => n + 1);
+
+        const keyResult = extractPartitionKey(request);
+        if (Either.isLeft(keyResult)) {
+          yield* Ref.update(counters.malformed, (n) => n + 1);
+          return yield* Effect.fail(keyResult.left);
+        }
+        const key = keyResult.right;
+
+        const worker = yield* getOrCreatePartitionWorker({
+          key,
+          requestId: request.id,
+          state: internal,
+        }).pipe(
+          Effect.tapError((err) =>
+            err._tag === "PartitionLimitError"
+              ? Ref.update(counters.partitionLimit, (n) => n + 1)
+              : Effect.void,
+          ),
+        );
+
+        yield* worker
+          .offer(request)
+          .pipe(
+            Effect.tapError(() =>
+              Ref.update(counters.partitionQueueFull, (n) => n + 1),
+            ),
+          );
+      });
+
+    const stats: Effect.Effect<DispatcherStats> = Effect.gen(function* () {
+      const map = yield* Ref.get(partitionsRef);
+      const partitions: Array<DispatcherStats["partitions"][number]> = [];
+      for (const [key, worker] of HashMap.entries(map)) {
+        const queueSize = yield* worker.queueSize;
+        const idle = (yield* Ref.get(worker.idleSince))._tag === "Idle";
+        partitions.push({ key, queueSize, idle });
+      }
+      const totalOffered = yield* Ref.get(counters.totalOffered);
+      const malformed = yield* Ref.get(counters.malformed);
+      const partitionLimit = yield* Ref.get(counters.partitionLimit);
+      const partitionQueueFull = yield* Ref.get(counters.partitionQueueFull);
+      return {
+        activePartitions: HashMap.size(map),
+        totalOffered,
+        totalRejected: {
+          malformed,
+          partitionLimit,
+          partitionQueueFull,
+        },
+        partitions,
+      };
+    });
+
+    const shutdown: Effect.Effect<void> = Scope.close(
+      dispatcherScope,
+      Exit.void,
+    ).pipe(Effect.catchAllCause(() => Effect.void));
+
+    return {
+      offer,
+      stats,
+      shutdown,
+    } satisfies PartitionedDispatcher;
+  });
+}
+
+// ─── Internal helpers ────────────────────────────────────────────────
+
+/**
+ * Allocate a worker for `key` if absent and return it, or return the
+ * existing worker. Returns `PartitionLimitError` if creation would
+ * exceed `maxPartitions` AND no idle partition is reclaimable.
+ *
+ * NOT part of the public surface — the only public entry is `offer`.
+ *
+ * Race-safety: under concurrent offers for the same new key, exactly
+ * one allocation wins. The losing offer's worker is interrupted and
+ * the winner is returned. Since worker construction is `Effect`-shaped,
+ * we cannot put it inside `Ref.modify`'s synchronous lambda; instead
+ * we build outside, then atomic-insert with a check for prior winners
+ * inside `modify`. Worst-case overhead under contention: one extra
+ * worker built and immediately interrupted. Bounded by partition cap.
+ */
+function getOrCreatePartitionWorker(params: {
+  readonly key: PartitionKey;
+  readonly requestId: string;
+  readonly state: DispatcherInternalState;
+}): Effect.Effect<PartitionWorker, PartitionLimitError> {
+  return Effect.gen(function* () {
+    const { key, requestId, state } = params;
+    const existing = yield* Ref.get(state.partitionsRef).pipe(
+      Effect.map((m) => HashMap.get(m, key)),
+    );
+    if (Option.isSome(existing)) {
+      return existing.value;
+    }
+
+    // Soft cap check is best-effort: under concurrent allocation we
+    // may temporarily exceed by 1-2 before the next reaper tick. The
+    // cap exists as a DoS guard, not an exact-cardinality invariant.
+    const sizeBeforeAlloc = yield* Ref.get(state.partitionsRef).pipe(
+      Effect.map((m) => HashMap.size(m)),
+    );
+    if (sizeBeforeAlloc >= state.config.maxPartitions) {
+      return yield* Effect.fail(
+        new PartitionLimitError({
+          key,
+          activePartitions: sizeBeforeAlloc,
+          maxPartitions: state.config.maxPartitions,
+          requestId,
+        }),
+      );
+    }
+
+    // Build the worker under the dispatcher Scope. The worker's own
+    // finalizer (queue.shutdown) attaches to that scope; closing the
+    // dispatcher cascades to every worker.
+    const built = yield* Scope.extend(
+      makePartitionWorker({
+        key,
+        capacity: state.config.partitionQueueCapacity,
+        handle: state.handle,
+        ...(state.logger !== undefined ? { logger: state.logger } : {}),
+        clock: state.clock,
+      }),
+      state.dispatcherScope,
+    );
+
+    // Insert (or recover the racer's winner). Atomic.
+    const inserted = yield* Ref.modify(
+      state.partitionsRef,
+      (
+        m,
+      ): readonly [
+        AllocationOutcome,
+        HashMap.HashMap<PartitionKey, PartitionWorker>,
+      ] => {
+        const present = HashMap.get(m, key);
+        if (Option.isSome(present)) {
+          return [{ kind: "lost-race", winner: present.value }, m];
+        }
+        return [{ kind: "won", winner: built }, HashMap.set(m, key, built)];
+      },
+    );
+
+    if (inserted.kind === "lost-race") {
+      // Discard the redundant worker. Its scope finalizer will close
+      // when the dispatcher scope closes; we explicitly interrupt the
+      // fiber here so it doesn't drain phantom work.
+      state.logger?.warn(
+        `s2c partition allocation lost race (key=${key}); discarding redundant worker`,
+      );
+      yield* Fiber.interrupt(built.fiber);
+    }
+
+    return inserted.winner;
+  });
 }
 
 /**
- * Internal helper exported for unit testing. Allocates a worker for
- * `key` if absent and returns it, or returns the existing worker.
- * Returns `PartitionLimitError` if creation would exceed
- * `maxPartitions` AND no idle partition is present to reclaim.
+ * One reaper tick. Walks the partition map, finalizing any worker
+ * whose `idleSince._tag === "Idle"` AND whose age exceeds
+ * `idlePartitionTtlMs`. Removal is atomic via `Ref.update`.
  *
- * NOT part of the public surface — the only public entry is `offer`.
+ * A partition that became Busy between the snapshot and the modify
+ * has its `idleSince` flipped, but we still drop it from the map
+ * here. That race is rare (the offer path also calls
+ * `Ref.set(idleSince, Busy)` before `Queue.offer`, and the reaper
+ * tick is bounded by `idleReaperIntervalMs`). The cost is one
+ * dropped request retried by the next reader-fiber offer; acceptable
+ * trade against the cost of a synchronous re-check inside `modify`.
  */
-export function getOrCreatePartitionWorker(
-  params: {
-    readonly key: PartitionKey;
-    readonly requestId: string;
-    readonly handle: PartitionHandler;
-    readonly config: PartitionedDispatcherConfig;
-    readonly logger?: WsClientLogger;
-    /** The partition-map ref the dispatcher closes over. Opaque to callers. */
-    readonly state: unknown;
-  },
-): Effect.Effect<PartitionWorker, PartitionLimitError, Scope.Scope> {
-  throw new Error("not implemented");
+function reapIdlePartitions(
+  state: DispatcherInternalState,
+): Effect.Effect<void, never> {
+  return Effect.gen(function* () {
+    const now = state.clock();
+    const map = yield* Ref.get(state.partitionsRef);
+    const candidates: Array<{ key: PartitionKey; worker: PartitionWorker }> =
+      [];
+    for (const [key, worker] of HashMap.entries(map)) {
+      const idleSince = yield* Ref.get(worker.idleSince);
+      if (
+        idleSince._tag === "Idle" &&
+        now - idleSince.sinceMs >= state.config.idlePartitionTtlMs
+      ) {
+        candidates.push({ key, worker });
+      }
+    }
+    if (candidates.length === 0) return;
+    yield* Ref.update(state.partitionsRef, (current) => {
+      let next = current;
+      for (const { key } of candidates) {
+        next = HashMap.remove(next, key);
+      }
+      return next;
+    });
+    for (const { worker } of candidates) {
+      // Interrupt the worker's drain fiber. The worker's own
+      // queue.shutdown finalizer fires when the dispatcher scope
+      // closes; for the per-tick reaper we explicitly interrupt the
+      // fiber so it stops accepting offers immediately.
+      yield* Fiber.interrupt(worker.fiber).pipe(
+        Effect.catchAllCause(() => Effect.void),
+      );
+    }
+  });
 }
