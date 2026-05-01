@@ -10,6 +10,14 @@
  */
 import * as fc from "fast-check";
 import { Effect, Ref, type Scope } from "effect";
+import { ErrorCodes } from "../../schema/errors.js";
+import { EventNames } from "../../schema/events.js";
+import {
+  ConversationsArchive,
+  ConversationsCreate,
+  ConversationsUnarchive,
+} from "../../schema/methods/conversations.js";
+import { MessagesSend } from "../../schema/methods/messages.js";
 import { makeTestClient, type TestClient } from "../test-client.js";
 import { registerTestAgent, type TestAgent } from "../agent-registration.js";
 import type { ConformanceRunContext } from "./runner.js";
@@ -26,6 +34,7 @@ const CATEGORY = "delivery" as const;
 const DEFAULT_TIMEOUT_MS = 5000;
 const DEFAULT_CAPTURE_CAPACITY = 256;
 const MAX_N = 4;
+const ARCHIVE_LIFECYCLE_PROPERTY = "archive-lifecycle";
 
 interface ConversationFixture {
   readonly owner: { agent: TestAgent; client: TestClient };
@@ -34,6 +43,158 @@ interface ConversationFixture {
     client: TestClient;
   }>;
   readonly conversationId: string;
+}
+
+type ConversationActor = {
+  readonly agent: TestAgent;
+  readonly client: TestClient;
+};
+
+type ArchiveEventData = {
+  readonly conversationId?: unknown;
+  readonly archivedAt?: unknown;
+  readonly by?: unknown;
+};
+
+type UnarchiveEventData = {
+  readonly conversationId?: unknown;
+  readonly by?: unknown;
+};
+
+function violation(name: string, reason: string): PropertyInvariantViolation {
+  return new PropertyInvariantViolation({ category: CATEGORY, name, reason });
+}
+
+function acquirePropertyConversation(
+  ctx: ConformanceRunContext,
+  propertyName: string,
+  namePrefix: string,
+): Effect.Effect<ConversationFixture, PropertyInvariantViolation, Scope.Scope> {
+  return acquireConversation(ctx, 1, namePrefix).pipe(
+    Effect.mapError((e) => violation(propertyName, `fixture: ${e}`)),
+  );
+}
+
+function firstParticipant(
+  fixture: ConversationFixture,
+  propertyName: string,
+): Effect.Effect<ConversationActor, PropertyInvariantViolation> {
+  const participant = fixture.participants[0];
+  return participant === undefined
+    ? Effect.fail(violation(propertyName, "fixture missing participant"))
+    : Effect.succeed(participant);
+}
+
+function sendText(
+  actor: ConversationActor,
+  conversationId: string,
+  text: string,
+) {
+  return actor.client.sendRpc(MessagesSend.name, {
+    conversationId,
+    parts: [{ type: "text", text }],
+  });
+}
+
+function archiveConversation(actor: ConversationActor, conversationId: string) {
+  return actor.client.sendRpc(ConversationsArchive.name, { conversationId });
+}
+
+function unarchiveConversation(
+  actor: ConversationActor,
+  conversationId: string,
+) {
+  return actor.client.sendRpc(ConversationsUnarchive.name, { conversationId });
+}
+
+function waitForArchivedEvent(
+  observer: ConversationActor,
+  conversationId: string,
+  byAgentId: string,
+  propertyName: string,
+): Effect.Effect<void, PropertyInvariantViolation> {
+  return Effect.gen(function* () {
+    const event = yield* observer.client
+      .waitForEvent(EventNames.ConversationArchived, DEFAULT_TIMEOUT_MS)
+      .pipe(
+        Effect.mapError((e) =>
+          violation(propertyName, `archive event missing: ${e.message}`),
+        ),
+      );
+    const data = event.data as ArchiveEventData | undefined;
+    if (
+      data?.conversationId !== conversationId ||
+      typeof data.archivedAt !== "string" ||
+      data.by !== byAgentId
+    ) {
+      return yield* Effect.fail(
+        violation(
+          propertyName,
+          `bad archive event payload: ${JSON.stringify(event.data)}`,
+        ),
+      );
+    }
+  });
+}
+
+function waitForUnarchivedEvent(
+  observer: ConversationActor,
+  conversationId: string,
+  byAgentId: string,
+  propertyName: string,
+): Effect.Effect<void, PropertyInvariantViolation> {
+  return Effect.gen(function* () {
+    const event = yield* observer.client
+      .waitForEvent(EventNames.ConversationUnarchived, DEFAULT_TIMEOUT_MS)
+      .pipe(
+        Effect.mapError((e) =>
+          violation(propertyName, `unarchive event missing: ${e.message}`),
+        ),
+      );
+    const data = event.data as UnarchiveEventData | undefined;
+    if (data?.conversationId !== conversationId || data.by !== byAgentId) {
+      return yield* Effect.fail(
+        violation(
+          propertyName,
+          `bad unarchive event payload: ${JSON.stringify(event.data)}`,
+        ),
+      );
+    }
+  });
+}
+
+function assertConversationRejectsMessages(
+  actor: ConversationActor,
+  conversationId: string,
+  propertyName: string,
+): Effect.Effect<void, PropertyInvariantViolation> {
+  return Effect.gen(function* () {
+    const outcome = yield* sendText(
+      actor,
+      conversationId,
+      "must-fail-while-archived",
+    ).pipe(Effect.either);
+    if (outcome._tag === "Right") {
+      return yield* Effect.fail(
+        violation(propertyName, "messages/send succeeded while archived"),
+      );
+    }
+    if (
+      outcome.left._tag !== "TestingRpcResponseError" ||
+      outcome.left.code !== ErrorCodes.ConversationArchived
+    ) {
+      const errorLabel =
+        outcome.left._tag === "TestingRpcResponseError"
+          ? `${outcome.left._tag}/${outcome.left.code}`
+          : outcome.left._tag;
+      return yield* Effect.fail(
+        violation(
+          propertyName,
+          `messages/send returned ${errorLabel}, expected ConversationArchived`,
+        ),
+      );
+    }
+  });
 }
 
 function acquireClient(
@@ -74,7 +235,7 @@ function acquireConversation(
       { concurrency: clamped },
     );
     const createResult = yield* owner.client
-      .sendRpc("conversations/create", {
+      .sendRpc(ConversationsCreate.name, {
         type: "group",
         name: `${namePrefix}-conv`,
         participants: participants.map((p) => ({
@@ -126,7 +287,7 @@ export function registerFanOutCardinality(ctx: ConformanceRunContext): void {
                   Effect.mapError((e) => new Error(e)),
                 );
                 const send = yield* fixture.owner.client
-                  .sendRpc("messages/send", {
+                  .sendRpc(MessagesSend.name, {
                     conversationId: fixture.conversationId,
                     parts: [{ type: "text", text: "fan-out-ping" }],
                   })
@@ -225,7 +386,7 @@ export function registerStoreAndReplay(ctx: ConformanceRunContext): void {
         const sent = 3;
         for (let i = 0; i < sent; i++) {
           yield* fixture.owner.client
-            .sendRpc("messages/send", {
+            .sendRpc(MessagesSend.name, {
               conversationId: fixture.conversationId,
               parts: [{ type: "text", text: `sr-${i}` }],
             })
@@ -280,7 +441,7 @@ export function registerPayloadOpacity(ctx: ConformanceRunContext): void {
                   const participant = fixture.participants[0];
                   if (participant === undefined) return false;
                   yield* fixture.owner.client
-                    .sendRpc("messages/send", {
+                    .sendRpc(MessagesSend.name, {
                       conversationId: fixture.conversationId,
                       parts: [{ type: "text", text }],
                     })
@@ -552,7 +713,7 @@ export function registerTaskBoundaryIsolation(
           ),
         );
         yield* fxA.owner.client
-          .sendRpc("messages/send", {
+          .sendRpc(MessagesSend.name, {
             conversationId: fxA.conversationId,
             parts: [{ type: "text", text: "iso-leak-canary" }],
           })
@@ -571,6 +732,93 @@ export function registerTaskBoundaryIsolation(
               name: "task-boundary-isolation",
               reason: `conversation ${fxA.conversationId} leaked into outsider ${outsider.agent.agentId}`,
             }),
+          );
+        }
+      }),
+    ),
+  );
+}
+
+/**
+ * Archive lifecycle — archival is observable and enforced:
+ *   - conversations/archive broadcasts conversations/archived
+ *   - messages/send to the archived conversation returns the typed
+ *     ConversationArchived error
+ *   - conversations/unarchive broadcasts conversations/unarchived
+ *   - messages/send succeeds again after unarchive
+ */
+export function registerArchiveLifecycle(ctx: ConformanceRunContext): void {
+  registerProperty(
+    ctx,
+    CATEGORY,
+    ARCHIVE_LIFECYCLE_PROPERTY,
+    "archive/unarchive emits lifecycle events and gates messages/send",
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* acquirePropertyConversation(
+          ctx,
+          ARCHIVE_LIFECYCLE_PROPERTY,
+          "arch",
+        );
+        const participant = yield* firstParticipant(
+          fixture,
+          ARCHIVE_LIFECYCLE_PROPERTY,
+        );
+
+        const archive = yield* archiveConversation(
+          fixture.owner,
+          fixture.conversationId,
+        ).pipe(Effect.either);
+        if (archive._tag === "Left") {
+          return yield* Effect.fail(
+            violation(
+              ARCHIVE_LIFECYCLE_PROPERTY,
+              `archive failed: ${archive.left._tag}`,
+            ),
+          );
+        }
+        yield* waitForArchivedEvent(
+          participant,
+          fixture.conversationId,
+          fixture.owner.agent.agentId,
+          ARCHIVE_LIFECYCLE_PROPERTY,
+        );
+        yield* assertConversationRejectsMessages(
+          participant,
+          fixture.conversationId,
+          ARCHIVE_LIFECYCLE_PROPERTY,
+        );
+
+        const unarchive = yield* unarchiveConversation(
+          fixture.owner,
+          fixture.conversationId,
+        ).pipe(Effect.either);
+        if (unarchive._tag === "Left") {
+          return yield* Effect.fail(
+            violation(
+              ARCHIVE_LIFECYCLE_PROPERTY,
+              `unarchive failed: ${unarchive.left._tag}`,
+            ),
+          );
+        }
+        yield* waitForUnarchivedEvent(
+          participant,
+          fixture.conversationId,
+          fixture.owner.agent.agentId,
+          ARCHIVE_LIFECYCLE_PROPERTY,
+        );
+
+        const resumedSend = yield* sendText(
+          participant,
+          fixture.conversationId,
+          "must-succeed-after-unarchive",
+        ).pipe(Effect.either);
+        if (resumedSend._tag === "Left") {
+          return yield* Effect.fail(
+            violation(
+              ARCHIVE_LIFECYCLE_PROPERTY,
+              `messages/send failed after unarchive: ${resumedSend.left._tag}`,
+            ),
           );
         }
       }),

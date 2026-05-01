@@ -3,14 +3,25 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import {
+  AgentsLookup,
+  AgentsLookupByName,
+  AppsAuthorizeDispatch,
+  ConversationsCreate,
+  ConversationsGet,
   type EventFrame,
   type Message,
   type Part,
   type MessageReceivedEvent,
   type ConversationCreatedEvent,
   type ConversationUpdatedEvent,
+  type ConversationArchivedEvent,
+  type ConversationUnarchivedEvent,
   type PermissionsRequiredEvent,
+  ErrorCodes,
   EventNames,
+  MessagesList,
+  MessagesSend,
+  PermissionsGrant,
 } from "@moltzap/protocol";
 import { Effect, HashMap, Match, Option, Ref } from "effect";
 import {
@@ -219,11 +230,16 @@ export class MoltZapService {
       HashMap.empty<string, HashMap.HashMap<string, ReadonlySet<string>>>(),
     ),
   );
+  private readonly archivedConversationIds = new Set<string>();
   private messageHandlers: EventHandler<Message>[] = [];
   private rawEventHandlers: EventHandler<EventFrame>[] = [];
   private disconnectHandlers: EventHandler<void>[] = [];
   private reconnectHandlers: EventHandler<HelloOk>[] = [];
   private permissionRequiredHandlers: EventHandler<PermissionsRequiredEvent>[] =
+    [];
+  private conversationArchivedHandlers: EventHandler<ConversationArchivedEvent>[] =
+    [];
+  private conversationUnarchivedHandlers: EventHandler<ConversationUnarchivedEvent>[] =
     [];
 
   private _ownAgentId: string | undefined;
@@ -299,6 +315,7 @@ export class MoltZapService {
         Ref.set(this.lastReadRef, HashMap.empty()),
       ]),
     );
+    this.archivedConversationIds.clear();
     // Handlers are preserved across close()/connect() cycles. MoltZapChannelCore
     // subscribes once in its constructor; clearing handlers here would silently
     // drop inbound/reconnect dispatch on any subsequent reconnect of the same
@@ -502,7 +519,7 @@ export class MoltZapService {
       const convId = params.conversationId;
       const limit = (params.limit as number) ?? 10;
       const sessionKey = params.sessionKey as string | undefined;
-      const result = (yield* this.sendRpc("messages/list", {
+      const result = (yield* this.sendRpc(MessagesList.name, {
         conversationId: convId,
         limit,
       })) as { messages: Message[]; hasMore: boolean };
@@ -515,7 +532,7 @@ export class MoltZapService {
 
       const lookupEff =
         unknownAgentIds.length > 0
-          ? this.sendRpc("agents/lookup", { agentIds: unknownAgentIds }).pipe(
+          ? this.sendRpc(AgentsLookup.name, { agentIds: unknownAgentIds }).pipe(
               Effect.tap((res) => {
                 const agents = (
                   res as { agents: Array<{ id: string; name: string }> }
@@ -533,7 +550,7 @@ export class MoltZapService {
             )
           : Effect.void;
 
-      const metaEff = this.sendRpc("conversations/get", {
+      const metaEff = this.sendRpc(ConversationsGet.name, {
         conversationId: convId,
       }).pipe(
         Effect.map(
@@ -622,6 +639,10 @@ export class MoltZapService {
     );
   }
 
+  isConversationArchived(convId: string): boolean {
+    return this.archivedConversationIds.has(convId);
+  }
+
   getConversations(): ConversationMeta[] {
     return [...HashMap.values(snapshot(this.conversationsRef))];
   }
@@ -658,7 +679,9 @@ export class MoltZapService {
       );
       if (cached !== undefined) return cached;
 
-      return yield* this.sendRpc("agents/lookup", { agentIds: [agentId] }).pipe(
+      return yield* this.sendRpc(AgentsLookup.name, {
+        agentIds: [agentId],
+      }).pipe(
         Effect.flatMap((result) => {
           const agent = (
             result as { agents: Array<{ id: string; name: string }> }
@@ -687,8 +710,16 @@ export class MoltZapService {
     text: string,
     opts?: { replyTo?: string; dispatchLeaseId?: string },
   ): Effect.Effect<void, ServiceRpcError> {
+    if (this.isConversationArchived(convId)) {
+      return Effect.fail(
+        new RpcServerError({
+          code: ErrorCodes.ConversationArchived,
+          message: "Conversation is archived",
+        }),
+      );
+    }
     return Effect.asVoid(
-      this.sendRpc("messages/send", {
+      this.sendRpc(MessagesSend.name, {
         conversationId: convId,
         parts: [{ type: "text", text }],
         ...(opts?.replyTo ? { replyToId: opts.replyTo } : {}),
@@ -703,7 +734,7 @@ export class MoltZapService {
     request: DispatchAdmissionRequest,
   ): Effect.Effect<DispatchAdmissionDecision, ServiceRpcError> {
     return this.sendRpc(
-      "apps/authorizeDispatch",
+      AppsAuthorizeDispatch.name,
       {
         conversationId: request.conversationId,
         messageId: request.message.id,
@@ -764,14 +795,14 @@ export class MoltZapService {
       const cache = yield* Ref.get(this.agentConversationCacheRef);
       let conversationId = Option.getOrUndefined(HashMap.get(cache, agentName));
       if (!conversationId) {
-        const lookupResult = (yield* this.sendRpc("agents/lookupByName", {
+        const lookupResult = (yield* this.sendRpc(AgentsLookupByName.name, {
           names: [agentName],
         })) as { agents: Array<{ id: string; name: string }> };
         const agent = lookupResult.agents[0];
         if (!agent) {
           return yield* Effect.fail(new AgentNotFoundError({ agentName }));
         }
-        const createResult = (yield* this.sendRpc("conversations/create", {
+        const createResult = (yield* this.sendRpc(ConversationsCreate.name, {
           type: "dm",
           participants: [{ type: "agent", id: agent.id }],
         })) as { conversation: { id: string } };
@@ -987,12 +1018,22 @@ export class MoltZapService {
     handler: EventHandler<PermissionsRequiredEvent>,
   ): void;
   on(
+    event: "conversationArchived",
+    handler: EventHandler<ConversationArchivedEvent>,
+  ): void;
+  on(
+    event: "conversationUnarchived",
+    handler: EventHandler<ConversationUnarchivedEvent>,
+  ): void;
+  on(
     event:
       | "message"
       | "rawEvent"
       | "disconnect"
       | "reconnect"
-      | "permissionRequired",
+      | "permissionRequired"
+      | "conversationArchived"
+      | "conversationUnarchived",
     handler: EventHandler<any>,
   ): void {
     switch (event) {
@@ -1011,6 +1052,16 @@ export class MoltZapService {
       case "permissionRequired":
         this.permissionRequiredHandlers.push(
           handler as EventHandler<PermissionsRequiredEvent>,
+        );
+        break;
+      case "conversationArchived":
+        this.conversationArchivedHandlers.push(
+          handler as EventHandler<ConversationArchivedEvent>,
+        );
+        break;
+      case "conversationUnarchived":
+        this.conversationUnarchivedHandlers.push(
+          handler as EventHandler<ConversationUnarchivedEvent>,
         );
         break;
     }
@@ -1037,7 +1088,7 @@ export class MoltZapService {
     resource: string;
     access: string[];
   }): Effect.Effect<void, ServiceRpcError> {
-    return Effect.asVoid(this.sendRpc("permissions/grant", params));
+    return Effect.asVoid(this.sendRpc(PermissionsGrant.name, params));
   }
 
   // --- Internals ---
@@ -1050,7 +1101,7 @@ export class MoltZapService {
   private refreshConversationParticipants(
     conversationId: string,
   ): Effect.Effect<void, never> {
-    return this.sendRpc("conversations/get", { conversationId }).pipe(
+    return this.sendRpc(ConversationsGet.name, { conversationId }).pipe(
       Effect.tap((res) => {
         const typed = res as {
           conversation: { id: string; type: string; name?: string };
@@ -1064,6 +1115,9 @@ export class MoltZapService {
             (p) => `${p.participant.type}:${p.participant.id}`,
           ),
         };
+        if (this.archivedConversationIds.has(conversationId)) {
+          return Effect.void;
+        }
         return Ref.update(this.conversationsRef, (m) =>
           HashMap.set(m, conversationId, meta),
         );
@@ -1081,6 +1135,7 @@ export class MoltZapService {
       Ref.update(this.conversationsRef, (m) => {
         let next = m;
         for (const conv of incoming) {
+          this.archivedConversationIds.delete(conv.id);
           next = HashMap.set(next, conv.id, {
             id: conv.id,
             type: conv.type,
@@ -1103,6 +1158,10 @@ export class MoltZapService {
     const conversation = isPlainRecord(eventData["conversation"])
       ? eventData["conversation"]
       : undefined;
+    const eventConversationId =
+      typeof eventData["conversationId"] === "string"
+        ? eventData["conversationId"]
+        : undefined;
     appendClientEventTrace({
       ts: new Date().toISOString(),
       agentId: this._ownAgentId ?? "unknown",
@@ -1110,7 +1169,7 @@ export class MoltZapService {
       messageId: message?.["id"],
       messageConversationId: message?.["conversationId"],
       messageSenderId: message?.["senderId"],
-      conversationId: conversation?.["id"],
+      conversationId: conversation?.["id"] ?? eventConversationId,
       conversationName: conversation?.["name"],
     });
 
@@ -1144,6 +1203,7 @@ export class MoltZapService {
         const { conversation } = event.data as
           | ConversationCreatedEvent
           | ConversationUpdatedEvent;
+        this.archivedConversationIds.delete(conversation.id);
         Effect.runSync(
           Ref.update(this.conversationsRef, (m) => {
             const existing = Option.getOrUndefined(
@@ -1168,7 +1228,67 @@ export class MoltZapService {
         }
         break;
       }
+      case EventNames.ConversationArchived: {
+        const data = event.data as ConversationArchivedEvent;
+        this.markConversationArchived(data.conversationId);
+        fanout(this.conversationArchivedHandlers, data, this.opts.logger);
+        break;
+      }
+      case EventNames.ConversationUnarchived: {
+        const data = event.data as ConversationUnarchivedEvent;
+        this.archivedConversationIds.delete(data.conversationId);
+        fanout(this.conversationUnarchivedHandlers, data, this.opts.logger);
+        break;
+      }
     }
+  }
+
+  private markConversationArchived(conversationId: string): void {
+    this.archivedConversationIds.add(conversationId);
+    Effect.runSync(
+      Effect.all([
+        Ref.update(this.conversationsRef, (m) =>
+          HashMap.remove(m, conversationId),
+        ),
+        Ref.update(this.messagesRef, (m) => HashMap.remove(m, conversationId)),
+        Ref.update(this.agentConversationCacheRef, (m) => {
+          let next = HashMap.empty<string, string>();
+          for (const [agentName, convId] of HashMap.entries(m)) {
+            if (convId !== conversationId) {
+              next = HashMap.set(next, agentName, convId);
+            }
+          }
+          return next;
+        }),
+        Ref.update(this.lastNotifiedRef, (outer) => {
+          let next = HashMap.empty<string, HashMap.HashMap<string, string>>();
+          for (const [viewConvId, markers] of HashMap.entries(outer)) {
+            if (viewConvId !== conversationId) {
+              next = HashMap.set(
+                next,
+                viewConvId,
+                HashMap.remove(markers, conversationId),
+              );
+            }
+          }
+          return next;
+        }),
+        Ref.update(this.lastReadRef, (outer) => {
+          let next = HashMap.empty<
+            string,
+            HashMap.HashMap<string, ReadonlySet<string>>
+          >();
+          for (const [sessionKey, perConv] of HashMap.entries(outer)) {
+            next = HashMap.set(
+              next,
+              sessionKey,
+              HashMap.remove(perConv, conversationId),
+            );
+          }
+          return next;
+        }),
+      ]),
+    );
   }
 
   private storeMessage(msg: Message): void {

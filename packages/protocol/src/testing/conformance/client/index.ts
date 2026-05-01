@@ -38,6 +38,7 @@ export {
   registerRequestIdUniquenessClient,
 } from "./rpc-semantics.js";
 export {
+  registerArchiveLifecycleClient,
   registerFanOutCardinalityClient,
   registerPayloadOpacityClient,
   registerTaskBoundaryIsolationClient,
