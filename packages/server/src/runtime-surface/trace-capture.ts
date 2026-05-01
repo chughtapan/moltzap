@@ -1,5 +1,5 @@
 import { Context, Effect, Layer, Ref } from "effect";
-import type { Message } from "@moltzap/protocol";
+import type { Message, Part } from "@moltzap/protocol";
 
 export interface TraceMessageEvent {
   readonly _tag: "Message";
@@ -10,7 +10,19 @@ export interface TraceMessageEvent {
   readonly deliveredAgentIds: readonly string[];
 }
 
-export type TraceEvent = TraceMessageEvent;
+export interface TraceHookBlockedEvent {
+  readonly _tag: "HookBlocked";
+  readonly hookName: "before_message_delivery";
+  readonly conversationId: string;
+  readonly channelKey: string;
+  readonly senderAgentId: string;
+  readonly senderDisplayName: string;
+  readonly reason: string;
+  readonly parts: readonly Part[];
+  readonly createdAt: string;
+}
+
+export type TraceEvent = TraceMessageEvent | TraceHookBlockedEvent;
 
 export interface TraceCapture {
   record(event: TraceEvent): Effect.Effect<void, never, never>;
