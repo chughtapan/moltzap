@@ -24,6 +24,7 @@
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
+    "test:integration": "echo '@moltzap/nanoclaw-channel has no integration tests by design (smoke-test package; coverage lives in unit + conformance suites)'",
     "test:conformance": "bash ../protocol/scripts/check-divergence-proofs.sh && vitest run -c vitest.conformance.config.ts"
   },
   "dependencies": {
