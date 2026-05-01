@@ -394,6 +394,68 @@ export class AppHost {
     }
   }
 
+  /**
+   * Authorize a wire caller as the app-of-record for a session.
+   *
+   * Architect plan §B.2 acceptance #2 — the wire handler for
+   * `apps/attachConversation` "validates session ownership (caller's app
+   * key matches `session.appId`)". On the wire, "caller's app key" is the
+   * `connectionId` recorded by `registerRemoteApp` when the SDK sent
+   * `apps/register`. This method resolves the session's `app_id` and
+   * verifies the caller's connection is the registered remote-app
+   * connection for that app.
+   *
+   * Errors:
+   *   - {@link ErrorCodes.SessionNotFound} (-32021) when no row exists for
+   *     `sessionId`. Wire SDK maps to `AttachError("SessionNotFound")`.
+   *   - {@link ErrorCodes.Forbidden} (-32001) when the session exists but
+   *     the caller is not the registered remote-app connection. Wire SDK
+   *     maps to `AttachError("NotAuthorized")`.
+   *
+   * In-process app registrations have no `connectionId`; wire callers for
+   * an in-process app receive Forbidden by construction. In-process call
+   * sites must use `attachAppConversation` directly rather than the wire
+   * RPC. This is intentional — the wire surface is the SDK's surface, and
+   * the SDK only registers apps remotely.
+   *
+   * Closes the cross-tenant attach gap caught by codex on PR #326: a
+   * non-app participant that `getSession` would admit (e.g., another
+   * agent admitted to the same session) cannot satisfy this check, so
+   * `apps/attachConversation` rejects them with Forbidden before any DB
+   * mutation runs.
+   */
+  requireSessionAppOfRecord(
+    sessionId: string,
+    callerConnectionId: string,
+  ): Effect.Effect<void, RpcFailure> {
+    return catchSqlErrorAsDefect(
+      Effect.gen(this, function* () {
+        const sessionRowOpt = yield* takeFirstOption(
+          this.db
+            .selectFrom("app_sessions")
+            .select(["id", "app_id"])
+            .where("id", "=", sessionId),
+        );
+        if (Option.isNone(sessionRowOpt)) {
+          return yield* Effect.fail(
+            new RpcFailure({
+              code: ErrorCodes.SessionNotFound,
+              message: "Session not found",
+            }),
+          );
+        }
+        const remote = this.remoteRegistrations.get(sessionRowOpt.value.app_id);
+        if (!remote || remote.connectionId !== callerConnectionId) {
+          return yield* Effect.fail(
+            forbidden(
+              "Only the app of record can attach conversations to this session",
+            ),
+          );
+        }
+      }),
+    );
+  }
+
   getManifest(appId: string): AppManifest | undefined {
     return this.manifests.get(appId);
   }
