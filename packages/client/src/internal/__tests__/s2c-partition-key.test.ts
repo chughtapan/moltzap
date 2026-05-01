@@ -13,6 +13,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { Either } from "effect";
+import { s2cRpcMethods } from "@moltzap/protocol";
 import {
   describePartitionKey,
   extractPartitionKey,
@@ -192,6 +193,44 @@ describe("extractPartitionKey — failure modes (each `_tag`)", () => {
     expect(Either.isLeft(result)).toBe(true);
     if (Either.isLeft(result)) {
       expect(result.left.reason).toBe("missing-session-id");
+    }
+  });
+});
+
+describe("extractPartitionKey — schema drift guard against `@moltzap/protocol`", () => {
+  // Architect plan §3.2 documented the "literal Set, not derived from
+  // s2cRpcMethods" choice as a deliberate cycle-avoidance trade. This
+  // test is the counter-measure: every wire method the protocol
+  // declares must be partitionable. Adding a new entry to
+  // `s2cRpcMethods` without updating `LIFECYCLE_METHODS` or
+  // `CONVERSATION_BEARING_METHODS` in `s2c-partition-key.ts` compiles
+  // cleanly today; this test fails until the routing layer catches up.
+  it("every method in s2cRpcMethods is recognised by extractPartitionKey", () => {
+    const synthesise = (method: string): PartitionableRequest => ({
+      id: "rpc-drift",
+      method,
+      // Provide both routing fields so the only failure mode under
+      // test is `unknown-method`, not missing-session-id /
+      // missing-conversation-id / params-shape.
+      params: { sessionId: SESSION_A, conversationId: CONV_X },
+    });
+    const offenders: Array<{ method: string; reason: string }> = [];
+    for (const def of s2cRpcMethods) {
+      const result = extractPartitionKey(synthesise(def.name));
+      if (Either.isLeft(result)) {
+        offenders.push({ method: def.name, reason: result.left.reason });
+      }
+    }
+    if (offenders.length > 0) {
+      expect.fail(
+        `s2c partition extractor rejects ${offenders.length} method(s) declared in @moltzap/protocol's s2cRpcMethods:\n` +
+          offenders
+            .map((o) => `  - ${o.method} (reason=${o.reason})`)
+            .join("\n") +
+          `\nUpdate LIFECYCLE_METHODS or CONVERSATION_BEARING_METHODS in ` +
+          `packages/client/src/internal/s2c-partition-key.ts so the ` +
+          `union covers every entry of s2cRpcMethods.`,
+      );
     }
   });
 });
