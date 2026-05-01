@@ -129,6 +129,28 @@ export class MessageService {
             dispatchLeaseId,
           );
           if (hookResponse?.result.block) {
+            const traceCapture = this.traceCapture;
+            if (traceCapture) {
+              yield* this.getTraceMessageMetadata(
+                conversationId,
+                senderAgentId,
+              ).pipe(
+                Effect.flatMap((traceMetadata) =>
+                  traceCapture.record({
+                    _tag: "HookBlocked",
+                    hookName: "before_message_delivery",
+                    conversationId,
+                    channelKey: traceMetadata.channelKey,
+                    senderAgentId,
+                    senderDisplayName: traceMetadata.senderDisplayName,
+                    reason: hookResponse.result.reason ?? "Blocked by app",
+                    parts,
+                    createdAt: new Date().toISOString(),
+                  }),
+                ),
+                Effect.catchAll(() => Effect.void),
+              );
+            }
             return yield* Effect.fail(
               new RpcFailure({
                 code: ErrorCodes.HookBlocked,
