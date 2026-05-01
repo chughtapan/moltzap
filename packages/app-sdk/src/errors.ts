@@ -288,6 +288,8 @@ export class AppDisconnected extends AppError {
  * - `SessionNotFound` — session id does not refer to a session this app owns
  * - `ConversationNotFound` — conversation id does not exist
  * - `NotAuthorized` — the caller is not the session owner
+ * - `AlreadyAttached` — the conversation is already attached to a different
+ *   session (the 1:1 cross-session invariant on `AppHost.conversationToSession`)
  * - `AttachFailed` — generic transport / server failure (timeout, network)
  *
  * @example
@@ -297,8 +299,8 @@ export class AppDisconnected extends AppError {
  * await Effect.runPromise(
  *   app.attachConversation(sessionId, conversationId).pipe(
  *     Effect.catchTag("AttachError", (err: AttachError) => {
- *       if (err.code === "SessionNotFound") {
- *         return Effect.sync(() => console.warn("session is gone"));
+ *       if (err.code === "SessionNotFound" || err.code === "AlreadyAttached") {
+ *         return Effect.sync(() => console.warn(err.code));
  *       }
  *       return Effect.fail(err);
  *     }),
@@ -310,6 +312,7 @@ export type AttachErrorCode =
   | "SessionNotFound"
   | "ConversationNotFound"
   | "NotAuthorized"
+  | "AlreadyAttached"
   | "AttachFailed";
 
 export class AttachError extends AppError {

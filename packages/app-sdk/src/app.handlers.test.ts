@@ -405,6 +405,38 @@ describe("MoltZapApp — admission/lifecycle handler surface", () => {
         expect((err as AttachError).code).toBe("AttachFailed");
       }
     });
+
+    // Numeric-code path: `extractAttachCode` consults the wire-level
+    // `err.code` first (NumericCodeToAttach), falling back to structured
+    // `data.code` only on miss. Mirrors the integration test in
+    // `30-app-hooks-rpc.integration.test.ts` ("Conflict (-32003) →
+    // AttachError('AlreadyAttached')"). Keeps the SDK-side numeric map
+    // honest without booting the real server.
+    it.each([
+      [-32021, "SessionNotFound" as const],
+      [-32002, "ConversationNotFound" as const],
+      [-32001, "NotAuthorized" as const],
+      [-32003, "AlreadyAttached" as const],
+    ])(
+      "maps numeric err.code=%s to AttachError code '%s' via NumericCodeToAttach",
+      async (numericCode, expectedCode) => {
+        asMock(app.client)._setAttachFailure(
+          new MockRpcServerError({ code: numericCode, message: "rejected" }),
+        );
+        const exit = await Effect.runPromiseExit(
+          app.attachConversation(
+            "00000000-0000-0000-0000-000000000001",
+            "conv-2",
+          ),
+        );
+        expect(Exit.isFailure(exit)).toBe(true);
+        if (Exit.isFailure(exit)) {
+          const err = exit.cause._tag === "Fail" ? exit.cause.error : null;
+          expect(err).toBeInstanceOf(AttachError);
+          expect((err as AttachError).code).toBe(expectedCode);
+        }
+      },
+    );
   });
 
   describe("type-narrowed handler signatures (compile-time)", () => {

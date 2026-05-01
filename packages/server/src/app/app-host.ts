@@ -977,6 +977,30 @@ export class AppHost {
           );
         }
 
+        // ConversationNotFound pre-check (architect plan §3.2 / §3.5):
+        // surface a typed `ConversationNotFound` (-32002) when the convId
+        // does not refer to any row in `conversations`. Without this the
+        // bogus convId would fall through to the `app_session_conversations`
+        // FK violation and surface to the SDK as the generic
+        // `AttachError("AttachFailed")`, losing the structured tag.
+        // Race-deleted conversations between this SELECT and the INSERT
+        // below still surface as `AttachFailed` via FK violation; the
+        // pre-check is best-effort, not a serializable invariant.
+        const conversationOpt = yield* takeFirstOption(
+          this.db
+            .selectFrom("conversations")
+            .select(["id"])
+            .where("id", "=", conversationId),
+        );
+        if (Option.isNone(conversationOpt)) {
+          return yield* Effect.fail(
+            new RpcFailure({
+              code: ErrorCodes.NotFound,
+              message: "Conversation not found",
+            }),
+          );
+        }
+
         // Cross-session collision: a convId can only belong to one session's
         // hook pipeline at a time (AppHost.conversationToSession is 1:1).
         const crossSession = this.conversationToSession.get(conversationId);
