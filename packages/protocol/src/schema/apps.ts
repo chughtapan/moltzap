@@ -33,9 +33,7 @@ export const AppManifestConversationSchema = Type.Object(
  */
 const HookEntrySchema = Type.Object(
   {
-    timeout_ms: Type.Optional(
-      Type.Integer({ default: 5000, minimum: 100, maximum: 30000 }),
-    ),
+    timeout_ms: Type.Optional(Type.Integer({ default: 5000, minimum: 1 })),
   },
   { additionalProperties: false },
 );

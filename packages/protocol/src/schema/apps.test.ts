@@ -94,6 +94,34 @@ describe("AppManifestSchema", () => {
     expect(validateManifest(manifest)).toBe(true);
   });
 
+  it("accepts hook timeouts above 30s (no upper cap)", () => {
+    // Werewolf Phase 2 declares `before_dispatch: 900_000ms` (15 min) for the
+    // player-input waiter pattern. The schema-level 30s `maximum` was removed
+    // in B.4 follow-up (#324) per architect plan §8.1; AppHost enforces the
+    // declared timeout via `Effect.timeout(manifestMs)`.
+    const manifest = {
+      appId: "werewolf",
+      name: "Werewolf",
+      permissions: { required: [], optional: [] },
+      hooks: {
+        before_dispatch: { timeout_ms: 900_000 },
+      },
+    };
+    expect(validateManifest(manifest)).toBe(true);
+  });
+
+  it("rejects non-positive hook timeouts", () => {
+    const manifest = {
+      appId: "werewolf",
+      name: "Werewolf",
+      permissions: { required: [], optional: [] },
+      hooks: {
+        before_dispatch: { timeout_ms: 0 },
+      },
+    };
+    expect(validateManifest(manifest)).toBe(false);
+  });
+
   it("rejects additional properties on hook entries", () => {
     const manifest = {
       appId: "test",
