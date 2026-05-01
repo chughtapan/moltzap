@@ -13,6 +13,7 @@ import {
   AppsAuthorizeDispatch,
 } from "@moltzap/protocol";
 import { Effect } from "effect";
+import { ConnIdTag } from "../layers.js";
 import { defineMethod } from "../../rpc/context.js";
 import { ParticipantService } from "../../services/participant.service.js";
 
@@ -22,9 +23,19 @@ export function createAppHandlers(deps: {
 }): RpcMethodRegistry {
   return {
     "apps/register": defineMethod(AppsRegister, {
+      // A c2s `apps/register` call means the connected client wants to
+      // serve the app's hook RPCs (`apps/onBeforeDispatch`, etc.). We
+      // record the calling connection id so AppHost dispatches future
+      // hooks via `sendRpcToClient` against this socket. If the client
+      // hasn't installed `client.handleServerRpc(...)` handlers, hook
+      // RPCs will fail-closed (deny / block) — same posture as a
+      // crashed in-process handler. Server-side in-process registration
+      // continues to use `coreApp.registerApp(manifest)` directly (e.g.
+      // standalone.ts:447); that path bypasses this RPC entirely.
       handler: (params) =>
-        Effect.sync(() => {
-          deps.appHost.registerApp(params.manifest);
+        Effect.gen(function* () {
+          const connId = yield* ConnIdTag;
+          deps.appHost.registerRemoteApp(params.manifest, connId);
           return { appId: params.manifest.appId };
         }),
     }),
