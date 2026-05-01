@@ -1147,7 +1147,13 @@ describe("Phase 1.0 (B.1) — handleServerRpc round-trip", () => {
                   direction: "s2c",
                   id: "srv-err-1",
                   method: "apps/onClose",
-                  params: {},
+                  // Spec #356: the partitioned dispatcher
+                  // narrow-validates routing fields; sessionId is
+                  // required for every s2c hook. Synthetic test
+                  // payloads must include it or the dispatcher
+                  // rejects the offer with a `-32602` wire error
+                  // before reaching the handler.
+                  params: { sessionId: "sess-err-1" },
                 }),
               );
             }

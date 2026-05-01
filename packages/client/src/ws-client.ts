@@ -10,11 +10,9 @@ import {
   HashMap,
   ManagedRuntime,
   Option,
-  Queue,
   Ref,
   Schedule,
   Scope,
-  Stream,
 } from "effect";
 import {
   PROTOCOL_VERSION,
@@ -41,6 +39,12 @@ import {
   type SubscriptionFilter,
 } from "./runtime/subscribers.js";
 import { extractCloseInfo, type CloseInfo } from "./runtime/close-info.js";
+import {
+  makePartitionedDispatcher,
+  type PartitionedDispatcher,
+  type PartitionedDispatcherConfig,
+} from "./internal/s2c-partitioned-dispatcher.js";
+import type { OfferRejected } from "./internal/s2c-dispatcher-errors.js";
 
 // Re-export `CloseInfo` so consumers can import it from
 // `@moltzap/client` alongside `MoltZapWsClient` itself; the type lives
@@ -86,6 +90,15 @@ type PendingError = RpcServerError | NotConnectedError | RpcTimeoutError;
 /**
  * Per-connection runtime state. `None` = not connected → `sendRpc` fails fast
  * with `NotConnectedError`.
+ *
+ * Spec #356: the single `Stream.runForEach`-driven `s2cInboundQueue` is
+ * replaced by a `PartitionedDispatcher` keyed on
+ * `(sessionId, conversationId, hookKind)`. Each tuple owns one bounded
+ * queue + one drain fiber; cross-tuple offers run concurrently. Held
+ * here alongside its own `dispatcherScope` (NOT bound to the socket
+ * scope) so `runSync(client.close())` can `runFork(Scope.close(…))`
+ * without yielding through the runtime — the load-bearing regression
+ * gate at `ws-client.test.ts:1233-1259`.
  */
 interface ConnState {
   readonly write: (
@@ -97,36 +110,18 @@ interface ConnState {
    * pre-open close and fail fast instead of waiting the RPC timeout. */
   readonly handshakeSettled: Deferred.Deferred<unknown, PendingError>;
   /**
-   * Inbound queue of decoded server-initiated request frames. The reader
-   * fiber `Queue.offer`s every well-formed s2c request; a separate
-   * dispatcher fiber drains via `Stream.runForEach`, looking up the
-   * registered handler, running it, encoding the response, and writing
-   * back over `write`.
-   *
-   * `Queue.dropping(N)` (NOT `bounded`): a slow s2c handler must NOT back-
-   * pressure the reader fiber, because the reader is also delivering c2s
-   * RPC responses on the same socket. Dropping the OLDEST queued s2c
-   * request when capacity is exceeded preserves the c2s liveness
-   * invariant; the dropped requests' server-side `Deferred`s eventually
-   * fail via `Effect.timeout` at the AppHost call site (no schema-level
-   * cap; caller controls).
-   *
-   * The Queue is allocated INSIDE `connectEffect` (sync yield, fine) but
-   * is NOT bound to the per-connect `Scope` — `Queue.shutdown` is async
-   * and the scope is closed by `runSync(close())` callsites
-   * (`packages/openclaw-channel/src/__tests__/reconnection.integration.test.ts:14`).
-   * Instead the queue is shut down via `runFork` from `close()` /
-   * `disconnectSync()` alongside `Fiber.interrupt(s2cDispatcherFiber)`,
-   * mirroring the reader-fiber teardown pattern.
+   * Per-connection partitioned s2c dispatcher. Routes inbound s2c
+   * requests by `(sessionId, conversationId, hookKind)`; replaces the
+   * pre-#356 single drain fiber.
    */
-  readonly s2cInboundQueue: Queue.Queue<DecodedServerRequest>;
+  readonly dispatcher: PartitionedDispatcher;
   /**
-   * Dispatcher fiber that runs `Stream.runForEach` over `s2cInboundQueue`.
-   * Forked via `this.runtime.runFork` (NOT `forkScoped`) so disconnect
-   * can interrupt it asynchronously without blocking `runSync(close())`.
-   * Mirrors `readerFiber` ownership.
+   * Closeable Scope owning every per-partition worker + the idle
+   * reaper. Off-Scope from the socket so `runSync(client.close())`
+   * can `runFork(Scope.close(dispatcherScope, Exit.void))` without
+   * yielding.
    */
-  readonly s2cDispatcherFiber: Fiber.RuntimeFiber<void, never>;
+  readonly dispatcherScope: Scope.CloseableScope;
 }
 
 /**
@@ -141,8 +136,17 @@ interface DecodedServerRequest {
   readonly params: unknown;
 }
 
-/** Cap on inbound s2c request queue. Slow handlers cannot leak memory. */
-const MAX_S2C_QUEUE = 256;
+/**
+ * s2c dispatcher knobs exposed on `MoltZapWsClientOptions`. All optional;
+ * defaults from `DEFAULT_PARTITIONED_DISPATCHER_CONFIG`.
+ *
+ * Spec #356 OQ-3 (`idlePartitionTtlMs`) ships at the architect's
+ * recommended default of 60_000 ms. Per OQ-5, 256 active partitions
+ * comfortably absorbs current arena workloads (≤15 keys per session
+ * at peak), so the cap doubles as a per-tenant DoS guard, not a
+ * cardinality lever.
+ */
+export type S2cDispatcherConfig = Partial<PartitionedDispatcherConfig>;
 
 /**
  * Handler signature for `handleServerRpc`. The handler returns an
@@ -203,6 +207,11 @@ export interface MoltZapWsClientOptions {
   onDisconnect?: (close: CloseInfo) => void;
   onReconnect?: (helloOk: unknown) => void;
   logger?: WsClientLogger;
+  /**
+   * Spec #356 — partitioned s2c dispatcher knobs. Optional; omitted
+   * fields fall back to `DEFAULT_PARTITIONED_DISPATCHER_CONFIG`.
+   */
+  s2cDispatcher?: S2cDispatcherConfig;
 }
 
 /**
@@ -498,14 +507,15 @@ export class MoltZapWsClient {
           .write(new Socket.CloseEvent(1000, "normal"))
           .pipe(Effect.orDie);
         yield* Scope.close(state.value.scope, Exit.void);
-        // s2c queue + dispatcher are NOT scope-bound (see ConnState
-        // doc): tear them down via runFork so this Effect remains
-        // sync-runnable for callers using `runSync(client.close())`.
-        // Queue.shutdown ends the dispatcher's `Stream.fromQueue`
-        // naturally; the explicit `Fiber.interrupt` is belt-and-braces
-        // for any handler currently mid-Effect.
-        this.runtime.runFork(Queue.shutdown(state.value.s2cInboundQueue));
-        this.runtime.runFork(Fiber.interrupt(state.value.s2cDispatcherFiber));
+        // The partitioned dispatcher's Scope is NOT bound to the
+        // socket Scope (see ConnState doc): tear it down via runFork
+        // so this Effect remains sync-runnable for callers using
+        // `runSync(client.close())`. Closing the dispatcher Scope
+        // cascades to every per-partition worker (queue.shutdown +
+        // fiber interrupt via finalizers) and the idle reaper.
+        this.runtime.runFork(
+          Scope.close(state.value.dispatcherScope, Exit.void),
+        );
       }
     }).pipe(
       Effect.asVoid,
@@ -585,11 +595,12 @@ export class MoltZapWsClient {
     this.runtime.runFork(Fiber.interrupt(state.value.readerFiber));
     // Close the per-connection scope as a belt-and-braces guarantee.
     this.runtime.runFork(Scope.close(state.value.scope, Exit.void));
-    // Tear down the s2c queue + dispatcher (off-scope, see ConnState
-    // doc). Both calls are runFork so disconnectSync stays synchronous
-    // for callers using `runSync(client.disconnect())`.
-    this.runtime.runFork(Queue.shutdown(state.value.s2cInboundQueue));
-    this.runtime.runFork(Fiber.interrupt(state.value.s2cDispatcherFiber));
+    // Tear down the partitioned dispatcher (off-scope, see ConnState
+    // doc). runFork so disconnectSync stays synchronous for callers
+    // using `runSync(client.disconnect())`. Closing the dispatcher
+    // Scope cascades to every per-partition worker fiber + idle
+    // reaper via Scope finalizers.
+    this.runtime.runFork(Scope.close(state.value.dispatcherScope, Exit.void));
   }
 
   private connectEffect(): Effect.Effect<
@@ -632,59 +643,36 @@ export class MoltZapWsClient {
       // reader-fiber exit on any close/error before handshake.
       const handshakeSettled = yield* Deferred.make<unknown, PendingError>();
 
-      // Inbound s2c request pipeline: the reader fiber `Queue.offer`s
-      // every well-formed s2c request frame; a forked dispatcher fiber
-      // drains via `Stream.runForEach`, looks up the registered handler,
-      // runs it, encodes the response, and writes back. The Queue +
-      // Stream pair is the architect's "Stream" — `Stream.fromQueue`
-      // produces a totally-ordered stream the dispatcher iterates per
-      // `runForEach`, matching the architect plan's "Effect primitives
-      // compose" mandate (no bespoke promise pool, no callback registry).
+      // Spec #356 — partitioned s2c dispatcher. Replaces the pre-#356
+      // single `Stream.runForEach`-driven `s2cInboundQueue` with a
+      // partition router keyed on `(sessionId, conversationId,
+      // hookKind)`. Each tuple owns one bounded queue + one drain
+      // fiber; cross-tuple offers run on independent fibers, so a
+      // parked `apps/onBeforeDispatch` cannot block the sibling
+      // `apps/onBeforeMessageDelivery` whose response would resolve
+      // the parking Deferred (arena#248 deadlock — fixed
+      // structurally, not by timeout).
       //
-      // The queue and dispatcher fiber are NOT bound to the per-connect
-      // `Scope`. `Scope.close` would have to run `Queue.shutdown` and
-      // interrupt the dispatcher fiber, both of which yield through the
-      // fiber runtime — and `close()` is a documented `runSync` site
-      // (see `MoltZapWsClient.close` doc and the `runSync(c.close())`
-      // call in
-      // `packages/openclaw-channel/src/__tests__/reconnection.integration.test.ts:14`).
-      // Instead the queue + dispatcher are torn down via `runFork` in
-      // `close()` and `disconnectSync()`, mirroring the reader-fiber
-      // ownership pattern (`readerFiber` is `runFork`-owned for the
-      // same reason).
-      const s2cInboundQueue =
-        yield* Queue.dropping<DecodedServerRequest>(MAX_S2C_QUEUE);
-
-      const dispatcherEffect: Effect.Effect<void, never> = Stream.fromQueue(
-        s2cInboundQueue,
-      ).pipe(
-        Stream.runForEach((req) =>
-          this.dispatchInboundServerRequest(req, write).pipe(
-            Effect.catchAllCause((cause) =>
-              Effect.sync(() =>
-                this.options.logger?.warn(
-                  "s2c handler dispatch defected",
-                  Cause.pretty(cause),
-                ),
-              ),
-            ),
-          ),
-        ),
-        Effect.catchAllCause((cause) =>
-          // Queue shutdown closes the stream; that's the expected
-          // disconnect path. Other defects log + swallow — the
-          // dispatcher fiber must never leak into the connection scope's
-          // failure channel.
-          Effect.sync(() =>
-            this.options.logger?.warn(
-              "s2c dispatcher fiber exited",
-              Cause.pretty(cause),
-            ),
-          ),
-        ),
-        Effect.asVoid,
-      );
-      const s2cDispatcherFiber = this.runtime.runFork(dispatcherEffect);
+      // Dispatcher Scope is allocated independently of the per-connect
+      // socket Scope (`scope` above). Closing it cascades to every
+      // per-partition worker via Scope finalizers; teardown from
+      // `close()` / `disconnectSync()` is `runFork(Scope.close(…))`,
+      // mirroring the reader-fiber ownership pattern (off-Scope so
+      // `runSync(client.close())` doesn't yield through the runtime
+      // — load-bearing regression gate at
+      // `ws-client.test.ts:1233-1259`).
+      const dispatcherScope = yield* Scope.make();
+      const dispatcher = yield* makePartitionedDispatcher({
+        handle: (req) =>
+          this.dispatchInboundServerRequest(req as DecodedServerRequest, write),
+        scope: dispatcherScope,
+        ...(this.options.s2cDispatcher !== undefined
+          ? { config: this.options.s2cDispatcher }
+          : {}),
+        ...(this.options.logger !== undefined
+          ? { logger: this.options.logger }
+          : {}),
+      });
 
       // Use `onExit` (not `tapErrorCause`) so the clean-close path also
       // triggers pending-drain. `@effect/platform/Socket` treats code 1000
@@ -714,15 +702,14 @@ export class MoltZapWsClient {
               // Awaiting `Fiber.interrupt` would block this branch on a
               // slow s2c handler still draining (codex P2).
               yield* Ref.set(this.stateRef, Option.none());
-              // Tear down the s2c queue + dispatcher on socket-level
+              // Tear down the partitioned dispatcher on socket-level
               // close (e.g. server-initiated). `close()` /
               // `disconnectSync()` already handle their own teardown for
               // client-initiated paths; this branch covers the case
               // where the server closes us. Forked so a slow handler
               // does not delay the rest of the disconnect path.
               // Idempotent with the explicit teardown in close().
-              this.runtime.runFork(Queue.shutdown(s2cInboundQueue));
-              this.runtime.runFork(Fiber.interrupt(s2cDispatcherFiber));
+              this.runtime.runFork(Scope.close(dispatcherScope, Exit.void));
               // Spec #222 §5.4 (V7): project the reader-fiber exit onto
               // a typed `CloseInfo` and pass it to `onDisconnect`. Pure
               // total classifier — see runtime/close-info.ts.
@@ -756,8 +743,8 @@ export class MoltZapWsClient {
           readerFiber,
           scope,
           handshakeSettled,
-          s2cInboundQueue,
-          s2cDispatcherFiber,
+          dispatcher,
+          dispatcherScope,
         }),
       );
 
@@ -895,6 +882,60 @@ export class MoltZapWsClient {
   }
 
   /**
+   * Translate a typed `OfferRejected` failure from the partitioned
+   * dispatcher into a wire-level error response. Spec #356 §5: each
+   * tag maps to a JSON-RPC error code so the server's
+   * `Deferred.await` settles deterministically rather than hanging.
+   *
+   * Exhaustive over `OfferRejected`'s discriminated union: adding a
+   * new tag fails the compile here.
+   */
+  private writeOfferRejection(
+    err: OfferRejected,
+    requestId: string,
+    write: ConnState["write"],
+  ): Effect.Effect<void, never> {
+    const reply: ResponseFrame = (() => {
+      switch (err._tag) {
+        case "MalformedPartitionKeyError":
+          return responseFrame("s2c", requestId, {
+            error: {
+              code: -32602,
+              message: `Invalid params: ${err.reason}`,
+            },
+          });
+        case "PartitionLimitError":
+          return responseFrame("s2c", requestId, {
+            error: {
+              code: -32000,
+              message: `Server busy: partition limit reached (${err.activePartitions}/${err.maxPartitions})`,
+            },
+          });
+        case "PartitionQueueFullError":
+          return responseFrame("s2c", requestId, {
+            error: {
+              code: -32000,
+              message: `Server busy: partition queue full (capacity=${err.capacity})`,
+            },
+          });
+        default: {
+          const _exhaustive: never = err;
+          throw new Error(
+            `writeOfferRejection: unhandled OfferRejected tag: ${String(_exhaustive)}`,
+          );
+        }
+      }
+    })();
+    return write(JSON.stringify(reply)).pipe(
+      Effect.catchAll((werr) =>
+        Effect.sync(() =>
+          this.options.logger?.warn("s2c offer-rejection write failed", werr),
+        ),
+      ),
+    );
+  }
+
+  /**
    * Dispatch one inbound s2c request to the registered handler, encode
    * the response, and write it back to the server. Errors are projected
    * onto an error response so the server's `Deferred.await` always
@@ -1011,13 +1052,20 @@ export class MoltZapWsClient {
         }
 
         if (decoded._tag === "ServerRequest") {
-          // s2c request — hand off to the per-connection dispatcher
-          // queue. The dispatcher fiber (forked at `connectEffect` time)
-          // runs `Stream.runForEach` over the queue, looks up the
-          // handler from `s2cHandlersRef`, runs it, and writes the
-          // response back. Decoupling via Queue keeps the reader fiber
-          // back-pressure-bounded; the handler runs on the dispatcher
-          // fiber instead of stalling subsequent inbound frames.
+          // s2c request — hand off to the partitioned dispatcher
+          // (spec #356). The dispatcher routes by
+          // `(sessionId, conversationId, hookKind)`; the matching
+          // per-tuple worker fiber drains and runs
+          // `dispatchInboundServerRequest`, which writes the reply
+          // back. Cross-tuple offers run concurrently — the arena#248
+          // deadlock between parked `apps/onBeforeDispatch` and
+          // sibling `apps/onBeforeMessageDelivery` cannot recur.
+          //
+          // `dispatcher.offer` is non-blocking: every failure mode is
+          // tagged in `OfferRejected` and translated below to a wire
+          // error response so the server's `Deferred.await` always
+          // settles (no hangs on a malformed-key or partition-full
+          // request).
           const state = yield* Ref.get(this.stateRef);
           if (Option.isNone(state)) {
             // Reader fiber observed a frame without a corresponding
@@ -1027,11 +1075,20 @@ export class MoltZapWsClient {
             // gone too.
             continue;
           }
-          yield* Queue.offer(state.value.s2cInboundQueue, {
-            id: decoded.id,
-            method: decoded.method,
-            params: decoded.params,
-          }).pipe(Effect.ignore);
+          const offered = yield* Effect.either(
+            state.value.dispatcher.offer({
+              id: decoded.id,
+              method: decoded.method,
+              params: decoded.params,
+            }),
+          );
+          if (offered._tag === "Left") {
+            yield* this.writeOfferRejection(
+              offered.left,
+              decoded.id,
+              state.value.write,
+            );
+          }
           continue;
         }
 

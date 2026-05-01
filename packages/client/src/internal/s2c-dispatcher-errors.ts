@@ -22,7 +22,11 @@ export class MalformedPartitionKeyError extends Data.TaggedError(
   "MalformedPartitionKeyError",
 )<{
   readonly method: string;
-  readonly reason: "missing-session-id" | "missing-conversation-id" | "unknown-method" | "params-shape";
+  readonly reason:
+    | "missing-session-id"
+    | "missing-conversation-id"
+    | "unknown-method"
+    | "params-shape";
   readonly requestId: string;
 }> {}
 
@@ -36,7 +40,9 @@ export class MalformedPartitionKeyError extends Data.TaggedError(
  * with existing partitions. Reader synthesizes a `-32000 Server busy`
  * error response so the server retries / falls through.
  */
-export class PartitionLimitError extends Data.TaggedError("PartitionLimitError")<{
+export class PartitionLimitError extends Data.TaggedError(
+  "PartitionLimitError",
+)<{
   readonly key: string;
   readonly activePartitions: number;
   readonly maxPartitions: number;
