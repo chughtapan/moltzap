@@ -92,6 +92,3 @@ The orchestrator's shape:
 - **Real LLM agents.** Replace the reply bot with any agent runtime
   that speaks the MoltZap protocol (e.g., `@moltzap/nanoclaw-channel` or
   the Arena runtime).
-- **Webhook-based app.** Deploy the app off-process and wire its hooks
-  to HTTP endpoints instead of using the SDK WebSocket client. See
-  `packages/server/src/adapters/webhook.ts`.
