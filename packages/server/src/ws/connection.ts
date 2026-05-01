@@ -154,21 +154,42 @@ function nextS2cRequestId(
  * pool, no callback registry, no setTimeout retry loop):
  *
  *   1. Mint a fresh request id from the connection's counter.
- *   2. Allocate `Deferred<unknown, S2cRpcError>` and register it in
- *      `connection.s2cPending` keyed by the request id.
- *   3. Encode the `RequestFrame` with `direction: "s2c"` and write it via
- *      `connection.write`. Socket failures fail the Deferred with
- *      `S2cRpcSocketError` so the caller's await observes the failure
- *      rather than hanging.
- *   4. Return `Deferred.await` mapped through the typed error channel. The
- *      reader fiber resolves the Deferred when the matching s2c response
- *      arrives (`completeS2cResponse` below); the connection's `Scope`
- *      finalizer fails it on disconnect.
+ *   2. Allocate `Deferred<unknown, S2cRpcError>`.
+ *   3. `Effect.acquireUseRelease` around the pending-map pair:
+ *      - acquire: register the `{method, deferred}` entry in
+ *        `connection.s2cPending` keyed by the request id (atomic
+ *        `Ref.update`).
+ *      - use: encode the `RequestFrame` with `direction: "s2c"`, write
+ *        it via `connection.write`, then `Deferred.await`. Socket
+ *        failures fail the Deferred with `S2cRpcSocketError` so the
+ *        caller's await observes the failure rather than hanging.
+ *      - release: remove the entry from `s2cPending` (atomic
+ *        `Ref.update`). Fires on success, error, AND interrupt.
  *
- * Caller controls timeout via `Effect.timeout` at the call site — there is
- * NO schema-level cap. Result decoding from `unknown` to a typed verdict is
- * the caller's responsibility (Phase 1.1 / B.2 narrows this signature
- * generically against `S2cRpcMap` and folds decoding inside the function).
+ * Cleanup contract (Issue #310). The pending registry insert/remove are
+ * an `acquireUseRelease` pair; the entry is removed on success, error,
+ * AND interrupt. Interrupt paths covered:
+ *
+ *   - Caller fiber interrupt (e.g., `Effect.timeout` firing inside a
+ *     hook wrapper): release runs, entry removed before the inner exit
+ *     unwinds.
+ *   - Parent scope teardown mid-await: connection-Scope finalizer
+ *     (`drainPendingWithAppDisconnected`) drains the map and fails the
+ *     Deferred with `AppDisconnected`; the release then runs an
+ *     idempotent `HashMap.remove` (no-op).
+ *   - Normal completion via `completeS2cResponse`: removes the entry in
+ *     its own atomic `Ref.modify`; release re-removes (no-op).
+ *
+ * All three paths converge through atomic `Ref` ops on a single map, so
+ * no torn state. A late inbound response frame for a request whose
+ * caller was interrupted finds `Option.none()` in `completeS2cResponse`
+ * and is silently dropped (no panic, no Deferred re-resolve).
+ *
+ * Caller controls timeout via `Effect.timeout` at the call site — there
+ * is NO schema-level cap. Result decoding from `unknown` to a typed
+ * verdict is the caller's responsibility (Phase 1.1 / B.2 narrows this
+ * signature generically against `S2cRpcMap` and folds decoding inside
+ * the function).
  */
 export function sendRpcToClient(
   connection: MoltZapConnection,
@@ -178,14 +199,6 @@ export function sendRpcToClient(
   return Effect.gen(function* () {
     const requestId = yield* nextS2cRequestId(connection);
     const deferred = yield* Deferred.make<unknown, S2cRpcError>();
-
-    yield* Ref.update(connection.s2cPending, (m) =>
-      HashMap.set(m, requestId, {
-        method,
-        deferred,
-      } satisfies S2cPendingEntry<unknown>),
-    );
-
     const frame: RequestFrame = {
       jsonrpc: "2.0",
       type: "request",
@@ -196,34 +209,50 @@ export function sendRpcToClient(
     };
     const raw = JSON.stringify(frame);
 
-    // Write under `Effect.onError`-style cleanup: if write fails, drop the
-    // pending entry and fail the Deferred so the caller's `await` observes
-    // the typed socket error rather than hanging.
-    //
-    // Race note (intentional, benign): if a disconnect-finalizer fires
-    // between the pending insert above and the write attempt below, the
-    // finalizer drains the entry first and fails the Deferred with
-    // `AppDisconnected`. The cleanup branch then runs `HashMap.remove`
-    // (no-op on the already-empty map) and `Deferred.fail` with
-    // `S2cRpcSocketError` — which `Effect.ignore` swallows because the
-    // Deferred is already settled. Caller observes whichever completion
-    // landed first; both error tags are correct readings of the failure.
-    const writeOutcome = yield* Effect.either(connection.write(raw));
-    if (writeOutcome._tag === "Left") {
-      yield* Ref.update(connection.s2cPending, (m) =>
-        HashMap.remove(m, requestId),
-      );
-      const err = new S2cRpcSocketError({
-        connectionId: connection.id,
-        method,
-        requestId,
-        cause: writeOutcome.left,
-      });
-      yield* Deferred.fail(deferred, err).pipe(Effect.ignore);
-      return yield* Effect.fail<S2cRpcError>(err);
-    }
-
-    return yield* Deferred.await(deferred);
+    return yield* Effect.acquireUseRelease(
+      // acquire: register the pending entry. Atomic `Ref.update` —
+      // `completeS2cResponse` and the connection-Scope finalizer key
+      // off the same Ref, so all three writers serialize.
+      Ref.update(connection.s2cPending, (m) =>
+        HashMap.set(m, requestId, {
+          method,
+          deferred,
+        } satisfies S2cPendingEntry<unknown>),
+      ),
+      // use: write the frame, then await the Deferred. Socket failures
+      // settle the Deferred so a late inbound frame's `Deferred.succeed`
+      // is a no-op via `Effect.ignore` on an already-failed Deferred.
+      //
+      // Race note (intentional, benign): if the disconnect-finalizer
+      // fires between the acquire above and the write below, the
+      // finalizer drains the entry first and fails the Deferred with
+      // `AppDisconnected`. The write may then fail (socket already
+      // closed) and we attempt `Deferred.fail` with `S2cRpcSocketError`
+      // — `Effect.ignore` swallows the no-op on an already-settled
+      // Deferred. Caller observes whichever completion landed first;
+      // both error tags are correct readings of the failure.
+      () =>
+        Effect.gen(function* () {
+          const writeOutcome = yield* Effect.either(connection.write(raw));
+          if (writeOutcome._tag === "Left") {
+            const err = new S2cRpcSocketError({
+              connectionId: connection.id,
+              method,
+              requestId,
+              cause: writeOutcome.left,
+            });
+            yield* Deferred.fail(deferred, err).pipe(Effect.ignore);
+            return yield* Effect.fail<S2cRpcError>(err);
+          }
+          return yield* Deferred.await(deferred);
+        }),
+      // release: remove the entry. Idempotent — `HashMap.remove` on an
+      // already-removed key is a no-op, so this is safe whether
+      // `completeS2cResponse` already removed it (success/error path)
+      // or the connection-Scope finalizer drained it (disconnect path).
+      () =>
+        Ref.update(connection.s2cPending, (m) => HashMap.remove(m, requestId)),
+    );
   });
 }
 
