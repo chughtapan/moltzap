@@ -980,6 +980,7 @@ const NumericCodeToAttach: Record<number, AttachErrorCode> = {
   [-32021]: "SessionNotFound", // ErrorCodes.SessionNotFound
   [-32002]: "ConversationNotFound", // ErrorCodes.NotFound (used for missing convId)
   [-32001]: "NotAuthorized", // ErrorCodes.Forbidden
+  [-32003]: "AlreadyAttached", // ErrorCodes.Conflict (1:1 cross-session collision)
 };
 
 function extractAttachCode(err: RpcServerError): AttachErrorCode {

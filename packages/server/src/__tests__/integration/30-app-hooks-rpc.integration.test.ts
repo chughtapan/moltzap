@@ -68,6 +68,7 @@ const NUMERIC_TO_ATTACH_TAG: Record<number, string> = {
   [ErrorCodes.SessionNotFound]: "SessionNotFound",
   [ErrorCodes.NotFound]: "ConversationNotFound",
   [ErrorCodes.Forbidden]: "NotAuthorized",
+  [ErrorCodes.Conflict]: "AlreadyAttached",
 };
 
 function expectedAttachTagFor(numericCode: number): string {
@@ -1115,6 +1116,99 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
               .execute(),
           );
           expect(rows).toHaveLength(0);
+        }),
+    );
+
+    it.live(
+      "ConversationNotFound (-32002) → SDK maps to AttachError('ConversationNotFound') for missing convId",
+      () =>
+        Effect.gen(function* () {
+          const userAgent = yield* registerAppAgent("att-cnf-user");
+
+          coreApp.registerApp({
+            appId: "att-cnf-app",
+            name: "Att CNF",
+            permissions: { required: [], optional: [] },
+            conversations: [
+              { key: "main", name: "Main", participantFilter: "all" },
+            ],
+          });
+
+          const session = (yield* userAgent.client.sendRpc("apps/create", {
+            appId: "att-cnf-app",
+            invitedAgentIds: [],
+          })) as { session: { id: string } };
+
+          // Well-formed UUID that does not exist in `conversations`.
+          // Without the pre-check (issue #328), this falls through to a
+          // PG FK violation on `app_session_conversations.conversation_id`
+          // and surfaces as an internal error / `AttachFailed`. With the
+          // pre-check, the typed `NotFound` (-32002) round-trips to the
+          // SDK as `AttachError('ConversationNotFound')`.
+          const rpcErr = yield* expectRpcFailure(
+            userAgent.client.sendRpc("apps/attachConversation", {
+              sessionId: session.session.id,
+              conversationId: crypto.randomUUID(),
+            }),
+            ErrorCodes.NotFound,
+          );
+          expect(rpcErr.code).toBe(ErrorCodes.NotFound);
+          expect(expectedAttachTagFor(rpcErr.code)).toBe(
+            "ConversationNotFound",
+          );
+        }),
+    );
+
+    it.live(
+      "Conflict (-32003) → SDK maps to AttachError('AlreadyAttached') when convId is already attached to another session",
+      () =>
+        Effect.gen(function* () {
+          const userAgent = yield* registerAppAgent("att-aa-user");
+          const peer = yield* registerAppAgent("att-aa-peer");
+
+          coreApp.registerApp({
+            appId: "att-aa-app",
+            name: "Att AA",
+            permissions: { required: [], optional: [] },
+            conversations: [
+              { key: "main", name: "Main", participantFilter: "all" },
+            ],
+          });
+
+          // Two sessions owned by the same initiator so auth checks pass
+          // for both attach calls; the collision under test is the 1:1
+          // `AppHost.conversationToSession` invariant, not authorization.
+          const sessionA = (yield* userAgent.client.sendRpc("apps/create", {
+            appId: "att-aa-app",
+            invitedAgentIds: [],
+          })) as { session: { id: string } };
+          const sessionB = (yield* userAgent.client.sendRpc("apps/create", {
+            appId: "att-aa-app",
+            invitedAgentIds: [],
+          })) as { session: { id: string } };
+
+          const dm = (yield* userAgent.client.sendRpc("conversations/create", {
+            type: "dm",
+            participants: [{ type: "agent", id: peer.agentId }],
+          })) as { conversation: { id: string } };
+
+          // First attach: succeeds, binds dm.conversation.id → sessionA.
+          yield* userAgent.client.sendRpc("apps/attachConversation", {
+            sessionId: sessionA.session.id,
+            conversationId: dm.conversation.id,
+          });
+
+          // Second attach for the same convId against sessionB collides
+          // with the cross-session map; AppHost emits Conflict (-32003).
+          const rpcErr = yield* expectRpcFailure(
+            userAgent.client.sendRpc("apps/attachConversation", {
+              sessionId: sessionB.session.id,
+              conversationId: dm.conversation.id,
+            }),
+            ErrorCodes.Conflict,
+          );
+          expect(rpcErr.code).toBe(ErrorCodes.Conflict);
+          expect(expectedAttachTagFor(rpcErr.code)).toBe("AlreadyAttached");
         }),
     );
   });
