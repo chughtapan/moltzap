@@ -58,13 +58,6 @@ export const AppManifestSchema = Type.Object(
           before_message_delivery: Type.Optional(
             Type.Object(
               {
-                /**
-                 * Optional HTTPS endpoint. When set the MoltZap server POSTs
-                 * hook context to this URL instead of dispatching to an
-                 * in-process handler. Body and response shape are documented
-                 * in `docs/guides/app-hooks.mdx`.
-                 */
-                webhook: Type.Optional(Type.String({ format: "uri" })),
                 timeout_ms: Type.Optional(
                   Type.Integer({ default: 5000, minimum: 100, maximum: 30000 }),
                 ),
@@ -75,13 +68,6 @@ export const AppManifestSchema = Type.Object(
           before_dispatch: Type.Optional(
             Type.Object(
               {
-                /**
-                 * Optional HTTPS endpoint. When set the MoltZap server POSTs
-                 * dispatch-admission context to this URL before a channel
-                 * endpoint starts local LLM/runtime dispatch for an inbound
-                 * message.
-                 */
-                webhook: Type.Optional(Type.String({ format: "uri" })),
                 timeout_ms: Type.Optional(
                   Type.Integer({ default: 5000, minimum: 100, maximum: 30000 }),
                 ),
@@ -92,7 +78,6 @@ export const AppManifestSchema = Type.Object(
           on_join: Type.Optional(
             Type.Object(
               {
-                webhook: Type.Optional(Type.String({ format: "uri" })),
                 timeout_ms: Type.Optional(
                   Type.Integer({ default: 5000, minimum: 100, maximum: 30000 }),
                 ),
@@ -103,7 +88,6 @@ export const AppManifestSchema = Type.Object(
           on_close: Type.Optional(
             Type.Object(
               {
-                webhook: Type.Optional(Type.String({ format: "uri" })),
                 timeout_ms: Type.Optional(
                   Type.Integer({ default: 5000, minimum: 100, maximum: 30000 }),
                 ),
@@ -114,7 +98,6 @@ export const AppManifestSchema = Type.Object(
           on_session_active: Type.Optional(
             Type.Object(
               {
-                webhook: Type.Optional(Type.String({ format: "uri" })),
                 timeout_ms: Type.Optional(
                   Type.Integer({ default: 5000, minimum: 100, maximum: 30000 }),
                 ),
@@ -122,14 +105,6 @@ export const AppManifestSchema = Type.Object(
               { additionalProperties: false },
             ),
           ),
-          /**
-           * Optional shared secret used to HMAC-SHA256 sign outbound webhook
-           * bodies. The signature is sent as `X-MoltZap-Signature:
-           * sha256=<hex>`. If unset, webhooks are sent unsigned — apps
-           * should only configure webhook URLs on trusted private networks
-           * in that case.
-           */
-          secret: Type.Optional(Type.String()),
         },
         { additionalProperties: false },
       ),

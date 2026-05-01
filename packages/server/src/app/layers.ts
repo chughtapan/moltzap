@@ -109,9 +109,11 @@ export class UserServiceTag extends Context.Tag("moltzap/UserService")<
 >() {}
 
 /**
- * Shared outbound HTTP client used by {@link AppHost} for webhook-based
- * hook dispatch. Separate from the per-service adapters so connection
- * pooling/semaphore sharing is controlled in one place.
+ * Shared outbound HTTP client used by {@link MessageService.deliveryWebhook}
+ * for the fire-and-forget post-delivery push and by user-side adapters
+ * (`WebhookContactService`, `WebhookPermissionService`, `WebhookUserService`).
+ * Separate Tag so connection pooling / semaphore sharing is controlled in
+ * one place.
  */
 export class WebhookClientTag extends Context.Tag("moltzap/WebhookClient")<
   WebhookClientTag,
@@ -193,7 +195,6 @@ export const AppHostLive = Layer.effect(
     const broadcaster = yield* BroadcasterTag;
     const connections = yield* ConnectionManagerTag;
     const userService = yield* UserServiceTag;
-    const webhookClient = yield* WebhookClientTag;
     const inflightPermissions = yield* Ref.make(
       HashMap.empty<string, Deferred.Deferred<string[], Error>>(),
     );
@@ -202,7 +203,6 @@ export const AppHostLive = Layer.effect(
       broadcaster,
       connections,
       userService,
-      webhookClient,
       inflightPermissions,
     );
   }),

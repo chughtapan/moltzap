@@ -68,10 +68,10 @@ export interface CoreConfig {
    */
   userService?: UserService;
   /**
-   * Shared outbound HTTP client for webhook dispatch (app hooks, contact
-   * service, user service). If unset, `createCoreApp` constructs a default
-   * `new WebhookClient()`. Tests may inject a fake to intercept outbound
-   * HTTP.
+   * Shared outbound HTTP client used for `MessageService.deliveryWebhook`
+   * fanout and user-side adapters (contact/permission/user services). If
+   * unset, `createCoreApp` constructs a default `new WebhookClient()`.
+   * Tests may inject a fake to intercept outbound HTTP.
    */
   webhookClient?: WebhookClient;
   /**

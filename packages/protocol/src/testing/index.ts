@@ -79,7 +79,6 @@ export {
   type RealServerHandle,
   type RegisteredProperty,
   type SuiteResult,
-  type WebhookAdapterProbe,
   PropertyAssertionFailure,
   PropertyDeferred,
   PropertyInvariantViolation,
