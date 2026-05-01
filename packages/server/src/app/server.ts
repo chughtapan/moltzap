@@ -757,6 +757,12 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     registerApp(manifest) {
       appHost.registerApp(manifest);
     },
+    registerRemoteApp(manifest, connectionId) {
+      appHost.registerRemoteApp(manifest, connectionId);
+    },
+    unregisterRemoteApp(appId) {
+      appHost.unregisterRemoteApp(appId);
+    },
     setContactService(checker) {
       appHost.setContactService(checker);
     },
