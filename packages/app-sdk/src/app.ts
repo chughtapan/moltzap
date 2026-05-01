@@ -966,9 +966,33 @@ function mapAttachError(err: SendRpcError): AttachError {
   );
 }
 
+/**
+ * Numeric JSON-RPC error code → `AttachErrorCode` mapping. Matches the
+ * server's `ErrorCodes` table (see `packages/protocol/src/schema/errors.ts`)
+ * — kept inline (no protocol import) because the SDK already pins
+ * `@moltzap/protocol` for context types and re-importing the constants
+ * would make the SDK fail closed if the server ever renames a code
+ * without matching downstream support; an inline table is one explicit
+ * boundary that stays in sync via the integration test for
+ * `apps/attachConversation` happy + error paths.
+ */
+const NumericCodeToAttach: Record<number, AttachErrorCode> = {
+  [-32021]: "SessionNotFound", // ErrorCodes.SessionNotFound
+  [-32002]: "ConversationNotFound", // ErrorCodes.NotFound (used for missing convId)
+  [-32001]: "NotAuthorized", // ErrorCodes.Forbidden
+};
+
 function extractAttachCode(err: RpcServerError): AttachErrorCode {
-  // The server is expected to surface the reason as a string in `data.code`
-  // OR embed it in the message.  Prefer the structured `data.code` path.
+  // 1. Prefer the wire-level numeric `err.code`. The real server emits
+  //    JSON-RPC numeric codes from `ErrorCodes` (e.g. `SessionNotFound =
+  //    -32021`), NOT the AttachError tag string. Numeric mapping is the
+  //    primary contract.
+  const numeric = NumericCodeToAttach[err.code];
+  if (numeric !== undefined) return numeric;
+
+  // 2. Structured `data.code` string — a secondary contract some servers
+  //    use to disambiguate when one numeric code covers multiple SDK
+  //    error tags. Preserved for compatibility with handler-level mocks.
   const data = err.data;
   if (data !== null && typeof data === "object" && "code" in data) {
     const c = (data as { code: unknown }).code;
@@ -980,10 +1004,13 @@ function extractAttachCode(err: RpcServerError): AttachErrorCode {
       return c;
     }
   }
+
+  // 3. Last-ditch substring fallback for legacy text-only RPC errors.
   if (err.message.includes("SessionNotFound")) return "SessionNotFound";
   if (err.message.includes("ConversationNotFound")) {
     return "ConversationNotFound";
   }
   if (err.message.includes("NotAuthorized")) return "NotAuthorized";
+
   return "AttachFailed";
 }

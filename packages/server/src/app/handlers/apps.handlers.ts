@@ -4,6 +4,7 @@ import {
   AppsRegister,
   AppsCreate,
   AppsAttestSkill,
+  AppsAttachConversation,
   PermissionsGrant,
   PermissionsList,
   PermissionsRevoke,
@@ -130,6 +131,39 @@ export function createAppHandlers(deps: {
             limit: params.limit ?? 50,
           });
           return { sessions };
+        }),
+    }),
+
+    // c2s wire handler for `apps/attachConversation` — architect plan §3.2 /
+    // B.2 acceptance #3. Authorizes the caller via `getSession` (returns
+    // SessionNotFound or Forbidden so the SDK's `AttachError` round-trips
+    // those tags) and then delegates to the key-aware
+    // `attachConversation`. The wire schema does not carry a key field;
+    // we use `conversationId` itself as the key — a deterministic 1:1
+    // mapping suitable for SDK callers that don't need a stable
+    // human-readable handle (the in-process `attachAppConversation` API
+    // remains for callers that do).
+    //
+    // Known partial: the architect plan also names a typed
+    // `ConversationNotFound` error code, but the underlying
+    // `attachConversation` does not pre-check conversation existence;
+    // a missing conversationId falls through to a Postgres FK violation,
+    // which the SDK reports as `AttachFailed`. Tracked as a B.2 follow-up
+    // (see PR body of #318).
+    "apps/attachConversation": defineMethod(AppsAttachConversation, {
+      handler: (params, ctx) =>
+        Effect.gen(function* () {
+          // Validates session existence + caller is initiator/admitted —
+          // SessionNotFound (-32021) and Forbidden (-32001) round-trip to
+          // `AttachError("SessionNotFound" | "NotAuthorized")` via the
+          // numeric-code map in `app-sdk/src/app.ts:extractAttachCode`.
+          yield* deps.appHost.getSession(params.sessionId, ctx.agentId);
+          yield* deps.appHost.attachConversation(
+            params.sessionId,
+            params.conversationId,
+            params.conversationId,
+          );
+          return {};
         }),
     }),
 
