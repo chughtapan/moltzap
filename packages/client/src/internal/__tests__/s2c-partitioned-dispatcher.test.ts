@@ -479,6 +479,198 @@ describe("makePartitionedDispatcher — scope teardown", () => {
   });
 });
 
+describe("makePartitionedDispatcher — reaper releases per-worker scopes", () => {
+  it("reaped workers release queue finalizers from dispatcher scope", async () => {
+    // Architect plan §4.2 + §10 leak-pinning: with per-worker child
+    // scopes, reaping a worker MUST close its queue.shutdown finalizer
+    // synchronously inside the reaper tick, not pin it on the
+    // dispatcher scope until the connection closes.
+    //
+    // What this test asserts (observable behaviour):
+    //   1. After TTL expiry, `dispatcher.stats.activePartitions` drops
+    //      to 0. The map is cleared.
+    //   2. The cap (set to N) rebudgets — N FRESH conv keys allocate
+    //      successfully without `PartitionLimitError`. If map removal
+    //      were the only fix, this would still pass.
+    //   3. A handler invocation count separates "fresh worker
+    //      allocated" from "old worker still alive in a different
+    //      map slot": the test counts how many handler invocations
+    //      fire across the whole run. With per-worker-scope close,
+    //      each post-reap offer goes to a brand-new worker, so the
+    //      handler fires once per pre-reap offer + once per
+    //      post-reap offer = 2N. With the broken behaviour where the
+    //      old worker's drain fiber lingers on the dispatcher scope,
+    //      the count would still be 2N (the lingering fiber never
+    //      gets new items because the map points to a fresh worker)
+    //      — so this is not a perfect distinguisher of leaked-vs-not,
+    //      but combined with `s2c-partition-worker.test.ts > "offer
+    //      after Scope close fails with PartitionQueueFullError"`,
+    //      we cover both the per-worker-scope contract and the
+    //      reaper's use of it.
+    //   4. The Retiring-tag race fix is exercised end-to-end by
+    //      issuing offers concurrently with reap (race window is
+    //      microseconds; we run several reap+offer cycles to stress
+    //      it). Every offer either succeeds (new worker post-reap)
+    //      or fails with a typed `OfferRejected` — never silently
+    //      drops the request, never hangs.
+    const N = 128;
+    const verdict = await Effect.runPromise(
+      withScope((scope) =>
+        Effect.gen(function* () {
+          const fakeNow = yield* Ref.make(0);
+          const clock = () => Effect.runSync(Ref.get(fakeNow));
+          const handlerCount = yield* Ref.make(0);
+          const dispatcher = yield* makePartitionedDispatcher({
+            handle: () => Ref.update(handlerCount, (n) => n + 1),
+            scope,
+            clock,
+            config: {
+              maxPartitions: N,
+              idlePartitionTtlMs: 100,
+              idleReaperIntervalMs: 10,
+            },
+          });
+
+          // Spawn N partitions across N distinct conv keys.
+          for (let i = 0; i < N; i++) {
+            yield* dispatcher.offer(
+              reqBeforeDispatch(`rpc-${i}`, SESSION_A, `conv-${i}`),
+            );
+          }
+
+          // Wait until every worker is Idle (handler returned).
+          for (let attempt = 0; attempt < 200; attempt++) {
+            const stats = yield* dispatcher.stats;
+            const allIdle =
+              stats.activePartitions === N &&
+              stats.partitions.every((p) => p.idle);
+            if (allIdle) break;
+            yield* Effect.yieldNow();
+          }
+          const preStats = yield* dispatcher.stats;
+          const handlerCountPreReap = yield* Ref.get(handlerCount);
+
+          // Trip the TTL.
+          yield* Ref.set(fakeNow, 10_000);
+
+          // Wait for the reaper to drain the map.
+          let reaped = false;
+          for (let attempt = 0; attempt < 100; attempt++) {
+            const stats = yield* dispatcher.stats;
+            if (stats.activePartitions === 0) {
+              reaped = true;
+              break;
+            }
+            yield* Effect.sleep("20 millis");
+          }
+
+          // Cap rebudget proof + fresh-worker proof: spawn N fresh
+          // partitions. Each must succeed (not hit PartitionLimitError),
+          // each must fire the handler (proving a real, alive worker
+          // is processing — not a stale reference returning an
+          // already-shutdown queue).
+          for (let i = 0; i < N; i++) {
+            yield* dispatcher.offer(
+              reqBeforeDispatch(`rpc-fresh-${i}`, SESSION_A, `conv-fresh-${i}`),
+            );
+          }
+          // Wait for the fresh handlers to all run.
+          for (let attempt = 0; attempt < 200; attempt++) {
+            const c = yield* Ref.get(handlerCount);
+            if (c === 2 * N) break;
+            yield* Effect.yieldNow();
+          }
+          const postStats = yield* dispatcher.stats;
+          const handlerCountPostRefill = yield* Ref.get(handlerCount);
+          return {
+            beforeCount: preStats.activePartitions,
+            reaped,
+            afterRefillCount: postStats.activePartitions,
+            handlerCountPreReap,
+            handlerCountPostRefill,
+          };
+        }),
+      ),
+    );
+    expect(verdict.beforeCount).toBe(N);
+    expect(verdict.reaped).toBe(true);
+    expect(verdict.afterRefillCount).toBe(N);
+    // 2N handler invocations: N pre-reap + N post-refill. If reap had
+    // not actually retired the workers (e.g. fresh allocations had
+    // failed), the post-refill handlers would not have run.
+    expect(verdict.handlerCountPreReap).toBe(N);
+    expect(verdict.handlerCountPostRefill).toBe(2 * N);
+  });
+
+  it("offer racing the reaper either succeeds against a fresh worker or fails with a typed OfferRejected — never silently drops", async () => {
+    // P1 race fix: an offer that observes a still-mapped worker just
+    // as the reaper claims it must NOT silently drop the request. The
+    // dispatcher's `Retiring` reservation makes `worker.offer` refuse
+    // to enqueue once the reaper has set the tag. The reader fiber
+    // gets `OfferRejected` (specifically `PartitionQueueFullError`)
+    // and writes a wire error response.
+    //
+    // Test shape: drive many cycles of (offer → reap → offer-same-key)
+    // with very short TTLs so the producer races the reaper. Every
+    // offer outcome is captured; none may be `null` / no result.
+    const cycles = 50;
+    const verdict = await Effect.runPromise(
+      withScope((scope) =>
+        Effect.gen(function* () {
+          const fakeNow = yield* Ref.make(0);
+          const clock = () => Effect.runSync(Ref.get(fakeNow));
+          const handlerCount = yield* Ref.make(0);
+          const dispatcher = yield* makePartitionedDispatcher({
+            handle: () => Ref.update(handlerCount, (n) => n + 1),
+            scope,
+            clock,
+            config: {
+              maxPartitions: 8,
+              idlePartitionTtlMs: 1,
+              idleReaperIntervalMs: 1,
+            },
+          });
+          const outcomes: Array<"ok" | "rejected"> = [];
+          for (let i = 0; i < cycles; i++) {
+            yield* Ref.set(fakeNow, 1000 * i);
+            const result = yield* Effect.either(
+              dispatcher.offer(
+                reqBeforeDispatch(`rpc-cycle-${i}`, SESSION_A, "conv-race"),
+              ),
+            );
+            outcomes.push(result._tag === "Right" ? "ok" : "rejected");
+            // Yield so the reaper has a chance to run between cycles.
+            yield* Effect.yieldNow();
+          }
+          // Wait for any in-flight handlers to finish so the count
+          // settles before we read it.
+          for (let attempt = 0; attempt < 200; attempt++) {
+            const c = yield* Ref.get(handlerCount);
+            const ok = outcomes.filter((o) => o === "ok").length;
+            if (c === ok) break;
+            yield* Effect.sleep("5 millis");
+          }
+          const handlerCalls = yield* Ref.get(handlerCount);
+          return { outcomes, handlerCalls };
+        }),
+      ),
+    );
+    // Every cycle produced a typed outcome (ok or rejected). No
+    // exception, no hang, no missing entry.
+    expect(verdict.outcomes.length).toBe(cycles);
+    for (const outcome of verdict.outcomes) {
+      expect(["ok", "rejected"]).toContain(outcome);
+    }
+    // Load-bearing: every "ok" outcome corresponds to a handler
+    // invocation. Pre-fix, an offer could race the reaper, return
+    // `Right` from `dispatcher.offer`, then have its queued request
+    // silently dropped by `Scope.close` firing `Queue.shutdown` —
+    // `handlerCalls` would be strictly less than `okCount`.
+    const okCount = verdict.outcomes.filter((o) => o === "ok").length;
+    expect(verdict.handlerCalls).toBe(okCount);
+  });
+});
+
 describe("makePartitionedDispatcher — runSync(close()) contract (regression of ws-client.test.ts:1248)", () => {
   it("dispatcher.shutdown is safe to runFork from a runSync context", async () => {
     // dispatcher.shutdown closes the dispatcher's Scope. The Scope
