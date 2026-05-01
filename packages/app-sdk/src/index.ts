@@ -17,7 +17,12 @@ export {
   ManifestRegistrationError,
   ConversationKeyError,
   SendError,
+  AppHandlerError,
+  AdmissionTimeoutError,
+  AppDisconnected,
+  AttachError,
 } from "./errors.js";
+export type { AttachErrorCode } from "./errors.js";
 
 // Re-export common protocol types for convenience
 export type {
@@ -31,6 +36,16 @@ export type {
   FilePart,
   Message,
   EventFrame,
+  // Admission + lifecycle handler context types (Phase 1.4 / B.5).
+  // Surfaced here so app developers can import them directly from
+  // `@moltzap/app-sdk` without reaching into the protocol package.
+  BeforeDispatchContext,
+  BeforeMessageDeliveryContext,
+  OnSessionActiveContext,
+  OnJoinContext,
+  OnCloseContext,
+  HookResult,
+  DispatchAdmissionResult,
 } from "@moltzap/protocol";
 export { EventNames } from "@moltzap/protocol";
 

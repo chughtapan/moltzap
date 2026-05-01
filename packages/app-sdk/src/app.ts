@@ -1,4 +1,9 @@
-import { MoltZapWsClient } from "@moltzap/client";
+import {
+  MoltZapWsClient,
+  NotConnectedError,
+  RpcServerError,
+  RpcTimeoutError,
+} from "@moltzap/client";
 import type {
   WsClientLogger,
   MoltZapWsClientOptions,
@@ -16,13 +21,23 @@ import type {
   AppSkillChallengeEvent,
   AppParticipantAdmittedEvent,
   AppParticipantRejectedEvent,
+  BeforeDispatchContext,
+  BeforeMessageDeliveryContext,
+  OnSessionActiveContext,
+  OnJoinContext,
+  OnCloseContext,
+  DispatchAdmissionResult,
+  HookResult,
 } from "@moltzap/protocol";
 import { EventNames } from "@moltzap/protocol";
-import { Effect, Fiber } from "effect";
+import { Cause, Effect, Exit, Fiber } from "effect";
 import { AppSessionHandle } from "./session.js";
 import { HeartbeatManager } from "./heartbeat.js";
 import {
   AppError,
+  AppHandlerError,
+  AttachError,
+  type AttachErrorCode,
   AuthError,
   ManifestRegistrationError,
   SessionError,
@@ -30,29 +45,6 @@ import {
   ConversationKeyError,
   SendError,
 } from "./errors.js";
-
-// ── PHASE 1.4 STUB TYPE PLACEHOLDERS (B.0 architect) ────────────────────────
-// `BeforeDispatchContext` etc. live in `@moltzap/server`'s `app/hooks.ts`
-// today. Implementer (B.1) MOVES the context type *definitions* into
-// `@moltzap/protocol` (so app-sdk does not depend on server) and re-exports
-// them from app-sdk's `index.ts`. `AttachError` is a new tagged-error class
-// added by B.5 in `./errors.ts`.
-//
-// Local placeholder aliases below let the architect stubs typecheck without
-// requiring the moves to happen first. Implementer REPLACES these with real
-// imports from `@moltzap/protocol` in B.1.
-type _StubCtx = { readonly sessionId: string; readonly appId: string };
-type BeforeDispatchContext = _StubCtx;
-type BeforeMessageDeliveryContext = _StubCtx;
-type OnSessionActiveContext = _StubCtx;
-type OnJoinContext = _StubCtx;
-type OnCloseContext = _StubCtx;
-type DispatchAdmissionResult =
-  | { readonly decision: "grant"; readonly leaseId?: string }
-  | { readonly decision: "deny"; readonly reason?: string }
-  | { readonly decision: "hold"; readonly reason?: string };
-type HookResult = { readonly block: boolean };
-type AttachError = AppError;
 
 type MessageHandler = (message: Message) => void | Promise<void>;
 type SessionReadyHandler = (session: AppSessionHandle) => void | Promise<void>;
@@ -366,44 +358,46 @@ export class MoltZapApp {
     this.errorHandler = handler;
   }
 
-  // ── PHASE 1.4 STUBS — admission RPC handler surface (B.0 architect) ─────
+  // ── Admission + lifecycle handler surface (Phase 1.4 / B.5) ─────────────
   //
-  // These five handlers register against s2c admission RPC verbs from
-  // protocol/methods/apps.ts (B.1). The SDK auto-replies via
-  // `client.handleServerRpc(...)` from B.1's WS-client extension, decoding
-  // params with the corresponding TypeBox schema and encoding the verdict
-  // using `DispatchAdmissionResultSchema` / `HookResultSchema`.
+  // Each `onX(handler)` registers against the corresponding s2c admission
+  // RPC verb (`apps/onBeforeDispatch`, `apps/onBeforeMessageDelivery`,
+  // `apps/onSessionActive`, `apps/onJoin`, `apps/onClose`). The underlying
+  // `client.handleServerRpc` decodes inbound frames against the protocol
+  // schemas and writes the encoded reply back; the wrapper functions below
+  // shape the user handler's `Effect<Verdict, never>` into the SDK's
+  // fail-closed contract:
   //
-  // FAIL-CLOSED HANDLER ERRORS: the SDK wraps each user handler in
-  // `Effect.catchAll`. On thrown / failed handler:
-  //   - onBeforeDispatch    → reply { decision: "deny", reason: "app_handler_error" }
-  //   - onBeforeMessageDelivery → reply { block: true, reason: "app_handler_error" }
-  //   - onSessionActive / onJoin / onClose → reply void; SDK logs the error
-  //     via `logger`. The hook is treated as completed (the spec calls these
-  //     "awaitable void"; their failure must not leave the AppHost waiting).
+  //   - onBeforeDispatch         handler defect → `{decision: "deny", reason: "app_handler_error"}`
+  //   - onBeforeMessageDelivery  handler defect → `{block: true,  reason: "app_handler_error"}`
+  //   - on_session_active / on_join / on_close   handler defect → void; logged
   //
-  // CONTEXT TYPES re-exported from the protocol package by B.1:
-  //   `BeforeDispatchContext`, `BeforeMessageDeliveryContext`,
-  //   `OnSessionActiveContext`, `OnJoinContext`, `OnCloseContext`,
-  //   `DispatchAdmissionResult`, `HookResult`. Implementers MUST NOT redefine
-  //   these in app-sdk; they live in `@moltzap/protocol` and re-export from
-  //   the SDK's `index.ts` to give downstream apps direct IntelliSense.
-  // ────────────────────────────────────────────────────────────────────────
+  // Duplicate registration on the same hook surfaces synchronously as
+  // `AppError("DUPLICATE_HOOK_HANDLER")`.
 
   /**
-   * Register a `before_dispatch` admission handler.
+   * Register a `before_dispatch` admission handler. AppHost calls this
+   * before delivering an outbound message to a recipient; the handler
+   * returns a `DispatchAdmissionResult` (grant / deny / hold).
    *
-   * Implementer (B.5): wire via `client.handleServerRpc("apps/onBeforeDispatch",
-   * (params) => handler(decode(params)).pipe(Effect.catchAll(synthesizeDeny)))`.
-   * Multiple registrations on the same hook MUST throw at registration time —
-   * the manifest declares one handler per hook kind.
+   * The user Effect is invoked once per inbound RPC, the verdict is wrapped
+   * into the protocol's `{ admission }` envelope, and any defect synthesizes
+   * a fail-closed `deny`. Calling twice throws `AppError("DUPLICATE_HOOK_HANDLER")`.
    */
   onBeforeDispatch(
-    _handler: (
+    handler: (
       ctx: BeforeDispatchContext,
     ) => Effect.Effect<DispatchAdmissionResult, never>,
   ): void {
-    throw new Error("not implemented");
+    this.registerAdmissionHandler<
+      BeforeDispatchContext,
+      DispatchAdmissionResult
+    >(
+      "apps/onBeforeDispatch",
+      handler,
+      (decision) => ({ admission: decision }),
+      () => ({ admission: { decision: "deny", reason: "app_handler_error" } }),
+    );
   }
 
   /**
@@ -411,48 +405,151 @@ export class MoltZapApp {
    * `{ block: false }` allows; `{ block: true, reason }` drops; supplying
    * `patch.parts` mutates the recipient view; `feedback` emits an
    * observability hook.
+   *
+   * Handler defects synthesize fail-closed `{ block: true,
+   * reason: "app_handler_error" }`. Calling twice throws
+   * `AppError("DUPLICATE_HOOK_HANDLER")`.
    */
   onBeforeMessageDelivery(
-    _handler: (
+    handler: (
       ctx: BeforeMessageDeliveryContext,
     ) => Effect.Effect<HookResult, never>,
   ): void {
-    throw new Error("not implemented");
+    this.registerAdmissionHandler<BeforeMessageDeliveryContext, HookResult>(
+      "apps/onBeforeMessageDelivery",
+      handler,
+      (verdict) => verdict,
+      () => ({ block: true, reason: "app_handler_error" }),
+    );
   }
 
   /**
    * Register an awaitable `on_session_active` lifecycle handler. AppHost
    * gates `app/sessionReady` delivery on the handler completing (preserves
-   * 31-on-session-active.integration.test.ts:200-230 ordering).
+   * `31-on-session-active.integration.test.ts:200-230` ordering).
+   *
+   * Handler defects log + reply void; the lifecycle hook never blocks the
+   * session.
    */
   onSessionActive(
-    _handler: (ctx: OnSessionActiveContext) => Effect.Effect<void, never>,
+    handler: (ctx: OnSessionActiveContext) => Effect.Effect<void, never>,
   ): void {
-    throw new Error("not implemented");
+    this.registerLifecycleHandler<OnSessionActiveContext>(
+      "apps/onSessionActive",
+      handler,
+    );
   }
 
   /** Register an awaitable `on_join` lifecycle handler. */
-  onJoin(_handler: (ctx: OnJoinContext) => Effect.Effect<void, never>): void {
-    throw new Error("not implemented");
+  onJoin(handler: (ctx: OnJoinContext) => Effect.Effect<void, never>): void {
+    this.registerLifecycleHandler<OnJoinContext>("apps/onJoin", handler);
   }
 
   /** Register an awaitable `on_close` lifecycle handler. */
-  onClose(_handler: (ctx: OnCloseContext) => Effect.Effect<void, never>): void {
-    throw new Error("not implemented");
+  onClose(handler: (ctx: OnCloseContext) => Effect.Effect<void, never>): void {
+    this.registerLifecycleHandler<OnCloseContext>("apps/onClose", handler);
   }
 
   /**
    * Attach an existing conversation to a session for membership / role-DM
-   * purposes. Wraps the c2s RPC `apps/attachConversation` (B.1).
+   * purposes. Wraps the c2s RPC `apps/attachConversation`.
    *
-   * Errors: `AttachError` carries the underlying RPC code
-   * (SessionNotFound | ConversationNotFound | NotAuthorized).
+   * Errors map server response codes to `AttachError`:
+   *   - `SessionNotFound`, `ConversationNotFound`, `NotAuthorized` → typed
+   *   - any other RPC failure (timeout, transport) → `AttachFailed`
    */
   attachConversation(
-    _sessionId: string,
-    _conversationId: string,
+    sessionId: string,
+    conversationId: string,
   ): Effect.Effect<void, AttachError> {
-    throw new Error("not implemented");
+    return this.client
+      .sendRpc("apps/attachConversation", { sessionId, conversationId })
+      .pipe(
+        Effect.asVoid,
+        Effect.mapError((err) => mapAttachError(err)),
+      );
+  }
+
+  /**
+   * Wire a user-supplied admission handler against the SDK's WS client.
+   *
+   * `wrapVerdict` adapts the user verdict to the on-the-wire result shape
+   * (e.g. `{ admission }` for `before_dispatch`); `failClosedVerdict` is
+   * the wire-shape verdict synthesized when the user handler defects.
+   *
+   * `Effect.runSyncExit` is safe here: `handleServerRpc` mutates a `Ref`
+   * synchronously and only fails with `DuplicateServerRpcHandlerError`.
+   */
+  private registerAdmissionHandler<Ctx, Verdict>(
+    method: string,
+    handler: (ctx: Ctx) => Effect.Effect<Verdict, never>,
+    wrapVerdict: (verdict: Verdict) => unknown,
+    failClosedVerdict: () => unknown,
+  ): void {
+    const wrapped = (params: unknown): Effect.Effect<unknown, RpcServerError> =>
+      Effect.gen(this, function* () {
+        const ctx = params as Ctx;
+        const verdictExit = yield* Effect.exit(handler(ctx));
+        if (Exit.isSuccess(verdictExit)) {
+          return wrapVerdict(verdictExit.value);
+        }
+        // Fail-closed: log the underlying cause, synthesize the fail-closed
+        // verdict. Cause covers both typed failures (which are `never`-typed
+        // here so should not occur) and defects from `Effect.gen` throws.
+        const wrappedErr = new AppHandlerError(
+          method,
+          "handler failed; synthesizing fail-closed verdict",
+          causeToError(verdictExit.cause),
+        );
+        this.emitError(wrappedErr);
+        return failClosedVerdict();
+      });
+
+    this.installServerRpc(method, wrapped);
+  }
+
+  private registerLifecycleHandler<Ctx>(
+    method: string,
+    handler: (ctx: Ctx) => Effect.Effect<void, never>,
+  ): void {
+    const wrapped = (params: unknown): Effect.Effect<unknown, RpcServerError> =>
+      Effect.gen(this, function* () {
+        const ctx = params as Ctx;
+        const exit = yield* Effect.exit(handler(ctx));
+        if (Exit.isFailure(exit)) {
+          // Lifecycle hooks are awaitable-void: log and reply void so the
+          // server-side AppHost stops waiting. Never blocks session lifecycle.
+          this.emitError(
+            new AppHandlerError(
+              method,
+              "lifecycle handler failed; replying void",
+              causeToError(exit.cause),
+            ),
+          );
+        }
+        return {};
+      });
+
+    this.installServerRpc(method, wrapped);
+  }
+
+  private installServerRpc(
+    method: string,
+    wrapped: (params: unknown) => Effect.Effect<unknown, RpcServerError>,
+  ): void {
+    const exit = Effect.runSyncExit(
+      this.client.handleServerRpc(method, wrapped),
+    );
+    if (Exit.isFailure(exit)) {
+      // Only failure mode is `DuplicateServerRpcHandlerError`; surface as
+      // sync throw per architect plan §3.5 ("Multiple registrations for the
+      // same hook throw at registration time").
+      throw new AppError(
+        "DUPLICATE_HOOK_HANDLER",
+        `Handler already registered for ${method}`,
+        causeToError(exit.cause),
+      );
+    }
   }
 
   // ── Messaging ──────────────────────────────────────────────────────
@@ -823,4 +920,70 @@ export class MoltZapApp {
       this.logger.error(`[${error.code}] ${error.message}`);
     }
   }
+}
+
+// ── Module-private helpers ─────────────────────────────────────────────────
+
+/**
+ * Coerce an Effect `Cause` into a plain `Error` for error chaining. Defects
+ * carrying an `Error` are unwrapped; everything else is stringified.
+ */
+function causeToError(cause: Cause.Cause<unknown>): Error {
+  const failure = Cause.failureOption(cause);
+  if (failure._tag === "Some") {
+    return failure.value instanceof Error
+      ? failure.value
+      : new Error(String(failure.value));
+  }
+  const defect = Cause.dieOption(cause);
+  if (defect._tag === "Some") {
+    return defect.value instanceof Error
+      ? defect.value
+      : new Error(String(defect.value));
+  }
+  return new Error(Cause.pretty(cause));
+}
+
+/**
+ * Map a `client.sendRpc` failure for `apps/attachConversation` onto the
+ * SDK's typed `AttachError`. RPC server errors carry the server's reason
+ * code in `data.code` (or `message`); transport / timeout errors collapse
+ * to `AttachFailed`.
+ */
+type SendRpcError = NotConnectedError | RpcTimeoutError | RpcServerError;
+
+function mapAttachError(err: SendRpcError): AttachError {
+  if (err instanceof RpcServerError) {
+    const code = extractAttachCode(err);
+    return new AttachError(code, err.message, err);
+  }
+  // NotConnectedError or RpcTimeoutError — both extend Error via Data.TaggedError.
+  const cause = err instanceof Error ? err : undefined;
+  return new AttachError(
+    "AttachFailed",
+    `attachConversation failed: ${err.message}`,
+    cause,
+  );
+}
+
+function extractAttachCode(err: RpcServerError): AttachErrorCode {
+  // The server is expected to surface the reason as a string in `data.code`
+  // OR embed it in the message.  Prefer the structured `data.code` path.
+  const data = err.data;
+  if (data !== null && typeof data === "object" && "code" in data) {
+    const c = (data as { code: unknown }).code;
+    if (
+      c === "SessionNotFound" ||
+      c === "ConversationNotFound" ||
+      c === "NotAuthorized"
+    ) {
+      return c;
+    }
+  }
+  if (err.message.includes("SessionNotFound")) return "SessionNotFound";
+  if (err.message.includes("ConversationNotFound")) {
+    return "ConversationNotFound";
+  }
+  if (err.message.includes("NotAuthorized")) return "NotAuthorized";
+  return "AttachFailed";
 }
