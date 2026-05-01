@@ -210,6 +210,32 @@ describe("MoltZapApp", () => {
       expect(app.client.close).toHaveBeenCalledTimes(1);
     });
 
+    it("succeeds even when apps/closeSession fails (failure is swallowed by Effect.ignore)", async () => {
+      await Effect.runPromise(app.start());
+
+      // After start, the next sendRpc("apps/closeSession") must fail. The
+      // mock's default sendRpc handles that method with Effect.succeed —
+      // override it for the closeSession call only so the apps/closeSession
+      // path goes down the error branch.
+      const sendRpc = app.client.sendRpc as ReturnType<typeof vi.fn>;
+      sendRpc.mockImplementationOnce((method: string) => {
+        if (method === "apps/closeSession") {
+          return Effect.fail(new Error("server rejected closeSession"));
+        }
+        return Effect.succeed({});
+      });
+
+      // stop() must still complete cleanly. The contract is "best-effort
+      // cleanup" — a closeSession failure on shutdown should not propagate.
+      const exit = await Effect.runPromiseExit(app.stop());
+      expect(Exit.isSuccess(exit)).toBe(true);
+
+      expect(app.client.sendRpc).toHaveBeenCalledWith("apps/closeSession", {
+        sessionId: "session-1",
+      });
+      expect(app.client.close).toHaveBeenCalledTimes(1);
+    });
+
     it("unsubscribes the event subscription on shutdown", async () => {
       const subscribe = app.client.subscribe as ReturnType<typeof vi.fn>;
       let unsubscribeCalled = false;

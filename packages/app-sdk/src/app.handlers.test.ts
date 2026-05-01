@@ -221,6 +221,39 @@ describe("MoltZapApp — admission/lifecycle handler surface", () => {
       });
     });
 
+    it("does not impose its own timeout on a long-running handler (AppHost owns timeout)", async () => {
+      // Architect plan §3.4: "Timeout policy moves into AppHost, not the
+      // schema."  The SDK must not abort or shorten a user handler — the
+      // server-side AppHost wraps the s2c RPC in `Effect.timeout(manifestMs)`.
+      // This test pins the contract: while the WS is healthy, a slow handler
+      // returns its verdict verbatim, no SDK-side cancellation.
+      app.onBeforeDispatch((ctx) =>
+        Effect.sleep("50 millis").pipe(
+          Effect.as<DispatchAdmissionResult>({
+            decision: "grant",
+            leaseId: `slow-${ctx.sessionId.slice(0, 4)}`,
+          }),
+        ),
+      );
+      const start = Date.now();
+      const reply = await Effect.runPromise(
+        asMock(app.client)._invokeHandler(
+          "apps/onBeforeDispatch",
+          baseDispatchCtx,
+        ),
+      );
+      const elapsed = Date.now() - start;
+      expect(reply).toEqual({
+        admission: { decision: "grant", leaseId: "slow-0000" },
+      });
+      // Lower bound: the handler actually waited.  Upper bound is loose
+      // (CI variance) — the assertion is "at least the sleep ran", not
+      // "exactly 50ms".
+      expect(elapsed).toBeGreaterThanOrEqual(40);
+      // No fail-closed verdict was synthesized → onError must not have fired.
+      expect(onErr).not.toHaveBeenCalled();
+    });
+
     it("synthesizes deny with reason 'app_handler_error' on handler defect", async () => {
       app.onBeforeDispatch(() =>
         Effect.sync<DispatchAdmissionResult>(() => {
