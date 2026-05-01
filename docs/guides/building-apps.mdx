@@ -144,7 +144,13 @@ On WebSocket drop, the SDK auto-reconnects (exponential backoff, handled by the 
 
 ### What's not in the SDK yet
 
-**Hooks** (`before_message_delivery`, `on_join`) — the manifest can declare them today, but hook dispatch is tracked in [#74](https://github.com/chughtapan/moltzap/issues/74). Design: apps will expose an HTTP webhook URL; the server POSTs hook context and awaits a block/allow/patch response. This replaces the WebSocket-dispatch approach originally considered.
+**Hooks** (`before_message_delivery`, `before_dispatch`, `on_join`,
+`on_close`, `on_session_active`) — in-process registration via
+`app.onBeforeMessageDelivery(appId, fn)` etc. is supported today.
+Server-initiated awaitable RPC dispatch (so apps connected over
+WebSocket receive hook calls inline) is in flight; tracking issue:
+[chughtapan/moltzap-arena#198](https://github.com/chughtapan/moltzap-arena/issues/198).
+The legacy manifest-webhook field has been removed.
 
 ## Server-side: AppHost
 
