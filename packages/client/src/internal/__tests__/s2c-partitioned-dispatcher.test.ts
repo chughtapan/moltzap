@@ -43,3 +43,14 @@ describe("makePartitionedDispatcher — scope teardown", () => {
   it.todo("Scope.close finalizes every partition worker (no leak)");
   it.todo("Scope.close interrupts the idle-reaper fiber");
 });
+
+describe("makePartitionedDispatcher — runSync(close()) contract (regression of ws-client.test.ts:1248)", () => {
+  it.todo(
+    "runtime.runFork(Scope.close(dispatcherScope, Exit.void)) returns immediately " +
+      "even when a worker is mid-handler (no AsyncFiberException leaks)",
+  );
+  it.todo(
+    "Effect.runSync(client.close()) succeeds after a partitioned dispatcher has " +
+      "allocated and torn down workers",
+  );
+});
