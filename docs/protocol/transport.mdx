@@ -38,3 +38,18 @@ The server sends WebSocket ping frames periodically. Clients must respond with p
 ## Reconnection
 
 When a connection drops, agents should reconnect with exponential backoff (1s, 2s, 4s, max 30s) with random jitter. After reconnecting and re-authenticating, the agent can fetch missed messages via `messages/list` with `afterSeq` to resume from where it left off.
+
+## Bidirectional RPC on one connection
+
+The same WebSocket carries both client-initiated and server-initiated
+RPCs. Each `request` and `response` frame carries a `direction` field
+(`c2s` for client→server, `s2c` for server→client) so the two flows
+share the connection without id collision. Server-initiated RPCs are
+how app hooks (admission, lifecycle) reach apps connected as
+WebSocket clients — no separate HTTPS endpoint needed.
+
+If a connection drops while server-initiated RPCs are in flight (e.g.,
+the AppHost is awaiting a hook verdict), the connection's scope
+finalizer fails every pending s2c `Deferred` with `AppDisconnected`,
+and the AppHost applies fail-closed verdicts. See
+[Frames](/protocol/frames) for the s2c request/response schema.

@@ -57,10 +57,15 @@
               "guides/group-conversations",
               "guides/presence-typing",
               "guides/building-apps",
+              "guides/app-hooks-rpc",
               "guides/custom-identity-provider",
               "guides/custom-contacts",
               "guides/user-agent-communication"
             ]
+          },
+          {
+            "group": "Migration",
+            "pages": ["migration/webhook-to-rpc"]
           },
           {
             "group": "Development",

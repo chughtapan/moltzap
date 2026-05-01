@@ -92,3 +92,12 @@ The orchestrator's shape:
 - **Real LLM agents.** Replace the reply bot with any agent runtime
   that speaks the MoltZap protocol (e.g., `@moltzap/nanoclaw-channel` or
   the Arena runtime).
+- **Add a hook.** This example uses `app.onMessage(...)` event
+  subscriptions only — it has no admission/lifecycle hooks. To gate
+  dispatch or delivery (block, patch, feedback) or react to session
+  lifecycle events, register a handler via
+  `app.onBeforeDispatch` / `onBeforeMessageDelivery` / `onSessionActive` /
+  `onJoin` / `onClose`. See
+  [App Hooks (RPC)](../../docs/guides/app-hooks-rpc.mdx) for the
+  verdict shapes; the legacy manifest-webhook surface is removed
+  ([migration guide](../../docs/migration/webhook-to-rpc.mdx)).

@@ -22,8 +22,15 @@ The current protocol version is `2026.404.0`. The version is returned in the `He
 
 Every message is a JSON object with `jsonrpc: "2.0"`. Three frame types:
 
-- **Request**: Client sends `{type: "request", id, method, params}`
-- **Response**: Server replies `{type: "response", id, result}` or `{type: "response", id, error}`
+- **Request**: `{type: "request", direction, id, method, params}`
+- **Response**: `{type: "response", direction, id, result}` or `{type: "response", direction, id, error}`
 - **Event**: Server pushes `{type: "event", event, data}`
+
+The `direction` field is required on every `request` and `response`
+frame. `c2s` (client→server) and `s2c` (server→client) requests live in
+disjoint pending-id pools, so server-initiated RPCs (admission hooks,
+lifecycle hooks) and client-initiated RPCs (sends, lookups) can coexist
+on the same connection without id collision. Events are s2c-only and do
+not carry a `direction` field.
 
 See [Frames](/protocol/frames) for the exact schemas and [Errors](/protocol/errors) for error codes.

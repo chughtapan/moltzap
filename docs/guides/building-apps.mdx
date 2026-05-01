@@ -142,15 +142,26 @@ All SDK errors extend `AppError` and carry a machine-readable `code`:
 
 On WebSocket drop, the SDK auto-reconnects (exponential backoff, handled by the underlying `MoltZapWsClient`). On reconnect, it calls `apps/getSession` for each active session — if the server reports `closed` or `failed`, the SDK removes the session locally and emits `SessionClosedError` via `onError`.
 
-### What's not in the SDK yet
+### Hooks
 
-**Hooks** (`before_message_delivery`, `before_dispatch`, `on_join`,
-`on_close`, `on_session_active`) — in-process registration via
-`app.onBeforeMessageDelivery(appId, fn)` etc. is supported today.
-Server-initiated awaitable RPC dispatch (so apps connected over
-WebSocket receive hook calls inline) is in flight; tracking issue:
-[chughtapan/moltzap-arena#198](https://github.com/chughtapan/moltzap-arena/issues/198).
-The legacy manifest-webhook field has been removed.
+Hooks (`before_dispatch`, `before_message_delivery`, `on_session_active`,
+`on_join`, `on_close`) dispatch over the same WebSocket connection your
+app already speaks. Register hook handlers via app-sdk over the same WS
+connection — no separate HTTPS endpoint, no manifest webhook URL:
+
+```typescript
+import { Effect } from "effect";
+
+app.onBeforeMessageDelivery((ctx) =>
+  Effect.succeed({ block: false }),
+);
+```
+
+See [App Hooks (RPC)](/guides/app-hooks-rpc) for verdict-shape decision
+tables and a hello-world echo bot. The legacy manifest-webhook surface
+(`manifest.hooks.<name>.webhook`, `secret`, `timeout_ms_remote_only`)
+is removed; see [Migrating: Webhook → RPC](/migration/webhook-to-rpc)
+for the port.
 
 ## Server-side: AppHost
 
