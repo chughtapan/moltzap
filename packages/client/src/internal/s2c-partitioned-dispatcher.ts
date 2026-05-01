@@ -19,9 +19,16 @@
  * walks the partition map and finalizes any worker whose
  * `idleSince._tag === "Idle"` exceeds `idlePartitionTtlMs`.
  *
- * Why no router fiber: a router fiber would serialize routing decisions,
- * defeating the purpose of partitioning. `Ref.modify` on the partition
- * map is atomic; concurrent reader-fiber offers compose without a router.
+ * Single-producer guarantee: `dispatcher.offer` is only called from
+ * the per-connection reader fiber's `Stream.runForEach` loop in
+ * `ws-client.ts:1052-1086`. There is no second producer; concurrent
+ * `offer` calls within one dispatcher cannot occur. The actual
+ * concurrency property a router would otherwise be defending against
+ * is route-vs-drain: the route step (one `Ref.modify` against the
+ * partition map + a non-blocking `worker.offer`) is wait-free against
+ * every running worker fiber's drain loop. No router fiber means no
+ * intermediate buffer between the reader and the per-key worker
+ * queue, and no scheduling overhead per route decision.
  *
  * Lifetime: `make` returns `Effect<…, never, Scope.Scope>`. The caller
  * (`ws-client.ts` inside `connectEffect`) calls `Scope.make()` to
@@ -42,18 +49,22 @@
  * The `runSync(client.close())` contract is load-bearing — see the
  * test commentary there.
  *
- * Worker scopes are children of the dispatcher Scope (worker
- * construction calls `Scope.extend` against the dispatcher Scope).
- * Closing the dispatcher Scope cascades to every worker.
+ * Worker scopes are forked children of the dispatcher Scope
+ * (`getOrCreatePartitionWorker` calls `Scope.fork(dispatcherScope, …)`
+ * for each new worker and provides the child scope to
+ * `makePartitionWorker`). Closing the dispatcher Scope cascades to
+ * every worker; closing one worker's child scope retires only that
+ * worker without leaking finalizers onto the dispatcher scope.
  */
 import {
   Cause,
   Duration,
   Effect,
   Either,
+  ExecutionStrategy,
   Exit,
-  Fiber,
   HashMap,
+  MutableRef,
   Option,
   Ref,
   Schedule,
@@ -328,7 +339,7 @@ export function makePartitionedDispatcher(
       const partitions: Array<DispatcherStats["partitions"][number]> = [];
       for (const [key, worker] of HashMap.entries(map)) {
         const queueSize = yield* worker.queueSize;
-        const idle = (yield* Ref.get(worker.idleSince))._tag === "Idle";
+        const idle = MutableRef.get(worker.idleSince)._tag === "Idle";
         partitions.push({ key, queueSize, idle });
       }
       const totalOffered = yield* Ref.get(counters.totalOffered);
@@ -408,19 +419,24 @@ function getOrCreatePartitionWorker(params: {
       );
     }
 
-    // Build the worker under the dispatcher Scope. The worker's own
-    // finalizer (queue.shutdown) attaches to that scope; closing the
-    // dispatcher cascades to every worker.
-    const built = yield* Scope.extend(
-      makePartitionWorker({
-        key,
-        capacity: state.config.partitionQueueCapacity,
-        handle: state.handle,
-        ...(state.logger !== undefined ? { logger: state.logger } : {}),
-        clock: state.clock,
-      }),
+    // Fork a per-worker child scope from the dispatcher scope. Every
+    // finalizer the worker registers (queue.shutdown, drain fiber)
+    // binds to this child scope, so the reaper can close it
+    // independently to retire one worker without orphaning finalizers
+    // on the dispatcher scope. Closing the dispatcher scope still
+    // cascades through every child scope via the fork link.
+    const workerScope = yield* Scope.fork(
       state.dispatcherScope,
+      ExecutionStrategy.sequential,
     );
+    const built = yield* makePartitionWorker({
+      key,
+      capacity: state.config.partitionQueueCapacity,
+      handle: state.handle,
+      scope: workerScope,
+      ...(state.logger !== undefined ? { logger: state.logger } : {}),
+      clock: state.clock,
+    });
 
     // Insert (or recover the racer's winner). Atomic.
     const inserted = yield* Ref.modify(
@@ -440,13 +456,15 @@ function getOrCreatePartitionWorker(params: {
     );
 
     if (inserted.kind === "lost-race") {
-      // Discard the redundant worker. Its scope finalizer will close
-      // when the dispatcher scope closes; we explicitly interrupt the
-      // fiber here so it doesn't drain phantom work.
+      // Discard the redundant worker. Closing its scope cascades to
+      // queue.shutdown + the drain fiber's interrupt, releasing every
+      // resource we just allocated.
       state.logger?.warn(
         `s2c partition allocation lost race (key=${key}); discarding redundant worker`,
       );
-      yield* Fiber.interrupt(built.fiber);
+      yield* Scope.close(workerScope, Exit.void).pipe(
+        Effect.catchAllCause(() => Effect.void),
+      );
     }
 
     return inserted.winner;
@@ -454,49 +472,77 @@ function getOrCreatePartitionWorker(params: {
 }
 
 /**
- * One reaper tick. Walks the partition map, finalizing any worker
- * whose `idleSince._tag === "Idle"` AND whose age exceeds
- * `idlePartitionTtlMs`. Removal is atomic via `Ref.update`.
+ * One reaper tick. Walks the partition map, claiming any worker whose
+ * `idleSince._tag === "Idle"` AND whose age exceeds
+ * `idlePartitionTtlMs`, then closes each claimed worker's per-worker
+ * scope so its queue + drain fiber are torn down via Scope finalizers
+ * (no orphan finalizers on the dispatcher scope).
  *
- * A partition that became Busy between the snapshot and the modify
- * has its `idleSince` flipped, but we still drop it from the map
- * here. That race is rare (the offer path also calls
- * `Ref.set(idleSince, Busy)` before `Queue.offer`, and the reaper
- * tick is bounded by `idleReaperIntervalMs`). The cost is one
- * dropped request retried by the next reader-fiber offer; acceptable
- * trade against the cost of a synchronous re-check inside `modify`.
+ * Race-safety vs. concurrent offers (single-producer reader fiber):
+ *
+ *   - The claim decision lives inside `Ref.modify(partitionsRef, …)`.
+ *     The lambda is synchronous; idle reads go through
+ *     `MutableRef.get` and the claim itself is a synchronous
+ *     `MutableRef.set(worker.idleSince, Retiring)` inside the same
+ *     lambda. From the producer's perspective the partition-map
+ *     removal AND the `Retiring` transition happen as one atomic
+ *     step.
+ *   - The producer's `worker.offer` is the counter-CAS: it does
+ *     `MutableRef.updateAndGet(idleSince, current → Retiring ? current
+ *     : Busy)` and refuses to enqueue if it observes `Retiring`. Two
+ *     interleavings are possible and both are safe:
+ *       - Producer wins first: `idleSince` flips Idle→Busy. Reaper
+ *         observes `Busy` (≠ Idle); skips. Producer's `Queue.offer`
+ *         lands; drain processes it.
+ *       - Reaper wins first: `idleSince` flips Idle→Retiring + map
+ *         removal. Producer's `MutableRef.updateAndGet` returns
+ *         `Retiring`; producer fails with
+ *         `PartitionQueueFullError`. Reader-fiber writes a wire
+ *         error response. Server's `Deferred.await` resolves on the
+ *         error. No hang.
+ *   - There is no third interleaving: the JS event loop cannot
+ *     interleave inside a synchronous `Ref.modify` lambda or inside
+ *     a synchronous `MutableRef.updateAndGet` call.
  */
 function reapIdlePartitions(
   state: DispatcherInternalState,
 ): Effect.Effect<void, never> {
   return Effect.gen(function* () {
     const now = state.clock();
-    const map = yield* Ref.get(state.partitionsRef);
-    const candidates: Array<{ key: PartitionKey; worker: PartitionWorker }> =
-      [];
-    for (const [key, worker] of HashMap.entries(map)) {
-      const idleSince = yield* Ref.get(worker.idleSince);
-      if (
-        idleSince._tag === "Idle" &&
-        now - idleSince.sinceMs >= state.config.idlePartitionTtlMs
-      ) {
-        candidates.push({ key, worker });
-      }
-    }
-    if (candidates.length === 0) return;
-    yield* Ref.update(state.partitionsRef, (current) => {
-      let next = current;
-      for (const { key } of candidates) {
-        next = HashMap.remove(next, key);
-      }
-      return next;
-    });
-    for (const { worker } of candidates) {
-      // Interrupt the worker's drain fiber. The worker's own
-      // queue.shutdown finalizer fires when the dispatcher scope
-      // closes; for the per-tick reaper we explicitly interrupt the
-      // fiber so it stops accepting offers immediately.
-      yield* Fiber.interrupt(worker.fiber).pipe(
+    const ttl = state.config.idlePartitionTtlMs;
+
+    // Atomic claim + remove. The lambda is synchronous; for each
+    // worker we decide to retire we (a) flip `idleSince` to
+    // `Retiring` so any concurrent `worker.offer` refuses to enqueue,
+    // and (b) drop the entry from the map. The `Ref.modify` commit
+    // makes both visible atomically.
+    const reaped = yield* Ref.modify(
+      state.partitionsRef,
+      (
+        current,
+      ): readonly [
+        ReadonlyArray<PartitionWorker>,
+        HashMap.HashMap<PartitionKey, PartitionWorker>,
+      ] => {
+        const removed: PartitionWorker[] = [];
+        let next = current;
+        for (const [key, worker] of HashMap.entries(current)) {
+          const idle = MutableRef.get(worker.idleSince);
+          if (idle._tag === "Idle" && now - idle.sinceMs >= ttl) {
+            MutableRef.set(worker.idleSince, { _tag: "Retiring" } as const);
+            removed.push(worker);
+            next = HashMap.remove(next, key);
+          }
+        }
+        return [removed, next];
+      },
+    );
+
+    // Close per-worker scopes outside the `Ref.modify` (Scope.close
+    // yields). Cascading finalizers: queue.shutdown → Stream exits →
+    // drain fiber returns. No leak on the dispatcher scope.
+    for (const worker of reaped) {
+      yield* Scope.close(worker.scope, Exit.void).pipe(
         Effect.catchAllCause(() => Effect.void),
       );
     }

@@ -9,7 +9,7 @@
  * teardown.
  */
 import { describe, it, expect } from "vitest";
-import { Deferred, Effect, Exit, Fiber, Ref, Scope } from "effect";
+import { Deferred, Effect, Exit, Fiber, MutableRef, Ref, Scope } from "effect";
 import { makePartitionWorker } from "../s2c-partition-worker.js";
 import type {
   PartitionKey,
@@ -72,10 +72,12 @@ describe("makePartitionWorker — ordering", () => {
                 yield* Deferred.succeed(allDone, undefined);
               }
             });
-          const worker = yield* Scope.extend(
-            makePartitionWorker({ key: KEY, capacity: 16, handle }),
+          const worker = yield* makePartitionWorker({
+            key: KEY,
+            capacity: 16,
+            handle,
             scope,
-          );
+          });
           for (let i = 0; i < 5; i++) {
             yield* worker.offer(REQ(`rpc-${i}`));
           }
@@ -103,15 +105,13 @@ describe("makePartitionWorker — ordering", () => {
                 yield* Deferred.succeed(second, undefined);
               }
             });
-          const worker = yield* Scope.extend(
-            makePartitionWorker({
-              key: KEY,
-              capacity: 16,
-              handle,
-              logger: { info: () => {}, warn: () => {}, error: () => {} },
-            }),
+          const worker = yield* makePartitionWorker({
+            key: KEY,
+            capacity: 16,
+            handle,
+            logger: { info: () => {}, warn: () => {}, error: () => {} },
             scope,
-          );
+          });
           yield* worker.offer(REQ("rpc-bad"));
           yield* worker.offer(REQ("rpc-good"));
           yield* Deferred.await(second);
@@ -132,10 +132,12 @@ describe("makePartitionWorker — backpressure", () => {
           const release = yield* Deferred.make<void>();
           const handle = () => Deferred.await(release);
           const capacity = 2;
-          const worker = yield* Scope.extend(
-            makePartitionWorker({ key: KEY, capacity, handle }),
+          const worker = yield* makePartitionWorker({
+            key: KEY,
+            capacity,
+            handle,
             scope,
-          );
+          });
 
           // First offer goes to the handler; yield so the worker
           // fiber consumes it and parks on `release`. Then the queue
@@ -168,10 +170,12 @@ describe("makePartitionWorker — backpressure", () => {
       Effect.gen(function* () {
         const scope = yield* Scope.make();
         const handle = () => Effect.void;
-        const worker = yield* Scope.extend(
-          makePartitionWorker({ key: KEY, capacity: 4, handle }),
+        const worker = yield* makePartitionWorker({
+          key: KEY,
+          capacity: 4,
+          handle,
           scope,
-        );
+        });
         yield* Scope.close(scope, Exit.void);
         // Give the finalizer a chance to run.
         yield* Effect.yieldNow();
@@ -192,15 +196,17 @@ describe("makePartitionWorker — idle-since clock", () => {
         Effect.gen(function* () {
           const release = yield* Deferred.make<void>();
           const handle = () => Deferred.await(release);
-          const worker = yield* Scope.extend(
-            makePartitionWorker({ key: KEY, capacity: 4, handle }),
+          const worker = yield* makePartitionWorker({
+            key: KEY,
+            capacity: 4,
+            handle,
             scope,
-          );
+          });
           yield* worker.offer(REQ("rpc-1"));
           // Yield so the worker fiber transitions to Busy.
           yield* Effect.yieldNow();
           yield* Effect.yieldNow();
-          const state = yield* Ref.get(worker.idleSince);
+          const state = MutableRef.get(worker.idleSince);
           yield* Deferred.succeed(release, undefined);
           return state._tag;
         }),
@@ -218,19 +224,22 @@ describe("makePartitionWorker — idle-since clock", () => {
             Deferred.succeed(done, undefined).pipe(Effect.asVoid);
           const fakeNow = yield* Ref.make(1000);
           const clock = () => Effect.runSync(Ref.get(fakeNow));
-          const worker = yield* Scope.extend(
-            makePartitionWorker({ key: KEY, capacity: 4, handle, clock }),
+          const worker = yield* makePartitionWorker({
+            key: KEY,
+            capacity: 4,
+            handle,
+            clock,
             scope,
-          );
+          });
           // Bump clock so the post-drain Idle.sinceMs is observably new.
           yield* Ref.set(fakeNow, 5000);
           yield* worker.offer(REQ("rpc-1"));
           yield* Deferred.await(done);
-          // Yield so the worker's post-handler `Ref.set(Idle, …)`
+          // Yield so the worker's post-handler `MutableRef.set(Idle, …)`
           // commits before we observe.
           yield* Effect.yieldNow();
           yield* Effect.yieldNow();
-          return yield* Ref.get(worker.idleSince);
+          return MutableRef.get(worker.idleSince);
         }),
       ),
     );
@@ -246,13 +255,15 @@ describe("makePartitionWorker — idle-since clock", () => {
         Effect.gen(function* () {
           const release = yield* Deferred.make<void>();
           const handle = () => Deferred.await(release);
-          const worker = yield* Scope.extend(
-            makePartitionWorker({ key: KEY, capacity: 4, handle }),
+          const worker = yield* makePartitionWorker({
+            key: KEY,
+            capacity: 4,
+            handle,
             scope,
-          );
+          });
           yield* worker.offer(REQ("rpc-1"));
           yield* Effect.yieldNow();
-          const busyState = yield* Ref.get(worker.idleSince);
+          const busyState = MutableRef.get(worker.idleSince);
           yield* Deferred.succeed(release, undefined);
           return busyState._tag;
         }),
@@ -268,10 +279,12 @@ describe("makePartitionWorker — scope teardown", () => {
       Effect.gen(function* () {
         const scope = yield* Scope.make();
         const handle = () => Effect.void;
-        const worker = yield* Scope.extend(
-          makePartitionWorker({ key: KEY, capacity: 4, handle }),
+        const worker = yield* makePartitionWorker({
+          key: KEY,
+          capacity: 4,
+          handle,
           scope,
-        );
+        });
         yield* Scope.close(scope, Exit.void);
         // Wait for the fiber to settle. `Fiber.await` returns when the
         // fiber exits — for a healthy teardown this is immediate.
@@ -288,10 +301,12 @@ describe("makePartitionWorker — scope teardown", () => {
         const scope = yield* Scope.make();
         const release = yield* Deferred.make<void>();
         const handle = () => Deferred.await(release);
-        const worker = yield* Scope.extend(
-          makePartitionWorker({ key: KEY, capacity: 4, handle }),
+        const worker = yield* makePartitionWorker({
+          key: KEY,
+          capacity: 4,
+          handle,
           scope,
-        );
+        });
         yield* worker.offer(REQ("rpc-suspended"));
         yield* Effect.yieldNow();
         // Close while the handler is parked on Deferred.await. The
