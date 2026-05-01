@@ -28,6 +28,7 @@ import {
 const SKIP_TOXIPROXY = process.env.SKIP_TOXIPROXY === "1";
 const SKIP_DOCKER = process.env.SKIP_DOCKER === "1";
 const TOXIPROXY_URL = process.env.TOXIPROXY_URL ?? "http://127.0.0.1:8474";
+const CONFORMANCE_DEV_MODE_USER_ID = "00000000-0000-4000-8000-000000000340";
 
 interface ComposeController {
   readonly teardown: () => Promise<void>;
@@ -115,7 +116,9 @@ describe("moltzap-server-core conformance", () => {
     const exit = await Effect.runPromiseExit(
       runConformanceSuite({
         realServer: async () => {
-          const handle = await startCoreTestServer();
+          const handle = await startCoreTestServer({
+            devModeUserId: CONFORMANCE_DEV_MODE_USER_ID,
+          });
           return {
             wsUrl: handle.wsUrl,
             baseUrl: handle.baseUrl,

@@ -7,15 +7,25 @@ import type { RequestFrame, ResponseFrame } from "../../../schema/frames.js";
 import { ErrorCodes } from "../../../schema/errors.js";
 import { responseFrame } from "../../../helpers.js";
 import {
+  AppsCloseSession,
+  AppsCreate,
+  AppsRegister,
+} from "../../../schema/methods/apps.js";
+import {
   ConversationsArchive,
   ConversationsCreate,
   ConversationsUnarchive,
+  ConversationsUpdate,
 } from "../../../schema/methods/conversations.js";
 import { MessagesSend } from "../../../schema/methods/messages.js";
 import { decodeFrame, encodeFrame } from "../../codec.js";
 import type { ConformanceArtifact } from "../runner.js";
 import type { ConformanceRunContext, RealServerHandle } from "../runner.js";
-import { registerArchiveLifecycle } from "../delivery.js";
+import {
+  registerAppSessionCloseLifecycle,
+  registerArchiveLifecycle,
+  registerConversationLifecycle,
+} from "../delivery.js";
 import { collectProperties, type PropertyFailure } from "../registry.js";
 import {
   registerAuthorityPositive,
@@ -42,6 +52,8 @@ type BadServerBehavior =
   | "reject-confident-model-call"
   | "reject-authorized"
   | "drift-idempotent-result"
+  | "conversation-missing-created-event"
+  | "app-close-missing-lifecycle-event"
   | "archive-missing-event";
 
 describe("server-side conformance executable divergence proofs", () => {
@@ -99,6 +111,23 @@ describe("server-side conformance executable divergence proofs", () => {
       behavior: "archive-missing-event",
     });
     expectInvariant(failure, "archive-lifecycle");
+  }, 10_000);
+
+  it("registerConversationLifecycle fails when create does not broadcast lifecycle", async () => {
+    const failure = await runSingleServerProof(registerConversationLifecycle, {
+      behavior: "conversation-missing-created-event",
+    });
+    expectInvariant(failure, "conversation-lifecycle");
+  }, 10_000);
+
+  it("registerAppSessionCloseLifecycle fails when close does not broadcast lifecycle", async () => {
+    const failure = await runSingleServerProof(
+      registerAppSessionCloseLifecycle,
+      {
+        behavior: "app-close-missing-lifecycle-event",
+      },
+    );
+    expectInvariant(failure, "app-session-close-lifecycle");
   }, 10_000);
 });
 
@@ -309,6 +338,12 @@ function makeBadResult(
   if (behavior === "archive-missing-event") {
     return makeArchiveLifecycleBadResult(request);
   }
+  if (behavior === "conversation-missing-created-event") {
+    return makeConversationLifecycleBadResult(request);
+  }
+  if (behavior === "app-close-missing-lifecycle-event") {
+    return makeAppSessionCloseLifecycleBadResult(request);
+  }
   switch (request.method) {
     case "auth/connect":
       return {};
@@ -321,6 +356,83 @@ function makeBadResult(
     default:
       return {};
   }
+}
+
+function makeAppSessionCloseLifecycleBadResult(request: RequestFrame): unknown {
+  if (request.method === AppsRegister.name) {
+    const params = request.params as { manifest?: { appId?: unknown } };
+    return {
+      appId:
+        typeof params.manifest?.appId === "string"
+          ? params.manifest.appId
+          : "bad-close-app",
+    };
+  }
+  if (request.method === AppsCreate.name) {
+    const params = request.params as { appId?: unknown };
+    return {
+      session: {
+        id: "00000000-0000-4000-8000-000000000201",
+        appId:
+          typeof params.appId === "string" ? params.appId : "bad-close-app",
+        initiatorAgentId: "bad-server-agent-2",
+        status: "active",
+        conversations: {
+          main: "00000000-0000-4000-8000-000000000202",
+        },
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+    };
+  }
+  if (request.method === AppsCloseSession.name) {
+    return { closed: true };
+  }
+  if (request.method === MessagesSend.name) {
+    return {
+      message: {
+        id: "00000000-0000-4000-8000-000000000203",
+        conversationId: "00000000-0000-4000-8000-000000000202",
+      },
+    };
+  }
+  return {};
+}
+
+function makeConversationLifecycleBadResult(request: RequestFrame): unknown {
+  if (request.method === ConversationsCreate.name) {
+    return {
+      conversation: {
+        id: "00000000-0000-4000-8000-000000000101",
+        type: "group",
+        name: "bad lifecycle",
+        archived: false,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    };
+  }
+  if (request.method === ConversationsUpdate.name) {
+    return {};
+  }
+  if (
+    request.method === ConversationsArchive.name ||
+    request.method === ConversationsUnarchive.name
+  ) {
+    return {};
+  }
+  if (request.method === MessagesSend.name) {
+    const params = request.params as { conversationId?: unknown };
+    return {
+      message: {
+        id: "00000000-0000-4000-8000-000000000102",
+        conversationId:
+          typeof params.conversationId === "string"
+            ? params.conversationId
+            : "00000000-0000-4000-8000-000000000101",
+      },
+    };
+  }
+  return {};
 }
 
 function makeArchiveLifecycleBadResult(request: RequestFrame): unknown {
