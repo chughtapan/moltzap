@@ -120,6 +120,7 @@ export async function startCoreTestServer(_opts?: {
    * existing tests depend on.
    */
   registrationSecret?: string;
+  devModeUserId?: string;
   traceCaptureLayer?: Layer.Layer<TraceCaptureTag>;
 }): Promise<CoreTestServer> {
   if (coreApp)
@@ -158,6 +159,7 @@ export async function startCoreTestServer(_opts?: {
     port: 0,
     corsOrigins: ["*"],
     devMode: true,
+    devModeUserId: _opts?.devModeUserId,
     userService: _opts?.userService,
     registrationSecret: _opts?.registrationSecret,
     traceCaptureLayer: _opts?.traceCaptureLayer,
