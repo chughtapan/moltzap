@@ -14,6 +14,7 @@ import { makeTestClient, type TestClient } from "../test-client.js";
 import { registerTestAgent, type TestAgent } from "../agent-registration.js";
 import type { ConformanceRunContext } from "./runner.js";
 import {
+  PropertyDeferred,
   PropertyInvariantViolation,
   PropertyUnavailable,
   assertProperty,
@@ -342,18 +343,22 @@ export function registerHookGatedDelivery(ctx: ConformanceRunContext): void {
         if (fixture._tag === "Left") {
           return yield* Effect.fail(fixture.left);
         }
-        // The deny / patch / attach assertions live in B.9 integration
-        // tests; the fixture-acquire is the load-bearing setup here.
-        const seen = yield* Ref.get(fixture.right.dispatchHits);
-        if (seen < 0) {
-          return yield* Effect.fail(
-            new PropertyInvariantViolation({
-              category: CATEGORY,
-              name: "hook-gated-delivery",
-              reason: "negative hit count",
-            }),
-          );
-        }
+        // Codex review (#327, finding 4): the protocol fixture cannot
+        // drive the deny/patch/attach scenarios end-to-end (no DB seam
+        // to inspect the recipient view; `apps/attachConversation` is a
+        // c2s RPC but the assertion needs a server-internal observation
+        // the conformance contract does not expose). When a future
+        // fixture extension makes apps/create reachable, surface a
+        // typed Deferred so the suite reports honest coverage instead
+        // of a vacuous pass.
+        return yield* Effect.fail(
+          new PropertyDeferred({
+            category: CATEGORY,
+            name: "hook-gated-delivery",
+            followUp:
+              "deny/patch/attach assertions live in B.9 server integration tests (#318) — protocol fixture lacks DB-level recipient inspection",
+          }),
+        );
       }),
     ),
   );
@@ -387,11 +392,20 @@ export function registerMultiAppFifoShortCircuit(
         if (fixture._tag === "Left") {
           return yield* Effect.fail(fixture.left);
         }
-        // Same gating reason as hook-gated-delivery — once apps/create
-        // succeeds, the FIFO short-circuit assertion is observable via
-        // the second app's awaitServerRequest never firing inside a
-        // bounded window. B.9 (server integration tests) carries the
-        // assertion at the integration tier.
+        // Codex review (#327, finding 5): once apps/create succeeds, the
+        // FIFO short-circuit assertion requires registering a SECOND
+        // app on the same hook and observing the second handler is NOT
+        // invoked — the protocol fixture exposes a single-app session.
+        // B.9 covers via the dual-app wire fixture; surface a typed
+        // Deferred here.
+        return yield* Effect.fail(
+          new PropertyDeferred({
+            category: CATEGORY,
+            name: "multi-app-fifo-short-circuit",
+            followUp:
+              "two-app dispatch + first-deny short-circuit assertion lives in B.9 server integration tests (#318)",
+          }),
+        );
       }),
     ),
   );

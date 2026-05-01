@@ -266,16 +266,24 @@ function allowedServerCoverageGaps(
       reasonIncludes: "reset_peer toxic did not close",
     },
     // Hook-gated delivery, multi-app FIFO short-circuit, and
-    // app-disconnect fail-policy require app-session machinery
+    // app-disconnect fail-policy need app-session machinery
     // (apps/create needs the initiator's owner_user_id to be non-null —
     // app-host.ts:629). The default conformance fixture registers
-    // agents without owner_user_id; B.9 server integration tests cover
-    // the deep assertions via DB-level seeding. Until the fixture is
-    // extended, these properties self-report PropertyUnavailable.
+    // agents without owner_user_id and self-reports PropertyUnavailable;
+    // when a future fixture extension makes apps/create reachable the
+    // property body surfaces PropertyDeferred so the suite reports
+    // honest coverage (the deny/patch/attach + multi-app + Deferred-
+    // leak assertions land in B.9 server integration tests, #318).
+    // Both shapes are expected outcomes pre-B.9.
     {
       kind: "unavailable",
       id: "delivery/hook-gated-delivery",
       reasonIncludes: "apps/create",
+    },
+    {
+      kind: "deferred",
+      id: "delivery/hook-gated-delivery",
+      reasonIncludes: "B.9",
     },
     {
       kind: "unavailable",
@@ -283,9 +291,27 @@ function allowedServerCoverageGaps(
       reasonIncludes: "apps/create",
     },
     {
+      kind: "deferred",
+      id: "delivery/multi-app-fifo-short-circuit",
+      reasonIncludes: "B.9",
+    },
+    {
       kind: "unavailable",
       id: "boundary/app-disconnect-fail-policy",
       reasonIncludes: "apps/create",
+    },
+    {
+      kind: "deferred",
+      id: "boundary/app-disconnect-fail-policy",
+      reasonIncludes: "B.9",
+    },
+    // Spurious s2c frame handling needs a wire-level injection seam
+    // TestClient does not expose; tombstoned to B.9 (#318) where the
+    // server-side fault-injection path is reachable.
+    {
+      kind: "deferred",
+      id: "rpc-semantics/spurious-s2c-frame-handling",
+      reasonIncludes: "B.9",
     },
   ];
   if (toxiproxyUrl === null) {
