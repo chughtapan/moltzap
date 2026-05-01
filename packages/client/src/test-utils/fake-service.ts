@@ -22,7 +22,12 @@
  *       keep working. Prefer `setResponse` in new code.
  */
 
-import type { Message, RpcMap, RpcMethodName } from "@moltzap/protocol";
+import type {
+  EventFrame,
+  Message,
+  RpcMap,
+  RpcMethodName,
+} from "@moltzap/protocol";
 import { Effect, HashMap, Option, Ref } from "effect";
 import { MoltZapService, type ServiceRpcError } from "../service.js";
 import type { RpcCallOptions } from "../ws-client.js";
@@ -134,6 +139,14 @@ export class FakeMoltZapService extends MoltZapService {
         );
         return HashMap.set(m, convId, [...existing, msg]);
       }),
+    );
+  }
+
+  /** Deliver a protocol event through the real service event handler. */
+  emitEvent(event: EventFrame): void {
+    (Reflect.get(this, "handleEvent") as (frame: EventFrame) => void).call(
+      this,
+      event,
     );
   }
 

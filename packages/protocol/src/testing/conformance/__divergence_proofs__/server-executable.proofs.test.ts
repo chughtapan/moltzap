@@ -5,9 +5,17 @@ import { Effect, Ref, Scope } from "effect";
 import * as NodeSocketServer from "@effect/platform-node/NodeSocketServer";
 import type { RequestFrame, ResponseFrame } from "../../../schema/frames.js";
 import { ErrorCodes } from "../../../schema/errors.js";
+import { responseFrame } from "../../../helpers.js";
+import {
+  ConversationsArchive,
+  ConversationsCreate,
+  ConversationsUnarchive,
+} from "../../../schema/methods/conversations.js";
+import { MessagesSend } from "../../../schema/methods/messages.js";
 import { decodeFrame, encodeFrame } from "../../codec.js";
 import type { ConformanceArtifact } from "../runner.js";
 import type { ConformanceRunContext, RealServerHandle } from "../runner.js";
+import { registerArchiveLifecycle } from "../delivery.js";
 import { collectProperties, type PropertyFailure } from "../registry.js";
 import {
   registerAuthorityPositive,
@@ -33,7 +41,8 @@ type BadServerBehavior =
   | "drop-sampled-response"
   | "reject-confident-model-call"
   | "reject-authorized"
-  | "drift-idempotent-result";
+  | "drift-idempotent-result"
+  | "archive-missing-event";
 
 describe("server-side conformance executable divergence proofs", () => {
   it("registerAuthorityNegative fails when pre-handshake RPCs return success", async () => {
@@ -84,6 +93,13 @@ describe("server-side conformance executable divergence proofs", () => {
     });
     expectInvariant(failure, "rpc-map-coverage");
   });
+
+  it("registerArchiveLifecycle fails when archive does not broadcast lifecycle", async () => {
+    const failure = await runSingleServerProof(registerArchiveLifecycle, {
+      behavior: "archive-missing-event",
+    });
+    expectInvariant(failure, "archive-lifecycle");
+  }, 10_000);
 });
 
 async function runSingleServerProof(
@@ -273,24 +289,16 @@ function makeBadResponse(
     (behavior === "reject-authorized" &&
       request.method === "conversations/list")
   ) {
-    return {
-      jsonrpc: "2.0",
-      type: "response",
-      direction: "c2s",
-      id: request.id,
+    return responseFrame("c2s", request.id, {
       error: {
         code: ErrorCodes.InternalError,
         message: "bad server rejects model-ok call",
       },
-    };
+    });
   }
-  return {
-    jsonrpc: "2.0",
-    type: "response",
-    direction: "c2s",
-    id: request.id,
+  return responseFrame("c2s", request.id, {
     result: makeBadResult(request, behavior, ordinal),
-  };
+  });
 }
 
 function makeBadResult(
@@ -298,6 +306,9 @@ function makeBadResult(
   behavior: BadServerBehavior,
   ordinal: number,
 ): unknown {
+  if (behavior === "archive-missing-event") {
+    return makeArchiveLifecycleBadResult(request);
+  }
   switch (request.method) {
     case "auth/connect":
       return {};
@@ -310,4 +321,33 @@ function makeBadResult(
     default:
       return {};
   }
+}
+
+function makeArchiveLifecycleBadResult(request: RequestFrame): unknown {
+  if (request.method === ConversationsCreate.name) {
+    return {
+      conversation: {
+        id: "00000000-0000-4000-8000-000000000001",
+      },
+    };
+  }
+  if (
+    request.method === ConversationsArchive.name ||
+    request.method === ConversationsUnarchive.name
+  ) {
+    return {};
+  }
+  if (request.method === MessagesSend.name) {
+    const params = request.params as { conversationId?: unknown };
+    return {
+      message: {
+        id: "00000000-0000-4000-8000-000000000002",
+        conversationId:
+          typeof params.conversationId === "string"
+            ? params.conversationId
+            : "00000000-0000-4000-8000-000000000001",
+      },
+    };
+  }
+  return {};
 }
