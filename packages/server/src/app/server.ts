@@ -120,9 +120,9 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     : null;
 
   // A single shared WebhookClient instance handles all outbound HTTP from
-  // the core: AppHost hook webhooks, plus any contact/user-service adapters
-  // layered on top via `setContactService` etc. One semaphore means one
-  // place to tune concurrency.
+  // the core: MessageService.deliveryWebhook plus any contact/user-service
+  // adapters layered on top via `setContactService` etc. One semaphore
+  // means one place to tune concurrency.
   const webhookClient = config.webhookClient ?? new WebhookClient();
 
   const BaseLive = Layer.mergeAll(
