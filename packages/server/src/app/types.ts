@@ -138,6 +138,32 @@ export interface CoreApp {
    */
   readonly connections: ConnectionManager;
   registerApp: (manifest: AppManifest) => void;
+  /**
+   * Register an app whose hook handlers run in a remote process,
+   * connected over WebSocket. Hook RPCs (`apps/onBeforeDispatch`,
+   * `onBeforeMessageDelivery`, `onSessionActive`, `onJoin`, `onClose`)
+   * route to `connectionId` via the server-initiated awaitable RPC
+   * primitive. Verdicts decode at the WS edge into the same typed
+   * shapes as in-process hooks (`DispatchAdmissionResult`, `HookResult`).
+   *
+   * The dispatch surface is uniform with in-process per architect plan
+   * §3.4: callers of `runBeforeDispatch` etc. cannot observe whether a
+   * given app is in-process or remote. Fail-closed verdicts on
+   * disconnect / timeout / RPC error preserve the existing security
+   * posture (see `30-app-hooks.integration.test.ts:229-272,296-357`).
+   *
+   * Promotes any prior in-process registration for the same `appId` —
+   * the remote routing wins. Use {@link unregisterRemoteApp} to drop
+   * the registration eagerly when a connection is known to be gone
+   * (operator-driven cleanup; the disconnect-finalizer handles
+   * in-flight Deferreds either way).
+   */
+  registerRemoteApp: (manifest: AppManifest, connectionId: string) => void;
+  /**
+   * Drop a remote-app registration. Idempotent. Does NOT remove the
+   * manifest; only the routing entry. See {@link AppHost.unregisterRemoteApp}.
+   */
+  unregisterRemoteApp: (appId: string) => void;
   setContactService: (checker: ContactService) => void;
   setPermissionService: (handler: PermissionService) => void;
   setWebhookPermissionCallback: (
