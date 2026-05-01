@@ -1,9 +1,16 @@
 import * as path from "node:path";
 import * as os from "node:os";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { Effect } from "effect";
+import { Effect, Either } from "effect";
 import type { Message } from "@moltzap/protocol";
-import { EventNames } from "@moltzap/protocol";
+import {
+  AppsAuthorizeDispatch,
+  ConversationsGet,
+  ErrorCodes,
+  EventNames,
+  MessagesSend,
+  eventFrame,
+} from "@moltzap/protocol";
 import { sanitizeForSystemReminder } from "./service.js";
 import { FakeMoltZapService } from "./test-utils/fake-service.js";
 
@@ -200,7 +207,7 @@ describe("sanitizeForSystemReminder", () => {
 describe("MoltZapService.authorizeDispatch", () => {
   it("uses the long app-dispatch RPC timeout instead of the generic RPC timeout", async () => {
     const service = new FakeMoltZapService();
-    service.setResponse("apps/authorizeDispatch", {
+    service.setResponse(AppsAuthorizeDispatch.name, {
       admission: {
         decision: "grant",
         leaseId: "lease-1",
@@ -237,7 +244,7 @@ describe("MoltZapService.authorizeDispatch", () => {
     });
     expect(service.calls).toHaveLength(1);
     expect(service.calls[0]).toMatchObject({
-      method: "apps/authorizeDispatch",
+      method: AppsAuthorizeDispatch.name,
       opts: { timeoutMs: 900_000 },
     });
   });
@@ -674,6 +681,92 @@ describe("MoltZapService.on('permissionRequired')", () => {
     );
 
     expect(received).toHaveLength(0);
+  });
+});
+
+describe("MoltZapService conversation archive lifecycle", () => {
+  it("purges local state, fires conversationArchived, and locally rejects sends", async () => {
+    const service = new FakeMoltZapService();
+    service.setResponse(ConversationsGet.name, {
+      conversation: {
+        id: "conv-archived",
+        type: "group",
+        name: "Archived",
+        createdBy: "agent-self",
+        createdAt: "2026-05-01T00:00:00.000Z",
+        updatedAt: "2026-05-01T00:00:00.000Z",
+      },
+      participants: [],
+    });
+    service.setResponse(MessagesSend.name, {
+      message: {
+        id: "msg-unreachable",
+        conversationId: "conv-archived",
+        senderId: "agent-self",
+        parts: [{ type: "text", text: "unreachable" }],
+        createdAt: "2026-05-01T00:00:00.000Z",
+      } as Message,
+    });
+
+    service.emitEvent(
+      eventFrame(EventNames.ConversationCreated, {
+        conversation: {
+          id: "conv-archived",
+          type: "group",
+          name: "Archived",
+          createdBy: "agent-self",
+          createdAt: "2026-05-01T00:00:00.000Z",
+          updatedAt: "2026-05-01T00:00:00.000Z",
+        },
+      }),
+    );
+    service.addMessage("conv-archived", {
+      id: "msg-1",
+      conversationId: "conv-archived",
+      senderId: "agent-other",
+      parts: [{ type: "text", text: "old" }],
+      createdAt: "2026-05-01T00:00:00.000Z",
+    } as Message);
+
+    const archivedEvents: unknown[] = [];
+    const unarchivedEvents: unknown[] = [];
+    service.on("conversationArchived", (data) => archivedEvents.push(data));
+    service.on("conversationUnarchived", (data) => unarchivedEvents.push(data));
+
+    const archivedEvent = eventFrame(EventNames.ConversationArchived, {
+      conversationId: "conv-archived",
+      archivedAt: "2026-05-01T00:01:00.000Z",
+      by: "agent-gm",
+    });
+    service.emitEvent(archivedEvent);
+
+    expect(service.isConversationArchived("conv-archived")).toBe(true);
+    expect(service.getConversation("conv-archived")).toBeUndefined();
+    expect(service.getHistory("conv-archived")).toEqual([]);
+    expect(archivedEvents).toEqual([archivedEvent.data]);
+
+    const lateSend = await run(
+      Effect.either(service.send("conv-archived", "should not hit rpc")),
+    );
+    expect(Either.isLeft(lateSend)).toBe(true);
+    if (Either.isLeft(lateSend)) {
+      expect(lateSend.left).toMatchObject({
+        code: ErrorCodes.ConversationArchived,
+        message: "Conversation is archived",
+      });
+    }
+    expect(service.calls.filter((c) => c.method === MessagesSend.name)).toEqual(
+      [],
+    );
+
+    const unarchivedEvent = eventFrame(EventNames.ConversationUnarchived, {
+      conversationId: "conv-archived",
+      by: "agent-gm",
+    });
+    service.emitEvent(unarchivedEvent);
+
+    expect(service.isConversationArchived("conv-archived")).toBe(false);
+    expect(unarchivedEvents).toEqual([unarchivedEvent.data]);
   });
 });
 

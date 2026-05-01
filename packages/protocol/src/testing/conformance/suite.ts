@@ -114,6 +114,7 @@ export function registerAllProperties(ctx: ConformanceRunContext): void {
   delivery.registerTaskBoundaryIsolation(ctx);
   delivery.registerHookGatedDelivery(ctx);
   delivery.registerMultiAppFifoShortCircuit(ctx);
+  delivery.registerArchiveLifecycle(ctx);
 
   adversity.registerLatencyResilience(ctx);
   adversity.registerBackpressure(ctx); // tombstoned — #186

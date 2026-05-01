@@ -467,7 +467,22 @@ export class AppHost {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         const session = this.conversationToSession.get(conversationId);
-        if (!session) return { decision: "grant" as const };
+        if (!session) {
+          const conversationOpt = yield* takeFirstOption(
+            this.db
+              .selectFrom("conversations")
+              .select("archived_at")
+              .where("id", "=", conversationId),
+          );
+          const conversation = Option.getOrNull(conversationOpt);
+          if (conversation?.archived_at) {
+            return {
+              decision: "deny" as const,
+              reason: "conversation_archived",
+            };
+          }
+          return { decision: "grant" as const };
+        }
 
         const isRemote = this.remoteRegistrations.has(session.appId);
         const appHooks = this.hooks.get(session.appId);
@@ -895,11 +910,23 @@ export class AppHost {
         }
 
         const convIdArray = [...convIds];
+        const archivedAt = new Date();
         if (convIdArray.length > 0) {
           yield* this.db
             .updateTable("conversations")
-            .set({ archived_at: new Date() })
+            .set({ archived_at: archivedAt })
             .where("id", "in", convIdArray);
+        }
+
+        for (const convId of convIdArray) {
+          this.broadcaster.broadcastToConversation(
+            convId,
+            eventFrame(EventNames.ConversationArchived, {
+              conversationId: convId,
+              archivedAt: archivedAt.toISOString(),
+              by: callerAgentId,
+            }),
+          );
         }
 
         for (const convId of convIdArray) {

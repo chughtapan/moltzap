@@ -9,6 +9,11 @@ import {
 import { it } from "@effect/vitest";
 import { Effect, Either } from "effect";
 import {
+  ConversationsArchive,
+  ConversationsCreate,
+  ErrorCodes,
+} from "@moltzap/protocol";
+import {
   startCoreTestServer,
   stopCoreTestServer,
   resetCoreTestDb,
@@ -255,6 +260,55 @@ describe("Connection & Core API", () => {
       yield* regA.client.close();
       yield* regB.client.close();
     }),
+  );
+
+  it.live(
+    "conversation archive events purge service state and block late sends",
+    () =>
+      Effect.gen(function* () {
+        const regOwner = yield* registerAgent("archive-owner");
+        const regReceiver = yield* registerAgent("archive-receiver");
+
+        yield* regOwner.client.connect();
+        const service = yield* connectService(regReceiver.apiKey);
+
+        const conv = (yield* regOwner.client.sendRpc(ConversationsCreate.name, {
+          type: "dm",
+          participants: [{ type: "agent", id: regReceiver.agentId }],
+        })) as { conversation: { id: string } };
+        const convId = conv.conversation.id;
+
+        yield* sendAndSettle(regOwner.client, convId, "before archive");
+        expect(service.getHistory(convId)).toHaveLength(1);
+
+        const archivedEvents: unknown[] = [];
+        service.on("conversationArchived", (data) => archivedEvents.push(data));
+
+        yield* regOwner.client.sendRpc(ConversationsArchive.name, {
+          conversationId: convId,
+        });
+        yield* Effect.sleep("500 millis");
+
+        expect(archivedEvents).toHaveLength(1);
+        expect(service.isConversationArchived(convId)).toBe(true);
+        expect(service.getConversation(convId)).toBeUndefined();
+        expect(service.getHistory(convId)).toEqual([]);
+
+        const lateSend = yield* Effect.either(
+          service.send(convId, "after archive"),
+        );
+        expect(Either.isLeft(lateSend)).toBe(true);
+        if (Either.isLeft(lateSend)) {
+          expect(lateSend.left).toMatchObject({
+            code: ErrorCodes.ConversationArchived,
+            message: "Conversation is archived",
+          });
+        }
+
+        service.close();
+        yield* regOwner.client.close();
+        yield* regReceiver.client.close();
+      }),
   );
 });
 

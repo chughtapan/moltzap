@@ -12,6 +12,8 @@ import type {
 type MessageHandler = (msg: Message) => void;
 type VoidHandler = () => void;
 type PermissionRequiredHandler = (data: PermissionsRequiredEvent) => void;
+type ConversationArchivedHandler = (data: { conversationId: string }) => void;
+type ConversationUnarchivedHandler = (data: { conversationId: string }) => void;
 
 interface FixtureConversationMeta {
   type: string;
@@ -25,6 +27,8 @@ export interface ChannelServiceEmit {
   disconnect(): void;
   reconnect(): void;
   permissionRequired(data: PermissionsRequiredEvent): void;
+  conversationArchived(data: { conversationId: string }): void;
+  conversationUnarchived(data: { conversationId: string }): void;
 }
 
 export interface ChannelServiceState {
@@ -64,12 +68,15 @@ export function createFakeChannelService(
   const disconnectHandlers: VoidHandler[] = [];
   const reconnectHandlers: VoidHandler[] = [];
   const permissionRequiredHandlers: PermissionRequiredHandler[] = [];
+  const conversationArchivedHandlers: ConversationArchivedHandler[] = [];
+  const conversationUnarchivedHandlers: ConversationUnarchivedHandler[] = [];
 
   const conversations = new Map<string, FixtureConversationMeta>();
   const agentNames = new Map<string, string>();
   const contextEntriesByConv = new Map<string, CrossConversationEntry[]>();
   const fullMessagesByConv = new Map<string, CrossConvMessage[]>();
   const resolveFailures = new Map<string, Error>();
+  const archivedConversationIds = new Set<string>();
   const resolveCalls: string[] = [];
   const sent: Array<{
     convId: string;
@@ -87,8 +94,19 @@ export function createFakeChannelService(
     },
 
     on(
-      event: "message" | "disconnect" | "reconnect" | "permissionRequired",
-      handler: MessageHandler | VoidHandler | PermissionRequiredHandler,
+      event:
+        | "message"
+        | "disconnect"
+        | "reconnect"
+        | "permissionRequired"
+        | "conversationArchived"
+        | "conversationUnarchived",
+      handler:
+        | MessageHandler
+        | VoidHandler
+        | PermissionRequiredHandler
+        | ConversationArchivedHandler
+        | ConversationUnarchivedHandler,
     ): void {
       if (event === "message") {
         messageHandlers.push(handler as MessageHandler);
@@ -98,6 +116,14 @@ export function createFakeChannelService(
         reconnectHandlers.push(handler as VoidHandler);
       } else if (event === "permissionRequired") {
         permissionRequiredHandlers.push(handler as PermissionRequiredHandler);
+      } else if (event === "conversationArchived") {
+        conversationArchivedHandlers.push(
+          handler as ConversationArchivedHandler,
+        );
+      } else if (event === "conversationUnarchived") {
+        conversationUnarchivedHandlers.push(
+          handler as ConversationUnarchivedHandler,
+        );
       }
     },
 
@@ -136,6 +162,10 @@ export function createFakeChannelService(
 
     getAgentName(agentId: string) {
       return agentNames.get(agentId);
+    },
+
+    isConversationArchived(convId: string) {
+      return archivedConversationIds.has(convId);
     },
 
     resolveAgentName(agentId: string) {
@@ -181,6 +211,15 @@ export function createFakeChannelService(
     },
     permissionRequired(data) {
       for (const h of permissionRequiredHandlers) h(data);
+    },
+    conversationArchived(data) {
+      archivedConversationIds.add(data.conversationId);
+      conversations.delete(data.conversationId);
+      for (const h of conversationArchivedHandlers) h(data);
+    },
+    conversationUnarchived(data) {
+      archivedConversationIds.delete(data.conversationId);
+      for (const h of conversationUnarchivedHandlers) h(data);
     },
   };
 

@@ -5,6 +5,7 @@ import type {
   RequestFrame,
   ResponseFrame,
 } from "../../../schema/frames.js";
+import { EventNames } from "../../../schema/events.js";
 import type { TestServer, TestServerConnection } from "../../test-server.js";
 import { makeCaptureBuffer, recordFrame } from "../../captures.js";
 import { encodeFrame } from "../../codec.js";
@@ -18,6 +19,7 @@ import {
   registerFanOutCardinalityClient,
   registerPayloadOpacityClient,
   registerTaskBoundaryIsolationClient,
+  registerArchiveLifecycleClient,
   registerSchemaExhaustiveFuzzClient,
 } from "../client/index.js";
 import type {
@@ -42,6 +44,7 @@ type EventBehavior =
   | "strip-required-field"
   | "rewrite-payload"
   | "rewrite-conversation-id"
+  | "swap-archive-lifecycle"
   | "close-on-malformed"
   | "close-on-untagged-fuzz";
 
@@ -92,6 +95,13 @@ describe("client-side conformance executable divergence proofs", () => {
       { eventBehavior: "rewrite-conversation-id" },
     );
     expectInvariant(failure, "task-boundary-isolation-client");
+  });
+
+  it("registerArchiveLifecycleClient fails when archive lifecycle order is wrong", async () => {
+    const failure = await runSingleClientProof(registerArchiveLifecycleClient, {
+      eventBehavior: "swap-archive-lifecycle",
+    });
+    expectInvariant(failure, "archive-lifecycle-client");
   });
 
   it("registerSchemaExhaustiveFuzzClient fails when post-fuzz liveness is poisoned", async () => {
@@ -184,7 +194,9 @@ function makeBadClientContext(
                   ? rewriteEventData(frame, {
                       conversationId: "cross-wired-task",
                     })
-                  : frame;
+                  : behavior === "swap-archive-lifecycle"
+                    ? swapArchiveLifecycleEvent(frame)
+                    : frame;
         const encoded = new TextEncoder().encode(JSON.stringify(surfaceFrame));
         yield* Ref.update(eventsRef, (events) => [
           ...events,
@@ -356,4 +368,14 @@ function stripEventName(frame: EventFrame): EventFrame {
   const withoutEvent: Partial<EventFrame> = { ...frame };
   delete withoutEvent.event;
   return withoutEvent as EventFrame;
+}
+
+function swapArchiveLifecycleEvent(frame: EventFrame): EventFrame {
+  if (frame.event === EventNames.ConversationArchived) {
+    return { ...frame, event: EventNames.ConversationUnarchived };
+  }
+  if (frame.event === EventNames.ConversationUnarchived) {
+    return { ...frame, event: EventNames.ConversationArchived };
+  }
+  return frame;
 }

@@ -577,6 +577,41 @@ describe("MoltZapChannelCore", () => {
       expect(received[0]!.dispatchLeaseId).toBe("lease-den");
     });
 
+    it("purges held and queued dispatch work when a conversation is archived", async () => {
+      const { fake, received, infoSpy } = customSetup();
+      fake.state.setConversation("conv-1", { type: "group", participants: [] });
+      fake.state.setAgentName("agent-alice", "Alice");
+      let calls = 0;
+      fake.service.authorizeDispatch = () =>
+        Effect.sync(() => {
+          calls += 1;
+          return { _tag: "hold" as const, reason: "waiting" };
+        });
+
+      fake.emit.message(buildMessage({ id: "msg-held" }));
+      await flushDispatchChain();
+
+      fake.emit.conversationArchived({ conversationId: "conv-1" });
+      fake.emit.message(buildMessage({ id: "msg-after-archive" }));
+      await flushDispatchChain();
+
+      expect(calls).toBe(1);
+      expect(received).toHaveLength(0);
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          conversationId: "conv-1",
+        }),
+        "MoltZapChannelCore: closed conversation dispatch work purged",
+      );
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          messageId: "msg-after-archive",
+          conversationId: "conv-1",
+        }),
+        "MoltZapChannelCore: dropping inbound message for closed conversation",
+      );
+    });
+
     it("keeps blocked authorization head-of-line and coalesces same-conversation backlog on grant", async () => {
       const { fake, received } = customSetup();
       fake.state.setConversation("conv-1", { type: "group", participants: [] });
@@ -1099,6 +1134,25 @@ describe("MoltZapChannelCore", () => {
       await Effect.runPromise(core.sendReply("conv-42", "hello there"));
       expect(fake.state.sent).toEqual([
         { convId: "conv-42", text: "hello there" },
+      ]);
+    });
+
+    it("drops replies locally after the conversation is archived", async () => {
+      fake.emit.conversationArchived({ conversationId: "conv-42" });
+
+      await Effect.runPromise(core.sendReply("conv-42", "hello there"));
+
+      expect(fake.state.sent).toEqual([]);
+    });
+
+    it("resumes replies after the conversation is unarchived", async () => {
+      fake.emit.conversationArchived({ conversationId: "conv-42" });
+      fake.emit.conversationUnarchived({ conversationId: "conv-42" });
+
+      await Effect.runPromise(core.sendReply("conv-42", "hello again"));
+
+      expect(fake.state.sent).toEqual([
+        { convId: "conv-42", text: "hello again" },
       ]);
     });
   });
