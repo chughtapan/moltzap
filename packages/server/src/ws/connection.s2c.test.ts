@@ -343,11 +343,12 @@ describe("sendRpcToClient — caller timeout", () => {
     expect(elapsed).toBeLessThan(2000);
   });
 
-  it("manual cleanup: cancelling the awaiting fiber leaves the pending entry; the disconnect finalizer drains it", async () => {
-    // The primitive itself does not register fiber-interruption finalizers
-    // (architect plan: caller controls timeout/cancellation, finalization
-    // happens at scope close). Verify that an interrupted fiber + scope
-    // close drains the pending map cleanly.
+  it("interrupt cleans up the pending entry: the primitive owns cancellation cleanup", async () => {
+    // Issue #310 contract: `sendRpcToClient` wraps the pending insert/
+    // remove in `Effect.acquireUseRelease`, so the entry is removed on
+    // interrupt before the inner exit unwinds. No need for the caller
+    // to wait for scope close; no orphan accretion across long-lived
+    // connections under timeout-driven interruption.
     const program = Effect.gen(function* () {
       const scope = yield* Scope.make();
       const { conn } = yield* Scope.extend(
@@ -375,12 +376,163 @@ describe("sendRpcToClient — caller timeout", () => {
 
     const { sizeAfterInterrupt, sizeAfterScope } =
       await Effect.runPromise(program);
-    // Interruption alone leaves the entry — primitive does not own
-    // cancellation cleanup. (Caller is expected to wrap with
-    // `Effect.timeout` or close the connection scope to drain.)
-    expect(sizeAfterInterrupt).toBe(1);
-    // Scope close drains via the disconnect finalizer.
+    // Interrupt fires the `acquireUseRelease` release, which removes
+    // the entry. Scope close is a clean no-op for this entry.
+    expect(sizeAfterInterrupt).toBe(0);
     expect(sizeAfterScope).toBe(0);
+  });
+
+  it("late response after interrupt is silently dropped (Option.none from completeS2cResponse)", async () => {
+    // Issue #310 contract test (a): after caller interrupt, the pending
+    // entry is gone, so an inbound response frame for that request id
+    // finds nothing in the map. `completeS2cResponse` returns
+    // `Option.none()` and the inbound router treats it as a stale
+    // reply. Proves the "freed Deferred re-resolve" hole is
+    // structurally closed.
+    const program = Effect.gen(function* () {
+      const scope = yield* Scope.make();
+      const { conn, outbound } = yield* Scope.extend(
+        makeFakeConnection("conn-late-reply"),
+        scope,
+      );
+
+      const fiber = yield* Effect.fork(
+        sendRpcToClient(conn, "apps/onJoin", { sessionId: "late" }),
+      );
+
+      // Wait for the entry to be registered + the frame to be written.
+      yield* Ref.get(conn.s2cPending).pipe(
+        Effect.flatMap((m) =>
+          HashMap.size(m) === 1
+            ? Effect.succeed(undefined)
+            : Effect.fail(new Error("not registered yet")),
+        ),
+        Effect.retry({ times: 50, schedule: undefined }),
+      );
+      const captured = yield* Ref.get(outbound).pipe(
+        Effect.flatMap((xs) =>
+          xs.length > 0
+            ? Effect.succeed(xs[0]!)
+            : Effect.fail(new Error("no frame yet")),
+        ),
+        Effect.retry({ times: 50, schedule: undefined }),
+      );
+      const { id: requestId } = JSON.parse(captured) as { id: string };
+
+      yield* Fiber.interrupt(fiber);
+      const sizeAfterInterrupt = HashMap.size(yield* Ref.get(conn.s2cPending));
+
+      // Inbound response arrives AFTER the caller was interrupted. The
+      // entry is already gone; this must return `Option.none()` and
+      // not throw, panic, or settle anything.
+      const completed = yield* completeS2cResponse(conn, {
+        jsonrpc: "2.0",
+        type: "response",
+        direction: "s2c",
+        id: requestId,
+        result: { ok: true },
+      });
+
+      yield* Scope.close(scope, Exit.void);
+      return { sizeAfterInterrupt, completed };
+    });
+
+    const { sizeAfterInterrupt, completed } = await Effect.runPromise(program);
+    expect(sizeAfterInterrupt).toBe(0);
+    expect(completed._tag).toBe("None");
+  });
+
+  it("scope close after interrupt is a clean no-op (no double-fail, no panic)", async () => {
+    // Issue #310 contract test (b): the disconnect-finalizer + the
+    // `acquireUseRelease` release converge through the same atomic
+    // `Ref.update`. Interrupt removes the entry; scope close then sees
+    // an empty map and the finalizer is a no-op. Verifies no second
+    // `Deferred.fail` lands on the (interrupted, never settled)
+    // Deferred.
+    const program = Effect.gen(function* () {
+      const scope = yield* Scope.make();
+      const { conn } = yield* Scope.extend(
+        makeFakeConnection("conn-int-then-close"),
+        scope,
+      );
+
+      const fiber = yield* Effect.fork(
+        sendRpcToClient(conn, "apps/onClose", {}),
+      );
+      yield* Ref.get(conn.s2cPending).pipe(
+        Effect.flatMap((m) =>
+          HashMap.size(m) === 1
+            ? Effect.succeed(undefined)
+            : Effect.fail(new Error("not registered yet")),
+        ),
+        Effect.retry({ times: 50, schedule: undefined }),
+      );
+
+      yield* Fiber.interrupt(fiber);
+      const sizeAfterInterrupt = HashMap.size(yield* Ref.get(conn.s2cPending));
+
+      // Scope close runs the disconnect finalizer on an empty map.
+      // Should not throw, should not log, should not affect the
+      // already-interrupted fiber's exit.
+      const closeExit = yield* Scope.close(scope, Exit.void).pipe(Effect.exit);
+
+      const fiberExit = yield* Fiber.await(fiber);
+      const sizeAfterScope = HashMap.size(yield* Ref.get(conn.s2cPending));
+
+      return { sizeAfterInterrupt, sizeAfterScope, closeExit, fiberExit };
+    });
+
+    const { sizeAfterInterrupt, sizeAfterScope, closeExit, fiberExit } =
+      await Effect.runPromise(program);
+    expect(sizeAfterInterrupt).toBe(0);
+    expect(sizeAfterScope).toBe(0);
+    // Scope close itself is a clean success.
+    expect(Exit.isSuccess(closeExit)).toBe(true);
+    // Interrupted fiber stays interrupted; the late finalizer didn't
+    // re-fail the (already-released) Deferred into a typed error.
+    expect(Exit.isInterrupted(fiberExit)).toBe(true);
+  });
+
+  it("Effect.timeout firing removes the pending entry (B.3 callsite shape)", async () => {
+    // Issue #310 contract test (c): the canonical B.3 callsite is
+    // `wrapHookEffectWithEnvelope` wrapping `sendRpcToClient` with
+    // `Effect.timeout`. `Effect.timeout` works by interrupting the
+    // inner fiber on fire. With the new contract, that interrupt fires
+    // the release, and the pending entry is removed *before* the
+    // timeout exit unwinds. No orphan accretion across N-hooks/sec on
+    // a long-lived connection.
+    const program = Effect.gen(function* () {
+      const scope = yield* Scope.make();
+      const { conn, outbound } = yield* Scope.extend(
+        makeFakeConnection("conn-timeout-drain"),
+        scope,
+      );
+
+      const exit = yield* sendRpcToClient(conn, "apps/onJoin", {
+        sessionId: "s",
+      }).pipe(Effect.timeout(Duration.millis(50)), Effect.exit);
+
+      // Frame was written before timeout fired (proves the primitive
+      // started its work).
+      const written = yield* Ref.get(outbound);
+      const sizeAfterTimeout = HashMap.size(yield* Ref.get(conn.s2cPending));
+
+      yield* Scope.close(scope, Exit.void);
+      return { exit, writtenLen: written.length, sizeAfterTimeout };
+    });
+
+    const { exit, writtenLen, sizeAfterTimeout } =
+      await Effect.runPromise(program);
+    expect(writtenLen).toBe(1);
+    expect(sizeAfterTimeout).toBe(0);
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      const err = Cause.failureOption(exit.cause);
+      expect(err._tag).toBe("Some");
+      if (err._tag === "Some") {
+        expect(err.value._tag).toBe("TimeoutException");
+      }
+    }
   });
 });
 
