@@ -3,9 +3,16 @@
  *
  * Spec: moltzap#356.
  *
- * Decode rules — keys are extracted from already-decoded params (schema
- * runs at the wire boundary inside `decodeFrames`); this module performs
- * NO further schema decode. It reads three fields:
+ * Decode rules — `decodeFrames` validates the **frame envelope only**
+ * (`packages/client/src/runtime/frame.ts:29-34@f0df363`); the inbound
+ * `params` field arrives as `unknown`. Per-method param-shape decode
+ * (`S2cRpcMap[method]['params']`) is the AppHost layer's job
+ * (`packages/app-sdk/src/app.ts:489-491@f0df363`) and is unchanged
+ * by this refactor.
+ *
+ * This module performs **narrow validation of routing fields only**:
+ * confirm `params` is an object, then extract three fields with
+ * the same tolerance as the AppHost cast:
  *
  *   - `sessionId` (always required for every entry in `s2cRpcMethods`)
  *   - `conversationId` (present on `apps/onBeforeDispatch` and

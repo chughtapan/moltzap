@@ -23,10 +23,27 @@
  * defeating the purpose of partitioning. `Ref.modify` on the partition
  * map is atomic; concurrent reader-fiber offers compose without a router.
  *
- * Lifetime is anchored in the per-connection `Scope` — `make` returns
- * `Effect<…, never, Scope.Scope>`, mirroring the existing socket scope
- * pattern. Closing the scope finalizes every worker (cascades from the
- * worker's own scope finalizer).
+ * Lifetime: `make` returns `Effect<…, never, Scope.Scope>`. The caller
+ * (`ws-client.ts` inside `connectEffect`) calls `Scope.make()` to
+ * produce a **dedicated dispatcher Scope** that is NOT bound to the
+ * socket Scope, then provides that Scope to `makePartitionedDispatcher`.
+ * The dispatcher Scope is held in `ConnState`; teardown from
+ * `close()` / `disconnectSync()` is
+ * `runtime.runFork(Scope.close(dispatcherScope, Exit.void))`, mirroring
+ * today's `runFork(Queue.shutdown(s2cInboundQueue))` +
+ * `runFork(Fiber.interrupt(s2cDispatcherFiber))` pair.
+ *
+ * Why off-Scope from the socket: `close()` is invoked via `runSync` at
+ * `packages/openclaw-channel/src/__tests__/reconnection.integration.test.ts:14`;
+ * binding the dispatcher to the socket Scope would make `Scope.close`
+ * async (queue.shutdown + fiber.interrupt yield through the runtime),
+ * breaking the regression gate at `packages/client/src/ws-client.test.ts:1233-1259`.
+ * The `runSync(client.close())` contract is load-bearing — see the
+ * test commentary there.
+ *
+ * Worker scopes are children of the dispatcher Scope (worker
+ * construction calls `Scope.extend` against the dispatcher Scope).
+ * Closing the dispatcher Scope cascades to every worker.
  */
 import { Effect, Scope } from "effect";
 import type {
@@ -123,12 +140,17 @@ export interface PartitionedDispatcher {
    */
   readonly stats: Effect.Effect<DispatcherStats>;
   /**
-   * Explicit shutdown. The Scope-anchored finalizer is the primary
-   * path; this exists for the
-   * `MoltZapWsClient.disconnectSync`/`close` callsites that need to
-   * tear down off-Scope (mirrors today's
-   * `Queue.shutdown(s2cInboundQueue) + Fiber.interrupt(s2cDispatcherFiber)`
-   * pair at `packages/client/src/ws-client.ts:507-508,724-725@f0df363`).
+   * Explicit shutdown. Equivalent to `Scope.close(dispatcherScope,
+   * Exit.void)`; exists as a typed handle so callsites that already
+   * hold the dispatcher (not the Scope) can tear it down without
+   * threading the Scope through `ConnState`. Idempotent.
+   *
+   * Callsites that invoke this from a `runSync` context (`close()`,
+   * `disconnectSync()`) MUST wrap with `runtime.runFork`. The Effect
+   * itself yields through the runtime (queue shutdown + fiber
+   * interrupt are async); calling `runSync` on it would throw
+   * `AsyncFiberException`. See the regression gate at
+   * `packages/client/src/ws-client.test.ts:1233-1259@f0df363`.
    */
   readonly shutdown: Effect.Effect<void>;
 }
