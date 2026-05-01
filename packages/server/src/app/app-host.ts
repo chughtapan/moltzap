@@ -157,16 +157,17 @@ interface PendingChallenge {
 }
 
 /**
- * Outcome of an in-process hook dispatch. Callers treat the three
- * variants uniformly:
+ * Outcome of an in-process hook dispatch. The three variants discriminate
+ * what happened; each call site applies its own policy (fail-closed for
+ * `before_dispatch` / `before_message_delivery`, fail-open for `on_close` /
+ * `on_session_active`):
  *
  *   - `{ result: T, timedOut: false }` — hook returned successfully
- *   - `{ result: null, timedOut: true }` — hook timed out (fail-closed)
- *   - `{ result: null, timedOut: false }` — hook threw (fail-closed)
+ *   - `{ result: null, timedOut: true }` — hook timed out
+ *   - `{ result: null, timedOut: false }` — hook threw
  *
- * Centralising the shape keeps the fail-closed plumbing in
- * `runBeforeMessageDelivery` / `closeSession` / `admitAgentToSession`
- * uniform across hook dispatch sites.
+ * Centralising the shape keeps the dispatch plumbing uniform across hook
+ * sites; policy lives at the caller.
  */
 type HookOutcome<T> =
   | { result: T; timedOut: false }
@@ -397,12 +398,12 @@ export class AppHost {
         const session = this.conversationToSession.get(conversationId);
         if (!session) return { decision: "grant" as const };
 
-        const manifest = this.manifests.get(session.appId);
         const appHooks = this.hooks.get(session.appId);
-
         if (!appHooks?.beforeDispatch) {
           return { decision: "grant" as const };
         }
+
+        const manifest = this.manifests.get(session.appId);
 
         const agentOpt = yield* takeFirstOption(
           this.db
@@ -486,10 +487,10 @@ export class AppHost {
         const session = this.conversationToSession.get(conversationId);
         if (!session) return null;
 
-        const manifest = this.manifests.get(session.appId);
         const appHooks = this.hooks.get(session.appId);
-
         if (!appHooks?.beforeMessageDelivery) return null;
+
+        const manifest = this.manifests.get(session.appId);
 
         const agentOpt = yield* takeFirstOption(
           this.db
@@ -850,10 +851,10 @@ export class AppHost {
           new Set(convEntries.map((r) => r.conversation_id));
 
         // Fire on_close hook with timeout (fail-open).
-        const manifest = this.manifests.get(sessionRow.app_id);
         const appHooks = this.hooks.get(sessionRow.app_id);
 
         if (appHooks?.onClose) {
+          const manifest = this.manifests.get(sessionRow.app_id);
           const timeoutMs = manifest?.hooks?.on_close?.timeout_ms ?? 5000;
 
           const initiatorOpt = yield* takeFirstOption(

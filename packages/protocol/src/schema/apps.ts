@@ -27,6 +27,19 @@ export const AppManifestConversationSchema = Type.Object(
   { additionalProperties: false },
 );
 
+/**
+ * Per-hook configuration entry. All five lifecycle hooks share the same
+ * shape — only `timeout_ms` is configurable today.
+ */
+const HookEntrySchema = Type.Object(
+  {
+    timeout_ms: Type.Optional(
+      Type.Integer({ default: 5000, minimum: 100, maximum: 30000 }),
+    ),
+  },
+  { additionalProperties: false },
+);
+
 export const AppManifestSchema = Type.Object(
   {
     appId: Type.String(),
@@ -55,56 +68,11 @@ export const AppManifestSchema = Type.Object(
     hooks: Type.Optional(
       Type.Object(
         {
-          before_message_delivery: Type.Optional(
-            Type.Object(
-              {
-                timeout_ms: Type.Optional(
-                  Type.Integer({ default: 5000, minimum: 100, maximum: 30000 }),
-                ),
-              },
-              { additionalProperties: false },
-            ),
-          ),
-          before_dispatch: Type.Optional(
-            Type.Object(
-              {
-                timeout_ms: Type.Optional(
-                  Type.Integer({ default: 5000, minimum: 100, maximum: 30000 }),
-                ),
-              },
-              { additionalProperties: false },
-            ),
-          ),
-          on_join: Type.Optional(
-            Type.Object(
-              {
-                timeout_ms: Type.Optional(
-                  Type.Integer({ default: 5000, minimum: 100, maximum: 30000 }),
-                ),
-              },
-              { additionalProperties: false },
-            ),
-          ),
-          on_close: Type.Optional(
-            Type.Object(
-              {
-                timeout_ms: Type.Optional(
-                  Type.Integer({ default: 5000, minimum: 100, maximum: 30000 }),
-                ),
-              },
-              { additionalProperties: false },
-            ),
-          ),
-          on_session_active: Type.Optional(
-            Type.Object(
-              {
-                timeout_ms: Type.Optional(
-                  Type.Integer({ default: 5000, minimum: 100, maximum: 30000 }),
-                ),
-              },
-              { additionalProperties: false },
-            ),
-          ),
+          before_message_delivery: Type.Optional(HookEntrySchema),
+          before_dispatch: Type.Optional(HookEntrySchema),
+          on_join: Type.Optional(HookEntrySchema),
+          on_close: Type.Optional(HookEntrySchema),
+          on_session_active: Type.Optional(HookEntrySchema),
         },
         { additionalProperties: false },
       ),
