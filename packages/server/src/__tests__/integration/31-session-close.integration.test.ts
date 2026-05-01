@@ -9,7 +9,13 @@ import {
   getKyselyDb,
 } from "./helpers.js";
 import type { CoreApp } from "../../app/types.js";
-import { ErrorCodes } from "@moltzap/protocol";
+import {
+  AppsAuthorizeDispatch,
+  AppsCloseSession,
+  AppsCreate,
+  ErrorCodes,
+  EventNames,
+} from "@moltzap/protocol";
 import type { ConnectedAgent } from "../../test-utils/helpers.js";
 import { expectRpcFailure } from "../../test-utils/index.js";
 
@@ -349,6 +355,45 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
         }),
     );
 
+    it.live("broadcasts conversations/archived before app/sessionClosed", () =>
+      Effect.gen(function* () {
+        const initiator = yield* registerAppAgent("close-archive-init");
+        const invitee = yield* registerAppAgent("close-archive-inv");
+
+        registerTestApp(coreApp, "close-archive-app");
+        coreApp.onAppJoin("close-archive-app", () => {});
+
+        const session = (yield* initiator.client.sendRpc(AppsCreate.name, {
+          appId: "close-archive-app",
+          invitedAgentIds: [invitee.agentId],
+        })) as {
+          session: { id: string; conversations: Record<string, string> };
+        };
+        const convId = session.session.conversations["main"]!;
+
+        yield* invitee.client.waitForEvent("app/participantAdmitted", 5000);
+
+        yield* initiator.client.sendRpc(AppsCloseSession.name, {
+          sessionId: session.session.id,
+        });
+
+        const archived = yield* invitee.client.waitForEvent(
+          EventNames.ConversationArchived,
+          3000,
+        );
+        expect(
+          (archived.data as { conversationId: string }).conversationId,
+        ).toBe(convId);
+        const closed = yield* invitee.client.waitForEvent(
+          EventNames.AppSessionClosed,
+          3000,
+        );
+        expect((closed.data as { sessionId: string }).sessionId).toBe(
+          session.session.id,
+        );
+      }),
+    );
+
     it.live("rejects messages to archived conversations", () =>
       Effect.gen(function* () {
         const agent = yield* registerAppAgent("archived-msg");
@@ -376,6 +421,50 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
           ErrorCodes.ConversationArchived,
         );
       }),
+    );
+
+    it.live(
+      "denies dispatch authorization for archived app conversations",
+      () =>
+        Effect.gen(function* () {
+          const agent = yield* registerAppAgent("archived-dispatch");
+
+          registerTestApp(coreApp, "archived-dispatch-app");
+
+          const session = (yield* agent.client.sendRpc(AppsCreate.name, {
+            appId: "archived-dispatch-app",
+            invitedAgentIds: [],
+          })) as {
+            session: { id: string; conversations: Record<string, string> };
+          };
+          const convId = session.session.conversations["main"]!;
+
+          yield* agent.client.sendRpc(AppsCloseSession.name, {
+            sessionId: session.session.id,
+          });
+
+          const result = yield* agent.client.sendRpc(
+            AppsAuthorizeDispatch.name,
+            {
+              conversationId: convId,
+              messageId: crypto.randomUUID(),
+              senderAgentId: agent.agentId,
+              attempt: 0,
+              receivedAt: new Date().toISOString(),
+              clock: {
+                domainId: convId,
+                epoch: 1,
+                vector: { [agent.agentId]: 1 },
+              },
+              pending: [],
+            },
+          );
+
+          expect(result.admission).toEqual({
+            decision: "deny",
+            reason: "conversation_archived",
+          });
+        }),
     );
 
     it.live("excludes archived conversations from conversations/list", () =>

@@ -54,6 +54,7 @@ import {
   registerRequestIdUniquenessClient,
 } from "./rpc-semantics.js";
 import {
+  registerArchiveLifecycleClient,
   registerFanOutCardinalityClient,
   registerPayloadOpacityClient,
   registerTaskBoundaryIsolationClient,
@@ -99,7 +100,7 @@ export interface ClientConformanceSuiteOptions {
 
 /**
  * Register every client-side property (A2, A4, B1, B4, C1, C3, C4, D1,
- * D3, D4, D5, D6, E2 — 13 total per spec amendment #200 §5) against
+ * D3, D4, D5, D6, E2 plus archive lifecycle — 14 total) against
  * `ctx`. Property files in `conformance/client/*.ts` each export one
  * `registerXxxClient` per spec-amendment registrar; this helper is the
  * single call site.
@@ -114,6 +115,7 @@ export function registerAllClientProperties(
   registerFanOutCardinalityClient(ctx);
   registerPayloadOpacityClient(ctx);
   registerTaskBoundaryIsolationClient(ctx);
+  registerArchiveLifecycleClient(ctx);
   registerSchemaExhaustiveFuzzClient(ctx);
   registerLatencyResilienceClient(ctx);
   registerSlicerFramingClient(ctx);

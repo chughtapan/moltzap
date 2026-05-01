@@ -96,6 +96,14 @@ export interface ChannelService {
   on(event: "disconnect", handler: () => void): void;
   on(event: "reconnect", handler: () => void): void;
   on(
+    event: "conversationArchived",
+    handler: (data: { conversationId: string }) => void,
+  ): void;
+  on(
+    event: "conversationUnarchived",
+    handler: (data: { conversationId: string }) => void,
+  ): void;
+  on(
     event: "permissionRequired",
     handler: (data: PermissionsRequiredEvent) => void,
   ): void;
@@ -106,6 +114,7 @@ export interface ChannelService {
     text: string,
     opts?: { dispatchLeaseId?: string },
   ): Effect.Effect<void, ServiceRpcError>;
+  isConversationArchived?(conversationId: string): boolean;
   getConversation(
     convId: string,
   ): { type: string; name?: string; participants: string[] } | undefined;
@@ -205,6 +214,7 @@ export class MoltZapChannelCore {
   private connected = false;
   private inboundHandler: InboundHandler<unknown> | null = null;
   private activeDispatchLeaseId: string | undefined;
+  private readonly closedConversationIds = new Set<string>();
   private readonly logicalClocks = new Map<
     string,
     { epoch: number; vector: Record<string, number> }
@@ -231,6 +241,16 @@ export class MoltZapChannelCore {
       opts.dispatchAdmissionTimeoutMs ?? DEFAULT_DISPATCH_ADMISSION_TIMEOUT_MS;
 
     this.service.on("message", (message) => {
+      if (this.closedConversationIds.has(message.conversationId)) {
+        this.logger.info(
+          {
+            messageId: message.id,
+            conversationId: message.conversationId,
+          },
+          "MoltZapChannelCore: dropping inbound message for closed conversation",
+        );
+        return;
+      }
       Queue.unsafeOffer(this.inboundQueue, {
         message,
         attempt: 0,
@@ -280,6 +300,14 @@ export class MoltZapChannelCore {
       if (this.permissionRequiredHandler) {
         this.permissionRequiredHandler(data);
       }
+    });
+
+    this.service.on("conversationArchived", ({ conversationId }) => {
+      this.closeConversation(conversationId);
+    });
+
+    this.service.on("conversationUnarchived", ({ conversationId }) => {
+      this.closedConversationIds.delete(conversationId);
     });
   }
 
@@ -345,9 +373,45 @@ export class MoltZapChannelCore {
     text: string,
     opts?: { dispatchLeaseId?: string },
   ): Effect.Effect<void, ServiceRpcError> {
+    if (
+      this.closedConversationIds.has(conversationId) ||
+      this.service.isConversationArchived?.(conversationId)
+    ) {
+      return Effect.sync(() =>
+        this.logger.info(
+          { conversationId },
+          "MoltZapChannelCore: dropping reply for closed conversation",
+        ),
+      );
+    }
     return this.service.send(conversationId, text, {
       dispatchLeaseId: opts?.dispatchLeaseId ?? this.activeDispatchLeaseId,
     });
+  }
+
+  private closeConversation(conversationId: string): void {
+    this.closedConversationIds.add(conversationId);
+    this.parkedByConversation.delete(conversationId);
+
+    const queued = Chunk.toReadonlyArray(
+      Effect.runSync(Queue.takeAll(this.inboundQueue)),
+    );
+    let droppedQueued = 0;
+    for (const work of queued) {
+      if (work.message.conversationId === conversationId) {
+        droppedQueued += 1;
+      } else {
+        Queue.unsafeOffer(this.inboundQueue, work);
+      }
+    }
+
+    this.logger.info(
+      {
+        conversationId,
+        droppedQueued,
+      },
+      "MoltZapChannelCore: closed conversation dispatch work purged",
+    );
   }
 
   private observeMessage(message: Message): LogicalClock {
@@ -461,6 +525,19 @@ export class MoltZapChannelCore {
   ): Effect.Effect<void, unknown> {
     return Effect.gen(this, function* () {
       const current = this.takeDispatchCandidate(work);
+      if (this.closedConversationIds.has(current.message.conversationId)) {
+        yield* Effect.sync(() =>
+          this.logger.info(
+            {
+              messageId: current.message.id,
+              conversationId: current.message.conversationId,
+              attempt: current.attempt,
+            },
+            "MoltZapChannelCore: dropping dispatch for closed conversation",
+          ),
+        );
+        return;
+      }
       const decision = yield* this.dispatchAdmission(current);
       if (decision._tag === "grant") {
         const messages = this.service.authorizeDispatch

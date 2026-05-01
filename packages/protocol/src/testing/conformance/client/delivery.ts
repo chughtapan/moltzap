@@ -20,6 +20,8 @@
  */
 import { Effect } from "effect";
 import * as fc from "fast-check";
+import { eventFrame } from "../../../helpers.js";
+import { EventNames } from "../../../schema/events.js";
 import type { EventFrame } from "../../../schema/frames.js";
 import { arbitraryEventFrame } from "../../arbitraries/frames.js";
 import type { ClientConformanceRunContext } from "./runner.js";
@@ -310,6 +312,75 @@ export function registerTaskBoundaryIsolationClient(
               ),
             );
           }
+        }
+      }),
+    ),
+  );
+}
+
+/**
+ * Archive lifecycle client — TestServer emits archive then unarchive
+ * lifecycle events. The real client subscriber must surface both in
+ * emission order.
+ */
+export function registerArchiveLifecycleClient(
+  ctx: ClientConformanceRunContext,
+): void {
+  const name = "archive-lifecycle-client";
+  registerProperty(
+    ctx,
+    CATEGORY,
+    name,
+    "archive/unarchive lifecycle events surface on the real client in order",
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fx = yield* acquireFixture(ctx, CATEGORY, name);
+        yield* subscribeAll(fx.handle);
+
+        const conversationId = "00000000-0000-4000-8000-000000000001";
+        const tag = yield* fx.window.freshEmissionTag;
+        yield* fx.window.emitTaggedEvent({
+          connection: fx.connection,
+          base: eventFrame(EventNames.ConversationArchived, {
+            conversationId,
+            archivedAt: new Date(0).toISOString(),
+            by: fx.handle.agentId,
+          }),
+          emissionTag: tag,
+        });
+        yield* fx.window.emitTaggedEvent({
+          connection: fx.connection,
+          base: eventFrame(EventNames.ConversationUnarchived, {
+            conversationId,
+            by: fx.handle.agentId,
+          }),
+          emissionTag: tag,
+        });
+
+        const observed = yield* collectTagged(fx.handle, (t) => t === tag, {
+          expected: 2,
+          budgetMs: PROPERTY_BUDGET_MS,
+        });
+        if (observed.length !== 2) {
+          return yield* Effect.fail(
+            invariant(
+              CATEGORY,
+              name,
+              `expected 2 lifecycle observations, got ${observed.length}`,
+            ),
+          );
+        }
+        if (
+          observed[0]?.eventName !== EventNames.ConversationArchived ||
+          observed[1]?.eventName !== EventNames.ConversationUnarchived
+        ) {
+          return yield* Effect.fail(
+            invariant(
+              CATEGORY,
+              name,
+              `lifecycle order mismatch: ${observed.map((o) => o.eventName).join(",")}`,
+            ),
+          );
         }
       }),
     ),
