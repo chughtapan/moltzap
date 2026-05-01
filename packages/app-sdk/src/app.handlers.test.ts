@@ -396,6 +396,7 @@ describe("MoltZapApp — admission/lifecycle handler surface", () => {
       ["SessionNotFound", "SessionNotFound" as const],
       ["ConversationNotFound", "ConversationNotFound" as const],
       ["NotAuthorized", "NotAuthorized" as const],
+      ["AlreadyAttached", "AlreadyAttached" as const],
     ])(
       "maps RpcServerError data.code='%s' to AttachError code '%s'",
       async (dataCode, expectedCode) => {
@@ -420,6 +421,33 @@ describe("MoltZapApp — admission/lifecycle handler surface", () => {
         }
       },
     );
+
+    // Substring-fallback path: when the server emits a text-only RPC error
+    // (no numeric -32003, no structured `data.code`), the SDK matches the
+    // canonical server message — see
+    // `packages/server/src/app/app-host.ts` ("Conversation X is already
+    // attached to session Y") — and routes to AttachError('AlreadyAttached').
+    it("maps 'already attached' message substring to AttachError code 'AlreadyAttached'", async () => {
+      asMock(app.client)._setAttachFailure(
+        new MockRpcServerError({
+          code: -32099,
+          message:
+            "Conversation conv-2 is already attached to session 00000000-0000-0000-0000-000000000099",
+        }),
+      );
+      const exit = await Effect.runPromiseExit(
+        app.attachConversation(
+          "00000000-0000-0000-0000-000000000001",
+          "conv-2",
+        ),
+      );
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        const err = exit.cause._tag === "Fail" ? exit.cause.error : null;
+        expect(err).toBeInstanceOf(AttachError);
+        expect((err as AttachError).code).toBe("AlreadyAttached");
+      }
+    });
 
     it("falls back to AttachFailed for unknown RPC errors", async () => {
       asMock(app.client)._setAttachFailure(

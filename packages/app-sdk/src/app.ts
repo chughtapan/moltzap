@@ -1000,18 +1000,24 @@ function extractAttachCode(err: RpcServerError): AttachErrorCode {
     if (
       c === "SessionNotFound" ||
       c === "ConversationNotFound" ||
-      c === "NotAuthorized"
+      c === "NotAuthorized" ||
+      c === "AlreadyAttached"
     ) {
       return c;
     }
   }
 
   // 3. Last-ditch substring fallback for legacy text-only RPC errors.
+  //    The "already attached" check mirrors the canonical server message
+  //    emitted on Conflict (-32003) — see
+  //    `packages/server/src/app/app-host.ts` ("Conversation X is already
+  //    attached to session Y").
   if (err.message.includes("SessionNotFound")) return "SessionNotFound";
   if (err.message.includes("ConversationNotFound")) {
     return "ConversationNotFound";
   }
   if (err.message.includes("NotAuthorized")) return "NotAuthorized";
+  if (err.message.includes("already attached")) return "AlreadyAttached";
 
   return "AttachFailed";
 }
