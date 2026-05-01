@@ -17,13 +17,14 @@ export default async function ({ provide }: GlobalSetupContext) {
     .withPassword("test")
     .start();
 
-  // Apply core-schema.sql from server-core
+  // Apply core-schema.sql from the server package.
   const pool = new pg.Pool({ connectionString: container.getConnectionUri() });
   const schemaPath = join(
     dirname(fileURLToPath(import.meta.url)),
     "..",
-    "server-core",
-    "examples",
+    "server",
+    "src",
+    "app",
     "core-schema.sql",
   );
   const sql = readFileSync(schemaPath, "utf-8");
