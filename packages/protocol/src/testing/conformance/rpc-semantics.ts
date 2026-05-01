@@ -29,6 +29,7 @@ import { allRpcMethods } from "../arbitraries/rpc.js";
 import type { ConformanceRunContext } from "./runner.js";
 import {
   assertProperty,
+  PropertyDeferred,
   PropertyInvariantViolation,
   PropertyUnavailable,
   registerProperty,
@@ -386,71 +387,29 @@ export function registerRequestIdUniqueness(ctx: ConformanceRunContext): void {
  * it allocated; an inbound s2c response with no matching pending entry
  * is dropped, the connection stays responsive.
  *
- * The property fakes an unsolicited `direction: "s2c"` response by
- * sending it through the WS as raw bytes (TestClient does not own
- * `s2c` responses for outbound traffic; we hand-craft the frame). The
- * post-call liveness probe is the same `agents/list` Right-tag check the
- * malformed-frame property uses.
+ * Status: tombstoned as `PropertyDeferred`. TestClient's public surface
+ * is c2s-only; injecting an unsolicited `direction: "s2c"` response on
+ * the wire requires either a raw-write primitive on TestClient or a
+ * server-side fault-injection seam. The wire-level injection is
+ * exercised in B.9 server integration tests where the connection ref is
+ * reachable. Tombstoning here keeps the conformance contract visible
+ * and avoids reporting false coverage (codex review #327, finding 1).
  */
 export function registerSpuriousS2cFrameHandling(
   ctx: ConformanceRunContext,
 ): void {
+  void ctx;
   registerProperty(
     ctx,
     CATEGORY,
     "spurious-s2c-frame-handling",
     "stray s2c response with no matching pending ⇒ server drops & stays alive",
-    Effect.scoped(
-      Effect.gen(function* () {
-        const agent = yield* registerTestAgent({
-          baseUrl: ctx.realServer.baseUrl,
-          name: "ssf",
-        }).pipe(
-          Effect.mapError(
-            (e) =>
-              new PropertyInvariantViolation({
-                category: CATEGORY,
-                name: "spurious-s2c-frame-handling",
-                reason: `register agent: ${e.body}`,
-              }),
-          ),
-        );
-        const client = yield* makeTestClient({
-          serverUrl: ctx.realServer.wsUrl,
-          agentKey: agent.apiKey,
-          agentId: agent.agentId,
-          defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
-          captureCapacity: DEFAULT_CAPTURE_CAPACITY,
-        }).pipe(
-          Effect.mapError(
-            (e) =>
-              new PropertyInvariantViolation({
-                category: CATEGORY,
-                name: "spurious-s2c-frame-handling",
-                reason: `client acquire: ${String(e)}`,
-              }),
-          ),
-        );
-        // TestClient's public surface is c2s-only; the spurious-frame
-        // injection lives entirely above the wire (the codec proves the
-        // shape is well-formed, the post-call agents/list proves the
-        // server's connection state survives the no-op handler that
-        // would not be visible here either way). The wire-level
-        // injection variant is exercised in B.9 server integration
-        // tests where the connection ref is reachable. Conformance keeps
-        // this property at the codec-shape layer.
-        const post = yield* client
-          .sendRpc("agents/list", {})
-          .pipe(Effect.either);
-        if (post._tag !== "Right") {
-          return yield* Effect.fail(
-            new PropertyInvariantViolation({
-              category: CATEGORY,
-              name: "spurious-s2c-frame-handling",
-              reason: `post-call ${post._tag === "Left" ? post.left._tag : "unknown"} — server unresponsive`,
-            }),
-          );
-        }
+    Effect.fail(
+      new PropertyDeferred({
+        category: CATEGORY,
+        name: "spurious-s2c-frame-handling",
+        followUp:
+          "wire-level raw-frame injection requires TestClient extension; B.9 (#318) covers via server-side fault injection",
       }),
     ),
   );
