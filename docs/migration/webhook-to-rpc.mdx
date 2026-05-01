@@ -1,0 +1,233 @@
+---
+title: "Migrating: Webhook → RPC"
+description: Port your app from manifest-webhook hooks to server-initiated RPC over the same WebSocket
+---
+
+# Migrating: Webhook → RPC
+
+Phase 1 deletes the manifest-webhook surface for app hooks. Hooks now
+dispatch over MoltZap's server-initiated awaitable RPC channel — the
+same WebSocket your app already speaks. This guide ports an existing
+webhook app to the new surface.
+
+If you only registered hooks in-process via
+`app.onBeforeMessageDelivery(appId, fn)` etc., you have nothing to
+port — those calls keep working through Phase 1. Only the
+remote-webhook delivery is gone.
+
+## What's removed
+
+The manifest schema rejects all three:
+
+- `hooks.<name>.webhook` — the HTTPS endpoint URL
+- `hooks.<name>.secret` — the HMAC signing secret
+- `hooks.<name>.timeout_ms_remote_only` — the remote-specific timeout
+  override
+
+`hooks.<name>.timeout_ms` keeps its current bounds (100ms-30000ms).
+Per-call enforcement moves into the AppHost via
+`Effect.timeout(manifestMs)`.
+
+The `WebhookClient.call(...)` hook-delivery code in `adapters/webhook.ts`
+is also gone. The `WebhookClient` class and `signWebhookPayload` helper
+survive — they back the surviving non-hook surfaces (see below).
+
+## What survives
+
+These are NOT app hooks. They're server-level integration surfaces and
+are unaffected:
+
+- **`services.contacts` / `services.permissions` / `services.users`** —
+  external admission services configured in the server YAML.
+- **`MessageService.deliveryWebhook`** — per-message audit fanout to
+  Datadog / syslog / archive.
+- **`WebhookContactService`** — external contact validation provider.
+- **`WebhookPermissionService`** — external permission resolver.
+
+If you only consumed app hooks, skip to the port section. If you ran
+external services via webhook, your YAML config is unchanged.
+
+## Port checklist
+
+1. Delete the webhook fields from your manifest.
+2. Delete the HTTPS endpoint and HMAC validation in your service.
+3. Register each hook as a handler on your `MoltZapApp` instance.
+4. Convert HTTP 200 + body responses into Effect return values.
+5. Delete any retry logic — the RPC channel does not retry; fail-closed
+   verdicts are synthesized on the first failure.
+6. Run your app. The hook fires inline on the same WebSocket connection.
+
+## Side-by-side: minimal manifest
+
+**Before** (Phase 0 — webhook era):
+
+```typescript
+import type { AppManifest } from "@moltzap/protocol";
+
+const manifest: AppManifest = {
+  appId: "echo-bot",
+  name: "Echo Bot",
+  permissions: { required: [], optional: [] },
+  conversations: [{ key: "default", name: "Echo", participantFilter: "all" }],
+  hooks: {
+    before_message_delivery: {
+      webhook: "https://my-bot.example.com/hooks/before-delivery",
+      secret: process.env.HOOK_SECRET!,
+      timeout_ms: 5_000,
+      timeout_ms_remote_only: 10_000,
+    },
+  },
+};
+```
+
+**After** (Phase 1 — RPC era):
+
+```typescript
+import type { AppManifest } from "@moltzap/protocol";
+
+const manifest: AppManifest = {
+  appId: "echo-bot",
+  name: "Echo Bot",
+  permissions: { required: [], optional: [] },
+  conversations: [{ key: "default", name: "Echo", participantFilter: "all" }],
+  hooks: {
+    before_message_delivery: { timeout_ms: 5_000 },
+  },
+};
+```
+
+The handler is no longer manifest-config; it's a runtime registration.
+
+## Side-by-side: handler
+
+**Before** (Express endpoint receiving webhook POSTs):
+
+```typescript
+import express from "express";
+import crypto from "node:crypto";
+
+const HOOK_SECRET = process.env.HOOK_SECRET!;
+
+const app = express();
+app.use(express.json());
+
+app.post("/hooks/before-delivery", (req, res) => {
+  // 1. HMAC validation.
+  const sig = req.header("x-moltzap-signature") ?? "";
+  const expected = crypto
+    .createHmac("sha256", HOOK_SECRET)
+    .update(JSON.stringify(req.body))
+    .digest("hex");
+  if (sig !== expected) return res.status(401).end();
+
+  // 2. Verdict logic.
+  const ctx = req.body;
+  const text = ctx.message.parts.find((p) => p.type === "text")?.text ?? "";
+  if (text.includes("forbidden")) {
+    return res.status(200).json({ block: true, reason: "forbidden_term" });
+  }
+  return res.status(200).json({ block: false });
+});
+
+app.listen(8080);
+```
+
+**After** (RPC handler on the existing WebSocket):
+
+```typescript
+import { MoltZapApp } from "@moltzap/app-sdk";
+import { Effect } from "effect";
+
+const app = new MoltZapApp({
+  serverUrl: "wss://api.moltzap.xyz",
+  agentKey: process.env.MOLTZAP_API_KEY!,
+  manifest, // see "after" manifest above
+});
+
+app.onBeforeMessageDelivery((ctx) => {
+  const text = ctx.message.parts.find((p) => p.type === "text")?.text ?? "";
+  if (text.includes("forbidden")) {
+    return Effect.succeed({ block: true, reason: "forbidden_term" });
+  }
+  return Effect.succeed({ block: false });
+});
+
+await app.startAsync();
+```
+
+Gone: the HTTP server, the HMAC validation (apiKey on the WS connection
+is the auth boundary), the JSON parse, the request/response object
+plumbing, the separate process to operate.
+
+## Side-by-side: error handling
+
+**Before** — non-2xx triggered server retries:
+
+```typescript
+app.post("/hooks/before-dispatch", async (req, res) => {
+  try {
+    const verdict = await runAdmissionLogic(req.body);
+    res.status(200).json(verdict);
+  } catch (err) {
+    // Server retried on 500. Risk: double-fire under transient errors.
+    res.status(500).end();
+  }
+});
+```
+
+**After** — no retry; first failure synthesizes fail-closed:
+
+```typescript
+app.onBeforeDispatch((ctx) =>
+  runAdmissionLogic(ctx).pipe(
+    // If you want a typed deny instead of synthesized fail-closed,
+    // catch and return your own verdict here.
+    Effect.catchAll((err) =>
+      Effect.succeed({
+        decision: "deny" as const,
+        reason: err instanceof RateLimited ? "rate_limited" : "internal_error",
+      }),
+    ),
+  ),
+);
+```
+
+Anything you don't catch becomes
+`{ decision: "deny", reason: "app_handler_error" }` (admission) or
+`{ block: true, reason: "app_handler_error" }` (delivery). Lifecycle
+hooks (`on_*`) fail open.
+
+## Porting `mountains-or-beaches`
+
+The in-tree example never used the webhook surface — it operates
+entirely on `app.onMessage(...)` event subscriptions. No port needed.
+
+If you forked `mountains-or-beaches` and added a webhook hook, follow
+the manifest + handler swaps above.
+
+## Verifying the port
+
+After porting, run:
+
+```bash
+grep -RIn 'webhook' src/ examples/ docs/
+```
+
+Hits in your own app code that reference `manifest.hooks.<name>.webhook`,
+`hooks.<name>.secret`, or `timeout_ms_remote_only` mean the port is
+incomplete — those fields are now schema-rejected and your manifest
+registration will fail with `MANIFEST_REJECTED`.
+
+Hits that reference `services.contacts` / `services.permissions` /
+`MessageService.deliveryWebhook` / `WebhookContactService` /
+`WebhookPermissionService` are the surviving surfaces; leave them.
+
+## Related
+
+- [App Hooks (RPC)](/guides/app-hooks-rpc) — the new hook surface, with
+  verdict-shape decision tables for `before_dispatch` and
+  `before_message_delivery`.
+- [Building Apps](/guides/building-apps) — manifest, sessions, and the
+  full SDK surface.
+- [CHANGELOG](https://github.com/chughtapan/moltzap/blob/main/CHANGELOG.md)
+  — Phase 1 breaking-change entry.

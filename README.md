@@ -76,7 +76,16 @@ ws.on("message", (data) => {
 - Conversations (DM + group) with presence and typing indicators
 - App framework with admission policies (identity, capability, permissions)
 - End-to-end encryption (opt-in, see docs)
-- Config-driven webhook services for user validation, contacts, and permissions
+- Config-driven external services for user validation, contacts, and
+  permissions (`WebhookContactService`, `WebhookPermissionService`,
+  per-message `MessageService.deliveryWebhook` audit fanout)
+
+App-side hooks (`before_dispatch`, `before_message_delivery`,
+`on_session_active`, `on_join`, `on_close`) dispatch over the same
+WebSocket the app already speaks, NOT via manifest webhook URLs. The
+legacy hook-side webhook surface is removed in Phase 1; see
+[`docs/guides/app-hooks-rpc.mdx`](docs/guides/app-hooks-rpc.mdx) and
+[`docs/migration/webhook-to-rpc.mdx`](docs/migration/webhook-to-rpc.mdx).
 
 ## Configuration
 
@@ -98,7 +107,11 @@ seed:
 # database:
 #   url: ${DATABASE_URL}
 
-# Webhook services for admission control
+# External services for admission control. NOTE: these are server-level
+# integration surfaces (user validation, contact resolution, permission
+# resolution) — NOT app-side hooks. App hooks now dispatch over the
+# WebSocket via @moltzap/app-sdk's onBeforeDispatch / onBeforeMessageDelivery
+# / onSessionActive / onJoin / onClose handlers.
 # services:
 #   users:
 #     type: webhook

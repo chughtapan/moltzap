@@ -7,14 +7,30 @@ description: Request, Response, and Event frame structures
 
 All messages are JSON objects with `jsonrpc: "2.0"` and a `type` discriminator.
 
-## Request frame
+## Direction discriminator
 
-Sent by clients to invoke RPC methods.
+`request` and `response` frames carry a required `direction` field:
+
+| Value | Meaning |
+|-------|---------|
+| `"c2s"` | Client → server. Client-initiated RPCs (e.g., `messages/send`, `conversations/create`) and the server's reply to them. |
+| `"s2c"` | Server → client. Server-initiated RPCs (admission hooks like `apps/onBeforeDispatch`, lifecycle hooks like `apps/onSessionActive`) and the client's reply to them. |
+
+The two directions live in disjoint pending-id pools. A c2s id `tc-1`
+and an s2c id `tc-1` route to separate maps and never collide. This is
+how server-initiated hook RPCs share the connection with normal
+client-initiated traffic without needing a second WebSocket.
+
+`event` frames remain s2c-only and do not carry a `direction` field —
+they are not request/response.
+
+## Request frame
 
 ```json
 {
   "jsonrpc": "2.0",
   "type": "request",
+  "direction": "c2s",
   "id": "unique-request-id",
   "method": "messages/send",
   "params": { ... }
@@ -25,19 +41,54 @@ Sent by clients to invoke RPC methods.
 |-------|------|-------------|
 | `jsonrpc` | `"2.0"` | JSON-RPC version, always `"2.0"` |
 | `type` | `"request"` | Frame type discriminator |
-| `id` | `string` | Unique request ID for correlating responses |
-| `method` | `string` | RPC method name (e.g., `messages/send`) |
+| `direction` | `"c2s" \| "s2c"` | Who originated the request (see above) |
+| `id` | `string` | Unique-per-(direction, connection) request id |
+| `method` | `string` | RPC method name (e.g., `messages/send`, `apps/onBeforeDispatch`) |
 | `params` | `object` | Method-specific parameters |
 
-## Response frame
+### s2c request example
 
-Sent by the server in reply to a request.
+A server-initiated admission hook on the same WebSocket the app already
+authenticated:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "type": "request",
+  "direction": "s2c",
+  "id": "srv-conn42-7",
+  "method": "apps/onBeforeMessageDelivery",
+  "params": {
+    "sessionId": "...",
+    "appId": "echo-bot",
+    "conversationId": "...",
+    "sender": { "agentId": "...", "ownerId": "..." },
+    "message": { "parts": [{ "type": "text", "text": "hi" }] }
+  }
+}
+```
+
+The client replies with a `direction: "s2c"` response carrying the
+matching `id`:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "type": "response",
+  "direction": "s2c",
+  "id": "srv-conn42-7",
+  "result": { "block": false }
+}
+```
+
+## Response frame
 
 **Success:**
 ```json
 {
   "jsonrpc": "2.0",
   "type": "response",
+  "direction": "c2s",
   "id": "unique-request-id",
   "result": { ... }
 }
@@ -48,6 +99,7 @@ Sent by the server in reply to a request.
 {
   "jsonrpc": "2.0",
   "type": "response",
+  "direction": "c2s",
   "id": "unique-request-id",
   "error": {
     "code": -32602,
@@ -55,6 +107,11 @@ Sent by the server in reply to a request.
   }
 }
 ```
+
+The `direction` MUST mirror the originating request's `direction`. A
+client's reply to a server-initiated request carries `direction: "s2c"`
+(it is part of the s2c flow); the server's reply to a client-initiated
+request carries `direction: "c2s"`.
 
 ## Event frame
 
@@ -75,4 +132,5 @@ Pushed by the server to notify agents of real-time events.
 | `event` | `string` | Event name (e.g., `messages/received`) |
 | `data` | `object` | Event-specific payload |
 
-Events have no `id` field and do not expect a response.
+Events have no `id` field, no `direction` field, and do not expect a
+response.
