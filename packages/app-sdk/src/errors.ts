@@ -49,6 +49,9 @@ export class AppError extends Error {
  * ```
  */
 export class AuthError extends AppError {
+  /** Tag used for `Effect.catchTag` discrimination. */
+  readonly _tag = "AuthError" as const;
+
   constructor(message: string, cause?: Error) {
     super("AUTH_FAILED", message, cause);
     this.name = "AuthError";
@@ -75,6 +78,9 @@ export class AuthError extends AppError {
  * ```
  */
 export class SessionError extends AppError {
+  /** Tag used for `Effect.catchTag` discrimination. */
+  readonly _tag = "SessionError" as const;
+
   constructor(message: string, cause?: Error) {
     super("SESSION_ERROR", message, cause);
     this.name = "SessionError";
@@ -100,6 +106,9 @@ export class SessionError extends AppError {
  * ```
  */
 export class SessionClosedError extends AppError {
+  /** Tag used for `Effect.catchTag` discrimination. */
+  readonly _tag = "SessionClosedError" as const;
+
   constructor(message: string, cause?: Error) {
     super("SESSION_CLOSED", message, cause);
     this.name = "SessionClosedError";
@@ -124,6 +133,9 @@ export class SessionClosedError extends AppError {
  * ```
  */
 export class ManifestRegistrationError extends AppError {
+  /** Tag used for `Effect.catchTag` discrimination. */
+  readonly _tag = "ManifestRegistrationError" as const;
+
   constructor(message: string, cause?: Error) {
     super("MANIFEST_REJECTED", message, cause);
     this.name = "ManifestRegistrationError";
@@ -152,6 +164,9 @@ export class ManifestRegistrationError extends AppError {
  * ```
  */
 export class ConversationKeyError extends AppError {
+  /** Tag used for `Effect.catchTag` discrimination. */
+  readonly _tag = "ConversationKeyError" as const;
+
   constructor(key: string) {
     super("UNKNOWN_CONVERSATION_KEY", `Unknown conversation key: "${key}"`);
     this.name = "ConversationKeyError";
@@ -176,6 +191,9 @@ export class ConversationKeyError extends AppError {
  * ```
  */
 export class SendError extends AppError {
+  /** Tag used for `Effect.catchTag` discrimination. */
+  readonly _tag = "SendError" as const;
+
   constructor(message: string, cause?: Error) {
     super("SEND_FAILED", message, cause);
     this.name = "SendError";
@@ -204,6 +222,8 @@ export class SendError extends AppError {
  * ```
  */
 export class AppHandlerError extends AppError {
+  /** Tag used for `Effect.catchTag` discrimination. */
+  readonly _tag = "AppHandlerError" as const;
   /** RPC method whose handler failed (e.g. `apps/onBeforeDispatch`). */
   readonly method: string;
 
@@ -234,6 +254,8 @@ export class AppHandlerError extends AppError {
  * ```
  */
 export class AdmissionTimeoutError extends AppError {
+  /** Tag used for `Effect.catchTag` discrimination. */
+  readonly _tag = "AdmissionTimeoutError" as const;
   /** RPC method whose admission timed out. */
   readonly method: string;
   /** Manifest-declared timeout in ms. */
@@ -268,6 +290,8 @@ export class AdmissionTimeoutError extends AppError {
  * ```
  */
 export class AppDisconnected extends AppError {
+  /** Tag used for `Effect.catchTag` discrimination. */
+  readonly _tag = "AppDisconnected" as const;
   /** RPC method whose pending request was dropped. */
   readonly method: string;
 
