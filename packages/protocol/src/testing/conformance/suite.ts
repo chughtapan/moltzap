@@ -95,17 +95,25 @@ export function registerAllProperties(ctx: ConformanceRunContext): void {
   schemaConformance.registerRoundTripIdentity(ctx);
   schemaConformance.registerMalformedFrameHandling(ctx);
   schemaConformance.registerRpcMapCoverage(ctx);
+  schemaConformance.registerS2cRequestRoundTripIdentity(ctx);
+  schemaConformance.registerS2cResponseValidation(ctx);
+  schemaConformance.registerS2cMalformedRequestHandling(ctx);
+  schemaConformance.registerDualDirectionIdCollision(ctx);
 
   rpcSemantics.registerModelEquivalence(ctx);
   rpcSemantics.registerAuthorityPositive(ctx);
   rpcSemantics.registerAuthorityNegative(ctx);
   rpcSemantics.registerRequestIdUniqueness(ctx);
   rpcSemantics.registerIdempotence(ctx);
+  rpcSemantics.registerSpuriousS2cFrameHandling(ctx);
+  rpcSemantics.registerCallerControlledS2cTimeout(ctx);
 
   delivery.registerFanOutCardinality(ctx);
   delivery.registerStoreAndReplay(ctx);
   delivery.registerPayloadOpacity(ctx);
   delivery.registerTaskBoundaryIsolation(ctx);
+  delivery.registerHookGatedDelivery(ctx);
+  delivery.registerMultiAppFifoShortCircuit(ctx);
 
   adversity.registerLatencyResilience(ctx);
   adversity.registerBackpressure(ctx); // tombstoned — #186
@@ -115,6 +123,7 @@ export function registerAllProperties(ctx: ConformanceRunContext): void {
   adversity.registerSlowCloseCleanup(ctx);
 
   boundary.registerSchemaExhaustiveFuzz(ctx);
+  boundary.registerAppDisconnectFailPolicy(ctx);
 }
 
 /**
@@ -255,6 +264,28 @@ function allowedServerCoverageGaps(
       kind: "unavailable",
       id: "adversity/reset-peer-recovery",
       reasonIncludes: "reset_peer toxic did not close",
+    },
+    // Hook-gated delivery, multi-app FIFO short-circuit, and
+    // app-disconnect fail-policy require app-session machinery
+    // (apps/create needs the initiator's owner_user_id to be non-null —
+    // app-host.ts:629). The default conformance fixture registers
+    // agents without owner_user_id; B.9 server integration tests cover
+    // the deep assertions via DB-level seeding. Until the fixture is
+    // extended, these properties self-report PropertyUnavailable.
+    {
+      kind: "unavailable",
+      id: "delivery/hook-gated-delivery",
+      reasonIncludes: "apps/create",
+    },
+    {
+      kind: "unavailable",
+      id: "delivery/multi-app-fifo-short-circuit",
+      reasonIncludes: "apps/create",
+    },
+    {
+      kind: "unavailable",
+      id: "boundary/app-disconnect-fail-policy",
+      reasonIncludes: "apps/create",
     },
   ];
   if (toxiproxyUrl === null) {

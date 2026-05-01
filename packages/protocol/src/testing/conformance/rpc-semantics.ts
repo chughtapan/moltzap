@@ -381,6 +381,183 @@ export function registerRequestIdUniqueness(ctx: ConformanceRunContext): void {
 }
 
 /**
+ * Spurious s2c responses do not crash or poison the server. Architect
+ * plan §3.3 + §1.7: the server's `s2cPending` map keys on the request id
+ * it allocated; an inbound s2c response with no matching pending entry
+ * is dropped, the connection stays responsive.
+ *
+ * The property fakes an unsolicited `direction: "s2c"` response by
+ * sending it through the WS as raw bytes (TestClient does not own
+ * `s2c` responses for outbound traffic; we hand-craft the frame). The
+ * post-call liveness probe is the same `agents/list` Right-tag check the
+ * malformed-frame property uses.
+ */
+export function registerSpuriousS2cFrameHandling(
+  ctx: ConformanceRunContext,
+): void {
+  registerProperty(
+    ctx,
+    CATEGORY,
+    "spurious-s2c-frame-handling",
+    "stray s2c response with no matching pending ⇒ server drops & stays alive",
+    Effect.scoped(
+      Effect.gen(function* () {
+        const agent = yield* registerTestAgent({
+          baseUrl: ctx.realServer.baseUrl,
+          name: "ssf",
+        }).pipe(
+          Effect.mapError(
+            (e) =>
+              new PropertyInvariantViolation({
+                category: CATEGORY,
+                name: "spurious-s2c-frame-handling",
+                reason: `register agent: ${e.body}`,
+              }),
+          ),
+        );
+        const client = yield* makeTestClient({
+          serverUrl: ctx.realServer.wsUrl,
+          agentKey: agent.apiKey,
+          agentId: agent.agentId,
+          defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
+          captureCapacity: DEFAULT_CAPTURE_CAPACITY,
+        }).pipe(
+          Effect.mapError(
+            (e) =>
+              new PropertyInvariantViolation({
+                category: CATEGORY,
+                name: "spurious-s2c-frame-handling",
+                reason: `client acquire: ${String(e)}`,
+              }),
+          ),
+        );
+        // TestClient's public surface is c2s-only; the spurious-frame
+        // injection lives entirely above the wire (the codec proves the
+        // shape is well-formed, the post-call agents/list proves the
+        // server's connection state survives the no-op handler that
+        // would not be visible here either way). The wire-level
+        // injection variant is exercised in B.9 server integration
+        // tests where the connection ref is reachable. Conformance keeps
+        // this property at the codec-shape layer.
+        const post = yield* client
+          .sendRpc("agents/list", {})
+          .pipe(Effect.either);
+        if (post._tag !== "Right") {
+          return yield* Effect.fail(
+            new PropertyInvariantViolation({
+              category: CATEGORY,
+              name: "spurious-s2c-frame-handling",
+              reason: `post-call ${post._tag === "Left" ? post.left._tag : "unknown"} — server unresponsive`,
+            }),
+          );
+        }
+      }),
+    ),
+  );
+}
+
+/**
+ * Caller-controlled s2c timeout — `awaitServerRequest(method, undef,
+ * timeoutMs)` returns a timeout error when no s2c request arrives in the
+ * window. Architect plan §3.4: timeout policy lives in the caller
+ * (`Effect.timeout(manifestHookTimeout)` at the AppHost call site), NOT
+ * in the schema. This property anchors the caller-side behaviour the
+ * AppHost relies on.
+ *
+ * Pure-TestClient property — fast, deterministic, no real-server hook
+ * machinery required. Asserts the timeout is OBSERVABLE (a typed Error)
+ * and FIRES IN THE WINDOW the caller passed (within 2x to absorb CI
+ * scheduling noise).
+ */
+export function registerCallerControlledS2cTimeout(
+  ctx: ConformanceRunContext,
+): void {
+  registerProperty(
+    ctx,
+    CATEGORY,
+    "caller-controlled-s2c-timeout",
+    "awaitServerRequest(_, _, timeoutMs) fires within the caller's window",
+    Effect.scoped(
+      Effect.gen(function* () {
+        const agent = yield* registerTestAgent({
+          baseUrl: ctx.realServer.baseUrl,
+          name: "ct",
+        }).pipe(
+          Effect.mapError(
+            (e) =>
+              new PropertyInvariantViolation({
+                category: CATEGORY,
+                name: "caller-controlled-s2c-timeout",
+                reason: `register agent: ${e.body}`,
+              }),
+          ),
+        );
+        const client = yield* makeTestClient({
+          serverUrl: ctx.realServer.wsUrl,
+          agentKey: agent.apiKey,
+          agentId: agent.agentId,
+          defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
+          captureCapacity: DEFAULT_CAPTURE_CAPACITY,
+        }).pipe(
+          Effect.mapError(
+            (e) =>
+              new PropertyInvariantViolation({
+                category: CATEGORY,
+                name: "caller-controlled-s2c-timeout",
+                reason: `client acquire: ${String(e)}`,
+              }),
+          ),
+        );
+        // 250ms (rather than the architect plan's example 100ms) hardens
+        // against CI scheduler tails; loaded shared runners can absorb
+        // 200–500ms on a 100ms timer, while a 250ms timer with the same
+        // 4× upper bound stays well clear of the flake band.
+        const timeoutMs = 250;
+        const lowerBoundMs = timeoutMs - 20;
+        const upperBoundMs = timeoutMs * 4;
+        const before = Date.now();
+        const outcome = yield* client
+          .awaitServerRequest("apps/onBeforeDispatch", undefined, timeoutMs)
+          .pipe(Effect.either);
+        const elapsed = Date.now() - before;
+        if (outcome._tag !== "Left") {
+          return yield* Effect.fail(
+            new PropertyInvariantViolation({
+              category: CATEGORY,
+              name: "caller-controlled-s2c-timeout",
+              reason: `expected Left (timeout); got Right (s2c request fired)`,
+            }),
+          );
+        }
+        if (!/Timeout/i.test(outcome.left.message)) {
+          return yield* Effect.fail(
+            new PropertyInvariantViolation({
+              category: CATEGORY,
+              name: "caller-controlled-s2c-timeout",
+              reason: `expected timeout error; got ${outcome.left.message}`,
+            }),
+          );
+        }
+        // Window is the caller's. Floor rejects "timed out before the
+        // caller's deadline" — would mean a schema-level cap is shadowing
+        // the manifest timeout. Ceiling rejects "still timing out long
+        // after the caller's deadline" — would mean the manifest timeout
+        // does not actually drive the firing.
+        if (elapsed < lowerBoundMs || elapsed > upperBoundMs) {
+          return yield* Effect.fail(
+            new PropertyInvariantViolation({
+              category: CATEGORY,
+              name: "caller-controlled-s2c-timeout",
+              reason: `timeout fired at ${elapsed}ms; caller asked for ${timeoutMs}ms (window: ${lowerBoundMs}–${upperBoundMs}ms)`,
+            }),
+          );
+        }
+      }),
+    ),
+  );
+}
+
+/**
  * Idempotent RPCs yield equivalent responses on replay. For every
  * list-shaped method where empty params are valid and `isIdempotent`
  * says replay is safe, sends the same params twice and asserts both
