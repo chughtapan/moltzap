@@ -21,13 +21,48 @@
  *   4. A correct dispatcher resolves: (2) runs to completion; the
  *      `Deferred` fires; (1) resumes and replies.
  *
- * The properties below are written against the boundary
- * `TestClient` + `TestServer` so they apply unchanged to any
- * MoltZap-conforming client. Implementer wires them into
- * `protocol/src/testing/conformance/index.ts` alongside the existing
- * `boundary` / `delivery` tiers.
+ * ─── Implementation status (impl-staff #356) ────────────────────────
  *
- * Principle 3: every property body is `Effect<void, PropertyFailure>`.
+ * The properties P1-P4 below are the cross-implementation contract.
+ * They are NOT registered with the conformance property registry in
+ * this PR because cross-impl execution requires the conformance
+ * `TestServer` to emit s2c request frames — a surface addition the
+ * architect plan §6 ("No public-package-barrel change. No public
+ * surface change to pre-existing modules.") explicitly excluded
+ * from the spec's scope.
+ *
+ * Until that infrastructure lands, the same properties are exercised
+ * at lower layers against the reference client implementation
+ * (`@moltzap/client`):
+ *
+ *   - **P1 (disjoint-key concurrency)** —
+ *     `packages/client/src/internal/__tests__/s2c-partitioned-dispatcher.test.ts`
+ *     `"two offers with different keys execute concurrently"`.
+ *
+ *   - **P2 (arena#248 reproducer)** —
+ *     `packages/client/src/internal/__tests__/s2c-partitioned-dispatcher.test.ts`
+ *     `"before_dispatch suspended on Deferred.await does NOT block
+ *     before_message_delivery for the same (sessionId, conversationId)"`
+ *     and the real-WS integration test in
+ *     `s2c-partitioned-dispatcher-real-ws.test.ts`.
+ *
+ *   - **P3 (same-key FIFO)** —
+ *     `s2c-partitioned-dispatcher.test.ts` `"two offers with the same
+ *     key land on the same worker (FIFO preserved)"` and the per-tuple
+ *     ordering assertion in `s2c-partition-worker.test.ts`.
+ *
+ *   - **P4 (per-partition backpressure independence)** —
+ *     `s2c-partitioned-dispatcher.test.ts` `"partitionQueueFull on
+ *     partition A does not block partition B"`.
+ *
+ * The vitest stubs below remain as documentation for the future
+ * cross-implementation wiring; they are NOT executed (vitest's
+ * include glob is `*.test.ts`, this file is `*.ts`).
+ *
+ * Routing the deferred work: a follow-up issue should expand
+ * `TestServer` with `emitServerRequest` and register these as
+ * `dispatcher-concurrency` category properties via the conformance
+ * registry, parallel to `boundary` / `delivery`.
  */
 import { describe, it } from "vitest";
 

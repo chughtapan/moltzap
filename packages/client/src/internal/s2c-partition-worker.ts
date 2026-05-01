@@ -15,12 +15,21 @@
  * `PartitionQueueFullError` rather than suspending the caller. The
  * reader fiber must NOT block; per-partition fullness is surfaced as
  * a typed error and translated to a wire-level error response.
+ *
+ * Single-producer guarantee: only the dispatcher's reader-fiber path
+ * calls `offer` for any given partition. That makes the
+ * `Queue.size + offer` pre-check race-free for "full" detection: if
+ * size < capacity at the check, the subsequent `offer` cannot suspend
+ * because no other producer can fill the queue between check and
+ * offer. The drain fiber only consumes; it cannot push us past
+ * capacity.
  */
-import { Effect, Fiber, Queue, Ref, Scope } from "effect";
-import {
-  PartitionQueueFullError,
-} from "./s2c-dispatcher-errors.js";
-import type { PartitionKey, PartitionableRequest } from "./s2c-partition-key.js";
+import { Cause, Effect, Fiber, Queue, Ref, Scope, Stream } from "effect";
+import { PartitionQueueFullError } from "./s2c-dispatcher-errors.js";
+import type {
+  PartitionKey,
+  PartitionableRequest,
+} from "./s2c-partition-key.js";
 import type { WsClientLogger } from "../ws-client.js";
 
 /**
@@ -35,6 +44,11 @@ import type { WsClientLogger } from "../ws-client.js";
 export type PartitionHandler = (
   request: PartitionableRequest,
 ) => Effect.Effect<void, never>;
+
+/** Idle / busy sum-type tracked per worker. See `PartitionWorker.idleSince`. */
+export type IdleSince =
+  | { readonly _tag: "Idle"; readonly sinceMs: number }
+  | { readonly _tag: "Busy" };
 
 /**
  * One partition's runtime state. Constructed by `makePartitionWorker`;
@@ -59,13 +73,19 @@ export interface PartitionWorker {
    */
   readonly fiber: Fiber.RuntimeFiber<void, never>;
   /**
-   * `Some(monotonicMs)` while the queue has been continuously empty
-   * since `monotonicMs`; `None` whenever the queue has at least one
-   * pending item or the worker is currently running a handler. The
-   * dispatcher's idle reaper compares this against
-   * `idlePartitionTtlMs` to decide when to retire the partition.
+   * Idle-since tracker. `Busy` while the worker has a request queued
+   * or a handler running; `Idle{sinceMs}` once the queue drains and
+   * the handler returns. The dispatcher's idle reaper compares
+   * `Idle.sinceMs` against `now - idlePartitionTtlMs` to decide
+   * retirement.
    */
-  readonly idleSince: Ref.Ref<{ readonly _tag: "Idle"; readonly sinceMs: number } | { readonly _tag: "Busy" }>;
+  readonly idleSince: Ref.Ref<IdleSince>;
+  /**
+   * Live queue size for `DispatcherStats`. Reaper does not consult
+   * this — it gates strictly on `idleSince._tag === "Idle"` to avoid
+   * races where the queue snapshot misses an in-flight item.
+   */
+  readonly queueSize: Effect.Effect<number>;
 }
 
 /**
@@ -78,17 +98,126 @@ export interface PartitionWorkerConfig {
   readonly capacity: number;
   readonly handle: PartitionHandler;
   readonly logger?: WsClientLogger;
+  /** Monotonic clock for tests; defaults to `Date.now`. */
+  readonly clock?: () => number;
 }
 
 /**
  * Build one worker. Allocates a bounded queue, forks a draining fiber
  * via `Stream.fromQueue` + `Stream.runForEach`, and registers the
- * scope finalizer that shuts the queue and interrupts the fiber on
- * scope close. Defects in `handle` are caught + logged; the fiber
- * never fails.
+ * scope finalizer that shuts the queue. Defects in `handle` are
+ * caught + logged; the fiber never fails.
  */
 export function makePartitionWorker(
   config: PartitionWorkerConfig,
 ): Effect.Effect<PartitionWorker, never, Scope.Scope> {
-  throw new Error("not implemented");
+  const clock = config.clock ?? Date.now;
+  return Effect.gen(function* () {
+    const queue = yield* Queue.bounded<PartitionableRequest>(config.capacity);
+    const idleSince = yield* Ref.make<IdleSince>({
+      _tag: "Idle",
+      sinceMs: clock(),
+    });
+
+    // Drain loop: take → mark Busy → run handler (catching defects)
+    // → mark Idle if queue is now empty. `Stream.fromQueue` ends
+    // naturally when the queue is shut down (Scope finalizer below),
+    // so the fiber returns cleanly without an explicit interrupt for
+    // the happy path.
+    const drainEffect: Effect.Effect<void, never> = Stream.fromQueue(
+      queue,
+    ).pipe(
+      Stream.runForEach((request) =>
+        Effect.gen(function* () {
+          yield* Ref.set(idleSince, { _tag: "Busy" } as const);
+          yield* config.handle(request).pipe(
+            Effect.catchAllCause((cause) =>
+              Effect.sync(() => {
+                config.logger?.warn(
+                  `s2c partition worker handler defected (key=${config.key})`,
+                  Cause.pretty(cause),
+                );
+              }),
+            ),
+          );
+          const remaining = yield* Queue.size(queue).pipe(
+            Effect.catchAllCause(() => Effect.succeed(0)),
+          );
+          if (remaining === 0) {
+            yield* Ref.set(idleSince, {
+              _tag: "Idle",
+              sinceMs: clock(),
+            } as const);
+          }
+        }),
+      ),
+      Effect.catchAllCause((cause) =>
+        Effect.sync(() => {
+          config.logger?.warn(
+            `s2c partition worker fiber exited (key=${config.key})`,
+            Cause.pretty(cause),
+          );
+        }),
+      ),
+      Effect.asVoid,
+    );
+    const fiber = yield* Effect.forkScoped(drainEffect);
+
+    // Shut the queue when the dispatcher Scope closes. `Effect.forkScoped`
+    // already covers fiber interruption; queue.shutdown is the
+    // belt-and-braces guarantee that the running stream observes the
+    // shutdown and returns even if the fiber is mid-handler.
+    yield* Effect.addFinalizer(() =>
+      Queue.shutdown(queue).pipe(Effect.catchAllCause(() => Effect.void)),
+    );
+
+    const offer = (
+      request: PartitionableRequest,
+    ): Effect.Effect<void, PartitionQueueFullError> =>
+      Effect.gen(function* () {
+        const size = yield* Queue.size(queue).pipe(
+          // `Queue.size` on a shut-down queue surfaces interrupt; treat
+          // every failure as "queue unavailable" → full-error tag.
+          Effect.catchAllCause(() => Effect.succeed(config.capacity)),
+        );
+        if (size >= config.capacity) {
+          return yield* Effect.fail(
+            new PartitionQueueFullError({
+              key: config.key,
+              capacity: config.capacity,
+              requestId: request.id,
+            }),
+          );
+        }
+        // Mark Busy BEFORE offer so any reaper tick that observes
+        // mid-offer state cannot finalize this partition between
+        // size-check and drain start.
+        yield* Ref.set(idleSince, { _tag: "Busy" } as const);
+        const accepted = yield* Queue.offer(queue, request).pipe(
+          Effect.catchAllCause(() => Effect.succeed(false)),
+        );
+        if (!accepted) {
+          // Queue shut down between size-check and offer — surface as
+          // `PartitionQueueFullError` so the reader's tag-discrimination
+          // path treats it identically to "queue full".
+          return yield* Effect.fail(
+            new PartitionQueueFullError({
+              key: config.key,
+              capacity: config.capacity,
+              requestId: request.id,
+            }),
+          );
+        }
+      });
+
+    return {
+      key: config.key,
+      offer,
+      fiber,
+      idleSince,
+      queueSize: Queue.size(queue).pipe(
+        Effect.catchAllCause(() => Effect.succeed(0)),
+      ),
+    } satisfies PartitionWorker;
+  });
 }
