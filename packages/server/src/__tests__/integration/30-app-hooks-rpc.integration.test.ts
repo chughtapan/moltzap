@@ -891,27 +891,42 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
       "happy path: attaches a conversation under conversationId-as-key",
       () =>
         Effect.gen(function* () {
-          const userAgent = yield* registerAppAgent("att-happy-user");
+          // The wire `apps/attachConversation` is the SDK's surface; auth
+          // requires the caller's WS connection to be the registered
+          // remote-app of record (architect plan §B.2 acceptance #2; see
+          // `requireSessionAppOfRecord` for the gap-closure rationale).
+          // We therefore use `registerAppClient` to register a remote app
+          // and have THAT connection call attachConversation; the user
+          // agent creates the session as initiator, but doesn't attach.
           const peer = yield* registerAppAgent("att-happy-peer");
-
-          // Server-side in-process app registration is the simplest path
-          // for tests that only exercise `apps/attachConversation` (the
-          // c2s verb is independent of the s2c hook RPCs).
-          coreApp.registerApp({
-            appId: "att-happy-app",
-            name: "Att Happy",
-            permissions: { required: [], optional: [] },
-            conversations: [
-              { key: "main", name: "Main", participantFilter: "all" },
-            ],
+          const app = yield* registerAppClient({
+            name: "att-happy-app-agent",
+            manifest: manifestFor("att-happy-app"),
+            handlers: {},
           });
 
-          const session = (yield* userAgent.client.sendRpc("apps/create", {
+          // `registerAppClient` doesn't set `owner_user_id`; createSession
+          // requires it on the initiator. Mirror `registerAppAgent`'s
+          // direct DB update to satisfy the pre-check.
+          const db = getKyselyDb();
+          yield* Effect.tryPromise(() =>
+            db
+              .updateTable("agents")
+              .set({ owner_user_id: crypto.randomUUID() })
+              .where("id", "=", app.appAgentId)
+              .execute(),
+          );
+
+          // The app is also the initiator: `apps/create` uses `ctx.agentId`
+          // as the initiator and the same connection holds the remote-app
+          // registration, so the session has the app as both initiator and
+          // app-of-record. (Production SDK callers follow the same shape.)
+          const session = (yield* app.client.sendRpc("apps/create", {
             appId: "att-happy-app",
             invitedAgentIds: [],
           })) as { session: { id: string } };
 
-          const dm = (yield* userAgent.client.sendRpc("conversations/create", {
+          const dm = (yield* app.client.sendRpc("conversations/create", {
             type: "dm",
             participants: [{ type: "agent", id: peer.agentId }],
           })) as { conversation: { id: string } };
@@ -919,12 +934,11 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
           // Wire shape for `apps/attachConversation` carries no `key`
           // field; the server handler uses `conversationId` as the key
           // (deterministic 1:1; see apps.handlers.ts comment).
-          yield* userAgent.client.sendRpc("apps/attachConversation", {
+          yield* app.client.sendRpc("apps/attachConversation", {
             sessionId: session.session.id,
             conversationId: dm.conversation.id,
           });
 
-          const db = getKyselyDb();
           const rows = yield* Effect.tryPromise(() =>
             db
               .selectFrom("app_session_conversations")
@@ -963,7 +977,7 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
     );
 
     it.live(
-      "Forbidden (-32001) → SDK maps to AttachError('NotAuthorized') when caller is not the initiator",
+      "Forbidden (-32001) → SDK maps to AttachError('NotAuthorized') when caller is not the app of record",
       () =>
         Effect.gen(function* () {
           const initiator = yield* registerAppAgent("att-na-init");
@@ -989,9 +1003,15 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
             participants: [{ type: "agent", id: peer.agentId }],
           })) as { conversation: { id: string } };
 
-          // Stranger calls against a session they don't own. The wire
-          // RPC handler validates auth via `appHost.getSession`, which
-          // returns Forbidden for non-initiator/non-participant.
+          // Stranger calls against a session they don't own and aren't
+          // the app of record for. The wire RPC handler authorizes via
+          // `requireSessionAppOfRecord`, which rejects any caller whose
+          // connectionId isn't the registered remote-app for the
+          // session's `app_id`. (`coreApp.registerApp` creates an
+          // in-process registration only — no remote `connectionId` is
+          // bound — so even the initiator would fail this check via the
+          // wire surface; in-process callers must use
+          // `attachAppConversation` directly.)
           const rpcErr = yield* expectRpcFailure(
             stranger.client.sendRpc("apps/attachConversation", {
               sessionId: session.session.id,
@@ -1001,6 +1021,100 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
           );
           expect(rpcErr.code).toBe(ErrorCodes.Forbidden);
           expect(expectedAttachTagFor(rpcErr.code)).toBe("NotAuthorized");
+        }),
+    );
+
+    it.live(
+      "admitted participant cannot attach an unrelated conversation (cross-tenant guard)",
+      () =>
+        // The exact exploit codex named on PR #326: App-B is admitted to
+        // App-A's session as a participant — so App-B passes the
+        // pre-recovery `getSession(sessionId, ctx.agentId)` admission
+        // check — but App-B is NOT the app of record for App-A's
+        // session. With the gap, App-B could attach an arbitrary
+        // conversationId to App-A's session, exfiltrating the
+        // conversation's messages through App-A's hooks and obtaining
+        // deny-veto on messages it shouldn't see. The fix in
+        // `requireSessionAppOfRecord` tightens the auth predicate to
+        // "caller's WS connection id matches the remote-app
+        // registration for `session.app_id`", which App-B fails.
+        //
+        // Test should fail BEFORE the handler fix (App-B's
+        // `apps/attachConversation` succeeds via getSession-as-admitted)
+        // and pass AFTER (Forbidden via the app-of-record check).
+        Effect.gen(function* () {
+          // App-A is the legitimate app of record. Registers as a remote
+          // app over WS so the wire `apps/attachConversation` round-trip
+          // can authorize via the registered connectionId.
+          const appA = yield* registerAppClient({
+            name: "att-xtenant-app-a-agent",
+            manifest: manifestFor("att-xtenant-app-a"),
+            handlers: {},
+          });
+
+          // App-B is a separate connection (different agentId). Will be
+          // admitted as a participant to App-A's session, then attempt
+          // the cross-tenant attach.
+          const appB = yield* registerAppClient({
+            name: "att-xtenant-app-b-agent",
+            manifest: manifestFor("att-xtenant-app-b"),
+            handlers: {},
+          });
+
+          // Both agents need `owner_user_id` populated for AppHost
+          // admission to succeed (initiator pre-check + participant
+          // identity check). `registerAppClient` doesn't set it; the
+          // direct DB update mirrors `registerAppAgent`'s pattern.
+          const db = getKyselyDb();
+          for (const agentId of [appA.appAgentId, appB.appAgentId]) {
+            yield* Effect.tryPromise(() =>
+              db
+                .updateTable("agents")
+                .set({ owner_user_id: crypto.randomUUID() })
+                .where("id", "=", agentId)
+                .execute(),
+            );
+          }
+
+          // App-A creates a session with App-B as an invitee. App-B is
+          // NOT the app of record (App-A is); App-B is a participant.
+          // AppHost runs admission for invitees inline; with owner_user_id
+          // set, App-B passes the identity check and lands as `admitted`.
+          const session = (yield* appA.client.sendRpc("apps/create", {
+            appId: "att-xtenant-app-a",
+            invitedAgentIds: [appB.appAgentId],
+          })) as { session: { id: string } };
+
+          // App-B picks an arbitrary conversationId — the exploit shape
+          // is "any convId I have access to" but the existence check is
+          // out of scope here; the auth check fires before the convId
+          // is touched.
+          const targetConvId = crypto.randomUUID();
+
+          // App-B attempts to attach an unrelated conversation to
+          // App-A's session. Pre-fix this would succeed; post-fix the
+          // app-of-record check rejects with Forbidden.
+          const rpcErr = yield* expectRpcFailure(
+            appB.client.sendRpc("apps/attachConversation", {
+              sessionId: session.session.id,
+              conversationId: targetConvId,
+            }),
+            ErrorCodes.Forbidden,
+          );
+          expect(rpcErr.code).toBe(ErrorCodes.Forbidden);
+          expect(expectedAttachTagFor(rpcErr.code)).toBe("NotAuthorized");
+
+          // Verify NO row was inserted (the attach was rejected before
+          // the DB mutation). Reuses the `db` handle from setup above.
+          const rows = yield* Effect.tryPromise(() =>
+            db
+              .selectFrom("app_session_conversations")
+              .selectAll()
+              .where("session_id", "=", session.session.id)
+              .where("conversation_id", "=", targetConvId)
+              .execute(),
+          );
+          expect(rows).toHaveLength(0);
         }),
     );
   });
