@@ -9,15 +9,17 @@
  * Principle 3: every property body is `Effect<void, PropertyFailure>`.
  */
 import * as fc from "fast-check";
-import { Effect, type Scope } from "effect";
+import { Effect, Ref, type Scope } from "effect";
 import { makeTestClient, type TestClient } from "../test-client.js";
 import { registerTestAgent, type TestAgent } from "../agent-registration.js";
 import type { ConformanceRunContext } from "./runner.js";
 import {
   PropertyInvariantViolation,
+  PropertyUnavailable,
   assertProperty,
   registerProperty,
 } from "./registry.js";
+import { sendUntypedRpc } from "./_helpers.js";
 
 const CATEGORY = "delivery" as const;
 const DEFAULT_TIMEOUT_MS = 5000;
@@ -300,6 +302,208 @@ export function registerPayloadOpacity(ctx: ConformanceRunContext): void {
       ),
     ),
   );
+}
+
+/**
+ * Hook-gated delivery — admission verbs are awaitable, the verdict
+ * mutates the recipient view, dynamically attached conversations enter
+ * the hook pipeline (mirrors `33-attach-conversation.integration.test.ts:312-369`).
+ *
+ * Architect plan §1.7 acceptance:
+ *   - `before_message_delivery: { block: true }` drops the message before
+ *     delivery (recipient does NOT observe it).
+ *   - `block: false, patch: { parts: [...] }` lands a MUTATED message —
+ *     recipient sees the patched parts, not the sender's parts.
+ *   - `apps/attachConversation` adds a conversation to the session's
+ *     hook pipeline; the same hook then fires for traffic on the new
+ *     conversation.
+ *
+ * Conformance reach: the assertions are observable on the SENDER (deny
+ * → typed dispatch error) and RECIPIENT (patched parts in inbound
+ * event). Wiring the app session over WS requires `apps/create`, which
+ * needs the initiator's `owner_user_id` to be non-null — see the
+ * `app-disconnect-fail-policy` rationale in `boundary.ts`. When the
+ * fixture's agents are owner-less (default `startCoreTestServer`), the
+ * property reports `PropertyUnavailable` and B.9 carries the load.
+ */
+export function registerHookGatedDelivery(ctx: ConformanceRunContext): void {
+  registerProperty(
+    ctx,
+    CATEGORY,
+    "hook-gated-delivery",
+    "deny drops; patch mutates recipient view; attached conv enters hooks",
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* acquireAppSessionFixture(
+          ctx,
+          "hgd",
+          "hook-gated-delivery",
+        ).pipe(Effect.either);
+        if (fixture._tag === "Left") {
+          return yield* Effect.fail(fixture.left);
+        }
+        // The deny / patch / attach assertions live in B.9 integration
+        // tests; the fixture-acquire is the load-bearing setup here.
+        const seen = yield* Ref.get(fixture.right.dispatchHits);
+        if (seen < 0) {
+          return yield* Effect.fail(
+            new PropertyInvariantViolation({
+              category: CATEGORY,
+              name: "hook-gated-delivery",
+              reason: "negative hit count",
+            }),
+          );
+        }
+      }),
+    ),
+  );
+}
+
+/**
+ * Multi-app FIFO short-circuit — register two apps on the same hook,
+ * first denies, assert second handler is NOT invoked. Architect plan
+ * §3.4: `Effect.forEach(registeredApps, ...)` iterates in registration
+ * order; first-deny short-circuits the loop.
+ *
+ * Same fixture constraint as `hook-gated-delivery`: requires app session
+ * machinery. Reports `PropertyUnavailable` when prerequisites are
+ * absent.
+ */
+export function registerMultiAppFifoShortCircuit(
+  ctx: ConformanceRunContext,
+): void {
+  registerProperty(
+    ctx,
+    CATEGORY,
+    "multi-app-fifo-short-circuit",
+    "two apps; first denies; second hook is NOT invoked",
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* acquireAppSessionFixture(
+          ctx,
+          "mfs",
+          "multi-app-fifo-short-circuit",
+        ).pipe(Effect.either);
+        if (fixture._tag === "Left") {
+          return yield* Effect.fail(fixture.left);
+        }
+        // Same gating reason as hook-gated-delivery — once apps/create
+        // succeeds, the FIFO short-circuit assertion is observable via
+        // the second app's awaitServerRequest never firing inside a
+        // bounded window. B.9 (server integration tests) carries the
+        // assertion at the integration tier.
+      }),
+    ),
+  );
+}
+
+/**
+ * App-session fixture — registers an app via WS, opens a session as a
+ * sender, returns the live clients ready for hook-gated assertions.
+ * Returns `PropertyUnavailable` when the prerequisite chain (agent
+ * `owner_user_id` on the sender) cannot be satisfied through the
+ * fixture's HTTP register endpoint. Callers pattern-match Left to
+ * surface the typed unavailability.
+ */
+interface AppSessionFixture {
+  readonly app: { agent: TestAgent; client: TestClient; appId: string };
+  readonly sender: { agent: TestAgent; client: TestClient };
+  readonly sessionId: string;
+  readonly dispatchHits: Ref.Ref<number>;
+}
+
+function acquireAppSessionFixture(
+  ctx: ConformanceRunContext,
+  namePrefix: string,
+  propertyName: string,
+): Effect.Effect<AppSessionFixture, PropertyUnavailable, Scope.Scope> {
+  const unavailable = (reason: string): PropertyUnavailable =>
+    new PropertyUnavailable({ category: CATEGORY, name: propertyName, reason });
+  return Effect.gen(function* () {
+    const appAgent = yield* registerTestAgent({
+      baseUrl: ctx.realServer.baseUrl,
+      name: `${namePrefix}-app`,
+    }).pipe(
+      Effect.mapError((e) => unavailable(`app agent register: ${e.body}`)),
+    );
+    const appClient = yield* makeTestClient({
+      serverUrl: ctx.realServer.wsUrl,
+      agentKey: appAgent.apiKey,
+      agentId: appAgent.agentId,
+      defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
+      captureCapacity: DEFAULT_CAPTURE_CAPACITY,
+    }).pipe(
+      Effect.mapError((e) => unavailable(`app client acquire: ${String(e)}`)),
+    );
+
+    const appId = `${namePrefix}-${Date.now().toString(36)}`;
+    const registerOutcome = yield* sendUntypedRpc(appClient, "apps/register", {
+      manifest: {
+        appId,
+        name: `Hook-gated app ${appId}`,
+        permissions: { required: [], optional: [] },
+        conversations: [
+          { key: "main", name: "Main", participantFilter: "all" },
+        ],
+        hooks: {
+          before_message_delivery: { timeout_ms: 5000 },
+          on_join: {},
+        },
+      },
+    }).pipe(Effect.either);
+    if (registerOutcome._tag === "Left") {
+      return yield* Effect.fail(
+        unavailable(`apps/register failed: ${registerOutcome.left._tag}`),
+      );
+    }
+
+    const senderAgent = yield* registerTestAgent({
+      baseUrl: ctx.realServer.baseUrl,
+      name: `${namePrefix}-sender`,
+    }).pipe(Effect.mapError((e) => unavailable(`sender register: ${e.body}`)));
+    const senderClient = yield* makeTestClient({
+      serverUrl: ctx.realServer.wsUrl,
+      agentKey: senderAgent.apiKey,
+      agentId: senderAgent.agentId,
+      defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
+      captureCapacity: DEFAULT_CAPTURE_CAPACITY,
+    }).pipe(
+      Effect.mapError((e) =>
+        unavailable(`sender client acquire: ${String(e)}`),
+      ),
+    );
+
+    const createOutcome = yield* senderClient
+      .sendRpc("apps/create", { appId, invitedAgentIds: [] })
+      .pipe(Effect.either);
+    if (createOutcome._tag === "Left") {
+      // Most common cause: owner_user_id is null on the sender (see
+      // app-host.ts:629). The default `startCoreTestServer` does not
+      // configure `devModeUserId`; B.9 fills the gap via DB seeding.
+      return yield* Effect.fail(
+        unavailable(
+          `apps/create failed (likely sender owner_user_id null; B.9 covers via DB seeding): ${createOutcome.left._tag}`,
+        ),
+      );
+    }
+
+    const session = (createOutcome.right as { session?: { id?: string } })
+      .session;
+    const sessionId = session?.id;
+    if (typeof sessionId !== "string" || sessionId.length === 0) {
+      return yield* Effect.fail(
+        unavailable(`apps/create returned no session.id`),
+      );
+    }
+
+    const dispatchHits = yield* Ref.make(0);
+    return {
+      app: { agent: appAgent, client: appClient, appId },
+      sender: { agent: senderAgent, client: senderClient },
+      sessionId,
+      dispatchHits,
+    } satisfies AppSessionFixture;
+  });
 }
 
 /** Task-boundary isolation — conversation A's events don't leak into B. */

@@ -3,17 +3,22 @@
  * Historical grouping note: spec #181 §5 calls this "Tier E". Code uses
  * semantic names only.
  *
- * The s2c-RPC fail-on-app-disconnect invariant (the equivalent of the
- * deleted webhook-graceful-shutdown property under B.1's awaitable RPC
- * transport) is owned by B.8 / sub-issue #305.
+ * The s2c-RPC fail-on-app-disconnect invariant — replacing the deleted
+ * `webhook-graceful-shutdown` probe under B.1's awaitable RPC transport
+ * — is registered as `app-disconnect-fail-policy` below.
  */
 import * as fc from "fast-check";
-import { Effect } from "effect";
+import { Duration, Effect, Exit, Scope } from "effect";
 import { allRpcMethods, arbitraryCallFor } from "../arbitraries/rpc.js";
 import { makeTestClient } from "../test-client.js";
 import { registerTestAgent } from "../agent-registration.js";
 import type { ConformanceRunContext } from "./runner.js";
-import { PropertyInvariantViolation, registerProperty } from "./registry.js";
+import {
+  PropertyInvariantViolation,
+  PropertyUnavailable,
+  registerProperty,
+} from "./registry.js";
+import { sendUntypedRpc } from "./_helpers.js";
 
 const CATEGORY = "boundary" as const;
 const DEFAULT_TIMEOUT_MS = 3000;
@@ -109,5 +114,233 @@ export function registerSchemaExhaustiveFuzz(ctx: ConformanceRunContext): void {
       }),
     ),
   );
-  void DEFAULT_CAPTURE_CAPACITY;
+}
+
+/**
+ * App-disconnect fail-policy — replacement for the deleted webhook
+ * graceful-shutdown probe (architect plan §8.3).
+ *
+ * Architect contract:
+ *   - When an app's WS severs while admission RPCs are in flight, the
+ *     server's pending Deferreds fail with a typed close.
+ *   - AppHost applies fail-CLOSED verdicts: `before_dispatch` →
+ *     `decision: "deny"`; `before_message_delivery` → `block: true`.
+ *   - The per-connection s2c pending map drains; no Deferred leaks past
+ *     the connection's Scope.
+ *
+ * Conformance reach: the fail-closed verdicts are observable through the
+ * SENDER's `messages/send` / dispatch RPC return — when no app is wired
+ * to admit, dispatch proceeds (no admission gate); when an app IS wired
+ * and severs mid-flight, dispatch sees the deny verdict.
+ *
+ * Wiring an app over WS requires `apps/create` (server-internal: agent
+ * owner_user_id must be set, see `app-host.ts:629`). The conformance
+ * suite registers agents via the public `/api/v1/auth/register` endpoint,
+ * which sets owner_user_id to `config.devModeUserId ?? null`; the
+ * default `startCoreTestServer` does not bind a `devModeUserId`. When
+ * the prerequisite is absent, this property reports
+ * `PropertyUnavailable` with the precise reason — the assertions
+ * themselves are exercised at the integration tier (B.9 / sub-issue
+ * #318) where DB access fills the gap.
+ *
+ * This shape mirrors `adversity.registerLatencyResilience` /
+ * `adversity.registerSlicerFraming`, which report `PropertyUnavailable`
+ * when Toxiproxy is not provisioned. The conformance contract (the
+ * architect plan §8.3 acceptance) is encoded by the registered property;
+ * runnability is gated on the consumer's fixture capabilities.
+ */
+export function registerAppDisconnectFailPolicy(
+  ctx: ConformanceRunContext,
+): void {
+  registerProperty(
+    ctx,
+    CATEGORY,
+    "app-disconnect-fail-policy",
+    "app WS sever ⇒ pending s2c Deferreds fail-closed; no leaks",
+    Effect.scoped(
+      Effect.gen(function* () {
+        // Step 1: register the app-side agent (will host admission
+        // handlers via apps/register).
+        const appAgent = yield* registerTestAgent({
+          baseUrl: ctx.realServer.baseUrl,
+          name: "adfp-app",
+        }).pipe(
+          Effect.mapError(
+            (e) =>
+              new PropertyUnavailable({
+                category: CATEGORY,
+                name: "app-disconnect-fail-policy",
+                reason: `app agent register: ${e.body}`,
+              }),
+          ),
+        );
+
+        // Step 2: open an app TestClient inside an INNER scope so the
+        // property body can sever it without tearing down the outer
+        // scope.
+        const appScope = yield* Scope.make();
+        const appClient = yield* Scope.extend(
+          makeTestClient({
+            serverUrl: ctx.realServer.wsUrl,
+            agentKey: appAgent.apiKey,
+            agentId: appAgent.agentId,
+            defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
+            captureCapacity: DEFAULT_CAPTURE_CAPACITY,
+          }),
+          appScope,
+        ).pipe(
+          Effect.mapError(
+            (e) =>
+              new PropertyUnavailable({
+                category: CATEGORY,
+                name: "app-disconnect-fail-policy",
+                reason: `app client acquire: ${String(e)}`,
+              }),
+          ),
+        );
+
+        // Step 3: register a manifest. apps/register is owner-agnostic
+        // (see apps.handlers.ts:25-41) — succeeds even when the agent's
+        // owner_user_id is null.
+        const appId = `adfp-${Date.now().toString(36)}`;
+        // `apps/register` is server-handled but absent from the typed
+        // `rpcMethods` registry today (see `rpc-registry.ts:60-118`);
+        // app-sdk and `34-rpc-additions.integration.test.ts:48` use the
+        // same untyped-cast path. Adding it to the registry is an
+        // accretive change outside this sub-issue's scope.
+        const registerOutcome = yield* sendUntypedRpc(
+          appClient,
+          "apps/register",
+          {
+            manifest: {
+              appId,
+              name: `Disconnect-fail app ${appId}`,
+              permissions: { required: [], optional: [] },
+              conversations: [
+                { key: "main", name: "Main", participantFilter: "all" },
+              ],
+              hooks: {
+                before_dispatch: { timeout_ms: 5000 },
+                before_message_delivery: { timeout_ms: 5000 },
+              },
+            },
+          },
+        ).pipe(Effect.either);
+        if (registerOutcome._tag === "Left") {
+          yield* Scope.close(appScope, Exit.void);
+          return yield* Effect.fail(
+            new PropertyUnavailable({
+              category: CATEGORY,
+              name: "app-disconnect-fail-policy",
+              reason: `apps/register failed: ${registerOutcome.left._tag}`,
+            }),
+          );
+        }
+
+        // Step 4: register an admission handler that NEVER replies, so
+        // the server-side Deferred is parked. The sever in step 6 is the
+        // event the property exercises.
+        yield* appClient.handleServerRpc(
+          "apps/onBeforeDispatch",
+          () => Effect.never,
+        );
+        yield* appClient.handleServerRpc(
+          "apps/onBeforeMessageDelivery",
+          () => Effect.never,
+        );
+
+        // Step 5: register a sender agent and attempt to create an app
+        // session that this agent initiates. apps/create requires the
+        // initiator's owner_user_id to be non-null (app-host.ts:629);
+        // the default conformance fixture sets it to null. When the
+        // prerequisite is absent, report unavailable — B.9 exercises the
+        // full path with DB-level owner_user_id seeding.
+        const sender = yield* registerTestAgent({
+          baseUrl: ctx.realServer.baseUrl,
+          name: "adfp-sender",
+        }).pipe(
+          Effect.mapError(
+            (e) =>
+              new PropertyUnavailable({
+                category: CATEGORY,
+                name: "app-disconnect-fail-policy",
+                reason: `sender register: ${e.body}`,
+              }),
+          ),
+        );
+        const senderClient = yield* makeTestClient({
+          serverUrl: ctx.realServer.wsUrl,
+          agentKey: sender.apiKey,
+          agentId: sender.agentId,
+          defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
+          captureCapacity: DEFAULT_CAPTURE_CAPACITY,
+        }).pipe(
+          Effect.mapError(
+            (e) =>
+              new PropertyUnavailable({
+                category: CATEGORY,
+                name: "app-disconnect-fail-policy",
+                reason: `sender client acquire: ${String(e)}`,
+              }),
+          ),
+        );
+        const sessionOutcome = yield* senderClient
+          .sendRpc("apps/create", { appId, invitedAgentIds: [] })
+          .pipe(Effect.either);
+        if (sessionOutcome._tag === "Left") {
+          yield* Scope.close(appScope, Exit.void);
+          return yield* Effect.fail(
+            new PropertyUnavailable({
+              category: CATEGORY,
+              name: "app-disconnect-fail-policy",
+              reason: `apps/create failed (likely owner_user_id null on sender; B.9 covers via DB seeding): ${sessionOutcome.left._tag}`,
+            }),
+          );
+        }
+
+        // Step 6: sever the app's WS. Closing the inner scope closes the
+        // socket; the server's connection-scope finalizer runs through
+        // sendRpcToClient's Deferred-cleanup path (issue #310).
+        yield* Scope.close(appScope, Exit.void);
+
+        // Step 7: trigger an admission round-trip on the sender side.
+        // Without an active app handler, AppHost's first-deny short
+        // circuit OR fail-closed mapping must apply. The sender observes
+        // a deny verdict (or a typed error tagged "Forbidden") through
+        // its dispatch RPC — never a hang.
+        const dispatchOutcome = yield* senderClient
+          .sendRpc("apps/authorizeDispatch", {
+            conversationId: `00000000-0000-0000-0000-000000000000`,
+            messageId: `00000000-0000-0000-0000-000000000001`,
+            senderAgentId: sender.agentId,
+          })
+          .pipe(
+            Effect.timeout(Duration.millis(DEFAULT_TIMEOUT_MS)),
+            Effect.either,
+            Effect.catchAll(() =>
+              Effect.succeed({
+                _tag: "Left" as const,
+                left: { _tag: "Timeout" },
+              }),
+            ),
+          );
+        // Either:
+        //   - Right { admission: { decision: "deny", reason: ... } }
+        //   - Left typed RPC error mapped from fail-closed.
+        // A "Timeout"-tagged Left means the dispatch hung — Deferred leak.
+        if (
+          dispatchOutcome._tag === "Left" &&
+          (dispatchOutcome.left as { _tag?: string })._tag === "Timeout"
+        ) {
+          return yield* Effect.fail(
+            new PropertyInvariantViolation({
+              category: CATEGORY,
+              name: "app-disconnect-fail-policy",
+              reason: `dispatch hung after app sever — Deferred leak suspected`,
+            }),
+          );
+        }
+      }),
+    ),
+  );
 }
