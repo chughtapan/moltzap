@@ -83,18 +83,14 @@ describe("Presence Lifecycle", () => {
     }),
   );
 
-  // Pin the invariant that every connect/disconnect transition publishes
-  // `presence/changed` to subscribers — the arena agent-presence watcher
-  // depends on this (arena#252). Pre-fix, only `presence/update` RPC
-  // broadcast; connect/disconnect mutated state silently.
+  // arena#252 — connect/disconnect transitions publish presence/changed.
   it.live(
     "auth/connect broadcasts presence/changed online to subscribers",
     () =>
       Effect.gen(function* () {
         const watcher = yield* registerAndConnect("watcher-connect");
 
-        // Subscribe BEFORE the target connects — snapshot reads "offline"
-        // and the only path to "online" is the connect-time broadcast.
+        // Subscribe BEFORE target connects so the snapshot reads offline.
         const target = yield* registerAgent(getBaseUrl(), "target-connect");
         const sub = (yield* watcher.client.sendRpc("presence/subscribe", {
           agentIds: [target.agentId],
@@ -118,8 +114,7 @@ describe("Presence Lifecycle", () => {
       const watcher = yield* registerAndConnect("watcher-disconnect");
       const target = yield* registerAndConnect("target-disconnect");
 
-      // Subscribe AFTER target is online — snapshot reads "online", no
-      // transition queued. The close below is the only path to "offline".
+      // Subscribe AFTER target is online; close is the only offline trigger.
       yield* watcher.client.sendRpc("presence/subscribe", {
         agentIds: [target.agentId],
       });

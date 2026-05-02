@@ -20,6 +20,7 @@ import { ParticipantService } from "../services/participant.service.js";
 import { ConversationService } from "../services/conversation.service.js";
 import { DeliveryService } from "../services/delivery.service.js";
 import { PresenceService } from "../services/presence.service.js";
+import { createConnectionFanOutPresenceEventSink } from "../services/presence-event-sink.js";
 import {
   MessageService,
   type DeliveryWebhookConfig,
@@ -187,7 +188,8 @@ export const PresenceServiceLive = Layer.effect(
   PresenceServiceTag,
   Effect.gen(function* () {
     const connections = yield* ConnectionManagerTag;
-    return new PresenceService(connections);
+    const sink = createConnectionFanOutPresenceEventSink({ connections });
+    return new PresenceService(sink);
   }),
 );
 
