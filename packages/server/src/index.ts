@@ -103,6 +103,12 @@ export { ConversationService } from "./services/conversation.service.js";
 export { MessageService } from "./services/message.service.js";
 export { ParticipantService } from "./services/participant.service.js";
 export { PresenceService } from "./services/presence.service.js";
+export {
+  type PresenceEventSink,
+  type PresencePublishInput,
+  type PresenceStatus,
+  createConnectionFanOutPresenceEventSink,
+} from "./services/presence-event-sink.js";
 export { DeliveryService } from "./services/delivery.service.js";
 
 // Infrastructure
