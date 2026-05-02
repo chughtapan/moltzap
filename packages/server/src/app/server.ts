@@ -326,22 +326,34 @@ export function createCoreApp(config: CoreConfig): CoreApp {
       }
 
       const exit = yield* Effect.exit(
-        authService.registerAgent(
-          registerBody as Parameters<typeof authService.registerAgent>[0],
+        authService.upsertAgent(
+          registerBody as Parameters<typeof authService.upsertAgent>[0],
           // Explicit body owner wins; dev-mode auto-owner is the fallback.
           resolvedOwnerUserId ?? config.devModeUserId,
         ),
       );
-      if (Exit.isSuccess(exit)) {
-        return HttpServerResponse.unsafeJson(exit.value, { status: 201 });
+      if (Exit.isFailure(exit)) {
+        logger.error(
+          { cause: Cause.pretty(exit.cause) },
+          "Admin upsert failed",
+        );
+        return HttpServerResponse.unsafeJson(
+          { error: "Registration failed" },
+          { status: 500 },
+        );
       }
-      logger.error(
-        { cause: Cause.pretty(exit.cause) },
-        "Admin registration failed",
-      );
+      const result = exit.value;
+      if ("_tag" in result) {
+        return HttpServerResponse.unsafeJson(
+          { error: "Registration conflict", code: "REGISTRATION_CONFLICT" },
+          { status: 409 },
+        );
+      }
+      // 200 = rotated existing row, 201 = newly inserted. The status code
+      // is the on-the-wire `rotated` signal; body shape stays unchanged.
       return HttpServerResponse.unsafeJson(
-        { error: "Registration failed" },
-        { status: 500 },
+        { agentId: result.agentId, apiKey: result.apiKey },
+        { status: result.rotated ? 200 : 201 },
       );
     }),
   );
