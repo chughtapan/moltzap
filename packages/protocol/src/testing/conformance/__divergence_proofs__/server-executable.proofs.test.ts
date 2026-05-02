@@ -26,6 +26,14 @@ import {
   registerArchiveLifecycle,
   registerConversationLifecycle,
 } from "../delivery.js";
+import {
+  registerConnectBroadcast,
+  registerDisconnectBroadcast,
+  registerMultiSubscriberFanOut,
+  registerReconnectStorm,
+  registerSameStateNoDoubleFire,
+  registerSubscribeAfterConnect,
+} from "../presence.js";
 import { collectProperties, type PropertyFailure } from "../registry.js";
 import {
   registerAuthorityPositive,
@@ -54,7 +62,9 @@ type BadServerBehavior =
   | "drift-idempotent-result"
   | "conversation-missing-created-event"
   | "app-close-missing-lifecycle-event"
-  | "archive-missing-event";
+  | "archive-missing-event"
+  | "presence-silent"
+  | "presence-stale-snapshot";
 
 describe("server-side conformance executable divergence proofs", () => {
   it("registerAuthorityNegative fails when pre-handshake RPCs return success", async () => {
@@ -128,6 +138,50 @@ describe("server-side conformance executable divergence proofs", () => {
       },
     );
     expectInvariant(failure, "app-session-close-lifecycle");
+  }, 10_000);
+
+  // Presence — all six fail under a server that answers RPCs but never
+  // broadcasts presence/changed (the pre-arena#252 shape).
+  it("registerConnectBroadcast fails when auth/connect does not broadcast presence/changed", async () => {
+    const failure = await runSingleServerProof(registerConnectBroadcast, {
+      behavior: "presence-silent",
+    });
+    expectInvariant(failure, "connect-broadcast");
+  }, 10_000);
+
+  it("registerDisconnectBroadcast fails when ws-close does not broadcast presence/changed", async () => {
+    const failure = await runSingleServerProof(registerDisconnectBroadcast, {
+      behavior: "presence-silent",
+    });
+    expectInvariant(failure, "disconnect-broadcast");
+  }, 10_000);
+
+  it("registerReconnectStorm fails when no presence/changed events fire on connect/disconnect", async () => {
+    const failure = await runSingleServerProof(registerReconnectStorm, {
+      behavior: "presence-silent",
+    });
+    expectInvariant(failure, "reconnect-storm");
+  }, 10_000);
+
+  it("registerSameStateNoDoubleFire fails when no presence/changed event fires on initial connect", async () => {
+    const failure = await runSingleServerProof(registerSameStateNoDoubleFire, {
+      behavior: "presence-silent",
+    });
+    expectInvariant(failure, "same-state-no-double-fire");
+  }, 10_000);
+
+  it("registerMultiSubscriberFanOut fails when subscribers receive no presence/changed event", async () => {
+    const failure = await runSingleServerProof(registerMultiSubscriberFanOut, {
+      behavior: "presence-silent",
+    });
+    expectInvariant(failure, "multi-subscriber-fan-out");
+  }, 10_000);
+
+  it("registerSubscribeAfterConnect fails when subscribe snapshot reports stale offline for a connected agent", async () => {
+    const failure = await runSingleServerProof(registerSubscribeAfterConnect, {
+      behavior: "presence-stale-snapshot",
+    });
+    expectInvariant(failure, "subscribe-after-connect");
   }, 10_000);
 });
 
@@ -343,6 +397,25 @@ function makeBadResult(
   }
   if (behavior === "app-close-missing-lifecycle-event") {
     return makeAppSessionCloseLifecycleBadResult(request);
+  }
+  if (
+    behavior === "presence-silent" ||
+    behavior === "presence-stale-snapshot"
+  ) {
+    if (request.method === "presence/subscribe") {
+      // Always reports offline — fails P6's online-snapshot expectation
+      // and seeds the snapshot empty for the silent-broadcast cases.
+      const params = request.params as { agentIds?: ReadonlyArray<unknown> };
+      const ids = Array.isArray(params.agentIds) ? params.agentIds : [];
+      return {
+        statuses: ids
+          .filter((id): id is string => typeof id === "string")
+          .map((agentId) => ({ agentId, status: "offline" as const })),
+      };
+    }
+    if (request.method === "presence/update") {
+      return {};
+    }
   }
   switch (request.method) {
     case "auth/connect":

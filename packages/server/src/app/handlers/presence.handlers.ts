@@ -14,7 +14,9 @@ export function createPresenceHandlers(deps: {
       handler: (params, ctx) =>
         Effect.gen(function* () {
           const senderConnId = yield* ConnIdTag;
-          deps.presenceService.update(ctx.agentId, params.status, senderConnId);
+          deps.presenceService.update(ctx.agentId, params.status, {
+            excludeConnId: senderConnId,
+          });
           return {};
         }),
     }),

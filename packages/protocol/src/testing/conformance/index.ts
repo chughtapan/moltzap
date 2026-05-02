@@ -24,6 +24,7 @@ export * as rpcSemantics from "./rpc-semantics.js";
 export * as delivery from "./delivery.js";
 export * as adversity from "./adversity.js";
 export * as boundary from "./boundary.js";
+export * as presence from "./presence.js";
 export {
   type ConformanceSuiteOptions,
   type SuiteResult,

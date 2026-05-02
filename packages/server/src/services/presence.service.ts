@@ -1,33 +1,24 @@
-import { Effect } from "effect";
+import type {
+  PresenceEventSink,
+  PresenceStatus,
+} from "./presence-event-sink.js";
 
-import { EventNames, eventFrame } from "@moltzap/protocol";
-
-import type { ConnectionManager } from "../ws/connection.js";
-
-type PresenceStatus = "online" | "offline" | "away";
+const EMPTY_SUBSCRIBERS: ReadonlySet<string> = new Set();
 
 /**
- * In-memory presence tracking with subscriber-based notifications.
- * Presence is lost on server restart — clients recover via auto-reconnect.
+ * In-memory presence state + subscriber registry. Every mutating call
+ * (setOnline / setOffline / update) flows through `transition`, which
+ * publishes via the sink iff the status changed.
  *
- * Subscription model: when a connection calls presence/subscribe for a set of
- * agents, it registers for push updates. Every mutating call site
- * (connect → setOnline, disconnect → setOffline, RPC → update) flows through
- * `transition`, which publishes `presence/changed` to subscribers iff the
- * status actually changed.
- *
- * Multi-connection-per-agent caveat: `setOffline` is unconditional on the
- * disconnecting connection. If an agent holds multiple sockets and one
- * drops while the others remain, this still broadcasts `offline`. The
- * arena fleet pattern (one socket per agentId) does not exercise that
- * shape; tracked separately for general moltzap consumers.
+ * Out of scope: multi-connection-per-agent and concurrent close-vs-connect
+ * race semantics. The `prior !== next` guard is correct for the
+ * single-connection-per-agent case; tracked separately.
  */
 export class PresenceService {
   private statuses = new Map<string, PresenceStatus>();
-  /** agentId → set of connIds watching that agent */
   private subscribers = new Map<string, Set<string>>();
 
-  constructor(private readonly connections: ConnectionManager) {}
+  constructor(private readonly eventSink: PresenceEventSink) {}
 
   setOnline(agentId: string): void {
     this.transition(agentId, "online");
@@ -37,10 +28,12 @@ export class PresenceService {
     this.transition(agentId, "offline");
   }
 
-  /** `senderConnId` is the connection that issued the RPC and is excluded
-   * from the broadcast (it already knows the new status). */
-  update(agentId: string, status: PresenceStatus, senderConnId?: string): void {
-    this.transition(agentId, status, senderConnId);
+  update(
+    agentId: string,
+    status: PresenceStatus,
+    options: { readonly excludeConnId?: string } = {},
+  ): void {
+    this.transition(agentId, status, options.excludeConnId);
   }
 
   get(agentId: string): PresenceStatus {
@@ -48,7 +41,7 @@ export class PresenceService {
   }
 
   getMany(
-    agentIds: string[],
+    agentIds: ReadonlyArray<string>,
   ): Array<{ agentId: string; status: PresenceStatus }> {
     return agentIds.map((agentId) => ({
       agentId,
@@ -56,7 +49,7 @@ export class PresenceService {
     }));
   }
 
-  subscribe(connId: string, agentIds: string[]): void {
+  subscribe(connId: string, agentIds: ReadonlyArray<string>): void {
     for (const agentId of agentIds) {
       let subs = this.subscribers.get(agentId);
       if (!subs) {
@@ -67,8 +60,8 @@ export class PresenceService {
     }
   }
 
-  getSubscribers(agentId: string): Set<string> {
-    return this.subscribers.get(agentId) ?? new Set();
+  getSubscribers(agentId: string): ReadonlySet<string> {
+    return this.subscribers.get(agentId) ?? EMPTY_SUBSCRIBERS;
   }
 
   removeConnection(connId: string): void {
@@ -80,29 +73,19 @@ export class PresenceService {
   private transition(
     agentId: string,
     next: PresenceStatus,
-    exceptConnId?: string,
+    excludeConnId?: string,
   ): void {
     const prev = this.statuses.get(agentId) ?? "offline";
     if (prev === next) return;
     this.statuses.set(agentId, next);
-    this.broadcast(agentId, next, exceptConnId);
-  }
-
-  private broadcast(
-    agentId: string,
-    status: PresenceStatus,
-    exceptConnId?: string,
-  ): void {
-    const subs = this.subscribers.get(agentId);
-    if (!subs || subs.size === 0) return;
-    const raw = JSON.stringify(
-      eventFrame(EventNames.PresenceChanged, { agentId, status }),
-    );
-    for (const connId of subs) {
-      if (connId === exceptConnId) continue;
-      const conn = this.connections.get(connId);
-      if (!conn) continue;
-      Effect.runFork(conn.write(raw).pipe(Effect.catchAll(() => Effect.void)));
-    }
+    // Snapshot — caller may inspect the input after publish returns
+    // (deferred sinks, tests that capture inputs for later assertion).
+    // Live registry mutations must not alter past inputs.
+    this.eventSink.publish({
+      agentId,
+      status: next,
+      subscriberConnIds: new Set(this.getSubscribers(agentId)),
+      excludeConnId,
+    });
   }
 }
