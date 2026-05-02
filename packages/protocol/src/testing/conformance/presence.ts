@@ -84,19 +84,26 @@ function acquireCloseableClient(
   agent: TestAgent,
   label: string,
 ): Effect.Effect<CloseableTestClient, PropertyInvariantViolation, Scope.Scope> {
-  return makeCloseableTestClient({
-    serverUrl: ctx.realServer.wsUrl,
-    agentKey: agent.apiKey,
-    agentId: agent.agentId,
-    defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
-    captureCapacity: DEFAULT_CAPTURE_CAPACITY,
-  }).pipe(
-    Effect.mapError((e) =>
-      violation(
-        propertyName,
-        `makeCloseableTestClient(${label}): ${String(e)}`,
+  // makeCloseableTestClient owns its own internal scope; without a
+  // release finalizer, returning the client leaks the WebSocket past
+  // the property boundary. acquireRelease ties teardown to the
+  // surrounding Effect.scoped.
+  return Effect.acquireRelease(
+    makeCloseableTestClient({
+      serverUrl: ctx.realServer.wsUrl,
+      agentKey: agent.apiKey,
+      agentId: agent.agentId,
+      defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
+      captureCapacity: DEFAULT_CAPTURE_CAPACITY,
+    }).pipe(
+      Effect.mapError((e) =>
+        violation(
+          propertyName,
+          `makeCloseableTestClient(${label}): ${String(e)}`,
+        ),
       ),
     ),
+    (client) => client.close.pipe(Effect.orElseSucceed(() => undefined)),
   );
 }
 
@@ -234,11 +241,7 @@ export function registerDisconnectBroadcast(ctx: ConformanceRunContext): void {
           { agentId: a.agentId, status: "online" },
           NAME,
         );
-        yield* Effect.tryPromise({
-          try: () => Effect.runPromise(aClient.close),
-          catch: (cause) =>
-            violation(NAME, `client.close failed: ${String(cause)}`),
-        });
+        yield* aClient.close;
         yield* waitForPresenceWithStatus(
           sub.client,
           { agentId: a.agentId, status: "offline" },
@@ -274,11 +277,7 @@ export function registerReconnectStorm(ctx: ConformanceRunContext): void {
           { agentId: a.agentId, status: "online" },
           NAME,
         );
-        yield* Effect.tryPromise({
-          try: () => Effect.runPromise(c1.close),
-          catch: (cause) =>
-            violation(NAME, `client1.close failed: ${String(cause)}`),
-        });
+        yield* c1.close;
         yield* waitForPresenceWithStatus(
           sub.client,
           { agentId: a.agentId, status: "offline" },

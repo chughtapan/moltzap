@@ -6,6 +6,7 @@ import {
   registerAgent,
   connectTestClient,
   registerAndConnect,
+  trackClient,
 } from "./helpers.js";
 import { getBaseUrl } from "../../test-utils/index.js";
 
@@ -97,10 +98,11 @@ describe("Presence Lifecycle", () => {
         })) as { statuses: Array<{ agentId: string; status: string }> };
         expect(sub.statuses[0]!.status).toBe("offline");
 
-        yield* connectTestClient({
+        const targetClient = yield* connectTestClient({
           agentId: target.agentId,
           apiKey: target.apiKey,
         });
+        trackClient(targetClient);
 
         const event = yield* watcher.client.waitForEvent("presence/changed");
         const data = event.data as { agentId: string; status: string };
