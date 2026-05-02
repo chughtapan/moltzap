@@ -1,182 +1,139 @@
-/**
- * Unit tests for PresenceService — pin the invariant that every status
- * transition (setOnline/setOffline/update) publishes `presence/changed`
- * to subscribers, with the broadcast idempotent on re-assert and emitted
- * on each side of a reverse race. Closes arena#252.
- */
-
 import { describe, expect, it } from "vitest";
-import { Effect, HashMap, Ref } from "effect";
 
-import { EventNames } from "@moltzap/protocol";
-
-import {
-  ConnectionManager,
-  type MoltZapConnection,
-  type S2cPendingMap,
-} from "../ws/connection.js";
+import type {
+  PresenceEventSink,
+  PresencePublishInput,
+  PresenceStatus,
+} from "./presence-event-sink.js";
 import { PresenceService } from "./presence.service.js";
 
-interface Capture {
-  conn: MoltZapConnection;
-  writes: string[];
-}
-
-function makeConn(connId: string): Capture {
-  const writes: string[] = [];
-  const conn: MoltZapConnection = {
-    id: connId,
-    write: (raw) =>
-      Effect.sync(() => {
-        writes.push(raw);
-      }),
-    shutdown: Effect.void,
-    auth: null,
-    lastPong: Date.now(),
-    conversationIds: new Set<string>(),
-    mutedConversations: new Set<string>(),
-    s2cPending: Ref.unsafeMake<S2cPendingMap>(HashMap.empty()),
-    s2cRequestCounter: Ref.unsafeMake(0),
+function recordingSink(): {
+  sink: PresenceEventSink;
+  published: PresencePublishInput[];
+} {
+  const published: PresencePublishInput[] = [];
+  return {
+    sink: {
+      publish(input) {
+        published.push(input);
+      },
+    },
+    published,
   };
-  return { conn, writes };
 }
 
-function presenceEventsFor(
-  writes: string[],
+function statusesFor(
+  published: ReadonlyArray<PresencePublishInput>,
   agentId: string,
-): Array<{ status: string }> {
-  return writes
-    .map((raw) => JSON.parse(raw) as Record<string, unknown>)
-    .filter(
-      (frame) =>
-        frame["type"] === "event" &&
-        frame["event"] === EventNames.PresenceChanged,
-    )
-    .map((frame) => frame["data"] as { agentId: string; status: string })
-    .filter((data) => data.agentId === agentId);
+): ReadonlyArray<PresenceStatus> {
+  return published.filter((p) => p.agentId === agentId).map((p) => p.status);
 }
 
-/** Drain Effect.runFork-scheduled writes so the capture array reflects
- * them before assertions. One macrotask is sufficient. */
-async function flushFibers(): Promise<void> {
-  await new Promise<void>((resolve) => setImmediate(resolve));
-}
+describe("PresenceService", () => {
+  it("setOnline publishes online", () => {
+    const r = recordingSink();
+    const service = new PresenceService(r.sink);
+    service.subscribe("c-watcher", ["agent-a"]);
 
-describe("PresenceService — broadcast on connect/disconnect", () => {
-  it("setOnline broadcasts presence/changed to subscribers", async () => {
-    const connections = new ConnectionManager();
-    const watcher = makeConn("c-watcher");
-    connections.add(watcher.conn);
-
-    const service = new PresenceService(connections);
-    service.subscribe(watcher.conn.id, ["agent-a"]);
     service.setOnline("agent-a");
-    await flushFibers();
 
-    const events = presenceEventsFor(watcher.writes, "agent-a");
-    expect(events).toHaveLength(1);
-    expect(events[0]!.status).toBe("online");
+    expect(statusesFor(r.published, "agent-a")).toEqual(["online"]);
+    expect(r.published[0]!.subscriberConnIds.has("c-watcher")).toBe(true);
+    expect(r.published[0]!.excludeConnId).toBeUndefined();
   });
 
-  it("setOffline broadcasts presence/changed to subscribers", async () => {
-    const connections = new ConnectionManager();
-    const watcher = makeConn("c-watcher");
-    connections.add(watcher.conn);
-
-    const service = new PresenceService(connections);
-    service.setOnline("agent-a"); // arrive at "online"
-    service.subscribe(watcher.conn.id, ["agent-a"]);
-    await flushFibers();
-    watcher.writes.length = 0;
+  it("setOffline publishes offline", () => {
+    const r = recordingSink();
+    const service = new PresenceService(r.sink);
+    service.subscribe("c-watcher", ["agent-a"]);
+    service.setOnline("agent-a");
+    r.published.length = 0;
 
     service.setOffline("agent-a");
-    await flushFibers();
 
-    const events = presenceEventsFor(watcher.writes, "agent-a");
-    expect(events).toHaveLength(1);
-    expect(events[0]!.status).toBe("offline");
+    expect(statusesFor(r.published, "agent-a")).toEqual(["offline"]);
   });
 
-  it("setOnline twice fires only one event (idempotent on re-assert)", async () => {
-    const connections = new ConnectionManager();
-    const watcher = makeConn("c-watcher");
-    connections.add(watcher.conn);
-
-    const service = new PresenceService(connections);
-    service.subscribe(watcher.conn.id, ["agent-a"]);
+  it("re-asserting the same status does not publish (idempotent)", () => {
+    const r = recordingSink();
+    const service = new PresenceService(r.sink);
+    service.subscribe("c-watcher", ["agent-a"]);
 
     service.setOnline("agent-a");
     service.setOnline("agent-a");
-    await flushFibers();
 
-    const events = presenceEventsFor(watcher.writes, "agent-a");
-    expect(events).toHaveLength(1);
+    expect(statusesFor(r.published, "agent-a")).toEqual(["online"]);
   });
 
-  it("reverse race (offline → online quickly) emits both transitions", async () => {
-    const connections = new ConnectionManager();
-    const watcher = makeConn("c-watcher");
-    connections.add(watcher.conn);
+  it("offline → online → offline → online publishes every transition", () => {
+    const r = recordingSink();
+    const service = new PresenceService(r.sink);
+    service.subscribe("c-watcher", ["agent-a"]);
 
-    const service = new PresenceService(connections);
-    service.subscribe(watcher.conn.id, ["agent-a"]);
+    service.setOnline("agent-a");
+    service.setOffline("agent-a");
+    service.setOnline("agent-a");
 
-    service.setOnline("agent-a"); // offline → online
-    service.setOffline("agent-a"); // online → offline
-    service.setOnline("agent-a"); // offline → online (reconnect storm)
-    await flushFibers();
-
-    const events = presenceEventsFor(watcher.writes, "agent-a");
-    expect(events.map((e) => e.status)).toEqual([
+    expect(statusesFor(r.published, "agent-a")).toEqual([
       "online",
       "offline",
       "online",
     ]);
   });
 
-  it("update from RPC excludes the sender connection from broadcast", async () => {
-    const connections = new ConnectionManager();
-    const sender = makeConn("c-sender");
-    const watcher = makeConn("c-watcher");
-    connections.add(sender.conn);
-    connections.add(watcher.conn);
+  it("update forwards excludeConnId to the sink", () => {
+    const r = recordingSink();
+    const service = new PresenceService(r.sink);
+    service.subscribe("c-sender", ["agent-a"]);
+    service.subscribe("c-watcher", ["agent-a"]);
 
-    const service = new PresenceService(connections);
-    service.subscribe(sender.conn.id, ["agent-a"]);
-    service.subscribe(watcher.conn.id, ["agent-a"]);
+    service.update("agent-a", "away", { excludeConnId: "c-sender" });
 
-    service.update("agent-a", "away", sender.conn.id);
-    await flushFibers();
-
-    expect(presenceEventsFor(sender.writes, "agent-a")).toHaveLength(0);
-    expect(presenceEventsFor(watcher.writes, "agent-a")).toEqual([
-      { agentId: "agent-a", status: "away" },
+    expect(r.published).toHaveLength(1);
+    expect(r.published[0]!.status).toBe("away");
+    expect(r.published[0]!.excludeConnId).toBe("c-sender");
+    // Sink owns the filtering; it receives the full subscriber set.
+    expect([...r.published[0]!.subscriberConnIds].sort()).toEqual([
+      "c-sender",
+      "c-watcher",
     ]);
   });
 
-  it("does not broadcast when there are no subscribers for the agent", async () => {
-    const connections = new ConnectionManager();
-    const bystander = makeConn("c-bystander");
-    connections.add(bystander.conn);
+  it("update without options omits excludeConnId", () => {
+    const r = recordingSink();
+    const service = new PresenceService(r.sink);
+    service.subscribe("c-watcher", ["agent-a"]);
 
-    const service = new PresenceService(connections);
-    // bystander is not subscribed to agent-a
-    service.setOnline("agent-a");
-    await flushFibers();
+    service.update("agent-a", "away");
 
-    expect(presenceEventsFor(bystander.writes, "agent-a")).toHaveLength(0);
+    expect(r.published).toHaveLength(1);
+    expect(r.published[0]!.excludeConnId).toBeUndefined();
   });
 
-  it("dropped subscriber connection is skipped silently", async () => {
-    const connections = new ConnectionManager();
-    const watcher = makeConn("c-watcher");
-    // Subscribed but never added to ConnectionManager — mirrors the race
-    // where a subscriber drops between subscribe and the next transition.
-    const service = new PresenceService(connections);
-    service.subscribe(watcher.conn.id, ["agent-a"]);
+  it("publishes even when there are no subscribers — sink decides", () => {
+    const r = recordingSink();
+    const service = new PresenceService(r.sink);
 
-    expect(() => service.setOnline("agent-a")).not.toThrow();
-    await flushFibers();
-    expect(presenceEventsFor(watcher.writes, "agent-a")).toHaveLength(0);
+    service.setOnline("agent-a");
+
+    expect(r.published).toHaveLength(1);
+    expect(r.published[0]!.subscriberConnIds.size).toBe(0);
+  });
+
+  it("subscriberConnIds reflects the registry at publish time", () => {
+    const r = recordingSink();
+    const service = new PresenceService(r.sink);
+
+    service.subscribe("c-w1", ["agent-a"]);
+    service.setOnline("agent-a");
+    service.subscribe("c-w2", ["agent-a"]);
+    service.setOffline("agent-a");
+
+    expect(r.published).toHaveLength(2);
+    expect([...r.published[0]!.subscriberConnIds]).toEqual(["c-w1"]);
+    expect([...r.published[1]!.subscriberConnIds].sort()).toEqual([
+      "c-w1",
+      "c-w2",
+    ]);
   });
 });

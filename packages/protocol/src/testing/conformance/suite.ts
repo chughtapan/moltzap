@@ -37,6 +37,7 @@ import * as rpcSemantics from "./rpc-semantics.js";
 import * as delivery from "./delivery.js";
 import * as adversity from "./adversity.js";
 import * as boundary from "./boundary.js";
+import * as presence from "./presence.js";
 import type { RealServerAcquireError, ToxicControlError } from "../errors.js";
 import {
   isAllowedCoverageGap,
@@ -127,6 +128,13 @@ export function registerAllProperties(ctx: ConformanceRunContext): void {
 
   boundary.registerSchemaExhaustiveFuzz(ctx);
   boundary.registerAppDisconnectFailPolicy(ctx);
+
+  presence.registerConnectBroadcast(ctx);
+  presence.registerDisconnectBroadcast(ctx);
+  presence.registerReconnectStorm(ctx);
+  presence.registerSameStateNoDoubleFire(ctx);
+  presence.registerMultiSubscriberFanOut(ctx);
+  presence.registerSubscribeAfterConnect(ctx);
 }
 
 /**
