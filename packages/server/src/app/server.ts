@@ -190,7 +190,6 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     }),
     ...createPresenceHandlers({
       presenceService,
-      connections,
     }),
     ...createAppHandlers({
       appHost,

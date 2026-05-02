@@ -2,7 +2,12 @@ import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { it } from "@effect/vitest";
 import { Effect } from "effect";
 import { startTestServer, stopTestServer, resetTestDb } from "./helpers.js";
-import { registerAndConnect } from "./helpers.js";
+import {
+  registerAgent,
+  connectTestClient,
+  registerAndConnect,
+} from "./helpers.js";
+import { getBaseUrl } from "../../test-utils/index.js";
 
 beforeAll(async () => {
   await startTestServer();
@@ -75,6 +80,56 @@ describe("Presence Lifecycle", () => {
       yield* bob.client.sendRpc("presence/update", { status: "offline" });
       const offlineEvent = yield* alice.client.waitForEvent("presence/changed");
       expect((offlineEvent.data as { status: string }).status).toBe("offline");
+    }),
+  );
+
+  // Pin the invariant that every connect/disconnect transition publishes
+  // `presence/changed` to subscribers — the arena agent-presence watcher
+  // depends on this (arena#252). Pre-fix, only `presence/update` RPC
+  // broadcast; connect/disconnect mutated state silently.
+  it.live(
+    "auth/connect broadcasts presence/changed online to subscribers",
+    () =>
+      Effect.gen(function* () {
+        const watcher = yield* registerAndConnect("watcher-connect");
+
+        // Subscribe BEFORE the target connects — snapshot reads "offline"
+        // and the only path to "online" is the connect-time broadcast.
+        const target = yield* registerAgent(getBaseUrl(), "target-connect");
+        const sub = (yield* watcher.client.sendRpc("presence/subscribe", {
+          agentIds: [target.agentId],
+        })) as { statuses: Array<{ agentId: string; status: string }> };
+        expect(sub.statuses[0]!.status).toBe("offline");
+
+        yield* connectTestClient({
+          agentId: target.agentId,
+          apiKey: target.apiKey,
+        });
+
+        const event = yield* watcher.client.waitForEvent("presence/changed");
+        const data = event.data as { agentId: string; status: string };
+        expect(data.agentId).toBe(target.agentId);
+        expect(data.status).toBe("online");
+      }),
+  );
+
+  it.live("disconnect broadcasts presence/changed offline to subscribers", () =>
+    Effect.gen(function* () {
+      const watcher = yield* registerAndConnect("watcher-disconnect");
+      const target = yield* registerAndConnect("target-disconnect");
+
+      // Subscribe AFTER target is online — snapshot reads "online", no
+      // transition queued. The close below is the only path to "offline".
+      yield* watcher.client.sendRpc("presence/subscribe", {
+        agentIds: [target.agentId],
+      });
+
+      yield* target.client.close();
+
+      const event = yield* watcher.client.waitForEvent("presence/changed");
+      const data = event.data as { agentId: string; status: string };
+      expect(data.agentId).toBe(target.agentId);
+      expect(data.status).toBe("offline");
     }),
   );
 });

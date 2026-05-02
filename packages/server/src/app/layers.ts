@@ -183,9 +183,12 @@ export const DeliveryServiceLive = Layer.effect(
   }),
 );
 
-export const PresenceServiceLive = Layer.sync(
+export const PresenceServiceLive = Layer.effect(
   PresenceServiceTag,
-  () => new PresenceService(),
+  Effect.gen(function* () {
+    const connections = yield* ConnectionManagerTag;
+    return new PresenceService(connections);
+  }),
 );
 
 export const AppHostLive = Layer.effect(
@@ -263,14 +266,19 @@ export const MessageServiceLive = Layer.effect(
 /** Tier 1 — zero cross-layer deps beyond Db/Logger. */
 const Tier1 = Layer.mergeAll(
   ConnectionManagerLive,
-  PresenceServiceLive,
   AuthServiceLive,
   ParticipantServiceLive,
   DeliveryServiceLive,
 );
 
-/** Tier 2 — Broadcaster needs Tier 1's ConnectionManager. */
-const Tier2 = Layer.provideMerge(BroadcasterLive, Tier1);
+/** Tier 2 — Broadcaster + Presence both need Tier 1's ConnectionManager.
+ * Presence is here (not Tier 1) because it broadcasts `presence/changed`
+ * directly to subscriber sockets via ConnectionManager — same wiring shape
+ * as Broadcaster. */
+const Tier2 = Layer.provideMerge(
+  Layer.mergeAll(BroadcasterLive, PresenceServiceLive),
+  Tier1,
+);
 
 /** Tier 3 — AppHost + DefaultPermission need Broadcaster/Connections. */
 const Tier3 = Layer.provideMerge(

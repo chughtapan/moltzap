@@ -1,3 +1,9 @@
+import { Effect } from "effect";
+
+import { EventNames, eventFrame } from "@moltzap/protocol";
+
+import type { ConnectionManager } from "../ws/connection.js";
+
 type PresenceStatus = "online" | "offline" | "away";
 
 /**
@@ -5,24 +11,36 @@ type PresenceStatus = "online" | "offline" | "away";
  * Presence is lost on server restart — clients recover via auto-reconnect.
  *
  * Subscription model: when a connection calls presence/subscribe for a set of
- * agents, it registers for push updates. When any of those agents
- * call presence/update, the change is pushed only to subscribed connections.
+ * agents, it registers for push updates. Every mutating call site
+ * (connect → setOnline, disconnect → setOffline, RPC → update) flows through
+ * `transition`, which publishes `presence/changed` to subscribers iff the
+ * status actually changed.
+ *
+ * Multi-connection-per-agent caveat: `setOffline` is unconditional on the
+ * disconnecting connection. If an agent holds multiple sockets and one
+ * drops while the others remain, this still broadcasts `offline`. The
+ * arena fleet pattern (one socket per agentId) does not exercise that
+ * shape; tracked separately for general moltzap consumers.
  */
 export class PresenceService {
   private statuses = new Map<string, PresenceStatus>();
   /** agentId → set of connIds watching that agent */
   private subscribers = new Map<string, Set<string>>();
 
+  constructor(private readonly connections: ConnectionManager) {}
+
   setOnline(agentId: string): void {
-    this.statuses.set(agentId, "online");
+    this.transition(agentId, "online");
   }
 
   setOffline(agentId: string): void {
-    this.statuses.set(agentId, "offline");
+    this.transition(agentId, "offline");
   }
 
-  update(agentId: string, status: PresenceStatus): void {
-    this.statuses.set(agentId, status);
+  /** `senderConnId` is the connection that issued the RPC and is excluded
+   * from the broadcast (it already knows the new status). */
+  update(agentId: string, status: PresenceStatus, senderConnId?: string): void {
+    this.transition(agentId, status, senderConnId);
   }
 
   get(agentId: string): PresenceStatus {
@@ -56,6 +74,35 @@ export class PresenceService {
   removeConnection(connId: string): void {
     for (const subs of this.subscribers.values()) {
       subs.delete(connId);
+    }
+  }
+
+  private transition(
+    agentId: string,
+    next: PresenceStatus,
+    exceptConnId?: string,
+  ): void {
+    const prev = this.statuses.get(agentId) ?? "offline";
+    if (prev === next) return;
+    this.statuses.set(agentId, next);
+    this.broadcast(agentId, next, exceptConnId);
+  }
+
+  private broadcast(
+    agentId: string,
+    status: PresenceStatus,
+    exceptConnId?: string,
+  ): void {
+    const subs = this.subscribers.get(agentId);
+    if (!subs || subs.size === 0) return;
+    const raw = JSON.stringify(
+      eventFrame(EventNames.PresenceChanged, { agentId, status }),
+    );
+    for (const connId of subs) {
+      if (connId === exceptConnId) continue;
+      const conn = this.connections.get(connId);
+      if (!conn) continue;
+      Effect.runFork(conn.write(raw).pipe(Effect.catchAll(() => Effect.void)));
     }
   }
 }
