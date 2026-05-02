@@ -1,11 +1,14 @@
-import { Type } from "@sinclair/typebox";
+import { Type, type TString } from "@sinclair/typebox";
 
 /**
  * Creates a string enum schema without producing anyOf (which some validators reject).
+ * Uses Type.String + enum constraint (Kind="String") so TypeBox's Value.Decode
+ * visitor handles the node — Type.Unsafe has no Kind tag and trips
+ * `ValueCheckUnknownTypeError: Unknown type` on consumer-side decoders.
  * Matches OpenClaw's stringEnum pattern.
  */
 export function stringEnum<T extends string[]>(values: [...T]) {
-  return Type.Unsafe<T[number]>({ type: "string", enum: values });
+  return Type.String({ enum: values }) as TString & { static: T[number] };
 }
 
 /**
