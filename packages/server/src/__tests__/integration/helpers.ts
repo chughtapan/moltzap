@@ -20,13 +20,13 @@ import {
   trackClient,
   registerAgent,
   connectTestClient,
-  type ConnectedAgent,
   type ServerTestClient,
 } from "../../test-utils/helpers.js";
 import type { Database } from "../../db/database.js";
 import type { Kysely } from "kysely";
 import type { CoreApp } from "../../app/types.js";
-import type { Layer } from "effect";
+import { Effect, type Layer } from "effect";
+import { inject } from "vitest";
 
 export type { ConnectedAgent } from "../../test-utils/helpers.js";
 export {
@@ -42,10 +42,7 @@ export type { ServerTestClient };
 
 let _coreApp: CoreApp | null = null;
 
-/**
- * Start the core test server using the shared Postgres from globalSetup.
- */
-export async function startTestServer(_opts?: {
+type StartTestServerOptions = {
   devMode?: boolean;
   encryption?: boolean;
   /** Optional validator forwarded to `startCoreTestServer` — see its docs. */
@@ -53,48 +50,92 @@ export async function startTestServer(_opts?: {
   /** Optional secret forwarded to `startCoreTestServer` — see its docs. */
   registrationSecret?: string;
   traceCaptureLayer?: Layer.Layer<TraceCaptureTag>;
-}): Promise<{
-  baseUrl: string;
-  wsUrl: string;
-  coreApp: CoreApp;
-}> {
+};
+
+class IntegrationTestHelperError extends Error {
+  override readonly name = "IntegrationTestHelperError";
+
+  constructor(
+    message: string,
+    override readonly cause?: unknown,
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * Start the core test server using the shared Postgres from globalSetup.
+ */
+export function startTestServer(_opts?: StartTestServerOptions) {
   // Get pgHost/pgPort from vitest's globalSetup via inject()
-  const { inject } = await import("vitest");
   const pgHost = inject("testPgHost");
   const pgPort = inject("testPgPort");
 
-  const server = await startCoreTestServer({
-    pgHost,
-    pgPort,
-    encryption: _opts?.encryption,
-    userService: _opts?.userService,
-    registrationSecret: _opts?.registrationSecret,
-    traceCaptureLayer: _opts?.traceCaptureLayer,
-  });
-  _coreApp = server.coreApp;
-  return {
-    baseUrl: server.baseUrl,
-    wsUrl: server.wsUrl,
-    coreApp: server.coreApp,
-  };
+  return Effect.runPromise(
+    Effect.tryPromise({
+      try: () =>
+        startCoreTestServer({
+          pgHost,
+          pgPort,
+          encryption: _opts?.encryption,
+          userService: _opts?.userService,
+          registrationSecret: _opts?.registrationSecret,
+          traceCaptureLayer: _opts?.traceCaptureLayer,
+        }),
+      catch: (cause) =>
+        new IntegrationTestHelperError(
+          "Core test server failed to start",
+          cause,
+        ),
+    }).pipe(
+      Effect.tap((server) =>
+        Effect.sync(() => {
+          _coreApp = server.coreApp;
+        }),
+      ),
+      Effect.map((server) => ({
+        baseUrl: server.baseUrl,
+        wsUrl: server.wsUrl,
+        coreApp: server.coreApp,
+      })),
+    ),
+  );
 }
 
 export function getCoreApp(): CoreApp {
-  if (!_coreApp) throw new Error("Test server not running.");
+  if (!_coreApp)
+    throw new IntegrationTestHelperError("Test server not running.");
   return _coreApp;
 }
 
-export async function stopTestServer(): Promise<void> {
-  const { Effect } = await import("effect");
-  await Effect.runPromise(closeAllClients());
-  _coreApp = null;
-  await stopCoreTestServer();
+export function stopTestServer() {
+  return Effect.runPromise(
+    Effect.gen(function* () {
+      yield* closeAllClients();
+      _coreApp = null;
+      yield* Effect.tryPromise({
+        try: () => stopCoreTestServer(),
+        catch: (cause) =>
+          new IntegrationTestHelperError(
+            "Core test server failed to stop",
+            cause,
+          ),
+      });
+    }),
+  );
 }
 
-export async function resetTestDb(): Promise<void> {
-  const { Effect } = await import("effect");
-  await Effect.runPromise(closeAllClients());
-  await resetCoreTestDb();
+export function resetTestDb() {
+  return Effect.runPromise(
+    Effect.gen(function* () {
+      yield* closeAllClients();
+      yield* Effect.tryPromise({
+        try: () => resetCoreTestDb(),
+        catch: (cause) =>
+          new IntegrationTestHelperError("Core test DB failed to reset", cause),
+      });
+    }),
+  );
 }
 
 export function getKyselyDb(): Kysely<Database> {
@@ -105,21 +146,18 @@ export function getTestCoreApp() {
   return getCoreApp();
 }
 
-export async function createTestUser(
-  _displayName: string,
-): Promise<{ id: string; supabaseUid: string }> {
+export function createTestUser(displayName: string) {
+  void displayName;
   return { id: crypto.randomUUID(), supabaseUid: crypto.randomUUID() };
 }
 
-export async function createAgentInvite(
-  _inviterId: string,
-): Promise<{ token: string; inviteId: string }> {
+export function createAgentInvite(inviterId: string) {
+  void inviterId;
   return { token: "not-needed-in-core", inviteId: crypto.randomUUID() };
 }
 
-export async function claimTestAgent(
-  _claimToken: string,
-  _userId: string,
-): Promise<void> {
+export function claimTestAgent(claimToken: string, userId: string): void {
+  void claimToken;
+  void userId;
   // No-op — agents are active immediately in core
 }

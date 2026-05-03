@@ -48,7 +48,7 @@ export const AppId = Brand.nominal<AppId>();
 
 export interface CoreConfig {
   db: Kysely<Database>;
-  dbCleanup?: () => Promise<void>;
+  dbCleanup?: () => PromiseLike<void>;
   encryptionMasterSecret?: string;
   port: number;
   corsOrigins: string[];
@@ -105,13 +105,13 @@ export type ConnectionHook = (params: {
   /** Owner user ID resolved at auth/connect time. Null for unclaimed agents. */
   ownerUserId: string | null;
   connId: string;
-}) => Promise<void> | void;
+}) => PromiseLike<void> | void;
 
 export type DisconnectionHook = (params: {
   agentId: string;
   ownerUserId: string | null;
   connId: string;
-}) => Promise<void> | void;
+}) => PromiseLike<void> | void;
 
 export interface CoreApp {
   readonly port: number;
@@ -206,5 +206,5 @@ export interface CoreApp {
     conversationId: string,
     key: string,
   ) => Effect.Effect<void, RpcFailure>;
-  close: () => Promise<void>;
+  close: () => PromiseLike<void>;
 }

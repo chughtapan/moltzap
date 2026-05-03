@@ -307,11 +307,13 @@ export function makePartitionedDispatcher(
         yield* Ref.update(counters.totalOffered, (n) => n + 1);
 
         const keyResult = extractPartitionKey(request);
-        if (Either.isLeft(keyResult)) {
-          yield* Ref.update(counters.malformed, (n) => n + 1);
-          return yield* Effect.fail(keyResult.left);
-        }
-        const key = keyResult.right;
+        const key = yield* Either.match(keyResult, {
+          onLeft: (err) =>
+            Ref.update(counters.malformed, (n) => n + 1).pipe(
+              Effect.zipRight(Effect.fail(err)),
+            ),
+          onRight: (value) => Effect.succeed(value),
+        });
 
         const worker = yield* getOrCreatePartitionWorker({
           key,
@@ -319,7 +321,7 @@ export function makePartitionedDispatcher(
           state: internal,
         }).pipe(
           Effect.tapError((err) =>
-            err._tag === "PartitionLimitError"
+            err instanceof PartitionLimitError
               ? Ref.update(counters.partitionLimit, (n) => n + 1)
               : Effect.void,
           ),

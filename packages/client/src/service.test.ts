@@ -14,6 +14,12 @@ import {
 import { sanitizeForSystemReminder } from "./service.js";
 import { FakeMoltZapService } from "./test-utils/fake-service.js";
 
+import {
+  AgentsLookupByName,
+  ConversationsCreate,
+  PermissionsGrant,
+} from "@moltzap/protocol";
+
 /** Run a service Effect to a Promise for test assertions. */
 const run = <A, E>(e: Effect.Effect<A, E>): Promise<A> => Effect.runPromise(e);
 
@@ -25,7 +31,7 @@ describe("MoltZapService.sendToAgent", () => {
     // `setResponse` is typed: the wire name must be a `RpcMethodName` literal
     // and the value must match `RpcMap[M]["result"]`. Both guard against the
     // contract-drift bug (A7) that motivated this fake.
-    service.setResponse("agents/lookupByName", {
+    service.setResponse(AgentsLookupByName.name, {
       agents: [
         {
           id: "agent-alice-id",
@@ -34,7 +40,7 @@ describe("MoltZapService.sendToAgent", () => {
         },
       ],
     });
-    service.setResponse("conversations/create", {
+    service.setResponse(ConversationsCreate.name, {
       conversation: {
         id: "conv-alice",
         type: "dm",
@@ -43,7 +49,7 @@ describe("MoltZapService.sendToAgent", () => {
         updatedAt: "2026-04-16T00:00:00Z",
       },
     });
-    service.setResponse("messages/send", {
+    service.setResponse(MessagesSend.name, {
       message: {
         id: "msg-1",
         conversationId: "conv-alice",
@@ -58,16 +64,16 @@ describe("MoltZapService.sendToAgent", () => {
     await run(service.sendToAgent("alice", "hello"));
 
     expect(service.calls).toEqual([
-      { method: "agents/lookupByName", params: { names: ["alice"] } },
+      { method: AgentsLookupByName.name, params: { names: ["alice"] } },
       {
-        method: "conversations/create",
+        method: ConversationsCreate.name,
         params: {
           type: "dm",
           participants: [{ type: "agent", id: "agent-alice-id" }],
         },
       },
       {
-        method: "messages/send",
+        method: MessagesSend.name,
         params: {
           conversationId: "conv-alice",
           parts: [{ type: "text", text: "hello" }],
@@ -84,7 +90,7 @@ describe("MoltZapService.sendToAgent", () => {
 
     expect(service.calls).toEqual([
       {
-        method: "messages/send",
+        method: MessagesSend.name,
         params: {
           conversationId: "conv-alice",
           parts: [{ type: "text", text: "second" }],
@@ -98,7 +104,7 @@ describe("MoltZapService.sendToAgent", () => {
       service.sendToAgent("alice", "reply text", { replyTo: "msg-123" }),
     );
 
-    const sendCall = service.calls.find((c) => c.method === "messages/send");
+    const sendCall = service.calls.find((c) => c.method === MessagesSend.name);
     expect(sendCall?.params).toEqual({
       conversationId: "conv-alice",
       parts: [{ type: "text", text: "reply text" }],
@@ -107,15 +113,15 @@ describe("MoltZapService.sendToAgent", () => {
   });
 
   it("maintains separate cache entries per agent name", async () => {
-    service.setResponse("agents/lookupByName", {
+    service.setResponse(AgentsLookupByName.name, {
       agents: [{ id: "agent-alice-id", name: "alice", status: "active" }],
     });
     await run(service.sendToAgent("alice", "hello alice"));
 
-    service.setResponse("agents/lookupByName", {
+    service.setResponse(AgentsLookupByName.name, {
       agents: [{ id: "agent-bob-id", name: "bob", status: "active" }],
     });
-    service.setResponse("conversations/create", {
+    service.setResponse(ConversationsCreate.name, {
       conversation: {
         id: "conv-bob",
         type: "dm",
@@ -130,7 +136,9 @@ describe("MoltZapService.sendToAgent", () => {
     await run(service.sendToAgent("alice", "alice again"));
     await run(service.sendToAgent("bob", "bob again"));
 
-    const sendCalls = service.calls.filter((c) => c.method === "messages/send");
+    const sendCalls = service.calls.filter(
+      (c) => c.method === MessagesSend.name,
+    );
     expect(sendCalls).toHaveLength(2);
     expect(
       (sendCalls[0]!.params as { conversationId: string }).conversationId,
@@ -141,7 +149,7 @@ describe("MoltZapService.sendToAgent", () => {
   });
 
   it("throws a clear error when no agent is found for the given name", async () => {
-    service.setResponse("agents/lookupByName", { agents: [] });
+    service.setResponse(AgentsLookupByName.name, { agents: [] });
 
     await expect(run(service.sendToAgent("nobody", "hi"))).rejects.toThrow(
       /Agent not found: nobody/,
@@ -149,7 +157,7 @@ describe("MoltZapService.sendToAgent", () => {
   });
 
   it("propagates errors from agents/lookupByName", async () => {
-    service.deleteResponse("agents/lookupByName");
+    service.deleteResponse(AgentsLookupByName.name);
 
     await expect(run(service.sendToAgent("alice", "hi"))).rejects.toThrow(
       /no canned response for agents\/lookupByName/,
@@ -157,7 +165,7 @@ describe("MoltZapService.sendToAgent", () => {
   });
 
   it("propagates errors from conversations/create", async () => {
-    service.deleteResponse("conversations/create");
+    service.deleteResponse(ConversationsCreate.name);
 
     await expect(run(service.sendToAgent("alice", "hi"))).rejects.toThrow(
       /no canned response for conversations\/create/,
@@ -165,7 +173,7 @@ describe("MoltZapService.sendToAgent", () => {
   });
 
   it("propagates errors from messages/send", async () => {
-    service.deleteResponse("messages/send");
+    service.deleteResponse(MessagesSend.name);
 
     await expect(run(service.sendToAgent("alice", "hi"))).rejects.toThrow(
       /no canned response for messages\/send/,
@@ -773,7 +781,7 @@ describe("MoltZapService conversation archive lifecycle", () => {
 describe("MoltZapService.grantPermission", () => {
   it("sends permissions/grant RPC", async () => {
     const service = new FakeMoltZapService();
-    service.setResponse("permissions/grant", {});
+    service.setResponse(PermissionsGrant.name, {});
 
     await run(
       service.grantPermission({
@@ -785,7 +793,7 @@ describe("MoltZapService.grantPermission", () => {
     );
 
     expect(service.calls).toContainEqual({
-      method: "permissions/grant",
+      method: PermissionsGrant.name,
       params: {
         sessionId: "sess-1",
         agentId: "agent-2",

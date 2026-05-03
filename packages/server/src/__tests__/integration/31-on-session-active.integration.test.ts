@@ -25,6 +25,8 @@ import {
 import type { CoreApp } from "../../app/types.js";
 import type { ConnectedAgent } from "../../test-utils/helpers.js";
 
+import { AppsCreate } from "@moltzap/protocol";
+
 let coreApp: CoreApp;
 
 beforeAll(async () => {
@@ -103,7 +105,7 @@ describe("Scenario 31b: on_session_active hook", () => {
         });
       });
 
-      const session = (yield* initiator.client.sendRpc("apps/create", {
+      const session = (yield* initiator.client.sendRpc(AppsCreate.name, {
         appId: "osa-fire-once",
         invitedAgentIds: [inviteeA.agentId, inviteeB.agentId],
       })) as {
@@ -142,7 +144,7 @@ describe("Scenario 31b: on_session_active hook", () => {
         hookFinishedAt = Date.now();
       });
 
-      yield* initiator.client.sendRpc("apps/create", {
+      yield* initiator.client.sendRpc(AppsCreate.name, {
         appId: "osa-order",
         invitedAgentIds: [invitee.agentId],
       });
@@ -172,7 +174,7 @@ describe("Scenario 31b: on_session_active hook", () => {
         await new Promise((r) => setTimeout(r, 600));
       });
 
-      const session = (yield* initiator.client.sendRpc("apps/create", {
+      const session = (yield* initiator.client.sendRpc(AppsCreate.name, {
         appId: "osa-timeout-app",
         invitedAgentIds: [invitee.agentId],
       })) as { session: { id: string } };
@@ -217,7 +219,7 @@ describe("Scenario 31b: on_session_active hook", () => {
         throw new Error("boom from on_session_active");
       });
 
-      const session = (yield* initiator.client.sendRpc("apps/create", {
+      const session = (yield* initiator.client.sendRpc(AppsCreate.name, {
         appId: "osa-throw-app",
         invitedAgentIds: [invitee.agentId],
       })) as { session: { id: string } };

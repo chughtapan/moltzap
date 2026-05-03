@@ -16,7 +16,15 @@
  * export (see §4 O5 resolution in the design doc) that returns the same
  * factory shape.
  */
-import { Context, Effect, Ref, type Scope } from "effect";
+import {
+  Config,
+  ConfigProvider,
+  Context,
+  Data,
+  Effect,
+  Ref,
+  type Scope,
+} from "effect";
 import type { EventFrame, ResponseFrame } from "../../../schema/frames.js";
 import {
   makeTestServer,
@@ -35,6 +43,21 @@ import {
 import { conformanceNumRunsFromEnv } from "../env.js";
 import type { ConformanceArtifact } from "../runner.js";
 import { PROTOCOL_VERSION } from "../../../version.js";
+
+import { Connect } from "../../../schema/methods/auth.js";
+
+const DEFAULT_ACCEPT_TIMEOUT_MS = 5_000;
+const RANDOM_TAG_RADIX = 36;
+const RANDOM_TAG_SLICE_END = 10;
+const RANDOM_TAG_SLICE_START = 2;
+const REPLAY_SEED_MASK = 0x7fffffff;
+
+const loadFastCheckSeed: Effect.Effect<number, never> = Config.integer(
+  "FC_SEED",
+).pipe(
+  Effect.withConfigProvider(ConfigProvider.fromEnv()),
+  Effect.orElseSucceed(() => Date.now() & REPLAY_SEED_MASK),
+);
 
 /**
  * Opaque handle to a live real MoltZap client connected to `TestServer`.
@@ -148,25 +171,23 @@ export interface RealClientRpcCaller {
  * Real-client lifecycle error tag. All three cover the Principle 3 error
  * channel; no raw throws escape the factory's Scope.
  */
-export class RealClientLifecycleError {
-  readonly _tag = "RealClientLifecycleError";
-  constructor(readonly cause: unknown) {}
-}
+export class RealClientLifecycleError extends Data.TaggedError(
+  "RealClientLifecycleError",
+)<{
+  readonly cause: unknown;
+}> {}
 
 /** Typed error surface for real-client RPC calls (D5 predicate target). */
-export class RealClientRpcError {
-  readonly _tag = "RealClientRpcError";
-  constructor(
-    readonly kind:
-      | "timeout"
-      | "server-error"
-      | "malformed-response"
-      | "disconnected",
-    readonly method: string,
-    readonly documentedErrorTag: string | null,
-    readonly cause: unknown,
-  ) {}
-}
+export class RealClientRpcError extends Data.TaggedError("RealClientRpcError")<{
+  readonly cause: unknown;
+  readonly documentedErrorTag: string | null;
+  readonly kind:
+    | "timeout"
+    | "server-error"
+    | "malformed-response"
+    | "disconnected";
+  readonly method: string;
+}> {}
 
 /** Close-event shape surfaced by `RealClientHandle.closeSignal`. */
 export interface RealClientCloseEvent {
@@ -281,9 +302,7 @@ export function acquireClientRunContext(
       ...opts,
       numRuns: opts.numRuns ?? conformanceNumRunsFromEnv(),
     };
-    const seed =
-      effectiveOpts.replaySeed ??
-      Number(process.env.FC_SEED ?? Date.now() & 0x7fffffff);
+    const seed = effectiveOpts.replaySeed ?? (yield* loadFastCheckSeed);
     const artifacts = yield* Ref.make<ReadonlyArray<ConformanceArtifact>>([]);
 
     // Bind the TestServer under the ambient Scope. Server-close on teardown.
@@ -320,7 +339,10 @@ export function acquireClientRunContext(
     // hold; each property body still binds a per-handle window.
     const handshakeWindow: ClientHandshakeWindow = {
       freshEmissionTag: Effect.sync(
-        () => `tag-${Math.random().toString(36).slice(2, 10)}`,
+        () =>
+          `tag-${Math.random()
+            .toString(RANDOM_TAG_RADIX)
+            .slice(RANDOM_TAG_SLICE_START, RANDOM_TAG_SLICE_END)}`,
       ),
       emitTaggedEvent: ({ connection, base, emissionTag }) =>
         emitTaggedEventDefault(connection, base, emissionTag),
@@ -376,6 +398,7 @@ function emitTaggedResponseDefault(
   base: ResponseFrame,
   _emissionTag: string,
 ): Effect.Effect<string> {
+  void _emissionTag;
   // Response frames don't carry a free-form `data` field; responses are
   // correlated by `id` instead — the response's `id` IS its emission tag
   // from the property's perspective (see B1 / B4 / D5 predicates).
@@ -435,7 +458,7 @@ export function runAutoHandshakeResponder(
             entry.kind === "inbound" &&
             entry.frame !== null &&
             entry.frame.type === "request" &&
-            entry.frame.method === "auth/connect"
+            entry.frame.method === Connect.name
           ) {
             const helloOk = {
               protocolVersion: PROTOCOL_VERSION,
@@ -488,7 +511,7 @@ export function freshTag(window: ClientHandshakeWindow): Effect.Effect<string> {
  */
 export function awaitConnection(
   testServer: TestServer,
-  timeoutMs = 5000,
+  timeoutMs = DEFAULT_ACCEPT_TIMEOUT_MS,
 ): Effect.Effect<TestServerConnection, TransportIoError> {
   return testServer.accept.pipe(
     Effect.timeoutFail({

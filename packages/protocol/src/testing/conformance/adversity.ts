@@ -18,12 +18,13 @@
  * Principle 3: every property body is `Effect<void, PropertyFailure>`
  * — no bare throws, no `Effect.void` shortcuts.
  */
-import { Clock, Effect, type Scope } from "effect";
+import { Clock, Effect, Either, type Scope } from "effect";
 import { defaultToxicProfile } from "../toxics/defaults.js";
 import type { Proxy } from "../toxics/client.js";
 import type { ToxicProfile } from "../toxics/profile.js";
 import { makeTestClient, type TestClient } from "../test-client.js";
 import { registerTestAgent, type TestAgent } from "../agent-registration.js";
+import { TransportClosedError } from "../errors.js";
 import type { ConformanceRunContext } from "./runner.js";
 import {
   PropertyDeferred,
@@ -32,8 +33,41 @@ import {
   registerProperty,
 } from "./registry.js";
 
+import {
+  ConversationsCreate,
+  ConversationsList,
+} from "../../schema/methods/conversations.js";
+import { MessagesSend } from "../../schema/methods/messages.js";
+
 const CATEGORY = "adversity" as const;
 const DEFAULT_CAPTURE_CAPACITY = 128;
+const ID_RADIX = 36;
+const RANDOM_SUFFIX_START = 2;
+const RANDOM_SUFFIX_END = 8;
+const LATENCY_CLIENT_TIMEOUT_MS = 6_000;
+const SLICER_CLIENT_TIMEOUT_MS = 8_000;
+const RESET_CLIENT_TIMEOUT_MS = 4_000;
+const RESET_POLL_ATTEMPTS = 10;
+const RESET_CLOSE_BUDGET_MS = 3_500;
+const TIMEOUT_CLIENT_TIMEOUT_MS = 1_500;
+const TIMEOUT_EXPECTED_BUDGET_MS = 3_000;
+const SLOW_CLOSE_CLIENT_TIMEOUT_MS = 2_000;
+const SLOW_CLOSE_BUDGET_MS = 5_000;
+const TIMEOUT_SURFACE_PROPERTY = "timeout-surface";
+
+function violation(name: string, reason: string): PropertyInvariantViolation {
+  return new PropertyInvariantViolation({ category: CATEGORY, name, reason });
+}
+
+function randomIdSuffix(): string {
+  return Math.random()
+    .toString(ID_RADIX)
+    .slice(RANDOM_SUFFIX_START, RANDOM_SUFFIX_END);
+}
+
+function proxyName(prefix: string, seed: number): string {
+  return `${prefix}-${seed}-${randomIdSuffix()}`;
+}
 
 /** Acquire a TestClient that routes through the Toxiproxy proxy. */
 function acquireProxiedClient(
@@ -174,7 +208,7 @@ export function registerLatencyResilience(ctx: ConformanceRunContext): void {
     ctx,
     propertyName: "latency-resilience",
     description: "fan-out delivery survives added latency + jitter",
-    proxyName: `lat-${ctx.seed}-${Math.random().toString(36).slice(2, 8)}`,
+    proxyName: proxyName("lat", ctx.seed),
     profile: defaultToxicProfile.latency,
     body: ({ proxy, unavailable, attachToxic }) =>
       Effect.gen(function* () {
@@ -182,32 +216,27 @@ export function registerLatencyResilience(ctx: ConformanceRunContext): void {
           ctx,
           proxy,
           `lat-${ctx.seed}-o`,
-          6000,
+          LATENCY_CLIENT_TIMEOUT_MS,
           unavailable,
         );
         const participant = yield* acquireProxiedClient(
           ctx,
           proxy,
           `lat-${ctx.seed}-p`,
-          6000,
+          LATENCY_CLIENT_TIMEOUT_MS,
           unavailable,
         );
-        const conv = yield* createOneOnOneConversation(owner, participant);
-        if (conv.kind !== "ok") {
-          return yield* Effect.fail(
-            new PropertyInvariantViolation({
-              category: CATEGORY,
-              name: "latency-resilience",
-              reason: conv.reason,
-            }),
-          );
-        }
+        const conversationId = yield* createOneOnOneConversation(
+          owner,
+          participant,
+          "latency-resilience",
+        );
         yield* Effect.scoped(
           Effect.gen(function* () {
             yield* attachToxic;
             yield* owner.client
-              .sendRpc("messages/send", {
-                conversationId: conv.conversationId,
+              .sendRpc(MessagesSend.name, {
+                conversationId,
                 parts: [{ type: "text", text: "lat-ping" }],
               })
               .pipe(Effect.either);
@@ -263,7 +292,7 @@ export function registerSlicerFraming(ctx: ConformanceRunContext): void {
     ctx,
     propertyName: "slicer-framing",
     description: "partial-frame slicing preserves payload byte-identity",
-    proxyName: `sli-${ctx.seed}-${Math.random().toString(36).slice(2, 8)}`,
+    proxyName: proxyName("sli", ctx.seed),
     profile: defaultToxicProfile.slicer,
     body: ({ proxy, unavailable, attachToxic }) =>
       Effect.gen(function* () {
@@ -271,33 +300,28 @@ export function registerSlicerFraming(ctx: ConformanceRunContext): void {
           ctx,
           proxy,
           `sli-${ctx.seed}-o`,
-          8000,
+          SLICER_CLIENT_TIMEOUT_MS,
           unavailable,
         );
         const participant = yield* acquireProxiedClient(
           ctx,
           proxy,
           `sli-${ctx.seed}-p`,
-          8000,
+          SLICER_CLIENT_TIMEOUT_MS,
           unavailable,
         );
-        const conv = yield* createOneOnOneConversation(owner, participant);
-        if (conv.kind !== "ok") {
-          return yield* Effect.fail(
-            new PropertyInvariantViolation({
-              category: CATEGORY,
-              name: "slicer-framing",
-              reason: conv.reason,
-            }),
-          );
-        }
-        const token = `sli-token-${ctx.seed}-${Date.now().toString(36)}`;
+        const conversationId = yield* createOneOnOneConversation(
+          owner,
+          participant,
+          "slicer-framing",
+        );
+        const token = `sli-token-${ctx.seed}-${Date.now().toString(ID_RADIX)}`;
         yield* Effect.scoped(
           Effect.gen(function* () {
             yield* attachToxic;
             yield* owner.client
-              .sendRpc("messages/send", {
-                conversationId: conv.conversationId,
+              .sendRpc(MessagesSend.name, {
+                conversationId,
                 parts: [{ type: "text", text: token }],
               })
               .pipe(Effect.either);
@@ -337,7 +361,7 @@ export function registerResetPeerRecovery(ctx: ConformanceRunContext): void {
     ctx,
     propertyName: "reset-peer-recovery",
     description: "reset_peer surfaces TransportClosedError without hanging",
-    proxyName: `rst-${ctx.seed}-${Math.random().toString(36).slice(2, 8)}`,
+    proxyName: proxyName("rst", ctx.seed),
     profile: defaultToxicProfile.reset_peer,
     body: ({ proxy, unavailable, attachToxic }) =>
       Effect.gen(function* () {
@@ -347,26 +371,27 @@ export function registerResetPeerRecovery(ctx: ConformanceRunContext): void {
           `rst-${ctx.seed}-s`,
           // Deadline > reset_peer.timeoutMs (2000); bounded so a
           // never-firing reset doesn't hang the suite.
-          4000,
+          RESET_CLIENT_TIMEOUT_MS,
           unavailable,
         );
         const observed = yield* Effect.scoped(
           Effect.gen(function* () {
             yield* attachToxic;
             const start = yield* Clock.currentTimeMillis;
-            for (let i = 0; i < 10; i++) {
+            for (let i = 0; i < RESET_POLL_ATTEMPTS; i++) {
               const outcome = yield* sender.client
-                .sendRpc("conversations/list", {})
+                .sendRpc(ConversationsList.name, {})
                 .pipe(Effect.either);
-              if (
-                outcome._tag === "Left" &&
-                outcome.left._tag === "TestingTransportClosedError"
-              ) {
+              const transportClosed = Either.match(outcome, {
+                onLeft: (error) => error instanceof TransportClosedError,
+                onRight: () => false,
+              });
+              if (transportClosed) {
                 return true;
               }
               yield* Effect.sleep("300 millis");
               const elapsed = (yield* Clock.currentTimeMillis) - start;
-              if (elapsed > 3500) return false;
+              if (elapsed > RESET_CLOSE_BUDGET_MS) return false;
             }
             return false;
           }),
@@ -391,9 +416,9 @@ export function registerResetPeerRecovery(ctx: ConformanceRunContext): void {
 export function registerTimeoutSurface(ctx: ConformanceRunContext): void {
   withToxicProxy({
     ctx,
-    propertyName: "timeout-surface",
+    propertyName: TIMEOUT_SURFACE_PROPERTY,
     description: "timeout toxic surfaces typed RpcTimeoutError within budget",
-    proxyName: `to-${ctx.seed}-${Math.random().toString(36).slice(2, 8)}`,
+    proxyName: proxyName("to", ctx.seed),
     profile: defaultToxicProfile.timeout,
     body: ({ proxy, unavailable, attachToxic }) =>
       Effect.gen(function* () {
@@ -405,7 +430,7 @@ export function registerTimeoutSurface(ctx: ConformanceRunContext): void {
           ctx,
           proxy,
           `to-${ctx.seed}-c`,
-          1500,
+          TIMEOUT_CLIENT_TIMEOUT_MS,
           unavailable,
         );
         const { outcomeTag, elapsed } = yield* Effect.scoped(
@@ -413,12 +438,14 @@ export function registerTimeoutSurface(ctx: ConformanceRunContext): void {
             yield* attachToxic;
             const start = yield* Clock.currentTimeMillis;
             const outcome = yield* proxied.client
-              .sendRpc("conversations/list", {})
+              .sendRpc(ConversationsList.name, {})
               .pipe(Effect.either);
             const elapsed = (yield* Clock.currentTimeMillis) - start;
             return {
-              outcomeTag:
-                outcome._tag === "Right" ? "success" : outcome.left._tag,
+              outcomeTag: Either.match(outcome, {
+                onLeft: (error) => error._tag,
+                onRight: () => "success",
+              }),
               elapsed,
             };
           }),
@@ -427,7 +454,7 @@ export function registerTimeoutSurface(ctx: ConformanceRunContext): void {
           return yield* Effect.fail(
             new PropertyInvariantViolation({
               category: CATEGORY,
-              name: "timeout-surface",
+              name: TIMEOUT_SURFACE_PROPERTY,
               reason: "RPC through timeout toxic unexpectedly succeeded",
             }),
           );
@@ -436,17 +463,17 @@ export function registerTimeoutSurface(ctx: ConformanceRunContext): void {
           return yield* Effect.fail(
             new PropertyInvariantViolation({
               category: CATEGORY,
-              name: "timeout-surface",
+              name: TIMEOUT_SURFACE_PROPERTY,
               reason: `expected RpcTimeoutError, got ${outcomeTag}`,
             }),
           );
         }
-        if (elapsed > 3000) {
+        if (elapsed > TIMEOUT_EXPECTED_BUDGET_MS) {
           return yield* Effect.fail(
             new PropertyInvariantViolation({
               category: CATEGORY,
-              name: "timeout-surface",
-              reason: `timeout fired at ${elapsed}ms, expected <3000ms`,
+              name: TIMEOUT_SURFACE_PROPERTY,
+              reason: `timeout fired at ${elapsed}ms, expected <${TIMEOUT_EXPECTED_BUDGET_MS}ms`,
             }),
           );
         }
@@ -464,7 +491,7 @@ export function registerSlowCloseCleanup(ctx: ConformanceRunContext): void {
     ctx,
     propertyName: "slow-close-cleanup",
     description: "slow_close toxic does not leak descriptors beyond 2s",
-    proxyName: `sc-${ctx.seed}-${Math.random().toString(36).slice(2, 8)}`,
+    proxyName: proxyName("sc", ctx.seed),
     profile: defaultToxicProfile.slow_close,
     body: ({ proxy, unavailable, attachToxic }) =>
       Effect.gen(function* () {
@@ -479,22 +506,22 @@ export function registerSlowCloseCleanup(ctx: ConformanceRunContext): void {
               ctx,
               proxy,
               `sc-${ctx.seed}-c`,
-              2000,
+              SLOW_CLOSE_CLIENT_TIMEOUT_MS,
               unavailable,
             );
             // A single RPC proves the socket is alive before close.
             yield* _client.client
-              .sendRpc("conversations/list", {})
+              .sendRpc(ConversationsList.name, {})
               .pipe(Effect.either);
           }),
         );
         const elapsed = (yield* Clock.currentTimeMillis) - start;
-        if (elapsed > 5000) {
+        if (elapsed > SLOW_CLOSE_BUDGET_MS) {
           return yield* Effect.fail(
             new PropertyInvariantViolation({
               category: CATEGORY,
               name: "slow-close-cleanup",
-              reason: `scope release took ${elapsed}ms under slow_close (budget 5000ms)`,
+              reason: `scope release took ${elapsed}ms under slow_close (budget ${SLOW_CLOSE_BUDGET_MS}ms)`,
             }),
           );
         }
@@ -504,38 +531,37 @@ export function registerSlowCloseCleanup(ctx: ConformanceRunContext): void {
 
 // ── helpers ──────────────────────────────────────────────────────────
 
-type ConvResult =
-  | { readonly kind: "ok"; readonly conversationId: string }
-  | { readonly kind: "error"; readonly reason: string };
-
 function createOneOnOneConversation(
   owner: { agent: TestAgent; client: TestClient },
   participant: { agent: TestAgent; client: TestClient },
-): Effect.Effect<ConvResult> {
+  propertyName: string,
+): Effect.Effect<string, PropertyInvariantViolation> {
   return Effect.gen(function* () {
     const create = yield* owner.client
-      .sendRpc("conversations/create", {
+      .sendRpc(ConversationsCreate.name, {
         type: "group",
         name: `adv-conv-${owner.agent.name}`,
         participants: [
           { type: "agent" as const, id: participant.agent.agentId },
         ],
       })
-      .pipe(Effect.either);
-    if (create._tag === "Left") {
-      return {
-        kind: "error",
-        reason: `conversations/create under toxic: ${create.left._tag}`,
-      } satisfies ConvResult;
-    }
-    const id = (create.right as { conversation?: { id?: string } }).conversation
-      ?.id;
+      .pipe(
+        Effect.mapError((error) =>
+          violation(
+            propertyName,
+            `conversations/create under toxic: ${error._tag}`,
+          ),
+        ),
+      );
+    const id = (create as { conversation?: { id?: string } }).conversation?.id;
     if (typeof id !== "string" || id.length === 0) {
-      return {
-        kind: "error",
-        reason: "conversations/create returned no conversation.id",
-      } satisfies ConvResult;
+      return yield* Effect.fail(
+        violation(
+          propertyName,
+          "conversations/create returned no conversation.id",
+        ),
+      );
     }
-    return { kind: "ok", conversationId: id } satisfies ConvResult;
+    return id;
   });
 }

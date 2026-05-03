@@ -14,6 +14,7 @@
  * `TestClock` (see the `describe("reconnect backoff")` block for details).
  */
 import { execSync } from "node:child_process";
+import { createServer } from "node:net";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { it as itEffect } from "@effect/vitest";
 import {
@@ -38,7 +39,18 @@ import {
 import { RpcServerError, RpcTimeoutError } from "./runtime/errors.js";
 import type { EventFrame } from "@moltzap/protocol";
 
+import {
+  AgentsLookupByName,
+  AppsOnClose,
+  AppsOnJoin,
+  Connect,
+  ConversationsList,
+  MessagesSend,
+} from "@moltzap/protocol";
+
 // ── Test server helpers ────────────────────────────────────────────────
+
+const LOCALHOST_HOST = "127.0.0.1";
 
 /**
  * Per-connection context exposed to a handler so tests can inspect and
@@ -82,7 +94,7 @@ const startTestServer = (
   Effect.gen(function* () {
     const server = yield* NodeSocketServer.makeWebSocket({
       port: 0,
-      host: "127.0.0.1",
+      host: LOCALHOST_HOST,
     });
     const addr = server.address;
     if (addr._tag !== "TcpAddress") {
@@ -121,11 +133,32 @@ const startTestServer = (
     );
 
     return {
-      url: `http://${addr.hostname}:${addr.port}`,
+      url: `http://${LOCALHOST_HOST}:${addr.port}`,
       get connections() {
         return connections;
       },
     };
+  });
+
+const findClosedLocalPort = (): Promise<number> =>
+  new Promise<number>((resolve, reject) => {
+    const server = createServer();
+    server.once("error", reject);
+    server.listen(0, LOCALHOST_HOST, () => {
+      const address = server.address();
+      if (address === null || typeof address === "string") {
+        server.close();
+        reject(new Error("expected TCP server address"));
+        return;
+      }
+      server.close((err) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        resolve(address.port);
+      });
+    });
   });
 
 // ── Logger helper ──────────────────────────────────────────────────────
@@ -205,7 +238,7 @@ const startHandshakingServer = (
         method: string;
         params?: unknown;
       };
-      if (frame.method === "auth/connect") {
+      if (frame.method === Connect.name) {
         yield* conn.send(
           JSON.stringify({
             jsonrpc: "2.0",
@@ -333,7 +366,8 @@ describe("§5.1 connect() does not hang on pre-open failure", () => {
     // Observed: ECONNREFUSED fires in single-digit ms locally; give
     // generous CI headroom via the 15s assertion but keep test timeout at
     // 20s to avoid flakes on slow runners.
-    const client = makeClient("http://127.0.0.1:1");
+    const refusedPort = await findClosedLocalPort();
+    const client = makeClient(`http://${LOCALHOST_HOST}:${refusedPort}`);
     const t0 = Date.now();
     try {
       await connectP(client);
@@ -376,7 +410,7 @@ describe("§5.2 pending RPCs fail on disconnect", () => {
         const client = makeClient(server.url);
         yield* Effect.promise(() => connectP(client));
 
-        const rpcP = sendRpcP(client, "messages/send", {
+        const rpcP = sendRpcP(client, MessagesSend.name, {
           conversationId: "c1",
           parts: [{ type: "text", text: "hi" }],
         });
@@ -430,7 +464,7 @@ describe("§5.3 sendRpc does NOT retry on timeout (TestClock)", () => {
         const beforeCount = serverConn.received.length;
 
         const rpcFiber = yield* Effect.fork(
-          client.sendRpc("messages/send", {
+          client.sendRpc(MessagesSend.name, {
             conversationId: "c1",
             parts: [{ type: "text", text: "payload" }],
           }),
@@ -471,7 +505,7 @@ describe("§5.3 sendRpc does NOT retry on timeout (TestClock)", () => {
             const err = failed.value;
             expect(err).toBeInstanceOf(RpcTimeoutError);
             if (err instanceof RpcTimeoutError) {
-              expect(err.method).toBe("messages/send");
+              expect(err.method).toBe(MessagesSend.name);
               expect(err.timeoutMs).toBe(RPC_TIMEOUT_MS);
             }
           }
@@ -509,7 +543,7 @@ describe("reconnect backoff", () => {
         const server = yield* startTestServer((conn, raw) =>
           Effect.gen(function* () {
             const frame = JSON.parse(raw) as { id: string; method: string };
-            if (frame.method === "auth/connect") {
+            if (frame.method === Connect.name) {
               authResponsesSent++;
               yield* conn.send(
                 JSON.stringify({
@@ -571,7 +605,7 @@ describe("§5.4 malformed frames are logged but do not affect pending RPCs", () 
         // malformed inbound frames, then the real response.
         const server = yield* startHandshakingServer((conn, _raw, frame) =>
           Effect.gen(function* () {
-            if (frame.method !== "conversations/list") return;
+            if (frame.method !== ConversationsList.name) return;
             // Inject: non-JSON, then missing-id response, then unknown type.
             yield* conn.send("not json at all");
             yield* conn.send(JSON.stringify({ type: "response" }));
@@ -592,7 +626,7 @@ describe("§5.4 malformed frames are logged but do not affect pending RPCs", () 
         yield* Effect.promise(() => connectP(client));
 
         const result = (yield* Effect.promise(() =>
-          sendRpcP(client, "conversations/list", {}),
+          sendRpcP(client, ConversationsList.name, {}),
         )) as { conversations: unknown[] };
         expect(result.conversations).toEqual([]);
         // Logger saw at least one malformed-frame warning.
@@ -610,7 +644,7 @@ describe("§5.4 malformed frames are logged but do not affect pending RPCs", () 
         const events: unknown[] = [];
         const server = yield* startHandshakingServer((conn, _raw, frame) =>
           Effect.gen(function* () {
-            if (frame.method !== "conversations/list") return;
+            if (frame.method !== ConversationsList.name) return;
             yield* conn.send(
               JSON.stringify({
                 jsonrpc: "2.0",
@@ -636,7 +670,7 @@ describe("§5.4 malformed frames are logged but do not affect pending RPCs", () 
         yield* Effect.promise(() => connectP(client));
 
         const result = (yield* Effect.promise(() =>
-          sendRpcP(client, "conversations/list", {}),
+          sendRpcP(client, ConversationsList.name, {}),
         )) as { conversations: unknown[] };
 
         expect(result.conversations).toEqual([]);
@@ -769,7 +803,7 @@ describe("close() interleaved with a pending RPC", () => {
         const client = makeClient(server.url);
         yield* Effect.promise(() => connectP(client));
 
-        const rpcP = sendRpcP(client, "conversations/list", {});
+        const rpcP = sendRpcP(client, ConversationsList.name, {});
         yield* Effect.promise(() =>
           waitFor(() => server.connections[0]!.received.length >= 2),
         );
@@ -801,7 +835,7 @@ describe("socket error after connect", () => {
         const client = makeClient(server.url, { logger });
         yield* Effect.promise(() => connectP(client));
 
-        const rpcP = sendRpcP(client, "conversations/list", {});
+        const rpcP = sendRpcP(client, ConversationsList.name, {});
         yield* Effect.promise(() =>
           expect(rpcP).rejects.toThrow(/WebSocket not connected/),
         );
@@ -854,7 +888,7 @@ describe("sendRpc(RpcDefinition, params) — typed manifest overload", () => {
           echoedParams: { names: string[] };
           agents: unknown[];
         };
-        expect(result.echoedMethod).toBe("agents/lookupByName");
+        expect(result.echoedMethod).toBe(AgentsLookupByName.name);
         expect(result.echoedParams).toEqual({ names: ["alice"] });
 
         yield* closeClient(client);
@@ -880,9 +914,9 @@ describe("sendRpc(RpcDefinition, params) — typed manifest overload", () => {
         yield* Effect.promise(() => connectP(client));
 
         const result = (yield* Effect.promise(() =>
-          sendRpcP(client, "agents/lookupByName", { names: ["bob"] }),
+          sendRpcP(client, AgentsLookupByName.name, { names: ["bob"] }),
         )) as { echoedMethod: string; agents: unknown[] };
-        expect(result.echoedMethod).toBe("agents/lookupByName");
+        expect(result.echoedMethod).toBe(AgentsLookupByName.name);
 
         yield* closeClient(client);
       }),
@@ -1032,7 +1066,7 @@ describe("Phase 1.0 (B.1) — handleServerRpc round-trip", () => {
         const server = yield* startTestServer((conn, raw) =>
           Effect.gen(function* () {
             const frame = JSON.parse(raw) as { id: string; method: string };
-            if (frame.method === "auth/connect") {
+            if (frame.method === Connect.name) {
               yield* conn.send(
                 JSON.stringify({
                   jsonrpc: "2.0",
@@ -1052,7 +1086,7 @@ describe("Phase 1.0 (B.1) — handleServerRpc round-trip", () => {
                   type: "request",
                   direction: "s2c",
                   id: "srv-test-1",
-                  method: "apps/onJoin",
+                  method: AppsOnJoin.name,
                   params: { sessionId: "sess-A" },
                 }),
               );
@@ -1062,7 +1096,7 @@ describe("Phase 1.0 (B.1) — handleServerRpc round-trip", () => {
         const client = makeClient(server.url);
         // Register a handler BEFORE connect so the dispatcher fiber sees
         // it on the very first inbound s2c request.
-        yield* client.handleServerRpc("apps/onJoin", (params) =>
+        yield* client.handleServerRpc(AppsOnJoin.name, (params) =>
           Effect.succeed({
             ack: true,
             saw: (params as { sessionId: string }).sessionId,
@@ -1129,7 +1163,7 @@ describe("Phase 1.0 (B.1) — handleServerRpc round-trip", () => {
         const server = yield* startTestServer((conn, raw) =>
           Effect.gen(function* () {
             const frame = JSON.parse(raw) as { id: string; method: string };
-            if (frame.method === "auth/connect") {
+            if (frame.method === Connect.name) {
               yield* conn.send(
                 JSON.stringify({
                   jsonrpc: "2.0",
@@ -1145,7 +1179,7 @@ describe("Phase 1.0 (B.1) — handleServerRpc round-trip", () => {
                   type: "request",
                   direction: "s2c",
                   id: "srv-err-1",
-                  method: "apps/onClose",
+                  method: AppsOnClose.name,
                   // Spec #356: the partitioned dispatcher
                   // narrow-validates routing fields; sessionId is
                   // required for every s2c hook. Synthetic test
@@ -1159,7 +1193,7 @@ describe("Phase 1.0 (B.1) — handleServerRpc round-trip", () => {
           }),
         );
         const client = makeClient(server.url);
-        yield* client.handleServerRpc("apps/onClose", () =>
+        yield* client.handleServerRpc(AppsOnClose.name, () =>
           Effect.fail(
             new RpcServerError({
               code: -32099,
@@ -1217,11 +1251,11 @@ describe("Phase 1.0 (B.1) — handleServerRpc round-trip", () => {
       agentKey: "test",
     });
     const first = await Effect.runPromiseExit(
-      client.handleServerRpc("apps/onJoin", () => Effect.succeed({})),
+      client.handleServerRpc(AppsOnJoin.name, () => Effect.succeed({})),
     );
     expect(Exit.isSuccess(first)).toBe(true);
     const second = await Effect.runPromiseExit(
-      client.handleServerRpc("apps/onJoin", () => Effect.succeed({})),
+      client.handleServerRpc(AppsOnJoin.name, () => Effect.succeed({})),
     );
     expect(Exit.isFailure(second)).toBe(true);
     if (Exit.isFailure(second)) {

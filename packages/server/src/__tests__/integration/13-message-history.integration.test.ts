@@ -8,6 +8,12 @@ import {
   setupAgentPair,
 } from "./helpers.js";
 
+import {
+  ConversationsCreate,
+  MessagesList,
+  MessagesSend,
+} from "@moltzap/protocol";
+
 beforeAll(async () => {
   await startTestServer();
 }, 60_000);
@@ -27,7 +33,7 @@ describe("Message History", () => {
       Effect.gen(function* () {
         const { alice, bob } = yield* setupAgentPair();
 
-        const conv = (yield* alice.client.sendRpc("conversations/create", {
+        const conv = (yield* alice.client.sendRpc(ConversationsCreate.name, {
           type: "dm",
           participants: [{ type: "agent", id: bob.agentId }],
         })) as { conversation: { id: string } };
@@ -35,14 +41,14 @@ describe("Message History", () => {
 
         // Send 15 messages
         for (let i = 1; i <= 15; i++) {
-          yield* alice.client.sendRpc("messages/send", {
+          yield* alice.client.sendRpc(MessagesSend.name, {
             conversationId,
             parts: [{ type: "text", text: `Message ${i}` }],
           });
         }
 
         // List with limit=10 — should get newest 10 and hasMore=true
-        const page1 = (yield* alice.client.sendRpc("messages/list", {
+        const page1 = (yield* alice.client.sendRpc(MessagesList.name, {
           conversationId,
           limit: 10,
         })) as {
@@ -72,7 +78,7 @@ describe("Message History", () => {
         expect(new Set(ids).size).toBe(10);
 
         // List all — should get all 15
-        const all = (yield* alice.client.sendRpc("messages/list", {
+        const all = (yield* alice.client.sendRpc(MessagesList.name, {
           conversationId,
           limit: 100,
         })) as {

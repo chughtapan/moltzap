@@ -33,6 +33,8 @@ import {
 } from "./helpers.js";
 import type { PermissionService } from "../../app/app-host.js";
 
+import { AppsCreate } from "@moltzap/protocol";
+
 let db: Kysely<Database>;
 
 const USER_ALICE = "00000000-0000-4000-a000-000000000101";
@@ -130,7 +132,7 @@ describe("Scenario 23: coalesce race on permission requests", () => {
         // `${USER_BOB}:coalesce-race-app:calendar`, identical across all N.
         const N = 5;
         const createEffects = Array.from({ length: N }, () =>
-          alice.client.sendRpc("apps/create", {
+          alice.client.sendRpc(AppsCreate.name, {
             appId: "coalesce-race-app",
             invitedAgentIds: [bob.agentId],
           }),

@@ -23,7 +23,15 @@
  * the caller references a message beyond the window.
  */
 
+import { Data } from "effect";
 import type { ChatId, MessageId } from "./types.js";
+
+class RoutingCapacityInvalid extends Data.TaggedError(
+  "RoutingCapacityInvalid",
+)<{
+  readonly capacity: number;
+  readonly message: string;
+}> {}
 
 export interface RoutingState {
   /**
@@ -60,9 +68,10 @@ export function createRoutingState(
   capacity: number = DEFAULT_CAPACITY,
 ): RoutingState {
   if (!Number.isFinite(capacity) || capacity <= 0) {
-    throw new Error(
-      `createRoutingState: capacity must be a positive finite number, got ${capacity}`,
-    );
+    throw new RoutingCapacityInvalid({
+      capacity,
+      message: `createRoutingState: capacity must be a positive finite number, got ${capacity}`,
+    });
   }
   const cap = Math.floor(capacity);
   const map = new Map<MessageId, ChatId>();

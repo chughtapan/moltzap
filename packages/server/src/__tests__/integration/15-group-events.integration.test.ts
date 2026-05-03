@@ -9,6 +9,8 @@ import {
 } from "./helpers.js";
 import type { ConnectedAgent } from "./helpers.js";
 
+import { ConversationsCreate } from "@moltzap/protocol";
+
 beforeAll(async () => {
   await startTestServer();
 }, 60_000);
@@ -35,7 +37,7 @@ describe("Group Creation Events", () => {
 
         // Set up event waiters on Bob and Eve BEFORE creating the group
 
-        const conv = (yield* alice.client.sendRpc("conversations/create", {
+        const conv = (yield* alice.client.sendRpc(ConversationsCreate.name, {
           type: "group",
           name: "Eval Group",
           participants: [

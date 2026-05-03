@@ -34,6 +34,15 @@ import {
   type TransportError,
 } from "../transport.js";
 
+import {
+  AppsAttestSkill,
+  AppsCloseSession,
+  AppsCreate,
+  AppsGetSession,
+  AppsListSessions,
+  AppsRegister,
+} from "@moltzap/protocol";
+
 type Call = { method: string; params: Record<string, unknown> };
 
 const makeFakeTransport = (
@@ -91,7 +100,7 @@ describe("apps register", () => {
       ),
     );
     expect(calls).toEqual([
-      { method: "apps/register", params: { manifest: { name: "demo-app" } } },
+      { method: AppsRegister.name, params: { manifest: { name: "demo-app" } } },
     ]);
     expect(stdout).toHaveBeenCalledWith("app-xyz");
   });
@@ -145,7 +154,7 @@ describe("apps create", () => {
     );
     expect(calls).toEqual([
       {
-        method: "apps/create",
+        method: AppsCreate.name,
         params: { appId: "app-1", invitedAgentIds: ["agent-a", "agent-b"] },
       },
     ]);
@@ -184,7 +193,7 @@ describe("apps list", () => {
     );
     expect(calls).toEqual([
       {
-        method: "apps/listSessions",
+        method: AppsListSessions.name,
         params: { appId: "app-1", status: "active", limit: 10 },
       },
     ]);
@@ -226,7 +235,7 @@ describe("apps get", () => {
       ),
     );
     expect(calls[0]).toEqual({
-      method: "apps/getSession",
+      method: AppsGetSession.name,
       params: { sessionId: "s1" },
     });
     expect(stdout).toHaveBeenCalledWith(JSON.stringify(sessionObj, null, 2));
@@ -258,7 +267,7 @@ describe("apps close", () => {
       ),
     );
     expect(calls[0]).toEqual({
-      method: "apps/closeSession",
+      method: AppsCloseSession.name,
       params: { sessionId: "s-42" },
     });
     expect(stdout).toHaveBeenCalledWith("s-42");
@@ -293,7 +302,7 @@ describe("apps attest-skill", () => {
     );
     expect(calls).toEqual([
       {
-        method: "apps/attestSkill",
+        method: AppsAttestSkill.name,
         params: {
           challengeId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
           skillUrl: "https://example.com/skills/my-skill",

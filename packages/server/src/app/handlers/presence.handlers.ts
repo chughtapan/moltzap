@@ -9,7 +9,7 @@ export function createPresenceHandlers(deps: {
   presenceService: PresenceService;
 }): RpcMethodRegistry {
   return {
-    "presence/update": defineMethod(PresenceUpdate, {
+    [PresenceUpdate.name]: defineMethod(PresenceUpdate, {
       requiresActive: true,
       handler: (params, ctx) =>
         Effect.gen(function* () {
@@ -21,7 +21,7 @@ export function createPresenceHandlers(deps: {
         }),
     }),
 
-    "presence/subscribe": defineMethod(PresenceSubscribe, {
+    [PresenceSubscribe.name]: defineMethod(PresenceSubscribe, {
       requiresActive: true,
       handler: (params) =>
         Effect.gen(function* () {

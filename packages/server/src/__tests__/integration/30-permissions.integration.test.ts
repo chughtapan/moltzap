@@ -16,6 +16,13 @@ import {
   type ServerTestClient,
 } from "./helpers.js";
 
+import {
+  AppsCreate,
+  PermissionsGrant,
+  PermissionsList,
+  PermissionsRevoke,
+} from "@moltzap/protocol";
+
 let db: Kysely<Database>;
 
 // Stable UUIDs for test users (owner_user_id is a UUID column)
@@ -98,7 +105,7 @@ describe("Permission grant flow (DefaultPermissionService)", () => {
         const alice = yield* registerWithOwner("alice-pf", USER_ALICE);
         const bob = yield* registerWithOwner("bob-pf", USER_BOB);
 
-        const session = (yield* alice.client.sendRpc("apps/create", {
+        const session = (yield* alice.client.sendRpc(AppsCreate.name, {
           appId: "perm-test-app",
           invitedAgentIds: [bob.agentId],
         })) as { session: { id: string; status: string } };
@@ -119,7 +126,7 @@ describe("Permission grant flow (DefaultPermissionService)", () => {
         expect(perm.access).toEqual(["read", "write"]);
         expect(perm.targetUserId).toBe(USER_BOB);
 
-        yield* bob.client.sendRpc("permissions/grant", {
+        yield* bob.client.sendRpc(PermissionsGrant.name, {
           sessionId: perm.sessionId,
           agentId: bob.agentId,
           resource: "calendar",
@@ -146,13 +153,13 @@ describe("Permission grant flow (DefaultPermissionService)", () => {
       const bob = yield* registerWithOwner("bob-c", USER_BOB);
 
       // Session 1: grant
-      yield* alice.client.sendRpc("apps/create", {
+      yield* alice.client.sendRpc(AppsCreate.name, {
         appId: "perm-test-app",
         invitedAgentIds: [bob.agentId],
       });
       const p1 = (yield* bob.client.waitForEvent("permissions/required"))
         .data as { sessionId: string };
-      yield* bob.client.sendRpc("permissions/grant", {
+      yield* bob.client.sendRpc(PermissionsGrant.name, {
         sessionId: p1.sessionId,
         agentId: bob.agentId,
         resource: "calendar",
@@ -173,7 +180,7 @@ describe("Permission grant flow (DefaultPermissionService)", () => {
       expect(rows[0]!.resource).toBe("calendar");
 
       // Session 2: should be admitted immediately (cached grant)
-      yield* alice.client.sendRpc("apps/create", {
+      yield* alice.client.sendRpc(AppsCreate.name, {
         appId: "perm-test-app",
         invitedAgentIds: [bob.agentId],
       });
@@ -201,13 +208,13 @@ describe("permissions/list and permissions/revoke RPCs", () => {
       const bob = yield* registerWithOwner("bob-lr", USER_BOB);
 
       // Grant via session flow
-      yield* alice.client.sendRpc("apps/create", {
+      yield* alice.client.sendRpc(AppsCreate.name, {
         appId: "perm-test-app",
         invitedAgentIds: [bob.agentId],
       });
       const p = (yield* bob.client.waitForEvent("permissions/required"))
         .data as { sessionId: string };
-      yield* bob.client.sendRpc("permissions/grant", {
+      yield* bob.client.sendRpc(PermissionsGrant.name, {
         sessionId: p.sessionId,
         agentId: bob.agentId,
         resource: "calendar",
@@ -216,7 +223,7 @@ describe("permissions/list and permissions/revoke RPCs", () => {
       yield* bob.client.waitForEvent("app/participantAdmitted");
 
       // List
-      const list = (yield* bob.client.sendRpc("permissions/list", {
+      const list = (yield* bob.client.sendRpc(PermissionsList.name, {
         appId: "perm-test-app",
       })) as {
         grants: Array<{
@@ -232,13 +239,13 @@ describe("permissions/list and permissions/revoke RPCs", () => {
       expect(list.grants[0]!.grantedAt).toMatch(/\d{4}-\d{2}-\d{2}T/);
 
       // Revoke
-      yield* bob.client.sendRpc("permissions/revoke", {
+      yield* bob.client.sendRpc(PermissionsRevoke.name, {
         appId: "perm-test-app",
         resource: "calendar",
       });
 
       // Verify empty
-      const after = (yield* bob.client.sendRpc("permissions/list", {
+      const after = (yield* bob.client.sendRpc(PermissionsList.name, {
         appId: "perm-test-app",
       })) as { grants: unknown[] };
       expect(after.grants).toHaveLength(0);
@@ -262,7 +269,7 @@ describe("Permission rejection", () => {
       const alice = yield* registerWithOwner("alice-to", USER_ALICE);
       const bob = yield* registerWithOwner("bob-to", USER_BOB);
 
-      yield* alice.client.sendRpc("apps/create", {
+      yield* alice.client.sendRpc(AppsCreate.name, {
         appId: "timeout-app",
         invitedAgentIds: [bob.agentId],
       });
@@ -305,7 +312,7 @@ describe("Set-containment: partial grant triggers re-prompt", () => {
         );
 
         // Bob should still get prompted
-        yield* alice.client.sendRpc("apps/create", {
+        yield* alice.client.sendRpc(AppsCreate.name, {
           appId: "perm-test-app",
           invitedAgentIds: [bob.agentId],
         });
@@ -320,7 +327,7 @@ describe("Set-containment: partial grant triggers re-prompt", () => {
         expect(perm.access).toEqual(["read", "write"]);
 
         // Grant full access
-        yield* bob.client.sendRpc("permissions/grant", {
+        yield* bob.client.sendRpc(PermissionsGrant.name, {
           sessionId: perm.sessionId,
           agentId: bob.agentId,
           resource: "calendar",

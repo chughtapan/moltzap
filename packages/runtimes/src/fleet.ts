@@ -1,4 +1,4 @@
-import { Effect, Exit, Fiber } from "effect";
+import { Data, Effect, Exit, Fiber } from "effect";
 import {
   RuntimeExitedBeforeReady,
   RuntimeReadyTimedOut,
@@ -76,13 +76,12 @@ export interface RuntimeFleet {
   getLogs(name: string): string;
 }
 
-export class RuntimeFleetStartupInterrupted extends Error {
-  readonly _tag = "RuntimeFleetStartupInterrupted" as const;
-
-  constructor(readonly signal: NodeJS.Signals) {
-    super(`Runtime fleet startup interrupted by ${signal}`);
-  }
-}
+export class RuntimeFleetStartupInterrupted extends Data.TaggedError(
+  "RuntimeFleetStartupInterrupted",
+)<{
+  readonly signal: NodeJS.Signals;
+  readonly message: string;
+}> {}
 
 interface StartedRuntimeAgent {
   readonly spec: RuntimeAgentSpec;
@@ -94,18 +93,11 @@ interface PendingRuntimeAgent {
   readonly releaseStartupCleanup: Effect.Effect<void, never, never>;
 }
 
-class UnknownRuntimeAgent extends Error {
-  readonly _tag = "UnknownRuntimeAgent" as const;
-
-  constructor(
-    readonly agentName: string,
-    readonly knownAgents: ReadonlyArray<string>,
-  ) {
-    super(
-      `Unknown runtime agent "${agentName}". Known agents: ${knownAgents.join(", ")}`,
-    );
-  }
-}
+class UnknownRuntimeAgent extends Data.TaggedError("UnknownRuntimeAgent")<{
+  readonly agentName: string;
+  readonly knownAgents: ReadonlyArray<string>;
+  readonly message: string;
+}> {}
 
 function createRuntime(options: RuntimeStartOptions): Runtime {
   switch (options.kind) {
@@ -178,15 +170,20 @@ function startPendingRuntimeAgent(options: RuntimeStartOptions) {
         } satisfies PendingRuntimeAgent;
       case "Timeout":
         return yield* Effect.fail(
-          new RuntimeReadyTimedOut(options.agent.agentName, ready.timeoutMs),
+          new RuntimeReadyTimedOut({
+            agentName: options.agent.agentName,
+            timeoutMs: ready.timeoutMs,
+            message: `Runtime for agent "${options.agent.agentName}" did not become ready within ${String(ready.timeoutMs)}ms`,
+          }),
         );
       case "ProcessExited":
         return yield* Effect.fail(
-          new RuntimeExitedBeforeReady(
-            options.agent.agentName,
-            ready.exitCode,
-            ready.stderr,
-          ),
+          new RuntimeExitedBeforeReady({
+            agentName: options.agent.agentName,
+            exitCode: ready.exitCode,
+            stderr: ready.stderr,
+            message: `Runtime for agent "${options.agent.agentName}" exited before readiness (exitCode=${String(ready.exitCode)})`,
+          }),
         );
     }
   });
@@ -257,10 +254,14 @@ export function launchRuntimeFleet(
             (candidate) => candidate.spec.agentName === name,
           );
           if (startedAgent === undefined) {
-            throw new UnknownRuntimeAgent(
-              name,
-              started.map((candidate) => candidate.spec.agentName),
+            const knownAgents = started.map(
+              (candidate) => candidate.spec.agentName,
             );
+            throw new UnknownRuntimeAgent({
+              agentName: name,
+              knownAgents,
+              message: `Unknown runtime agent "${name}". Known agents: ${knownAgents.join(", ")}`,
+            });
           }
           return startedAgent.runtime.getLogs(LOG_START_OFFSET).text;
         },
@@ -309,7 +310,14 @@ export function launchRuntimeFleetWithProcessSignals(
         return;
       }
       if (shutdownSignal !== null && Exit.isInterrupted(exit)) {
-        resume(Effect.fail(new RuntimeFleetStartupInterrupted(shutdownSignal)));
+        resume(
+          Effect.fail(
+            new RuntimeFleetStartupInterrupted({
+              signal: shutdownSignal,
+              message: `Runtime fleet startup interrupted by ${shutdownSignal}`,
+            }),
+          ),
+        );
         return;
       }
       resume(Effect.failCause(exit.cause));

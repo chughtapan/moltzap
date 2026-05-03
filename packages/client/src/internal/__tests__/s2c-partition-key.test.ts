@@ -21,6 +21,14 @@ import {
   type PartitionableRequest,
 } from "../s2c-partition-key.js";
 
+import {
+  AppsOnBeforeDispatch,
+  AppsOnBeforeMessageDelivery,
+  AppsOnClose,
+  AppsOnJoin,
+  AppsOnSessionActive,
+} from "@moltzap/protocol";
+
 const SESSION_A = "11111111-1111-4111-8111-111111111111";
 const SESSION_B = "22222222-2222-4222-8222-222222222222";
 const CONV_X = "conv-X";
@@ -31,7 +39,7 @@ function reqOnBeforeDispatch(
 ): PartitionableRequest {
   return {
     id: "rpc-1",
-    method: "apps/onBeforeDispatch",
+    method: AppsOnBeforeDispatch.name,
     params: {
       sessionId: SESSION_A,
       conversationId: CONV_X,
@@ -43,7 +51,7 @@ function reqOnBeforeDispatch(
 function reqOnBeforeMessageDelivery(): PartitionableRequest {
   return {
     id: "rpc-2",
-    method: "apps/onBeforeMessageDelivery",
+    method: AppsOnBeforeMessageDelivery.name,
     params: { sessionId: SESSION_A, conversationId: CONV_X },
   };
 }
@@ -74,32 +82,32 @@ describe("extractPartitionKey — happy paths", () => {
   });
 
   it("apps/onJoin yields key with LIFECYCLE_CONVERSATION_SENTINEL", () => {
-    const result = extractPartitionKey(reqLifecycle("apps/onJoin"));
+    const result = extractPartitionKey(reqLifecycle(AppsOnJoin.name));
     expect(Either.isRight(result)).toBe(true);
     if (Either.isRight(result)) {
       const parts = describePartitionKey(result.right);
       expect(parts.conversationId).toBe(LIFECYCLE_CONVERSATION_SENTINEL);
-      expect(parts.method).toBe("apps/onJoin");
+      expect(parts.method).toBe(AppsOnJoin.name);
     }
   });
 
   it("apps/onClose yields key with LIFECYCLE_CONVERSATION_SENTINEL", () => {
-    const result = extractPartitionKey(reqLifecycle("apps/onClose"));
+    const result = extractPartitionKey(reqLifecycle(AppsOnClose.name));
     expect(Either.isRight(result)).toBe(true);
     if (Either.isRight(result)) {
       const parts = describePartitionKey(result.right);
       expect(parts.conversationId).toBe(LIFECYCLE_CONVERSATION_SENTINEL);
-      expect(parts.method).toBe("apps/onClose");
+      expect(parts.method).toBe(AppsOnClose.name);
     }
   });
 
   it("apps/onSessionActive yields key with LIFECYCLE_CONVERSATION_SENTINEL", () => {
-    const result = extractPartitionKey(reqLifecycle("apps/onSessionActive"));
+    const result = extractPartitionKey(reqLifecycle(AppsOnSessionActive.name));
     expect(Either.isRight(result)).toBe(true);
     if (Either.isRight(result)) {
       const parts = describePartitionKey(result.right);
       expect(parts.conversationId).toBe(LIFECYCLE_CONVERSATION_SENTINEL);
-      expect(parts.method).toBe("apps/onSessionActive");
+      expect(parts.method).toBe(AppsOnSessionActive.name);
     }
   });
 
@@ -107,7 +115,7 @@ describe("extractPartitionKey — happy paths", () => {
     const a = extractPartitionKey(reqOnBeforeDispatch());
     const b = extractPartitionKey({
       id: "rpc-99",
-      method: "apps/onBeforeDispatch",
+      method: AppsOnBeforeDispatch.name,
       params: { sessionId: SESSION_B, conversationId: CONV_X },
     });
     expect(Either.isRight(a) && Either.isRight(b)).toBe(true);
@@ -120,7 +128,7 @@ describe("extractPartitionKey — happy paths", () => {
     const a = extractPartitionKey(reqOnBeforeDispatch());
     const b = extractPartitionKey({
       id: "rpc-99",
-      method: "apps/onBeforeDispatch",
+      method: AppsOnBeforeDispatch.name,
       params: { sessionId: SESSION_A, conversationId: CONV_Y },
     });
     expect(Either.isRight(a) && Either.isRight(b)).toBe(true);
@@ -167,7 +175,7 @@ describe("extractPartitionKey — failure modes (each `_tag`)", () => {
   it("non-object params → reason=params-shape", () => {
     const result = extractPartitionKey({
       id: "rpc-y",
-      method: "apps/onBeforeDispatch",
+      method: AppsOnBeforeDispatch.name,
       params: "not-an-object",
     });
     expect(Either.isLeft(result)).toBe(true);
@@ -179,7 +187,7 @@ describe("extractPartitionKey — failure modes (each `_tag`)", () => {
   it("array params → reason=params-shape", () => {
     const result = extractPartitionKey({
       id: "rpc-z",
-      method: "apps/onBeforeDispatch",
+      method: AppsOnBeforeDispatch.name,
       params: [SESSION_A, CONV_X],
     });
     expect(Either.isLeft(result)).toBe(true);
@@ -244,19 +252,19 @@ describe("describePartitionKey — round-trip", () => {
       const parts = describePartitionKey(key.right);
       expect(parts.sessionId).toBe(SESSION_A);
       expect(parts.conversationId).toBe(CONV_X);
-      expect(parts.method).toBe("apps/onBeforeDispatch");
+      expect(parts.method).toBe(AppsOnBeforeDispatch.name);
     }
   });
 
   it("preserves the lifecycle sentinel for lifecycle methods", () => {
-    const req = reqLifecycle("apps/onSessionActive");
+    const req = reqLifecycle(AppsOnSessionActive.name);
     const key = extractPartitionKey(req);
     expect(Either.isRight(key)).toBe(true);
     if (Either.isRight(key)) {
       const parts = describePartitionKey(key.right);
       expect(parts.sessionId).toBe(SESSION_A);
       expect(parts.conversationId).toBe(LIFECYCLE_CONVERSATION_SENTINEL);
-      expect(parts.method).toBe("apps/onSessionActive");
+      expect(parts.method).toBe(AppsOnSessionActive.name);
     }
   });
 });

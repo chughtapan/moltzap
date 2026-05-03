@@ -53,6 +53,23 @@ export const SEED_USERS = [
   },
 ] as const;
 
+const SEED_AGENT_INDEX = {
+  YOU: 0,
+  LISA: 1,
+  MIKE: 2,
+  SARAH: 3,
+  RAJ: 4,
+  MAYA: 5,
+  JAMES: 6,
+  PRIYA: 8,
+} as const;
+
+const SKI_TRIP_OVERVIEW_PANEL_ID = "overview-panel";
+const SKI_TRIP_ITINERARY_PANEL_ID = "itinerary-panel";
+const SKI_TRIP_COSTS_PANEL_ID = "costs-panel";
+const SKI_TRIP_PACKING_PANEL_ID = "packing-panel";
+const SKI_TRIP_ACTIVE_TAB_STATE = "/activeTab";
+
 export const SEED_AGENTS = [
   {
     id: "00000000-0000-0000-0001-000000000001",
@@ -115,7 +132,11 @@ export const SEED_CONVERSATIONS = [
     id: "00000000-0000-0000-0002-000000000001",
     type: "group" as const,
     name: "Weekend Ski Trip",
-    agentIndices: [0, 1, 2],
+    agentIndices: [
+      SEED_AGENT_INDEX.YOU,
+      SEED_AGENT_INDEX.LISA,
+      SEED_AGENT_INDEX.MIKE,
+    ],
     lastPreview:
       "Lisa's agent: I found a great cabin near Palisades for $340/pp",
   },
@@ -123,49 +144,61 @@ export const SEED_CONVERSATIONS = [
     id: "00000000-0000-0000-0002-000000000002",
     type: "group" as const,
     name: "Dinner Club - March",
-    agentIndices: [0, 3, 5],
+    agentIndices: [
+      SEED_AGENT_INDEX.YOU,
+      SEED_AGENT_INDEX.SARAH,
+      SEED_AGENT_INDEX.MAYA,
+    ],
     lastPreview: "Maya's agent: Thai cuisine is leading the vote 4-2",
   },
   {
     id: "00000000-0000-0000-0002-000000000003",
     type: "dm" as const,
     name: undefined,
-    agentIndices: [0, 1],
+    agentIndices: [SEED_AGENT_INDEX.YOU, SEED_AGENT_INDEX.LISA],
     lastPreview: "Your agent handled the scheduling conflict",
   },
   {
     id: "00000000-0000-0000-0002-000000000004",
     type: "group" as const,
     name: "Sprint 47 Standup",
-    agentIndices: [0, 5],
+    agentIndices: [SEED_AGENT_INDEX.YOU, SEED_AGENT_INDEX.MAYA],
     lastPreview: "Maya's agent: 3 tickets done, 1 blocker on API migration",
   },
   {
     id: "00000000-0000-0000-0002-000000000005",
     type: "dm" as const,
     name: undefined,
-    agentIndices: [0, 2],
+    agentIndices: [SEED_AGENT_INDEX.YOU, SEED_AGENT_INDEX.MIKE],
     lastPreview: "Apartment alert: 3 new listings in Hayes Valley",
   },
   {
     id: "00000000-0000-0000-0002-000000000006",
     type: "group" as const,
     name: "Saturday Soccer",
-    agentIndices: [0, 3, 4],
+    agentIndices: [
+      SEED_AGENT_INDEX.YOU,
+      SEED_AGENT_INDEX.SARAH,
+      SEED_AGENT_INDEX.RAJ,
+    ],
     lastPreview: "Raj's agent: 8/11 confirmed, need your RSVP",
   },
   {
     id: "00000000-0000-0000-0002-000000000007",
     type: "group" as const,
     name: "Book Club",
-    agentIndices: [0, 3, 5],
+    agentIndices: [
+      SEED_AGENT_INDEX.YOU,
+      SEED_AGENT_INDEX.SARAH,
+      SEED_AGENT_INDEX.MAYA,
+    ],
     lastPreview: "Klara is leading the discussion on March 4th",
   },
   {
     id: "00000000-0000-0000-0002-000000000008",
     type: "dm" as const,
     name: undefined,
-    agentIndices: [0, 1],
+    agentIndices: [SEED_AGENT_INDEX.YOU, SEED_AGENT_INDEX.LISA],
     lastPreview: "Insurance quote ready for review - save $340/yr",
   },
 ] as const;
@@ -371,16 +404,16 @@ export const SEED_SURFACES = [
           type: "Tabs",
           props: {
             items: ["Overview", "Itinerary", "Costs", "Packing"],
-            value: { $state: "/activeTab" },
+            value: { $state: SKI_TRIP_ACTIVE_TAB_STATE },
           },
           children: [
-            "overview-panel",
-            "itinerary-panel",
-            "costs-panel",
-            "packing-panel",
+            SKI_TRIP_OVERVIEW_PANEL_ID,
+            SKI_TRIP_ITINERARY_PANEL_ID,
+            SKI_TRIP_COSTS_PANEL_ID,
+            SKI_TRIP_PACKING_PANEL_ID,
           ],
         },
-        "overview-panel": {
+        [SKI_TRIP_OVERVIEW_PANEL_ID]: {
           type: "Stack",
           props: { direction: "vertical", gap: 16 },
           children: [
@@ -389,13 +422,13 @@ export const SEED_SURFACES = [
             "people-section",
             "progress-card",
           ],
-          visible: { $state: "/activeTab", eq: "overview" },
+          visible: { $state: SKI_TRIP_ACTIVE_TAB_STATE, eq: "overview" },
         },
-        "itinerary-panel": {
+        [SKI_TRIP_ITINERARY_PANEL_ID]: {
           type: "Stack",
           props: { direction: "vertical", gap: 12 },
           children: ["itinerary-content"],
-          visible: { $state: "/activeTab", eq: "itinerary" },
+          visible: { $state: SKI_TRIP_ACTIVE_TAB_STATE, eq: "itinerary" },
         },
         "itinerary-content": {
           type: "Card",
@@ -410,11 +443,11 @@ export const SEED_SURFACES = [
           },
           children: [],
         },
-        "costs-panel": {
+        [SKI_TRIP_COSTS_PANEL_ID]: {
           type: "Stack",
           props: { direction: "vertical", gap: 12 },
           children: ["costs-content"],
-          visible: { $state: "/activeTab", eq: "costs" },
+          visible: { $state: SKI_TRIP_ACTIVE_TAB_STATE, eq: "costs" },
         },
         "costs-content": {
           type: "StatCard",
@@ -426,11 +459,11 @@ export const SEED_SURFACES = [
           },
           children: [],
         },
-        "packing-panel": {
+        [SKI_TRIP_PACKING_PANEL_ID]: {
           type: "Stack",
           props: { direction: "vertical", gap: 12 },
           children: ["packing-content"],
-          visible: { $state: "/activeTab", eq: "packing" },
+          visible: { $state: SKI_TRIP_ACTIVE_TAB_STATE, eq: "packing" },
         },
         "packing-content": {
           type: "Card",

@@ -23,6 +23,12 @@ import { describe, expect, it } from "vitest";
 import { PROTOCOL_VERSION } from "@moltzap/protocol";
 import { MoltZapWsClient } from "../../ws-client.js";
 
+import {
+  AppsOnBeforeDispatch,
+  AppsOnBeforeMessageDelivery,
+  Connect,
+} from "@moltzap/protocol";
+
 const SESSION_A = "11111111-1111-4111-8111-111111111111";
 const SESSION_B = "22222222-2222-4222-8222-222222222222";
 const CONV_X = "conv-X";
@@ -110,7 +116,7 @@ describe("integration: AppHost + partitioned s2c dispatcher", () => {
                 id?: string;
                 method?: string;
               };
-              if (frame.method === "auth/connect" && frame.id) {
+              if (frame.method === Connect.name && frame.id) {
                 yield* conn.send(
                   JSON.stringify({
                     jsonrpc: "2.0",
@@ -132,7 +138,7 @@ describe("integration: AppHost + partitioned s2c dispatcher", () => {
                     type: "request",
                     direction: "s2c",
                     id: "rpc-bd-1",
-                    method: "apps/onBeforeDispatch",
+                    method: AppsOnBeforeDispatch.name,
                     params: { sessionId: SESSION_A, conversationId: CONV_X },
                   }),
                 );
@@ -142,7 +148,7 @@ describe("integration: AppHost + partitioned s2c dispatcher", () => {
                     type: "request",
                     direction: "s2c",
                     id: "rpc-bmd-1",
-                    method: "apps/onBeforeMessageDelivery",
+                    method: AppsOnBeforeMessageDelivery.name,
                     params: { sessionId: SESSION_A, conversationId: CONV_X },
                   }),
                 );
@@ -165,7 +171,7 @@ describe("integration: AppHost + partitioned s2c dispatcher", () => {
           // because both queue on a single dispatch fiber.
           const release = yield* Deferred.make<void>();
           yield* client.handleServerRpc(
-            "apps/onBeforeDispatch",
+            AppsOnBeforeDispatch.name,
             () =>
               Effect.gen(function* () {
                 yield* Deferred.await(release);
@@ -173,7 +179,7 @@ describe("integration: AppHost + partitioned s2c dispatcher", () => {
               }) as Effect.Effect<unknown, never>,
           );
           yield* client.handleServerRpc(
-            "apps/onBeforeMessageDelivery",
+            AppsOnBeforeMessageDelivery.name,
             () =>
               Effect.gen(function* () {
                 yield* Deferred.succeed(release, undefined);
@@ -228,7 +234,7 @@ describe("integration: AppHost + partitioned s2c dispatcher", () => {
                 id?: string;
                 method?: string;
               };
-              if (frame.method === "auth/connect" && frame.id) {
+              if (frame.method === Connect.name && frame.id) {
                 yield* conn.send(
                   JSON.stringify({
                     jsonrpc: "2.0",
@@ -248,7 +254,7 @@ describe("integration: AppHost + partitioned s2c dispatcher", () => {
                     type: "request",
                     direction: "s2c",
                     id: "rpc-A",
-                    method: "apps/onBeforeDispatch",
+                    method: AppsOnBeforeDispatch.name,
                     params: { sessionId: SESSION_A, conversationId: CONV_X },
                   }),
                 );
@@ -259,7 +265,7 @@ describe("integration: AppHost + partitioned s2c dispatcher", () => {
                     type: "request",
                     direction: "s2c",
                     id: "rpc-B",
-                    method: "apps/onBeforeDispatch",
+                    method: AppsOnBeforeDispatch.name,
                     params: { sessionId: SESSION_B, conversationId: CONV_X },
                   }),
                 );
@@ -278,7 +284,7 @@ describe("integration: AppHost + partitioned s2c dispatcher", () => {
             },
           });
           yield* client.handleServerRpc(
-            "apps/onBeforeDispatch",
+            AppsOnBeforeDispatch.name,
             (params) =>
               Effect.gen(function* () {
                 const sid = (params as { sessionId: string }).sessionId;

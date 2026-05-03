@@ -27,7 +27,7 @@
  */
 import { Command } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
-import { Effect, Exit, Fiber, Option, Scope, Stream, pipe } from "effect";
+import { Data, Effect, Exit, Fiber, Option, Scope, Stream, pipe } from "effect";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -46,6 +46,10 @@ import {
   resolveChannelDependency,
   seedWorkspaceFiles,
 } from "./channel-plugin-install.js";
+
+class WorkspaceRootNotFound extends Data.TaggedError("WorkspaceRootNotFound")<{
+  readonly message: string;
+}> {}
 import { writeClaudeCodeMcpConfig } from "./claude-code-process.js";
 
 export interface ClaudeCodeAdapterDeps {
@@ -181,32 +185,6 @@ function spawnClaudeProcess(opts: {
   );
 }
 
-/**
- * `Fiber.poll` returns `Effect<Option<Exit<A, E>>>` — None while running,
- * Some(Exit) once resolved. We project to `Option<number>` so callers
- * stay in plain-number land (matching the underlying exit-code surface).
- */
-function pollExitCode(
-  fiber: Fiber.RuntimeFiber<number, never>,
-): Effect.Effect<Option.Option<number>, never, never> {
-  return pipe(
-    Fiber.poll(fiber),
-    Effect.map(
-      Option.match({
-        onNone: () => Option.none<number>(),
-        onSome: (exit: Exit.Exit<number, never>): Option.Option<number> =>
-          Exit.match(exit, {
-            onSuccess: (code) => Option.some(code),
-            // Defects (incl. fiber interrupt on scope close) collapse to
-            // -1 — same shape `proc.exitCode.pipe(catchAll → -1)` produces
-            // for PlatformError, so callers see one consistent number.
-            onFailure: () => Option.some(-1),
-          }),
-      }),
-    ),
-  );
-}
-
 export class ClaudeCodeAdapter implements Runtime {
   private state: AdapterState | null = null;
 
@@ -214,17 +192,21 @@ export class ClaudeCodeAdapter implements Runtime {
 
   spawn(input: SpawnInput): Effect.Effect<void, SpawnFailed, never> {
     // Wrap each fs/spawn step in an `Effect.try` that maps the cause to
-    // `SpawnFailed(agentName, ...)`. Hoisted to a single helper so the
+    // `SpawnFailed`. Hoisted to a single helper so the
     // four sequential steps don't repeat the same boilerplate (issue
     // #272 item 4).
     const tryStep = <A>(fn: () => A): Effect.Effect<A, SpawnFailed, never> =>
       Effect.try({
         try: fn,
-        catch: (cause) =>
-          new SpawnFailed(
-            input.agentName,
-            cause instanceof Error ? cause : new Error(String(cause)),
-          ),
+        catch: (cause) => {
+          const error =
+            cause instanceof Error ? cause : new Error(String(cause));
+          return new SpawnFailed({
+            agentName: input.agentName,
+            cause: error,
+            message: `Failed to spawn agent "${input.agentName}": ${error.message}`,
+          });
+        },
       });
 
     return Effect.gen(this, function* () {
@@ -344,7 +326,14 @@ export class ClaudeCodeAdapter implements Runtime {
         }),
         logBuffer,
       }).pipe(
-        Effect.mapError((cause) => new SpawnFailed(input.agentName, cause)),
+        Effect.mapError(
+          (cause) =>
+            new SpawnFailed({
+              agentName: input.agentName,
+              cause,
+              message: `Failed to spawn agent "${input.agentName}": ${cause.message}`,
+            }),
+        ),
       );
 
       this.state = {
@@ -375,7 +364,18 @@ export class ClaudeCodeAdapter implements Runtime {
     // side resolves the other gets cancelled cleanly.
     const exitTick: Effect.Effect<ReadyOutcome | null, never, never> =
       Effect.gen(function* () {
-        const exitOpt = yield* pollExitCode(proc.exitFiber);
+        const exitOpt = yield* Fiber.poll(proc.exitFiber).pipe(
+          Effect.map(
+            Option.match({
+              onNone: () => Option.none<number>(),
+              onSome: (exit: Exit.Exit<number, never>) =>
+                Exit.match(exit, {
+                  onSuccess: (code) => Option.some(code),
+                  onFailure: () => Option.some(-1),
+                }),
+            }),
+          ),
+        );
         if (Option.isSome(exitOpt)) {
           return {
             _tag: "ProcessExited" as const,
@@ -408,7 +408,18 @@ export class ClaudeCodeAdapter implements Runtime {
         outcome._tag !== "Timeout"
           ? Effect.succeed(outcome)
           : pipe(
-              pollExitCode(proc.exitFiber),
+              Fiber.poll(proc.exitFiber).pipe(
+                Effect.map(
+                  Option.match({
+                    onNone: () => Option.none<number>(),
+                    onSome: (exit: Exit.Exit<number, never>) =>
+                      Exit.match(exit, {
+                        onSuccess: (code) => Option.some(code),
+                        onFailure: () => Option.some(-1),
+                      }),
+                  }),
+                ),
+              ),
               Effect.map(
                 (exitOpt): ReadyOutcome =>
                   Option.isSome(exitOpt)
@@ -468,7 +479,18 @@ export class ClaudeCodeAdapter implements Runtime {
     // finalizer + the stream-consumer fiber finalizers.
     const exitCodeEffect = Fiber.join(proc.exitFiber);
     const killAndWait = pipe(
-      pollExitCode(proc.exitFiber),
+      Fiber.poll(proc.exitFiber).pipe(
+        Effect.map(
+          Option.match({
+            onNone: () => Option.none<number>(),
+            onSome: (exit: Exit.Exit<number, never>) =>
+              Exit.match(exit, {
+                onSuccess: (code) => Option.some(code),
+                onFailure: () => Option.some(-1),
+              }),
+          }),
+        ),
+      ),
       Effect.flatMap((exitOpt) =>
         Option.isSome(exitOpt)
           ? Effect.void
@@ -524,7 +546,9 @@ function resolveWorkspacePackageRoot(): string {
     }
     current = path.dirname(current);
   }
-  throw new Error("Unable to resolve packages/runtimes workspace root");
+  throw new WorkspaceRootNotFound({
+    message: "Unable to resolve packages/runtimes workspace root",
+  });
 }
 
 function resolveWorkspaceClaudeBin(

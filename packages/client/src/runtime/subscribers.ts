@@ -29,11 +29,12 @@
  * pre-deletion). The registry itself has no typed error surface —
  * `register`, `dispatch`, and `closeAll` are `Effect<T, never>`.
  */
-import { Effect, Ref } from "effect";
+import { Brand, Effect, Ref } from "effect";
 import type { EventFrame } from "@moltzap/protocol";
 
 /** Branded identifier for a subscription handle. Minted by `register`. */
-export type SubscriptionId = string & { readonly __brand: "SubscriptionId" };
+export type SubscriptionId = string & Brand.Brand<"SubscriptionId">;
+export const SubscriptionId = Brand.nominal<SubscriptionId>();
 
 /**
  * Filter grammar for `subscribe`. An event is delivered to a subscription
@@ -170,7 +171,7 @@ export function makeSubscriberRegistry(logger: {
     const register: SubscriberRegistry["register"] = (filter, handler) =>
       Effect.gen(function* () {
         const n = yield* Ref.updateAndGet(counterRef, (c) => c + 1);
-        const id = `sub-${n}` as SubscriptionId;
+        const id = SubscriptionId(`sub-${n}`);
         const live: LiveSubscription = { id, filter, handler };
         yield* Ref.update(subsRef, (xs) => [...xs, live]);
         const unsubscribe: Effect.Effect<void, never> = Ref.update(

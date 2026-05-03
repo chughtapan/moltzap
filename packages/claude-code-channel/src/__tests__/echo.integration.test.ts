@@ -31,6 +31,8 @@ import type { Notification } from "@modelcontextprotocol/sdk/types.js";
 import { bootClaudeCodeChannel } from "../entry.js";
 import type { Handle } from "../types.js";
 
+import { ConversationsCreate } from "@moltzap/protocol";
+
 const silentLogger = {
   info: () => {},
   warn: () => {},
@@ -101,7 +103,7 @@ async function bootHarness(): Promise<Harness> {
 
   // Peer creates a DM with channel-agent-A.
   const convResponse = (await Effect.runPromise(
-    peerService.sendRpc("conversations/create", {
+    peerService.sendRpc(ConversationsCreate.name, {
       type: "dm",
       participants: [{ type: "agent", id: channelAgentId }],
     }),

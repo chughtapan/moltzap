@@ -2,29 +2,24 @@
  * Shared runtime observability for server boot and eval orchestration.
  */
 
-import { Data, Effect } from "effect";
+import { Brand, Data, Effect } from "effect";
 import { getLogger, type Logger } from "../logger.js";
 import type { RuntimeProcessConfig } from "./config.js";
 
-export type RuntimeRequestId = string & {
-  readonly __brand: "RuntimeRequestId";
-};
+export type RuntimeRequestId = string & Brand.Brand<"RuntimeRequestId">;
+export const RuntimeRequestId = Brand.nominal<RuntimeRequestId>();
 
-export type RuntimeSessionId = string & {
-  readonly __brand: "RuntimeSessionId";
-};
+export type RuntimeSessionId = string & Brand.Brand<"RuntimeSessionId">;
+export const RuntimeSessionId = Brand.nominal<RuntimeSessionId>();
 
-export type RuntimeAgentId = string & {
-  readonly __brand: "RuntimeAgentId";
-};
+export type RuntimeAgentId = string & Brand.Brand<"RuntimeAgentId">;
+export const RuntimeAgentId = Brand.nominal<RuntimeAgentId>();
 
-export type RuntimeFiberId = string & {
-  readonly __brand: "RuntimeFiberId";
-};
+export type RuntimeFiberId = string & Brand.Brand<"RuntimeFiberId">;
+export const RuntimeFiberId = Brand.nominal<RuntimeFiberId>();
 
-export type RuntimeSpanName = string & {
-  readonly __brand: "RuntimeSpanName";
-};
+export type RuntimeSpanName = string & Brand.Brand<"RuntimeSpanName">;
+export const RuntimeSpanName = Brand.nominal<RuntimeSpanName>();
 
 export interface RuntimeLogContext {
   readonly requestId?: RuntimeRequestId;
@@ -56,16 +51,24 @@ export interface RuntimeObservability {
 export class RuntimeObservabilityError extends Data.TaggedError(
   "RuntimeObservabilityError",
 )<{
-  readonly cause:
-    | {
-        readonly _tag: "LoggerBootstrapFailed";
-        readonly message: string;
-      }
-    | {
-        readonly _tag: "FiberSupervisorUnavailable";
-        readonly message: string;
-      };
+  readonly cause: RuntimeObservabilityCause;
 }> {}
+
+export class LoggerBootstrapFailed extends Data.TaggedError(
+  "LoggerBootstrapFailed",
+)<{
+  readonly message: string;
+}> {}
+
+export class FiberSupervisorUnavailable extends Data.TaggedError(
+  "FiberSupervisorUnavailable",
+)<{
+  readonly message: string;
+}> {}
+
+export type RuntimeObservabilityCause =
+  | LoggerBootstrapFailed
+  | FiberSupervisorUnavailable;
 
 type LogFieldValue = string | number | boolean;
 
@@ -157,10 +160,9 @@ export function createRuntimeObservability(
     },
     catch: (cause) =>
       new RuntimeObservabilityError({
-        cause: {
-          _tag: "LoggerBootstrapFailed",
+        cause: new LoggerBootstrapFailed({
           message: cause instanceof Error ? cause.message : String(cause),
-        },
+        }),
       }),
   });
 }

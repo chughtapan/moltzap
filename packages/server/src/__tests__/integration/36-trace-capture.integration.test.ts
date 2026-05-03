@@ -18,6 +18,12 @@ import type { CoreApp } from "../../app/types.js";
 import { ErrorCodes } from "@moltzap/protocol";
 import { expectRpcFailure } from "../../test-utils/index.js";
 
+import {
+  AppsCreate,
+  ConversationsCreate,
+  MessagesSend,
+} from "@moltzap/protocol";
+
 let traceCapture: TraceCapture;
 let coreApp: CoreApp;
 
@@ -73,12 +79,12 @@ describe("trace capture", () => {
       const alice = yield* registerAndConnect("alice-trace-capture");
       const bob = yield* registerAndConnect("bob-trace-capture");
 
-      const conv = (yield* alice.client.sendRpc("conversations/create", {
+      const conv = (yield* alice.client.sendRpc(ConversationsCreate.name, {
         type: "dm",
         participants: [{ type: "agent", id: bob.agentId }],
       })) as { conversation: { id: string } };
 
-      yield* alice.client.sendRpc("messages/send", {
+      yield* alice.client.sendRpc(MessagesSend.name, {
         conversationId: conv.conversation.id,
         parts: [{ type: "text", text: "hello from trace capture test" }],
       });
@@ -115,7 +121,7 @@ describe("trace capture", () => {
         reason: "trace_blocked_command",
       }));
 
-      const session = (yield* orchestrator.client.sendRpc("apps/create", {
+      const session = (yield* orchestrator.client.sendRpc(AppsCreate.name, {
         appId,
         invitedAgentIds: [],
       })) as {
@@ -124,7 +130,7 @@ describe("trace capture", () => {
       const conversationId = session.session.conversations["main"]!;
 
       yield* expectRpcFailure(
-        orchestrator.client.sendRpc("messages/send", {
+        orchestrator.client.sendRpc(MessagesSend.name, {
           conversationId,
           parts: [{ type: "text", text: "bad command for trace" }],
         }),

@@ -156,9 +156,10 @@ const moltzap = Command.make("moltzap").pipe(
 );
 
 const cli = Command.run(moltzap, { name: "moltzap", version });
+const NODE_ARGV_USER_ARGS_OFFSET = 2;
 
 const { impersonateKey, profileName, rest } = extractGlobalFlags(
-  process.argv.slice(2),
+  process.argv.slice(NODE_ARGV_USER_ARGS_OFFSET),
 );
 
 const resolverInput: { impersonateKey?: string; profileName?: string } = {};

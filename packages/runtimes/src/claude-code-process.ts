@@ -9,6 +9,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
+const JSON_INDENT_SPACES = 2;
+
 export interface WriteClaudeCodeMcpConfigOpts {
   readonly stateDir: string;
   readonly extDir: string;
@@ -62,6 +64,9 @@ export function writeClaudeCodeMcpConfig(
   };
 
   const configPath = path.join(opts.stateDir, "mcp-config.json");
-  fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+  fs.writeFileSync(
+    configPath,
+    JSON.stringify(config, null, JSON_INDENT_SPACES),
+  );
   return configPath;
 }

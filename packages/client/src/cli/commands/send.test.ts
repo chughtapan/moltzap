@@ -2,6 +2,8 @@ import { Effect, Option } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { sendCommand } from "./send.js";
 
+import { MessagesSend } from "@moltzap/protocol";
+
 const mockRequest = vi.fn(() => Effect.succeed({ message: { id: "msg-123" } }));
 
 vi.mock("../socket-client.js", async (importOriginal) => {
@@ -35,7 +37,7 @@ describe("send command handler", () => {
         replyTo: Option.none(),
       }),
     );
-    expect(mockRequest).toHaveBeenCalledWith("messages/send", {
+    expect(mockRequest).toHaveBeenCalledWith(MessagesSend.name, {
       conversationId: "abc-123",
       parts: [{ type: "text", text: "Hello world" }],
     });
@@ -49,7 +51,7 @@ describe("send command handler", () => {
         replyTo: Option.none(),
       }),
     );
-    expect(mockRequest).toHaveBeenCalledWith("messages/send", {
+    expect(mockRequest).toHaveBeenCalledWith(MessagesSend.name, {
       to: "agent:alice",
       parts: [{ type: "text", text: "Hi Alice" }],
     });
@@ -63,7 +65,7 @@ describe("send command handler", () => {
         replyTo: Option.some("msg-original"),
       }),
     );
-    expect(mockRequest).toHaveBeenCalledWith("messages/send", {
+    expect(mockRequest).toHaveBeenCalledWith(MessagesSend.name, {
       conversationId: "abc-123",
       parts: [{ type: "text", text: "Reply text" }],
       replyToId: "msg-original",

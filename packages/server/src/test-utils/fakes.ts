@@ -18,7 +18,7 @@
  *       slot into an Effect program via `Layer.provide(program, fakeLayer)`.
  */
 
-import { Layer } from "effect";
+import { Data, Layer, unsafeCoerce } from "effect";
 
 import type { WebhookClient } from "../adapters/webhook.js";
 import type { AppHost, DefaultPermissionService } from "../app/app-host.js";
@@ -46,6 +46,13 @@ import {
 
 // ── Generic typed fake factory ─────────────────────────────────────────────
 
+class FakeServiceMethodMissing extends Data.TaggedError(
+  "FakeServiceMethodMissing",
+)<{
+  readonly message: string;
+  readonly method: string;
+}> {}
+
 /**
  * Build a typed test double for an interface `S` from a partial implementation.
  * The cast is intentional: tests typically implement only the methods the
@@ -60,17 +67,22 @@ import {
  * existing field's signature does.
  */
 export const makeFakeService = <S extends object>(impl: Partial<S>): S =>
-  new Proxy(impl, {
-    get(target, prop, receiver) {
-      if (prop in target) return Reflect.get(target, prop, receiver);
-      // Symbol lookups (e.g. Symbol.toPrimitive) — let the default behavior run.
-      if (typeof prop === "symbol") return undefined;
-      throw new Error(
-        `FakeService: method '${String(prop)}' was called but not implemented. ` +
-          `Add it to the test double.`,
-      );
-    },
-  }) as S;
+  unsafeCoerce<Partial<S>, S>(
+    new Proxy(impl, {
+      get(target, prop, receiver) {
+        if (prop in target) return Reflect.get(target, prop, receiver);
+        // Symbol lookups (e.g. Symbol.toPrimitive) — let the default behavior run.
+        if (typeof prop === "symbol") return undefined;
+        const method = String(prop);
+        throw new FakeServiceMethodMissing({
+          message:
+            `FakeService: method '${method}' was called but not implemented. ` +
+            `Add it to the test double.`,
+          method,
+        });
+      },
+    }),
+  );
 
 // ── Webhook client — not behind a Tag, used via constructor injection ──────
 
@@ -88,7 +100,8 @@ export const makeFakeService = <S extends object>(impl: Partial<S>): S =>
  */
 export const makeFakeWebhookClient = (
   impl: Pick<WebhookClient, "call">,
-): WebhookClient => impl as WebhookClient;
+): WebhookClient =>
+  unsafeCoerce<Pick<WebhookClient, "call">, WebhookClient>(impl);
 
 // ── Layer-based fakes for tagged services ──────────────────────────────────
 //

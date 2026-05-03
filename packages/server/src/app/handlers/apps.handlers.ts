@@ -18,12 +18,14 @@ import { ConnIdTag } from "../layers.js";
 import { defineMethod } from "../../rpc/context.js";
 import { ParticipantService } from "../../services/participant.service.js";
 
+const DEFAULT_APP_SESSION_LIST_LIMIT = 50;
+
 export function createAppHandlers(deps: {
   appHost: AppHost;
   permissionService?: DefaultPermissionService;
 }): RpcMethodRegistry {
   return {
-    "apps/register": defineMethod(AppsRegister, {
+    [AppsRegister.name]: defineMethod(AppsRegister, {
       // A c2s `apps/register` call means the connected client wants to
       // serve the app's hook RPCs (`apps/onBeforeDispatch`, etc.). We
       // record the calling connection id so AppHost dispatches future
@@ -41,7 +43,7 @@ export function createAppHandlers(deps: {
         }),
     }),
 
-    "apps/create": defineMethod(AppsCreate, {
+    [AppsCreate.name]: defineMethod(AppsCreate, {
       handler: (params, ctx) =>
         Effect.gen(function* () {
           const session = yield* deps.appHost.createSession(
@@ -53,7 +55,7 @@ export function createAppHandlers(deps: {
         }),
     }),
 
-    "apps/attestSkill": defineMethod(AppsAttestSkill, {
+    [AppsAttestSkill.name]: defineMethod(AppsAttestSkill, {
       handler: (params, ctx) =>
         Effect.sync(() => {
           deps.appHost.resolveChallenge(
@@ -66,7 +68,7 @@ export function createAppHandlers(deps: {
         }),
     }),
 
-    "permissions/grant": defineMethod(PermissionsGrant, {
+    [PermissionsGrant.name]: defineMethod(PermissionsGrant, {
       handler: (params, ctx) =>
         Effect.gen(function* () {
           const ownerUserId = yield* ParticipantService.requireOwnerId(ctx);
@@ -81,7 +83,7 @@ export function createAppHandlers(deps: {
         }),
     }),
 
-    "permissions/list": defineMethod(PermissionsList, {
+    [PermissionsList.name]: defineMethod(PermissionsList, {
       handler: (params, ctx) =>
         Effect.gen(function* () {
           const ownerUserId = yield* ParticipantService.requireOwnerId(ctx);
@@ -93,7 +95,7 @@ export function createAppHandlers(deps: {
         }),
     }),
 
-    "permissions/revoke": defineMethod(PermissionsRevoke, {
+    [PermissionsRevoke.name]: defineMethod(PermissionsRevoke, {
       handler: (params, ctx) =>
         Effect.gen(function* () {
           const ownerUserId = yield* ParticipantService.requireOwnerId(ctx);
@@ -106,12 +108,12 @@ export function createAppHandlers(deps: {
         }),
     }),
 
-    "apps/closeSession": defineMethod(AppsCloseSession, {
+    [AppsCloseSession.name]: defineMethod(AppsCloseSession, {
       handler: (params, ctx) =>
         deps.appHost.closeSession(params.sessionId, ctx.agentId),
     }),
 
-    "apps/getSession": defineMethod(AppsGetSession, {
+    [AppsGetSession.name]: defineMethod(AppsGetSession, {
       handler: (params, ctx) =>
         Effect.gen(function* () {
           const session = yield* deps.appHost.getSession(
@@ -122,13 +124,13 @@ export function createAppHandlers(deps: {
         }),
     }),
 
-    "apps/listSessions": defineMethod(AppsListSessions, {
+    [AppsListSessions.name]: defineMethod(AppsListSessions, {
       handler: (params, ctx) =>
         Effect.gen(function* () {
           const sessions = yield* deps.appHost.listSessions(ctx.agentId, {
             appId: params.appId,
             status: params.status,
-            limit: params.limit ?? 50,
+            limit: params.limit ?? DEFAULT_APP_SESSION_LIST_LIMIT,
           });
           return { sessions };
         }),
@@ -165,7 +167,7 @@ export function createAppHandlers(deps: {
     // session ownership + conversation existence; tracking convId→appId
     // ownership is a schema change that has to come from architect, not
     // senior. Filed as a ratchet escalation in the PR comment.
-    "apps/attachConversation": defineMethod(AppsAttachConversation, {
+    [AppsAttachConversation.name]: defineMethod(AppsAttachConversation, {
       handler: (params) =>
         Effect.gen(function* () {
           // SessionNotFound (-32021) and Forbidden (-32001) round-trip to
@@ -185,7 +187,7 @@ export function createAppHandlers(deps: {
         }),
     }),
 
-    "apps/authorizeDispatch": defineMethod(AppsAuthorizeDispatch, {
+    [AppsAuthorizeDispatch.name]: defineMethod(AppsAuthorizeDispatch, {
       requiresActive: true,
       handler: (params, ctx) =>
         Effect.gen(function* () {

@@ -18,7 +18,7 @@ import {
   MoltZapService,
   type WsClientLogger,
 } from "@moltzap/client";
-import { Effect } from "effect";
+import { Config, ConfigProvider, Data, Effect, Option } from "effect";
 import { formatCrossConvOpenClaw } from "./format-cross-conv.js";
 import { writeOpenClawContextLog } from "./context-log.js";
 import {
@@ -31,15 +31,48 @@ import {
 } from "./mapping.js";
 import { EventNames } from "@moltzap/protocol";
 
+import {
+  AgentsLookup,
+  ContactsList,
+  ConversationsList,
+} from "@moltzap/protocol";
+
 const DEFAULT_ACCOUNT_ID = "default";
 const CHANNEL_ID = "moltzap" as const;
 const TARGET_PREFIX_AGENT = "agent:";
 const TARGET_PREFIX_CONV = "conv:";
+const OPENCLAW_STRUCTURED_LOG_MIN_ARGS = 2;
+const INBOUND_LOG_PREVIEW_CHARS = 80;
+const BODY_FOR_AGENT_LOG_PREVIEW_CHARS = 500;
+const OUTBOUND_LOG_PREVIEW_CHARS = 80;
 
 const MOLTZAP_TARGET_RE = /^(agent|conv):.+$/;
+const OpenClawContextLogDir = Config.option(
+  Config.string("MOLTZAP_OPENCLAW_CONTEXT_LOG_DIR"),
+);
 
 function isMoltZapTarget(raw: string): boolean {
   return MOLTZAP_TARGET_RE.test(raw);
+}
+
+function readOpenClawContextLogDir(): string | undefined {
+  return Option.getOrUndefined(
+    Effect.runSync(
+      OpenClawContextLogDir.pipe(
+        Effect.withConfigProvider(ConfigProvider.fromEnv()),
+      ),
+    ),
+  );
+}
+
+class MoltZapClientNotConnectedError extends Data.TaggedError(
+  "MoltZapClientNotConnectedError",
+)<{
+  readonly accountId: string;
+}> {
+  override get message(): string {
+    return `MoltZap client not connected for account ${this.accountId}`;
+  }
 }
 
 function adaptOpenClawLogger(
@@ -48,7 +81,7 @@ function adaptOpenClawLogger(
   return (...args: unknown[]) => {
     if (!logMethod) return;
     if (
-      args.length >= 2 &&
+      args.length >= OPENCLAW_STRUCTURED_LOG_MIN_ARGS &&
       typeof args[0] === "object" &&
       args[0] !== null &&
       typeof args[1] === "string"
@@ -74,6 +107,43 @@ type OpenClawConfig = Record<string, unknown> & {
       accounts?: MoltZapAccount[];
     };
   };
+};
+
+type OpenClawLogger = {
+  info?: (...args: unknown[]) => void;
+  warn?: (...args: unknown[]) => void;
+  error?: (...args: unknown[]) => void;
+  debug?: (...args: unknown[]) => void;
+};
+
+type OpenClawDeliver = (
+  payload: { text?: string; body?: string },
+  info?: { kind?: string },
+) => PromiseLike<boolean>;
+
+type OpenClawReplyDispatcher = (params: {
+  ctx: Record<string, string | undefined>;
+  cfg: OpenClawConfig;
+  dispatcherOptions: { deliver: OpenClawDeliver };
+}) => PromiseLike<{ queuedFinal: boolean }>;
+
+type OpenClawStartAccountContext = {
+  cfg: OpenClawConfig;
+  accountId: string;
+  account: MoltZapAccount;
+  abortSignal: AbortSignal;
+  log?: OpenClawLogger;
+  setStatus: (next: Record<string, unknown>) => void;
+  channelRuntime?: {
+    reply?: {
+      dispatchReplyWithBufferedBlockDispatcher?: OpenClawReplyDispatcher;
+    };
+  };
+};
+
+type OpenClawStopAccountContext = {
+  accountId: string;
+  log?: Pick<OpenClawLogger, "info">;
 };
 
 function resolveAccountList(cfg: OpenClawConfig): MoltZapAccount[] {
@@ -114,6 +184,7 @@ const waitForAbort = (signal: AbortSignal): Effect.Effect<void> =>
  * this closure. `register(api)` calls this so each registration gets its own
  * per-plugin state, eliminating module-level mutable globals.
  */
+// eslint-disable-next-line agent-code-guard/manual-result -- OpenClaw plugin factory returns the channel object shape, not a reusable Result/Either algebra.
 export function createMoltzapChannelPlugin() {
   const activeClients = new Map<string, MoltZapService>();
 
@@ -180,7 +251,7 @@ export function createMoltzapChannelPlugin() {
           );
           if (!service) return [];
           const { contacts } = (yield* service.sendRpc(
-            "contacts/list",
+            ContactsList.name,
             {},
           )) as {
             contacts: Array<{
@@ -192,7 +263,7 @@ export function createMoltzapChannelPlugin() {
             (c.agents ?? []).map((a) => a.id),
           );
           if (agentIds.length === 0) return [];
-          const { agents } = (yield* service.sendRpc("agents/lookup", {
+          const { agents } = (yield* service.sendRpc(AgentsLookup.name, {
             agentIds,
           })) as {
             agents: Array<{ id: string; name: string; displayName?: string }>;
@@ -217,7 +288,7 @@ export function createMoltzapChannelPlugin() {
           );
           if (!service) return [];
           const { conversations } = (yield* service.sendRpc(
-            "conversations/list",
+            ConversationsList.name,
             {},
           )) as {
             conversations: Array<{ id: string; type: string; name?: string }>;
@@ -263,34 +334,9 @@ export function createMoltzapChannelPlugin() {
     },
 
     gateway: {
-      startAccount(ctx: {
-        cfg: OpenClawConfig;
-        accountId: string;
-        account: MoltZapAccount;
-        abortSignal: AbortSignal;
-        log?: {
-          info?: (...args: unknown[]) => void;
-          warn?: (...args: unknown[]) => void;
-          error?: (...args: unknown[]) => void;
-          debug?: (...args: unknown[]) => void;
-        };
-        setStatus: (next: Record<string, unknown>) => void;
-        channelRuntime?: {
-          reply?: {
-            dispatchReplyWithBufferedBlockDispatcher?: (params: {
-              ctx: Record<string, string | undefined>;
-              cfg: OpenClawConfig;
-              dispatcherOptions: {
-                deliver: (
-                  payload: { text?: string; body?: string },
-                  info?: { kind?: string },
-                ) => Promise<boolean>;
-              };
-            }) => Promise<{ queuedFinal: boolean }>;
-          };
-        };
-      }) {
+      startAccount(ctx: OpenClawStartAccountContext) {
         const { accountId, account, abortSignal, log, setStatus } = ctx;
+        const contextLogDir = readOpenClawContextLogDir();
 
         if (!account.apiKey || !account.serverUrl) {
           log?.error?.("MoltZap: missing apiKey or serverUrl");
@@ -324,7 +370,7 @@ export function createMoltzapChannelPlugin() {
             const fromId = `agent:${enriched.sender.id}`;
 
             log?.info?.(
-              `MoltZap: inbound from ${fromId}: ${enriched.text.slice(0, 80)}`,
+              `MoltZap: inbound from ${fromId}: ${enriched.text.slice(0, INBOUND_LOG_PREVIEW_CHARS)}`,
             );
 
             setStatus({
@@ -345,7 +391,7 @@ export function createMoltzapChannelPlugin() {
 
             try {
               writeOpenClawContextLog({
-                logDir: process.env["MOLTZAP_OPENCLAW_CONTEXT_LOG_DIR"],
+                logDir: contextLogDir,
                 accountId,
                 accountAgentName: account.agentName,
                 ownAgentId: service.ownAgentId,
@@ -366,7 +412,7 @@ export function createMoltzapChannelPlugin() {
 
             if (crossConvBlock) {
               log?.info?.(
-                `MoltZap: BodyForAgent has cross-conv context (${crossConversationMessages.length} msgs) for ${enriched.conversationId}: ${bodyForAgent.slice(0, 500)}`,
+                `MoltZap: BodyForAgent has cross-conv context (${crossConversationMessages.length} msgs) for ${enriched.conversationId}: ${bodyForAgent.slice(0, BODY_FOR_AGENT_LOG_PREVIEW_CHARS)}`,
               );
             }
 
@@ -431,7 +477,7 @@ export function createMoltzapChannelPlugin() {
                           Effect.tap(() =>
                             Effect.sync(() =>
                               log?.info?.(
-                                `MoltZap: outbound reply to ${enriched.conversationId}: ${text.slice(0, 80)}`,
+                                `MoltZap: outbound reply to ${enriched.conversationId}: ${text.slice(0, OUTBOUND_LOG_PREVIEW_CHARS)}`,
                               ),
                             ),
                           ),
@@ -600,10 +646,7 @@ export function createMoltzapChannelPlugin() {
         );
       },
 
-      stopAccount(ctx: {
-        accountId: string;
-        log?: { info?: (...args: unknown[]) => void };
-      }) {
+      stopAccount(ctx: OpenClawStopAccountContext) {
         const service = activeClients.get(ctx.accountId);
         if (service) {
           ctx.log?.info?.("MoltZap: stopping");
@@ -653,7 +696,7 @@ export function createMoltzapChannelPlugin() {
           const service = activeClients.get(accountId);
           if (!service) {
             return yield* Effect.fail(
-              new Error("MoltZap client not connected"),
+              new MoltZapClientNotConnectedError({ accountId }),
             );
           }
           if (ctx.to.startsWith(TARGET_PREFIX_AGENT)) {

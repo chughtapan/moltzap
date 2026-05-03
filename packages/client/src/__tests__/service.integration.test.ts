@@ -25,6 +25,8 @@ import {
 } from "@moltzap/client/test";
 import { MoltZapService } from "../service.js";
 
+import { MessagesList, MessagesSend } from "@moltzap/protocol";
+
 /** Shorthand: run a service Effect to a Promise. The CLI + OpenClaw edges
  * do the same thing — tests sit at the same boundary. */
 const run = <A, E>(e: Effect.Effect<A, E>): Promise<A> => Effect.runPromise(e);
@@ -80,7 +82,7 @@ function sendAndSettle(
   text: string,
 ) {
   return Effect.gen(function* () {
-    yield* client.sendRpc("messages/send", {
+    yield* client.sendRpc(MessagesSend.name, {
       conversationId,
       parts: [{ type: "text", text }],
     });
@@ -114,7 +116,7 @@ describe("Connection & Core API", () => {
 
         // Connect agent-a and create a conversation before agent-b connects as service
         yield* regA.client.connect();
-        const conv = (yield* regA.client.sendRpc("conversations/create", {
+        const conv = (yield* regA.client.sendRpc(ConversationsCreate.name, {
           type: "dm",
           participants: [{ type: "agent", id: regB.agentId }],
         })) as { conversation: { id: string } };
@@ -139,7 +141,7 @@ describe("Connection & Core API", () => {
       yield* regSender.client.connect();
       const service = yield* connectService(regReceiver.apiKey);
 
-      const conv = (yield* regSender.client.sendRpc("conversations/create", {
+      const conv = (yield* regSender.client.sendRpc(ConversationsCreate.name, {
         type: "dm",
         participants: [{ type: "agent", id: regReceiver.agentId }],
       })) as { conversation: { id: string } };
@@ -171,7 +173,7 @@ describe("Connection & Core API", () => {
       yield* regB.client.connect();
       const service = yield* connectService(regA.apiKey);
 
-      const conv = (yield* service.sendRpc("conversations/create", {
+      const conv = (yield* service.sendRpc(ConversationsCreate.name, {
         type: "dm",
         participants: [{ type: "agent", id: regB.agentId }],
       })) as { conversation: { id: string } };
@@ -199,7 +201,7 @@ describe("Connection & Core API", () => {
       yield* regSender.client.connect();
       const service = yield* connectService(regReceiver.apiKey);
 
-      const conv = (yield* regSender.client.sendRpc("conversations/create", {
+      const conv = (yield* regSender.client.sendRpc(ConversationsCreate.name, {
         type: "dm",
         participants: [{ type: "agent", id: regReceiver.agentId }],
       })) as { conversation: { id: string } };
@@ -243,7 +245,7 @@ describe("Connection & Core API", () => {
       yield* regB.client.connect();
       const service = yield* connectService(regA.apiKey);
 
-      const conv = (yield* service.sendRpc("conversations/create", {
+      const conv = (yield* service.sendRpc(ConversationsCreate.name, {
         type: "dm",
         participants: [{ type: "agent", id: regB.agentId }],
       })) as { conversation: { id: string } };
@@ -323,7 +325,7 @@ describe("Cross-Conversation Context", () => {
       yield* regB.client.connect();
       const service = yield* connectService(regA.apiKey);
 
-      const conv = (yield* service.sendRpc("conversations/create", {
+      const conv = (yield* service.sendRpc(ConversationsCreate.name, {
         type: "dm",
         participants: [{ type: "agent", id: regB.agentId }],
       })) as { conversation: { id: string } };
@@ -350,13 +352,13 @@ describe("Cross-Conversation Context", () => {
       yield* regC.client.connect();
       const service = yield* connectService(regA.apiKey);
 
-      const convB = (yield* service.sendRpc("conversations/create", {
+      const convB = (yield* service.sendRpc(ConversationsCreate.name, {
         type: "dm",
         participants: [{ type: "agent", id: regB.agentId }],
       })) as { conversation: { id: string } };
 
       // Create conv with C but don't send any messages in it
-      yield* service.sendRpc("conversations/create", {
+      yield* service.sendRpc(ConversationsCreate.name, {
         type: "dm",
         participants: [{ type: "agent", id: regC.agentId }],
       });
@@ -386,12 +388,12 @@ describe("Cross-Conversation Context", () => {
         yield* regC.client.connect();
         const service = yield* connectService(regA.apiKey);
 
-        const convB = (yield* service.sendRpc("conversations/create", {
+        const convB = (yield* service.sendRpc(ConversationsCreate.name, {
           type: "dm",
           participants: [{ type: "agent", id: regB.agentId }],
         })) as { conversation: { id: string } };
 
-        const convC = (yield* service.sendRpc("conversations/create", {
+        const convC = (yield* service.sendRpc(ConversationsCreate.name, {
           type: "dm",
           participants: [{ type: "agent", id: regC.agentId }],
         })) as { conversation: { id: string } };
@@ -430,11 +432,11 @@ describe("Cross-Conversation Context", () => {
       // Resolve C's name so it appears in context
       yield* service.resolveAgentName(regC.agentId);
 
-      const convB = (yield* service.sendRpc("conversations/create", {
+      const convB = (yield* service.sendRpc(ConversationsCreate.name, {
         type: "dm",
         participants: [{ type: "agent", id: regB.agentId }],
       })) as { conversation: { id: string } };
-      const convC = (yield* service.sendRpc("conversations/create", {
+      const convC = (yield* service.sendRpc(ConversationsCreate.name, {
         type: "dm",
         participants: [{ type: "agent", id: regC.agentId }],
       })) as { conversation: { id: string } };
@@ -461,11 +463,11 @@ describe("Cross-Conversation Context", () => {
       yield* regC.client.connect();
       const service = yield* connectService(regA.apiKey);
 
-      const convB = (yield* service.sendRpc("conversations/create", {
+      const convB = (yield* service.sendRpc(ConversationsCreate.name, {
         type: "dm",
         participants: [{ type: "agent", id: regB.agentId }],
       })) as { conversation: { id: string } };
-      const convC = (yield* service.sendRpc("conversations/create", {
+      const convC = (yield* service.sendRpc(ConversationsCreate.name, {
         type: "dm",
         participants: [{ type: "agent", id: regC.agentId }],
       })) as { conversation: { id: string } };
@@ -495,11 +497,11 @@ describe("Cross-Conversation Context", () => {
       yield* regC.client.connect();
       const service = yield* connectService(regA.apiKey);
 
-      const convB = (yield* service.sendRpc("conversations/create", {
+      const convB = (yield* service.sendRpc(ConversationsCreate.name, {
         type: "dm",
         participants: [{ type: "agent", id: regB.agentId }],
       })) as { conversation: { id: string } };
-      const convC = (yield* service.sendRpc("conversations/create", {
+      const convC = (yield* service.sendRpc(ConversationsCreate.name, {
         type: "dm",
         participants: [{ type: "agent", id: regC.agentId }],
       })) as { conversation: { id: string } };
@@ -530,11 +532,11 @@ describe("Cross-Conversation Context", () => {
       yield* regC.client.connect();
       const service = yield* connectService(regA.apiKey);
 
-      const convB = (yield* service.sendRpc("conversations/create", {
+      const convB = (yield* service.sendRpc(ConversationsCreate.name, {
         type: "dm",
         participants: [{ type: "agent", id: regB.agentId }],
       })) as { conversation: { id: string } };
-      const convC = (yield* service.sendRpc("conversations/create", {
+      const convC = (yield* service.sendRpc(ConversationsCreate.name, {
         type: "dm",
         participants: [{ type: "agent", id: regC.agentId }],
       })) as { conversation: { id: string } };
@@ -578,15 +580,15 @@ describe("Cross-Conversation Context", () => {
       yield* regD.client.connect();
       const service = yield* connectService(regA.apiKey);
 
-      const convB = (yield* service.sendRpc("conversations/create", {
+      const convB = (yield* service.sendRpc(ConversationsCreate.name, {
         type: "dm",
         participants: [{ type: "agent", id: regB.agentId }],
       })) as { conversation: { id: string } };
-      const convC = (yield* service.sendRpc("conversations/create", {
+      const convC = (yield* service.sendRpc(ConversationsCreate.name, {
         type: "dm",
         participants: [{ type: "agent", id: regC.agentId }],
       })) as { conversation: { id: string } };
-      const convD = (yield* service.sendRpc("conversations/create", {
+      const convD = (yield* service.sendRpc(ConversationsCreate.name, {
         type: "dm",
         participants: [{ type: "agent", id: regD.agentId }],
       })) as { conversation: { id: string } };
@@ -619,7 +621,7 @@ describe("Cross-Conversation Context", () => {
 
       const convs = [];
       for (const a of agents) {
-        const conv = (yield* service.sendRpc("conversations/create", {
+        const conv = (yield* service.sendRpc(ConversationsCreate.name, {
           type: "dm",
           participants: [{ type: "agent", id: a.agentId }],
         })) as { conversation: { id: string } };
@@ -653,7 +655,7 @@ describe("Cross-Conversation Context", () => {
       yield* regB.client.connect();
       const service = yield* connectService(regA.apiKey);
 
-      const conv = (yield* service.sendRpc("conversations/create", {
+      const conv = (yield* service.sendRpc(ConversationsCreate.name, {
         type: "dm",
         participants: [{ type: "agent", id: regB.agentId }],
       })) as { conversation: { id: string } };
@@ -682,11 +684,11 @@ describe("Cross-Conversation Context", () => {
 
       yield* service.resolveAgentName(regC.agentId);
 
-      const convB = (yield* service.sendRpc("conversations/create", {
+      const convB = (yield* service.sendRpc(ConversationsCreate.name, {
         type: "dm",
         participants: [{ type: "agent", id: regB.agentId }],
       })) as { conversation: { id: string } };
-      const convC = (yield* service.sendRpc("conversations/create", {
+      const convC = (yield* service.sendRpc(ConversationsCreate.name, {
         type: "dm",
         participants: [{ type: "agent", id: regC.agentId }],
       })) as { conversation: { id: string } };
@@ -714,11 +716,11 @@ describe("Cross-Conversation Context", () => {
       yield* regC.client.connect();
       const service = yield* connectService(regA.apiKey);
 
-      const convB = (yield* service.sendRpc("conversations/create", {
+      const convB = (yield* service.sendRpc(ConversationsCreate.name, {
         type: "dm",
         participants: [{ type: "agent", id: regB.agentId }],
       })) as { conversation: { id: string } };
-      const convC = (yield* service.sendRpc("conversations/create", {
+      const convC = (yield* service.sendRpc(ConversationsCreate.name, {
         type: "dm",
         participants: [{ type: "agent", id: regC.agentId }],
       })) as { conversation: { id: string } };
@@ -753,17 +755,17 @@ describe("Cross-Conversation Context", () => {
       yield* regC.client.connect();
       const service = yield* connectService(regA.apiKey);
 
-      yield* service.sendRpc("conversations/create", {
+      yield* service.sendRpc(ConversationsCreate.name, {
         type: "dm",
         participants: [{ type: "agent", id: regB.agentId }],
       });
-      const convC = (yield* service.sendRpc("conversations/create", {
+      const convC = (yield* service.sendRpc(ConversationsCreate.name, {
         type: "dm",
         participants: [{ type: "agent", id: regC.agentId }],
       })) as { conversation: { id: string } };
 
       for (let i = 0; i < 25; i++) {
-        yield* regC.client.sendRpc("messages/send", {
+        yield* regC.client.sendRpc(MessagesSend.name, {
           conversationId: convC.conversation.id,
           parts: [{ type: "text", text: `msg-${i}` }],
         });
@@ -805,12 +807,12 @@ describe("peekFullMessages", () => {
         yield* regC.client.connect();
         const service = yield* connectService(regA.apiKey);
 
-        const convB = (yield* service.sendRpc("conversations/create", {
+        const convB = (yield* service.sendRpc(ConversationsCreate.name, {
           type: "dm",
           participants: [{ type: "agent", id: regB.agentId }],
         })) as { conversation: { id: string } };
 
-        const convC = (yield* service.sendRpc("conversations/create", {
+        const convC = (yield* service.sendRpc(ConversationsCreate.name, {
           type: "dm",
           participants: [{ type: "agent", id: regC.agentId }],
         })) as { conversation: { id: string } };
@@ -848,7 +850,7 @@ describe("peekFullMessages", () => {
 
       const convIds: string[] = [];
       for (const agent of agents) {
-        const conv = (yield* service.sendRpc("conversations/create", {
+        const conv = (yield* service.sendRpc(ConversationsCreate.name, {
           type: "dm",
           participants: [{ type: "agent", id: agent.agentId }],
         })) as { conversation: { id: string } };
@@ -882,12 +884,12 @@ describe("peekFullMessages", () => {
         yield* regC.client.connect();
         const service = yield* connectService(regA.apiKey);
 
-        const convB = (yield* service.sendRpc("conversations/create", {
+        const convB = (yield* service.sendRpc(ConversationsCreate.name, {
           type: "dm",
           participants: [{ type: "agent", id: regB.agentId }],
         })) as { conversation: { id: string } };
 
-        const convC = (yield* service.sendRpc("conversations/create", {
+        const convC = (yield* service.sendRpc(ConversationsCreate.name, {
           type: "dm",
           participants: [{ type: "agent", id: regC.agentId }],
         })) as { conversation: { id: string } };
@@ -928,7 +930,7 @@ describe("History with session key", () => {
       const service = yield* connectService(regA.apiKey);
 
       // Create DM between A and B
-      const conv = (yield* service.sendRpc("conversations/create", {
+      const conv = (yield* service.sendRpc(ConversationsCreate.name, {
         type: "dm",
         participants: [{ type: "agent", id: regB.agentId }],
       })) as { conversation: { id: string } };
@@ -945,7 +947,7 @@ describe("History with session key", () => {
       yield* Effect.promise(() => new Promise((r) => setTimeout(r, 500)));
 
       // Fetch history via RPC (same as CLI moltzap history would do)
-      const result = (yield* service.sendRpc("messages/list", {
+      const result = (yield* service.sendRpc(MessagesList.name, {
         conversationId: conv.conversation.id,
         limit: 10,
       })) as {
@@ -990,7 +992,7 @@ describe("History with session key", () => {
       const service = yield* connectService(regA.apiKey);
 
       // Create group
-      const conv = (yield* service.sendRpc("conversations/create", {
+      const conv = (yield* service.sendRpc(ConversationsCreate.name, {
         type: "group",
         name: "Test Group",
         participants: [
@@ -1006,7 +1008,7 @@ describe("History with session key", () => {
       yield* sendAndSettle(regC.client, conv.conversation.id, "Agent C here");
 
       // Fetch history
-      const result = (yield* service.sendRpc("messages/list", {
+      const result = (yield* service.sendRpc(MessagesList.name, {
         conversationId: conv.conversation.id,
         limit: 10,
       })) as {
@@ -1097,7 +1099,7 @@ describe("Socket Server", () => {
       service.startSocketServer();
       try {
         const conv = (yield* Effect.promise(() =>
-          socketRequest("conversations/create", {
+          socketRequest(ConversationsCreate.name, {
             type: "dm",
             participants: [{ type: "agent", id: regB.agentId }],
           }),
@@ -1105,7 +1107,7 @@ describe("Socket Server", () => {
         expect(conv.conversation.id).toBeDefined();
 
         const msg = (yield* Effect.promise(() =>
-          socketRequest("messages/send", {
+          socketRequest(MessagesSend.name, {
             conversationId: conv.conversation.id,
             parts: [{ type: "text", text: "via socket" }],
           }),
@@ -1128,14 +1130,14 @@ describe("Socket Server", () => {
       service.startSocketServer();
       try {
         const conv = (yield* Effect.promise(() =>
-          socketRequest("conversations/create", {
+          socketRequest(ConversationsCreate.name, {
             type: "dm",
             participants: [{ type: "agent", id: regB.agentId }],
           }),
         )) as { conversation: { id: string } };
 
         yield* Effect.promise(() =>
-          socketRequest("messages/send", {
+          socketRequest(MessagesSend.name, {
             conversationId: conv.conversation.id,
             parts: [{ type: "text", text: "Hello from A" }],
           }),
@@ -1179,11 +1181,11 @@ describe("Socket Server", () => {
         const service = yield* connectService(regA.apiKey);
         service.startSocketServer();
         try {
-          const convB = (yield* service.sendRpc("conversations/create", {
+          const convB = (yield* service.sendRpc(ConversationsCreate.name, {
             type: "dm",
             participants: [{ type: "agent", id: regB.agentId }],
           })) as { conversation: { id: string } };
-          const convC = (yield* service.sendRpc("conversations/create", {
+          const convC = (yield* service.sendRpc(ConversationsCreate.name, {
             type: "dm",
             participants: [{ type: "agent", id: regC.agentId }],
           })) as { conversation: { id: string } };
@@ -1250,11 +1252,11 @@ describe("Socket Server", () => {
       const service = yield* connectService(regA.apiKey);
       service.startSocketServer();
       try {
-        const convB = (yield* service.sendRpc("conversations/create", {
+        const convB = (yield* service.sendRpc(ConversationsCreate.name, {
           type: "dm",
           participants: [{ type: "agent", id: regB.agentId }],
         })) as { conversation: { id: string } };
-        const convC = (yield* service.sendRpc("conversations/create", {
+        const convC = (yield* service.sendRpc(ConversationsCreate.name, {
           type: "dm",
           participants: [{ type: "agent", id: regC.agentId }],
         })) as { conversation: { id: string } };
@@ -1323,15 +1325,15 @@ describe("Socket Server", () => {
       const service = yield* connectService(regA.apiKey);
       service.startSocketServer();
       try {
-        const convB = (yield* service.sendRpc("conversations/create", {
+        const convB = (yield* service.sendRpc(ConversationsCreate.name, {
           type: "dm",
           participants: [{ type: "agent", id: regB.agentId }],
         })) as { conversation: { id: string } };
-        const convC = (yield* service.sendRpc("conversations/create", {
+        const convC = (yield* service.sendRpc(ConversationsCreate.name, {
           type: "dm",
           participants: [{ type: "agent", id: regC.agentId }],
         })) as { conversation: { id: string } };
-        const convD = (yield* service.sendRpc("conversations/create", {
+        const convD = (yield* service.sendRpc(ConversationsCreate.name, {
           type: "dm",
           participants: [{ type: "agent", id: regD.agentId }],
         })) as { conversation: { id: string } };
@@ -1439,7 +1441,7 @@ describe("Socket Server", () => {
       service.startSocketServer();
       try {
         const conv = (yield* Effect.promise(() =>
-          socketRequest("conversations/create", {
+          socketRequest(ConversationsCreate.name, {
             type: "dm",
             participants: [{ type: "agent", id: regB.agentId }],
           }),
@@ -1505,13 +1507,13 @@ describe("Socket Server", () => {
       service.startSocketServer();
       try {
         const conv = (yield* Effect.promise(() =>
-          socketRequest("conversations/create", {
+          socketRequest(ConversationsCreate.name, {
             type: "dm",
             participants: [{ type: "agent", id: regB.agentId }],
           }),
         )) as { conversation: { id: string } };
 
-        yield* regB.client.sendRpc("messages/send", {
+        yield* regB.client.sendRpc(MessagesSend.name, {
           conversationId: conv.conversation.id,
           parts: [
             { type: "text", text: "Check this out" },

@@ -273,6 +273,9 @@ importers:
       '@moltzap/claude-code-channel':
         specifier: workspace:*
         version: link:../claude-code-channel
+      '@moltzap/protocol':
+        specifier: workspace:*
+        version: link:../protocol
       effect:
         specifier: 3.21.0
         version: 3.21.0

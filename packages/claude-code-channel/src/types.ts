@@ -8,35 +8,39 @@
  * Interfaces only. No function bodies beyond `throw new Error("not implemented")`.
  */
 
-import type { Effect } from "effect";
+import { Brand, type Effect } from "effect";
 import type { EnrichedInboundMessage, WsClientLogger } from "@moltzap/client";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import type { AllowlistError, BootError, PushError } from "./errors.js";
+import type { AllowlistError, PushError } from "./errors.js";
 
 /**
  * Branded chat id — corresponds to MoltZap's `conversationId` on the wire,
  * rendered to Claude Code as the contract-meta key `chat_id`.
  * Principle 1: preventing accidental confusion with `MessageId` at call sites.
  */
-export type ChatId = string & { readonly __brand: "ChatId" };
+export type ChatId = string & Brand.Brand<"ChatId">;
+export const ChatId = Brand.nominal<ChatId>();
 
 /**
  * Branded message id — corresponds to MoltZap's `id`, rendered as
  * contract-meta `message_id`.
  */
-export type MessageId = string & { readonly __brand: "MessageId" };
+export type MessageId = string & Brand.Brand<"MessageId">;
+export const MessageId = Brand.nominal<MessageId>();
 
 /**
  * Branded user id — corresponds to MoltZap's `sender.id`, rendered as
  * contract-meta `user`.
  */
-export type UserId = string & { readonly __brand: "UserId" };
+export type UserId = string & Brand.Brand<"UserId">;
+export const UserId = Brand.nominal<UserId>();
 
 /**
  * ISO-8601 timestamp — corresponds to MoltZap's `createdAt` (already ISO),
  * rendered as contract-meta `ts`.
  */
-export type IsoTimestamp = string & { readonly __brand: "IsoTimestamp" };
+export type IsoTimestamp = string & Brand.Brand<"IsoTimestamp">;
+export const IsoTimestamp = Brand.nominal<IsoTimestamp>();
 
 /**
  * Claude Code channel notification shape.

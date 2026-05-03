@@ -2,6 +2,8 @@ import { Args, Command } from "@effect/cli";
 import { Effect, Option } from "effect";
 import { request } from "../socket-client.js";
 
+import { PresenceUpdate } from "@moltzap/protocol";
+
 const statusArg = Args.text({ name: "status" }).pipe(
   Args.withDescription("Status to set: online, offline, or away"),
   Args.optional,
@@ -31,7 +33,7 @@ export const presenceCommand = Command.make(
         process.exit(1);
       });
     }
-    return request("presence/update", { status: value }).pipe(
+    return request(PresenceUpdate.name, { status: value }).pipe(
       Effect.tap(() =>
         Effect.sync(() => {
           console.log(`Presence set to ${value}.`);
