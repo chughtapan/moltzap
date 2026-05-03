@@ -830,6 +830,17 @@ export class ConversationService {
         }
         const creatorOwner = creatorOpt.value.owner_user_id;
         for (const targetAgentId of targetAgentIds) {
+          // The map is built from the existence-check query at the top of
+          // `create()` and that loop fails with NotFound for any unknown
+          // agentId — so a `Map.get` miss here would be an upstream
+          // invariant break, not a missing owner. Surface it as an
+          // internal/NotFound rather than masking with `?? null`, which
+          // would silently downgrade an invariant break to a denial.
+          if (!ownerByAgentId.has(targetAgentId)) {
+            return yield* Effect.fail(
+              notFound(`Agent ${targetAgentId} not found`),
+            );
+          }
           const targetOwner = ownerByAgentId.get(targetAgentId) ?? null;
           yield* this.checkContactEdge(
             creatorAgentId,
