@@ -1,4 +1,5 @@
 #!/usr/bin/env sh
+set -e
 
 pnpm exec oxfmt .
 if ! git diff --quiet; then
