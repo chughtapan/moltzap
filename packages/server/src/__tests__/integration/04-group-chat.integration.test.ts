@@ -8,6 +8,13 @@ import {
   registerAndConnect,
 } from "./helpers.js";
 
+import {
+  ConversationsAddParticipant,
+  ConversationsCreate,
+  MessagesList,
+  MessagesSend,
+} from "@moltzap/protocol";
+
 let _baseUrl: string;
 let _wsUrl: string;
 
@@ -32,7 +39,7 @@ describe("Scenario 4: Group Chat", () => {
       const bob = yield* registerAndConnect("bob-grp");
 
       // Alice creates a group
-      const conv = (yield* alice.client.sendRpc("conversations/create", {
+      const conv = (yield* alice.client.sendRpc(ConversationsCreate.name, {
         type: "group",
         name: "Test Group",
         participants: [{ type: "agent", id: bob.agentId }],
@@ -46,7 +53,7 @@ describe("Scenario 4: Group Chat", () => {
       // Alice sends multiple messages
       const seqs: string[] = [];
       for (let i = 0; i < 3; i++) {
-        const result = (yield* alice.client.sendRpc("messages/send", {
+        const result = (yield* alice.client.sendRpc(MessagesSend.name, {
           conversationId,
           parts: [{ type: "text", text: `Message ${i + 1}` }],
         })) as { message: { id: string } };
@@ -54,7 +61,7 @@ describe("Scenario 4: Group Chat", () => {
       }
 
       // List messages
-      const messages = (yield* alice.client.sendRpc("messages/list", {
+      const messages = (yield* alice.client.sendRpc(MessagesList.name, {
         conversationId,
       })) as { messages: Array<{ parts: Array<{ text: string }> }> };
 
@@ -73,7 +80,7 @@ describe("Scenario 4: Group Chat", () => {
       const bob = yield* registerAndConnect("bob-addp");
 
       // Create group with just Alice
-      const conv = (yield* alice.client.sendRpc("conversations/create", {
+      const conv = (yield* alice.client.sendRpc(ConversationsCreate.name, {
         type: "group",
         name: "Add Test",
         participants: [{ type: "agent", id: alice.agentId }],
@@ -81,7 +88,7 @@ describe("Scenario 4: Group Chat", () => {
 
       // Add Bob
       const result = (yield* alice.client.sendRpc(
-        "conversations/addParticipant",
+        ConversationsAddParticipant.name,
         {
           conversationId: conv.conversation.id,
           participant: { type: "agent", id: bob.agentId },

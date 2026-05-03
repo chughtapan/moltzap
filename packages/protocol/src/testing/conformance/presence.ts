@@ -19,9 +19,12 @@ import { registerTestAgent, type TestAgent } from "../agent-registration.js";
 import type { ConformanceRunContext } from "./runner.js";
 import { PropertyInvariantViolation, registerProperty } from "./registry.js";
 
+import { Connect } from "../../schema/methods/auth.js";
+
 const CATEGORY = "presence" as const;
 const DEFAULT_TIMEOUT_MS = 5000;
 const DEFAULT_CAPTURE_CAPACITY = 256;
+const EXPECTED_PRESENCE_SEQUENCE_LENGTH = 3;
 
 type PresenceStatus = "online" | "offline" | "away";
 
@@ -293,7 +296,7 @@ export function registerReconnectStorm(ctx: ConformanceRunContext): void {
 
         const sequence = yield* presenceStatusesFor(sub.client, a.agentId);
         if (
-          sequence.length !== 3 ||
+          sequence.length !== EXPECTED_PRESENCE_SEQUENCE_LENGTH ||
           sequence[0] !== "online" ||
           sequence[1] !== "offline" ||
           sequence[2] !== "online"
@@ -342,7 +345,7 @@ export function registerSameStateNoDoubleFire(
         );
 
         yield* aClient
-          .sendRpc("auth/connect", {
+          .sendRpc(Connect.name, {
             agentKey: a.apiKey,
             minProtocol: PROTOCOL_VERSION,
             maxProtocol: PROTOCOL_VERSION,

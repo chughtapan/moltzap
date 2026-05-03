@@ -21,7 +21,14 @@
 import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import * as path from "node:path";
+import { Data } from "effect";
 import type { SpawnInput } from "./runtime.js";
+
+class ChannelPluginInstallError extends Data.TaggedError(
+  "ChannelPluginInstallError",
+)<{
+  readonly message: string;
+}> {}
 
 export interface PluginSymlinkSpec {
   /** Path inside the plugin's `node_modules/` (e.g. `effect`, `@x/y`). */
@@ -154,9 +161,9 @@ function symlinkPreferring(
       return;
     }
   }
-  throw new Error(
-    `channel-plugin-install: none of the candidate paths exist for ${target}: ${candidates.join(", ")}`,
-  );
+  throw new ChannelPluginInstallError({
+    message: `channel-plugin-install: none of the candidate paths exist for ${target}: ${candidates.join(", ")}`,
+  });
 }
 
 /**

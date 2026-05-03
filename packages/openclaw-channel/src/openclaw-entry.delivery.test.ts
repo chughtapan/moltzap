@@ -54,6 +54,12 @@ vi.mock("@moltzap/client", async () => {
 
 import { moltzapChannelPlugin } from "./openclaw-entry.js";
 
+import {
+  AgentsLookup,
+  ConversationsGet,
+  MessagesSend,
+} from "@moltzap/protocol";
+
 function makeMessage(overrides: Partial<Message> = {}): Message {
   return {
     id: "msg-300",
@@ -102,12 +108,12 @@ describe("Flow 6: Outbound delivery — deliver callback + sendText", () => {
     mockSendToAgent.mockReturnValue(Effect.void);
 
     mockSendRpc.mockImplementation((method: string) => {
-      if (method === "agents/lookup") {
+      if (method === AgentsLookup.name) {
         return Effect.succeed({
           agents: [{ id: "agent-sender-1", name: "Atlas" }],
         });
       }
-      if (method === "conversations/get") {
+      if (method === ConversationsGet.name) {
         return Effect.succeed({
           conversation: { type: "dm" },
           participants: [
@@ -116,7 +122,7 @@ describe("Flow 6: Outbound delivery — deliver callback + sendText", () => {
           ],
         });
       }
-      if (method === "messages/send") {
+      if (method === MessagesSend.name) {
         return Effect.succeed({ message: { id: "sent-1" } });
       }
       return Effect.succeed({});

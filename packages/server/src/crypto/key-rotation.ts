@@ -16,6 +16,8 @@ class KeyRotationError extends Data.TaggedError("KeyRotationError")<{
   }
 }
 
+const KEK_BYTES = 32;
+
 export function seedInitialKek(db: Db, envelope: EnvelopeEncryption) {
   return Effect.runPromise(seedInitialKekEffect(db, envelope));
 }
@@ -29,7 +31,7 @@ function seedInitialKekEffect(
   envelope: EnvelopeEncryption,
 ): Effect.Effect<void, SqlError, never> {
   return Effect.gen(function* () {
-    const kek = randomBytes(32);
+    const kek = randomBytes(KEK_BYTES);
     const encrypted = envelope.encryptKek(kek);
     const serialized = serializePayload(encrypted);
 
@@ -67,7 +69,7 @@ function rotateKekEffect(
     );
 
     const newVersion = currentVersion + 1;
-    const newKek = randomBytes(32);
+    const newKek = randomBytes(KEK_BYTES);
     const encryptedNewKek = envelope.encryptKek(newKek);
 
     const reWrappedCount = yield* transaction(db, (trx) =>

@@ -8,19 +8,27 @@
  * — is registered as `app-disconnect-fail-policy` below.
  */
 import * as fc from "fast-check";
-import { Duration, Effect, Exit, Scope } from "effect";
+import { Data, Duration, Effect, Either, Exit, Scope } from "effect";
 import { allRpcMethods, arbitraryCallFor } from "../arbitraries/rpc.js";
 import { makeTestClient } from "../test-client.js";
 import { registerTestAgent } from "../agent-registration.js";
 import type { ConformanceRunContext } from "./runner.js";
-import { Data } from "effect";
 import {
   PropertyDeferred,
   PropertyInvariantViolation,
   PropertyUnavailable,
   registerProperty,
 } from "./registry.js";
-import { sendUntypedRpc } from "./_helpers.js";
+import { leftOrNull, sendUntypedRpc } from "./_helpers.js";
+
+import { AgentsList } from "../../schema/methods/auth.js";
+import {
+  AppsAuthorizeDispatch,
+  AppsCreate,
+  AppsOnBeforeDispatch,
+  AppsOnBeforeMessageDelivery,
+  AppsRegister,
+} from "../../schema/methods/apps.js";
 
 /**
  * Tagged sentinel for "the dispatch RPC did not reply within the
@@ -35,6 +43,10 @@ class DispatchHungError extends Data.TaggedError(
 const CATEGORY = "boundary" as const;
 const DEFAULT_TIMEOUT_MS = 3000;
 const DEFAULT_CAPTURE_CAPACITY = 32;
+const SCHEMA_EXHAUSTIVE_FUZZ_PROPERTY = "schema-exhaustive-fuzz";
+const APP_DISCONNECT_FAIL_POLICY_PROPERTY = "app-disconnect-fail-policy";
+const FUZZ_CAPTURE_CAPACITY_PER_METHOD = 4;
+const DATE_ID_RADIX = 36;
 
 /**
  * Schema-exhaustive fuzz — for every `RpcMethodName`, draws arbitrary
@@ -51,7 +63,7 @@ export function registerSchemaExhaustiveFuzz(ctx: ConformanceRunContext): void {
   registerProperty(
     ctx,
     CATEGORY,
-    "schema-exhaustive-fuzz",
+    SCHEMA_EXHAUSTIVE_FUZZ_PROPERTY,
     "every RpcMethodName drawn → server survives & stays responsive",
     Effect.scoped(
       Effect.gen(function* () {
@@ -63,7 +75,7 @@ export function registerSchemaExhaustiveFuzz(ctx: ConformanceRunContext): void {
             (e) =>
               new PropertyInvariantViolation({
                 category: CATEGORY,
-                name: "schema-exhaustive-fuzz",
+                name: SCHEMA_EXHAUSTIVE_FUZZ_PROPERTY,
                 reason: `register agent: ${e.body}`,
               }),
           ),
@@ -73,13 +85,14 @@ export function registerSchemaExhaustiveFuzz(ctx: ConformanceRunContext): void {
           agentKey: agent.apiKey,
           agentId: agent.agentId,
           defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
-          captureCapacity: allRpcMethods.length * 4,
+          captureCapacity:
+            allRpcMethods.length * FUZZ_CAPTURE_CAPACITY_PER_METHOD,
         }).pipe(
           Effect.mapError(
             (e) =>
               new PropertyInvariantViolation({
                 category: CATEGORY,
-                name: "schema-exhaustive-fuzz",
+                name: SCHEMA_EXHAUSTIVE_FUZZ_PROPERTY,
                 reason: `client acquire: ${String(e)}`,
               }),
           ),
@@ -95,7 +108,7 @@ export function registerSchemaExhaustiveFuzz(ctx: ConformanceRunContext): void {
             return yield* Effect.fail(
               new PropertyInvariantViolation({
                 category: CATEGORY,
-                name: "schema-exhaustive-fuzz",
+                name: SCHEMA_EXHAUSTIVE_FUZZ_PROPERTY,
                 reason: `failed to sample call for ${method}`,
               }),
             );
@@ -110,14 +123,15 @@ export function registerSchemaExhaustiveFuzz(ctx: ConformanceRunContext): void {
             // exactly what the property must reject. Require the post
             // call to SUCCEED; timeouts are failures here.
             const post = yield* client
-              .sendRpc("agents/list", {})
+              .sendRpc(AgentsList.name, {})
               .pipe(Effect.either);
-            if (post._tag !== "Right") {
+            const postFailure = leftOrNull(post);
+            if (postFailure !== null) {
               return yield* Effect.fail(
                 new PropertyInvariantViolation({
                   category: CATEGORY,
-                  name: "schema-exhaustive-fuzz",
-                  reason: `server became unresponsive after ${method} (post-call ${post._tag === "Left" ? post.left._tag : "unknown"})`,
+                  name: SCHEMA_EXHAUSTIVE_FUZZ_PROPERTY,
+                  reason: `server became unresponsive after ${method} (post-call ${postFailure._tag})`,
                 }),
               );
             }
@@ -167,7 +181,7 @@ export function registerAppDisconnectFailPolicy(
   registerProperty(
     ctx,
     CATEGORY,
-    "app-disconnect-fail-policy",
+    APP_DISCONNECT_FAIL_POLICY_PROPERTY,
     "app WS sever ⇒ pending s2c Deferreds fail-closed; no leaks",
     Effect.scoped(
       Effect.gen(function* () {
@@ -181,7 +195,7 @@ export function registerAppDisconnectFailPolicy(
             (e) =>
               new PropertyUnavailable({
                 category: CATEGORY,
-                name: "app-disconnect-fail-policy",
+                name: APP_DISCONNECT_FAIL_POLICY_PROPERTY,
                 reason: `app agent register: ${e.body}`,
               }),
           ),
@@ -205,7 +219,7 @@ export function registerAppDisconnectFailPolicy(
             (e) =>
               new PropertyUnavailable({
                 category: CATEGORY,
-                name: "app-disconnect-fail-policy",
+                name: APP_DISCONNECT_FAIL_POLICY_PROPERTY,
                 reason: `app client acquire: ${String(e)}`,
               }),
           ),
@@ -214,7 +228,7 @@ export function registerAppDisconnectFailPolicy(
         // Step 3: register a manifest. apps/register is owner-agnostic
         // (see apps.handlers.ts:25-41) — succeeds even when the agent's
         // owner_user_id is null.
-        const appId = `adfp-${Date.now().toString(36)}`;
+        const appId = `adfp-${Date.now().toString(DATE_ID_RADIX)}`;
         // `apps/register` is server-handled but absent from the typed
         // `rpcMethods` registry today (see `rpc-registry.ts:60-118`);
         // app-sdk and `34-rpc-additions.integration.test.ts:48` use the
@@ -222,7 +236,7 @@ export function registerAppDisconnectFailPolicy(
         // accretive change outside this sub-issue's scope.
         const registerOutcome = yield* sendUntypedRpc(
           appClient,
-          "apps/register",
+          AppsRegister.name,
           {
             manifest: {
               appId,
@@ -238,13 +252,14 @@ export function registerAppDisconnectFailPolicy(
             },
           },
         ).pipe(Effect.either);
-        if (registerOutcome._tag === "Left") {
+        const registerFailure = leftOrNull(registerOutcome);
+        if (registerFailure !== null) {
           yield* Scope.close(appScope, Exit.void);
           return yield* Effect.fail(
             new PropertyUnavailable({
               category: CATEGORY,
-              name: "app-disconnect-fail-policy",
-              reason: `apps/register failed: ${registerOutcome.left._tag}`,
+              name: APP_DISCONNECT_FAIL_POLICY_PROPERTY,
+              reason: `apps/register failed: ${registerFailure._tag}`,
             }),
           );
         }
@@ -253,11 +268,11 @@ export function registerAppDisconnectFailPolicy(
         // the server-side Deferred is parked. The sever in step 6 is the
         // event the property exercises.
         yield* appClient.handleServerRpc(
-          "apps/onBeforeDispatch",
+          AppsOnBeforeDispatch.name,
           () => Effect.never,
         );
         yield* appClient.handleServerRpc(
-          "apps/onBeforeMessageDelivery",
+          AppsOnBeforeMessageDelivery.name,
           () => Effect.never,
         );
 
@@ -275,7 +290,7 @@ export function registerAppDisconnectFailPolicy(
             (e) =>
               new PropertyUnavailable({
                 category: CATEGORY,
-                name: "app-disconnect-fail-policy",
+                name: APP_DISCONNECT_FAIL_POLICY_PROPERTY,
                 reason: `sender register: ${e.body}`,
               }),
           ),
@@ -291,24 +306,29 @@ export function registerAppDisconnectFailPolicy(
             (e) =>
               new PropertyUnavailable({
                 category: CATEGORY,
-                name: "app-disconnect-fail-policy",
+                name: APP_DISCONNECT_FAIL_POLICY_PROPERTY,
                 reason: `sender client acquire: ${String(e)}`,
               }),
           ),
         );
         const sessionOutcome = yield* senderClient
-          .sendRpc("apps/create", { appId, invitedAgentIds: [] })
+          .sendRpc(AppsCreate.name, { appId, invitedAgentIds: [] })
           .pipe(Effect.either);
-        if (sessionOutcome._tag === "Left") {
-          yield* Scope.close(appScope, Exit.void);
-          return yield* Effect.fail(
-            new PropertyUnavailable({
-              category: CATEGORY,
-              name: "app-disconnect-fail-policy",
-              reason: `apps/create failed (likely owner_user_id null on sender; B.9 covers via DB seeding): ${sessionOutcome.left._tag}`,
-            }),
-          );
-        }
+        const sessionResult = yield* Either.match(sessionOutcome, {
+          onLeft: (error) =>
+            Scope.close(appScope, Exit.void).pipe(
+              Effect.zipRight(
+                Effect.fail(
+                  new PropertyUnavailable({
+                    category: CATEGORY,
+                    name: APP_DISCONNECT_FAIL_POLICY_PROPERTY,
+                    reason: `apps/create failed (likely owner_user_id null on sender; B.9 covers via DB seeding): ${error._tag}`,
+                  }),
+                ),
+              ),
+            ),
+          onRight: (success) => Effect.succeed(success),
+        });
 
         // Step 6: sever the app's WS. Closing the inner scope closes the
         // socket; the server's connection-scope finalizer runs through
@@ -324,13 +344,13 @@ export function registerAppDisconnectFailPolicy(
         // the (now severed) admission path.
         // `apps/create` result: `{ session: { conversations: { [key]: convId } } }`
         // — a Record map, not an array. Pull the first id deterministically.
-        const session = sessionOutcome.right.session;
+        const session = sessionResult.session;
         const sessionConvId = Object.values(session.conversations)[0];
         if (typeof sessionConvId !== "string" || sessionConvId.length === 0) {
           return yield* Effect.fail(
             new PropertyDeferred({
               category: CATEGORY,
-              name: "app-disconnect-fail-policy",
+              name: APP_DISCONNECT_FAIL_POLICY_PROPERTY,
               followUp:
                 "apps/create response did not surface a session conversation id; B.9 (#318) covers via DB-seeded fixture",
             }),
@@ -344,7 +364,7 @@ export function registerAppDisconnectFailPolicy(
         // class makes the leak observable in the Left branch.
         const dispatchStarted = Date.now();
         const dispatchOutcome = yield* senderClient
-          .sendRpc("apps/authorizeDispatch", {
+          .sendRpc(AppsAuthorizeDispatch.name, {
             conversationId:
               sessionConvId as `${string}-${string}-${string}-${string}-${string}`,
             messageId: `00000000-0000-0000-0000-000000000001`,
@@ -360,15 +380,17 @@ export function registerAppDisconnectFailPolicy(
             }),
             Effect.either,
           );
-        if (
-          dispatchOutcome._tag === "Left" &&
-          dispatchOutcome.left instanceof DispatchHungError
-        ) {
+        const dispatchHung = Either.match(dispatchOutcome, {
+          onLeft: (error) =>
+            error instanceof DispatchHungError ? error : null,
+          onRight: () => null,
+        });
+        if (dispatchHung !== null) {
           return yield* Effect.fail(
             new PropertyInvariantViolation({
               category: CATEGORY,
-              name: "app-disconnect-fail-policy",
-              reason: `dispatch hung ${dispatchOutcome.left.elapsedMs}ms after app sever — Deferred leak suspected`,
+              name: APP_DISCONNECT_FAIL_POLICY_PROPERTY,
+              reason: `dispatch hung ${dispatchHung.elapsedMs}ms after app sever — Deferred leak suspected`,
             }),
           );
         }

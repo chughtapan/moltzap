@@ -2,11 +2,24 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Effect, Exit } from "effect";
 import { MoltZapApp } from "./app.js";
 import {
-  AppError,
   AuthError,
+  ConversationKeyError,
+  InvalidConfigError,
   ManifestRegistrationError,
   SessionError,
+  SessionClosedError,
+  UserHandlerError,
 } from "./errors.js";
+
+import {
+  AppsAttestSkill,
+  AppsCloseSession,
+  AppsCreate,
+  AppsGetSession,
+  AppsRegister,
+  MessagesSend,
+  SystemPing,
+} from "@moltzap/protocol";
 
 // Mock MoltZapWsClient. Client methods return Effects (primary API), so
 // mocks return `Effect.succeed` / `Effect.fail`. Captures constructor
@@ -48,10 +61,10 @@ vi.mock("@moltzap/client", () => {
               .fn()
               .mockImplementation(() => Effect.succeed({ agentId: "agent-1" })),
             sendRpc: vi.fn().mockImplementation((method: string) => {
-              if (method === "apps/register") {
+              if (method === AppsRegister.name) {
                 return Effect.succeed({ appId: "test-app" });
               }
-              if (method === "apps/create") {
+              if (method === AppsCreate.name) {
                 return Effect.succeed({
                   session: {
                     id: "session-1",
@@ -63,13 +76,13 @@ vi.mock("@moltzap/client", () => {
                   },
                 });
               }
-              if (method === "system/ping") {
+              if (method === SystemPing.name) {
                 return Effect.succeed({ ts: new Date().toISOString() });
               }
-              if (method === "apps/closeSession") {
+              if (method === AppsCloseSession.name) {
                 return Effect.succeed({ closed: true });
               }
-              if (method === "messages/send") {
+              if (method === MessagesSend.name) {
                 return Effect.succeed({
                   message: {
                     id: "msg-1",
@@ -131,7 +144,7 @@ describe("MoltZapApp", () => {
             serverUrl: "ws://localhost:3000",
             agentKey: "test-key",
           }),
-      ).toThrow(AppError);
+      ).toThrow(InvalidConfigError);
     });
 
     it("builds default manifest from appId", () => {
@@ -172,10 +185,10 @@ describe("MoltZapApp", () => {
       expect(session.isActive).toBe(true);
 
       expect(app.client.connect).toHaveBeenCalledTimes(1);
-      expect(app.client.sendRpc).toHaveBeenCalledWith("apps/register", {
+      expect(app.client.sendRpc).toHaveBeenCalledWith(AppsRegister.name, {
         manifest: expect.objectContaining({ appId: "test-app" }),
       });
-      expect(app.client.sendRpc).toHaveBeenCalledWith("apps/create", {
+      expect(app.client.sendRpc).toHaveBeenCalledWith(AppsCreate.name, {
         appId: "test-app",
         invitedAgentIds: [],
       });
@@ -203,7 +216,7 @@ describe("MoltZapApp", () => {
       await Effect.runPromise(app.start());
       await Effect.runPromise(app.stop());
 
-      expect(app.client.sendRpc).toHaveBeenCalledWith("apps/closeSession", {
+      expect(app.client.sendRpc).toHaveBeenCalledWith(AppsCloseSession.name, {
         sessionId: "session-1",
       });
       expect(app.client.close).toHaveBeenCalledTimes(1);
@@ -218,7 +231,7 @@ describe("MoltZapApp", () => {
       // path goes down the error branch.
       const sendRpc = app.client.sendRpc as ReturnType<typeof vi.fn>;
       sendRpc.mockImplementationOnce((method: string) => {
-        if (method === "apps/closeSession") {
+        if (method === AppsCloseSession.name) {
           return Effect.fail(new Error("server rejected closeSession"));
         }
         return Effect.succeed({});
@@ -229,7 +242,7 @@ describe("MoltZapApp", () => {
       const exit = await Effect.runPromiseExit(app.stop());
       expect(Exit.isSuccess(exit)).toBe(true);
 
-      expect(app.client.sendRpc).toHaveBeenCalledWith("apps/closeSession", {
+      expect(app.client.sendRpc).toHaveBeenCalledWith(AppsCloseSession.name, {
         sessionId: "session-1",
       });
       expect(app.client.close).toHaveBeenCalledTimes(1);
@@ -279,7 +292,7 @@ describe("MoltZapApp", () => {
         app.send("default", [{ type: "text", text: "hello" }]),
       );
 
-      expect(app.client.sendRpc).toHaveBeenCalledWith("messages/send", {
+      expect(app.client.sendRpc).toHaveBeenCalledWith(MessagesSend.name, {
         conversationId: "conv-1",
         parts: [{ type: "text", text: "hello" }],
       });
@@ -292,7 +305,7 @@ describe("MoltZapApp", () => {
       );
       expect(Exit.isFailure(exit)).toBe(true);
       if (Exit.isFailure(exit) && exit.cause._tag === "Fail") {
-        expect(exit.cause.error.code).toBe("UNKNOWN_CONVERSATION_KEY");
+        expect(exit.cause.error).toBeInstanceOf(ConversationKeyError);
       } else {
         throw new Error("expected typed Fail");
       }
@@ -304,7 +317,7 @@ describe("MoltZapApp", () => {
         app.sendTo("conv-1", [{ type: "text", text: "hello" }]),
       );
 
-      expect(app.client.sendRpc).toHaveBeenCalledWith("messages/send", {
+      expect(app.client.sendRpc).toHaveBeenCalledWith(MessagesSend.name, {
         conversationId: "conv-1",
         parts: [{ type: "text", text: "hello" }],
       });
@@ -316,7 +329,7 @@ describe("MoltZapApp", () => {
         app.reply("msg-1", [{ type: "text", text: "reply" }]),
       );
 
-      expect(app.client.sendRpc).toHaveBeenCalledWith("messages/send", {
+      expect(app.client.sendRpc).toHaveBeenCalledWith(MessagesSend.name, {
         replyToId: "msg-1",
         parts: [{ type: "text", text: "reply" }],
       });
@@ -326,7 +339,7 @@ describe("MoltZapApp", () => {
       await Effect.runPromise(app.start());
       await app.sendAsync("default", [{ type: "text", text: "hello" }]);
 
-      expect(app.client.sendRpc).toHaveBeenCalledWith("messages/send", {
+      expect(app.client.sendRpc).toHaveBeenCalledWith(MessagesSend.name, {
         conversationId: "conv-1",
         parts: [{ type: "text", text: "hello" }],
       });
@@ -397,7 +410,7 @@ describe("MoltZapApp", () => {
       expect(handler).not.toHaveBeenCalled();
     });
 
-    it("emits HANDLER_ERROR via onError when a message handler throws", async () => {
+    it("emits UserHandlerError via onError when a message handler throws", async () => {
       const errorHandler = vi.fn();
       app.onError(errorHandler);
       app.onMessage("default", () => {
@@ -410,9 +423,8 @@ describe("MoltZapApp", () => {
       await new Promise((r) => setTimeout(r, 0));
 
       expect(errorHandler).toHaveBeenCalledTimes(1);
-      const err = errorHandler.mock.calls[0]![0] as AppError;
-      expect(err).toBeInstanceOf(AppError);
-      expect(err.code).toBe("HANDLER_ERROR");
+      const err = errorHandler.mock.calls[0]![0];
+      expect(err).toBeInstanceOf(UserHandlerError);
     });
 
     it("onParticipantAdmitted fires on app/participantAdmitted", async () => {
@@ -458,7 +470,7 @@ describe("MoltZapApp", () => {
 
       expect(app.getSession("session-1")).toBeUndefined();
       expect(errorHandler).toHaveBeenCalledTimes(1);
-      expect(errorHandler.mock.calls[0]![0].code).toBe("SESSION_CLOSED");
+      expect(errorHandler.mock.calls[0]![0]).toBeInstanceOf(SessionClosedError);
     });
 
     it("app/skillChallenge auto-responds with apps/attestSkill when manifest.skillUrl is set", async () => {
@@ -481,7 +493,7 @@ describe("MoltZapApp", () => {
       fireEvent(appWithSkill, "app/skillChallenge", { challengeId: "chal-1" });
 
       expect(appWithSkill.client.sendRpc).toHaveBeenCalledWith(
-        "apps/attestSkill",
+        AppsAttestSkill.name,
         {
           challengeId: "chal-1",
           skillUrl: "https://example.com/skill",
@@ -498,7 +510,7 @@ describe("MoltZapApp", () => {
       fireEvent(app, "app/skillChallenge", { challengeId: "chal-1" });
 
       expect(sendRpc).not.toHaveBeenCalledWith(
-        "apps/attestSkill",
+        AppsAttestSkill.name,
         expect.anything(),
       );
     });
@@ -513,7 +525,7 @@ describe("MoltZapApp", () => {
       expect(Exit.isFailure(exit)).toBe(true);
       if (Exit.isFailure(exit) && exit.cause._tag === "Fail") {
         expect(exit.cause.error).toBeInstanceOf(AuthError);
-        expect(exit.cause.error.code).toBe("AUTH_FAILED");
+        expect(exit.cause.error).toBeInstanceOf(AuthError);
       } else {
         throw new Error("expected typed Fail");
       }
@@ -522,7 +534,7 @@ describe("MoltZapApp", () => {
     it("fails with ManifestRegistrationError when apps/register fails", async () => {
       const sendRpc = app.client.sendRpc as ReturnType<typeof vi.fn>;
       sendRpc.mockImplementationOnce((method: string) => {
-        if (method === "apps/register") {
+        if (method === AppsRegister.name) {
           return Effect.fail(new Error("manifest invalid"));
         }
         return Effect.succeed({});
@@ -532,7 +544,7 @@ describe("MoltZapApp", () => {
       expect(Exit.isFailure(exit)).toBe(true);
       if (Exit.isFailure(exit) && exit.cause._tag === "Fail") {
         expect(exit.cause.error).toBeInstanceOf(ManifestRegistrationError);
-        expect(exit.cause.error.code).toBe("MANIFEST_REJECTED");
+        expect(exit.cause.error).toBeInstanceOf(ManifestRegistrationError);
       } else {
         throw new Error("expected typed Fail");
       }
@@ -570,7 +582,7 @@ describe("MoltZapApp", () => {
       expect(Exit.isFailure(exit)).toBe(true);
       if (Exit.isFailure(exit) && exit.cause._tag === "Fail") {
         expect(exit.cause.error).toBeInstanceOf(SessionError);
-        expect(exit.cause.error.code).toBe("SESSION_ERROR");
+        expect(exit.cause.error).toBeInstanceOf(SessionError);
       } else {
         throw new Error("expected typed Fail");
       }
@@ -588,7 +600,7 @@ describe("MoltZapApp", () => {
       await Effect.runPromise(app.start());
       const sendRpc = app.client.sendRpc as ReturnType<typeof vi.fn>;
       sendRpc.mockImplementationOnce((method: string) => {
-        if (method === "apps/getSession") {
+        if (method === AppsGetSession.name) {
           return Effect.succeed({
             session: {
               id: "session-1",
@@ -605,7 +617,7 @@ describe("MoltZapApp", () => {
 
       await triggerReconnect();
 
-      expect(sendRpc).toHaveBeenCalledWith("apps/getSession", {
+      expect(sendRpc).toHaveBeenCalledWith(AppsGetSession.name, {
         sessionId: "session-1",
       });
       expect(app.getSession("session-1")!.conversations.extra).toBe("conv-2");
@@ -618,7 +630,7 @@ describe("MoltZapApp", () => {
       await Effect.runPromise(app.start());
       const sendRpc = app.client.sendRpc as ReturnType<typeof vi.fn>;
       sendRpc.mockImplementationOnce((method: string) => {
-        if (method === "apps/getSession") {
+        if (method === AppsGetSession.name) {
           return Effect.succeed({
             session: {
               id: "session-1",
@@ -637,7 +649,7 @@ describe("MoltZapApp", () => {
 
       expect(app.getSession("session-1")).toBeUndefined();
       expect(errorHandler).toHaveBeenCalledWith(
-        expect.objectContaining({ code: "SESSION_CLOSED" }),
+        expect.objectContaining({ _tag: "SessionClosedError" }),
       );
     });
 
@@ -648,7 +660,7 @@ describe("MoltZapApp", () => {
       await Effect.runPromise(app.start());
       const sendRpc = app.client.sendRpc as ReturnType<typeof vi.fn>;
       sendRpc.mockImplementationOnce((method: string) => {
-        if (method === "apps/getSession") {
+        if (method === AppsGetSession.name) {
           return Effect.fail(new Error("network gone"));
         }
         return Effect.succeed({});
@@ -657,7 +669,7 @@ describe("MoltZapApp", () => {
       await triggerReconnect();
 
       expect(errorHandler).toHaveBeenCalledWith(
-        expect.objectContaining({ code: "SESSION_ERROR" }),
+        expect.objectContaining({ _tag: "SessionError" }),
       );
       expect(app.getSession("session-1")).toBeDefined();
     });

@@ -9,6 +9,8 @@ import {
 } from "./helpers.js";
 import type { ConnectedAgent } from "./helpers.js";
 
+import { ConversationsList, ConversationsUpdate } from "@moltzap/protocol";
+
 beforeAll(async () => {
   await startTestServer();
 }, 60_000);
@@ -37,7 +39,7 @@ describe("Update Conversation Name", () => {
       // Set up event waiters on Bob and Eve BEFORE the update
 
       const updateResult = (yield* alice.client.sendRpc(
-        "conversations/update",
+        ConversationsUpdate.name,
         {
           conversationId,
           name: "New Name",
@@ -64,7 +66,7 @@ describe("Update Conversation Name", () => {
 
       // Verify persistence via conversations/list
       const listResult = (yield* alice.client.sendRpc(
-        "conversations/list",
+        ConversationsList.name,
         {},
       )) as {
         conversations: Array<{ id: string; name?: string }>;

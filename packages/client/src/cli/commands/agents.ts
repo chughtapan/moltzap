@@ -3,6 +3,8 @@ import { Effect } from "effect";
 import type { AgentCard } from "@moltzap/protocol";
 import { request } from "../socket-client.js";
 
+import { AgentsList, AgentsLookupByName } from "@moltzap/protocol";
+
 interface AgentsListResult {
   agents: Record<string, AgentCard>;
 }
@@ -14,15 +16,16 @@ interface LookupResult {
 const jsonOption = Options.boolean("json").pipe(
   Options.withDescription("Output as JSON"),
 );
+const JSON_INDENT_SPACES = 2;
 
 const listAgents = Command.make("list", { json: jsonOption }, ({ json }) =>
-  request("agents/list", {}).pipe(
+  request(AgentsList.name, {}).pipe(
     Effect.tap((result) =>
       Effect.sync(() => {
         const r = result as AgentsListResult;
         const entries = Object.values(r.agents);
         if (json) {
-          console.log(JSON.stringify(r.agents, null, 2));
+          console.log(JSON.stringify(r.agents, null, JSON_INDENT_SPACES));
           return;
         }
         if (entries.length === 0) {
@@ -55,7 +58,7 @@ const namesArg = Args.text({ name: "name" }).pipe(
 );
 
 const lookupAgents = Command.make("lookup", { names: namesArg }, ({ names }) =>
-  request("agents/lookupByName", { names }).pipe(
+  request(AgentsLookupByName.name, { names }).pipe(
     Effect.tap((result) =>
       Effect.sync(() => {
         const r = result as LookupResult;

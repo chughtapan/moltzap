@@ -17,6 +17,8 @@ import {
 import type { MalformedFrameKind, AnyFrame } from "../codec.js";
 import { arbitraryFromSchema } from "./from-typebox.js";
 
+const FRAME_SEED_MAX = 2_147_483_647;
+
 const malformedKinds = [
   "bit-flip",
   "truncated",
@@ -57,6 +59,6 @@ export function arbitraryMalformedFrame(): fc.Arbitrary<ArbitraryMalformedFrame>
   return fc.record({
     base: baseArb,
     kind: fc.constantFrom(...malformedKinds),
-    seed: fc.integer({ min: 1, max: 2 ** 31 - 1 }),
+    seed: fc.integer({ min: 1, max: FRAME_SEED_MAX }),
   });
 }

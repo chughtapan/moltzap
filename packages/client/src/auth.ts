@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Data, Effect } from "effect";
 
 /** HTTP response from the agent registration endpoints
  * (`/api/v1/auth/register` and `/api/v1/admin/register-agent`). */
@@ -21,6 +21,16 @@ export interface RegisterAgentOptions {
 const PUBLIC_PATH = "/api/v1/auth/register";
 const ADMIN_PATH = "/api/v1/admin/register-agent";
 
+export class RegisterAgentError extends Data.TaggedError("RegisterAgentError")<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
+
+const registerAgentError = (
+  message: string,
+  cause?: unknown,
+): RegisterAgentError => new RegisterAgentError({ message, cause });
+
 /** Register a new agent via HTTP. Thin wrapper around the agent-registration
  * endpoints — the WebSocket dance is `MoltZapWsClient`'s job; this just
  * returns the credentials the caller feeds it as `agentKey` at construction.
@@ -32,7 +42,7 @@ export const registerAgent = (
   baseUrl: string,
   name: string,
   opts?: RegisterAgentOptions,
-): Effect.Effect<RegisterResponse, Error> =>
+): Effect.Effect<RegisterResponse, RegisterAgentError> =>
   Effect.tryPromise({
     try: () => {
       const body: Record<string, string> = { name };
@@ -46,22 +56,24 @@ export const registerAgent = (
         body: JSON.stringify(body),
       });
     },
-    catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+    catch: (err) => registerAgentError("Register request failed", err),
   }).pipe(
     Effect.flatMap((res) =>
       res.ok
         ? Effect.tryPromise({
             try: () => res.json() as Promise<RegisterResponse>,
             catch: (err) =>
-              err instanceof Error ? err : new Error(String(err)),
+              registerAgentError("Register response decode failed", err),
           })
         : Effect.tryPromise({
             try: () => res.text(),
             catch: (err) =>
-              err instanceof Error ? err : new Error(String(err)),
+              registerAgentError("Register error response read failed", err),
           }).pipe(
             Effect.flatMap((text) =>
-              Effect.fail(new Error(`Register failed: ${res.status} ${text}`)),
+              Effect.fail(
+                registerAgentError(`Register failed: ${res.status} ${text}`),
+              ),
             ),
           ),
     ),

@@ -22,7 +22,7 @@ import {
 } from "../server.js";
 import { createRoutingState } from "../routing.js";
 import type { ChatId, ClaudeChannelNotification, MessageId } from "../types.js";
-import type { ReplyError } from "../errors.js";
+import { SendFailed, type ReplyError } from "../errors.js";
 
 const silentLogger = {
   info: () => {},
@@ -380,10 +380,7 @@ describe("reply tool routing (spec OQ5)", () => {
   it("surfaces ReplyError.SendFailed as tool error (isError: true)", async () => {
     const { client, routing, cleanup } = await setup({
       onSendReply: () =>
-        Effect.fail<ReplyError>({
-          _tag: "SendFailed",
-          cause: "ws dropped",
-        }),
+        Effect.fail<ReplyError>(new SendFailed({ cause: "ws dropped" })),
     });
     try {
       routing.recordInbound("M-x" as MessageId, "C-x" as ChatId);

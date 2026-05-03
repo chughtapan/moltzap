@@ -1,12 +1,38 @@
 import * as net from "node:net";
 import * as fs from "node:fs";
-import { Effect } from "effect";
+import { Data, Effect } from "effect";
 import { MoltZapService } from "../service.js";
+
+import { AgentsLookupByName } from "@moltzap/protocol";
+
+const SOCKET_REQUEST_TIMEOUT_MS = 10_000;
 
 interface RawResponse {
   result?: unknown;
   error?: string;
 }
+
+export class SocketRequestError extends Data.TaggedError("SocketRequestError")<{
+  readonly method: string;
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
+
+export class ParticipantResolveError extends Data.TaggedError(
+  "ParticipantResolveError",
+)<{
+  readonly input: string;
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
+
+export type SocketClientError = SocketRequestError | ParticipantResolveError;
+
+const socketRequestError = (
+  method: string,
+  message: string,
+  cause?: unknown,
+): SocketRequestError => new SocketRequestError({ method, message, cause });
 
 /**
  * Send a request to the MoltZapService via Unix socket, returning the `result`
@@ -23,14 +49,14 @@ export const request = (
   method: string,
   params?: Record<string, unknown>,
   socketPath?: string,
-): Effect.Effect<unknown, Error> =>
-  Effect.async<unknown, Error>((resume, signal) => {
+): Effect.Effect<unknown, SocketRequestError> =>
+  Effect.async<unknown, SocketRequestError>((resume, signal) => {
     const sockPath = socketPath ?? MoltZapService.SOCKET_PATH;
     const conn = net.createConnection(sockPath);
     let buffer = "";
     let settled = false;
 
-    const done = (outcome: Effect.Effect<unknown, Error>) => {
+    const done = (outcome: Effect.Effect<unknown, SocketRequestError>) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
@@ -40,11 +66,11 @@ export const request = (
     };
 
     const timer = setTimeout(() => {
-      done(Effect.fail(new Error("Socket request timed out")));
-    }, 10_000);
+      done(Effect.fail(socketRequestError(method, "Socket request timed out")));
+    }, SOCKET_REQUEST_TIMEOUT_MS);
 
     signal.addEventListener("abort", () => {
-      done(Effect.fail(new Error("Socket request aborted")));
+      done(Effect.fail(socketRequestError(method, "Socket request aborted")));
     });
 
     conn.on("connect", () => {
@@ -63,17 +89,19 @@ export const request = (
         } catch (err) {
           done(
             Effect.fail(
-              new Error(
+              socketRequestError(
+                method,
                 `Malformed response from service: ${
                   err instanceof Error ? err.message : String(err)
                 }`,
+                err,
               ),
             ),
           );
           return;
         }
         if (parsed.error) {
-          done(Effect.fail(new Error(parsed.error)));
+          done(Effect.fail(socketRequestError(method, parsed.error)));
         } else {
           done(Effect.succeed(parsed.result));
         }
@@ -85,13 +113,15 @@ export const request = (
       if (code === "ENOENT" || code === "ECONNREFUSED") {
         done(
           Effect.fail(
-            new Error(
+            socketRequestError(
+              method,
               "MoltZap service is not running. Start the OpenClaw channel plugin first.",
+              err,
             ),
           ),
         );
       } else {
-        done(Effect.fail(err));
+        done(Effect.fail(socketRequestError(method, err.message, err)));
       }
     });
   });
@@ -106,23 +136,38 @@ interface LookupResult {
 /** Resolve "agent:name" or "agent:<uuid>" to { type, id }. */
 export const resolveParticipant = (
   raw: string,
-): Effect.Effect<{ type: string; id: string }, Error> =>
+): Effect.Effect<{ type: string; id: string }, SocketClientError> =>
   Effect.gen(function* () {
     const colon = raw.indexOf(":");
     if (colon === -1) {
-      return yield* Effect.fail(new Error(`Invalid: "${raw}". Use agent:name`));
+      return yield* Effect.fail(
+        new ParticipantResolveError({
+          input: raw,
+          message: `Invalid: "${raw}". Use agent:name`,
+        }),
+      );
     }
     const type = raw.slice(0, colon);
     const value = raw.slice(colon + 1);
     if (UUID_RE.test(value)) return { type, id: value };
     if (type !== "agent") {
-      return yield* Effect.fail(new Error(`Cannot resolve "${raw}"`));
+      return yield* Effect.fail(
+        new ParticipantResolveError({
+          input: raw,
+          message: `Cannot resolve "${raw}"`,
+        }),
+      );
     }
-    const result = (yield* request("agents/lookupByName", {
+    const result = (yield* request(AgentsLookupByName.name, {
       names: [value],
     })) as LookupResult;
     if (result.agents.length === 0) {
-      return yield* Effect.fail(new Error(`Agent "${value}" not found`));
+      return yield* Effect.fail(
+        new ParticipantResolveError({
+          input: raw,
+          message: `Agent "${value}" not found`,
+        }),
+      );
     }
     return { type: "agent", id: result.agents[0]!.id };
   });

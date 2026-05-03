@@ -27,6 +27,12 @@ import {
   type TransportError,
 } from "../transport.js";
 
+import {
+  ConversationsArchive,
+  ConversationsGet,
+  ConversationsUnarchive,
+} from "@moltzap/protocol";
+
 type Call = { method: string; params: Record<string, unknown> };
 
 const makeFakeTransport = (
@@ -71,7 +77,7 @@ describe("conversations get (v2)", () => {
       ),
     );
     expect(calls[0]).toEqual({
-      method: "conversations/get",
+      method: ConversationsGet.name,
       params: { conversationId: "c1" },
     });
     expect(stdout).toHaveBeenCalledWith(JSON.stringify(body, null, 2));
@@ -103,7 +109,7 @@ describe("conversations archive (v2)", () => {
       ),
     );
     expect(calls[0]).toEqual({
-      method: "conversations/archive",
+      method: ConversationsArchive.name,
       params: { conversationId: "c1" },
     });
   });
@@ -134,7 +140,7 @@ describe("conversations unarchive (v2)", () => {
       ),
     );
     expect(calls[0]).toEqual({
-      method: "conversations/unarchive",
+      method: ConversationsUnarchive.name,
       params: { conversationId: "c1" },
     });
   });

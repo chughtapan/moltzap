@@ -1,26 +1,45 @@
 import { Command } from "@effect/cli";
 import { HttpClient, HttpClientRequest } from "@effect/platform";
 import { NodeHttpClient } from "@effect/platform-node";
-import { Effect } from "effect";
+import { Data, Effect } from "effect";
 import { getHttpUrl } from "../config.js";
 
-const pingEffect: Effect.Effect<void, Error> = Effect.gen(function* () {
+export class PingError extends Data.TaggedError("PingError")<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
+
+const HTTP_SUCCESS_MIN = 200;
+const HTTP_REDIRECT_MIN = 300;
+
+const toPingError = (cause: unknown): PingError =>
+  cause instanceof PingError
+    ? cause
+    : new PingError({
+        message: cause instanceof Error ? cause.message : String(cause),
+        cause,
+      });
+
+const pingEffect: Effect.Effect<void, PingError> = Effect.gen(function* () {
   const baseUrl = yield* getHttpUrl;
   const client = yield* HttpClient.HttpClient;
   const response = yield* client.execute(
     HttpClientRequest.get(`${baseUrl}/health`),
   );
-  if (response.status < 200 || response.status >= 300) {
+  if (
+    response.status < HTTP_SUCCESS_MIN ||
+    response.status >= HTTP_REDIRECT_MIN
+  ) {
     return yield* Effect.fail(
-      new Error(`Server unreachable: HTTP ${response.status}`),
+      new PingError({
+        message: `Server unreachable: HTTP ${response.status}`,
+      }),
     );
   }
 }).pipe(
   Effect.timeout("5 seconds"),
   Effect.provide(NodeHttpClient.layer),
-  Effect.catchAll((err) =>
-    Effect.fail(err instanceof Error ? err : new Error(String(err))),
-  ),
+  Effect.mapError(toPingError),
 );
 
 /**

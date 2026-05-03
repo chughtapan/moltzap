@@ -6,6 +6,11 @@
 import { Cause, Effect, Exit, Option } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  NotConnectedError,
+  RpcServerError,
+  RpcTimeoutError,
+} from "../runtime/errors.js";
+import {
   decideTransport,
   makeTransportLayer,
   resolveTransportInputs,
@@ -17,6 +22,8 @@ import {
   TransportTimeoutError,
   type TransportOptions,
 } from "./transport.js";
+
+import { AppsListSessions } from "@moltzap/protocol";
 
 /**
  * Module-level mock so transport.ts's `new MoltZapWsClient(...)` call is
@@ -82,19 +89,23 @@ describe("decideTransport", () => {
     expect(decision).toEqual({ _tag: "UseDirect", reason: "profile" });
   });
 
-  it("returns UseDirect{env-fallback} when MOLTZAP_API_KEY env + daemonReachable=false", async () => {
-    process.env.MOLTZAP_API_KEY = "env-key";
+  it("returns UseDirect{env-fallback} when envFallbackKey + daemonReachable=false", async () => {
     const decision = await Effect.runPromise(
-      decideTransport(makeOpts({ probeDaemon: () => Effect.succeed(false) })),
+      decideTransport(
+        makeOpts({
+          envFallbackKey: "env-key",
+          probeDaemon: () => Effect.succeed(false),
+        }),
+      ),
     );
     expect(decision).toEqual({ _tag: "UseDirect", reason: "env-fallback" });
   });
 
-  it("returns UseDaemon when MOLTZAP_API_KEY env + daemonReachable=true", async () => {
-    process.env.MOLTZAP_API_KEY = "env-key";
+  it("returns UseDaemon when envFallbackKey + daemonReachable=true", async () => {
     const decision = await Effect.runPromise(
       decideTransport(
         makeOpts({
+          envFallbackKey: "env-key",
           socketPath: "/tmp/sock",
           probeDaemon: () => Effect.succeed(true),
         }),
@@ -141,11 +152,13 @@ describe("decideTransport", () => {
  */
 describe("tagWsError — maps ws-client error tags to TransportError variants", () => {
   it("RpcServerError maps to TransportRpcError (not TransportDecodeError)", () => {
-    const err = tagWsError("apps/listSessions", {
-      _tag: "RpcServerError",
-      code: -32001,
-      message: "session not found",
-    });
+    const err = tagWsError(
+      AppsListSessions.name,
+      new RpcServerError({
+        code: -32001,
+        message: "session not found",
+      }),
+    );
     expect(err).toBeInstanceOf(TransportRpcError);
     expect(err._tag).toBe("TransportRpcError");
     if (err instanceof TransportRpcError) {
@@ -155,16 +168,22 @@ describe("tagWsError — maps ws-client error tags to TransportError variants", 
   });
 
   it("NotConnectedError maps to ServiceUnreachableError", () => {
-    const err = tagWsError("apps/listSessions", { _tag: "NotConnectedError" });
+    const err = tagWsError(
+      AppsListSessions.name,
+      new NotConnectedError({ message: "not connected" }),
+    );
     expect(err).toBeInstanceOf(ServiceUnreachableError);
     expect(err._tag).toBe("ServiceUnreachableError");
   });
 
   it("RpcTimeoutError maps to TransportTimeoutError with timeoutMs forwarded", () => {
-    const err = tagWsError("apps/listSessions", {
-      _tag: "RpcTimeoutError",
-      timeoutMs: 15_000,
-    });
+    const err = tagWsError(
+      AppsListSessions.name,
+      new RpcTimeoutError({
+        method: AppsListSessions.name,
+        timeoutMs: 15_000,
+      }),
+    );
     expect(err).toBeInstanceOf(TransportTimeoutError);
     if (err instanceof TransportTimeoutError) {
       expect(err.timeoutMs).toBe(15_000);
@@ -175,7 +194,7 @@ describe("tagWsError — maps ws-client error tags to TransportError variants", 
     // Guards the regression: a future runPromise bridge would produce an object
     // with no _tag (FiberFailureImpl shape). This pins the default branch to
     // TransportDecodeError so the error is observable, not silently swallowed.
-    const err = tagWsError("apps/listSessions", {
+    const err = tagWsError(AppsListSessions.name, {
       message: "some unknown error",
     });
     expect(err).toBeInstanceOf(TransportDecodeError);
@@ -239,7 +258,7 @@ describe("makeDirectTransport — composed rpc() failure path", () => {
     };
     const exit = await Effect.runPromise(
       Transport.pipe(
-        Effect.flatMap((t) => t.rpc("apps/listSessions", {})),
+        Effect.flatMap((t) => t.rpc(AppsListSessions.name, {})),
         Effect.exit,
         Effect.provide(makeTransportLayer(opts)),
       ),

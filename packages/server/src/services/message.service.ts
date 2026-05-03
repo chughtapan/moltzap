@@ -41,6 +41,22 @@ function toBuf(v: Buffer | Uint8Array): Buffer {
  * on the presence signal alone.
  */
 const DELIVERY_TRACKING_MAX_PARTICIPANTS = 20;
+const PATCH_MIN_PARTS = 1;
+const PATCH_MAX_PARTS = 10;
+const DELIVERY_WEBHOOK_RETRY_BASE_SECONDS = 1;
+const DELIVERY_WEBHOOK_BACKOFF_FACTOR = 2;
+const DEFAULT_MESSAGE_HISTORY_LIMIT = 50;
+const MAX_MESSAGE_HISTORY_LIMIT = 100;
+const PLAINTEXT_IV_BYTES = 12;
+const PLAINTEXT_TAG_BYTES = 16;
+const CONVERSATION_KEYS_ALIAS = "conversation_keys as ck";
+const ENCRYPTION_KEYS_ALIAS = "encryption_keys as ek";
+const COL_EK_VERSION = "ek.version";
+const COL_CK_KEK_VERSION = "ck.kek_version";
+const COL_CK_WRAPPED_DEK = "ck.wrapped_dek";
+const COL_CK_DEK_VERSION = "ck.dek_version";
+const COL_EK_ENCRYPTED_KEY = "ek.encrypted_key";
+const COL_CK_CONVERSATION_ID = "ck.conversation_id";
 
 /** Config for the optional `deliveryWebhook` fire-and-forget fanout. */
 export interface DeliveryWebhookConfig {
@@ -163,7 +179,10 @@ export class MessageService {
           }
           if (hookResponse?.result.patch?.parts) {
             const patched = hookResponse.result.patch.parts;
-            if (patched.length >= 1 && patched.length <= 10) {
+            if (
+              patched.length >= PATCH_MIN_PARTS &&
+              patched.length <= PATCH_MAX_PARTS
+            ) {
               parts = patched;
               patchedBy = hookResponse.appId;
             } else {
@@ -320,7 +339,10 @@ export class MessageService {
     // 1s base, doubled per attempt, ±50% jitter. `intersect` with `recurs`
     // caps the retry count at `MAX_ATTEMPTS - 1` so total attempts = MAX.
     const retrySchedule = Schedule.intersect(
-      Schedule.exponential(Duration.seconds(1), 2).pipe(Schedule.jittered),
+      Schedule.exponential(
+        Duration.seconds(DELIVERY_WEBHOOK_RETRY_BASE_SECONDS),
+        DELIVERY_WEBHOOK_BACKOFF_FACTOR,
+      ).pipe(Schedule.jittered),
       Schedule.recurs(DELIVERY_WEBHOOK_MAX_ATTEMPTS - 1),
     );
 
@@ -365,7 +387,10 @@ export class MessageService {
           requesterAgentId,
         );
 
-        const limit = Math.min(options.limit ?? 50, 100);
+        const limit = Math.min(
+          options.limit ?? DEFAULT_MESSAGE_HISTORY_LIMIT,
+          MAX_MESSAGE_HISTORY_LIMIT,
+        );
 
         const rows = yield* this.db
           .selectFrom("messages")
@@ -413,8 +438,8 @@ export class MessageService {
           const plaintext = Buffer.from(JSON.stringify(parts), "utf-8");
           return {
             encrypted: plaintext,
-            iv: Buffer.alloc(12),
-            tag: Buffer.alloc(16),
+            iv: Buffer.alloc(PLAINTEXT_IV_BYTES),
+            tag: Buffer.alloc(PLAINTEXT_TAG_BYTES),
             dekVersion: 0,
             kekVersion: 0,
           };
@@ -423,16 +448,20 @@ export class MessageService {
         // Get or create conversation DEK (race-safe: ON CONFLICT + re-read)
         let keyRowOpt = yield* takeFirstOption(
           this.db
-            .selectFrom("conversation_keys as ck")
-            .innerJoin("encryption_keys as ek", "ek.version", "ck.kek_version")
+            .selectFrom(CONVERSATION_KEYS_ALIAS)
+            .innerJoin(
+              ENCRYPTION_KEYS_ALIAS,
+              COL_EK_VERSION,
+              COL_CK_KEK_VERSION,
+            )
             .select([
-              "ck.wrapped_dek",
-              "ck.dek_version",
-              "ck.kek_version",
-              "ek.encrypted_key",
+              COL_CK_WRAPPED_DEK,
+              COL_CK_DEK_VERSION,
+              COL_CK_KEK_VERSION,
+              COL_EK_ENCRYPTED_KEY,
             ])
-            .where("ck.conversation_id", "=", conversationId)
-            .orderBy("ck.dek_version", "desc")
+            .where(COL_CK_CONVERSATION_ID, "=", conversationId)
+            .orderBy(COL_CK_DEK_VERSION, "desc")
             .limit(1),
         );
 
@@ -483,20 +512,20 @@ export class MessageService {
             // Lost the race — another request created the DEK first, read theirs
             const winnerRow = yield* takeFirstOrFail(
               this.db
-                .selectFrom("conversation_keys as ck")
+                .selectFrom(CONVERSATION_KEYS_ALIAS)
                 .innerJoin(
-                  "encryption_keys as ek",
-                  "ek.version",
-                  "ck.kek_version",
+                  ENCRYPTION_KEYS_ALIAS,
+                  COL_EK_VERSION,
+                  COL_CK_KEK_VERSION,
                 )
                 .select([
-                  "ck.wrapped_dek",
-                  "ck.dek_version",
-                  "ck.kek_version",
-                  "ek.encrypted_key",
+                  COL_CK_WRAPPED_DEK,
+                  COL_CK_DEK_VERSION,
+                  COL_CK_KEK_VERSION,
+                  COL_EK_ENCRYPTED_KEY,
                 ])
-                .where("ck.conversation_id", "=", conversationId)
-                .orderBy("ck.dek_version", "desc")
+                .where(COL_CK_CONVERSATION_ID, "=", conversationId)
+                .orderBy(COL_CK_DEK_VERSION, "desc")
                 .limit(1),
               "winner DEK not found",
             );
@@ -592,15 +621,15 @@ export class MessageService {
         if (!dek) {
           const keyRowOpt = yield* takeFirstOption(
             this.db
-              .selectFrom("conversation_keys as ck")
+              .selectFrom(CONVERSATION_KEYS_ALIAS)
               .innerJoin(
-                "encryption_keys as ek",
-                "ek.version",
-                "ck.kek_version",
+                ENCRYPTION_KEYS_ALIAS,
+                COL_EK_VERSION,
+                COL_CK_KEK_VERSION,
               )
-              .select(["ck.wrapped_dek", "ek.encrypted_key"])
-              .where("ck.conversation_id", "=", row.conversation_id)
-              .where("ck.dek_version", "=", dekVersion),
+              .select([COL_CK_WRAPPED_DEK, COL_EK_ENCRYPTED_KEY])
+              .where(COL_CK_CONVERSATION_ID, "=", row.conversation_id)
+              .where(COL_CK_DEK_VERSION, "=", dekVersion),
           );
 
           if (Option.isNone(keyRowOpt)) {

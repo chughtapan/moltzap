@@ -52,6 +52,12 @@ import { ErrorCodes } from "@moltzap/protocol";
 import type { ConnectedAgent } from "../../test-utils/helpers.js";
 import { expectRpcFailure } from "../../test-utils/index.js";
 
+import {
+  AppsCreate,
+  ConversationsCreate,
+  MessagesSend,
+} from "@moltzap/protocol";
+
 let coreApp: CoreApp;
 
 beforeAll(async () => {
@@ -125,7 +131,7 @@ describe("Scenario 30: App Hooks", () => {
           },
         }));
 
-        const session = (yield* orchestrator.client.sendRpc("apps/create", {
+        const session = (yield* orchestrator.client.sendRpc(AppsCreate.name, {
           appId: "test-blocker",
           invitedAgentIds: [],
         })) as {
@@ -135,7 +141,7 @@ describe("Scenario 30: App Hooks", () => {
         const convId = session.session.conversations["main"]!;
 
         const rpcErr = yield* expectRpcFailure(
-          orchestrator.client.sendRpc("messages/send", {
+          orchestrator.client.sendRpc(MessagesSend.name, {
             conversationId: convId,
             parts: [{ type: "text", text: "bad command" }],
           }),
@@ -172,7 +178,7 @@ describe("Scenario 30: App Hooks", () => {
           },
         }));
 
-        const session = (yield* alice.client.sendRpc("apps/create", {
+        const session = (yield* alice.client.sendRpc(AppsCreate.name, {
           appId: "test-patcher",
           invitedAgentIds: [],
         })) as {
@@ -181,7 +187,7 @@ describe("Scenario 30: App Hooks", () => {
 
         const convId = session.session.conversations["main"]!;
 
-        const result = (yield* alice.client.sendRpc("messages/send", {
+        const result = (yield* alice.client.sendRpc(MessagesSend.name, {
           conversationId: convId,
           parts: [{ type: "text", text: "secret info" }],
         })) as {
@@ -206,7 +212,7 @@ describe("Scenario 30: App Hooks", () => {
           block: false,
         }));
 
-        const session = (yield* agent.client.sendRpc("apps/create", {
+        const session = (yield* agent.client.sendRpc(AppsCreate.name, {
           appId: "test-passthrough",
           invitedAgentIds: [],
         })) as {
@@ -215,7 +221,7 @@ describe("Scenario 30: App Hooks", () => {
 
         const convId = session.session.conversations["main"]!;
 
-        const result = (yield* agent.client.sendRpc("messages/send", {
+        const result = (yield* agent.client.sendRpc(MessagesSend.name, {
           conversationId: convId,
           parts: [{ type: "text", text: "hello" }],
         })) as {
@@ -237,7 +243,7 @@ describe("Scenario 30: App Hooks", () => {
           return { block: true, reason: "Should never reach" };
         });
 
-        const session = (yield* agent.client.sendRpc("apps/create", {
+        const session = (yield* agent.client.sendRpc(AppsCreate.name, {
           appId: "test-timeout",
           invitedAgentIds: [],
         })) as {
@@ -250,7 +256,7 @@ describe("Scenario 30: App Hooks", () => {
         // The app/hookTimeout event (asserted below) is what distinguishes
         // a timeout from a throw — the wire code alone doesn't.
         yield* expectRpcFailure(
-          agent.client.sendRpc("messages/send", {
+          agent.client.sendRpc(MessagesSend.name, {
             conversationId: convId,
             parts: [{ type: "text", text: "should be blocked" }],
           }),
@@ -277,12 +283,12 @@ describe("Scenario 30: App Hooks", () => {
         const alice = yield* registerAppAgent("alice-noapp");
         const bob = yield* registerAppAgent("bob-noapp");
 
-        const conv = (yield* alice.client.sendRpc("conversations/create", {
+        const conv = (yield* alice.client.sendRpc(ConversationsCreate.name, {
           type: "dm",
           participants: [{ type: "agent", id: bob.agentId }],
         })) as { conversation: { id: string } };
 
-        const result = (yield* alice.client.sendRpc("messages/send", {
+        const result = (yield* alice.client.sendRpc(MessagesSend.name, {
           conversationId: conv.conversation.id,
           parts: [{ type: "text", text: "normal DM" }],
         })) as {
@@ -303,7 +309,7 @@ describe("Scenario 30: App Hooks", () => {
           throw new Error("Hook crashed!");
         });
 
-        const session = (yield* agent.client.sendRpc("apps/create", {
+        const session = (yield* agent.client.sendRpc(AppsCreate.name, {
           appId: "test-error",
           invitedAgentIds: [],
         })) as {
@@ -313,7 +319,7 @@ describe("Scenario 30: App Hooks", () => {
         const convId = session.session.conversations["main"]!;
 
         yield* expectRpcFailure(
-          agent.client.sendRpc("messages/send", {
+          agent.client.sendRpc(MessagesSend.name, {
             conversationId: convId,
             parts: [{ type: "text", text: "should be blocked" }],
           }),
@@ -337,7 +343,7 @@ describe("Scenario 30: App Hooks", () => {
             return Promise.reject(new Error("async hook crash"));
           });
 
-          const session = (yield* agent.client.sendRpc("apps/create", {
+          const session = (yield* agent.client.sendRpc(AppsCreate.name, {
             appId: "test-async-error",
             invitedAgentIds: [],
           })) as {
@@ -347,7 +353,7 @@ describe("Scenario 30: App Hooks", () => {
           const convId = session.session.conversations["main"]!;
 
           yield* expectRpcFailure(
-            agent.client.sendRpc("messages/send", {
+            agent.client.sendRpc(MessagesSend.name, {
               conversationId: convId,
               parts: [{ type: "text", text: "should be blocked" }],
             }),
@@ -374,7 +380,7 @@ describe("Scenario 30: App Hooks", () => {
           return { block: false };
         });
 
-        const session = (yield* agent.client.sendRpc("apps/create", {
+        const session = (yield* agent.client.sendRpc(AppsCreate.name, {
           appId: "test-abort-timeout",
           invitedAgentIds: [],
         })) as {
@@ -384,7 +390,7 @@ describe("Scenario 30: App Hooks", () => {
         const convId = session.session.conversations["main"]!;
 
         yield* expectRpcFailure(
-          agent.client.sendRpc("messages/send", {
+          agent.client.sendRpc(MessagesSend.name, {
             conversationId: convId,
             parts: [{ type: "text", text: "blocked-by-timeout" }],
           }),
@@ -409,7 +415,7 @@ describe("Scenario 30: App Hooks", () => {
           throw new Error("boom");
         });
 
-        const session = (yield* agent.client.sendRpc("apps/create", {
+        const session = (yield* agent.client.sendRpc(AppsCreate.name, {
           appId: "test-abort-throw",
           invitedAgentIds: [],
         })) as {
@@ -419,7 +425,7 @@ describe("Scenario 30: App Hooks", () => {
         const convId = session.session.conversations["main"]!;
 
         yield* expectRpcFailure(
-          agent.client.sendRpc("messages/send", {
+          agent.client.sendRpc(MessagesSend.name, {
             conversationId: convId,
             parts: [{ type: "text", text: "blocked-by-throw" }],
           }),
@@ -447,7 +453,7 @@ describe("Scenario 30: App Hooks", () => {
           reason: "policy/no-secrets",
         }));
 
-        const session = (yield* agent.client.sendRpc("apps/create", {
+        const session = (yield* agent.client.sendRpc(AppsCreate.name, {
           appId: "test-explicit-block",
           invitedAgentIds: [],
         })) as {
@@ -457,7 +463,7 @@ describe("Scenario 30: App Hooks", () => {
         const convId = session.session.conversations["main"]!;
 
         const rpcErr = yield* expectRpcFailure(
-          agent.client.sendRpc("messages/send", {
+          agent.client.sendRpc(MessagesSend.name, {
             conversationId: convId,
             parts: [{ type: "text", text: "secret" }],
           }),
@@ -490,7 +496,7 @@ describe("Scenario 30: App Hooks", () => {
           joinCtx = ctx;
         });
 
-        yield* initiator.client.sendRpc("apps/create", {
+        yield* initiator.client.sendRpc(AppsCreate.name, {
           appId: "test-join",
           invitedAgentIds: [invitee.agentId],
         });

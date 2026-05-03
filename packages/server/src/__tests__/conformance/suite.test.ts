@@ -17,6 +17,7 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import {
+  RealServerAcquireError,
   runConformanceSuite,
   type SuiteResult,
 } from "@moltzap/protocol/testing";
@@ -152,16 +153,22 @@ describe("moltzap-server-core conformance", () => {
   it("every protocol conformance property passes against the core server", async () => {
     const exit = await Effect.runPromiseExit(
       runConformanceSuite({
-        realServer: async () => {
-          const handle = await startCoreTestServer({
-            devModeUserId: CONFORMANCE_DEV_MODE_USER_ID,
-          });
-          return {
+        realServer: Effect.tryPromise({
+          try: () =>
+            startCoreTestServer({
+              devModeUserId: CONFORMANCE_DEV_MODE_USER_ID,
+            }),
+          catch: (cause) => new RealServerAcquireError({ cause }),
+        }).pipe(
+          Effect.map((handle) => ({
             wsUrl: handle.wsUrl,
             baseUrl: handle.baseUrl,
-            close: () => stopCoreTestServer(),
-          };
-        },
+            close: Effect.tryPromise({
+              try: () => stopCoreTestServer(),
+              catch: () => undefined,
+            }).pipe(Effect.orElseSucceed(() => undefined)),
+          })),
+        ),
         toxiproxyUrl,
       }),
     );

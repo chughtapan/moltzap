@@ -101,11 +101,13 @@ interface PollingConnections {
  * }
  * ```
  */
+const DEFAULT_POLL_INTERVAL_MS = 500;
+
 export function awaitAgentReadyByPolling(
   connections: PollingConnections,
   agentId: string,
   timeoutMs: number,
-  pollIntervalMs: number = 500,
+  pollIntervalMs: number = DEFAULT_POLL_INTERVAL_MS,
 ): Effect.Effect<ReadyOutcome, never, never> {
   const tick = Effect.sync(() => {
     const conns = connections.getByAgent(agentId);

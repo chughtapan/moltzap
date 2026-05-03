@@ -46,7 +46,7 @@ const ATTR_DB_QUERY_TEXT = "db.query.text";
  * and `this.compile()` hit Kysely directly with no indirection.
  */
 function commitViaExecute(this: {
-  execute: () => Promise<ReadonlyArray<unknown>>;
+  execute: () => PromiseLike<ReadonlyArray<unknown>>;
   compile: () => { sql: string };
 }): Effect.Effect<ReadonlyArray<unknown>, SqlError> {
   return Effect.tryPromise({

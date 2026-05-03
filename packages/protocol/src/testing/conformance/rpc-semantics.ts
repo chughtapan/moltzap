@@ -9,7 +9,7 @@
  * Principle 3: every property body is `Effect<void, PropertyFailure>`.
  */
 import * as fc from "fast-check";
-import { Effect } from "effect";
+import { Effect, Either } from "effect";
 import {
   arbitraryAnyCall,
   arbitraryConfidentCall,
@@ -22,7 +22,11 @@ import {
 } from "../models/dispatch.js";
 import { initialReferenceState } from "../models/state.js";
 import { ErrorCodes } from "../../schema/errors.js";
+import { AgentsList } from "../../schema/methods/auth.js";
+import { AppsOnBeforeDispatch } from "../../schema/methods/apps.js";
+import { ConversationsList } from "../../schema/methods/conversations.js";
 import { canonicalJson, sortJsonArray } from "../canonicalize.js";
+import { RpcResponseError } from "../errors.js";
 import { makeTestClient } from "../test-client.js";
 import { registerTestAgent } from "../agent-registration.js";
 import { allRpcMethods } from "../arbitraries/rpc.js";
@@ -34,10 +38,23 @@ import {
   PropertyUnavailable,
   registerProperty,
 } from "./registry.js";
+import { eitherTag, leftOrNull } from "./_helpers.js";
 
 const CATEGORY = "rpc-semantics" as const;
 const DEFAULT_TIMEOUT_MS = 3000;
 const DEFAULT_CAPTURE_CAPACITY = 64;
+const MODEL_EQUIVALENCE_PROPERTY = "model-equivalence";
+const AUTHORITY_POSITIVE_PROPERTY = "authority-positive";
+const AUTHORITY_NEGATIVE_PROPERTY = "authority-negative";
+const REQUEST_ID_UNIQUENESS_PROPERTY = "request-id-uniqueness";
+const CALLER_CONTROLLED_S2C_TIMEOUT_PROPERTY = "caller-controlled-s2c-timeout";
+const IDEMPOTENCE_PROPERTY = "idempotence";
+const MODEL_NUM_RUNS_FLOOR = 10;
+const MODEL_RUNS_PER_CONFIDENT_METHOD = 2;
+const RESPONSE_CAPTURE_CAPACITY_PER_REQUEST = 4;
+const REQUEST_ID_UNIQUENESS_NUM_RUNS = 5;
+const TIMEOUT_LOWER_MARGIN_MS = 20;
+const TIMEOUT_UPPER_MULTIPLIER = 4;
 
 /**
  * Model-equivalence — conditional oracle over the model-derived
@@ -73,13 +90,16 @@ const DEFAULT_CAPTURE_CAPACITY = 64;
  */
 export function registerModelEquivalence(ctx: ConformanceRunContext): void {
   const K = confidentOracleMethods.length;
-  const numRunsFloor = Math.max(10, 2 * K);
+  const numRunsFloor = Math.max(
+    MODEL_NUM_RUNS_FLOOR,
+    MODEL_RUNS_PER_CONFIDENT_METHOD * K,
+  );
   registerProperty(
     ctx,
     CATEGORY,
-    "model-equivalence",
+    MODEL_EQUIVALENCE_PROPERTY,
     `when model predicts ok, server MUST return ok (K=${K} confident methods)`,
-    assertProperty(CATEGORY, "model-equivalence", () =>
+    assertProperty(CATEGORY, MODEL_EQUIVALENCE_PROPERTY, () =>
       fc.assert(
         fc.asyncProperty(arbitraryConfidentCall(), (call) => {
           const modelTag = applyCall(initialReferenceState, call).outcome._tag;
@@ -89,8 +109,14 @@ export function registerModelEquivalence(ctx: ConformanceRunContext): void {
             // disagrees, applyCall became param-sensitive for the
             // kept method and the derivation must widen. Surface
             // loudly instead of silent short-circuit.
-            throw new Error(
-              `arbitraryConfidentCall drew ${call.method} with params ${JSON.stringify(call.params)} → model _tag: "error" — param-invariance contract broken; widen derivation to fc.sample-based check per architect #197 §2.2`,
+            return Effect.runPromise(
+              Effect.fail(
+                new PropertyInvariantViolation({
+                  category: CATEGORY,
+                  name: MODEL_EQUIVALENCE_PROPERTY,
+                  reason: `arbitraryConfidentCall drew ${call.method} with params ${JSON.stringify(call.params)} → model _tag: "error" — param-invariance contract broken; widen derivation to fc.sample-based check per architect #197 §2.2`,
+                }),
+              ),
             );
           }
           return Effect.runPromise(
@@ -110,7 +136,10 @@ export function registerModelEquivalence(ctx: ConformanceRunContext): void {
                 const outcome = yield* client
                   .sendRpc(call.method, call.params)
                   .pipe(Effect.either);
-                return outcome._tag === "Right" ? "ok" : "error";
+                return Either.match(outcome, {
+                  onLeft: () => "error" as const,
+                  onRight: () => "ok" as const,
+                });
               }),
             ).pipe(Effect.map((serverTag) => serverTag === "ok")),
           );
@@ -133,7 +162,7 @@ export function registerAuthorityPositive(ctx: ConformanceRunContext): void {
   registerProperty(
     ctx,
     CATEGORY,
-    "authority-positive",
+    AUTHORITY_POSITIVE_PROPERTY,
     "authorized agent → typed success on conversations/list",
     Effect.scoped(
       Effect.gen(function* () {
@@ -145,7 +174,7 @@ export function registerAuthorityPositive(ctx: ConformanceRunContext): void {
             (e) =>
               new PropertyInvariantViolation({
                 category: CATEGORY,
-                name: "authority-positive",
+                name: AUTHORITY_POSITIVE_PROPERTY,
                 reason: `agent registration failed: ${e.body}`,
               }),
           ),
@@ -161,20 +190,21 @@ export function registerAuthorityPositive(ctx: ConformanceRunContext): void {
             (e) =>
               new PropertyInvariantViolation({
                 category: CATEGORY,
-                name: "authority-positive",
+                name: AUTHORITY_POSITIVE_PROPERTY,
                 reason: `client acquire failed: ${String(e)}`,
               }),
           ),
         );
         const outcome = yield* client
-          .sendRpc("conversations/list", {})
+          .sendRpc(ConversationsList.name, {})
           .pipe(Effect.either);
-        if (outcome._tag === "Left") {
+        const failure = leftOrNull(outcome);
+        if (failure !== null) {
           return yield* Effect.fail(
             new PropertyInvariantViolation({
               category: CATEGORY,
-              name: "authority-positive",
-              reason: `authorized conversations/list failed: ${outcome.left._tag}`,
+              name: AUTHORITY_POSITIVE_PROPERTY,
+              reason: `authorized conversations/list failed: ${failure._tag}`,
             }),
           );
         }
@@ -193,7 +223,7 @@ export function registerAuthorityNegative(ctx: ConformanceRunContext): void {
   registerProperty(
     ctx,
     CATEGORY,
-    "authority-negative",
+    AUTHORITY_NEGATIVE_PROPERTY,
     "unauthenticated agent → typed denial on conversations/list",
     Effect.scoped(
       Effect.gen(function* () {
@@ -207,7 +237,7 @@ export function registerAuthorityNegative(ctx: ConformanceRunContext): void {
             (e) =>
               new PropertyInvariantViolation({
                 category: CATEGORY,
-                name: "authority-negative",
+                name: AUTHORITY_NEGATIVE_PROPERTY,
                 reason: `agent registration failed: ${e.body}`,
               }),
           ),
@@ -224,45 +254,47 @@ export function registerAuthorityNegative(ctx: ConformanceRunContext): void {
             (e) =>
               new PropertyInvariantViolation({
                 category: CATEGORY,
-                name: "authority-negative",
+                name: AUTHORITY_NEGATIVE_PROPERTY,
                 reason: `client acquire failed: ${String(e)}`,
               }),
           ),
         );
         const outcome = yield* client
-          .sendRpc("conversations/list", {})
+          .sendRpc(ConversationsList.name, {})
           .pipe(Effect.either);
-        if (outcome._tag === "Right") {
-          return yield* Effect.fail(
-            new PropertyInvariantViolation({
-              category: CATEGORY,
-              name: "authority-negative",
-              reason:
-                "pre-handshake conversations/list returned success — expected typed denial",
-            }),
-          );
-        }
+        const error = yield* Either.match(outcome, {
+          onLeft: (failure) => Effect.succeed(failure),
+          onRight: () =>
+            Effect.fail(
+              new PropertyInvariantViolation({
+                category: CATEGORY,
+                name: AUTHORITY_NEGATIVE_PROPERTY,
+                reason:
+                  "pre-handshake conversations/list returned success — expected typed denial",
+              }),
+            ),
+        });
         // Narrow the Left: must be a typed auth-shaped RpcResponseError
         // (Unauthorized / Forbidden). A timeout or transport-close
         // would also surface as `Left` but does NOT satisfy the
         // property — it proves nothing about authorization.
-        if (outcome.left._tag !== "TestingRpcResponseError") {
+        if (!(error instanceof RpcResponseError)) {
           return yield* Effect.fail(
             new PropertyInvariantViolation({
               category: CATEGORY,
-              name: "authority-negative",
-              reason: `expected RpcResponseError, got ${outcome.left._tag}`,
+              name: AUTHORITY_NEGATIVE_PROPERTY,
+              reason: `expected RpcResponseError, got ${error._tag}`,
             }),
           );
         }
-        const code = outcome.left.code;
+        const code = error.code;
         const isAuthShaped =
           code === ErrorCodes.Unauthorized || code === ErrorCodes.Forbidden;
         if (!isAuthShaped) {
           return yield* Effect.fail(
             new PropertyInvariantViolation({
               category: CATEGORY,
-              name: "authority-negative",
+              name: AUTHORITY_NEGATIVE_PROPERTY,
               reason: `expected Unauthorized/Forbidden code (${ErrorCodes.Unauthorized} / ${ErrorCodes.Forbidden}), got ${code}`,
             }),
           );
@@ -272,14 +304,14 @@ export function registerAuthorityNegative(ctx: ConformanceRunContext): void {
         // server.
         const modelVerdict = authorizationOutcome(
           initialReferenceState,
-          { method: "conversations/list", params: {} },
+          { method: ConversationsList.name, params: {} },
           "unknown-agent",
         );
         if (modelVerdict !== "deny-unauthenticated") {
           return yield* Effect.fail(
             new PropertyInvariantViolation({
               category: CATEGORY,
-              name: "authority-negative",
+              name: AUTHORITY_NEGATIVE_PROPERTY,
               reason: `model oracle disagrees: expected deny-unauthenticated, got ${modelVerdict}`,
             }),
           );
@@ -297,9 +329,9 @@ export function registerRequestIdUniqueness(ctx: ConformanceRunContext): void {
   registerProperty(
     ctx,
     CATEGORY,
-    "request-id-uniqueness",
+    REQUEST_ID_UNIQUENESS_PROPERTY,
     "every request-id appears in exactly one response",
-    assertProperty(CATEGORY, "request-id-uniqueness", () =>
+    assertProperty(CATEGORY, REQUEST_ID_UNIQUENESS_PROPERTY, () =>
       fc.assert(
         fc.asyncProperty(fc.integer({ min: 2, max: 6 }), (n) =>
           Effect.runPromise(
@@ -314,7 +346,7 @@ export function registerRequestIdUniqueness(ctx: ConformanceRunContext): void {
                   agentKey: agent.apiKey,
                   agentId: agent.agentId,
                   defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
-                  captureCapacity: n * 4,
+                  captureCapacity: n * RESPONSE_CAPTURE_CAPACITY_PER_REQUEST,
                 });
                 // Snapshot the capture boundary after handshake so we
                 // only tally response ids for the N RPCs below — not
@@ -324,7 +356,7 @@ export function registerRequestIdUniqueness(ctx: ConformanceRunContext): void {
                   Array.from({ length: n }, (_, i) => i),
                   () =>
                     client
-                      .sendRpc("conversations/list", {})
+                      .sendRpc(ConversationsList.name, {})
                       .pipe(Effect.either),
                   { concurrency: n },
                 );
@@ -374,7 +406,10 @@ export function registerRequestIdUniqueness(ctx: ConformanceRunContext): void {
             ),
           ),
         ),
-        { seed: ctx.seed, numRuns: ctx.opts.numRuns ?? 5 },
+        {
+          seed: ctx.seed,
+          numRuns: ctx.opts.numRuns ?? REQUEST_ID_UNIQUENESS_NUM_RUNS,
+        },
       ),
     ),
   );
@@ -433,7 +468,7 @@ export function registerCallerControlledS2cTimeout(
   registerProperty(
     ctx,
     CATEGORY,
-    "caller-controlled-s2c-timeout",
+    CALLER_CONTROLLED_S2C_TIMEOUT_PROPERTY,
     "awaitServerRequest(_, _, timeoutMs) fires within the caller's window",
     Effect.scoped(
       Effect.gen(function* () {
@@ -445,7 +480,7 @@ export function registerCallerControlledS2cTimeout(
             (e) =>
               new PropertyInvariantViolation({
                 category: CATEGORY,
-                name: "caller-controlled-s2c-timeout",
+                name: CALLER_CONTROLLED_S2C_TIMEOUT_PROPERTY,
                 reason: `register agent: ${e.body}`,
               }),
           ),
@@ -461,7 +496,7 @@ export function registerCallerControlledS2cTimeout(
             (e) =>
               new PropertyInvariantViolation({
                 category: CATEGORY,
-                name: "caller-controlled-s2c-timeout",
+                name: CALLER_CONTROLLED_S2C_TIMEOUT_PROPERTY,
                 reason: `client acquire: ${String(e)}`,
               }),
           ),
@@ -471,28 +506,30 @@ export function registerCallerControlledS2cTimeout(
         // 200–500ms on a 100ms timer, while a 250ms timer with the same
         // 4× upper bound stays well clear of the flake band.
         const timeoutMs = 250;
-        const lowerBoundMs = timeoutMs - 20;
-        const upperBoundMs = timeoutMs * 4;
+        const lowerBoundMs = timeoutMs - TIMEOUT_LOWER_MARGIN_MS;
+        const upperBoundMs = timeoutMs * TIMEOUT_UPPER_MULTIPLIER;
         const before = Date.now();
         const outcome = yield* client
-          .awaitServerRequest("apps/onBeforeDispatch", undefined, timeoutMs)
+          .awaitServerRequest(AppsOnBeforeDispatch.name, undefined, timeoutMs)
           .pipe(Effect.either);
         const elapsed = Date.now() - before;
-        if (outcome._tag !== "Left") {
+        const timeoutError = yield* Either.match(outcome, {
+          onLeft: (error) => Effect.succeed(error),
+          onRight: () =>
+            Effect.fail(
+              new PropertyInvariantViolation({
+                category: CATEGORY,
+                name: CALLER_CONTROLLED_S2C_TIMEOUT_PROPERTY,
+                reason: `expected Left (timeout); got Right (s2c request fired)`,
+              }),
+            ),
+        });
+        if (!/Timeout/i.test(timeoutError.message)) {
           return yield* Effect.fail(
             new PropertyInvariantViolation({
               category: CATEGORY,
-              name: "caller-controlled-s2c-timeout",
-              reason: `expected Left (timeout); got Right (s2c request fired)`,
-            }),
-          );
-        }
-        if (!/Timeout/i.test(outcome.left.message)) {
-          return yield* Effect.fail(
-            new PropertyInvariantViolation({
-              category: CATEGORY,
-              name: "caller-controlled-s2c-timeout",
-              reason: `expected timeout error; got ${outcome.left.message}`,
+              name: CALLER_CONTROLLED_S2C_TIMEOUT_PROPERTY,
+              reason: `expected timeout error; got ${timeoutError.message}`,
             }),
           );
         }
@@ -505,7 +542,7 @@ export function registerCallerControlledS2cTimeout(
           return yield* Effect.fail(
             new PropertyInvariantViolation({
               category: CATEGORY,
-              name: "caller-controlled-s2c-timeout",
+              name: CALLER_CONTROLLED_S2C_TIMEOUT_PROPERTY,
               reason: `timeout fired at ${elapsed}ms; caller asked for ${timeoutMs}ms (window: ${lowerBoundMs}–${upperBoundMs}ms)`,
             }),
           );
@@ -531,19 +568,19 @@ export function registerIdempotence(ctx: ConformanceRunContext): void {
   registerProperty(
     ctx,
     CATEGORY,
-    "idempotence",
+    IDEMPOTENCE_PROPERTY,
     "isIdempotent methods: two sends yield identical response bodies",
     Effect.gen(function* () {
       const emptyParamIdempotents = [
-        "agents/list",
-        "conversations/list",
+        AgentsList.name,
+        ConversationsList.name,
       ] as const;
       for (const method of emptyParamIdempotents) {
         if (!isIdempotent(method)) {
           return yield* Effect.fail(
             new PropertyInvariantViolation({
               category: CATEGORY,
-              name: "idempotence",
+              name: IDEMPOTENCE_PROPERTY,
               reason: `isIdempotent(${method}) is false — oracle disagreement`,
             }),
           );
@@ -571,7 +608,7 @@ export function registerIdempotence(ctx: ConformanceRunContext): void {
               Effect.fail(
                 new PropertyUnavailable({
                   category: CATEGORY,
-                  name: "idempotence",
+                  name: IDEMPOTENCE_PROPERTY,
                   reason: `register: ${e.body}`,
                 }),
               ),
@@ -579,7 +616,7 @@ export function registerIdempotence(ctx: ConformanceRunContext): void {
               Effect.fail(
                 new PropertyUnavailable({
                   category: CATEGORY,
-                  name: "idempotence",
+                  name: IDEMPOTENCE_PROPERTY,
                   reason: `transport io: ${String(e.cause)}`,
                 }),
               ),
@@ -587,7 +624,7 @@ export function registerIdempotence(ctx: ConformanceRunContext): void {
               Effect.fail(
                 new PropertyUnavailable({
                   category: CATEGORY,
-                  name: "idempotence",
+                  name: IDEMPOTENCE_PROPERTY,
                   reason: `transport closed: ${e.reason}`,
                 }),
               ),
@@ -595,33 +632,43 @@ export function registerIdempotence(ctx: ConformanceRunContext): void {
               Effect.fail(
                 new PropertyUnavailable({
                   category: CATEGORY,
-                  name: "idempotence",
+                  name: IDEMPOTENCE_PROPERTY,
                   reason: `rpc response error: ${e.message}`,
                 }),
               ),
           }),
         );
-        if (pair.a._tag !== pair.b._tag) {
+        const aTag = eitherTag(pair.a);
+        const bTag = eitherTag(pair.b);
+        if (aTag !== bTag) {
           return yield* Effect.fail(
             new PropertyInvariantViolation({
               category: CATEGORY,
-              name: "idempotence",
-              reason: `${method}: replay outcome-tag mismatch ${pair.a._tag} → ${pair.b._tag}`,
+              name: IDEMPOTENCE_PROPERTY,
+              reason: `${method}: replay outcome-tag mismatch ${aTag} → ${bTag}`,
             }),
           );
         }
-        if (pair.a._tag === "Right" && pair.b._tag === "Right") {
+        const successPair = Either.match(pair.a, {
+          onLeft: () => null,
+          onRight: (a) =>
+            Either.match(pair.b, {
+              onLeft: () => null,
+              onRight: (b) => ({ a, b }),
+            }),
+        });
+        if (successPair !== null) {
           // Canonical-projection comparison per architect #197 §3.3.
           // Direct JSON.stringify on wire-derived values is byte-
           // equality, not semantic equality; a conforming server may
           // return the list in a different row order across replays.
-          const aCanon = canonIdempotenceResult(method, pair.a.right);
-          const bCanon = canonIdempotenceResult(method, pair.b.right);
+          const aCanon = canonIdempotenceResult(method, successPair.a);
+          const bCanon = canonIdempotenceResult(method, successPair.b);
           if (aCanon !== bCanon) {
             return yield* Effect.fail(
               new PropertyInvariantViolation({
                 category: CATEGORY,
-                name: "idempotence",
+                name: IDEMPOTENCE_PROPERTY,
                 reason: `${method}: replay bodies diverge under canonical projection`,
               }),
             );
@@ -649,10 +696,10 @@ export function registerIdempotence(ctx: ConformanceRunContext): void {
  * fails the property.
  */
 function canonIdempotenceResult(
-  method: "agents/list" | "conversations/list",
+  method: typeof AgentsList.name | typeof ConversationsList.name,
   result: unknown,
 ): string {
-  if (method === "agents/list") {
+  if (method === AgentsList.name) {
     const r = result as { agents?: unknown[] };
     return canonicalJson({
       ...r,

@@ -24,6 +24,12 @@ import {
   type TransportError,
 } from "../transport.js";
 
+import {
+  PermissionsGrant,
+  PermissionsList,
+  PermissionsRevoke,
+} from "@moltzap/protocol";
+
 type Call = { method: string; params: Record<string, unknown> };
 
 const makeFakeTransport = (
@@ -68,7 +74,7 @@ describe("permissions grant", () => {
     );
     expect(calls).toEqual([
       {
-        method: "permissions/grant",
+        method: PermissionsGrant.name,
         params: {
           sessionId: "sess-1",
           agentId: "agent-a",
@@ -130,7 +136,7 @@ describe("permissions list", () => {
       ),
     );
     expect(calls[0]).toEqual({
-      method: "permissions/list",
+      method: PermissionsList.name,
       params: { appId: "app-1" },
     });
     expect(stdout).toHaveBeenCalledTimes(1);
@@ -172,7 +178,7 @@ describe("permissions revoke", () => {
       ),
     );
     expect(calls[0]).toEqual({
-      method: "permissions/revoke",
+      method: PermissionsRevoke.name,
       params: { appId: "app-1", resource: "r1" },
     });
   });

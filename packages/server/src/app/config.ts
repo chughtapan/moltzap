@@ -27,6 +27,9 @@ export interface LoadedConfig {
 /** Type alias so copied infrastructure files (e.g. db/client.ts) compile without changes. */
 export type ServerConfig = LoadedConfig;
 
+const CORS_REGEX_PREFIX = "regex:";
+const DEFAULT_SERVER_PORT = 3000;
+
 const parseCorsOrigins = (
   raw: string | undefined,
   devMode: boolean,
@@ -47,14 +50,15 @@ const parseCorsOrigins = (
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean)) {
-      if (entry.startsWith("regex:")) {
+      if (entry.startsWith(CORS_REGEX_PREFIX)) {
+        const pattern = entry.slice(CORS_REGEX_PREFIX.length);
         try {
-          patterns.push(new RegExp(`^${entry.slice(6)}$`));
+          patterns.push(new RegExp(`^${pattern}$`));
         } catch (err) {
           return yield* Effect.fail(
             ConfigError.InvalidData(
               ["CORS_ORIGINS"],
-              `Invalid regex in CORS_ORIGINS: "${entry.slice(6)}" — ${err instanceof Error ? err.message : String(err)}`,
+              `Invalid regex in CORS_ORIGINS: "${pattern}" — ${err instanceof Error ? err.message : String(err)}`,
             ),
           );
         }
@@ -96,7 +100,9 @@ export const ServerConfigLoader: Effect.Effect<
     yield* Config.option(Config.string("ENCRYPTION_MASTER_SECRET")),
   );
 
-  const port = yield* Config.integer("PORT").pipe(Config.withDefault(3000));
+  const port = yield* Config.integer("PORT").pipe(
+    Config.withDefault(DEFAULT_SERVER_PORT),
+  );
   const corsRawOpt = yield* Config.option(Config.string("CORS_ORIGINS"));
   const corsOrigins = yield* parseCorsOrigins(
     Option.getOrUndefined(corsRawOpt),

@@ -13,9 +13,11 @@ import {
   Cause,
   Chunk,
   Context,
+  Data,
   Deferred,
   Duration,
   Effect,
+  Either,
   Exit,
   HashMap,
   Option,
@@ -55,6 +57,8 @@ import {
   TransportClosedError,
   TransportIoError,
 } from "./errors.js";
+
+import { Connect } from "../schema/methods/auth.js";
 
 /**
  * Options for connecting a TestClient. `serverUrl` is the `ws://…` URL of
@@ -111,7 +115,7 @@ export interface TestClient {
   readonly waitForEvent: (
     eventName: string,
     timeoutMs?: number,
-  ) => Effect.Effect<EventFrame, Error>;
+  ) => Effect.Effect<EventFrame, EventWaitError>;
   readonly drainEvents: Effect.Effect<ReadonlyArray<EventFrame>>;
 
   /**
@@ -160,8 +164,22 @@ export interface TestClient {
     method: M,
     predicate?: (params: ServerRpcParams<M>) => boolean,
     timeoutMs?: number,
-  ) => Effect.Effect<ServerRpcParams<M>, Error>;
+  ) => Effect.Effect<ServerRpcParams<M>, ServerRequestWaitError>;
 }
+
+export class EventWaitError extends Data.TaggedError("TestingEventWaitError")<{
+  readonly eventName: string;
+  readonly message: string;
+  readonly reason: "closed" | "timeout";
+}> {}
+
+export class ServerRequestWaitError extends Data.TaggedError(
+  "TestingServerRequestWaitError",
+)<{
+  readonly message: string;
+  readonly method: string;
+  readonly reason: "timeout";
+}> {}
 
 /**
  * Method-name constraint for server-initiated RPC test surface. Narrows to
@@ -220,9 +238,16 @@ interface CloseState {
 
 let requestIdCounter = 0;
 
+const DEFAULT_AWAIT_SERVER_REQUEST_TIMEOUT_MS = 5_000;
+const DEFAULT_MALFORMED_QUIESCENCE_MS = 500;
+const DEFAULT_WAIT_FOR_EVENT_TIMEOUT_MS = 5_000;
+const HANDLER_DEFECT_MESSAGE_LIMIT = 200;
+const POLL_INTERVAL_MS = 10;
+const REQUEST_ID_RADIX = 36;
+
 function nextRequestId(): string {
   requestIdCounter += 1;
-  return `tc-${Date.now().toString(36)}-${requestIdCounter.toString(36)}`;
+  return `tc-${Date.now().toString(REQUEST_ID_RADIX)}-${requestIdCounter.toString(REQUEST_ID_RADIX)}`;
 }
 
 /**
@@ -277,7 +302,7 @@ export function makeTestClient(
     // params satisfy it.
     interface AwaitEntry {
       readonly predicate?: (params: unknown) => boolean;
-      readonly deferred: Deferred.Deferred<unknown, Error>;
+      readonly deferred: Deferred.Deferred<unknown, ServerRequestWaitError>;
     }
     const awaitersRef = yield* Ref.make<
       HashMap.HashMap<string, ReadonlyArray<AwaitEntry>>
@@ -306,12 +331,19 @@ export function makeTestClient(
 
     const handleInbound = (raw: string): Effect.Effect<void> =>
       Effect.gen(function* () {
-        const decoded = yield* Effect.either(decodeFrame(raw, "inbound"));
-        if (decoded._tag === "Left") {
-          yield* recordMalformed(captures, raw, "bit-flip");
-          return;
-        }
-        const frame = decoded.right;
+        const frame = yield* decodeFrame(raw, "inbound").pipe(
+          Effect.either,
+          Effect.flatMap(
+            Either.match({
+              onLeft: () =>
+                recordMalformed(captures, raw, "bit-flip").pipe(
+                  Effect.as(null),
+                ),
+              onRight: (value) => Effect.succeed(value),
+            }),
+          ),
+        );
+        if (frame === null) return;
         yield* recordFrame(captures, "inbound", raw, frame);
 
         if (frame.type === "response") {
@@ -406,7 +438,7 @@ export function makeTestClient(
                     responseFrame("s2c", requestId, {
                       error: {
                         code: -32603,
-                        message: `Handler defected: ${Cause.pretty(cause).slice(0, 200)}`,
+                        message: `Handler defected: ${Cause.pretty(cause).slice(0, HANDLER_DEFECT_MESSAGE_LIMIT)}`,
                       },
                     }),
                   ),
@@ -425,27 +457,22 @@ export function makeTestClient(
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
         const matched = yield* Ref.modify(awaitersRef, (m) => {
-          const bucket = HashMap.get(m, method);
-          if (Option.isNone(bucket)) return [Option.none<AwaitEntry>(), m];
-          const idx = bucket.value.findIndex(
+          const bucket = Option.getOrUndefined(HashMap.get(m, method));
+          if (bucket === undefined) return [undefined, m];
+          const idx = bucket.findIndex(
             (e) => e.predicate === undefined || e.predicate(params),
           );
-          if (idx === -1) return [Option.none<AwaitEntry>(), m];
-          const chosen = bucket.value[idx]!;
-          const rest = [
-            ...bucket.value.slice(0, idx),
-            ...bucket.value.slice(idx + 1),
-          ];
+          if (idx === -1) return [undefined, m];
+          const chosen = bucket[idx]!;
+          const rest = [...bucket.slice(0, idx), ...bucket.slice(idx + 1)];
           const next =
             rest.length === 0
               ? HashMap.remove(m, method)
               : HashMap.set(m, method, rest);
-          return [Option.some(chosen), next];
+          return [chosen, next];
         });
-        if (Option.isNone(matched)) return;
-        yield* Deferred.succeed(matched.value.deferred, params).pipe(
-          Effect.ignore,
-        );
+        if (matched === undefined) return;
+        yield* Deferred.succeed(matched.deferred, params).pipe(Effect.ignore);
       });
 
     // Fork the reader fiber into the ambient scope. `socket.runRaw` yields
@@ -559,7 +586,7 @@ export function makeTestClient(
 
     const waitForEvent: TestClient["waitForEvent"] = (
       eventName,
-      timeoutMs = 5000,
+      timeoutMs = DEFAULT_WAIT_FOR_EVENT_TIMEOUT_MS,
     ) =>
       Effect.gen(function* () {
         while (true) {
@@ -569,18 +596,25 @@ export function makeTestClient(
           const state = yield* Ref.get(closeRef);
           if (state.closed) {
             return yield* Effect.fail(
-              new Error(
-                `Connection closed while waiting for event: ${eventName}`,
-              ),
+              new EventWaitError({
+                eventName,
+                message: `Connection closed while waiting for event: ${eventName}`,
+                reason: "closed",
+              }),
             );
           }
 
-          yield* Effect.sleep(Duration.millis(10));
+          yield* Effect.sleep(Duration.millis(POLL_INTERVAL_MS));
         }
       }).pipe(
         Effect.timeoutFail({
           duration: Duration.millis(timeoutMs),
-          onTimeout: () => new Error(`Timeout waiting for event: ${eventName}`),
+          onTimeout: () =>
+            new EventWaitError({
+              eventName,
+              message: `Timeout waiting for event: ${eventName}`,
+              reason: "timeout",
+            }),
         }),
       );
 
@@ -615,7 +649,8 @@ export function makeTestClient(
         yield* recordMalformed(captures, raw, opts.kind);
         yield* writeFrame(raw);
 
-        const waitMs = config.malformedQuiescenceMs ?? 500;
+        const waitMs =
+          config.malformedQuiescenceMs ?? DEFAULT_MALFORMED_QUIESCENCE_MS;
 
         // Race the pending Deferred against a quiescence timeout. Clean up
         // the pending entry on both legs so no slot leaks when the server
@@ -625,7 +660,7 @@ export function makeTestClient(
             Effect.matchEffect({
               onSuccess: () => Effect.succeed(null as RpcResponseError | null),
               onFailure: (err) =>
-                err._tag === "TestingRpcResponseError"
+                err instanceof RpcResponseError
                   ? Effect.succeed(err as RpcResponseError | null)
                   : Effect.fail(err),
             }),
@@ -664,7 +699,7 @@ export function makeTestClient(
               }
               const q = yield* Ref.getAndSet(eventQueue, []);
               if (q.length > 0) return q;
-              yield* Effect.sleep(Duration.millis(10));
+              yield* Effect.sleep(Duration.millis(POLL_INTERVAL_MS));
             }
           });
           return Stream.repeatEffectChunk(
@@ -683,10 +718,13 @@ export function makeTestClient(
     >(
       method: M,
       predicate?: (params: ServerRpcParams<M>) => boolean,
-      timeoutMs = 5_000,
-    ): Effect.Effect<ServerRpcParams<M>, Error> =>
+      timeoutMs = DEFAULT_AWAIT_SERVER_REQUEST_TIMEOUT_MS,
+    ): Effect.Effect<ServerRpcParams<M>, ServerRequestWaitError> =>
       Effect.gen(function* () {
-        const deferred = yield* Deferred.make<unknown, Error>();
+        const deferred = yield* Deferred.make<
+          unknown,
+          ServerRequestWaitError
+        >();
         const entry: AwaitEntry = {
           deferred,
           ...(predicate !== undefined
@@ -705,9 +743,11 @@ export function makeTestClient(
           Effect.timeoutFail({
             duration: Duration.millis(timeoutMs),
             onTimeout: () =>
-              new Error(
-                `Timeout waiting for server-initiated request: ${method}`,
-              ),
+              new ServerRequestWaitError({
+                message: `Timeout waiting for server-initiated request: ${method}`,
+                method,
+                reason: "timeout",
+              }),
           }),
           Effect.onExit((exit) =>
             exit._tag === "Failure"
@@ -743,12 +783,12 @@ export function makeTestClient(
     // unauthenticated traffic (e.g., authority-negative) can skip
     // autoConnect without the acquire path faulting.
     if (config.autoConnect !== false) {
-      const handshakeParams: RpcMap["auth/connect"]["params"] = {
+      const handshakeParams: RpcMap[typeof Connect.name]["params"] = {
         agentKey: config.agentKey,
         minProtocol: PROTOCOL_VERSION,
         maxProtocol: PROTOCOL_VERSION,
       };
-      const handshake = sendRpc("auth/connect", handshakeParams).pipe(
+      const handshake = sendRpc(Connect.name, handshakeParams).pipe(
         Effect.catchTag("TestingRpcTimeoutError", () => Effect.void),
         Effect.catchTag("TestingFrameSchemaError", () => Effect.void),
         Effect.catchTag("TestingRpcResponseError", () => Effect.void),

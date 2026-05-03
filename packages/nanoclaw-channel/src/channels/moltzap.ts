@@ -1,4 +1,4 @@
-import { Data, Effect } from "effect";
+import { Config, ConfigProvider, Data, Effect, Option } from "effect";
 import {
   MoltZapChannelCore,
   MoltZapService,
@@ -8,6 +8,8 @@ import {
   type EnrichedInboundMessage,
   type WsClientLogger,
 } from "@moltzap/client";
+
+const EVAL_GROUP_NAME_ID_CHARS = 8;
 
 import type { Channel } from "../types.js";
 import { logger } from "../logger.js";
@@ -39,6 +41,13 @@ function formatCrossConvNanoclaw(
 
 const MOLTZAP_JID_PREFIX = "mz:";
 const DEFAULT_SERVER_URL = "wss://api.moltzap.xyz";
+const MoltZapChannelEnv = Config.all({
+  apiKey: Config.option(Config.string("MOLTZAP_API_KEY")),
+  serverUrl: Config.string("MOLTZAP_SERVER_URL").pipe(
+    Config.withDefault(DEFAULT_SERVER_URL),
+  ),
+  evalMode: Config.string("MOLTZAP_EVAL_MODE").pipe(Config.withDefault("0")),
+});
 
 class MoltZapChannelError extends Data.TaggedError("MoltZapChannelError")<{
   readonly reason: string;
@@ -54,6 +63,21 @@ function jidFromConversationId(conversationId: string): string {
 
 function conversationIdFromJid(jid: string): string {
   return jid.slice(MOLTZAP_JID_PREFIX.length);
+}
+
+function loadMoltZapChannelEnv(): {
+  readonly apiKey: string | undefined;
+  readonly serverUrl: string;
+  readonly evalMode: boolean;
+} {
+  const env = Effect.runSync(
+    MoltZapChannelEnv.pipe(Effect.withConfigProvider(ConfigProvider.fromEnv())),
+  );
+  return {
+    apiKey: Option.getOrUndefined(env.apiKey),
+    serverUrl: env.serverUrl,
+    evalMode: env.evalMode === "1",
+  };
 }
 
 // Nanoclaw's router consumes NewMessage.content verbatim into prompt XML,
@@ -192,8 +216,8 @@ export class MoltZapChannel implements Channel {
     // Mutates the live map — registry exposes it via registeredGroups() in
     // nanoclaw 1.2.52 (no setter).
     registered[chatJid] = {
-      name: `eval-${conversationId.slice(0, 8)}`,
-      folder: `eval_${conversationId.slice(0, 8)}`,
+      name: `eval-${conversationId.slice(0, EVAL_GROUP_NAME_ID_CHARS)}`,
+      folder: `eval_${conversationId.slice(0, EVAL_GROUP_NAME_ID_CHARS)}`,
       trigger: ".*",
       added_at: new Date().toISOString(),
       requiresTrigger: false,
@@ -203,9 +227,7 @@ export class MoltZapChannel implements Channel {
 }
 
 registerChannel("moltzap", (opts: ChannelOpts): Channel | null => {
-  const apiKey = process.env.MOLTZAP_API_KEY;
-  const serverUrl = process.env.MOLTZAP_SERVER_URL ?? DEFAULT_SERVER_URL;
-  const evalMode = process.env.MOLTZAP_EVAL_MODE === "1";
+  const { apiKey, serverUrl, evalMode } = loadMoltZapChannelEnv();
 
   if (!apiKey) return null;
 

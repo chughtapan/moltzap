@@ -10,6 +10,7 @@ import type { CrossConvMessage } from "@moltzap/client";
 export type { CrossConvMessage };
 
 export const CROSS_CONV_HEADER = "Messages (untrusted metadata):";
+const JSON_INDENT_SPACES = 2;
 
 export function formatCrossConvOpenClaw(
   messages: CrossConvMessage[],
@@ -24,5 +25,5 @@ export function formatCrossConvOpenClaw(
     timestamp: m.timestamp,
   }));
 
-  return `${CROSS_CONV_HEADER}\n\`\`\`json\n${JSON.stringify(items, null, 2)}\n\`\`\``;
+  return `${CROSS_CONV_HEADER}\n\`\`\`json\n${JSON.stringify(items, null, JSON_INDENT_SPACES)}\n\`\`\``;
 }

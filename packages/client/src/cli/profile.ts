@@ -19,7 +19,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { Data, Effect } from "effect";
+import { Brand, Config, ConfigProvider, Data, Effect, Option } from "effect";
 
 // ─── Branded names ─────────────────────────────────────────────────────────
 
@@ -27,7 +27,8 @@ import { Data, Effect } from "effect";
  * Branded profile name. Enforces the same NAME_PATTERN already gated by
  * `commands/register.ts`: `/^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$/`.
  */
-export type ProfileName = string & { readonly __brand: "ProfileName" };
+export type ProfileName = string & Brand.Brand<"ProfileName">;
+export const ProfileName = Brand.nominal<ProfileName>();
 
 /** Sentinel used when the caller addresses the legacy top-level record. */
 export type DefaultProfileId = "default";
@@ -35,9 +36,19 @@ export type DefaultProfileId = "default";
 const NAME_PATTERN = /^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$/;
 
 const DEFAULT_SERVER_URL = "wss://api.moltzap.xyz";
+const CONFIG_FILE_MODE = 0o600;
+const JSON_INDENT_SPACES = 2;
+const ConfigHome = Config.option(Config.string("MOLTZAP_CONFIG_HOME"));
+
+const getConfigHomeSync = (): string | undefined =>
+  Option.getOrUndefined(
+    Effect.runSync(
+      ConfigHome.pipe(Effect.withConfigProvider(ConfigProvider.fromEnv())),
+    ),
+  );
 
 const getConfigDir = (): string =>
-  process.env.MOLTZAP_CONFIG_HOME ?? path.join(os.homedir(), ".moltzap");
+  getConfigHomeSync() ?? path.join(os.homedir(), ".moltzap");
 
 const getConfigFilePathSync = (): string =>
   path.join(getConfigDir(), "config.json");
@@ -136,7 +147,7 @@ export const parseProfileName = (
       }),
     );
   }
-  return Effect.succeed(raw as ProfileName);
+  return Effect.succeed(ProfileName(raw));
 };
 
 interface RawConfig {
@@ -172,29 +183,45 @@ const readRawConfig = (): Effect.Effect<
   { raw: RawConfig; existed: boolean },
   ProfileConfigReadError
 > =>
-  Effect.try({
-    try: () => {
-      const p = getConfigFilePathSync();
-      try {
-        const text = fs.readFileSync(p, "utf-8");
-        const parsed: unknown = JSON.parse(text);
-        if (!isRecord(parsed)) {
-          throw new Error("config root is not a JSON object");
-        }
-        return { raw: parsed as RawConfig, existed: true };
-      } catch (err) {
+  Effect.gen(function* () {
+    const configPath = getConfigFilePathSync();
+    const text = yield* Effect.try({
+      try: () => fs.readFileSync(configPath, "utf-8"),
+      catch: (err) => err,
+    }).pipe(
+      Effect.catchAll((err) => {
         const code = (err as NodeJS.ErrnoException).code;
-        if (code === "ENOENT") {
-          return { raw: {} as RawConfig, existed: false };
-        }
-        throw err;
-      }
-    },
-    catch: (err) =>
-      new ProfileConfigReadError({
-        path: getConfigFilePathSync(),
-        cause: err,
+        return code === "ENOENT"
+          ? Effect.succeed(null)
+          : Effect.fail(
+              new ProfileConfigReadError({
+                path: configPath,
+                cause: err,
+              }),
+            );
       }),
+    );
+    if (text === null) {
+      return { raw: {}, existed: false };
+    }
+
+    const parsed = yield* Effect.try({
+      try: (): unknown => JSON.parse(text),
+      catch: (err) =>
+        new ProfileConfigReadError({
+          path: configPath,
+          cause: err,
+        }),
+    });
+    if (!isRecord(parsed)) {
+      return yield* Effect.fail(
+        new ProfileConfigReadError({
+          path: configPath,
+          cause: "config root is not a JSON object",
+        }),
+      );
+    }
+    return { raw: parsed as RawConfig, existed: true };
   });
 
 /**
@@ -229,7 +256,7 @@ export const loadLayeredConfig: Effect.Effect<
       if (!NAME_PATTERN.test(name)) continue; // tolerate malformed entries
       const record = decodeProfileRecord(value, serverUrl);
       if (record !== undefined) {
-        profiles.set(name as ProfileName, record);
+        profiles.set(ProfileName(name), record);
       }
     }
   }
@@ -311,9 +338,13 @@ export const writeProfile = (
     yield* Effect.try({
       try: () => {
         fs.mkdirSync(configDir, { recursive: true });
-        fs.writeFileSync(configPath, JSON.stringify(next, null, 2) + "\n", {
-          mode: 0o600,
-        });
+        fs.writeFileSync(
+          configPath,
+          JSON.stringify(next, null, JSON_INDENT_SPACES) + "\n",
+          {
+            mode: CONFIG_FILE_MODE,
+          },
+        );
       },
       catch: (err) =>
         new ProfileConfigWriteError({ path: configPath, cause: err }),

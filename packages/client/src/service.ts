@@ -23,7 +23,16 @@ import {
   MessagesSend,
   PermissionsGrant,
 } from "@moltzap/protocol";
-import { Effect, HashMap, Match, Option, Ref } from "effect";
+import {
+  Config,
+  ConfigProvider,
+  Data,
+  Effect,
+  HashMap,
+  Match,
+  Option,
+  Ref,
+} from "effect";
 import {
   MoltZapWsClient,
   type RpcCallOptions,
@@ -44,8 +53,33 @@ import type {
 const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
+const CROSS_CONTEXT_TEXT_LIMIT = 120;
+const DEFAULT_HISTORY_LIMIT = 10;
+const DEFAULT_MAX_CONTEXT_CONVERSATIONS = 5;
+const DEFAULT_MAX_MESSAGES_PER_CONVERSATION = 3;
+const HISTORY_LOOKUP_CONCURRENCY = 2;
+const MILLISECONDS_PER_MINUTE = 60_000;
+const SOCKET_FILE_MODE = 0o600;
+
+class ServiceInputError extends Data.TaggedError("ServiceInputError")<{
+  readonly message: string;
+}> {}
+
+const ClientEventLogDir = Config.option(
+  Config.string("MOLTZAP_CLIENT_EVENT_LOG_DIR"),
+);
+
+const getClientEventLogDir = (): string | undefined =>
+  Option.getOrUndefined(
+    Effect.runSync(
+      ClientEventLogDir.pipe(
+        Effect.withConfigProvider(ConfigProvider.fromEnv()),
+      ),
+    ),
+  );
+
 function appendClientEventTrace(record: Record<string, unknown>): void {
-  const dir = process.env["MOLTZAP_CLIENT_EVENT_LOG_DIR"];
+  const dir = getClientEventLogDir();
   if (!dir) return;
   try {
     fs.mkdirSync(dir, { recursive: true });
@@ -117,7 +151,9 @@ export function formatCrossConversationBlock(
   if (entries.length === 0) return null;
   const lines = entries.map((e) => {
     const safeSender = sanitizeForSystemReminder(e.senderName);
-    const safeText = sanitizeForSystemReminder(e.text.slice(0, 120));
+    const safeText = sanitizeForSystemReminder(
+      e.text.slice(0, CROSS_CONTEXT_TEXT_LIMIT),
+    );
     return `@${safeSender} (${e.minutesAgo}m ago): (${e.count} new) "${safeText}"`;
   });
   return [
@@ -265,6 +301,7 @@ export class MoltZapService {
         // close metadata today; signature kept explicit so a future
         // disconnect-handler chain can plumb code/reason through.
         onDisconnect: (_close) => {
+          void _close;
           this._connected = false;
           fanout(this.disconnectHandlers, undefined, this.opts.logger);
         },
@@ -385,7 +422,7 @@ export class MoltZapService {
       // impersonates this agent to the server, so other local users on the
       // host must not be able to connect.
       try {
-        fs.chmodSync(sockPath, 0o600);
+        fs.chmodSync(sockPath, SOCKET_FILE_MODE);
       } catch (err) {
         this.opts.logger?.warn("chmod 0600 on socket failed", err);
       }
@@ -488,7 +525,7 @@ export class MoltZapService {
   private handleSocketRequestEffect(
     method: string,
     params: Record<string, unknown>,
-  ): Effect.Effect<unknown, Error | ServiceRpcError> {
+  ): Effect.Effect<unknown, ServiceInputError | ServiceRpcError> {
     return Effect.suspend(() => {
       switch (method) {
         case "ping":
@@ -513,18 +550,22 @@ export class MoltZapService {
 
   private handleHistoryRequest(
     params: Record<string, unknown>,
-  ): Effect.Effect<unknown, Error | ServiceRpcError> {
+  ): Effect.Effect<unknown, ServiceInputError | ServiceRpcError> {
     return Effect.gen(this, function* () {
       if (typeof params.conversationId !== "string" || !params.conversationId) {
         return yield* Effect.fail(
-          new Error("conversationId is required and must be a string"),
+          new ServiceInputError({
+            message: "conversationId is required and must be a string",
+          }),
         );
       }
       if (params.limit !== undefined && typeof params.limit !== "number") {
-        return yield* Effect.fail(new Error("limit must be a number"));
+        return yield* Effect.fail(
+          new ServiceInputError({ message: "limit must be a number" }),
+        );
       }
       const convId = params.conversationId;
-      const limit = (params.limit as number) ?? 10;
+      const limit = (params.limit as number) ?? DEFAULT_HISTORY_LIMIT;
       const sessionKey = params.sessionKey as string | undefined;
       const result = (yield* this.sendRpc(MessagesList.name, {
         conversationId: convId,
@@ -573,7 +614,7 @@ export class MoltZapService {
       );
 
       const [, convMeta] = yield* Effect.all([lookupEff, metaEff], {
-        concurrency: "unbounded",
+        concurrency: HISTORY_LOOKUP_CONCURRENCY,
       });
 
       // Determine what's "new" using lastRead (not lastNotified).
@@ -849,8 +890,10 @@ export class MoltZapService {
     currentConvId: string,
     opts?: { maxConversations?: number; maxMessagesPerConv?: number },
   ): { entries: CrossConversationEntry[]; commit: () => void } {
-    const maxConvs = opts?.maxConversations ?? 5;
-    const maxMsgsPerConv = opts?.maxMessagesPerConv ?? 3;
+    const maxConvs =
+      opts?.maxConversations ?? DEFAULT_MAX_CONTEXT_CONVERSATIONS;
+    const maxMsgsPerConv =
+      opts?.maxMessagesPerConv ?? DEFAULT_MAX_MESSAGES_PER_CONVERSATION;
     const { messagesMap, conversationsMap, agentNamesMap, viewMarkers } =
       this.readCrossConvState(currentConvId);
 
@@ -891,7 +934,10 @@ export class MoltZapService {
       );
       const minutesAgo = Math.max(
         0,
-        Math.round((Date.now() - new Date(last.createdAt).getTime()) / 60_000),
+        Math.round(
+          (Date.now() - new Date(last.createdAt).getTime()) /
+            MILLISECONDS_PER_MINUTE,
+        ),
       );
 
       entries.push({

@@ -53,7 +53,8 @@ export interface UserService {
 }
 
 export class InProcessUserService implements UserService {
-  validateUser(_userId: UserId): Effect.Effect<{ valid: boolean }, never> {
+  validateUser(userId: UserId): Effect.Effect<{ valid: boolean }, never> {
+    void userId;
     return Effect.succeed({ valid: true });
   }
 }

@@ -6,6 +6,10 @@ import {
   type RegisteredProperty,
 } from "../registry.js";
 
+class ProofExpectationError extends Error {
+  override readonly name = "ProofExpectationError";
+}
+
 export function runExpectingFailure(
   property: RegisteredProperty,
 ): Effect.Effect<PropertyFailure> {
@@ -32,10 +36,14 @@ export function expectInvariant(
   propertyName: string,
 ): void {
   if (!(failure instanceof PropertyInvariantViolation)) {
-    throw new Error(`expected invariant failure, got ${failure._tag}`);
+    throw new ProofExpectationError(
+      `expected invariant failure, got ${failure._tag}`,
+    );
   }
   if (failure.name !== propertyName) {
-    throw new Error(`expected ${propertyName}, got ${failure.name}`);
+    throw new ProofExpectationError(
+      `expected ${propertyName}, got ${failure.name}`,
+    );
   }
 }
 
@@ -44,9 +52,13 @@ export function expectAssertionFailure(
   propertyName: string,
 ): void {
   if (!(failure instanceof PropertyAssertionFailure)) {
-    throw new Error(`expected assertion failure, got ${failure._tag}`);
+    throw new ProofExpectationError(
+      `expected assertion failure, got ${failure._tag}`,
+    );
   }
   if (failure.name !== propertyName) {
-    throw new Error(`expected ${propertyName}, got ${failure.name}`);
+    throw new ProofExpectationError(
+      `expected ${propertyName}, got ${failure.name}`,
+    );
   }
 }

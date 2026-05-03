@@ -8,6 +8,8 @@ import {
   setupAgentPair,
 } from "./helpers.js";
 
+import { ConversationsCreate, MessagesSend } from "@moltzap/protocol";
+
 beforeAll(async () => {
   await startTestServer();
 }, 60_000);
@@ -27,20 +29,20 @@ describe("Send to Existing Conversation", () => {
       Effect.gen(function* () {
         const { alice, bob } = yield* setupAgentPair();
 
-        const conv = (yield* alice.client.sendRpc("conversations/create", {
+        const conv = (yield* alice.client.sendRpc(ConversationsCreate.name, {
           type: "dm",
           participants: [{ type: "agent", id: bob.agentId }],
         })) as { conversation: { id: string } };
         const conversationId = conv.conversation.id;
 
-        yield* alice.client.sendRpc("messages/send", {
+        yield* alice.client.sendRpc(MessagesSend.name, {
           conversationId,
           parts: [{ type: "text", text: "First message" }],
         });
         yield* bob.client.waitForEvent("messages/received");
 
         // Send second message using conversationId
-        const send2 = (yield* alice.client.sendRpc("messages/send", {
+        const send2 = (yield* alice.client.sendRpc(MessagesSend.name, {
           conversationId,
           parts: [{ type: "text", text: "Second message" }],
         })) as {

@@ -13,6 +13,10 @@
  */
 import { Data, Effect } from "effect";
 
+const UNIQUE_SUFFIX_RADIX = 36;
+const UNIQUE_SUFFIX_START = 2;
+const UNIQUE_SUFFIX_END = 8;
+
 export interface TestAgent {
   readonly agentId: string;
   readonly apiKey: string;
@@ -50,7 +54,7 @@ export function registerTestAgent(opts: {
     opts.uniqueSuffix === false
       ? ""
       : (opts.uniqueSuffix ??
-        `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
+        `${Date.now().toString(UNIQUE_SUFFIX_RADIX)}-${Math.random().toString(UNIQUE_SUFFIX_RADIX).slice(UNIQUE_SUFFIX_START, UNIQUE_SUFFIX_END)}`);
   const name = suffix === "" ? opts.name : `${opts.name}-${suffix}`;
   const requestBody: Record<string, string> = { name };
   if (opts.description !== undefined) {

@@ -25,6 +25,8 @@ import type { CoreApp, UserId } from "../../app/types.js";
 import type { UserService } from "../../services/user.service.js";
 import type { ConnectedAgent } from "../../test-utils/helpers.js";
 
+import { AppsCreate } from "@moltzap/protocol";
+
 let coreApp: CoreApp;
 /** Observable counter — assertion target for the coalescing behavior. */
 let validateCalls: Array<{ userId: UserId }>;
@@ -108,7 +110,7 @@ describe("AppHost: userValidationCache coalesces concurrent admissions", () => {
       // Initiator-validate call happens synchronously in createSession before
       // the admitAgentsAsync fiber forks. Record and clear it so the
       // assertion below measures only the concurrent-invitee branch.
-      yield* initiator.client.sendRpc("apps/create", {
+      yield* initiator.client.sendRpc(AppsCreate.name, {
         appId: "cache-test",
         invitedAgentIds: [inviteeA.agentId, inviteeB.agentId, inviteeC.agentId],
       });
@@ -161,7 +163,7 @@ describe("AppHost: userValidationCache coalesces concurrent admissions", () => {
 
       registerTestApp(coreApp, "no-cache-test");
 
-      yield* initiator.client.sendRpc("apps/create", {
+      yield* initiator.client.sendRpc(AppsCreate.name, {
         appId: "no-cache-test",
         invitedAgentIds: [inviteeA.agentId, inviteeB.agentId, inviteeC.agentId],
       });

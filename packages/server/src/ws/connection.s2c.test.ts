@@ -32,6 +32,14 @@ import {
   type MoltZapConnection,
 } from "./connection.js";
 
+import {
+  AppsOnBeforeDispatch,
+  AppsOnBeforeMessageDelivery,
+  AppsOnClose,
+  AppsOnJoin,
+  AppsOnSessionActive,
+} from "@moltzap/protocol";
+
 const noopShutdown: MoltZapConnection["shutdown"] = Effect.void;
 
 interface FakeConnSetup {
@@ -82,7 +90,7 @@ describe("sendRpcToClient — happy-path round-trip", () => {
       // `completeS2cResponse` settles it. Forking lets the test thread
       // synthesize the matching response.
       const fiber = yield* Effect.fork(
-        sendRpcToClient(conn, "apps/onJoin", { sessionId: "sess-1" }),
+        sendRpcToClient(conn, AppsOnJoin.name, { sessionId: "sess-1" }),
       );
 
       // Wait for the outbound frame to land in the Ref. `Effect.repeat`
@@ -106,7 +114,7 @@ describe("sendRpcToClient — happy-path round-trip", () => {
       };
       expect(frame.type).toBe("request");
       expect(frame.direction).toBe("s2c");
-      expect(frame.method).toBe("apps/onJoin");
+      expect(frame.method).toBe(AppsOnJoin.name);
       expect(frame.params.sessionId).toBe("sess-1");
       // `srv-<connId>-<seq>` namespace prefix — direction-namespacing keeps
       // c2s and s2c id pools disjoint per the architect plan.
@@ -146,7 +154,7 @@ describe("sendRpcToClient — happy-path round-trip", () => {
       );
 
       const fiber = yield* Effect.fork(
-        sendRpcToClient(conn, "apps/onClose", { sessionId: "sess-x" }),
+        sendRpcToClient(conn, AppsOnClose.name, { sessionId: "sess-x" }),
       );
 
       const captured = yield* Ref.get(outbound).pipe(
@@ -182,7 +190,7 @@ describe("sendRpcToClient — happy-path round-trip", () => {
         const e = err.value as S2cRpcResponseError;
         expect(e.code).toBe(-32000);
         expect(e.message).toBe("session-already-closed");
-        expect(e.method).toBe("apps/onClose");
+        expect(e.method).toBe(AppsOnClose.name);
       }
     }
   });
@@ -200,10 +208,10 @@ describe("sendRpcToClient — disconnect mid-request", () => {
       // Two concurrent in-flight s2c requests. Both must observe
       // `AppDisconnected` when the scope closes.
       const fiberA = yield* Effect.fork(
-        sendRpcToClient(conn, "apps/onBeforeDispatch", { tag: "A" }),
+        sendRpcToClient(conn, AppsOnBeforeDispatch.name, { tag: "A" }),
       );
       const fiberB = yield* Effect.fork(
-        sendRpcToClient(conn, "apps/onBeforeMessageDelivery", { tag: "B" }),
+        sendRpcToClient(conn, AppsOnBeforeMessageDelivery.name, { tag: "B" }),
       );
 
       // Wait until both requests have registered their pending entries
@@ -233,8 +241,8 @@ describe("sendRpcToClient — disconnect mid-request", () => {
     const [exitA, exitB] = await Effect.runPromise(program);
 
     for (const [exit, expectedMethod] of [
-      [exitA, "apps/onBeforeDispatch"],
-      [exitB, "apps/onBeforeMessageDelivery"],
+      [exitA, AppsOnBeforeDispatch.name],
+      [exitB, AppsOnBeforeMessageDelivery.name],
     ] as const) {
       expect(Exit.isFailure(exit)).toBe(true);
       if (Exit.isFailure(exit)) {
@@ -275,7 +283,7 @@ describe("sendRpcToClient — disconnect mid-request", () => {
         s2cRequestCounter: state.s2cRequestCounter,
       };
 
-      const exit = yield* sendRpcToClient(conn, "apps/onClose", {}).pipe(
+      const exit = yield* sendRpcToClient(conn, AppsOnClose.name, {}).pipe(
         Effect.exit,
       );
       const pendingSize = HashMap.size(yield* Ref.get(conn.s2cPending));
@@ -312,7 +320,7 @@ describe("sendRpcToClient — caller timeout", () => {
       // never reads a timeout; it just awaits a Deferred. If the response
       // never arrives, `Effect.timeout` fires.
       const start = Date.now();
-      const exit = yield* sendRpcToClient(conn, "apps/onJoin", {
+      const exit = yield* sendRpcToClient(conn, AppsOnJoin.name, {
         sessionId: "s",
       }).pipe(Effect.timeout(Duration.millis(100)), Effect.exit);
       const elapsed = Date.now() - start;
@@ -357,7 +365,7 @@ describe("sendRpcToClient — caller timeout", () => {
       );
 
       const fiber = yield* Effect.fork(
-        sendRpcToClient(conn, "apps/onSessionActive", {}),
+        sendRpcToClient(conn, AppsOnSessionActive.name, {}),
       );
       yield* Ref.get(conn.s2cPending).pipe(
         Effect.flatMap((m) =>
@@ -397,7 +405,7 @@ describe("sendRpcToClient — caller timeout", () => {
       );
 
       const fiber = yield* Effect.fork(
-        sendRpcToClient(conn, "apps/onJoin", { sessionId: "late" }),
+        sendRpcToClient(conn, AppsOnJoin.name, { sessionId: "late" }),
       );
 
       // Wait for the entry to be registered + the frame to be written.
@@ -457,7 +465,7 @@ describe("sendRpcToClient — caller timeout", () => {
       );
 
       const fiber = yield* Effect.fork(
-        sendRpcToClient(conn, "apps/onClose", {}),
+        sendRpcToClient(conn, AppsOnClose.name, {}),
       );
       yield* Ref.get(conn.s2cPending).pipe(
         Effect.flatMap((m) =>
@@ -508,7 +516,7 @@ describe("sendRpcToClient — caller timeout", () => {
         scope,
       );
 
-      const exit = yield* sendRpcToClient(conn, "apps/onJoin", {
+      const exit = yield* sendRpcToClient(conn, AppsOnJoin.name, {
         sessionId: "s",
       }).pipe(Effect.timeout(Duration.millis(50)), Effect.exit);
 

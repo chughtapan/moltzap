@@ -13,6 +13,8 @@
 
 import { Config, Option } from "effect";
 
+const MAX_PORT_NUMBER = 65_535;
+
 // ── Reusable leaves ────────────────────────────────────────────────────
 
 const nonEmptyString = (name: string) =>
@@ -26,8 +28,8 @@ const nonEmptyString = (name: string) =>
 const portNumber = (name: string) =>
   Config.integer(name).pipe(
     Config.validate({
-      message: `${name} must be in range [1, 65535]`,
-      validation: (n: number) => n >= 1 && n <= 65535,
+      message: `${name} must be in range [1, ${MAX_PORT_NUMBER}]`,
+      validation: (n: number) => n >= 1 && n <= MAX_PORT_NUMBER,
     }),
   );
 

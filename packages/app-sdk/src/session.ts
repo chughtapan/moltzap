@@ -26,7 +26,10 @@ export class AppSessionHandle {
   conversationId(key: string): string {
     const id = this.conversations[key];
     if (!id) {
-      throw new ConversationKeyError(key);
+      throw new ConversationKeyError({
+        key,
+        message: `Unknown conversation key: "${key}"`,
+      });
     }
     return id;
   }

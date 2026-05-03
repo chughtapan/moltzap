@@ -35,6 +35,13 @@ import {
 
 const CATEGORY = "delivery" as const;
 const PROPERTY_BUDGET_MS = 8_000;
+const PROPERTY_FAN_OUT_CARDINALITY_CLIENT = "fan-out-cardinality-client";
+const PROPERTY_PAYLOAD_OPACITY_CLIENT = "payload-opacity-client";
+const PROPERTY_TASK_BOUNDARY_ISOLATION_CLIENT =
+  "task-boundary-isolation-client";
+const PAYLOAD_TOKEN_RADIX = 36;
+const TASK_BOUNDARY_EMISSION_COUNT = 3;
+const LIFECYCLE_OBSERVATION_COUNT = 2;
 
 function isStringKeyedRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -64,14 +71,14 @@ export function registerFanOutCardinalityClient(
   registerProperty(
     ctx,
     CATEGORY,
-    "fan-out-cardinality-client",
+    PROPERTY_FAN_OUT_CARDINALITY_CLIENT,
     "N fan-out events surface on real client in emission order, no drops, no dups",
     Effect.scoped(
       Effect.gen(function* () {
         const fx = yield* acquireFixture(
           ctx,
           CATEGORY,
-          "fan-out-cardinality-client",
+          PROPERTY_FAN_OUT_CARDINALITY_CLIENT,
         );
         yield* subscribeAll(fx.handle);
         const base = fc.sample(arbitraryEventFrame(), {
@@ -80,7 +87,11 @@ export function registerFanOutCardinalityClient(
         })[0];
         if (base === undefined) {
           return yield* Effect.fail(
-            invariant(CATEGORY, "fan-out-cardinality-client", "sample failed"),
+            invariant(
+              CATEGORY,
+              PROPERTY_FAN_OUT_CARDINALITY_CLIENT,
+              "sample failed",
+            ),
           );
         }
         const N = 5;
@@ -106,7 +117,7 @@ export function registerFanOutCardinalityClient(
           return yield* Effect.fail(
             invariant(
               CATEGORY,
-              "fan-out-cardinality-client",
+              PROPERTY_FAN_OUT_CARDINALITY_CLIENT,
               `expected ${N} observations, got ${observed.length}`,
             ),
           );
@@ -121,7 +132,7 @@ export function registerFanOutCardinalityClient(
             return yield* Effect.fail(
               invariant(
                 CATEGORY,
-                "fan-out-cardinality-client",
+                PROPERTY_FAN_OUT_CARDINALITY_CLIENT,
                 `order mismatch at slot ${i}: got ${String(indices[i])}`,
               ),
             );
@@ -149,17 +160,17 @@ export function registerPayloadOpacityClient(
   registerProperty(
     ctx,
     CATEGORY,
-    "payload-opacity-client",
+    PROPERTY_PAYLOAD_OPACITY_CLIENT,
     "opaque payload token round-trips byte-identical through the real client",
     Effect.scoped(
       Effect.gen(function* () {
         const fx = yield* acquireFixture(
           ctx,
           CATEGORY,
-          "payload-opacity-client",
+          PROPERTY_PAYLOAD_OPACITY_CLIENT,
         );
         yield* subscribeAll(fx.handle);
-        const token = `opq-${ctx.seed.toString(36)}-${Date.now().toString(36)}`;
+        const token = `opq-${ctx.seed.toString(PAYLOAD_TOKEN_RADIX)}-${Date.now().toString(PAYLOAD_TOKEN_RADIX)}`;
         const base: EventFrame = {
           jsonrpc: "2.0",
           type: "event",
@@ -180,7 +191,7 @@ export function registerPayloadOpacityClient(
           return yield* Effect.fail(
             invariant(
               CATEGORY,
-              "payload-opacity-client",
+              PROPERTY_PAYLOAD_OPACITY_CLIENT,
               `token ${token} emission not surfaced by real client`,
             ),
           );
@@ -191,7 +202,7 @@ export function registerPayloadOpacityClient(
           return yield* Effect.fail(
             invariant(
               CATEGORY,
-              "payload-opacity-client",
+              PROPERTY_PAYLOAD_OPACITY_CLIENT,
               `token ${token} not present byte-for-byte in surfaced raw frame`,
             ),
           );
@@ -215,14 +226,14 @@ export function registerTaskBoundaryIsolationClient(
   registerProperty(
     ctx,
     CATEGORY,
-    "task-boundary-isolation-client",
+    PROPERTY_TASK_BOUNDARY_ISOLATION_CLIENT,
     "task-A subscriber does not surface task-B events — no leakage",
     Effect.scoped(
       Effect.gen(function* () {
         const fx = yield* acquireFixture(
           ctx,
           CATEGORY,
-          "task-boundary-isolation-client",
+          PROPERTY_TASK_BOUNDARY_ISOLATION_CLIENT,
         );
         yield* subscribeAll(fx.handle);
         const baseEvent = fc.sample(arbitraryEventFrame(), {
@@ -233,7 +244,7 @@ export function registerTaskBoundaryIsolationClient(
           return yield* Effect.fail(
             invariant(
               CATEGORY,
-              "task-boundary-isolation-client",
+              PROPERTY_TASK_BOUNDARY_ISOLATION_CLIENT,
               "sample failed",
             ),
           );
@@ -244,7 +255,7 @@ export function registerTaskBoundaryIsolationClient(
         const taskB = `task-b-${ctx.seed}`;
         const baseEventData = eventDataRecord(baseEvent.data);
         // Emit task-A frames.
-        for (let i = 0; i < 3; i++) {
+        for (let i = 0; i < TASK_BOUNDARY_EMISSION_COUNT; i++) {
           yield* fx.window.emitTaggedEvent({
             connection: fx.connection,
             base: {
@@ -256,7 +267,7 @@ export function registerTaskBoundaryIsolationClient(
         }
         // Emit task-B frames that must be filtered out by the client's
         // subscription (via conversationId filter).
-        for (let i = 0; i < 3; i++) {
+        for (let i = 0; i < TASK_BOUNDARY_EMISSION_COUNT; i++) {
           yield* fx.window.emitTaggedEvent({
             connection: fx.connection,
             base: {
@@ -297,7 +308,7 @@ export function registerTaskBoundaryIsolationClient(
             return yield* Effect.fail(
               invariant(
                 CATEGORY,
-                "task-boundary-isolation-client",
+                PROPERTY_TASK_BOUNDARY_ISOLATION_CLIENT,
                 `task-A emission surfaced with conversationId ${String(cid)}`,
               ),
             );
@@ -315,7 +326,7 @@ export function registerTaskBoundaryIsolationClient(
             return yield* Effect.fail(
               invariant(
                 CATEGORY,
-                "task-boundary-isolation-client",
+                PROPERTY_TASK_BOUNDARY_ISOLATION_CLIENT,
                 `task-B emission surfaced with conversationId ${String(cid)} (cross-wiring)`,
               ),
             );
@@ -366,15 +377,15 @@ export function registerArchiveLifecycleClient(
         });
 
         const observed = yield* collectTagged(fx.handle, (t) => t === tag, {
-          expected: 2,
+          expected: LIFECYCLE_OBSERVATION_COUNT,
           budgetMs: PROPERTY_BUDGET_MS,
         });
-        if (observed.length !== 2) {
+        if (observed.length !== LIFECYCLE_OBSERVATION_COUNT) {
           return yield* Effect.fail(
             invariant(
               CATEGORY,
               name,
-              `expected 2 lifecycle observations, got ${observed.length}`,
+              `expected ${LIFECYCLE_OBSERVATION_COUNT} lifecycle observations, got ${observed.length}`,
             ),
           );
         }

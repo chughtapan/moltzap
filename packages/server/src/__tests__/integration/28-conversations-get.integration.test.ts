@@ -8,6 +8,8 @@ import {
   registerAndConnect,
 } from "./helpers.js";
 
+import { ConversationsCreate, ConversationsGet } from "@moltzap/protocol";
+
 let _baseUrl: string;
 let _wsUrl: string;
 
@@ -32,7 +34,7 @@ describe("Scenario 28: conversations/get with UUID columns", () => {
       const bob = yield* registerAndConnect("bob-get");
 
       // Create a DM
-      const conv = (yield* alice.client.sendRpc("conversations/create", {
+      const conv = (yield* alice.client.sendRpc(ConversationsCreate.name, {
         type: "dm",
         participants: [{ type: "agent", id: bob.agentId }],
       })) as { conversation: { id: string; type: string } };
@@ -40,7 +42,7 @@ describe("Scenario 28: conversations/get with UUID columns", () => {
       const conversationId = conv.conversation.id;
 
       // Get the conversation — this exercises the LEFT JOIN with UUID columns
-      const result = (yield* alice.client.sendRpc("conversations/get", {
+      const result = (yield* alice.client.sendRpc(ConversationsGet.name, {
         conversationId,
       })) as {
         conversation: { id: string; type: string; name: string | null };
@@ -66,7 +68,7 @@ describe("Scenario 28: conversations/get with UUID columns", () => {
       const bob = yield* registerAndConnect("bob-grp-get");
 
       // Create a group
-      const conv = (yield* alice.client.sendRpc("conversations/create", {
+      const conv = (yield* alice.client.sendRpc(ConversationsCreate.name, {
         type: "group",
         name: "Test Group",
         participants: [{ type: "agent", id: bob.agentId }],
@@ -75,7 +77,7 @@ describe("Scenario 28: conversations/get with UUID columns", () => {
       const conversationId = conv.conversation.id;
 
       // Get the conversation — the LEFT JOIN on agents table must work with UUID columns
-      const result = (yield* alice.client.sendRpc("conversations/get", {
+      const result = (yield* alice.client.sendRpc(ConversationsGet.name, {
         conversationId,
       })) as {
         conversation: { id: string; type: string; name: string };

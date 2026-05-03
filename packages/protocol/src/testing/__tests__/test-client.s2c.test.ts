@@ -23,6 +23,12 @@ import { makeTestClient, type TestClient } from "../test-client.js";
 import { RpcResponseError } from "../errors.js";
 import type { RequestFrame, ResponseFrame } from "../../schema/frames.js";
 
+import {
+  AppsOnClose,
+  AppsOnJoin,
+  AppsOnSessionActive,
+} from "../../schema/methods/apps.js";
+
 interface ScriptedServerHandle {
   readonly wsUrl: string;
   /** Push an arbitrary frame to the connected client. */
@@ -189,14 +195,14 @@ describe("TestClient — handleServerRpc", () => {
   it("dispatches an inbound s2c request to the registered handler and writes the response back", async () => {
     await withClient((client, server) =>
       Effect.gen(function* () {
-        yield* client.handleServerRpc("apps/onJoin", (params) =>
+        yield* client.handleServerRpc(AppsOnJoin.name, (params) =>
           Effect.succeed({
             ack: true,
             saw: (params as { sessionId: string }).sessionId,
           }),
         );
         yield* server.send(
-          s2cRequest("srv-1", "apps/onJoin", { sessionId: "S" }),
+          s2cRequest("srv-1", AppsOnJoin.name, { sessionId: "S" }),
         );
         const reply = yield* waitForResponse(server, "srv-1");
         expect(reply.direction).toBe("s2c");
@@ -209,10 +215,10 @@ describe("TestClient — handleServerRpc", () => {
   it("encodes a typed RpcResponseError from the handler as a `response` frame with `error`", async () => {
     await withClient((client, server) =>
       Effect.gen(function* () {
-        yield* client.handleServerRpc("apps/onClose", () =>
+        yield* client.handleServerRpc(AppsOnClose.name, () =>
           Effect.fail(
             new RpcResponseError({
-              method: "apps/onClose",
+              method: AppsOnClose.name,
               requestId: "srv-2",
               code: -32099,
               message: "domain-rejected",
@@ -220,7 +226,7 @@ describe("TestClient — handleServerRpc", () => {
             }),
           ),
         );
-        yield* server.send(s2cRequest("srv-2", "apps/onClose", {}));
+        yield* server.send(s2cRequest("srv-2", AppsOnClose.name, {}));
         const reply = yield* waitForResponse(server, "srv-2");
         expect(reply.error).toBeDefined();
         expect(reply.error?.code).toBe(-32099);
@@ -235,12 +241,12 @@ describe("TestClient — handleServerRpc", () => {
     await withClient((_client, server) =>
       Effect.gen(function* () {
         yield* server.send(
-          s2cRequest("srv-3", "apps/onSessionActive", { foo: 1 }),
+          s2cRequest("srv-3", AppsOnSessionActive.name, { foo: 1 }),
         );
         const reply = yield* waitForResponse(server, "srv-3");
         expect(reply.error).toBeDefined();
         expect(reply.error?.code).toBe(-32601);
-        expect(reply.error?.message).toContain("apps/onSessionActive");
+        expect(reply.error?.message).toContain(AppsOnSessionActive.name);
       }),
     );
   });
@@ -253,13 +259,13 @@ describe("TestClient — handleServerRpc", () => {
         // `MoltZapWsClient.handleServerRpc`, which raises
         // `DuplicateServerRpcHandlerError`. Tests routinely swap handler
         // bodies mid-scenario.
-        yield* client.handleServerRpc("apps/onJoin", () =>
+        yield* client.handleServerRpc(AppsOnJoin.name, () =>
           Effect.succeed({ winner: "first" }),
         );
-        yield* client.handleServerRpc("apps/onJoin", () =>
+        yield* client.handleServerRpc(AppsOnJoin.name, () =>
           Effect.succeed({ winner: "second" }),
         );
-        yield* server.send(s2cRequest("srv-4", "apps/onJoin", {}));
+        yield* server.send(s2cRequest("srv-4", AppsOnJoin.name, {}));
         const reply = yield* waitForResponse(server, "srv-4");
         expect(reply.result).toEqual({ winner: "second" });
       }),
@@ -271,19 +277,19 @@ describe("TestClient — awaitServerRequest", () => {
   it("resolves with the inbound request params and runs the handler in parallel", async () => {
     await withClient((client, server) =>
       Effect.gen(function* () {
-        yield* client.handleServerRpc("apps/onJoin", (params) =>
+        yield* client.handleServerRpc(AppsOnJoin.name, (params) =>
           Effect.succeed({ saw: (params as { sessionId: string }).sessionId }),
         );
         // Set up the awaiter BEFORE sending the request — the awaiter
         // notification fires from `notifyAwaiters` during `handleInbound`,
         // which runs synchronously per inbound frame.
         const awaitFiber = yield* Effect.fork(
-          client.awaitServerRequest("apps/onJoin"),
+          client.awaitServerRequest(AppsOnJoin.name),
         );
         // Tiny yield so the awaiter has a chance to enrol.
         yield* Effect.sleep("10 millis");
         yield* server.send(
-          s2cRequest("srv-5", "apps/onJoin", { sessionId: "Z" }),
+          s2cRequest("srv-5", AppsOnJoin.name, { sessionId: "Z" }),
         );
 
         const observed = yield* awaitFiber;
@@ -299,22 +305,24 @@ describe("TestClient — awaitServerRequest", () => {
   it("predicate selects the FIRST matching request and skips earlier non-matches", async () => {
     await withClient((client, server) =>
       Effect.gen(function* () {
-        yield* client.handleServerRpc("apps/onJoin", () => Effect.succeed({}));
+        yield* client.handleServerRpc(AppsOnJoin.name, () =>
+          Effect.succeed({}),
+        );
         // Predicate matches sessionId === "WANTED".
         const awaitFiber = yield* Effect.fork(
           client.awaitServerRequest(
-            "apps/onJoin",
+            AppsOnJoin.name,
             (p) => (p as { sessionId?: string }).sessionId === "WANTED",
           ),
         );
         yield* Effect.sleep("10 millis");
         // Send a non-matching request first.
         yield* server.send(
-          s2cRequest("srv-skip", "apps/onJoin", { sessionId: "OTHER" }),
+          s2cRequest("srv-skip", AppsOnJoin.name, { sessionId: "OTHER" }),
         );
         // Then the wanted one.
         yield* server.send(
-          s2cRequest("srv-want", "apps/onJoin", { sessionId: "WANTED" }),
+          s2cRequest("srv-want", AppsOnJoin.name, { sessionId: "WANTED" }),
         );
 
         const observed = yield* awaitFiber;
@@ -329,7 +337,7 @@ describe("TestClient — awaitServerRequest", () => {
         // Caller-controlled timeout. No s2c request is ever sent — the
         // awaiter must terminate by the timeout, not hang.
         return yield* Effect.exit(
-          client.awaitServerRequest("apps/onJoin", undefined, 50),
+          client.awaitServerRequest(AppsOnJoin.name, undefined, 50),
         );
       }),
     );
@@ -352,7 +360,7 @@ describe("TestClient — awaitServerRequest", () => {
         // this as the supported pattern: "Effect.timeout at call site,
         // not schema cap."
         return yield* Effect.exit(
-          client.awaitServerRequest("apps/onJoin", undefined, 60_000).pipe(
+          client.awaitServerRequest(AppsOnJoin.name, undefined, 60_000).pipe(
             Effect.timeoutFail({
               duration: "30 millis",
               onTimeout: () => new Error("call-site-timeout"),

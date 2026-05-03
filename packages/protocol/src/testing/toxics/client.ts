@@ -13,6 +13,10 @@ import { Effect, Scope } from "effect";
 import { ToxicControlError } from "../errors.js";
 import type { ToxicProfile } from "./profile.js";
 
+const HTTP_SUCCESS_MIN = 200;
+const HTTP_REDIRECT_MIN = 300;
+const TOXIC_NAME_RANDOM_MAX = 1e9;
+
 export interface ToxiproxyConfig {
   /** Control-plane URL, e.g. `http://localhost:8474`. */
   readonly apiUrl: string;
@@ -88,7 +92,7 @@ function httpJson(
       try: () => res.text(),
       catch: toToxicError,
     });
-    if (res.status < 200 || res.status >= 300) {
+    if (res.status < HTTP_SUCCESS_MIN || res.status >= HTTP_REDIRECT_MIN) {
       return yield* Effect.fail(
         new ToxicControlError({ op, status: res.status, body }),
       );
@@ -142,11 +146,13 @@ function profileToAttributes(profile: ToxicProfile): {
       };
     default: {
       const _exhaustive: never = profile;
-      throw new Error(
-        `profileToAttributes: unexpected toxic ${String(_exhaustive)}`,
-      );
+      return absurdToxicProfile(_exhaustive);
     }
   }
+}
+
+function absurdToxicProfile(profile: never): never {
+  throw new Error(`profileToAttributes: unexpected toxic ${String(profile)}`);
 }
 
 export function makeToxiproxyClient(
@@ -183,7 +189,7 @@ export function makeToxiproxyClient(
               Effect.acquireRelease(
                 Effect.suspend(() => {
                   const { type, attributes } = profileToAttributes(profile);
-                  const toxicName = `${profile._tag}-${Math.floor(Math.random() * 1e9)}`;
+                  const toxicName = `${profile._tag}-${Math.floor(Math.random() * TOXIC_NAME_RANDOM_MAX)}`;
                   return httpJson(
                     "add-toxic",
                     `${base}/proxies/${encodeURIComponent(opts.name)}/toxics`,

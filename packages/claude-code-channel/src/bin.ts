@@ -17,28 +17,30 @@
  * Failure modes exit with code 1 and a diagnostic line on stderr.
  */
 import { bootClaudeCodeChannel } from "./entry.js";
-import { Data, Effect } from "effect";
+import { Config, ConfigError, Data, Effect, Option } from "effect";
 
 class ChannelMainError extends Data.TaggedError("ChannelMainError")<{
   readonly cause: unknown;
 }> {}
 
-function main(): Effect.Effect<void, ChannelMainError, never> {
+function main(): Effect.Effect<
+  void,
+  ChannelMainError | ConfigError.ConfigError,
+  never
+> {
   return Effect.gen(function* () {
-    const apiKey = process.env.MOLTZAP_API_KEY;
-    const serverUrl = process.env.MOLTZAP_SERVER_URL;
-    if (apiKey === undefined || apiKey.length === 0) {
-      process.stderr.write(
-        "moltzap-claude-code-channel: MOLTZAP_API_KEY env var is required\n",
-      );
-      process.exit(1);
-    }
-    if (serverUrl === undefined || serverUrl.length === 0) {
-      process.stderr.write(
-        "moltzap-claude-code-channel: MOLTZAP_SERVER_URL env var is required\n",
-      );
-      process.exit(1);
-    }
+    const apiKey = yield* Config.string("MOLTZAP_API_KEY").pipe(
+      Config.validate({
+        message: "MOLTZAP_API_KEY env var is required",
+        validation: (value) => value.length > 0,
+      }),
+    );
+    const serverUrl = yield* Config.string("MOLTZAP_SERVER_URL").pipe(
+      Config.validate({
+        message: "MOLTZAP_SERVER_URL env var is required",
+        validation: (value) => value.length > 0,
+      }),
+    );
 
     // Logger writes to stderr — stdout is reserved for MCP JSON-RPC framing.
     // Variadic `unknown[]` matches @moltzap/client's `WsClientLogger` shape
@@ -55,7 +57,9 @@ function main(): Effect.Effect<void, ChannelMainError, never> {
       },
     };
 
-    const serverName = process.env.MOLTZAP_SERVER_NAME;
+    const serverName = Option.getOrUndefined(
+      yield* Config.option(Config.string("MOLTZAP_SERVER_NAME")),
+    );
     const result = yield* Effect.tryPromise({
       try: () =>
         bootClaudeCodeChannel({

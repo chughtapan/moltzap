@@ -1,17 +1,38 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { Effect } from "effect";
+import { Data, Effect, Either } from "effect";
 import { startRuntimeAgent, type RuntimeKind } from "./fleet.js";
 import type { Runtime } from "./runtime.js";
+import { RuntimeReadyTimedOut, SpawnFailed } from "./errors.js";
+
+import { ConversationsCreate, MessagesSend } from "@moltzap/protocol";
 
 const DEFAULT_READY_TIMEOUT_MS = 120_000;
 const DEFAULT_RESPONSE_TIMEOUT_MS = 120_000;
+const MIN_EVENT_WAIT_MS = 1_000;
 const DEFAULT_GROUP_NAME = "cc-judge-group";
 const PLACEHOLDER_AGENT_ID = "target-agent";
 const PLACEHOLDER_IMAGE = "managed/by-moltzap-trace-capture";
+const RUNTIME_KIND_CLAUDE_CODE = "claude-code";
 
 let activeRun = false;
+
+class WorkspacePackagesDirNotFound extends Data.TaggedError(
+  "WorkspacePackagesDirNotFound",
+)<{
+  readonly message: string;
+}> {}
+
+class ActiveTraceCaptureRunExists extends Data.TaggedError(
+  "ActiveTraceCaptureRunExists",
+)<{
+  readonly message: string;
+}> {}
+
+class ExecutionFailed extends Data.TaggedError("ExecutionFailed")<{
+  readonly message: string;
+}> {}
 
 interface HarnessLoadArgs {
   readonly sourcePath: string;
@@ -209,19 +230,13 @@ function failLoad(
 function failHarness(message: string): {
   readonly cause: {
     readonly _tag: "HarnessFailed";
-    readonly detail: {
-      readonly _tag: "ExecutionFailed";
-      readonly message: string;
-    };
+    readonly detail: ExecutionFailed;
   };
 } {
   return {
     cause: {
       _tag: "HarnessFailed",
-      detail: {
-        _tag: "ExecutionFailed",
-        message,
-      },
+      detail: new ExecutionFailed({ message }),
     },
   };
 }
@@ -271,7 +286,9 @@ function packagesDir(): string {
     }
     current = path.dirname(current);
   }
-  throw new Error("Unable to resolve workspace packages directory");
+  throw new WorkspacePackagesDirNotFound({
+    message: "Unable to resolve workspace packages directory",
+  });
 }
 
 function packageModuleUrl(...segments: ReadonlyArray<string>): string {
@@ -372,7 +389,7 @@ function decodePayload(
   if (
     runtimeKind !== "openclaw" &&
     runtimeKind !== "nanoclaw" &&
-    runtimeKind !== "claude-code"
+    runtimeKind !== RUNTIME_KIND_CLAUDE_CODE
   ) {
     issues.push(
       "runtime.kind must be 'openclaw', 'nanoclaw', or 'claude-code'",
@@ -529,8 +546,8 @@ function decodePayload(
   const narrowedRuntimeKind: RuntimeKind =
     runtimeKind === "openclaw"
       ? "openclaw"
-      : runtimeKind === "claude-code"
-        ? "claude-code"
+      : runtimeKind === RUNTIME_KIND_CLAUDE_CODE
+        ? RUNTIME_KIND_CLAUDE_CODE
         : "nanoclaw";
   const targetAgentName =
     typeof runtime?.targetAgentName === "string"
@@ -603,7 +620,7 @@ function defaultTargetAgentName(kind: RuntimeKind): string {
       return "openclaw-eval-agent";
     case "nanoclaw":
       return "nanoclaw-eval-agent";
-    case "claude-code":
+    case RUNTIME_KIND_CLAUDE_CODE:
       return "claude-code-eval-agent";
   }
 }
@@ -645,14 +662,17 @@ function waitForTargetResponse(input: {
   return Effect.gen(function* () {
     const deadline = Date.now() + input.timeoutMs;
     while (Date.now() < deadline) {
-      const remaining = Math.max(1_000, deadline - Date.now());
+      const remaining = Math.max(MIN_EVENT_WAIT_MS, deadline - Date.now());
       const next = yield* Effect.either(
         input.client.waitForEvent("messages/received", remaining),
       );
-      if (next._tag === "Left") {
+      const data = Either.match(next, {
+        onLeft: () => null,
+        onRight: (event) => event.data,
+      });
+      if (data === null) {
         continue;
       }
-      const data = next.right.data;
       if (
         data.message.senderId === input.targetAgentId &&
         data.message.conversationId === input.conversationId
@@ -694,7 +714,7 @@ function sendMessageAndWait(input: {
 > {
   return Effect.gen(function* () {
     yield* input.sender.client
-      .sendRpc("messages/send", {
+      .sendRpc(MessagesSend.name, {
         conversationId: input.conversationId,
         parts: [{ type: "text", text: input.message }],
       })
@@ -753,7 +773,7 @@ function createDirectConversation(
   never
 > {
   return sender.client
-    .sendRpc("conversations/create", {
+    .sendRpc(ConversationsCreate.name, {
       type: "dm",
       participants: [{ type: "agent", id: targetAgentId }],
     })
@@ -787,7 +807,7 @@ function createGroupConversation(input: {
   never
 > {
   return input.sender.client
-    .sendRpc("conversations/create", {
+    .sendRpc(ConversationsCreate.name, {
       type: "group",
       name: input.groupName,
       participants: [
@@ -1039,9 +1059,10 @@ function withExclusiveRun<A, E>(
     Effect.try({
       try: () => {
         if (activeRun) {
-          throw new Error(
-            "MoltZap trace-capture harness only supports one active run at a time",
-          );
+          throw new ActiveTraceCaptureRunExists({
+            message:
+              "MoltZap trace-capture harness only supports one active run at a time",
+          });
         }
         activeRun = true;
       },
@@ -1128,27 +1149,27 @@ function createCoordinator(sourcePath: string, payload: HarnessPayload) {
                   },
                 }).pipe(
                   Effect.mapError((error) => {
-                    switch (error._tag) {
-                      case "SpawnFailed":
-                        return failAgentStart({
-                          _tag: "ContainerStartFailed",
-                          message: error.message,
-                        });
-                      case "RuntimeReadyTimedOut":
-                        return failAgentStart({
-                          _tag: "ContainerStartFailed",
-                          message: `runtime did not authenticate within ${String(error.timeoutMs)}ms`,
-                        });
-                      case "RuntimeExitedBeforeReady":
-                        return failAgentStart({
-                          _tag: "ContainerStartFailed",
-                          message: `runtime exited before readiness: ${error.stderr}`,
-                        });
+                    if (error instanceof SpawnFailed) {
+                      return failAgentStart({
+                        _tag: "ContainerStartFailed",
+                        message: error.message,
+                      });
                     }
+                    if (error instanceof RuntimeReadyTimedOut) {
+                      return failAgentStart({
+                        _tag: "ContainerStartFailed",
+                        message: `runtime did not authenticate within ${String(error.timeoutMs)}ms`,
+                      });
+                    }
+                    return failAgentStart({
+                      _tag: "ContainerStartFailed",
+                      message: `runtime exited before readiness: ${error.stderr}`,
+                    });
                   }),
                 ),
-                (_runtime: Runtime) =>
+                (runtime: Runtime) =>
                   Effect.gen(function* () {
+                    void runtime;
                     const conversationRun = yield* executeConversationPlan({
                       payload,
                       baseUrl: server.baseUrl,
@@ -1267,11 +1288,12 @@ const traceCaptureHarness = {
           harness: {
             name: "moltzap-trace-capture",
             run: () =>
-              Effect.fail({
-                _tag: "ExecutionFailed",
-                message:
-                  "MoltZap trace-capture plans require the custom coordinator path",
-              }),
+              Effect.fail(
+                new ExecutionFailed({
+                  message:
+                    "MoltZap trace-capture plans require the custom coordinator path",
+                }),
+              ),
           },
           coordinator: createCoordinator(args.sourcePath, payload),
         };

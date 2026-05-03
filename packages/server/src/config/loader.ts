@@ -9,7 +9,16 @@
 import { readFileSync, realpathSync } from "node:fs";
 import { dirname } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { Data, Effect, ConfigProvider, Either, Match, Schema } from "effect";
+import {
+  Config,
+  ConfigProvider,
+  Data,
+  Effect,
+  Either,
+  Match,
+  Option,
+  Schema,
+} from "effect";
 import type { ConfigError } from "effect/ConfigError";
 import { MoltZapConfig, type MoltZapAppConfig } from "./effect-config.js";
 
@@ -38,17 +47,36 @@ export class ConfigLoadError extends Data.TaggedError("ConfigLoadError")<{
   readonly configError?: ConfigError;
 }> {}
 
+type ProcessEnvSnapshot = Readonly<Record<string, string | undefined>>;
+
+const readEnvValue = (
+  processEnv: ProcessEnvSnapshot | undefined,
+  key: string,
+): string | undefined => {
+  if (processEnv !== undefined) {
+    return processEnv[key];
+  }
+  return Option.getOrUndefined(
+    Effect.runSync(
+      Config.option(Config.string(key)).pipe(
+        Effect.withConfigProvider(ConfigProvider.fromEnv()),
+      ),
+    ),
+  );
+};
+
 /** Interpolate `${ENV_VAR}` references in string values throughout a parsed object. */
 function interpolateEnvVars(
   obj: unknown,
   path: string,
-): { ok: true; value: unknown } | { ok: false; error: ConfigLoadError } {
+  processEnv?: ProcessEnvSnapshot,
+): Effect.Effect<unknown, ConfigLoadError> {
   if (typeof obj === "string") {
     let missing: string | null = null;
     const replaced = obj.replace(
       /\$\{([^}]+)\}/g,
       (_match, varName: string) => {
-        const value = process.env[varName];
+        const value = readEnvValue(processEnv, varName);
         // Treat empty string the same as undefined: an accidentally empty
         // env var would otherwise silently interpolate into strings like
         // `https://${HOST}/callback` and produce a broken URL that still
@@ -61,36 +89,35 @@ function interpolateEnvVars(
       },
     );
     if (missing !== null) {
-      return {
-        ok: false,
-        error: new ConfigLoadError({
+      return Effect.fail(
+        new ConfigLoadError({
           kind: "env",
           path,
           message: `Missing env var "${missing}" referenced in "${path}"`,
         }),
-      };
+      );
     }
-    return { ok: true, value: replaced };
+    return Effect.succeed(replaced);
   }
   if (Array.isArray(obj)) {
-    const out: unknown[] = [];
-    for (const v of obj) {
-      const r = interpolateEnvVars(v, path);
-      if (!r.ok) return r;
-      out.push(r.value);
-    }
-    return { ok: true, value: out };
+    return Effect.gen(function* () {
+      const out: unknown[] = [];
+      for (const value of obj) {
+        out.push(yield* interpolateEnvVars(value, path, processEnv));
+      }
+      return out;
+    });
   }
   if (obj !== null && typeof obj === "object") {
-    const out: Record<string, unknown> = {};
-    for (const [key, val] of Object.entries(obj)) {
-      const r = interpolateEnvVars(val, path);
-      if (!r.ok) return r;
-      out[key] = r.value;
-    }
-    return { ok: true, value: out };
+    return Effect.gen(function* () {
+      const out: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(obj)) {
+        out[key] = yield* interpolateEnvVars(value, path, processEnv);
+      }
+      return out;
+    });
   }
-  return { ok: true, value: obj };
+  return Effect.succeed(obj);
 }
 
 /**
@@ -104,9 +131,11 @@ function interpolateEnvVars(
  */
 export const loadConfigFromFile = (
   path?: string,
+  processEnv?: ProcessEnvSnapshot,
 ): Effect.Effect<MoltZapAppConfig & { _configDir: string }, ConfigLoadError> =>
   Effect.gen(function* () {
-    const configPath = path ?? process.env["MOLTZAP_CONFIG"] ?? "moltzap.yaml";
+    const configPath =
+      path ?? readEnvValue(processEnv, "MOLTZAP_CONFIG") ?? "moltzap.yaml";
 
     const raw = yield* Effect.try({
       try: () => readFileSync(configPath, "utf-8"),
@@ -130,24 +159,24 @@ export const loadConfigFromFile = (
         }),
     });
 
-    const decoded = decodeYamlDocument(parsed);
-    if (Either.isLeft(decoded)) {
-      return yield* Effect.fail(
-        new ConfigLoadError({
-          kind: "yaml",
-          path: configPath,
-          message: `Invalid YAML in "${configPath}": top-level value must be a mapping (${decoded.left.message})`,
-          cause: decoded.left,
-        }),
-      );
-    }
+    const decoded = yield* Either.match(decodeYamlDocument(parsed), {
+      onLeft: (cause) =>
+        Effect.fail(
+          new ConfigLoadError({
+            kind: "yaml",
+            path: configPath,
+            message: `Invalid YAML in "${configPath}": top-level value must be a mapping (${cause.message})`,
+            cause,
+          }),
+        ),
+      onRight: (value) => Effect.succeed(value),
+    });
 
-    const interp = interpolateEnvVars(decoded.right, configPath);
-    if (!interp.ok) return yield* Effect.fail(interp.error);
+    const interp = yield* interpolateEnvVars(decoded, configPath, processEnv);
 
     // `fromJson` walks the nested object and produces flat paths that
     // `Config.all(...)` / `Config.nested(...)` / `Config.array(...)` consume.
-    const provider = ConfigProvider.fromJson(interp.value ?? {});
+    const provider = ConfigProvider.fromJson(interp ?? {});
 
     const value = yield* MoltZapConfig.pipe(
       Effect.withConfigProvider(provider),

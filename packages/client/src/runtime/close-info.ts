@@ -16,7 +16,7 @@
  * a `CloseInfo`. The defaults below are the resolution of OQ-5 (A). No
  * typed error surface on this module.
  */
-import { Cause, Exit } from "effect";
+import { Cause, Data, Exit } from "effect";
 import * as Socket from "@effect/platform/Socket";
 
 /**
@@ -41,31 +41,27 @@ export interface CloseInfo {
  * any `SocketError` variant @effect/platform adds in the future. The
  * implementation's pattern-match ends in `default: return absurd(kind)`.
  */
-export type CloseKind =
-  | {
-      /** Graceful `SocketCloseError` — upstream code + reason round-tripped. */
-      readonly _tag: "Clean";
-      readonly code: number;
-      readonly reason: string;
-    }
-  | {
-      /** `Exit.Success` with no close frame observed — socket ended cleanly. */
-      readonly _tag: "EndOfStream";
-    }
-  | {
-      /** `SocketGenericError` with reason "Open" / "OpenTimeout". */
-      readonly _tag: "HandshakeFailure";
-      readonly underlying: "Open" | "OpenTimeout";
-    }
-  | {
-      /** `SocketGenericError` with reason "Read" / "Write" — transport broke. */
-      readonly _tag: "TransportFailure";
-      readonly underlying: "Read" | "Write";
-    }
-  | {
-      /** Cause did not match any known `SocketError` shape. */
-      readonly _tag: "Unknown";
-    };
+export type CloseKind = Data.TaggedEnum<{
+  /** Graceful `SocketCloseError` — upstream code + reason round-tripped. */
+  Clean: {
+    readonly code: number;
+    readonly reason: string;
+  };
+  /** `Exit.Success` with no close frame observed — socket ended cleanly. */
+  EndOfStream: {};
+  /** `SocketGenericError` with reason "Open" / "OpenTimeout". */
+  HandshakeFailure: {
+    readonly underlying: "Open" | "OpenTimeout";
+  };
+  /** `SocketGenericError` with reason "Read" / "Write" — transport broke. */
+  TransportFailure: {
+    readonly underlying: "Read" | "Write";
+  };
+  /** Cause did not match any known `SocketError` shape. */
+  Unknown: {};
+}>;
+
+const CloseKind = Data.taggedEnum<CloseKind>();
 
 /**
  * OQ-5 resolution defaults. Exported so the implementation, tests, and
@@ -107,11 +103,10 @@ export function classifyCloseCause(
   // match. `Chunk` is iterable, so a `for…of` walk is sufficient.
   for (const failure of Cause.failures(cause)) {
     if (Socket.SocketCloseError.is(failure)) {
-      return {
-        _tag: "Clean",
+      return CloseKind.Clean({
         code: failure.code,
         reason: failure.closeReason ?? "",
-      };
+      });
     }
     if (Socket.isSocketError(failure)) {
       // SocketGenericError — branch on the four documented reasons and
@@ -120,16 +115,20 @@ export function classifyCloseCause(
       switch (generic.reason) {
         case "Open":
         case "OpenTimeout":
-          return { _tag: "HandshakeFailure", underlying: generic.reason };
+          return CloseKind.HandshakeFailure({
+            underlying: generic.reason,
+          });
         case "Read":
         case "Write":
-          return { _tag: "TransportFailure", underlying: generic.reason };
+          return CloseKind.TransportFailure({
+            underlying: generic.reason,
+          });
         default:
-          return { _tag: "Unknown" };
+          return CloseKind.Unknown();
       }
     }
   }
-  return { _tag: "Unknown" };
+  return CloseKind.Unknown();
 }
 
 /**
