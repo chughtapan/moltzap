@@ -53,10 +53,14 @@ describe("messages list", () => {
   afterEach(() => stdout.mockRestore());
 
   it("calls messages/list with { conversationId, limit? } and emits one line per message", async () => {
+    // Fixture mirrors the wire shape produced by the server's `mapMessage`:
+    // every `MessageSchema` field is present (including `conversationId`)
+    // plus the server-computed `senderName` the CLI displays.
     const { calls, transport } = makeFakeTransport(() => ({
       messages: [
         {
           id: "m1",
+          conversationId: "c1",
           senderId: "a1",
           senderName: "alice",
           createdAt: "2026-04-24T00:00:00Z",
@@ -64,6 +68,7 @@ describe("messages list", () => {
         },
         {
           id: "m2",
+          conversationId: "c1",
           senderId: "b1",
           senderName: "bob",
           createdAt: "2026-04-24T00:00:01Z",
