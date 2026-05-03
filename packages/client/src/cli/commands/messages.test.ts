@@ -53,10 +53,15 @@ describe("messages list", () => {
   afterEach(() => stdout.mockRestore());
 
   it("calls messages/list with { conversationId, limit? } and emits one line per message", async () => {
+    // Fixture matches the `messages/list` result shape: every required
+    // `MessageSchema` field is present (including `conversationId`).
+    // `senderName` is the CLI display fallback the handler reads; it is
+    // not part of `MessageSchema` itself (see WireMessage in messages.ts).
     const { calls, transport } = makeFakeTransport(() => ({
       messages: [
         {
           id: "m1",
+          conversationId: "c1",
           senderId: "a1",
           senderName: "alice",
           createdAt: "2026-04-24T00:00:00Z",
@@ -64,6 +69,7 @@ describe("messages list", () => {
         },
         {
           id: "m2",
+          conversationId: "c1",
           senderId: "b1",
           senderName: "bob",
           createdAt: "2026-04-24T00:00:01Z",
