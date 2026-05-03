@@ -7,6 +7,8 @@ import {
   RpcTimeoutError,
 } from "./errors.js";
 
+import { MessagesSend } from "@moltzap/protocol";
+
 describe("AgentNotFoundError", () => {
   it("carries agentName and derives a `_tag` + `message`", () => {
     const err = new AgentNotFoundError({ agentName: "foo" });
@@ -38,11 +40,11 @@ describe("NotConnectedError", () => {
 describe("RpcTimeoutError", () => {
   it("carries method + timeoutMs and `_tag === 'RpcTimeoutError'`", () => {
     const err = new RpcTimeoutError({
-      method: "messages/send",
+      method: MessagesSend.name,
       timeoutMs: 30_000,
     });
     expect(err._tag).toBe("RpcTimeoutError");
-    expect(err.method).toBe("messages/send");
+    expect(err.method).toBe(MessagesSend.name);
     expect(err.timeoutMs).toBe(30_000);
   });
 });

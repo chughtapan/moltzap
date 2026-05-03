@@ -7,6 +7,9 @@ import {
   EventFrameSchema,
 } from "./frames.js";
 
+import { AppsOnJoin } from "./methods/apps.js";
+import { MessagesSend } from "./methods/messages.js";
+
 const ajv = addFormats(new Ajv({ strict: true }));
 
 describe("RequestFrameSchema", () => {
@@ -19,7 +22,7 @@ describe("RequestFrameSchema", () => {
         type: "request",
         direction: "c2s",
         id: "req-1",
-        method: "messages/send",
+        method: MessagesSend.name,
         params: { text: "hello" },
       }),
     ).toBe(true);
@@ -32,7 +35,7 @@ describe("RequestFrameSchema", () => {
         type: "request",
         direction: "s2c",
         id: "srv-1",
-        method: "apps/onJoin",
+        method: AppsOnJoin.name,
         params: { sessionId: "s-1" },
       }),
     ).toBe(true);
@@ -44,7 +47,7 @@ describe("RequestFrameSchema", () => {
         jsonrpc: "2.0",
         type: "request",
         id: "req-1",
-        method: "messages/send",
+        method: MessagesSend.name,
         params: { text: "hello" },
       }),
     ).toBe(false);
@@ -57,7 +60,7 @@ describe("RequestFrameSchema", () => {
         type: "request",
         direction: "broadcast",
         id: "req-1",
-        method: "messages/send",
+        method: MessagesSend.name,
       }),
     ).toBe(false);
   });

@@ -8,6 +8,8 @@ import {
   setupAgentPair,
 } from "./helpers.js";
 
+import { ConversationsCreate, MessagesSend } from "@moltzap/protocol";
+
 beforeAll(async () => {
   await startTestServer();
 }, 60_000);
@@ -25,7 +27,7 @@ describe("Heartbeat / Idle Connection", () => {
     Effect.gen(function* () {
       const { alice, bob } = yield* setupAgentPair();
 
-      const conv = (yield* alice.client.sendRpc("conversations/create", {
+      const conv = (yield* alice.client.sendRpc(ConversationsCreate.name, {
         type: "dm",
         participants: [{ type: "agent", id: bob.agentId }],
       })) as { conversation: { id: string } };
@@ -37,7 +39,7 @@ describe("Heartbeat / Idle Connection", () => {
       );
 
       // After idle period, Alice sends a message
-      yield* alice.client.sendRpc("messages/send", {
+      yield* alice.client.sendRpc(MessagesSend.name, {
         conversationId,
         parts: [{ type: "text", text: "Still alive after idle" }],
       });
@@ -49,7 +51,7 @@ describe("Heartbeat / Idle Connection", () => {
       expect(received.parts[0]!.text).toBe("Still alive after idle");
 
       // Verify bidirectional: Bob replies after idle
-      yield* bob.client.sendRpc("messages/send", {
+      yield* bob.client.sendRpc(MessagesSend.name, {
         conversationId,
         parts: [{ type: "text", text: "Reply after idle" }],
       });

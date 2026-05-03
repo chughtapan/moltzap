@@ -16,6 +16,53 @@ import { ErrorCodes } from "../../schema/errors.js";
 import type { ArbitraryRpcCall } from "../arbitraries/rpc.js";
 import { mkTick, type ReferenceState } from "./state.js";
 
+import {
+  AgentsList,
+  AgentsLookup,
+  AgentsLookupByName,
+  Connect,
+  InviteAgent,
+  Register,
+  SelectAgent,
+} from "../../schema/methods/auth.js";
+import {
+  AppsAttachConversation,
+  AppsAttestSkill,
+  AppsAuthorizeDispatch,
+  AppsCloseSession,
+  AppsCreate,
+  AppsGetSession,
+  AppsListSessions,
+  PermissionsGrant,
+  PermissionsList,
+  PermissionsRevoke,
+} from "../../schema/methods/apps.js";
+import {
+  ContactsAccept,
+  ContactsAdd,
+  ContactsList,
+} from "../../schema/methods/contacts.js";
+import {
+  ConversationsAddParticipant,
+  ConversationsArchive,
+  ConversationsCreate,
+  ConversationsGet,
+  ConversationsLeave,
+  ConversationsList,
+  ConversationsMute,
+  ConversationsRemoveParticipant,
+  ConversationsUnarchive,
+  ConversationsUnmute,
+  ConversationsUpdate,
+} from "../../schema/methods/conversations.js";
+import { InvitesCreateAgent } from "../../schema/methods/invites.js";
+import { MessagesList, MessagesSend } from "../../schema/methods/messages.js";
+import {
+  PresenceSubscribe,
+  PresenceUpdate,
+} from "../../schema/methods/presence.js";
+import { PushRegister, PushUnregister } from "../../schema/methods/push.js";
+
 /**
  * Observable outcome of one RPC against the model, in the same shape the
  * real server puts on the wire. Tier B's B1 asserts
@@ -44,17 +91,17 @@ export type RpcModelResult<M extends RpcMethodName = RpcMethodName> =
  * against the real server.
  */
 const IDEMPOTENT_METHODS: ReadonlySet<RpcMethodName> = new Set([
-  "agents/lookup",
-  "agents/lookupByName",
-  "agents/list",
-  "conversations/list",
-  "conversations/get",
-  "messages/list",
-  "contacts/list",
-  "presence/subscribe",
-  "apps/listSessions",
-  "apps/getSession",
-  "permissions/list",
+  AgentsLookup.name,
+  AgentsLookupByName.name,
+  AgentsList.name,
+  ConversationsList.name,
+  ConversationsGet.name,
+  MessagesList.name,
+  ContactsList.name,
+  PresenceSubscribe.name,
+  AppsListSessions.name,
+  AppsGetSession.name,
+  PermissionsList.name,
   "surface/get",
 ] satisfies readonly RpcMethodName[]);
 
@@ -78,7 +125,7 @@ export function authorizationOutcome(
   agentId: string,
 ): "allow" | "deny-unauthenticated" | "deny-forbidden" {
   // `connect` + `register` establish identity; pre-identity they are always allowed.
-  if (call.method === "auth/connect" || call.method === "auth/register")
+  if (call.method === Connect.name || call.method === Register.name)
     return "allow";
   if (!state.agents.has(agentId)) return "deny-unauthenticated";
 
@@ -161,19 +208,19 @@ export function applyCall<M extends RpcMethodName>(
   const m: RpcMethodName = call.method;
   switch (m) {
     // Auth — model isn't sure what auth shape the caller has.
-    case "auth/connect":
-    case "auth/register":
-    case "auth/invite-agent":
-    case "auth/selectAgent":
+    case Connect.name:
+    case Register.name:
+    case InviteAgent.name:
+    case SelectAgent.name:
       return { next: baseNext, outcome: uncertainError() };
 
     // Agents list-shaped — honest "ok" for a fresh authenticated agent.
-    case "agents/list":
+    case AgentsList.name:
       return { next: baseNext, outcome: allowNoEvents() };
 
     // Agents lookup-shaped — need a target; uncertain.
-    case "agents/lookup":
-    case "agents/lookupByName":
+    case AgentsLookup.name:
+    case AgentsLookupByName.name:
       return { next: baseNext, outcome: uncertainError() };
 
     // Conversations list — NOT oracle-confident across arbitrary
@@ -185,59 +232,59 @@ export function applyCall<M extends RpcMethodName>(
     // to `uncertainError`; K=1 today (agents/list only). Widening
     // K requires either per-method param filters at the arbitrary
     // layer OR a server-side cursor-parse fix; tracked under #186.
-    case "conversations/list":
+    case ConversationsList.name:
       return { next: baseNext, outcome: uncertainError() };
 
     // Conversations with required fields or state — uncertain.
-    case "conversations/create":
-    case "conversations/get":
-    case "conversations/update":
-    case "conversations/mute":
-    case "conversations/unmute":
-    case "conversations/addParticipant":
-    case "conversations/removeParticipant":
-    case "conversations/leave":
-    case "conversations/archive":
-    case "conversations/unarchive":
+    case ConversationsCreate.name:
+    case ConversationsGet.name:
+    case ConversationsUpdate.name:
+    case ConversationsMute.name:
+    case ConversationsUnmute.name:
+    case ConversationsAddParticipant.name:
+    case ConversationsRemoveParticipant.name:
+    case ConversationsLeave.name:
+    case ConversationsArchive.name:
+    case ConversationsUnarchive.name:
       return { next: baseNext, outcome: uncertainError() };
 
     // Messages — both require a valid conversationId. Uncertain.
-    case "messages/send":
-    case "messages/list":
+    case MessagesSend.name:
+    case MessagesList.name:
       return { next: baseNext, outcome: uncertainError() };
 
     // Contacts list — requires user context for a fresh agent, so
     // server returns an error. Uncertain.
-    case "contacts/list":
-    case "contacts/add":
-    case "contacts/accept":
+    case ContactsList.name:
+    case ContactsAdd.name:
+    case ContactsAccept.name:
       return { next: baseNext, outcome: uncertainError() };
 
     // Invites — requires state. Uncertain.
-    case "invites/createAgent":
+    case InvitesCreateAgent.name:
       return { next: baseNext, outcome: uncertainError() };
 
     // Presence — state-dependent. Uncertain.
-    case "presence/update":
-    case "presence/subscribe":
+    case PresenceUpdate.name:
+    case PresenceSubscribe.name:
       return { next: baseNext, outcome: uncertainError() };
 
     // Push — requires endpoint registration. Uncertain.
-    case "push/register":
-    case "push/unregister":
+    case PushRegister.name:
+    case PushUnregister.name:
       return { next: baseNext, outcome: uncertainError() };
 
     // Apps — require app/user context the fresh agent doesn't have.
-    case "apps/create":
-    case "apps/attestSkill":
-    case "permissions/grant":
-    case "permissions/list":
-    case "permissions/revoke":
-    case "apps/closeSession":
-    case "apps/getSession":
-    case "apps/listSessions":
-    case "apps/authorizeDispatch":
-    case "apps/attachConversation":
+    case AppsCreate.name:
+    case AppsAttestSkill.name:
+    case PermissionsGrant.name:
+    case PermissionsList.name:
+    case PermissionsRevoke.name:
+    case AppsCloseSession.name:
+    case AppsGetSession.name:
+    case AppsListSessions.name:
+    case AppsAuthorizeDispatch.name:
+    case AppsAttachConversation.name:
       return { next: baseNext, outcome: uncertainError() };
 
     // Surfaces — require surface/app context. Uncertain.

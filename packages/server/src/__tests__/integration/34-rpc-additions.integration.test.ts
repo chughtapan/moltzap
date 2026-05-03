@@ -9,6 +9,13 @@ import {
   setupAgentPair,
 } from "./helpers.js";
 
+import {
+  AppsRegister,
+  ConversationsCreate,
+  MessagesSend,
+  SystemPing,
+} from "@moltzap/protocol";
+
 beforeAll(async () => {
   await startTestServer();
 }, 60_000);
@@ -22,12 +29,12 @@ beforeEach(async () => {
 });
 
 describe("Scenario 34: apps/register + system/ping RPCs", () => {
-  describe("system/ping", () => {
+  describe(SystemPing.name, () => {
     it.live("returns an ISO8601 ts string", () =>
       Effect.gen(function* () {
         const agent = yield* registerAndConnect("alice");
 
-        const result = (yield* agent.client.sendRpc("system/ping", {})) as {
+        const result = (yield* agent.client.sendRpc(SystemPing.name, {})) as {
           ts: string;
         };
 
@@ -40,12 +47,12 @@ describe("Scenario 34: apps/register + system/ping RPCs", () => {
     );
   });
 
-  describe("apps/register", () => {
+  describe(AppsRegister.name, () => {
     it.live("registers a valid manifest and returns the appId", () =>
       Effect.gen(function* () {
         const agent = yield* registerAndConnect("alice");
 
-        const result = (yield* agent.client.sendRpc("apps/register", {
+        const result = (yield* agent.client.sendRpc(AppsRegister.name, {
           manifest: {
             appId: "my-test-app",
             name: "My Test App",
@@ -65,7 +72,7 @@ describe("Scenario 34: apps/register + system/ping RPCs", () => {
         const agent = yield* registerAndConnect("alice");
 
         const exit = yield* Effect.exit(
-          agent.client.sendRpc("apps/register", {
+          agent.client.sendRpc(AppsRegister.name, {
             manifest: { appId: "broken" },
           }),
         );
@@ -78,7 +85,7 @@ describe("Scenario 34: apps/register + system/ping RPCs", () => {
         const agent = yield* registerAndConnect("alice");
 
         const exit = yield* Effect.exit(
-          agent.client.sendRpc("apps/register", {}),
+          agent.client.sendRpc(AppsRegister.name, {}),
         );
         expect(Exit.isFailure(exit)).toBe(true);
       }),
@@ -92,18 +99,18 @@ describe("Scenario 34: apps/register + system/ping RPCs", () => {
         Effect.gen(function* () {
           const { alice, bob } = yield* setupAgentPair();
 
-          const conv = (yield* alice.client.sendRpc("conversations/create", {
+          const conv = (yield* alice.client.sendRpc(ConversationsCreate.name, {
             type: "dm",
             participants: [{ type: "agent", id: bob.agentId }],
           })) as { conversation: { id: string } };
           const conversationId = conv.conversation.id;
 
-          const sent = (yield* alice.client.sendRpc("messages/send", {
+          const sent = (yield* alice.client.sendRpc(MessagesSend.name, {
             conversationId,
             parts: [{ type: "text", text: "question" }],
           })) as { message: { id: string } };
 
-          const replied = (yield* bob.client.sendRpc("messages/send", {
+          const replied = (yield* bob.client.sendRpc(MessagesSend.name, {
             replyToId: sent.message.id,
             parts: [{ type: "text", text: "answer" }],
           })) as {
@@ -121,7 +128,7 @@ describe("Scenario 34: apps/register + system/ping RPCs", () => {
         const unknownId = "00000000-0000-0000-0000-000000000000";
 
         const exit = yield* Effect.exit(
-          agent.client.sendRpc("messages/send", {
+          agent.client.sendRpc(MessagesSend.name, {
             replyToId: unknownId,
             parts: [{ type: "text", text: "orphan" }],
           }),

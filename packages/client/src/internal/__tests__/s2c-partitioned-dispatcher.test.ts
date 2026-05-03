@@ -15,6 +15,12 @@ import {
 } from "../s2c-partitioned-dispatcher.js";
 import type { PartitionableRequest } from "../s2c-partition-key.js";
 
+import {
+  AppsOnBeforeDispatch,
+  AppsOnBeforeMessageDelivery,
+  AppsOnJoin,
+} from "@moltzap/protocol";
+
 const SESSION_A = "11111111-1111-4111-8111-111111111111";
 const CONV_X = "conv-X";
 const CONV_Y = "conv-Y";
@@ -25,7 +31,7 @@ const reqBeforeDispatch = (
   conv = CONV_X,
 ): PartitionableRequest => ({
   id,
-  method: "apps/onBeforeDispatch",
+  method: AppsOnBeforeDispatch.name,
   params: { sessionId, conversationId: conv },
 });
 
@@ -35,13 +41,13 @@ const reqBeforeMessageDelivery = (
   conv = CONV_X,
 ): PartitionableRequest => ({
   id,
-  method: "apps/onBeforeMessageDelivery",
+  method: AppsOnBeforeMessageDelivery.name,
   params: { sessionId, conversationId: conv },
 });
 
 const reqLifecycle = (
   id: string,
-  method = "apps/onJoin",
+  method = AppsOnJoin.name,
   sessionId = SESSION_A,
 ): PartitionableRequest => ({
   id,
@@ -142,7 +148,7 @@ describe("makePartitionedDispatcher — routing", () => {
           return yield* Effect.either(
             dispatcher.offer({
               id: "rpc-x",
-              method: "apps/onBeforeDispatch",
+              method: AppsOnBeforeDispatch.name,
               params: { /* sessionId missing */ conversationId: CONV_X },
             }),
           );
@@ -227,7 +233,7 @@ describe("makePartitionedDispatcher — backpressure", () => {
           const dispatcher = yield* makePartitionedDispatcher({
             handle: (req) =>
               Effect.gen(function* () {
-                if (req.method === "apps/onBeforeDispatch") {
+                if (req.method === AppsOnBeforeDispatch.name) {
                   yield* Deferred.await(releaseA);
                 } else if (req.id === "rpc-B-go") {
                   yield* Deferred.succeed(bDone, undefined);
@@ -246,7 +252,7 @@ describe("makePartitionedDispatcher — backpressure", () => {
           for (let i = 0; i < 200; i++) {
             const stats = yield* dispatcher.stats;
             const partA = stats.partitions.find((p) =>
-              p.key.includes("apps/onBeforeDispatch"),
+              p.key.includes(AppsOnBeforeDispatch.name),
             );
             if (partA && partA.queueSize === 0) break;
             yield* Effect.yieldNow();
@@ -335,11 +341,11 @@ describe("makePartitionedDispatcher — deadlock fix (D10 reproducer at dispatch
           const dispatcher = yield* makePartitionedDispatcher({
             handle: (req) =>
               Effect.gen(function* () {
-                if (req.method === "apps/onBeforeDispatch") {
+                if (req.method === AppsOnBeforeDispatch.name) {
                   // Park.
                   yield* Deferred.await(releaseDispatch);
                   yield* Deferred.succeed(dispatchDone, undefined);
-                } else if (req.method === "apps/onBeforeMessageDelivery") {
+                } else if (req.method === AppsOnBeforeMessageDelivery.name) {
                   // The lease-release hook in arena's pattern. Run
                   // to completion and signal the dispatch path to
                   // resume.
@@ -466,7 +472,7 @@ describe("makePartitionedDispatcher — scope teardown", () => {
         });
         yield* dispatcher.offer(reqBeforeDispatch("rpc-1"));
         yield* dispatcher.offer(reqBeforeMessageDelivery("rpc-2"));
-        yield* dispatcher.offer(reqLifecycle("rpc-3", "apps/onJoin"));
+        yield* dispatcher.offer(reqLifecycle("rpc-3", AppsOnJoin.name));
         // Close while every handler is parked. Must not hang.
         yield* Scope.close(scope, Exit.void);
         // Release any awaiters (no-op if scope close already

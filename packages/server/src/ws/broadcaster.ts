@@ -1,12 +1,25 @@
-import { Effect } from "effect";
+import { Config, ConfigProvider, Effect, Option } from "effect";
 import type { EventFrame } from "@moltzap/protocol";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ConnectionManager } from "./connection.js";
 import { logger } from "../logger.js";
 
+const ServerBroadcastLogDir = Config.option(
+  Config.string("MOLTZAP_SERVER_BROADCAST_LOG_DIR"),
+);
+
+const getServerBroadcastLogDir = (): string | undefined =>
+  Option.getOrUndefined(
+    Effect.runSync(
+      ServerBroadcastLogDir.pipe(
+        Effect.withConfigProvider(ConfigProvider.fromEnv()),
+      ),
+    ),
+  );
+
 function appendBroadcastTrace(record: Record<string, unknown>): void {
-  const dir = process.env["MOLTZAP_SERVER_BROADCAST_LOG_DIR"];
+  const dir = getServerBroadcastLogDir();
   if (!dir) return;
   try {
     fs.mkdirSync(dir, { recursive: true });

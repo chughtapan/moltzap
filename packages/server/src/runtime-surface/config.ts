@@ -2,16 +2,23 @@
  * Shared runtime process config for server boot and eval orchestration.
  */
 
-import { ConfigProvider, Data, Effect, Match } from "effect";
+import {
+  Brand,
+  Config,
+  ConfigProvider,
+  Data,
+  Effect,
+  Match,
+  Option,
+} from "effect";
 import type { ConfigError } from "effect/ConfigError";
 import type { LoadedConfig } from "../app/config.js";
 import { ServerConfigLoader } from "../app/config.js";
 import type { MoltZapAppConfig } from "../config/effect-config.js";
 import { ConfigLoadError, loadConfigFromFile } from "../config/loader.js";
 
-export type RuntimeConfigPath = string & {
-  readonly __brand: "RuntimeConfigPath";
-};
+export type RuntimeConfigPath = string & Brand.Brand<"RuntimeConfigPath">;
+export const RuntimeConfigPath = Brand.nominal<RuntimeConfigPath>();
 
 export type RuntimeEnvironment = "development" | "test" | "production";
 
@@ -46,29 +53,95 @@ export interface RuntimeProcessConfig {
 export class RuntimeConfigSurfaceError extends Data.TaggedError(
   "RuntimeConfigSurfaceError",
 )<{
-  readonly cause:
-    | {
-        readonly _tag: "ConfigFileUnreadable";
-        readonly path: string;
-        readonly message: string;
-      }
-    | {
-        readonly _tag: "ConfigFileInvalid";
-        readonly path: string;
-        readonly message: string;
-      }
-    | {
-        readonly _tag: "EnvironmentInvalid";
-        readonly key: string;
-        readonly message: string;
-      };
+  readonly cause: RuntimeConfigSurfaceCause;
 }> {}
+
+export class ConfigFileUnreadable extends Data.TaggedError(
+  "ConfigFileUnreadable",
+)<{
+  readonly message: string;
+  readonly path: string;
+}> {}
+
+export class ConfigFileInvalid extends Data.TaggedError("ConfigFileInvalid")<{
+  readonly message: string;
+  readonly path: string;
+}> {}
+
+export class EnvironmentInvalid extends Data.TaggedError("EnvironmentInvalid")<{
+  readonly key: string;
+  readonly message: string;
+}> {}
+
+export type RuntimeConfigSurfaceCause =
+  | ConfigFileUnreadable
+  | ConfigFileInvalid
+  | EnvironmentInvalid;
 
 type ProcessEnvSnapshot = Readonly<Record<string, string | undefined>>;
 
 const DEFAULT_RUNTIME_ENVIRONMENT: RuntimeEnvironment = "development";
 const DEFAULT_LOG_LEVEL: RuntimeLogLevel = "info";
 const DEFAULT_SERVICE_NAME = "moltzap-server";
+const DECIMAL_RADIX = 10;
+
+const optionalEnv = (key: string) =>
+  Config.option(Config.string(key)).pipe(Config.map(Option.getOrUndefined));
+
+const RuntimeEnvSnapshotConfig = Config.all({
+  CORS_ORIGINS: optionalEnv("CORS_ORIGINS"),
+  DATABASE_URL: optionalEnv("DATABASE_URL"),
+  ENCRYPTION_MASTER_SECRET: optionalEnv("ENCRYPTION_MASTER_SECRET"),
+  LOG_LEVEL: optionalEnv("LOG_LEVEL"),
+  MOLTZAP_CONFIG: optionalEnv("MOLTZAP_CONFIG"),
+  MOLTZAP_DEV_MODE: optionalEnv("MOLTZAP_DEV_MODE"),
+  MOLTZAP_INCLUDE_FIBER_IDS: optionalEnv("MOLTZAP_INCLUDE_FIBER_IDS"),
+  MOLTZAP_INCLUDE_REQUEST_CONTEXT: optionalEnv(
+    "MOLTZAP_INCLUDE_REQUEST_CONTEXT",
+  ),
+  NODE_ENV: optionalEnv("NODE_ENV"),
+  OTEL_SERVICE_NAME: optionalEnv("OTEL_SERVICE_NAME"),
+  PORT: optionalEnv("PORT"),
+});
+
+const loadRuntimeEnvSnapshot: Effect.Effect<ProcessEnvSnapshot, never> =
+  RuntimeEnvSnapshotConfig.pipe(
+    Effect.withConfigProvider(ConfigProvider.fromEnv()),
+    Effect.orElseSucceed(() => ({})),
+  );
+
+const configFileUnreadable = (
+  path: RuntimeConfigPath,
+  message: string,
+): RuntimeConfigSurfaceError =>
+  new RuntimeConfigSurfaceError({
+    cause: new ConfigFileUnreadable({
+      path,
+      message,
+    }),
+  });
+
+const configFileInvalid = (
+  path: RuntimeConfigPath,
+  message: string,
+): RuntimeConfigSurfaceError =>
+  new RuntimeConfigSurfaceError({
+    cause: new ConfigFileInvalid({
+      path,
+      message,
+    }),
+  });
+
+const environmentInvalid = (
+  key: string,
+  message: string,
+): RuntimeConfigSurfaceError =>
+  new RuntimeConfigSurfaceError({
+    cause: new EnvironmentInvalid({
+      key,
+      message,
+    }),
+  });
 
 function resolveRuntimeConfigPath(
   input: LoadRuntimeConfigInput,
@@ -76,40 +149,7 @@ function resolveRuntimeConfigPath(
 ): RuntimeConfigPath {
   const selected =
     input.configPath ?? processEnv["MOLTZAP_CONFIG"] ?? "moltzap.yaml";
-  return selected as RuntimeConfigPath;
-}
-
-function replaceProcessEnv(next: ProcessEnvSnapshot): void {
-  // Snapshot before mutation: when `next === process.env`, deleting keys
-  // from process.env would also empty `next`, leaving the iteration over
-  // entries empty and process.env wiped. Copy first, then delete-and-replace.
-  const snapshot = { ...next };
-  for (const key of Object.keys(process.env)) {
-    delete process.env[key];
-  }
-  for (const [key, value] of Object.entries(snapshot)) {
-    if (value !== undefined) {
-      process.env[key] = value;
-    }
-  }
-}
-
-function withPatchedProcessEnv<A, E, R>(
-  processEnv: ProcessEnvSnapshot,
-  effect: Effect.Effect<A, E, R>,
-): Effect.Effect<A, E, R> {
-  return Effect.acquireUseRelease(
-    Effect.sync(() => {
-      const previous = { ...process.env };
-      replaceProcessEnv(processEnv);
-      return previous;
-    }),
-    () => effect,
-    (previous) =>
-      Effect.sync(() => {
-        replaceProcessEnv(previous);
-      }),
-  );
+  return RuntimeConfigPath(selected);
 }
 
 function mapConfigLoadError(
@@ -118,32 +158,14 @@ function mapConfigLoadError(
 ): RuntimeConfigSurfaceError {
   switch (error.kind) {
     case "read":
-      return new RuntimeConfigSurfaceError({
-        cause: {
-          _tag: "ConfigFileUnreadable",
-          path: configPath,
-          message: error.message,
-        },
-      });
+      return configFileUnreadable(configPath, error.message);
     case "env": {
       const missingKey = error.message.match(/"([^"]+)"/)?.[1] ?? "unknown";
-      return new RuntimeConfigSurfaceError({
-        cause: {
-          _tag: "EnvironmentInvalid",
-          key: missingKey,
-          message: error.message,
-        },
-      });
+      return environmentInvalid(missingKey, error.message);
     }
     case "yaml":
     case "validation":
-      return new RuntimeConfigSurfaceError({
-        cause: {
-          _tag: "ConfigFileInvalid",
-          path: configPath,
-          message: error.message,
-        },
-      });
+      return configFileInvalid(configPath, error.message);
   }
 }
 
@@ -194,13 +216,10 @@ function resolveRuntimeEnvironment(
       return Effect.succeed(raw);
     default:
       return Effect.fail(
-        new RuntimeConfigSurfaceError({
-          cause: {
-            _tag: "EnvironmentInvalid",
-            key: "NODE_ENV",
-            message: `NODE_ENV must be one of development, test, production; received "${raw}"`,
-          },
-        }),
+        environmentInvalid(
+          "NODE_ENV",
+          `NODE_ENV must be one of development, test, production; received "${raw}"`,
+        ),
       );
   }
 }
@@ -219,13 +238,10 @@ function resolveRuntimeLogLevel(
       return Effect.succeed(raw);
     default:
       return Effect.fail(
-        new RuntimeConfigSurfaceError({
-          cause: {
-            _tag: "EnvironmentInvalid",
-            key: "LOG_LEVEL",
-            message: `LOG_LEVEL must be one of debug, info, warn, error; received "${raw}"`,
-          },
-        }),
+        environmentInvalid(
+          "LOG_LEVEL",
+          `LOG_LEVEL must be one of debug, info, warn, error; received "${raw}"`,
+        ),
       );
   }
 }
@@ -256,13 +272,10 @@ function parseBooleanEnv(
     return Effect.succeed(false);
   }
   return Effect.fail(
-    new RuntimeConfigSurfaceError({
-      cause: {
-        _tag: "EnvironmentInvalid",
-        key,
-        message: `${key} must be a boolean-like value (true/false/1/0/yes/no/on/off); received "${raw}"`,
-      },
-    }),
+    environmentInvalid(
+      key,
+      `${key} must be a boolean-like value (true/false/1/0/yes/no/on/off); received "${raw}"`,
+    ),
   );
 }
 
@@ -275,16 +288,10 @@ function parseIntegerEnv(
   }
   if (!/^-?\d+$/.test(raw.trim())) {
     return Effect.fail(
-      new RuntimeConfigSurfaceError({
-        cause: {
-          _tag: "EnvironmentInvalid",
-          key,
-          message: `${key} must be an integer; received "${raw}"`,
-        },
-      }),
+      environmentInvalid(key, `${key} must be an integer; received "${raw}"`),
     );
   }
-  return Effect.succeed(Number.parseInt(raw, 10));
+  return Effect.succeed(Number.parseInt(raw, DECIMAL_RADIX));
 }
 
 function resolveTracingServiceName(
@@ -295,13 +302,10 @@ function resolveTracingServiceName(
   }
   if (raw.trim().length === 0) {
     return Effect.fail(
-      new RuntimeConfigSurfaceError({
-        cause: {
-          _tag: "EnvironmentInvalid",
-          key: "OTEL_SERVICE_NAME",
-          message: "OTEL_SERVICE_NAME must be a non-empty string when set",
-        },
-      }),
+      environmentInvalid(
+        "OTEL_SERVICE_NAME",
+        "OTEL_SERVICE_NAME must be a non-empty string when set",
+      ),
     );
   }
   return Effect.succeed(raw);
@@ -360,14 +364,14 @@ function buildServerConfigProviderInput(
 
 /** Empty app config used when no YAML file is found on the auto-discovery path. */
 const EMPTY_APP_CONFIG: MoltZapAppConfig & { _configDir: string } = {
-  _configDir: process.cwd(),
+  _configDir: globalThis.process.cwd(),
 };
 
 export function loadRuntimeProcessConfig(
   input: LoadRuntimeConfigInput,
 ): Effect.Effect<RuntimeProcessConfig, RuntimeConfigSurfaceError, never> {
   return Effect.gen(function* () {
-    const processEnv = input.processEnv ?? process.env;
+    const processEnv = input.processEnv ?? (yield* loadRuntimeEnvSnapshot);
     const configPath = resolveRuntimeConfigPath(input, processEnv);
 
     // Whether the operator explicitly asked for a config file (CLI arg or env
@@ -377,9 +381,9 @@ export function loadRuntimeProcessConfig(
       input.configPath !== undefined ||
       processEnv["MOLTZAP_CONFIG"] !== undefined;
 
-    const loadedAppConfig = yield* withPatchedProcessEnv(
+    const loadedAppConfig = yield* loadConfigFromFile(
+      configPath,
       processEnv,
-      loadConfigFromFile(configPath),
     ).pipe(
       Effect.catchIf(
         (error): error is ConfigLoadError =>
@@ -423,15 +427,11 @@ export function loadRuntimeProcessConfig(
     );
     const server = yield* ServerConfigLoader.pipe(
       Effect.withConfigProvider(ConfigProvider.fromJson(serverProviderInput)),
-      Effect.mapError(
-        (configError) =>
-          new RuntimeConfigSurfaceError({
-            cause: {
-              _tag: "ConfigFileInvalid",
-              path: configPath,
-              message: `Invalid runtime config in "${configPath}": ${formatConfigError(configError)}`,
-            },
-          }),
+      Effect.mapError((configError) =>
+        configFileInvalid(
+          configPath,
+          `Invalid runtime config in "${configPath}": ${formatConfigError(configError)}`,
+        ),
       ),
     );
 

@@ -16,6 +16,8 @@ import {
   registerAgent,
 } from "./helpers.js";
 
+import { AppsCreate, Connect } from "@moltzap/protocol";
+
 const REGISTRATION_SECRET = "admin-test-secret-zxcv";
 // Arbitrary v4 UUID used as the "system user" identity in arena. moltzap's
 // schema has no users table; this UUID is just a label that satisfies the
@@ -149,7 +151,7 @@ describe("/api/v1/admin/register-agent — secret-gated ownerUserId", () => {
         });
         trackClient(client);
 
-        const session = (yield* client.sendRpc("apps/create", {
+        const session = (yield* client.sendRpc(AppsCreate.name, {
           appId: ADMIN_TEST_MANIFEST.appId,
           invitedAgentIds: [invitee.agentId],
         })) as { session: { id: string; status: string } };
@@ -276,7 +278,7 @@ describe("/api/v1/admin/register-agent — secret-gated ownerUserId", () => {
       });
       trackClient(staleClient);
       const staleResult = yield* Effect.exit(
-        staleClient.sendRpc("auth/connect", {
+        staleClient.sendRpc(Connect.name, {
           agentKey: oldKey,
           minProtocol: PROTOCOL_VERSION,
           maxProtocol: PROTOCOL_VERSION,
@@ -291,7 +293,7 @@ describe("/api/v1/admin/register-agent — secret-gated ownerUserId", () => {
         autoConnect: false,
       });
       trackClient(freshClient);
-      const hello = (yield* freshClient.sendRpc("auth/connect", {
+      const hello = (yield* freshClient.sendRpc(Connect.name, {
         agentKey: rotated.apiKey,
         minProtocol: PROTOCOL_VERSION,
         maxProtocol: PROTOCOL_VERSION,

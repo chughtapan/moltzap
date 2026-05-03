@@ -14,8 +14,13 @@
  * directly via `Effect.provideService`.
  */
 import * as net from "node:net";
-import { Context, Data, Effect, Layer, Scope } from "effect";
+import { Config, Context, Data, Effect, Layer, Option, Scope } from "effect";
 import { MoltZapService } from "../service.js";
+import {
+  NotConnectedError,
+  RpcServerError,
+  RpcTimeoutError,
+} from "../runtime/errors.js";
 import { MoltZapWsClient } from "../ws-client.js";
 import { request as daemonRequest } from "./socket-client.js";
 import type { ProfileError } from "./profile.js";
@@ -117,6 +122,8 @@ export interface TransportOptions {
   readonly impersonateKey?: string;
   /** Resolved profile apiKey if `--profile <name>` supplied. */
   readonly profileKey?: string;
+  /** Resolved MOLTZAP_API_KEY for the legacy direct fallback branch. */
+  readonly envFallbackKey?: string;
   /** Server URL resolved from config + env (wss:// or http://). */
   readonly serverUrl: string;
   /** Daemon socket path (absent only in tests that don't set it). */
@@ -144,6 +151,26 @@ export type TransportDecision =
   | { readonly _tag: "UseTest" };
 
 const DEFAULT_SERVER_URL = "wss://api.moltzap.xyz";
+const DAEMON_TIMEOUT_MS = 10_000;
+const JSON_RPC_SERVER_ERROR_CODE = -32000;
+const PROBE_DAEMON_TIMEOUT_MS = 250;
+
+const EnvServerUrl = Config.option(Config.string("MOLTZAP_SERVER_URL"));
+const EnvApiKey = Config.option(Config.string("MOLTZAP_API_KEY"));
+
+const loadEnvServerUrl: Effect.Effect<string | undefined, never> =
+  EnvServerUrl.pipe(
+    Effect.map(Option.getOrUndefined),
+    Effect.orElseSucceed(() => undefined),
+  );
+const loadEnvServerUrlWithDefault: Effect.Effect<string, never> =
+  loadEnvServerUrl.pipe(
+    Effect.map((serverUrl) => serverUrl ?? DEFAULT_SERVER_URL),
+  );
+const loadEnvApiKey: Effect.Effect<string | undefined, never> = EnvApiKey.pipe(
+  Effect.map(Option.getOrUndefined),
+  Effect.orElseSucceed(() => undefined),
+);
 
 /**
  * Decision function — Effect-returning because the env-fallback branch
@@ -163,7 +190,7 @@ export const decideTransport = (
       return { _tag: "UseDirect", reason: "profile" } as const;
     }
     // Env-fallback branch: MOLTZAP_API_KEY is set AND daemon is unreachable.
-    const hasEnvKey = process.env.MOLTZAP_API_KEY !== undefined;
+    const hasEnvKey = options.envFallbackKey !== undefined;
     if (hasEnvKey && options.probeDaemon !== undefined) {
       const reachable = yield* options.probeDaemon();
       if (!reachable) {
@@ -191,7 +218,7 @@ const tagDaemonError = (method: string, err: Error): TransportError => {
     });
   }
   if (msg.includes("timed out") || msg.includes("aborted")) {
-    return new TransportTimeoutError({ method, timeoutMs: 10_000 });
+    return new TransportTimeoutError({ method, timeoutMs: DAEMON_TIMEOUT_MS });
   }
   if (msg.startsWith("Malformed")) {
     return new TransportDecodeError({ method, cause: err });
@@ -199,7 +226,7 @@ const tagDaemonError = (method: string, err: Error): TransportError => {
   // Remote error surfaces as a bare message from the service.
   return new TransportRpcError({
     method,
-    code: -32000,
+    code: JSON_RPC_SERVER_ERROR_CODE,
     message: msg,
   });
 };
@@ -214,40 +241,30 @@ const makeDaemonTransport = (socketPath: string): Transport => ({
 });
 
 // Map ws-client errors (NotConnectedError | RpcTimeoutError | RpcServerError)
-// to TransportError tags. Names are matched via _tag rather than instanceof
-// to avoid a circular import chain through runtime/errors.
+// to TransportError tags.
 /** @internal exported for decoder-fixture tests only (sbd#198). */
-export const tagWsError = (
-  method: string,
-  err: {
-    readonly _tag?: string;
-    readonly message?: string;
-    readonly code?: number;
-    readonly timeoutMs?: number;
-    readonly data?: unknown;
-  },
-): TransportError => {
-  switch (err._tag) {
-    case "NotConnectedError":
-      return new ServiceUnreachableError({
-        socketPath: "(direct-ws)",
-        cause: err,
-      });
-    case "RpcTimeoutError":
-      return new TransportTimeoutError({
-        method,
-        timeoutMs: err.timeoutMs ?? 30_000,
-      });
-    case "RpcServerError":
-      return new TransportRpcError({
-        method,
-        code: err.code ?? -32000,
-        message: err.message ?? "RPC error",
-        data: err.data,
-      });
-    default:
-      return new TransportDecodeError({ method, cause: err });
+export const tagWsError = (method: string, err: unknown): TransportError => {
+  if (err instanceof NotConnectedError) {
+    return new ServiceUnreachableError({
+      socketPath: "(direct-ws)",
+      cause: err,
+    });
   }
+  if (err instanceof RpcTimeoutError) {
+    return new TransportTimeoutError({
+      method,
+      timeoutMs: err.timeoutMs,
+    });
+  }
+  if (err instanceof RpcServerError) {
+    return new TransportRpcError({
+      method,
+      code: err.code,
+      message: err.message,
+      data: err.data,
+    });
+  }
+  return new TransportDecodeError({ method, cause: err });
 };
 
 /**
@@ -359,7 +376,7 @@ export const makeTransportLayer = (
               key = options.profileKey;
               break;
             case "env-fallback":
-              key = process.env.MOLTZAP_API_KEY;
+              key = options.envFallbackKey;
               break;
           }
           if (key === undefined) {
@@ -446,7 +463,7 @@ export const resolveTransportInputs = (parsed: {
     // ─── Branch A: impersonate (--as) ──────────────────────────────────────
     // Invariant §4.2: no loadConfig, no MOLTZAP_API_KEY read, no config.json open.
     if (parsed.impersonateKey !== undefined) {
-      const serverUrl = process.env.MOLTZAP_SERVER_URL ?? DEFAULT_SERVER_URL;
+      const serverUrl = yield* loadEnvServerUrlWithDefault;
       return {
         impersonateKey: parsed.impersonateKey,
         serverUrl,
@@ -457,18 +474,19 @@ export const resolveTransportInputs = (parsed: {
       const name = yield* parseProfileName(parsed.profileName);
       const layered = yield* loadLayeredConfig;
       const record = yield* resolveProfileAuth(name);
-      const serverUrl =
-        process.env.MOLTZAP_SERVER_URL ?? record.serverUrl ?? layered.serverUrl;
+      const serverUrl = yield* loadEnvServerUrl;
       return {
         profileKey: record.apiKey,
-        serverUrl,
+        serverUrl: serverUrl ?? record.serverUrl ?? layered.serverUrl,
         socketPath: MoltZapService.SOCKET_PATH,
         probeDaemon: probeDaemonDefault,
       };
     }
     // ─── Branch C: legacy daemon / env fallback ────────────────────────────
-    const serverUrl = process.env.MOLTZAP_SERVER_URL ?? DEFAULT_SERVER_URL;
+    const serverUrl = yield* loadEnvServerUrlWithDefault;
+    const envFallbackKey = yield* loadEnvApiKey;
     return {
+      ...(envFallbackKey !== undefined ? { envFallbackKey } : {}),
       serverUrl,
       socketPath: MoltZapService.SOCKET_PATH,
       probeDaemon: probeDaemonDefault,
@@ -495,7 +513,7 @@ const probeDaemonDefault = (): Effect.Effect<boolean, never> =>
       resume(Effect.succeed(reachable));
     };
     const conn = net.createConnection(MoltZapService.SOCKET_PATH);
-    const timer = setTimeout(() => done(false), 250);
+    const timer = setTimeout(() => done(false), PROBE_DAEMON_TIMEOUT_MS);
     conn.once("connect", () => done(true));
     conn.once("error", () => done(false));
   });

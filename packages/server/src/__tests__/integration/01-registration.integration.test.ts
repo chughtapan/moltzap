@@ -11,6 +11,8 @@ import {
 } from "./helpers.js";
 import { getCoreDb } from "../../test-utils/index.js";
 
+import { Connect, ConversationsList } from "@moltzap/protocol";
+
 let baseUrl: string;
 let wsUrl: string;
 
@@ -59,7 +61,7 @@ describe("Scenario 1: Registration", () => {
           autoConnect: false,
         });
 
-        const hello = (yield* client.sendRpc("auth/connect", {
+        const hello = (yield* client.sendRpc(Connect.name, {
           agentKey: reg.apiKey,
           minProtocol: PROTOCOL_VERSION,
           maxProtocol: PROTOCOL_VERSION,
@@ -67,7 +69,7 @@ describe("Scenario 1: Registration", () => {
         expect(hello.protocolVersion).toBeDefined();
         expect(hello.agentId).toBe(reg.agentId);
 
-        const result = (yield* client.sendRpc("conversations/list", {})) as {
+        const result = (yield* client.sendRpc(ConversationsList.name, {})) as {
           conversations: unknown[];
         };
         expect(result.conversations).toEqual([]);
@@ -96,7 +98,7 @@ describe("Scenario 1: Registration", () => {
         autoConnect: false,
       });
       const result = yield* Effect.exit(
-        client.sendRpc("auth/connect", {
+        client.sendRpc(Connect.name, {
           agentKey: reg.apiKey,
           minProtocol: PROTOCOL_VERSION,
           maxProtocol: PROTOCOL_VERSION,

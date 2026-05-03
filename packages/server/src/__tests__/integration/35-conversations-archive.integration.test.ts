@@ -13,6 +13,13 @@ import type { ConnectedAgent } from "./helpers.js";
 import type { CoreApp } from "../../app/types.js";
 import { getCoreDb, expectRpcFailure } from "../../test-utils/index.js";
 
+import {
+  AppsCreate,
+  ConversationsArchive,
+  ConversationsList,
+  ConversationsUnarchive,
+} from "@moltzap/protocol";
+
 let coreApp: CoreApp;
 
 beforeAll(async () => {
@@ -39,7 +46,9 @@ describe("conversations/archive + /unarchive", () => {
       ];
       const conversationId = group.conversationId!;
 
-      yield* alice.client.sendRpc("conversations/archive", { conversationId });
+      yield* alice.client.sendRpc(ConversationsArchive.name, {
+        conversationId,
+      });
 
       const bobArchived = yield* bob.client.waitForEvent(
         "conversations/archived",
@@ -58,27 +67,27 @@ describe("conversations/archive + /unarchive", () => {
       expect((eveArchived.data as { by: string }).by).toBe(alice.agentId);
 
       const listDefault = (yield* bob.client.sendRpc(
-        "conversations/list",
+        ConversationsList.name,
         {},
       )) as { conversations: Array<{ id: string }> };
       expect(
         listDefault.conversations.find((c) => c.id === conversationId),
       ).toBeUndefined();
 
-      const listInclude = (yield* bob.client.sendRpc("conversations/list", {
+      const listInclude = (yield* bob.client.sendRpc(ConversationsList.name, {
         archived: "include",
       })) as { conversations: Array<{ id: string }> };
       expect(
         listInclude.conversations.find((c) => c.id === conversationId),
       ).toBeDefined();
 
-      const listOnly = (yield* bob.client.sendRpc("conversations/list", {
+      const listOnly = (yield* bob.client.sendRpc(ConversationsList.name, {
         archived: "only",
       })) as { conversations: Array<{ id: string }> };
       expect(listOnly.conversations.length).toBe(1);
       expect(listOnly.conversations[0]!.id).toBe(conversationId);
 
-      yield* alice.client.sendRpc("conversations/unarchive", {
+      yield* alice.client.sendRpc(ConversationsUnarchive.name, {
         conversationId,
       });
       const bobUnarchived = yield* bob.client.waitForEvent(
@@ -89,7 +98,7 @@ describe("conversations/archive + /unarchive", () => {
       ).toBe(conversationId);
 
       const listAfter = (yield* bob.client.sendRpc(
-        "conversations/list",
+        ConversationsList.name,
         {},
       )) as { conversations: Array<{ id: string }> };
       expect(
@@ -105,7 +114,7 @@ describe("conversations/archive + /unarchive", () => {
       const conversationId = group.conversationId!;
 
       yield* expectRpcFailure(
-        bob.client.sendRpc("conversations/archive", { conversationId }),
+        bob.client.sendRpc(ConversationsArchive.name, { conversationId }),
         ErrorCodes.Forbidden,
       );
     }),
@@ -129,7 +138,7 @@ describe("conversations/archive + /unarchive", () => {
           .execute(),
       );
 
-      yield* bob.client.sendRpc("conversations/archive", { conversationId });
+      yield* bob.client.sendRpc(ConversationsArchive.name, { conversationId });
     }),
   );
 
@@ -139,8 +148,12 @@ describe("conversations/archive + /unarchive", () => {
       const [alice] = group.agents as [ConnectedAgent, ConnectedAgent];
       const conversationId = group.conversationId!;
 
-      yield* alice.client.sendRpc("conversations/archive", { conversationId });
-      yield* alice.client.sendRpc("conversations/archive", { conversationId });
+      yield* alice.client.sendRpc(ConversationsArchive.name, {
+        conversationId,
+      });
+      yield* alice.client.sendRpc(ConversationsArchive.name, {
+        conversationId,
+      });
     }),
   );
 
@@ -150,7 +163,7 @@ describe("conversations/archive + /unarchive", () => {
       const [alice] = group.agents as [ConnectedAgent, ConnectedAgent];
       const conversationId = group.conversationId!;
 
-      yield* alice.client.sendRpc("conversations/unarchive", {
+      yield* alice.client.sendRpc(ConversationsUnarchive.name, {
         conversationId,
       });
     }),
@@ -184,7 +197,7 @@ describe("conversations/archive + /unarchive", () => {
           .execute(),
       );
 
-      const session = (yield* alice.client.sendRpc("apps/create", {
+      const session = (yield* alice.client.sendRpc(AppsCreate.name, {
         appId,
         invitedAgentIds: [],
       })) as {
@@ -193,7 +206,7 @@ describe("conversations/archive + /unarchive", () => {
       const convId = session.session.conversations["main"]!;
 
       const err = yield* expectRpcFailure(
-        alice.client.sendRpc("conversations/archive", {
+        alice.client.sendRpc(ConversationsArchive.name, {
           conversationId: convId,
         }),
         ErrorCodes.Conflict,
@@ -220,8 +233,8 @@ describe("conversations/archive + /unarchive", () => {
 
       const [r1, r2] = yield* Effect.all(
         [
-          alice.client.sendRpc("conversations/archive", { conversationId }),
-          bob.client.sendRpc("conversations/archive", { conversationId }),
+          alice.client.sendRpc(ConversationsArchive.name, { conversationId }),
+          bob.client.sendRpc(ConversationsArchive.name, { conversationId }),
         ],
         { concurrency: "unbounded" },
       );

@@ -12,7 +12,7 @@
  * `PropertyInvariantViolation`.
  */
 import * as fc from "fast-check";
-import { Effect } from "effect";
+import { Effect, Either } from "effect";
 import { Value } from "@sinclair/typebox/value";
 import {
   allRpcMethods,
@@ -25,6 +25,7 @@ import {
   arbitraryMalformedFrame,
 } from "../arbitraries/frames.js";
 import { decodeFrame, encodeFrame } from "../codec.js";
+import { FrameSchemaError } from "../errors.js";
 import {
   EventFrameSchema,
   RequestFrameSchema,
@@ -41,7 +42,17 @@ import {
   registerProperty,
 } from "./registry.js";
 
+import { AgentsList, Connect } from "../../schema/methods/auth.js";
+import { ContactsList } from "../../schema/methods/contacts.js";
+import { ConversationsList } from "../../schema/methods/conversations.js";
+
 const CATEGORY = "schema-conformance" as const;
+const DEFAULT_MALFORMED_RESPONSE_RUNS = 3;
+const DEFAULT_EVENT_SCHEMA_RUNS = 20;
+const DEFAULT_ROUNDTRIP_RUNS = 50;
+const DEFAULT_MALFORMED_S2C_RUNS = 50;
+const DEFAULT_RESPONSE_VALIDATION_RUNS = 50;
+const DEFAULT_DIRECTION_PARTITION_RUNS = 30;
 const DEFAULT_TIMEOUT_MS = 3000;
 const DEFAULT_CAPTURE_CAPACITY = 64;
 
@@ -122,7 +133,7 @@ export function registerRequestWellFormedness(
         ),
         {
           seed: ctx.seed,
-          numRuns: ctx.opts.numRuns ?? 3,
+          numRuns: ctx.opts.numRuns ?? DEFAULT_MALFORMED_RESPONSE_RUNS,
           // Dropped-response counterexamples pay the client RPC timeout.
           // Shrinking repeats that timeout and makes executable proofs
           // timing-sensitive under stress without increasing coverage.
@@ -159,13 +170,16 @@ export function registerEventWellFormedness(ctx: ConformanceRunContext): void {
             const decoded = Effect.runSync(
               Effect.either(decodeFrame(raw, "inbound")),
             );
-            if (decoded._tag !== "Right") return false;
-            return (
-              decoded.right.type === "event" &&
-              Value.Check(EventFrameSchema, decoded.right)
-            );
+            return Either.match(decoded, {
+              onLeft: () => false,
+              onRight: (frame) =>
+                frame.type === "event" && Value.Check(EventFrameSchema, frame),
+            });
           }),
-          { seed: ctx.seed, numRuns: ctx.opts.numRuns ?? 20 },
+          {
+            seed: ctx.seed,
+            numRuns: ctx.opts.numRuns ?? DEFAULT_EVENT_SCHEMA_RUNS,
+          },
         ),
       ),
     ),
@@ -189,15 +203,22 @@ export function registerRoundTripIdentity(ctx: ConformanceRunContext): void {
               const re = Effect.runSync(
                 Effect.either(decodeFrame(raw, "inbound")),
               );
-              if (re._tag === "Left") return true; // generator-side drift
-              const redone = encodeFrame(re.right);
-              return (
-                JSON.stringify(JSON.parse(raw)) ===
-                JSON.stringify(JSON.parse(redone))
-              );
+              return Either.match(re, {
+                onLeft: () => true, // generator-side drift
+                onRight: (frame) => {
+                  const redone = encodeFrame(frame);
+                  return (
+                    JSON.stringify(JSON.parse(raw)) ===
+                    JSON.stringify(JSON.parse(redone))
+                  );
+                },
+              });
             },
           ),
-          { seed: ctx.seed, numRuns: ctx.opts.numRuns ?? 50 },
+          {
+            seed: ctx.seed,
+            numRuns: ctx.opts.numRuns ?? DEFAULT_ROUNDTRIP_RUNS,
+          },
         ),
       ),
     ),
@@ -236,7 +257,7 @@ export function registerMalformedFrameHandling(
                   malformedQuiescenceMs: 500,
                 });
                 const response = yield* client.sendMalformed({
-                  baseMethod: "agents/list",
+                  baseMethod: AgentsList.name,
                   kind,
                   seed,
                 });
@@ -244,7 +265,7 @@ export function registerMalformedFrameHandling(
                 // normal RPC — proves the server didn't crash or
                 // poison its state.
                 const post = yield* client
-                  .sendRpc("agents/list", {})
+                  .sendRpc(AgentsList.name, {})
                   .pipe(Effect.either);
                 return { malformedReply: response, post };
               }),
@@ -260,13 +281,19 @@ export function registerMalformedFrameHandling(
                 // to count as server-alive, which is exactly what the
                 // property must reject. Require the post-malformed call to
                 // return cleanly.
-                const stillAlive = result.post._tag === "Right";
+                const stillAlive = Either.match(result.post, {
+                  onLeft: () => false,
+                  onRight: () => true,
+                });
                 return validReply && stillAlive;
               }),
             ),
           ),
         ),
-        { seed: ctx.seed, numRuns: ctx.opts.numRuns ?? 3 },
+        {
+          seed: ctx.seed,
+          numRuns: ctx.opts.numRuns ?? DEFAULT_MALFORMED_RESPONSE_RUNS,
+        },
       ),
     ),
   );
@@ -280,10 +307,10 @@ export function registerMalformedFrameHandling(
  * render every RPC unreachable.
  */
 const COVERAGE_SAMPLE = [
-  "auth/connect",
-  "agents/list",
-  "conversations/list",
-  "contacts/list",
+  Connect.name,
+  AgentsList.name,
+  ConversationsList.name,
+  ContactsList.name,
 ] as const;
 
 /**
@@ -312,16 +339,23 @@ export function registerS2cRequestRoundTripIdentity(
             const decoded = Effect.runSync(
               Effect.either(decodeFrame(raw, "inbound")),
             );
-            if (decoded._tag !== "Right") return false;
-            if (decoded.right.type !== "request") return false;
-            if (decoded.right.direction !== "s2c") return false;
-            const redone = encodeFrame(decoded.right);
-            return (
-              JSON.stringify(JSON.parse(raw)) ===
-              JSON.stringify(JSON.parse(redone))
-            );
+            return Either.match(decoded, {
+              onLeft: () => false,
+              onRight: (frame) => {
+                if (frame.type !== "request") return false;
+                if (frame.direction !== "s2c") return false;
+                const redone = encodeFrame(frame);
+                return (
+                  JSON.stringify(JSON.parse(raw)) ===
+                  JSON.stringify(JSON.parse(redone))
+                );
+              },
+            });
           }),
-          { seed: ctx.seed, numRuns: ctx.opts.numRuns ?? 50 },
+          {
+            seed: ctx.seed,
+            numRuns: ctx.opts.numRuns ?? DEFAULT_ROUNDTRIP_RUNS,
+          },
         ),
       ),
     ),
@@ -349,7 +383,10 @@ export function registerS2cResponseValidation(
             if (!Value.Check(ResponseFrameSchema, frame)) return false;
             return frame.direction === "s2c";
           }),
-          { seed: ctx.seed, numRuns: ctx.opts.numRuns ?? 50 },
+          {
+            seed: ctx.seed,
+            numRuns: ctx.opts.numRuns ?? DEFAULT_RESPONSE_VALIDATION_RUNS,
+          },
         ),
       ),
     ),
@@ -377,21 +414,26 @@ export function registerS2cMalformedRequestHandling(
             const decoded = Effect.runSync(
               Effect.either(decodeFrame(raw, "inbound")),
             );
-            // Either decode fails with FrameSchemaError (rejected at the
-            // edge) or succeeds with a typed frame — both are fine. The
-            // crash-free contract is what this property enforces.
-            if (decoded._tag === "Left") {
-              return decoded.left._tag === "TestingFrameSchemaError";
-            }
-            // If decode succeeds, the frame must validate against its
-            // schema; the codec must not surface an in-between value.
-            const f = decoded.right;
-            if (f.type === "request") return Value.Check(RequestFrameSchema, f);
-            if (f.type === "response")
-              return Value.Check(ResponseFrameSchema, f);
-            return Value.Check(EventFrameSchema, f);
+            return Either.match(decoded, {
+              // Either decode fails with FrameSchemaError (rejected at the
+              // edge) or succeeds with a typed frame — both are fine. The
+              // crash-free contract is what this property enforces.
+              onLeft: (err) => err instanceof FrameSchemaError,
+              onRight: (frame) => {
+                // If decode succeeds, the frame must validate against its
+                // schema; the codec must not surface an in-between value.
+                if (frame.type === "request")
+                  return Value.Check(RequestFrameSchema, frame);
+                if (frame.type === "response")
+                  return Value.Check(ResponseFrameSchema, frame);
+                return Value.Check(EventFrameSchema, frame);
+              },
+            });
           }),
-          { seed: ctx.seed, numRuns: ctx.opts.numRuns ?? 50 },
+          {
+            seed: ctx.seed,
+            numRuns: ctx.opts.numRuns ?? DEFAULT_MALFORMED_S2C_RUNS,
+          },
         ),
       ),
     ),
@@ -428,8 +470,8 @@ export function registerDualDirectionIdCollision(
                 .string({ minLength: 1, maxLength: 32 })
                 .filter((s) => /^[a-zA-Z0-9_\-:.]+$/.test(s)),
               fc.constantFrom<string>(
-                "auth/connect",
-                "agents/list",
+                Connect.name,
+                AgentsList.name,
                 ...s2cRpcMethods.map((m) => m.name),
               ),
             ),
@@ -456,28 +498,37 @@ export function registerDualDirectionIdCollision(
               const decS2c = Effect.runSync(
                 Effect.either(decodeFrame(encodeFrame(s2c), "inbound")),
               );
-              if (decC2s._tag !== "Right" || decS2c._tag !== "Right") {
-                return false;
-              }
-              if (
-                decC2s.right.type !== "request" ||
-                decS2c.right.type !== "request"
-              ) {
-                return false;
-              }
-              // Same id, different direction — they are NOT equal frames
-              // and a pending map keyed on (direction, id) yields disjoint
-              // entries.
-              if (decC2s.right.id !== decS2c.right.id) return false;
-              if (decC2s.right.direction === decS2c.right.direction) {
-                return false;
-              }
-              const keyC2s = `${decC2s.right.direction}:${decC2s.right.id}`;
-              const keyS2c = `${decS2c.right.direction}:${decS2c.right.id}`;
-              return keyC2s !== keyS2c;
+              return Either.match(decC2s, {
+                onLeft: () => false,
+                onRight: (c2sFrame) =>
+                  Either.match(decS2c, {
+                    onLeft: () => false,
+                    onRight: (s2cFrame) => {
+                      if (
+                        c2sFrame.type !== "request" ||
+                        s2cFrame.type !== "request"
+                      ) {
+                        return false;
+                      }
+                      // Same id, different direction — they are NOT equal
+                      // frames and a pending map keyed on (direction, id)
+                      // yields disjoint entries.
+                      if (c2sFrame.id !== s2cFrame.id) return false;
+                      if (c2sFrame.direction === s2cFrame.direction) {
+                        return false;
+                      }
+                      const keyC2s = `${c2sFrame.direction}:${c2sFrame.id}`;
+                      const keyS2c = `${s2cFrame.direction}:${s2cFrame.id}`;
+                      return keyC2s !== keyS2c;
+                    },
+                  }),
+              });
             },
           ),
-          { seed: ctx.seed, numRuns: ctx.opts.numRuns ?? 30 },
+          {
+            seed: ctx.seed,
+            numRuns: ctx.opts.numRuns ?? DEFAULT_DIRECTION_PARTITION_RUNS,
+          },
         ),
       ),
     ),

@@ -9,6 +9,12 @@ import {
 } from "./helpers.js";
 import type { ConnectedAgent } from "./helpers.js";
 
+import {
+  ConversationsMute,
+  ConversationsUnmute,
+  MessagesSend,
+} from "@moltzap/protocol";
+
 beforeAll(async () => {
   await startTestServer();
 }, 60_000);
@@ -37,10 +43,10 @@ describe("Mute and Unmute", () => {
         const conversationId = group.conversationId!;
 
         // Alice mutes the conversation
-        yield* alice.client.sendRpc("conversations/mute", { conversationId });
+        yield* alice.client.sendRpc(ConversationsMute.name, { conversationId });
 
         // Bob sends a message — Eve should receive, Alice should NOT
-        yield* bob.client.sendRpc("messages/send", {
+        yield* bob.client.sendRpc(MessagesSend.name, {
           conversationId,
           parts: [{ type: "text", text: "Alice is muted" }],
         });
@@ -54,10 +60,12 @@ describe("Mute and Unmute", () => {
         expect(aliceMutedEvents).toHaveLength(0);
 
         // Alice unmutes
-        yield* alice.client.sendRpc("conversations/unmute", { conversationId });
+        yield* alice.client.sendRpc(ConversationsUnmute.name, {
+          conversationId,
+        });
 
         // Bob sends another message — Alice SHOULD receive it now
-        yield* bob.client.sendRpc("messages/send", {
+        yield* bob.client.sendRpc(MessagesSend.name, {
           conversationId,
           parts: [{ type: "text", text: "Alice is back" }],
         });

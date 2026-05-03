@@ -19,6 +19,14 @@ import type { TSchema, Static } from "@sinclair/typebox";
 import { Kind, OptionalKind } from "@sinclair/typebox";
 import * as fc from "fast-check";
 
+const DEFAULT_ARRAY_MAX_LENGTH = 5;
+const DEFAULT_NUMERIC_MIN = -1000;
+const DEFAULT_NUMERIC_MAX = 1000;
+const DEFAULT_JSON_MAX_DEPTH = 2;
+const DEFAULT_DATE_MIN_YEAR = 2000;
+const DEFAULT_DATE_MAX_YEAR = 2100;
+const DEFAULT_STRING_MAX_LENGTH = 16;
+
 type TBNode = TSchema & {
   readonly type?: string;
   readonly [Kind]?: string;
@@ -91,19 +99,21 @@ function walk(node: TBNode): fc.Arbitrary<unknown> {
       return objectArbitrary(node);
     case "array":
       return node.items
-        ? fc.array(walk(node.items as TBNode), { maxLength: 5 })
-        : fc.array(fc.anything(), { maxLength: 5 });
+        ? fc.array(walk(node.items as TBNode), {
+            maxLength: DEFAULT_ARRAY_MAX_LENGTH,
+          })
+        : fc.array(fc.anything(), { maxLength: DEFAULT_ARRAY_MAX_LENGTH });
     case "string":
       return stringArbitrary(node);
     case "integer":
       return fc.integer({
-        min: node.minimum ?? -1000,
-        max: node.maximum ?? 1000,
+        min: node.minimum ?? DEFAULT_NUMERIC_MIN,
+        max: node.maximum ?? DEFAULT_NUMERIC_MAX,
       });
     case "number":
       return fc.double({
-        min: node.minimum ?? -1000,
-        max: node.maximum ?? 1000,
+        min: node.minimum ?? DEFAULT_NUMERIC_MIN,
+        max: node.maximum ?? DEFAULT_NUMERIC_MAX,
         noNaN: true,
       });
     case "boolean":
@@ -113,7 +123,7 @@ function walk(node: TBNode): fc.Arbitrary<unknown> {
     default:
       // Unknown / Any / missing type → a biased "small JSON value" tree so
       // schema-permitted payloads stay small.
-      return fc.jsonValue({ maxDepth: 2 });
+      return fc.jsonValue({ maxDepth: DEFAULT_JSON_MAX_DEPTH });
   }
 }
 
@@ -122,13 +132,13 @@ function stringArbitrary(node: TBNode): fc.Arbitrary<string> {
     return fc.uuid();
   }
   if (node.format === "date-time") {
-    const min = Date.UTC(2000, 0, 1);
-    const max = Date.UTC(2100, 0, 1);
+    const min = Date.UTC(DEFAULT_DATE_MIN_YEAR, 0, 1);
+    const max = Date.UTC(DEFAULT_DATE_MAX_YEAR, 0, 1);
     return fc.integer({ min, max }).map((ms) => new Date(ms).toISOString());
   }
   return fc.string({
     minLength: node.minLength ?? 0,
-    maxLength: node.maxLength ?? 16,
+    maxLength: node.maxLength ?? DEFAULT_STRING_MAX_LENGTH,
   });
 }
 

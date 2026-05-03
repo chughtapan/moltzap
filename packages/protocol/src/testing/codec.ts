@@ -19,6 +19,12 @@ import {
 } from "../schema/frames.js";
 import { FrameSchemaError } from "./errors.js";
 
+const BIT_FLIP_VARIANTS = 8;
+const OVERSIZED_PADDING_BYTES = 65_536;
+const LCG_MULTIPLIER = 1_664_525;
+const LCG_INCREMENT = 1_013_904_223;
+const LCG_MODULUS = 0x100000000;
+
 /**
  * Valid-frame kinds exposed on the wire. The string literal discriminator
  * matches the `type` field in `RequestFrameSchema` / `ResponseFrameSchema`
@@ -168,7 +174,7 @@ export function malformFrame(
       const pos = Math.floor(rand() * rawJson.length);
       const ch = rawJson.charCodeAt(pos);
       // Flip one bit in the low byte (XOR with 1<<bit).
-      const bit = Math.floor(rand() * 8);
+      const bit = Math.floor(rand() * BIT_FLIP_VARIANTS);
       const flipped = String.fromCharCode(ch ^ (1 << bit));
       return rawJson.slice(0, pos) + flipped + rawJson.slice(pos + 1);
     }
@@ -182,7 +188,7 @@ export function malformFrame(
       // Uses `_padding` field at top level of the JSON object, which
       // `additionalProperties: false` rejects — also triggers "extra-property"
       // under different framing, but here the point is byte-size.
-      const padLen = 64 * 1024;
+      const padLen = OVERSIZED_PADDING_BYTES;
       const pad = "X".repeat(padLen);
       // Splice "_padding":"...", before the closing `}`.
       const idx = rawJson.lastIndexOf("}");
@@ -206,9 +212,13 @@ export function malformFrame(
     }
     default: {
       const _exhaustive: never = kind;
-      throw new Error(`malformFrame: unexpected kind ${String(_exhaustive)}`);
+      return absurdMalformedFrameKind(_exhaustive);
     }
   }
+}
+
+function absurdMalformedFrameKind(kind: never): never {
+  throw new Error(`malformFrame: unexpected kind ${String(kind)}`);
 }
 
 /**
@@ -219,7 +229,7 @@ export function malformFrame(
 function lcg(seed: number): () => number {
   let s = seed >>> 0 || 1;
   return () => {
-    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
-    return s / 0x100000000;
+    s = (Math.imul(s, LCG_MULTIPLIER) + LCG_INCREMENT) >>> 0;
+    return s / LCG_MODULUS;
   };
 }

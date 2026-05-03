@@ -2,8 +2,10 @@ import * as Socket from "@effect/platform/Socket";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import {
   Cause,
+  Data,
   Deferred,
   Duration,
+  Either,
   Effect,
   Exit,
   Fiber,
@@ -44,7 +46,14 @@ import {
   type PartitionedDispatcher,
   type PartitionedDispatcherConfig,
 } from "./internal/s2c-partitioned-dispatcher.js";
-import type { OfferRejected } from "./internal/s2c-dispatcher-errors.js";
+import {
+  MalformedPartitionKeyError,
+  PartitionLimitError,
+  PartitionQueueFullError,
+  type OfferRejected,
+} from "./internal/s2c-dispatcher-errors.js";
+
+import { Connect } from "@moltzap/protocol";
 
 // Re-export `CloseInfo` so consumers can import it from
 // `@moltzap/client` alongside `MoltZapWsClient` itself; the type lives
@@ -65,6 +74,12 @@ export interface RpcCallOptions {
 /** Reconnect backoff: 1s base, doubling per attempt up to the cap. */
 const BASE_RECONNECT_DELAY_MS = 1000;
 const MAX_RECONNECT_DELAY_MS = 30_000;
+const RECONNECT_BACKOFF_FACTOR = 2;
+const NORMAL_CLOSE_CODE = 1000;
+const EVENT_WAIT_TIMEOUT_MS = 5000;
+const WEB_SOCKET_OPEN_TIMEOUT_SECONDS = 10;
+const MALFORMED_FRAME_PREVIEW_CHARS = 200;
+const JSON_RPC_INTERNAL_ERROR_CODE = -32603;
 
 /**
  * Log 1-of-N malformed frames. A misbehaving server could flood us otherwise;
@@ -84,8 +99,17 @@ const MSG_RPC_ERROR_FALLBACK = "RPC error";
 
 const UTF8_DECODER = new TextDecoder("utf-8");
 
+const makeNotConnectedError = (): NotConnectedError =>
+  new NotConnectedError({ message: MSG_NOT_CONNECTED });
+
 /** Tagged error type for any pending-RPC Deferred. */
 type PendingError = RpcServerError | NotConnectedError | RpcTimeoutError;
+
+class ReconnectAttemptFailedError extends Data.TaggedError(
+  "ReconnectAttemptFailedError",
+)<{
+  readonly reason: string;
+}> {}
 
 /**
  * Per-connection runtime state. `None` = not connected → `sendRpc` fails fast
@@ -371,9 +395,7 @@ export class MoltZapWsClient {
   > {
     return Effect.suspend(() => {
       if (this.closed) {
-        return Effect.fail(
-          new NotConnectedError({ message: MSG_NOT_CONNECTED }),
-        );
+        return Effect.fail(makeNotConnectedError());
       }
       return this.connectEffect().pipe(
         // `makeWebSocket` requires `Socket.WebSocketConstructor`; our
@@ -475,9 +497,7 @@ export class MoltZapWsClient {
   ): Effect.Effect<EventSubscription, NotConnectedError> {
     return Effect.suspend(() => {
       if (this.closed) {
-        return Effect.fail(
-          new NotConnectedError({ message: MSG_NOT_CONNECTED }),
-        );
+        return Effect.fail(makeNotConnectedError());
       }
       return this.subscribers.register(filter, handler);
     });
@@ -492,6 +512,7 @@ export class MoltZapWsClient {
   close(): Effect.Effect<void, never> {
     return Effect.gen(this, function* () {
       if (this.closed) return;
+      const hasCompletedHandshake = this._helloOk !== null;
       this.closed = true;
       this._helloOk = null;
       if (this.reconnectFiber !== null) {
@@ -499,22 +520,21 @@ export class MoltZapWsClient {
         this.reconnectFiber = null;
         yield* Effect.forkDaemon(Fiber.interrupt(f));
       }
-      yield* Effect.all(
-        [
-          this.failAllPending(MSG_NOT_CONNECTED),
-          this.failAllEventWaiters(MSG_NOT_CONNECTED),
-          // Drop every live subscription so handlers stop firing once
-          // the client is permanently torn down. Idempotent.
-          this.subscribers.closeAll,
-        ],
-        { concurrency: "unbounded" },
-      );
+      yield* this.failAllPending(MSG_NOT_CONNECTED);
+      yield* this.failAllEventWaiters(MSG_NOT_CONNECTED);
+      // Drop every live subscription so handlers stop firing once
+      // the client is permanently torn down. Idempotent.
+      yield* this.subscribers.closeAll;
       const state = yield* Ref.getAndSet(this.stateRef, Option.none());
       if (Option.isSome(state)) {
-        yield* state.value
-          .write(new Socket.CloseEvent(1000, "normal"))
-          .pipe(Effect.orDie);
-        yield* Scope.close(state.value.scope, Exit.void);
+        if (hasCompletedHandshake) {
+          yield* state.value
+            .write(new Socket.CloseEvent(NORMAL_CLOSE_CODE, "normal"))
+            .pipe(Effect.orDie);
+          yield* Scope.close(state.value.scope, Exit.void);
+        } else {
+          this.runtime.runFork(Scope.close(state.value.scope, Exit.void));
+        }
         // The partitioned dispatcher's Scope is NOT bound to the
         // socket Scope (see ConnState doc): tear it down via runFork
         // so this Effect remains sync-runnable for callers using
@@ -540,7 +560,7 @@ export class MoltZapWsClient {
    * with a per-call timeout. */
   waitForEvent(
     eventName: string,
-    timeoutMs = 5000,
+    timeoutMs = EVENT_WAIT_TIMEOUT_MS,
   ): Effect.Effect<EventFrame, Error> {
     return Effect.gen(this, function* () {
       const buffered = yield* Ref.modify(this.eventsBufferRef, (events) => {
@@ -625,22 +645,23 @@ export class MoltZapWsClient {
 
       // Map Socket open failures (SocketGenericError / SocketCloseError) to
       // NotConnectedError so callers see a single typed error.
+      const openTimeout = Duration.seconds(WEB_SOCKET_OPEN_TIMEOUT_SECONDS);
       const socket = yield* Scope.extend(
-        Socket.makeWebSocket(url, { openTimeout: Duration.seconds(10) }),
+        Socket.makeWebSocket(url, { openTimeout }),
         scope,
       ).pipe(
+        Effect.timeoutFail({
+          duration: openTimeout,
+          onTimeout: makeNotConnectedError,
+        }),
         Effect.catchAllCause((cause) =>
           Effect.zipRight(
             Effect.sync(() =>
               this.options.logger?.warn("WebSocket open failed", cause),
             ),
-            Scope.close(scope, Exit.void).pipe(
-              Effect.zipRight(
-                Effect.fail(
-                  new NotConnectedError({ message: MSG_NOT_CONNECTED }),
-                ),
-              ),
-            ),
+            Effect.sync(() => {
+              this.runtime.runFork(Scope.close(scope, Exit.void));
+            }).pipe(Effect.zipRight(Effect.fail(makeNotConnectedError()))),
           ),
         ),
       );
@@ -703,7 +724,7 @@ export class MoltZapWsClient {
               // Unblock any `connect()` still awaiting the handshake.
               yield* Deferred.fail(
                 handshakeSettled,
-                new NotConnectedError({ message: MSG_NOT_CONNECTED }),
+                makeNotConnectedError(),
               ).pipe(Effect.ignore);
               // Clear connection state BEFORE the s2c teardown so
               // `sendRpc` and observers see the closed state immediately.
@@ -756,7 +777,7 @@ export class MoltZapWsClient {
         }),
       );
 
-      const authEffect = this.sendRpcEffect("auth/connect", {
+      const authEffect = this.sendRpcEffect(Connect.name, {
         agentKey: this.options.agentKey,
         minProtocol: PROTOCOL_VERSION,
         maxProtocol: PROTOCOL_VERSION,
@@ -800,9 +821,7 @@ export class MoltZapWsClient {
     return Effect.gen(this, function* () {
       const state = yield* Ref.get(this.stateRef);
       if (Option.isNone(state)) {
-        return yield* Effect.fail(
-          new NotConnectedError({ message: MSG_NOT_CONNECTED }),
-        );
+        return yield* Effect.fail(makeNotConnectedError());
       }
 
       const id = `rpc-${++this.requestCounter}`;
@@ -836,12 +855,17 @@ export class MoltZapWsClient {
         Effect.as(null),
       );
       const writeRace = yield* Effect.race(writeAttempt, earlyFailure);
-      if (writeRace !== null && writeRace._tag === "Left") {
-        this.options.logger?.warn("ws.send failed", writeRace.left);
+      const writeFailure =
+        writeRace === null
+          ? null
+          : Either.match(writeRace, {
+              onLeft: (err) => err,
+              onRight: () => null,
+            });
+      if (writeFailure !== null) {
+        this.options.logger?.warn("ws.send failed", writeFailure);
         yield* Ref.update(this.pendingRef, (m) => HashMap.remove(m, id));
-        return yield* Effect.fail(
-          new NotConnectedError({ message: MSG_NOT_CONNECTED }),
-        );
+        return yield* Effect.fail(makeNotConnectedError());
       }
 
       const timeoutMs = opts?.timeoutMs ?? RPC_TIMEOUT_MS;
@@ -903,37 +927,7 @@ export class MoltZapWsClient {
     requestId: string,
     write: ConnState["write"],
   ): Effect.Effect<void, never> {
-    const reply: ResponseFrame = (() => {
-      switch (err._tag) {
-        case "MalformedPartitionKeyError":
-          return responseFrame("s2c", requestId, {
-            error: {
-              code: -32602,
-              message: `Invalid params: ${err.reason}`,
-            },
-          });
-        case "PartitionLimitError":
-          return responseFrame("s2c", requestId, {
-            error: {
-              code: -32000,
-              message: `Server busy: partition limit reached (${err.activePartitions}/${err.maxPartitions})`,
-            },
-          });
-        case "PartitionQueueFullError":
-          return responseFrame("s2c", requestId, {
-            error: {
-              code: -32000,
-              message: `Server busy: partition queue full (capacity=${err.capacity})`,
-            },
-          });
-        default: {
-          const _exhaustive: never = err;
-          throw new Error(
-            `writeOfferRejection: unhandled OfferRejected tag: ${String(_exhaustive)}`,
-          );
-        }
-      }
-    })();
+    const reply = this.offerRejectedResponse(err, requestId);
     return write(JSON.stringify(reply)).pipe(
       Effect.catchAll((werr) =>
         Effect.sync(() =>
@@ -941,6 +935,38 @@ export class MoltZapWsClient {
         ),
       ),
     );
+  }
+
+  private offerRejectedResponse(
+    err: OfferRejected,
+    requestId: string,
+  ): ResponseFrame {
+    if (err instanceof MalformedPartitionKeyError) {
+      return responseFrame("s2c", requestId, {
+        error: {
+          code: -32602,
+          message: `Invalid params: ${err.reason}`,
+        },
+      });
+    }
+    if (err instanceof PartitionLimitError) {
+      return responseFrame("s2c", requestId, {
+        error: {
+          code: -32000,
+          message: `Server busy: partition limit reached (${err.activePartitions}/${err.maxPartitions})`,
+        },
+      });
+    }
+    if (err instanceof PartitionQueueFullError) {
+      return responseFrame("s2c", requestId, {
+        error: {
+          code: -32000,
+          message: `Server busy: partition queue full (capacity=${err.capacity})`,
+        },
+      });
+    }
+    const _exhaustive: never = err;
+    return _exhaustive;
   }
 
   /**
@@ -1030,7 +1056,7 @@ export class MoltZapWsClient {
             if (n === 1 || n % MALFORMED_LOG_EVERY === 0) {
               this.options.logger?.warn(
                 `Malformed frame (#${n}):`,
-                err.raw.slice(0, 200),
+                err.raw.slice(0, MALFORMED_FRAME_PREVIEW_CHARS),
               );
             }
             return null;
@@ -1054,7 +1080,10 @@ export class MoltZapWsClient {
             yield* Deferred.fail(
               pending,
               new RpcServerError({
-                code: typeof error.code === "number" ? error.code : -32603,
+                code:
+                  typeof error.code === "number"
+                    ? error.code
+                    : JSON_RPC_INTERNAL_ERROR_CODE,
                 message: error.message ?? MSG_RPC_ERROR_FALLBACK,
                 data: error.data,
               }),
@@ -1096,9 +1125,13 @@ export class MoltZapWsClient {
               params: decoded.params,
             }),
           );
-          if (offered._tag === "Left") {
+          const offerFailure = Either.match(offered, {
+            onLeft: (err) => err,
+            onRight: () => null,
+          });
+          if (offerFailure !== null) {
             yield* this.writeOfferRejection(
-              offered.left,
+              offerFailure,
               decoded.id,
               state.value.write,
             );
@@ -1191,12 +1224,17 @@ export class MoltZapWsClient {
         }),
       ),
       // Collapse typed errors so `Schedule.exponential` can retry.
-      Effect.mapError(() => new Error("reconnect attempt failed")),
+      Effect.mapError(
+        () =>
+          new ReconnectAttemptFailedError({
+            reason: "reconnect attempt failed",
+          }),
+      ),
     );
 
     const backoff = Schedule.exponential(
       Duration.millis(BASE_RECONNECT_DELAY_MS),
-      2,
+      RECONNECT_BACKOFF_FACTOR,
     ).pipe(
       Schedule.either(Schedule.spaced(Duration.millis(MAX_RECONNECT_DELAY_MS))),
       Schedule.jittered,

@@ -1,11 +1,16 @@
 import { Args, Command, Options } from "@effect/cli";
-import { Effect, Option } from "effect";
+import { Data, Effect, Option } from "effect";
 import type { ConversationSummary } from "@moltzap/protocol";
 import { request, resolveParticipant } from "../socket-client.js";
 
 const jsonOption = Options.boolean("json").pipe(
   Options.withDescription("Output as JSON"),
 );
+
+const DEFAULT_LIST_LIMIT = 20;
+const DEFAULT_HISTORY_LIMIT = 50;
+const JSON_INDENT_SPACES = 2;
+const MILLISECONDS_PER_MINUTE = 60_000;
 
 const wrap = <A>(
   effect: Effect.Effect<A, Error>,
@@ -23,7 +28,7 @@ const wrap = <A>(
   );
 
 const limitOption = Options.integer("limit").pipe(
-  Options.withDefault(20),
+  Options.withDefault(DEFAULT_LIST_LIMIT),
   Options.withDescription("Max conversations to list"),
 );
 
@@ -32,13 +37,15 @@ const listConversations = Command.make(
   { limit: limitOption, json: jsonOption },
   ({ limit, json }) =>
     wrap(
-      request("conversations/list", { limit }) as Effect.Effect<
+      request(ConversationsList.name, { limit }) as Effect.Effect<
         { conversations: ConversationSummary[] },
         Error
       >,
       (r) => {
         if (json) {
-          console.log(JSON.stringify(r.conversations, null, 2));
+          console.log(
+            JSON.stringify(r.conversations, null, JSON_INDENT_SPACES),
+          );
           return;
         }
         if (r.conversations.length === 0) {
@@ -88,7 +95,7 @@ const createConversation = Command.make(
         : parsed.length === 1
           ? "dm"
           : "group";
-      const result = (yield* request("conversations/create", {
+      const result = (yield* request(ConversationsCreate.name, {
         type: convType,
         name,
         participants: parsed,
@@ -114,7 +121,7 @@ const leaveConversation = Command.make(
   "leave",
   { conversationId: conversationIdArg },
   ({ conversationId }) =>
-    wrap(request("conversations/leave", { conversationId }), () => {
+    wrap(request(ConversationsLeave.name, { conversationId }), () => {
       console.log(`Left conversation ${conversationId}.`);
     }),
 ).pipe(Command.withDescription("Leave a conversation"));
@@ -130,7 +137,7 @@ const muteConversation = Command.make(
   ({ conversationId, until }) => {
     const params: Record<string, string> = { conversationId };
     if (Option.isSome(until)) params.until = until.value;
-    return wrap(request("conversations/mute", params), () => {
+    return wrap(request(ConversationsMute.name, params), () => {
       console.log(
         Option.isSome(until)
           ? `Conversation ${conversationId} muted until ${until.value}.`
@@ -144,7 +151,7 @@ const unmuteConversation = Command.make(
   "unmute",
   { conversationId: conversationIdArg },
   ({ conversationId }) =>
-    wrap(request("conversations/unmute", { conversationId }), () => {
+    wrap(request(ConversationsUnmute.name, { conversationId }), () => {
       console.log(`Conversation ${conversationId} unmuted.`);
     }),
 ).pipe(Command.withDescription("Unmute a conversation"));
@@ -158,7 +165,7 @@ const updateConversation = Command.make(
   { conversationId: conversationIdArg, name: nameOption },
   ({ conversationId, name }) =>
     wrap(
-      request("conversations/update", {
+      request(ConversationsUpdate.name, {
         conversationId,
         name,
       }) as Effect.Effect<
@@ -179,7 +186,7 @@ const addParticipantCommand = Command.make(
   ({ conversationId, participant }) =>
     Effect.gen(function* () {
       const ref = yield* resolveParticipant(participant);
-      yield* request("conversations/addParticipant", {
+      yield* request(ConversationsAddParticipant.name, {
         conversationId,
         participant: ref,
       });
@@ -200,7 +207,7 @@ const removeParticipantCommand = Command.make(
   ({ conversationId, participant }) =>
     Effect.gen(function* () {
       const ref = yield* resolveParticipant(participant);
-      yield* request("conversations/removeParticipant", {
+      yield* request(ConversationsRemoveParticipant.name, {
         conversationId,
         participant: ref,
       });
@@ -233,7 +240,7 @@ interface HistoryResult {
 }
 
 const historyLimitOption = Options.integer("limit").pipe(
-  Options.withDefault(50),
+  Options.withDefault(DEFAULT_HISTORY_LIMIT),
   Options.withDescription("Max messages to show"),
 );
 
@@ -249,7 +256,7 @@ const renderHistory = (
   json: boolean,
 ): void => {
   if (json) {
-    console.log(JSON.stringify(result, null, 2));
+    console.log(JSON.stringify(result, null, JSON_INDENT_SPACES));
     return;
   }
   if (result.messages.length === 0) {
@@ -266,7 +273,10 @@ const renderHistory = (
   for (const m of result.messages) {
     const ago = Math.max(
       0,
-      Math.round((Date.now() - new Date(m.createdAt).getTime()) / 60_000),
+      Math.round(
+        (Date.now() - new Date(m.createdAt).getTime()) /
+          MILLISECONDS_PER_MINUTE,
+      ),
     );
     const newMarker = m.isNew ? " *" : "";
     console.log(`  [${ago}m ago] ${m.senderName}: ${m.text}${newMarker}`);
@@ -320,6 +330,19 @@ import {
   type Transport,
   type TransportError,
 } from "../transport.js";
+import {
+  ConversationsAddParticipant,
+  ConversationsArchive,
+  ConversationsCreate,
+  ConversationsGet,
+  ConversationsLeave,
+  ConversationsList,
+  ConversationsMute,
+  ConversationsRemoveParticipant,
+  ConversationsUnarchive,
+  ConversationsUnmute,
+  ConversationsUpdate,
+} from "@moltzap/protocol";
 
 /** Discriminated error union for the three v2 conversation subcommands. */
 export type ConversationsCommandError =
@@ -327,12 +350,12 @@ export type ConversationsCommandError =
   | ConversationsInputError;
 
 /** CLI-level input was rejected (architect stage: signature only). */
-export class ConversationsInputError extends Error {
-  readonly _tag = "ConversationsInputError" as const;
-  constructor(readonly reason: string) {
-    super(reason);
-  }
-}
+export class ConversationsInputError extends Data.TaggedError(
+  "ConversationsInputError",
+)<{
+  readonly message: string;
+  readonly reason: string;
+}> {}
 
 /** `moltzap conversations get <id>` → conversations/get; prints { conversation, participants }. */
 export const conversationsGetHandler = (args: {
@@ -342,9 +365,9 @@ export const conversationsGetHandler = (args: {
     const result = yield* transportRpc<{
       conversation: unknown;
       participants: unknown;
-    }>("conversations/get", { conversationId: args.conversationId });
+    }>(ConversationsGet.name, { conversationId: args.conversationId });
     yield* Effect.sync(() => {
-      console.log(JSON.stringify(result, null, 2));
+      console.log(JSON.stringify(result, null, JSON_INDENT_SPACES));
     });
   });
 
@@ -353,7 +376,7 @@ export const conversationsArchiveHandler = (args: {
   readonly conversationId: string;
 }): Effect.Effect<void, ConversationsCommandError, Transport> =>
   Effect.gen(function* () {
-    yield* transportRpc<Record<string, never>>("conversations/archive", {
+    yield* transportRpc<Record<string, never>>(ConversationsArchive.name, {
       conversationId: args.conversationId,
     });
     yield* Effect.sync(() => {
@@ -366,7 +389,7 @@ export const conversationsUnarchiveHandler = (args: {
   readonly conversationId: string;
 }): Effect.Effect<void, ConversationsCommandError, Transport> =>
   Effect.gen(function* () {
-    yield* transportRpc<Record<string, never>>("conversations/unarchive", {
+    yield* transportRpc<Record<string, never>>(ConversationsUnarchive.name, {
       conversationId: args.conversationId,
     });
     yield* Effect.sync(() => {
@@ -403,7 +426,7 @@ const unarchiveConversationCommand = Command.make(
  * wired by impl-staff against the handlers above (sbd#185).
  */
 export const conversationsCommand = Command.make("conversations", {}, () =>
-  listConversations.handler({ limit: 20, json: false }),
+  listConversations.handler({ limit: DEFAULT_LIST_LIMIT, json: false }),
 ).pipe(
   Command.withDescription("Manage conversations"),
   Command.withSubcommands([

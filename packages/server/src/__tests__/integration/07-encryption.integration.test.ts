@@ -9,6 +9,12 @@ import {
   getKyselyDb,
 } from "./helpers.js";
 
+import {
+  ConversationsCreate,
+  MessagesList,
+  MessagesSend,
+} from "@moltzap/protocol";
+
 let _baseUrl: string;
 let _wsUrl: string;
 
@@ -34,14 +40,14 @@ describe("Scenario 7: Encryption", () => {
         const { client, agentId } = yield* registerAndConnect("enc-agent");
 
         // Create conversation
-        const conv = (yield* client.sendRpc("conversations/create", {
+        const conv = (yield* client.sendRpc(ConversationsCreate.name, {
           type: "group",
           name: "Enc Test",
           participants: [{ type: "agent", id: agentId }],
         })) as { conversation: { id: string } };
 
         // Send a message
-        const msg = (yield* client.sendRpc("messages/send", {
+        const msg = (yield* client.sendRpc(MessagesSend.name, {
           conversationId: conv.conversation.id,
           parts: [{ type: "text", text: "This should be encrypted" }],
         })) as { message: { id: string } };
@@ -79,7 +85,7 @@ describe("Scenario 7: Encryption", () => {
         expect(rawStr).not.toContain("This should be encrypted");
 
         // But we can still decrypt it via the API
-        const messages = (yield* client.sendRpc("messages/list", {
+        const messages = (yield* client.sendRpc(MessagesList.name, {
           conversationId: conv.conversation.id,
         })) as {
           messages: Array<{ parts: Array<{ text: string }> }>;

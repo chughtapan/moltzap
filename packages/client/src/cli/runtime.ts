@@ -9,13 +9,28 @@
  * as an Effect `Logger` so `Effect.logInfo(...).pipe(Effect.annotateLogs(...))`
  * inside commands routes through the same output format.
  */
-import { Logger as EffectLogger, LogLevel } from "effect";
+import {
+  Config,
+  ConfigProvider,
+  Effect,
+  Logger as EffectLogger,
+  LogLevel,
+} from "effect";
 import pino from "pino";
 
+const CliRuntimeEnv = Config.all({
+  logLevel: Config.string("MOLTZAP_LOG_LEVEL").pipe(Config.withDefault("info")),
+  nodeEnv: Config.string("NODE_ENV").pipe(Config.withDefault("development")),
+});
+
+const runtimeEnv = Effect.runSync(
+  CliRuntimeEnv.pipe(Effect.withConfigProvider(ConfigProvider.fromEnv())),
+);
+
 const PINO = pino({
-  level: process.env["MOLTZAP_LOG_LEVEL"] ?? "info",
+  level: runtimeEnv.logLevel,
   transport:
-    process.env["NODE_ENV"] !== "production"
+    runtimeEnv.nodeEnv !== "production"
       ? { target: "pino-pretty", options: { colorize: true } }
       : undefined,
 });
@@ -86,7 +101,7 @@ export const LoggerLive = EffectLogger.replace(
  * Used when composing layers at the CLI entrypoint.
  */
 export const minLogLevel: LogLevel.LogLevel = (() => {
-  const env = (process.env["MOLTZAP_LOG_LEVEL"] ?? "info").toLowerCase();
+  const env = runtimeEnv.logLevel.toLowerCase();
   switch (env) {
     case "trace":
       return LogLevel.Trace;

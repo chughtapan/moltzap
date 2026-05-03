@@ -56,7 +56,7 @@ export function createCoreAuthHandlers(deps: {
   userService: UserService | null;
 }): RpcMethodRegistry {
   return {
-    "auth/connect": defineMethod(Connect, {
+    [Connect.name]: defineMethod(Connect, {
       handler: (params) =>
         catchSqlErrorAsDefect(
           Effect.gen(function* () {
@@ -147,7 +147,7 @@ export function createCoreAuthHandlers(deps: {
         ),
     }),
 
-    "agents/list": defineMethod(AgentsList, {
+    [AgentsList.name]: defineMethod(AgentsList, {
       requiresActive: true,
       handler: (_params, ctx) =>
         catchSqlErrorAsDefect(

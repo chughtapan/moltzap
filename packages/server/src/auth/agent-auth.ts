@@ -3,6 +3,9 @@ import { randomBytes, createHash } from "node:crypto";
 const API_KEY_PREFIX = "moltzap_agent_";
 const KEY_ID_BYTES = 8;
 const SECRET_BYTES = 24;
+const HEX_CHARS_PER_BYTE = 2;
+const CLAIM_TOKEN_BYTES = 16;
+const INVITE_TOKEN_BYTES = 32;
 
 /** Generate a Key ID + Secret API key with its derived storage values. */
 export function generateApiKey(): {
@@ -23,10 +26,10 @@ export function parseApiKey(
   if (!key.startsWith(API_KEY_PREFIX)) return null;
   const rest = key.slice(API_KEY_PREFIX.length);
   const sepIdx = rest.indexOf("_");
-  if (sepIdx !== KEY_ID_BYTES * 2) return null;
+  if (sepIdx !== KEY_ID_BYTES * HEX_CHARS_PER_BYTE) return null;
   const keyId = rest.slice(0, sepIdx);
   const secret = rest.slice(sepIdx + 1);
-  if (secret.length !== SECRET_BYTES * 2) return null;
+  if (secret.length !== SECRET_BYTES * HEX_CHARS_PER_BYTE) return null;
   return { keyId, secret };
 }
 
@@ -36,11 +39,11 @@ export function hashSecret(secret: string): string {
 }
 
 export function generateClaimToken(): string {
-  return "MZAP-" + randomBytes(16).toString("hex").toUpperCase();
+  return "MZAP-" + randomBytes(CLAIM_TOKEN_BYTES).toString("hex").toUpperCase();
 }
 
 export function generateInviteToken(): string {
-  return randomBytes(32).toString("base64url");
+  return randomBytes(INVITE_TOKEN_BYTES).toString("base64url");
 }
 
 export function isValidApiKeyFormat(key: string): boolean {

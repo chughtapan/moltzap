@@ -16,11 +16,13 @@ import type {
   PartitionableRequest,
 } from "../s2c-partition-key.js";
 
+import { AppsOnBeforeDispatch } from "@moltzap/protocol";
+
 const KEY = "test-key" as PartitionKey;
 
 const REQ = (id: string): PartitionableRequest => ({
   id,
-  method: "apps/onBeforeDispatch",
+  method: AppsOnBeforeDispatch.name,
   params: {},
 });
 

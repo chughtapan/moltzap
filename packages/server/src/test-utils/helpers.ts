@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Data, Effect } from "effect";
 import type { EventFrame } from "@moltzap/protocol";
 import {
   makeCloseableTestClient,
@@ -7,6 +7,8 @@ import {
   type TestAgent,
 } from "@moltzap/protocol/testing";
 import { getBaseUrl, getWsUrl } from "./index.js";
+
+import { ConversationsCreate } from "@moltzap/protocol";
 
 export interface ServerTestClient
   extends Omit<CloseableTestClient, "close" | "drainEvents"> {
@@ -22,6 +24,11 @@ export interface ConnectedAgent {
 }
 
 const openClients: ServerTestClient[] = [];
+const MIN_AGENT_GROUP_SIZE = 2;
+
+class ServerTestHelperError extends Data.TaggedError("ServerTestHelperError")<{
+  readonly message: string;
+}> {}
 
 export function trackClient(client: ServerTestClient): void {
   openClients.push(client);
@@ -128,9 +135,11 @@ export function setupAgentGroup(
   opts?: { groupName?: string },
 ): Effect.Effect<{ agents: ConnectedAgent[]; conversationId?: string }, Error> {
   return Effect.gen(function* () {
-    if (count < 2) {
+    if (count < MIN_AGENT_GROUP_SIZE) {
       return yield* Effect.fail(
-        new Error("Agent group requires at least 2 agents"),
+        new ServerTestHelperError({
+          message: `Agent group requires at least ${MIN_AGENT_GROUP_SIZE} agents`,
+        }),
       );
     }
 
@@ -146,7 +155,7 @@ export function setupAgentGroup(
         type: "agent" as const,
         id: a.agentId,
       }));
-      const conv = (yield* creator.client.sendRpc("conversations/create", {
+      const conv = (yield* creator.client.sendRpc(ConversationsCreate.name, {
         type: "group",
         name: opts.groupName,
         participants: others,

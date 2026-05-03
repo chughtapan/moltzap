@@ -10,7 +10,9 @@ export { HeartbeatManager } from "./heartbeat.js";
 
 // Errors
 export {
-  AppError,
+  InvalidConfigError,
+  DuplicateHookHandlerError,
+  UserHandlerError,
   AuthError,
   SessionError,
   SessionClosedError,
@@ -20,9 +22,13 @@ export {
   AppHandlerError,
   AdmissionTimeoutError,
   AppDisconnected,
-  AttachError,
+  AttachSessionNotFoundError,
+  AttachConversationNotFoundError,
+  AttachNotAuthorizedError,
+  AttachAlreadyAttachedError,
+  AttachFailedError,
 } from "./errors.js";
-export type { AttachErrorCode } from "./errors.js";
+export type { AppError, AttachError } from "./errors.js";
 
 // Re-export common protocol types for convenience
 export type {

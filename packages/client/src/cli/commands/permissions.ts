@@ -11,7 +11,7 @@
  * verified against the server handler during impl (Q-PG-1 RESOLVED HIGH).
  */
 import { Command, Options } from "@effect/cli";
-import { Effect, Option } from "effect";
+import { Data, Effect, Option } from "effect";
 import {
   rpc,
   runHandler,
@@ -19,17 +19,23 @@ import {
   type TransportError,
 } from "../transport.js";
 
+import {
+  PermissionsGrant,
+  PermissionsList,
+  PermissionsRevoke,
+} from "@moltzap/protocol";
+
 // ─── Errors ────────────────────────────────────────────────────────────────
 
 /** Exhaustive error union for the permissions surface. */
 export type PermissionsCommandError = TransportError | PermissionsInputError;
 
-export class PermissionsInputError extends Error {
-  readonly _tag = "PermissionsInputError" as const;
-  constructor(readonly reason: string) {
-    super(reason);
-  }
-}
+export class PermissionsInputError extends Data.TaggedError(
+  "PermissionsInputError",
+)<{
+  readonly message: string;
+  readonly reason: string;
+}> {}
 
 // ─── Input shapes ──────────────────────────────────────────────────────────
 
@@ -64,13 +70,16 @@ export const permissionsGrantHandler = (
 ): Effect.Effect<void, PermissionsCommandError, Transport> =>
   Effect.gen(function* () {
     if (args.access.length === 0) {
+      const reason =
+        "--access requires at least one value (e.g. --access read)";
       return yield* Effect.fail(
-        new PermissionsInputError(
-          "--access requires at least one value (e.g. --access read)",
-        ),
+        new PermissionsInputError({
+          message: reason,
+          reason,
+        }),
       );
     }
-    yield* rpc<Record<string, never>>("permissions/grant", {
+    yield* rpc<Record<string, never>>(PermissionsGrant.name, {
       sessionId: args.sessionId,
       agentId: args.agentId,
       resource: args.resource,
@@ -100,7 +109,7 @@ export const permissionsListHandler = (
         access: ReadonlyArray<string>;
         grantedAt: string;
       }>;
-    }>("permissions/list", params);
+    }>(PermissionsList.name, params);
     yield* Effect.sync(() => {
       for (const g of result.grants) {
         console.log(
@@ -115,7 +124,7 @@ export const permissionsRevokeHandler = (
   args: PermissionsRevokeArgs,
 ): Effect.Effect<void, PermissionsCommandError, Transport> =>
   Effect.gen(function* () {
-    yield* rpc<Record<string, never>>("permissions/revoke", {
+    yield* rpc<Record<string, never>>(PermissionsRevoke.name, {
       appId: args.appId,
       resource: args.resource,
     });

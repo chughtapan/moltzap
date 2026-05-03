@@ -12,6 +12,8 @@
 import { Effect, Ref, Stream, PubSub } from "effect";
 import type { AnyFrame, MalformedFrameKind } from "./codec.js";
 
+const CAPTURE_FANOUT_CONCURRENCY = 8;
+
 export type CaptureKind = "inbound" | "outbound";
 
 /**
@@ -97,7 +99,7 @@ export function mergeCaptures(
     const snapshot: Effect.Effect<ReadonlyArray<CapturedFrame>> = Effect.gen(
       function* () {
         const snaps = yield* Effect.forEach(buffers, (b) => b.snapshot, {
-          concurrency: "unbounded",
+          concurrency: CAPTURE_FANOUT_CONCURRENCY,
         });
         const flat = snaps.flat();
         return [...flat].sort((a, b) => a.at - b.at);
@@ -106,10 +108,10 @@ export function mergeCaptures(
 
     const stream = Stream.mergeAll(
       buffers.map((b) => b.stream),
-      { concurrency: "unbounded" },
+      { concurrency: CAPTURE_FANOUT_CONCURRENCY },
     );
     const clear = Effect.forEach(buffers, (b) => b.clear, {
-      concurrency: "unbounded",
+      concurrency: CAPTURE_FANOUT_CONCURRENCY,
     }).pipe(Effect.asVoid);
 
     return {

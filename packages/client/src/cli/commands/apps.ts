@@ -21,13 +21,22 @@
  */
 import * as fs from "node:fs";
 import { Args, Command, Options } from "@effect/cli";
-import { Effect, Option } from "effect";
+import { Data, Effect, Option } from "effect";
 import {
   rpc,
   runHandler,
   type Transport,
   type TransportError,
 } from "../transport.js";
+
+import {
+  AppsAttestSkill,
+  AppsCloseSession,
+  AppsCreate,
+  AppsGetSession,
+  AppsListSessions,
+  AppsRegister,
+} from "@moltzap/protocol";
 
 // ─── Errors ────────────────────────────────────────────────────────────────
 
@@ -38,12 +47,12 @@ import {
 export type AppsCommandError = TransportError | AppsInputError;
 
 /** CLI argument parsing rejected a value (e.g. `--manifest` points to a missing file). */
-export class AppsInputError extends Error {
-  readonly _tag = "AppsInputError" as const;
-  constructor(readonly reason: string) {
-    super(reason);
-  }
-}
+export class AppsInputError extends Data.TaggedError("AppsInputError")<{
+  readonly message: string;
+  readonly reason: string;
+}> {}
+
+const JSON_INDENT_SPACES = 2;
 
 // ─── Input shapes ──────────────────────────────────────────────────────────
 
@@ -108,27 +117,31 @@ export const appsRegisterHandler = (
     try {
       manifestText = fs.readFileSync(args.manifestPath, "utf-8");
     } catch (err) {
+      const reason = `manifest not readable at ${args.manifestPath}: ${
+        err instanceof Error ? err.message : String(err)
+      }`;
       return yield* Effect.fail(
-        new AppsInputError(
-          `manifest not readable at ${args.manifestPath}: ${
-            err instanceof Error ? err.message : String(err)
-          }`,
-        ),
+        new AppsInputError({
+          message: reason,
+          reason,
+        }),
       );
     }
     let manifest: unknown;
     try {
       manifest = JSON.parse(manifestText);
     } catch (err) {
+      const reason = `manifest at ${args.manifestPath} is not valid JSON: ${
+        err instanceof Error ? err.message : String(err)
+      }`;
       return yield* Effect.fail(
-        new AppsInputError(
-          `manifest at ${args.manifestPath} is not valid JSON: ${
-            err instanceof Error ? err.message : String(err)
-          }`,
-        ),
+        new AppsInputError({
+          message: reason,
+          reason,
+        }),
       );
     }
-    const result = yield* rpc<{ appId: string }>("apps/register", {
+    const result = yield* rpc<{ appId: string }>(AppsRegister.name, {
       manifest,
     });
     yield* Effect.sync(() => {
@@ -141,7 +154,7 @@ export const appsCreateHandler = (
   args: AppsCreateArgs,
 ): Effect.Effect<void, AppsCommandError, Transport> =>
   Effect.gen(function* () {
-    const result = yield* rpc<{ session: { id: string } }>("apps/create", {
+    const result = yield* rpc<{ session: { id: string } }>(AppsCreate.name, {
       appId: args.appId,
       invitedAgentIds: [...args.invitedAgentIds],
     });
@@ -165,7 +178,7 @@ export const appsListHandler = (
         appId: string;
         status: AppSessionStatus;
       }>;
-    }>("apps/listSessions", params);
+    }>(AppsListSessions.name, params);
     yield* Effect.sync(() => {
       for (const s of result.sessions) {
         console.log(`${s.id}\t${s.appId}\t${s.status}`);
@@ -178,11 +191,11 @@ export const appsGetHandler = (
   args: AppsGetArgs,
 ): Effect.Effect<void, AppsCommandError, Transport> =>
   Effect.gen(function* () {
-    const result = yield* rpc<{ session: unknown }>("apps/getSession", {
+    const result = yield* rpc<{ session: unknown }>(AppsGetSession.name, {
       sessionId: args.sessionId,
     });
     yield* Effect.sync(() => {
-      console.log(JSON.stringify(result.session, null, 2));
+      console.log(JSON.stringify(result.session, null, JSON_INDENT_SPACES));
     });
   });
 
@@ -191,7 +204,7 @@ export const appsCloseHandler = (
   args: AppsCloseArgs,
 ): Effect.Effect<void, AppsCommandError, Transport> =>
   Effect.gen(function* () {
-    yield* rpc<{ closed: boolean }>("apps/closeSession", {
+    yield* rpc<{ closed: boolean }>(AppsCloseSession.name, {
       sessionId: args.sessionId,
     });
     yield* Effect.sync(() => {
@@ -208,7 +221,7 @@ export const appsCloseHandler = (
 export const appsAttestSkillHandler = (
   args: AppsAttestSkillArgs,
 ): Effect.Effect<void, AppsCommandError, Transport> =>
-  rpc<Record<string, never>>("apps/attestSkill", {
+  rpc<Record<string, never>>(AppsAttestSkill.name, {
     challengeId: args.challengeId,
     skillUrl: args.skillUrl,
     version: args.version,

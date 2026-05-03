@@ -3,9 +3,12 @@ import { Effect } from "effect";
 import type { Contact } from "@moltzap/protocol";
 import { request } from "../socket-client.js";
 
+import { ContactsAccept, ContactsAdd, ContactsList } from "@moltzap/protocol";
+
 const jsonOption = Options.boolean("json").pipe(
   Options.withDescription("Output as JSON"),
 );
+const JSON_INDENT_SPACES = 2;
 
 const wrap = <A>(
   effect: Effect.Effect<A, Error>,
@@ -24,13 +27,13 @@ const wrap = <A>(
 
 const listContacts = Command.make("list", { json: jsonOption }, ({ json }) =>
   wrap(
-    request("contacts/list", {}) as Effect.Effect<
+    request(ContactsList.name, {}) as Effect.Effect<
       { contacts: Contact[] },
       Error
     >,
     (r) => {
       if (json) {
-        console.log(JSON.stringify(r.contacts, null, 2));
+        console.log(JSON.stringify(r.contacts, null, JSON_INDENT_SPACES));
         return;
       }
       if (r.contacts.length === 0) {
@@ -62,7 +65,7 @@ const addContact = Command.make(
       params.source = "manual";
     }
     return wrap(
-      request("contacts/add", params) as Effect.Effect<
+      request(ContactsAdd.name, params) as Effect.Effect<
         { contact: Contact },
         Error
       >,
@@ -82,7 +85,7 @@ const acceptContact = Command.make(
   { contactId: contactIdArg },
   ({ contactId }) =>
     wrap(
-      request("contacts/accept", { contactId }) as Effect.Effect<
+      request(ContactsAccept.name, { contactId }) as Effect.Effect<
         { contact: Contact },
         Error
       >,

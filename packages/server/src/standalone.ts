@@ -5,7 +5,7 @@ import { existsSync } from "node:fs";
 import { join, dirname, resolve, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Kysely, PostgresDialect, sql } from "kysely";
-import { Effect } from "effect";
+import { Data, Effect, Either } from "effect";
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import type { MoltZapAppConfig as MoltZapConfig } from "./config/effect-config.js";
@@ -23,123 +23,158 @@ import { WebhookUserService } from "./services/user.service.js";
 import { logger } from "./logger.js";
 import type { CoreApp, CoreConfig } from "./app/types.js";
 import type { Database } from "./db/database.js";
-import { loadRuntimeProcessConfig } from "./runtime-surface/config.js";
-import type { RuntimeConfigPath } from "./runtime-surface/config.js";
-import { createRuntimeObservability } from "./runtime-surface/logging.js";
+import {
+  RuntimeConfigPath,
+  loadRuntimeProcessConfig,
+  type RuntimeConfigSurfaceError,
+} from "./runtime-surface/config.js";
+import {
+  createRuntimeObservability,
+  type RuntimeObservabilityError,
+} from "./runtime-surface/logging.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const DEFAULT_WEBHOOK_TIMEOUT_MS = 10_000;
 
-function toError(err: unknown): Error {
-  return err instanceof Error ? err : new Error(String(err));
-}
+export class StandaloneOperationFailed extends Data.TaggedError(
+  "StandaloneOperationFailed",
+)<{
+  readonly cause: unknown;
+  readonly message: string;
+  readonly operation: string;
+}> {}
+
+export class SchemaFileNotFound extends Data.TaggedError("SchemaFileNotFound")<{
+  readonly message: string;
+}> {}
+
+type StandaloneServerError =
+  | RuntimeConfigSurfaceError
+  | RuntimeObservabilityError
+  | StandaloneOperationFailed
+  | SchemaFileNotFound;
+
+const operationFailed = (
+  operation: string,
+  cause: unknown,
+): StandaloneOperationFailed =>
+  new StandaloneOperationFailed({
+    cause,
+    message: cause instanceof Error ? cause.message : String(cause),
+    operation,
+  });
 
 // ── Database factory ────────────────────────────────────────────────
 
 interface DbHandle {
   db: Kysely<Database>;
-  cleanup: () => Promise<void>;
-  runMigrationSql: (sql: string) => Promise<void>;
+  cleanup: () => Effect.Effect<void, StandaloneOperationFailed, never>;
+  runMigrationSql: (
+    sql: string,
+  ) => Effect.Effect<void, StandaloneOperationFailed, never>;
 }
 
-function createPgLiteDb(dataDir?: string) {
-  return Effect.runPromise(
-    Effect.gen(function* () {
-      const { KyselyPGlite } = yield* Effect.tryPromise({
-        try: () => import("kysely-pglite"),
-        catch: toError,
-      });
+function createPgLiteDb(
+  dataDir?: string,
+): Effect.Effect<DbHandle, StandaloneOperationFailed, never> {
+  return Effect.gen(function* () {
+    const { KyselyPGlite } = yield* Effect.tryPromise({
+      try: () => import("kysely-pglite"),
+      catch: (cause) => operationFailed("load kysely-pglite", cause),
+    });
 
-      const kpg = yield* Effect.tryPromise({
-        try: () =>
-          dataDir ? KyselyPGlite.create(dataDir) : KyselyPGlite.create(),
-        catch: toError,
-      });
+    const kpg = yield* Effect.tryPromise({
+      try: () =>
+        dataDir ? KyselyPGlite.create(dataDir) : KyselyPGlite.create(),
+      catch: (cause) => operationFailed("create pglite database", cause),
+    });
 
-      // Effect-patched Kysely: builder chains can be used as `Effect`s inside
-      // services while the promise API (`.execute()`, `.transaction()`) still
-      // works for migration/seed code.
-      const db = makeEffectKysely<Database>({
-        dialect: kpg.dialect,
-      });
+    // Effect-patched Kysely: builder chains can be used as `Effect`s inside
+    // services while the promise API (`.execute()`, `.transaction()`) still
+    // works for migration/seed code.
+    const db = makeEffectKysely<Database>({
+      dialect: kpg.dialect,
+    });
 
-      return {
-        db,
-        cleanup: () =>
-          // Close the PGlite client after Kysely releases its connection. We use
-          // an Effect chain here rather than raw Promise composition to keep the
-          // sequencing guard-friendly.
-          Effect.runPromise(
+    return {
+      db,
+      cleanup: () =>
+        // Close the PGlite client after Kysely releases its connection. We use
+        // an Effect chain here rather than raw Promise composition to keep the
+        // sequencing guard-friendly.
+        Effect.tryPromise({
+          try: () => db.destroy(),
+          catch: (cause) => operationFailed("destroy pglite kysely", cause),
+        }).pipe(
+          Effect.flatMap(() =>
             Effect.tryPromise({
-              try: () => db.destroy(),
-              catch: toError,
-            }).pipe(
-              Effect.flatMap(() =>
-                Effect.tryPromise({
-                  try: () => kpg.client.close(),
-                  catch: toError,
-                }),
-              ),
-            ),
+              try: () => kpg.client.close(),
+              catch: (cause) => operationFailed("close pglite client", cause),
+            }),
           ),
-        runMigrationSql: (sqlText: string) =>
-          Effect.runPromise(
-            Effect.tryPromise({
-              try: () => kpg.client.exec(sqlText),
-              catch: toError,
-            }).pipe(Effect.asVoid),
-          ),
-      };
-    }),
-  );
+        ),
+      runMigrationSql: (sqlText: string) =>
+        Effect.tryPromise({
+          try: () => kpg.client.exec(sqlText),
+          catch: (cause) => operationFailed("run pglite migration sql", cause),
+        }).pipe(Effect.asVoid),
+    };
+  });
 }
 
-function createPostgresDb(url: string) {
-  return Effect.runPromise(
-    Effect.gen(function* () {
-      const pg = yield* Effect.tryPromise({
-        try: () => import("pg"),
-        catch: toError,
-      });
-      const pool = new pg.default.Pool({ connectionString: url, max: 20 });
-      // Effect-patched Kysely: builder chains can be used as `Effect`s inside
-      // services while the promise API (`.execute()`, `.transaction()`) still
-      // works for migration/seed code.
-      const db = makeEffectKysely<Database>({
-        dialect: new PostgresDialect({ pool }),
-      });
+function createPostgresDb(
+  url: string,
+): Effect.Effect<DbHandle, StandaloneOperationFailed, never> {
+  return Effect.gen(function* () {
+    const pg = yield* Effect.tryPromise({
+      try: () => import("pg"),
+      catch: (cause) => operationFailed("load pg", cause),
+    });
+    const pool = new pg.default.Pool({ connectionString: url, max: 20 });
+    // Effect-patched Kysely: builder chains can be used as `Effect`s inside
+    // services while the promise API (`.execute()`, `.transaction()`) still
+    // works for migration/seed code.
+    const db = makeEffectKysely<Database>({
+      dialect: new PostgresDialect({ pool }),
+    });
 
-      return {
-        db,
-        cleanup: () => db.destroy(),
-        runMigrationSql: (sqlText: string) => {
-          // Raw DDL — Kysely can't run before tables exist
-          const exec = pool.query.bind(pool);
-          return Effect.runPromise(
-            Effect.tryPromise({
-              try: () => exec(sqlText),
-              catch: toError,
-            }).pipe(Effect.asVoid),
-          );
-        },
-      };
-    }),
-  );
+    return {
+      db,
+      cleanup: () =>
+        Effect.tryPromise({
+          try: () => db.destroy(),
+          catch: (cause) => operationFailed("destroy postgres kysely", cause),
+        }),
+      runMigrationSql: (sqlText: string) => {
+        // Raw DDL — Kysely can't run before tables exist
+        const exec = pool.query.bind(pool);
+        return Effect.tryPromise({
+          try: () => exec(sqlText),
+          catch: (cause) =>
+            operationFailed("run postgres migration sql", cause),
+        }).pipe(Effect.asVoid);
+      },
+    };
+  });
 }
 
 // ── Migration ───────────────────────────────────────────────────────
 
-function findSchemaFile(): string {
+function findSchemaFile(): Effect.Effect<string, SchemaFileNotFound, never> {
   // Docker: copied to package root
   const dockerPath = join(__dirname, "..", "core-schema.sql");
-  if (existsSync(dockerPath)) return dockerPath;
+  if (existsSync(dockerPath)) return Effect.succeed(dockerPath);
   // Dev (tsx): running from src/, schema in src/app/
   const devPath = join(__dirname, "app", "core-schema.sql");
-  if (existsSync(devPath)) return devPath;
+  if (existsSync(devPath)) return Effect.succeed(devPath);
   // Compiled (node dist/): schema in ../src/app/
   const distPath = join(__dirname, "..", "src", "app", "core-schema.sql");
-  if (existsSync(distPath)) return distPath;
-  throw new Error(
-    "Cannot find core-schema.sql. Ensure it exists at the package root or in src/app/.",
+  if (existsSync(distPath)) return Effect.succeed(distPath);
+  return Effect.fail(
+    new SchemaFileNotFound({
+      message:
+        "Cannot find core-schema.sql. Ensure it exists at the package root or in src/app/.",
+    }),
   );
 }
 
@@ -152,7 +187,11 @@ function findSchemaFile(): string {
 function autoMigrateEffect(
   handle: DbHandle,
   encryptionSecret: string | undefined,
-): Effect.Effect<void, Error, FileSystem.FileSystem> {
+): Effect.Effect<
+  void,
+  SchemaFileNotFound | StandaloneOperationFailed,
+  FileSystem.FileSystem
+> {
   return Effect.gen(function* () {
     const result = yield* Effect.tryPromise({
       try: () =>
@@ -161,7 +200,7 @@ function autoMigrateEffect(
             SELECT FROM information_schema.tables WHERE table_name = 'agents'
           ) AS has_schema
         `.execute(handle.db),
-      catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+      catch: (cause) => operationFailed("check database schema", cause),
     });
 
     if (result.rows[0]?.has_schema) {
@@ -172,20 +211,18 @@ function autoMigrateEffect(
     logger.info("Applying database schema...");
 
     const fs = yield* FileSystem.FileSystem;
+    const schemaPath = yield* findSchemaFile();
     const schema = yield* fs
-      .readFileString(findSchemaFile(), "utf-8")
-      .pipe(Effect.mapError((e) => new Error(e.message)));
+      .readFileString(schemaPath, "utf-8")
+      .pipe(Effect.mapError((cause) => operationFailed("read schema", cause)));
 
-    yield* Effect.tryPromise({
-      try: () => handle.runMigrationSql(schema),
-      catch: (err) => (err instanceof Error ? err : new Error(String(err))),
-    });
+    yield* handle.runMigrationSql(schema);
 
     if (encryptionSecret) {
       const envelope = new EnvelopeEncryption(encryptionSecret);
       yield* Effect.tryPromise({
         try: () => seedInitialKek(handle.db, envelope),
-        catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+        catch: (cause) => operationFailed("seed encryption key", cause),
       });
     } else {
       logger.info(
@@ -203,39 +240,31 @@ export function startServer(configPath?: string) {
   return Effect.runPromise(startServerEffect(configPath));
 }
 
-function startServerEffect(configPath?: string): Effect.Effect<
-  {
-    app: CoreApp;
-    config: MoltZapConfig;
-    stop: () => Promise<void>;
-  },
-  Error,
-  never
-> {
+interface StandaloneServerHandle {
+  readonly app: CoreApp;
+  readonly config: MoltZapConfig;
+  readonly stop: CoreApp["close"];
+}
+
+function startServerEffect(
+  configPath?: string,
+): Effect.Effect<StandaloneServerHandle, StandaloneServerError, never> {
   return Effect.gen(function* () {
     const runtimeConfig = yield* loadRuntimeProcessConfig(
       configPath === undefined
         ? {}
-        : { configPath: configPath as RuntimeConfigPath },
+        : { configPath: RuntimeConfigPath(configPath) },
     );
     const observability = yield* createRuntimeObservability(runtimeConfig);
     const log = observability.logger;
-
-    process.env["LOG_LEVEL"] = runtimeConfig.logging.level;
-    process.env["NODE_ENV"] = runtimeConfig.environment;
-    process.env["OTEL_SERVICE_NAME"] = runtimeConfig.tracing.serviceName;
 
     // Create database (PGlite if no URL, Postgres otherwise)
     const appConfig = runtimeConfig.app;
     const databaseUrl = runtimeConfig.server.database.url;
     const usePgLite = databaseUrl.length === 0;
-    const handle = yield* Effect.tryPromise({
-      try: () =>
-        usePgLite
-          ? createPgLiteDb(appConfig.database?.data_dir)
-          : createPostgresDb(databaseUrl),
-      catch: toError,
-    });
+    const handle = yield* usePgLite
+      ? createPgLiteDb(appConfig.database?.data_dir)
+      : createPostgresDb(databaseUrl);
 
     if (usePgLite) {
       log.info("Using embedded PGlite database (no external Postgres needed)");
@@ -260,7 +289,7 @@ function startServerEffect(configPath?: string): Effect.Effect<
         ? new WebhookUserService(
             webhookClient,
             userServiceCfg.webhook_url,
-            userServiceCfg.timeout_ms ?? 10000,
+            userServiceCfg.timeout_ms ?? DEFAULT_WEBHOOK_TIMEOUT_MS,
             log,
           )
         : undefined;
@@ -282,7 +311,7 @@ function startServerEffect(configPath?: string): Effect.Effect<
 
     const coreConfig: CoreConfig = {
       db: handle.db,
-      dbCleanup: handle.cleanup,
+      dbCleanup: () => Effect.runPromise(handle.cleanup()),
       encryptionMasterSecret: runtimeConfig.server.encryption.masterSecret,
       port: runtimeConfig.server.server.port,
       corsOrigins: runtimeConfig.server.server.corsOrigins.exact,
@@ -303,7 +332,7 @@ function startServerEffect(configPath?: string): Effect.Effect<
         new WebhookContactService(
           webhookClient,
           appConfig.services.contacts.webhook_url,
-          appConfig.services.contacts.timeout_ms ?? 10000,
+          appConfig.services.contacts.timeout_ms ?? DEFAULT_WEBHOOK_TIMEOUT_MS,
           log,
         ),
       );
@@ -336,37 +365,47 @@ function startServerEffect(configPath?: string): Effect.Effect<
           const fs = yield* FileSystem.FileSystem;
           return yield* fs
             .readFileString(manifestPath, "utf-8")
-            .pipe(Effect.mapError((e) => new Error(e.message)));
+            .pipe(
+              Effect.mapError((cause) =>
+                operationFailed("read app manifest", cause),
+              ),
+            );
         }).pipe(Effect.provide(NodeFileSystem.layer));
 
       for (const appRef of appConfig.apps) {
         const manifestPath = isAbsolute(appRef.manifest)
           ? appRef.manifest
           : resolve(configDir, appRef.manifest);
-        const loadResult = yield* fsReadAppManifest(manifestPath).pipe(
-          Effect.map((json) => ({ ok: true as const, json })),
-          Effect.catchAll((err) => Effect.succeed({ ok: false as const, err })),
+        yield* fsReadAppManifest(manifestPath).pipe(
+          Effect.either,
+          Effect.flatMap(
+            Either.match({
+              onLeft: (err) =>
+                Effect.sync(() => {
+                  log.error(
+                    { err, path: appRef.manifest },
+                    "Failed to load app manifest",
+                  );
+                }),
+              onRight: (json) =>
+                Effect.sync(() => {
+                  try {
+                    const manifest = JSON.parse(json);
+                    app.registerApp(manifest);
+                    log.info(
+                      { appId: manifest.appId, path: appRef.manifest },
+                      "App manifest registered",
+                    );
+                  } catch (err) {
+                    log.error(
+                      { err, path: appRef.manifest },
+                      "Failed to load app manifest",
+                    );
+                  }
+                }),
+            }),
+          ),
         );
-        if (!loadResult.ok) {
-          log.error(
-            { err: loadResult.err, path: appRef.manifest },
-            "Failed to load app manifest",
-          );
-          continue;
-        }
-        try {
-          const manifest = JSON.parse(loadResult.json);
-          app.registerApp(manifest);
-          log.info(
-            { appId: manifest.appId, path: appRef.manifest },
-            "App manifest registered",
-          );
-        } catch (err) {
-          log.error(
-            { err, path: appRef.manifest },
-            "Failed to load app manifest",
-          );
-        }
       }
     }
 

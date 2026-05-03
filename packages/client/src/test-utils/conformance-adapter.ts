@@ -26,7 +26,7 @@
  *   - `subscribe` registers a real per-filter handle on the client; the
  *     no-op stub is gone (C4 + subscribe-stub).
  */
-import { Effect, Ref, Scope } from "effect";
+import { Data, Effect, Either, Ref, Scope } from "effect";
 import type { EventFrame, ResponseFrame } from "@moltzap/protocol";
 import type {
   RealClientCloseEvent,
@@ -34,12 +34,20 @@ import type {
   RealClientHandle,
   RealClientEventSubscriber,
   RealClientLifecycleError,
+  RealClientRpcError,
   RealClientRpcCaller,
   RealClientSubscription,
   ObservedEvent,
 } from "@moltzap/protocol/testing";
 import { MoltZapWsClient, type CloseInfo } from "../ws-client.js";
 import type { SubscriptionFilter } from "../runtime/subscribers.js";
+import {
+  NotConnectedError,
+  RpcServerError,
+  RpcTimeoutError,
+} from "../runtime/errors.js";
+
+const CONNECT_READY_TIMEOUT_MS = 30_000;
 
 /**
  * Options for the adapter factory. `agentKey` and `agentId` are caller-
@@ -52,18 +60,62 @@ export interface RealClientFactoryOptions {
   readonly agentId: string;
 }
 
-type LifecycleError = {
-  readonly _tag: "RealClientLifecycleError";
+class RealClientLifecycleFailure extends Data.TaggedError(
+  "RealClientLifecycleError",
+)<{
   readonly cause: unknown;
-};
+}> {}
 
-function lifecycleError(cause: unknown): LifecycleError {
+class RealClientRpcFailure extends Data.TaggedError("RealClientRpcError")<{
+  readonly cause: unknown;
+  readonly documentedErrorTag: string | null;
+  readonly kind: RealClientRpcError["kind"];
+  readonly method: string;
+}> {}
+
+function lifecycleError(cause: unknown): RealClientLifecycleError {
   // Struct-shaped value rather than a `new RealClientLifecycleError` — the
   // protocol's `runner.ts` defines the class, but this adapter ships in
   // `@moltzap/client` which consumes the protocol package as a leaf (can't
   // cross-import the class without creating a cycle via typings alone). The
   // shape matches 1:1 so callers that discriminate on `_tag` work.
-  return { _tag: "RealClientLifecycleError", cause };
+  return new RealClientLifecycleFailure({ cause }) as RealClientLifecycleError;
+}
+
+function rpcError(
+  cause: NotConnectedError | RpcServerError | RpcTimeoutError,
+  method: string,
+): RealClientRpcError {
+  if (cause instanceof RpcTimeoutError) {
+    return new RealClientRpcFailure({
+      cause,
+      documentedErrorTag: "RpcTimeoutError",
+      kind: "timeout",
+      method,
+    }) as RealClientRpcError;
+  }
+  if (cause instanceof RpcServerError) {
+    return new RealClientRpcFailure({
+      cause,
+      documentedErrorTag: "RpcServerError",
+      kind: "server-error",
+      method,
+    }) as RealClientRpcError;
+  }
+  if (cause instanceof NotConnectedError) {
+    return new RealClientRpcFailure({
+      cause,
+      documentedErrorTag: "NotConnectedError",
+      kind: "disconnected",
+      method,
+    }) as RealClientRpcError;
+  }
+  return new RealClientRpcFailure({
+    cause,
+    documentedErrorTag: null,
+    kind: "malformed-response",
+    method,
+  }) as RealClientRpcError;
 }
 
 /**
@@ -153,11 +205,7 @@ export function createMoltZapRealClientFactory(
             }
           }),
         )
-        .pipe(
-          Effect.mapError(
-            (cause) => lifecycleError(cause) as RealClientLifecycleError,
-          ),
-        );
+        .pipe(Effect.mapError((cause) => lifecycleError(cause)));
 
       // Scope-release finalizer: drop the capture subscription and
       // close the WS client. `ws.close()` is Effect-native post-#234,
@@ -172,14 +220,15 @@ export function createMoltZapRealClientFactory(
         "pending" | "resolved" | { readonly cause: unknown }
       >("pending");
       yield* Effect.forkScoped(
-        Effect.gen(function* () {
-          const outcome = yield* Effect.either(ws.connect());
-          if (outcome._tag === "Right") {
-            yield* Ref.set(readyDeferred, "resolved");
-          } else {
-            yield* Ref.set(readyDeferred, { cause: outcome.left });
-          }
-        }),
+        ws.connect().pipe(
+          Effect.either,
+          Effect.flatMap(
+            Either.match({
+              onLeft: (cause) => Ref.set(readyDeferred, { cause }),
+              onRight: () => Ref.set(readyDeferred, "resolved"),
+            }),
+          ),
+        ),
       );
 
       const ready: Effect.Effect<void, RealClientLifecycleError> = Effect.gen(
@@ -187,22 +236,16 @@ export function createMoltZapRealClientFactory(
           // Internal handshake budget is generous — the outer
           // `_fixtures.acquireFixture` wraps the whole `ready` with a
           // suite-level timeout that defines the actual property budget.
-          const deadline = Date.now() + 30_000;
+          const deadline = Date.now() + CONNECT_READY_TIMEOUT_MS;
           while (Date.now() < deadline) {
             const state = yield* Ref.get(readyDeferred);
             if (state === "resolved") return;
             if (typeof state === "object") {
-              return yield* Effect.fail(
-                lifecycleError(state.cause) as RealClientLifecycleError,
-              );
+              return yield* Effect.fail(lifecycleError(state.cause));
             }
             yield* Effect.sleep("25 millis");
           }
-          return yield* Effect.fail(
-            lifecycleError(
-              new Error("connect timeout"),
-            ) as RealClientLifecycleError,
-          );
+          return yield* Effect.fail(lifecycleError("connect timeout"));
         },
       );
 
@@ -216,9 +259,7 @@ export function createMoltZapRealClientFactory(
               id: handle.id,
               unsubscribe: handle.unsubscribe,
             })),
-            Effect.mapError(
-              (cause) => lifecycleError(cause) as RealClientLifecycleError,
-            ),
+            Effect.mapError((cause) => lifecycleError(cause)),
           );
 
       const snapshot: RealClientEventSubscriber["snapshot"] =
@@ -234,28 +275,9 @@ export function createMoltZapRealClientFactory(
           // B4 + V5: `sendRpcTracked` returns the real outbound id and
           // the response envelope `type`. The adapter forwards both
           // straight through — no mirror id, no hardcoded `"response"`.
-          const outcome = yield* Effect.either(
-            ws.sendRpcTracked(method, params),
-          );
-          if (outcome._tag === "Left") {
-            const tag = outcome.left._tag;
-            const kind =
-              tag === "RpcTimeoutError"
-                ? ("timeout" as const)
-                : tag === "RpcServerError"
-                  ? ("server-error" as const)
-                  : tag === "NotConnectedError"
-                    ? ("disconnected" as const)
-                    : ("malformed-response" as const);
-            return yield* Effect.fail({
-              _tag: "RealClientRpcError" as const,
-              kind,
-              method,
-              documentedErrorTag: tag,
-              cause: outcome.left,
-            });
-          }
-          const tracked = outcome.right;
+          const tracked = yield* ws
+            .sendRpcTracked(method, params)
+            .pipe(Effect.mapError((cause) => rpcError(cause, method)));
           // Record the real id (Invariant 3 from spec #222: same id
           // minted at the `rpc-${++counter}` site, surfaced as-is).
           yield* Ref.update(outboundIdsRef, (xs) => [...xs, tracked.id]);

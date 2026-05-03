@@ -33,11 +33,14 @@ export class NanoclawAdapter implements Runtime {
   constructor(private readonly deps: NanoclawAdapterDeps) {}
 
   spawn(input: SpawnInput): Effect.Effect<void, SpawnFailed, never> {
-    const toSpawnFailed = (cause: unknown) =>
-      new SpawnFailed(
-        input.agentName,
-        cause instanceof Error ? cause : new Error(String(cause)),
-      );
+    const toSpawnFailed = (cause: unknown) => {
+      const error = cause instanceof Error ? cause : new Error(String(cause));
+      return new SpawnFailed({
+        agentName: input.agentName,
+        cause: error,
+        message: `Failed to spawn agent "${input.agentName}": ${error.message}`,
+      });
+    };
 
     return Effect.gen(this, function* () {
       yield* Effect.tryPromise({

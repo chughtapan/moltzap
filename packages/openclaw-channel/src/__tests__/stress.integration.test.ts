@@ -16,6 +16,12 @@ import {
 } from "./test-helpers.js";
 import type { Message } from "@moltzap/protocol";
 
+import {
+  ConversationsCreate,
+  MessagesList,
+  MessagesSend,
+} from "@moltzap/protocol";
+
 let wsUrl: string;
 
 async function waitForRepliesByList(params: {
@@ -29,7 +35,7 @@ async function waitForRepliesByList(params: {
 
   while (Date.now() < deadline) {
     const result = (await Effect.runPromise(
-      params.client.sendRpc("messages/list", {
+      params.client.sendRpc(MessagesList.name, {
         conversationId: params.conversationId,
         limit: 50,
       }),
@@ -107,19 +113,19 @@ describe.skipIf(inject("containerAId") === "")(
             const [convA, convB, convC] = yield* Effect.all(
               [
                 clientA
-                  .sendRpc("conversations/create", {
+                  .sendRpc(ConversationsCreate.name, {
                     type: "dm",
                     participants: [{ type: "agent", id: receiverAgentId }],
                   })
                   .pipe(Effect.map(extractConvId)),
                 clientB
-                  .sendRpc("conversations/create", {
+                  .sendRpc(ConversationsCreate.name, {
                     type: "dm",
                     participants: [{ type: "agent", id: receiverAgentId }],
                   })
                   .pipe(Effect.map(extractConvId)),
                 clientC
-                  .sendRpc("conversations/create", {
+                  .sendRpc(ConversationsCreate.name, {
                     type: "dm",
                     participants: [{ type: "agent", id: receiverAgentId }],
                   })
@@ -130,19 +136,19 @@ describe.skipIf(inject("containerAId") === "")(
 
             const sendEffects = [
               ...Array.from({ length: 4 }, (_, i) =>
-                clientA.sendRpc("messages/send", {
+                clientA.sendRpc(MessagesSend.name, {
                   conversationId: convA,
                   parts: [{ type: "text", text: `A-msg-${i}` }],
                 }),
               ),
               ...Array.from({ length: 3 }, (_, i) =>
-                clientB.sendRpc("messages/send", {
+                clientB.sendRpc(MessagesSend.name, {
                   conversationId: convB,
                   parts: [{ type: "text", text: `B-msg-${i}` }],
                 }),
               ),
               ...Array.from({ length: 3 }, (_, i) =>
-                clientC.sendRpc("messages/send", {
+                clientC.sendRpc(MessagesSend.name, {
                   conversationId: convC,
                   parts: [{ type: "text", text: `C-msg-${i}` }],
                 }),

@@ -11,6 +11,8 @@ import {
 } from "./helpers.js";
 import { getCoreDb } from "../../test-utils/index.js";
 
+import { Connect } from "@moltzap/protocol";
+
 let baseUrl: string;
 let wsUrl: string;
 
@@ -39,7 +41,7 @@ describe("Auth Failure", () => {
       });
 
       const result = yield* Effect.exit(
-        client.sendRpc("auth/connect", {
+        client.sendRpc(Connect.name, {
           agentKey: "invalid_key_12345",
           minProtocol: PROTOCOL_VERSION,
           maxProtocol: PROTOCOL_VERSION,
@@ -64,7 +66,7 @@ describe("Auth Failure", () => {
       });
 
       const result = yield* Effect.exit(
-        client.sendRpc("auth/connect", {
+        client.sendRpc(Connect.name, {
           agentKey: "mz_totally_fake_api_key_000000000000",
           minProtocol: PROTOCOL_VERSION,
           maxProtocol: PROTOCOL_VERSION,
@@ -100,7 +102,7 @@ describe("Auth Failure", () => {
         autoConnect: false,
       });
       const result = yield* Effect.exit(
-        client.sendRpc("auth/connect", {
+        client.sendRpc(Connect.name, {
           agentKey: reg.apiKey,
           minProtocol: PROTOCOL_VERSION,
           maxProtocol: PROTOCOL_VERSION,

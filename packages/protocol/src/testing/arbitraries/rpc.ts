@@ -6,6 +6,7 @@
  * property bodies compiler-checked against `RpcMap`.
  */
 import * as fc from "fast-check";
+import { Data } from "effect";
 import {
   rpcMethods,
   type RpcMap,
@@ -14,6 +15,12 @@ import {
 import { applyCall } from "../models/dispatch.js";
 import { initialReferenceState } from "../models/state.js";
 import { arbitraryForParams } from "./from-typebox.js";
+
+class RpcArbitraryInvariantError extends Data.TaggedError(
+  "RpcArbitraryInvariantError",
+)<{
+  readonly message: string;
+}> {}
 
 /**
  * A single drawn RPC invocation: the method name carries through to the
@@ -42,7 +49,9 @@ export function arbitraryCallFor<M extends RpcMethodName>(
 ): fc.Arbitrary<ArbitraryRpcCall<M>> {
   const def = methodByName.get(method);
   if (def === undefined) {
-    throw new Error(`arbitraryCallFor: unknown method ${String(method)}`);
+    throw new RpcArbitraryInvariantError({
+      message: `arbitraryCallFor: unknown method ${String(method)}`,
+    });
   }
   return arbitraryForParams(def.paramsSchema).map(
     (params) =>
@@ -59,7 +68,9 @@ export function arbitraryCallFor<M extends RpcMethodName>(
  */
 export function arbitraryAnyCall(): fc.Arbitrary<ArbitraryRpcCall> {
   if (allRpcMethods.length === 0) {
-    throw new Error("arbitraryAnyCall: rpcMethods empty");
+    throw new RpcArbitraryInvariantError({
+      message: "arbitraryAnyCall: rpcMethods empty",
+    });
   }
   return fc.constantFrom(...allRpcMethods).chain((m) => arbitraryCallFor(m));
 }
@@ -113,9 +124,10 @@ export const confidentOracleMethods: ReadonlyArray<RpcMethodName> = (() => {
  */
 export function arbitraryConfidentCall(): fc.Arbitrary<ArbitraryRpcCall> {
   if (confidentOracleMethods.length === 0) {
-    throw new Error(
-      "arbitraryConfidentCall: model has zero confident-oracle methods; flag needs-structural-rework",
-    );
+    throw new RpcArbitraryInvariantError({
+      message:
+        "arbitraryConfidentCall: model has zero confident-oracle methods; flag needs-structural-rework",
+    });
   }
   return fc
     .constantFrom(...confidentOracleMethods)

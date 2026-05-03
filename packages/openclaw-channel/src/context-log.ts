@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { Config, ConfigProvider, Effect, Option } from "effect";
 import type { CrossConvMessage } from "@moltzap/client";
 
 export interface OpenClawContextLogEntry {
@@ -43,11 +44,22 @@ function sanitizePathPart(value: string): string {
   return sanitized.length > 0 ? sanitized : "unknown";
 }
 
+const OpenClawStateDir = Config.option(Config.string("OPENCLAW_STATE_DIR"));
+
+const getOpenClawStateDir = (): string | undefined =>
+  Option.getOrUndefined(
+    Effect.runSync(
+      OpenClawStateDir.pipe(
+        Effect.withConfigProvider(ConfigProvider.fromEnv()),
+      ),
+    ),
+  );
+
 export function contextLogPath(
   logDir: string,
   accountAgentName: string | undefined,
 ): string {
-  const stateDir = process.env["OPENCLAW_STATE_DIR"];
+  const stateDir = getOpenClawStateDir();
   const stateName = stateDir ? path.basename(stateDir) : `pid-${process.pid}`;
   const agentName = accountAgentName ?? "agent";
   return path.join(
@@ -58,15 +70,14 @@ export function contextLogPath(
 
 export function writeOpenClawContextLog(input: OpenClawContextLogInput): void {
   if (!input.logDir) return;
+  const stateDir = getOpenClawStateDir();
 
   const entry: OpenClawContextLogEntry = {
     schemaVersion: 1,
     recordedAt: new Date().toISOString(),
     pid: process.pid,
     cwd: process.cwd(),
-    ...(process.env["OPENCLAW_STATE_DIR"] !== undefined
-      ? { stateDir: process.env["OPENCLAW_STATE_DIR"] }
-      : {}),
+    ...(stateDir !== undefined ? { stateDir } : {}),
     accountId: input.accountId,
     ...(input.accountAgentName !== undefined
       ? { accountAgentName: input.accountAgentName }

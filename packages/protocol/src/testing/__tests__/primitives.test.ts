@@ -31,6 +31,9 @@ import {
   arbitraryAnyCall,
 } from "../arbitraries/index.js";
 
+import { Connect } from "../../schema/methods/auth.js";
+import { ConversationsList } from "../../schema/methods/conversations.js";
+
 describe("codec", () => {
   it("round-trips a valid request frame", async () => {
     const frame: AnyFrame = {
@@ -38,7 +41,7 @@ describe("codec", () => {
       direction: "c2s",
       jsonrpc: "2.0",
       id: "req-1",
-      method: "auth/connect",
+      method: Connect.name,
       params: { agentKey: "k", agentId: "a" },
     };
     const raw = encodeFrame(frame);
@@ -67,7 +70,7 @@ describe("codec", () => {
       direction: "c2s",
       jsonrpc: "2.0",
       id: "r",
-      method: "auth/connect",
+      method: Connect.name,
       params: {},
     };
     const kinds = [
@@ -144,7 +147,7 @@ describe("reference model", () => {
   });
 
   it("authorizationOutcome denies unknown agent for non-auth methods", () => {
-    const [call] = fc.sample(arbitraryCallFor("conversations/list"), {
+    const [call] = fc.sample(arbitraryCallFor(ConversationsList.name), {
       numRuns: 1,
       seed: 1,
     });
