@@ -62,6 +62,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **BREAKING:** Boot-time `seed:` config block and the `seedAgentsEffect`
+  task it drove. Yaml-configured agents (e.g., `seed.agents: [{ name:
+  alice }]`) are no longer minted at standalone-server startup; the
+  schema now rejects the `seed` field with `Unknown field "seed"`.
+  Operators should mint their first agent directly via
+  `POST /api/v1/auth/register` (open) or
+  `POST /api/v1/admin/register-agent` (secret-gated, reentrant via
+  PR #374). The retired flow used the public insert-only register
+  route, which assigned `owner_user_id = devModeUserId` (a fresh
+  random UUID per boot when `dev_mode.user_id` was unset) and so
+  conflicted with subsequent admin/register-agent calls under the
+  same name. README quickstart and `moltzap.example.yaml` updated to
+  match.
 - **BREAKING:** Manifest hook-webhook surface. The schema rejects:
   - `hooks.<name>.webhook` — HTTPS endpoint URL
   - `hooks.<name>.secret` — HMAC signing secret

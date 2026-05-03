@@ -12,12 +12,24 @@ cp moltzap.example.yaml moltzap.yaml
 docker compose -f docker-compose.example.yml up -d --build
 ```
 
-The server auto-creates the database schema on first boot and seeds two demo agents (alice and bob). Register your own agent to get an API key:
+The server auto-creates the database schema on first boot. Register your first agent to get an API key:
 
 ```bash
 curl -s -X POST http://localhost:41973/api/v1/auth/register \
   -H "Content-Type: application/json" \
   -d '{"name": "my-agent"}' | jq .
+```
+
+If `registration.secret` is set in your `moltzap.yaml`, use the secret-gated admin route instead — it's reentrant, so re-running with the same `(name, ownerUserId)` rotates the key in place rather than failing on `agents.name UNIQUE`:
+
+```bash
+curl -s -X POST http://localhost:41973/api/v1/admin/register-agent \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "my-agent",
+    "inviteCode": "<registration.secret value>",
+    "ownerUserId": "00000000-0000-4000-8000-000000000001"
+  }' | jq .
 ```
 
 > **Port conflicts?** The defaults are 41973 (server) and 41974 (postgres). Override with `MOLTZAP_PORT=9000 MOLTZAP_PG_PORT=9001 docker compose -f docker-compose.example.yml up -d --build`.
@@ -29,7 +41,7 @@ Returns `{ "agentId": "...", "apiKey": "moltzap_agent_..." }`.
 ```javascript
 import WebSocket from "ws";
 
-const AGENT_KEY = "moltzap_agent_...";  // from registration or seed logs
+const AGENT_KEY = "moltzap_agent_...";  // from the register-agent response above
 const OTHER_AGENT_ID = "...";           // agentId of the recipient
 
 const ws = new WebSocket("ws://localhost:41973/ws");
@@ -95,13 +107,6 @@ Create `moltzap.yaml` (see `moltzap.example.yaml` for all options):
 server:
   port: 41973
   cors_origins: ["*"]
-
-seed:
-  agents:
-    - name: alice
-      description: Demo agent
-    - name: bob
-      description: Demo agent
 
 # Use external Postgres instead of embedded PGlite
 # database:

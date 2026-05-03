@@ -94,6 +94,42 @@ function interpolateEnvVars(
 }
 
 /**
+ * Top-level fields that used to be valid in `moltzap.yaml` but have
+ * been removed. Effect's `Config.all` ignores unknown keys, so an
+ * operator with a stale field would boot silently with the field's
+ * intent lost. Surface it as a hard error with migration guidance
+ * instead.
+ */
+const RETIRED_TOP_LEVEL_FIELDS: ReadonlyArray<{
+  readonly key: string;
+  readonly guidance: string;
+}> = [
+  {
+    key: "seed",
+    guidance:
+      'remove this block. Boot-time agent seeding was dropped; mint your first agent via POST /api/v1/admin/register-agent (idempotent) or POST /api/v1/auth/register. See README "Get Started" / CHANGELOG.',
+  },
+];
+
+function findRetiredTopLevelField(
+  obj: unknown,
+): { readonly key: string; readonly guidance: string } | null {
+  if (obj === null || typeof obj !== "object" || Array.isArray(obj)) {
+    return null;
+  }
+  // YAML decode-and-interpolate (above) hands us an unknown record; the
+  // YamlDocumentSchema at the boundary already constrained shape to
+  // `Record<string, Unknown>`, so the field-presence check via `in`
+  // operator is the narrow contract we need.
+  // #ignore-sloppy-code-next-line[record-cast]: yaml document is already validated as a string-keyed record at the loader boundary
+  const record = obj as Record<string, unknown>;
+  for (const entry of RETIRED_TOP_LEVEL_FIELDS) {
+    if (entry.key in record) return entry;
+  }
+  return null;
+}
+
+/**
  * Load and validate a MoltZap config YAML file.
  *
  * Resolves the path with the same precedence as before: explicit arg ->
@@ -144,6 +180,22 @@ export const loadConfigFromFile = (
 
     const interp = interpolateEnvVars(decoded.right, configPath);
     if (!interp.ok) return yield* Effect.fail(interp.error);
+
+    // Reject retired top-level fields up-front. Effect's `Config.all`
+    // silently ignores unknown keys, so without this check a stale
+    // `seed:` block in a pre-existing moltzap.yaml would boot
+    // successfully and silently no-op (the seed task that consumed
+    // it is gone). Surface the migration explicitly instead.
+    const retiredField = findRetiredTopLevelField(interp.value);
+    if (retiredField !== null) {
+      return yield* Effect.fail(
+        new ConfigLoadError({
+          kind: "validation",
+          path: configPath,
+          message: `Invalid config in "${configPath}": retired field "${retiredField.key}" — ${retiredField.guidance}`,
+        }),
+      );
+    }
 
     // `fromJson` walks the nested object and produces flat paths that
     // `Config.all(...)` / `Config.nested(...)` / `Config.array(...)` consume.
