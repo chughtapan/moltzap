@@ -199,14 +199,7 @@ function autoMigrateEffect(
 
 // ── Main ────────────────────────────────────────────────────────────
 
-export function startServer(
-  configPath?: string,
-  // #ignore-sloppy-code-next-line[promise-type]: Node process entrypoint for standalone server
-): Promise<{
-  app: CoreApp;
-  config: MoltZapConfig;
-  stop: () => Promise<void>;
-}> {
+export function startServer(configPath?: string) {
   return Effect.runPromise(startServerEffect(configPath));
 }
 

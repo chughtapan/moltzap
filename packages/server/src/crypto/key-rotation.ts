@@ -16,19 +16,11 @@ class KeyRotationError extends Data.TaggedError("KeyRotationError")<{
   }
 }
 
-export function seedInitialKek(
-  db: Db,
-  envelope: EnvelopeEncryption,
-  // #ignore-sloppy-code-next-line[promise-type]: migration API remains Promise-native for existing callers
-): Promise<void> {
+export function seedInitialKek(db: Db, envelope: EnvelopeEncryption) {
   return Effect.runPromise(seedInitialKekEffect(db, envelope));
 }
 
-export function rotateKek(
-  db: Db,
-  envelope: EnvelopeEncryption,
-  // #ignore-sloppy-code-next-line[promise-type]: admin/ops API remains Promise-native for existing callers
-): Promise<number> {
+export function rotateKek(db: Db, envelope: EnvelopeEncryption) {
   return Effect.runPromise(rotateKekEffect(db, envelope));
 }
 
