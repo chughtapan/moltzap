@@ -8,5 +8,6 @@ if ! git diff --quiet; then
 fi
 
 pnpm check
+pnpm build
 pnpm typecheck
 ./scripts/sloppy-code-guard.sh
