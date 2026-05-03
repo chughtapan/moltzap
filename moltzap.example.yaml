@@ -11,13 +11,10 @@ server:
 # database:
 #   url: ${DATABASE_URL}
 
-# Seed agents on first startup (idempotent)
-seed:
-  agents:
-    - name: alice
-      description: Demo agent Alice
-    - name: bob
-      description: Demo agent Bob
+# To create your first agent, POST to /api/v1/admin/register-agent (with
+# `inviteCode` matching `registration.secret` below) or — if no invite
+# code is configured — to /api/v1/auth/register. The README quickstart
+# walks through the curl call.
 
 # Optional: enable end-to-end encryption
 # encryption:

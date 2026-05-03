@@ -42,15 +42,22 @@ describe("validateConfig", () => {
         },
       },
       registration: { secret: "reg-secret" },
-      seed: {
-        agents: [{ name: "bot-1", description: "A test bot" }],
-        onboarding_message: "Welcome!",
-      },
       apps: [{ manifest: "https://example.com/manifest.json" }],
       log_level: "debug",
     };
     const result = validateConfig(full);
     expect(result.ok).toBe(true);
+  });
+
+  it("rejects retired `seed` block (agents are minted via /api/v1/admin/register-agent)", () => {
+    const result = validateConfig({
+      ...MINIMAL_CONFIG,
+      seed: { agents: [{ name: "alice" }] },
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.some((e) => e.problem.includes("seed"))).toBe(true);
+    }
   });
 
   it("rejects empty database url string", () => {

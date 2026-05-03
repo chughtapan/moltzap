@@ -25,14 +25,6 @@ const ServiceSchema = Type.Union([
   InProcessServiceSchema,
 ]);
 
-const SeedAgentSchema = Type.Object(
-  {
-    name: Type.String({ minLength: 1 }),
-    description: Type.Optional(Type.String()),
-  },
-  { additionalProperties: false },
-);
-
 const AppRefSchema = Type.Object(
   { manifest: Type.String({ minLength: 1 }) },
   { additionalProperties: false },
@@ -92,26 +84,6 @@ export const MoltZapConfigSchema = Type.Object(
         {
           enabled: Type.Boolean(),
           user_id: Type.Optional(Type.String({ minLength: 1 })),
-        },
-        { additionalProperties: false },
-      ),
-    ),
-
-    seed: Type.Optional(
-      Type.Object(
-        {
-          agents: Type.Optional(Type.Array(SeedAgentSchema)),
-          onboarding_message: Type.Optional(Type.String()),
-          demo: Type.Optional(
-            Type.Object(
-              {
-                topic: Type.Optional(Type.String()),
-                runtime: Type.Optional(stringEnum(["openclaw", "nanoclaw"])),
-                model: Type.Optional(Type.String()),
-              },
-              { additionalProperties: false },
-            ),
-          ),
         },
         { additionalProperties: false },
       ),

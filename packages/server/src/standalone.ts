@@ -5,9 +5,9 @@ import { existsSync } from "node:fs";
 import { join, dirname, resolve, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Kysely, PostgresDialect, sql } from "kysely";
-import { Duration, Effect } from "effect";
-import { FileSystem, HttpClient, HttpClientRequest } from "@effect/platform";
-import { NodeFileSystem, NodeHttpClient } from "@effect/platform-node";
+import { Effect } from "effect";
+import { FileSystem } from "@effect/platform";
+import { NodeFileSystem } from "@effect/platform-node";
 import type { MoltZapAppConfig as MoltZapConfig } from "./config/effect-config.js";
 import { createCoreApp } from "./app/server.js";
 import { seedInitialKek } from "./crypto/key-rotation.js";
@@ -173,119 +173,6 @@ function autoMigrateEffect(
     }
 
     logger.info("Database schema applied successfully");
-  });
-}
-
-// ── Seed ────────────────────────────────────────────────────────────
-
-interface RegisterResponse {
-  agentId: string;
-  apiKey: string;
-}
-
-/**
- * Register seed agents over HTTP against the already-bound local server. Uses
- * `@effect/platform` HttpClient so transport errors are typed. Per-agent
- * failures are logged and dropped — seeding is best-effort.
- */
-function seedAgentsEffect(
-  config: MoltZapConfig,
-  db: Kysely<Database>,
-  baseUrl: string,
-): Effect.Effect<void, never, HttpClient.HttpClient> {
-  return Effect.gen(function* () {
-    const agents = config.seed?.agents;
-    if (!agents?.length) return;
-
-    const secret = config.registration?.secret;
-    const client = yield* HttpClient.HttpClient;
-
-    const seedOne = (agentDef: { name: string; description?: string }) =>
-      Effect.gen(function* () {
-        const existing = yield* Effect.tryPromise({
-          try: () =>
-            db
-              .selectFrom("agents")
-              .where("name", "=", agentDef.name)
-              .select("id")
-              .executeTakeFirst(),
-          catch: (err) => (err instanceof Error ? err : new Error(String(err))),
-        });
-
-        if (existing) {
-          logger.info({ name: agentDef.name }, "Seed agent already exists");
-          return;
-        }
-
-        const body: Record<string, string> = { name: agentDef.name };
-        if (agentDef.description) body["description"] = agentDef.description;
-        if (secret) body["inviteCode"] = secret;
-
-        const request = HttpClientRequest.post(
-          `${baseUrl}/api/v1/auth/register`,
-        ).pipe(HttpClientRequest.bodyUnsafeJson(body));
-        const response = yield* client.execute(request);
-        if (response.status < 200 || response.status >= 300) {
-          const text = yield* response.text.pipe(
-            Effect.catchAll(() => Effect.succeed("")),
-          );
-          logger.error(
-            { name: agentDef.name, status: response.status, body: text },
-            "Failed to register seed agent",
-          );
-          return;
-        }
-        const result = (yield* response.json) as RegisterResponse;
-        logger.info(
-          { name: agentDef.name, agentId: result.agentId },
-          "Seed agent created",
-        );
-        logger.debug(
-          { name: agentDef.name, apiKey: result.apiKey },
-          "Seed agent API key: %s",
-          result.apiKey,
-        );
-      }).pipe(
-        Effect.catchAll((err) =>
-          Effect.sync(() =>
-            logger.error(
-              { err, name: agentDef.name },
-              "Seed agent task failed",
-            ),
-          ),
-        ),
-      );
-
-    yield* Effect.forEach(agents, seedOne, {
-      concurrency: "unbounded",
-      discard: true,
-    });
-  });
-}
-
-/**
- * Poll `/health` until the server is ready; fail after `retries` attempts.
- */
-function waitForReadyEffect(
-  baseUrl: string,
-  retries: number,
-): Effect.Effect<void, Error, HttpClient.HttpClient> {
-  return Effect.gen(function* () {
-    const client = yield* HttpClient.HttpClient;
-    for (let i = 0; i < retries; i++) {
-      const result = yield* client
-        .execute(HttpClientRequest.get(`${baseUrl}/health`))
-        .pipe(
-          Effect.map((res) => res.status >= 200 && res.status < 300),
-          Effect.catchAll((err) => {
-            logger.debug({ err, attempt: i + 1 }, "Server not ready yet");
-            return Effect.succeed(false);
-          }),
-        );
-      if (result) return;
-      yield* Effect.sleep(Duration.millis(200));
-    }
-    return yield* Effect.fail(new Error("Server did not become ready in time"));
   });
 }
 
@@ -456,21 +343,6 @@ export async function startServer(configPath?: string): Promise<{
         );
       }
     }
-  }
-
-  // Seed agents (after server is listening)
-  if (appConfig.seed?.agents?.length) {
-    const baseUrl = `http://127.0.0.1:${app.port}`;
-    // Wait for the server to be ready, then seed. Fire-and-forget at the
-    // process edge; logs are the feedback loop.
-    const seedTask = waitForReadyEffect(baseUrl, 10).pipe(
-      Effect.flatMap(() => seedAgentsEffect(appConfig, handle.db, baseUrl)),
-      Effect.provide(NodeHttpClient.layer),
-      Effect.catchAll((err) =>
-        Effect.sync(() => log.error({ err }, "Seed failed")),
-      ),
-    );
-    Effect.runFork(seedTask);
   }
 
   log.info(

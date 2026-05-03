@@ -104,29 +104,6 @@ const DevModeSection = Config.all({
   user_id: opt(nonEmptyString("user_id")),
 });
 
-const SeedAgentEntry = Config.all({
-  name: nonEmptyString("name"),
-  description: opt(Config.string("description")),
-}).pipe(
-  Config.map(({ name, description }) => {
-    const out: { name: string; description?: string } = { name };
-    if (description !== undefined) out.description = description;
-    return out;
-  }),
-);
-
-const SeedDemo = Config.all({
-  topic: opt(Config.string("topic")),
-  runtime: opt(Config.literal("openclaw", "nanoclaw")("runtime")),
-  model: opt(Config.string("model")),
-});
-
-const SeedSection = Config.all({
-  agents: opt(Config.array(SeedAgentEntry, "agents")),
-  onboarding_message: opt(Config.string("onboarding_message")),
-  demo: opt(SeedDemo.pipe(Config.nested("demo"))),
-});
-
 const AppRef = Config.all({
   manifest: nonEmptyString("manifest"),
 });
@@ -144,15 +121,6 @@ export interface MoltZapAppConfig {
   };
   registration?: { secret?: string };
   dev_mode?: { enabled: boolean; user_id?: string };
-  seed?: {
-    agents?: Array<{ name: string; description?: string }>;
-    onboarding_message?: string;
-    demo?: {
-      topic?: string;
-      runtime?: "openclaw" | "nanoclaw";
-      model?: string;
-    };
-  };
   apps?: Array<{ manifest: string }>;
   log_level?: "debug" | "info" | "warn" | "error";
 }
@@ -169,7 +137,6 @@ export const MoltZapConfig: Config.Config<MoltZapAppConfig> = Config.all({
   services: opt(ServicesSection.pipe(Config.nested("services"))),
   registration: opt(RegistrationSection.pipe(Config.nested("registration"))),
   dev_mode: opt(DevModeSection.pipe(Config.nested("dev_mode"))),
-  seed: opt(SeedSection.pipe(Config.nested("seed"))),
   apps: opt(Config.array(AppRef, "apps")),
   log_level: opt(Config.literal("debug", "info", "warn", "error")("log_level")),
 }).pipe(
@@ -182,7 +149,6 @@ export const MoltZapConfig: Config.Config<MoltZapAppConfig> = Config.all({
     if (fields.registration !== undefined)
       out.registration = fields.registration;
     if (fields.dev_mode !== undefined) out.dev_mode = fields.dev_mode;
-    if (fields.seed !== undefined) out.seed = fields.seed;
     if (fields.apps !== undefined) out.apps = fields.apps;
     if (fields.log_level !== undefined) out.log_level = fields.log_level;
     return out;
