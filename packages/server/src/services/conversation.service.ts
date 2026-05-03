@@ -30,14 +30,16 @@ const MAX_GROUP_PARTICIPANTS = 256;
 const PREVIEW_CACHE_MAX = 2000;
 
 /**
- * Policy gate consulted before a direct conversation is created. Returns
- * `true` to allow the DM, `false` to deny it. The `Effect<_, never>` shape
- * mirrors {@link ContactService.areInContact} on AppHost — implementations
- * absorb webhook failures internally and surface a boolean verdict.
+ * Policy gate consulted before any conversation edge (DM target,
+ * group member, or `addParticipant` target) is created. Returns `true`
+ * to allow the edge, `false` to deny it. The `Effect<_, never>` shape
+ * mirrors {@link ContactService.areInContact} on AppHost —
+ * implementations absorb webhook failures internally and surface a
+ * boolean verdict.
  *
  * Passed as a lazy lookup (not a captured reference) because the
- * underlying service is registered on AppHost AFTER ConversationService is
- * constructed via `app.setContactService(...)` in `standalone.ts`.
+ * underlying service is registered on AppHost AFTER ConversationService
+ * is constructed via `app.setContactService(...)` in `standalone.ts`.
  */
 export type ContactPolicyCheck = (
   ownerUserIdA: string,
@@ -79,9 +81,12 @@ export class ConversationService {
     /**
      * Lazy lookup for the active contact policy. Returns `null` when no
      * policy is wired (default for unit tests + dev mode), in which case
-     * direct conversation creation is unrestricted. Returning a check
-     * function gates direct conversation creation: both agents must have
-     * `owner_user_id` set and the owners must be in contact.
+     * conversation creation and `addParticipant` are unrestricted.
+     * Returning a check function gates every (requester, member) edge
+     * added by `create("dm" | "group", ...)` and `addParticipant`: both
+     * sides must have `owner_user_id` set and the owners must be in
+     * contact. Resolved per-call so `app.setContactService(...)` calls
+     * made AFTER this service was constructed are visible.
      */
     private resolveContactPolicy: ContactPolicyResolver = () => null,
   ) {}
@@ -105,7 +110,7 @@ export class ConversationService {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         // Owner-id is read in the same query as the existence check so the
-        // DM contact-policy gate below doesn't issue a second round-trip.
+        // contact-policy gate below doesn't issue a second round-trip.
         const agentRows =
           agentIds.length > 0
             ? yield* this.db
@@ -139,23 +144,31 @@ export class ConversationService {
           if (existingDm) {
             return existingDm;
           }
+        }
 
-          // Contact-policy gate: only enforced when a policy is wired
-          // (production via `WebhookContactService` in standalone.ts;
-          // dev/tests default to "no policy = allow all"). DMs are a
-          // direct edge between two agent owners, so a missing
-          // `owner_user_id` on either side cannot be evaluated against
-          // the policy and is treated as a denial — same fail-closed
-          // shape AppHost.checkIdentity uses for app-session admission.
-          const policy = this.resolveContactPolicy();
-          if (policy) {
-            yield* this.requireDirectAllowed(
-              creatorAgentId,
-              agentIds[0]!,
-              ownerByAgentId.get(agentIds[0]!) ?? null,
-              policy,
-            );
-          }
+        // Contact-policy gate (DMs and groups). Only enforced when a
+        // policy is wired (production via `WebhookContactService` in
+        // standalone.ts; dev/tests default to "no policy = allow all").
+        //
+        // Pairwise model: every (creator, member) edge in the new
+        // conversation must be allowed. The creator is the requester
+        // for every edge — group members aren't transitively trusted.
+        // A missing `owner_user_id` on either side cannot be evaluated
+        // against the policy and is treated as a denial — same
+        // fail-closed shape AppHost.checkIdentity uses for app-session
+        // admission. Idempotent existing-DM was returned above before
+        // we got here, so the policy never re-runs for an established
+        // DM (the policy gates CREATION, not access — access is gated
+        // by `requireParticipant` on every read/write).
+        const policy = this.resolveContactPolicy();
+        if (policy && agentIds.length > 0) {
+          yield* this.requireCreatorContactsAll(
+            creatorAgentId,
+            agentIds,
+            ownerByAgentId,
+            policy,
+            type,
+          );
         }
 
         if (type === "group" && agentIds.length + 1 > MAX_GROUP_PARTICIPANTS) {
@@ -555,7 +568,34 @@ export class ConversationService {
           "owner",
           "admin",
         ]);
-        yield* this.participants.requireExists(agentId);
+        // `requireExists` already returns the new member's owner_user_id,
+        // so there's no extra round-trip for the contact-policy gate
+        // below.
+        const targetOwnerUserId =
+          yield* this.participants.requireExists(agentId);
+
+        // Contact-policy gate: an admin/owner cannot use addParticipant
+        // to drag an out-of-contact agent into the conversation. Symmetric
+        // with `create` — every (requester, member) edge must be allowed.
+        // Default behavior preserved when no policy is configured.
+        const policy = this.resolveContactPolicy();
+        if (policy) {
+          const requesterResolved =
+            yield* this.participants.resolve(requesterAgentId);
+          if (!requesterResolved.exists) {
+            return yield* Effect.fail(
+              notFound(`Agent ${requesterAgentId} not found`),
+            );
+          }
+          yield* this.checkContactEdge(
+            requesterAgentId,
+            requesterResolved.ownerUserId,
+            agentId,
+            targetOwnerUserId,
+            policy,
+            "addParticipant",
+          );
+        }
 
         const countRow = yield* takeFirstOrFail(
           this.db
@@ -755,18 +795,25 @@ export class ConversationService {
   }
 
   /**
-   * Enforce contact policy for a brand-new direct conversation. Loads the
-   * creator's `owner_user_id` (the target's was already read in the
-   * existence-check query above) and consults the policy. Both agents must
-   * have an owner; otherwise the DM is denied with the same `NotInContacts`
-   * code the policy itself uses, so callers see one error shape regardless
-   * of which precondition failed.
+   * Enforce contact policy for every (creator, member) edge in a brand-new
+   * conversation. Loads the creator's `owner_user_id` once (the targets'
+   * were already read in the existence-check query) and runs the policy
+   * pairwise. Both sides of every edge must have an owner; otherwise the
+   * conversation is denied with the same `NotInContacts` code the policy
+   * itself uses, so callers see one error shape regardless of which
+   * precondition failed (matches `AppHost.checkIdentity`'s fail-closed
+   * stance for app-session admission).
+   *
+   * Fail-fast on the first denied edge. Logging includes which path
+   * (`dm` | `group`) and the offending edge so operators can trace the
+   * decision back to a contact-service response without re-running.
    */
-  private requireDirectAllowed(
+  private requireCreatorContactsAll(
     creatorAgentId: string,
-    targetAgentId: string,
-    targetOwnerUserId: string | null,
+    targetAgentIds: ReadonlyArray<string>,
+    ownerByAgentId: ReadonlyMap<string, string | null>,
     policy: ContactPolicyCheck,
+    pathLabel: "dm" | "group",
   ): Effect.Effect<void, RpcFailure> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
@@ -782,32 +829,62 @@ export class ConversationService {
           );
         }
         const creatorOwner = creatorOpt.value.owner_user_id;
-        if (!creatorOwner || !targetOwnerUserId) {
-          return yield* Effect.fail(
-            notInContacts(
-              "Direct conversation requires both agents to have an owner",
-            ),
-          );
-        }
-
-        const allowed = yield* policy(creatorOwner, targetOwnerUserId);
-        if (!allowed) {
-          yield* Effect.logInfo(
-            "Direct conversation denied by contact policy",
-          ).pipe(
-            Effect.annotateLogs({
-              creatorAgentId,
-              targetAgentId,
-              creatorOwner,
-              targetOwner: targetOwnerUserId,
-            }),
-          );
-          return yield* Effect.fail(
-            notInContacts("Direct conversation not allowed by contact policy"),
+        for (const targetAgentId of targetAgentIds) {
+          const targetOwner = ownerByAgentId.get(targetAgentId) ?? null;
+          yield* this.checkContactEdge(
+            creatorAgentId,
+            creatorOwner,
+            targetAgentId,
+            targetOwner,
+            policy,
+            pathLabel,
           );
         }
       }),
     );
+  }
+
+  /**
+   * Run the contact policy for one (requester, target) edge — used by
+   * both new-conversation creation and `addParticipant`. Fail-closed when
+   * either side lacks an `owner_user_id`. The denial code is always
+   * `NotInContacts` (`-32005`) so clients can branch on a single ErrorCode
+   * for "communication not permitted".
+   */
+  private checkContactEdge(
+    requesterAgentId: string,
+    requesterOwnerUserId: string | null,
+    targetAgentId: string,
+    targetOwnerUserId: string | null,
+    policy: ContactPolicyCheck,
+    pathLabel: "dm" | "group" | "addParticipant",
+  ): Effect.Effect<void, RpcFailure> {
+    return Effect.gen(this, function* () {
+      if (!requesterOwnerUserId || !targetOwnerUserId) {
+        return yield* Effect.fail(
+          notInContacts(
+            `Contact policy (${pathLabel}) requires both agents to have an owner`,
+          ),
+        );
+      }
+      const allowed = yield* policy(requesterOwnerUserId, targetOwnerUserId);
+      if (!allowed) {
+        yield* Effect.logInfo("Contact policy denied").pipe(
+          Effect.annotateLogs({
+            pathLabel,
+            requesterAgentId,
+            targetAgentId,
+            requesterOwner: requesterOwnerUserId,
+            targetOwner: targetOwnerUserId,
+          }),
+        );
+        return yield* Effect.fail(
+          notInContacts(
+            `Contact policy (${pathLabel}) does not allow this edge`,
+          ),
+        );
+      }
+    });
   }
 
   private findExistingDm(
