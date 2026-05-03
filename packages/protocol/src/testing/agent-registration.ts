@@ -52,52 +52,62 @@ export function registerTestAgent(opts: {
       : (opts.uniqueSuffix ??
         `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
   const name = suffix === "" ? opts.name : `${opts.name}-${suffix}`;
-  return Effect.tryPromise({
-    // #ignore-sloppy-code-next-line[async-keyword]: HTTP POST is Promise-native; Effect.tryPromise captures the rejection path
-    try: async () => {
-      const requestBody: Record<string, string> = { name };
-      if (opts.description !== undefined) {
-        requestBody["description"] = opts.description;
-      }
-      if (opts.inviteCode !== undefined) {
-        requestBody["inviteCode"] = opts.inviteCode;
-      }
-      const res = await fetch(`${opts.baseUrl}/api/v1/auth/register`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestBody),
-      });
-      const body = await res.text();
-      if (!res.ok) {
-        throw new AgentRegistrationError({
+  const requestBody: Record<string, string> = { name };
+  if (opts.description !== undefined) {
+    requestBody["description"] = opts.description;
+  }
+  if (opts.inviteCode !== undefined) {
+    requestBody["inviteCode"] = opts.inviteCode;
+  }
+  const toRegistrationError = (cause: unknown): AgentRegistrationError => {
+    if (cause instanceof AgentRegistrationError) return cause;
+    return new AgentRegistrationError({
+      baseUrl: opts.baseUrl,
+      agentName: name,
+      status: 0,
+      body: cause instanceof Error ? cause.message : String(cause),
+    });
+  };
+  return Effect.gen(function* () {
+    const res = yield* Effect.tryPromise({
+      try: () =>
+        fetch(`${opts.baseUrl}/api/v1/auth/register`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(requestBody),
+        }),
+      catch: toRegistrationError,
+    });
+    const body = yield* Effect.tryPromise({
+      try: () => res.text(),
+      catch: toRegistrationError,
+    });
+    if (!res.ok) {
+      return yield* Effect.fail(
+        new AgentRegistrationError({
           baseUrl: opts.baseUrl,
           agentName: name,
           status: res.status,
           body,
-        });
-      }
-      const parsed = JSON.parse(body) as {
-        agentId: string;
-        apiKey: string;
-        claimUrl?: string;
-        claimToken?: string;
-      };
-      return {
-        agentId: parsed.agentId,
-        apiKey: parsed.apiKey,
-        claimUrl: parsed.claimUrl,
-        claimToken: parsed.claimToken,
-        name,
-      } satisfies TestAgent;
-    },
-    catch: (cause) => {
-      if (cause instanceof AgentRegistrationError) return cause;
-      return new AgentRegistrationError({
-        baseUrl: opts.baseUrl,
-        agentName: name,
-        status: 0,
-        body: cause instanceof Error ? cause.message : String(cause),
-      });
-    },
+        }),
+      );
+    }
+    const parsed = yield* Effect.try({
+      try: () =>
+        JSON.parse(body) as {
+          agentId: string;
+          apiKey: string;
+          claimUrl?: string;
+          claimToken?: string;
+        },
+      catch: toRegistrationError,
+    });
+    return {
+      agentId: parsed.agentId,
+      apiKey: parsed.apiKey,
+      claimUrl: parsed.claimUrl,
+      claimToken: parsed.claimToken,
+      name,
+    } satisfies TestAgent;
   });
 }

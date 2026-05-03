@@ -53,74 +53,77 @@ export class OpenClawAdapter implements Runtime {
   constructor(private readonly deps: OpenClawAdapterDeps) {}
 
   spawn(input: SpawnInput): Effect.Effect<void, SpawnFailed, never> {
-    return Effect.tryPromise({
-      // #ignore-sloppy-code-next-line[async-keyword]: port allocation requires a Promise — deferred step before nodeSpawn
-      try: async () => {
-        const port = await allocateFreePort();
-        const stateDir = fs.mkdtempSync(
-          path.join(os.tmpdir(), `openclaw-${input.agentName}-`),
-        );
+    const toSpawnFailed = (cause: unknown) =>
+      new SpawnFailed(
+        input.agentName,
+        cause instanceof Error ? cause : new Error(String(cause)),
+      );
 
-        writeOpenClawConfig({
-          stateDir,
-          serverUrl: input.serverUrl,
-          apiKey: input.apiKey,
-          agentName: input.agentName,
-          modelId: input.modelId,
-        });
-        seedWorkspaceFiles(stateDir, input.workspaceFiles);
+    return Effect.gen(this, function* () {
+      const port = yield* allocateFreePort().pipe(
+        Effect.mapError(toSpawnFailed),
+      );
 
-        installChannelPlugin(
-          stateDir,
-          this.deps.channelDistDir,
-          this.deps.repoRoot,
-        );
+      yield* Effect.try({
+        try: () => {
+          const { deps } = this;
+          const stateDir = fs.mkdtempSync(
+            path.join(os.tmpdir(), `openclaw-${input.agentName}-`),
+          );
 
-        const openclawArgs = [
-          "gateway",
-          "run",
-          "--allow-unconfigured",
-          "--port",
-          String(port),
-        ];
-        const [command, args] = this.deps.openclawBin.endsWith(".mjs")
-          ? ["node", [this.deps.openclawBin, ...openclawArgs]]
-          : [this.deps.openclawBin, openclawArgs];
+          writeOpenClawConfig({
+            stateDir,
+            serverUrl: input.serverUrl,
+            apiKey: input.apiKey,
+            agentName: input.agentName,
+            modelId: input.modelId,
+          });
+          seedWorkspaceFiles(stateDir, input.workspaceFiles);
 
-        const child = nodeSpawn(command, args, {
-          cwd: stateDir,
-          env: {
-            ...process.env,
-            OPENCLAW_STATE_DIR: stateDir,
-            OPENCLAW_CONFIG_PATH: path.join(stateDir, "openclaw.json"),
-          },
-          stdio: ["ignore", "pipe", "pipe"],
-          // detached:true makes the child the leader of its own process group.
-          // This lets teardown kill the entire group via process.kill(-pid, signal).
-          detached: true,
-        });
+          installChannelPlugin(stateDir, deps.channelDistDir, deps.repoRoot);
 
-        const st: AdapterState = {
-          child,
-          stateDir,
-          logBuffer: "",
-          spawnInput: input,
-          tornDown: false,
-        };
+          const openclawArgs = [
+            "gateway",
+            "run",
+            "--allow-unconfigured",
+            "--port",
+            String(port),
+          ];
+          const [command, args] = deps.openclawBin.endsWith(".mjs")
+            ? ["node", [deps.openclawBin, ...openclawArgs]]
+            : [deps.openclawBin, openclawArgs];
 
-        const onChunk = (chunk: Buffer) => {
-          st.logBuffer += chunk.toString();
-        };
-        child.stdout?.on("data", onChunk);
-        child.stderr?.on("data", onChunk);
+          const child = nodeSpawn(command, args, {
+            cwd: stateDir,
+            env: {
+              ...process.env,
+              OPENCLAW_STATE_DIR: stateDir,
+              OPENCLAW_CONFIG_PATH: path.join(stateDir, "openclaw.json"),
+            },
+            stdio: ["ignore", "pipe", "pipe"],
+            // detached:true makes the child the leader of its own process group.
+            // This lets teardown kill the entire group via process.kill(-pid, signal).
+            detached: true,
+          });
 
-        this.state = st;
-      },
-      catch: (cause) =>
-        new SpawnFailed(
-          input.agentName,
-          cause instanceof Error ? cause : new Error(String(cause)),
-        ),
+          const st: AdapterState = {
+            child,
+            stateDir,
+            logBuffer: "",
+            spawnInput: input,
+            tornDown: false,
+          };
+
+          const onChunk = (chunk: Buffer) => {
+            st.logBuffer += chunk.toString();
+          };
+          child.stdout?.on("data", onChunk);
+          child.stderr?.on("data", onChunk);
+
+          this.state = st;
+        },
+        catch: toSpawnFailed,
+      });
     });
   }
 
@@ -184,10 +187,7 @@ export class OpenClawAdapter implements Runtime {
   }
 
   teardown(): Effect.Effect<void, never, never> {
-    return Effect.tryPromise({
-      try: () => this.doTeardown(),
-      catch: () => undefined,
-    }).pipe(Effect.catchAll(() => Effect.void));
+    return this.doTeardown();
   }
 
   getLogs(offset: number): LogSlice {
@@ -200,33 +200,43 @@ export class OpenClawAdapter implements Runtime {
     return "inbound from agent:";
   }
 
-  /** Async teardown: SIGTERM → await group exit (≤10s) → SIGKILL → rm workdir. */
-  // #ignore-sloppy-code-next-line[async-keyword, promise-type]: child_process exit event + fs.rm boundary
-  private async doTeardown(): Promise<void> {
-    if (!this.state || this.state.tornDown) return;
-    this.state.tornDown = true;
+  private doTeardown(): Effect.Effect<void, never, never> {
+    return Effect.gen(this, function* () {
+      const teardownState = yield* Effect.sync(() => {
+        const state = this.state;
+        if (!state || state.tornDown) return null;
+        state.tornDown = true;
+        return { child: state.child, stateDir: state.stateDir };
+      });
 
-    const { child, stateDir } = this.state;
-    const groupId = child.pid ?? null;
+      if (teardownState === null) return;
 
-    if (groupId !== null) {
-      this.killGroup(groupId, "SIGTERM");
-      const exitedAfterTerm = await Effect.runPromise(
-        this.waitForProcessGroupExit(groupId, OPENCLAW_TERM_WAIT_MS),
-      );
-      if (!exitedAfterTerm) {
-        this.killGroup(groupId, "SIGKILL");
-        await Effect.runPromise(
-          this.waitForProcessGroupExit(groupId, OPENCLAW_KILL_WAIT_MS),
+      const { child, stateDir } = teardownState;
+      const groupId = child.pid ?? null;
+
+      if (groupId !== null) {
+        this.killGroup(groupId, "SIGTERM");
+        const exitedAfterTerm = yield* this.waitForProcessGroupExit(
+          groupId,
+          OPENCLAW_TERM_WAIT_MS,
         );
+        if (!exitedAfterTerm) {
+          this.killGroup(groupId, "SIGKILL");
+          yield* this.waitForProcessGroupExit(groupId, OPENCLAW_KILL_WAIT_MS);
+        }
       }
-    }
 
-    try {
-      fs.rmSync(stateDir, { recursive: true, force: true });
-    } catch (removeErr) {
-      console.warn("failed to remove OpenClaw adapter state dir", removeErr);
-    }
+      yield* Effect.sync(() => {
+        try {
+          fs.rmSync(stateDir, { recursive: true, force: true });
+        } catch (removeErr) {
+          console.warn(
+            "failed to remove OpenClaw adapter state dir",
+            removeErr,
+          );
+        }
+      });
+    });
   }
 
   private waitForProcessGroupExit(
@@ -313,15 +323,42 @@ function resolveWorkspaceOpenClawBin(
   return path.join(repoRoot, "node_modules/.bin/openclaw");
 }
 
-// #ignore-sloppy-code-next-line[promise-type]: net.createServer callback boundary — no Effect wrapper needed for this one-shot utility
-function allocateFreePort(): Promise<number> {
-  return new Promise<number>((resolve, reject) => {
+function allocateFreePort(): Effect.Effect<number, Error, never> {
+  return Effect.async<number, Error>((resume) => {
     const server = net.createServer();
+    let settled = false;
+    const settle = (
+      effect: Effect.Effect<number, Error>,
+      closeServer = true,
+    ): void => {
+      if (settled) return;
+      settled = true;
+      server.removeAllListeners();
+      if (closeServer) {
+        server.close();
+      }
+      resume(effect);
+    };
     server.listen(0, () => {
-      const addr = server.address() as net.AddressInfo;
-      server.close(() => resolve(addr.port));
+      const addr = server.address();
+      if (addr === null || typeof addr === "string") {
+        settle(Effect.fail(new Error("Unable to allocate TCP port")));
+        return;
+      }
+      const port = addr.port;
+      server.close((closeErr) =>
+        closeErr
+          ? settle(Effect.fail(closeErr), false)
+          : settle(Effect.succeed(port), false),
+      );
     });
-    server.on("error", reject);
+    server.on("error", (err) => settle(Effect.fail(err)));
+    return Effect.sync(() => {
+      if (settled) return;
+      settled = true;
+      server.removeAllListeners();
+      server.close();
+    });
   });
 }
 

@@ -420,9 +420,8 @@ export function registerFanOutCardinality(ctx: ConformanceRunContext): void {
     "messages/send ⇒ exactly N inbound message events (one per connection)",
     assertProperty(CATEGORY, "fan-out-cardinality", () =>
       fc.assert(
-        // #ignore-sloppy-code-next-line[async-keyword]: fast-check asyncProperty contract requires Promise-returning callback
-        fc.asyncProperty(fc.integer({ min: 2, max: 3 }), async (n) => {
-          const result = await Effect.runPromise(
+        fc.asyncProperty(fc.integer({ min: 2, max: 3 }), (n) =>
+          Effect.runPromise(
             Effect.scoped(
               Effect.gen(function* () {
                 const fixture = yield* acquireConversation(ctx, n, "fan").pipe(
@@ -454,15 +453,18 @@ export function registerFanOutCardinality(ctx: ConformanceRunContext): void {
                 );
                 return { kind: "ok" as const, counts };
               }),
+            ).pipe(
+              Effect.map((result) => {
+                if (result.kind !== "ok") return false;
+                // Exact-cardinality predicate. Duplicates and drops both fail.
+                return (
+                  result.counts.length === fixture_n(n) &&
+                  result.counts.every((c) => c === 1)
+                );
+              }),
             ),
-          );
-          if (result.kind !== "ok") return false;
-          // Exact-cardinality predicate. Duplicates and drops both fail.
-          return (
-            result.counts.length === fixture_n(n) &&
-            result.counts.every((c) => c === 1)
-          );
-        }),
+          ),
+        ),
         { seed: ctx.seed, numRuns: ctx.opts.numRuns ?? 3 },
       ),
     ),
@@ -571,9 +573,8 @@ export function registerPayloadOpacity(ctx: ConformanceRunContext): void {
           fc
             .string({ minLength: 4, maxLength: 24 })
             .filter((s) => !/[\\" \n\r\t]/.test(s)),
-          // #ignore-sloppy-code-next-line[async-keyword]: fast-check asyncProperty contract requires Promise-returning callback
-          async (text) => {
-            const found = await Effect.runPromise(
+          (text) =>
+            Effect.runPromise(
               Effect.scoped(
                 Effect.gen(function* () {
                   const fixture = yield* acquireConversation(ctx, 1, "po").pipe(
@@ -596,10 +597,8 @@ export function registerPayloadOpacity(ctx: ConformanceRunContext): void {
                       s.raw.includes(text),
                   );
                 }),
-              ),
-            ).catch(() => false);
-            return found;
-          },
+              ).pipe(Effect.catchAll(() => Effect.succeed(false))),
+            ),
         ),
         { seed: ctx.seed, numRuns: ctx.opts.numRuns ?? 3 },
       ),

@@ -60,9 +60,8 @@ export function registerRequestWellFormedness(
     "valid request ⇒ server reply parses against ResponseFrameSchema",
     assertProperty(CATEGORY, "request-well-formedness", () =>
       fc.assert(
-        // #ignore-sloppy-code-next-line[async-keyword]: fast-check asyncProperty contract requires Promise-returning callback
-        fc.asyncProperty(arbitraryAnyCall(), async (call) => {
-          const observed = await Effect.runPromise(
+        fc.asyncProperty(arbitraryAnyCall(), (call) =>
+          Effect.runPromise(
             Effect.scoped(
               Effect.gen(function* () {
                 const agent = yield* registerTestAgent({
@@ -86,37 +85,41 @@ export function registerRequestWellFormedness(
                   .pipe(Effect.either);
                 return (yield* client.snapshot).slice(handshakeEnd);
               }),
+            ).pipe(
+              Effect.map((observed) => {
+                // Architect §4.3: validate every reply in the window.
+                //   - outbound lookup → expectedId (confirms sampled call ran)
+                //   - replies.length >= 1 (server didn't drop the whole window)
+                //   - replies.every(Value.Check(ResponseFrameSchema, ...))
+                //     (a stray duplicate/malformed response in the window fails)
+                //   - replies.some(id === expectedId) (the sampled call got a
+                //     reply, not just some other request)
+                const outbound = observed.find(
+                  (s) =>
+                    s.kind === "outbound" &&
+                    s.frame?.type === "request" &&
+                    s.frame.method === call.method,
+                );
+                if (outbound?.frame?.type !== "request") return false;
+                const expectedId = outbound.frame.id;
+                const replies = observed.filter(
+                  (s) => s.kind === "inbound" && s.frame?.type === "response",
+                );
+                if (replies.length < 1) return false;
+                const allValid = replies.every(
+                  (r) =>
+                    r.frame?.type === "response" &&
+                    Value.Check(ResponseFrameSchema, r.frame as ResponseFrame),
+                );
+                if (!allValid) return false;
+                return replies.some(
+                  (r) =>
+                    r.frame?.type === "response" && r.frame.id === expectedId,
+                );
+              }),
             ),
-          );
-          // Architect §4.3: validate every reply in the window.
-          //   - outbound lookup → expectedId (confirms sampled call ran)
-          //   - replies.length >= 1 (server didn't drop the whole window)
-          //   - replies.every(Value.Check(ResponseFrameSchema, ...))
-          //     (a stray duplicate/malformed response in the window fails)
-          //   - replies.some(id === expectedId) (the sampled call got a
-          //     reply, not just some other request)
-          const outbound = observed.find(
-            (s) =>
-              s.kind === "outbound" &&
-              s.frame?.type === "request" &&
-              s.frame.method === call.method,
-          );
-          if (outbound?.frame?.type !== "request") return false;
-          const expectedId = outbound.frame.id;
-          const replies = observed.filter(
-            (s) => s.kind === "inbound" && s.frame?.type === "response",
-          );
-          if (replies.length < 1) return false;
-          const allValid = replies.every(
-            (r) =>
-              r.frame?.type === "response" &&
-              Value.Check(ResponseFrameSchema, r.frame as ResponseFrame),
-          );
-          if (!allValid) return false;
-          return replies.some(
-            (r) => r.frame?.type === "response" && r.frame.id === expectedId,
-          );
-        }),
+          ),
+        ),
         {
           seed: ctx.seed,
           numRuns: ctx.opts.numRuns ?? 3,
@@ -216,9 +219,8 @@ export function registerMalformedFrameHandling(
     "malformed frames produce typed error or drop; server stays alive",
     assertProperty(CATEGORY, "malformed-frame-handling", () =>
       fc.assert(
-        // #ignore-sloppy-code-next-line[async-keyword]: fast-check asyncProperty contract requires Promise-returning callback
-        fc.asyncProperty(arbitraryMalformedFrame(), async ({ kind, seed }) => {
-          const result = await Effect.runPromise(
+        fc.asyncProperty(arbitraryMalformedFrame(), ({ kind, seed }) =>
+          Effect.runPromise(
             Effect.scoped(
               Effect.gen(function* () {
                 const agent = yield* registerTestAgent({
@@ -246,21 +248,24 @@ export function registerMalformedFrameHandling(
                   .pipe(Effect.either);
                 return { malformedReply: response, post };
               }),
+            ).pipe(
+              Effect.map((result) => {
+                // Contract: either a typed error OR a clean drop (null). Both
+                // are acceptable per Tier A4.
+                const validReply =
+                  result.malformedReply === null ||
+                  result.malformedReply._tag === "TestingRpcResponseError";
+                // Follow-up RPC must land with a typed success. "Right" or
+                // "Left" would be a tautology; "Left" would allow a timeout
+                // to count as server-alive, which is exactly what the
+                // property must reject. Require the post-malformed call to
+                // return cleanly.
+                const stillAlive = result.post._tag === "Right";
+                return validReply && stillAlive;
+              }),
             ),
-          );
-          // Contract: either a typed error OR a clean drop (null). Both
-          // are acceptable per Tier A4.
-          const validReply =
-            result.malformedReply === null ||
-            result.malformedReply._tag === "TestingRpcResponseError";
-          // Follow-up RPC must land with a typed success. "Right" or
-          // "Left" would be a tautology; "Left" would allow a timeout
-          // to count as server-alive, which is exactly what the
-          // property must reject. Require the post-malformed call to
-          // return cleanly.
-          const stillAlive = result.post._tag === "Right";
-          return validReply && stillAlive;
-        }),
+          ),
+        ),
         { seed: ctx.seed, numRuns: ctx.opts.numRuns ?? 3 },
       ),
     ),

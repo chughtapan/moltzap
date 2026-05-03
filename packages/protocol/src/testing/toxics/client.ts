@@ -67,28 +67,37 @@ function httpJson(
   url: string,
   init?: RequestInit,
 ): Effect.Effect<unknown, ToxicControlError> {
-  return Effect.tryPromise({
-    // #ignore-sloppy-code-next-line[async-keyword]: fetch is a Promise-returning Web API; Effect.tryPromise captures the rejection path
-    try: async () => {
-      const headers = new Headers({ "Content-Type": "application/json" });
-      if (init?.headers !== undefined) {
-        new Headers(init.headers).forEach((v, k) => headers.set(k, v));
-      }
-      const res = await fetch(url, { ...init, headers });
-      const body = await res.text();
-      if (res.status < 200 || res.status >= 300) {
-        throw new ToxicControlError({ op, status: res.status, body });
-      }
-      return body.length === 0 ? null : JSON.parse(body);
-    },
-    catch: (err) => {
-      if (err instanceof ToxicControlError) return err;
-      return new ToxicControlError({
-        op,
-        status: 0,
-        body: err instanceof Error ? err.message : String(err),
-      });
-    },
+  const headers = new Headers({ "Content-Type": "application/json" });
+  if (init?.headers !== undefined) {
+    new Headers(init.headers).forEach((v, k) => headers.set(k, v));
+  }
+  const toToxicError = (err: unknown): ToxicControlError => {
+    if (err instanceof ToxicControlError) return err;
+    return new ToxicControlError({
+      op,
+      status: 0,
+      body: err instanceof Error ? err.message : String(err),
+    });
+  };
+  return Effect.gen(function* () {
+    const res = yield* Effect.tryPromise({
+      try: () => fetch(url, { ...init, headers }),
+      catch: toToxicError,
+    });
+    const body = yield* Effect.tryPromise({
+      try: () => res.text(),
+      catch: toToxicError,
+    });
+    if (res.status < 200 || res.status >= 300) {
+      return yield* Effect.fail(
+        new ToxicControlError({ op, status: res.status, body }),
+      );
+    }
+    if (body.length === 0) return null;
+    return yield* Effect.try({
+      try: () => JSON.parse(body) as unknown,
+      catch: toToxicError,
+    });
   });
 }
 

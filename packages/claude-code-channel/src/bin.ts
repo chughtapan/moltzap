@@ -17,60 +17,70 @@
  * Failure modes exit with code 1 and a diagnostic line on stderr.
  */
 import { bootClaudeCodeChannel } from "./entry.js";
+import { Data, Effect } from "effect";
 
-// #ignore-sloppy-code-next-line[async-keyword, promise-type]: top-level subprocess entry — main wraps the boot Promise behind a single error boundary
-async function main(): Promise<void> {
-  const apiKey = process.env.MOLTZAP_API_KEY;
-  const serverUrl = process.env.MOLTZAP_SERVER_URL;
-  if (apiKey === undefined || apiKey.length === 0) {
-    process.stderr.write(
-      "moltzap-claude-code-channel: MOLTZAP_API_KEY env var is required\n",
-    );
-    process.exit(1);
-  }
-  if (serverUrl === undefined || serverUrl.length === 0) {
-    process.stderr.write(
-      "moltzap-claude-code-channel: MOLTZAP_SERVER_URL env var is required\n",
-    );
-    process.exit(1);
-  }
+class ChannelMainError extends Data.TaggedError("ChannelMainError")<{
+  readonly cause: unknown;
+}> {}
 
-  // Logger writes to stderr — stdout is reserved for MCP JSON-RPC framing.
-  // Variadic `unknown[]` matches @moltzap/client's `WsClientLogger` shape
-  // (ws-client.ts:110).
-  const logger = {
-    info: (...args: unknown[]): void => {
-      process.stderr.write(`[info] ${formatLogArgs(args)}\n`);
-    },
-    warn: (...args: unknown[]): void => {
-      process.stderr.write(`[warn] ${formatLogArgs(args)}\n`);
-    },
-    error: (...args: unknown[]): void => {
-      process.stderr.write(`[error] ${formatLogArgs(args)}\n`);
-    },
-  };
+function main(): Effect.Effect<void, ChannelMainError, never> {
+  return Effect.gen(function* () {
+    const apiKey = process.env.MOLTZAP_API_KEY;
+    const serverUrl = process.env.MOLTZAP_SERVER_URL;
+    if (apiKey === undefined || apiKey.length === 0) {
+      process.stderr.write(
+        "moltzap-claude-code-channel: MOLTZAP_API_KEY env var is required\n",
+      );
+      process.exit(1);
+    }
+    if (serverUrl === undefined || serverUrl.length === 0) {
+      process.stderr.write(
+        "moltzap-claude-code-channel: MOLTZAP_SERVER_URL env var is required\n",
+      );
+      process.exit(1);
+    }
 
-  const serverName = process.env.MOLTZAP_SERVER_NAME;
-  const result = await bootClaudeCodeChannel({
-    serverUrl,
-    agentKey: apiKey,
-    logger,
-    ...(typeof serverName === "string" && serverName.length > 0
-      ? { serverName }
-      : {}),
+    // Logger writes to stderr — stdout is reserved for MCP JSON-RPC framing.
+    // Variadic `unknown[]` matches @moltzap/client's `WsClientLogger` shape
+    // (ws-client.ts:110).
+    const logger = {
+      info: (...args: unknown[]): void => {
+        process.stderr.write(`[info] ${formatLogArgs(args)}\n`);
+      },
+      warn: (...args: unknown[]): void => {
+        process.stderr.write(`[warn] ${formatLogArgs(args)}\n`);
+      },
+      error: (...args: unknown[]): void => {
+        process.stderr.write(`[error] ${formatLogArgs(args)}\n`);
+      },
+    };
+
+    const serverName = process.env.MOLTZAP_SERVER_NAME;
+    const result = yield* Effect.tryPromise({
+      try: () =>
+        bootClaudeCodeChannel({
+          serverUrl,
+          agentKey: apiKey,
+          logger,
+          ...(typeof serverName === "string" && serverName.length > 0
+            ? { serverName }
+            : {}),
+        }),
+      catch: (cause) => new ChannelMainError({ cause }),
+    });
+    if (result._tag === "Err") {
+      process.stderr.write(
+        `[error] moltzap-claude-code-channel: bootClaudeCodeChannel failed: ${result.error._tag}: ${result.error.cause}\n`,
+      );
+      process.exit(1);
+    }
+
+    // Adapter readiness is observed by the moltzap server's ConnectionManager
+    // once the WS auth completes. The MCP stdio server stays alive driving the
+    // `notifications/claude/channel` and `reply` tool calls; teardown is
+    // signal-driven (SIGTERM from the parent runtime adapter).
+    process.stderr.write("[info] moltzap-claude-code-channel: ready\n");
   });
-  if (result._tag === "Err") {
-    process.stderr.write(
-      `[error] moltzap-claude-code-channel: bootClaudeCodeChannel failed: ${result.error._tag}: ${result.error.cause}\n`,
-    );
-    process.exit(1);
-  }
-
-  // Adapter readiness is observed by the moltzap server's ConnectionManager
-  // once the WS auth completes. The MCP stdio server stays alive driving the
-  // `notifications/claude/channel` and `reply` tool calls; teardown is
-  // signal-driven (SIGTERM from the parent runtime adapter).
-  process.stderr.write("[info] moltzap-claude-code-channel: ready\n");
 }
 
 function safeJson(value: unknown): string {
@@ -86,7 +96,7 @@ function formatLogArgs(args: ReadonlyArray<unknown>): string {
   return args.map((a) => (typeof a === "string" ? a : safeJson(a))).join(" ");
 }
 
-void main().catch((err: unknown) => {
+void Effect.runPromise(main()).catch((err: unknown) => {
   process.stderr.write(
     `[error] moltzap-claude-code-channel: uncaught ${err instanceof Error ? err.message : String(err)}\n`,
   );

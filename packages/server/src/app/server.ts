@@ -10,6 +10,7 @@ import * as Socket from "@effect/platform/Socket";
 import { NodeHttpServer } from "@effect/platform-node";
 import {
   Cause,
+  Data,
   Deferred,
   Duration,
   Effect,
@@ -65,6 +66,10 @@ import {
 
 /** Grace period after closing all WebSockets so in-flight sends can flush. */
 const SHUTDOWN_DRAIN_MS = 500;
+
+class ServerCloseError extends Data.TaggedError("ServerCloseError")<{
+  readonly cause: unknown;
+}> {}
 
 const UTF8_DECODER = new TextDecoder("utf-8");
 
@@ -824,29 +829,39 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     attachAppConversation(sessionId, conversationId, key) {
       return appHost.attachConversation(sessionId, conversationId, key);
     },
-    // #ignore-sloppy-code-next-line[async-keyword]: server close is a Promise boundary for external callers
-    async close() {
-      if (_webhookPermAdapter) {
-        await Effect.runPromise(_webhookPermAdapter.shutdown);
-      }
-      defaultPermissionService.destroy();
-      // Interrupt in-flight delivery-webhook retries before scope close so
-      // pending POSTs don't race the HTTP server teardown.
-      await Effect.runPromise(messageService.close());
-      // `appHost.destroy()` runs before connections close, so any RPC
-      // in-flight may observe cleared manifests. The drain sleep below is
-      // the only mitigation today — tracked in /review output 2026-04-16.
-      appHost.destroy();
-      for (const conn of connections.all()) {
-        await Effect.runPromise(conn.shutdown);
-      }
-      await new Promise((r) => setTimeout(r, SHUTDOWN_DRAIN_MS));
-      // Closing appScope tears down the http.Server + upgrade wiring.
-      await Effect.runPromise(Scope.close(appScope, Exit.void));
-      await runtime.dispose();
-      if (config.dbCleanup) {
-        await config.dbCleanup();
-      }
+    close() {
+      return Effect.runPromise(
+        Effect.gen(function* () {
+          if (_webhookPermAdapter) {
+            yield* _webhookPermAdapter.shutdown;
+          }
+          defaultPermissionService.destroy();
+          // Interrupt in-flight delivery-webhook retries before scope close so
+          // pending POSTs don't race the HTTP server teardown.
+          yield* messageService.close();
+          // `appHost.destroy()` runs before connections close, so any RPC
+          // in-flight may observe cleared manifests. The drain sleep below is
+          // the only mitigation today — tracked in /review output 2026-04-16.
+          appHost.destroy();
+          for (const conn of connections.all()) {
+            yield* conn.shutdown;
+          }
+          yield* Effect.sleep(Duration.millis(SHUTDOWN_DRAIN_MS));
+          // Closing appScope tears down the http.Server + upgrade wiring.
+          yield* Scope.close(appScope, Exit.void);
+          yield* Effect.tryPromise({
+            try: () => runtime.dispose(),
+            catch: (cause) => new ServerCloseError({ cause }),
+          });
+          const dbCleanup = config.dbCleanup;
+          if (dbCleanup) {
+            yield* Effect.tryPromise({
+              try: () => dbCleanup(),
+              catch: (cause) => new ServerCloseError({ cause }),
+            });
+          }
+        }),
+      );
     },
   };
 }

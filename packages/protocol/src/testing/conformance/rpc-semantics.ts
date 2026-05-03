@@ -81,8 +81,7 @@ export function registerModelEquivalence(ctx: ConformanceRunContext): void {
     `when model predicts ok, server MUST return ok (K=${K} confident methods)`,
     assertProperty(CATEGORY, "model-equivalence", () =>
       fc.assert(
-        // #ignore-sloppy-code-next-line[async-keyword]: fast-check asyncProperty contract requires Promise-returning callback
-        fc.asyncProperty(arbitraryConfidentCall(), async (call) => {
+        fc.asyncProperty(arbitraryConfidentCall(), (call) => {
           const modelTag = applyCall(initialReferenceState, call).outcome._tag;
           if (modelTag === "error") {
             // Safety-net guard: `arbitraryConfidentCall` derived this
@@ -94,7 +93,7 @@ export function registerModelEquivalence(ctx: ConformanceRunContext): void {
               `arbitraryConfidentCall drew ${call.method} with params ${JSON.stringify(call.params)} → model _tag: "error" — param-invariance contract broken; widen derivation to fc.sample-based check per architect #197 §2.2`,
             );
           }
-          const serverTag = await Effect.runPromise(
+          return Effect.runPromise(
             Effect.scoped(
               Effect.gen(function* () {
                 const agent = yield* registerTestAgent({
@@ -113,10 +112,8 @@ export function registerModelEquivalence(ctx: ConformanceRunContext): void {
                   .pipe(Effect.either);
                 return outcome._tag === "Right" ? "ok" : "error";
               }),
-            ),
+            ).pipe(Effect.map((serverTag) => serverTag === "ok")),
           );
-          // Model is confident it's `ok`. Server MUST agree.
-          return serverTag === "ok";
         }),
         { seed: ctx.seed, numRuns: ctx.opts.numRuns ?? numRunsFloor },
       ),
@@ -304,9 +301,8 @@ export function registerRequestIdUniqueness(ctx: ConformanceRunContext): void {
     "every request-id appears in exactly one response",
     assertProperty(CATEGORY, "request-id-uniqueness", () =>
       fc.assert(
-        // #ignore-sloppy-code-next-line[async-keyword]: fast-check asyncProperty contract requires Promise-returning callback
-        fc.asyncProperty(fc.integer({ min: 2, max: 6 }), async (n) => {
-          const counts = await Effect.runPromise(
+        fc.asyncProperty(fc.integer({ min: 2, max: 6 }), (n) =>
+          Effect.runPromise(
             Effect.scoped(
               Effect.gen(function* () {
                 const agent = yield* registerTestAgent({
@@ -358,23 +354,26 @@ export function registerRequestIdUniqueness(ctx: ConformanceRunContext): void {
                 }
                 return { outboundIds, inboundIds, inboundCount };
               }),
+            ).pipe(
+              Effect.map((counts) => {
+                // Architect §4.2 set-equality predicate. Conjunction:
+                //   - outboundIds.size === n                  (driver produced n frames)
+                //   - inboundIds.size === outboundIds.size    (cardinality match)
+                //   - every outbound id is matched inbound     (no drops, no strays)
+                //   - inboundCount === inboundIds.size         (no inbound duplicates)
+                // Stray IDs, dropped replies, and id-reuse all fail the property.
+                const { outboundIds, inboundIds, inboundCount } = counts;
+                if (outboundIds.size !== n) return false;
+                if (inboundIds.size !== outboundIds.size) return false;
+                if (inboundCount !== inboundIds.size) return false;
+                for (const id of outboundIds) {
+                  if (!inboundIds.has(id)) return false;
+                }
+                return true;
+              }),
             ),
-          );
-          // Architect §4.2 set-equality predicate. Conjunction:
-          //   - outboundIds.size === n                  (driver produced n frames)
-          //   - inboundIds.size === outboundIds.size    (cardinality match)
-          //   - every outbound id is matched inbound     (no drops, no strays)
-          //   - inboundCount === inboundIds.size         (no inbound duplicates)
-          // Stray IDs, dropped replies, and id-reuse all fail the property.
-          const { outboundIds, inboundIds, inboundCount } = counts;
-          if (outboundIds.size !== n) return false;
-          if (inboundIds.size !== outboundIds.size) return false;
-          if (inboundCount !== inboundIds.size) return false;
-          for (const id of outboundIds) {
-            if (!inboundIds.has(id)) return false;
-          }
-          return true;
-        }),
+          ),
+        ),
         { seed: ctx.seed, numRuns: ctx.opts.numRuns ?? 5 },
       ),
     ),
