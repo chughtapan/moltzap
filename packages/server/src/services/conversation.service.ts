@@ -568,6 +568,29 @@ export class ConversationService {
           "owner",
           "admin",
         ]);
+
+        // DMs are immutable two-party records by protocol invariant.
+        // Allowing addParticipant on a type='dm' row would silently turn it
+        // into a 3-party row that still reports `type='dm'` — every DM-aware
+        // consumer downstream (UI, archival, dedupe in `findExistingDm`)
+        // assumes exactly two participants and breaks otherwise. Reject
+        // before any state change. Symmetric with `leave()` which also
+        // rejects DM mutation. Closes #380 §1.
+        const convOpt = yield* takeFirstOption(
+          this.db
+            .selectFrom("conversations")
+            .select("type")
+            .where("id", "=", conversationId),
+        );
+        if (Option.isNone(convOpt)) {
+          return yield* Effect.fail(notFound("Conversation not found"));
+        }
+        if (convOpt.value.type === "dm") {
+          return yield* Effect.fail(
+            invalidParams("Cannot add participants to a DM conversation"),
+          );
+        }
+
         // `requireExists` already returns the new member's owner_user_id,
         // so there's no extra round-trip for the contact-policy gate
         // below.

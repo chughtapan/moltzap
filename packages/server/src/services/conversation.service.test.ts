@@ -840,3 +840,81 @@ describe("ConversationService.addParticipant enforces contact policy", () => {
     expect(participant.participant.id).toBe(carol);
   });
 });
+
+/**
+ * Regression for moltzap#380 §1: `addParticipant` must explicitly reject
+ * type='dm' conversations. The contact-policy gate landed in PR #387
+ * covers the (requester, target) edge — but a DM owner who already shares
+ * a contact edge with a third agent could still call addParticipant on
+ * the DM and silently turn it into a 3-party row with type='dm'. The
+ * protocol invariant is that DMs hold exactly two participants, full
+ * stop. This test pins the rejection at the service boundary so a
+ * future tweak that drops the type check (or moves it behind a flag)
+ * fails loudly.
+ */
+describe("ConversationService.addParticipant rejects DM conversations", () => {
+  beforeEach(freshDb, dbHookTimeoutMs);
+  afterEach(async () => {
+    await pglite?.close();
+  });
+
+  it("rejects addParticipant on a DM with InvalidParams; participants table unchanged", async () => {
+    // Open policy: alice⇄bob and alice⇄carol are both allowed. The DM
+    // rejection must still fire — the gate is the conversation type, not
+    // the contact edge.
+    const policy = () => Effect.succeed(true);
+
+    const connections = new ConnectionManager();
+    const participants = new ParticipantService(db);
+    const service = new ConversationService(
+      db,
+      participants,
+      connections,
+      undefined,
+      () => policy,
+    );
+    const authService = new AuthService(db);
+
+    const alice = await seedAgent(
+      authService,
+      "alice",
+      "00000000-0000-0000-0000-0000000000a1",
+    );
+    const bob = await seedAgent(
+      authService,
+      "bob",
+      "00000000-0000-0000-0000-0000000000b2",
+    );
+    const carol = await seedAgent(
+      authService,
+      "carol",
+      "00000000-0000-0000-0000-0000000000c3",
+    );
+
+    // Alice creates a DM with Bob. Both are in contacts; the DM lands.
+    const dm = await Effect.runPromise(
+      service.create("dm", undefined, [bob], alice),
+    );
+    expect(dm.type).toBe("dm");
+
+    // Alice tries to drag Carol into the DM. Policy would allow the
+    // edge — but the type='dm' gate fires first.
+    const exit = await Effect.runPromiseExit(
+      service.addParticipant(dm.id, carol, alice),
+    );
+    const failure = expectRpcFailure(exit);
+    expect(failure.code).toBe(ErrorCodes.InvalidParams);
+    expect(failure.message).toMatch(/dm/i);
+
+    // Belt-and-suspenders: the database row is unchanged. Only Alice +
+    // Bob remain, and Carol was never inserted.
+    const rows = await Effect.runPromise(
+      db
+        .selectFrom("conversation_participants")
+        .select("agent_id")
+        .where("conversation_id", "=", dm.id),
+    );
+    const agentIds = rows.map((r) => r.agent_id).sort();
+    expect(agentIds).toEqual([alice, bob].sort());
+  });
+});
