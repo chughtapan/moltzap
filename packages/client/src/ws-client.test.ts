@@ -1054,18 +1054,28 @@ describe("Phase 1.0 (B.1) — handleServerRpc round-trip", () => {
                   id: "srv-test-1",
                   method: "apps/onJoin",
                   params: { sessionId: "sess-A" },
+                  traceparent:
+                    "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
                 }),
               );
             }
           }),
         );
         const client = makeClient(server.url);
+        let seenCtx: {
+          readonly requestId: string;
+          readonly method: string;
+          readonly traceparent?: string;
+        } | null = null;
         // Register a handler BEFORE connect so the dispatcher fiber sees
         // it on the very first inbound s2c request.
-        yield* client.handleServerRpc("apps/onJoin", (params) =>
-          Effect.succeed({
-            ack: true,
-            saw: (params as { sessionId: string }).sessionId,
+        yield* client.handleServerRpc("apps/onJoin", (params, ctx) =>
+          Effect.sync(() => {
+            seenCtx = ctx;
+            return {
+              ack: true,
+              saw: (params as { sessionId: string }).sessionId,
+            };
           }),
         );
         yield* Effect.promise(() => connectP(client));
@@ -1117,6 +1127,12 @@ describe("Phase 1.0 (B.1) — handleServerRpc round-trip", () => {
         expect(parsedResponse.id).toBe("srv-test-1");
         expect(parsedResponse.result.ack).toBe(true);
         expect(parsedResponse.result.saw).toBe("sess-A");
+        expect(seenCtx).toEqual({
+          requestId: "srv-test-1",
+          method: "apps/onJoin",
+          traceparent:
+            "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+        });
 
         yield* closeClient(client);
       }),

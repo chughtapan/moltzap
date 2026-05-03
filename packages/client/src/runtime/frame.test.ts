@@ -33,4 +33,28 @@ describe("decodeFrames", () => {
       result: { ok: true },
     });
   });
+
+  it("decodes traceparent from inbound s2c request frames", async () => {
+    const raw = JSON.stringify({
+      jsonrpc: "2.0",
+      type: "request",
+      direction: "s2c",
+      id: "srv-trace-1",
+      method: "apps/onJoin",
+      params: { sessionId: "sess-trace" },
+      traceparent: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    });
+
+    const decoded = await Effect.runPromise(decodeFrames(raw));
+
+    expect(decoded).toEqual([
+      {
+        _tag: "ServerRequest",
+        id: "srv-trace-1",
+        method: "apps/onJoin",
+        params: { sessionId: "sess-trace" },
+        traceparent: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+      },
+    ]);
+  });
 });

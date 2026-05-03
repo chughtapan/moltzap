@@ -58,6 +58,7 @@
               "guides/presence-typing",
               "guides/building-apps",
               "guides/app-hooks-rpc",
+              "guides/observability",
               "guides/custom-identity-provider",
               "guides/custom-contacts",
               "guides/user-agent-communication"

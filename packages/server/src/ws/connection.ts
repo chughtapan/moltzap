@@ -9,6 +9,7 @@ import {
 } from "effect";
 import * as Socket from "@effect/platform/Socket";
 import type { ResponseFrame, RequestFrame } from "@moltzap/protocol";
+import type * as Tracer from "effect/Tracer";
 import type { AuthenticatedContext } from "../rpc/context.js";
 
 /**
@@ -52,6 +53,10 @@ export type S2cRpcError =
   | S2cRpcResponseError
   | S2cRpcDecodeError
   | S2cRpcSocketError;
+
+const TRACEPARENT_VERSION = "00";
+const TRACEPARENT_SAMPLED_FLAGS = "01";
+const TRACEPARENT_UNSAMPLED_FLAGS = "00";
 
 /**
  * Per-connection s2c pending map. Each entry correlates an outbound s2c
@@ -199,6 +204,7 @@ export function sendRpcToClient(
   return Effect.gen(function* () {
     const requestId = yield* nextS2cRequestId(connection);
     const deferred = yield* Deferred.make<unknown, S2cRpcError>();
+    const traceparent = yield* traceparentFromCurrentSpan;
     const frame: RequestFrame = {
       jsonrpc: "2.0",
       type: "request",
@@ -206,6 +212,7 @@ export function sendRpcToClient(
       id: requestId,
       method,
       params,
+      ...(traceparent !== undefined ? { traceparent } : {}),
     };
     const raw = JSON.stringify(frame);
 
@@ -232,20 +239,22 @@ export function sendRpcToClient(
       // Deferred. Caller observes whichever completion landed first;
       // both error tags are correct readings of the failure.
       () =>
-        Effect.gen(function* () {
-          const writeOutcome = yield* Effect.either(connection.write(raw));
-          if (writeOutcome._tag === "Left") {
-            const err = new S2cRpcSocketError({
-              connectionId: connection.id,
-              method,
-              requestId,
-              cause: writeOutcome.left,
-            });
-            yield* Deferred.fail(deferred, err).pipe(Effect.ignore);
-            return yield* Effect.fail<S2cRpcError>(err);
-          }
-          return yield* Deferred.await(deferred);
-        }),
+        connection.write(raw).pipe(
+          Effect.matchEffect({
+            onFailure: (socketError) =>
+              Effect.gen(function* () {
+                const err = new S2cRpcSocketError({
+                  connectionId: connection.id,
+                  method,
+                  requestId,
+                  cause: socketError,
+                });
+                yield* Deferred.fail(deferred, err).pipe(Effect.ignore);
+                return yield* Effect.fail<S2cRpcError>(err);
+              }),
+            onSuccess: () => Deferred.await(deferred),
+          }),
+        ),
       // release: remove the entry. Idempotent — `HashMap.remove` on an
       // already-removed key is a no-op, so this is safe whether
       // `completeS2cResponse` already removed it (success/error path)
@@ -254,6 +263,23 @@ export function sendRpcToClient(
         Ref.update(connection.s2cPending, (m) => HashMap.remove(m, requestId)),
     );
   });
+}
+
+const traceparentFromCurrentSpan: Effect.Effect<string | undefined> =
+  Effect.currentSpan.pipe(
+    Effect.match({
+      onFailure: () => undefined,
+      onSuccess: formatTraceparentFromSpan,
+    }),
+  );
+
+function formatTraceparentFromSpan(span: Tracer.Span): string {
+  return [
+    TRACEPARENT_VERSION,
+    span.traceId,
+    span.spanId,
+    span.sampled ? TRACEPARENT_SAMPLED_FLAGS : TRACEPARENT_UNSAMPLED_FLAGS,
+  ].join("-");
 }
 
 /**

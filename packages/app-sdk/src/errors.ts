@@ -533,3 +533,39 @@ export class AttachError extends AppError {
     this.code = code;
   }
 }
+
+export class ObservabilityError extends AppError {
+  readonly _tag = "ObservabilityError" as const;
+
+  constructor(message: string, cause?: Error) {
+    super("OBSERVABILITY_ERROR", message, cause);
+    this.name = "ObservabilityError";
+  }
+}
+
+export class ConfigValidationError extends AppError {
+  readonly _tag = "ConfigValidationError" as const;
+  readonly field: string;
+  readonly value: unknown;
+
+  constructor(field: string, value: unknown, message: string, cause?: Error) {
+    super("CONFIG_VALIDATION_ERROR", message, cause);
+    this.name = "ConfigValidationError";
+    this.field = field;
+    this.value = value;
+  }
+}
+
+export class SessionNotFoundError extends AppError {
+  readonly _tag = "SessionNotFoundError" as const;
+  readonly sessionId: string;
+
+  constructor(sessionId: string) {
+    super(
+      "SESSION_NOT_FOUND",
+      `No replay bundle recorded for session ${sessionId}`,
+    );
+    this.name = "SessionNotFoundError";
+    this.sessionId = sessionId;
+  }
+}

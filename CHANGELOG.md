@@ -29,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   on the app-sdk surface. Each `onX` registers a handler against the
   matching s2c RPC verb; duplicate registration throws
   `AppError("DUPLICATE_HOOK_HANDLER")`.
+- App SDK observability: optional OpenTelemetry tracing, hook replay
+  recording, `onSessionSnapshot`, `exportSession`, and `writeTranscript`
+  for arena-compatible `{ meta, gameplay, traceEvents }` output.
 - Typed errors in `@moltzap/app-sdk`: `AppHandlerError`,
   `AdmissionTimeoutError`, `AppDisconnected`, `AttachError`.
 - `POST /api/v1/auth/register-admin` admin endpoint. Accepts a required
@@ -39,6 +42,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   migration table) and
   [`docs/migration/webhook-to-rpc.mdx`](docs/migration/webhook-to-rpc.mdx)
   (step-by-step port for existing webhook code).
+- New observability guide and local Jaeger compose example:
+  [`docs/guides/observability.mdx`](docs/guides/observability.mdx) and
+  [`examples/observability-compose/compose.yml`](examples/observability-compose/compose.yml).
 
 ### Changed
 
@@ -59,6 +65,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Effect<Verdict, never>` regardless of source (in-process or remote).
 - Manifest hook timeout (`manifest.hooks.<name>.timeout_ms`) is now
   enforced at the AppHost call site via `Effect.timeout(manifestMs)`.
+- `RequestFrameSchema` accepts optional W3C `traceparent`; server s2c
+  sends include it when an Effect span is active, and app-sdk hook spans
+  use it as their parent.
 
 ### Removed
 

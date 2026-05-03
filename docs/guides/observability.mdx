@@ -1,0 +1,155 @@
+---
+title: App Observability
+description: Trace app hooks, export replay bundles, and write arena-compatible transcripts
+---
+
+# App Observability
+
+`@moltzap/app-sdk` can record two operator-facing artifacts for app sessions:
+
+- Effect spans for SDK lifecycle calls and app hook handlers
+- replay bundles keyed by session id, exportable as `traceEvents`
+
+Tracing is opt-in. Replay recording is opt-in. Existing apps run unchanged
+when both are omitted.
+
+## Enable tracing
+
+Install the optional tracing dependencies. They are optional peers so apps
+that do not enable tracing can omit them.
+
+```bash
+pnpm add @effect/opentelemetry@0.63.0 @effect/platform@0.96.0 \
+  @opentelemetry/api@1.9.1 \
+  @opentelemetry/core@2.7.1 \
+  @opentelemetry/exporter-trace-otlp-http@0.216.0 \
+  @opentelemetry/resources@2.7.1 \
+  @opentelemetry/sdk-logs@0.216.0 \
+  @opentelemetry/sdk-metrics@2.7.1 \
+  @opentelemetry/sdk-trace-base@2.7.1 \
+  @opentelemetry/sdk-trace-node@2.7.1 \
+  @opentelemetry/sdk-trace-web@2.7.1 \
+  @opentelemetry/semantic-conventions@1.40.0
+```
+
+Set the OTLP HTTP endpoint before starting the app:
+
+```bash
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318/v1/traces
+```
+
+Then enable tracing in the app options:
+
+```typescript
+import { MoltZapApp } from "@moltzap/app-sdk";
+
+const app = new MoltZapApp({
+  serverUrl: "ws://localhost:41973",
+  agentKey: process.env.MOLTZAP_AGENT_KEY,
+  appId: "werewolf-arena",
+  observability: {
+    tracing: {
+      enabled: true,
+      serviceName: "werewolf-arena-app",
+      shutdownTimeoutMs: 5_000,
+    },
+  },
+});
+```
+
+When `OTEL_EXPORTER_OTLP_ENDPOINT` is unset, tracing resolves to a no-op
+Layer. When the endpoint is set, `app.start()` initializes the
+OpenTelemetry exporter and `app.stop()` closes the Layer scope so spans flush.
+
+Server-initiated app hook frames may carry W3C `traceparent`. The SDK uses it
+as the parent for hook spans. Invalid `traceparent` values are reported through
+`app.onError(...)` as `ObservabilityError`, then the hook still runs as a root
+span.
+
+## Enable replay bundles
+
+Replay recording captures one `ReplayEvent` per app hook invocation. It stores
+the method, request id, session id, timing, params, and the resulting verdict.
+
+```typescript
+const app = new MoltZapApp({
+  serverUrl: "ws://localhost:41973",
+  agentKey: process.env.MOLTZAP_AGENT_KEY,
+  appId: "werewolf-arena",
+  observability: {
+    replay: {
+      enabled: true,
+      bufferLimit: 10_000,
+      maxSessions: 50,
+      softWarnThreshold: 8_000,
+    },
+  },
+});
+```
+
+Attach app-specific state with one snapshot callback:
+
+```typescript
+import { Effect } from "effect";
+
+app.onSessionSnapshot((sessionId) =>
+  Effect.succeed({
+    sessionId,
+    winner: "villagers",
+    rounds: 4,
+  }),
+);
+```
+
+Export the bundle after the session:
+
+```typescript
+import type { SessionId } from "@moltzap/app-sdk";
+
+const bundle = await app.exportSessionAsync(session.id as SessionId);
+```
+
+`bundle.traceEvents` is the SDK-owned replay stream. `bundle.appData` is the
+snapshot returned by `onSessionSnapshot`.
+
+## Write transcripts
+
+`writeTranscript` writes the same top-level shape used by arena live captures:
+
+```json
+{
+  "meta": {},
+  "gameplay": {},
+  "traceEvents": []
+}
+```
+
+For arena-style output:
+
+```typescript
+await app.writeTranscriptAsync(
+  session.id as SessionId,
+  {
+    kind: "arena-live",
+    model: "gpt-5.5",
+    playerCount: 7,
+    gameNumber: 42,
+    status: "complete",
+  },
+  "packages/evals/artifacts/arena/live",
+);
+```
+
+The writer creates a directory named like
+`arena-live-42-gpt-5.5-2026-05-03T00-01-00.000Z/transcript.json`.
+
+## Local collector
+
+The repo includes a local Jaeger compose file:
+
+```bash
+docker compose -f examples/observability-compose/compose.yml up
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318/v1/traces
+```
+
+Open `http://localhost:16686` to inspect spans.

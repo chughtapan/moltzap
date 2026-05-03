@@ -8,6 +8,7 @@ import type {
   WsClientLogger,
   MoltZapWsClientOptions,
   EventSubscription,
+  ServerRpcContext,
 } from "@moltzap/client";
 import type {
   AppManifest,
@@ -30,7 +31,8 @@ import type {
   HookResult,
 } from "@moltzap/protocol";
 import { EventNames } from "@moltzap/protocol";
-import { Cause, Effect, Exit, Fiber } from "effect";
+import { Cause, Duration, Effect, Exit, Fiber, Layer, Scope } from "effect";
+import { env as hostEnv } from "node:process";
 import { AppSessionHandle } from "./session.js";
 import { HeartbeatManager } from "./heartbeat.js";
 import {
@@ -44,7 +46,28 @@ import {
   SessionClosedError,
   ConversationKeyError,
   SendError,
+  ConfigValidationError,
+  ObservabilityError,
+  SessionNotFoundError,
 } from "./errors.js";
+import {
+  externalParentFromTraceparent,
+  makeReplayRecorder,
+  makeTracerLayer,
+  makeTranscriptWriter,
+  type BufferLimitInput,
+  type HookMethod,
+  type ReplayBundle,
+  type ReplayEvent,
+  type ReplayRecorder,
+  type ReplayStore,
+  type ReplayStoreIoError,
+  type SessionId,
+  type SnapshotCallback,
+  type TranscriptMeta,
+  type TranscriptWriterError,
+  type VerdictTag,
+} from "./observability/index.js";
 
 type MessageHandler = (message: Message) => void | Promise<void>;
 type SessionReadyHandler = (session: AppSessionHandle) => void | Promise<void>;
@@ -61,12 +84,34 @@ export interface MoltZapAppOptions {
   heartbeatIntervalMs?: number;
   /** Agents to invite when start() is called */
   invitedAgentIds?: string[];
+  readonly observability?: {
+    readonly tracing?: {
+      readonly enabled: boolean;
+      readonly serviceName?: string;
+      readonly shutdownTimeoutMs?: number;
+    };
+    readonly replay?: {
+      readonly enabled: boolean;
+      readonly bufferLimit?: BufferLimitInput;
+      readonly maxSessions?: BufferLimitInput;
+      readonly softWarnThreshold?: number;
+      readonly store?: ReplayStore;
+    };
+  };
 }
 
-export type StartError = AuthError | ManifestRegistrationError | SessionError;
+export type StartError =
+  | AuthError
+  | ManifestRegistrationError
+  | SessionError
+  | ObservabilityError
+  | ConfigValidationError;
 
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000;
 const NO_BACKGROUND_FIBERS = 0;
+const DEFAULT_TRACER_SHUTDOWN_TIMEOUT_MS = 5_000;
+const CLOSE_SESSION_EVENT_LOSS_CLEANUP_MS = 5_000;
+const CLOSE_SESSIONS_CONCURRENCY = 8;
 
 /**
  * MoltZapApp — main class for building MoltZap apps.
@@ -83,8 +128,13 @@ export class MoltZapApp {
   private readonly heartbeatIntervalMs: number;
   private readonly invitedAgentIds: string[];
   private readonly logger: WsClientLogger;
+  private readonly observability?: MoltZapAppOptions["observability"];
 
   private sessions = new Map<string, AppSessionHandle>();
+  private sessionLifetimes = new Map<
+    string,
+    { readonly startedAt: string; finishedAt: string | null }
+  >();
   /** Reverse map: conversationId -> conversation key */
   private reverseConvMap = new Map<string, string>();
   /** Sessions for which sessionReady handlers have fired (dedup across start() + event) */
@@ -104,6 +154,14 @@ export class MoltZapApp {
   private backgroundFibers = new Set<Fiber.RuntimeFiber<unknown, unknown>>();
   /** Session IDs currently being recovered after reconnect; prevents duplicate recovery fibers on flapping networks. */
   private recoveringSessions = new Set<string>();
+  /** Self-initiated closes in flight; makes closeSession idempotent. */
+  private closingSessions = new Set<string>();
+  /** Closed events for self-initiated closes should not surface as onError. */
+  private suppressedClosedSessions = new Set<string>();
+  private replayRecorder: ReplayRecorder | null = null;
+  private pendingSnapshotCallback: SnapshotCallback | null = null;
+  private observabilityLayer: Layer.Layer<never, never, never> | null = null;
+  private observabilityScope: Scope.CloseableScope | null = null;
 
   private started = false;
   /** Handle from the `{}` event subscription registered in `start()`. Stored so
@@ -131,6 +189,7 @@ export class MoltZapApp {
     this.heartbeatIntervalMs =
       options.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS;
     this.invitedAgentIds = options.invitedAgentIds ?? [];
+    this.observability = options.observability;
     this.logger = options.logger ?? {
       info: () => {},
       warn: () => {},
@@ -159,84 +218,94 @@ export class MoltZapApp {
 
   start(): Effect.Effect<AppSessionHandle, StartError> {
     return Effect.gen(this, function* () {
-      // Spec #222 OQ-4 deletion: per-event `onEvent` callback is gone.
-      // Replacement: register a `{}` filter subscription before
-      // `connect()` so every inbound event still reaches `handleEvent`.
-      const sub = yield* this.client
-        .subscribe({}, (event) => Effect.sync(() => this.handleEvent(event)))
-        .pipe(
-          Effect.mapError(
-            (err) =>
-              new AuthError(
-                "Failed to register event subscription",
-                err instanceof Error ? err : undefined,
+      yield* this.initializeObservability();
+      return yield* this.withAppSpan(
+        "app.start",
+        { appId: this.manifest.appId },
+        Effect.gen(this, function* () {
+          // Spec #222 OQ-4 deletion: per-event `onEvent` callback is gone.
+          // Replacement: register a `{}` filter subscription before
+          // `connect()` so every inbound event still reaches `handleEvent`.
+          const sub = yield* this.client
+            .subscribe({}, (event) =>
+              Effect.sync(() => this.handleEvent(event)),
+            )
+            .pipe(
+              Effect.mapError(
+                (err) =>
+                  new AuthError(
+                    "Failed to register event subscription",
+                    err instanceof Error ? err : undefined,
+                  ),
               ),
-          ),
-        );
+            );
 
-      // Track the handle so stop() can unsubscribe, and so tapError below
-      // can clean up if a later step fails (preventing subscription leaks).
-      this.activeSubscription = sub;
+          // Track the handle so stop() can unsubscribe, and so tapError below
+          // can clean up if a later step fails (preventing subscription leaks).
+          this.activeSubscription = sub;
 
-      yield* this.client
-        .connect()
-        .pipe(
-          Effect.mapError(
-            (err) =>
-              new AuthError(
-                "Failed to connect and authenticate",
-                err instanceof Error ? err : undefined,
+          yield* this.client
+            .connect()
+            .pipe(
+              Effect.mapError(
+                (err) =>
+                  new AuthError(
+                    "Failed to connect and authenticate",
+                    err instanceof Error ? err : undefined,
+                  ),
               ),
-          ),
-        );
+            );
 
-      yield* this.client
-        .sendRpc("apps/register", { manifest: this.manifest })
-        .pipe(
-          Effect.mapError(
-            (err) =>
-              new ManifestRegistrationError(
-                `Failed to register manifest for "${this.manifest.appId}"`,
-                err instanceof Error ? err : undefined,
+          yield* this.client
+            .sendRpc("apps/register", { manifest: this.manifest })
+            .pipe(
+              Effect.mapError(
+                (err) =>
+                  new ManifestRegistrationError(
+                    `Failed to register manifest for "${this.manifest.appId}"`,
+                    err instanceof Error ? err : undefined,
+                  ),
               ),
-          ),
-        );
+            );
 
-      const sessionResult = (yield* this.client
-        .sendRpc("apps/create", {
-          appId: this.manifest.appId,
-          invitedAgentIds: this.invitedAgentIds,
-        })
-        .pipe(
-          Effect.mapError(
-            (err) =>
-              new SessionError(
-                "Failed to create app session",
-                err instanceof Error ? err : undefined,
+          const sessionResult = (yield* this.client
+            .sendRpc("apps/create", {
+              appId: this.manifest.appId,
+              invitedAgentIds: this.invitedAgentIds,
+            })
+            .pipe(
+              Effect.mapError(
+                (err) =>
+                  new SessionError(
+                    "Failed to create app session",
+                    err instanceof Error ? err : undefined,
+                  ),
               ),
-          ),
-        )) as { session: AppSession };
+            )) as { session: AppSession };
 
-      const handle = new AppSessionHandle(sessionResult.session);
-      this.sessions.set(handle.id, handle);
-      this.buildReverseConvMap(handle);
+          const handle = new AppSessionHandle(sessionResult.session);
+          this.sessions.set(handle.id, handle);
+          this.stampSessionStarted(handle.id);
+          this.buildReverseConvMap(handle);
 
-      this.heartbeat.start(
-        () => this.sendPing(),
-        this.heartbeatIntervalMs,
-        (err) => {
-          this.logger.warn("Heartbeat ping failed:", err.message);
-          this.trackFork(this.client.disconnect());
-        },
+          this.heartbeat.start(
+            () => this.sendPing(),
+            this.heartbeatIntervalMs,
+            (err) => {
+              this.logger.warn("Heartbeat ping failed:", err.message);
+              this.trackFork(this.client.disconnect());
+            },
+          );
+
+          this.started = true;
+
+          if (handle.isActive) {
+            this.fireSessionReady(handle);
+          }
+
+          return handle;
+        }),
       );
-
-      this.started = true;
-
-      if (handle.isActive) {
-        this.fireSessionReady(handle);
-      }
-
-      return handle;
     }).pipe(
       // If any step after subscribe() fails, clean up the subscription so
       // a retry does not accumulate orphaned subscriptions.
@@ -252,36 +321,66 @@ export class MoltZapApp {
   }
 
   stop(): Effect.Effect<void, never> {
-    return Effect.gen(this, function* () {
-      this.heartbeat.destroy();
+    return this.withAppSpan(
+      "app.stop",
+      { appId: this.manifest.appId },
+      Effect.gen(this, function* () {
+        this.heartbeat.destroy();
 
-      const pending = [...this.backgroundFibers];
-      this.backgroundFibers.clear();
-      this.recoveringSessions.clear();
-      if (pending.length > NO_BACKGROUND_FIBERS) {
-        yield* Fiber.interruptAll(pending);
-      }
-
-      for (const session of this.sessions.values()) {
-        if (session.isActive) {
-          yield* this.client
-            .sendRpc("apps/closeSession", { sessionId: session.id })
-            .pipe(Effect.ignore);
+        const pending = [...this.backgroundFibers];
+        this.backgroundFibers.clear();
+        this.recoveringSessions.clear();
+        if (pending.length > NO_BACKGROUND_FIBERS) {
+          yield* Fiber.interruptAll(pending);
         }
-      }
 
-      this.sessions.clear();
-      this.reverseConvMap.clear();
-      this.firedSessionReady.clear();
+        yield* Effect.forEach(
+          [...this.sessions.values()].filter((session) => session.isActive),
+          (session) => this.closeSession(session.id).pipe(Effect.ignore),
+          { concurrency: CLOSE_SESSIONS_CONCURRENCY },
+        );
 
-      if (this.activeSubscription !== null) {
-        yield* this.activeSubscription.unsubscribe;
-        this.activeSubscription = null;
-      }
+        this.sessions.clear();
+        this.sessionLifetimes.clear();
+        this.reverseConvMap.clear();
+        this.firedSessionReady.clear();
+        this.closingSessions.clear();
+        this.suppressedClosedSessions.clear();
 
-      yield* this.client.close();
-      this.started = false;
-    });
+        if (this.activeSubscription !== null) {
+          yield* this.activeSubscription.unsubscribe;
+          this.activeSubscription = null;
+        }
+
+        if (this.observabilityScope !== null) {
+          const shutdownTimeoutMs =
+            this.observability?.tracing?.shutdownTimeoutMs ??
+            DEFAULT_TRACER_SHUTDOWN_TIMEOUT_MS;
+          yield* Scope.close(this.observabilityScope, Exit.void).pipe(
+            Effect.timeout(Duration.millis(shutdownTimeoutMs)),
+            Effect.catchTag("TimeoutException", () =>
+              Effect.sync(() => {
+                this.logger.warn(
+                  `Tracer flush exceeded ${shutdownTimeoutMs.toString()}ms; some spans may be lost`,
+                );
+              }),
+            ),
+            Effect.ignore,
+          );
+          this.observabilityLayer = null;
+          this.observabilityScope = null;
+        }
+
+        yield* this.client.close();
+
+        if (this.replayRecorder !== null) {
+          yield* this.replayRecorder.clearAll;
+          this.replayRecorder = null;
+        }
+
+        this.started = false;
+      }),
+    );
   }
 
   /**
@@ -301,32 +400,141 @@ export class MoltZapApp {
     });
   }
 
+  private initializeObservability(): Effect.Effect<
+    void,
+    ObservabilityError | ConfigValidationError
+  > {
+    return Effect.gen(this, function* () {
+      const replayOptions = this.observability?.replay;
+      if (replayOptions?.enabled === true && this.replayRecorder === null) {
+        const recorder = yield* makeReplayRecorder({
+          bufferLimit: replayOptions.bufferLimit,
+          maxSessions: replayOptions.maxSessions,
+          softWarnThreshold: replayOptions.softWarnThreshold,
+          store: replayOptions.store,
+          logger: this.logger,
+          emitObservabilityError: (err) => this.emitError(err),
+        });
+        this.replayRecorder = recorder;
+        if (this.pendingSnapshotCallback !== null) {
+          yield* recorder
+            .setSnapshotCallback(this.pendingSnapshotCallback)
+            .pipe(
+              Effect.mapError(
+                () =>
+                  new ObservabilityError("Duplicate replay snapshot callback"),
+              ),
+            );
+        }
+      }
+
+      const tracingOptions = this.observability?.tracing;
+      const otlpEndpoint = hostEnv["OTEL_EXPORTER_OTLP_ENDPOINT"];
+      if (
+        tracingOptions?.enabled === true &&
+        otlpEndpoint !== undefined &&
+        otlpEndpoint.trim().length > 0 &&
+        this.observabilityScope === null
+      ) {
+        const scope = yield* Scope.make();
+        const tracerLayer = makeTracerLayer({
+          appId: this.manifest.appId,
+          serviceName:
+            tracingOptions.serviceName ?? `${this.manifest.appId}-app`,
+          otlpEndpoint,
+          shutdownTimeoutMs:
+            tracingOptions.shutdownTimeoutMs ??
+            DEFAULT_TRACER_SHUTDOWN_TIMEOUT_MS,
+        });
+        const memoizedLayer = yield* Scope.extend(
+          Layer.memoize(tracerLayer),
+          scope,
+        );
+        yield* Layer.buildWithScope(memoizedLayer, scope).pipe(
+          Effect.mapError(
+            (err) =>
+              new ObservabilityError(
+                "Failed to initialize app observability tracing",
+                err instanceof Error ? err : undefined,
+              ),
+          ),
+        );
+        this.observabilityLayer = memoizedLayer.pipe(
+          Layer.catchAll((err) =>
+            Layer.effectDiscard(
+              Effect.sync(() => {
+                this.emitError(
+                  new ObservabilityError(
+                    "Failed to provide app observability tracing",
+                    err instanceof Error ? err : undefined,
+                  ),
+                );
+              }),
+            ),
+          ),
+        );
+        this.observabilityScope = scope;
+      }
+    });
+  }
+
+  private withObservability<A, E, R>(
+    effect: Effect.Effect<A, E, R>,
+  ): Effect.Effect<A, E, R> {
+    return this.observabilityLayer === null
+      ? effect
+      : effect.pipe(Effect.provide(this.observabilityLayer));
+  }
+
+  private withAppSpan<A, E, R>(
+    name: string,
+    attributes: Record<string, unknown>,
+    effect: Effect.Effect<A, E, R>,
+  ): Effect.Effect<A, E, R> {
+    return this.withObservability(
+      effect.pipe(
+        Effect.withSpan(name, {
+          attributes,
+          captureStackTrace: false,
+        }),
+      ),
+    );
+  }
+
   // ── Session management ─────────────────────────────────────────────
 
   createSession(
     invitedAgentIds?: string[],
   ): Effect.Effect<AppSessionHandle, SessionError> {
-    return Effect.gen(this, function* () {
-      const result = (yield* this.client
-        .sendRpc("apps/create", {
-          appId: this.manifest.appId,
-          invitedAgentIds: invitedAgentIds ?? [],
-        })
-        .pipe(
-          Effect.mapError(
-            (err) =>
-              new SessionError(
-                "Failed to create app session",
-                err instanceof Error ? err : undefined,
-              ),
-          ),
-        )) as { session: AppSession };
+    return this.withAppSpan(
+      "app.createSession",
+      {
+        appId: this.manifest.appId,
+        invitedAgentCount: invitedAgentIds?.length ?? 0,
+      },
+      Effect.gen(this, function* () {
+        const result = (yield* this.client
+          .sendRpc("apps/create", {
+            appId: this.manifest.appId,
+            invitedAgentIds: invitedAgentIds ?? [],
+          })
+          .pipe(
+            Effect.mapError(
+              (err) =>
+                new SessionError(
+                  "Failed to create app session",
+                  err instanceof Error ? err : undefined,
+                ),
+            ),
+          )) as { session: AppSession };
 
-      const handle = new AppSessionHandle(result.session);
-      this.sessions.set(handle.id, handle);
-      this.buildReverseConvMap(handle);
-      return handle;
-    });
+        const handle = new AppSessionHandle(result.session);
+        this.sessions.set(handle.id, handle);
+        this.stampSessionStarted(handle.id);
+        this.buildReverseConvMap(handle);
+        return handle;
+      }),
+    );
   }
 
   getSession(sessionId: string): AppSessionHandle | undefined {
@@ -335,6 +543,51 @@ export class MoltZapApp {
 
   get activeSessions(): AppSessionHandle[] {
     return [...this.sessions.values()].filter((s) => s.isActive);
+  }
+
+  closeSession(sessionId: string): Effect.Effect<void, SessionError> {
+    return this.withAppSpan(
+      "app.closeSession",
+      { appId: this.manifest.appId, sessionId },
+      Effect.gen(this, function* () {
+        if (this.closingSessions.has(sessionId)) return;
+        if (!this.sessions.has(sessionId)) return;
+
+        this.closingSessions.add(sessionId);
+        this.suppressedClosedSessions.add(sessionId);
+
+        const cleanup = Effect.sleep(CLOSE_SESSION_EVENT_LOSS_CLEANUP_MS).pipe(
+          Effect.zipRight(
+            Effect.sync(() => {
+              this.closingSessions.delete(sessionId);
+              this.suppressedClosedSessions.delete(sessionId);
+            }),
+          ),
+        );
+
+        yield* this.client.sendRpc("apps/closeSession", { sessionId }).pipe(
+          Effect.mapError(
+            (err) =>
+              new SessionError(
+                `Failed to close session ${sessionId}`,
+                err instanceof Error ? err : undefined,
+              ),
+          ),
+          Effect.asVoid,
+          Effect.tap(() =>
+            Effect.sync(() => {
+              this.trackFork(cleanup);
+            }),
+          ),
+          Effect.tapError(() =>
+            Effect.sync(() => {
+              this.closingSessions.delete(sessionId);
+              this.suppressedClosedSessions.delete(sessionId);
+            }),
+          ),
+        );
+      }),
+    );
   }
 
   // ── Event registration ─────────────────────────────────────────────
@@ -363,6 +616,73 @@ export class MoltZapApp {
 
   onError(handler: (error: AppError) => void): void {
     this.errorHandler = handler;
+  }
+
+  onSessionSnapshot(callback: SnapshotCallback): void {
+    if (this.pendingSnapshotCallback !== null) {
+      throw new AppError(
+        "DUPLICATE_SNAPSHOT_CALLBACK",
+        "Replay snapshot callback already registered",
+      );
+    }
+
+    this.pendingSnapshotCallback = callback;
+    if (this.replayRecorder === null) return;
+
+    const exit = Effect.runSyncExit(
+      this.replayRecorder.setSnapshotCallback(callback),
+    );
+    if (Exit.isFailure(exit)) {
+      throw new AppError(
+        "DUPLICATE_SNAPSHOT_CALLBACK",
+        "Replay snapshot callback already registered",
+        causeToError(exit.cause),
+      );
+    }
+  }
+
+  exportSession(
+    sessionId: SessionId,
+  ): Effect.Effect<ReplayBundle | null, ReplayStoreIoError> {
+    return this.withAppSpan(
+      "app.exportSession",
+      { appId: this.manifest.appId, sessionId: sessionId as string },
+      Effect.gen(this, function* () {
+        if (this.replayRecorder === null) return null;
+        const bundle = yield* this.replayRecorder.exportSession(
+          sessionId,
+          this.manifest.appId,
+        );
+        return bundle === null ? null : this.applyReplayLifetime(bundle);
+      }),
+    );
+  }
+
+  writeTranscript(
+    sessionId: SessionId,
+    meta: TranscriptMeta,
+    outDir: string,
+  ): Effect.Effect<
+    string,
+    ReplayStoreIoError | SessionNotFoundError | TranscriptWriterError
+  > {
+    return this.withAppSpan(
+      "app.writeTranscript",
+      {
+        appId: this.manifest.appId,
+        sessionId: sessionId as string,
+        outDir,
+        metaKind: meta.kind,
+      },
+      Effect.gen(this, function* () {
+        const bundle = yield* this.exportSession(sessionId);
+        if (bundle === null) {
+          return yield* Effect.fail(new SessionNotFoundError(sessionId));
+        }
+        const writer = yield* makeTranscriptWriter();
+        return yield* writer.write(bundle, meta, outDir);
+      }),
+    );
   }
 
   // ── Admission + lifecycle handler surface (Phase 1.4 / B.5) ─────────────
@@ -403,7 +723,9 @@ export class MoltZapApp {
       "apps/onBeforeDispatch",
       handler,
       (decision) => ({ admission: decision }),
+      (decision) => decision.decision,
       () => ({ admission: { decision: "deny", reason: "app_handler_error" } }),
+      "deny",
     );
   }
 
@@ -426,7 +748,9 @@ export class MoltZapApp {
       "apps/onBeforeMessageDelivery",
       handler,
       (verdict) => verdict,
+      (verdict) => (verdict.block ? "block" : "allow"),
       () => ({ block: true, reason: "app_handler_error" }),
+      "block",
     );
   }
 
@@ -469,12 +793,16 @@ export class MoltZapApp {
     sessionId: string,
     conversationId: string,
   ): Effect.Effect<void, AttachError> {
-    return this.client
-      .sendRpc("apps/attachConversation", { sessionId, conversationId })
-      .pipe(
-        Effect.asVoid,
-        Effect.mapError((err) => mapAttachError(err)),
-      );
+    return this.withAppSpan(
+      "app.attachConversation",
+      { appId: this.manifest.appId, sessionId, conversationId },
+      this.client
+        .sendRpc("apps/attachConversation", { sessionId, conversationId })
+        .pipe(
+          Effect.asVoid,
+          Effect.mapError((err) => mapAttachError(err)),
+        ),
+    );
   }
 
   /**
@@ -488,53 +816,149 @@ export class MoltZapApp {
    * synchronously and only fails with `DuplicateServerRpcHandlerError`.
    */
   private registerAdmissionHandler<Ctx, Verdict>(
-    method: string,
+    method: HookMethod,
     handler: (ctx: Ctx) => Effect.Effect<Verdict, never>,
     wrapVerdict: (verdict: Verdict) => unknown,
+    verdictTag: (verdict: Verdict) => VerdictTag,
     failClosedVerdict: () => unknown,
+    failClosedVerdictTag: VerdictTag,
   ): void {
-    const wrapped = (params: unknown): Effect.Effect<unknown, RpcServerError> =>
+    const wrapped = (
+      params: unknown,
+      rpcCtx: ServerRpcContext,
+    ): Effect.Effect<unknown, RpcServerError> =>
       Effect.gen(this, function* () {
-        const ctx = params as Ctx;
-        const verdictExit = yield* Effect.exit(handler(ctx));
-        if (Exit.isSuccess(verdictExit)) {
-          return wrapVerdict(verdictExit.value);
-        }
-        // Fail-closed: log the underlying cause, synthesize the fail-closed
-        // verdict. Cause covers both typed failures (which are `never`-typed
-        // here so should not occur) and defects from `Effect.gen` throws.
-        const wrappedErr = new AppHandlerError(
-          method,
-          "handler failed; synthesizing fail-closed verdict",
-          causeToError(verdictExit.cause),
+        const parent = yield* this.parentSpanFromRpcContext(rpcCtx);
+        return yield* Effect.gen(this, function* () {
+          const sessionId = sessionIdFromParams(params);
+          const startedAtMs = Date.now();
+          const startedAt = new Date(startedAtMs).toISOString();
+          const ctx = params as Ctx;
+          const verdictExit = yield* Effect.exit(handler(ctx));
+          const durationMs = Date.now() - startedAtMs;
+          if (Exit.isSuccess(verdictExit)) {
+            const verdict = verdictExit.value;
+            const wireVerdict = wrapVerdict(verdict);
+            yield* this.recordReplayEvent({
+              sessionId,
+              method,
+              requestId: rpcCtx.requestId,
+              startedAt,
+              durationMs,
+              params,
+              outcome: {
+                kind: "ok",
+                verdictTag: verdictTag(verdict),
+                verdict,
+              },
+            });
+            return wireVerdict;
+          }
+          // Fail-closed: log the underlying cause, synthesize the fail-closed
+          // verdict. Cause covers both typed failures (which are `never`-typed
+          // here so should not occur) and defects from `Effect.gen` throws.
+          const cause = causeToError(verdictExit.cause);
+          const wrappedErr = new AppHandlerError(
+            method,
+            "handler failed; synthesizing fail-closed verdict",
+            cause,
+          );
+          this.emitError(wrappedErr);
+          const fallback = failClosedVerdict();
+          yield* this.recordReplayEvent({
+            sessionId: sessionIdFromParams(params),
+            method,
+            requestId: rpcCtx.requestId,
+            startedAt,
+            durationMs,
+            params,
+            outcome: {
+              kind: "fail-closed",
+              verdictTag: failClosedVerdictTag,
+              errorMessage: cause.message,
+              errorTag: wrappedErr._tag,
+            },
+          });
+          return fallback;
+        }).pipe(
+          Effect.withSpan(method, {
+            parent,
+            captureStackTrace: false,
+            attributes: hookSpanAttributes(this.manifest.appId, params, rpcCtx),
+          }),
         );
-        this.emitError(wrappedErr);
-        return failClosedVerdict();
       });
 
     this.installServerRpc(method, wrapped);
   }
 
   private registerLifecycleHandler<Ctx>(
-    method: string,
+    method: HookMethod,
     handler: (ctx: Ctx) => Effect.Effect<void, never>,
   ): void {
-    const wrapped = (params: unknown): Effect.Effect<unknown, RpcServerError> =>
+    const wrapped = (
+      params: unknown,
+      rpcCtx: ServerRpcContext,
+    ): Effect.Effect<unknown, RpcServerError> =>
       Effect.gen(this, function* () {
-        const ctx = params as Ctx;
-        const exit = yield* Effect.exit(handler(ctx));
-        if (Exit.isFailure(exit)) {
-          // Lifecycle hooks are awaitable-void: log and reply void so the
-          // server-side AppHost stops waiting. Never blocks session lifecycle.
-          this.emitError(
-            new AppHandlerError(
+        const parent = yield* this.parentSpanFromRpcContext(rpcCtx);
+        return yield* Effect.gen(this, function* () {
+          const sessionId = sessionIdFromParams(params);
+          if (method === "apps/onClose" && sessionId !== undefined) {
+            this.stampSessionFinished(sessionId);
+          }
+          const startedAtMs = Date.now();
+          const startedAt = new Date(startedAtMs).toISOString();
+          const ctx = params as Ctx;
+          const exit = yield* Effect.exit(handler(ctx));
+          const durationMs = Date.now() - startedAtMs;
+          if (Exit.isFailure(exit)) {
+            // Lifecycle hooks are awaitable-void: log and reply void so the
+            // server-side AppHost stops waiting. Never blocks session lifecycle.
+            const cause = causeToError(exit.cause);
+            this.emitError(
+              new AppHandlerError(
+                method,
+                "lifecycle handler failed; replying void",
+                cause,
+              ),
+            );
+            yield* this.recordReplayEvent({
+              sessionId,
               method,
-              "lifecycle handler failed; replying void",
-              causeToError(exit.cause),
-            ),
-          );
-        }
-        return {};
+              requestId: rpcCtx.requestId,
+              startedAt,
+              durationMs,
+              params,
+              outcome: {
+                kind: "fail-closed",
+                verdictTag: "void",
+                errorMessage: cause.message,
+              },
+            });
+          } else {
+            yield* this.recordReplayEvent({
+              sessionId: sessionIdFromParams(params),
+              method,
+              requestId: rpcCtx.requestId,
+              startedAt,
+              durationMs,
+              params,
+              outcome: {
+                kind: "ok",
+                verdictTag: "void",
+                verdict: {},
+              },
+            });
+          }
+          return {};
+        }).pipe(
+          Effect.withSpan(method, {
+            parent,
+            captureStackTrace: false,
+            attributes: hookSpanAttributes(this.manifest.appId, params, rpcCtx),
+          }),
+        );
       });
 
     this.installServerRpc(method, wrapped);
@@ -542,10 +966,15 @@ export class MoltZapApp {
 
   private installServerRpc(
     method: string,
-    wrapped: (params: unknown) => Effect.Effect<unknown, RpcServerError>,
+    wrapped: (
+      params: unknown,
+      ctx: ServerRpcContext,
+    ) => Effect.Effect<unknown, RpcServerError>,
   ): void {
     const exit = Effect.runSyncExit(
-      this.client.handleServerRpc(method, wrapped),
+      this.client.handleServerRpc(method, (params, ctx) =>
+        this.withObservability(wrapped(params, ctx)),
+      ),
     );
     if (Exit.isFailure(exit)) {
       // Only failure mode is `DuplicateServerRpcHandlerError`; surface as
@@ -559,6 +988,41 @@ export class MoltZapApp {
     }
   }
 
+  private parentSpanFromRpcContext(ctx: ServerRpcContext) {
+    return externalParentFromTraceparent(ctx.traceparent).pipe(
+      Effect.catchAll((err) =>
+        Effect.sync(() => {
+          this.emitError(
+            new ObservabilityError(
+              "Invalid traceparent on inbound s2c frame",
+              err instanceof Error ? err : undefined,
+            ),
+          );
+          return undefined;
+        }),
+      ),
+    );
+  }
+
+  private recordReplayEvent(
+    event: Omit<ReplayEvent, "sessionId"> & {
+      readonly sessionId: SessionId | undefined;
+    },
+  ): Effect.Effect<void, never> {
+    if (event.sessionId === undefined || this.replayRecorder === null) {
+      return Effect.void;
+    }
+    return this.replayRecorder.record({
+      sessionId: event.sessionId,
+      method: event.method,
+      requestId: event.requestId,
+      startedAt: event.startedAt,
+      durationMs: event.durationMs,
+      params: event.params,
+      outcome: event.outcome,
+    });
+  }
+
   // ── Messaging ──────────────────────────────────────────────────────
 
   /** Send a message to a conversation by key (resolved via session conversation map) */
@@ -566,11 +1030,19 @@ export class MoltZapApp {
     conversationKey: string,
     parts: Part[],
   ): Effect.Effect<void, SendError | ConversationKeyError> {
-    return Effect.gen(this, function* () {
-      const conversationId =
-        yield* this.resolveConversationKey(conversationKey);
-      yield* this.sendTo(conversationId, parts);
-    });
+    return this.withAppSpan(
+      "app.send",
+      {
+        appId: this.manifest.appId,
+        conversationKey,
+        partsCount: parts.length,
+      },
+      Effect.gen(this, function* () {
+        const conversationId =
+          yield* this.resolveConversationKey(conversationKey);
+        yield* this.sendTo(conversationId, parts);
+      }),
+    );
   }
 
   /** Send a message to a conversation by raw conversation ID */
@@ -578,15 +1050,23 @@ export class MoltZapApp {
     conversationId: string,
     parts: Part[],
   ): Effect.Effect<void, SendError> {
-    return this.client.sendRpc("messages/send", { conversationId, parts }).pipe(
-      Effect.mapError(
-        (err) =>
-          new SendError(
-            `Failed to send message to conversation ${conversationId}`,
-            err instanceof Error ? err : undefined,
-          ),
+    return this.withAppSpan(
+      "app.sendTo",
+      {
+        appId: this.manifest.appId,
+        conversationId,
+        partsCount: parts.length,
+      },
+      this.client.sendRpc("messages/send", { conversationId, parts }).pipe(
+        Effect.mapError(
+          (err) =>
+            new SendError(
+              `Failed to send message to conversation ${conversationId}`,
+              err instanceof Error ? err : undefined,
+            ),
+        ),
+        Effect.asVoid,
       ),
-      Effect.asVoid,
     );
   }
 
@@ -595,18 +1075,26 @@ export class MoltZapApp {
    * conversation from `replyToId`.
    */
   reply(messageId: string, parts: Part[]): Effect.Effect<void, SendError> {
-    return this.client
-      .sendRpc("messages/send", { replyToId: messageId, parts })
-      .pipe(
-        Effect.mapError(
-          (err) =>
-            new SendError(
-              `Failed to reply to message ${messageId}`,
-              err instanceof Error ? err : undefined,
-            ),
+    return this.withAppSpan(
+      "app.reply",
+      {
+        appId: this.manifest.appId,
+        replyToId: messageId,
+        partsCount: parts.length,
+      },
+      this.client
+        .sendRpc("messages/send", { replyToId: messageId, parts })
+        .pipe(
+          Effect.mapError(
+            (err) =>
+              new SendError(
+                `Failed to reply to message ${messageId}`,
+                err instanceof Error ? err : undefined,
+              ),
+          ),
+          Effect.asVoid,
         ),
-        Effect.asVoid,
-      );
+    );
   }
 
   // ── Promise bridges for async/await consumers ──────────────────────
@@ -624,6 +1112,22 @@ export class MoltZapApp {
 
   createSessionAsync(invitedAgentIds?: string[]) {
     return Effect.runPromise(this.createSession(invitedAgentIds));
+  }
+
+  closeSessionAsync(sessionId: string) {
+    return Effect.runPromise(this.closeSession(sessionId));
+  }
+
+  exportSessionAsync(sessionId: SessionId) {
+    return Effect.runPromise(this.exportSession(sessionId));
+  }
+
+  writeTranscriptAsync(
+    sessionId: SessionId,
+    meta: TranscriptMeta,
+    outDir: string,
+  ) {
+    return Effect.runPromise(this.writeTranscript(sessionId, meta, outDir));
   }
 
   sendAsync(conversationKey: string, parts: Part[]) {
@@ -707,17 +1211,58 @@ export class MoltZapApp {
   }
 
   private handleSessionClosed(data: AppSessionClosedEvent): void {
+    this.stampSessionFinished(data.sessionId);
     const handle = this.sessions.get(data.sessionId);
-    if (handle) {
-      for (const convId of Object.values(handle.conversations)) {
-        this.reverseConvMap.delete(convId);
-      }
-      this.sessions.delete(data.sessionId);
-      this.firedSessionReady.delete(data.sessionId);
+    if (handle === undefined) {
+      return;
+    }
+
+    for (const convId of Object.values(handle.conversations)) {
+      this.reverseConvMap.delete(convId);
+    }
+    this.sessions.delete(data.sessionId);
+    this.firedSessionReady.delete(data.sessionId);
+    this.closingSessions.delete(data.sessionId);
+
+    const suppressed = this.suppressedClosedSessions.delete(data.sessionId);
+    if (!suppressed) {
       this.emitError(
         new SessionClosedError(`Session ${data.sessionId} was closed`),
       );
     }
+  }
+
+  private stampSessionStarted(sessionId: string): void {
+    if (this.sessionLifetimes.has(sessionId)) return;
+    this.sessionLifetimes.set(sessionId, {
+      startedAt: new Date().toISOString(),
+      finishedAt: null,
+    });
+  }
+
+  private stampSessionFinished(sessionId: string): void {
+    const lifetime = this.sessionLifetimes.get(sessionId);
+    const finishedAt = new Date().toISOString();
+    if (lifetime === undefined) {
+      this.sessionLifetimes.set(sessionId, {
+        startedAt: finishedAt,
+        finishedAt,
+      });
+      return;
+    }
+    if (lifetime.finishedAt === null) {
+      lifetime.finishedAt = finishedAt;
+    }
+  }
+
+  private applyReplayLifetime(bundle: ReplayBundle): ReplayBundle {
+    const lifetime = this.sessionLifetimes.get(bundle.sessionId as string);
+    if (lifetime === undefined) return bundle;
+    return {
+      ...bundle,
+      startedAt: lifetime.startedAt,
+      finishedAt: lifetime.finishedAt ?? bundle.finishedAt,
+    };
   }
 
   private handleSkillChallenge(data: AppSkillChallengeEvent): void {
@@ -1021,4 +1566,34 @@ function extractAttachCode(err: RpcServerError): AttachErrorCode {
   if (err.message.includes("already attached")) return "AlreadyAttached";
 
   return "AttachFailed";
+}
+
+function sessionIdFromParams(params: unknown): SessionId | undefined {
+  const sessionId = objectField(params, "sessionId");
+  return typeof sessionId === "string" && sessionId.length > 0
+    ? (sessionId as SessionId)
+    : undefined;
+}
+
+function hookSpanAttributes(
+  appId: string,
+  params: unknown,
+  ctx: ServerRpcContext,
+): Record<string, unknown> {
+  const sessionId = objectField(params, "sessionId");
+  const conversationId = objectField(params, "conversationId");
+  return {
+    "moltzap.app_id": appId,
+    "rpc.method": ctx.method,
+    "rpc.request_id": ctx.requestId,
+    ...(typeof sessionId === "string" ? { "session.id": sessionId } : {}),
+    ...(typeof conversationId === "string"
+      ? { "conversation.id": conversationId }
+      : {}),
+  };
+}
+
+function objectField(input: unknown, key: string): unknown {
+  if (typeof input !== "object" || input === null) return undefined;
+  return Object.getOwnPropertyDescriptor(input, key)?.value;
 }

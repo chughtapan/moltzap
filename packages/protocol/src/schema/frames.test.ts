@@ -38,6 +38,20 @@ describe("RequestFrameSchema", () => {
     ).toBe(true);
   });
 
+  it("accepts request frames with traceparent", () => {
+    expect(
+      validate({
+        jsonrpc: "2.0",
+        type: "request",
+        direction: "s2c",
+        id: "srv-trace-1",
+        method: "apps/onJoin",
+        params: { sessionId: "s-1" },
+        traceparent: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+      }),
+    ).toBe(true);
+  });
+
   it("rejects missing direction", () => {
     expect(
       validate({

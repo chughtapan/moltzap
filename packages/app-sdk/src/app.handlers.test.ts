@@ -47,8 +47,17 @@ const { MockRpcServerError, MockDuplicateError } = vi.hoisted(() => {
 
 type MockRpcServerErrorInstance = InstanceType<typeof MockRpcServerError>;
 
+interface MockServerRpcContext {
+  readonly requestId: string;
+  readonly method: string;
+  readonly traceparent?: string;
+}
+
 interface InstalledHandler {
-  (params: unknown): Effect.Effect<unknown, MockRpcServerErrorInstance>;
+  (
+    params: unknown,
+    ctx: MockServerRpcContext,
+  ): Effect.Effect<unknown, MockRpcServerErrorInstance>;
 }
 
 vi.mock("@moltzap/client", async () => {
@@ -104,13 +113,18 @@ vi.mock("@moltzap/client", async () => {
         _invokeHandler(
           method: string,
           params: unknown,
+          traceparent?: string,
         ): Effect.Effect<unknown, MockRpcServerErrorInstance> {
           const m = Effect.runSync(Ref.get(handlers));
           const h = HashMap.get(m, method);
           if (h._tag === "None") {
             throw new Error(`no handler for ${method}`);
           }
-          return h.value(params);
+          return h.value(params, {
+            requestId: `req-${method}`,
+            method,
+            ...(traceparent !== undefined ? { traceparent } : {}),
+          });
         },
         _hasHandler(method: string): boolean {
           const m = Effect.runSync(Ref.get(handlers));
@@ -131,12 +145,18 @@ vi.mock("@moltzap/client", async () => {
 
 // Import the SDK AFTER vi.mock so the mock is active.
 import { MoltZapApp } from "./app.js";
-import { AppError, AppHandlerError, AttachError } from "./errors.js";
+import {
+  AppError,
+  AppHandlerError,
+  AttachError,
+  ObservabilityError,
+} from "./errors.js";
 
 interface MockedWsClient {
   _invokeHandler: (
     method: string,
     params: unknown,
+    traceparent?: string,
   ) => Effect.Effect<unknown, MockRpcServerErrorInstance>;
   _hasHandler: (method: string) => boolean;
   _setAttachFailure: (err: MockRpcServerErrorInstance | Error) => void;
@@ -273,6 +293,24 @@ describe("MoltZapApp — admission/lifecycle handler surface", () => {
       expect(errArg).toBeInstanceOf(AppHandlerError);
       expect(errArg.code).toBe("APP_HANDLER_ERROR");
       expect(errArg.method).toBe("apps/onBeforeDispatch");
+    });
+
+    it("logs malformed inbound traceparent and still runs the handler as a root span", async () => {
+      app.onBeforeDispatch(() =>
+        Effect.succeed<DispatchAdmissionResult>({ decision: "grant" }),
+      );
+
+      const reply = await Effect.runPromise(
+        asMock(app.client)._invokeHandler(
+          "apps/onBeforeDispatch",
+          baseDispatchCtx,
+          "not-a-traceparent",
+        ),
+      );
+
+      expect(reply).toEqual({ admission: { decision: "grant" } });
+      expect(onErr).toHaveBeenCalledTimes(1);
+      expect(onErr.mock.calls[0]![0]).toBeInstanceOf(ObservabilityError);
     });
 
     it("throws AppError DUPLICATE_HOOK_HANDLER on second registration", () => {

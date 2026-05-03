@@ -25,7 +25,13 @@ export default [
     },
     rules: {
       ...guard.configs.recommended.rules,
-      "@typescript-eslint/no-magic-numbers": "warn",
+      "@typescript-eslint/no-magic-numbers": [
+        "warn",
+        {
+          ignore: [-1, 0, 1],
+          ignoreArrayIndexes: true,
+        },
+      ],
       "@typescript-eslint/no-unused-vars": "error",
       "sonarjs/no-duplicate-string": ["warn", { threshold: 4 }],
     },

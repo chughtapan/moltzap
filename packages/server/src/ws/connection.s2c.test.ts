@@ -103,11 +103,13 @@ describe("sendRpcToClient — happy-path round-trip", () => {
         id: string;
         method: string;
         params: { sessionId: string };
+        traceparent?: string;
       };
       expect(frame.type).toBe("request");
       expect(frame.direction).toBe("s2c");
       expect(frame.method).toBe("apps/onJoin");
       expect(frame.params.sessionId).toBe("sess-1");
+      expect(frame.traceparent).toBeUndefined();
       // `srv-<connId>-<seq>` namespace prefix — direction-namespacing keeps
       // c2s and s2c id pools disjoint per the architect plan.
       expect(frame.id.startsWith("srv-conn-happy-")).toBe(true);
@@ -135,6 +137,54 @@ describe("sendRpcToClient — happy-path round-trip", () => {
     if (Exit.isSuccess(exit)) {
       expect(exit.value).toEqual({ ok: true, surface: "decision" });
     }
+  });
+
+  it("injects the current Effect span as W3C traceparent when one is active", async () => {
+    const program = Effect.gen(function* () {
+      const scope = yield* Scope.make();
+      const { conn, outbound } = yield* Scope.extend(
+        makeFakeConnection("conn-trace"),
+        scope,
+      );
+
+      const fiber = yield* Effect.fork(
+        sendRpcToClient(conn, "apps/onJoin", { sessionId: "trace-sess" }).pipe(
+          Effect.withSpan("apphost.s2c.apps/onJoin"),
+        ),
+      );
+
+      const captured = yield* Ref.get(outbound).pipe(
+        Effect.flatMap((xs) =>
+          xs.length > 0
+            ? Effect.succeed(xs[0]!)
+            : Effect.fail(new Error("no frame yet")),
+        ),
+        Effect.retry({ times: 50, schedule: undefined }),
+      );
+
+      const frame = JSON.parse(captured) as {
+        id: string;
+        traceparent?: string;
+      };
+      expect(frame.traceparent).toMatch(
+        /^00-[0-9a-f]{32}-[0-9a-f]{16}-(00|01)$/u,
+      );
+
+      yield* completeS2cResponse(conn, {
+        jsonrpc: "2.0",
+        type: "response",
+        direction: "s2c",
+        id: frame.id,
+        result: { ok: true },
+      });
+
+      const exit = yield* Fiber.join(fiber).pipe(Effect.exit);
+      yield* Scope.close(scope, Exit.void);
+      return exit;
+    });
+
+    const exit = await Effect.runPromise(program);
+    expect(Exit.isSuccess(exit)).toBe(true);
   });
 
   it("propagates a typed error response as S2cRpcResponseError", async () => {
