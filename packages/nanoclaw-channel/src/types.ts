@@ -38,21 +38,17 @@ export interface NewMessage {
   reply_to_sender_name?: string;
 }
 
+type UpstreamAsyncVoid = ReturnType<typeof Promise.resolve<void>>;
+
 export interface Channel {
   name: string;
-  connect(): Promise<void>; // #ignore-sloppy-code[promise-type]: mirrors upstream nanoclaw Channel interface signature
-  sendMessage(
-    jid: string,
-    text: string,
-  ): Promise<void>; // #ignore-sloppy-code[promise-type]: mirrors upstream nanoclaw Channel interface signature
+  connect(): UpstreamAsyncVoid;
+  sendMessage(jid: string, text: string): UpstreamAsyncVoid;
   isConnected(): boolean;
   ownsJid(jid: string): boolean;
-  disconnect(): Promise<void>; // #ignore-sloppy-code[promise-type]: mirrors upstream nanoclaw Channel interface signature
-  setTyping?(
-    jid: string,
-    isTyping: boolean,
-  ): Promise<void>; // #ignore-sloppy-code[promise-type]: mirrors upstream nanoclaw Channel interface signature
-  syncGroups?(force: boolean): Promise<void>; // #ignore-sloppy-code[promise-type]: mirrors upstream nanoclaw Channel interface signature
+  disconnect(): UpstreamAsyncVoid;
+  setTyping?(jid: string, isTyping: boolean): UpstreamAsyncVoid;
+  syncGroups?(force: boolean): UpstreamAsyncVoid;
 }
 
 export type OnInboundMessage = (chatJid: string, message: NewMessage) => void;

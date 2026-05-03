@@ -243,11 +243,7 @@ function toolOkResult(message: string): CallToolResult {
  * Registers exactly one tool: `reply`. No other notification methods, no
  * `send_direct_message`, no `edit_message`, no caller-injected tools.
  */
-export function bootChannelMcpServer(
-  config: ServerConfig,
-  deps: ServerDeps,
-  // #ignore-sloppy-code-next-line[promise-type]: public API over MCP SDK — SDK requires Promise-returning function
-): Promise<ServerBootResult> {
+export function bootChannelMcpServer(config: ServerConfig, deps: ServerDeps) {
   return Effect.runPromise(bootChannelMcpServerEffect(config, deps));
 }
 

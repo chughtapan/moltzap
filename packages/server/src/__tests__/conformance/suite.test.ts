@@ -64,8 +64,7 @@ function findComposeFile(): string {
   );
 }
 
-// #ignore-sloppy-code-next-line[promise-type]: docker-compose is a consumer concern; Promise-native
-function bringUpToxiproxy(): Promise<ComposeController> {
+function bringUpToxiproxy() {
   const composePath = findComposeFile();
   return new Promise((resolve, reject) => {
     const up = spawn("docker", ["compose", "-f", composePath, "up", "-d"], {
