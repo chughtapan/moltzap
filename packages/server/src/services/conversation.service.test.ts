@@ -234,3 +234,44 @@ describe("ConversationService.addParticipant auto-subscribes the new member", ()
     expect(bobConn.conversationIds.has(conv.id)).toBe(true);
   });
 });
+
+/**
+ * Regression for arena#372: archived DMs must not be reused by
+ * conversations/create. Before this fix, `findExistingDm` returned any DM
+ * between the two agents — including archived ones. After closeSession
+ * archives a DM, the next conversations/create would hand back the archived
+ * conversation, but messages/send rejects writes to archived conversations,
+ * so the agent ended up with a "live" DM id it could never write to.
+ */
+describe("ConversationService.create — archived DM lookup (issue #372)", () => {
+  beforeEach(freshDb, dbHookTimeoutMs);
+  afterEach(async () => {
+    await pglite?.close();
+  });
+
+  it("does not reuse an archived DM — creates a fresh conversation instead", async () => {
+    const connections = new ConnectionManager();
+    const participants = new ParticipantService(db);
+    const service = new ConversationService(db, participants, connections);
+    const authService = new AuthService(db);
+
+    const alice = await seedAgent(authService, "alice");
+    const bob = await seedAgent(authService, "bob");
+
+    // 1. Create a DM between alice and bob.
+    const first = await Effect.runPromise(
+      service.create("dm", undefined, [bob], alice),
+    );
+
+    // 2. Archive it (alice is the creator/owner, so archive is permitted).
+    await Effect.runPromise(service.archive(first.id, alice));
+
+    // 3. Create a DM again with the same participants.
+    const second = await Effect.runPromise(
+      service.create("dm", undefined, [bob], alice),
+    );
+
+    // 4. The new DM must be a fresh row — not the archived one.
+    expect(second.id).not.toBe(first.id);
+  });
+});
