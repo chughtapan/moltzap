@@ -59,7 +59,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Effect<Verdict, never>` regardless of source (in-process or remote).
 - Manifest hook timeout (`manifest.hooks.<name>.timeout_ms`) is now
   enforced at the AppHost call site via `Effect.timeout(manifestMs)`.
-  Schema bounds (100ms-30000ms) remain.
 
 ### Removed
 
@@ -84,6 +83,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `app-disconnect-fail-policy` property that asserts pending s2c
   admissions fail with `AppDisconnected` and AppHost applies
   fail-closed verdicts when the app's WS is severed.
+- 30s upper bound on `hooks.<name>.timeout_ms` (B.4 follow-up #324).
+  The schema in `packages/protocol/src/schema/apps.ts` now reads
+  `Type.Integer({ default: 5000, minimum: 1 })` — no `maximum`.
 
 ### Migration
 
