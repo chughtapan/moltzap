@@ -31,6 +31,7 @@ export interface DecodedServerRequest {
   readonly id: string;
   readonly method: string;
   readonly params: unknown;
+  readonly traceparent?: string;
 }
 
 export type DecodedFrame =
@@ -72,6 +73,7 @@ const toDecodedFrame = (
       id: frame.id,
       method: frame.method,
       params: frame.params,
+      traceparent: frame.traceparent,
     };
   }
 
