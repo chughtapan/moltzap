@@ -12,7 +12,7 @@
  * driving `TestServer`, arena — writes an equivalent ~20-line file.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { Effect, Exit } from "effect";
+import { Data, Effect, Exit } from "effect";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -29,6 +29,20 @@ const SKIP_TOXIPROXY = process.env.SKIP_TOXIPROXY === "1";
 const SKIP_DOCKER = process.env.SKIP_DOCKER === "1";
 const TOXIPROXY_URL = process.env.TOXIPROXY_URL ?? "http://127.0.0.1:8474";
 const CONFORMANCE_DEV_MODE_USER_ID = "00000000-0000-4000-8000-000000000340";
+const TOXIPROXY_PROBE_INTERVAL = "500 millis";
+
+class ToxiproxyProbeFailed extends Data.TaggedError("ToxiproxyProbeFailed")<{
+  readonly cause: unknown;
+}> {}
+
+class ToxiproxyProbeTimeout extends Data.TaggedError("ToxiproxyProbeTimeout")<{
+  readonly url: string;
+  readonly timeoutMs: number;
+}> {
+  override get message(): string {
+    return `Toxiproxy not reachable at ${this.url} after ${this.timeoutMs}ms`;
+  }
+}
 
 interface ComposeController {
   readonly teardown: () => Promise<void>;
@@ -50,8 +64,7 @@ function findComposeFile(): string {
   );
 }
 
-// #ignore-sloppy-code-next-line[promise-type]: docker-compose is a consumer concern; Promise-native
-function bringUpToxiproxy(): Promise<ComposeController> {
+function bringUpToxiproxy() {
   const composePath = findComposeFile();
   return new Promise((resolve, reject) => {
     const up = spawn("docker", ["compose", "-f", composePath, "up", "-d"], {
@@ -77,20 +90,44 @@ function bringUpToxiproxy(): Promise<ComposeController> {
   });
 }
 
-// #ignore-sloppy-code-next-line[async-keyword]: Vitest hook-native orchestration
-async function waitForToxiproxy(url: string, timeoutMs: number): Promise<void> {
+function waitForToxiproxy(url: string, timeoutMs: number) {
   const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      const res = await fetch(`${url}/version`);
-      if (res.ok) return;
-    } catch (probeErr) {
-      console.warn("toxiproxy readiness probe failed", probeErr);
-      /* retry */
-    }
-    await new Promise((r) => setTimeout(r, 500));
-  }
-  throw new Error(`Toxiproxy not reachable at ${url} after ${timeoutMs}ms`);
+  const probe = (): Effect.Effect<
+    void,
+    ToxiproxyProbeFailed | ToxiproxyProbeTimeout,
+    never
+  > =>
+    Date.now() >= deadline
+      ? Effect.fail(new ToxiproxyProbeTimeout({ url, timeoutMs }))
+      : Effect.tryPromise({
+          try: () => fetch(`${url}/version`),
+          catch: (cause) => new ToxiproxyProbeFailed({ cause }),
+        }).pipe(
+          Effect.flatMap((res) =>
+            res.ok
+              ? Effect.void
+              : Effect.fail(
+                  new ToxiproxyProbeFailed({
+                    cause: `HTTP ${res.status.toString()}`,
+                  }),
+                ),
+          ),
+          Effect.catchAll((probeErr) =>
+            Effect.sync(() => {
+              if (probeErr instanceof ToxiproxyProbeFailed) {
+                console.warn(
+                  "toxiproxy readiness probe failed",
+                  probeErr.cause,
+                );
+              }
+            }).pipe(
+              Effect.zipRight(Effect.sleep(TOXIPROXY_PROBE_INTERVAL)),
+              Effect.zipRight(probe()),
+            ),
+          ),
+        );
+
+  return Effect.runPromise(probe());
 }
 
 describe("moltzap-server-core conformance", () => {

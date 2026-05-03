@@ -16,8 +16,7 @@ export function createRpcRouter(methods: RpcMethodRegistry) {
     frame: RequestFrame,
     ctx: AuthenticatedContext,
     connId: string,
-    // #ignore-sloppy-code-next-line[promise-type]: ws server dispatch boundary invoked per frame
-  ): Promise<ResponseFrame> {
+  ) {
     const requestId = frame.id;
     const methodName = frame.method;
     const method = methods[methodName];
