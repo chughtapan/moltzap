@@ -65,6 +65,9 @@ export interface MoltZapAppOptions {
 
 export type StartError = AuthError | ManifestRegistrationError | SessionError;
 
+const DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000;
+const NO_BACKGROUND_FIBERS = 0;
+
 /**
  * MoltZapApp — main class for building MoltZap apps.
  *
@@ -125,7 +128,8 @@ export class MoltZapApp {
       ],
     };
 
-    this.heartbeatIntervalMs = options.heartbeatIntervalMs ?? 30_000;
+    this.heartbeatIntervalMs =
+      options.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS;
     this.invitedAgentIds = options.invitedAgentIds ?? [];
     this.logger = options.logger ?? {
       info: () => {},
@@ -137,10 +141,13 @@ export class MoltZapApp {
     const wsOptions: MoltZapWsClientOptions = {
       serverUrl: options.serverUrl,
       agentKey: options.agentKey,
-      // Spec #222 OQ-6: arg required. `handleDisconnect` doesn't read
-      // close metadata today; signature kept explicit so a future
-      // disconnect-handler chain can plumb code/reason through.
-      onDisconnect: (_close) => this.handleDisconnect(),
+      onDisconnect: (close) => {
+        // Spec #222 OQ-6: arg required. `handleDisconnect` doesn't read
+        // close metadata today; signature kept explicit so a future
+        // disconnect-handler chain can plumb code/reason through.
+        void close;
+        this.handleDisconnect();
+      },
       onReconnect: () => this.handleReconnect(),
       logger: this.logger,
     };
@@ -251,7 +258,7 @@ export class MoltZapApp {
       const pending = [...this.backgroundFibers];
       this.backgroundFibers.clear();
       this.recoveringSessions.clear();
-      if (pending.length > 0) {
+      if (pending.length > NO_BACKGROUND_FIBERS) {
         yield* Fiber.interruptAll(pending);
       }
 
@@ -607,33 +614,27 @@ export class MoltZapApp {
   // built on Effect can still use the SDK with plain async/await.
   // The primary API is the Effect-returning sibling on each method.
 
-  // #ignore-sloppy-code-next-line[promise-type]: Promise bridge for async/await consumers
-  startAsync(): Promise<AppSessionHandle> {
+  startAsync() {
     return Effect.runPromise(this.start());
   }
 
-  // #ignore-sloppy-code-next-line[promise-type]: Promise bridge for async/await consumers
-  stopAsync(): Promise<void> {
+  stopAsync() {
     return Effect.runPromise(this.stop());
   }
 
-  // #ignore-sloppy-code-next-line[promise-type]: Promise bridge for async/await consumers
-  createSessionAsync(invitedAgentIds?: string[]): Promise<AppSessionHandle> {
+  createSessionAsync(invitedAgentIds?: string[]) {
     return Effect.runPromise(this.createSession(invitedAgentIds));
   }
 
-  // #ignore-sloppy-code-next-line[promise-type]: Promise bridge for async/await consumers
-  sendAsync(conversationKey: string, parts: Part[]): Promise<void> {
+  sendAsync(conversationKey: string, parts: Part[]) {
     return Effect.runPromise(this.send(conversationKey, parts));
   }
 
-  // #ignore-sloppy-code-next-line[promise-type]: Promise bridge for async/await consumers
-  sendToAsync(conversationId: string, parts: Part[]): Promise<void> {
+  sendToAsync(conversationId: string, parts: Part[]) {
     return Effect.runPromise(this.sendTo(conversationId, parts));
   }
 
-  // #ignore-sloppy-code-next-line[promise-type]: Promise bridge for async/await consumers
-  replyAsync(messageId: string, parts: Part[]): Promise<void> {
+  replyAsync(messageId: string, parts: Part[]) {
     return Effect.runPromise(this.reply(messageId, parts));
   }
 
