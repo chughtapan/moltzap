@@ -64,8 +64,16 @@ import {
   resolveServices,
 } from "./layers.js";
 
+import { Connect } from "@moltzap/protocol";
+
 /** Grace period after closing all WebSockets so in-flight sends can flush. */
 const SHUTDOWN_DRAIN_MS = 500;
+const HTTP_BAD_REQUEST = 400;
+const HTTP_OK = 200;
+const HTTP_CREATED = 201;
+const ERROR_INVALID_JSON = "Invalid JSON";
+const ERROR_INVALID_PARAMETERS = "Invalid parameters";
+const INVALID_JSON_BODY = Symbol("InvalidJsonBody");
 
 class ServerCloseError extends Data.TaggedError("ServerCloseError")<{
   readonly cause: unknown;
@@ -95,7 +103,7 @@ function isStringKeyedRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function runUserHook<TArgs>(
-  hook: (args: TArgs) => void | Promise<void>,
+  hook: (args: TArgs) => void | PromiseLike<void>,
   args: TArgs,
   label: string,
   logCtx: Record<string, unknown>,
@@ -225,19 +233,20 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     "/api/v1/auth/register",
     Effect.gen(function* () {
       const request = yield* HttpServerRequest.HttpServerRequest;
-      const bodyResult = yield* Effect.either(request.json);
-      if (bodyResult._tag === "Left") {
+      const body = yield* request.json.pipe(
+        Effect.catchAll(() => Effect.succeed(INVALID_JSON_BODY)),
+      );
+      if (body === INVALID_JSON_BODY) {
         return HttpServerResponse.unsafeJson(
-          { error: "Invalid JSON" },
-          { status: 400 },
+          { error: ERROR_INVALID_JSON },
+          { status: HTTP_BAD_REQUEST },
         );
       }
-      const body = bodyResult.right;
 
       if (!validators.registerParams(body)) {
         return HttpServerResponse.unsafeJson(
-          { error: "Invalid parameters" },
-          { status: 400 },
+          { error: ERROR_INVALID_PARAMETERS },
+          { status: HTTP_BAD_REQUEST },
         );
       }
 
@@ -289,32 +298,35 @@ export function createCoreApp(config: CoreConfig): CoreApp {
       }
 
       const request = yield* HttpServerRequest.HttpServerRequest;
-      const bodyResult = yield* Effect.either(request.json);
-      if (bodyResult._tag === "Left") {
+      const body = yield* request.json.pipe(
+        Effect.catchAll(() => Effect.succeed(INVALID_JSON_BODY)),
+      );
+      if (body === INVALID_JSON_BODY) {
         return HttpServerResponse.unsafeJson(
-          { error: "Invalid JSON" },
-          { status: 400 },
+          { error: ERROR_INVALID_JSON },
+          { status: HTTP_BAD_REQUEST },
         );
       }
 
-      if (!isStringKeyedRecord(bodyResult.right)) {
+      if (!isStringKeyedRecord(body)) {
         return HttpServerResponse.unsafeJson(
-          { error: "Invalid parameters" },
-          { status: 400 },
+          { error: ERROR_INVALID_PARAMETERS },
+          { status: HTTP_BAD_REQUEST },
         );
       }
 
       // `validators.registerParams` is built from the protocol Register
       // schema with `additionalProperties: false`. Strip ownerUserId
       // before validating the rest of the body against that strict schema.
-      const fullBody = bodyResult.right;
+      const fullBody = body;
       const ownerUserIdRaw = fullBody["ownerUserId"];
-      const { ownerUserId: _stripped, ...registerBody } = fullBody;
+      const { ownerUserId, ...registerBody } = fullBody;
+      void ownerUserId;
 
       if (!validators.registerParams(registerBody)) {
         return HttpServerResponse.unsafeJson(
-          { error: "Invalid parameters" },
-          { status: 400 },
+          { error: ERROR_INVALID_PARAMETERS },
+          { status: HTTP_BAD_REQUEST },
         );
       }
 
@@ -334,7 +346,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
         ) {
           return HttpServerResponse.unsafeJson(
             { error: "ownerUserId must be a UUID" },
-            { status: 400 },
+            { status: HTTP_BAD_REQUEST },
           );
         }
         resolvedOwnerUserId = ownerUserIdRaw;
@@ -368,7 +380,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
       // is the on-the-wire `rotated` signal; body shape stays unchanged.
       return HttpServerResponse.unsafeJson(
         { agentId: result.agentId, apiKey: result.apiKey },
-        { status: result.rotated ? 200 : 201 },
+        { status: result.rotated ? HTTP_OK : HTTP_CREATED },
       );
     }),
   );
@@ -399,21 +411,23 @@ export function createCoreApp(config: CoreConfig): CoreApp {
         );
       }
 
-      const bodyResult = yield* Effect.either(request.json);
-      if (bodyResult._tag === "Left") {
+      const rawBody = yield* request.json.pipe(
+        Effect.catchAll(() => Effect.succeed(INVALID_JSON_BODY)),
+      );
+      if (rawBody === INVALID_JSON_BODY) {
         return HttpServerResponse.unsafeJson(
-          { error: "Invalid JSON" },
-          { status: 400 },
+          { error: ERROR_INVALID_JSON },
+          { status: HTTP_BAD_REQUEST },
         );
       }
-      const body = bodyResult.right as {
+      const body = rawBody as {
         request_id?: string;
         access?: string[];
       };
       if (!body.request_id || !Array.isArray(body.access)) {
         return HttpServerResponse.unsafeJson(
           { error: "Invalid body: need request_id and access[]" },
-          { status: 400 },
+          { status: HTTP_BAD_REQUEST },
         );
       }
 
@@ -506,7 +520,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
                 id: null,
                 error: {
                   code: ErrorCodes.ParseError,
-                  message: "Invalid JSON",
+                  message: ERROR_INVALID_JSON,
                 },
               });
               return;
@@ -591,7 +605,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
               });
               return;
             }
-            if (frame.method !== "auth/connect" && !conn.auth) {
+            if (frame.method !== Connect.name && !conn.auth) {
               yield* sendFrame({
                 jsonrpc: "2.0",
                 type: "response",
@@ -626,7 +640,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
 
             // Fire connection hooks after a successful auth/connect — auth was
             // populated by the dispatch handler if the credentials were valid.
-            if (frame.method === "auth/connect") {
+            if (frame.method === Connect.name) {
               const authCtx = connections.get(connId)?.auth;
               if (!authCtx) return;
               const { agentId, ownerUserId } = authCtx;
@@ -704,7 +718,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     }).pipe(
       Effect.catchAll((err) => {
         logger.warn({ err }, "WS upgrade failed");
-        return HttpServerResponse.empty({ status: 400 });
+        return HttpServerResponse.empty({ status: HTTP_BAD_REQUEST });
       }),
     ),
   );

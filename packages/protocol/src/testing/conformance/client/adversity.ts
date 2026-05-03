@@ -36,8 +36,14 @@ import {
   subscribeAll,
 } from "./_fixtures.js";
 
+import { AgentsList } from "../../../schema/methods/auth.js";
+
 const CATEGORY = "adversity" as const;
 const PROPERTY_BUDGET_MS = 10_000;
+const TIMEOUT_ERROR_PREVIEW_CHARS = 200;
+const PROPERTY_LATENCY_RESILIENCE_CLIENT = "latency-resilience-client";
+const PROPERTY_TIMEOUT_SURFACE_CLIENT = "timeout-surface-client";
+const PROPERTY_SLOW_CLOSE_CLEANUP_CLIENT = "slow-close-cleanup-client";
 
 function unavailable(name: string, reason: string): PropertyUnavailable {
   return new PropertyUnavailable({ category: CATEGORY, name, reason });
@@ -55,14 +61,14 @@ export function registerLatencyResilienceClient(
   registerProperty(
     ctx,
     CATEGORY,
-    "latency-resilience-client",
+    PROPERTY_LATENCY_RESILIENCE_CLIENT,
     "fan-out survives latency (Toxiproxy) or degrades to cardinality check",
     Effect.scoped(
       Effect.gen(function* () {
         if (ctx.toxiproxy === null) {
           return yield* Effect.fail(
             unavailable(
-              "latency-resilience-client",
+              PROPERTY_LATENCY_RESILIENCE_CLIENT,
               "Toxiproxy not provisioned; client-side latency toxic unavailable in this run",
             ),
           );
@@ -70,7 +76,7 @@ export function registerLatencyResilienceClient(
         const fx = yield* acquireFixture(
           ctx,
           CATEGORY,
-          "latency-resilience-client",
+          PROPERTY_LATENCY_RESILIENCE_CLIENT,
         );
         yield* subscribeAll(fx.handle);
         const base: EventFrame = {
@@ -100,7 +106,7 @@ export function registerLatencyResilienceClient(
           return yield* Effect.fail(
             invariant(
               CATEGORY,
-              "latency-resilience-client",
+              PROPERTY_LATENCY_RESILIENCE_CLIENT,
               `expected ${N} under latency, got ${observed.length}`,
             ),
           );
@@ -172,14 +178,14 @@ export function registerTimeoutSurfaceClient(
   registerProperty(
     ctx,
     CATEGORY,
-    "timeout-surface-client",
+    PROPERTY_TIMEOUT_SURFACE_CLIENT,
     "never-responded RPC surfaces typed RpcTimeoutError on the real client",
     Effect.scoped(
       Effect.gen(function* () {
         const fx = yield* acquireFixture(
           ctx,
           CATEGORY,
-          "timeout-surface-client",
+          PROPERTY_TIMEOUT_SURFACE_CLIENT,
         );
         // Do NOT start a responder — TestServer silently absorbs the
         // request. The real client's internal timeout must fire.
@@ -190,12 +196,12 @@ export function registerTimeoutSurfaceClient(
         // than pretending to assert the client-internal deadline.
         const start = yield* Clock.currentTimeMillis;
         const outcome = yield* Effect.exit(
-          fx.handle.call.call("agents/list", {}).pipe(
+          fx.handle.call.call(AgentsList.name, {}).pipe(
             Effect.timeoutFail({
               duration: `${PROPERTY_BUDGET_MS} millis`,
               onTimeout: () =>
                 unavailable(
-                  "timeout-surface-client",
+                  PROPERTY_TIMEOUT_SURFACE_CLIENT,
                   `client timeout > ${PROPERTY_BUDGET_MS}ms suite budget`,
                 ),
             }),
@@ -206,7 +212,7 @@ export function registerTimeoutSurfaceClient(
           return yield* Effect.fail(
             invariant(
               CATEGORY,
-              "timeout-surface-client",
+              PROPERTY_TIMEOUT_SURFACE_CLIENT,
               "RPC unexpectedly resolved without a response",
             ),
           );
@@ -218,7 +224,7 @@ export function registerTimeoutSurfaceClient(
         if (causeStr.includes("PropertyUnavailable")) {
           return yield* Effect.fail(
             unavailable(
-              "timeout-surface-client",
+              PROPERTY_TIMEOUT_SURFACE_CLIENT,
               `client timeout exceeded suite budget (${elapsed}ms)`,
             ),
           );
@@ -230,8 +236,8 @@ export function registerTimeoutSurfaceClient(
           return yield* Effect.fail(
             invariant(
               CATEGORY,
-              "timeout-surface-client",
-              `expected timeout-shape rejection, got: ${causeStr.slice(0, 200)}`,
+              PROPERTY_TIMEOUT_SURFACE_CLIENT,
+              `expected timeout-shape rejection, got: ${causeStr.slice(0, TIMEOUT_ERROR_PREVIEW_CHARS)}`,
             ),
           );
         }
@@ -254,14 +260,14 @@ export function registerSlowCloseCleanupClient(
   registerProperty(
     ctx,
     CATEGORY,
-    "slow-close-cleanup-client",
+    PROPERTY_SLOW_CLOSE_CLEANUP_CLIENT,
     "slow close completes; real client's closeSignal resolves and Scope releases",
     Effect.scoped(
       Effect.gen(function* () {
         const fx = yield* acquireFixture(
           ctx,
           CATEGORY,
-          "slow-close-cleanup-client",
+          PROPERTY_SLOW_CLOSE_CLEANUP_CLIENT,
         );
         // Initiate a close from the TestServer side.
         yield* fx.connection
@@ -276,7 +282,7 @@ export function registerSlowCloseCleanupClient(
               onTimeout: () =>
                 invariant(
                   CATEGORY,
-                  "slow-close-cleanup-client",
+                  PROPERTY_SLOW_CLOSE_CLEANUP_CLIENT,
                   `closeSignal did not resolve within ${closeBudget}ms`,
                 ),
             }),
@@ -288,7 +294,7 @@ export function registerSlowCloseCleanupClient(
             return yield* Effect.fail(
               invariant(
                 CATEGORY,
-                "slow-close-cleanup-client",
+                PROPERTY_SLOW_CLOSE_CLEANUP_CLIENT,
                 `closeSignal timed out (${closeBudget}ms budget)`,
               ),
             );

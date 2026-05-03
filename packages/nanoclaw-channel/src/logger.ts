@@ -4,7 +4,9 @@
 
 type LogInput = Record<string, unknown> | string;
 
-function noop(_dataOrMsg: LogInput, _msg?: string): void {
+function noop(dataOrMsg: LogInput, msg?: string): void {
+  void dataOrMsg;
+  void msg;
   // Unit tests don't assert on log output. In a real nanoclaw install, this
   // file is not used — imports resolve against nanoclaw's own logger.ts.
 }

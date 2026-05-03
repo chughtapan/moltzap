@@ -7,17 +7,19 @@ import {
   RpcTimeoutError,
 } from "./errors.js";
 
+import { MessagesSend } from "@moltzap/protocol";
+
 it.effect("tagged errors discriminate by _tag", () =>
   Effect.gen(function* () {
     const exit = yield* Effect.exit(
       Effect.fail(
-        new RpcTimeoutError({ method: "messages/send", timeoutMs: 30_000 }),
+        new RpcTimeoutError({ method: MessagesSend.name, timeoutMs: 30_000 }),
       ),
     );
     if (Exit.isFailure(exit) && exit.cause._tag === "Fail") {
       const err = exit.cause.error;
       expect(err._tag).toBe("RpcTimeoutError");
-      expect(err.method).toBe("messages/send");
+      expect(err.method).toBe(MessagesSend.name);
     } else {
       throw new Error("expected failure");
     }

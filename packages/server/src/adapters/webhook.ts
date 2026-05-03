@@ -14,6 +14,10 @@ import { createHmac } from "node:crypto";
 import type { ContactService, PermissionService } from "../app/app-host.js";
 import type { Logger } from "../logger.js";
 
+const DEFAULT_WEBHOOK_CONCURRENCY = 10;
+const RESOLVED_TTL_MS = 300_000;
+const HTTP_ACCEPTED = 202;
+
 /**
  * HMAC-SHA256-sign a webhook payload and return the `X-MoltZap-Signature`
  * header value (`sha256=<hex>`). Receivers recompute over the exact JSON
@@ -179,7 +183,7 @@ function readResponseText(response: Response): Effect.Effect<string, never> {
 export class WebhookClient {
   private readonly permits: Effect.Semaphore;
 
-  constructor(concurrency = 10) {
+  constructor(concurrency = DEFAULT_WEBHOOK_CONCURRENCY) {
     // `Effect.makeSemaphore` is pure, so `runSync` in the constructor
     // is safe and keeps the `new WebhookClient()` construction surface
     // unchanged for call sites.
@@ -291,9 +295,6 @@ export class WebhookContactService implements ContactService {
 
 // -- Async webhook adapter (Permissions) --------------------------------------
 
-/** How long we remember a resolved request-id so repeat callbacks are idempotent. */
-const RESOLVED_TTL_MS = 5 * 60 * 1000;
-
 /** Internal map entry — a Deferred that the HTTP callback route completes. */
 type PendingMap = HashMap.HashMap<
   string,
@@ -325,7 +326,7 @@ export class AsyncWebhookAdapter {
   private readonly resolved = new Map<string, number>();
   private readonly permits: Effect.Semaphore;
 
-  constructor(concurrency = 10) {
+  constructor(concurrency = DEFAULT_WEBHOOK_CONCURRENCY) {
     this.pending = Effect.runSync(Ref.make<PendingMap>(HashMap.empty()));
     this.permits = Effect.runSync(Effect.makeSemaphore(concurrency));
   }
@@ -370,7 +371,7 @@ export class AsyncWebhookAdapter {
           catch: (err) => new WebhookNetworkError({ url, event, cause: err }),
         }).pipe(
           Effect.flatMap((response) => {
-            if (response.status === 202) return Effect.void;
+            if (response.status === HTTP_ACCEPTED) return Effect.void;
             return readResponseText(response).pipe(
               Effect.flatMap((text) =>
                 Effect.fail(

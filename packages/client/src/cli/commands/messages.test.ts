@@ -20,6 +20,8 @@ import {
   type TransportError,
 } from "../transport.js";
 
+import { MessagesList } from "@moltzap/protocol";
+
 type Call = { method: string; params: Record<string, unknown> };
 
 const makeFakeTransport = (
@@ -84,7 +86,7 @@ describe("messages list", () => {
       ),
     );
     expect(calls[0]).toEqual({
-      method: "messages/list",
+      method: MessagesList.name,
       params: { conversationId: "c1", limit: 50 },
     });
     expect(stdout).toHaveBeenCalledTimes(2);

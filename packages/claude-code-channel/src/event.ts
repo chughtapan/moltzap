@@ -26,7 +26,7 @@ import type {
   MessageId,
   UserId,
 } from "./types.js";
-import type { EventShapeError } from "./errors.js";
+import { ContentEmpty, MetaInvalid, type EventShapeError } from "./errors.js";
 
 /** Discriminated result — deliberately narrow, no generic `Result` dep. */
 export type EventShapeResult =
@@ -36,6 +36,9 @@ export type EventShapeResult =
 type BrandResult<T> =
   | { readonly _tag: "Ok"; readonly value: T }
   | { readonly _tag: "Err"; readonly reason: string };
+
+const metaInvalid = (reason: string): MetaInvalid =>
+  new MetaInvalid({ reason, message: reason });
 
 function brandChatIdSafe(raw: string): BrandResult<ChatId> {
   if (typeof raw !== "string" || raw.trim().length === 0) {
@@ -84,7 +87,7 @@ function brandIsoTimestampSafe(raw: string): BrandResult<IsoTimestamp> {
 export function brandChatId(raw: string): ChatId {
   const r = brandChatIdSafe(raw);
   if (r._tag === "Err") {
-    throw new Error(`brandChatId: ${r.reason}`);
+    throw metaInvalid(`brandChatId: ${r.reason}`);
   }
   return r.value;
 }
@@ -92,7 +95,7 @@ export function brandChatId(raw: string): ChatId {
 export function brandMessageId(raw: string): MessageId {
   const r = brandMessageIdSafe(raw);
   if (r._tag === "Err") {
-    throw new Error(`brandMessageId: ${r.reason}`);
+    throw metaInvalid(`brandMessageId: ${r.reason}`);
   }
   return r.value;
 }
@@ -100,7 +103,7 @@ export function brandMessageId(raw: string): MessageId {
 export function brandUserId(raw: string): UserId {
   const r = brandUserIdSafe(raw);
   if (r._tag === "Err") {
-    throw new Error(`brandUserId: ${r.reason}`);
+    throw metaInvalid(`brandUserId: ${r.reason}`);
   }
   return r.value;
 }
@@ -108,7 +111,7 @@ export function brandUserId(raw: string): UserId {
 export function brandIsoTimestamp(raw: string): IsoTimestamp {
   const r = brandIsoTimestampSafe(raw);
   if (r._tag === "Err") {
-    throw new Error(`brandIsoTimestamp: ${r.reason}`);
+    throw metaInvalid(`brandIsoTimestamp: ${r.reason}`);
   }
   return r.value;
 }
@@ -122,21 +125,21 @@ export function toClaudeChannelNotification(
 ): EventShapeResult {
   const content = typeof event.text === "string" ? event.text : "";
   if (content.trim().length === 0) {
-    return { _tag: "Err", error: { _tag: "ContentEmpty" } };
+    return { _tag: "Err", error: new ContentEmpty() };
   }
 
   const chatIdR = brandChatIdSafe(event.conversationId);
   if (chatIdR._tag === "Err") {
     return {
       _tag: "Err",
-      error: { _tag: "MetaInvalid", reason: chatIdR.reason },
+      error: metaInvalid(chatIdR.reason),
     };
   }
   const messageIdR = brandMessageIdSafe(event.id);
   if (messageIdR._tag === "Err") {
     return {
       _tag: "Err",
-      error: { _tag: "MetaInvalid", reason: messageIdR.reason },
+      error: metaInvalid(messageIdR.reason),
     };
   }
   const senderId =
@@ -145,14 +148,14 @@ export function toClaudeChannelNotification(
   if (userR._tag === "Err") {
     return {
       _tag: "Err",
-      error: { _tag: "MetaInvalid", reason: userR.reason },
+      error: metaInvalid(userR.reason),
     };
   }
   const tsR = brandIsoTimestampSafe(event.createdAt);
   if (tsR._tag === "Err") {
     return {
       _tag: "Err",
-      error: { _tag: "MetaInvalid", reason: tsR.reason },
+      error: metaInvalid(tsR.reason),
     };
   }
 

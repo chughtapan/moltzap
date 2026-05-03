@@ -7,6 +7,12 @@ import type { EventFrame, Message } from "@moltzap/protocol";
 import { EventNames } from "@moltzap/protocol";
 import { registerAndClaim, waitFor } from "./test-helpers.js";
 
+import {
+  AgentsLookup,
+  ConversationsCreate,
+  MessagesSend,
+} from "@moltzap/protocol";
+
 /** The MoltZapWsClient API is Effect-native. These helpers run the Effects
  * at the test boundary so the integration flow reads like Promise code. */
 const connectWs = (c: MoltZapWsClient) => Effect.runPromise(c.connect());
@@ -84,7 +90,7 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
       });
       yield* aliceClient.connect();
 
-      const conv = (yield* aliceClient.sendRpc("conversations/create", {
+      const conv = (yield* aliceClient.sendRpc(ConversationsCreate.name, {
         type: "dm",
         participants: [{ type: "agent", id: bob.agentId }],
       })) as { conversation: { id: string } };
@@ -115,7 +121,7 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
         catch: (err) => (err instanceof Error ? err : new Error(String(err))),
       });
 
-      yield* aliceClient.sendRpc("messages/send", {
+      yield* aliceClient.sendRpc(MessagesSend.name, {
         conversationId,
         parts: [{ type: "text", text: "Missed while offline" }],
       });
@@ -178,12 +184,12 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
       });
       yield* aliceClient.connect();
 
-      const conv = (yield* aliceClient.sendRpc("conversations/create", {
+      const conv = (yield* aliceClient.sendRpc(ConversationsCreate.name, {
         type: "dm",
         participants: [{ type: "agent", id: bob.agentId }],
       })) as { conversation: { id: string } };
 
-      yield* aliceClient.sendRpc("messages/send", {
+      yield* aliceClient.sendRpc(MessagesSend.name, {
         conversationId: conv.conversation.id,
         parts: [{ type: "text", text: "Before disconnect" }],
       });
@@ -210,7 +216,7 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
 
       receivedMessages.length = 0;
 
-      yield* aliceClient.sendRpc("messages/send", {
+      yield* aliceClient.sendRpc(MessagesSend.name, {
         conversationId: conv.conversation.id,
         parts: [{ type: "text", text: "After reconnect" }],
       });
@@ -297,7 +303,7 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
       });
 
       const result = (yield* Effect.promise(() =>
-        rpcWs(client, "agents/lookup", {
+        rpcWs(client, AgentsLookup.name, {
           agentIds: [bob.agentId],
         }),
       )) as { agents: Array<{ id: string; name: string }> };

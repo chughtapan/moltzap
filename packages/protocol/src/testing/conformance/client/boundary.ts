@@ -21,6 +21,8 @@ import {
 
 const CATEGORY = "boundary" as const;
 const PROPERTY_BUDGET_MS = 12_000;
+const DEFAULT_FUZZ_BURST_RUNS = 10;
+const PROPERTY_SCHEMA_EXHAUSTIVE_FUZZ_CLIENT = "schema-exhaustive-fuzz-client";
 
 /**
  * E2 client half — TestServer emits arbitrary `EventFrame`s across
@@ -37,19 +39,19 @@ export function registerSchemaExhaustiveFuzzClient(
   registerProperty(
     ctx,
     CATEGORY,
-    "schema-exhaustive-fuzz-client",
+    PROPERTY_SCHEMA_EXHAUSTIVE_FUZZ_CLIENT,
     "real client absorbs arbitrary EventFrames; liveness and boundary hold",
     Effect.scoped(
       Effect.gen(function* () {
         const fx = yield* acquireFixture(
           ctx,
           CATEGORY,
-          "schema-exhaustive-fuzz-client",
+          PROPERTY_SCHEMA_EXHAUSTIVE_FUZZ_CLIENT,
         );
         yield* subscribeAll(fx.handle);
         // Fuzz burst: default 10 frames; stress mode scales with
         // CONFORMANCE_NUM_RUNS through ctx.opts.numRuns.
-        const fuzzRuns = ctx.opts.numRuns ?? 10;
+        const fuzzRuns = ctx.opts.numRuns ?? DEFAULT_FUZZ_BURST_RUNS;
         const burst = fc.sample(arbitraryEventFrame(), {
           numRuns: fuzzRuns,
           seed: ctx.seed,
@@ -68,7 +70,7 @@ export function registerSchemaExhaustiveFuzzClient(
           return yield* Effect.fail(
             invariant(
               CATEGORY,
-              "schema-exhaustive-fuzz-client",
+              PROPERTY_SCHEMA_EXHAUSTIVE_FUZZ_CLIENT,
               "real client closed during fuzz burst",
             ),
           );
@@ -93,7 +95,7 @@ export function registerSchemaExhaustiveFuzzClient(
           return yield* Effect.fail(
             invariant(
               CATEGORY,
-              "schema-exhaustive-fuzz-client",
+              PROPERTY_SCHEMA_EXHAUSTIVE_FUZZ_CLIENT,
               "liveness probe never surfaced after fuzz burst",
             ),
           );

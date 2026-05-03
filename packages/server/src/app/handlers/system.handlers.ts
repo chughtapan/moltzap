@@ -5,7 +5,7 @@ import { defineMethod } from "../../rpc/context.js";
 
 export function createSystemHandlers(): RpcMethodRegistry {
   return {
-    "system/ping": defineMethod(SystemPing, {
+    [SystemPing.name]: defineMethod(SystemPing, {
       handler: () => Effect.sync(() => ({ ts: new Date().toISOString() })),
     }),
   };

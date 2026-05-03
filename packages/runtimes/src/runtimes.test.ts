@@ -348,7 +348,11 @@ describe("branded types", () => {
 describe("SpawnFailed", () => {
   it("carries agentName and cause", () => {
     const cause = new Error("ENOENT");
-    const err = new SpawnFailed("alice", cause);
+    const err = new SpawnFailed({
+      agentName: "alice",
+      cause,
+      message: `Failed to spawn agent "alice": ${cause.message}`,
+    });
     expect(err._tag).toBe("SpawnFailed");
     expect(err.agentName).toBe("alice");
     expect(err.cause).toBe(cause);

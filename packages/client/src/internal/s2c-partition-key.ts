@@ -23,14 +23,30 @@
  * The result is a branded string `PartitionKey`. Branding prevents
  * accidental reuse of raw `string` keys in the worker map.
  */
-import { Either } from "effect";
+import { Brand, Data, Either } from "effect";
 import { MalformedPartitionKeyError } from "./s2c-dispatcher-errors.js";
+
+import {
+  AppsOnBeforeDispatch,
+  AppsOnBeforeMessageDelivery,
+  AppsOnClose,
+  AppsOnJoin,
+  AppsOnSessionActive,
+} from "@moltzap/protocol";
 
 /**
  * Branded partition-key string. Constructed only by `extractPartitionKey`.
  * Format is opaque to consumers; equality is value equality.
  */
-export type PartitionKey = string & { readonly __brand: "PartitionKey" };
+export type PartitionKey = string & Brand.Brand<"PartitionKey">;
+export const PartitionKey = Brand.nominal<PartitionKey>();
+
+export class PartitionKeyInvariantError extends Data.TaggedError(
+  "PartitionKeyInvariantError",
+)<{
+  readonly key: PartitionKey;
+  readonly message: string;
+}> {}
 
 /**
  * Sentinel placeholder for s2c methods that carry no `conversationId`
@@ -50,14 +66,14 @@ export const LIFECYCLE_CONVERSATION_SENTINEL = "*lifecycle*" as const;
  * the routing layer pure and import-cycle-free per architect §3.2.
  */
 const CONVERSATION_BEARING_METHODS = new Set<string>([
-  "apps/onBeforeDispatch",
-  "apps/onBeforeMessageDelivery",
+  AppsOnBeforeDispatch.name,
+  AppsOnBeforeMessageDelivery.name,
 ]);
 
 const LIFECYCLE_METHODS = new Set<string>([
-  "apps/onJoin",
-  "apps/onClose",
-  "apps/onSessionActive",
+  AppsOnJoin.name,
+  AppsOnClose.name,
+  AppsOnSessionActive.name,
 ]);
 
 /**
@@ -145,9 +161,11 @@ export function extractPartitionKey(
     conversationId = LIFECYCLE_CONVERSATION_SENTINEL;
   }
 
-  const encoded =
-    `${sessionIdRaw}${KEY_SEP}${conversationId}${KEY_SEP}${method}` as PartitionKey;
-  return Either.right(encoded);
+  return Either.right(
+    PartitionKey(
+      `${sessionIdRaw}${KEY_SEP}${conversationId}${KEY_SEP}${method}`,
+    ),
+  );
 }
 
 /**
@@ -172,7 +190,10 @@ export function describePartitionKey(key: PartitionKey): {
     // `extractPartitionKey` is the only constructor; an unparsable key
     // means a caller bypassed branding. This is a programmer error,
     // not a runtime user-input failure — fail loudly.
-    throw new Error(`describePartitionKey: malformed PartitionKey: ${key}`);
+    throw new PartitionKeyInvariantError({
+      key,
+      message: `describePartitionKey: malformed PartitionKey: ${key}`,
+    });
   }
   return {
     sessionId: key.slice(0, first),

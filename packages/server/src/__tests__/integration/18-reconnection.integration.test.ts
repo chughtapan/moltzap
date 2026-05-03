@@ -10,6 +10,12 @@ import {
   type ServerTestClient,
 } from "./helpers.js";
 
+import {
+  ConversationsCreate,
+  MessagesList,
+  MessagesSend,
+} from "@moltzap/protocol";
+
 let wsUrl: string;
 
 beforeAll(async () => {
@@ -34,13 +40,13 @@ describe("Reconnection", () => {
         let bobClient2: ServerTestClient | null = null;
 
         try {
-          const conv = (yield* alice.client.sendRpc("conversations/create", {
+          const conv = (yield* alice.client.sendRpc(ConversationsCreate.name, {
             type: "dm",
             participants: [{ type: "agent", id: bob.agentId }],
           })) as { conversation: { id: string } };
           const conversationId = conv.conversation.id;
 
-          yield* alice.client.sendRpc("messages/send", {
+          yield* alice.client.sendRpc(MessagesSend.name, {
             conversationId,
             parts: [{ type: "text", text: "Pre-disconnect" }],
           });
@@ -50,7 +56,7 @@ describe("Reconnection", () => {
           yield* bob.client.close();
 
           // Alice sends a message while Bob is offline
-          yield* alice.client.sendRpc("messages/send", {
+          yield* alice.client.sendRpc(MessagesSend.name, {
             conversationId,
             parts: [{ type: "text", text: "Sent while you were away" }],
           });
@@ -63,7 +69,7 @@ describe("Reconnection", () => {
           });
 
           // Bob fetches messages — should see both
-          const msgs = (yield* bobClient2.sendRpc("messages/list", {
+          const msgs = (yield* bobClient2.sendRpc(MessagesList.name, {
             conversationId,
           })) as {
             messages: Array<{ parts: Array<{ text: string }> }>;
@@ -76,7 +82,7 @@ describe("Reconnection", () => {
           );
 
           // Verify real-time messaging works after reconnect
-          yield* bobClient2.sendRpc("messages/send", {
+          yield* bobClient2.sendRpc(MessagesSend.name, {
             conversationId,
             parts: [{ type: "text", text: "I am back online" }],
           });

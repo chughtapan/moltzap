@@ -27,7 +27,7 @@ export function createMessageHandlers(deps: {
   db: Db;
 }): RpcMethodRegistry {
   return {
-    "messages/send": defineMethod(MessagesSend, {
+    [MessagesSend.name]: defineMethod(MessagesSend, {
       requiresActive: true,
       handler: (params, ctx) =>
         catchSqlErrorAsDefect(
@@ -83,7 +83,7 @@ export function createMessageHandlers(deps: {
         ),
     }),
 
-    "messages/list": defineMethod(MessagesList, {
+    [MessagesList.name]: defineMethod(MessagesList, {
       requiresActive: true,
       handler: (params, ctx) =>
         deps.messageService.list(params.conversationId, ctx.agentId, {

@@ -13,12 +13,19 @@ import {
   MoltZapService,
   type EnrichedInboundMessage,
 } from "@moltzap/client";
-import { Effect } from "effect";
+import { Effect, Either } from "effect";
 import { toClaudeChannelNotification } from "./event.js";
 import { createRoutingState } from "./routing.js";
 import { bootChannelMcpServer, type ServerHandle } from "./server.js";
 import type { BootOptions, Handle } from "./types.js";
-import type { BootError, ReplyError } from "./errors.js";
+import {
+  AgentKeyInvalid,
+  McpTransportFailed,
+  SendFailed,
+  ServiceConnectFailed,
+  type BootError,
+  type ReplyError,
+} from "./errors.js";
 import { stringifyCause } from "./utils.js";
 
 export type BootResult =
@@ -50,10 +57,9 @@ function bootClaudeCodeChannelEffect(
     ) {
       return {
         _tag: "Err",
-        error: {
-          _tag: "AgentKeyInvalid",
+        error: new AgentKeyInvalid({
           cause: "agentKey must be a non-empty string",
-        },
+        }),
       };
     }
     if (
@@ -62,10 +68,9 @@ function bootClaudeCodeChannelEffect(
     ) {
       return {
         _tag: "Err",
-        error: {
-          _tag: "AgentKeyInvalid",
+        error: new AgentKeyInvalid({
           cause: "serverUrl must be a non-empty string",
-        },
+        }),
       };
     }
 
@@ -82,10 +87,10 @@ function bootClaudeCodeChannelEffect(
     const sendReply = (chatId: string, text: string) =>
       core.sendReply(chatId, text).pipe(
         Effect.mapError(
-          (cause): ReplyError => ({
-            _tag: "SendFailed",
-            cause: stringifyCause(cause),
-          }),
+          (cause): ReplyError =>
+            new SendFailed({
+              cause: stringifyCause(cause),
+            }),
         ),
       );
 
@@ -105,10 +110,10 @@ function bootClaudeCodeChannelEffect(
               : {}),
           },
         ),
-      catch: (cause): BootError => ({
-        _tag: "McpTransportFailed",
-        cause: stringifyCause(cause),
-      }),
+      catch: (cause): BootError =>
+        new McpTransportFailed({
+          cause: stringifyCause(cause),
+        }),
     }).pipe(
       Effect.catchAll((error) =>
         Effect.succeed({ _tag: "Err" as const, error }),
@@ -117,10 +122,9 @@ function bootClaudeCodeChannelEffect(
     if (serverBoot._tag === "Err") {
       return {
         _tag: "Err",
-        error: {
-          _tag: "McpTransportFailed",
+        error: new McpTransportFailed({
           cause: `${serverBoot.error._tag}: ${serverBoot.error.cause}`,
-        },
+        }),
       };
     }
     const serverHandle: ServerHandle = serverBoot.value;
@@ -167,16 +171,19 @@ function bootClaudeCodeChannelEffect(
     );
 
     const connectResult = yield* Effect.either(core.connect());
-    if (connectResult._tag === "Left") {
-      // Best-effort: tear down MCP transport before reporting to the caller.
+    const connectFailure = Either.match(connectResult, {
+      onLeft: (error) =>
+        ({
+          _tag: "Err",
+          error: new ServiceConnectFailed({
+            cause: stringifyCause(error),
+          }),
+        }) as const,
+      onRight: () => null,
+    });
+    if (connectFailure !== null) {
       yield* serverHandle.stop();
-      return {
-        _tag: "Err",
-        error: {
-          _tag: "ServiceConnectFailed",
-          cause: stringifyCause(connectResult.left),
-        },
-      };
+      return connectFailure;
     }
 
     const handle: Handle = {

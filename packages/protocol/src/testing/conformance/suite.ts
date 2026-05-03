@@ -45,13 +45,18 @@ import {
 } from "./coverage-policy.js";
 import { conformanceArtifactDirFromEnv } from "./env.js";
 
+import { AppsCreate } from "../../schema/methods/apps.js";
+
+const JSON_INDENT_SPACES = 2;
+const TOXIPROXY_NOT_PROVISIONED = "Toxiproxy client not provisioned";
+
 /**
  * Input shape — consumer names the concrete implementation under test and
  * any optional capabilities they can provide (Toxiproxy).
  */
 export interface ConformanceSuiteOptions {
   /** Factory for the implementation under test (server handle). */
-  readonly realServer: () => Promise<RealServerHandle>;
+  readonly realServer: Effect.Effect<RealServerHandle, RealServerAcquireError>;
   /**
    * Toxiproxy control-plane URL. When `null`, the adversity category is
    * skipped (registered properties return `PropertyUnavailable`).
@@ -289,7 +294,7 @@ function allowedServerCoverageGaps(
     {
       kind: "unavailable",
       id: "delivery/hook-gated-delivery",
-      reasonIncludes: "apps/create",
+      reasonIncludes: AppsCreate.name,
     },
     {
       kind: "deferred",
@@ -299,7 +304,7 @@ function allowedServerCoverageGaps(
     {
       kind: "unavailable",
       id: "delivery/multi-app-fifo-short-circuit",
-      reasonIncludes: "apps/create",
+      reasonIncludes: AppsCreate.name,
     },
     {
       kind: "deferred",
@@ -309,7 +314,7 @@ function allowedServerCoverageGaps(
     {
       kind: "unavailable",
       id: "boundary/app-disconnect-fail-policy",
-      reasonIncludes: "apps/create",
+      reasonIncludes: AppsCreate.name,
     },
     {
       kind: "deferred",
@@ -330,27 +335,27 @@ function allowedServerCoverageGaps(
       {
         kind: "unavailable",
         id: "adversity/latency-resilience",
-        reasonIncludes: "Toxiproxy client not provisioned",
+        reasonIncludes: TOXIPROXY_NOT_PROVISIONED,
       },
       {
         kind: "unavailable",
         id: "adversity/slicer-framing",
-        reasonIncludes: "Toxiproxy client not provisioned",
+        reasonIncludes: TOXIPROXY_NOT_PROVISIONED,
       },
       {
         kind: "unavailable",
         id: "adversity/reset-peer-recovery",
-        reasonIncludes: "Toxiproxy client not provisioned",
+        reasonIncludes: TOXIPROXY_NOT_PROVISIONED,
       },
       {
         kind: "unavailable",
         id: "adversity/timeout-surface",
-        reasonIncludes: "Toxiproxy client not provisioned",
+        reasonIncludes: TOXIPROXY_NOT_PROVISIONED,
       },
       {
         kind: "unavailable",
         id: "adversity/slow-close-cleanup",
-        reasonIncludes: "Toxiproxy client not provisioned",
+        reasonIncludes: TOXIPROXY_NOT_PROVISIONED,
       },
     );
   }
@@ -408,7 +413,7 @@ function writeArtifact(
         ...payload,
       },
       null,
-      2,
+      JSON_INDENT_SPACES,
     ),
   );
 }

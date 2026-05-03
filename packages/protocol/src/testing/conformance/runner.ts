@@ -12,10 +12,19 @@
  *   - pin fast-check seeds and export them on failure (AC10);
  *   - tear everything down in reverse order.
  */
-import { Effect, Ref, Scope } from "effect";
+import { Config, ConfigProvider, Effect, Ref, Scope } from "effect";
 import { makeToxiproxyClient, type ToxiproxyClient } from "../toxics/client.js";
 import { RealServerAcquireError, ToxicControlError } from "../errors.js";
 import { conformanceNumRunsFromEnv } from "./env.js";
+
+const REPLAY_SEED_MASK = 0x7fffffff;
+
+const loadFastCheckSeed: Effect.Effect<number, never> = Config.integer(
+  "FC_SEED",
+).pipe(
+  Effect.withConfigProvider(ConfigProvider.fromEnv()),
+  Effect.orElseSucceed(() => Date.now() & REPLAY_SEED_MASK),
+);
 
 /**
  * Opaque handle to a running real MoltZap server. The conformance runner
@@ -27,13 +36,13 @@ export interface RealServerHandle {
   readonly wsUrl: string;
   readonly baseUrl: string;
   /** Teardown hook; the runner's Scope calls this on release. */
-  readonly close: () => Promise<void>;
+  readonly close: Effect.Effect<void>;
 }
 
 export interface ConformanceRunOptions {
   readonly tiers: ReadonlyArray<"A" | "B" | "C" | "D" | "E">;
   /** Supplier for the real server; invoked once per run. */
-  readonly realServer: () => Promise<RealServerHandle>;
+  readonly realServer: Effect.Effect<RealServerHandle, RealServerAcquireError>;
   /** If provided, replay this exact fast-check seed (AC10 reproducibility). */
   readonly replaySeed?: number;
   /** Number of runs per property; fast-check default is 100. */
@@ -85,24 +94,11 @@ export function acquireRunContext(
       ...opts,
       numRuns: opts.numRuns ?? conformanceNumRunsFromEnv(),
     };
-    const seed =
-      effectiveOpts.replaySeed ??
-      Number(process.env.FC_SEED ?? Date.now() & 0x7fffffff);
+    const seed = effectiveOpts.replaySeed ?? (yield* loadFastCheckSeed);
     const artifacts = yield* Ref.make<ReadonlyArray<ConformanceArtifact>>([]);
 
-    const realServer = yield* Effect.acquireRelease(
-      Effect.tryPromise({
-        try: () => opts.realServer(),
-        catch: (cause) => new RealServerAcquireError({ cause }),
-      }),
-      (handle) =>
-        Effect.tryPromise({
-          try: () => handle.close(),
-          catch: () => new Error("realServer.close() threw"),
-        }).pipe(
-          Effect.orElseSucceed(() => undefined),
-          Effect.asVoid,
-        ),
+    const realServer = yield* Effect.acquireRelease(opts.realServer, (handle) =>
+      handle.close.pipe(Effect.orElseSucceed(() => undefined)),
     );
 
     let toxiproxy: ToxiproxyClient | null = null;

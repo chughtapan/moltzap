@@ -1,4 +1,4 @@
-import { Effect, pipe } from "effect";
+import { Data, Effect, pipe } from "effect";
 import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
@@ -24,6 +24,17 @@ const OPENCLAW_TERM_WAIT_MS = 10_000;
 const OPENCLAW_KILL_WAIT_MS = 5_000;
 const PROCESS_GROUP_POLL_INTERVAL_MS = 100;
 const DEFAULT_OPENCLAW_MODEL_ID = "openai-codex/gpt-5.4";
+const TOKEN_RADIX = 36;
+const JSON_INDENT_SPACES = 2;
+
+class WorkspaceRootNotFound extends Data.TaggedError("WorkspaceRootNotFound")<{
+  readonly message: string;
+}> {}
+
+class PortAllocationFailed extends Data.TaggedError("PortAllocationFailed")<{
+  readonly message: string;
+  readonly cause?: Error;
+}> {}
 
 export interface OpenClawAdapterDeps {
   readonly server: RuntimeServerHandle;
@@ -53,11 +64,14 @@ export class OpenClawAdapter implements Runtime {
   constructor(private readonly deps: OpenClawAdapterDeps) {}
 
   spawn(input: SpawnInput): Effect.Effect<void, SpawnFailed, never> {
-    const toSpawnFailed = (cause: unknown) =>
-      new SpawnFailed(
-        input.agentName,
-        cause instanceof Error ? cause : new Error(String(cause)),
-      );
+    const toSpawnFailed = (cause: unknown) => {
+      const error = cause instanceof Error ? cause : new Error(String(cause));
+      return new SpawnFailed({
+        agentName: input.agentName,
+        cause: error,
+        message: `Failed to spawn agent "${input.agentName}": ${error.message}`,
+      });
+    };
 
     return Effect.gen(this, function* () {
       const port = yield* allocateFreePort().pipe(
@@ -95,11 +109,10 @@ export class OpenClawAdapter implements Runtime {
 
           const child = nodeSpawn(command, args, {
             cwd: stateDir,
-            env: {
-              ...process.env,
+            env: filterDefinedEnv(globalThis.process.env, {
               OPENCLAW_STATE_DIR: stateDir,
               OPENCLAW_CONFIG_PATH: path.join(stateDir, "openclaw.json"),
-            },
+            }),
             stdio: ["ignore", "pipe", "pipe"],
             // detached:true makes the child the leader of its own process group.
             // This lets teardown kill the entire group via process.kill(-pid, signal).
@@ -309,7 +322,9 @@ function resolveWorkspacePackageRoot(): string {
     }
     current = path.dirname(current);
   }
-  throw new Error("Unable to resolve packages/runtimes workspace root");
+  throw new WorkspaceRootNotFound({
+    message: "Unable to resolve packages/runtimes workspace root",
+  });
 }
 
 function resolveWorkspaceOpenClawBin(
@@ -323,12 +338,16 @@ function resolveWorkspaceOpenClawBin(
   return path.join(repoRoot, "node_modules/.bin/openclaw");
 }
 
-function allocateFreePort(): Effect.Effect<number, Error, never> {
-  return Effect.async<number, Error>((resume) => {
+function allocateFreePort(): Effect.Effect<
+  number,
+  PortAllocationFailed,
+  never
+> {
+  return Effect.async<number, PortAllocationFailed>((resume) => {
     const server = net.createServer();
     let settled = false;
     const settle = (
-      effect: Effect.Effect<number, Error>,
+      effect: Effect.Effect<number, PortAllocationFailed>,
       closeServer = true,
     ): void => {
       if (settled) return;
@@ -342,17 +361,40 @@ function allocateFreePort(): Effect.Effect<number, Error, never> {
     server.listen(0, () => {
       const addr = server.address();
       if (addr === null || typeof addr === "string") {
-        settle(Effect.fail(new Error("Unable to allocate TCP port")));
+        settle(
+          Effect.fail(
+            new PortAllocationFailed({
+              message: "Unable to allocate TCP port",
+            }),
+          ),
+        );
         return;
       }
       const port = addr.port;
       server.close((closeErr) =>
         closeErr
-          ? settle(Effect.fail(closeErr), false)
+          ? settle(
+              Effect.fail(
+                new PortAllocationFailed({
+                  message: closeErr.message,
+                  cause: closeErr,
+                }),
+              ),
+              false,
+            )
           : settle(Effect.succeed(port), false),
       );
     });
-    server.on("error", (err) => settle(Effect.fail(err)));
+    server.on("error", (err) =>
+      settle(
+        Effect.fail(
+          new PortAllocationFailed({
+            message: err.message,
+            cause: err,
+          }),
+        ),
+      ),
+    );
     return Effect.sync(() => {
       if (settled) return;
       settled = true;
@@ -360,6 +402,22 @@ function allocateFreePort(): Effect.Effect<number, Error, never> {
       server.close();
     });
   });
+}
+
+function filterDefinedEnv(
+  source: NodeJS.ProcessEnv,
+  extras: Readonly<Record<string, string>>,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(source)) {
+    if (typeof value === "string") {
+      out[key] = value;
+    }
+  }
+  for (const [key, value] of Object.entries(extras)) {
+    out[key] = value;
+  }
+  return out;
 }
 
 // --- Config and plugin install (module-private) ---
@@ -429,7 +487,10 @@ function writeOpenClawConfig(opts: {
     },
     gateway: {
       mode: "local",
-      auth: { mode: "token", token: `runtime-${Date.now().toString(36)}` },
+      auth: {
+        mode: "token",
+        token: `runtime-${Date.now().toString(TOKEN_RADIX)}`,
+      },
     },
   };
 
@@ -437,7 +498,7 @@ function writeOpenClawConfig(opts: {
   fs.mkdirSync(path.join(opts.stateDir, "logs"), { recursive: true });
   fs.writeFileSync(
     path.join(opts.stateDir, "openclaw.json"),
-    JSON.stringify(config, null, 2),
+    JSON.stringify(config, null, JSON_INDENT_SPACES),
   );
 }
 

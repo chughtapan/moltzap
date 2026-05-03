@@ -19,8 +19,12 @@ import type { ClientConformanceRunContext } from "./runner.js";
 import { registerProperty } from "../registry.js";
 import { acquireFixture, invariant } from "./_fixtures.js";
 
+import { AgentsList } from "../../../schema/methods/auth.js";
+
 const CATEGORY = "rpc-semantics" as const;
 const CALL_BUDGET_MS = 5_000;
+const PROPERTY_MODEL_EQUIVALENCE_CLIENT = "model-equivalence-client";
+const PROPERTY_REQUEST_ID_UNIQUENESS_CLIENT = "request-id-uniqueness-client";
 
 /**
  * B1 client half — property issues `realClient.call("agents/list", {})`;
@@ -37,14 +41,14 @@ export function registerModelEquivalenceClient(
   registerProperty(
     ctx,
     CATEGORY,
-    "model-equivalence-client",
+    PROPERTY_MODEL_EQUIVALENCE_CLIENT,
     "scripted response to sampled RPC resolves the real client's pending call",
     Effect.scoped(
       Effect.gen(function* () {
         const fx = yield* acquireFixture(
           ctx,
           CATEGORY,
-          "model-equivalence-client",
+          PROPERTY_MODEL_EQUIVALENCE_CLIENT,
         );
         // Fork a background responder that watches inbound requests and
         // replies with an empty-agents-list result as soon as the sampled
@@ -60,7 +64,7 @@ export function registerModelEquivalenceClient(
                   entry.kind === "inbound" &&
                   entry.frame !== null &&
                   entry.frame.type === "request" &&
-                  entry.frame.method === "agents/list"
+                  entry.frame.method === AgentsList.name
                 ) {
                   const response: ResponseFrame = {
                     jsonrpc: "2.0",
@@ -81,13 +85,13 @@ export function registerModelEquivalenceClient(
             }
           }),
         );
-        const result = yield* fx.handle.call.call("agents/list", {}).pipe(
+        const result = yield* fx.handle.call.call(AgentsList.name, {}).pipe(
           Effect.timeoutFail({
             duration: `${CALL_BUDGET_MS} millis`,
             onTimeout: () =>
               invariant(
                 CATEGORY,
-                "model-equivalence-client",
+                PROPERTY_MODEL_EQUIVALENCE_CLIENT,
                 `agents/list call did not resolve within ${CALL_BUDGET_MS}ms`,
               ),
           }),
@@ -95,7 +99,7 @@ export function registerModelEquivalenceClient(
             "_tag" in e && e._tag === "RealClientRpcError"
               ? invariant(
                   CATEGORY,
-                  "model-equivalence-client",
+                  PROPERTY_MODEL_EQUIVALENCE_CLIENT,
                   `agents/list rejected: ${e.kind} (${e.documentedErrorTag ?? "null"})`,
                 )
               : e,
@@ -105,7 +109,7 @@ export function registerModelEquivalenceClient(
           return yield* Effect.fail(
             invariant(
               CATEGORY,
-              "model-equivalence-client",
+              PROPERTY_MODEL_EQUIVALENCE_CLIENT,
               "real client surfaced non-response frame",
             ),
           );
@@ -134,14 +138,14 @@ export function registerRequestIdUniquenessClient(
   registerProperty(
     ctx,
     CATEGORY,
-    "request-id-uniqueness-client",
+    PROPERTY_REQUEST_ID_UNIQUENESS_CLIENT,
     "spurious response ids don't resolve pending calls; matching ids do",
     Effect.scoped(
       Effect.gen(function* () {
         const fx = yield* acquireFixture(
           ctx,
           CATEGORY,
-          "request-id-uniqueness-client",
+          PROPERTY_REQUEST_ID_UNIQUENESS_CLIENT,
         );
         // Emit a spurious response with an id the client never sent.
         const spuriousId = "spurious-id-that-was-never-requested";
@@ -166,7 +170,7 @@ export function registerRequestIdUniquenessClient(
                   entry.kind === "inbound" &&
                   entry.frame !== null &&
                   entry.frame.type === "request" &&
-                  entry.frame.method === "agents/list"
+                  entry.frame.method === AgentsList.name
                 ) {
                   yield* fx.connection
                     .emitResponse({
@@ -185,13 +189,13 @@ export function registerRequestIdUniquenessClient(
           }),
         );
         // Issue the RPC: must resolve via the matching id, not the spurious one.
-        const result = yield* fx.handle.call.call("agents/list", {}).pipe(
+        const result = yield* fx.handle.call.call(AgentsList.name, {}).pipe(
           Effect.timeoutFail({
             duration: `${CALL_BUDGET_MS} millis`,
             onTimeout: () =>
               invariant(
                 CATEGORY,
-                "request-id-uniqueness-client",
+                PROPERTY_REQUEST_ID_UNIQUENESS_CLIENT,
                 `agents/list did not resolve within ${CALL_BUDGET_MS}ms despite matching response`,
               ),
           }),
@@ -199,7 +203,7 @@ export function registerRequestIdUniquenessClient(
             "_tag" in e && e._tag === "RealClientRpcError"
               ? invariant(
                   CATEGORY,
-                  "request-id-uniqueness-client",
+                  PROPERTY_REQUEST_ID_UNIQUENESS_CLIENT,
                   `agents/list rejected: ${e.kind}`,
                 )
               : e,
@@ -213,7 +217,7 @@ export function registerRequestIdUniquenessClient(
             return yield* Effect.fail(
               invariant(
                 CATEGORY,
-                "request-id-uniqueness-client",
+                PROPERTY_REQUEST_ID_UNIQUENESS_CLIENT,
                 `resolved id ${result.id} absent from outboundIdFeed (cross-wire)`,
               ),
             );
@@ -222,7 +226,7 @@ export function registerRequestIdUniquenessClient(
             return yield* Effect.fail(
               invariant(
                 CATEGORY,
-                "request-id-uniqueness-client",
+                PROPERTY_REQUEST_ID_UNIQUENESS_CLIENT,
                 "pending call resolved via spurious id",
               ),
             );

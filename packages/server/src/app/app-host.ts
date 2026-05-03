@@ -45,6 +45,7 @@ import {
   Data,
   Deferred,
   Duration,
+  Either,
   Effect,
   Exit,
   HashMap,
@@ -68,6 +69,17 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+const SEMVER_PART_COUNT = 3;
+const MAX_AGENT_ADMISSION_CONCURRENCY = 16;
+const MAX_AGENT_ADMISSION_CHECK_CONCURRENCY = 2;
+const MAX_PERMISSION_REQUEST_CONCURRENCY = 8;
+const DEFAULT_CHALLENGE_TIMEOUT_MS = 30_000;
+const DEFAULT_PERMISSION_TIMEOUT_MS = 120_000;
+const DEFAULT_APP_MAX_PARTICIPANTS = 50;
+const DEFAULT_SESSION_LIST_LIMIT = 50;
+const DEFAULT_APP_HOOK_TIMEOUT_MS = 5000;
+const MSG_SESSION_NOT_FOUND = "Session not found";
+
 /**
  * True iff `stored` contains every access string in `required`. Missing or
  * empty `stored` always fails. Used both for existing-grant coverage checks
@@ -86,7 +98,7 @@ function grantsAllRequiredAccess(
 function compareSemver(a: string, b: string): number {
   const pa = a.split(".").map(Number);
   const pb = b.split(".").map(Number);
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < SEMVER_PART_COUNT; i++) {
     const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
     if (diff !== 0) return diff;
   }
@@ -139,6 +151,18 @@ class AttestationTimeoutError extends Data.TaggedError("AttestationTimeout")<{
 
 class SkillAttestationError extends Data.TaggedError("SkillAttestation")<{
   readonly reason: string;
+}> {
+  override get message(): string {
+    return this.reason;
+  }
+}
+
+class RemoteHookError extends Data.TaggedError("RemoteHookError")<{
+  readonly appId: string;
+  readonly method: string;
+  readonly connectionId: string;
+  readonly reason: string;
+  readonly cause?: unknown;
 }> {
   override get message(): string {
     return this.reason;
@@ -441,7 +465,7 @@ export class AppHost {
           return yield* Effect.fail(
             new RpcFailure({
               code: ErrorCodes.SessionNotFound,
-              message: "Session not found",
+              message: MSG_SESSION_NOT_FOUND,
             }),
           );
         }
@@ -687,7 +711,8 @@ export class AppHost {
           );
         }
 
-        const maxParticipants = manifest.limits?.maxParticipants ?? 50;
+        const maxParticipants =
+          manifest.limits?.maxParticipants ?? DEFAULT_APP_MAX_PARTICIPANTS;
         if (invitedAgentIds.length > maxParticipants) {
           return yield* Effect.fail(
             new RpcFailure({
@@ -886,7 +911,7 @@ export class AppHost {
           return yield* Effect.fail(
             new RpcFailure({
               code: ErrorCodes.SessionNotFound,
-              message: "Session not found",
+              message: MSG_SESSION_NOT_FOUND,
             }),
           );
         }
@@ -1055,7 +1080,7 @@ export class AppHost {
           return yield* Effect.fail(
             new RpcFailure({
               code: ErrorCodes.SessionNotFound,
-              message: "Session not found",
+              message: MSG_SESSION_NOT_FOUND,
             }),
           );
         }
@@ -1201,7 +1226,7 @@ export class AppHost {
           return yield* Effect.fail(
             new RpcFailure({
               code: ErrorCodes.SessionNotFound,
-              message: "Session not found",
+              message: MSG_SESSION_NOT_FOUND,
             }),
           );
         }
@@ -1270,7 +1295,7 @@ export class AppHost {
           query = query.where("status", "=", opts.status as AppSessionStatus);
         }
 
-        const limit = opts?.limit ?? 50;
+        const limit = opts?.limit ?? DEFAULT_SESSION_LIST_LIMIT;
         query = query.limit(limit);
 
         const rows = yield* query;
@@ -1454,7 +1479,7 @@ export class AppHost {
      * this is the per-message hot path.
      */
     decode: (raw: unknown) => Effect.Effect<T, unknown, never>;
-  }): Effect.Effect<T, Error> {
+  }): Effect.Effect<T, RemoteHookError> {
     return Effect.gen(this, function* () {
       const conn: MoltZapConnection | undefined = this.connections.get(
         opts.connectionId,
@@ -1464,24 +1489,38 @@ export class AppHost {
         // gone away. Treat identically to mid-flight `AppDisconnected`
         // so the dispatch envelope folds it into fail-closed.
         return yield* Effect.fail(
-          new Error(
-            `Remote app ${opts.appId} connection ${opts.connectionId} is gone`,
-          ),
+          new RemoteHookError({
+            appId: opts.appId,
+            method: opts.method,
+            connectionId: opts.connectionId,
+            reason: `Remote app ${opts.appId} connection ${opts.connectionId} is gone`,
+          }),
         );
       }
       const raw = yield* sendRpcToClient(conn, opts.method, opts.params).pipe(
-        Effect.mapError((err) => new Error(`s2c RPC failed: ${err._tag}`)),
+        Effect.mapError(
+          (err) =>
+            new RemoteHookError({
+              appId: opts.appId,
+              method: opts.method,
+              connectionId: opts.connectionId,
+              reason: `s2c RPC failed: ${errorMessage(err)}`,
+              cause: err,
+            }),
+        ),
       );
-      return yield* opts
-        .decode(raw)
-        .pipe(
-          Effect.mapError(
-            (err) =>
-              new Error(
-                `s2c RPC ${opts.method} response decode failed: ${String(err)}`,
-              ),
-          ),
-        );
+      return yield* opts.decode(raw).pipe(
+        Effect.mapError(
+          (err) =>
+            new RemoteHookError({
+              appId: opts.appId,
+              method: opts.method,
+              connectionId: opts.connectionId,
+              reason: `s2c RPC ${opts.method} response decode failed: ${String(err)}`,
+              cause: err,
+            }),
+        ),
+      );
     });
   }
 
@@ -1556,7 +1595,9 @@ export class AppHost {
       return Effect.succeed({ decision: "grant" as const });
     }
     const manifest = this.manifests.get(appId);
-    const timeoutMs = manifest?.hooks?.before_dispatch?.timeout_ms ?? 5000;
+    const timeoutMs =
+      manifest?.hooks?.before_dispatch?.timeout_ms ??
+      DEFAULT_APP_HOOK_TIMEOUT_MS;
     const sessionId = ctx.sessionId;
 
     const raw: Effect.Effect<DispatchAdmissionResult, Error> = remote
@@ -1618,7 +1659,8 @@ export class AppHost {
     }
     const manifest = this.manifests.get(appId);
     const timeoutMs =
-      manifest?.hooks?.before_message_delivery?.timeout_ms ?? 5000;
+      manifest?.hooks?.before_message_delivery?.timeout_ms ??
+      DEFAULT_APP_HOOK_TIMEOUT_MS;
     const sessionId = ctx.sessionId;
 
     const raw: Effect.Effect<HookResult, Error> = remote
@@ -1677,7 +1719,9 @@ export class AppHost {
     const inProcess = this.hooks.get(appId)?.onSessionActive;
     if (!remote && !inProcess) return Effect.void;
     const manifest = this.manifests.get(appId);
-    const timeoutMs = manifest?.hooks?.on_session_active?.timeout_ms ?? 5000;
+    const timeoutMs =
+      manifest?.hooks?.on_session_active?.timeout_ms ??
+      DEFAULT_APP_HOOK_TIMEOUT_MS;
     const sessionId = ctx.sessionId;
 
     const raw: Effect.Effect<void, Error> = remote
@@ -1727,7 +1771,8 @@ export class AppHost {
     const inProcess = this.hooks.get(appId)?.onJoin;
     if (!remote && !inProcess) return Effect.void;
     const manifest = this.manifests.get(appId);
-    const timeoutMs = manifest?.hooks?.on_join?.timeout_ms ?? 5000;
+    const timeoutMs =
+      manifest?.hooks?.on_join?.timeout_ms ?? DEFAULT_APP_HOOK_TIMEOUT_MS;
     const sessionId = ctx.sessionId;
 
     const raw: Effect.Effect<void, Error> = remote
@@ -1779,7 +1824,8 @@ export class AppHost {
     const inProcess = this.hooks.get(appId)?.onClose;
     if (!remote && !inProcess) return Effect.void;
     const manifest = this.manifests.get(appId);
-    const timeoutMs = manifest?.hooks?.on_close?.timeout_ms ?? 5000;
+    const timeoutMs =
+      manifest?.hooks?.on_close?.timeout_ms ?? DEFAULT_APP_HOOK_TIMEOUT_MS;
     const sessionId = ctx.sessionId;
 
     const raw: Effect.Effect<void, Error> = remote
@@ -1896,7 +1942,7 @@ export class AppHost {
             }),
           ),
         ),
-        { concurrency: "unbounded" },
+        { concurrency: MAX_AGENT_ADMISSION_CONCURRENCY },
       );
 
       const allRejected = outcomes.every((o) => o.status === "rejected");
@@ -2069,13 +2115,17 @@ export class AppHost {
       }
 
       const results = yield* Effect.all(checks, {
-        concurrency: "unbounded",
+        concurrency: MAX_AGENT_ADMISSION_CHECK_CONCURRENCY,
         mode: "either",
       });
 
       for (const result of results) {
-        if (result._tag === "Left") {
-          return yield* Effect.fail(result.left);
+        const failure = Either.match(result, {
+          onLeft: (err) => err,
+          onRight: () => null,
+        });
+        if (failure !== null) {
+          return yield* Effect.fail(failure);
         }
       }
 
@@ -2160,7 +2210,8 @@ export class AppHost {
         ((info: RejectionInfo) => this.rejectAgent(session.id, agentId, info));
 
       const challengeId = crypto.randomUUID();
-      const timeoutMs = manifest.challengeTimeoutMs ?? 30000;
+      const timeoutMs =
+        manifest.challengeTimeoutMs ?? DEFAULT_CHALLENGE_TIMEOUT_MS;
 
       // Await external attestation only; the timeout is expressed as
       // Effect.timeoutFail below so it uses the Effect Clock (TestClock-
@@ -2205,25 +2256,39 @@ export class AppHost {
         ),
       );
 
-      if (attestation._tag === "Left") {
-        const err = attestation.left;
-        const isTimeout = err._tag === "AttestationTimeout";
-        const code: RejectionCode = isTimeout
-          ? "AttestationTimeout"
-          : "SkillMismatch";
-        const reason = isTimeout
-          ? "Skill attestation timed out"
-          : `Skill attestation failed: ${err.message}`;
-        yield* doReject({
-          stage: "capability",
-          reason,
-          suggestedAction: `Install the skill from ${manifest.skillUrl} and ensure version >= ${manifest.skillMinVersion ?? "any"}`,
-          code,
-        });
-        return yield* Effect.fail(forbidden(reason));
-      }
-
-      const result = attestation.right;
+      const result = yield* Either.match(attestation, {
+        onLeft: (err) => {
+          if (err instanceof AttestationTimeoutError) {
+            const failure: {
+              readonly code: RejectionCode;
+              readonly reason: string;
+            } = {
+              code: "AttestationTimeout",
+              reason: "Skill attestation timed out",
+            };
+            return doReject({
+              stage: "capability",
+              reason: failure.reason,
+              suggestedAction: `Install the skill from ${manifest.skillUrl} and ensure version >= ${manifest.skillMinVersion ?? "any"}`,
+              code: failure.code,
+            }).pipe(Effect.zipRight(Effect.fail(forbidden(failure.reason))));
+          }
+          const failure: {
+            readonly code: RejectionCode;
+            readonly reason: string;
+          } = {
+            code: "SkillMismatch",
+            reason: `Skill attestation failed: ${err.message}`,
+          };
+          return doReject({
+            stage: "capability",
+            reason: failure.reason,
+            suggestedAction: `Install the skill from ${manifest.skillUrl} and ensure version >= ${manifest.skillMinVersion ?? "any"}`,
+            code: failure.code,
+          }).pipe(Effect.zipRight(Effect.fail(forbidden(failure.reason))));
+        },
+        onRight: (attested) => Effect.succeed(attested),
+      });
 
       if (result.skillUrl !== manifest.skillUrl) {
         yield* doReject({
@@ -2349,9 +2414,9 @@ export class AppHost {
               agentId,
               ownerUserId,
               perm,
-              manifest.permissionTimeoutMs ?? 120000,
+              manifest.permissionTimeoutMs ?? DEFAULT_PERMISSION_TIMEOUT_MS,
             ),
-          { concurrency: "unbounded" },
+          { concurrency: MAX_PERMISSION_REQUEST_CONCURRENCY },
         );
         for (const resource of requested) {
           granted.push(resource);

@@ -52,6 +52,14 @@ import {
   runExpectingFailure,
 } from "./executable-proof-helpers.js";
 
+import { AgentsList, Connect } from "../../../schema/methods/auth.js";
+import { ContactsList } from "../../../schema/methods/contacts.js";
+import { ConversationsList } from "../../../schema/methods/conversations.js";
+import {
+  PresenceSubscribe,
+  PresenceUpdate,
+} from "../../../schema/methods/presence.js";
+
 type BadServerBehavior =
   | "allow-unauthenticated"
   | "duplicate-response-id"
@@ -220,14 +228,14 @@ function makeBadServerContext(
     const realServer: RealServerHandle = {
       baseUrl: httpHandle.baseUrl,
       wsUrl: wsHandle.wsUrl,
-      close: () => Promise.resolve(),
+      close: Effect.void,
     };
     return {
       realServer,
       toxiproxy: null,
       opts: {
         tiers: ["A", "B", "C", "E"],
-        realServer: () => Promise.resolve(realServer),
+        realServer: Effect.succeed(realServer),
         numRuns: 1,
       },
       seed: 42,
@@ -330,7 +338,7 @@ function makeBadWebSocketServer(
                 yield* writer(encodeFrame(response)).pipe(Effect.orDie);
                 if (
                   behavior === "duplicate-response-id" &&
-                  decoded.right.method === "conversations/list"
+                  decoded.right.method === ConversationsList.name
                 ) {
                   yield* writer(encodeFrame(response)).pipe(Effect.orDie);
                 }
@@ -356,21 +364,24 @@ function makeBadResponse(
   behavior: BadServerBehavior,
   ordinal: number,
 ): ResponseFrame | null {
-  if (behavior === "drop-contacts-list" && request.method === "contacts/list") {
+  if (
+    behavior === "drop-contacts-list" &&
+    request.method === ContactsList.name
+  ) {
     return null;
   }
   if (
     behavior === "drop-sampled-response" &&
     ordinal > 1 &&
-    request.method !== "auth/connect"
+    request.method !== Connect.name
   ) {
     return null;
   }
   if (
     (behavior === "reject-confident-model-call" &&
-      request.method === "agents/list") ||
+      request.method === AgentsList.name) ||
     (behavior === "reject-authorized" &&
-      request.method === "conversations/list")
+      request.method === ConversationsList.name)
   ) {
     return responseFrame("c2s", request.id, {
       error: {
@@ -402,7 +413,7 @@ function makeBadResult(
     behavior === "presence-silent" ||
     behavior === "presence-stale-snapshot"
   ) {
-    if (request.method === "presence/subscribe") {
+    if (request.method === PresenceSubscribe.name) {
       // Always reports offline — fails P6's online-snapshot expectation
       // and seeds the snapshot empty for the silent-broadcast cases.
       const params = request.params as { agentIds?: ReadonlyArray<unknown> };
@@ -413,16 +424,16 @@ function makeBadResult(
           .map((agentId) => ({ agentId, status: "offline" as const })),
       };
     }
-    if (request.method === "presence/update") {
+    if (request.method === PresenceUpdate.name) {
       return {};
     }
   }
   switch (request.method) {
-    case "auth/connect":
+    case Connect.name:
       return {};
-    case "agents/list":
+    case AgentsList.name:
       return { agents: {} };
-    case "conversations/list":
+    case ConversationsList.name:
       return behavior === "drift-idempotent-result"
         ? { conversations: [{ id: `drift-${ordinal}`, name: "drift" }] }
         : { conversations: [] };

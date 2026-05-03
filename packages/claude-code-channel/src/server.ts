@@ -20,7 +20,7 @@
  * 135-148 (notification shape).
  */
 
-import { Effect } from "effect";
+import { Data, Effect, Either } from "effect";
 import type { WsClientLogger } from "@moltzap/client";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -32,7 +32,12 @@ import {
   type ListToolsResult,
 } from "@modelcontextprotocol/sdk/types.js";
 import type { ClaudeChannelNotification, MessageId } from "./types.js";
-import type { PushError, ReplyError } from "./errors.js";
+import {
+  EmitFailed,
+  SendFailed,
+  type PushError,
+  type ReplyError,
+} from "./errors.js";
 import type { RoutingState } from "./routing.js";
 import { stringifyCause } from "./utils.js";
 
@@ -83,9 +88,17 @@ export interface ServerHandle {
   readonly stop: () => Effect.Effect<void>;
 }
 
-export type ServerBootError =
-  | { readonly _tag: "StdioConnectFailed"; readonly cause: string }
-  | { readonly _tag: "ToolRegistrationFailed"; readonly cause: string };
+export class StdioConnectFailed extends Data.TaggedError("StdioConnectFailed")<{
+  readonly cause: string;
+}> {}
+
+export class ToolRegistrationFailed extends Data.TaggedError(
+  "ToolRegistrationFailed",
+)<{
+  readonly cause: string;
+}> {}
+
+export type ServerBootError = StdioConnectFailed | ToolRegistrationFailed;
 
 export type ServerBootResult =
   | { readonly _tag: "Ok"; readonly value: ServerHandle }
@@ -338,14 +351,16 @@ function bootChannelMcpServerEffect(
                 const sendResult = yield* Effect.either(
                   deps.sendReply(resolution.chatId, decoded.value.text),
                 );
-                if (sendResult._tag === "Left") {
-                  const e = sendResult.left;
-                  return toolErrorResult(
-                    e._tag === "SendFailed"
-                      ? `send failed: ${e.cause}`
-                      : `reply error: ${e._tag}`,
-                  );
-                }
+                const sendFailure = Either.match(sendResult, {
+                  onLeft: (error) =>
+                    toolErrorResult(
+                      error instanceof SendFailed
+                        ? `send failed: ${error.cause}`
+                        : `reply error: ${error.name}`,
+                    ),
+                  onRight: () => null,
+                });
+                if (sendFailure !== null) return sendFailure;
                 return toolOkResult(
                   `Reply sent to ${resolution.chatId as string}.`,
                 );
@@ -372,10 +387,9 @@ function bootChannelMcpServerEffect(
     } catch (cause) {
       return {
         _tag: "Err",
-        error: {
-          _tag: "ToolRegistrationFailed",
+        error: new ToolRegistrationFailed({
           cause: stringifyCause(cause),
-        },
+        }),
       };
     }
 
@@ -389,10 +403,9 @@ function bootChannelMcpServerEffect(
       Effect.match({
         onFailure: (cause): ServerBootResult => ({
           _tag: "Err",
-          error: {
-            _tag: "StdioConnectFailed",
+          error: new StdioConnectFailed({
             cause: stringifyCause(cause),
-          },
+          }),
         }),
         onSuccess: () => null,
       }),
@@ -412,10 +425,10 @@ function bootChannelMcpServerEffect(
                 method: notification.method,
                 params: toMcpNotificationParams(notification.params),
               }),
-            catch: (cause): PushError => ({
-              _tag: "EmitFailed",
-              cause: stringifyCause(cause),
-            }),
+            catch: (cause): PushError =>
+              new EmitFailed({
+                cause: stringifyCause(cause),
+              }),
           });
         }),
       stop: () =>

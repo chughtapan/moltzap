@@ -75,7 +75,7 @@ vi.mock("@moltzap/client", async () => {
           .fn()
           .mockImplementation(() => Effect.succeed({ agentId: "agent-1" })),
         sendRpc: vi.fn().mockImplementation((method: string) => {
-          if (method === "apps/attachConversation") {
+          if (method === AppsAttachConversation.name) {
             if (attachShouldFail !== null) {
               const err = attachShouldFail.error;
               attachShouldFail = null;
@@ -131,7 +131,23 @@ vi.mock("@moltzap/client", async () => {
 
 // Import the SDK AFTER vi.mock so the mock is active.
 import { MoltZapApp } from "./app.js";
-import { AppError, AppHandlerError, AttachError } from "./errors.js";
+import {
+  AppHandlerError,
+  AttachAlreadyAttachedError,
+  AttachConversationNotFoundError,
+  AttachFailedError,
+  AttachNotAuthorizedError,
+  AttachSessionNotFoundError,
+  DuplicateHookHandlerError,
+} from "./errors.js";
+import {
+  AppsAttachConversation,
+  AppsOnBeforeDispatch,
+  AppsOnBeforeMessageDelivery,
+  AppsOnClose,
+  AppsOnJoin,
+  AppsOnSessionActive,
+} from "@moltzap/protocol";
 
 interface MockedWsClient {
   _invokeHandler: (
@@ -205,13 +221,13 @@ describe("MoltZapApp — admission/lifecycle handler surface", () => {
           leaseId: `lease-${ctx.sessionId.slice(0, 4)}`,
         }),
       );
-      expect(asMock(app.client)._hasHandler("apps/onBeforeDispatch")).toBe(
+      expect(asMock(app.client)._hasHandler(AppsOnBeforeDispatch.name)).toBe(
         true,
       );
 
       const reply = await Effect.runPromise(
         asMock(app.client)._invokeHandler(
-          "apps/onBeforeDispatch",
+          AppsOnBeforeDispatch.name,
           baseDispatchCtx,
         ),
       );
@@ -237,7 +253,7 @@ describe("MoltZapApp — admission/lifecycle handler surface", () => {
       const start = Date.now();
       const reply = await Effect.runPromise(
         asMock(app.client)._invokeHandler(
-          "apps/onBeforeDispatch",
+          AppsOnBeforeDispatch.name,
           baseDispatchCtx,
         ),
       );
@@ -261,7 +277,7 @@ describe("MoltZapApp — admission/lifecycle handler surface", () => {
       );
       const reply = await Effect.runPromise(
         asMock(app.client)._invokeHandler(
-          "apps/onBeforeDispatch",
+          AppsOnBeforeDispatch.name,
           baseDispatchCtx,
         ),
       );
@@ -271,11 +287,10 @@ describe("MoltZapApp — admission/lifecycle handler surface", () => {
       expect(onErr).toHaveBeenCalledTimes(1);
       const errArg = onErr.mock.calls[0]![0] as AppHandlerError;
       expect(errArg).toBeInstanceOf(AppHandlerError);
-      expect(errArg.code).toBe("APP_HANDLER_ERROR");
-      expect(errArg.method).toBe("apps/onBeforeDispatch");
+      expect(errArg.method).toBe(AppsOnBeforeDispatch.name);
     });
 
-    it("throws AppError DUPLICATE_HOOK_HANDLER on second registration", () => {
+    it("throws DuplicateHookHandlerError on second registration", () => {
       app.onBeforeDispatch(() =>
         Effect.succeed<DispatchAdmissionResult>({ decision: "grant" }),
       );
@@ -283,13 +298,13 @@ describe("MoltZapApp — admission/lifecycle handler surface", () => {
         app.onBeforeDispatch(() =>
           Effect.succeed<DispatchAdmissionResult>({ decision: "grant" }),
         ),
-      ).toThrow(AppError);
+      ).toThrow(DuplicateHookHandlerError);
       try {
         app.onBeforeDispatch(() =>
           Effect.succeed<DispatchAdmissionResult>({ decision: "grant" }),
         );
       } catch (e) {
-        expect((e as AppError).code).toBe("DUPLICATE_HOOK_HANDLER");
+        expect(e).toBeInstanceOf(DuplicateHookHandlerError);
       }
     });
   });
@@ -303,7 +318,7 @@ describe("MoltZapApp — admission/lifecycle handler surface", () => {
       app.onBeforeMessageDelivery(() => Effect.succeed(verdict));
       const reply = await Effect.runPromise(
         asMock(app.client)._invokeHandler(
-          "apps/onBeforeMessageDelivery",
+          AppsOnBeforeMessageDelivery.name,
           baseDeliveryCtx,
         ),
       );
@@ -318,7 +333,7 @@ describe("MoltZapApp — admission/lifecycle handler surface", () => {
       );
       const reply = await Effect.runPromise(
         asMock(app.client)._invokeHandler(
-          "apps/onBeforeMessageDelivery",
+          AppsOnBeforeMessageDelivery.name,
           baseDeliveryCtx,
         ),
       );
@@ -329,9 +344,9 @@ describe("MoltZapApp — admission/lifecycle handler surface", () => {
 
   describe("lifecycle hooks (onSessionActive / onJoin / onClose)", () => {
     it.each([
-      ["apps/onSessionActive", baseSessionActiveCtx, "onSessionActive"],
-      ["apps/onJoin", baseJoinCtx, "onJoin"],
-      ["apps/onClose", baseCloseCtx, "onClose"],
+      [AppsOnSessionActive.name, baseSessionActiveCtx, "onSessionActive"],
+      [AppsOnJoin.name, baseJoinCtx, "onJoin"],
+      [AppsOnClose.name, baseCloseCtx, "onClose"],
     ] as const)(
       "%s replies with empty result on success",
       async (method, ctx, methodName) => {
@@ -364,19 +379,21 @@ describe("MoltZapApp — admission/lifecycle handler surface", () => {
       );
       const reply = await Effect.runPromise(
         asMock(app.client)._invokeHandler(
-          "apps/onSessionActive",
+          AppsOnSessionActive.name,
           baseSessionActiveCtx,
         ),
       );
       expect(reply).toEqual({});
       expect(onErr).toHaveBeenCalledTimes(1);
       const errArg = onErr.mock.calls[0]![0] as AppHandlerError;
-      expect(errArg.method).toBe("apps/onSessionActive");
+      expect(errArg.method).toBe(AppsOnSessionActive.name);
     });
 
     it("each lifecycle hook rejects duplicate registration", () => {
       app.onJoin(() => Effect.void);
-      expect(() => app.onJoin(() => Effect.void)).toThrow(AppError);
+      expect(() => app.onJoin(() => Effect.void)).toThrow(
+        DuplicateHookHandlerError,
+      );
     });
   });
 
@@ -392,13 +409,13 @@ describe("MoltZapApp — admission/lifecycle handler surface", () => {
     });
 
     it.each([
-      ["SessionNotFound", "SessionNotFound" as const],
-      ["ConversationNotFound", "ConversationNotFound" as const],
-      ["NotAuthorized", "NotAuthorized" as const],
-      ["AlreadyAttached", "AlreadyAttached" as const],
+      ["SessionNotFound", AttachSessionNotFoundError],
+      ["ConversationNotFound", AttachConversationNotFoundError],
+      ["NotAuthorized", AttachNotAuthorizedError],
+      ["AlreadyAttached", AttachAlreadyAttachedError],
     ])(
-      "maps RpcServerError data.code='%s' to AttachError code '%s'",
-      async (dataCode, expectedCode) => {
+      "maps RpcServerError data.code='%s' to %s",
+      async (dataCode, ExpectedError) => {
         asMock(app.client)._setAttachFailure(
           new MockRpcServerError({
             code: -32099,
@@ -415,8 +432,7 @@ describe("MoltZapApp — admission/lifecycle handler surface", () => {
         expect(Exit.isFailure(exit)).toBe(true);
         if (Exit.isFailure(exit)) {
           const err = exit.cause._tag === "Fail" ? exit.cause.error : null;
-          expect(err).toBeInstanceOf(AttachError);
-          expect((err as AttachError).code).toBe(expectedCode);
+          expect(err).toBeInstanceOf(ExpectedError);
         }
       },
     );
@@ -425,8 +441,8 @@ describe("MoltZapApp — admission/lifecycle handler surface", () => {
     // (no numeric -32003, no structured `data.code`), the SDK matches the
     // canonical server message — see
     // `packages/server/src/app/app-host.ts` ("Conversation X is already
-    // attached to session Y") — and routes to AttachError('AlreadyAttached').
-    it("maps 'already attached' message substring to AttachError code 'AlreadyAttached'", async () => {
+    // attached to session Y") — and routes to AttachAlreadyAttachedError.
+    it("maps 'already attached' message substring to AttachAlreadyAttachedError", async () => {
       asMock(app.client)._setAttachFailure(
         new MockRpcServerError({
           code: -32099,
@@ -443,8 +459,7 @@ describe("MoltZapApp — admission/lifecycle handler surface", () => {
       expect(Exit.isFailure(exit)).toBe(true);
       if (Exit.isFailure(exit)) {
         const err = exit.cause._tag === "Fail" ? exit.cause.error : null;
-        expect(err).toBeInstanceOf(AttachError);
-        expect((err as AttachError).code).toBe("AlreadyAttached");
+        expect(err).toBeInstanceOf(AttachAlreadyAttachedError);
       }
     });
 
@@ -461,8 +476,7 @@ describe("MoltZapApp — admission/lifecycle handler surface", () => {
       expect(Exit.isFailure(exit)).toBe(true);
       if (Exit.isFailure(exit)) {
         const err = exit.cause._tag === "Fail" ? exit.cause.error : null;
-        expect(err).toBeInstanceOf(AttachError);
-        expect((err as AttachError).code).toBe("AttachFailed");
+        expect(err).toBeInstanceOf(AttachFailedError);
       }
     });
 
@@ -470,16 +484,16 @@ describe("MoltZapApp — admission/lifecycle handler surface", () => {
     // `err.code` first (NumericCodeToAttach), falling back to structured
     // `data.code` only on miss. Mirrors the integration test in
     // `30-app-hooks-rpc.integration.test.ts` ("Conflict (-32003) →
-    // AttachError('AlreadyAttached')"). Keeps the SDK-side numeric map
+    // AttachAlreadyAttachedError"). Keeps the SDK-side numeric map
     // honest without booting the real server.
     it.each([
-      [-32021, "SessionNotFound" as const],
-      [-32002, "ConversationNotFound" as const],
-      [-32001, "NotAuthorized" as const],
-      [-32003, "AlreadyAttached" as const],
+      [-32021, AttachSessionNotFoundError],
+      [-32002, AttachConversationNotFoundError],
+      [-32001, AttachNotAuthorizedError],
+      [-32003, AttachAlreadyAttachedError],
     ])(
-      "maps numeric err.code=%s to AttachError code '%s' via NumericCodeToAttach",
-      async (numericCode, expectedCode) => {
+      "maps numeric err.code=%s to %s via NumericCodeToAttach",
+      async (numericCode, ExpectedError) => {
         asMock(app.client)._setAttachFailure(
           new MockRpcServerError({ code: numericCode, message: "rejected" }),
         );
@@ -492,8 +506,7 @@ describe("MoltZapApp — admission/lifecycle handler surface", () => {
         expect(Exit.isFailure(exit)).toBe(true);
         if (Exit.isFailure(exit)) {
           const err = exit.cause._tag === "Fail" ? exit.cause.error : null;
-          expect(err).toBeInstanceOf(AttachError);
-          expect((err as AttachError).code).toBe(expectedCode);
+          expect(err).toBeInstanceOf(ExpectedError);
         }
       },
     );
@@ -512,7 +525,7 @@ describe("MoltZapApp — admission/lifecycle handler surface", () => {
           leaseId: ctx.message.id,
         });
       app.onBeforeDispatch(handler);
-      expect(asMock(app.client)._hasHandler("apps/onBeforeDispatch")).toBe(
+      expect(asMock(app.client)._hasHandler(AppsOnBeforeDispatch.name)).toBe(
         true,
       );
     });
@@ -523,7 +536,7 @@ describe("MoltZapApp — admission/lifecycle handler surface", () => {
       ): Effect.Effect<HookResult, never> => Effect.succeed({ block: false });
       app.onBeforeMessageDelivery(handler);
       expect(
-        asMock(app.client)._hasHandler("apps/onBeforeMessageDelivery"),
+        asMock(app.client)._hasHandler(AppsOnBeforeMessageDelivery.name),
       ).toBe(true);
     });
 
@@ -532,7 +545,9 @@ describe("MoltZapApp — admission/lifecycle handler surface", () => {
         ctx: OnSessionActiveContext,
       ): Effect.Effect<void, never> => Effect.sync(() => ctx.sessionId);
       app.onSessionActive(handler);
-      expect(asMock(app.client)._hasHandler("apps/onSessionActive")).toBe(true);
+      expect(asMock(app.client)._hasHandler(AppsOnSessionActive.name)).toBe(
+        true,
+      );
     });
   });
 });

@@ -9,8 +9,23 @@ import path from "node:path";
 import os from "node:os";
 
 const CONTROL_UI_PORT = 18789;
+const OPENCLAW_TOKEN_RADIX = 36;
+const DEFAULT_PORT_RANGE_START = 19000;
+const DEFAULT_PORT_RANGE_END = 19999;
+const JSON_INDENT_SPACES = 2;
+const MS_PER_SECOND = 1000;
+const DEFAULT_GATEWAY_TIMEOUT_MS = 30_000;
+const DEFAULT_CHANNEL_TIMEOUT_MS = 180_000;
+const DEFAULT_READY_TIMEOUT_MS = 180_000;
+const GATEWAY_READY_PATTERN = "[gateway]";
+const CHANNEL_READY_PATTERNS = ["[moltzap]", "connected as"] as const;
+
 export const IMAGE_NAME = "moltzap-eval-agent:local";
 export const OPENCLAW_STATE_DIR = "/home/node/.openclaw";
+
+class OpenClawContainerError extends Error {
+  override readonly name = "OpenClawContainerError";
+}
 
 export type ContainerModelConfig = {
   modelString: string;
@@ -33,7 +48,8 @@ export function isImageAvailable(): boolean {
   try {
     execSync(`docker image inspect ${IMAGE_NAME}`, { stdio: "pipe" });
     return true;
-  } catch {
+  } catch (cause) {
+    void cause;
     return false;
   }
 }
@@ -87,7 +103,10 @@ export function buildOpenClawConfig(opts: {
         dangerouslyAllowHostHeaderOriginFallback: true,
         dangerouslyDisableDeviceAuth: true,
       },
-      auth: { mode: "token", token: `e2e-${Date.now().toString(36)}` },
+      auth: {
+        mode: "token",
+        token: `e2e-${Date.now().toString(OPENCLAW_TOKEN_RADIX)}`,
+      },
     },
     meta: {
       lastTouchedVersion: "2026.3.14",
@@ -123,12 +142,15 @@ export function startRawContainer(
   },
 ): OpenClawContainer {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-e2e-"));
-  const [lo, hi] = opts.portRange ?? [19000, 19999];
+  const [lo, hi] = opts.portRange ?? [
+    DEFAULT_PORT_RANGE_START,
+    DEFAULT_PORT_RANGE_END,
+  ];
   const controlPort = lo + Math.floor(Math.random() * (hi - lo));
 
   fs.writeFileSync(
     path.join(tmpDir, "openclaw.json"),
-    JSON.stringify(config, null, 2),
+    JSON.stringify(config, null, JSON_INDENT_SPACES),
   );
   for (const sub of ["workspace", "logs"]) {
     fs.mkdirSync(path.join(tmpDir, sub), { recursive: true });
@@ -140,7 +162,7 @@ export function startRawContainer(
   );
 
   const containerName = `moltzap-e2e-${opts.name}-${Date.now()}`;
-  const startedEpoch = Math.floor(Date.now() / 1000);
+  const startedEpoch = Math.floor(Date.now() / MS_PER_SECOND);
   const envParts = [`-e OPENCLAW_STATE_DIR=${OPENCLAW_STATE_DIR}`];
   if (opts.envVars) {
     for (const [k, v] of Object.entries(opts.envVars)) {
@@ -180,7 +202,8 @@ export function getLogs(containerId: string): string {
     return execSync(`docker logs ${containerId} 2>&1`, {
       encoding: "utf-8",
     });
-  } catch {
+  } catch (cause) {
+    void cause;
     return "";
   }
 }
@@ -190,7 +213,7 @@ export function waitForLogMatch(
   containerId: string,
   patterns: string | string[],
   timeoutMs: number,
-): Promise<void> {
+) {
   const required = Array.isArray(patterns) ? patterns : [patterns];
 
   return new Promise<void>((resolve, reject) => {
@@ -202,7 +225,7 @@ export function waitForLogMatch(
       ).trim();
       if (status !== "running") {
         reject(
-          new Error(
+          new OpenClawContainerError(
             `Container not running (status: ${status}) before log stream.\nLogs:\n${getLogs(containerId)}`,
           ),
         );
@@ -210,7 +233,7 @@ export function waitForLogMatch(
       }
     } catch (err) {
       reject(
-        new Error(
+        new OpenClawContainerError(
           `Failed to inspect container ${containerId}: ${err instanceof Error ? err.message : err}`,
         ),
       );
@@ -235,7 +258,7 @@ export function waitForLogMatch(
     const timer = setTimeout(() => {
       const missing = required.filter((p) => !matched.has(p));
       finish(
-        new Error(
+        new OpenClawContainerError(
           `waitForLogMatch timed out after ${timeoutMs}ms.\n` +
             `Matched: [${[...matched].join(", ")}]\n` +
             `Missing: [${missing.join(", ")}]\n` +
@@ -267,7 +290,7 @@ export function waitForLogMatch(
 
     proc.on("error", (err) => {
       finish(
-        new Error(
+        new OpenClawContainerError(
           `docker logs process error: ${err.message}\nLogs:\n${getLogs(containerId)}`,
         ),
       );
@@ -287,7 +310,7 @@ export function waitForLogMatch(
         }
         const missing = required.filter((p) => !matched.has(p));
         finish(
-          new Error(
+          new OpenClawContainerError(
             `docker logs exited (code ${code}) before all patterns matched.\n` +
               `Matched: [${[...matched].join(", ")}]\n` +
               `Missing: [${missing.join(", ")}]\n` +
@@ -300,27 +323,27 @@ export function waitForLogMatch(
 }
 
 /** Wait for the OpenClaw gateway process to start. */
-export async function waitForGateway(
+export function waitForGateway(
   containerId: string,
-  timeoutMs = 30_000,
-): Promise<void> {
-  await waitForLogMatch(containerId, "[gateway]", timeoutMs);
+  timeoutMs = DEFAULT_GATEWAY_TIMEOUT_MS,
+) {
+  return waitForLogMatch(containerId, GATEWAY_READY_PATTERN, timeoutMs);
 }
 
 /** Wait for the MoltZap channel to connect within the container. */
-export async function waitForChannel(
+export function waitForChannel(
   containerId: string,
-  timeoutMs = 180_000,
-): Promise<void> {
-  await waitForLogMatch(containerId, ["[moltzap]", "connected as"], timeoutMs);
+  timeoutMs = DEFAULT_CHANNEL_TIMEOUT_MS,
+) {
+  return waitForLogMatch(containerId, [...CHANNEL_READY_PATTERNS], timeoutMs);
 }
 
 /** Wait for both gateway and channel to be ready (single log stream). */
-export async function waitForReady(containerId: string): Promise<void> {
-  await waitForLogMatch(
+export function waitForReady(containerId: string) {
+  return waitForLogMatch(
     containerId,
-    ["[gateway]", "[moltzap]", "connected as"],
-    180_000,
+    [GATEWAY_READY_PATTERN, ...CHANNEL_READY_PATTERNS],
+    DEFAULT_READY_TIMEOUT_MS,
   );
 }
 
@@ -328,12 +351,14 @@ export async function waitForReady(containerId: string): Promise<void> {
 export function stopContainer(container: OpenClawContainer): void {
   try {
     execSync(`docker rm -f ${container.containerId}`, { stdio: "pipe" });
-  } catch {
+  } catch (cause) {
+    void cause;
     // best effort
   }
   try {
     fs.rmSync(container.tmpDir, { recursive: true, force: true });
-  } catch {
+  } catch (cause) {
+    void cause;
     // best effort
   }
 }

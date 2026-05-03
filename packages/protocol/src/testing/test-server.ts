@@ -84,6 +84,7 @@ export const TestServer = Context.GenericTag<TestServer>(
 );
 
 let connectionCounter = 0;
+const TEST_SERVER_SNAPSHOT_CONCURRENCY = 8;
 
 type Writer = (
   chunk: string | Uint8Array | Socket.CloseEvent,
@@ -110,10 +111,7 @@ function makeConnection(
       Effect.gen(function* () {
         const raw = encodeFrame(frame);
         // Validate on the way out as well — Invariant I3.
-        const check = yield* Effect.either(decodeFrame(raw, "outbound"));
-        if (check._tag === "Left") {
-          return yield* Effect.fail(check.left);
-        }
+        yield* decodeFrame(raw, "outbound");
         yield* writer(raw).pipe(
           Effect.mapError(
             (err) =>
@@ -201,14 +199,14 @@ export function makeTestServer(
                   typeof data === "string"
                     ? data
                     : new TextDecoder("utf-8").decode(data);
-                const decoded = yield* Effect.either(
-                  decodeFrame(raw, "inbound"),
+                yield* decodeFrame(raw, "inbound").pipe(
+                  Effect.matchEffect({
+                    onFailure: () =>
+                      recordMalformed(conn.inbound, raw, "bit-flip"),
+                    onSuccess: (frame) =>
+                      recordFrame(conn.inbound, "inbound", raw, frame),
+                  }),
                 );
-                if (decoded._tag === "Left") {
-                  yield* recordMalformed(conn.inbound, raw, "bit-flip");
-                  return;
-                }
-                yield* recordFrame(conn.inbound, "inbound", raw, decoded.right);
               }),
             );
           }),
@@ -246,7 +244,7 @@ export function makeTestServer(
       function* () {
         const conns = yield* Ref.get(serverState);
         const snaps = yield* Effect.forEach(conns, (c) => c.inbound.snapshot, {
-          concurrency: "unbounded",
+          concurrency: TEST_SERVER_SNAPSHOT_CONCURRENCY,
         });
         return snaps.flat();
       },

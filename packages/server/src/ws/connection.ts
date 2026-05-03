@@ -233,17 +233,20 @@ export function sendRpcToClient(
       // both error tags are correct readings of the failure.
       () =>
         Effect.gen(function* () {
-          const writeOutcome = yield* Effect.either(connection.write(raw));
-          if (writeOutcome._tag === "Left") {
-            const err = new S2cRpcSocketError({
-              connectionId: connection.id,
-              method,
-              requestId,
-              cause: writeOutcome.left,
-            });
-            yield* Deferred.fail(deferred, err).pipe(Effect.ignore);
-            return yield* Effect.fail<S2cRpcError>(err);
-          }
+          yield* connection.write(raw).pipe(
+            Effect.catchAll((cause) => {
+              const err = new S2cRpcSocketError({
+                connectionId: connection.id,
+                method,
+                requestId,
+                cause,
+              });
+              return Deferred.fail(deferred, err).pipe(
+                Effect.ignore,
+                Effect.zipRight(Effect.fail<S2cRpcError>(err)),
+              );
+            }),
+          );
           return yield* Deferred.await(deferred);
         }),
       // release: remove the entry. Idempotent — `HashMap.remove` on an

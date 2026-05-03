@@ -34,17 +34,40 @@ import { Cause, Effect, Exit, Fiber } from "effect";
 import { AppSessionHandle } from "./session.js";
 import { HeartbeatManager } from "./heartbeat.js";
 import {
-  AppError,
   AppHandlerError,
-  AttachError,
-  type AttachErrorCode,
+  AttachAlreadyAttachedError,
+  AttachConversationNotFoundError,
+  type AttachError,
+  AttachFailedError,
+  AttachNotAuthorizedError,
+  AttachSessionNotFoundError,
   AuthError,
+  ConversationKeyError,
+  DuplicateHookHandlerError,
+  type AppError,
+  InvalidConfigError,
   ManifestRegistrationError,
   SessionError,
   SessionClosedError,
-  ConversationKeyError,
   SendError,
+  UserHandlerError,
 } from "./errors.js";
+
+import {
+  AppsAttachConversation,
+  AppsAttestSkill,
+  AppsCloseSession,
+  AppsCreate,
+  AppsGetSession,
+  AppsOnBeforeDispatch,
+  AppsOnBeforeMessageDelivery,
+  AppsOnClose,
+  AppsOnJoin,
+  AppsOnSessionActive,
+  AppsRegister,
+  MessagesSend,
+  SystemPing,
+} from "@moltzap/protocol";
 
 type MessageHandler = (message: Message) => void | Promise<void>;
 type SessionReadyHandler = (session: AppSessionHandle) => void | Promise<void>;
@@ -67,6 +90,9 @@ export type StartError = AuthError | ManifestRegistrationError | SessionError;
 
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000;
 const NO_BACKGROUND_FIBERS = 0;
+
+const errorCause = (cause: unknown): { readonly cause?: Error } =>
+  cause instanceof Error ? { cause } : {};
 
 /**
  * MoltZapApp — main class for building MoltZap apps.
@@ -113,10 +139,9 @@ export class MoltZapApp {
 
   constructor(options: MoltZapAppOptions) {
     if (!options.appId && !options.manifest) {
-      throw new AppError(
-        "INVALID_CONFIG",
-        "Either appId or manifest must be provided",
-      );
+      throw new InvalidConfigError({
+        message: "Either appId or manifest must be provided",
+      });
     }
 
     this.manifest = options.manifest ?? {
@@ -167,10 +192,10 @@ export class MoltZapApp {
         .pipe(
           Effect.mapError(
             (err) =>
-              new AuthError(
-                "Failed to register event subscription",
-                err instanceof Error ? err : undefined,
-              ),
+              new AuthError({
+                message: "Failed to register event subscription",
+                ...errorCause(err),
+              }),
           ),
         );
 
@@ -178,42 +203,40 @@ export class MoltZapApp {
       // can clean up if a later step fails (preventing subscription leaks).
       this.activeSubscription = sub;
 
-      yield* this.client
-        .connect()
-        .pipe(
-          Effect.mapError(
-            (err) =>
-              new AuthError(
-                "Failed to connect and authenticate",
-                err instanceof Error ? err : undefined,
-              ),
-          ),
-        );
+      yield* this.client.connect().pipe(
+        Effect.mapError(
+          (err) =>
+            new AuthError({
+              message: "Failed to connect and authenticate",
+              ...errorCause(err),
+            }),
+        ),
+      );
 
       yield* this.client
-        .sendRpc("apps/register", { manifest: this.manifest })
+        .sendRpc(AppsRegister.name, { manifest: this.manifest })
         .pipe(
           Effect.mapError(
             (err) =>
-              new ManifestRegistrationError(
-                `Failed to register manifest for "${this.manifest.appId}"`,
-                err instanceof Error ? err : undefined,
-              ),
+              new ManifestRegistrationError({
+                message: `Failed to register manifest for "${this.manifest.appId}"`,
+                ...errorCause(err),
+              }),
           ),
         );
 
       const sessionResult = (yield* this.client
-        .sendRpc("apps/create", {
+        .sendRpc(AppsCreate.name, {
           appId: this.manifest.appId,
           invitedAgentIds: this.invitedAgentIds,
         })
         .pipe(
           Effect.mapError(
             (err) =>
-              new SessionError(
-                "Failed to create app session",
-                err instanceof Error ? err : undefined,
-              ),
+              new SessionError({
+                message: "Failed to create app session",
+                ...errorCause(err),
+              }),
           ),
         )) as { session: AppSession };
 
@@ -265,7 +288,7 @@ export class MoltZapApp {
       for (const session of this.sessions.values()) {
         if (session.isActive) {
           yield* this.client
-            .sendRpc("apps/closeSession", { sessionId: session.id })
+            .sendRpc(AppsCloseSession.name, { sessionId: session.id })
             .pipe(Effect.ignore);
         }
       }
@@ -308,17 +331,17 @@ export class MoltZapApp {
   ): Effect.Effect<AppSessionHandle, SessionError> {
     return Effect.gen(this, function* () {
       const result = (yield* this.client
-        .sendRpc("apps/create", {
+        .sendRpc(AppsCreate.name, {
           appId: this.manifest.appId,
           invitedAgentIds: invitedAgentIds ?? [],
         })
         .pipe(
           Effect.mapError(
             (err) =>
-              new SessionError(
-                "Failed to create app session",
-                err instanceof Error ? err : undefined,
-              ),
+              new SessionError({
+                message: "Failed to create app session",
+                ...errorCause(err),
+              }),
           ),
         )) as { session: AppSession };
 
@@ -400,7 +423,7 @@ export class MoltZapApp {
       BeforeDispatchContext,
       DispatchAdmissionResult
     >(
-      "apps/onBeforeDispatch",
+      AppsOnBeforeDispatch.name,
       handler,
       (decision) => ({ admission: decision }),
       () => ({ admission: { decision: "deny", reason: "app_handler_error" } }),
@@ -423,7 +446,7 @@ export class MoltZapApp {
     ) => Effect.Effect<HookResult, never>,
   ): void {
     this.registerAdmissionHandler<BeforeMessageDeliveryContext, HookResult>(
-      "apps/onBeforeMessageDelivery",
+      AppsOnBeforeMessageDelivery.name,
       handler,
       (verdict) => verdict,
       () => ({ block: true, reason: "app_handler_error" }),
@@ -442,19 +465,19 @@ export class MoltZapApp {
     handler: (ctx: OnSessionActiveContext) => Effect.Effect<void, never>,
   ): void {
     this.registerLifecycleHandler<OnSessionActiveContext>(
-      "apps/onSessionActive",
+      AppsOnSessionActive.name,
       handler,
     );
   }
 
   /** Register an awaitable `on_join` lifecycle handler. */
   onJoin(handler: (ctx: OnJoinContext) => Effect.Effect<void, never>): void {
-    this.registerLifecycleHandler<OnJoinContext>("apps/onJoin", handler);
+    this.registerLifecycleHandler<OnJoinContext>(AppsOnJoin.name, handler);
   }
 
   /** Register an awaitable `on_close` lifecycle handler. */
   onClose(handler: (ctx: OnCloseContext) => Effect.Effect<void, never>): void {
-    this.registerLifecycleHandler<OnCloseContext>("apps/onClose", handler);
+    this.registerLifecycleHandler<OnCloseContext>(AppsOnClose.name, handler);
   }
 
   /**
@@ -470,7 +493,7 @@ export class MoltZapApp {
     conversationId: string,
   ): Effect.Effect<void, AttachError> {
     return this.client
-      .sendRpc("apps/attachConversation", { sessionId, conversationId })
+      .sendRpc(AppsAttachConversation.name, { sessionId, conversationId })
       .pipe(
         Effect.asVoid,
         Effect.mapError((err) => mapAttachError(err)),
@@ -503,11 +526,11 @@ export class MoltZapApp {
         // Fail-closed: log the underlying cause, synthesize the fail-closed
         // verdict. Cause covers both typed failures (which are `never`-typed
         // here so should not occur) and defects from `Effect.gen` throws.
-        const wrappedErr = new AppHandlerError(
+        const wrappedErr = new AppHandlerError({
           method,
-          "handler failed; synthesizing fail-closed verdict",
-          causeToError(verdictExit.cause),
-        );
+          message: "handler failed; synthesizing fail-closed verdict",
+          cause: causeToError(verdictExit.cause),
+        });
         this.emitError(wrappedErr);
         return failClosedVerdict();
       });
@@ -527,11 +550,11 @@ export class MoltZapApp {
           // Lifecycle hooks are awaitable-void: log and reply void so the
           // server-side AppHost stops waiting. Never blocks session lifecycle.
           this.emitError(
-            new AppHandlerError(
+            new AppHandlerError({
               method,
-              "lifecycle handler failed; replying void",
-              causeToError(exit.cause),
-            ),
+              message: "lifecycle handler failed; replying void",
+              cause: causeToError(exit.cause),
+            }),
           );
         }
         return {};
@@ -551,11 +574,11 @@ export class MoltZapApp {
       // Only failure mode is `DuplicateServerRpcHandlerError`; surface as
       // sync throw per architect plan §3.5 ("Multiple registrations for the
       // same hook throw at registration time").
-      throw new AppError(
-        "DUPLICATE_HOOK_HANDLER",
-        `Handler already registered for ${method}`,
-        causeToError(exit.cause),
-      );
+      throw new DuplicateHookHandlerError({
+        method,
+        message: `Handler already registered for ${method}`,
+        cause: causeToError(exit.cause),
+      });
     }
   }
 
@@ -578,16 +601,18 @@ export class MoltZapApp {
     conversationId: string,
     parts: Part[],
   ): Effect.Effect<void, SendError> {
-    return this.client.sendRpc("messages/send", { conversationId, parts }).pipe(
-      Effect.mapError(
-        (err) =>
-          new SendError(
-            `Failed to send message to conversation ${conversationId}`,
-            err instanceof Error ? err : undefined,
-          ),
-      ),
-      Effect.asVoid,
-    );
+    return this.client
+      .sendRpc(MessagesSend.name, { conversationId, parts })
+      .pipe(
+        Effect.mapError(
+          (err) =>
+            new SendError({
+              message: `Failed to send message to conversation ${conversationId}`,
+              ...errorCause(err),
+            }),
+        ),
+        Effect.asVoid,
+      );
   }
 
   /**
@@ -596,14 +621,14 @@ export class MoltZapApp {
    */
   reply(messageId: string, parts: Part[]): Effect.Effect<void, SendError> {
     return this.client
-      .sendRpc("messages/send", { replyToId: messageId, parts })
+      .sendRpc(MessagesSend.name, { replyToId: messageId, parts })
       .pipe(
         Effect.mapError(
           (err) =>
-            new SendError(
-              `Failed to reply to message ${messageId}`,
-              err instanceof Error ? err : undefined,
-            ),
+            new SendError({
+              message: `Failed to reply to message ${messageId}`,
+              ...errorCause(err),
+            }),
         ),
         Effect.asVoid,
       );
@@ -647,7 +672,12 @@ export class MoltZapApp {
       const id = session.conversations[key];
       if (id) return Effect.succeed(id);
     }
-    return Effect.fail(new ConversationKeyError(key));
+    return Effect.fail(
+      new ConversationKeyError({
+        key,
+        message: `Unknown conversation key: "${key}"`,
+      }),
+    );
   }
 
   private buildReverseConvMap(session: AppSessionHandle): void {
@@ -715,7 +745,9 @@ export class MoltZapApp {
       this.sessions.delete(data.sessionId);
       this.firedSessionReady.delete(data.sessionId);
       this.emitError(
-        new SessionClosedError(`Session ${data.sessionId} was closed`),
+        new SessionClosedError({
+          message: `Session ${data.sessionId} was closed`,
+        }),
       );
     }
   }
@@ -726,7 +758,7 @@ export class MoltZapApp {
     if (skillUrl) {
       this.trackFork(
         this.client
-          .sendRpc("apps/attestSkill", {
+          .sendRpc(AppsAttestSkill.name, {
             challengeId: data.challengeId,
             skillUrl,
             version: this.manifest.skillMinVersion ?? "0.0.0",
@@ -736,10 +768,10 @@ export class MoltZapApp {
             Effect.catchAll((err) =>
               Effect.sync(() => {
                 this.emitError(
-                  new SessionError(
-                    "Failed to respond to skill challenge",
-                    err instanceof Error ? err : undefined,
-                  ),
+                  new SessionError({
+                    message: "Failed to respond to skill challenge",
+                    ...errorCause(err),
+                  }),
                 );
               }),
             ),
@@ -756,7 +788,6 @@ export class MoltZapApp {
       const handler = this.messageHandlers.get(key)!;
       this.trackFork(
         this.runUserHandler(() => handler(message), {
-          code: "HANDLER_ERROR",
           message: `Message handler for "${key}" threw`,
         }),
       );
@@ -766,7 +797,6 @@ export class MoltZapApp {
       const handler = this.messageHandlers.get("*")!;
       this.trackFork(
         this.runUserHandler(() => handler(message), {
-          code: "HANDLER_ERROR",
           message: "Catch-all message handler threw",
         }),
       );
@@ -780,7 +810,7 @@ export class MoltZapApp {
    */
   private runUserHandler(
     invoke: () => void | Promise<void>,
-    ctx: { code: string; message: string },
+    ctx: { message: string },
   ): Effect.Effect<void, never> {
     return Effect.try({
       try: invoke,
@@ -797,7 +827,9 @@ export class MoltZapApp {
       ),
       Effect.catchAll((err) =>
         Effect.sync(() => {
-          this.emitError(new AppError(ctx.code, ctx.message, err));
+          this.emitError(
+            new UserHandlerError({ message: ctx.message, cause: err }),
+          );
         }),
       ),
     );
@@ -824,7 +856,6 @@ export class MoltZapApp {
     for (const handler of this.sessionReadyHandlers) {
       this.trackFork(
         this.runUserHandler(() => handler(handle), {
-          code: "HANDLER_ERROR",
           message: "Session ready handler threw",
         }),
       );
@@ -859,7 +890,7 @@ export class MoltZapApp {
     session: AppSessionHandle,
   ): Effect.Effect<void, never> {
     return this.client
-      .sendRpc("apps/getSession", { sessionId: session.id })
+      .sendRpc(AppsGetSession.name, { sessionId: session.id })
       .pipe(
         Effect.flatMap((result: unknown) =>
           Effect.sync(() => {
@@ -876,9 +907,9 @@ export class MoltZapApp {
                 this.reverseConvMap.delete(convId);
               }
               this.emitError(
-                new SessionClosedError(
-                  `Session ${session.id} closed during disconnect`,
-                ),
+                new SessionClosedError({
+                  message: `Session ${session.id} closed during disconnect`,
+                }),
               );
             } else {
               const updated = new AppSessionHandle(freshSession);
@@ -890,10 +921,10 @@ export class MoltZapApp {
         Effect.catchAll((err) =>
           Effect.sync(() => {
             this.emitError(
-              new SessionError(
-                `Failed to recover session ${session.id} after reconnect`,
-                err instanceof Error ? err : undefined,
-              ),
+              new SessionError({
+                message: `Failed to recover session ${session.id} after reconnect`,
+                ...errorCause(err),
+              }),
             );
           }),
         ),
@@ -906,7 +937,7 @@ export class MoltZapApp {
   }
 
   private sendPing(): Effect.Effect<void, Error> {
-    return this.client.sendRpc("system/ping", {}).pipe(
+    return this.client.sendRpc(SystemPing.name, {}).pipe(
       Effect.asVoid,
       Effect.mapError(
         (e): Error => (e instanceof Error ? e : new Error(String(e))),
@@ -918,7 +949,7 @@ export class MoltZapApp {
     if (this.errorHandler) {
       this.errorHandler(error);
     } else {
-      this.logger.error(`[${error.code}] ${error.message}`);
+      this.logger.error(`[${error._tag}] ${error.message}`);
     }
   }
 }
@@ -947,28 +978,51 @@ function causeToError(cause: Cause.Cause<unknown>): Error {
 
 /**
  * Map a `client.sendRpc` failure for `apps/attachConversation` onto the
- * SDK's typed `AttachError`. RPC server errors carry the server's reason
- * code in `data.code` (or `message`); transport / timeout errors collapse
- * to `AttachFailed`.
+ * SDK's typed `AttachError`. RPC server errors carry the server's reason in
+ * `data.code` (or `message`); transport / timeout errors collapse to
+ * `AttachFailedError`.
  */
 type SendRpcError = NotConnectedError | RpcTimeoutError | RpcServerError;
 
 function mapAttachError(err: SendRpcError): AttachError {
   if (err instanceof RpcServerError) {
-    const code = extractAttachCode(err);
-    return new AttachError(code, err.message, err);
+    return makeAttachError(extractAttachKind(err), err.message, err);
   }
   // NotConnectedError or RpcTimeoutError — both extend Error via Data.TaggedError.
-  const cause = err instanceof Error ? err : undefined;
-  return new AttachError(
-    "AttachFailed",
-    `attachConversation failed: ${err.message}`,
-    cause,
-  );
+  return new AttachFailedError({
+    message: `attachConversation failed: ${err.message}`,
+    ...errorCause(err),
+  });
+}
+
+type AttachFailureKind =
+  | "SessionNotFound"
+  | "ConversationNotFound"
+  | "NotAuthorized"
+  | "AlreadyAttached"
+  | "AttachFailed";
+
+function makeAttachError(
+  kind: AttachFailureKind,
+  message: string,
+  cause: Error,
+): AttachError {
+  switch (kind) {
+    case "SessionNotFound":
+      return new AttachSessionNotFoundError({ message, cause });
+    case "ConversationNotFound":
+      return new AttachConversationNotFoundError({ message, cause });
+    case "NotAuthorized":
+      return new AttachNotAuthorizedError({ message, cause });
+    case "AlreadyAttached":
+      return new AttachAlreadyAttachedError({ message, cause });
+    case "AttachFailed":
+      return new AttachFailedError({ message, cause });
+  }
 }
 
 /**
- * Numeric JSON-RPC error code → `AttachErrorCode` mapping. Matches the
+ * Numeric JSON-RPC error code → SDK attach error tag mapping. Matches the
  * server's `ErrorCodes` table (see `packages/protocol/src/schema/errors.ts`)
  * — kept inline (no protocol import) because the SDK already pins
  * `@moltzap/protocol` for context types and re-importing the constants
@@ -977,14 +1031,14 @@ function mapAttachError(err: SendRpcError): AttachError {
  * boundary that stays in sync via the integration test for
  * `apps/attachConversation` happy + error paths.
  */
-const NumericCodeToAttach: Record<number, AttachErrorCode> = {
+const NumericCodeToAttach: Record<number, AttachFailureKind> = {
   [-32021]: "SessionNotFound", // ErrorCodes.SessionNotFound
   [-32002]: "ConversationNotFound", // ErrorCodes.NotFound (used for missing convId)
   [-32001]: "NotAuthorized", // ErrorCodes.Forbidden
   [-32003]: "AlreadyAttached", // ErrorCodes.Conflict (1:1 cross-session collision)
 };
 
-function extractAttachCode(err: RpcServerError): AttachErrorCode {
+function extractAttachKind(err: RpcServerError): AttachFailureKind {
   // 1. Prefer the wire-level numeric `err.code`. The real server emits
   //    JSON-RPC numeric codes from `ErrorCodes` (e.g. `SessionNotFound =
   //    -32021`), NOT the AttachError tag string. Numeric mapping is the

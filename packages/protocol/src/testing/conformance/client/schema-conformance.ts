@@ -34,6 +34,9 @@ import {
 } from "./_fixtures.js";
 
 const CATEGORY = "schema-conformance" as const;
+const PROPERTY_EVENT_WELL_FORMEDNESS_CLIENT = "event-well-formedness-client";
+const PROPERTY_MALFORMED_FRAME_HANDLING_CLIENT =
+  "malformed-frame-handling-client";
 const PROPERTY_BUDGET_MS = 8_000;
 
 /**
@@ -54,14 +57,14 @@ export function registerEventWellFormednessClient(
   registerProperty(
     ctx,
     CATEGORY,
-    "event-well-formedness-client",
+    PROPERTY_EVENT_WELL_FORMEDNESS_CLIENT,
     "valid EventFrame emitted by TestServer surfaces schema-clean on real client",
     Effect.scoped(
       Effect.gen(function* () {
         const fx = yield* acquireFixture(
           ctx,
           CATEGORY,
-          "event-well-formedness-client",
+          PROPERTY_EVENT_WELL_FORMEDNESS_CLIENT,
         );
         yield* subscribeAll(fx.handle);
         const sampled = fc.sample(arbitraryEventFrame(), {
@@ -72,7 +75,7 @@ export function registerEventWellFormednessClient(
           return yield* Effect.fail(
             invariant(
               CATEGORY,
-              "event-well-formedness-client",
+              PROPERTY_EVENT_WELL_FORMEDNESS_CLIENT,
               "failed to sample EventFrame",
             ),
           );
@@ -91,7 +94,7 @@ export function registerEventWellFormednessClient(
           return yield* Effect.fail(
             invariant(
               CATEGORY,
-              "event-well-formedness-client",
+              PROPERTY_EVENT_WELL_FORMEDNESS_CLIENT,
               `tagged event ${tag} not surfaced within ${PROPERTY_BUDGET_MS}ms`,
             ),
           );
@@ -107,7 +110,7 @@ export function registerEventWellFormednessClient(
           return yield* Effect.fail(
             invariant(
               CATEGORY,
-              "event-well-formedness-client",
+              PROPERTY_EVENT_WELL_FORMEDNESS_CLIENT,
               "real client surfaced event that fails EventFrameSchema",
             ),
           );
@@ -132,14 +135,14 @@ export function registerMalformedFrameHandlingClient(
   registerProperty(
     ctx,
     CATEGORY,
-    "malformed-frame-handling-client",
+    PROPERTY_MALFORMED_FRAME_HANDLING_CLIENT,
     "malformed TestServer emission absorbed silently; liveness intact",
     Effect.scoped(
       Effect.gen(function* () {
         const fx = yield* acquireFixture(
           ctx,
           CATEGORY,
-          "malformed-frame-handling-client",
+          PROPERTY_MALFORMED_FRAME_HANDLING_CLIENT,
         );
         yield* subscribeAll(fx.handle);
         const baseEvent = fc.sample(arbitraryEventFrame(), {
@@ -150,7 +153,7 @@ export function registerMalformedFrameHandlingClient(
           return yield* Effect.fail(
             invariant(
               CATEGORY,
-              "malformed-frame-handling-client",
+              PROPERTY_MALFORMED_FRAME_HANDLING_CLIENT,
               "failed to sample base EventFrame",
             ),
           );
@@ -178,7 +181,7 @@ export function registerMalformedFrameHandlingClient(
           return yield* Effect.fail(
             invariant(
               CATEGORY,
-              "malformed-frame-handling-client",
+              PROPERTY_MALFORMED_FRAME_HANDLING_CLIENT,
               "liveness failed: no tagged event after malformed emission",
             ),
           );

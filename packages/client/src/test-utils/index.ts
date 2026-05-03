@@ -18,6 +18,15 @@ export {
 } from "./conformance-adapter.js";
 
 import type { Message } from "@moltzap/protocol";
+import { Data, Effect } from "effect";
+
+const FLUSH_DISPATCH_TURNS = 20;
+
+class FlushDispatchChainError extends Data.TaggedError(
+  "FlushDispatchChainError",
+)<{
+  readonly cause: unknown;
+}> {}
 
 export function buildMessage(overrides: Partial<Message> = {}): Message {
   return {
@@ -30,8 +39,15 @@ export function buildMessage(overrides: Partial<Message> = {}): Message {
   } as Message;
 }
 
-export async function flushDispatchChain(): Promise<void> {
-  for (let i = 0; i < 20; i++) {
-    await Promise.resolve();
-  }
+export function flushDispatchChain() {
+  return Effect.runPromise(
+    Effect.gen(function* () {
+      for (let i = 0; i < FLUSH_DISPATCH_TURNS; i++) {
+        yield* Effect.tryPromise({
+          try: () => Promise.resolve(),
+          catch: (cause) => new FlushDispatchChainError({ cause }),
+        });
+      }
+    }),
+  );
 }

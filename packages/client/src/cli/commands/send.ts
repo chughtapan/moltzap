@@ -2,6 +2,10 @@ import { Args, Command, Options } from "@effect/cli";
 import { Effect, Option } from "effect";
 import { request } from "../socket-client.js";
 
+import { MessagesSend } from "@moltzap/protocol";
+
+const CONVERSATION_TARGET_PREFIX = "conv:";
+
 const targetArg = Args.text({ name: "target" }).pipe(
   Args.withDescription("Target (agent:<name> or conv:<id>)"),
 );
@@ -58,14 +62,14 @@ export const sendCommand = Command.make(
     const params: Record<string, unknown> = {
       parts: [{ type: "text", text: message }],
     };
-    if (target.startsWith("conv:")) {
-      params.conversationId = target.slice(5);
+    if (target.startsWith(CONVERSATION_TARGET_PREFIX)) {
+      params.conversationId = target.slice(CONVERSATION_TARGET_PREFIX.length);
     } else {
       params.to = target;
     }
     if (Option.isSome(replyTo)) params.replyToId = replyTo.value;
 
-    return request("messages/send", params).pipe(
+    return request(MessagesSend.name, params).pipe(
       Effect.tap((result) =>
         Effect.sync(() => {
           const r = result as { message: { id: string } };

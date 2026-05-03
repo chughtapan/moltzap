@@ -13,6 +13,7 @@ import {
 } from "../profile.js";
 
 const NAME_PATTERN = /^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$/;
+const JSON_INDENT_SPACES = 2;
 
 interface OpenClawConfig {
   channels?: {
@@ -72,7 +73,10 @@ const writeOpenClawChannelConfig = (account: {
       config.channels = channels;
 
       fs.mkdirSync(configDir, { recursive: true });
-      fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
+      fs.writeFileSync(
+        configPath,
+        JSON.stringify(config, null, JSON_INDENT_SPACES) + "\n",
+      );
     },
     catch: (err) => (err instanceof Error ? err : new Error(String(err))),
   });

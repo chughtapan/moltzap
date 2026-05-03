@@ -9,6 +9,12 @@ import {
   getKyselyDb,
 } from "./helpers.js";
 
+import {
+  ConversationsCreate,
+  MessagesList,
+  MessagesSend,
+} from "@moltzap/protocol";
+
 let _baseUrl: string;
 let _wsUrl: string;
 
@@ -33,7 +39,7 @@ describe("Scenario 3: DM Messaging", () => {
       const bob = yield* registerAndConnect("bob-dm");
 
       // Alice creates a DM conversation with Bob
-      const conv = (yield* alice.client.sendRpc("conversations/create", {
+      const conv = (yield* alice.client.sendRpc(ConversationsCreate.name, {
         type: "dm",
         participants: [{ type: "agent", id: bob.agentId }],
       })) as { conversation: { id: string; type: string } };
@@ -42,7 +48,7 @@ describe("Scenario 3: DM Messaging", () => {
       const conversationId = conv.conversation.id;
 
       // Alice sends a message
-      const sendResult = (yield* alice.client.sendRpc("messages/send", {
+      const sendResult = (yield* alice.client.sendRpc(MessagesSend.name, {
         conversationId,
         parts: [{ type: "text", text: "Hello Bob!" }],
       })) as { message: { id: string; parts: unknown[] } };
@@ -53,7 +59,7 @@ describe("Scenario 3: DM Messaging", () => {
       ]);
 
       // Alice lists messages
-      const messages = (yield* alice.client.sendRpc("messages/list", {
+      const messages = (yield* alice.client.sendRpc(MessagesList.name, {
         conversationId,
       })) as { messages: Array<{ id: string; parts: unknown[] }> };
 

@@ -68,6 +68,8 @@ import {
 } from "./adversity.js";
 import { registerSchemaExhaustiveFuzzClient } from "./boundary.js";
 
+const JSON_INDENT_SPACES = 2;
+
 /**
  * Consumer-facing options. Mirror of `ConformanceSuiteOptions` on the
  * server side; only the factory name differs.
@@ -331,7 +333,7 @@ function writeArtifact(
         ...payload,
       },
       null,
-      2,
+      JSON_INDENT_SPACES,
     ),
   );
 }

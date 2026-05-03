@@ -8,29 +8,69 @@
 
 import { inject } from "vitest";
 import type { Message } from "@moltzap/protocol";
+import { Data, Effect } from "effect";
 
-export async function registerAndClaim(name: string): Promise<{
+const WAIT_FOR_POLL_INTERVAL_MS = 50;
+
+type RegisteredAgentClaim = {
   apiKey: string;
   agentId: string;
   claimToken: string;
-}> {
+};
+
+class RegisterAndClaimError extends Data.TaggedError("RegisterAndClaimError")<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
+
+class WaitForTimeoutError extends Error {
+  override readonly name = "WaitForTimeoutError";
+}
+
+export function registerAndClaim(name: string) {
   const baseUrl = inject("baseUrl");
 
-  const res = await fetch(`${baseUrl}/api/v1/auth/register`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name }),
-  });
-  if (!res.ok) {
-    throw new Error(
-      `Register ${name} failed: ${res.status} ${await res.text()}`,
-    );
-  }
-  return (await res.json()) as {
-    agentId: string;
-    apiKey: string;
-    claimToken: string;
-  };
+  return Effect.runPromise(
+    Effect.gen(function* () {
+      const res = yield* Effect.tryPromise({
+        try: (signal) =>
+          fetch(`${baseUrl}/api/v1/auth/register`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name }),
+            signal,
+          }),
+        catch: (cause) =>
+          new RegisterAndClaimError({
+            message: `Register ${name} request failed`,
+            cause,
+          }),
+      });
+      if (!res.ok) {
+        const text = yield* Effect.tryPromise({
+          try: () => res.text(),
+          catch: (cause) =>
+            new RegisterAndClaimError({
+              message: `Register ${name} error body read failed`,
+              cause,
+            }),
+        });
+        return yield* Effect.fail(
+          new RegisterAndClaimError({
+            message: `Register ${name} failed: ${res.status} ${text}`,
+          }),
+        );
+      }
+      return yield* Effect.tryPromise({
+        try: () => res.json() as PromiseLike<RegisteredAgentClaim>,
+        catch: (cause) =>
+          new RegisterAndClaimError({
+            message: `Register ${name} response decode failed`,
+            cause,
+          }),
+      });
+    }),
+  );
 }
 
 export function extractMessage(event: { data: unknown }): Message {
@@ -46,19 +86,16 @@ export function extractText(message: Message): string {
   return part && "text" in part ? part.text : "";
 }
 
-export function waitFor(
-  predicate: () => boolean,
-  timeoutMs: number,
-): Promise<void> {
-  return new Promise((resolve, reject) => {
+export function waitFor(predicate: () => boolean, timeoutMs: number) {
+  return new Promise<void>((resolve, reject) => {
     const start = Date.now();
     const check = () => {
       if (predicate()) {
         resolve();
       } else if (Date.now() - start > timeoutMs) {
-        reject(new Error("waitFor timeout"));
+        reject(new WaitForTimeoutError("waitFor timeout"));
       } else {
-        setTimeout(check, 50);
+        setTimeout(check, WAIT_FOR_POLL_INTERVAL_MS);
       }
     };
     check();

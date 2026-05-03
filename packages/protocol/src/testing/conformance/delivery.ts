@@ -9,7 +9,7 @@
  * Principle 3: every property body is `Effect<void, PropertyFailure>`.
  */
 import * as fc from "fast-check";
-import { Effect, Ref, type Scope } from "effect";
+import { Effect, Either, Ref, type Scope } from "effect";
 import { ErrorCodes } from "../../schema/errors.js";
 import { EventNames } from "../../schema/events.js";
 import {
@@ -24,6 +24,7 @@ import {
   ConversationsUpdate,
 } from "../../schema/methods/conversations.js";
 import { MessagesSend } from "../../schema/methods/messages.js";
+import { RpcResponseError } from "../errors.js";
 import { makeTestClient, type TestClient } from "../test-client.js";
 import { registerTestAgent, type TestAgent } from "../agent-registration.js";
 import type { ConformanceRunContext } from "./runner.js";
@@ -34,15 +35,19 @@ import {
   assertProperty,
   registerProperty,
 } from "./registry.js";
-import { sendUntypedRpc } from "./_helpers.js";
+import { leftOrNull, requireRight, sendUntypedRpc } from "./_helpers.js";
 
 const CATEGORY = "delivery" as const;
 const DEFAULT_TIMEOUT_MS = 5000;
 const DEFAULT_CAPTURE_CAPACITY = 256;
+const DEFAULT_PROPERTY_NUM_RUNS = 3;
+const DATE_ID_RADIX = 36;
 const MAX_N = 4;
 const CONVERSATION_LIFECYCLE_PROPERTY = "conversation-lifecycle";
 const APP_SESSION_CLOSE_LIFECYCLE_PROPERTY = "app-session-close-lifecycle";
 const ARCHIVE_LIFECYCLE_PROPERTY = "archive-lifecycle";
+const STORE_AND_REPLAY_PROPERTY = "store-and-replay";
+const TASK_BOUNDARY_ISOLATION_PROPERTY = "task-boundary-isolation";
 
 interface ConversationFixture {
   readonly owner: { agent: TestAgent; client: TestClient };
@@ -316,25 +321,28 @@ function assertConversationRejectsMessages(
       conversationId,
       "must-fail-while-archived",
     ).pipe(Effect.either);
-    if (outcome._tag === "Right") {
-      return yield* Effect.fail(
+    const outcomeViolation = Either.match(outcome, {
+      onRight: () =>
         violation(propertyName, "messages/send succeeded while archived"),
-      );
-    }
-    if (
-      outcome.left._tag !== "TestingRpcResponseError" ||
-      outcome.left.code !== ErrorCodes.ConversationArchived
-    ) {
-      const errorLabel =
-        outcome.left._tag === "TestingRpcResponseError"
-          ? `${outcome.left._tag}/${outcome.left.code}`
-          : outcome.left._tag;
-      return yield* Effect.fail(
-        violation(
+      onLeft: (error) => {
+        if (
+          error instanceof RpcResponseError &&
+          error.code === ErrorCodes.ConversationArchived
+        ) {
+          return null;
+        }
+        const errorLabel =
+          error instanceof RpcResponseError
+            ? `${error._tag}/${error.code}`
+            : error._tag;
+        return violation(
           propertyName,
           `messages/send returned ${errorLabel}, expected ConversationArchived`,
-        ),
-      );
+        );
+      },
+    });
+    if (outcomeViolation !== null) {
+      return yield* Effect.fail(outcomeViolation);
     }
   });
 }
@@ -386,12 +394,10 @@ function acquireConversation(
         })),
       })
       .pipe(Effect.either);
-    if (createResult._tag === "Left") {
-      return yield* Effect.fail(
-        `conversations/create failed: ${createResult.left._tag}`,
-      );
-    }
-    const created = createResult.right as {
+    const created = (yield* requireRight(
+      createResult,
+      (error) => `conversations/create failed: ${error._tag}`,
+    )) as {
       conversation?: { id?: string };
     };
     const conversationId = created.conversation?.id;
@@ -425,7 +431,9 @@ export function registerFanOutCardinality(ctx: ConformanceRunContext): void {
             Effect.scoped(
               Effect.gen(function* () {
                 const fixture = yield* acquireConversation(ctx, n, "fan").pipe(
-                  Effect.mapError((e) => new Error(e)),
+                  Effect.mapError((e) =>
+                    violation("fan-out-cardinality", `fixture: ${e}`),
+                  ),
                 );
                 const send = yield* fixture.owner.client
                   .sendRpc(MessagesSend.name, {
@@ -433,7 +441,7 @@ export function registerFanOutCardinality(ctx: ConformanceRunContext): void {
                     parts: [{ type: "text", text: "fan-out-ping" }],
                   })
                   .pipe(Effect.either);
-                if (send._tag === "Left") {
+                if (leftOrNull(send) !== null) {
                   return { kind: "send-failed" as const };
                 }
                 yield* Effect.sleep("250 millis");
@@ -465,7 +473,10 @@ export function registerFanOutCardinality(ctx: ConformanceRunContext): void {
             ),
           ),
         ),
-        { seed: ctx.seed, numRuns: ctx.opts.numRuns ?? 3 },
+        {
+          seed: ctx.seed,
+          numRuns: ctx.opts.numRuns ?? DEFAULT_PROPERTY_NUM_RUNS,
+        },
       ),
     ),
   );
@@ -503,7 +514,7 @@ export function registerStoreAndReplay(ctx: ConformanceRunContext): void {
   registerProperty(
     ctx,
     CATEGORY,
-    "store-and-replay",
+    STORE_AND_REPLAY_PROPERTY,
     "every messages/send lands in a live participant's capture buffer (basic-delivery-landing; #186 tracks C2 offline-replay)",
     Effect.scoped(
       Effect.gen(function* () {
@@ -512,7 +523,7 @@ export function registerStoreAndReplay(ctx: ConformanceRunContext): void {
             (e) =>
               new PropertyInvariantViolation({
                 category: CATEGORY,
-                name: "store-and-replay",
+                name: STORE_AND_REPLAY_PROPERTY,
                 reason: `fixture: ${e}`,
               }),
           ),
@@ -522,7 +533,7 @@ export function registerStoreAndReplay(ctx: ConformanceRunContext): void {
           return yield* Effect.fail(
             new PropertyInvariantViolation({
               category: CATEGORY,
-              name: "store-and-replay",
+              name: STORE_AND_REPLAY_PROPERTY,
               reason: "fixture missing participant",
             }),
           );
@@ -549,7 +560,7 @@ export function registerStoreAndReplay(ctx: ConformanceRunContext): void {
           return yield* Effect.fail(
             new PropertyInvariantViolation({
               category: CATEGORY,
-              name: "store-and-replay",
+              name: STORE_AND_REPLAY_PROPERTY,
               reason: `sent ${sent}, live participant observed ${delivered}`,
             }),
           );
@@ -578,16 +589,16 @@ export function registerPayloadOpacity(ctx: ConformanceRunContext): void {
               Effect.scoped(
                 Effect.gen(function* () {
                   const fixture = yield* acquireConversation(ctx, 1, "po").pipe(
-                    Effect.mapError((e) => new Error(e)),
+                    Effect.mapError((e) =>
+                      violation("payload-opacity", `fixture: ${e}`),
+                    ),
                   );
                   const participant = fixture.participants[0];
                   if (participant === undefined) return false;
-                  yield* fixture.owner.client
-                    .sendRpc(MessagesSend.name, {
-                      conversationId: fixture.conversationId,
-                      parts: [{ type: "text", text }],
-                    })
-                    .pipe(Effect.either);
+                  yield* fixture.owner.client.sendRpc(MessagesSend.name, {
+                    conversationId: fixture.conversationId,
+                    parts: [{ type: "text", text }],
+                  });
                   yield* Effect.sleep("250 millis");
                   const snap = yield* participant.client.snapshot;
                   return snap.some(
@@ -600,7 +611,10 @@ export function registerPayloadOpacity(ctx: ConformanceRunContext): void {
               ).pipe(Effect.catchAll(() => Effect.succeed(false))),
             ),
         ),
-        { seed: ctx.seed, numRuns: ctx.opts.numRuns ?? 3 },
+        {
+          seed: ctx.seed,
+          numRuns: ctx.opts.numRuns ?? DEFAULT_PROPERTY_NUM_RUNS,
+        },
       ),
     ),
   );
@@ -641,9 +655,7 @@ export function registerHookGatedDelivery(ctx: ConformanceRunContext): void {
           "hgd",
           "hook-gated-delivery",
         ).pipe(Effect.either);
-        if (fixture._tag === "Left") {
-          return yield* Effect.fail(fixture.left);
-        }
+        yield* requireRight(fixture, (error) => error);
         // Codex review (#327, finding 4): the protocol fixture cannot
         // drive the deny/patch/attach scenarios end-to-end (no DB seam
         // to inspect the recipient view; `apps/attachConversation` is a
@@ -690,9 +702,7 @@ export function registerMultiAppFifoShortCircuit(
           "mfs",
           "multi-app-fifo-short-circuit",
         ).pipe(Effect.either);
-        if (fixture._tag === "Left") {
-          return yield* Effect.fail(fixture.left);
-        }
+        yield* requireRight(fixture, (error) => error);
         // Codex review (#327, finding 5): once apps/create succeeds, the
         // FIFO short-circuit assertion requires registering a SECOND
         // app on the same hook and observing the second handler is NOT
@@ -765,7 +775,7 @@ function acquireAppSessionFixture(
       Effect.mapError((e) => unavailable(`app client acquire: ${String(e)}`)),
     );
 
-    const appId = `${namePrefix}-${Date.now().toString(36)}`;
+    const appId = `${namePrefix}-${Date.now().toString(DATE_ID_RADIX)}`;
     const registerOutcome = yield* sendUntypedRpc(
       appClient,
       AppsRegister.name,
@@ -784,11 +794,9 @@ function acquireAppSessionFixture(
         },
       },
     ).pipe(Effect.either);
-    if (registerOutcome._tag === "Left") {
-      return yield* Effect.fail(
-        unavailable(`apps/register failed: ${registerOutcome.left._tag}`),
-      );
-    }
+    yield* requireRight(registerOutcome, (error) =>
+      unavailable(`apps/register failed: ${error._tag}`),
+    );
 
     const senderAgent = yield* registerTestAgent({
       baseUrl: ctx.realServer.baseUrl,
@@ -809,19 +817,16 @@ function acquireAppSessionFixture(
     const createOutcome = yield* senderClient
       .sendRpc(AppsCreate.name, { appId, invitedAgentIds: [] })
       .pipe(Effect.either);
-    if (createOutcome._tag === "Left") {
-      // Most common cause: owner_user_id is null on the sender (see
-      // app-host.ts:629). The default `startCoreTestServer` does not
-      // configure `devModeUserId`; B.9 fills the gap via DB seeding.
-      return yield* Effect.fail(
-        unavailable(
-          `apps/create failed (likely sender owner_user_id null; B.9 covers via DB seeding): ${createOutcome.left._tag}`,
-        ),
-      );
-    }
+    const createResult = yield* requireRight(createOutcome, (error) =>
+      unavailable(
+        // Most common cause: owner_user_id is null on the sender (see
+        // app-host.ts:629). The default `startCoreTestServer` does not
+        // configure `devModeUserId`; B.9 fills the gap via DB seeding.
+        `apps/create failed (likely sender owner_user_id null; B.9 covers via DB seeding): ${error._tag}`,
+      ),
+    );
 
-    const session = (createOutcome.right as { session?: { id?: string } })
-      .session;
+    const session = (createResult as { session?: { id?: string } }).session;
     const sessionId = session?.id;
     if (typeof sessionId !== "string" || sessionId.length === 0) {
       return yield* Effect.fail(
@@ -867,7 +872,7 @@ function acquireAppSessionCloseFixture(
       Effect.mapError((e) => unavailable(`app client acquire: ${String(e)}`)),
     );
 
-    const appId = `close-life-${Date.now().toString(36)}`;
+    const appId = `close-life-${Date.now().toString(DATE_ID_RADIX)}`;
     const registerOutcome = yield* sendUntypedRpc(
       appClient,
       AppsRegister.name,
@@ -882,11 +887,9 @@ function acquireAppSessionCloseFixture(
         },
       },
     ).pipe(Effect.either);
-    if (registerOutcome._tag === "Left") {
-      return yield* Effect.fail(
-        unavailable(`apps/register failed: ${registerOutcome.left._tag}`),
-      );
-    }
+    yield* requireRight(registerOutcome, (error) =>
+      unavailable(`apps/register failed: ${error._tag}`),
+    );
 
     const initiatorAgent = yield* registerTestAgent({
       baseUrl: ctx.realServer.baseUrl,
@@ -930,15 +933,13 @@ function acquireAppSessionCloseFixture(
         invitedAgentIds: [inviteeAgent.agentId],
       })
       .pipe(Effect.either);
-    if (createOutcome._tag === "Left") {
-      return yield* Effect.fail(
-        unavailable(
-          `apps/create failed (likely agents lack owner_user_id): ${createOutcome.left._tag}`,
-        ),
-      );
-    }
+    const createResult = yield* requireRight(createOutcome, (error) =>
+      unavailable(
+        `apps/create failed (likely agents lack owner_user_id): ${error._tag}`,
+      ),
+    );
 
-    const session = (createOutcome.right as AppCreateResultData).session;
+    const session = (createResult as AppCreateResultData).session;
     const sessionId = session?.id;
     const mainConversationId = session?.conversations?.["main"];
     if (
@@ -948,7 +949,7 @@ function acquireAppSessionCloseFixture(
       return yield* Effect.fail(
         violation(
           propertyName,
-          `apps/create response missing session id or main conversation: ${JSON.stringify(createOutcome.right)}`,
+          `apps/create response missing session id or main conversation: ${JSON.stringify(createResult)}`,
         ),
       );
     }
@@ -969,7 +970,7 @@ export function registerTaskBoundaryIsolation(
   registerProperty(
     ctx,
     CATEGORY,
-    "task-boundary-isolation",
+    TASK_BOUNDARY_ISOLATION_PROPERTY,
     "participants in conversation B observe zero leaks from conversation A",
     Effect.scoped(
       Effect.gen(function* () {
@@ -978,7 +979,7 @@ export function registerTaskBoundaryIsolation(
             (e) =>
               new PropertyInvariantViolation({
                 category: CATEGORY,
-                name: "task-boundary-isolation",
+                name: TASK_BOUNDARY_ISOLATION_PROPERTY,
                 reason: `fixture A: ${e}`,
               }),
           ),
@@ -988,7 +989,7 @@ export function registerTaskBoundaryIsolation(
             (e) =>
               new PropertyInvariantViolation({
                 category: CATEGORY,
-                name: "task-boundary-isolation",
+                name: TASK_BOUNDARY_ISOLATION_PROPERTY,
                 reason: `fixture B: ${e}`,
               }),
           ),
@@ -1010,7 +1011,7 @@ export function registerTaskBoundaryIsolation(
           return yield* Effect.fail(
             new PropertyInvariantViolation({
               category: CATEGORY,
-              name: "task-boundary-isolation",
+              name: TASK_BOUNDARY_ISOLATION_PROPERTY,
               reason: `conversation ${fxA.conversationId} leaked into outsider ${outsider.agent.agentId}`,
             }),
           );
@@ -1061,14 +1062,12 @@ export function registerConversationLifecycle(
           fixture.conversationId,
           "lifecycle-before-update",
         ).pipe(Effect.either);
-        if (firstSend._tag === "Left") {
-          return yield* Effect.fail(
-            violation(
-              CONVERSATION_LIFECYCLE_PROPERTY,
-              `messages/send failed before archive: ${firstSend.left._tag}`,
-            ),
-          );
-        }
+        yield* requireRight(firstSend, (error) =>
+          violation(
+            CONVERSATION_LIFECYCLE_PROPERTY,
+            `messages/send failed before archive: ${error._tag}`,
+          ),
+        );
         yield* waitForMessageReceivedEvent(
           participant,
           fixture.conversationId,
@@ -1081,14 +1080,12 @@ export function registerConversationLifecycle(
           fixture.conversationId,
           updatedName,
         ).pipe(Effect.either);
-        if (update._tag === "Left") {
-          return yield* Effect.fail(
-            violation(
-              CONVERSATION_LIFECYCLE_PROPERTY,
-              `conversations/update failed: ${update.left._tag}`,
-            ),
-          );
-        }
+        yield* requireRight(update, (error) =>
+          violation(
+            CONVERSATION_LIFECYCLE_PROPERTY,
+            `conversations/update failed: ${error._tag}`,
+          ),
+        );
         yield* waitForConversationUpdatedEvent(
           participant,
           fixture.conversationId,
@@ -1100,14 +1097,12 @@ export function registerConversationLifecycle(
           fixture.owner,
           fixture.conversationId,
         ).pipe(Effect.either);
-        if (archive._tag === "Left") {
-          return yield* Effect.fail(
-            violation(
-              CONVERSATION_LIFECYCLE_PROPERTY,
-              `archive failed: ${archive.left._tag}`,
-            ),
-          );
-        }
+        yield* requireRight(archive, (error) =>
+          violation(
+            CONVERSATION_LIFECYCLE_PROPERTY,
+            `archive failed: ${error._tag}`,
+          ),
+        );
         yield* waitForArchivedEvent(
           participant,
           fixture.conversationId,
@@ -1124,14 +1119,12 @@ export function registerConversationLifecycle(
           fixture.owner,
           fixture.conversationId,
         ).pipe(Effect.either);
-        if (unarchive._tag === "Left") {
-          return yield* Effect.fail(
-            violation(
-              CONVERSATION_LIFECYCLE_PROPERTY,
-              `unarchive failed: ${unarchive.left._tag}`,
-            ),
-          );
-        }
+        yield* requireRight(unarchive, (error) =>
+          violation(
+            CONVERSATION_LIFECYCLE_PROPERTY,
+            `unarchive failed: ${error._tag}`,
+          ),
+        );
         yield* waitForUnarchivedEvent(
           participant,
           fixture.conversationId,
@@ -1144,14 +1137,12 @@ export function registerConversationLifecycle(
           fixture.conversationId,
           "lifecycle-after-unarchive",
         ).pipe(Effect.either);
-        if (resumedSend._tag === "Left") {
-          return yield* Effect.fail(
-            violation(
-              CONVERSATION_LIFECYCLE_PROPERTY,
-              `messages/send failed after unarchive: ${resumedSend.left._tag}`,
-            ),
-          );
-        }
+        yield* requireRight(resumedSend, (error) =>
+          violation(
+            CONVERSATION_LIFECYCLE_PROPERTY,
+            `messages/send failed after unarchive: ${error._tag}`,
+          ),
+        );
       }),
     ),
   );
@@ -1177,19 +1168,17 @@ export function registerAppSessionCloseLifecycle(
         const close = yield* fixture.initiator.client
           .sendRpc(AppsCloseSession.name, { sessionId: fixture.sessionId })
           .pipe(Effect.either);
-        if (close._tag === "Left") {
+        const closeResult = yield* requireRight(close, (error) =>
+          violation(
+            APP_SESSION_CLOSE_LIFECYCLE_PROPERTY,
+            `apps/closeSession failed: ${error._tag}`,
+          ),
+        );
+        if ((closeResult as { closed?: unknown }).closed !== true) {
           return yield* Effect.fail(
             violation(
               APP_SESSION_CLOSE_LIFECYCLE_PROPERTY,
-              `apps/closeSession failed: ${close.left._tag}`,
-            ),
-          );
-        }
-        if ((close.right as { closed?: unknown }).closed !== true) {
-          return yield* Effect.fail(
-            violation(
-              APP_SESSION_CLOSE_LIFECYCLE_PROPERTY,
-              `apps/closeSession returned unexpected result: ${JSON.stringify(close.right)}`,
+              `apps/closeSession returned unexpected result: ${JSON.stringify(closeResult)}`,
             ),
           );
         }
@@ -1246,14 +1235,12 @@ export function registerArchiveLifecycle(ctx: ConformanceRunContext): void {
           fixture.owner,
           fixture.conversationId,
         ).pipe(Effect.either);
-        if (archive._tag === "Left") {
-          return yield* Effect.fail(
-            violation(
-              ARCHIVE_LIFECYCLE_PROPERTY,
-              `archive failed: ${archive.left._tag}`,
-            ),
-          );
-        }
+        yield* requireRight(archive, (error) =>
+          violation(
+            ARCHIVE_LIFECYCLE_PROPERTY,
+            `archive failed: ${error._tag}`,
+          ),
+        );
         yield* waitForArchivedEvent(
           participant,
           fixture.conversationId,
@@ -1270,14 +1257,12 @@ export function registerArchiveLifecycle(ctx: ConformanceRunContext): void {
           fixture.owner,
           fixture.conversationId,
         ).pipe(Effect.either);
-        if (unarchive._tag === "Left") {
-          return yield* Effect.fail(
-            violation(
-              ARCHIVE_LIFECYCLE_PROPERTY,
-              `unarchive failed: ${unarchive.left._tag}`,
-            ),
-          );
-        }
+        yield* requireRight(unarchive, (error) =>
+          violation(
+            ARCHIVE_LIFECYCLE_PROPERTY,
+            `unarchive failed: ${error._tag}`,
+          ),
+        );
         yield* waitForUnarchivedEvent(
           participant,
           fixture.conversationId,
@@ -1290,14 +1275,12 @@ export function registerArchiveLifecycle(ctx: ConformanceRunContext): void {
           fixture.conversationId,
           "must-succeed-after-unarchive",
         ).pipe(Effect.either);
-        if (resumedSend._tag === "Left") {
-          return yield* Effect.fail(
-            violation(
-              ARCHIVE_LIFECYCLE_PROPERTY,
-              `messages/send failed after unarchive: ${resumedSend.left._tag}`,
-            ),
-          );
-        }
+        yield* requireRight(resumedSend, (error) =>
+          violation(
+            ARCHIVE_LIFECYCLE_PROPERTY,
+            `messages/send failed after unarchive: ${error._tag}`,
+          ),
+        );
       }),
     ),
   );

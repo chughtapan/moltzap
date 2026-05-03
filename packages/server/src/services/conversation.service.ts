@@ -28,6 +28,10 @@ import {
 
 const MAX_GROUP_PARTICIPANTS = 256;
 const PREVIEW_CACHE_MAX = 2000;
+const PREVIEW_CACHE_TEXT_CHARS = 80;
+const DEFAULT_CONVERSATION_LIST_LIMIT = 50;
+const MSG_CONVERSATION_NOT_FOUND = "Conversation not found";
+const MSG_NOT_A_PARTICIPANT = "Not a participant";
 
 /**
  * Policy gate consulted before any conversation edge (DM target,
@@ -94,7 +98,10 @@ export class ConversationService {
   /** Write-through: called from MessageService.send() with plaintext parts before encryption */
   updatePreviewCache(conversationId: string, firstPartText: string): void {
     this.previewCache.delete(conversationId);
-    this.previewCache.set(conversationId, firstPartText.slice(0, 80));
+    this.previewCache.set(
+      conversationId,
+      firstPartText.slice(0, PREVIEW_CACHE_TEXT_CHARS),
+    );
     if (this.previewCache.size > PREVIEW_CACHE_MAX) {
       const oldest = this.previewCache.keys().next().value!;
       this.previewCache.delete(oldest);
@@ -278,7 +285,7 @@ export class ConversationService {
 
   list(
     agentId: string,
-    limit = 50,
+    limit = DEFAULT_CONVERSATION_LIST_LIMIT,
     cursor?: string,
     archived: "exclude" | "include" | "only" = "exclude",
   ): Effect.Effect<
@@ -405,7 +412,7 @@ export class ConversationService {
         );
 
         if (Option.isNone(convOpt)) {
-          return yield* Effect.fail(notFound("Conversation not found"));
+          return yield* Effect.fail(notFound(MSG_CONVERSATION_NOT_FOUND));
         }
         const conv = convOpt.value;
 
@@ -453,7 +460,7 @@ export class ConversationService {
         );
 
         if (Option.isNone(rowOpt)) {
-          return yield* Effect.fail(notFound("Conversation not found"));
+          return yield* Effect.fail(notFound(MSG_CONVERSATION_NOT_FOUND));
         }
 
         return this.mapConversation(rowOpt.value);
@@ -498,7 +505,7 @@ export class ConversationService {
             .where("id", "=", conversationId),
         );
         if (Option.isNone(currentOpt) || !currentOpt.value.archived_at) {
-          return yield* Effect.fail(notFound("Conversation not found"));
+          return yield* Effect.fail(notFound(MSG_CONVERSATION_NOT_FOUND));
         }
         return { archivedAt: currentOpt.value.archived_at.toISOString() };
       }),
@@ -536,7 +543,7 @@ export class ConversationService {
         );
 
         if (Option.isNone(convOpt)) {
-          return yield* Effect.fail(notFound("Conversation not found"));
+          return yield* Effect.fail(notFound(MSG_CONVERSATION_NOT_FOUND));
         }
         if (convOpt.value.type === "dm") {
           return yield* Effect.fail(invalidParams("Cannot leave a DM"));
@@ -549,7 +556,7 @@ export class ConversationService {
           .returning("conversation_id");
 
         if (deleted.length === 0) {
-          return yield* Effect.fail(notFound("Not a participant"));
+          return yield* Effect.fail(notFound(MSG_NOT_A_PARTICIPANT));
         }
       }),
     );
@@ -581,7 +588,7 @@ export class ConversationService {
             .where("id", "=", conversationId),
         );
         if (Option.isNone(convOpt)) {
-          return yield* Effect.fail(notFound("Conversation not found"));
+          return yield* Effect.fail(notFound(MSG_CONVERSATION_NOT_FOUND));
         }
         if (convOpt.value.type === "dm") {
           return yield* Effect.fail(
@@ -713,7 +720,7 @@ export class ConversationService {
           .returning("conversation_id");
 
         if (rows.length === 0) {
-          return yield* Effect.fail(notFound("Not a participant"));
+          return yield* Effect.fail(notFound(MSG_NOT_A_PARTICIPANT));
         }
       }),
     );
@@ -733,7 +740,7 @@ export class ConversationService {
           .returning("conversation_id");
 
         if (rows.length === 0) {
-          return yield* Effect.fail(notFound("Not a participant"));
+          return yield* Effect.fail(notFound(MSG_NOT_A_PARTICIPANT));
         }
       }),
     );
@@ -806,7 +813,7 @@ export class ConversationService {
         );
 
         if (Option.isNone(rowOpt)) {
-          return yield* Effect.fail(forbidden("Not a participant"));
+          return yield* Effect.fail(forbidden(MSG_NOT_A_PARTICIPANT));
         }
         if (!allowedRoles.includes(rowOpt.value.role)) {
           return yield* Effect.fail(forbidden("Insufficient permissions"));

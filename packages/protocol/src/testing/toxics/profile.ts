@@ -101,9 +101,11 @@ export function deliveryInvariantFor(toxic: ToxicTag): DeliveryInvariantName {
       return "task-boundary-isolation";
     default: {
       const _exhaustive: never = toxic;
-      throw new Error(
-        `deliveryInvariantFor: unexpected toxic ${String(_exhaustive)}`,
-      );
+      return absurdToxicTag(_exhaustive);
     }
   }
+}
+
+function absurdToxicTag(toxic: never): never {
+  throw new Error(`deliveryInvariantFor: unexpected toxic ${String(toxic)}`);
 }

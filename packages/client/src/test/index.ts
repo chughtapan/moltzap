@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Data, Effect } from "effect";
 import { MoltZapWsClient } from "../ws-client.js";
 import { registerAgent, type RegisterAgentOptions } from "../auth.js";
 
@@ -25,6 +25,13 @@ export interface ConnectedTestAgent {
   claimToken: string;
 }
 
+export class RegisterAndConnectError extends Data.TaggedError(
+  "RegisterAndConnectError",
+)<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
+
 /** Register a fresh agent, build a `MoltZapWsClient` with its apiKey, and
  * complete the `auth/connect` handshake. Returns the live client ready for
  * RPCs and event waits. Caller is responsible for `yield* client.close()`. */
@@ -33,18 +40,37 @@ export const registerAndConnect = (
   wsUrl: string,
   name: string,
   opts?: RegisterAgentOptions,
-): Effect.Effect<ConnectedTestAgent, Error> =>
+): Effect.Effect<ConnectedTestAgent, RegisterAndConnectError> =>
   Effect.gen(function* () {
-    const reg = yield* registerAgent(baseUrl, name, opts);
+    const reg = yield* registerAgent(baseUrl, name, opts).pipe(
+      Effect.mapError(
+        (cause) =>
+          new RegisterAndConnectError({
+            message: "Agent registration failed",
+            cause,
+          }),
+      ),
+    );
     const client = new MoltZapWsClient({
       serverUrl: stripWsPath(wsUrl),
       agentKey: reg.apiKey,
     });
     yield* client.connect().pipe(
       Effect.catchTag("RpcTimeoutError", (err) =>
-        Effect.fail(new Error(`RPC timeout: ${err.method}`)),
+        Effect.fail(
+          new RegisterAndConnectError({
+            message: `RPC timeout: ${err.method}`,
+            cause: err,
+          }),
+        ),
       ),
-      Effect.mapError((err) => new Error(err.message)),
+      Effect.mapError(
+        (cause) =>
+          new RegisterAndConnectError({
+            message: cause.message,
+            cause,
+          }),
+      ),
     );
     return { client, ...reg };
   });

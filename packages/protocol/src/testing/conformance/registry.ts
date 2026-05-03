@@ -138,10 +138,10 @@ export function collectProperties(
 export function assertProperty(
   category: PropertyCategory,
   name: string,
-  body: () => Promise<void>,
+  body: () => void | PromiseLike<void>,
 ): PropertyRun {
   return Effect.tryPromise({
-    try: body,
+    try: () => Promise.resolve(body()),
     catch: (cause) => new PropertyAssertionFailure({ category, name, cause }),
   });
 }

@@ -15,7 +15,7 @@
  * deliberately absent from this interface until resolved.
  */
 import { Command, Options } from "@effect/cli";
-import { Effect, Option } from "effect";
+import { Data, Effect, Option } from "effect";
 import {
   rpc,
   runHandler,
@@ -23,16 +23,16 @@ import {
   type TransportError,
 } from "../transport.js";
 
+import { MessagesList } from "@moltzap/protocol";
+
 // ─── Errors ────────────────────────────────────────────────────────────────
 
 export type MessagesCommandError = TransportError | MessagesInputError;
 
-export class MessagesInputError extends Error {
-  readonly _tag = "MessagesInputError" as const;
-  constructor(readonly reason: string) {
-    super(reason);
-  }
-}
+export class MessagesInputError extends Data.TaggedError("MessagesInputError")<{
+  readonly message: string;
+  readonly reason: string;
+}> {}
 
 // ─── Input shapes ──────────────────────────────────────────────────────────
 
@@ -76,7 +76,7 @@ export const messagesListHandler = (
     const result = yield* rpc<{
       messages: ReadonlyArray<WireMessage>;
       hasMore: boolean;
-    }>("messages/list", params);
+    }>(MessagesList.name, params);
     yield* Effect.sync(() => {
       for (const m of result.messages) {
         const text = m.parts.find((p) => p.type === "text")?.text ?? "";
