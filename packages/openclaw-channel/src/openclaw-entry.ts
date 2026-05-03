@@ -148,13 +148,7 @@ export function createMoltzapChannelPlugin() {
           input: string;
           normalized: string;
           preferredKind?: "user" | "group" | "channel";
-          // #ignore-sloppy-code-next-line[promise-type]: OpenClaw targetResolver interface contract
-        }): Promise<{
-          to: string;
-          kind: "user" | "group" | "channel";
-          display?: string;
-          source?: "normalized" | "directory";
-        } | null> {
+        }) {
           const { normalized } = params;
           if (!isMoltZapTarget(normalized)) return Promise.resolve(null);
           // "user" = DM target (agent:*), "group" = conversation target (conv:*)
@@ -179,8 +173,7 @@ export function createMoltzapChannelPlugin() {
         accountId?: string | null;
         query?: string | null;
         limit?: number | null;
-        // #ignore-sloppy-code-next-line[promise-type]: OpenClaw directory.listPeers interface contract
-      }): Promise<Array<{ id: string; name: string; kind: "user" }>> {
+      }) {
         const effect = Effect.gen(function* () {
           const service = activeClients.get(
             params.accountId ?? DEFAULT_ACCOUNT_ID,
@@ -210,17 +203,14 @@ export function createMoltzapChannelPlugin() {
             kind: "user" as const,
           }));
         }).pipe(Effect.catchAll(() => Effect.succeed([])));
-        return Effect.runPromise(effect) as Promise<
-          Array<{ id: string; name: string; kind: "user" }>
-        >;
+        return Effect.runPromise(effect);
       },
       listGroups(params: {
         cfg: OpenClawConfig;
         accountId?: string | null;
         query?: string | null;
         limit?: number | null;
-        // #ignore-sloppy-code-next-line[promise-type]: OpenClaw directory.listGroups interface contract
-      }): Promise<Array<{ id: string; name: string; kind: "group" }>> {
+      }) {
         const effect = Effect.gen(function* () {
           const service = activeClients.get(
             params.accountId ?? DEFAULT_ACCOUNT_ID,
@@ -240,9 +230,7 @@ export function createMoltzapChannelPlugin() {
               kind: "group" as const,
             }));
         }).pipe(Effect.catchAll(() => Effect.succeed([])));
-        return Effect.runPromise(effect) as Promise<
-          Array<{ id: string; name: string; kind: "group" }>
-        >;
+        return Effect.runPromise(effect);
       },
     },
 
@@ -659,8 +647,7 @@ export function createMoltzapChannelPlugin() {
         text: string;
         accountId?: string | null;
         replyToId?: string;
-        // #ignore-sloppy-code-next-line[promise-type]: OpenClaw outbound.sendText interface contract
-      }): Promise<{ ok: true } | { ok: false; error: Error }> {
+      }) {
         const effect = Effect.gen(function* () {
           const accountId = ctx.accountId ?? DEFAULT_ACCOUNT_ID;
           const service = activeClients.get(accountId);
