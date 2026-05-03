@@ -17,7 +17,9 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Effect } from "effect";
+import { Cause, Effect, Exit } from "effect";
+import { ErrorCodes } from "@moltzap/protocol";
+import { RpcFailure } from "../runtime/index.js";
 import type { Kysely } from "kysely";
 import { KyselyPGlite } from "kysely-pglite";
 import { readFileSync } from "node:fs";
@@ -86,11 +88,28 @@ function makeConn(connId: string, agentId: string): MoltZapConnection {
 async function seedAgent(
   authService: AuthService,
   name: string,
+  ownerUserId?: string,
 ): Promise<string> {
   const { agentId } = await Effect.runPromise(
-    authService.registerAgent({ name }),
+    authService.registerAgent({ name }, ownerUserId),
   );
   return agentId;
+}
+
+/** Extract the underlying RpcFailure so tests can assert on wire-level codes. */
+function expectRpcFailure<A>(exit: Exit.Exit<A, RpcFailure>): RpcFailure {
+  if (Exit.isSuccess(exit)) {
+    throw new Error(
+      `Expected RpcFailure, got success: ${JSON.stringify(exit.value)}`,
+    );
+  }
+  const failure = Cause.failureOption(exit.cause);
+  if (failure._tag !== "Some") {
+    throw new Error(
+      `Expected tagged failure, got: ${Cause.pretty(exit.cause)}`,
+    );
+  }
+  return failure.value;
 }
 
 describe("ConversationService.create auto-subscribes participants", () => {
@@ -296,5 +315,196 @@ describe("ConversationService.create — archived DM lookup (issue #372)", () =>
     );
 
     expect(second.id).toBe(first.id);
+  });
+});
+
+/**
+ * Regression for moltzap#361: direct conversation creation must consult
+ * the contact policy. When `ConversationService.create("dm", ...)` ran
+ * without the gate, two agents whose owners had no contact edge could
+ * still open a DM (and `messages/send { to }` would auto-create one
+ * through `createDmByAgentName`).
+ *
+ * The contact policy is exposed as a lazy resolver because in production
+ * it is registered on AppHost AFTER ConversationService has been
+ * constructed (`app.setContactService(...)` in `standalone.ts`). These
+ * tests inject the resolver directly to keep the contract pinned at the
+ * service boundary.
+ */
+describe("ConversationService.create enforces contact policy on DMs", () => {
+  beforeEach(freshDb, dbHookTimeoutMs);
+  afterEach(async () => {
+    await pglite?.close();
+  });
+
+  it("denies DM creation when owners are not in contact (NotInContacts)", async () => {
+    const calls: Array<[string, string]> = [];
+    const policy = (a: string, b: string) =>
+      Effect.sync(() => {
+        calls.push([a, b]);
+        return false;
+      });
+
+    const connections = new ConnectionManager();
+    const participants = new ParticipantService(db);
+    const service = new ConversationService(
+      db,
+      participants,
+      connections,
+      undefined,
+      () => policy,
+    );
+    const authService = new AuthService(db);
+
+    const alice = await seedAgent(
+      authService,
+      "alice",
+      "00000000-0000-0000-0000-0000000000a1",
+    );
+    const bob = await seedAgent(
+      authService,
+      "bob",
+      "00000000-0000-0000-0000-0000000000b2",
+    );
+
+    const exit = await Effect.runPromiseExit(
+      service.create("dm", undefined, [bob], alice),
+    );
+    const failure = expectRpcFailure(exit);
+
+    expect(failure.code).toBe(ErrorCodes.NotInContacts);
+    expect(failure.message).toMatch(/contact policy/i);
+    expect(calls).toEqual([
+      [
+        "00000000-0000-0000-0000-0000000000a1",
+        "00000000-0000-0000-0000-0000000000b2",
+      ],
+    ]);
+  });
+
+  it("creates the DM when owners are in contact", async () => {
+    const policy = () => Effect.succeed(true);
+
+    const connections = new ConnectionManager();
+    const participants = new ParticipantService(db);
+    const service = new ConversationService(
+      db,
+      participants,
+      connections,
+      undefined,
+      () => policy,
+    );
+    const authService = new AuthService(db);
+
+    const alice = await seedAgent(
+      authService,
+      "alice",
+      "00000000-0000-0000-0000-0000000000a1",
+    );
+    const bob = await seedAgent(
+      authService,
+      "bob",
+      "00000000-0000-0000-0000-0000000000b2",
+    );
+
+    const aliceConn = makeConn("c-alice", alice);
+    const bobConn = makeConn("c-bob", bob);
+    connections.add(aliceConn);
+    connections.add(bobConn);
+
+    const conv = await Effect.runPromise(
+      service.create("dm", undefined, [bob], alice),
+    );
+
+    expect(conv.type).toBe("dm");
+    expect(aliceConn.conversationIds.has(conv.id)).toBe(true);
+    expect(bobConn.conversationIds.has(conv.id)).toBe(true);
+  });
+
+  it("denies the DM when either agent has no owner_user_id", async () => {
+    const policy = () => Effect.succeed(true); // would allow if reached
+    const connections = new ConnectionManager();
+    const participants = new ParticipantService(db);
+    const service = new ConversationService(
+      db,
+      participants,
+      connections,
+      undefined,
+      () => policy,
+    );
+    const authService = new AuthService(db);
+
+    // Alice has an owner; Bob is owner-less. The policy can't evaluate
+    // the edge → fail closed with NotInContacts (matches AppHost's
+    // checkIdentity stance for app-session admission).
+    const alice = await seedAgent(
+      authService,
+      "alice",
+      "00000000-0000-0000-0000-0000000000a1",
+    );
+    const bob = await seedAgent(authService, "bob");
+
+    const exit = await Effect.runPromiseExit(
+      service.create("dm", undefined, [bob], alice),
+    );
+    const failure = expectRpcFailure(exit);
+    expect(failure.code).toBe(ErrorCodes.NotInContacts);
+  });
+
+  it("permits DMs when no policy is configured (default behavior preserved)", async () => {
+    const connections = new ConnectionManager();
+    const participants = new ParticipantService(db);
+    const service = new ConversationService(db, participants, connections);
+    const authService = new AuthService(db);
+
+    const alice = await seedAgent(authService, "alice");
+    const bob = await seedAgent(authService, "bob");
+
+    const conv = await Effect.runPromise(
+      service.create("dm", undefined, [bob], alice),
+    );
+    expect(conv.type).toBe("dm");
+  });
+
+  it("returns the existing DM without re-checking policy (idempotent)", async () => {
+    const calls: Array<[string, string]> = [];
+    const policy = (a: string, b: string) =>
+      Effect.sync(() => {
+        calls.push([a, b]);
+        return true;
+      });
+
+    const connections = new ConnectionManager();
+    const participants = new ParticipantService(db);
+    const service = new ConversationService(
+      db,
+      participants,
+      connections,
+      undefined,
+      () => policy,
+    );
+    const authService = new AuthService(db);
+
+    const alice = await seedAgent(
+      authService,
+      "alice",
+      "00000000-0000-0000-0000-0000000000a1",
+    );
+    const bob = await seedAgent(
+      authService,
+      "bob",
+      "00000000-0000-0000-0000-0000000000b2",
+    );
+
+    const first = await Effect.runPromise(
+      service.create("dm", undefined, [bob], alice),
+    );
+    const second = await Effect.runPromise(
+      service.create("dm", undefined, [bob], alice),
+    );
+
+    expect(second.id).toBe(first.id);
+    // Policy invoked exactly once — for the create that actually inserted.
+    expect(calls.length).toBe(1);
   });
 });
