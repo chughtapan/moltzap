@@ -508,3 +508,300 @@ describe("ConversationService.create enforces contact policy on DMs", () => {
     expect(calls.length).toBe(1);
   });
 });
+
+/**
+ * Group-creation gate (#361 cleanup pass): a creator cannot drop an
+ * out-of-contact agent into a group conversation. The policy runs
+ * pairwise — every (creator, member) edge must be allowed. Group members
+ * are NOT transitively trusted; the creator is the requester for every
+ * edge.
+ */
+describe("ConversationService.create enforces contact policy on groups", () => {
+  beforeEach(freshDb, dbHookTimeoutMs);
+  afterEach(async () => {
+    await pglite?.close();
+  });
+
+  it("denies group creation when ANY (creator, member) edge fails", async () => {
+    const calls: Array<[string, string]> = [];
+    // Allow alice⇄bob, deny alice⇄carol.
+    const policy = (a: string, b: string) =>
+      Effect.sync(() => {
+        calls.push([a, b]);
+        return b !== "00000000-0000-0000-0000-0000000000c3";
+      });
+
+    const connections = new ConnectionManager();
+    const participants = new ParticipantService(db);
+    const service = new ConversationService(
+      db,
+      participants,
+      connections,
+      undefined,
+      () => policy,
+    );
+    const authService = new AuthService(db);
+
+    const alice = await seedAgent(
+      authService,
+      "alice",
+      "00000000-0000-0000-0000-0000000000a1",
+    );
+    const bob = await seedAgent(
+      authService,
+      "bob",
+      "00000000-0000-0000-0000-0000000000b2",
+    );
+    const carol = await seedAgent(
+      authService,
+      "carol",
+      "00000000-0000-0000-0000-0000000000c3",
+    );
+
+    const exit = await Effect.runPromiseExit(
+      service.create("group", "planning", [bob, carol], alice),
+    );
+    const failure = expectRpcFailure(exit);
+    expect(failure.code).toBe(ErrorCodes.NotInContacts);
+    // Policy was checked for both edges before the carol denial fired
+    // (fail-fast on the first deny; bob's edge ran first).
+    expect(calls).toEqual([
+      [
+        "00000000-0000-0000-0000-0000000000a1",
+        "00000000-0000-0000-0000-0000000000b2",
+      ],
+      [
+        "00000000-0000-0000-0000-0000000000a1",
+        "00000000-0000-0000-0000-0000000000c3",
+      ],
+    ]);
+  });
+
+  it("creates the group when every (creator, member) edge is allowed", async () => {
+    const policy = () => Effect.succeed(true);
+    const connections = new ConnectionManager();
+    const participants = new ParticipantService(db);
+    const service = new ConversationService(
+      db,
+      participants,
+      connections,
+      undefined,
+      () => policy,
+    );
+    const authService = new AuthService(db);
+
+    const alice = await seedAgent(
+      authService,
+      "alice",
+      "00000000-0000-0000-0000-0000000000a1",
+    );
+    const bob = await seedAgent(
+      authService,
+      "bob",
+      "00000000-0000-0000-0000-0000000000b2",
+    );
+    const carol = await seedAgent(
+      authService,
+      "carol",
+      "00000000-0000-0000-0000-0000000000c3",
+    );
+
+    const conv = await Effect.runPromise(
+      service.create("group", "planning", [bob, carol], alice),
+    );
+    expect(conv.type).toBe("group");
+    expect(conv.name).toBe("planning");
+  });
+
+  it("denies the group when any member is owner-less (fail-closed)", async () => {
+    const policy = () => Effect.succeed(true);
+    const connections = new ConnectionManager();
+    const participants = new ParticipantService(db);
+    const service = new ConversationService(
+      db,
+      participants,
+      connections,
+      undefined,
+      () => policy,
+    );
+    const authService = new AuthService(db);
+
+    const alice = await seedAgent(
+      authService,
+      "alice",
+      "00000000-0000-0000-0000-0000000000a1",
+    );
+    const bob = await seedAgent(
+      authService,
+      "bob",
+      "00000000-0000-0000-0000-0000000000b2",
+    );
+    // Carol has no owner.
+    const carol = await seedAgent(authService, "carol");
+
+    const exit = await Effect.runPromiseExit(
+      service.create("group", "planning", [bob, carol], alice),
+    );
+    const failure = expectRpcFailure(exit);
+    expect(failure.code).toBe(ErrorCodes.NotInContacts);
+  });
+});
+
+/**
+ * `addParticipant` gate (#361 cleanup pass): an owner/admin cannot use
+ * `conversations/addParticipant` as a side-channel to drag an
+ * out-of-contact agent into the conversation. Symmetric with `create`
+ * — every (requester, member) edge must be allowed.
+ */
+describe("ConversationService.addParticipant enforces contact policy", () => {
+  beforeEach(freshDb, dbHookTimeoutMs);
+  afterEach(async () => {
+    await pglite?.close();
+  });
+
+  it("denies adding a participant when (requester, target) edge is denied", async () => {
+    // Phase 1: open policy so the group can be created.
+    let denying = false;
+    const policy = (_a: string, b: string) =>
+      Effect.sync(
+        () => !denying || b !== "00000000-0000-0000-0000-0000000000c3",
+      );
+
+    const connections = new ConnectionManager();
+    const participants = new ParticipantService(db);
+    const service = new ConversationService(
+      db,
+      participants,
+      connections,
+      undefined,
+      () => policy,
+    );
+    const authService = new AuthService(db);
+
+    const alice = await seedAgent(
+      authService,
+      "alice",
+      "00000000-0000-0000-0000-0000000000a1",
+    );
+    const bob = await seedAgent(
+      authService,
+      "bob",
+      "00000000-0000-0000-0000-0000000000b2",
+    );
+    const carol = await seedAgent(
+      authService,
+      "carol",
+      "00000000-0000-0000-0000-0000000000c3",
+    );
+
+    const conv = await Effect.runPromise(
+      service.create("group", "planning", [bob], alice),
+    );
+
+    // Phase 2: now policy denies alice⇄carol.
+    denying = true;
+    const exit = await Effect.runPromiseExit(
+      service.addParticipant(conv.id, carol, alice),
+    );
+    const failure = expectRpcFailure(exit);
+    expect(failure.code).toBe(ErrorCodes.NotInContacts);
+  });
+
+  it("permits addParticipant when policy allows the edge", async () => {
+    const policy = () => Effect.succeed(true);
+    const connections = new ConnectionManager();
+    const participants = new ParticipantService(db);
+    const service = new ConversationService(
+      db,
+      participants,
+      connections,
+      undefined,
+      () => policy,
+    );
+    const authService = new AuthService(db);
+
+    const alice = await seedAgent(
+      authService,
+      "alice",
+      "00000000-0000-0000-0000-0000000000a1",
+    );
+    const bob = await seedAgent(
+      authService,
+      "bob",
+      "00000000-0000-0000-0000-0000000000b2",
+    );
+    const carol = await seedAgent(
+      authService,
+      "carol",
+      "00000000-0000-0000-0000-0000000000c3",
+    );
+
+    const conv = await Effect.runPromise(
+      service.create("group", "planning", [bob], alice),
+    );
+    const carolConn = makeConn("c-carol", carol);
+    connections.add(carolConn);
+
+    const participant = await Effect.runPromise(
+      service.addParticipant(conv.id, carol, alice),
+    );
+    expect(participant.participant.id).toBe(carol);
+    expect(carolConn.conversationIds.has(conv.id)).toBe(true);
+  });
+
+  it("denies addParticipant when either side has no owner_user_id", async () => {
+    const policy = () => Effect.succeed(true);
+    const connections = new ConnectionManager();
+    const participants = new ParticipantService(db);
+    const service = new ConversationService(
+      db,
+      participants,
+      connections,
+      undefined,
+      () => policy,
+    );
+    const authService = new AuthService(db);
+
+    const alice = await seedAgent(
+      authService,
+      "alice",
+      "00000000-0000-0000-0000-0000000000a1",
+    );
+    const bob = await seedAgent(
+      authService,
+      "bob",
+      "00000000-0000-0000-0000-0000000000b2",
+    );
+    // Carol has no owner.
+    const carol = await seedAgent(authService, "carol");
+
+    const conv = await Effect.runPromise(
+      service.create("group", "planning", [bob], alice),
+    );
+
+    const exit = await Effect.runPromiseExit(
+      service.addParticipant(conv.id, carol, alice),
+    );
+    const failure = expectRpcFailure(exit);
+    expect(failure.code).toBe(ErrorCodes.NotInContacts);
+  });
+
+  it("permits addParticipant when no policy is configured", async () => {
+    const connections = new ConnectionManager();
+    const participants = new ParticipantService(db);
+    const service = new ConversationService(db, participants, connections);
+    const authService = new AuthService(db);
+
+    const alice = await seedAgent(authService, "alice");
+    const bob = await seedAgent(authService, "bob");
+    const carol = await seedAgent(authService, "carol");
+
+    const conv = await Effect.runPromise(
+      service.create("group", "planning", [bob], alice),
+    );
+    const participant = await Effect.runPromise(
+      service.addParticipant(conv.id, carol, alice),
+    );
+    expect(participant.participant.id).toBe(carol);
+  });
+});
