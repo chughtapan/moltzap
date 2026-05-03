@@ -134,6 +134,7 @@ interface DecodedServerRequest {
   readonly id: string;
   readonly method: string;
   readonly params: unknown;
+  readonly traceparent?: string;
 }
 
 /**
@@ -159,8 +160,15 @@ export type S2cDispatcherConfig = Partial<PartitionedDispatcherConfig>;
  * once Phase 1.1 (B.2) registers admission verbs in `s2cRpcMethods`, this
  * narrows generically against `S2cRpcMap[M]`.
  */
+export interface ServerRpcContext {
+  readonly requestId: string;
+  readonly method: string;
+  readonly traceparent?: string;
+}
+
 export type ServerRpcHandler = (
   params: unknown,
+  ctx: ServerRpcContext,
 ) => Effect.Effect<unknown, RpcServerError>;
 
 interface EventWaiter {
@@ -967,33 +975,39 @@ export class MoltZapWsClient {
                 },
               }) satisfies ResponseFrame,
             )
-          : lookup.value(request.params).pipe(
-              Effect.match({
-                onSuccess: (result) =>
-                  responseFrame("s2c", request.id, {
-                    result,
-                  }) satisfies ResponseFrame,
-                onFailure: (err) =>
-                  responseFrame("s2c", request.id, {
-                    error: {
-                      code: err.code,
-                      message: err.message,
-                      ...(err.data !== undefined ? { data: err.data } : {}),
-                    },
-                  }) satisfies ResponseFrame,
-              }),
-              Effect.catchAllCause((cause) =>
-                Effect.sync(() => {
-                  this.options.logger?.warn(
-                    `s2c handler ${request.method} defected`,
-                    Cause.pretty(cause),
-                  );
-                  return responseFrame("s2c", request.id, {
-                    error: { code: -32603, message: "Internal error" },
-                  }) satisfies ResponseFrame;
+          : lookup
+              .value(request.params, {
+                requestId: request.id,
+                method: request.method,
+                traceparent: request.traceparent,
+              })
+              .pipe(
+                Effect.match({
+                  onSuccess: (result) =>
+                    responseFrame("s2c", request.id, {
+                      result,
+                    }) satisfies ResponseFrame,
+                  onFailure: (err) =>
+                    responseFrame("s2c", request.id, {
+                      error: {
+                        code: err.code,
+                        message: err.message,
+                        ...(err.data !== undefined ? { data: err.data } : {}),
+                      },
+                    }) satisfies ResponseFrame,
                 }),
-              ),
-            );
+                Effect.catchAllCause((cause) =>
+                  Effect.sync(() => {
+                    this.options.logger?.warn(
+                      `s2c handler ${request.method} defected`,
+                      Cause.pretty(cause),
+                    );
+                    return responseFrame("s2c", request.id, {
+                      error: { code: -32603, message: "Internal error" },
+                    }) satisfies ResponseFrame;
+                  }),
+                ),
+              );
       const reply = yield* buildReply;
       yield* write(JSON.stringify(reply)).pipe(
         Effect.catchAll((err) =>

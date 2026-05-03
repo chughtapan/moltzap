@@ -142,7 +142,6 @@ interface MockedWsClient {
   _setAttachFailure: (err: MockRpcServerErrorInstance | Error) => void;
 }
 
-// #ignore-sloppy-code-next-line[as-unknown-as]: mock boundary
 const asMock = (c: unknown): MockedWsClient => c as MockedWsClient;
 
 const baseDispatchCtx: BeforeDispatchContext = {

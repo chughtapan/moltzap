@@ -61,9 +61,15 @@ async function isOnecliReachable(): Promise<boolean> {
     // Any HTTP response means the dashboard is listening. A 401/403 is fine —
     // nanoclaw's SDK handles auth. We only care that the port is open.
     return res.status > 0;
-    // #ignore-sloppy-code-next-line[bare-catch]: any probe failure means "not reachable" for this health check
-  } catch (_err) {
-    void _err;
+  } catch (reachabilityErr) {
+    if (
+      !(
+        reachabilityErr instanceof Error &&
+        reachabilityErr.name === "TimeoutError"
+      )
+    ) {
+      console.warn("failed to probe OneCLI reachability", reachabilityErr);
+    }
     return false;
   }
 }

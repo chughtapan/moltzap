@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { it as itEffect } from "@effect/vitest";
 import {
+  Cause,
   Deferred,
   Duration,
   Effect,
@@ -64,6 +65,19 @@ describe("PermissionTimeoutError", () => {
   });
 });
 
+function privateField<T>(target: object, key: string): T {
+  return Reflect.get(target, key) as T;
+}
+
+type HookRegistry = Map<
+  string,
+  {
+    onSessionActive?: unknown;
+    onJoin?: unknown;
+    onClose?: unknown;
+  }
+>;
+
 describe("Permission errors are distinct tagged classes", () => {
   it("_tag discriminates denied vs timeout", () => {
     const denied = new PermissionDeniedError({ resource: "r" });
@@ -126,11 +140,12 @@ describe("DefaultPermissionService.requestPermission", () => {
         const exit = yield* Fiber.await(fiber);
         expect(Exit.isFailure(exit)).toBe(true);
         if (Exit.isFailure(exit)) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const err = (exit.cause as any).error;
-          expect(err).toBeInstanceOf(PermissionTimeoutError);
-          expect(err._tag).toBe("PermissionTimeout");
-          expect(err.resource).toBe("contacts.read");
+          const err = Cause.failureOption(exit.cause);
+          expect(err._tag).toBe("Some");
+          if (err._tag !== "Some") return;
+          expect(err.value).toBeInstanceOf(PermissionTimeoutError);
+          expect(err.value._tag).toBe("PermissionTimeout");
+          expect(err.value.resource).toBe("contacts.read");
         }
       }),
   );
@@ -226,11 +241,10 @@ describe("DefaultPermissionService.requestPermission", () => {
 
         yield* Effect.yieldNow();
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const pendingMap = (svc as any).pendingPermissions as Map<
-          string,
-          unknown
-        >;
+        const pendingMap = privateField<Map<string, unknown>>(
+          svc,
+          "pendingPermissions",
+        );
         expect(pendingMap.size).toBe(1);
 
         yield* Fiber.interrupt(fiber);
@@ -285,11 +299,7 @@ describe("AppHost.onSessionActive (registration surface)", () => {
     const handler = () => {};
     host.onSessionActive("my-app", handler);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const hooks = (host as any).hooks as Map<
-      string,
-      { onSessionActive?: unknown }
-    >;
+    const hooks = privateField<HookRegistry>(host, "hooks");
     expect(hooks.get("my-app")?.onSessionActive).toBe(handler);
   });
 
@@ -300,11 +310,7 @@ describe("AppHost.onSessionActive (registration surface)", () => {
     host.onSessionActive("app-x", first);
     host.onSessionActive("app-x", second);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const hooks = (host as any).hooks as Map<
-      string,
-      { onSessionActive?: unknown }
-    >;
+    const hooks = privateField<HookRegistry>(host, "hooks");
     expect(hooks.get("app-x")?.onSessionActive).toBe(second);
   });
 
@@ -318,15 +324,7 @@ describe("AppHost.onSessionActive (registration surface)", () => {
     host.onSessionClose("combo-app", close);
     host.onSessionActive("combo-app", active);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const hooks = (host as any).hooks as Map<
-      string,
-      {
-        onSessionActive?: unknown;
-        onJoin?: unknown;
-        onClose?: unknown;
-      }
-    >;
+    const hooks = privateField<HookRegistry>(host, "hooks");
     const entry = hooks.get("combo-app")!;
     expect(entry.onSessionActive).toBe(active);
     expect(entry.onJoin).toBe(join);

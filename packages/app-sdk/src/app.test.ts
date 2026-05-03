@@ -100,7 +100,6 @@ interface MockedWsClient {
   _onDisconnect: () => void;
 }
 
-// #ignore-sloppy-code-next-line[as-unknown-as]: mock boundary — real MoltZapWsClient has no _on* fields
 const asMock = (c: unknown): MockedWsClient => c as MockedWsClient;
 
 const fireEvent = (

@@ -184,8 +184,10 @@ export class OpenClawAdapter implements Runtime {
   }
 
   teardown(): Effect.Effect<void, never, never> {
-    // #ignore-sloppy-code-next-line[effect-promise, promise-type]: doTeardown is internally guarded — torn-down flag prevents double-run, errors are swallowed by design
-    return Effect.promise(() => this.doTeardown());
+    return Effect.tryPromise({
+      try: () => this.doTeardown(),
+      catch: () => undefined,
+    }).pipe(Effect.catchAll(() => Effect.void));
   }
 
   getLogs(offset: number): LogSlice {
@@ -222,9 +224,8 @@ export class OpenClawAdapter implements Runtime {
 
     try {
       fs.rmSync(stateDir, { recursive: true, force: true });
-      // #ignore-sloppy-code-next-line[bare-catch]: teardown cleanup — nothing to do if rmSync fails
-    } catch (_err) {
-      void _err;
+    } catch (removeErr) {
+      console.warn("failed to remove OpenClaw adapter state dir", removeErr);
     }
   }
 
@@ -266,9 +267,8 @@ export class OpenClawAdapter implements Runtime {
   private killGroup(groupId: number, signal: NodeJS.Signals): void {
     try {
       process.kill(-groupId, signal);
-      // #ignore-sloppy-code-next-line[bare-catch]: ESRCH — process already dead
-    } catch (_err) {
-      void _err;
+    } catch (killErr) {
+      console.warn("failed to signal OpenClaw process group", killErr);
     }
   }
 }

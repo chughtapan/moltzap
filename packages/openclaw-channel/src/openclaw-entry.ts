@@ -484,7 +484,7 @@ export function createMoltzapChannelPlugin() {
         );
 
         // Forward non-message events for status/logging.
-        // Sync dispatcher — no async work, just log + setStatus. // #ignore-sloppy-code[async-keyword]: comment prose only, not code
+        // Sync dispatcher: log + setStatus only.
         service.on("rawEvent", (event) => {
           switch (event.event) {
             case EventNames.MessageDelivered: {

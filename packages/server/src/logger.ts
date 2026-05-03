@@ -127,16 +127,14 @@ export const effectLogger = EffectLogger.make(
     try {
       log[pinoMethod](mergedAnnotations, msg);
     } catch (err) {
-      // #ignore-sloppy-code-next-line[bare-catch]: logger failure path writes to stderr since the logger itself is broken
       try {
         process.stderr.write(
           `[logger-fallback] ${msg} (logger error: ${
             err instanceof Error ? err.message : String(err)
           })\n`,
         );
-        // #ignore-sloppy-code-next-line[bare-catch]: both sinks failed — nowhere left to report
-      } catch {
-        // stderr unavailable; drop the entry rather than crash the fiber.
+      } catch (stderrErr) {
+        console.error("[logger-fallback] stderr write failed", stderrErr);
       }
     }
   },

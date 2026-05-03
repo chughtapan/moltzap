@@ -38,14 +38,7 @@ type TBNode = TSchema & {
 };
 
 function isOptional(schema: TSchema): boolean {
-  // TypeBox stores the Optional marker under a symbol-keyed metadata
-  // field; the public `TSchema` type does not expose it. Narrowing via
-  // `unknown` to a symbol-indexed record is the documented TypeBox
-  // introspection pattern.
-  // #ignore-sloppy-code-next-line[as-unknown-as]: TypeBox OptionalKind is symbol-keyed metadata not in the TSchema public type
-  const marker = (schema as unknown as Record<symbol, string | undefined>)[
-    OptionalKind
-  ];
+  const marker = (schema as TBNode)[OptionalKind];
   return marker === "Optional";
 }
 
@@ -57,10 +50,7 @@ function isOptional(schema: TSchema): boolean {
 export function arbitraryFromSchema<S extends TSchema>(
   schema: S,
 ): fc.Arbitrary<Static<S>> {
-  // TBNode enriches TSchema with TypeBox's symbol-keyed metadata accessors;
-  // the cast crosses that boundary exactly once, at entry.
-  // #ignore-sloppy-code-next-line[as-unknown-as]: TBNode re-expresses TypeBox internal metadata keys for the walker
-  const arb = walk(schema as unknown as TBNode);
+  const arb = walk(schema as TBNode);
   return arb as fc.Arbitrary<Static<S>>;
 }
 

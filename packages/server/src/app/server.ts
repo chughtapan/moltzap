@@ -85,6 +85,10 @@ const UUID_RE =
 
 const USER_HOOK_TIMEOUT_MS = 2_000;
 
+function isStringKeyedRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function runUserHook<TArgs>(
   hook: (args: TArgs) => void | Promise<void>,
   args: TArgs,
@@ -288,11 +292,17 @@ export function createCoreApp(config: CoreConfig): CoreApp {
         );
       }
 
+      if (!isStringKeyedRecord(bodyResult.right)) {
+        return HttpServerResponse.unsafeJson(
+          { error: "Invalid parameters" },
+          { status: 400 },
+        );
+      }
+
       // `validators.registerParams` is built from the protocol Register
       // schema with `additionalProperties: false`. Strip ownerUserId
       // before validating the rest of the body against that strict schema.
-      // #ignore-sloppy-code-next-line[record-cast]: `request.json` returns `unknown` from untrusted HTTP input; we re-validate `registerBody` via `validators.registerParams` immediately below
-      const fullBody = bodyResult.right as Record<string, unknown>;
+      const fullBody = bodyResult.right;
       const ownerUserIdRaw = fullBody["ownerUserId"];
       const { ownerUserId: _stripped, ...registerBody } = fullBody;
 
