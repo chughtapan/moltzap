@@ -274,4 +274,27 @@ describe("ConversationService.create — archived DM lookup (issue #372)", () =>
     // 4. The new DM must be a fresh row — not the archived one.
     expect(second.id).not.toBe(first.id);
   });
+
+  it("still dedupes live DMs — repeat create returns the existing live DM", async () => {
+    // Positive guard: the archived_at filter must not over-filter and break
+    // the dedupe contract for live DMs. Without this guard, a future tweak
+    // that turns the filter into `archived_at IS NOT NULL` (or removes the
+    // EXISTS subqueries) would silently regress dedupe.
+    const connections = new ConnectionManager();
+    const participants = new ParticipantService(db);
+    const service = new ConversationService(db, participants, connections);
+    const authService = new AuthService(db);
+
+    const alice = await seedAgent(authService, "alice");
+    const bob = await seedAgent(authService, "bob");
+
+    const first = await Effect.runPromise(
+      service.create("dm", undefined, [bob], alice),
+    );
+    const second = await Effect.runPromise(
+      service.create("dm", undefined, [bob], alice),
+    );
+
+    expect(second.id).toBe(first.id);
+  });
 });
