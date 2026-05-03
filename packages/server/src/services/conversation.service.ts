@@ -180,45 +180,43 @@ export class ConversationService {
           );
         }
 
-        // #ignore-sloppy-code-next-line[async-keyword]: Kysely transaction callback contract
-        const created = yield* transaction(this.db, async (trx) => {
-          const conv = await trx
-            .insertInto("conversations")
-            .values({
-              type,
-              name: name ?? null,
-              created_by_id: creatorAgentId,
-            })
-            .returningAll()
-            .executeTakeFirstOrThrow();
+        const created = yield* transaction(this.db, (trx) =>
+          Effect.gen(this, function* () {
+            const conv = yield* takeFirstOrFail(
+              trx
+                .insertInto("conversations")
+                .values({
+                  type,
+                  name: name ?? null,
+                  created_by_id: creatorAgentId,
+                })
+                .returningAll(),
+            );
 
-          const conversationId = conv.id;
+            const conversationId = conv.id;
 
-          // Add creator as owner
-          await trx
-            .insertInto("conversation_participants")
-            .values({
+            // Add creator as owner
+            yield* trx.insertInto("conversation_participants").values({
               conversation_id: conversationId,
               agent_id: creatorAgentId,
               role: "owner",
-            })
-            .execute();
+            });
 
-          // Add other participants as members
-          for (const agentId of agentIds) {
-            await trx
-              .insertInto("conversation_participants")
-              .values({
-                conversation_id: conversationId,
-                agent_id: agentId,
-                role: "member",
-              })
-              .onConflict((oc) => oc.doNothing())
-              .execute();
-          }
+            // Add other participants as members
+            for (const agentId of agentIds) {
+              yield* trx
+                .insertInto("conversation_participants")
+                .values({
+                  conversation_id: conversationId,
+                  agent_id: agentId,
+                  role: "member",
+                })
+                .onConflict((oc) => oc.doNothing());
+            }
 
-          return this.mapConversation(conv);
-        });
+            return this.mapConversation(conv);
+          }),
+        );
 
         // Subscribe creator + participants' open sockets to the new
         // conversation. Without this, `Broadcaster.broadcastToConversation`

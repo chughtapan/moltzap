@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Data, Effect } from "effect";
 import {
   MoltZapChannelCore,
   MoltZapService,
@@ -39,6 +39,14 @@ function formatCrossConvNanoclaw(
 
 const MOLTZAP_JID_PREFIX = "mz:";
 const DEFAULT_SERVER_URL = "wss://api.moltzap.xyz";
+
+class MoltZapChannelError extends Data.TaggedError("MoltZapChannelError")<{
+  readonly reason: string;
+}> {
+  override get message(): string {
+    return this.reason;
+  }
+}
 
 function jidFromConversationId(conversationId: string): string {
   return `${MOLTZAP_JID_PREFIX}${conversationId}`;
@@ -82,11 +90,10 @@ export class MoltZapChannel implements Channel {
     });
   }
 
-  // #ignore-sloppy-code-next-line[async-keyword, promise-type]: nanoclaw Channel interface contract
-  async connect(): Promise<void> {
+  connect() {
     // `core.connect()` is already an Effect — just run it at the nanoclaw
     // Channel boundary, which imposes a Promise contract.
-    await Effect.runPromise(
+    return Effect.runPromise(
       this.core
         .connect()
         .pipe(
@@ -99,17 +106,22 @@ export class MoltZapChannel implements Channel {
     );
   }
 
-  // #ignore-sloppy-code-next-line[async-keyword, promise-type]: nanoclaw Channel interface contract
-  async sendMessage(jid: string, text: string): Promise<void> {
-    if (!this.ownsJid(jid)) {
-      throw new Error(`MoltZap channel does not own jid: ${jid}`);
-    }
-    await Effect.runPromise(
-      this.core.sendReply(conversationIdFromJid(jid), text, {
-        dispatchLeaseId: this.dispatchLeasesByJid.get(jid),
+  sendMessage(jid: string, text: string) {
+    return Effect.runPromise(
+      Effect.gen(this, function* () {
+        if (!this.ownsJid(jid)) {
+          return yield* Effect.fail(
+            new MoltZapChannelError({
+              reason: `MoltZap channel does not own jid: ${jid}`,
+            }),
+          );
+        }
+        yield* this.core.sendReply(conversationIdFromJid(jid), text, {
+          dispatchLeaseId: this.dispatchLeasesByJid.get(jid),
+        });
+        this.dispatchLeasesByJid.delete(jid);
       }),
     );
-    this.dispatchLeasesByJid.delete(jid);
   }
 
   isConnected(): boolean {
@@ -120,10 +132,9 @@ export class MoltZapChannel implements Channel {
     return jid.startsWith(MOLTZAP_JID_PREFIX);
   }
 
-  // #ignore-sloppy-code-next-line[async-keyword, promise-type]: nanoclaw Channel interface contract
-  async disconnect(): Promise<void> {
+  disconnect() {
     // `core.disconnect()` is an Effect that never fails.
-    await Effect.runPromise(this.core.disconnect());
+    return Effect.runPromise(this.core.disconnect());
   }
 
   private handleInbound(enriched: EnrichedInboundMessage): void {
