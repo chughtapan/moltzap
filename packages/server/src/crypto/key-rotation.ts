@@ -4,108 +4,132 @@ import { randomBytes } from "node:crypto";
 import { logger } from "../logger.js";
 import { serializePayload, deserializePayload } from "./serialization.js";
 import { sql } from "kysely";
+import { Data, Effect } from "effect";
+import type { SqlError } from "@effect/sql/SqlError";
+import { takeFirstOrElse, transaction } from "../db/effect-kysely-toolkit.js";
 
-// #ignore-sloppy-code-next-line[async-keyword]: Kysely .execute() promise API at migration boundary
-export async function seedInitialKek(
-  db: Db,
-  envelope: EnvelopeEncryption,
-  // #ignore-sloppy-code-next-line[promise-type]: Kysely .execute() promise API at migration boundary
-): Promise<void> {
-  const kek = randomBytes(32);
-  const encrypted = envelope.encryptKek(kek);
-  const serialized = serializePayload(encrypted);
-
-  await db
-    .insertInto("encryption_keys")
-    .values({
-      version: 1,
-      encrypted_key: serialized,
-      status: "active",
-    })
-    .onConflict((oc) => oc.column("version").doNothing())
-    .execute();
-
-  logger.info("Seeded initial KEK version 1");
+class KeyRotationError extends Data.TaggedError("KeyRotationError")<{
+  readonly reason: string;
+}> {
+  override get message(): string {
+    return this.reason;
+  }
 }
 
-// #ignore-sloppy-code-next-line[async-keyword]: Kysely .transaction().execute() at admin/ops boundary
-export async function rotateKek(
+export function seedInitialKek(
   db: Db,
   envelope: EnvelopeEncryption,
-  // #ignore-sloppy-code-next-line[promise-type]: Kysely .transaction().execute() at admin/ops boundary
+  // #ignore-sloppy-code-next-line[promise-type]: migration API remains Promise-native for existing callers
+): Promise<void> {
+  return Effect.runPromise(seedInitialKekEffect(db, envelope));
+}
+
+export function rotateKek(
+  db: Db,
+  envelope: EnvelopeEncryption,
+  // #ignore-sloppy-code-next-line[promise-type]: admin/ops API remains Promise-native for existing callers
 ): Promise<number> {
-  const current = await db
-    .selectFrom("encryption_keys")
-    .select(["version", "encrypted_key"])
-    .where("status", "=", "active")
-    .orderBy("version", "desc")
-    .limit(1)
-    .executeTakeFirst();
+  return Effect.runPromise(rotateKekEffect(db, envelope));
+}
 
-  if (!current) throw new Error("No active KEK found");
+function seedInitialKekEffect(
+  db: Db,
+  envelope: EnvelopeEncryption,
+): Effect.Effect<void, SqlError, never> {
+  return Effect.gen(function* () {
+    const kek = randomBytes(32);
+    const encrypted = envelope.encryptKek(kek);
+    const serialized = serializePayload(encrypted);
 
-  const currentVersion = current.version;
-  const currentKek = envelope.decryptKek(
-    deserializePayload(current.encrypted_key),
-  );
-
-  const newVersion = currentVersion + 1;
-  const newKek = randomBytes(32);
-  const encryptedNewKek = envelope.encryptKek(newKek);
-
-  // #ignore-sloppy-code-next-line[async-keyword]: Kysely transaction callback contract
-  const reWrappedCount = await db.transaction().execute(async (trx) => {
-    await trx
+    yield* db
       .insertInto("encryption_keys")
       .values({
-        version: newVersion,
-        encrypted_key: serializePayload(encryptedNewKek),
+        version: 1,
+        encrypted_key: serialized,
         status: "active",
       })
-      .execute();
+      .onConflict((oc) => oc.column("version").doNothing());
 
-    // Re-wrap all conversation DEKs
-    const convKeys = await trx
-      .selectFrom("conversation_keys")
-      .select(["conversation_id", "dek_version", "wrapped_dek", "kek_version"])
-      .where("kek_version", "=", currentVersion)
-      .execute();
-
-    for (const row of convKeys) {
-      const wrappedDek = deserializePayload(row.wrapped_dek);
-      const dek = unwrapKey(wrappedDek, currentKek);
-      const reWrapped = wrapKey(dek, newKek);
-
-      await trx
-        .updateTable("conversation_keys")
-        .set({
-          wrapped_dek: serializePayload(reWrapped),
-          kek_version: newVersion,
-        })
-        .where("conversation_id", "=", row.conversation_id)
-        .where("dek_version", "=", row.dek_version)
-        .execute();
-    }
-
-    // Deprecate old KEK
-    await trx
-      .updateTable("encryption_keys")
-      .set({ status: "deprecated", rotated_at: sql`now()` })
-      .where("version", "=", currentVersion)
-      .execute();
-
-    return convKeys.length;
+    logger.info("Seeded initial KEK version 1");
   });
+}
 
-  logger.info(
-    {
-      oldVersion: currentVersion,
-      newVersion,
-      reWrappedCount,
-    },
-    "KEK rotated",
-  );
-  return newVersion;
+function rotateKekEffect(
+  db: Db,
+  envelope: EnvelopeEncryption,
+): Effect.Effect<number, SqlError | KeyRotationError, never> {
+  return Effect.gen(function* () {
+    const current = yield* takeFirstOrElse(
+      db
+        .selectFrom("encryption_keys")
+        .select(["version", "encrypted_key"])
+        .where("status", "=", "active")
+        .orderBy("version", "desc")
+        .limit(1),
+      () => new KeyRotationError({ reason: "No active KEK found" }),
+    );
+
+    const currentVersion = current.version;
+    const currentKek = envelope.decryptKek(
+      deserializePayload(current.encrypted_key),
+    );
+
+    const newVersion = currentVersion + 1;
+    const newKek = randomBytes(32);
+    const encryptedNewKek = envelope.encryptKek(newKek);
+
+    const reWrappedCount = yield* transaction(db, (trx) =>
+      Effect.gen(function* () {
+        yield* trx.insertInto("encryption_keys").values({
+          version: newVersion,
+          encrypted_key: serializePayload(encryptedNewKek),
+          status: "active",
+        });
+
+        const convKeys = yield* trx
+          .selectFrom("conversation_keys")
+          .select([
+            "conversation_id",
+            "dek_version",
+            "wrapped_dek",
+            "kek_version",
+          ])
+          .where("kek_version", "=", currentVersion);
+
+        for (const row of convKeys) {
+          const wrappedDek = deserializePayload(row.wrapped_dek);
+          const dek = unwrapKey(wrappedDek, currentKek);
+          const reWrapped = wrapKey(dek, newKek);
+
+          yield* trx
+            .updateTable("conversation_keys")
+            .set({
+              wrapped_dek: serializePayload(reWrapped),
+              kek_version: newVersion,
+            })
+            .where("conversation_id", "=", row.conversation_id)
+            .where("dek_version", "=", row.dek_version);
+        }
+
+        yield* trx
+          .updateTable("encryption_keys")
+          .set({ status: "deprecated", rotated_at: sql`now()` })
+          .where("version", "=", currentVersion);
+
+        return convKeys.length;
+      }),
+    );
+
+    logger.info(
+      {
+        oldVersion: currentVersion,
+        newVersion,
+        reWrappedCount,
+      },
+      "KEK rotated",
+    );
+    return newVersion;
+  });
 }
 
 // Re-export for consumers that imported from here

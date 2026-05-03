@@ -33,22 +33,31 @@ export class NanoclawAdapter implements Runtime {
   constructor(private readonly deps: NanoclawAdapterDeps) {}
 
   spawn(input: SpawnInput): Effect.Effect<void, SpawnFailed, never> {
-    return Effect.tryPromise({
-      // #ignore-sloppy-code-next-line[async-keyword]: nanoclaw runtime install + subprocess spawn boundary
-      try: async () => {
-        await ensureNanoclawRuntimeInstalled();
-        const handle = await startNanoclawRuntime({
-          apiKey: input.apiKey,
-          serverUrl: input.serverUrl,
-          workspaceFiles: input.workspaceFiles,
-        });
+    const toSpawnFailed = (cause: unknown) =>
+      new SpawnFailed(
+        input.agentName,
+        cause instanceof Error ? cause : new Error(String(cause)),
+      );
+
+    return Effect.gen(this, function* () {
+      yield* Effect.tryPromise({
+        try: () => ensureNanoclawRuntimeInstalled(),
+        catch: toSpawnFailed,
+      });
+
+      const handle = yield* Effect.tryPromise({
+        try: () =>
+          startNanoclawRuntime({
+            apiKey: input.apiKey,
+            serverUrl: input.serverUrl,
+            workspaceFiles: input.workspaceFiles,
+          }),
+        catch: toSpawnFailed,
+      });
+
+      yield* Effect.sync(() => {
         this.state = { handle, spawnInput: input, tornDown: false };
-      },
-      catch: (cause) =>
-        new SpawnFailed(
-          input.agentName,
-          cause instanceof Error ? cause : new Error(String(cause)),
-        ),
+      });
     });
   }
 
@@ -112,10 +121,7 @@ export class NanoclawAdapter implements Runtime {
   }
 
   teardown(): Effect.Effect<void, never, never> {
-    return Effect.tryPromise({
-      try: () => this.doTeardown(),
-      catch: () => undefined,
-    }).pipe(Effect.catchAll(() => Effect.void));
+    return this.doTeardown();
   }
 
   getLogs(offset: number): LogSlice {
@@ -129,10 +135,21 @@ export class NanoclawAdapter implements Runtime {
     return "New messages";
   }
 
-  // #ignore-sloppy-code-next-line[async-keyword, promise-type]: nanoclaw runtime teardown boundary
-  private async doTeardown(): Promise<void> {
-    if (!this.state || this.state.tornDown) return;
-    this.state.tornDown = true;
-    await stopNanoclawRuntime(this.state.handle);
+  private doTeardown(): Effect.Effect<void, never, never> {
+    return Effect.sync(() => {
+      const state = this.state;
+      if (!state || state.tornDown) return null;
+      state.tornDown = true;
+      return state.handle;
+    }).pipe(
+      Effect.flatMap((handle) =>
+        handle === null
+          ? Effect.void
+          : Effect.tryPromise({
+              try: () => stopNanoclawRuntime(handle),
+              catch: () => undefined,
+            }).pipe(Effect.catchAll(() => Effect.void)),
+      ),
+    );
   }
 }

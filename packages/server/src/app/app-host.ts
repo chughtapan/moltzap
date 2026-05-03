@@ -59,6 +59,7 @@ import {
 } from "../runtime/index.js";
 import {
   catchSqlErrorAsDefect,
+  takeFirstOrFail,
   takeFirstOption,
   transaction,
 } from "../db/effect-kysely-toolkit.js";
@@ -739,67 +740,57 @@ export class AppHost {
         const sessionId = crypto.randomUUID();
         const conversationMap: Record<string, string> = {};
 
-        // #ignore-sloppy-code-next-line[async-keyword]: Kysely transaction callback contract
-        yield* transaction(this.db, async (trx) => {
-          for (const convDef of manifest.conversations ?? []) {
-            const conv = await trx
-              .insertInto("conversations")
-              .values({
-                type: "group",
-                name: convDef.name,
-                created_by_id: initiatorAgentId,
-              })
-              .returningAll()
-              .executeTakeFirstOrThrow();
+        yield* transaction(this.db, (trx) =>
+          Effect.gen(this, function* () {
+            for (const convDef of manifest.conversations ?? []) {
+              const conv = yield* takeFirstOrFail(
+                trx
+                  .insertInto("conversations")
+                  .values({
+                    type: "group",
+                    name: convDef.name,
+                    created_by_id: initiatorAgentId,
+                  })
+                  .returningAll(),
+              );
 
-            conversationMap[convDef.key] = conv.id;
+              conversationMap[convDef.key] = conv.id;
 
-            await trx
-              .insertInto("conversation_participants")
-              .values({
+              yield* trx.insertInto("conversation_participants").values({
                 conversation_id: conv.id,
                 agent_id: initiatorAgentId,
                 role: "owner",
-              })
-              .execute();
+              });
 
-            this.subscribeToConversation(initiatorAgentId, conv.id);
-          }
+              this.subscribeToConversation(initiatorAgentId, conv.id);
+            }
 
-          const initialStatus =
-            uniqueInvitedIds.length === 0 ? "active" : "waiting";
-          await trx
-            .insertInto("app_sessions")
-            .values({
+            const initialStatus =
+              uniqueInvitedIds.length === 0 ? "active" : "waiting";
+            yield* trx.insertInto("app_sessions").values({
               id: sessionId,
               app_id: appId,
               initiator_agent_id: initiatorAgentId,
               status: initialStatus,
               closed_at: null,
-            })
-            .execute();
+            });
 
-          const convEntries = Object.entries(conversationMap);
-          if (convEntries.length > 0) {
-            await trx
-              .insertInto("app_session_conversations")
-              .values(
+            const convEntries = Object.entries(conversationMap);
+            if (convEntries.length > 0) {
+              yield* trx.insertInto("app_session_conversations").values(
                 convEntries.map(([key, convId]) => ({
                   session_id: sessionId,
                   conversation_key: key,
                   conversation_id: convId,
                 })),
-              )
-              .execute();
-          }
+              );
+            }
 
-          const knownInvitees = uniqueInvitedIds.filter((id) =>
-            agentMap.has(id),
-          );
-          if (knownInvitees.length > 0) {
-            await trx
-              .insertInto("app_session_participants")
-              .values(
+            const knownInvitees = uniqueInvitedIds.filter((id) =>
+              agentMap.has(id),
+            );
+            if (knownInvitees.length > 0) {
+              yield* trx.insertInto("app_session_participants").values(
                 knownInvitees.map((agentId) => ({
                   session_id: sessionId,
                   agent_id: agentId,
@@ -807,10 +798,10 @@ export class AppHost {
                   rejection_reason: null,
                   admitted_at: null,
                 })),
-              )
-              .execute();
-          }
-        });
+              );
+            }
+          }),
+        );
 
         const convIds = new Set<string>();
         for (const convId of Object.values(conversationMap)) {
