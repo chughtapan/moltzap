@@ -186,7 +186,7 @@ the legacy webhook surface, this table is the port.
 | **Reply shape** | HTTP 200 with verdict JSON in the body | `Effect<HookResult>` (or `DispatchAdmissionResult`) returned from the handler |
 | **Retries** | Server retried on non-2xx | No retry. The AppHost fails closed on the first failure (deny / block). Intentional — admission must not double-fire. |
 | **Timeout** | `manifest.hooks.X.timeout_ms_remote_only` (separate from in-process timeout) | `manifest.hooks.X.timeout_ms` — single value, applied via `Effect.timeout` at the AppHost. |
-| **Schema-level cap** | 30s `maximum` constraint on `timeout_ms` | Cap retained at 30s today; the AppHost enforces it via `Effect.timeout(manifestMs)` per call. |
+| **Schema-level cap** | 30s `maximum` constraint on `timeout_ms` | No cap (B.4 follow-up #324 dropped the 30s `maximum`); the schema is `Type.Integer({ default: 5000, minimum: 1 })` and the AppHost enforces the manifest's declared value via `Effect.timeout(manifestMs)` per call. |
 | **Failure mode** | Non-2xx → server retried, then fail-closed | App disconnect mid-admission → fail-closed via the connection's Scope finalizer |
 | **Observability** | HTTP request log on your endpoint | `app/hookTimeout` event when a handler exceeds `timeout_ms`; SDK logger captures handler errors |
 
