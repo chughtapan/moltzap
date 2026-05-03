@@ -507,6 +507,41 @@ describe("ConversationService.create enforces contact policy on DMs", () => {
     // Policy invoked exactly once — for the create that actually inserted.
     expect(calls.length).toBe(1);
   });
+
+  // `createDmByAgentName` is the path `messages/send { to: "agent:<name>" }`
+  // takes when the caller passes an `agent:<name>` target instead of a
+  // known conversationId. It funnels through `create("dm", ...)` so the
+  // gate fires once — but pinning that contract here means a future
+  // refactor that bypasses `create()` (e.g. inlining the insert) can't
+  // silently drop the gate. Senior review (PR #378) called this out as
+  // missing coverage.
+  it("denies messages/send auto-DM when policy denies the edge", async () => {
+    const policy = (_a: string, _b: string) => Effect.succeed(false);
+
+    const connections = new ConnectionManager();
+    const participants = new ParticipantService(db);
+    const service = new ConversationService(
+      db,
+      participants,
+      connections,
+      undefined,
+      () => policy,
+    );
+    const authService = new AuthService(db);
+
+    const alice = await seedAgent(
+      authService,
+      "alice",
+      "00000000-0000-0000-0000-0000000000a1",
+    );
+    await seedAgent(authService, "bob", "00000000-0000-0000-0000-0000000000b2");
+
+    const exit = await Effect.runPromiseExit(
+      service.createDmByAgentName("bob", alice),
+    );
+    const failure = expectRpcFailure(exit);
+    expect(failure.code).toBe(ErrorCodes.NotInContacts);
+  });
 });
 
 /**
