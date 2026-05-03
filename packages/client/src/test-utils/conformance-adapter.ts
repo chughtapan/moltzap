@@ -106,7 +106,6 @@ export function createMoltZapRealClientFactory(
         // hardcode. The reader fiber's `extractCloseInfo` derives these
         // from the actual `Exit.Exit<…, Socket.SocketError>`.
         onDisconnect: (close: CloseInfo) => {
-          // #ignore-sloppy-code-next-line[bare-catch]: onDisconnect is sync; ref update is best-effort
           try {
             Effect.runSync(
               Ref.update(
@@ -119,8 +118,8 @@ export function createMoltZapRealClientFactory(
                   },
               ),
             );
-          } catch {
-            /* best-effort */
+          } catch (closeErr) {
+            console.warn("failed to record conformance close event", closeErr);
           }
         },
       });
@@ -144,11 +143,13 @@ export function createMoltZapRealClientFactory(
               rawBytes: encoded,
               observedAtMs: Date.now(),
             };
-            // #ignore-sloppy-code-next-line[bare-catch]: ref-update best-effort
             try {
               Effect.runSync(Ref.update(eventsRef, (xs) => [...xs, obs]));
-            } catch {
-              /* best-effort observation collection */
+            } catch (recordErr) {
+              console.warn(
+                "failed to record conformance observation",
+                recordErr,
+              );
             }
           }),
         )

@@ -34,7 +34,7 @@ export class NanoclawAdapter implements Runtime {
 
   spawn(input: SpawnInput): Effect.Effect<void, SpawnFailed, never> {
     return Effect.tryPromise({
-      // #ignore-sloppy-code-next-line[async-keyword, promise-type]: nanoclaw runtime install + subprocess spawn boundary
+      // #ignore-sloppy-code-next-line[async-keyword]: nanoclaw runtime install + subprocess spawn boundary
       try: async () => {
         await ensureNanoclawRuntimeInstalled();
         const handle = await startNanoclawRuntime({
@@ -112,8 +112,10 @@ export class NanoclawAdapter implements Runtime {
   }
 
   teardown(): Effect.Effect<void, never, never> {
-    // #ignore-sloppy-code-next-line[effect-promise]: doTeardown is internally guarded — torn-down flag prevents double-run, errors are swallowed by design
-    return Effect.promise(() => this.doTeardown());
+    return Effect.tryPromise({
+      try: () => this.doTeardown(),
+      catch: () => undefined,
+    }).pipe(Effect.catchAll(() => Effect.void));
   }
 
   getLogs(offset: number): LogSlice {

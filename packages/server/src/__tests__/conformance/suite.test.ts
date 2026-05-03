@@ -84,8 +84,8 @@ async function waitForToxiproxy(url: string, timeoutMs: number): Promise<void> {
     try {
       const res = await fetch(`${url}/version`);
       if (res.ok) return;
-      // #ignore-sloppy-code-next-line[bare-catch]: transient polling failure — loop retries
-    } catch {
+    } catch (probeErr) {
+      console.warn("toxiproxy readiness probe failed", probeErr);
       /* retry */
     }
     await new Promise((r) => setTimeout(r, 500));

@@ -202,6 +202,76 @@ function captureLatestRequestId(
   });
 }
 
+function privateField<T>(target: object, key: string): T {
+  return Reflect.get(target, key) as T;
+}
+
+function bindPrivateMethod<Fn extends (...args: never[]) => unknown>(
+  target: object,
+  key: string,
+): Fn {
+  const value = Reflect.get(target, key);
+  if (typeof value !== "function") {
+    throw new TypeError(`missing private method: ${key}`);
+  }
+  return value.bind(target) as Fn;
+}
+
+type RemoteRegistrations = Map<string, { connectionId: string }>;
+type BeforeDispatchDispatch = (
+  appId: string,
+  ctx: BeforeDispatchContext,
+) => Effect.Effect<unknown, never>;
+type BeforeMessageDeliveryDispatch = (
+  appId: string,
+  ctx: BeforeMessageDeliveryContext,
+) => Effect.Effect<unknown, never>;
+type OnSessionActiveDispatch = (
+  appId: string,
+  ctx: OnSessionActiveContext,
+  initiatorAgentId: string,
+) => Effect.Effect<void, never>;
+type OnJoinDispatch = (
+  appId: string,
+  ctx: OnJoinContext,
+) => Effect.Effect<void, never>;
+type OnCloseDispatch = (
+  appId: string,
+  ctx: OnCloseContext,
+  callerAgentId: string,
+) => Effect.Effect<void, never>;
+type DenyShortCircuitDispatch = <V>(
+  appIds: readonly string[],
+  isShortCircuit: (v: V) => boolean,
+  defaultVerdict: V,
+  perApp: (appId: string) => Effect.Effect<V, never>,
+) => Effect.Effect<V, never>;
+
+const remoteRegistrations = (host: AppHost): RemoteRegistrations =>
+  privateField<RemoteRegistrations>(host, "remoteRegistrations");
+
+const dispatchBeforeDispatch = (host: AppHost): BeforeDispatchDispatch =>
+  bindPrivateMethod(host, "dispatchBeforeDispatchHook");
+
+const dispatchBeforeMessageDelivery = (
+  host: AppHost,
+): BeforeMessageDeliveryDispatch =>
+  bindPrivateMethod(host, "dispatchBeforeMessageDeliveryHook");
+
+const dispatchOnSessionActive = (host: AppHost): OnSessionActiveDispatch =>
+  bindPrivateMethod(host, "dispatchOnSessionActiveHook");
+
+const dispatchOnJoin = (host: AppHost): OnJoinDispatch =>
+  bindPrivateMethod(host, "dispatchOnJoinHook");
+
+const dispatchOnClose = (host: AppHost): OnCloseDispatch =>
+  bindPrivateMethod(host, "dispatchOnCloseHook");
+
+const dispatchWithDenyShortCircuit = (
+  host: AppHost,
+): DenyShortCircuitDispatch =>
+  bindPrivateMethod(host, "dispatchAcrossAppsWithDenyShortCircuit");
+
 // ─────────────────────────────────────────────────────────────────────
 // Registration surface
 // ─────────────────────────────────────────────────────────────────────
@@ -213,11 +283,7 @@ describe("AppHost.registerRemoteApp", () => {
 
     // Inspect via private state — the public observation surface is
     // the dispatch path, exercised in the dispatch suites below.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const map = (host as any).remoteRegistrations as Map<
-      string,
-      { connectionId: string }
-    >;
+    const map = remoteRegistrations(host);
     expect(map.get("app-r")).toEqual({ connectionId: "conn-1" });
   });
 
@@ -233,11 +299,7 @@ describe("AppHost.registerRemoteApp", () => {
     host.registerRemoteApp(baseManifest("app-r"), "conn-1");
     host.registerRemoteApp(baseManifest("app-r"), "conn-2");
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const map = (host as any).remoteRegistrations as Map<
-      string,
-      { connectionId: string }
-    >;
+    const map = remoteRegistrations(host);
     expect(map.get("app-r")).toEqual({ connectionId: "conn-2" });
   });
 });
@@ -249,8 +311,7 @@ describe("AppHost.unregisterRemoteApp", () => {
     host.registerRemoteApp(manifest, "conn-1");
     host.unregisterRemoteApp("app-r");
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const map = (host as any).remoteRegistrations as Map<string, unknown>;
+    const map = remoteRegistrations(host);
     expect(map.has("app-r")).toBe(false);
     expect(host.getManifest("app-r")).toBe(manifest);
   });
@@ -280,13 +341,7 @@ describe("AppHost remote dispatch — apps/onBeforeDispatch", () => {
       // Drive `dispatchBeforeDispatchHook` directly — it's the uniform
       // surface that `runBeforeDispatch` calls. Keeps the test free of
       // DB / conversation-mapping setup.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const dispatch = (fixture.host as any).dispatchBeforeDispatchHook.bind(
-        fixture.host,
-      ) as (
-        appId: string,
-        ctx: BeforeDispatchContext,
-      ) => Effect.Effect<unknown, never>;
+      const dispatch = dispatchBeforeDispatch(fixture.host);
 
       const fiber = yield* Effect.fork(
         dispatch("app-r", baseBeforeDispatchCtx("app-r", "sess-1")),
@@ -326,13 +381,7 @@ describe("AppHost remote dispatch — apps/onBeforeDispatch", () => {
       fixture.connections.add(conn);
       fixture.host.registerRemoteApp(baseManifest("app-r"), "conn-rd-deny");
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const dispatch = (fixture.host as any).dispatchBeforeDispatchHook.bind(
-        fixture.host,
-      ) as (
-        appId: string,
-        ctx: BeforeDispatchContext,
-      ) => Effect.Effect<unknown, never>;
+      const dispatch = dispatchBeforeDispatch(fixture.host);
 
       const fiber = yield* Effect.fork(
         dispatch("app-r", baseBeforeDispatchCtx("app-r", "sess-d")),
@@ -365,13 +414,7 @@ describe("AppHost remote dispatch — apps/onBeforeDispatch", () => {
       // and folds into the fail-closed branch.
       fixture.host.registerRemoteApp(baseManifest("app-r"), "no-such-conn");
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const dispatch = (fixture.host as any).dispatchBeforeDispatchHook.bind(
-        fixture.host,
-      ) as (
-        appId: string,
-        ctx: BeforeDispatchContext,
-      ) => Effect.Effect<unknown, never>;
+      const dispatch = dispatchBeforeDispatch(fixture.host);
 
       return yield* dispatch(
         "app-r",
@@ -396,13 +439,7 @@ describe("AppHost remote dispatch — apps/onBeforeDispatch", () => {
       fixture.connections.add(conn);
       fixture.host.registerRemoteApp(baseManifest("app-r"), "conn-rd-drop");
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const dispatch = (fixture.host as any).dispatchBeforeDispatchHook.bind(
-        fixture.host,
-      ) as (
-        appId: string,
-        ctx: BeforeDispatchContext,
-      ) => Effect.Effect<unknown, never>;
+      const dispatch = dispatchBeforeDispatch(fixture.host);
 
       const fiber = yield* Effect.fork(
         dispatch("app-r", baseBeforeDispatchCtx("app-r", "sess-drop")),
@@ -434,13 +471,7 @@ describe("AppHost remote dispatch — apps/onBeforeDispatch", () => {
       fixture.connections.add(conn);
       fixture.host.registerRemoteApp(baseManifest("app-r"), "conn-rd-decode");
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const dispatch = (fixture.host as any).dispatchBeforeDispatchHook.bind(
-        fixture.host,
-      ) as (
-        appId: string,
-        ctx: BeforeDispatchContext,
-      ) => Effect.Effect<unknown, never>;
+      const dispatch = dispatchBeforeDispatch(fixture.host);
 
       const fiber = yield* Effect.fork(
         dispatch("app-r", baseBeforeDispatchCtx("app-r", "sess-dec")),
@@ -499,13 +530,7 @@ describe("AppHost remote dispatch — apps/onBeforeDispatch", () => {
           "conn-rd-tout-2",
         );
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const dispatch = (fixture.host as any).dispatchBeforeDispatchHook.bind(
-          fixture.host,
-        ) as (
-          appId: string,
-          ctx: BeforeDispatchContext,
-        ) => Effect.Effect<unknown, never>;
+        const dispatch = dispatchBeforeDispatch(fixture.host);
 
         const fiber = yield* Effect.fork(
           dispatch("app-r", baseBeforeDispatchCtx("app-r", "sess-tout")),
@@ -552,13 +577,7 @@ describe("AppHost remote dispatch — apps/onBeforeMessageDelivery", () => {
       fixture.connections.add(conn);
       fixture.host.registerRemoteApp(baseManifest("app-bmd"), "conn-bmd");
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const dispatch = (
-        fixture.host as any
-      ).dispatchBeforeMessageDeliveryHook.bind(fixture.host) as (
-        appId: string,
-        ctx: BeforeMessageDeliveryContext,
-      ) => Effect.Effect<unknown, never>;
+      const dispatch = dispatchBeforeMessageDelivery(fixture.host);
 
       const fiber = yield* Effect.fork(
         dispatch("app-bmd", baseBeforeMessageDeliveryCtx("app-bmd", "sess-1")),
@@ -585,13 +604,7 @@ describe("AppHost remote dispatch — apps/onBeforeMessageDelivery", () => {
       const fixture = makeAppHostFixture();
       fixture.host.registerRemoteApp(baseManifest("app-bmd"), "no-conn");
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const dispatch = (
-        fixture.host as any
-      ).dispatchBeforeMessageDeliveryHook.bind(fixture.host) as (
-        appId: string,
-        ctx: BeforeMessageDeliveryContext,
-      ) => Effect.Effect<unknown, never>;
+      const dispatch = dispatchBeforeMessageDelivery(fixture.host);
 
       return yield* dispatch(
         "app-bmd",
@@ -615,13 +628,7 @@ describe("AppHost remote dispatch — apps/onBeforeMessageDelivery", () => {
       fixture.connections.add(conn);
       fixture.host.registerRemoteApp(baseManifest("app-bmd"), "conn-bmd-err");
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const dispatch = (
-        fixture.host as any
-      ).dispatchBeforeMessageDeliveryHook.bind(fixture.host) as (
-        appId: string,
-        ctx: BeforeMessageDeliveryContext,
-      ) => Effect.Effect<unknown, never>;
+      const dispatch = dispatchBeforeMessageDelivery(fixture.host);
 
       const fiber = yield* Effect.fork(
         dispatch("app-bmd", baseBeforeMessageDeliveryCtx("app-bmd", "sess-e")),
@@ -656,14 +663,7 @@ describe("AppHost remote dispatch — lifecycle (on_*)", () => {
     const program = Effect.gen(function* () {
       const fixture = makeAppHostFixture();
       fixture.host.registerRemoteApp(baseManifest("app-osa"), "no-conn");
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const dispatch = (fixture.host as any).dispatchOnSessionActiveHook.bind(
-        fixture.host,
-      ) as (
-        appId: string,
-        ctx: OnSessionActiveContext,
-        initiatorAgentId: string,
-      ) => Effect.Effect<void, never>;
+      const dispatch = dispatchOnSessionActive(fixture.host);
       yield* dispatch(
         "app-osa",
         baseOnSessionActiveCtx("app-osa", "sess-osa"),
@@ -678,10 +678,7 @@ describe("AppHost remote dispatch — lifecycle (on_*)", () => {
     const program = Effect.gen(function* () {
       const fixture = makeAppHostFixture();
       fixture.host.registerRemoteApp(baseManifest("app-oj"), "no-conn");
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const dispatch = (fixture.host as any).dispatchOnJoinHook.bind(
-        fixture.host,
-      ) as (appId: string, ctx: OnJoinContext) => Effect.Effect<void, never>;
+      const dispatch = dispatchOnJoin(fixture.host);
       yield* dispatch("app-oj", baseOnJoinCtx("app-oj", "sess-oj"));
     });
     await Effect.runPromise(program);
@@ -691,14 +688,7 @@ describe("AppHost remote dispatch — lifecycle (on_*)", () => {
     const program = Effect.gen(function* () {
       const fixture = makeAppHostFixture();
       fixture.host.registerRemoteApp(baseManifest("app-oc"), "no-conn");
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const dispatch = (fixture.host as any).dispatchOnCloseHook.bind(
-        fixture.host,
-      ) as (
-        appId: string,
-        ctx: OnCloseContext,
-        callerAgentId: string,
-      ) => Effect.Effect<void, never>;
+      const dispatch = dispatchOnClose(fixture.host);
       yield* dispatch(
         "app-oc",
         baseOnCloseCtx("app-oc", "sess-oc"),
@@ -718,13 +708,7 @@ describe("AppHost in-process dispatch — preserved behaviour", () => {
     const fixture = makeAppHostFixture();
     fixture.host.registerApp(baseManifest("app-ip"));
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const dispatch = (fixture.host as any).dispatchBeforeDispatchHook.bind(
-      fixture.host,
-    ) as (
-      appId: string,
-      ctx: BeforeDispatchContext,
-    ) => Effect.Effect<unknown, never>;
+    const dispatch = dispatchBeforeDispatch(fixture.host);
     const verdict = await Effect.runPromise(
       dispatch("app-ip", baseBeforeDispatchCtx("app-ip", "sess-ip")),
     );
@@ -739,13 +723,7 @@ describe("AppHost in-process dispatch — preserved behaviour", () => {
       reason: "in-process-policy",
     }));
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const dispatch = (fixture.host as any).dispatchBeforeDispatchHook.bind(
-      fixture.host,
-    ) as (
-      appId: string,
-      ctx: BeforeDispatchContext,
-    ) => Effect.Effect<unknown, never>;
+    const dispatch = dispatchBeforeDispatch(fixture.host);
     const verdict = await Effect.runPromise(
       dispatch("app-ip", baseBeforeDispatchCtx("app-ip", "sess-ip")),
     );
@@ -762,13 +740,7 @@ describe("AppHost in-process dispatch — preserved behaviour", () => {
       throw new Error("boom");
     });
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const dispatch = (fixture.host as any).dispatchBeforeDispatchHook.bind(
-      fixture.host,
-    ) as (
-      appId: string,
-      ctx: BeforeDispatchContext,
-    ) => Effect.Effect<unknown, never>;
+    const dispatch = dispatchBeforeDispatch(fixture.host);
     const verdict = await Effect.runPromise(
       dispatch("app-ip", baseBeforeDispatchCtx("app-ip", "sess-ip")),
     );
@@ -788,15 +760,7 @@ describe("AppHost.dispatchAcrossAppsWithDenyShortCircuit", () => {
     const fixture = makeAppHostFixture();
     const calls: string[] = [];
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const combinator = (
-      fixture.host as any
-    ).dispatchAcrossAppsWithDenyShortCircuit.bind(fixture.host) as <V>(
-      appIds: readonly string[],
-      isShortCircuit: (v: V) => boolean,
-      defaultVerdict: V,
-      perApp: (appId: string) => Effect.Effect<V, never>,
-    ) => Effect.Effect<V, never>;
+    const combinator = dispatchWithDenyShortCircuit(fixture.host);
 
     type V = { decision: "grant" } | { decision: "deny"; reason: string };
     const verdict = await Effect.runPromise(
@@ -820,15 +784,7 @@ describe("AppHost.dispatchAcrossAppsWithDenyShortCircuit", () => {
     const fixture = makeAppHostFixture();
     const calls: string[] = [];
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const combinator = (
-      fixture.host as any
-    ).dispatchAcrossAppsWithDenyShortCircuit.bind(fixture.host) as <V>(
-      appIds: readonly string[],
-      isShortCircuit: (v: V) => boolean,
-      defaultVerdict: V,
-      perApp: (appId: string) => Effect.Effect<V, never>,
-    ) => Effect.Effect<V, never>;
+    const combinator = dispatchWithDenyShortCircuit(fixture.host);
 
     type V = { decision: "grant" } | { decision: "deny"; reason: string };
     const verdict = await Effect.runPromise(
@@ -853,15 +809,7 @@ describe("AppHost.dispatchAcrossAppsWithDenyShortCircuit", () => {
   it("returns the default verdict for an empty list", async () => {
     const fixture = makeAppHostFixture();
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const combinator = (
-      fixture.host as any
-    ).dispatchAcrossAppsWithDenyShortCircuit.bind(fixture.host) as <V>(
-      appIds: readonly string[],
-      isShortCircuit: (v: V) => boolean,
-      defaultVerdict: V,
-      perApp: (appId: string) => Effect.Effect<V, never>,
-    ) => Effect.Effect<V, never>;
+    const combinator = dispatchWithDenyShortCircuit(fixture.host);
 
     const verdict = await Effect.runPromise(
       combinator<{ decision: "grant" }>(

@@ -36,6 +36,14 @@ import {
 const CATEGORY = "delivery" as const;
 const PROPERTY_BUDGET_MS = 8_000;
 
+function isStringKeyedRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function eventDataRecord(data: unknown): Record<string, unknown> {
+  return isStringKeyedRecord(data) ? data : {};
+}
+
 /**
  * C1 client-side — TestServer emits N fan-out `EventFrame`s (one
  * per conversation participant position) to a real client subscribed
@@ -77,7 +85,7 @@ export function registerFanOutCardinalityClient(
         }
         const N = 5;
         const campaign = yield* fx.window.freshEmissionTag;
-        const baseData = (base.data ?? {}) as Record<string, unknown>; // #ignore-sloppy-code[record-cast]: EventFrame.data is Type.Optional(Type.Unknown()); opaque payload merge
+        const baseData = eventDataRecord(base.data);
         for (let i = 0; i < N; i++) {
           const positional: EventFrame = {
             ...base,
@@ -234,7 +242,7 @@ export function registerTaskBoundaryIsolationClient(
         const campaignB = yield* fx.window.freshEmissionTag;
         const taskA = `task-a-${ctx.seed}`;
         const taskB = `task-b-${ctx.seed}`;
-        const baseEventData = (baseEvent.data ?? {}) as Record<string, unknown>; // #ignore-sloppy-code[record-cast]: EventFrame.data is Type.Optional(Type.Unknown()); opaque payload merge
+        const baseEventData = eventDataRecord(baseEvent.data);
         // Emit task-A frames.
         for (let i = 0; i < 3; i++) {
           yield* fx.window.emitTaggedEvent({

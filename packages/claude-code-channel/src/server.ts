@@ -38,6 +38,19 @@ import { stringifyCause } from "./utils.js";
 
 const REPLY_TOOL_NAME = "reply";
 
+function isStringKeyedRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function toMcpNotificationParams(
+  params: ClaudeChannelNotification["params"],
+): Record<string, unknown> {
+  return {
+    content: params.content,
+    meta: params.meta,
+  };
+}
+
 /**
  * Dependencies the server receives from `entry.ts`. The server does not
  * instantiate `MoltZapChannelCore`; the entry module does, and injects the
@@ -143,7 +156,7 @@ export type ReplyArgsDecodeResult =
  * boundary (Principle 2). No `as` casts across this seam.
  */
 export function decodeReplyArgs(raw: unknown): ReplyArgsDecodeResult {
-  if (raw === undefined || raw === null || typeof raw !== "object") {
+  if (!isStringKeyedRecord(raw)) {
     return {
       _tag: "Err",
       error: {
@@ -152,7 +165,7 @@ export function decodeReplyArgs(raw: unknown): ReplyArgsDecodeResult {
       },
     };
   }
-  const obj = raw as Record<string, unknown>; // #ignore-sloppy-code[record-cast]: MCP boundary decode — raw is unknown; field-level typeof checks follow immediately
+  const obj = raw;
 
   if (typeof obj.text !== "string") {
     return {
@@ -259,7 +272,7 @@ export async function bootChannelMcpServer(
         try {
           await server.notification({
             method: n.method,
-            params: n.params as unknown as Record<string, unknown>, // #ignore-sloppy-code[record-cast, as-unknown-as]: MCP SDK notification() requires Record<string,unknown>; our params is more specific
+            params: toMcpNotificationParams(n.params),
           });
         } catch (err) {
           deps.logger.error(
@@ -370,7 +383,7 @@ export async function bootChannelMcpServer(
           try: () =>
             server.notification({
               method: notification.method,
-              params: notification.params as unknown as Record<string, unknown>, // #ignore-sloppy-code[record-cast, as-unknown-as]: MCP SDK notification() requires Record<string,unknown>; our params is more specific
+              params: toMcpNotificationParams(notification.params),
             }),
           catch: (cause): PushError => ({
             _tag: "EmitFailed",

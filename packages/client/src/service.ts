@@ -42,7 +42,7 @@ import type {
 } from "./channel-core.js";
 
 const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
+  typeof value === "object" && value !== null && !Array.isArray(value);
 
 function appendClientEventTrace(record: Record<string, unknown>): void {
   const dir = process.env["MOLTZAP_CLIENT_EVENT_LOG_DIR"];
@@ -438,7 +438,17 @@ export class MoltZapService {
     return Effect.suspend(() => {
       let req: Record<string, unknown>;
       try {
-        req = JSON.parse(line) as Record<string, unknown>; // #ignore-sloppy-code[record-cast]: JSON.parse boundary from unix socket line protocol
+        const parsed = JSON.parse(line);
+        if (!isPlainRecord(parsed)) {
+          return Effect.sync(() =>
+            conn.write(
+              JSON.stringify({
+                error: "request must be a JSON object",
+              }) + "\n",
+            ),
+          );
+        }
+        req = parsed;
       } catch (err) {
         return Effect.sync(() =>
           conn.write(
@@ -457,10 +467,7 @@ export class MoltZapService {
           ),
         );
       }
-      const params =
-        req.params != null && typeof req.params === "object"
-          ? (req.params as Record<string, unknown>) // #ignore-sloppy-code[record-cast]: req.params is untyped JSON from socket
-          : {};
+      const params = isPlainRecord(req.params) ? req.params : {};
       return this.handleSocketRequestEffect(req.method, params).pipe(
         Effect.match({
           onSuccess: (result) => {

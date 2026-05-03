@@ -137,6 +137,10 @@ interface LiveSubscription {
   readonly handler: SubscriberHandler;
 }
 
+function isEventDataRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 /**
  * Construct an empty registry. Called once from the `MoltZapWsClient`
  * constructor. Takes a logger so registry-internal error logs reach the
@@ -224,22 +228,9 @@ export function matchesFilter(
   if (filter.eventNamePrefix !== undefined) {
     if (!frame.event.startsWith(filter.eventNamePrefix)) return false;
   }
-  // `frame.data` is `unknown` per the EventFrame schema; narrow it to
-  // a record before reading the two payload-keyed fields. Anything
-  // else (string, number, array) cannot satisfy a payload-key filter.
-  // The cast is annotated below: the EventFrame schema declares `data:
-  // unknown`, and the OQ-2 A filter grammar intentionally treats
-  // payloads as untyped maps so arbitrary publisher payloads can be
-  // filtered without a per-event schema tax. The `typeof === "object"`
-  // guard is the runtime boundary; the read sites
-  // (`data?.["__emissionTag"]`, `data?.["conversationId"]`) defend
-  // against missing or wrong-typed values via `=== filter.<field>`.
-  const data: Record<string, unknown> | null =
-    typeof frame.data === "object" &&
-    frame.data !== null &&
-    !Array.isArray(frame.data)
-      ? (frame.data as Record<string, unknown>) // #ignore-sloppy-code[record-cast]: EventFrame schema declares `data: unknown`; OQ-2 A filter treats payloads as untyped maps; the typeof guard above is the runtime boundary
-      : null;
+  const data: Record<string, unknown> | null = isEventDataRecord(frame.data)
+    ? frame.data
+    : null;
 
   if (filter.emissionTag !== undefined) {
     const tag = data?.["__emissionTag"];

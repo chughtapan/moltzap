@@ -455,9 +455,11 @@ export class ClaudeCodeAdapter implements Runtime {
     const removeStateDir = Effect.sync(() => {
       try {
         fs.rmSync(stateDir, { recursive: true, force: true });
-        // #ignore-sloppy-code-next-line[bare-catch]: teardown cleanup — nothing actionable on rm failure
-      } catch (_err) {
-        void _err;
+      } catch (removeErr) {
+        console.warn(
+          "failed to remove claude-code adapter state dir",
+          removeErr,
+        );
       }
     });
 
