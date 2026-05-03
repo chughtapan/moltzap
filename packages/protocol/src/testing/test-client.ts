@@ -137,6 +137,7 @@ export interface TestClient {
     method: M,
     handler: (
       params: ServerRpcParams<M>,
+      ctx: ServerRpcContext,
     ) => Effect.Effect<ServerRpcResult<M>, RpcResponseError>,
   ) => Effect.Effect<void>;
 
@@ -190,6 +191,12 @@ export type ServerRpcParams<M extends ServerRpcMethod> =
  */
 export type ServerRpcResult<M extends ServerRpcMethod> =
   M extends S2cRpcMethodName ? S2cRpcMap[M]["result"] : unknown;
+
+export interface ServerRpcContext {
+  readonly requestId: string;
+  readonly method: string;
+  readonly traceparent?: string;
+}
 
 export interface CloseableTestClient extends TestClient {
   readonly close: Effect.Effect<void, never>;
@@ -255,6 +262,7 @@ export function makeTestClient(
     // registered. Type narrowing is restored at the public surface.
     type S2cHandler = (
       params: unknown,
+      ctx: ServerRpcContext,
     ) => Effect.Effect<unknown, RpcResponseError>;
     const s2cHandlersRef = yield* Ref.make<HashMap.HashMap<string, S2cHandler>>(
       HashMap.empty(),
@@ -340,7 +348,12 @@ export function makeTestClient(
           // observer fires regardless of whether a handler is registered.
           if (frame.direction !== "s2c") return;
           yield* notifyAwaiters(frame.method, frame.params);
-          yield* dispatchHandler(frame.id, frame.method, frame.params);
+          yield* dispatchHandler(
+            frame.id,
+            frame.method,
+            frame.params,
+            frame.traceparent,
+          );
           return;
         }
         if (frame.type === "event") {
@@ -359,6 +372,7 @@ export function makeTestClient(
       requestId: string,
       method: string,
       params: unknown,
+      traceparent: string | undefined,
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
         const handlers = yield* Ref.get(s2cHandlersRef);
@@ -374,7 +388,7 @@ export function makeTestClient(
                   },
                 }),
               )
-            : lookup.value(params).pipe(
+            : lookup.value(params, { requestId, method, traceparent }).pipe(
                 Effect.match({
                   onSuccess: (result) =>
                     responseFrame("s2c", requestId, { result }),
