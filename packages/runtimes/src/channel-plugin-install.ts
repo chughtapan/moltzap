@@ -193,9 +193,14 @@ export function resolveChannelDependency(
       `${packageName}/package.json`,
     );
     return path.dirname(pkgJsonPath);
-    // #ignore-sloppy-code-next-line[bare-catch]: best-effort resolver — surface "not found" as null and let caller try fallback candidates
-  } catch (_err) {
-    void _err;
+  } catch (resolveErr) {
+    const code =
+      resolveErr instanceof Error && "code" in resolveErr
+        ? resolveErr.code
+        : undefined;
+    if (code !== "MODULE_NOT_FOUND") {
+      console.warn("failed to resolve channel dependency", resolveErr);
+    }
     return null;
   }
 }

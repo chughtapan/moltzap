@@ -75,6 +75,7 @@ export interface PartitionableRequest {
   readonly id: string;
   readonly method: string;
   readonly params: unknown;
+  readonly traceparent?: string;
 }
 
 function isPlainObject(x: unknown): x is Record<string, unknown> {

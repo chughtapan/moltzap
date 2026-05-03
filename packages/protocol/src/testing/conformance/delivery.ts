@@ -566,7 +566,6 @@ export function registerPayloadOpacity(ctx: ConformanceRunContext): void {
     "sent message text appears verbatim in delivered event bytes",
     assertProperty(CATEGORY, "payload-opacity", () =>
       fc.assert(
-        // #ignore-sloppy-code-next-line[async-keyword]: fast-check asyncProperty contract requires Promise-returning callback
         fc.asyncProperty(
           // Exclude JSON-meta chars so a simple substring match is valid.
           fc

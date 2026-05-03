@@ -40,6 +40,7 @@ export const RequestFrameSchema = Type.Object(
     id: Type.String(),
     method: Type.String(),
     params: Type.Optional(Type.Unknown()),
+    traceparent: Type.Optional(Type.String()),
   },
   { additionalProperties: false },
 );

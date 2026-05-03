@@ -57,8 +57,10 @@ async function freshDb(): Promise<void> {
   const kpg = await KyselyPGlite.create();
   // kysely-pglite returns a typed client that exposes a wider interface than
   // the handful of methods (exec/close) these tests need.
-  // #ignore-sloppy-code-next-line[as-unknown-as]: narrowing the PGlite client to the test-scoped subset.
-  pglite = kpg.client as unknown as typeof pglite;
+  pglite = {
+    exec: (sql) => kpg.client.exec(sql),
+    close: () => kpg.client.close(),
+  };
   db = makeEffectKysely<Database>({ dialect: kpg.dialect });
   await pglite.exec(schema);
 }

@@ -546,8 +546,8 @@ function arbitraryMalformedS2cRequestFrame(): fc.Arbitrary<string> {
     fc.constant("{not-json"),
     // Wrong direction value.
     valid.map((f) => {
-      // #ignore-sloppy-code-next-line[as-unknown-as]: deliberately produces a malformed direction string — this arbitrary's contract is to defeat the schema's `c2s|s2c` literal union for the codec-rejection test
-      const corrupted = { ...f, direction: "lateral" as unknown as string };
+      const invalidDirection: string = "lateral";
+      const corrupted = { ...f, direction: invalidDirection };
       return JSON.stringify(corrupted);
     }),
     // Missing direction.
