@@ -243,172 +243,204 @@ function toolOkResult(message: string): CallToolResult {
  * Registers exactly one tool: `reply`. No other notification methods, no
  * `send_direct_message`, no `edit_message`, no caller-injected tools.
  */
-// #ignore-sloppy-code-next-line[async-keyword]: MCP SDK connect() is Promise-based; startup sequence wraps MCP SDK primitives
-export async function bootChannelMcpServer(
+export function bootChannelMcpServer(
   config: ServerConfig,
   deps: ServerDeps,
   // #ignore-sloppy-code-next-line[promise-type]: public API over MCP SDK — SDK requires Promise-returning function
 ): Promise<ServerBootResult> {
-  const server = new Server(
-    { name: config.serverName, version: "0.1.0" },
-    {
-      capabilities: CHANNEL_CAPABILITIES,
-      instructions: config.instructions,
-    },
-  );
+  return Effect.runPromise(bootChannelMcpServerEffect(config, deps));
+}
 
-  // Pending-notification queue for pre-initialization push calls.
-  let initialized = false;
-  const pending: ClaudeChannelNotification[] = [];
-  server.oninitialized = () => {
-    initialized = true;
-    // Best-effort flush; failures log and continue so one bad push doesn't
-    // hide the rest from the client.
-    // #ignore-sloppy-code-next-line[async-keyword]: IIFE needed to await server.notification inside a sync oninitialized callback
-    void (async () => {
-      while (pending.length > 0) {
-        const n = pending.shift();
-        if (n === undefined) break;
-        try {
-          await server.notification({
-            method: n.method,
-            params: toMcpNotificationParams(n.params),
-          });
-        } catch (err) {
-          deps.logger.error(
-            { err },
-            "claude-code-channel: queued notification emit failed",
-          );
-        }
-      }
-    })();
-  };
+function bootChannelMcpServerEffect(
+  config: ServerConfig,
+  deps: ServerDeps,
+): Effect.Effect<ServerBootResult, never, never> {
+  return Effect.gen(function* () {
+    const server = new Server(
+      { name: config.serverName, version: "0.1.0" },
+      {
+        capabilities: CHANNEL_CAPABILITIES,
+        instructions: config.instructions,
+      },
+    );
 
-  try {
-    const toolList: ListToolsResult = {
-      tools: [
-        {
-          name: REPLY_TOOL_NAME,
-          description:
-            "Send a message back through the MoltZap channel. Pass reply_to (a message_id from the channel) to target a specific conversation; omit to reply to the most recent inbound.",
-          inputSchema: buildReplyInputSchema(),
-        },
-      ],
-    };
-    // #ignore-sloppy-code-next-line[async-keyword]: MCP SDK setRequestHandler callback type requires Promise return
-    server.setRequestHandler(ListToolsRequestSchema, async () => toolList);
-
-    // #ignore-sloppy-code-next-line[async-keyword]: MCP SDK setRequestHandler callback type requires Promise return
-    server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      if (request.params.name !== REPLY_TOOL_NAME) {
-        return toolErrorResult(`unknown tool: ${request.params.name}`);
-      }
-      const decoded = decodeReplyArgs(request.params.arguments);
-      if (decoded._tag === "Err") {
-        return toolErrorResult(decoded.error.reason);
-      }
-      // v1 ships the contract-shaped `files` input (spec A4, fakechat parity),
-      // but attachment upload is a v1.1 follow-up. Reject explicitly with a
-      // tagged error rather than silently dropping the files (reviewer-187).
-      if (decoded.value.files !== undefined && decoded.value.files.length > 0) {
-        return toolErrorResult(
-          `FilesUnsupported: reply.files is not supported in v1 (${decoded.value.files.length.toString()} file(s) rejected). Tracked as v1.1 follow-up.`,
-        );
-      }
-      const resolution = deps.routing.resolveTarget(decoded.value.replyTo);
-      switch (resolution._tag) {
-        case "Resolved": {
-          const sendResult = await Effect.runPromise(
-            Effect.either(
-              deps.sendReply(resolution.chatId, decoded.value.text),
-            ),
-          );
-          if (sendResult._tag === "Left") {
-            const e = sendResult.left;
-            return toolErrorResult(
-              e._tag === "SendFailed"
-                ? `send failed: ${e.cause}`
-                : `reply error: ${e._tag}`,
+    // Pending-notification queue for pre-initialization push calls.
+    let initialized = false;
+    const pending: ClaudeChannelNotification[] = [];
+    server.oninitialized = () => {
+      initialized = true;
+      // Best-effort flush; failures log and continue so one bad push doesn't
+      // hide the rest from the client.
+      void Effect.runPromise(
+        Effect.gen(function* () {
+          while (pending.length > 0) {
+            const n = pending.shift();
+            if (n === undefined) break;
+            yield* Effect.tryPromise({
+              try: () =>
+                server.notification({
+                  method: n.method,
+                  params: toMcpNotificationParams(n.params),
+                }),
+              catch: (err) => err,
+            }).pipe(
+              Effect.catchAll((err) =>
+                Effect.sync(() =>
+                  deps.logger.error(
+                    { err },
+                    "claude-code-channel: queued notification emit failed",
+                  ),
+                ),
+              ),
             );
           }
-          return toolOkResult(`Reply sent to ${resolution.chatId as string}.`);
-        }
-        case "NoActiveChat":
-          return toolErrorResult(
-            "no active chat: no inbound message has been observed yet; pass reply_to after an inbound arrives",
-          );
-        case "ReplyToUnknown":
-          return toolErrorResult(
-            `reply_to does not match a known message_id: ${resolution.replyTo as string}`,
-          );
-        default: {
-          // Principle 4: exhaustiveness. Reach here only if RoutingResolution adds a tag.
-          const _exhaustive: never = resolution;
-          return toolErrorResult(
-            `unreachable routing: ${JSON.stringify(_exhaustive)}`,
-          );
-        }
-      }
-    });
-  } catch (cause) {
-    return {
-      _tag: "Err",
-      error: {
-        _tag: "ToolRegistrationFailed",
-        cause: stringifyCause(cause),
-      },
+        }),
+      );
     };
-  }
 
-  const transport = deps.transportFactory
-    ? deps.transportFactory()
-    : new StdioServerTransport();
-  try {
-    await server.connect(transport);
-  } catch (cause) {
-    return {
-      _tag: "Err",
-      error: { _tag: "StdioConnectFailed", cause: stringifyCause(cause) },
-    };
-  }
+    try {
+      const toolList: ListToolsResult = {
+        tools: [
+          {
+            name: REPLY_TOOL_NAME,
+            description:
+              "Send a message back through the MoltZap channel. Pass reply_to (a message_id from the channel) to target a specific conversation; omit to reply to the most recent inbound.",
+            inputSchema: buildReplyInputSchema(),
+          },
+        ],
+      };
+      server.setRequestHandler(ListToolsRequestSchema, () =>
+        Promise.resolve(toolList),
+      );
 
-  const handle: ServerHandle = {
-    push: (notification) =>
-      Effect.gen(function* () {
-        if (!initialized) {
-          pending.push(notification);
-          return;
-        }
-        yield* Effect.tryPromise({
-          try: () =>
-            server.notification({
-              method: notification.method,
-              params: toMcpNotificationParams(notification.params),
-            }),
-          catch: (cause): PushError => ({
-            _tag: "EmitFailed",
-            cause: stringifyCause(cause),
-          }),
-        });
-      }),
-    stop: () =>
-      Effect.gen(function* () {
-        yield* Effect.tryPromise({
-          try: () => server.close(),
-          catch: (cause): Error =>
-            cause instanceof Error ? cause : new Error(stringifyCause(cause)),
-        }).pipe(
-          Effect.catchAll((err) =>
-            Effect.sync(() => {
-              deps.logger.error(
-                { err },
-                "claude-code-channel: MCP close failed (swallowed per I8)",
+      server.setRequestHandler(CallToolRequestSchema, (request) =>
+        Effect.runPromise(
+          Effect.gen(function* () {
+            if (request.params.name !== REPLY_TOOL_NAME) {
+              return toolErrorResult(`unknown tool: ${request.params.name}`);
+            }
+            const decoded = decodeReplyArgs(request.params.arguments);
+            if (decoded._tag === "Err") {
+              return toolErrorResult(decoded.error.reason);
+            }
+            // v1 ships the contract-shaped `files` input (spec A4, fakechat parity),
+            // but attachment upload is a v1.1 follow-up. Reject explicitly with a
+            // tagged error rather than silently dropping the files (reviewer-187).
+            if (
+              decoded.value.files !== undefined &&
+              decoded.value.files.length > 0
+            ) {
+              return toolErrorResult(
+                `FilesUnsupported: reply.files is not supported in v1 (${decoded.value.files.length.toString()} file(s) rejected). Tracked as v1.1 follow-up.`,
               );
-            }),
-          ),
-        );
-      }),
-  };
+            }
+            const resolution = deps.routing.resolveTarget(
+              decoded.value.replyTo,
+            );
+            switch (resolution._tag) {
+              case "Resolved": {
+                const sendResult = yield* Effect.either(
+                  deps.sendReply(resolution.chatId, decoded.value.text),
+                );
+                if (sendResult._tag === "Left") {
+                  const e = sendResult.left;
+                  return toolErrorResult(
+                    e._tag === "SendFailed"
+                      ? `send failed: ${e.cause}`
+                      : `reply error: ${e._tag}`,
+                  );
+                }
+                return toolOkResult(
+                  `Reply sent to ${resolution.chatId as string}.`,
+                );
+              }
+              case "NoActiveChat":
+                return toolErrorResult(
+                  "no active chat: no inbound message has been observed yet; pass reply_to after an inbound arrives",
+                );
+              case "ReplyToUnknown":
+                return toolErrorResult(
+                  `reply_to does not match a known message_id: ${resolution.replyTo as string}`,
+                );
+              default: {
+                // Principle 4: exhaustiveness. Reach here only if RoutingResolution adds a tag.
+                const _exhaustive: never = resolution;
+                return toolErrorResult(
+                  `unreachable routing: ${JSON.stringify(_exhaustive)}`,
+                );
+              }
+            }
+          }),
+        ),
+      );
+    } catch (cause) {
+      return {
+        _tag: "Err",
+        error: {
+          _tag: "ToolRegistrationFailed",
+          cause: stringifyCause(cause),
+        },
+      };
+    }
 
-  return { _tag: "Ok", value: handle };
+    const transport = deps.transportFactory
+      ? deps.transportFactory()
+      : new StdioServerTransport();
+    const connectFailure = yield* Effect.tryPromise({
+      try: () => server.connect(transport),
+      catch: (cause) => cause,
+    }).pipe(
+      Effect.match({
+        onFailure: (cause): ServerBootResult => ({
+          _tag: "Err",
+          error: {
+            _tag: "StdioConnectFailed",
+            cause: stringifyCause(cause),
+          },
+        }),
+        onSuccess: () => null,
+      }),
+    );
+    if (connectFailure !== null) return connectFailure;
+
+    const handle: ServerHandle = {
+      push: (notification) =>
+        Effect.gen(function* () {
+          if (!initialized) {
+            pending.push(notification);
+            return;
+          }
+          yield* Effect.tryPromise({
+            try: () =>
+              server.notification({
+                method: notification.method,
+                params: toMcpNotificationParams(notification.params),
+              }),
+            catch: (cause): PushError => ({
+              _tag: "EmitFailed",
+              cause: stringifyCause(cause),
+            }),
+          });
+        }),
+      stop: () =>
+        Effect.gen(function* () {
+          yield* Effect.tryPromise({
+            try: () => server.close(),
+            catch: (cause): Error =>
+              cause instanceof Error ? cause : new Error(stringifyCause(cause)),
+          }).pipe(
+            Effect.catchAll((err) =>
+              Effect.sync(() => {
+                deps.logger.error(
+                  { err },
+                  "claude-code-channel: MCP close failed (swallowed per I8)",
+                );
+              }),
+            ),
+          );
+        }),
+    };
+
+    return { _tag: "Ok", value: handle };
+  });
 }
