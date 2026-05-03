@@ -48,7 +48,6 @@ export interface MessagesListArgs {
 
 interface WireMessage {
   readonly id: string;
-  readonly seq: number;
   readonly senderId: string;
   readonly senderName?: string;
   readonly createdAt: string;
@@ -78,7 +77,7 @@ export const messagesListHandler = (
       for (const m of result.messages) {
         const text = m.parts.find((p) => p.type === "text")?.text ?? "";
         const sender = m.senderName ?? m.senderId;
-        console.log(`${m.seq}\t${sender}\t${text}`);
+        console.log(`${m.createdAt}\t${sender}\t${text}`);
       }
       if (result.hasMore) {
         console.log("... more messages available");
