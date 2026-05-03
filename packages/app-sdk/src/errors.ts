@@ -369,11 +369,11 @@ export class AppHandlerError extends AppError {
  * external input that never arrived; misconfigured (too tight)
  * timeout for a legitimately slow workload.
  *
- * **Recovery:** raise `manifest.hooks.<name>.timeout_ms` (bounded to
- * the schema's current 100ms-30000ms range); cache the slow lookup;
- * or short-circuit fast inside the handler when the answer is already
- * known. The AppHost has already issued the fail-closed verdict; this
- * class is for observability.
+ * **Recovery:** raise `manifest.hooks.<name>.timeout_ms` (the schema is
+ * `Type.Integer({ default: 5000, minimum: 1 })` — no upper bound since
+ * B.4 follow-up #324); cache the slow lookup; or short-circuit fast
+ * inside the handler when the answer is already known. The AppHost has
+ * already issued the fail-closed verdict; this class is for observability.
  *
  * @example
  * ```ts
