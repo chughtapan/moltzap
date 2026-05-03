@@ -12,6 +12,7 @@ import {
   forbidden,
   conflict,
   invalidParams,
+  notInContacts,
 } from "../runtime/index.js";
 import { ErrorCodes } from "@moltzap/protocol";
 import { ParticipantService } from "./participant.service.js";
@@ -27,6 +28,24 @@ import {
 
 const MAX_GROUP_PARTICIPANTS = 256;
 const PREVIEW_CACHE_MAX = 2000;
+
+/**
+ * Policy gate consulted before a direct conversation is created. Returns
+ * `true` to allow the DM, `false` to deny it. The `Effect<_, never>` shape
+ * mirrors {@link ContactService.areInContact} on AppHost — implementations
+ * absorb webhook failures internally and surface a boolean verdict.
+ *
+ * Passed as a lazy lookup (not a captured reference) because the
+ * underlying service is registered on AppHost AFTER ConversationService is
+ * constructed via `app.setContactService(...)` in `standalone.ts`.
+ */
+export type ContactPolicyCheck = (
+  ownerUserIdA: string,
+  ownerUserIdB: string,
+) => Effect.Effect<boolean, never>;
+
+/** Lazy resolver — `null` means "no policy configured, allow all". */
+export type ContactPolicyResolver = () => ContactPolicyCheck | null;
 
 interface ListRow {
   id: string;
@@ -57,6 +76,14 @@ export class ConversationService {
     private connections: ConnectionManager,
     private isAttachedToActiveSession: (convId: string) => boolean = () =>
       false,
+    /**
+     * Lazy lookup for the active contact policy. Returns `null` when no
+     * policy is wired (default for unit tests + dev mode), in which case
+     * direct conversation creation is unrestricted. Returning a check
+     * function gates direct conversation creation: both agents must have
+     * `owner_user_id` set and the owners must be in contact.
+     */
+    private resolveContactPolicy: ContactPolicyResolver = () => null,
   ) {}
 
   /** Write-through: called from MessageService.send() with plaintext parts before encryption */
@@ -77,16 +104,22 @@ export class ConversationService {
   ): Effect.Effect<Conversation, RpcFailure> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
-        if (agentIds.length > 0) {
-          const found = yield* this.db
-            .selectFrom("agents")
-            .select("id")
-            .where("id", "in", agentIds);
-          const foundIds = new Set(found.map((r) => r.id));
-          for (const agentId of agentIds) {
-            if (!foundIds.has(agentId)) {
-              return yield* Effect.fail(notFound(`Agent ${agentId} not found`));
-            }
+        // Owner-id is read in the same query as the existence check so the
+        // DM contact-policy gate below doesn't issue a second round-trip.
+        const agentRows =
+          agentIds.length > 0
+            ? yield* this.db
+                .selectFrom("agents")
+                .select(["id", "owner_user_id"])
+                .where("id", "in", agentIds)
+            : [];
+        const ownerByAgentId = new Map<string, string | null>();
+        for (const row of agentRows) {
+          ownerByAgentId.set(row.id, row.owner_user_id);
+        }
+        for (const agentId of agentIds) {
+          if (!ownerByAgentId.has(agentId)) {
+            return yield* Effect.fail(notFound(`Agent ${agentId} not found`));
           }
         }
 
@@ -105,6 +138,23 @@ export class ConversationService {
           );
           if (existingDm) {
             return existingDm;
+          }
+
+          // Contact-policy gate: only enforced when a policy is wired
+          // (production via `WebhookContactService` in standalone.ts;
+          // dev/tests default to "no policy = allow all"). DMs are a
+          // direct edge between two agent owners, so a missing
+          // `owner_user_id` on either side cannot be evaluated against
+          // the policy and is treated as a denial — same fail-closed
+          // shape AppHost.checkIdentity uses for app-session admission.
+          const policy = this.resolveContactPolicy();
+          if (policy) {
+            yield* this.requireDirectAllowed(
+              creatorAgentId,
+              agentIds[0]!,
+              ownerByAgentId.get(agentIds[0]!) ?? null,
+              policy,
+            );
           }
         }
 
@@ -699,6 +749,62 @@ export class ConversationService {
         }
         if (!allowedRoles.includes(rowOpt.value.role)) {
           return yield* Effect.fail(forbidden("Insufficient permissions"));
+        }
+      }),
+    );
+  }
+
+  /**
+   * Enforce contact policy for a brand-new direct conversation. Loads the
+   * creator's `owner_user_id` (the target's was already read in the
+   * existence-check query above) and consults the policy. Both agents must
+   * have an owner; otherwise the DM is denied with the same `NotInContacts`
+   * code the policy itself uses, so callers see one error shape regardless
+   * of which precondition failed.
+   */
+  private requireDirectAllowed(
+    creatorAgentId: string,
+    targetAgentId: string,
+    targetOwnerUserId: string | null,
+    policy: ContactPolicyCheck,
+  ): Effect.Effect<void, RpcFailure> {
+    return catchSqlErrorAsDefect(
+      Effect.gen(this, function* () {
+        const creatorOpt = yield* takeFirstOption(
+          this.db
+            .selectFrom("agents")
+            .select(["owner_user_id"])
+            .where("id", "=", creatorAgentId),
+        );
+        if (Option.isNone(creatorOpt)) {
+          return yield* Effect.fail(
+            notFound(`Agent ${creatorAgentId} not found`),
+          );
+        }
+        const creatorOwner = creatorOpt.value.owner_user_id;
+        if (!creatorOwner || !targetOwnerUserId) {
+          return yield* Effect.fail(
+            notInContacts(
+              "Direct conversation requires both agents to have an owner",
+            ),
+          );
+        }
+
+        const allowed = yield* policy(creatorOwner, targetOwnerUserId);
+        if (!allowed) {
+          yield* Effect.logInfo(
+            "Direct conversation denied by contact policy",
+          ).pipe(
+            Effect.annotateLogs({
+              creatorAgentId,
+              targetAgentId,
+              creatorOwner,
+              targetOwner: targetOwnerUserId,
+            }),
+          );
+          return yield* Effect.fail(
+            notInContacts("Direct conversation not allowed by contact policy"),
+          );
         }
       }),
     );

@@ -47,6 +47,16 @@ export const rateLimited = (
   message = "Please wait before trying again",
 ): RpcFailure => new RpcFailure({ code: ErrorCodes.RateLimited, message });
 
+/**
+ * Direct/group communication blocked because the policy held by
+ * `ContactService` does not allow the two parties to talk. Carries the
+ * dedicated `NotInContacts` code so clients can distinguish a contact-policy
+ * denial from a generic `Forbidden`.
+ */
+export const notInContacts = (
+  message = "Not allowed by contact policy",
+): RpcFailure => new RpcFailure({ code: ErrorCodes.NotInContacts, message });
+
 /** Boundary validation error — raised when an AJV validator rejects `params`. */
 export class InvalidParamsError extends Data.TaggedError("InvalidParamsError")<{
   readonly message: string;

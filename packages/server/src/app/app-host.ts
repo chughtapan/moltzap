@@ -468,6 +468,17 @@ export class AppHost {
     this.contactService = checker;
   }
 
+  /**
+   * Read-side accessor used by peer services (notably
+   * {@link ConversationService}) that must consult the same contact policy
+   * AppHost uses for app-session admission. Returns `null` when no policy
+   * is wired — callers treat that as "allow all" to preserve dev-mode
+   * defaults.
+   */
+  getContactService(): ContactService | null {
+    return this.contactService;
+  }
+
   setPermissionService(handler: PermissionService): void {
     this.permissionService = handler;
   }
