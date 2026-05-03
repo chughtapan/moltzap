@@ -24,9 +24,10 @@ The manifest schema rejects all three:
 - `hooks.<name>.timeout_ms_remote_only` — the remote-specific timeout
   override
 
-`hooks.<name>.timeout_ms` keeps its current bounds (100ms-30000ms).
-Per-call enforcement moves into the AppHost via
-`Effect.timeout(manifestMs)`.
+`hooks.<name>.timeout_ms` survives. The schema is now
+`Type.Integer({ default: 5000, minimum: 1 })` — no upper bound (the 30s
+`maximum` was removed in B.4 follow-up #324). Per-call enforcement moves
+into the AppHost via `Effect.timeout(manifestMs)`.
 
 The `WebhookClient.call(...)` hook-delivery code in `adapters/webhook.ts`
 is also gone. The `WebhookClient` class and `signWebhookPayload` helper
