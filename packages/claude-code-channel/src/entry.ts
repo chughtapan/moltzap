@@ -36,10 +36,7 @@ const DEFAULT_INSTRUCTIONS =
  * Error channel is tagged (Principle 3). Internals run on Effect; the
  * `Promise` wrapper lives only at this boundary.
  */
-export function bootClaudeCodeChannel(
-  opts: BootOptions,
-  // #ignore-sloppy-code-next-line[promise-type]: public API boundary — callers are not Effect-native; wraps Effect internals
-): Promise<BootResult> {
+export function bootClaudeCodeChannel(opts: BootOptions) {
   return Effect.runPromise(bootClaudeCodeChannelEffect(opts));
 }
 

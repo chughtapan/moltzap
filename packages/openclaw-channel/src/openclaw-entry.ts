@@ -142,34 +142,27 @@ export function createMoltzapChannelPlugin() {
           return isMoltZapTarget(raw);
         },
         hint: 'Use "agent:<name>" for DMs or "conv:<id>" for existing conversations',
-        // #ignore-sloppy-code-next-line[async-keyword]: OpenClaw targetResolver interface contract
-        async resolveTarget(params: {
+        resolveTarget(params: {
           cfg: OpenClawConfig;
           accountId?: string | null;
           input: string;
           normalized: string;
           preferredKind?: "user" | "group" | "channel";
-          // #ignore-sloppy-code-next-line[promise-type]: OpenClaw targetResolver interface contract
-        }): Promise<{
-          to: string;
-          kind: "user" | "group" | "channel";
-          display?: string;
-          source?: "normalized" | "directory";
-        } | null> {
+        }) {
           const { normalized } = params;
-          if (!isMoltZapTarget(normalized)) return null;
+          if (!isMoltZapTarget(normalized)) return Promise.resolve(null);
           // "user" = DM target (agent:*), "group" = conversation target (conv:*)
           const kind: "user" | "group" = normalized.startsWith(
             TARGET_PREFIX_CONV,
           )
             ? "group"
             : "user";
-          return {
+          return Promise.resolve({
             to: normalized,
             kind,
             display: normalized.split(":").slice(1).join(":"),
             source: "normalized",
-          };
+          });
         },
       },
     },
@@ -180,8 +173,7 @@ export function createMoltzapChannelPlugin() {
         accountId?: string | null;
         query?: string | null;
         limit?: number | null;
-        // #ignore-sloppy-code-next-line[promise-type]: OpenClaw directory.listPeers interface contract
-      }): Promise<Array<{ id: string; name: string; kind: "user" }>> {
+      }) {
         const effect = Effect.gen(function* () {
           const service = activeClients.get(
             params.accountId ?? DEFAULT_ACCOUNT_ID,
@@ -211,17 +203,14 @@ export function createMoltzapChannelPlugin() {
             kind: "user" as const,
           }));
         }).pipe(Effect.catchAll(() => Effect.succeed([])));
-        return Effect.runPromise(effect) as Promise<
-          Array<{ id: string; name: string; kind: "user" }>
-        >;
+        return Effect.runPromise(effect);
       },
       listGroups(params: {
         cfg: OpenClawConfig;
         accountId?: string | null;
         query?: string | null;
         limit?: number | null;
-        // #ignore-sloppy-code-next-line[promise-type]: OpenClaw directory.listGroups interface contract
-      }): Promise<Array<{ id: string; name: string; kind: "group" }>> {
+      }) {
         const effect = Effect.gen(function* () {
           const service = activeClients.get(
             params.accountId ?? DEFAULT_ACCOUNT_ID,
@@ -241,9 +230,7 @@ export function createMoltzapChannelPlugin() {
               kind: "group" as const,
             }));
         }).pipe(Effect.catchAll(() => Effect.succeed([])));
-        return Effect.runPromise(effect) as Promise<
-          Array<{ id: string; name: string; kind: "group" }>
-        >;
+        return Effect.runPromise(effect);
       },
     },
 
@@ -276,8 +263,7 @@ export function createMoltzapChannelPlugin() {
     },
 
     gateway: {
-      // #ignore-sloppy-code-next-line[async-keyword]: OpenClaw gateway startAccount interface contract
-      async startAccount(ctx: {
+      startAccount(ctx: {
         cfg: OpenClawConfig;
         accountId: string;
         account: MoltZapAccount;
@@ -308,7 +294,7 @@ export function createMoltzapChannelPlugin() {
 
         if (!account.apiKey || !account.serverUrl) {
           log?.error?.("MoltZap: missing apiKey or serverUrl");
-          return;
+          return Promise.resolve();
         }
 
         log?.info?.(
@@ -569,9 +555,15 @@ export function createMoltzapChannelPlugin() {
         activeClients.set(accountId, service);
 
         if (abortSignal.aborted) {
-          await Effect.runPromise(core.disconnect());
-          activeClients.delete(accountId);
-          return;
+          return Effect.runPromise(
+            core
+              .disconnect()
+              .pipe(
+                Effect.tap(() =>
+                  Effect.sync(() => activeClients.delete(accountId)),
+                ),
+              ),
+          );
         }
 
         abortSignal.addEventListener(
@@ -583,28 +575,32 @@ export function createMoltzapChannelPlugin() {
           { once: true },
         );
 
-        try {
-          await Effect.runPromise(core.connect());
-          service.startSocketServer();
-          log?.info?.(
-            `MoltZap: connected as ${account.agentName} (${service.ownAgentId})`,
-          );
-          setStatus({
-            accountId,
-            connected: true,
-            lastConnectedAt: Date.now(),
-          });
-
-          // Keep the gateway task alive until abort — expressed as Effect.
-          await Effect.runPromise(waitForAbort(abortSignal));
-        } catch (err) {
-          log?.error?.(`MoltZap: connection failed: ${err}`);
-          throw err;
-        }
+        return Effect.runPromise(
+          core.connect().pipe(
+            Effect.tap(() =>
+              Effect.sync(() => {
+                service.startSocketServer();
+                log?.info?.(
+                  `MoltZap: connected as ${account.agentName} (${service.ownAgentId})`,
+                );
+                setStatus({
+                  accountId,
+                  connected: true,
+                  lastConnectedAt: Date.now(),
+                });
+              }),
+            ),
+            Effect.zipRight(waitForAbort(abortSignal)),
+            Effect.catchAll((err) =>
+              Effect.sync(() => {
+                log?.error?.(`MoltZap: connection failed: ${err}`);
+              }).pipe(Effect.zipRight(Effect.fail(err))),
+            ),
+          ),
+        );
       },
 
-      // #ignore-sloppy-code-next-line[async-keyword]: OpenClaw gateway stopAccount interface contract
-      async stopAccount(ctx: {
+      stopAccount(ctx: {
         accountId: string;
         log?: { info?: (...args: unknown[]) => void };
       }) {
@@ -614,6 +610,7 @@ export function createMoltzapChannelPlugin() {
           service.close();
           activeClients.delete(ctx.accountId);
         }
+        return Promise.resolve();
       },
     },
 
@@ -650,8 +647,7 @@ export function createMoltzapChannelPlugin() {
         text: string;
         accountId?: string | null;
         replyToId?: string;
-        // #ignore-sloppy-code-next-line[promise-type]: OpenClaw outbound.sendText interface contract
-      }): Promise<{ ok: true } | { ok: false; error: Error }> {
+      }) {
         const effect = Effect.gen(function* () {
           const accountId = ctx.accountId ?? DEFAULT_ACCOUNT_ID;
           const service = activeClients.get(accountId);

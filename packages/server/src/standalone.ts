@@ -199,188 +199,193 @@ function autoMigrateEffect(
 
 // ── Main ────────────────────────────────────────────────────────────
 
-// #ignore-sloppy-code-next-line[async-keyword, promise-type]: Node process entrypoint for standalone server
-export async function startServer(configPath?: string): Promise<{
-  app: CoreApp;
-  config: MoltZapConfig;
-  stop: () => Promise<void>;
-}> {
-  const runtimeConfig = await Effect.runPromise(
-    loadRuntimeProcessConfig(
+export function startServer(configPath?: string) {
+  return Effect.runPromise(startServerEffect(configPath));
+}
+
+function startServerEffect(configPath?: string): Effect.Effect<
+  {
+    app: CoreApp;
+    config: MoltZapConfig;
+    stop: () => Promise<void>;
+  },
+  Error,
+  never
+> {
+  return Effect.gen(function* () {
+    const runtimeConfig = yield* loadRuntimeProcessConfig(
       configPath === undefined
         ? {}
         : { configPath: configPath as RuntimeConfigPath },
-    ),
-  );
-  const observability = await Effect.runPromise(
-    createRuntimeObservability(runtimeConfig),
-  );
-  const log = observability.logger;
+    );
+    const observability = yield* createRuntimeObservability(runtimeConfig);
+    const log = observability.logger;
 
-  process.env["LOG_LEVEL"] = runtimeConfig.logging.level;
-  process.env["NODE_ENV"] = runtimeConfig.environment;
-  process.env["OTEL_SERVICE_NAME"] = runtimeConfig.tracing.serviceName;
+    process.env["LOG_LEVEL"] = runtimeConfig.logging.level;
+    process.env["NODE_ENV"] = runtimeConfig.environment;
+    process.env["OTEL_SERVICE_NAME"] = runtimeConfig.tracing.serviceName;
 
-  // Create database (PGlite if no URL, Postgres otherwise)
-  const appConfig = runtimeConfig.app;
-  const databaseUrl = runtimeConfig.server.database.url;
-  const usePgLite = databaseUrl.length === 0;
-  const handle = usePgLite
-    ? await createPgLiteDb(appConfig.database?.data_dir)
-    : await createPostgresDb(databaseUrl);
+    // Create database (PGlite if no URL, Postgres otherwise)
+    const appConfig = runtimeConfig.app;
+    const databaseUrl = runtimeConfig.server.database.url;
+    const usePgLite = databaseUrl.length === 0;
+    const handle = yield* Effect.tryPromise({
+      try: () =>
+        usePgLite
+          ? createPgLiteDb(appConfig.database?.data_dir)
+          : createPostgresDb(databaseUrl),
+      catch: toError,
+    });
 
-  if (usePgLite) {
-    log.info("Using embedded PGlite database (no external Postgres needed)");
-  }
+    if (usePgLite) {
+      log.info("Using embedded PGlite database (no external Postgres needed)");
+    }
 
-  // Auto-migrate
-  await Effect.runPromise(
-    autoMigrateEffect(
+    // Auto-migrate
+    yield* autoMigrateEffect(
       handle,
       runtimeConfig.server.encryption.masterSecret,
-    ).pipe(Effect.provide(NodeFileSystem.layer)),
-  );
+    ).pipe(Effect.provide(NodeFileSystem.layer));
 
-  // Build CoreConfig
-  // Wire webhook services. UserService is part of CoreConfig (injected into
-  // AppHost via Layer) because the admission path needs it at construction
-  // time; other services (contacts, permissions) can be bound imperatively
-  // after createCoreApp since they gate per-request behavior.
-  const webhookClient = new WebhookClient();
+    // Build CoreConfig
+    // Wire webhook services. UserService is part of CoreConfig (injected into
+    // AppHost via Layer) because the admission path needs it at construction
+    // time; other services (contacts, permissions) can be bound imperatively
+    // after createCoreApp since they gate per-request behavior.
+    const webhookClient = new WebhookClient();
 
-  const userServiceCfg = appConfig.services?.users;
-  const userService =
-    userServiceCfg?.type === "webhook" && userServiceCfg.webhook_url
-      ? new WebhookUserService(
-          webhookClient,
-          userServiceCfg.webhook_url,
-          userServiceCfg.timeout_ms ?? 10000,
-          log,
-        )
+    const userServiceCfg = appConfig.services?.users;
+    const userService =
+      userServiceCfg?.type === "webhook" && userServiceCfg.webhook_url
+        ? new WebhookUserService(
+            webhookClient,
+            userServiceCfg.webhook_url,
+            userServiceCfg.timeout_ms ?? 10000,
+            log,
+          )
+        : undefined;
+
+    // Dev mode: when `dev_mode.enabled` in YAML, agents registered via the
+    // default HTTP register route are auto-owned by this UUID — the
+    // "developer at the keyboard". Skips the external-claim handshake so
+    // the quickstart can reach the app-session flow without Supabase etc.
+    // Production MUST leave `dev_mode.enabled` false (or absent).
+    const devModeUserId = appConfig.dev_mode?.enabled
+      ? (appConfig.dev_mode.user_id ?? randomUUID())
       : undefined;
+    if (devModeUserId) {
+      log.warn(
+        { devModeUserId },
+        "dev_mode.enabled=true — registered agents will be auto-owned; do not use in production",
+      );
+    }
 
-  // Dev mode: when `dev_mode.enabled` in YAML, agents registered via the
-  // default HTTP register route are auto-owned by this UUID — the
-  // "developer at the keyboard". Skips the external-claim handshake so
-  // the quickstart can reach the app-session flow without Supabase etc.
-  // Production MUST leave `dev_mode.enabled` false (or absent).
-  const devModeUserId = appConfig.dev_mode?.enabled
-    ? (appConfig.dev_mode.user_id ?? randomUUID())
-    : undefined;
-  if (devModeUserId) {
-    log.warn(
-      { devModeUserId },
-      "dev_mode.enabled=true — registered agents will be auto-owned; do not use in production",
-    );
-  }
+    const coreConfig: CoreConfig = {
+      db: handle.db,
+      dbCleanup: handle.cleanup,
+      encryptionMasterSecret: runtimeConfig.server.encryption.masterSecret,
+      port: runtimeConfig.server.server.port,
+      corsOrigins: runtimeConfig.server.server.corsOrigins.exact,
+      registrationSecret: appConfig.registration?.secret,
+      devMode: runtimeConfig.server.devMode,
+      devModeUserId,
+      userService,
+      webhookClient,
+    };
 
-  const coreConfig: CoreConfig = {
-    db: handle.db,
-    dbCleanup: handle.cleanup,
-    encryptionMasterSecret: runtimeConfig.server.encryption.masterSecret,
-    port: runtimeConfig.server.server.port,
-    corsOrigins: runtimeConfig.server.server.corsOrigins.exact,
-    registrationSecret: appConfig.registration?.secret,
-    devMode: runtimeConfig.server.devMode,
-    devModeUserId,
-    userService,
-    webhookClient,
-  };
+    const app = createCoreApp(coreConfig);
 
-  const app = createCoreApp(coreConfig);
-
-  if (
-    appConfig.services?.contacts?.type === "webhook" &&
-    appConfig.services.contacts.webhook_url
-  ) {
-    app.setContactService(
-      new WebhookContactService(
-        webhookClient,
-        appConfig.services.contacts.webhook_url,
-        appConfig.services.contacts.timeout_ms ?? 10000,
-        log,
-      ),
-    );
-  }
-
-  if (
-    appConfig.services?.permissions?.type === "webhook" &&
-    appConfig.services.permissions.webhook_url
-  ) {
-    const adapter = new AsyncWebhookAdapter();
-    const token =
-      appConfig.services.permissions.callback_token ?? crypto.randomUUID();
-    const callbackBaseUrl = `http://127.0.0.1:${app.port}`;
-    const permService = new WebhookPermissionService(
-      adapter,
-      appConfig.services.permissions.webhook_url,
-      callbackBaseUrl,
-      token,
-      log,
-    );
-    app.setPermissionService(permService);
-    app.setWebhookPermissionCallback(adapter, token);
-  }
-
-  // Register app manifests (resolve paths relative to config file location)
-  if (appConfig.apps) {
-    const configDir = runtimeConfig.configDirectory;
-    const fsReadAppManifest = (manifestPath: string) =>
-      Effect.gen(function* () {
-        const fs = yield* FileSystem.FileSystem;
-        return yield* fs
-          .readFileString(manifestPath, "utf-8")
-          .pipe(Effect.mapError((e) => new Error(e.message)));
-      }).pipe(Effect.provide(NodeFileSystem.layer));
-
-    for (const appRef of appConfig.apps) {
-      const manifestPath = isAbsolute(appRef.manifest)
-        ? appRef.manifest
-        : resolve(configDir, appRef.manifest);
-      const loadResult = await Effect.runPromise(
-        fsReadAppManifest(manifestPath).pipe(
-          Effect.map((json) => ({ ok: true as const, json })),
-          Effect.catchAll((err) => Effect.succeed({ ok: false as const, err })),
+    if (
+      appConfig.services?.contacts?.type === "webhook" &&
+      appConfig.services.contacts.webhook_url
+    ) {
+      app.setContactService(
+        new WebhookContactService(
+          webhookClient,
+          appConfig.services.contacts.webhook_url,
+          appConfig.services.contacts.timeout_ms ?? 10000,
+          log,
         ),
       );
-      if (!loadResult.ok) {
-        log.error(
-          { err: loadResult.err, path: appRef.manifest },
-          "Failed to load app manifest",
+    }
+
+    if (
+      appConfig.services?.permissions?.type === "webhook" &&
+      appConfig.services.permissions.webhook_url
+    ) {
+      const adapter = new AsyncWebhookAdapter();
+      const token =
+        appConfig.services.permissions.callback_token ?? crypto.randomUUID();
+      const callbackBaseUrl = `http://127.0.0.1:${app.port}`;
+      const permService = new WebhookPermissionService(
+        adapter,
+        appConfig.services.permissions.webhook_url,
+        callbackBaseUrl,
+        token,
+        log,
+      );
+      app.setPermissionService(permService);
+      app.setWebhookPermissionCallback(adapter, token);
+    }
+
+    // Register app manifests (resolve paths relative to config file location)
+    if (appConfig.apps) {
+      const configDir = runtimeConfig.configDirectory;
+      const fsReadAppManifest = (manifestPath: string) =>
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          return yield* fs
+            .readFileString(manifestPath, "utf-8")
+            .pipe(Effect.mapError((e) => new Error(e.message)));
+        }).pipe(Effect.provide(NodeFileSystem.layer));
+
+      for (const appRef of appConfig.apps) {
+        const manifestPath = isAbsolute(appRef.manifest)
+          ? appRef.manifest
+          : resolve(configDir, appRef.manifest);
+        const loadResult = yield* fsReadAppManifest(manifestPath).pipe(
+          Effect.map((json) => ({ ok: true as const, json })),
+          Effect.catchAll((err) => Effect.succeed({ ok: false as const, err })),
         );
-        continue;
-      }
-      try {
-        const manifest = JSON.parse(loadResult.json);
-        app.registerApp(manifest);
-        log.info(
-          { appId: manifest.appId, path: appRef.manifest },
-          "App manifest registered",
-        );
-      } catch (err) {
-        log.error(
-          { err, path: appRef.manifest },
-          "Failed to load app manifest",
-        );
+        if (!loadResult.ok) {
+          log.error(
+            { err: loadResult.err, path: appRef.manifest },
+            "Failed to load app manifest",
+          );
+          continue;
+        }
+        try {
+          const manifest = JSON.parse(loadResult.json);
+          app.registerApp(manifest);
+          log.info(
+            { appId: manifest.appId, path: appRef.manifest },
+            "App manifest registered",
+          );
+        } catch (err) {
+          log.error(
+            { err, path: appRef.manifest },
+            "Failed to load app manifest",
+          );
+        }
       }
     }
-  }
 
-  log.info(
-    {
-      port: app.port,
-      mode: "standalone",
-      db: usePgLite ? "pglite" : "postgres",
-    },
-    "MoltZap server started (standalone mode)",
-  );
+    log.info(
+      {
+        port: app.port,
+        mode: "standalone",
+        db: usePgLite ? "pglite" : "postgres",
+      },
+      "MoltZap server started (standalone mode)",
+    );
 
-  return {
-    app,
-    config: appConfig,
-    // `app.close()` already returns `Promise<void>` — forward it directly.
-    stop: () => app.close(),
-  };
+    return {
+      app,
+      config: appConfig,
+      // `app.close()` already returns `Promise<void>` — forward it directly.
+      stop: () => app.close(),
+    };
+  });
 }
 
 // Auto-start when run directly (e.g. `node dist/standalone.js`, `tsx src/standalone.ts`)
