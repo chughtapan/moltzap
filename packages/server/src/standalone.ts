@@ -29,6 +29,10 @@ import { createRuntimeObservability } from "./runtime-surface/logging.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+function toError(err: unknown): Error {
+  return err instanceof Error ? err : new Error(String(err));
+}
+
 // ── Database factory ────────────────────────────────────────────────
 
 interface DbHandle {
@@ -37,72 +41,89 @@ interface DbHandle {
   runMigrationSql: (sql: string) => Promise<void>;
 }
 
-// #ignore-sloppy-code-next-line[async-keyword, promise-type]: PGlite dynamic import + pool init boundary
-async function createPgLiteDb(dataDir?: string): Promise<DbHandle> {
-  const { KyselyPGlite } = await import("kysely-pglite");
+function createPgLiteDb(dataDir?: string) {
+  return Effect.runPromise(
+    Effect.gen(function* () {
+      const { KyselyPGlite } = yield* Effect.tryPromise({
+        try: () => import("kysely-pglite"),
+        catch: toError,
+      });
 
-  const kpg = dataDir
-    ? await KyselyPGlite.create(dataDir)
-    : await KyselyPGlite.create();
+      const kpg = yield* Effect.tryPromise({
+        try: () =>
+          dataDir ? KyselyPGlite.create(dataDir) : KyselyPGlite.create(),
+        catch: toError,
+      });
 
-  // Effect-patched Kysely: builder chains can be used as `Effect`s inside
-  // services while the promise API (`.execute()`, `.transaction()`) still
-  // works for migration/seed code.
-  const db = makeEffectKysely<Database>({
-    dialect: kpg.dialect,
-  });
+      // Effect-patched Kysely: builder chains can be used as `Effect`s inside
+      // services while the promise API (`.execute()`, `.transaction()`) still
+      // works for migration/seed code.
+      const db = makeEffectKysely<Database>({
+        dialect: kpg.dialect,
+      });
 
-  return {
-    db,
-    cleanup: () =>
-      // Close the PGlite client after Kysely releases its connection. We use
-      // an Effect chain here rather than raw Promise composition to keep the
-      // sequencing guard-friendly.
-      Effect.runPromise(
-        Effect.tryPromise({
-          try: () => db.destroy(),
-          catch: (err) => (err instanceof Error ? err : new Error(String(err))),
-        }).pipe(
-          Effect.flatMap(() =>
+      return {
+        db,
+        cleanup: () =>
+          // Close the PGlite client after Kysely releases its connection. We use
+          // an Effect chain here rather than raw Promise composition to keep the
+          // sequencing guard-friendly.
+          Effect.runPromise(
             Effect.tryPromise({
-              try: () => kpg.client.close(),
-              catch: (err) =>
-                err instanceof Error ? err : new Error(String(err)),
-            }),
+              try: () => db.destroy(),
+              catch: toError,
+            }).pipe(
+              Effect.flatMap(() =>
+                Effect.tryPromise({
+                  try: () => kpg.client.close(),
+                  catch: toError,
+                }),
+              ),
+            ),
           ),
-        ),
-      ),
-    runMigrationSql: (sqlText: string) =>
-      Effect.runPromise(
-        Effect.tryPromise({
-          try: () => kpg.client.exec(sqlText),
-          catch: (err) => (err instanceof Error ? err : new Error(String(err))),
-        }).pipe(Effect.asVoid),
-      ),
-  };
+        runMigrationSql: (sqlText: string) =>
+          Effect.runPromise(
+            Effect.tryPromise({
+              try: () => kpg.client.exec(sqlText),
+              catch: toError,
+            }).pipe(Effect.asVoid),
+          ),
+      };
+    }),
+  );
 }
 
-// #ignore-sloppy-code-next-line[async-keyword, promise-type]: pg dynamic import + Pool init boundary
-async function createPostgresDb(url: string): Promise<DbHandle> {
-  const pg = await import("pg");
-  const pool = new pg.default.Pool({ connectionString: url, max: 20 });
-  // Effect-patched Kysely: builder chains can be used as `Effect`s inside
-  // services while the promise API (`.execute()`, `.transaction()`) still
-  // works for migration/seed code.
-  const db = makeEffectKysely<Database>({
-    dialect: new PostgresDialect({ pool }),
-  });
+function createPostgresDb(url: string) {
+  return Effect.runPromise(
+    Effect.gen(function* () {
+      const pg = yield* Effect.tryPromise({
+        try: () => import("pg"),
+        catch: toError,
+      });
+      const pool = new pg.default.Pool({ connectionString: url, max: 20 });
+      // Effect-patched Kysely: builder chains can be used as `Effect`s inside
+      // services while the promise API (`.execute()`, `.transaction()`) still
+      // works for migration/seed code.
+      const db = makeEffectKysely<Database>({
+        dialect: new PostgresDialect({ pool }),
+      });
 
-  return {
-    db,
-    cleanup: () => db.destroy(),
-    // #ignore-sloppy-code-next-line[async-keyword]: pg pool.query callback-to-Promise boundary
-    runMigrationSql: async (sqlText: string) => {
-      // Raw DDL — Kysely can't run before tables exist
-      const exec = pool.query.bind(pool);
-      await exec(sqlText);
-    },
-  };
+      return {
+        db,
+        cleanup: () => db.destroy(),
+        runMigrationSql: (sqlText: string) => {
+          // Raw DDL — Kysely can't run before tables exist
+          const exec = pool.query.bind(pool);
+          return Effect.runPromise(
+            Effect.tryPromise({
+              try: () => exec(sqlText),
+              catch: toError,
+            }).pipe(Effect.asVoid),
+          );
+        },
+      };
+    }),
+  );
 }
 
 // ── Migration ───────────────────────────────────────────────────────

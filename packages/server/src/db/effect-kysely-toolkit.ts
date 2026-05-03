@@ -170,28 +170,29 @@ export const rawQuery = <A extends object, DB>(
   query: RawBuilder<A>,
 ): Effect.Effect<ReadonlyArray<A>, SqlError> =>
   Effect.tryPromise({
-    // #ignore-sloppy-code-next-line[async-keyword]: Effect.tryPromise try closure wrapping Kysely .execute()
-    try: async () => {
-      const result = await query.execute(db as Kysely<DB>);
-      return result.rows;
-    },
+    try: () => query.execute(db as Kysely<DB>),
     catch: (cause) =>
       cause instanceof SqlError
         ? cause
         : new SqlError({ cause, message: "raw query failed" }),
-  });
+  }).pipe(Effect.map((result) => result.rows));
 
 /**
- * Run `fn` inside a Kysely transaction. The callback receives a
- * `Transaction<DB>` and returns a `Promise<A>` — Kysely's native
- * transaction primitive, just lifted into `Effect`.
+ * Run `fn` inside a Kysely transaction. Kysely still owns the native
+ * rollback Promise internally; callers keep their transactional body in
+ * Effect so query builders can be yielded directly.
  */
 export const transaction = <A, DB>(
   db: EffectKysely<DB> | Kysely<DB>,
-  fn: (trx: Transaction<DB>) => Promise<A>,
+  fn: (
+    trx: Transaction<DB>,
+  ) => Effect.Effect<A, SqlError | Cause.NoSuchElementException, never>,
 ): Effect.Effect<A, SqlError> =>
   Effect.tryPromise({
-    try: () => (db as Kysely<DB>).transaction().execute((trx) => fn(trx)),
+    try: () =>
+      (db as Kysely<DB>)
+        .transaction()
+        .execute((trx) => Effect.runPromise(fn(trx))),
     catch: (cause) =>
       cause instanceof SqlError
         ? cause
