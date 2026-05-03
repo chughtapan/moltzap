@@ -80,10 +80,14 @@ function resolveRuntimeConfigPath(
 }
 
 function replaceProcessEnv(next: ProcessEnvSnapshot): void {
+  // Snapshot before mutation: when `next === process.env`, deleting keys
+  // from process.env would also empty `next`, leaving the iteration over
+  // entries empty and process.env wiped. Copy first, then delete-and-replace.
+  const snapshot = { ...next };
   for (const key of Object.keys(process.env)) {
     delete process.env[key];
   }
-  for (const [key, value] of Object.entries(next)) {
+  for (const [key, value] of Object.entries(snapshot)) {
     if (value !== undefined) {
       process.env[key] = value;
     }

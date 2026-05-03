@@ -57,7 +57,6 @@ describe("messages list", () => {
       messages: [
         {
           id: "m1",
-          seq: 1,
           senderId: "a1",
           senderName: "alice",
           createdAt: "2026-04-24T00:00:00Z",
@@ -65,7 +64,6 @@ describe("messages list", () => {
         },
         {
           id: "m2",
-          seq: 2,
           senderId: "b1",
           senderName: "bob",
           createdAt: "2026-04-24T00:00:01Z",
@@ -84,6 +82,12 @@ describe("messages list", () => {
       params: { conversationId: "c1", limit: 50 },
     });
     expect(stdout).toHaveBeenCalledTimes(2);
+    // Regression #216: first column is `createdAt`, never `undefined`.
+    // MessageSchema has no `seq` field; the previous output stringified
+    // `m.seq` as the literal "undefined" in the leading column.
+    const firstLine = String(stdout.mock.calls[0]?.[0] ?? "");
+    expect(firstLine.startsWith("undefined\t")).toBe(false);
+    expect(firstLine).toBe("2026-04-24T00:00:00Z\talice\thello");
   });
 
   it("omits limit when absent", async () => {
