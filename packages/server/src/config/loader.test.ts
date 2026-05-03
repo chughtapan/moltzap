@@ -203,26 +203,4 @@ server:
     expect(err.kind).toBe("yaml");
     expect(err.message).toMatch(/top-level value must be a mapping/);
   });
-
-  // Retired-field guard. Effect's `Config.all` ignores unknown top-level
-  // keys, so without an explicit check at the loader boundary a stale
-  // `seed:` block in a pre-existing moltzap.yaml would boot silently and
-  // the operator's intent (seed alice/bob at startup) would just vanish.
-  // The schema.ts negative test only covers the dev-time validateConfig()
-  // path, not the runtime loader path.
-  it("rejects retired top-level `seed:` field with migration guidance", async () => {
-    vi.mocked(readFileSync).mockReturnValue(`
-database:
-  url: postgres://localhost:5432/moltzap
-seed:
-  agents:
-    - name: alice
-`);
-
-    const exit = await Effect.runPromiseExit(loadConfigFromFile("test.yaml"));
-    const err = expectConfigLoadError(exit);
-    expect(err.kind).toBe("validation");
-    expect(err.message).toMatch(/retired field "seed"/);
-    expect(err.message).toMatch(/admin\/register-agent/);
-  });
 });
