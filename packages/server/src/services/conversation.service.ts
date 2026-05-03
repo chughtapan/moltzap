@@ -715,6 +715,7 @@ export class ConversationService {
           sql<ConversationColumns>`
             SELECT c.* FROM conversations c
             WHERE c.type = 'dm'
+            AND c.archived_at IS NULL
             AND EXISTS (
               SELECT 1 FROM conversation_participants cp
               WHERE cp.conversation_id = c.id
