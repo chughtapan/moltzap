@@ -57,7 +57,11 @@ interface WireMessage {
 // ─── Handlers ──────────────────────────────────────────────────────────────
 
 /**
- * Wraps `messages/list`. Emits one message per line (seq, senderName, text).
+ * Wraps `messages/list`. Emits one message per line, tab-separated:
+ * `<createdAt>\t<senderName ?? senderId>\t<text>`. `seq` was removed
+ * from the wire shape in PR #379 — only `id`, `senderId`, optional
+ * `senderName`, `createdAt`, and `parts` survive.
+ *
  * `--json` is a stretch flag added by impl if consistent with
  * `conversations list` output style (not fixed by spec).
  */
