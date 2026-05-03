@@ -76,10 +76,9 @@ async function main(): Promise<void> {
 function safeJson(value: unknown): string {
   try {
     return JSON.stringify(value);
-    // #ignore-sloppy-code-next-line[bare-catch]: log formatting fallback — circular refs etc. are not actionable here
-  } catch (_err) {
-    void _err;
-    return String(value);
+  } catch (jsonErr) {
+    const reason = jsonErr instanceof Error ? jsonErr.message : String(jsonErr);
+    return `${String(value)} (json serialization failed: ${reason})`;
   }
 }
 

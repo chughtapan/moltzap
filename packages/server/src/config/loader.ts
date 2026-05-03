@@ -117,14 +117,8 @@ function findRetiredTopLevelField(
   if (obj === null || typeof obj !== "object" || Array.isArray(obj)) {
     return null;
   }
-  // YAML decode-and-interpolate (above) hands us an unknown record; the
-  // YamlDocumentSchema at the boundary already constrained shape to
-  // `Record<string, Unknown>`, so the field-presence check via `in`
-  // operator is the narrow contract we need.
-  // #ignore-sloppy-code-next-line[record-cast]: yaml document is already validated as a string-keyed record at the loader boundary
-  const record = obj as Record<string, unknown>;
   for (const entry of RETIRED_TOP_LEVEL_FIELDS) {
-    if (entry.key in record) return entry;
+    if (entry.key in obj) return entry;
   }
   return null;
 }

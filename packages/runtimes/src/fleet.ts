@@ -28,6 +28,8 @@ import {
 
 export type RuntimeKind = "openclaw" | "nanoclaw" | "claude-code";
 
+const LOG_START_OFFSET = 0;
+
 export interface RuntimeAgentSpec {
   readonly agentName: string;
   readonly apiKey: string;
@@ -260,8 +262,7 @@ export function launchRuntimeFleet(
               started.map((candidate) => candidate.spec.agentName),
             );
           }
-          // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- log reads always start at offset 0 for fleet snapshots
-          return startedAgent.runtime.getLogs(0).text;
+          return startedAgent.runtime.getLogs(LOG_START_OFFSET).text;
         },
       } satisfies RuntimeFleet;
     }),

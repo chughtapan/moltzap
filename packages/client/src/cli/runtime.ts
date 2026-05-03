@@ -61,9 +61,8 @@ export const effectLogger = EffectLogger.make(
             err instanceof Error ? err.message : String(err)
           })\n`,
         );
-        // #ignore-sloppy-code-next-line[bare-catch]: inner fallback for stderr write failure — last resort, nothing to log to
-      } catch {
-        // stderr unavailable — drop rather than crash.
+      } catch (stderrErr) {
+        console.error("[cli-logger-fallback] stderr write failed", stderrErr);
       }
     }
   },

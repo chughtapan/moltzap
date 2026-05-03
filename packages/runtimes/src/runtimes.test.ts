@@ -117,10 +117,7 @@ describe("Runtime interface", () => {
       "getInboundMarker",
     ] as const;
     for (const m of runtimeMethods) {
-      // #ignore-sloppy-code-next-line[as-unknown-as]: dynamic method-name lookup in exhaustiveness check — no other way to index by string
-      expect(typeof (adapter as unknown as Record<string, unknown>)[m]).toBe(
-        "function",
-      );
+      expect(typeof adapter[m]).toBe("function");
     }
   });
 });

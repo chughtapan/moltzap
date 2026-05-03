@@ -11,8 +11,8 @@ export function stringifyCause(cause: unknown): string {
   if (cause instanceof Error) return cause.message;
   try {
     return JSON.stringify(cause);
-    // #ignore-sloppy-code-next-line[bare-catch]: JSON.stringify throws on circular refs; String() is the safe fallback
-  } catch {
-    return String(cause);
+  } catch (jsonErr) {
+    const reason = jsonErr instanceof Error ? jsonErr.message : String(jsonErr);
+    return `${String(cause)} (json serialization failed: ${reason})`;
   }
 }

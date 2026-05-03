@@ -32,8 +32,7 @@ export function sendUntypedRpc(
   | TransportIoError
   | FrameSchemaError
 > {
-  // #ignore-sloppy-code-next-line[as-unknown-as]: localized cast — `apps/register` is server-handled but absent from the typed `rpcMethods` registry; mirrors app-sdk and `34-rpc-additions.integration.test.ts:48`
-  return (client.sendRpc as unknown as UntypedSendRpc)(method, params);
+  return (client.sendRpc as UntypedSendRpc)(method, params);
 }
 
 type UntypedSendRpc = (

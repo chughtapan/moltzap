@@ -231,8 +231,7 @@ const withTestServer = async <A>(
 ): Promise<A> => {
   const scope = Effect.runSync(Scope.make());
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const typed = Scope.extend(effect as any, scope) as Effect.Effect<A>;
+    const typed = Scope.extend(effect, scope) as Effect.Effect<A>;
     return await Effect.runPromise(typed);
   } finally {
     await Effect.runPromise(Scope.close(scope, Exit.void));

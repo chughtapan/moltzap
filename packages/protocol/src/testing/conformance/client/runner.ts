@@ -356,7 +356,7 @@ function emitTaggedEventDefault(
   base: EventFrame,
   emissionTag: string,
 ): Effect.Effect<string> {
-  const base_data = (base.data ?? {}) as Record<string, unknown>; // #ignore-sloppy-code[record-cast]: EventFrame.data is Type.Optional(Type.Unknown()); opaque-payload merge, not a Kysely row
+  const base_data = isStringKeyedRecord(base.data) ? base.data : {};
   const tagged: EventFrame = {
     ...base,
     data: { ...base_data, __emissionTag: emissionTag },
@@ -365,6 +365,10 @@ function emitTaggedEventDefault(
     Effect.orElseSucceed(() => undefined),
     Effect.as(emissionTag),
   );
+}
+
+function isStringKeyedRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function emitTaggedResponseDefault(
