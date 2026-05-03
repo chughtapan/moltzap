@@ -60,10 +60,9 @@ export class OpenClawAdapter implements Runtime {
       );
 
     return Effect.gen(this, function* () {
-      const port = yield* Effect.tryPromise({
-        try: () => allocateFreePort(),
-        catch: toSpawnFailed,
-      });
+      const port = yield* allocateFreePort().pipe(
+        Effect.mapError(toSpawnFailed),
+      );
 
       yield* Effect.try({
         try: () => {
@@ -324,15 +323,42 @@ function resolveWorkspaceOpenClawBin(
   return path.join(repoRoot, "node_modules/.bin/openclaw");
 }
 
-// #ignore-sloppy-code-next-line[promise-type]: net.createServer callback boundary — no Effect wrapper needed for this one-shot utility
-function allocateFreePort(): Promise<number> {
-  return new Promise<number>((resolve, reject) => {
+function allocateFreePort(): Effect.Effect<number, Error, never> {
+  return Effect.async<number, Error>((resume) => {
     const server = net.createServer();
+    let settled = false;
+    const settle = (
+      effect: Effect.Effect<number, Error>,
+      closeServer = true,
+    ): void => {
+      if (settled) return;
+      settled = true;
+      server.removeAllListeners();
+      if (closeServer) {
+        server.close();
+      }
+      resume(effect);
+    };
     server.listen(0, () => {
-      const addr = server.address() as net.AddressInfo;
-      server.close(() => resolve(addr.port));
+      const addr = server.address();
+      if (addr === null || typeof addr === "string") {
+        settle(Effect.fail(new Error("Unable to allocate TCP port")));
+        return;
+      }
+      const port = addr.port;
+      server.close((closeErr) =>
+        closeErr
+          ? settle(Effect.fail(closeErr), false)
+          : settle(Effect.succeed(port), false),
+      );
     });
-    server.on("error", reject);
+    server.on("error", (err) => settle(Effect.fail(err)));
+    return Effect.sync(() => {
+      if (settled) return;
+      settled = true;
+      server.removeAllListeners();
+      server.close();
+    });
   });
 }
 
