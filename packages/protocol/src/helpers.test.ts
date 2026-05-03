@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import Ajv from "ajv";
 import addFormats from "ajv-formats";
 import { FormatRegistry, Type } from "@sinclair/typebox";
@@ -89,4 +89,70 @@ describe("TypeBox FormatRegistry side-effect registration", () => {
     expect(Value.Check(uriSchema, "not a uri")).toBe(false);
     expect(Value.Check(uriSchema, "://missing-scheme")).toBe(false);
   });
+});
+
+/**
+ * Regression #383: `helpers.ts` gates each `FormatRegistry.Set(...)` on
+ * `FormatRegistry.Has(...)` precisely so that a downstream consumer who
+ * pre-registers a stricter (or otherwise customized) validator is NOT
+ * silently overwritten when `@moltzap/protocol`'s side-effect import
+ * runs after them.
+ *
+ * Pin the contract for every format helpers.ts touches: pre-register a
+ * sentinel validator that accepts ONLY one specific value, force a
+ * re-execution of the helpers module body via `vi.resetModules()` +
+ * dynamic import, and assert the sentinel is still the active validator
+ * — i.e. helpers.ts's default validator (which would also accept a
+ * separate "default-valid" sample) did NOT clobber it. Removing any of
+ * the three `Has(...)` guards in helpers.ts fails the matching case.
+ */
+describe("FormatRegistry Has-guard preserves consumer-registered formats", () => {
+  const cases: ReadonlyArray<{
+    format: "uuid" | "date-time" | "uri";
+    sentinel: string;
+    defaultValid: string;
+  }> = [
+    {
+      format: "uuid",
+      sentinel: "00000000-0000-0000-0000-000000000001",
+      defaultValid: "550e8400-e29b-41d4-a716-446655440000",
+    },
+    {
+      format: "date-time",
+      sentinel: "2099-01-01T00:00:00.000Z",
+      defaultValid: "2026-03-14T12:00:00.000Z",
+    },
+    {
+      format: "uri",
+      sentinel: "moltzap:sentinel",
+      defaultValid: "https://example.com/path",
+    },
+  ];
+
+  for (const { format, sentinel, defaultValid } of cases) {
+    it(`does not overwrite a pre-registered ${format} validator on re-import`, async () => {
+      const original = FormatRegistry.Get(format);
+      expect(original).toBeDefined();
+      try {
+        // Pre-register a sentinel that accepts ONLY one value, so we can
+        // distinguish it from helpers.ts's default validator.
+        FormatRegistry.Set(format, (value) => value === sentinel);
+
+        // Force helpers.ts to re-execute its top-level side effects.
+        vi.resetModules();
+        await import("./helpers.js");
+
+        const schema = Type.String({ format });
+        // Sentinel must still be in place — Has-guard skipped re-registration.
+        expect(Value.Check(schema, sentinel)).toBe(true);
+        // A value the default validator would accept must now be rejected,
+        // proving the sentinel — not helpers.ts's validator — is active.
+        expect(Value.Check(schema, defaultValid)).toBe(false);
+      } finally {
+        // Restore the original validator so subsequent tests in this process
+        // see the helpers.ts-installed format.
+        if (original) FormatRegistry.Set(format, original);
+      }
+    });
+  }
 });
