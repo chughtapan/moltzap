@@ -19,6 +19,7 @@
  * now that two live adapters consume it.
  */
 import * as fs from "node:fs";
+import { createRequire } from "node:module";
 import * as path from "node:path";
 import type { SpawnInput } from "./runtime.js";
 
@@ -156,4 +157,45 @@ function symlinkPreferring(
   throw new Error(
     `channel-plugin-install: none of the candidate paths exist for ${target}: ${candidates.join(", ")}`,
   );
+}
+
+/**
+ * Resolve a runtime dependency the channel package imports, using
+ * Node's standard module resolution anchored at the channel package's
+ * `package.json`. Walks `node_modules` parent-ward, so it finds the
+ * dep regardless of whether it lives at:
+ *   - `<channelPackage>/node_modules/<dep>` (per-package install)
+ *   - `<repoRoot>/node_modules/<dep>`       (workspace hoist)
+ *   - any other ancestor `node_modules/<dep>` Node would walk to
+ *
+ * Returns the absolute path to the dep's package directory, or `null`
+ * when the resolver can't find the dep from this anchor (missing
+ * package.json, dep not installed, etc.). Callers can chain it with
+ * legacy candidate paths so existing layouts (e.g. a bundled
+ * `dist/node_modules/<dep>`) keep working as a fallback.
+ *
+ * Resolves `<dep>/package.json` rather than the package's main entry
+ * so the returned path is always the package root, not a `dist/` file
+ * inside it. (`exports`-restricted packages can hide the main entry
+ * but virtually always expose `./package.json`.)
+ */
+export function resolveChannelDependency(
+  channelPackageDir: string,
+  packageName: string,
+): string | null {
+  const anchor = path.join(channelPackageDir, "package.json");
+  if (!fs.existsSync(anchor)) {
+    return null;
+  }
+  try {
+    const requireFromAnchor = createRequire(anchor);
+    const pkgJsonPath = requireFromAnchor.resolve(
+      `${packageName}/package.json`,
+    );
+    return path.dirname(pkgJsonPath);
+    // #ignore-sloppy-code-next-line[bare-catch]: best-effort resolver — surface "not found" as null and let caller try fallback candidates
+  } catch (_err) {
+    void _err;
+    return null;
+  }
 }

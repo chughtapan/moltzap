@@ -43,6 +43,7 @@ import type {
 import { SpawnFailed } from "./errors.js";
 import {
   installChannelPlugin,
+  resolveChannelDependency,
   seedWorkspaceFiles,
 } from "./channel-plugin-install.js";
 import { writeClaudeCodeMcpConfig } from "./claude-code-process.js";
@@ -235,21 +236,37 @@ export class ClaudeCodeAdapter implements Runtime {
 
       yield* tryStep(() => seedWorkspaceFiles(stateDir, input.workspaceFiles));
 
+      // cc-channel resolves @modelcontextprotocol/sdk + effect at
+      // MCP-load time; symlink them into the per-agent ext dir. Use
+      // Node's standard module resolution (anchored at the channel
+      // package's package.json) as the primary path so per-package and
+      // workspace-hoisted layouts both work without hardcoded candidate
+      // paths (#285). The explicit fallbacks keep the historical
+      // resolution order for consumers without a discoverable
+      // `package.json`.
+      const channelPackageDir = path.dirname(this.deps.channelDistDir);
+      const mcpSdkResolved = resolveChannelDependency(
+        channelPackageDir,
+        "@modelcontextprotocol/sdk",
+      );
+      const effectResolved = resolveChannelDependency(
+        channelPackageDir,
+        "effect",
+      );
       const extDir = yield* tryStep(() =>
         installChannelPlugin({
           stateDir,
           channelDistDir: this.deps.channelDistDir,
           repoRoot: this.deps.repoRoot,
           extName: "claude-code-channel",
-          // cc-channel resolves @modelcontextprotocol/sdk + effect at
-          // MCP-load time; symlink them into the per-agent ext dir.
           extraSymlinks: [
             {
               linkPath: "@modelcontextprotocol/sdk",
               candidates: [
+                ...(mcpSdkResolved === null ? [] : [mcpSdkResolved]),
                 path.join(
-                  this.deps.channelDistDir,
-                  "../node_modules/@modelcontextprotocol/sdk",
+                  channelPackageDir,
+                  "node_modules/@modelcontextprotocol/sdk",
                 ),
                 path.join(
                   this.deps.repoRoot,
@@ -260,7 +277,8 @@ export class ClaudeCodeAdapter implements Runtime {
             {
               linkPath: "effect",
               candidates: [
-                path.join(this.deps.channelDistDir, "../node_modules/effect"),
+                ...(effectResolved === null ? [] : [effectResolved]),
+                path.join(channelPackageDir, "node_modules/effect"),
                 path.join(this.deps.repoRoot, "node_modules/effect"),
               ],
             },

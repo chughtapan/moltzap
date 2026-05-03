@@ -16,6 +16,7 @@ import type {
 import { SpawnFailed } from "./errors.js";
 import {
   installChannelPlugin as installSharedChannelPlugin,
+  resolveChannelDependency,
   seedWorkspaceFiles as seedSharedWorkspaceFiles,
 } from "./channel-plugin-install.js";
 
@@ -415,6 +416,15 @@ function installChannelPlugin(
   channelDistDir: string,
   repoRoot: string,
 ): void {
+  const channelPackageDir = path.dirname(channelDistDir);
+  // OpenClaw's plugin imports `effect` at load time. Resolve it the way
+  // Node would when the channel package itself imported it (#285) — that
+  // walks parent `node_modules` directories, so it handles both per-pkg
+  // installs (`<pkg>/node_modules/effect`) and workspace hoists
+  // (`<repoRoot>/node_modules/effect`). The legacy `dist/node_modules`
+  // candidate is kept as a fallback for any consumer that still ships a
+  // bundled artifact in that layout.
+  const effectResolved = resolveChannelDependency(channelPackageDir, "effect");
   installSharedChannelPlugin({
     stateDir,
     channelDistDir,
@@ -423,13 +433,13 @@ function installChannelPlugin(
     // OpenClaw discovers channels via `openclaw.plugin.json` in the
     // package root; cc-channel has no equivalent manifest.
     extraPackageFiles: ["openclaw.plugin.json"],
-    // OpenClaw's plugin imports `effect` at load time. Match the
-    // pre-refactor sourcing exactly (single candidate inside the
-    // channel's bundled node_modules).
     extraSymlinks: [
       {
         linkPath: "effect",
-        candidates: [path.join(channelDistDir, "node_modules", "effect")],
+        candidates: [
+          ...(effectResolved === null ? [] : [effectResolved]),
+          path.join(channelDistDir, "node_modules", "effect"),
+        ],
       },
     ],
   });
