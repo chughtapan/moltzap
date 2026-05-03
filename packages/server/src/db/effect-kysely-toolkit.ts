@@ -170,16 +170,12 @@ export const rawQuery = <A extends object, DB>(
   query: RawBuilder<A>,
 ): Effect.Effect<ReadonlyArray<A>, SqlError> =>
   Effect.tryPromise({
-    // #ignore-sloppy-code-next-line[async-keyword]: Effect.tryPromise try closure wrapping Kysely .execute()
-    try: async () => {
-      const result = await query.execute(db as Kysely<DB>);
-      return result.rows;
-    },
+    try: () => query.execute(db as Kysely<DB>),
     catch: (cause) =>
       cause instanceof SqlError
         ? cause
         : new SqlError({ cause, message: "raw query failed" }),
-  });
+  }).pipe(Effect.map((result) => result.rows));
 
 /**
  * Run `fn` inside a Kysely transaction. The callback receives a
