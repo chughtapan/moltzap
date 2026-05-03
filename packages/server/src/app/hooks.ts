@@ -53,7 +53,8 @@ const PartArraySchema = Schema.declare(
   { identifier: "PartArray" },
 );
 
-/** Wire schema for `HookResult` webhook responses. Single-layer `as`
+/** Wire schema for the `HookResult` RPC response from
+ *  `apps/onBeforeMessageDelivery` (s2c admission verb). Single-layer `as`
  *  reconciles effect-schema's encoded-type inference (which mirrors the
  *  Struct shape) with the caller's `Schema.Schema<_, unknown>` slot. */
 export const HookResultSchema = Schema.Struct({
