@@ -1,6 +1,3 @@
-import Ajv from "ajv";
-import addFormats from "ajv-formats";
-import { type Static, type TSchema } from "@sinclair/typebox";
 import {
   RequestFrameSchema,
   ResponseFrameSchema,
@@ -9,6 +6,7 @@ import {
   type ResponseFrame,
   type NotificationFrame,
 } from "./schema/index.js";
+import { ajv } from "./internal/ajv.js";
 import { PushPreferencesSchema } from "./schema/methods/push.js";
 import {
   Register,
@@ -88,34 +86,21 @@ import {
 import { SystemPing } from "./schema/methods/system.js";
 
 /**
- * This AJV instance handles frame-level validation only. Each RPC
- * manifest carries its own pre-compiled `validateParams` (compiled once
- * inside `defineRpc`), which is what the router dispatches against.
- */
-const ajv = addFormats(new Ajv({ strict: true, allErrors: true }));
-
-const compileGuard = <S extends TSchema, Guarded = Static<S>>(schema: S) => {
-  const validate = ajv.compile<Static<S>>(schema);
-  return (value: unknown): value is Guarded => validate(value);
-};
-
-/**
  * Named validator table. Every RPC manifest's `validateParams` is re-exported
  * here under a stable `xxxParams` key. Frame validators and notification
  * payload validators live here because they are not request/response RPCs.
  */
 export const validators = {
   // Frames.
-  requestFrame: compileGuard<typeof RequestFrameSchema, RequestFrame>(
-    RequestFrameSchema,
-  ),
-  responseFrame: compileGuard<typeof ResponseFrameSchema, ResponseFrame>(
-    ResponseFrameSchema,
-  ),
-  notificationFrame: compileGuard<
-    typeof NotificationFrameSchema,
-    NotificationFrame
-  >(NotificationFrameSchema),
+  requestFrame: ajv.compile(RequestFrameSchema) as (
+    value: unknown,
+  ) => value is RequestFrame,
+  responseFrame: ajv.compile(ResponseFrameSchema) as (
+    value: unknown,
+  ) => value is ResponseFrame,
+  notificationFrame: ajv.compile(NotificationFrameSchema) as (
+    value: unknown,
+  ) => value is NotificationFrame,
 
   // Auth.
   registerParams: Register.validateParams,
@@ -160,7 +145,7 @@ export const validators = {
   // Push.
   pushRegisterParams: PushRegister.validateParams,
   pushUnregisterParams: PushUnregister.validateParams,
-  pushPreferencesParams: compileGuard(PushPreferencesSchema),
+  pushPreferencesParams: ajv.compile(PushPreferencesSchema),
 
   // Surfaces.
   surfaceUpdateParams: SurfaceUpdate.validateParams,

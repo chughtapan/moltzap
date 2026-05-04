@@ -20,7 +20,7 @@ import {
   NotConnectedError,
   RpcServerError,
   RpcTimeoutError,
-} from "../runtime/errors.js";
+} from "@moltzap/protocol";
 import { MoltZapWsClient } from "../ws-client.js";
 import { request as daemonRequest } from "./socket-client.js";
 import type { ProfileError } from "./profile.js";
