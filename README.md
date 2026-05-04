@@ -93,7 +93,7 @@ ws.on("message", (data) => {
   audit fanout)
 
 App-side hooks (`before_dispatch`, `before_message_delivery`,
-`on_session_active`, `on_join`, `on_close`) dispatch over the same
+`on_session_active`, `on_close`) dispatch over the same
 WebSocket the app already speaks, NOT via manifest webhook URLs. The
 legacy hook-side webhook surface is removed in Phase 1; see
 [`docs/guides/app-hooks-rpc.mdx`](docs/guides/app-hooks-rpc.mdx) and
