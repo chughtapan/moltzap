@@ -56,6 +56,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Effect<Verdict, never>` regardless of source (in-process or remote).
 - Manifest hook timeout (`manifest.hooks.<name>.timeout_ms`) is now
   enforced at the AppHost call site via `Effect.timeout(manifestMs)`.
+- **BREAKING (Phase 1C):** `RpcServerError`, `NotConnectedError`, and
+  `RpcTimeoutError` moved from `@moltzap/client` to `@moltzap/protocol`.
+  Re-import these from `@moltzap/protocol` (or a shared barrel) — the
+  `@moltzap/client` re-exports are gone.
+- **Internal (Phase 1C):** Protocol validation now uses a single shared
+  frozen-singleton AJV instance. All schema compilation goes through one
+  AJV configured identically, removing per-call AJV construction and
+  ensuring consistent validation options across the codebase.
 
 ### Removed
 
@@ -96,6 +104,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 30s upper bound on `hooks.<name>.timeout_ms` (B.4 follow-up #324).
   The schema in `packages/protocol/src/schema/apps.ts` now reads
   `Type.Integer({ default: 5000, minimum: 1 })` — no `maximum`.
+- **BREAKING (Phase 1A — surfaces):** Surface RPC + notification surface
+  removed end-to-end. Deleted RPCs: `surface/update`, `surface/get`,
+  `surface/action`, `surface/clear`. Deleted notifications:
+  `surface/updated` and `surface/cleared`.
+- **BREAKING (Phase 1A — push):** Push-token RPCs `push/register` and
+  `push/unregister` deleted; the server no longer maintains app
+  push-token state.
+- **BREAKING (Phase 1A — attestation):** Skill-attestation surface
+  deleted. Removed: RPC `apps/attestSkill`; notification
+  `app/skillChallenge`; manifest fields `AppManifest.skillUrl`,
+  `AppManifest.skillMinVersion`, `AppManifest.challengeTimeoutMs`;
+  attestation rejection codes; `ErrorCodes.SkillTimeout` and
+  `ErrorCodes.SkillMismatch`.
+- **BREAKING (Phase 1B — permissions):** Permissions surface deleted
+  end-to-end. Removed: RPCs `permissions/grant`, `permissions/list`,
+  `permissions/revoke`; notification `permissions/required`; manifest
+  fields `AppManifest.permissions` and `AppManifest.permissionTimeoutMs`;
+  DB table `app_permission_grants`; server modules
+  `DefaultPermissionService`, `WebhookPermissionService`, and the
+  `checkPermissions` server function; permission rejection codes;
+  `ErrorCodes.PermissionTimeout` and `ErrorCodes.PermissionDenied`; CLI
+  command `packages/client/src/cli/commands/permissions.ts`.
+- **BREAKING (Phase 1C):** `@effect/rpc` bridge dropped. The internal
+  shims `opaqueEffectSchema` and `bridgeEffectRpcType` are gone;
+  protocol descriptors are JSON-Schema-only.
 
 ### Migration
 
@@ -106,7 +139,16 @@ The TL;DR: delete the manifest webhook fields, register a handler on
 handler, drop the HMAC validation (the apiKey on the WS connection is
 the auth boundary).
 
-The server-level external-integration surfaces are unaffected:
-`MessageService.deliveryWebhook`, `WebhookContactService`,
-`WebhookPermissionService`, and the `services.contacts` /
-`services.permissions` / `services.users` YAML configs all survive.
+The remaining server-level external-integration surfaces are
+unaffected: `MessageService.deliveryWebhook`, `WebhookContactService`,
+and the `services.contacts` / `services.users` YAML configs all
+survive.
+
+Phase 1B deleted the permissions surface entirely. There is no
+permissions service. Apps that previously declared
+`manifest.permissions` (or `manifest.permissionTimeoutMs`) must remove
+those fields — the schema now rejects them. Clients that previously
+read or wrote permission-grant state must adapt to the no-permissions
+model: there are no `permissions/grant`, `permissions/list`, or
+`permissions/revoke` calls, no `permissions/required` notification,
+and no `services.permissions` YAML config.
