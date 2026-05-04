@@ -7,7 +7,6 @@ import {
   type NotificationFrame,
 } from "./schema/index.js";
 import { ajv } from "./internal/ajv.js";
-import { PushPreferencesSchema } from "./schema/methods/push.js";
 import {
   Register,
   InviteAgent,
@@ -49,7 +48,6 @@ import {
   AppSessionClosedNotificationDefinition,
   AppSessionFailedNotificationDefinition,
   AppSessionReadyNotificationDefinition,
-  AppSkillChallengeNotificationDefinition,
   ContactAcceptedNotificationDefinition,
   ContactRequestNotificationDefinition,
   ConversationArchivedNotificationDefinition,
@@ -59,20 +57,10 @@ import {
   MessageDeliveredNotificationDefinition,
   MessageReceivedNotificationDefinition,
   PresenceChangedNotificationDefinition,
-  SurfaceClearedNotificationDefinition,
-  SurfaceUpdatedNotificationDefinition,
 } from "./schema/notifications.js";
-import { PushRegister, PushUnregister } from "./schema/methods/push.js";
-import {
-  SurfaceUpdate,
-  SurfaceGet,
-  SurfaceAction,
-  SurfaceClear,
-} from "./schema/surfaces.js";
 import {
   AppsRegister,
   AppsCreate,
-  AppsAttestSkill,
   AppsCloseSession,
   AppsGetSession,
   AppsListSessions,
@@ -138,21 +126,9 @@ export const validators = {
   presenceUpdateParams: PresenceUpdate.validateParams,
   presenceSubscribeParams: PresenceSubscribe.validateParams,
 
-  // Push.
-  pushRegisterParams: PushRegister.validateParams,
-  pushUnregisterParams: PushUnregister.validateParams,
-  pushPreferencesParams: ajv.compile(PushPreferencesSchema),
-
-  // Surfaces.
-  surfaceUpdateParams: SurfaceUpdate.validateParams,
-  surfaceGetParams: SurfaceGet.validateParams,
-  surfaceActionParams: SurfaceAction.validateParams,
-  surfaceClearParams: SurfaceClear.validateParams,
-
   // Apps.
   appsRegisterParams: AppsRegister.validateParams,
   appsCreateParams: AppsCreate.validateParams,
-  appsAttestSkillParams: AppsAttestSkill.validateParams,
   appsCloseSessionParams: AppsCloseSession.validateParams,
   appsGetSessionParams: AppsGetSession.validateParams,
   appsListSessionsParams: AppsListSessions.validateParams,
@@ -181,12 +157,6 @@ export const validators = {
     ContactAcceptedNotificationDefinition.validateParams,
   presenceChangedNotification:
     PresenceChangedNotificationDefinition.validateParams,
-  surfaceUpdatedNotification:
-    SurfaceUpdatedNotificationDefinition.validateParams,
-  surfaceClearedNotification:
-    SurfaceClearedNotificationDefinition.validateParams,
-  appSkillChallengeNotification:
-    AppSkillChallengeNotificationDefinition.validateParams,
   appParticipantAdmittedNotification:
     AppParticipantAdmittedNotificationDefinition.validateParams,
   appParticipantRejectedNotification:

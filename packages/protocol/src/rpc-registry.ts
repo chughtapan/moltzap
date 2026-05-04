@@ -31,10 +31,8 @@ import {
   PresenceUpdate,
   PresenceSubscribe,
 } from "./schema/methods/presence.js";
-import { PushRegister, PushUnregister } from "./schema/methods/push.js";
 import {
   AppsCreate,
-  AppsAttestSkill,
   AppsCloseSession,
   AppsGetSession,
   AppsListSessions,
@@ -46,12 +44,6 @@ import {
   AppsOnJoin,
   AppsOnClose,
 } from "./schema/methods/apps.js";
-import {
-  SurfaceUpdate,
-  SurfaceGet,
-  SurfaceAction,
-  SurfaceClear,
-} from "./schema/surfaces.js";
 import type { RpcDefinition, ParamsOf, ResultOf } from "./rpc.js";
 import type { JsonRpcMethod } from "./schema/json-rpc.js";
 import { defineRpcGroup } from "./rpc-groups.js";
@@ -107,22 +99,13 @@ export const rpcMethods = [
   // Presence
   PresenceUpdate,
   PresenceSubscribe,
-  // Push
-  PushRegister,
-  PushUnregister,
   // Apps
   AppsCreate,
-  AppsAttestSkill,
   AppsCloseSession,
   AppsGetSession,
   AppsListSessions,
   AppsAuthorizeDispatch,
   AppsAttachConversation,
-  // Surfaces
-  SurfaceUpdate,
-  SurfaceGet,
-  SurfaceAction,
-  SurfaceClear,
 ] as const;
 
 export const taskRpcGroup = defineRpcGroup("task", rpcMethods);

@@ -27,7 +27,6 @@ import {
 } from "../../schema/methods/auth.js";
 import {
   AppsAttachConversation,
-  AppsAttestSkill,
   AppsAuthorizeDispatch,
   AppsCloseSession,
   AppsCreate,
@@ -58,13 +57,6 @@ import {
   PresenceSubscribe,
   PresenceUpdate,
 } from "../../schema/methods/presence.js";
-import { PushRegister, PushUnregister } from "../../schema/methods/push.js";
-import {
-  SurfaceAction,
-  SurfaceClear,
-  SurfaceGet,
-  SurfaceUpdate,
-} from "../../schema/surfaces.js";
 
 /**
  * Observable outcome of one RPC against the model, in the same shape the
@@ -104,7 +96,6 @@ const IDEMPOTENT_METHODS: ReadonlySet<RpcMethodName> = new Set([
   PresenceSubscribe.name,
   AppsListSessions.name,
   AppsGetSession.name,
-  SurfaceGet.name,
 ] satisfies readonly RpcMethodName[]);
 
 export function isIdempotent(method: RpcMethodName): boolean {
@@ -271,26 +262,13 @@ export function applyCall<M extends RpcMethodName>(
     case PresenceSubscribe.name:
       return { next: baseNext, outcome: uncertainError() };
 
-    // Push — requires endpoint registration. Uncertain.
-    case PushRegister.name:
-    case PushUnregister.name:
-      return { next: baseNext, outcome: uncertainError() };
-
     // Apps — require app/user context the fresh agent doesn't have.
     case AppsCreate.name:
-    case AppsAttestSkill.name:
     case AppsCloseSession.name:
     case AppsGetSession.name:
     case AppsListSessions.name:
     case AppsAuthorizeDispatch.name:
     case AppsAttachConversation.name:
-      return { next: baseNext, outcome: uncertainError() };
-
-    // Surfaces — require surface/app context. Uncertain.
-    case SurfaceUpdate.name:
-    case SurfaceGet.name:
-    case SurfaceAction.name:
-    case SurfaceClear.name:
       return { next: baseNext, outcome: uncertainError() };
 
     default: {

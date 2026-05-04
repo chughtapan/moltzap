@@ -21,7 +21,6 @@ import type {
   MessageReceivedNotification,
   AppSessionReadyNotification,
   AppSessionClosedNotification,
-  AppSkillChallengeNotification,
   AppParticipantAdmittedNotification,
   AppParticipantRejectedNotification,
   BeforeDispatchContext,
@@ -59,7 +58,6 @@ import {
 
 import {
   AppsAttachConversation,
-  AppsAttestSkill,
   AppsCloseSession,
   AppsCreate,
   AppsGetSession,
@@ -68,7 +66,6 @@ import {
   AppParticipantRejectedNotificationDefinition,
   AppSessionClosedNotificationDefinition,
   AppSessionReadyNotificationDefinition,
-  AppSkillChallengeNotificationDefinition,
   AppsOnBeforeDispatch,
   AppsOnBeforeMessageDelivery,
   AppsOnClose,
@@ -90,7 +87,6 @@ import {
 const appSdkNotificationDefinitions = [
   AppSessionReadyNotificationDefinition,
   AppSessionClosedNotificationDefinition,
-  AppSkillChallengeNotificationDefinition,
   MessageReceivedNotificationDefinition,
   AppParticipantAdmittedNotificationDefinition,
   AppParticipantRejectedNotificationDefinition,
@@ -342,8 +338,8 @@ export class MoltZapApp {
 
   /**
    * Fork a background Effect and track the fiber so stop() can interrupt it.
-   * Used for user-handler dispatch, skill-challenge attestation, and post-reconnect
-   * session recovery, all of which must not outlive the app.
+   * Used for user-handler dispatch and post-reconnect session recovery, both
+   * of which must not outlive the app.
    */
   private trackFork<E>(effect: Effect.Effect<void, E>): void {
     const fibers = this.backgroundFibers;
@@ -754,10 +750,6 @@ export class MoltZapApp {
         AppSessionClosedNotificationDefinition,
         (params) => Effect.sync(() => this.handleSessionClosed(params)),
       ),
-      bindNotificationHandler(
-        AppSkillChallengeNotificationDefinition,
-        (params) => Effect.sync(() => this.handleSkillChallenge(params)),
-      ),
       bindNotificationHandler(MessageReceivedNotificationDefinition, (params) =>
         Effect.sync(() => this.handleMessage(params)),
       ),
@@ -802,34 +794,6 @@ export class MoltZapApp {
         new SessionClosedError({
           message: `Session ${data.sessionId} was closed`,
         }),
-      );
-    }
-  }
-
-  private handleSkillChallenge(data: AppSkillChallengeNotification): void {
-    const skillUrl = this.manifest.skillUrl;
-
-    if (skillUrl) {
-      this.trackFork(
-        this.client
-          .sendRpc(AppsAttestSkill, {
-            challengeId: data.challengeId,
-            skillUrl,
-            version: this.manifest.skillMinVersion ?? "0.0.0",
-          })
-          .pipe(
-            Effect.asVoid,
-            Effect.catchAll((err) =>
-              Effect.sync(() => {
-                this.emitError(
-                  new SessionError({
-                    message: "Failed to respond to skill challenge",
-                    ...errorCause(err),
-                  }),
-                );
-              }),
-            ),
-          ),
       );
     }
   }

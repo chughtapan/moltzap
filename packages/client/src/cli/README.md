@@ -145,7 +145,6 @@ moltzap --profile alice apps close $SESSION_ID
 
 ## Things that are deliberately NOT in v1
 
-- `apps attest-skill` — ESCALATED Q-AS-1 to spec rev 4 (RPC shape pending).
 - `messages list --cursor` — ESCALATED Q-M-1 to spec rev 4 (no server backing yet).
 - `messages tail` (follow-mode) — Non-goal §3.1.
 - Rewire of legacy `send` / `contacts` / `conversations {list,create,...}` onto the v2 Transport — separate architect sub-issue.
