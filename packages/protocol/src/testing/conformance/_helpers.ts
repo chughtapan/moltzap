@@ -4,6 +4,8 @@
  * when they would otherwise be duplicated verbatim.
  */
 import { Effect, Either } from "effect";
+import type { TSchema } from "@sinclair/typebox";
+import type { RpcDefinition } from "../../rpc.js";
 import type { TestClient } from "../test-client.js";
 import type {
   FrameSchemaError,
@@ -14,15 +16,13 @@ import type {
 } from "../errors.js";
 
 /**
- * `apps/register` is server-handled but absent from the typed
- * `rpcMethods` registry (see `packages/protocol/src/rpc-registry.ts`);
- * app-sdk and `34-rpc-additions.integration.test.ts:48` use the same
- * untyped-cast path. Adding the verb to the registry is an accretive
- * change outside this sub-issue's scope; this helper localizes the cast.
+ * Send an RPC whose descriptor is not in the typed `rpcMethods` registry
+ * (e.g., `apps/register`). Returns the result as `unknown`; the cast
+ * widens `client.sendRpc`'s `D extends AnyRpcDefinition` constraint.
  */
 export function sendUntypedRpc(
   client: TestClient,
-  method: string,
+  definition: RpcDefinition<string, TSchema, TSchema>,
   params: unknown,
 ): Effect.Effect<
   unknown,
@@ -32,20 +32,19 @@ export function sendUntypedRpc(
   | TransportIoError
   | FrameSchemaError
 > {
-  return (client.sendRpc as UntypedSendRpc)(method, params);
+  const sendRpc = client.sendRpc as (
+    definition: RpcDefinition<string, TSchema, TSchema>,
+    params: unknown,
+  ) => Effect.Effect<
+    unknown,
+    | RpcResponseError
+    | RpcTimeoutError
+    | TransportClosedError
+    | TransportIoError
+    | FrameSchemaError
+  >;
+  return sendRpc(definition, params);
 }
-
-type UntypedSendRpc = (
-  method: string,
-  params: unknown,
-) => Effect.Effect<
-  unknown,
-  | RpcResponseError
-  | RpcTimeoutError
-  | TransportClosedError
-  | TransportIoError
-  | FrameSchemaError
->;
 
 export function requireRight<A, E, F>(
   value: Either.Either<A, E>,

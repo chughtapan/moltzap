@@ -5,6 +5,9 @@ import {
   createFakeChannelService,
   buildMessage,
   flushDispatchChain,
+  testAgentId,
+  testConversationId,
+  testMessageId,
   type FakeChannelService,
 } from "@moltzap/client/test-utils";
 
@@ -123,15 +126,16 @@ describe("MoltZapChannel (nanoclaw adapter)", () => {
       harness.fake.service.authorizeDispatch = () =>
         Effect.succeed({ _tag: "grant" as const, leaseId: "lease-nano" });
 
+      const conv42 = testConversationId("conv-42");
       harness.fake.emit.message(
         buildMessage({ id: "msg-lease", conversationId: "conv-42" }),
       );
       await flushDispatchChain();
-      await harness.channel.sendMessage("mz:conv-42", "hello with lease");
+      await harness.channel.sendMessage(`mz:${conv42}`, "hello with lease");
 
       expect(harness.fake.state.sent).toEqual([
         {
-          convId: "conv-42",
+          convId: conv42,
           text: "hello with lease",
           dispatchLeaseId: "lease-nano",
         },
@@ -152,6 +156,9 @@ describe("MoltZapChannel (nanoclaw adapter)", () => {
     });
 
     it("maps enriched message to NewMessage with mz: prefix", async () => {
+      const conv1 = testConversationId("conv-1");
+      const alice = testAgentId("agent-alice");
+      const msgAbc = testMessageId("msg-abc");
       harness.fake.state.setConversation("conv-1", {
         type: "dm",
         name: "alice-dm",
@@ -172,11 +179,11 @@ describe("MoltZapChannel (nanoclaw adapter)", () => {
 
       expect(harness.opts.received).toHaveLength(1);
       const { jid, msg } = harness.opts.received[0]!;
-      expect(jid).toBe("mz:conv-1");
+      expect(jid).toBe(`mz:${conv1}`);
       expect(msg).toMatchObject({
-        id: "msg-abc",
-        chat_jid: "mz:conv-1",
-        sender: "agent-alice",
+        id: msgAbc,
+        chat_jid: `mz:${conv1}`,
+        sender: alice,
         sender_name: "Alice",
         content: "hi nanoclaw",
         timestamp: "2026-04-10T13:00:00.000Z",
@@ -185,6 +192,7 @@ describe("MoltZapChannel (nanoclaw adapter)", () => {
     });
 
     it("calls onChatMetadata BEFORE onMessage for each inbound", async () => {
+      const conv1 = testConversationId("conv-1");
       harness.fake.state.setConversation("conv-1", {
         type: "group",
         name: "devs",
@@ -198,7 +206,7 @@ describe("MoltZapChannel (nanoclaw adapter)", () => {
       expect(harness.opts.callOrder).toEqual(["onChatMetadata", "onMessage"]);
       expect(harness.opts.metadata).toHaveLength(1);
       expect(harness.opts.metadata[0]).toMatchObject({
-        jid: "mz:conv-1",
+        jid: `mz:${conv1}`,
         name: "devs",
         channel: "moltzap",
         isGroup: true,
@@ -216,7 +224,7 @@ describe("MoltZapChannel (nanoclaw adapter)", () => {
       await flushDispatchChain();
 
       expect(harness.opts.received[0]!.msg.reply_to_message_id).toBe(
-        "msg-parent-123",
+        testMessageId("msg-parent-123"),
       );
     });
   });
@@ -235,7 +243,9 @@ describe("MoltZapChannel (nanoclaw adapter)", () => {
       );
       await flushDispatchChain();
 
-      expect(harness.opts.groupsMap["mz:conv-unknown"]).toBeUndefined();
+      expect(
+        harness.opts.groupsMap[`mz:${testConversationId("conv-unknown")}`],
+      ).toBeUndefined();
     });
 
     it("auto-registers a wildcard group on first message when evalMode=true", async () => {
@@ -249,7 +259,8 @@ describe("MoltZapChannel (nanoclaw adapter)", () => {
       harness.fake.emit.message(buildMessage({ conversationId: "conv-new" }));
       await flushDispatchChain();
 
-      const registered = harness.opts.groupsMap["mz:conv-new"];
+      const registered =
+        harness.opts.groupsMap[`mz:${testConversationId("conv-new")}`];
       expect(registered).toBeDefined();
       expect(registered!.trigger).toBe(".*");
       expect(registered!.requiresTrigger).toBe(false);
@@ -265,7 +276,8 @@ describe("MoltZapChannel (nanoclaw adapter)", () => {
         participants: [],
       });
       harness.fake.state.setAgentName("agent-alice", "Alice");
-      harness.opts.groupsMap["mz:conv-existing"] = {
+      const existingKey = `mz:${testConversationId("conv-existing")}`;
+      harness.opts.groupsMap[existingKey] = {
         name: "already-here",
         folder: "already_here",
         trigger: "@Andy",
@@ -277,10 +289,8 @@ describe("MoltZapChannel (nanoclaw adapter)", () => {
       );
       await flushDispatchChain();
 
-      expect(harness.opts.groupsMap["mz:conv-existing"]!.name).toBe(
-        "already-here",
-      );
-      expect(harness.opts.groupsMap["mz:conv-existing"]!.trigger).toBe("@Andy");
+      expect(harness.opts.groupsMap[existingKey]!.name).toBe("already-here");
+      expect(harness.opts.groupsMap[existingKey]!.trigger).toBe("@Andy");
     });
   });
 
@@ -304,7 +314,7 @@ describe("MoltZapChannel (nanoclaw adapter)", () => {
       expect(content).toContain("This is a group conversation.");
       expect(content).toContain("Group name: devs");
       expect(content).toContain(
-        "Participants (2): agent:agent-alice, agent:agent-bob",
+        `Participants (2): agent:${testAgentId("agent-alice")}, agent:${testAgentId("agent-bob")}`,
       );
       expect(content).toContain("</system-reminder>");
       expect(content).toMatch(/<\/system-reminder>\n\nhi team$/);

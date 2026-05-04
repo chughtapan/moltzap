@@ -13,6 +13,8 @@ import {
   type PresencePublishInput,
 } from "./presence-event-sink.js";
 
+const AGENT_A_UUID = "00000000-0000-4000-8000-00000000a9e7";
+
 interface Capture {
   conn: MoltZapConnection;
   writes: string[];
@@ -80,16 +82,16 @@ describe("ConnectionFanOutPresenceEventSink", () => {
     const sink = createConnectionFanOutPresenceEventSink({ connections });
     sink.publish(
       publishInput({
-        agentId: "agent-a",
+        agentId: AGENT_A_UUID,
         status: "online",
         subscriberConnIds: ["c-a", "c-b"],
       }),
     );
     await flushFibers();
 
-    const expected = [{ agentId: "agent-a", status: "online" }];
-    expect(presenceEventsFor(a.writes, "agent-a")).toEqual(expected);
-    expect(presenceEventsFor(b.writes, "agent-a")).toEqual(expected);
+    const expected = [{ agentId: AGENT_A_UUID, status: "online" }];
+    expect(presenceEventsFor(a.writes, AGENT_A_UUID)).toEqual(expected);
+    expect(presenceEventsFor(b.writes, AGENT_A_UUID)).toEqual(expected);
   });
 
   it("skips excludeConnId", async () => {
@@ -102,7 +104,7 @@ describe("ConnectionFanOutPresenceEventSink", () => {
     const sink = createConnectionFanOutPresenceEventSink({ connections });
     sink.publish(
       publishInput({
-        agentId: "agent-a",
+        agentId: AGENT_A_UUID,
         status: "away",
         subscriberConnIds: ["c-sender", "c-watcher"],
         excludeConnId: "c-sender",
@@ -110,9 +112,9 @@ describe("ConnectionFanOutPresenceEventSink", () => {
     );
     await flushFibers();
 
-    expect(presenceEventsFor(sender.writes, "agent-a")).toHaveLength(0);
-    expect(presenceEventsFor(watcher.writes, "agent-a")).toEqual([
-      { agentId: "agent-a", status: "away" },
+    expect(presenceEventsFor(sender.writes, AGENT_A_UUID)).toHaveLength(0);
+    expect(presenceEventsFor(watcher.writes, AGENT_A_UUID)).toEqual([
+      { agentId: AGENT_A_UUID, status: "away" },
     ]);
   });
 
@@ -124,14 +126,14 @@ describe("ConnectionFanOutPresenceEventSink", () => {
     const sink = createConnectionFanOutPresenceEventSink({ connections });
     sink.publish(
       publishInput({
-        agentId: "agent-a",
+        agentId: AGENT_A_UUID,
         status: "online",
         subscriberConnIds: [],
       }),
     );
     await flushFibers();
 
-    expect(presenceEventsFor(watcher.writes, "agent-a")).toHaveLength(0);
+    expect(presenceEventsFor(watcher.writes, AGENT_A_UUID)).toHaveLength(0);
   });
 
   it("silently skips a subscriber connId not in ConnectionManager", async () => {
@@ -143,7 +145,7 @@ describe("ConnectionFanOutPresenceEventSink", () => {
     expect(() =>
       sink.publish(
         publishInput({
-          agentId: "agent-a",
+          agentId: AGENT_A_UUID,
           status: "offline",
           subscriberConnIds: ["c-live", "c-stale"],
         }),
@@ -151,8 +153,8 @@ describe("ConnectionFanOutPresenceEventSink", () => {
     ).not.toThrow();
     await flushFibers();
 
-    expect(presenceEventsFor(live.writes, "agent-a")).toEqual([
-      { agentId: "agent-a", status: "offline" },
+    expect(presenceEventsFor(live.writes, AGENT_A_UUID)).toEqual([
+      { agentId: AGENT_A_UUID, status: "offline" },
     ]);
   });
 });

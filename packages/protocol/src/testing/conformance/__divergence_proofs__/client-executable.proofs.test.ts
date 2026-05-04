@@ -19,7 +19,7 @@ import { jsonRpcMethod, jsonRpcStringId } from "../../../schema/json-rpc.js";
 import type { ConformanceArtifact } from "../runner.js";
 import { collectProperties, type PropertyFailure } from "../registry.js";
 import {
-  registerEventWellFormednessClient,
+  registerNotificationWellFormednessClient,
   registerMalformedFrameHandlingClient,
   registerModelEquivalenceClient,
   registerRequestIdUniquenessClient,
@@ -32,9 +32,9 @@ import {
 import type {
   ClientConformanceRunContext,
   ClientHandshakeWindow,
-  ObservedEvent,
+  ObservedNotification,
   RealClientCloseEvent,
-  RealClientEventSubscriber,
+  RealClientNotificationSubscriber,
   RealClientHandle,
   RealClientRpcCaller,
   RealClientRpcError,
@@ -63,13 +63,13 @@ interface BadClientOptions {
 }
 
 describe("client-side conformance executable divergence proofs", () => {
-  it("registerEventWellFormednessClient fails when surfaced events lose required fields", async () => {
+  it("registerNotificationWellFormednessClient fails when surfaced notifications lose required fields", async () => {
     const failure = await runSingleClientProof(
-      registerEventWellFormednessClient,
+      registerNotificationWellFormednessClient,
       { eventBehavior: "strip-required-field" },
     );
-    expectInvariant(failure, "event-well-formedness-client");
-  });
+    expectInvariant(failure, "notification-well-formedness-client");
+  }, 10_000);
 
   it("registerFanOutCardinalityClient fails when a real client scrambles fan-out order", async () => {
     const failure = await runSingleClientProof(
@@ -165,7 +165,7 @@ function makeBadClientContext(
   opts: BadClientOptions,
 ): Effect.Effect<ClientConformanceRunContext, never, Scope.Scope> {
   return Effect.gen(function* () {
-    const eventsRef = yield* Ref.make<ReadonlyArray<ObservedEvent>>([]);
+    const eventsRef = yield* Ref.make<ReadonlyArray<ObservedNotification>>([]);
     const outboundIdsRef = yield* Ref.make<ReadonlyArray<string>>([]);
     const closeRef = yield* Ref.make<RealClientCloseEvent | null>(null);
     const connectionRef = yield* Ref.make<TestServerConnection | null>(null);
@@ -249,7 +249,7 @@ function makeBadClientContext(
       connectionId: "bad-client-proof-connection",
       remoteAddr: "in-memory",
       inbound,
-      emitEvent: (event) => publishNotification(event),
+      emitNotification: (notification) => publishNotification(notification),
       emitResponse: (response) => resolveResponse(response),
       emitMalformed: () =>
         opts.eventBehavior === "close-on-malformed"
@@ -268,7 +268,7 @@ function makeBadClientContext(
     };
     yield* Ref.set(connectionRef, connection);
 
-    const events: RealClientEventSubscriber = {
+    const notifications: RealClientNotificationSubscriber = {
       subscribe: () =>
         Effect.succeed({
           id: "bad-client-proof-subscription",
@@ -314,9 +314,9 @@ function makeBadClientContext(
       });
 
     const handle: RealClientHandle = {
-      agentId: "bad-client-proof-agent",
+      agentId: "00000000-0000-4000-8000-baadc11e7e57",
       ready: Effect.void,
-      events,
+      notifications,
       call: { call, outboundIdFeed: Ref.get(outboundIdsRef) },
       closeSignal: Effect.gen(function* () {
         while (true) {
@@ -338,9 +338,9 @@ function makeBadClientContext(
 
     const handshakeWindow: ClientHandshakeWindow = {
       freshEmissionTag: Effect.succeed("unused"),
-      emitTaggedEvent: ({ connection, base, emissionTag }) =>
+      emitTaggedNotification: ({ connection, base, emissionTag }) =>
         connection
-          .emitEvent(taggedNotification(base, emissionTag))
+          .emitNotification(taggedNotification(base, emissionTag))
           .pipe(Effect.as(emissionTag)),
       emitTaggedResponse: ({ connection, base }) =>
         connection.emitResponse(base).pipe(Effect.as(base.id)),

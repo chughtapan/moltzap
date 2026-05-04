@@ -78,7 +78,7 @@ describe("Mute and Unmute", () => {
           MessageReceivedNotificationDefinition,
         );
         expect(
-          (aliceEvent.data as { message: { parts: Array<{ text: string }> } })
+          (aliceEvent.params as { message: { parts: Array<{ text: string }> } })
             .message.parts[0]!.text,
         ).toBe("Alice is back");
       }),
