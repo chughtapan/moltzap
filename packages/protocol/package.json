@@ -22,6 +22,10 @@
       "types": "./dist/schema/index.d.ts",
       "import": "./dist/schema/index.js"
     },
+    "./schemas/primitives": {
+      "types": "./dist/schema/primitives.d.ts",
+      "import": "./dist/schema/primitives.js"
+    },
     "./testing": {
       "types": "./dist/testing/index.d.ts",
       "import": "./dist/testing/index.js"

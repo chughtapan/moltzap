@@ -1,5 +1,5 @@
 import type { LogicalClock, Part, Static } from "@moltzap/protocol";
-import { MessageId } from "@moltzap/protocol";
+import { MessageId } from "@moltzap/protocol/schemas/primitives";
 import { Schema } from "effect";
 
 type MessageIdValue = Static<typeof MessageId>;
