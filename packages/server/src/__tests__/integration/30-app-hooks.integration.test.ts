@@ -28,9 +28,6 @@
 //     AbortSignal on timeout` (L298) and `times out, blocks the
 //     message…` (L184) — both would gain >500ms each at the unit
 //     level.
-//   - `PermissionService.requestPermission` timeout is already covered
-//     at unit level in `src/app/app-host.test.ts` (fake timers), so
-//     no need to add a second integration copy.
 //
 // Leave these as integration tests until the `AppHost` class is
 // refactored enough that `runHookWithTimeout` can be exercised without
