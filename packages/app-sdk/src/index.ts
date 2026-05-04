@@ -34,7 +34,6 @@ export type { AppError, AttachError } from "./errors.js";
 export type {
   AppManifest,
   AppManifestConversation,
-  AppPermission,
   AppSession,
   Part,
   TextPart,

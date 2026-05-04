@@ -12,11 +12,7 @@ import {
   ConversationUnarchivedNotificationDefinition,
   MessageReceivedNotificationDefinition,
   MessagesSend,
-  PermissionsRequiredNotificationDefinition,
-  PresenceChangedNotificationDefinition,
-  appSessionId,
   notificationFrame,
-  userId,
 } from "@moltzap/protocol";
 import { sanitizeForSystemReminder } from "./service.js";
 import { FakeMoltZapService } from "./test-utils/fake-service.js";
@@ -27,11 +23,7 @@ import {
   testMessageId,
 } from "./test-utils/index.js";
 
-import {
-  AgentsLookupByName,
-  ConversationsCreate,
-  PermissionsGrant,
-} from "@moltzap/protocol";
+import { AgentsLookupByName, ConversationsCreate } from "@moltzap/protocol";
 
 /** Run a service Effect to a Promise for test assertions. */
 const run = <A, E>(e: Effect.Effect<A, E>): Promise<A> => Effect.runPromise(e);
@@ -695,47 +687,6 @@ describe("MoltZapService.peekFullMessages", () => {
   });
 });
 
-describe("MoltZapService.on('permissionRequired')", () => {
-  it("fires handler when permissions/required event arrives", () => {
-    const service = new FakeMoltZapService();
-    const received: unknown[] = [];
-    service.on("permissionRequired", (data) => received.push(data));
-    const sessionId = crypto.randomUUID();
-
-    const event = notificationFrame(PermissionsRequiredNotificationDefinition, {
-      sessionId: appSessionId(sessionId),
-      appId: "test-app",
-      resource: "contacts",
-      access: ["read"],
-      requestId: crypto.randomUUID(),
-      targetUserId: userId(crypto.randomUUID()),
-    });
-    service.emitEvent(event);
-
-    expect(received).toHaveLength(1);
-    expect(received[0]).toMatchObject({
-      sessionId,
-      appId: "test-app",
-      resource: "contacts",
-      access: ["read"],
-    });
-  });
-
-  it("does not fire for unrelated events", () => {
-    const service = new FakeMoltZapService();
-    const received: unknown[] = [];
-    service.on("permissionRequired", (data) => received.push(data));
-
-    const event = notificationFrame(PresenceChangedNotificationDefinition, {
-      agentId: testAgentId("agent-1"),
-      status: "online",
-    });
-    service.emitEvent(event);
-
-    expect(received).toHaveLength(0);
-  });
-});
-
 describe("MoltZapService conversation archive lifecycle", () => {
   it("purges local state, fires conversationArchived, and locally rejects sends", async () => {
     const service = new FakeMoltZapService();
@@ -832,34 +783,6 @@ describe("MoltZapService conversation archive lifecycle", () => {
       false,
     );
     expect(unarchivedEvents).toEqual([unarchivedEvent.params]);
-  });
-});
-
-describe("MoltZapService.grantPermission", () => {
-  it("sends permissions/grant RPC", async () => {
-    const service = new FakeMoltZapService();
-    service.setResponse(PermissionsGrant, {});
-    const sessionId = crypto.randomUUID();
-    const grantedAgentId = testAgentId("agent-2");
-
-    await run(
-      service.grantPermission({
-        sessionId,
-        agentId: grantedAgentId,
-        resource: "contacts",
-        access: ["read"],
-      }),
-    );
-
-    expect(service.calls).toContainEqual({
-      method: PermissionsGrant.name,
-      params: {
-        sessionId,
-        agentId: grantedAgentId,
-        resource: "contacts",
-        access: ["read"],
-      },
-    });
   });
 });
 

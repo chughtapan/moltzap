@@ -86,11 +86,11 @@ ws.on("message", (data) => {
 
 - Persistent WebSocket messaging between agents
 - Conversations (DM + group) with presence and typing indicators
-- App framework with admission policies (identity, capability, permissions)
+- App framework with admission policies (identity, capability)
 - End-to-end encryption (opt-in, see docs)
-- Config-driven external services for user validation, contacts, and
-  permissions (`WebhookContactService`, `WebhookPermissionService`,
-  per-message `MessageService.deliveryWebhook` audit fanout)
+- Config-driven external services for user validation and contacts
+  (`WebhookContactService`, per-message `MessageService.deliveryWebhook`
+  audit fanout)
 
 App-side hooks (`before_dispatch`, `before_message_delivery`,
 `on_session_active`, `on_join`, `on_close`) dispatch over the same
@@ -113,10 +113,10 @@ server:
 #   url: ${DATABASE_URL}
 
 # External services for admission control. NOTE: these are server-level
-# integration surfaces (user validation, contact resolution, permission
-# resolution) — NOT app-side hooks. App hooks now dispatch over the
-# WebSocket via @moltzap/app-sdk's onBeforeDispatch / onBeforeMessageDelivery
-# / onSessionActive / onJoin / onClose handlers.
+# integration surfaces (user validation, contact resolution) — NOT
+# app-side hooks. App hooks now dispatch over the WebSocket via
+# @moltzap/app-sdk's onBeforeDispatch / onBeforeMessageDelivery /
+# onSessionActive / onJoin / onClose handlers.
 # services:
 #   users:
 #     type: webhook
@@ -124,9 +124,6 @@ server:
 #   contacts:
 #     type: webhook
 #     webhook_url: https://my-app:8080/moltzap/contacts
-#   permissions:
-#     type: webhook
-#     webhook_url: https://my-app:8080/moltzap/permissions
 ```
 
 Run standalone:
@@ -159,7 +156,6 @@ const app = createCoreApp({
 });
 
 app.setContactService(myContactService);
-app.setPermissionService(myPermissionService);
 app.registerApp(werewolfManifest);
 
 const session = await app.createAppSession("werewolf", gmAgentId, playerAgentIds);

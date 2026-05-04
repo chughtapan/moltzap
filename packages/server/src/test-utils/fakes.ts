@@ -21,7 +21,7 @@
 import { Data, Layer, unsafeCoerce } from "effect";
 
 import type { WebhookClient } from "../adapters/webhook.js";
-import type { AppHost, DefaultPermissionService } from "../app/app-host.js";
+import type { AppHost } from "../app/app-host.js";
 import type { AuthService } from "../services/auth.service.js";
 import type { ConversationService } from "../services/conversation.service.js";
 import type { DeliveryService } from "../services/delivery.service.js";
@@ -37,7 +37,6 @@ import {
   BroadcasterTag,
   ConnectionManagerTag,
   ConversationServiceTag,
-  DefaultPermissionServiceTag,
   DeliveryServiceTag,
   MessageServiceTag,
   ParticipantServiceTag,
@@ -150,14 +149,6 @@ export const fakeAppHostLayer = (
   impl: Partial<AppHost>,
 ): Layer.Layer<AppHostTag> =>
   Layer.succeed(AppHostTag, makeFakeService<AppHost>(impl));
-
-export const fakeDefaultPermissionServiceLayer = (
-  impl: Partial<DefaultPermissionService>,
-): Layer.Layer<DefaultPermissionServiceTag> =>
-  Layer.succeed(
-    DefaultPermissionServiceTag,
-    makeFakeService<DefaultPermissionService>(impl),
-  );
 
 export const fakeConnectionManagerLayer = (
   impl: Partial<ConnectionManager>,

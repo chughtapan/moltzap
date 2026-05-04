@@ -58,7 +58,6 @@ import {
   ConversationUpdatedNotificationDefinition,
   MessageDeliveredNotificationDefinition,
   MessageReceivedNotificationDefinition,
-  PermissionsRequiredNotificationDefinition,
   PresenceChangedNotificationDefinition,
   SurfaceClearedNotificationDefinition,
   SurfaceUpdatedNotificationDefinition,
@@ -74,9 +73,6 @@ import {
   AppsRegister,
   AppsCreate,
   AppsAttestSkill,
-  PermissionsGrant,
-  PermissionsList,
-  PermissionsRevoke,
   AppsCloseSession,
   AppsGetSession,
   AppsListSessions,
@@ -157,9 +153,6 @@ export const validators = {
   appsRegisterParams: AppsRegister.validateParams,
   appsCreateParams: AppsCreate.validateParams,
   appsAttestSkillParams: AppsAttestSkill.validateParams,
-  permissionsGrantParams: PermissionsGrant.validateParams,
-  permissionsListParams: PermissionsList.validateParams,
-  permissionsRevokeParams: PermissionsRevoke.validateParams,
   appsCloseSessionParams: AppsCloseSession.validateParams,
   appsGetSessionParams: AppsGetSession.validateParams,
   appsListSessionsParams: AppsListSessions.validateParams,
@@ -194,8 +187,6 @@ export const validators = {
     SurfaceClearedNotificationDefinition.validateParams,
   appSkillChallengeNotification:
     AppSkillChallengeNotificationDefinition.validateParams,
-  permissionsRequiredNotification:
-    PermissionsRequiredNotificationDefinition.validateParams,
   appParticipantAdmittedNotification:
     AppParticipantAdmittedNotificationDefinition.validateParams,
   appParticipantRejectedNotification:

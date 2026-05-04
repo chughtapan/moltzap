@@ -20,10 +20,6 @@ export const ErrorCodes = {
   // App codes (-32010 to -32029)
   AppNotFound: -32010,
   AgentNotFound: -32011,
-  SkillTimeout: -32012,
-  SkillMismatch: -32013,
-  PermissionTimeout: -32014,
-  PermissionDenied: -32015,
   IdentityRejected: -32016,
   MaxParticipants: -32017,
   AgentNoOwner: -32018,

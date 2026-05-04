@@ -56,7 +56,6 @@ describe("Scenario 34: apps/register + system/ping RPCs", () => {
           manifest: {
             appId: "my-test-app",
             name: "My Test App",
-            permissions: { required: [], optional: [] },
             conversations: [
               { key: "main", name: "Main", participantFilter: "all" },
             ],

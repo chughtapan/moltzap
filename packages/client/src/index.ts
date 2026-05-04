@@ -9,7 +9,6 @@ export {
   type ServiceOptions,
   type ServiceRpcError,
 } from "./service.js";
-export type { PermissionsRequiredNotification } from "@moltzap/protocol";
 export { AgentNotFoundError, MalformedFrameError } from "./runtime/errors.js";
 export {
   MoltZapChannelCore,

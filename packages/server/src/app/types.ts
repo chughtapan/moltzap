@@ -15,13 +15,10 @@ import {
   type Static,
 } from "@moltzap/protocol";
 import type { Database } from "../db/database.js";
-import type { ContactService, PermissionService } from "./app-host.js";
+import type { ContactService } from "./app-host.js";
 import type { RpcFailure } from "../runtime/index.js";
 import type { UserService } from "../services/user.service.js";
-import type {
-  AsyncWebhookAdapter,
-  WebhookClient,
-} from "../adapters/webhook.js";
+import type { WebhookClient } from "../adapters/webhook.js";
 import type { Broadcaster } from "../ws/broadcaster.js";
 import type { ConnectionManager } from "../ws/connection.js";
 import type {
@@ -74,9 +71,9 @@ export interface CoreConfig {
   userService?: UserService;
   /**
    * Shared outbound HTTP client used for `MessageService.deliveryWebhook`
-   * fanout and user-side adapters (contact/permission/user services). If
-   * unset, `createCoreApp` constructs a default `new WebhookClient()`.
-   * Tests may inject a fake to intercept outbound HTTP.
+   * fanout and user-side adapters (contact/user services). If unset,
+   * `createCoreApp` constructs a default `new WebhookClient()`. Tests may
+   * inject a fake to intercept outbound HTTP.
    */
   webhookClient?: WebhookClient;
   /**
@@ -170,11 +167,6 @@ export interface CoreApp {
    */
   unregisterRemoteApp: (appId: string) => void;
   setContactService: (checker: ContactService) => void;
-  setPermissionService: (handler: PermissionService) => void;
-  setWebhookPermissionCallback: (
-    adapter: AsyncWebhookAdapter,
-    token: string,
-  ) => void;
   createAppSession: (
     appId: string,
     initiatorAgentId: string,

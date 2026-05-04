@@ -94,7 +94,6 @@ const EncryptionSection = Config.all({
 const ServicesSection = Config.all({
   users: opt(ServiceBlock.pipe(Config.nested("users"))),
   contacts: opt(ServiceBlock.pipe(Config.nested("contacts"))),
-  permissions: opt(ServiceBlock.pipe(Config.nested("permissions"))),
 });
 
 const RegistrationSection = Config.all({
@@ -119,7 +118,6 @@ export interface MoltZapAppConfig {
   services?: {
     users?: ServiceConfig;
     contacts?: ServiceConfig;
-    permissions?: ServiceConfig;
   };
   registration?: { secret?: string };
   dev_mode?: { enabled: boolean; user_id?: string };
