@@ -100,7 +100,7 @@ export const DispatchAdmissionResultSchema = Schema.Union(
   }),
 ) as Schema.Schema<DispatchAdmissionResult, unknown>;
 
-/** Fire-and-forget hooks (`on_join`, `on_close`, `on_session_active`) — any payload is ignored. */
+/** Fire-and-forget hooks (`on_close`, `on_session_active`) — any payload is ignored. */
 export const VoidHookSchema: Schema.Schema<void, unknown> = Schema.transform(
   Schema.Unknown,
   Schema.Void,
@@ -140,15 +140,6 @@ export type BeforeDispatchHook = (
   ctx: BeforeDispatchContext,
 ) => DispatchAdmissionResult | Promise<DispatchAdmissionResult>;
 
-export interface OnJoinContext {
-  conversations: Record<string, string>;
-  agent: { agentId: string; ownerId: string };
-  sessionId: string;
-  appId: string;
-}
-
-export type OnJoinHook = (ctx: OnJoinContext) => void | Promise<void>;
-
 export interface OnCloseContext {
   sessionId: string;
   appId: string;
@@ -174,7 +165,6 @@ export type OnSessionActiveHook = (
 export interface AppHooks {
   beforeMessageDelivery?: BeforeMessageDeliveryHook;
   beforeDispatch?: BeforeDispatchHook;
-  onJoin?: OnJoinHook;
   onClose?: OnCloseHook;
   onSessionActive?: OnSessionActiveHook;
 }

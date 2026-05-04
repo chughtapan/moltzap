@@ -25,7 +25,6 @@ import type {
   BeforeMessageDeliveryHook,
   BeforeDispatchHook,
   OnCloseHook,
-  OnJoinHook,
   OnSessionActiveHook,
 } from "./hooks.js";
 import type {
@@ -143,7 +142,7 @@ export interface CoreApp {
   /**
    * Register an app whose hook handlers run in a remote process,
    * connected over WebSocket. Hook RPCs (`apps/onBeforeDispatch`,
-   * `onBeforeMessageDelivery`, `onSessionActive`, `onJoin`, `onClose`)
+   * `onBeforeMessageDelivery`, `onSessionActive`, `onClose`)
    * route to `connectionId` via the server-initiated awaitable RPC
    * primitive. Verdicts decode at the WS edge into the same typed
    * shapes as in-process hooks (`DispatchAdmissionResult`, `HookResult`).
@@ -177,7 +176,6 @@ export interface CoreApp {
     handler: BeforeMessageDeliveryHook,
   ) => void;
   onBeforeDispatch: (appId: string, handler: BeforeDispatchHook) => void;
-  onAppJoin: (appId: string, handler: OnJoinHook) => void;
   onSessionClose: (appId: string, handler: OnCloseHook) => void;
   onSessionActive: (appId: string, handler: OnSessionActiveHook) => void;
   closeAppSession: (

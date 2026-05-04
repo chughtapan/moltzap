@@ -26,7 +26,6 @@ import type {
   BeforeDispatchContext,
   BeforeMessageDeliveryContext,
   OnSessionActiveContext,
-  OnJoinContext,
   OnCloseContext,
   DispatchAdmissionResult,
   HookResult,
@@ -69,7 +68,6 @@ import {
   AppsOnBeforeDispatch,
   AppsOnBeforeMessageDelivery,
   AppsOnClose,
-  AppsOnJoin,
   AppsOnSessionActive,
   AppsRegister,
   agentId,
@@ -421,7 +419,7 @@ export class MoltZapApp {
   //
   // Each `onX(handler)` registers against the corresponding app-callback
   // RPC verb (`apps/onBeforeDispatch`, `apps/onBeforeMessageDelivery`,
-  // `apps/onSessionActive`, `apps/onJoin`, `apps/onClose`). The underlying
+  // `apps/onSessionActive`, `apps/onClose`). The underlying
   // `client.handleServerRpc` decodes inbound frames against the protocol
   // schemas and writes the encoded reply back; the wrapper functions below
   // shape the user handler's `Effect<Verdict, never>` into the SDK's
@@ -429,7 +427,7 @@ export class MoltZapApp {
   //
   //   - onBeforeDispatch         handler defect → `{decision: "deny", reason: "app_handler_error"}`
   //   - onBeforeMessageDelivery  handler defect → `{block: true,  reason: "app_handler_error"}`
-  //   - on_session_active / on_join / on_close   handler defect → void; logged
+  //   - on_session_active / on_close   handler defect → void; logged
   //
   // Duplicate registration on the same hook surfaces synchronously as
   // `AppError("DUPLICATE_HOOK_HANDLER")`.
@@ -491,11 +489,6 @@ export class MoltZapApp {
     handler: (ctx: OnSessionActiveContext) => Effect.Effect<void, never>,
   ): void {
     this.registerLifecycleHandler(AppsOnSessionActive, handler);
-  }
-
-  /** Register an awaitable `on_join` lifecycle handler. */
-  onJoin(handler: (ctx: OnJoinContext) => Effect.Effect<void, never>): void {
-    this.registerLifecycleHandler(AppsOnJoin, handler);
   }
 
   /** Register an awaitable `on_close` lifecycle handler. */

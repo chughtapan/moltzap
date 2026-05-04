@@ -3,7 +3,6 @@ import {
   AppsOnBeforeDispatch,
   AppsOnBeforeMessageDelivery,
   AppsOnClose,
-  AppsOnJoin,
   AppsOnSessionActive,
   conversationId,
   jsonRpcStringId,
@@ -88,32 +87,6 @@ export function beforeMessageDelivery(
   };
 }
 
-export function onJoinParams(
-  sessionId = SESSION_A,
-): Static<typeof AppsOnJoin.paramsSchema> {
-  return {
-    sessionId,
-    appId: "test-app",
-    conversations: { main: CONV_X },
-    agent: { agentId: AGENT_A, ownerId: "owner-a" },
-  };
-}
-
-export function onJoin(
-  id: string,
-  sessionId = SESSION_A,
-): PartitionableRequest {
-  return {
-    id: jsonRpcStringId(id),
-    definition: AppsOnJoin,
-    params: onJoinParams(sessionId),
-    partition: {
-      sessionId,
-      conversationId: LIFECYCLE_CONVERSATION_SENTINEL,
-    },
-  };
-}
-
 export function onCloseParams(
   sessionId = SESSION_A,
 ): Static<typeof AppsOnClose.paramsSchema> {
@@ -167,10 +140,6 @@ export function onSessionActive(
 }
 
 export const lifecycleRequests = [
-  {
-    definition: AppsOnJoin,
-    request: (id: string, sessionId = SESSION_A) => onJoin(id, sessionId),
-  },
   {
     definition: AppsOnClose,
     request: (id: string, sessionId = SESSION_A) => onClose(id, sessionId),

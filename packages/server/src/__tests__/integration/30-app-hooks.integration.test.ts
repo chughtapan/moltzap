@@ -45,10 +45,7 @@ import {
   getKyselyDb,
 } from "./helpers.js";
 import type { CoreApp } from "../../app/types.js";
-import {
-  ErrorCodes,
-  AppHookTimeoutNotificationDefinition,
-} from "@moltzap/protocol";
+import { ErrorCodes } from "@moltzap/protocol";
 import type { ConnectedAgent } from "../../test-utils/helpers.js";
 import { expectRpcFailure } from "../../test-utils/index.js";
 
@@ -104,7 +101,6 @@ function registerTestApp(
       before_message_delivery: {
         timeout_ms: opts?.hookTimeoutMs ?? 5000,
       },
-      on_join: {},
     },
   });
 }
@@ -231,7 +227,7 @@ describe("Scenario 30: App Hooks", () => {
       }),
     );
 
-    it.live("times out, blocks the message, and emits hookTimeout event", () =>
+    it.live("times out and blocks the message", () =>
       Effect.gen(function* () {
         const agent = yield* registerAppAgent("timeout-agent");
 
@@ -252,8 +248,8 @@ describe("Scenario 30: App Hooks", () => {
         const convId = session.session.conversations["main"]!;
 
         // Fail-closed: timed-out hook blocks the send with HookBlocked.
-        // The app/hookTimeout event (asserted below) is what distinguishes
-        // a timeout from a throw — the wire code alone doesn't.
+        // `app/hookTimeout` was deleted in Phase 1D (no consumer); the
+        // surviving observable is the typed RPC failure.
         yield* expectRpcFailure(
           agent.client.sendRpc(MessagesSend, {
             conversationId: convId,
@@ -261,19 +257,6 @@ describe("Scenario 30: App Hooks", () => {
           }),
           ErrorCodes.HookBlocked,
         );
-
-        const timeoutEvent = yield* agent.client.waitForNotification(
-          AppHookTimeoutNotificationDefinition,
-          3000,
-        );
-        const data = timeoutEvent.params as {
-          sessionId: string;
-          appId: string;
-          hookName: string;
-          timeoutMs: number;
-        };
-        expect(data.hookName).toBe("before_message_delivery");
-        expect(data.timeoutMs).toBe(200);
       }),
     );
 
@@ -472,40 +455,6 @@ describe("Scenario 30: App Hooks", () => {
         // reason (vs server-synthesized fallback on timeout/throw) — so
         // asserting the message substring is wire-contract, not narrative.
         expect(rpcErr.message).toContain("policy/no-secrets");
-      }),
-    );
-  });
-
-  describe("on_join", () => {
-    it.live("fires on_join when agent is admitted to session", () =>
-      Effect.gen(function* () {
-        const initiator = yield* registerAppAgent("init-join");
-        const invitee = yield* registerAppAgent("invitee-join");
-
-        let joinFired = false;
-        let joinCtx: {
-          agent: { agentId: string };
-          conversations: Record<string, string>;
-        } | null = null;
-
-        registerTestApp(coreApp, "test-join");
-
-        coreApp.onAppJoin("test-join", (ctx) => {
-          joinFired = true;
-          joinCtx = ctx;
-        });
-
-        yield* initiator.client.sendRpc(AppsCreate, {
-          appId: "test-join",
-          invitedAgentIds: [invitee.agentId],
-        });
-
-        // Wait for async admission to complete
-        yield* Effect.promise(() => new Promise((r) => setTimeout(r, 500)));
-
-        expect(joinFired).toBe(true);
-        expect(joinCtx!.agent.agentId).toBe(invitee.agentId);
-        expect(joinCtx!.conversations).toHaveProperty("main");
       }),
     );
   });

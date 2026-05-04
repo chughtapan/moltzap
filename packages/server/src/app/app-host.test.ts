@@ -14,7 +14,6 @@ type HookRegistry = Map<
   string,
   {
     onSessionActive?: unknown;
-    onJoin?: unknown;
     onClose?: unknown;
   }
 >;
@@ -27,7 +26,7 @@ type HookRegistry = Map<
 // on a bare `AppHost` instance. No DB, no broadcaster side effects — we
 // just verify the hooks get stored on the internal Map and that
 // duplicate registration overwrites the handler (last-writer-wins, same
-// behaviour as onBeforeMessageDelivery / onAppJoin / onSessionClose).
+// behaviour as onBeforeMessageDelivery / onSessionClose).
 
 function makeAppHost(): {
   host: AppHost;
@@ -70,20 +69,17 @@ describe("AppHost.onSessionActive (registration surface)", () => {
     expect(hooks.get("app-x")?.onSessionActive).toBe(second);
   });
 
-  it("coexists with onAppJoin and onSessionClose on the same appId", () => {
+  it("coexists with onSessionClose on the same appId", () => {
     const { host } = makeAppHost();
     const active = () => {};
-    const join = () => {};
     const close = () => {};
 
-    host.onAppJoin("combo-app", join);
     host.onSessionClose("combo-app", close);
     host.onSessionActive("combo-app", active);
 
     const hooks = privateField<HookRegistry>(host, "hooks");
     const entry = hooks.get("combo-app")!;
     expect(entry.onSessionActive).toBe(active);
-    expect(entry.onJoin).toBe(join);
     expect(entry.onClose).toBe(close);
   });
 });
