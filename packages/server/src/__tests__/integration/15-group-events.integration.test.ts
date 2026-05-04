@@ -61,9 +61,9 @@ describe("Group Creation Events", () => {
           ConversationCreatedNotificationDefinition,
         );
 
-        const bobConv = (bobCreated.data as { conversation: { id: string } })
+        const bobConv = (bobCreated.params as { conversation: { id: string } })
           .conversation;
-        const eveConv = (eveCreated.data as { conversation: { id: string } })
+        const eveConv = (eveCreated.params as { conversation: { id: string } })
           .conversation;
 
         expect(bobConv.id).toBe(conv.conversation.id);

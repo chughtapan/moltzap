@@ -80,7 +80,10 @@ export const ConversationsUpdate = defineRpc({
     },
     { additionalProperties: false },
   ),
-  result: Type.Object({}, { additionalProperties: false }),
+  result: Type.Object(
+    { conversation: ConversationSchema },
+    { additionalProperties: false },
+  ),
 });
 
 export const ConversationsMute = defineRpc({
@@ -113,7 +116,10 @@ export const ConversationsAddParticipant = defineRpc({
     },
     { additionalProperties: false },
   ),
-  result: Type.Object({}, { additionalProperties: false }),
+  result: Type.Object(
+    { participant: ConversationParticipantSchema },
+    { additionalProperties: false },
+  ),
 });
 
 export const ConversationsRemoveParticipant = defineRpc({

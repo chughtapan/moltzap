@@ -818,23 +818,19 @@ function acquireAppSessionFixture(
     );
 
     const appId = `${namePrefix}-${Date.now().toString(DATE_ID_RADIX)}`;
-    const registerOutcome = yield* sendUntypedRpc(
-      appClient,
-      AppsRegister.name,
-      {
-        manifest: {
-          appId,
-          name: `Hook-gated app ${appId}`,
-          conversations: [
-            { key: "main", name: "Main", participantFilter: "all" },
-          ],
-          hooks: {
-            before_message_delivery: { timeout_ms: 5000 },
-            on_join: {},
-          },
+    const registerOutcome = yield* sendUntypedRpc(appClient, AppsRegister, {
+      manifest: {
+        appId,
+        name: `Hook-gated app ${appId}`,
+        conversations: [
+          { key: "main", name: "Main", participantFilter: "all" },
+        ],
+        hooks: {
+          before_message_delivery: { timeout_ms: 5000 },
+          on_join: {},
         },
       },
-    ).pipe(Effect.either);
+    }).pipe(Effect.either);
     yield* requireRight(registerOutcome, (error) =>
       unavailable(`apps/register failed: ${error._tag}`),
     );
@@ -914,19 +910,15 @@ function acquireAppSessionCloseFixture(
     );
 
     const appId = `close-life-${Date.now().toString(DATE_ID_RADIX)}`;
-    const registerOutcome = yield* sendUntypedRpc(
-      appClient,
-      AppsRegister.name,
-      {
-        manifest: {
-          appId,
-          name: `Close lifecycle app ${appId}`,
-          conversations: [
-            { key: "main", name: "Main", participantFilter: "all" },
-          ],
-        },
+    const registerOutcome = yield* sendUntypedRpc(appClient, AppsRegister, {
+      manifest: {
+        appId,
+        name: `Close lifecycle app ${appId}`,
+        conversations: [
+          { key: "main", name: "Main", participantFilter: "all" },
+        ],
       },
-    ).pipe(Effect.either);
+    }).pipe(Effect.either);
     yield* requireRight(registerOutcome, (error) =>
       unavailable(`apps/register failed: ${error._tag}`),
     );

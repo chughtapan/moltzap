@@ -66,7 +66,7 @@ describe("Send to Existing Conversation", () => {
           MessageReceivedNotificationDefinition,
         );
         const received = (
-          bobEvent2.data as {
+          bobEvent2.params as {
             message: {
               conversationId: string;
               parts: Array<{ text: string }>;

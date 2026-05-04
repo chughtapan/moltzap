@@ -58,7 +58,7 @@ describe("Scenario 1: Full Agent-to-Agent DM Flow", () => {
           MessageReceivedNotificationDefinition,
         );
         expect(
-          (bobEvent.data as { message: { parts: Array<{ text: string }> } })
+          (bobEvent.params as { message: { parts: Array<{ text: string }> } })
             .message.parts[0]!.text,
         ).toBe("Hello Bob!");
 
@@ -70,7 +70,7 @@ describe("Scenario 1: Full Agent-to-Agent DM Flow", () => {
           MessageReceivedNotificationDefinition,
         );
         expect(
-          (aliceEvent.data as { message: { parts: Array<{ text: string }> } })
+          (aliceEvent.params as { message: { parts: Array<{ text: string }> } })
             .message.parts[0]!.text,
         ).toBe("Hey Alice!");
 
@@ -120,11 +120,11 @@ describe("Scenario 5: Group Chat Fan-Out", () => {
         MessageReceivedNotificationDefinition,
       );
       expect(
-        (bobEvent.data as { message: { parts: Array<{ text: string }> } })
+        (bobEvent.params as { message: { parts: Array<{ text: string }> } })
           .message.parts[0]!.text,
       ).toBe("Team standup");
       expect(
-        (eveEvent.data as { message: { parts: Array<{ text: string }> } })
+        (eveEvent.params as { message: { parts: Array<{ text: string }> } })
           .message.parts[0]!.text,
       ).toBe("Team standup");
 
@@ -141,11 +141,11 @@ describe("Scenario 5: Group Chat Fan-Out", () => {
         MessageReceivedNotificationDefinition,
       );
       expect(
-        (aliceReply.data as { message: { parts: Array<{ text: string }> } })
+        (aliceReply.params as { message: { parts: Array<{ text: string }> } })
           .message.parts[0]!.text,
       ).toBe("All clear");
       expect(
-        (eveReply.data as { message: { parts: Array<{ text: string }> } })
+        (eveReply.params as { message: { parts: Array<{ text: string }> } })
           .message.parts[0]!.text,
       ).toBe("All clear");
 
@@ -185,7 +185,7 @@ describe("Regression: conversations/create subscribes connected participants", (
           MessageReceivedNotificationDefinition,
         );
         expect(
-          (msgEvent.data as { message: { parts: Array<{ text: string }> } })
+          (msgEvent.params as { message: { parts: Array<{ text: string }> } })
             .message.parts[0]!.text,
         ).toBe("No reconnect needed");
 
@@ -217,8 +217,8 @@ describe("Regression: waitForNotification does not double-consume buffered event
           MessageReceivedNotificationDefinition,
         );
         expect(
-          (msg1.data as { message: { parts: Array<{ text: string }> } }).message
-            .parts[0]!.text,
+          (msg1.params as { message: { parts: Array<{ text: string }> } })
+            .message.parts[0]!.text,
         ).toBe("First");
 
         // Set up waiter for second message — must NOT return "First" again
@@ -230,8 +230,8 @@ describe("Regression: waitForNotification does not double-consume buffered event
           MessageReceivedNotificationDefinition,
         );
         expect(
-          (msg2.data as { message: { parts: Array<{ text: string }> } }).message
-            .parts[0]!.text,
+          (msg2.params as { message: { parts: Array<{ text: string }> } })
+            .message.parts[0]!.text,
         ).toBe("Second");
 
         yield* alice.client.close();

@@ -232,26 +232,20 @@ export function registerAppDisconnectFailPolicy(
         const appId = `adfp-${Date.now().toString(DATE_ID_RADIX)}`;
         // `apps/register` is server-handled but absent from the typed
         // `rpcMethods` registry today (see `rpc-registry.ts:60-118`);
-        // app-sdk and `34-rpc-additions.integration.test.ts:48` use the
-        // same untyped-cast path. Adding it to the registry is an
-        // accretive change outside this sub-issue's scope.
-        const registerOutcome = yield* sendUntypedRpc(
-          appClient,
-          AppsRegister.name,
-          {
-            manifest: {
-              appId,
-              name: `Disconnect-fail app ${appId}`,
-              conversations: [
-                { key: "main", name: "Main", participantFilter: "all" },
-              ],
-              hooks: {
-                before_dispatch: { timeout_ms: 5000 },
-                before_message_delivery: { timeout_ms: 5000 },
-              },
+        // `sendUntypedRpc` localizes the descriptor pass-through.
+        const registerOutcome = yield* sendUntypedRpc(appClient, AppsRegister, {
+          manifest: {
+            appId,
+            name: `Disconnect-fail app ${appId}`,
+            conversations: [
+              { key: "main", name: "Main", participantFilter: "all" },
+            ],
+            hooks: {
+              before_dispatch: { timeout_ms: 5000 },
+              before_message_delivery: { timeout_ms: 5000 },
             },
           },
-        ).pipe(Effect.either);
+        }).pipe(Effect.either);
         const registerFailure = leftOrNull(registerOutcome);
         if (registerFailure !== null) {
           yield* Scope.close(appScope, Exit.void);

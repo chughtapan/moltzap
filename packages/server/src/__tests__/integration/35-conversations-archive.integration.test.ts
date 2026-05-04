@@ -60,7 +60,7 @@ describe("conversations/archive + /unarchive", () => {
       const eveArchived = yield* eve.client.waitForNotification(
         ConversationArchivedNotificationDefinition,
       );
-      const bobData = bobArchived.data as {
+      const bobData = bobArchived.params as {
         conversationId: string;
         archivedAt: string;
         by: string;
@@ -68,7 +68,7 @@ describe("conversations/archive + /unarchive", () => {
       expect(bobData.conversationId).toBe(conversationId);
       expect(bobData.by).toBe(alice.agentId);
       expect(typeof bobData.archivedAt).toBe("string");
-      expect((eveArchived.data as { by: string }).by).toBe(alice.agentId);
+      expect((eveArchived.params as { by: string }).by).toBe(alice.agentId);
 
       const listDefault = (yield* bob.client.sendRpc(
         ConversationsList,
@@ -98,7 +98,7 @@ describe("conversations/archive + /unarchive", () => {
         ConversationUnarchivedNotificationDefinition,
       );
       expect(
-        (bobUnarchived.data as { conversationId: string }).conversationId,
+        (bobUnarchived.params as { conversationId: string }).conversationId,
       ).toBe(conversationId);
 
       const listAfter = (yield* bob.client.sendRpc(ConversationsList, {})) as {

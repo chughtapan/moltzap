@@ -94,7 +94,7 @@ describe("Reconnection", () => {
             MessageReceivedNotificationDefinition,
           );
           const received = (
-            aliceEvent.data as { message: { parts: Array<{ text: string }> } }
+            aliceEvent.params as { message: { parts: Array<{ text: string }> } }
           ).message;
           expect(received.parts[0]!.text).toBe("I am back online");
         } finally {

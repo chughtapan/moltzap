@@ -16,7 +16,11 @@ import {
   type ServerTestClient,
 } from "./helpers.js";
 
-import { AppsCreate } from "@moltzap/protocol";
+import {
+  AppsCreate,
+  AppSessionFailedNotificationDefinition,
+  AppSessionReadyNotificationDefinition,
+} from "@moltzap/protocol";
 
 let db: Kysely<Database>;
 
@@ -88,7 +92,7 @@ describe("Session failure state", () => {
         AppSessionFailedNotificationDefinition,
         5000,
       );
-      expect(event.data).toHaveProperty("sessionId");
+      expect(event.params).toHaveProperty("sessionId");
 
       // The DB update is async (fire-and-forget from checkDone), give it a moment
       yield* Effect.promise(() => new Promise((r) => setTimeout(r, 200)));
@@ -97,7 +101,7 @@ describe("Session failure state", () => {
         db
           .selectFrom("app_sessions")
           .select("status")
-          .where("id", "=", (event.data as { sessionId: string }).sessionId)
+          .where("id", "=", (event.params as { sessionId: string }).sessionId)
           .executeTakeFirst(),
       );
       expect(session?.status).toBe("failed");
@@ -129,8 +133,8 @@ describe("Session failure state", () => {
         AppSessionReadyNotificationDefinition,
         5000,
       );
-      expect(event.data).toHaveProperty("sessionId");
-      expect(event.data).toHaveProperty("conversations");
+      expect(event.params).toHaveProperty("sessionId");
+      expect(event.params).toHaveProperty("conversations");
 
       yield* alice.client.close();
       yield* bob.client.close();
@@ -162,7 +166,7 @@ describe("Session failure state", () => {
         AppSessionReadyNotificationDefinition,
         5000,
       );
-      const sessionId = (event.data as { sessionId: string }).sessionId;
+      const sessionId = (event.params as { sessionId: string }).sessionId;
       expect(sessionId).toBeDefined();
 
       // sessionReady event means at least one agent was admitted — status update is async
