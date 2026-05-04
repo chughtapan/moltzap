@@ -30,21 +30,21 @@ describe("messages list", () => {
     // `MessageSchema` field is present (including `conversationId`).
     // `senderName` is the CLI display fallback the handler reads; it is
     // not part of `MessageSchema` itself (see WireMessage in messages.ts).
+    const SENDER_A = "00000000-0000-4000-8000-0000000000a1";
+    const SENDER_B = "00000000-0000-4000-8000-0000000000b1";
     const { calls, transport } = makeFakeTransport(() => ({
       messages: [
         {
-          id: "m1",
-          conversationId: "c1",
-          senderId: "a1",
-          senderName: "alice",
+          id: "00000000-0000-4000-8000-00000000000a",
+          conversationId: "00000000-0000-4000-8000-00000000000c",
+          senderId: SENDER_A,
           createdAt: "2026-04-24T00:00:00Z",
           parts: [{ type: "text", text: "hello" }],
         },
         {
-          id: "m2",
-          conversationId: "c1",
-          senderId: "b1",
-          senderName: "bob",
+          id: "00000000-0000-4000-8000-00000000000b",
+          conversationId: "00000000-0000-4000-8000-00000000000c",
+          senderId: SENDER_B,
           createdAt: "2026-04-24T00:00:01Z",
           parts: [{ type: "text", text: "hi" }],
         },
@@ -52,13 +52,17 @@ describe("messages list", () => {
       hasMore: false,
     }));
     await Effect.runPromise(
-      messagesListHandler({ conversationId: "c1", limit: 50 }).pipe(
-        Effect.provideService(Transport, transport),
-      ),
+      messagesListHandler({
+        conversationId: "00000000-0000-4000-8000-00000000000c",
+        limit: 50,
+      }).pipe(Effect.provideService(Transport, transport)),
     );
     expect(calls[0]).toEqual({
       method: MessagesList.name,
-      params: { conversationId: "c1", limit: 50 },
+      params: {
+        conversationId: "00000000-0000-4000-8000-00000000000c",
+        limit: 50,
+      },
     });
     expect(stdout).toHaveBeenCalledTimes(2);
     // Regression #216: first column is `createdAt`, never `undefined`.
@@ -66,7 +70,7 @@ describe("messages list", () => {
     // `m.seq` as the literal "undefined" in the leading column.
     const firstLine = String(stdout.mock.calls[0]?.[0] ?? "");
     expect(firstLine.startsWith("undefined\t")).toBe(false);
-    expect(firstLine).toBe("2026-04-24T00:00:00Z\talice\thello");
+    expect(firstLine).toBe(`2026-04-24T00:00:00Z\t${SENDER_A}\thello`);
   });
 
   it("omits limit when absent", async () => {
@@ -75,19 +79,21 @@ describe("messages list", () => {
       hasMore: false,
     }));
     await Effect.runPromise(
-      messagesListHandler({ conversationId: "c1" }).pipe(
-        Effect.provideService(Transport, transport),
-      ),
+      messagesListHandler({
+        conversationId: "00000000-0000-4000-8000-00000000000c",
+      }).pipe(Effect.provideService(Transport, transport)),
     );
-    expect(calls[0]?.params).toEqual({ conversationId: "c1" });
+    expect(calls[0]?.params).toEqual({
+      conversationId: "00000000-0000-4000-8000-00000000000c",
+    });
   });
 
   it("surfaces TransportRpcError", async () => {
     const { transport } = makeFakeTransport(() => new Error("fail"));
     const result = await Effect.runPromiseExit(
-      messagesListHandler({ conversationId: "c1" }).pipe(
-        Effect.provideService(Transport, transport),
-      ),
+      messagesListHandler({
+        conversationId: "00000000-0000-4000-8000-00000000000c",
+      }).pipe(Effect.provideService(Transport, transport)),
     );
     expect(result._tag).toBe("Failure");
   });

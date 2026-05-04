@@ -57,7 +57,7 @@ describe("Presence Lifecycle", () => {
       const event = yield* alice.client.waitForNotification(
         PresenceChangedNotificationDefinition,
       );
-      const data = event.data as {
+      const data = event.params as {
         agentId: string;
         status: string;
       };
@@ -80,21 +80,23 @@ describe("Presence Lifecycle", () => {
       const awayEvent = yield* alice.client.waitForNotification(
         PresenceChangedNotificationDefinition,
       );
-      expect((awayEvent.data as { status: string }).status).toBe("away");
+      expect((awayEvent.params as { status: string }).status).toBe("away");
 
       // back online
       yield* bob.client.sendRpc(PresenceUpdate, { status: "online" });
       const onlineEvent = yield* alice.client.waitForNotification(
         PresenceChangedNotificationDefinition,
       );
-      expect((onlineEvent.data as { status: string }).status).toBe("online");
+      expect((onlineEvent.params as { status: string }).status).toBe("online");
 
       // offline
       yield* bob.client.sendRpc(PresenceUpdate, { status: "offline" });
       const offlineEvent = yield* alice.client.waitForNotification(
         PresenceChangedNotificationDefinition,
       );
-      expect((offlineEvent.data as { status: string }).status).toBe("offline");
+      expect((offlineEvent.params as { status: string }).status).toBe(
+        "offline",
+      );
     }),
   );
 
@@ -121,7 +123,7 @@ describe("Presence Lifecycle", () => {
         const event = yield* watcher.client.waitForNotification(
           PresenceChangedNotificationDefinition,
         );
-        const data = event.data as { agentId: string; status: string };
+        const data = event.params as { agentId: string; status: string };
         expect(data.agentId).toBe(target.agentId);
         expect(data.status).toBe("online");
       }),
@@ -142,7 +144,7 @@ describe("Presence Lifecycle", () => {
       const event = yield* watcher.client.waitForNotification(
         PresenceChangedNotificationDefinition,
       );
-      const data = event.data as { agentId: string; status: string };
+      const data = event.params as { agentId: string; status: string };
       expect(data.agentId).toBe(target.agentId);
       expect(data.status).toBe("offline");
     }),

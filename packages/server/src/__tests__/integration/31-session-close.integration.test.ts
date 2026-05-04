@@ -118,7 +118,7 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
           AppHookTimeoutNotificationDefinition,
           3000,
         );
-        const data = timeoutEvent.data as {
+        const data = timeoutEvent.params as {
           sessionId: string;
           appId: string;
           hookName: string;
@@ -158,7 +158,7 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
           AppHookTimeoutNotificationDefinition,
           3000,
         );
-        const data = timeoutEvent.data as {
+        const data = timeoutEvent.params as {
           sessionId: string;
           appId: string;
           hookName: string;
@@ -352,14 +352,14 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
             3000,
           );
 
-          const initData = initEvent.data as {
+          const initData = initEvent.params as {
             sessionId: string;
             closedBy: string;
           };
           expect(initData.sessionId).toBe(session.session.id);
           expect(initData.closedBy).toBe(initiator.agentId);
 
-          const invData = invEvent.data as {
+          const invData = invEvent.params as {
             sessionId: string;
             closedBy: string;
           };
@@ -397,13 +397,13 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
           3000,
         );
         expect(
-          (archived.data as { conversationId: string }).conversationId,
+          (archived.params as { conversationId: string }).conversationId,
         ).toBe(convId);
         const closed = yield* invitee.client.waitForNotification(
           AppSessionClosedNotificationDefinition,
           3000,
         );
-        expect((closed.data as { sessionId: string }).sessionId).toBe(
+        expect((closed.params as { sessionId: string }).sessionId).toBe(
           session.session.id,
         );
       }),

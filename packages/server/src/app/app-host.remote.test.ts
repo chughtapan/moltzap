@@ -130,13 +130,21 @@ const baseManifest = (appId: string, hookTimeoutMs?: number): AppManifest => ({
     : undefined,
 });
 
+const FIXTURE_CONVERSATION_ID = "00000000-0000-4000-8000-000000000c01";
+const FIXTURE_AGENT_RECIPIENT = "00000000-0000-4000-8000-000000000a01";
+const FIXTURE_AGENT_SENDER = "00000000-0000-4000-8000-000000000a02";
+const FIXTURE_AGENT_JOINER = "00000000-0000-4000-8000-000000000a03";
+const FIXTURE_AGENT_CLOSER = "00000000-0000-4000-8000-000000000a04";
+const FIXTURE_AGENT_ADMITTED = "00000000-0000-4000-8000-000000000a05";
+const FIXTURE_MESSAGE_ID = "00000000-0000-4000-8000-000000000201";
+
 const baseBeforeDispatchCtx = (
   appId: string,
   sessionId: string,
 ): BeforeDispatchContext => ({
-  conversationId: "conv-1",
-  recipient: { agentId: "agent-recipient", ownerId: "owner-r" },
-  message: { id: "msg-1", senderAgentId: "agent-sender" },
+  conversationId: FIXTURE_CONVERSATION_ID,
+  recipient: { agentId: FIXTURE_AGENT_RECIPIENT, ownerId: "owner-r" },
+  message: { id: FIXTURE_MESSAGE_ID, senderAgentId: FIXTURE_AGENT_SENDER },
   sessionId,
   appId,
   attempt: 0,
@@ -147,8 +155,8 @@ const baseBeforeMessageDeliveryCtx = (
   appId: string,
   sessionId: string,
 ): BeforeMessageDeliveryContext => ({
-  conversationId: "conv-1",
-  sender: { agentId: "agent-sender", ownerId: "owner-s" },
+  conversationId: FIXTURE_CONVERSATION_ID,
+  sender: { agentId: FIXTURE_AGENT_SENDER, ownerId: "owner-s" },
   message: { parts: [{ type: "text", text: "hi" }] },
   sessionId,
   appId,
@@ -161,23 +169,23 @@ const baseOnSessionActiveCtx = (
 ): OnSessionActiveContext => ({
   sessionId,
   appId,
-  conversations: { main: "conv-1" },
-  admittedAgentIds: ["agent-1"],
+  conversations: { main: FIXTURE_CONVERSATION_ID },
+  admittedAgentIds: [FIXTURE_AGENT_ADMITTED],
   signal: new AbortController().signal,
 });
 
 const baseOnJoinCtx = (appId: string, sessionId: string): OnJoinContext => ({
   sessionId,
   appId,
-  conversations: { main: "conv-1" },
-  agent: { agentId: "agent-joiner", ownerId: "owner-j" },
+  conversations: { main: FIXTURE_CONVERSATION_ID },
+  agent: { agentId: FIXTURE_AGENT_JOINER, ownerId: "owner-j" },
 });
 
 const baseOnCloseCtx = (appId: string, sessionId: string): OnCloseContext => ({
   sessionId,
   appId,
-  conversations: { main: "conv-1" },
-  closedBy: { agentId: "agent-closer", ownerId: "owner-c" },
+  conversations: { main: FIXTURE_CONVERSATION_ID },
+  closedBy: { agentId: FIXTURE_AGENT_CLOSER, ownerId: "owner-c" },
   signal: new AbortController().signal,
 });
 
@@ -542,7 +550,7 @@ describe("AppHost remote dispatch — apps/onBeforeDispatch", () => {
         );
         expect(hookTimeoutEvents.length).toBeGreaterThan(0);
         const ev = hookTimeoutEvents[0]!;
-        expect(ev.agentId).toBe("agent-recipient");
+        expect(ev.agentId).toBe(FIXTURE_AGENT_RECIPIENT);
         expect((ev.event as { data: { hookName: string } }).data.hookName).toBe(
           "before_dispatch",
         );

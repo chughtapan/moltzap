@@ -266,7 +266,7 @@ describe("Scenario 30: App Hooks", () => {
           AppHookTimeoutNotificationDefinition,
           3000,
         );
-        const data = timeoutEvent.data as {
+        const data = timeoutEvent.params as {
           sessionId: string;
           appId: string;
           hookName: string;

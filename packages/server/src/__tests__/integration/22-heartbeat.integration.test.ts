@@ -52,7 +52,7 @@ describe("Heartbeat / Idle Connection", () => {
         MessageReceivedNotificationDefinition,
       );
       const received = (
-        bobEvent.data as { message: { parts: Array<{ text: string }> } }
+        bobEvent.params as { message: { parts: Array<{ text: string }> } }
       ).message;
       expect(received.parts[0]!.text).toBe("Still alive after idle");
 
@@ -66,7 +66,7 @@ describe("Heartbeat / Idle Connection", () => {
         MessageReceivedNotificationDefinition,
       );
       const aliceReceived = (
-        aliceEvent.data as { message: { parts: Array<{ text: string }> } }
+        aliceEvent.params as { message: { parts: Array<{ text: string }> } }
       ).message;
       expect(aliceReceived.parts[0]!.text).toBe("Reply after idle");
     }),

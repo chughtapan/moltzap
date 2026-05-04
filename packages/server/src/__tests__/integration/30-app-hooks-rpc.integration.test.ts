@@ -193,24 +193,24 @@ function registerAppClient(opts: {
     const h = opts.handlers;
 
     yield* client.handleServerRpc(
-      AppsOnBeforeDispatch.name,
+      AppsOnBeforeDispatch,
       h.onBeforeDispatch ??
         (() => Effect.succeed({ admission: { decision: "grant" as const } })),
     );
     yield* client.handleServerRpc(
-      AppsOnBeforeMessageDelivery.name,
+      AppsOnBeforeMessageDelivery,
       h.onBeforeMessageDelivery ?? (() => Effect.succeed({ block: false })),
     );
     yield* client.handleServerRpc(
-      AppsOnSessionActive.name,
+      AppsOnSessionActive,
       h.onSessionActive ?? (() => Effect.succeed({})),
     );
     yield* client.handleServerRpc(
-      AppsOnJoin.name,
+      AppsOnJoin,
       h.onJoin ?? (() => Effect.succeed({})),
     );
     yield* client.handleServerRpc(
-      AppsOnClose.name,
+      AppsOnClose,
       h.onClose ?? (() => Effect.succeed({})),
     );
 
@@ -745,7 +745,7 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
           AppHookTimeoutNotificationDefinition,
           3000,
         );
-        const data = timeoutEvent.data as {
+        const data = timeoutEvent.params as {
           sessionId: string;
           appId: string;
           hookName: string;

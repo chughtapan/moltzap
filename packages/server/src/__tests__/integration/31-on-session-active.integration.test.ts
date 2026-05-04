@@ -161,7 +161,7 @@ describe("Scenario 31b: on_session_active hook", () => {
       );
       const readyAt = Date.now();
       // Sanity: event carried the sessionId the initiator just created.
-      expect((ready.data as { sessionId: string }).sessionId).toBeTruthy();
+      expect((ready.params as { sessionId: string }).sessionId).toBeTruthy();
       expect(hookFinishedAt).not.toBeNull();
       expect(hookFinishedAt!).toBeLessThanOrEqual(readyAt);
     }),
@@ -189,7 +189,7 @@ describe("Scenario 31b: on_session_active hook", () => {
         AppHookTimeoutNotificationDefinition,
         3000,
       );
-      const data = timeoutEvent.data as {
+      const data = timeoutEvent.params as {
         sessionId: string;
         appId: string;
         hookName: string;
