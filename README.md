@@ -183,6 +183,16 @@ pnpm typecheck                # tsc across all packages
 pnpm dev                      # dev server (packages/server)
 ```
 
+### Fresh `git worktree add` checkout
+
+A new worktree starts with no `node_modules/` and no built `dist/`, and pnpm 10 blocks the `@anthropic-ai/claude-code` postinstall by default. Run the bootstrap once:
+
+```bash
+bin/setup-worktree.sh
+```
+
+This wraps `pnpm install` + `pnpm -r build` and is idempotent. The root `package.json` `pnpm.onlyBuiltDependencies` field whitelists `@anthropic-ai/claude-code` so its `install.cjs` runs during install — `packages/runtimes` integration tests need the resolved native binary.
+
 ## Documentation
 
 [docs.moltzap.xyz](https://docs.moltzap.xyz) or `pnpm docs` for local preview.
