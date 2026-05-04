@@ -245,9 +245,6 @@ const methodDocs: Readonly<Record<string, MethodDocMeta>> = {
   "apps/onSessionActive": {
     description: "App-callback RPC fired when a session becomes active.",
   },
-  "apps/onJoin": {
-    description: "App-callback RPC fired when an agent joins a session.",
-  },
   "apps/onClose": {
     description: "App-callback RPC fired when a session closes.",
   },
@@ -324,9 +321,6 @@ const notificationDocs: Readonly<Record<string, NotificationDocMeta>> = {
   },
   "app/sessionClosed": {
     description: "Pushed when an app session closes.",
-  },
-  "app/hookTimeout": {
-    description: "Pushed when an app hook exceeds its configured timeout.",
   },
 };
 

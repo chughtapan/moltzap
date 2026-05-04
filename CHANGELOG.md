@@ -14,16 +14,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   registers handlers for descriptor-backed app-callback requests; the
   server allocates a `Deferred` per outbound request and finalizes pending
   Deferreds with `AppDisconnected` on connection scope close.
-- Five app-callback RPC descriptors for app hooks:
+- Four app-callback RPC descriptors for app hooks:
   `apps/onBeforeDispatch`, `apps/onBeforeMessageDelivery`,
-  `apps/onSessionActive`, `apps/onJoin`, `apps/onClose`. All five are
+  `apps/onSessionActive`, `apps/onClose`. All four are
   awaitable; the lifecycle verbs reply with `{}` so the AppHost's
   `Effect.timeout(manifestMs)` applies and `app/sessionReady` ordering
   is preserved.
 - New RPC descriptor `apps/attachConversation` for adding an existing
   conversation to a session's membership pipeline.
 - `MoltZapApp.onBeforeDispatch`, `onBeforeMessageDelivery`,
-  `onSessionActive`, `onJoin`, `onClose`, and `attachConversation`
+  `onSessionActive`, `onClose`, and `attachConversation`
   on the app-sdk surface. Each `onX` registers a handler against the
   matching app-callback RPC descriptor; duplicate registration throws
   `AppError("DUPLICATE_HOOK_HANDLER")`.
@@ -46,11 +46,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   clients or servers that hand-craft JSON envelopes must use
   `{ jsonrpc, id, method, params }`, `{ jsonrpc, id, result/error }`,
   and `{ jsonrpc, method, params }`.
-- `app/hookTimeout` notification schema (`packages/protocol/src/schema/notifications.ts`):
-  `hookName` enum extended to
-  `["before_message_delivery", "before_dispatch", "on_join", "on_session_active", "on_close"]`.
-  AppHost emits the notification for all five hook kinds; the schema previously
-  rejected `before_dispatch` and `on_session_active`.
 - AppHost composes hooks with `Effect.forEach` in registration-order
   FIFO with first-deny short-circuit. Hook signatures unified to
   `Effect<Verdict, never>` regardless of source (in-process or remote).
@@ -67,6 +62,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **BREAKING (Phase 1D):** `apps/onJoin` app-callback RPC + `OnJoinContext`
+  schema + `MoltZapApp.onJoin()` SDK method. No consumer ever registered
+  the hook (verified against werewolf manifest); plan §1.6 / §2.4. The
+  schema also rejects `manifest.hooks.on_join` so apps that try to
+  declare it now fail at parse time.
+- **BREAKING (Phase 1D):** `app/hookTimeout` notification + every server
+  emission site. No subscriber existed; surviving hook helpers still log
+  warnings via `Effect.logWarning` on timeout.
 - **BREAKING:** Boot-time `seed:` config block and the `seedAgentsEffect`
   task it drove. Yaml-configured agents (e.g., `seed.agents: [{ name:
   alice }]`) are no longer minted at standalone-server startup; the

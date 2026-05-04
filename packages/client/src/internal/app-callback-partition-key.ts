@@ -35,7 +35,7 @@ export class PartitionKeyInvariantError extends Data.TaggedError(
 
 /**
  * Sentinel placeholder for appCallback methods that carry no `conversationId`
- * (lifecycle: `apps/onJoin`, `apps/onClose`, `apps/onSessionActive`).
+ * (lifecycle: `apps/onClose`, `apps/onSessionActive`).
  * All lifecycle calls for the same `(sessionId, method)` share one
  * partition; cross-method lifecycle ordering is preserved by the server,
  * not the client.

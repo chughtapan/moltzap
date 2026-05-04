@@ -183,7 +183,6 @@ describe("conversations/archive + /unarchive", () => {
         ],
         hooks: {
           before_message_delivery: { timeout_ms: 5000 },
-          on_join: {},
           on_close: { timeout_ms: 5000 },
         },
       });

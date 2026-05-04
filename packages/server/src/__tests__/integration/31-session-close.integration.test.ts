@@ -17,7 +17,6 @@ import {
   ConversationArchivedNotificationDefinition,
   AppParticipantAdmittedNotificationDefinition,
   AppSessionClosedNotificationDefinition,
-  AppHookTimeoutNotificationDefinition,
 } from "@moltzap/protocol";
 import type { ConnectedAgent } from "../../test-utils/helpers.js";
 import { expectRpcFailure } from "../../test-utils/index.js";
@@ -74,7 +73,6 @@ function registerTestApp(
       before_message_delivery: {
         timeout_ms: opts?.hookTimeoutMs ?? 5000,
       },
-      on_join: {},
       on_close: {
         timeout_ms: opts?.onCloseTimeoutMs ?? 5000,
       },
@@ -83,94 +81,8 @@ function registerTestApp(
 }
 
 describe("Scenario 31: Session Close + Conversation Archival", () => {
-  describe("hookTimeout observability", () => {
-    it.live("emits app/hookTimeout on before_message_delivery timeout", () =>
-      Effect.gen(function* () {
-        const agent = yield* registerAppAgent("bmd-timeout");
-
-        registerTestApp(coreApp, "bmd-timeout-app", { hookTimeoutMs: 200 });
-
-        coreApp.onBeforeMessageDelivery("bmd-timeout-app", async () => {
-          await new Promise((r) => setTimeout(r, 1000));
-          return { block: true, reason: "never" };
-        });
-
-        const session = (yield* agent.client.sendRpc(AppsCreate, {
-          appId: "bmd-timeout-app",
-          invitedAgentIds: [],
-        })) as {
-          session: { id: string; conversations: Record<string, string> };
-        };
-
-        const convId = session.session.conversations["main"]!;
-
-        // Fail-closed: send rejects with HookBlocked. The app/hookTimeout
-        // event asserted below is what distinguishes timeout from throw.
-        yield* expectRpcFailure(
-          agent.client.sendRpc(MessagesSend, {
-            conversationId: convId,
-            parts: [{ type: "text", text: "trigger timeout" }],
-          }),
-          ErrorCodes.HookBlocked,
-        );
-
-        const timeoutEvent = yield* agent.client.waitForNotification(
-          AppHookTimeoutNotificationDefinition,
-          3000,
-        );
-        const data = timeoutEvent.params as {
-          sessionId: string;
-          appId: string;
-          hookName: string;
-          timeoutMs: number;
-        };
-        expect(data.sessionId).toBe(session.session.id);
-        expect(data.appId).toBe("bmd-timeout-app");
-        expect(data.hookName).toBe("before_message_delivery");
-        expect(data.timeoutMs).toBe(200);
-      }),
-    );
-
-    it.live("emits app/hookTimeout on on_close timeout", () =>
-      Effect.gen(function* () {
-        const agent = yield* registerAppAgent("close-timeout");
-
-        registerTestApp(coreApp, "close-timeout-app", {
-          onCloseTimeoutMs: 200,
-        });
-
-        coreApp.onSessionClose("close-timeout-app", async () => {
-          await new Promise((r) => setTimeout(r, 1000));
-        });
-
-        const session = (yield* agent.client.sendRpc(AppsCreate, {
-          appId: "close-timeout-app",
-          invitedAgentIds: [],
-        })) as {
-          session: { id: string; conversations: Record<string, string> };
-        };
-
-        yield* agent.client.sendRpc(AppsCloseSession, {
-          sessionId: session.session.id,
-        });
-
-        const timeoutEvent = yield* agent.client.waitForNotification(
-          AppHookTimeoutNotificationDefinition,
-          3000,
-        );
-        const data = timeoutEvent.params as {
-          sessionId: string;
-          appId: string;
-          hookName: string;
-          timeoutMs: number;
-        };
-        expect(data.sessionId).toBe(session.session.id);
-        expect(data.appId).toBe("close-timeout-app");
-        expect(data.hookName).toBe("on_close");
-        expect(data.timeoutMs).toBe(200);
-      }),
-    );
-  });
+  // hookTimeout observability tests removed — `app/hookTimeout` was
+  // deleted in Phase 1D (no consumer registered).
 
   describe("closeSession", () => {
     it.live("closes session, archives conversations, sets closed_at", () =>
@@ -325,8 +237,6 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
 
           registerTestApp(coreApp, "close-broadcast-app");
 
-          coreApp.onAppJoin("close-broadcast-app", () => {});
-
           const session = (yield* initiator.client.sendRpc(AppsCreate, {
             appId: "close-broadcast-app",
             invitedAgentIds: [invitee.agentId],
@@ -373,7 +283,6 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
         const invitee = yield* registerAppAgent("close-archive-inv");
 
         registerTestApp(coreApp, "close-archive-app");
-        coreApp.onAppJoin("close-archive-app", () => {});
 
         const session = (yield* initiator.client.sendRpc(AppsCreate, {
           appId: "close-archive-app",
@@ -606,7 +515,6 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
         const invitee = yield* registerAppAgent("get-part-inv");
 
         registerTestApp(coreApp, "get-part-app");
-        coreApp.onAppJoin("get-part-app", () => {});
 
         const session = (yield* initiator.client.sendRpc(AppsCreate, {
           appId: "get-part-app",

@@ -93,7 +93,7 @@ ws.on("message", (data) => {
   audit fanout)
 
 App-side hooks (`before_dispatch`, `before_message_delivery`,
-`on_session_active`, `on_join`, `on_close`) dispatch over the same
+`on_session_active`, `on_close`) dispatch over the same
 WebSocket the app already speaks, NOT via manifest webhook URLs. The
 legacy hook-side webhook surface is removed in Phase 1; see
 [`docs/guides/app-hooks-rpc.mdx`](docs/guides/app-hooks-rpc.mdx) and
@@ -116,7 +116,7 @@ server:
 # integration surfaces (user validation, contact resolution) — NOT
 # app-side hooks. App hooks now dispatch over the WebSocket via
 # @moltzap/app-sdk's onBeforeDispatch / onBeforeMessageDelivery /
-# onSessionActive / onJoin / onClose handlers.
+# onSessionActive / onClose handlers.
 # services:
 #   users:
 #     type: webhook

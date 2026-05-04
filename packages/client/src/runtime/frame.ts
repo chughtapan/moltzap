@@ -6,7 +6,6 @@ import {
   AppsOnBeforeDispatch,
   AppsOnBeforeMessageDelivery,
   AppsOnClose,
-  AppsOnJoin,
   AppsOnSessionActive,
   appCallbackRpcGroup,
   decodeRpcRequest,
@@ -165,9 +164,6 @@ const appCallbackPartitionRoute = (
     });
   }
   if (isDecodedRpcRequest(AppsOnSessionActive, request)) {
-    return Effect.succeed(lifecycleRoute(request.params.sessionId));
-  }
-  if (isDecodedRpcRequest(AppsOnJoin, request)) {
     return Effect.succeed(lifecycleRoute(request.params.sessionId));
   }
   if (isDecodedRpcRequest(AppsOnClose, request)) {

@@ -47,7 +47,6 @@ export type {
   AppSessionReadyNotification,
   AppSessionFailedNotification,
   AppSessionClosedNotification,
-  AppHookTimeoutNotification,
 } from "./schema/notifications.js";
 
 // RPC manifest-derived params/results aren't re-exported here; downstream

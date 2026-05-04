@@ -11,12 +11,12 @@ lifecycle. Hooks fire when:
 - a message is about to be dispatched to a recipient (`before_dispatch`),
 - a message is about to be delivered to a recipient (`before_message_delivery`),
 - a session becomes active (`on_session_active`),
-- an agent joins or leaves a session (`on_join`, `on_close`).
+- a session closes (`on_close`).
 
 Hooks dispatch over MoltZap's server-initiated awaitable RPC channel.
 The app keeps one WebSocket open. The server sends `apps/onBeforeDispatch`,
-`apps/onBeforeMessageDelivery`, `apps/onSessionActive`, `apps/onJoin`, and
-`apps/onClose` requests inline; the app replies on the same connection.
+`apps/onBeforeMessageDelivery`, `apps/onSessionActive`, and `apps/onClose`
+requests inline; the app replies on the same connection.
 No separate HTTPS endpoint, no manifest webhook URLs.
 
 The legacy webhook surface (`manifest.hooks.<name>.webhook`,
@@ -132,7 +132,7 @@ app.onBeforeMessageDelivery((ctx): Effect.Effect<HookResult, never> => {
 
 ### Lifecycle hooks → empty result
 
-`on_session_active`, `on_join`, and `on_close` reply with `{}`. They are
+`on_session_active` and `on_close` reply with `{}`. They are
 awaitable (so the AppHost's `Effect.timeout(manifestMs)` applies and
 `app/sessionReady` ordering is preserved), but there is no verdict — you
 do work, then return.
@@ -160,12 +160,12 @@ failure mode so observability tooling can branch.
 | `before_message_delivery` | timeout (manifest `timeout_ms`) | `{ block: true, reason: "before_message_delivery hook timed out" }` |
 | `before_message_delivery` | RPC error / app disconnect | `{ block: true, reason: "before_message_delivery hook error" }` |
 | `before_message_delivery` | SDK-side handler defect (handler threw) | `{ block: true, reason: "app_handler_error" }` |
-| `on_session_active` | timeout, throw, RPC error | log + emit `app/hookTimeout`; treat hook as completed (fail-open) |
-| `on_join` | timeout, throw, RPC error | log + emit `app/hookTimeout`; treat hook as completed (fail-open) |
-| `on_close` | timeout, throw, RPC error | log + emit `app/hookTimeout`; treat hook as completed (fail-open) |
+| `on_session_active` | timeout, throw, RPC error | log warning; treat hook as completed (fail-open) |
+| `on_close` | timeout, throw, RPC error | log warning; treat hook as completed (fail-open) |
 
 The two admission hooks (`before_dispatch`, `before_message_delivery`)
-are fail-CLOSED. The three lifecycle hooks (`on_*`) are fail-open.
+are fail-CLOSED. The two lifecycle hooks (`on_session_active`, `on_close`)
+are fail-open.
 
 Server-side timeouts and RPC errors are surfaced by the AppHost; the
 SDK-side `app_handler_error` reason fires when the handler you
@@ -187,7 +187,7 @@ the legacy webhook surface, this table is the port.
 | **Timeout** | `manifest.hooks.X.timeout_ms_remote_only` (separate from in-process timeout) | `manifest.hooks.X.timeout_ms` — single value, applied via `Effect.timeout` at the AppHost. |
 | **Schema-level cap** | 30s `maximum` constraint on `timeout_ms` | No cap (B.4 follow-up #324 dropped the 30s `maximum`); the schema is `Type.Integer({ default: 5000, minimum: 1 })` and the AppHost enforces the manifest's declared value via `Effect.timeout(manifestMs)` per call. |
 | **Failure mode** | Non-2xx → server retried, then fail-closed | App disconnect mid-admission → fail-closed via the connection's Scope finalizer |
-| **Observability** | HTTP request log on your endpoint | `app/hookTimeout` notification when a handler exceeds `timeout_ms`; SDK logger captures handler errors |
+| **Observability** | HTTP request log on your endpoint | Server-side warning logs when a handler exceeds `timeout_ms`; SDK logger captures handler errors |
 
 **Removed manifest fields.** All of these are gone in Phase 1 and the
 schema rejects them:

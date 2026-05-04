@@ -3,9 +3,9 @@
 //
 // Fires once per session from `admitAgentsAsync` immediately after the
 // DB row transitions to `status = "active"` and BEFORE `app/sessionReady`
-// is broadcast to the initiator. Fail-open semantics match on_join /
-// on_close: timeout or handler throw logs + emits `app/hookTimeout`,
-// admission still completes, `app/sessionReady` still fires.
+// is broadcast to the initiator. Fail-open semantics match on_close:
+// timeout or handler throw logs, admission still completes,
+// `app/sessionReady` still fires.
 //
 // Timeouts here are real wall-clock — TestClock does not apply to the
 // server's fibers (see the header of 30-app-hooks.integration.test.ts).
@@ -28,7 +28,6 @@ import type { ConnectedAgent } from "../../test-utils/helpers.js";
 import {
   AppsCreate,
   AppSessionReadyNotificationDefinition,
-  AppHookTimeoutNotificationDefinition,
 } from "@moltzap/protocol";
 
 let coreApp: CoreApp;
@@ -74,7 +73,6 @@ function registerTestApp(
     ],
     hooks: {
       before_message_delivery: { timeout_ms: 5000 },
-      on_join: {},
       on_session_active:
         opts?.onSessionActiveTimeoutMs !== undefined
           ? { timeout_ms: opts.onSessionActiveTimeoutMs }
@@ -167,7 +165,7 @@ describe("Scenario 31b: on_session_active hook", () => {
     }),
   );
 
-  it.live("timeout emits app/hookTimeout and admission still completes", () =>
+  it.live("timeout: admission still completes (fail-open)", () =>
     Effect.gen(function* () {
       const initiator = yield* registerAppAgent("osa-timeout-init");
       const invitee = yield* registerAppAgent("osa-timeout-invitee");
@@ -185,22 +183,8 @@ describe("Scenario 31b: on_session_active hook", () => {
         invitedAgentIds: [invitee.agentId],
       })) as { session: { id: string } };
 
-      const timeoutEvent = yield* initiator.client.waitForNotification(
-        AppHookTimeoutNotificationDefinition,
-        3000,
-      );
-      const data = timeoutEvent.params as {
-        sessionId: string;
-        appId: string;
-        hookName: string;
-        timeoutMs: number;
-      };
-      expect(data.sessionId).toBe(session.session.id);
-      expect(data.appId).toBe("osa-timeout-app");
-      expect(data.hookName).toBe("on_session_active");
-      expect(data.timeoutMs).toBe(150);
-
-      // Fail-open: sessionReady still fires and session row reaches active.
+      // `app/hookTimeout` was deleted in Phase 1D; the surviving
+      // observable is the fail-open completion.
       yield* initiator.client.waitForNotification(
         AppSessionReadyNotificationDefinition,
         3000,
