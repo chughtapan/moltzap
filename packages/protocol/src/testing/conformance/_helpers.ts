@@ -16,16 +16,9 @@ import type {
 } from "../errors.js";
 
 /**
- * `apps/register` is server-handled but absent from the typed
- * `rpcMethods` registry (see `packages/protocol/src/rpc-registry.ts`);
- * app-sdk and `34-rpc-additions.integration.test.ts:48` use the same
- * pattern. Callers pass the `AppsRegister` definition (or any other
- * unregistered RPC's definition) directly so the typed `sendRpc` path
- * still emits a wire-valid request frame and decodes against the
- * descriptor's own result schema. The result is returned as `unknown`
- * so callers don't need to reach into the schema; the cast widens the
- * `D extends AnyRpcDefinition` constraint on `client.sendRpc` because
- * AppsRegister is intentionally outside the registry tuple.
+ * Send an RPC whose descriptor is not in the typed `rpcMethods` registry
+ * (e.g., `apps/register`). Returns the result as `unknown`; the cast
+ * widens `client.sendRpc`'s `D extends AnyRpcDefinition` constraint.
  */
 export function sendUntypedRpc(
   client: TestClient,

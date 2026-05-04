@@ -314,8 +314,6 @@ function makeBadClientContext(
       });
 
     const handle: RealClientHandle = {
-      // Must be a UUID-shaped string because client/delivery.ts:360 decodes
-      // `fx.handle.agentId` through the `AgentId` brand schema.
       agentId: "00000000-0000-4000-8000-baadc11e7e57",
       ready: Effect.void,
       notifications,

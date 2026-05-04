@@ -13,8 +13,6 @@ import {
   type PresencePublishInput,
 } from "./presence-event-sink.js";
 
-// PresenceEventSink decodes `agentId` through @moltzap/protocol's branded
-// UUID schema; the fixture must be UUID-shaped or the publish path throws.
 const AGENT_A_UUID = "00000000-0000-4000-8000-00000000a9e7";
 
 interface Capture {

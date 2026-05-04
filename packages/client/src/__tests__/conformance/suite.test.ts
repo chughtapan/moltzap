@@ -22,7 +22,7 @@ describe("@moltzap/client client-side conformance", () => {
   it("client-side properties pass against MoltZapWsClient", async () => {
     const factory = createMoltZapRealClientFactory({
       agentKey: "test-agent-key",
-      agentId: "test-agent-id",
+      agentId: "00000000-0000-4000-8000-00000000c1ce",
     });
     const exit = await Effect.runPromiseExit(
       clientConformance.runClientConformanceSuite({

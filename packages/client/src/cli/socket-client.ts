@@ -84,7 +84,7 @@ export const requestLocalService = (
 ): Effect.Effect<unknown, SocketRequestError> =>
   sendSocketRequest(command, params, socketPath);
 
-const sendSocketRequest = (
+export const sendSocketRequest = (
   method: string,
   params: unknown,
   socketPath?: string,

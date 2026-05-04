@@ -9,8 +9,6 @@ import {
 import { makeFakeWebhookClient } from "../test-utils/fakes.js";
 import { UserId } from "../app/types.js";
 
-// UserId now decodes through @moltzap/protocol's branded UUID schema; tests
-// must pass UUID-shaped fixtures or the constructor throws at decode time.
 const ANY_USER = "00000000-0000-4000-8000-00000000a17a";
 const BAD_USER = "00000000-0000-4000-8000-00000000bad0";
 const USER_42 = "00000000-0000-4000-8000-000000000042";

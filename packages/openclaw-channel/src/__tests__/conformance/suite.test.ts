@@ -16,7 +16,7 @@ describe("@moltzap/openclaw-channel client-side conformance", () => {
   it("client-side properties pass against the openclaw-channel real client", async () => {
     const factory = createMoltZapRealClientFactory({
       agentKey: "openclaw-test-agent-key",
-      agentId: "openclaw-test-agent-id",
+      agentId: "00000000-0000-4000-8000-00000000a01c",
     });
     const exit = await Effect.runPromiseExit(
       clientConformance.runClientConformanceSuite({

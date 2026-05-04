@@ -230,9 +230,6 @@ export function registerAppDisconnectFailPolicy(
         // (see apps.handlers.ts:25-41) — succeeds even when the agent's
         // owner_user_id is null.
         const appId = `adfp-${Date.now().toString(DATE_ID_RADIX)}`;
-        // `apps/register` is server-handled but absent from the typed
-        // `rpcMethods` registry today (see `rpc-registry.ts:60-118`);
-        // `sendUntypedRpc` localizes the descriptor pass-through.
         const registerOutcome = yield* sendUntypedRpc(appClient, AppsRegister, {
           manifest: {
             appId,
