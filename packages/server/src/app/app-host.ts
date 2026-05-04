@@ -54,7 +54,6 @@ import {
   Cause,
   Data,
   Deferred,
-  Duration,
   Either,
   Effect,
   HashMap,
@@ -1978,7 +1977,6 @@ export class AppHost {
       }
     });
   }
-
 
   private admitAgentToSession(
     session: AppSession,

@@ -37,7 +37,6 @@ export const AppsCreate = defineRpc({
   ),
 });
 
-
 export const AppsCloseSession = defineRpc({
   name: "apps/closeSession",
   params: Type.Object(
