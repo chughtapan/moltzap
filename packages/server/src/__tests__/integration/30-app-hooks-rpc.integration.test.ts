@@ -235,7 +235,6 @@ function manifestFor(
   return {
     appId,
     name: `RPC Test App ${appId}`,
-    permissions: { required: [], optional: [] },
     conversations: [
       { key: "main", name: "Main Channel", participantFilter: "all" },
     ],
@@ -1012,7 +1011,6 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
           coreApp.registerApp({
             appId: "att-na-app",
             name: "Att NA",
-            permissions: { required: [], optional: [] },
             conversations: [
               { key: "main", name: "Main", participantFilter: "all" },
             ],

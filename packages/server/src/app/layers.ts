@@ -4,7 +4,7 @@
  * Dependency order is encoded in each `Layer.effect`'s `yield*` chain.
  * Tag string convention: `moltzap/<ClassName>`.
  */
-import { Context, Deferred, Effect, HashMap, Layer, Ref } from "effect";
+import { Context, Effect, Layer } from "effect";
 
 import type { Db } from "../db/client.js";
 import type { Logger } from "../logger.js";
@@ -26,7 +26,7 @@ import {
   type DeliveryWebhookConfig,
 } from "../services/message.service.js";
 import type { UserService } from "../services/user.service.js";
-import { AppHost, DefaultPermissionService } from "./app-host.js";
+import { AppHost } from "./app-host.js";
 import type { EnvelopeEncryption } from "../crypto/envelope.js";
 import type { WebhookClient } from "../adapters/webhook.js";
 
@@ -94,10 +94,6 @@ export class AppHostTag extends Context.Tag("moltzap/AppHost")<
   AppHost
 >() {}
 
-export class DefaultPermissionServiceTag extends Context.Tag(
-  "moltzap/DefaultPermissionService",
-)<DefaultPermissionServiceTag, DefaultPermissionService>() {}
-
 export class MessageServiceTag extends Context.Tag("moltzap/MessageService")<
   MessageServiceTag,
   MessageService
@@ -112,9 +108,8 @@ export class UserServiceTag extends Context.Tag("moltzap/UserService")<
 /**
  * Shared outbound HTTP client used by {@link MessageService.deliveryWebhook}
  * for the fire-and-forget post-delivery push and by user-side adapters
- * (`WebhookContactService`, `WebhookPermissionService`, `WebhookUserService`).
- * Separate Tag so connection pooling / semaphore sharing is controlled in
- * one place.
+ * (`WebhookContactService`, `WebhookUserService`). Separate Tag so connection
+ * pooling / semaphore sharing is controlled in one place.
  */
 export class WebhookClientTag extends Context.Tag("moltzap/WebhookClient")<
   WebhookClientTag,
@@ -212,24 +207,7 @@ export const AppHostLive = Layer.effect(
     const broadcaster = yield* BroadcasterTag;
     const connections = yield* ConnectionManagerTag;
     const userService = yield* UserServiceTag;
-    const inflightPermissions = yield* Ref.make(
-      HashMap.empty<string, Deferred.Deferred<string[], Error>>(),
-    );
-    return new AppHost(
-      db,
-      broadcaster,
-      connections,
-      userService,
-      inflightPermissions,
-    );
-  }),
-);
-
-export const DefaultPermissionServiceLive = Layer.effect(
-  DefaultPermissionServiceTag,
-  Effect.gen(function* () {
-    const broadcaster = yield* BroadcasterTag;
-    return new DefaultPermissionService(broadcaster);
+    return new AppHost(db, broadcaster, connections, userService);
   }),
 );
 
@@ -294,11 +272,8 @@ const Tier2 = Layer.provideMerge(
   Tier1,
 );
 
-/** Tier 3 — AppHost + DefaultPermission need Broadcaster/Connections. */
-const Tier3 = Layer.provideMerge(
-  Layer.mergeAll(AppHostLive, DefaultPermissionServiceLive),
-  Tier2,
-);
+/** Tier 3 — AppHost needs Broadcaster/Connections. */
+const Tier3 = Layer.provideMerge(AppHostLive, Tier2);
 
 /** Tier 4 — ConversationService needs AppHost for the session-attach check. */
 const Tier4 = Layer.provideMerge(ConversationServiceLive, Tier3);
@@ -327,7 +302,6 @@ export interface ResolvedServices {
   readonly deliveryService: DeliveryService;
   readonly presenceService: PresenceService;
   readonly appHost: AppHost;
-  readonly defaultPermissionService: DefaultPermissionService;
   readonly messageService: MessageService;
   readonly encryption: EnvelopeEncryption | null;
   readonly traceCapture: TraceCapture;
@@ -350,7 +324,6 @@ export const resolveServices = Effect.all({
   deliveryService: DeliveryServiceTag,
   presenceService: PresenceServiceTag,
   appHost: AppHostTag,
-  defaultPermissionService: DefaultPermissionServiceTag,
   messageService: MessageServiceTag,
   traceCapture: TraceCaptureTag,
 }) satisfies Effect.Effect<ResolvedServices, never, unknown>;

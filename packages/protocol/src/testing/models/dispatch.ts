@@ -33,9 +33,6 @@ import {
   AppsCreate,
   AppsGetSession,
   AppsListSessions,
-  PermissionsGrant,
-  PermissionsList,
-  PermissionsRevoke,
 } from "../../schema/methods/apps.js";
 import {
   ContactsAccept,
@@ -107,7 +104,6 @@ const IDEMPOTENT_METHODS: ReadonlySet<RpcMethodName> = new Set([
   PresenceSubscribe.name,
   AppsListSessions.name,
   AppsGetSession.name,
-  PermissionsList.name,
   SurfaceGet.name,
 ] satisfies readonly RpcMethodName[]);
 
@@ -283,9 +279,6 @@ export function applyCall<M extends RpcMethodName>(
     // Apps — require app/user context the fresh agent doesn't have.
     case AppsCreate.name:
     case AppsAttestSkill.name:
-    case PermissionsGrant.name:
-    case PermissionsList.name:
-    case PermissionsRevoke.name:
     case AppsCloseSession.name:
     case AppsGetSession.name:
     case AppsListSessions.name:

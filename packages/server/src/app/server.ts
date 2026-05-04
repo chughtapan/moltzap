@@ -53,10 +53,7 @@ import { createPresenceHandlers } from "./handlers/presence.handlers.js";
 import { createAppHandlers } from "./handlers/apps.handlers.js";
 import { createSystemHandlers } from "./handlers/system.handlers.js";
 
-import {
-  WebhookClient,
-  type AsyncWebhookAdapter,
-} from "../adapters/webhook.js";
+import { WebhookClient } from "../adapters/webhook.js";
 
 import type {
   CoreConfig,
@@ -181,19 +178,12 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     presenceService,
     messageService,
     appHost,
-    defaultPermissionService,
     traceCapture,
   } = services;
-
-  appHost.setPermissionService(defaultPermissionService);
 
   // Connection hooks
   const connectionHooks: ConnectionHook[] = [];
   const disconnectionHooks: DisconnectionHook[] = [];
-
-  // Webhook permission callback state (set via setWebhookPermissionCallback)
-  let _webhookPermAdapter: AsyncWebhookAdapter | null = null;
-  let _callbackToken: string | null = null;
 
   // Descriptor-backed RPC method registry — core handlers + extension methods.
   const methods: RpcMethodRegistry = [
@@ -220,7 +210,6 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     }),
     ...createAppHandlers({
       appHost,
-      permissionService: defaultPermissionService,
     }),
     ...createSystemHandlers(),
   ];
@@ -393,67 +382,6 @@ export function createCoreApp(config: CoreConfig): CoreApp {
         { agentId: result.agentId, apiKey: result.apiKey },
         { status: result.rotated ? HTTP_OK : HTTP_CREATED },
       );
-    }),
-  );
-
-  const permissionsResolveRoute = HttpRouter.post(
-    "/api/v1/permissions/resolve",
-    Effect.gen(function* () {
-      if (!_webhookPermAdapter) {
-        return HttpServerResponse.unsafeJson(
-          { error: "Webhook permissions not configured" },
-          { status: 404 },
-        );
-      }
-
-      const request = yield* HttpServerRequest.HttpServerRequest;
-      const authHeader = request.headers["authorization"];
-      if (!authHeader || !_callbackToken) {
-        return HttpServerResponse.unsafeJson(
-          { error: "Unauthorized" },
-          { status: 401 },
-        );
-      }
-      const token = authHeader.replace("Bearer ", "");
-      if (!safeEqual(token, _callbackToken)) {
-        return HttpServerResponse.unsafeJson(
-          { error: "Invalid callback token" },
-          { status: 401 },
-        );
-      }
-
-      const rawBody = yield* request.json.pipe(
-        Effect.catchAll(() => Effect.succeed(INVALID_JSON_BODY)),
-      );
-      if (rawBody === INVALID_JSON_BODY) {
-        return HttpServerResponse.unsafeJson(
-          { error: ERROR_INVALID_JSON },
-          { status: HTTP_BAD_REQUEST },
-        );
-      }
-      const body = rawBody as {
-        request_id?: string;
-        access?: string[];
-      };
-      if (!body.request_id || !Array.isArray(body.access)) {
-        return HttpServerResponse.unsafeJson(
-          { error: "Invalid body: need request_id and access[]" },
-          { status: HTTP_BAD_REQUEST },
-        );
-      }
-
-      const found = yield* _webhookPermAdapter.resolveCallback(
-        body.request_id,
-        body.access,
-      );
-      if (!found) {
-        return HttpServerResponse.unsafeJson(
-          { error: "Unknown or expired request_id" },
-          { status: 404 },
-        );
-      }
-
-      return HttpServerResponse.unsafeJson({ ok: true });
     }),
   );
 
@@ -707,21 +635,15 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     !config.skipDefaultRegisterRoute && config.registrationSecret !== undefined;
   const httpApp = (
     config.skipDefaultRegisterRoute
-      ? HttpRouter.empty.pipe(healthRoute, permissionsResolveRoute, wsRoute)
+      ? HttpRouter.empty.pipe(healthRoute, wsRoute)
       : adminRouteEnabled
         ? HttpRouter.empty.pipe(
             healthRoute,
             registerRoute,
             adminRegisterAgentRoute,
-            permissionsResolveRoute,
             wsRoute,
           )
-        : HttpRouter.empty.pipe(
-            healthRoute,
-            registerRoute,
-            permissionsResolveRoute,
-            wsRoute,
-          )
+        : HttpRouter.empty.pipe(healthRoute, registerRoute, wsRoute)
   ).pipe(
     HttpMiddleware.cors({
       allowedOrigins: allowedOriginsPredicate,
@@ -780,13 +702,6 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     setContactService(checker) {
       appHost.setContactService(checker);
     },
-    setPermissionService(handler) {
-      appHost.setPermissionService(handler);
-    },
-    setWebhookPermissionCallback(adapter, token) {
-      _webhookPermAdapter = adapter;
-      _callbackToken = token;
-    },
     createAppSession(appId, initiatorAgentId, invitedAgentIds) {
       return appHost.createSession(appId, initiatorAgentId, invitedAgentIds);
     },
@@ -820,10 +735,6 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     close() {
       return Effect.runPromise(
         Effect.gen(function* () {
-          if (_webhookPermAdapter) {
-            yield* _webhookPermAdapter.shutdown;
-          }
-          defaultPermissionService.destroy();
           // Interrupt in-flight delivery-webhook retries before scope close so
           // pending POSTs don't race the HTTP server teardown.
           yield* messageService.close();

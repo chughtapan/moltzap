@@ -30,7 +30,6 @@ const ADMIN_TEST_MANIFEST: AppManifest = {
   name: "Admin Register Test App",
   // Empty permissions — admission auto-completes without prompting,
   // keeping this test focused on the owner-id check at app-host.ts:753.
-  permissions: { required: [], optional: [] },
   conversations: [{ key: "main", name: "Main", participantFilter: "all" }],
 };
 

@@ -66,7 +66,6 @@ function registerTestApp(appId: string): void {
   coreApp.registerApp({
     appId,
     name: `Trace Test App ${appId}`,
-    permissions: { required: [], optional: [] },
     conversations: [
       { key: "main", name: "Main Channel", participantFilter: "all" },
     ],

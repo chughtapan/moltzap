@@ -24,7 +24,6 @@ const notificationNames = {
   SurfaceUpdated: jsonRpcMethod("surface/updated"),
   SurfaceCleared: jsonRpcMethod("surface/cleared"),
   AppSkillChallenge: jsonRpcMethod("app/skillChallenge"),
-  PermissionsRequired: jsonRpcMethod("permissions/required"),
   AppParticipantAdmitted: jsonRpcMethod("app/participantAdmitted"),
   AppParticipantRejected: jsonRpcMethod("app/participantRejected"),
   AppSessionReady: jsonRpcMethod("app/sessionReady"),
@@ -115,23 +114,10 @@ export const AppSkillChallengeNotificationSchema = Type.Object(
   { additionalProperties: false },
 );
 
-export const PermissionsRequiredNotificationSchema = Type.Object(
-  {
-    sessionId: AppSessionId,
-    appId: Type.String(),
-    resource: Type.String(),
-    access: Type.Array(Type.String()),
-    requestId: Type.String({ format: "uuid" }),
-    targetUserId: Type.String({ format: "uuid" }),
-  },
-  { additionalProperties: false },
-);
-
 export const AppParticipantAdmittedNotificationSchema = Type.Object(
   {
     sessionId: AppSessionId,
     agentId: AgentId,
-    grantedResources: Type.Array(Type.String()),
   },
   { additionalProperties: false },
 );
@@ -141,7 +127,7 @@ export const AppParticipantRejectedNotificationSchema = Type.Object(
     sessionId: AppSessionId,
     agentId: AgentId,
     reason: Type.String(),
-    stage: stringEnum(["user", "identity", "capability", "permission"]),
+    stage: stringEnum(["user", "identity", "capability"]),
     suggestedAction: Type.Optional(Type.String()),
     rejectionCode: stringEnum([
       "UserInvalid",
@@ -153,10 +139,6 @@ export const AppParticipantRejectedNotificationSchema = Type.Object(
       "AttestationTimeout",
       "SkillMismatch",
       "SkillVersionTooOld",
-      "PermissionDenied",
-      "PermissionTimeout",
-      "PermissionHandlerError",
-      "NoPermissionHandler",
     ]),
   },
   { additionalProperties: false },
@@ -237,9 +219,6 @@ export type SurfaceClearedNotification = Static<
 export type AppSkillChallengeNotification = Static<
   typeof AppSkillChallengeNotificationSchema
 >;
-export type PermissionsRequiredNotification = Static<
-  typeof PermissionsRequiredNotificationSchema
->;
 export type AppParticipantAdmittedNotification = Static<
   typeof AppParticipantAdmittedNotificationSchema
 >;
@@ -319,11 +298,6 @@ export const AppSkillChallengeNotificationDefinition = defineNotification({
   params: AppSkillChallengeNotificationSchema,
 });
 
-export const PermissionsRequiredNotificationDefinition = defineNotification({
-  name: notificationNames.PermissionsRequired,
-  params: PermissionsRequiredNotificationSchema,
-});
-
 export const AppParticipantAdmittedNotificationDefinition = defineNotification({
   name: notificationNames.AppParticipantAdmitted,
   params: AppParticipantAdmittedNotificationSchema,
@@ -367,7 +341,6 @@ export const notificationDefinitions = [
   SurfaceUpdatedNotificationDefinition,
   SurfaceClearedNotificationDefinition,
   AppSkillChallengeNotificationDefinition,
-  PermissionsRequiredNotificationDefinition,
   AppParticipantAdmittedNotificationDefinition,
   AppParticipantRejectedNotificationDefinition,
   AppSessionReadyNotificationDefinition,
