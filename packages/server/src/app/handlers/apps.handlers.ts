@@ -1,13 +1,10 @@
-import type { AppHost, DefaultPermissionService } from "../app-host.js";
+import type { AppHost } from "../app-host.js";
 import type { RpcMethodRegistry } from "../../rpc/context.js";
 import {
   AppsRegister,
   AppsCreate,
   AppsAttestSkill,
   AppsAttachConversation,
-  PermissionsGrant,
-  PermissionsList,
-  PermissionsRevoke,
   AppsCloseSession,
   AppsGetSession,
   AppsListSessions,
@@ -16,13 +13,11 @@ import {
 import { Effect } from "effect";
 import { ConnIdTag } from "../layers.js";
 import { defineMethod } from "../../rpc/context.js";
-import { ParticipantService } from "../../services/participant.service.js";
 
 const DEFAULT_APP_SESSION_LIST_LIMIT = 50;
 
 export function createAppHandlers(deps: {
   appHost: AppHost;
-  permissionService?: DefaultPermissionService;
 }): RpcMethodRegistry {
   return [
     defineMethod(AppsRegister, {
@@ -61,43 +56,6 @@ export function createAppHandlers(deps: {
             ctx.agentId,
             params.skillUrl,
             params.version,
-          );
-          return {};
-        }),
-    }),
-    defineMethod(PermissionsGrant, {
-      handler: (params, ctx) =>
-        Effect.gen(function* () {
-          const ownerUserId = yield* ParticipantService.requireOwnerId(ctx);
-          deps.permissionService?.resolvePermission(
-            ownerUserId,
-            params.sessionId,
-            params.agentId,
-            params.resource,
-            params.access,
-          );
-          return {};
-        }),
-    }),
-    defineMethod(PermissionsList, {
-      handler: (params, ctx) =>
-        Effect.gen(function* () {
-          const ownerUserId = yield* ParticipantService.requireOwnerId(ctx);
-          const grants = yield* deps.appHost.listGrants(
-            ownerUserId,
-            params.appId,
-          );
-          return { grants };
-        }),
-    }),
-    defineMethod(PermissionsRevoke, {
-      handler: (params, ctx) =>
-        Effect.gen(function* () {
-          const ownerUserId = yield* ParticipantService.requireOwnerId(ctx);
-          yield* deps.appHost.revokeGrant(
-            ownerUserId,
-            params.appId,
-            params.resource,
           );
           return {};
         }),

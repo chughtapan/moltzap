@@ -35,9 +35,6 @@ import { PushRegister, PushUnregister } from "./schema/methods/push.js";
 import {
   AppsCreate,
   AppsAttestSkill,
-  PermissionsGrant,
-  PermissionsList,
-  PermissionsRevoke,
   AppsCloseSession,
   AppsGetSession,
   AppsListSessions,
@@ -116,9 +113,6 @@ export const rpcMethods = [
   // Apps
   AppsCreate,
   AppsAttestSkill,
-  PermissionsGrant,
-  PermissionsList,
-  PermissionsRevoke,
   AppsCloseSession,
   AppsGetSession,
   AppsListSessions,

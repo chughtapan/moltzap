@@ -23,9 +23,7 @@ import {
   type Part,
   type ConversationArchivedNotification,
   type ConversationUnarchivedNotification,
-  type PermissionsRequiredNotification,
   MessageReceivedNotificationDefinition,
-  PermissionsRequiredNotificationDefinition,
   ConversationCreatedNotificationDefinition,
   ConversationUpdatedNotificationDefinition,
   ConversationArchivedNotificationDefinition,
@@ -36,7 +34,6 @@ import {
   MessagesList,
   MessagesSend,
   NotConnectedError,
-  PermissionsGrant,
   rpcMethods,
   RpcServerError,
   RpcTimeoutError,
@@ -195,7 +192,6 @@ interface ServiceHandlerPayloads {
   readonly rawNotification: DecodedNotification<AnyNotificationDefinition>;
   readonly disconnect: void;
   readonly reconnect: HelloOk;
-  readonly permissionRequired: PermissionsRequiredNotification;
   readonly conversationArchived: ConversationArchivedNotification;
   readonly conversationUnarchived: ConversationUnarchivedNotification;
 }
@@ -231,7 +227,6 @@ const MAX_MESSAGES_PER_CONV = 1000;
 
 const serviceNotificationDefinitions = [
   MessageReceivedNotificationDefinition,
-  PermissionsRequiredNotificationDefinition,
   ConversationCreatedNotificationDefinition,
   ConversationUpdatedNotificationDefinition,
   ConversationArchivedNotificationDefinition,
@@ -309,7 +304,6 @@ export class MoltZapService {
     rawNotification: [],
     disconnect: [],
     reconnect: [],
-    permissionRequired: [],
     conversationArchived: [],
     conversationUnarchived: [],
   };
@@ -1117,20 +1111,6 @@ export class MoltZapService {
     });
   }
 
-  grantPermission(params: {
-    sessionId: string;
-    agentId: string;
-    resource: string;
-    access: string[];
-  }): Effect.Effect<void, ServiceRpcError> {
-    return Effect.asVoid(
-      this.sendRpc(PermissionsGrant, {
-        ...params,
-        agentId: toAgentId(params.agentId),
-      }),
-    );
-  }
-
   // --- Internals ---
 
   /**
@@ -1229,13 +1209,6 @@ export class MoltZapService {
     return defineEffectNotificationHandlers(serviceNotificationGroup, [
       bindNotificationHandler(MessageReceivedNotificationDefinition, (params) =>
         Effect.sync(() => this.handleMessageReceivedNotification(params)),
-      ),
-      bindNotificationHandler(
-        PermissionsRequiredNotificationDefinition,
-        (params) =>
-          Effect.sync(() =>
-            fanout(this.handlers.permissionRequired, params, this.opts.logger),
-          ),
       ),
       bindNotificationHandler(
         ConversationCreatedNotificationDefinition,

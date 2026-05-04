@@ -13,14 +13,6 @@ export const AppParticipantStatusEnum = stringEnum([
   "rejected",
 ]);
 
-export const AppPermissionSchema = Type.Object(
-  {
-    resource: Type.String(),
-    access: Type.Array(Type.String()),
-  },
-  { additionalProperties: false },
-);
-
 export const AppManifestConversationSchema = Type.Object(
   {
     key: Type.String(),
@@ -46,17 +38,9 @@ export const AppManifestSchema = Type.Object(
     appId: Type.String(),
     name: Type.String(),
     description: Type.Optional(Type.String()),
-    permissions: Type.Object(
-      {
-        required: Type.Array(AppPermissionSchema),
-        optional: Type.Array(AppPermissionSchema),
-      },
-      { additionalProperties: false },
-    ),
     skillUrl: Type.Optional(Type.String()),
     skillMinVersion: Type.Optional(Type.String()),
     challengeTimeoutMs: Type.Optional(Type.Integer({ default: 30000 })),
-    permissionTimeoutMs: Type.Optional(Type.Integer({ default: 120000 })),
     limits: Type.Optional(
       Type.Object(
         {
@@ -95,7 +79,6 @@ export const AppSessionSchema = Type.Object(
   { additionalProperties: false },
 );
 
-export type AppPermission = Static<typeof AppPermissionSchema>;
 export type AppManifest = Static<typeof AppManifestSchema>;
 export type AppManifestConversation = Static<
   typeof AppManifestConversationSchema

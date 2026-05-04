@@ -242,7 +242,6 @@ export function registerAppDisconnectFailPolicy(
             manifest: {
               appId,
               name: `Disconnect-fail app ${appId}`,
-              permissions: { required: [], optional: [] },
               conversations: [
                 { key: "main", name: "Main", participantFilter: "all" },
               ],

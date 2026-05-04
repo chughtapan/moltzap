@@ -33,7 +33,6 @@ export type { Surface } from "./schema/surfaces.js";
 
 // App shared shapes.
 export type {
-  AppPermission,
   AppManifest,
   AppManifestConversation,
   AppSession,
@@ -52,7 +51,6 @@ export type {
   SurfaceUpdatedNotification,
   SurfaceClearedNotification,
   AppSkillChallengeNotification,
-  PermissionsRequiredNotification,
   AppParticipantAdmittedNotification,
   AppParticipantRejectedNotification,
   AppSessionReadyNotification,

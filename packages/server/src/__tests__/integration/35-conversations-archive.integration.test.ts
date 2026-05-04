@@ -178,7 +178,6 @@ describe("conversations/archive + /unarchive", () => {
       coreApp.registerApp({
         appId,
         name: "Archive Test App",
-        permissions: { required: [], optional: [] },
         conversations: [
           { key: "main", name: "Main", participantFilter: "all" },
         ],

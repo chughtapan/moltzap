@@ -25,11 +25,6 @@ const USER_ALICE = "00000000-0000-4000-a000-000000000010";
 const MANIFEST: AppManifest = {
   appId: "fail-test-app",
   name: "Session Failure Test",
-  permissions: {
-    required: [{ resource: "vault", access: ["read"] }],
-    optional: [],
-  },
-  permissionTimeoutMs: 1000,
   conversations: [{ key: "main", name: "Main", participantFilter: "all" }],
 };
 
@@ -116,13 +111,9 @@ describe("Session failure state", () => {
       const alice = yield* registerWithOwner("alice-sr", USER_ALICE);
       const bob = yield* registerWithOwner("bob-sr", USER_ALICE);
 
-      // Bob doesn't need permission since we're using the same owner
-      // But the manifest requires "vault" permission, so bob will timeout
-      // Actually, let's use a manifest without required permissions for this test
       const noPermManifest: AppManifest = {
         appId: "no-perm-app",
         name: "No Permission App",
-        permissions: { required: [], optional: [] },
         conversations: [
           { key: "main", name: "Main", participantFilter: "all" },
         ],
@@ -154,7 +145,6 @@ describe("Session failure state", () => {
       const noPermManifest: AppManifest = {
         appId: "mixed-app",
         name: "Mixed App",
-        permissions: { required: [], optional: [] },
         conversations: [
           { key: "main", name: "Main", participantFilter: "all" },
         ],

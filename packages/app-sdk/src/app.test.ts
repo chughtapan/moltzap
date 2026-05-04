@@ -199,7 +199,6 @@ describe("MoltZapApp", () => {
         manifest: {
           appId: "full-app",
           name: "Full App",
-          permissions: { required: [], optional: [] },
           conversations: [
             { key: "main", name: "Main", participantFilter: "all" },
           ],
@@ -478,7 +477,6 @@ describe("MoltZapApp", () => {
       const payload = {
         sessionId: SESSION_ID,
         agentId: OTHER_AGENT_ID,
-        grantedResources: ["messages"],
       };
       fireNotification(
         app,
@@ -536,7 +534,6 @@ describe("MoltZapApp", () => {
           name: "Skilled",
           skillUrl: "https://example.com/skill",
           skillMinVersion: "1.2.3",
-          permissions: { required: [], optional: [] },
           conversations: [
             { key: "default", name: "Skilled", participantFilter: "all" },
           ],

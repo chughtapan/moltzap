@@ -7,14 +7,10 @@ import type {
   ChannelService,
   CrossConversationEntry,
   CrossConvMessage,
-  PermissionsRequiredNotification,
 } from "../index.js";
 
 type MessageHandler = (msg: Message) => void;
 type VoidHandler = () => void;
-type PermissionRequiredHandler = (
-  data: PermissionsRequiredNotification,
-) => void;
 type ConversationArchivedHandler = (data: { conversationId: string }) => void;
 type ConversationUnarchivedHandler = (data: { conversationId: string }) => void;
 
@@ -40,7 +36,6 @@ export interface ChannelServiceEmit {
   message(msg: Message): void;
   disconnect(): void;
   reconnect(): void;
-  permissionRequired(data: PermissionsRequiredNotification): void;
   conversationArchived(data: { conversationId: string }): void;
   conversationUnarchived(data: { conversationId: string }): void;
 }
@@ -81,7 +76,6 @@ export function createFakeChannelService(
   const messageHandlers: MessageHandler[] = [];
   const disconnectHandlers: VoidHandler[] = [];
   const reconnectHandlers: VoidHandler[] = [];
-  const permissionRequiredHandlers: PermissionRequiredHandler[] = [];
   const conversationArchivedHandlers: ConversationArchivedHandler[] = [];
   const conversationUnarchivedHandlers: ConversationUnarchivedHandler[] = [];
 
@@ -113,13 +107,11 @@ export function createFakeChannelService(
         | "message"
         | "disconnect"
         | "reconnect"
-        | "permissionRequired"
         | "conversationArchived"
         | "conversationUnarchived",
       handler:
         | MessageHandler
         | VoidHandler
-        | PermissionRequiredHandler
         | ConversationArchivedHandler
         | ConversationUnarchivedHandler,
     ): void {
@@ -129,8 +121,6 @@ export function createFakeChannelService(
         disconnectHandlers.push(handler as VoidHandler);
       } else if (event === "reconnect") {
         reconnectHandlers.push(handler as VoidHandler);
-      } else if (event === "permissionRequired") {
-        permissionRequiredHandlers.push(handler as PermissionRequiredHandler);
       } else if (event === "conversationArchived") {
         conversationArchivedHandlers.push(
           handler as ConversationArchivedHandler,
@@ -223,9 +213,6 @@ export function createFakeChannelService(
     },
     reconnect() {
       for (const h of reconnectHandlers) h();
-    },
-    permissionRequired(data) {
-      for (const h of permissionRequiredHandlers) h(data);
     },
     conversationArchived(data) {
       const conversationId = conversationKey(data.conversationId);

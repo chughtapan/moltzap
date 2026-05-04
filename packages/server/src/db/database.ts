@@ -51,15 +51,6 @@ export interface AppSessionConversations {
   conversation_id: string;
 }
 
-export interface AppPermissionGrants {
-  id: Generated<string>;
-  user_id: string;
-  app_id: string;
-  resource: string;
-  access: string[];
-  granted_at: Generated<Timestamp>;
-}
-
 // Re-export table interfaces
 export type {
   Agents,
@@ -110,9 +101,6 @@ export type NewAppSessionParticipant = Insertable<AppSessionParticipants>;
 export type AppSessionConversationRow = Selectable<AppSessionConversations>;
 export type NewAppSessionConversation = Insertable<AppSessionConversations>;
 
-export type AppPermissionGrantRow = Selectable<AppPermissionGrants>;
-export type NewAppPermissionGrant = Insertable<AppPermissionGrants>;
-
 // Database interface (core tables only — no contacts, invites, push, surfaces)
 export interface Database {
   agents: Agents;
@@ -125,5 +113,4 @@ export interface Database {
   app_sessions: AppSessions;
   app_session_participants: AppSessionParticipants;
   app_session_conversations: AppSessionConversations;
-  app_permission_grants: AppPermissionGrants;
 }

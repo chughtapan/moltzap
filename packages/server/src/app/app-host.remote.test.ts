@@ -18,12 +18,10 @@ import { describe, expect, it } from "vitest";
 import { it as itEffect } from "@effect/vitest";
 import {
   Cause,
-  Deferred,
   Duration,
   Effect,
   Exit,
   Fiber,
-  HashMap,
   Ref,
   Scope,
   TestClock,
@@ -113,23 +111,13 @@ function makeAppHostFixture(): AppHostFixture {
   } as Partial<Broadcaster>);
   const connections = new ConnectionManager();
   const db = makeFakeService<Kysely<Database>>({} as Partial<Kysely<Database>>);
-  const inflightPermissions = Effect.runSync(
-    Ref.make(HashMap.empty<string, Deferred.Deferred<string[], Error>>()),
-  );
-  const host = new AppHost(
-    db,
-    broadcaster,
-    connections,
-    null,
-    inflightPermissions,
-  );
+  const host = new AppHost(db, broadcaster, connections, null);
   return { host, connections, sentEvents };
 }
 
 const baseManifest = (appId: string, hookTimeoutMs?: number): AppManifest => ({
   appId,
   name: `Test App ${appId}`,
-  permissions: { required: [], optional: [] },
   conversations: [],
   hooks: hookTimeoutMs
     ? {
