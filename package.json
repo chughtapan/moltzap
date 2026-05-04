@@ -34,5 +34,10 @@
     "oxfmt": "^0.7.0",
     "oxlint": "^0.16.0",
     "typescript": "^5"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@anthropic-ai/claude-code"
+    ]
   }
 }
