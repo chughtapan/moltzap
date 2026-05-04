@@ -60,7 +60,7 @@ describe("Multipart Message", () => {
         MessageReceivedNotificationDefinition,
       );
       const received = (
-        bobEvent.data as {
+        bobEvent.params as {
           message: { parts: Array<{ type: string; text: string }> };
         }
       ).message;

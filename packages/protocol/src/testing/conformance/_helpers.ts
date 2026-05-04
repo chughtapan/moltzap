@@ -4,6 +4,8 @@
  * when they would otherwise be duplicated verbatim.
  */
 import { Effect, Either } from "effect";
+import type { TSchema } from "@sinclair/typebox";
+import type { RpcDefinition } from "../../rpc.js";
 import type { TestClient } from "../test-client.js";
 import type {
   FrameSchemaError,
@@ -17,12 +19,17 @@ import type {
  * `apps/register` is server-handled but absent from the typed
  * `rpcMethods` registry (see `packages/protocol/src/rpc-registry.ts`);
  * app-sdk and `34-rpc-additions.integration.test.ts:48` use the same
- * untyped-cast path. Adding the verb to the registry is an accretive
- * change outside this sub-issue's scope; this helper localizes the cast.
+ * pattern. Callers pass the `AppsRegister` definition (or any other
+ * unregistered RPC's definition) directly so the typed `sendRpc` path
+ * still emits a wire-valid request frame and decodes against the
+ * descriptor's own result schema. The result is returned as `unknown`
+ * so callers don't need to reach into the schema; the cast widens the
+ * `D extends AnyRpcDefinition` constraint on `client.sendRpc` because
+ * AppsRegister is intentionally outside the registry tuple.
  */
 export function sendUntypedRpc(
   client: TestClient,
-  method: string,
+  definition: RpcDefinition<string, TSchema, TSchema>,
   params: unknown,
 ): Effect.Effect<
   unknown,
@@ -32,20 +39,19 @@ export function sendUntypedRpc(
   | TransportIoError
   | FrameSchemaError
 > {
-  return (client.sendRpc as UntypedSendRpc)(method, params);
+  const sendRpc = client.sendRpc as (
+    definition: RpcDefinition<string, TSchema, TSchema>,
+    params: unknown,
+  ) => Effect.Effect<
+    unknown,
+    | RpcResponseError
+    | RpcTimeoutError
+    | TransportClosedError
+    | TransportIoError
+    | FrameSchemaError
+  >;
+  return sendRpc(definition, params);
 }
-
-type UntypedSendRpc = (
-  method: string,
-  params: unknown,
-) => Effect.Effect<
-  unknown,
-  | RpcResponseError
-  | RpcTimeoutError
-  | TransportClosedError
-  | TransportIoError
-  | FrameSchemaError
->;
 
 export function requireRight<A, E, F>(
   value: Either.Either<A, E>,

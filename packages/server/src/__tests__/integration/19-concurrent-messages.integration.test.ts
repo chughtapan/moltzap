@@ -73,7 +73,7 @@ describe("Concurrent Messages", () => {
 
         for (let i = 0; i < events.length; i++) {
           const event = events[i]!;
-          const data = event.data as {
+          const data = event.params as {
             message: {
               conversationId: string;
               parts: Array<{ text: string }>;
