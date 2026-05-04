@@ -1,14 +1,14 @@
-import {
-  MoltZapWsClient,
-  NotConnectedError,
-  RpcServerError,
-  RpcTimeoutError,
-} from "@moltzap/client";
+import { MoltZapWsClient } from "@moltzap/client";
 import type {
   WsClientLogger,
   MoltZapWsClientOptions,
   NotificationSubscription,
 } from "@moltzap/client";
+import {
+  NotConnectedError,
+  RpcServerError,
+  RpcTimeoutError,
+} from "@moltzap/protocol";
 import type {
   AnyNotificationDefinition,
   AppManifest,

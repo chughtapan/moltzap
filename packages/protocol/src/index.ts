@@ -5,6 +5,7 @@ export * from "./brands.js";
 export * from "./schema/index.js";
 export * from "./types.js";
 export * from "./rpc.js";
+export * from "./rpc-errors.js";
 export * from "./notification.js";
 export * from "./rpc-groups.js";
 export * from "./rpc-registry.js";

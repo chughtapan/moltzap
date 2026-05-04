@@ -1,13 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { AgentNotFoundError, MalformedFrameError } from "./errors.js";
 import {
-  AgentNotFoundError,
-  MalformedFrameError,
+  MessagesSend,
   NotConnectedError,
   RpcServerError,
   RpcTimeoutError,
-} from "./errors.js";
-
-import { MessagesSend } from "@moltzap/protocol";
+} from "@moltzap/protocol";
 
 describe("AgentNotFoundError", () => {
   it("carries agentName and derives a `_tag` + `message`", () => {

@@ -2,12 +2,11 @@ import { it } from "@effect/vitest";
 import { Effect, Exit } from "effect";
 import { expect, it as itSync } from "vitest";
 import {
+  MessagesSend,
   NotConnectedError,
   RpcServerError,
   RpcTimeoutError,
-} from "./errors.js";
-
-import { MessagesSend } from "@moltzap/protocol";
+} from "@moltzap/protocol";
 
 it.effect("tagged errors discriminate by _tag", () =>
   Effect.gen(function* () {

@@ -21,8 +21,11 @@ import {
   Connect,
   decodeRpcResult,
   jsonRpcStringId,
+  NotConnectedError,
   requestFrame,
   responseFrame,
+  RpcServerError,
+  RpcTimeoutError,
   type AnyAppCallbackRpcDefinition,
   type AnyNotificationDefinition,
   type JsonRpcStringId,
@@ -34,12 +37,7 @@ import {
   type TSchema,
   type Static,
 } from "@moltzap/protocol";
-import {
-  DuplicateServerRpcHandlerError,
-  NotConnectedError,
-  RpcServerError,
-  RpcTimeoutError,
-} from "./runtime/errors.js";
+import { DuplicateServerRpcHandlerError } from "./runtime/errors.js";
 import { decodeFrames, type DecodedNotification } from "./runtime/frame.js";
 import {
   makeSubscriberRegistry,
