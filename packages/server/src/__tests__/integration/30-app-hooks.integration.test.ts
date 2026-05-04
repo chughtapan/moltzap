@@ -227,7 +227,7 @@ describe("Scenario 30: App Hooks", () => {
       }),
     );
 
-    it.live("times out, blocks the message, and emits hookTimeout event", () =>
+    it.live("times out and blocks the message", () =>
       Effect.gen(function* () {
         const agent = yield* registerAppAgent("timeout-agent");
 

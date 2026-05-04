@@ -1304,9 +1304,8 @@ export class AppHost {
    * exhaustive over the wrapped Effect's behaviour:
    *
    *   - success → returns the verdict as-is.
-   *   - `TimeoutException` (from `Effect.timeout`) → emits the
-   *     `app/hookTimeout` event, logs a warning, returns the timeout
-   *     verdict from `onTimeout`.
+   *   - `TimeoutException` (from `Effect.timeout`) → logs a warning via
+   *     `Effect.logWarning`, returns the timeout verdict from `onTimeout`.
    *   - any other error (handler throw, RPC error, `AppDisconnected`,
    *     schema decode failure) → logs an error, returns the error
    *     verdict from `onError`.
