@@ -11,6 +11,10 @@ import {
   ConversationsCreate,
   MessageReceivedNotificationDefinition,
   MessagesSend,
+  type ParamsOf,
+  type ResultOf,
+  type RpcDefinition,
+  type TSchema,
 } from "@moltzap/protocol";
 
 /** The MoltZapWsClient API is Effect-native. These helpers run the Effects
@@ -18,8 +22,11 @@ import {
 const connectWs = (c: MoltZapWsClient) => Effect.runPromise(c.connect());
 const disconnectWs = (c: MoltZapWsClient) => Effect.runSync(c.disconnect());
 const closeWs = (c: MoltZapWsClient) => Effect.runSync(c.close());
-const rpcWs = (c: MoltZapWsClient, method: string, params?: unknown) =>
-  Effect.runPromise(c.sendRpc(method, params));
+const rpcWs = <D extends RpcDefinition<string, TSchema, TSchema>>(
+  c: MoltZapWsClient,
+  definition: D,
+  params: ParamsOf<D>,
+): Promise<ResultOf<D>> => Effect.runPromise(c.sendRpc(definition, params));
 
 let baseUrl: string;
 let wsUrl: string;
@@ -299,11 +306,11 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
         catch: (err) => (err instanceof Error ? err : new Error(String(err))),
       });
 
-      const result = (yield* Effect.promise(() =>
-        rpcWs(client, AgentsLookup.name, {
+      const result = yield* Effect.promise(() =>
+        rpcWs(client, AgentsLookup, {
           agentIds: [bob.agentId],
         }),
-      )) as { agents: Array<{ id: string; name: string }> };
+      );
 
       expect(result.agents).toHaveLength(1);
       expect(result.agents[0]!.name).toBe("recon-bob-rpc");
