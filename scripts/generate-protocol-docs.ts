@@ -370,10 +370,8 @@ function methodSortKey(method: string): string {
     "contacts",
     "invites",
     "presence",
-    "push",
     "apps",
     "permissions",
-    "surface",
     "system",
   ];
   const prefix = method.split("/")[0] ?? "";

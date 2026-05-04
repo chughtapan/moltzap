@@ -338,8 +338,8 @@ export class MoltZapApp {
 
   /**
    * Fork a background Effect and track the fiber so stop() can interrupt it.
-   * Used for user-handler dispatch, skill-challenge attestation, and post-reconnect
-   * session recovery, all of which must not outlive the app.
+   * Used for user-handler dispatch and post-reconnect session recovery, both
+   * of which must not outlive the app.
    */
   private trackFork<E>(effect: Effect.Effect<void, E>): void {
     const fibers = this.backgroundFibers;
