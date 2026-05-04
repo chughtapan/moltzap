@@ -10,30 +10,39 @@
 
 import { Brand, type Effect } from "effect";
 import type { EnrichedInboundMessage, WsClientLogger } from "@moltzap/client";
+import {
+  AgentId as AgentIdSchema,
+  ConversationId as ConversationIdSchema,
+  MessageId as MessageIdSchema,
+  agentId,
+  conversationId,
+  messageId,
+  type Static,
+} from "@moltzap/protocol";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { AllowlistError, PushError } from "./errors.js";
 
 /**
- * Branded chat id — corresponds to MoltZap's `conversationId` on the wire,
- * rendered to Claude Code as the contract-meta key `chat_id`.
+ * Branded conversation id — corresponds to MoltZap's `conversationId` on the
+ * wire, rendered to Claude Code as the contract-meta key `chat_id`.
  * Principle 1: preventing accidental confusion with `MessageId` at call sites.
  */
-export type ChatId = string & Brand.Brand<"ChatId">;
-export const ChatId = Brand.nominal<ChatId>();
+export type ConversationId = Static<typeof ConversationIdSchema>;
+export const ConversationId = conversationId;
 
 /**
  * Branded message id — corresponds to MoltZap's `id`, rendered as
  * contract-meta `message_id`.
  */
-export type MessageId = string & Brand.Brand<"MessageId">;
-export const MessageId = Brand.nominal<MessageId>();
+export type MessageId = Static<typeof MessageIdSchema>;
+export const MessageId = messageId;
 
 /**
  * Branded user id — corresponds to MoltZap's `sender.id`, rendered as
  * contract-meta `user`.
  */
-export type UserId = string & Brand.Brand<"UserId">;
-export const UserId = Brand.nominal<UserId>();
+export type UserId = Static<typeof AgentIdSchema>;
+export const UserId = agentId;
 
 /**
  * ISO-8601 timestamp — corresponds to MoltZap's `createdAt` (already ISO),
@@ -54,7 +63,7 @@ export interface ClaudeChannelNotification {
   readonly params: {
     readonly content: string;
     readonly meta: {
-      readonly chat_id: ChatId;
+      readonly chat_id: ConversationId;
       readonly message_id: MessageId;
       readonly user: UserId;
       readonly ts: IsoTimestamp;

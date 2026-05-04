@@ -39,7 +39,7 @@ describe("Scenario 3: DM Messaging", () => {
       const bob = yield* registerAndConnect("bob-dm");
 
       // Alice creates a DM conversation with Bob
-      const conv = (yield* alice.client.sendRpc(ConversationsCreate.name, {
+      const conv = (yield* alice.client.sendRpc(ConversationsCreate, {
         type: "dm",
         participants: [{ type: "agent", id: bob.agentId }],
       })) as { conversation: { id: string; type: string } };
@@ -48,7 +48,7 @@ describe("Scenario 3: DM Messaging", () => {
       const conversationId = conv.conversation.id;
 
       // Alice sends a message
-      const sendResult = (yield* alice.client.sendRpc(MessagesSend.name, {
+      const sendResult = (yield* alice.client.sendRpc(MessagesSend, {
         conversationId,
         parts: [{ type: "text", text: "Hello Bob!" }],
       })) as { message: { id: string; parts: unknown[] } };
@@ -59,7 +59,7 @@ describe("Scenario 3: DM Messaging", () => {
       ]);
 
       // Alice lists messages
-      const messages = (yield* alice.client.sendRpc(MessagesList.name, {
+      const messages = (yield* alice.client.sendRpc(MessagesList, {
         conversationId,
       })) as { messages: Array<{ id: string; parts: unknown[] }> };
 

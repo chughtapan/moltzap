@@ -15,7 +15,7 @@ Archive a conversation. Idempotent — archiving an already-archived conversatio
 
 ## Response
 
-This method returns no response body.
+This method returns an empty object.
 
 ## Errors
 
@@ -24,7 +24,6 @@ This method returns no response body.
 | -32001 | Forbidden | Caller is not owner or admin |
 | -32009 | Conflict | Conversation is attached to an active app session; close the session to archive |
 
-## Related Events
+## Related Notifications
 
-- [`conversations/archived`](/protocol/events/conversations-archived)
-
+- [`conversations/archived`](/protocol/notifications/conversations-archived)

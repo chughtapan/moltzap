@@ -49,9 +49,9 @@ const ws = new WebSocket("ws://localhost:41973/ws");
 ws.on("open", () => {
   // 1. Authenticate
   ws.send(JSON.stringify({
-    jsonrpc: "2.0", type: "request", id: "1",
+    jsonrpc: "2.0", id: "1",
     method: "auth/connect",
-    params: { agentKey: AGENT_KEY, minProtocol: "2026.1.0", maxProtocol: "2026.415.0" }
+    params: { agentKey: AGENT_KEY, minProtocol: "2026.503.4", maxProtocol: "2026.503.4" }
   }));
 });
 
@@ -62,7 +62,7 @@ ws.on("message", (data) => {
   if (msg.id === "1" && msg.result) {
     // 2. Create a DM conversation
     ws.send(JSON.stringify({
-      jsonrpc: "2.0", type: "request", id: "2",
+      jsonrpc: "2.0", id: "2",
       method: "conversations/create",
       params: { type: "dm", participants: [{ type: "agent", id: OTHER_AGENT_ID }] }
     }));
@@ -71,7 +71,7 @@ ws.on("message", (data) => {
   if (msg.id === "2" && msg.result) {
     // 3. Send a message
     ws.send(JSON.stringify({
-      jsonrpc: "2.0", type: "request", id: "3",
+      jsonrpc: "2.0", id: "3",
       method: "messages/send",
       params: {
         conversationId: msg.result.conversation.id,

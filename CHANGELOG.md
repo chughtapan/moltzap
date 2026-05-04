@@ -9,25 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Server-initiated awaitable RPC channel. `RequestFrameSchema` and
-  `ResponseFrameSchema` carry a required `direction: "c2s" | "s2c"`
-  discriminator; c2s and s2c request-id pools live in disjoint pending
-  maps. `MoltZapWsClient.handleServerRpc(method, handler)` registers
-  handlers for inbound s2c requests; the server allocates a `Deferred`
-  per outbound request and finalizes pending Deferreds with
-  `AppDisconnected` on connection scope close.
-- Five new s2c RPC verbs for app hooks:
+- App-callback awaitable RPC channel over standard JSON-RPC request and
+  response frames. `MoltZapWsClient.handleServerRpc(definition, handler)`
+  registers handlers for descriptor-backed app-callback requests; the
+  server allocates a `Deferred` per outbound request and finalizes pending
+  Deferreds with `AppDisconnected` on connection scope close.
+- Five app-callback RPC descriptors for app hooks:
   `apps/onBeforeDispatch`, `apps/onBeforeMessageDelivery`,
   `apps/onSessionActive`, `apps/onJoin`, `apps/onClose`. All five are
   awaitable; the lifecycle verbs reply with `{}` so the AppHost's
   `Effect.timeout(manifestMs)` applies and `app/sessionReady` ordering
   is preserved.
-- New c2s RPC verb `apps/attachConversation` for adding an existing
+- New RPC descriptor `apps/attachConversation` for adding an existing
   conversation to a session's membership pipeline.
 - `MoltZapApp.onBeforeDispatch`, `onBeforeMessageDelivery`,
   `onSessionActive`, `onJoin`, `onClose`, and `attachConversation`
   on the app-sdk surface. Each `onX` registers a handler against the
-  matching s2c RPC verb; duplicate registration throws
+  matching app-callback RPC descriptor; duplicate registration throws
   `AppError("DUPLICATE_HOOK_HANDLER")`.
 - Typed errors in `@moltzap/app-sdk`: `AppHandlerError`,
   `AdmissionTimeoutError`, `AppDisconnected`, `AttachError`.
@@ -42,17 +40,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **BREAKING (wire format):** `RequestFrameSchema` and
-  `ResponseFrameSchema` now require a `direction: "c2s" | "s2c"`
-  field on every frame. Raw clients or servers that hand-craft JSON
-  envelopes must populate this field; missing or unknown values are
-  rejected by the schema. `MoltZapWsClient`, `@moltzap/server-core`,
-  and `@moltzap/app-sdk` consumers are unaffected — they emit/parse
-  the field internally.
-- `app/hookTimeout` event schema (`packages/protocol/src/schema/events.ts:189`):
+- **BREAKING (wire format):** MoltZap now uses standard unary JSON-RPC
+  request, response, and notification frames. Custom `type`,
+  `direction`, `event`, and `data` envelope fields are removed; raw
+  clients or servers that hand-craft JSON envelopes must use
+  `{ jsonrpc, id, method, params }`, `{ jsonrpc, id, result/error }`,
+  and `{ jsonrpc, method, params }`.
+- `app/hookTimeout` notification schema (`packages/protocol/src/schema/notifications.ts`):
   `hookName` enum extended to
   `["before_message_delivery", "before_dispatch", "on_join", "on_session_active", "on_close"]`.
-  AppHost emits the event for all five hook kinds; the schema previously
+  AppHost emits the notification for all five hook kinds; the schema previously
   rejected `before_dispatch` and `on_session_active`.
 - AppHost composes hooks with `Effect.forEach` in registration-order
   FIFO with first-deny short-circuit. Hook signatures unified to
@@ -93,9 +90,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING:** `WebhookAdapterProbe` interface and
   `registerWebhookGracefulShutdown` function removed from
   `packages/protocol/src/testing/conformance/`. Replaced by an
-  `app-disconnect-fail-policy` property that asserts pending s2c
-  admissions fail with `AppDisconnected` and AppHost applies
-  fail-closed verdicts when the app's WS is severed.
+  `app-disconnect-fail-policy` property that asserts pending
+  app-callback admissions fail with `AppDisconnected` and AppHost
+  applies fail-closed verdicts when the app's WS is severed.
 - 30s upper bound on `hooks.<name>.timeout_ms` (B.4 follow-up #324).
   The schema in `packages/protocol/src/schema/apps.ts` now reads
   `Type.Integer({ default: 5000, minimum: 1 })` — no `maximum`.

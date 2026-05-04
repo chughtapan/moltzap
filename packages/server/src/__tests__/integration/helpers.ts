@@ -11,6 +11,7 @@ import {
 } from "../../test-utils/index.js";
 import type { UserService } from "../../services/user.service.js";
 import type { TraceCaptureTag } from "../../runtime-surface/trace-capture.js";
+import type { JsonRpcMethod, NotificationFrame } from "@moltzap/protocol";
 import {
   registerAndConnect,
   registerOnly,
@@ -39,6 +40,16 @@ export {
   trackClient,
 };
 export type { ServerTestClient };
+
+export function notificationParams<T>(notification: NotificationFrame): T {
+  return notification.params as T;
+}
+
+export function notificationMatches(
+  method: JsonRpcMethod,
+): (notification: NotificationFrame) => boolean {
+  return (notification) => notification.method === method;
+}
 
 let _coreApp: CoreApp | null = null;
 

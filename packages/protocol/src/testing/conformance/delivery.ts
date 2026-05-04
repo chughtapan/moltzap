@@ -9,9 +9,17 @@
  * Principle 3: every property body is `Effect<void, PropertyFailure>`.
  */
 import * as fc from "fast-check";
+import type { Static } from "@sinclair/typebox";
 import { Effect, Either, Ref, type Scope } from "effect";
 import { ErrorCodes } from "../../schema/errors.js";
-import { EventNames } from "../../schema/events.js";
+import {
+  AppSessionClosedNotificationDefinition,
+  ConversationArchivedNotificationDefinition,
+  ConversationCreatedNotificationDefinition,
+  ConversationUnarchivedNotificationDefinition,
+  ConversationUpdatedNotificationDefinition,
+  MessageReceivedNotificationDefinition,
+} from "../../schema/notifications.js";
 import {
   AppsCloseSession,
   AppsCreate,
@@ -24,7 +32,13 @@ import {
   ConversationsUpdate,
 } from "../../schema/methods/conversations.js";
 import { MessagesSend } from "../../schema/methods/messages.js";
+import {
+  AgentId,
+  ConversationId,
+  conversationId as makeConversationId,
+} from "../../schema/primitives.js";
 import { RpcResponseError } from "../errors.js";
+import { isNotificationFrame } from "../codec.js";
 import { makeTestClient, type TestClient } from "../test-client.js";
 import { registerTestAgent, type TestAgent } from "../agent-registration.js";
 import type { ConformanceRunContext } from "./runner.js";
@@ -48,6 +62,8 @@ const APP_SESSION_CLOSE_LIFECYCLE_PROPERTY = "app-session-close-lifecycle";
 const ARCHIVE_LIFECYCLE_PROPERTY = "archive-lifecycle";
 const STORE_AND_REPLAY_PROPERTY = "store-and-replay";
 const TASK_BOUNDARY_ISOLATION_PROPERTY = "task-boundary-isolation";
+type AgentIdValue = Static<typeof AgentId>;
+type ConversationIdValue = Static<typeof ConversationId>;
 
 interface ConversationFixture {
   readonly owner: { agent: TestAgent; client: TestClient };
@@ -55,7 +71,7 @@ interface ConversationFixture {
     agent: TestAgent;
     client: TestClient;
   }>;
-  readonly conversationId: string;
+  readonly conversationId: ConversationIdValue;
 }
 
 type ConversationActor = {
@@ -69,7 +85,7 @@ type ArchiveEventData = {
   readonly by?: unknown;
 };
 
-type ConversationEventData = {
+type ConversationNotificationData = {
   readonly conversation?: {
     readonly id?: unknown;
     readonly name?: unknown;
@@ -82,7 +98,7 @@ type MessageEventData = {
   };
 };
 
-type AppSessionClosedEventData = {
+type AppSessionClosedNotificationData = {
   readonly sessionId?: unknown;
   readonly closedBy?: unknown;
 };
@@ -118,25 +134,28 @@ function firstParticipant(
 
 function sendText(
   actor: ConversationActor,
-  conversationId: string,
+  conversationId: ConversationIdValue,
   text: string,
 ) {
-  return actor.client.sendRpc(MessagesSend.name, {
+  return actor.client.sendRpc(MessagesSend, {
     conversationId,
     parts: [{ type: "text", text }],
   });
 }
 
-function archiveConversation(actor: ConversationActor, conversationId: string) {
-  return actor.client.sendRpc(ConversationsArchive.name, { conversationId });
+function archiveConversation(
+  actor: ConversationActor,
+  conversationId: ConversationIdValue,
+) {
+  return actor.client.sendRpc(ConversationsArchive, { conversationId });
 }
 
 function updateConversationName(
   actor: ConversationActor,
-  conversationId: string,
+  conversationId: ConversationIdValue,
   name: string,
 ) {
-  return actor.client.sendRpc(ConversationsUpdate.name, {
+  return actor.client.sendRpc(ConversationsUpdate, {
     conversationId,
     name,
   });
@@ -144,51 +163,57 @@ function updateConversationName(
 
 function unarchiveConversation(
   actor: ConversationActor,
-  conversationId: string,
+  conversationId: ConversationIdValue,
 ) {
-  return actor.client.sendRpc(ConversationsUnarchive.name, { conversationId });
+  return actor.client.sendRpc(ConversationsUnarchive, { conversationId });
 }
 
-function waitForConversationCreatedEvent(
+function waitForConversationCreatedNotification(
   observer: ConversationActor,
-  conversationId: string,
+  conversationId: ConversationIdValue,
   propertyName: string,
 ): Effect.Effect<void, PropertyInvariantViolation> {
   return Effect.gen(function* () {
     const event = yield* observer.client
-      .waitForEvent(EventNames.ConversationCreated, DEFAULT_TIMEOUT_MS)
+      .waitForNotification(
+        ConversationCreatedNotificationDefinition,
+        DEFAULT_TIMEOUT_MS,
+      )
       .pipe(
         Effect.mapError((e) =>
           violation(propertyName, `created event missing: ${e.message}`),
         ),
       );
-    const data = event.data as ConversationEventData | undefined;
+    const data = event.params as ConversationNotificationData | undefined;
     if (data?.conversation?.id !== conversationId) {
       return yield* Effect.fail(
         violation(
           propertyName,
-          `bad created event payload: ${JSON.stringify(event.data)}`,
+          `bad created event payload: ${JSON.stringify(event.params)}`,
         ),
       );
     }
   });
 }
 
-function waitForConversationUpdatedEvent(
+function waitForConversationUpdatedNotification(
   observer: ConversationActor,
-  conversationId: string,
+  conversationId: ConversationIdValue,
   name: string,
   propertyName: string,
 ): Effect.Effect<void, PropertyInvariantViolation> {
   return Effect.gen(function* () {
     const event = yield* observer.client
-      .waitForEvent(EventNames.ConversationUpdated, DEFAULT_TIMEOUT_MS)
+      .waitForNotification(
+        ConversationUpdatedNotificationDefinition,
+        DEFAULT_TIMEOUT_MS,
+      )
       .pipe(
         Effect.mapError((e) =>
           violation(propertyName, `updated event missing: ${e.message}`),
         ),
       );
-    const data = event.data as ConversationEventData | undefined;
+    const data = event.params as ConversationNotificationData | undefined;
     if (
       data?.conversation?.id !== conversationId ||
       data.conversation.name !== name
@@ -196,39 +221,42 @@ function waitForConversationUpdatedEvent(
       return yield* Effect.fail(
         violation(
           propertyName,
-          `bad updated event payload: ${JSON.stringify(event.data)}`,
+          `bad updated event payload: ${JSON.stringify(event.params)}`,
         ),
       );
     }
   });
 }
 
-function waitForMessageReceivedEvent(
+function waitForMessageReceivedNotification(
   observer: ConversationActor,
-  conversationId: string,
+  conversationId: ConversationIdValue,
   propertyName: string,
 ): Effect.Effect<void, PropertyInvariantViolation> {
   return Effect.gen(function* () {
     const event = yield* observer.client
-      .waitForEvent(EventNames.MessageReceived, DEFAULT_TIMEOUT_MS)
+      .waitForNotification(
+        MessageReceivedNotificationDefinition,
+        DEFAULT_TIMEOUT_MS,
+      )
       .pipe(
         Effect.mapError((e) =>
           violation(propertyName, `message event missing: ${e.message}`),
         ),
       );
-    const data = event.data as MessageEventData | undefined;
+    const data = event.params as MessageEventData | undefined;
     if (data?.message?.conversationId !== conversationId) {
       return yield* Effect.fail(
         violation(
           propertyName,
-          `bad message event payload: ${JSON.stringify(event.data)}`,
+          `bad message event payload: ${JSON.stringify(event.params)}`,
         ),
       );
     }
   });
 }
 
-function waitForAppSessionClosedEvent(
+function waitForAppSessionClosedNotification(
   observer: ConversationActor,
   sessionId: string,
   closedBy: string,
@@ -236,18 +264,21 @@ function waitForAppSessionClosedEvent(
 ): Effect.Effect<void, PropertyInvariantViolation> {
   return Effect.gen(function* () {
     const event = yield* observer.client
-      .waitForEvent(EventNames.AppSessionClosed, DEFAULT_TIMEOUT_MS)
+      .waitForNotification(
+        AppSessionClosedNotificationDefinition,
+        DEFAULT_TIMEOUT_MS,
+      )
       .pipe(
         Effect.mapError((e) =>
           violation(propertyName, `session closed event missing: ${e.message}`),
         ),
       );
-    const data = event.data as AppSessionClosedEventData | undefined;
+    const data = event.params as AppSessionClosedNotificationData | undefined;
     if (data?.sessionId !== sessionId || data.closedBy !== closedBy) {
       return yield* Effect.fail(
         violation(
           propertyName,
-          `bad session closed event payload: ${JSON.stringify(event.data)}`,
+          `bad session closed event payload: ${JSON.stringify(event.params)}`,
         ),
       );
     }
@@ -256,19 +287,22 @@ function waitForAppSessionClosedEvent(
 
 function waitForArchivedEvent(
   observer: ConversationActor,
-  conversationId: string,
-  byAgentId: string,
+  conversationId: ConversationIdValue,
+  byAgentId: AgentIdValue,
   propertyName: string,
 ): Effect.Effect<void, PropertyInvariantViolation> {
   return Effect.gen(function* () {
     const event = yield* observer.client
-      .waitForEvent(EventNames.ConversationArchived, DEFAULT_TIMEOUT_MS)
+      .waitForNotification(
+        ConversationArchivedNotificationDefinition,
+        DEFAULT_TIMEOUT_MS,
+      )
       .pipe(
         Effect.mapError((e) =>
           violation(propertyName, `archive event missing: ${e.message}`),
         ),
       );
-    const data = event.data as ArchiveEventData | undefined;
+    const data = event.params as ArchiveEventData | undefined;
     if (
       data?.conversationId !== conversationId ||
       typeof data.archivedAt !== "string" ||
@@ -277,7 +311,7 @@ function waitForArchivedEvent(
       return yield* Effect.fail(
         violation(
           propertyName,
-          `bad archive event payload: ${JSON.stringify(event.data)}`,
+          `bad archive event payload: ${JSON.stringify(event.params)}`,
         ),
       );
     }
@@ -286,24 +320,27 @@ function waitForArchivedEvent(
 
 function waitForUnarchivedEvent(
   observer: ConversationActor,
-  conversationId: string,
-  byAgentId: string,
+  conversationId: ConversationIdValue,
+  byAgentId: AgentIdValue,
   propertyName: string,
 ): Effect.Effect<void, PropertyInvariantViolation> {
   return Effect.gen(function* () {
     const event = yield* observer.client
-      .waitForEvent(EventNames.ConversationUnarchived, DEFAULT_TIMEOUT_MS)
+      .waitForNotification(
+        ConversationUnarchivedNotificationDefinition,
+        DEFAULT_TIMEOUT_MS,
+      )
       .pipe(
         Effect.mapError((e) =>
           violation(propertyName, `unarchive event missing: ${e.message}`),
         ),
       );
-    const data = event.data as UnarchiveEventData | undefined;
+    const data = event.params as UnarchiveEventData | undefined;
     if (data?.conversationId !== conversationId || data.by !== byAgentId) {
       return yield* Effect.fail(
         violation(
           propertyName,
-          `bad unarchive event payload: ${JSON.stringify(event.data)}`,
+          `bad unarchive event payload: ${JSON.stringify(event.params)}`,
         ),
       );
     }
@@ -312,7 +349,7 @@ function waitForUnarchivedEvent(
 
 function assertConversationRejectsMessages(
   actor: ConversationActor,
-  conversationId: string,
+  conversationId: ConversationIdValue,
   propertyName: string,
 ): Effect.Effect<void, PropertyInvariantViolation> {
   return Effect.gen(function* () {
@@ -385,7 +422,7 @@ function acquireConversation(
       { concurrency: clamped },
     );
     const createResult = yield* owner.client
-      .sendRpc(ConversationsCreate.name, {
+      .sendRpc(ConversationsCreate, {
         type: "group",
         name: `${namePrefix}-conv`,
         participants: participants.map((p) => ({
@@ -406,7 +443,11 @@ function acquireConversation(
         `conversations/create returned no conversation.id`,
       );
     }
-    return { owner, participants, conversationId };
+    return {
+      owner,
+      participants,
+      conversationId: makeConversationId(conversationId),
+    };
   });
 }
 
@@ -436,7 +477,7 @@ export function registerFanOutCardinality(ctx: ConformanceRunContext): void {
                   ),
                 );
                 const send = yield* fixture.owner.client
-                  .sendRpc(MessagesSend.name, {
+                  .sendRpc(MessagesSend, {
                     conversationId: fixture.conversationId,
                     parts: [{ type: "text", text: "fan-out-ping" }],
                   })
@@ -454,9 +495,9 @@ export function registerFanOutCardinality(ctx: ConformanceRunContext): void {
                     snap.filter(
                       (s) =>
                         s.kind === "inbound" &&
-                        s.frame?.type === "event" &&
-                        typeof s.frame.event === "string" &&
-                        s.frame.event.includes("message"),
+                        s.frame !== null &&
+                        isNotificationFrame(s.frame) &&
+                        s.frame.method.includes("message"),
                     ).length,
                 );
                 return { kind: "ok" as const, counts };
@@ -541,7 +582,7 @@ export function registerStoreAndReplay(ctx: ConformanceRunContext): void {
         const sent = 3;
         for (let i = 0; i < sent; i++) {
           yield* fixture.owner.client
-            .sendRpc(MessagesSend.name, {
+            .sendRpc(MessagesSend, {
               conversationId: fixture.conversationId,
               parts: [{ type: "text", text: `sr-${i}` }],
             })
@@ -552,9 +593,9 @@ export function registerStoreAndReplay(ctx: ConformanceRunContext): void {
         const delivered = snap.filter(
           (s) =>
             s.kind === "inbound" &&
-            s.frame?.type === "event" &&
-            typeof s.frame.event === "string" &&
-            s.frame.event.includes("message"),
+            s.frame !== null &&
+            isNotificationFrame(s.frame) &&
+            s.frame.method.includes("message"),
         ).length;
         if (delivered < sent) {
           return yield* Effect.fail(
@@ -595,7 +636,7 @@ export function registerPayloadOpacity(ctx: ConformanceRunContext): void {
                   );
                   const participant = fixture.participants[0];
                   if (participant === undefined) return false;
-                  yield* fixture.owner.client.sendRpc(MessagesSend.name, {
+                  yield* fixture.owner.client.sendRpc(MessagesSend, {
                     conversationId: fixture.conversationId,
                     parts: [{ type: "text", text }],
                   });
@@ -604,7 +645,8 @@ export function registerPayloadOpacity(ctx: ConformanceRunContext): void {
                   return snap.some(
                     (s) =>
                       s.kind === "inbound" &&
-                      s.frame?.type === "event" &&
+                      s.frame !== null &&
+                      isNotificationFrame(s.frame) &&
                       s.raw.includes(text),
                   );
                 }),
@@ -659,7 +701,7 @@ export function registerHookGatedDelivery(ctx: ConformanceRunContext): void {
         // Codex review (#327, finding 4): the protocol fixture cannot
         // drive the deny/patch/attach scenarios end-to-end (no DB seam
         // to inspect the recipient view; `apps/attachConversation` is a
-        // c2s RPC but the assertion needs a server-internal observation
+        // client-originated RPC but the assertion needs a server-internal observation
         // the conformance contract does not expose). When a future
         // fixture extension makes apps/create reachable, surface a
         // typed Deferred so the suite reports honest coverage instead
@@ -741,7 +783,7 @@ interface AppSessionCloseFixture {
   readonly initiator: { agent: TestAgent; client: TestClient };
   readonly invitee: { agent: TestAgent; client: TestClient };
   readonly sessionId: string;
-  readonly conversationId: string;
+  readonly conversationId: ConversationIdValue;
 }
 
 type AppCreateResultData = {
@@ -815,7 +857,7 @@ function acquireAppSessionFixture(
     );
 
     const createOutcome = yield* senderClient
-      .sendRpc(AppsCreate.name, { appId, invitedAgentIds: [] })
+      .sendRpc(AppsCreate, { appId, invitedAgentIds: [] })
       .pipe(Effect.either);
     const createResult = yield* requireRight(createOutcome, (error) =>
       unavailable(
@@ -928,7 +970,7 @@ function acquireAppSessionCloseFixture(
     );
 
     const createOutcome = yield* initiatorClient
-      .sendRpc(AppsCreate.name, {
+      .sendRpc(AppsCreate, {
         appId,
         invitedAgentIds: [inviteeAgent.agentId],
       })
@@ -958,7 +1000,7 @@ function acquireAppSessionCloseFixture(
       initiator: { agent: initiatorAgent, client: initiatorClient },
       invitee: { agent: inviteeAgent, client: inviteeClient },
       sessionId,
-      conversationId: mainConversationId,
+      conversationId: makeConversationId(mainConversationId),
     } satisfies AppSessionCloseFixture;
   });
 }
@@ -995,7 +1037,7 @@ export function registerTaskBoundaryIsolation(
           ),
         );
         yield* fxA.owner.client
-          .sendRpc(MessagesSend.name, {
+          .sendRpc(MessagesSend, {
             conversationId: fxA.conversationId,
             parts: [{ type: "text", text: "iso-leak-canary" }],
           })
@@ -1051,7 +1093,7 @@ export function registerConversationLifecycle(
           CONVERSATION_LIFECYCLE_PROPERTY,
         );
 
-        yield* waitForConversationCreatedEvent(
+        yield* waitForConversationCreatedNotification(
           participant,
           fixture.conversationId,
           CONVERSATION_LIFECYCLE_PROPERTY,
@@ -1068,7 +1110,7 @@ export function registerConversationLifecycle(
             `messages/send failed before archive: ${error._tag}`,
           ),
         );
-        yield* waitForMessageReceivedEvent(
+        yield* waitForMessageReceivedNotification(
           participant,
           fixture.conversationId,
           CONVERSATION_LIFECYCLE_PROPERTY,
@@ -1086,7 +1128,7 @@ export function registerConversationLifecycle(
             `conversations/update failed: ${error._tag}`,
           ),
         );
-        yield* waitForConversationUpdatedEvent(
+        yield* waitForConversationUpdatedNotification(
           participant,
           fixture.conversationId,
           updatedName,
@@ -1166,7 +1208,7 @@ export function registerAppSessionCloseLifecycle(
         const fixture = yield* acquireAppSessionCloseFixture(ctx);
 
         const close = yield* fixture.initiator.client
-          .sendRpc(AppsCloseSession.name, { sessionId: fixture.sessionId })
+          .sendRpc(AppsCloseSession, { sessionId: fixture.sessionId })
           .pipe(Effect.either);
         const closeResult = yield* requireRight(close, (error) =>
           violation(
@@ -1189,7 +1231,7 @@ export function registerAppSessionCloseLifecycle(
           fixture.initiator.agent.agentId,
           APP_SESSION_CLOSE_LIFECYCLE_PROPERTY,
         );
-        yield* waitForAppSessionClosedEvent(
+        yield* waitForAppSessionClosedNotification(
           fixture.invitee,
           fixture.sessionId,
           fixture.initiator.agent.agentId,

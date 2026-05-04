@@ -1,6 +1,6 @@
 import { Command } from "@effect/cli";
 import { Effect } from "effect";
-import { request } from "../socket-client.js";
+import { LocalServiceCommands, requestLocalService } from "../socket-client.js";
 
 interface StatusResult {
   agentId: string;
@@ -13,7 +13,7 @@ interface StatusResult {
  * agent id, live connection state, and conversation count.
  */
 export const statusCommand = Command.make("status", {}, () =>
-  request("status").pipe(
+  requestLocalService(LocalServiceCommands.Status).pipe(
     Effect.tap((result) =>
       Effect.sync(() => {
         const r = result as StatusResult;

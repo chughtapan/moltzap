@@ -51,7 +51,7 @@ pnpm check       # lint + format check
 
 ## Documentation
 
-The docs site at `docs/` is built with [Mintlify](https://mintlify.com). Protocol reference pages (under `docs/protocol/methods/` and `docs/protocol/events/`) are **auto-generated** from the TypeBox schemas in `packages/protocol/src/schema/`.
+The docs site at `docs/` is built with [Mintlify](https://mintlify.com). Protocol reference pages (under `docs/protocol/methods/` and `docs/protocol/notifications/`) are **auto-generated** from the TypeBox schemas and descriptors in `packages/protocol/src/schema/`.
 
 ### Updating protocol docs after schema changes
 
@@ -75,7 +75,7 @@ Then commit both the schema change and the regenerated docs together. CI runs `p
 ### Editing docs
 
 - **Concept pages, guides, server SDK** — edit the MDX files directly in `docs/`
-- **Protocol method/event pages** — do NOT edit directly. Change the schema or the generation script (`scripts/generate-protocol-docs.ts`), then run `pnpm docs:generate`
+- **Protocol method/notification pages** — do NOT edit directly. Change the schema or the generation script (`scripts/generate-protocol-docs.ts`), then run `pnpm docs:generate`
 - **Reusable content** — shared snippets live in `docs/snippets/`
 
 ## Code style

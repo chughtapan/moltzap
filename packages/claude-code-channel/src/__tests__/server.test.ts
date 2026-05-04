@@ -21,8 +21,20 @@ import {
   REPLY_TOOL_INPUT_SCHEMA,
 } from "../server.js";
 import { createRoutingState } from "../routing.js";
-import type { ChatId, ClaudeChannelNotification, MessageId } from "../types.js";
+import type { ClaudeChannelNotification } from "../types.js";
+import { ConversationId, MessageId, UserId } from "../types.js";
 import { SendFailed, type ReplyError } from "../errors.js";
+
+const CONVERSATION_1 = "00000000-0000-4000-8000-0000000000a1";
+const CONVERSATION_2 = "00000000-0000-4000-8000-0000000000a2";
+const CONVERSATION_KNOWN = "00000000-0000-4000-8000-0000000000a3";
+const CONVERSATION_X = "00000000-0000-4000-8000-0000000000a4";
+const MESSAGE_1 = "00000000-0000-4000-8000-0000000001a1";
+const MESSAGE_2 = "00000000-0000-4000-8000-0000000001a2";
+const MESSAGE_KNOWN = "00000000-0000-4000-8000-0000000001a3";
+const MESSAGE_MISSING = "00000000-0000-4000-8000-0000000001a4";
+const MESSAGE_X = "00000000-0000-4000-8000-0000000001a5";
+const USER_PEER = "00000000-0000-4000-8000-0000000002a1";
 
 const silentLogger = {
   info: () => {},
@@ -32,7 +44,7 @@ const silentLogger = {
 
 async function setup(opts?: {
   onSendReply?: (
-    chatId: string,
+    conversationId: string,
     text: string,
   ) => Effect.Effect<void, ReplyError>;
 }) {
@@ -42,7 +54,8 @@ async function setup(opts?: {
 
   const sendReply =
     opts?.onSendReply ??
-    ((_chatId: string, _text: string) => Effect.succeed(undefined as void));
+    ((_conversationId: string, _text: string) =>
+      Effect.succeed(undefined as void));
 
   const boot = await bootChannelMcpServer(
     {
@@ -187,7 +200,7 @@ describe("bootChannelMcpServer — tool registry (spec A4, A7)", () => {
 
 describe("notification emission (spec A5, A6)", () => {
   function makeNotification(
-    chatId: string,
+    conversationId: string,
     messageId: string,
   ): ClaudeChannelNotification {
     return {
@@ -195,9 +208,9 @@ describe("notification emission (spec A5, A6)", () => {
       params: {
         content: "ping",
         meta: {
-          chat_id: chatId as ChatId,
-          message_id: messageId as MessageId,
-          user: "peer" as never,
+          chat_id: ConversationId(conversationId),
+          message_id: MessageId(messageId),
+          user: UserId(USER_PEER),
           ts: "2026-04-24T00:00:00Z" as never,
         },
       },
@@ -207,7 +220,9 @@ describe("notification emission (spec A5, A6)", () => {
   it("Handle.push emits method 'notifications/claude/channel' with contract meta", async () => {
     const { serverHandle, notifications, cleanup } = await setup();
     try {
-      await Effect.runPromise(serverHandle.push(makeNotification("C1", "M1")));
+      await Effect.runPromise(
+        serverHandle.push(makeNotification(CONVERSATION_1, MESSAGE_1)),
+      );
       // Give the transport a tick to deliver.
       await new Promise((r) => setTimeout(r, 10));
       expect(notifications).toHaveLength(1);
@@ -216,9 +231,9 @@ describe("notification emission (spec A5, A6)", () => {
       expect(n!.method).toBe("notifications/claude/channel");
       const meta = (n!.params as { meta: Record<string, unknown> }).meta;
       expect(meta).toMatchObject({
-        chat_id: "C1",
-        message_id: "M1",
-        user: "peer",
+        chat_id: CONVERSATION_1,
+        message_id: MESSAGE_1,
+        user: USER_PEER,
         ts: "2026-04-24T00:00:00Z",
       });
     } finally {
@@ -229,8 +244,12 @@ describe("notification emission (spec A5, A6)", () => {
   it("notification method set under push equals exactly {'notifications/claude/channel'}", async () => {
     const { serverHandle, notifications, cleanup } = await setup();
     try {
-      await Effect.runPromise(serverHandle.push(makeNotification("C1", "M1")));
-      await Effect.runPromise(serverHandle.push(makeNotification("C2", "M2")));
+      await Effect.runPromise(
+        serverHandle.push(makeNotification(CONVERSATION_1, MESSAGE_1)),
+      );
+      await Effect.runPromise(
+        serverHandle.push(makeNotification(CONVERSATION_2, MESSAGE_2)),
+      );
       await new Promise((r) => setTimeout(r, 10));
       const methods = new Set(notifications.map((n) => n.method));
       expect(methods).toEqual(new Set(["notifications/claude/channel"]));
@@ -242,52 +261,64 @@ describe("notification emission (spec A5, A6)", () => {
 
 describe("reply tool routing (spec OQ5)", () => {
   it("resolves reply_to present + known → sends to that message's chat_id", async () => {
-    const sent: Array<{ chatId: string; text: string }> = [];
+    const sent: Array<{ conversationId: string; text: string }> = [];
     const { client, routing, cleanup } = await setup({
-      onSendReply: (chatId, text) =>
+      onSendReply: (conversationId, text) =>
         Effect.sync(() => {
-          sent.push({ chatId, text });
+          sent.push({ conversationId, text });
         }),
     });
     try {
-      routing.recordInbound("M-a" as MessageId, "C-a" as ChatId);
-      routing.recordInbound("M-b" as MessageId, "C-b" as ChatId);
+      routing.recordInbound(
+        MessageId(MESSAGE_1),
+        ConversationId(CONVERSATION_1),
+      );
+      routing.recordInbound(
+        MessageId(MESSAGE_2),
+        ConversationId(CONVERSATION_2),
+      );
 
       const result = await client.callTool({
         name: "reply",
-        arguments: { text: "hi", reply_to: "M-a" },
+        arguments: { text: "hi", reply_to: MESSAGE_1 },
       });
       expect(result.isError).not.toBe(true);
-      expect(sent).toEqual([{ chatId: "C-a", text: "hi" }]);
+      expect(sent).toEqual([{ conversationId: CONVERSATION_1, text: "hi" }]);
     } finally {
       await cleanup();
     }
   });
 
   it("resolves reply_to absent → last-active chat_id", async () => {
-    const sent: Array<{ chatId: string; text: string }> = [];
+    const sent: Array<{ conversationId: string; text: string }> = [];
     const { client, routing, cleanup } = await setup({
-      onSendReply: (chatId, text) =>
+      onSendReply: (conversationId, text) =>
         Effect.sync(() => {
-          sent.push({ chatId, text });
+          sent.push({ conversationId, text });
         }),
     });
     try {
-      routing.recordInbound("M-a" as MessageId, "C-a" as ChatId);
-      routing.recordInbound("M-b" as MessageId, "C-b" as ChatId);
+      routing.recordInbound(
+        MessageId(MESSAGE_1),
+        ConversationId(CONVERSATION_1),
+      );
+      routing.recordInbound(
+        MessageId(MESSAGE_2),
+        ConversationId(CONVERSATION_2),
+      );
 
       const result = await client.callTool({
         name: "reply",
         arguments: { text: "hi" },
       });
       expect(result.isError).not.toBe(true);
-      expect(sent).toEqual([{ chatId: "C-b", text: "hi" }]);
+      expect(sent).toEqual([{ conversationId: CONVERSATION_2, text: "hi" }]);
     } finally {
       await cleanup();
     }
   });
 
-  it("returns tool error when reply_to absent and no inbound observed (NoActiveChat)", async () => {
+  it("returns tool error when reply_to absent and no inbound observed (NoActiveConversation)", async () => {
     const { client, cleanup } = await setup();
     try {
       const result = await client.callTool({
@@ -296,7 +327,7 @@ describe("reply tool routing (spec OQ5)", () => {
       });
       expect(result.isError).toBe(true);
       const content = Array.isArray(result.content) ? result.content : [];
-      expect(JSON.stringify(content)).toMatch(/no active chat/);
+      expect(JSON.stringify(content)).toMatch(/no active conversation/);
     } finally {
       await cleanup();
     }
@@ -305,14 +336,17 @@ describe("reply tool routing (spec OQ5)", () => {
   it("returns tool error when reply_to unknown (ReplyToUnknown)", async () => {
     const { client, routing, cleanup } = await setup();
     try {
-      routing.recordInbound("M-known" as MessageId, "C-known" as ChatId);
+      routing.recordInbound(
+        MessageId(MESSAGE_KNOWN),
+        ConversationId(CONVERSATION_KNOWN),
+      );
       const result = await client.callTool({
         name: "reply",
-        arguments: { text: "hi", reply_to: "M-missing" },
+        arguments: { text: "hi", reply_to: MESSAGE_MISSING },
       });
       expect(result.isError).toBe(true);
       const content = Array.isArray(result.content) ? result.content : [];
-      expect(JSON.stringify(content)).toMatch(/M-missing/);
+      expect(JSON.stringify(content)).toMatch(new RegExp(MESSAGE_MISSING));
     } finally {
       await cleanup();
     }
@@ -332,18 +366,25 @@ describe("reply tool routing (spec OQ5)", () => {
   });
 
   it("rejects reply with non-empty files with FilesUnsupported tool error (v1, reviewer-187)", async () => {
-    const sent: Array<{ chatId: string; text: string }> = [];
+    const sent: Array<{ conversationId: string; text: string }> = [];
     const { client, routing, cleanup } = await setup({
-      onSendReply: (chatId, text) =>
+      onSendReply: (conversationId, text) =>
         Effect.sync(() => {
-          sent.push({ chatId, text });
+          sent.push({ conversationId, text });
         }),
     });
     try {
-      routing.recordInbound("M-a" as MessageId, "C-a" as ChatId);
+      routing.recordInbound(
+        MessageId(MESSAGE_1),
+        ConversationId(CONVERSATION_1),
+      );
       const result = await client.callTool({
         name: "reply",
-        arguments: { text: "hi", reply_to: "M-a", files: ["a.png", "b.png"] },
+        arguments: {
+          text: "hi",
+          reply_to: MESSAGE_1,
+          files: ["a.png", "b.png"],
+        },
       });
       expect(result.isError).toBe(true);
       const content = Array.isArray(result.content) ? result.content : [];
@@ -357,21 +398,24 @@ describe("reply tool routing (spec OQ5)", () => {
   });
 
   it("accepts reply with empty files array (equivalent to omitted)", async () => {
-    const sent: Array<{ chatId: string; text: string }> = [];
+    const sent: Array<{ conversationId: string; text: string }> = [];
     const { client, routing, cleanup } = await setup({
-      onSendReply: (chatId, text) =>
+      onSendReply: (conversationId, text) =>
         Effect.sync(() => {
-          sent.push({ chatId, text });
+          sent.push({ conversationId, text });
         }),
     });
     try {
-      routing.recordInbound("M-a" as MessageId, "C-a" as ChatId);
+      routing.recordInbound(
+        MessageId(MESSAGE_1),
+        ConversationId(CONVERSATION_1),
+      );
       const result = await client.callTool({
         name: "reply",
-        arguments: { text: "hi", reply_to: "M-a", files: [] },
+        arguments: { text: "hi", reply_to: MESSAGE_1, files: [] },
       });
       expect(result.isError).not.toBe(true);
-      expect(sent).toEqual([{ chatId: "C-a", text: "hi" }]);
+      expect(sent).toEqual([{ conversationId: CONVERSATION_1, text: "hi" }]);
     } finally {
       await cleanup();
     }
@@ -383,7 +427,10 @@ describe("reply tool routing (spec OQ5)", () => {
         Effect.fail<ReplyError>(new SendFailed({ cause: "ws dropped" })),
     });
     try {
-      routing.recordInbound("M-x" as MessageId, "C-x" as ChatId);
+      routing.recordInbound(
+        MessageId(MESSAGE_X),
+        ConversationId(CONVERSATION_X),
+      );
       const result = await client.callTool({
         name: "reply",
         arguments: { text: "hi" },
@@ -410,11 +457,15 @@ describe("decodeReplyArgs — boundary validation (Principle 2)", () => {
   it("decodes {text, reply_to, files} — rejection happens at handler, not decoder", () => {
     // Decoder preserves the `files` field so the handler can emit a tagged
     // FilesUnsupported tool error. Contract surface stays intact (spec A4).
-    const r = decodeReplyArgs({ text: "hi", reply_to: "M1", files: ["a.png"] });
+    const r = decodeReplyArgs({
+      text: "hi",
+      reply_to: MESSAGE_1,
+      files: ["a.png"],
+    });
     expect(r._tag).toBe("Ok");
     if (r._tag !== "Ok") return;
     expect(r.value.text).toBe("hi");
-    expect(r.value.replyTo).toBe("M1");
+    expect(r.value.replyTo).toBe(MESSAGE_1);
     expect(r.value.files).toEqual(["a.png"]);
   });
 

@@ -21,10 +21,15 @@
 import type { EnrichedInboundMessage } from "@moltzap/client";
 import type {
   ClaudeChannelNotification,
-  ChatId,
+  ConversationId,
   IsoTimestamp,
   MessageId,
   UserId,
+} from "./types.js";
+import {
+  ConversationId as makeConversationId,
+  MessageId as makeMessageId,
+  UserId as makeUserId,
 } from "./types.js";
 import { ContentEmpty, MetaInvalid, type EventShapeError } from "./errors.js";
 
@@ -40,25 +45,46 @@ type BrandResult<T> =
 const metaInvalid = (reason: string): MetaInvalid =>
   new MetaInvalid({ reason, message: reason });
 
-function brandChatIdSafe(raw: string): BrandResult<ChatId> {
+function brandConversationIdSafe(raw: string): BrandResult<ConversationId> {
   if (typeof raw !== "string" || raw.trim().length === 0) {
     return { _tag: "Err", reason: "chat_id must be a non-empty string" };
   }
-  return { _tag: "Ok", value: raw as ChatId };
+  try {
+    return { _tag: "Ok", value: makeConversationId(raw) };
+  } catch (cause) {
+    return {
+      _tag: "Err",
+      reason: `chat_id must be a valid conversation id: ${String(cause)}`,
+    };
+  }
 }
 
 function brandMessageIdSafe(raw: string): BrandResult<MessageId> {
   if (typeof raw !== "string" || raw.trim().length === 0) {
     return { _tag: "Err", reason: "message_id must be a non-empty string" };
   }
-  return { _tag: "Ok", value: raw as MessageId };
+  try {
+    return { _tag: "Ok", value: makeMessageId(raw) };
+  } catch (cause) {
+    return {
+      _tag: "Err",
+      reason: `message_id must be a valid message id: ${String(cause)}`,
+    };
+  }
 }
 
 function brandUserIdSafe(raw: string): BrandResult<UserId> {
   if (typeof raw !== "string" || raw.trim().length === 0) {
     return { _tag: "Err", reason: "user must be a non-empty string" };
   }
-  return { _tag: "Ok", value: raw as UserId };
+  try {
+    return { _tag: "Ok", value: makeUserId(raw) };
+  } catch (cause) {
+    return {
+      _tag: "Err",
+      reason: `user must be a valid agent id: ${String(cause)}`,
+    };
+  }
 }
 
 // Loose ISO-8601 shape: date-only or date + T + time + optional tz.
@@ -80,14 +106,14 @@ function brandIsoTimestampSafe(raw: string): BrandResult<IsoTimestamp> {
 }
 
 /**
- * Narrow a raw string into the branded `ChatId`. Throws on empty input.
+ * Narrow a raw string into the branded `ConversationId`. Throws on empty input.
  * For boundary validation, `toClaudeChannelNotification` returns a tagged
  * result; this helper is for callers that have already validated upstream.
  */
-export function brandChatId(raw: string): ChatId {
-  const r = brandChatIdSafe(raw);
+export function brandConversationId(raw: string): ConversationId {
+  const r = brandConversationIdSafe(raw);
   if (r._tag === "Err") {
-    throw metaInvalid(`brandChatId: ${r.reason}`);
+    throw metaInvalid(`brandConversationId: ${r.reason}`);
   }
   return r.value;
 }
@@ -128,11 +154,11 @@ export function toClaudeChannelNotification(
     return { _tag: "Err", error: new ContentEmpty() };
   }
 
-  const chatIdR = brandChatIdSafe(event.conversationId);
-  if (chatIdR._tag === "Err") {
+  const conversationIdR = brandConversationIdSafe(event.conversationId);
+  if (conversationIdR._tag === "Err") {
     return {
       _tag: "Err",
-      error: metaInvalid(chatIdR.reason),
+      error: metaInvalid(conversationIdR.reason),
     };
   }
   const messageIdR = brandMessageIdSafe(event.id);
@@ -166,7 +192,7 @@ export function toClaudeChannelNotification(
       params: {
         content,
         meta: {
-          chat_id: chatIdR.value,
+          chat_id: conversationIdR.value,
           message_id: messageIdR.value,
           user: userR.value,
           ts: tsR.value,

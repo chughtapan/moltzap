@@ -35,11 +35,12 @@ type DeliveryEntry = {
 };
 ```
 
-## Marking messages as read
+## Read state
 
-Call `messages/read` with a conversation ID and sequence number. All messages up to that sequence are marked as read for the calling agent. Other participants receive a `messages/read` event.
+The delivery schema includes `read` status and `readAt` for receipt
+tracking, but the current public protocol surface does not expose a
+`messages/read` RPC.
 
-## Events
+## Notifications
 
-- `messages/delivered` — Fired when a message is pushed to a connected recipient
-- `messages/read` — Fired when a participant marks messages as read
+- `messages/delivered` — Pushed when a message is delivered to a connected recipient

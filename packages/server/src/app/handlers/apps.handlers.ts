@@ -24,9 +24,9 @@ export function createAppHandlers(deps: {
   appHost: AppHost;
   permissionService?: DefaultPermissionService;
 }): RpcMethodRegistry {
-  return {
-    [AppsRegister.name]: defineMethod(AppsRegister, {
-      // A c2s `apps/register` call means the connected client wants to
+  return [
+    defineMethod(AppsRegister, {
+      // A client-originated `apps/register` call means the connected client wants to
       // serve the app's hook RPCs (`apps/onBeforeDispatch`, etc.). We
       // record the calling connection id so AppHost dispatches future
       // hooks via `sendRpcToClient` against this socket. If the client
@@ -42,8 +42,7 @@ export function createAppHandlers(deps: {
           return { appId: params.manifest.appId };
         }),
     }),
-
-    [AppsCreate.name]: defineMethod(AppsCreate, {
+    defineMethod(AppsCreate, {
       handler: (params, ctx) =>
         Effect.gen(function* () {
           const session = yield* deps.appHost.createSession(
@@ -54,8 +53,7 @@ export function createAppHandlers(deps: {
           return { session };
         }),
     }),
-
-    [AppsAttestSkill.name]: defineMethod(AppsAttestSkill, {
+    defineMethod(AppsAttestSkill, {
       handler: (params, ctx) =>
         Effect.sync(() => {
           deps.appHost.resolveChallenge(
@@ -67,8 +65,7 @@ export function createAppHandlers(deps: {
           return {};
         }),
     }),
-
-    [PermissionsGrant.name]: defineMethod(PermissionsGrant, {
+    defineMethod(PermissionsGrant, {
       handler: (params, ctx) =>
         Effect.gen(function* () {
           const ownerUserId = yield* ParticipantService.requireOwnerId(ctx);
@@ -82,8 +79,7 @@ export function createAppHandlers(deps: {
           return {};
         }),
     }),
-
-    [PermissionsList.name]: defineMethod(PermissionsList, {
+    defineMethod(PermissionsList, {
       handler: (params, ctx) =>
         Effect.gen(function* () {
           const ownerUserId = yield* ParticipantService.requireOwnerId(ctx);
@@ -94,8 +90,7 @@ export function createAppHandlers(deps: {
           return { grants };
         }),
     }),
-
-    [PermissionsRevoke.name]: defineMethod(PermissionsRevoke, {
+    defineMethod(PermissionsRevoke, {
       handler: (params, ctx) =>
         Effect.gen(function* () {
           const ownerUserId = yield* ParticipantService.requireOwnerId(ctx);
@@ -107,13 +102,11 @@ export function createAppHandlers(deps: {
           return {};
         }),
     }),
-
-    [AppsCloseSession.name]: defineMethod(AppsCloseSession, {
+    defineMethod(AppsCloseSession, {
       handler: (params, ctx) =>
         deps.appHost.closeSession(params.sessionId, ctx.agentId),
     }),
-
-    [AppsGetSession.name]: defineMethod(AppsGetSession, {
+    defineMethod(AppsGetSession, {
       handler: (params, ctx) =>
         Effect.gen(function* () {
           const session = yield* deps.appHost.getSession(
@@ -123,8 +116,7 @@ export function createAppHandlers(deps: {
           return { session };
         }),
     }),
-
-    [AppsListSessions.name]: defineMethod(AppsListSessions, {
+    defineMethod(AppsListSessions, {
       handler: (params, ctx) =>
         Effect.gen(function* () {
           const sessions = yield* deps.appHost.listSessions(ctx.agentId, {
@@ -136,7 +128,7 @@ export function createAppHandlers(deps: {
         }),
     }),
 
-    // c2s wire handler for `apps/attachConversation` — architect plan §3.2 /
+    // Client-originated wire handler for `apps/attachConversation` — architect plan §3.2 /
     // B.2 acceptance #3. Authorizes the caller as the session's
     // app-of-record via `requireSessionAppOfRecord`, then delegates to the
     // key-aware `attachConversation`. The wire schema does not carry a key
@@ -167,7 +159,7 @@ export function createAppHandlers(deps: {
     // session ownership + conversation existence; tracking convId→appId
     // ownership is a schema change that has to come from architect, not
     // senior. Filed as a ratchet escalation in the PR comment.
-    [AppsAttachConversation.name]: defineMethod(AppsAttachConversation, {
+    defineMethod(AppsAttachConversation, {
       handler: (params) =>
         Effect.gen(function* () {
           // SessionNotFound (-32021) and Forbidden (-32001) round-trip to
@@ -186,8 +178,7 @@ export function createAppHandlers(deps: {
           return {};
         }),
     }),
-
-    [AppsAuthorizeDispatch.name]: defineMethod(AppsAuthorizeDispatch, {
+    defineMethod(AppsAuthorizeDispatch, {
       requiresActive: true,
       handler: (params, ctx) =>
         Effect.gen(function* () {
@@ -207,5 +198,5 @@ export function createAppHandlers(deps: {
           return { admission };
         }),
     }),
-  };
+  ];
 }

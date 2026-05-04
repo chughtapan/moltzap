@@ -7,10 +7,13 @@ import type { UserService } from "../services/user.service.js";
 import { UserId } from "./types.js";
 import { logger } from "../logger.js";
 import type {
+  AnyAppCallbackRpcDefinition,
   AppManifest,
   AppSession,
   LogicalClock,
+  ParamsOf,
   Part,
+  ResultOf,
 } from "@moltzap/protocol";
 import {
   AppsOnBeforeDispatch,
@@ -19,13 +22,22 @@ import {
   AppsOnJoin,
   AppsOnSessionActive,
   ErrorCodes,
-  EventNames,
-  eventFrame,
+  AppHookTimeoutNotificationDefinition,
+  AppParticipantAdmittedNotificationDefinition,
+  AppParticipantRejectedNotificationDefinition,
+  AppSessionClosedNotificationDefinition,
+  AppSessionFailedNotificationDefinition,
+  AppSessionReadyNotificationDefinition,
+  AppSkillChallengeNotificationDefinition,
+  ConversationArchivedNotificationDefinition,
+  PermissionsRequiredNotificationDefinition,
+  agentId as protocolAgentId,
+  appSessionId,
+  conversationId as protocolConversationId,
+  messageId as protocolMessageId,
+  notificationFrame,
 } from "@moltzap/protocol";
 import {
-  decodeBeforeDispatchRpcResult,
-  decodeBeforeMessageDeliveryRpcResult,
-  decodeVoidRpcResult,
   type AppHooks,
   type BeforeDispatchContext,
   type BeforeDispatchHook,
@@ -79,6 +91,17 @@ const DEFAULT_APP_MAX_PARTICIPANTS = 50;
 const DEFAULT_SESSION_LIST_LIMIT = 50;
 const DEFAULT_APP_HOOK_TIMEOUT_MS = 5000;
 const MSG_SESSION_NOT_FOUND = "Session not found";
+
+function toProtocolConversationMap(
+  conversations: Record<string, string>,
+): AppSession["conversations"] {
+  return Object.fromEntries(
+    Object.entries(conversations).map(([key, id]) => [
+      key,
+      protocolConversationId(id),
+    ]),
+  );
+}
 
 /**
  * True iff `stored` contains every access string in `required`. Missing or
@@ -248,8 +271,8 @@ export class DefaultPermissionService implements PermissionService {
 
         this.broadcaster.sendToAgent(
           params.agentId,
-          eventFrame(EventNames.PermissionsRequired, {
-            sessionId: params.sessionId,
+          notificationFrame(PermissionsRequiredNotificationDefinition, {
+            sessionId: appSessionId(params.sessionId),
             appId: params.appId,
             resource: params.resource,
             access: params.access,
@@ -380,9 +403,9 @@ export class AppHost {
    * remote").
    *
    * Disconnect handling: when `connectionId` later goes away, every
-   * pending Deferred for that connection's s2c RPCs fails with
+   * pending Deferred for that connection's appCallback RPCs fails with
    * `AppDisconnected` via the connection's Scope finalizer. The dispatch
-   * envelope catches `AppDisconnected` (and every other `S2cRpcError`
+   * envelope catches `AppDisconnected` (and every other `AppCallbackRpcError`
    * variant) and synthesizes a fail-closed verdict — `deny` for
    * admission hooks, `block: true` for `before_message_delivery`, void +
    * log + `app/hookTimeout` for lifecycle hooks. Callers do not need to
@@ -762,7 +785,7 @@ export class AppHost {
           }
         }
 
-        const sessionId = crypto.randomUUID();
+        const sessionId = appSessionId(crypto.randomUUID());
         const conversationMap: Record<string, string> = {};
 
         yield* transaction(this.db, (trx) =>
@@ -838,9 +861,9 @@ export class AppHost {
         const session: AppSession = {
           id: sessionId,
           appId,
-          initiatorAgentId,
+          initiatorAgentId: protocolAgentId(initiatorAgentId),
           status: uniqueInvitedIds.length === 0 ? "active" : "waiting",
-          conversations: conversationMap,
+          conversations: toProtocolConversationMap(conversationMap),
           createdAt: new Date().toISOString(),
         };
 
@@ -848,9 +871,9 @@ export class AppHost {
           session.status = "active";
           this.broadcaster.sendToAgent(
             initiatorAgentId,
-            eventFrame("app/sessionReady", {
+            notificationFrame(AppSessionReadyNotificationDefinition, {
               sessionId,
-              conversations: conversationMap,
+              conversations: toProtocolConversationMap(conversationMap),
             }),
           );
         } else {
@@ -1010,10 +1033,10 @@ export class AppHost {
         for (const convId of convIdArray) {
           this.broadcaster.broadcastToConversation(
             convId,
-            eventFrame(EventNames.ConversationArchived, {
-              conversationId: convId,
+            notificationFrame(ConversationArchivedNotificationDefinition, {
+              conversationId: protocolConversationId(convId),
               archivedAt: archivedAt.toISOString(),
-              by: callerAgentId,
+              by: protocolAgentId(callerAgentId),
             }),
           );
         }
@@ -1030,10 +1053,13 @@ export class AppHost {
           }
         }
 
-        const closedEvent = eventFrame("app/sessionClosed", {
-          sessionId,
-          closedBy: callerAgentId,
-        });
+        const closedEvent = notificationFrame(
+          AppSessionClosedNotificationDefinition,
+          {
+            sessionId: appSessionId(sessionId),
+            closedBy: protocolAgentId(callerAgentId),
+          },
+        );
         this.broadcaster.sendToAgent(callerAgentId, closedEvent);
         for (const agentId of participantAgentIds) {
           this.broadcaster.sendToAgent(agentId, closedEvent);
@@ -1261,11 +1287,11 @@ export class AppHost {
         );
 
         const session: AppSession = {
-          id: sessionRow.id,
+          id: appSessionId(sessionRow.id),
           appId: sessionRow.app_id,
-          initiatorAgentId: sessionRow.initiator_agent_id,
+          initiatorAgentId: protocolAgentId(sessionRow.initiator_agent_id),
           status: sessionRow.status,
-          conversations,
+          conversations: toProtocolConversationMap(conversations),
           createdAt: new Date(sessionRow.created_at).toISOString(),
         };
         if (sessionRow.closed_at) {
@@ -1302,9 +1328,9 @@ export class AppHost {
 
         return rows.map((row) => {
           const session: AppSession = {
-            id: row.id,
+            id: appSessionId(row.id),
             appId: row.app_id,
-            initiatorAgentId: row.initiator_agent_id,
+            initiatorAgentId: protocolAgentId(row.initiator_agent_id),
             status: row.status,
             conversations: {},
             createdAt: new Date(row.created_at).toISOString(),
@@ -1410,7 +1436,7 @@ export class AppHost {
 
   /**
    * Strip non-wire-safe fields from a hook context so it can be sent over
-   * the s2c RPC. Currently the only such field is `signal: AbortSignal`,
+   * the appCallback RPC. Currently the only such field is `signal: AbortSignal`,
    * which has meaning only in-process. Returns a new object — does not
    * mutate `ctx`.
    */
@@ -1423,6 +1449,104 @@ export class AppHost {
     const out = { ...ctx } as { signal?: AbortSignal } & Omit<C, "signal">;
     delete out.signal;
     return out;
+  }
+
+  private beforeDispatchParamsForWire(
+    ctx: BeforeDispatchContext,
+  ): ParamsOf<typeof AppsOnBeforeDispatch> {
+    const wire = this.contextForWire(ctx);
+    return {
+      sessionId: wire.sessionId,
+      appId: wire.appId,
+      conversationId: protocolConversationId(wire.conversationId),
+      recipient: {
+        ...wire.recipient,
+        agentId: protocolAgentId(wire.recipient.agentId),
+      },
+      message: {
+        id: protocolMessageId(wire.message.id),
+        senderAgentId: protocolAgentId(wire.message.senderAgentId),
+        ...(wire.message.parts !== undefined
+          ? { parts: wire.message.parts }
+          : {}),
+      },
+      attempt: wire.attempt,
+      ...(wire.receivedAt !== undefined ? { receivedAt: wire.receivedAt } : {}),
+      ...(wire.clock !== undefined ? { clock: wire.clock } : {}),
+      ...(wire.pending !== undefined
+        ? {
+            pending: wire.pending.map((pending) => ({
+              messageId: protocolMessageId(pending.messageId),
+              conversationId: protocolConversationId(pending.conversationId),
+              senderAgentId: protocolAgentId(pending.senderAgentId),
+              createdAt: pending.createdAt,
+              receivedAt: pending.receivedAt,
+              ...(pending.clock !== undefined ? { clock: pending.clock } : {}),
+              ...(pending.parts !== undefined ? { parts: pending.parts } : {}),
+            })),
+          }
+        : {}),
+    };
+  }
+
+  private beforeMessageDeliveryParamsForWire(
+    ctx: BeforeMessageDeliveryContext,
+  ): ParamsOf<typeof AppsOnBeforeMessageDelivery> {
+    const wire = this.contextForWire(ctx);
+    return {
+      sessionId: wire.sessionId,
+      appId: wire.appId,
+      conversationId: protocolConversationId(wire.conversationId),
+      sender: {
+        ...wire.sender,
+        agentId: protocolAgentId(wire.sender.agentId),
+      },
+      message: {
+        parts: wire.message.parts,
+        ...(wire.message.dispatchLeaseId !== undefined
+          ? { dispatchLeaseId: wire.message.dispatchLeaseId }
+          : {}),
+        ...(wire.message.replyToId !== undefined
+          ? { replyToId: protocolMessageId(wire.message.replyToId) }
+          : {}),
+      },
+    };
+  }
+
+  private onSessionActiveParamsForWire(
+    ctx: OnSessionActiveContext,
+  ): ParamsOf<typeof AppsOnSessionActive> {
+    const wire = this.contextForWire(ctx);
+    return {
+      ...wire,
+      conversations: toProtocolConversationMap(wire.conversations),
+      admittedAgentIds: wire.admittedAgentIds.map(protocolAgentId),
+    };
+  }
+
+  private onJoinParamsForWire(ctx: OnJoinContext): ParamsOf<typeof AppsOnJoin> {
+    return {
+      ...ctx,
+      conversations: toProtocolConversationMap(ctx.conversations),
+      agent: {
+        ...ctx.agent,
+        agentId: protocolAgentId(ctx.agent.agentId),
+      },
+    };
+  }
+
+  private onCloseParamsForWire(
+    ctx: OnCloseContext,
+  ): ParamsOf<typeof AppsOnClose> {
+    const wire = this.contextForWire(ctx);
+    return {
+      ...wire,
+      conversations: toProtocolConversationMap(wire.conversations),
+      closedBy: {
+        ...wire.closedBy,
+        agentId: protocolAgentId(wire.closedBy.agentId),
+      },
+    };
   }
 
   /**
@@ -1462,25 +1586,18 @@ export class AppHost {
    * schema decode failure, missing connection) lands in the failure
    * channel for the dispatch envelope to map to fail-closed.
    *
-   * Result decoding happens at this seam — Principle 2: schemas at
-   * boundaries, types inside. After decode the rest of AppHost trusts
-   * the verdict shape.
+   * Result decoding happens in `sendRpcToClient`, where the descriptor
+   * that constructed the frame validates the response against its TypeBox
+   * result schema before this method can observe a value.
    */
-  private runRemoteHookEffect<T>(opts: {
+  private runRemoteHookEffect<D extends AnyAppCallbackRpcDefinition>(opts: {
     appId: string;
-    method: string;
+    definition: D;
     connectionId: string;
-    params: unknown;
-    /**
-     * Precompiled decoder (`Schema.decodeUnknown(schema)`) lifted to a
-     * module-level constant in `hooks.ts`. Passing the decoder rather
-     * than the schema avoids rebuilding the closure on every dispatch
-     * — `messages/send` triggers `runBeforeDispatch` per recipient, so
-     * this is the per-message hot path.
-     */
-    decode: (raw: unknown) => Effect.Effect<T, unknown, never>;
-  }): Effect.Effect<T, RemoteHookError> {
+    params: ParamsOf<D>;
+  }): Effect.Effect<ResultOf<D>, RemoteHookError> {
     return Effect.gen(this, function* () {
+      const method = opts.definition.name;
       const conn: MoltZapConnection | undefined = this.connections.get(
         opts.connectionId,
       );
@@ -1491,32 +1608,20 @@ export class AppHost {
         return yield* Effect.fail(
           new RemoteHookError({
             appId: opts.appId,
-            method: opts.method,
+            method,
             connectionId: opts.connectionId,
             reason: `Remote app ${opts.appId} connection ${opts.connectionId} is gone`,
           }),
         );
       }
-      const raw = yield* sendRpcToClient(conn, opts.method, opts.params).pipe(
+      return yield* sendRpcToClient(conn, opts.definition, opts.params).pipe(
         Effect.mapError(
           (err) =>
             new RemoteHookError({
               appId: opts.appId,
-              method: opts.method,
+              method,
               connectionId: opts.connectionId,
-              reason: `s2c RPC failed: ${errorMessage(err)}`,
-              cause: err,
-            }),
-        ),
-      );
-      return yield* opts.decode(raw).pipe(
-        Effect.mapError(
-          (err) =>
-            new RemoteHookError({
-              appId: opts.appId,
-              method: opts.method,
-              connectionId: opts.connectionId,
-              reason: `s2c RPC ${opts.method} response decode failed: ${String(err)}`,
+              reason: `appCallback RPC failed: ${errorMessage(err)}`,
               cause: err,
             }),
         ),
@@ -1603,10 +1708,9 @@ export class AppHost {
     const raw: Effect.Effect<DispatchAdmissionResult, Error> = remote
       ? this.runRemoteHookEffect({
           appId,
-          method: AppsOnBeforeDispatch.name,
+          definition: AppsOnBeforeDispatch,
           connectionId: remote.connectionId,
-          params: this.contextForWire(ctx),
-          decode: decodeBeforeDispatchRpcResult,
+          params: this.beforeDispatchParamsForWire(ctx),
         }).pipe(Effect.map((envelope) => envelope.admission))
       : this.runInProcessHookEffect<
           BeforeDispatchContext,
@@ -1619,8 +1723,8 @@ export class AppHost {
       onTimeoutEvent: () =>
         this.broadcaster.sendToAgent(
           ctx.recipient.agentId,
-          eventFrame(EventNames.AppHookTimeout, {
-            sessionId,
+          notificationFrame(AppHookTimeoutNotificationDefinition, {
+            sessionId: appSessionId(sessionId),
             appId,
             hookName: "before_dispatch",
             timeoutMs,
@@ -1666,10 +1770,9 @@ export class AppHost {
     const raw: Effect.Effect<HookResult, Error> = remote
       ? this.runRemoteHookEffect({
           appId,
-          method: AppsOnBeforeMessageDelivery.name,
+          definition: AppsOnBeforeMessageDelivery,
           connectionId: remote.connectionId,
-          params: this.contextForWire(ctx),
-          decode: decodeBeforeMessageDeliveryRpcResult,
+          params: this.beforeMessageDeliveryParamsForWire(ctx),
         })
       : this.runInProcessHookEffect<BeforeMessageDeliveryContext, HookResult>(
           (ctxWithSignal) => inProcess!(ctxWithSignal),
@@ -1682,8 +1785,8 @@ export class AppHost {
       onTimeoutEvent: () =>
         this.broadcaster.sendToAgent(
           ctx.sender.agentId,
-          eventFrame(EventNames.AppHookTimeout, {
-            sessionId,
+          notificationFrame(AppHookTimeoutNotificationDefinition, {
+            sessionId: appSessionId(sessionId),
             appId,
             hookName: "before_message_delivery",
             timeoutMs,
@@ -1727,10 +1830,9 @@ export class AppHost {
     const raw: Effect.Effect<void, Error> = remote
       ? this.runRemoteHookEffect({
           appId,
-          method: AppsOnSessionActive.name,
+          definition: AppsOnSessionActive,
           connectionId: remote.connectionId,
-          params: this.contextForWire(ctx),
-          decode: decodeVoidRpcResult,
+          params: this.onSessionActiveParamsForWire(ctx),
         })
       : this.runInProcessHookEffect<OnSessionActiveContext, void>(
           (ctxWithSignal) => inProcess!(ctxWithSignal),
@@ -1743,8 +1845,8 @@ export class AppHost {
       onTimeoutEvent: () =>
         this.broadcaster.sendToAgent(
           initiatorAgentId,
-          eventFrame(EventNames.AppHookTimeout, {
-            sessionId,
+          notificationFrame(AppHookTimeoutNotificationDefinition, {
+            sessionId: appSessionId(sessionId),
             appId,
             hookName: "on_session_active",
             timeoutMs,
@@ -1778,10 +1880,9 @@ export class AppHost {
     const raw: Effect.Effect<void, Error> = remote
       ? this.runRemoteHookEffect({
           appId,
-          method: AppsOnJoin.name,
+          definition: AppsOnJoin,
           connectionId: remote.connectionId,
-          params: ctx, // no signal field on OnJoinContext
-          decode: decodeVoidRpcResult,
+          params: this.onJoinParamsForWire(ctx),
         })
       : Effect.tryPromise({
           try: () => Promise.resolve(inProcess!(ctx)),
@@ -1794,8 +1895,8 @@ export class AppHost {
       onTimeoutEvent: () =>
         this.broadcaster.sendToAgent(
           ctx.agent.agentId,
-          eventFrame(EventNames.AppHookTimeout, {
-            sessionId,
+          notificationFrame(AppHookTimeoutNotificationDefinition, {
+            sessionId: appSessionId(sessionId),
             appId,
             hookName: "on_join",
             timeoutMs,
@@ -1831,10 +1932,9 @@ export class AppHost {
     const raw: Effect.Effect<void, Error> = remote
       ? this.runRemoteHookEffect({
           appId,
-          method: AppsOnClose.name,
+          definition: AppsOnClose,
           connectionId: remote.connectionId,
-          params: this.contextForWire(ctx),
-          decode: decodeVoidRpcResult,
+          params: this.onCloseParamsForWire(ctx),
         })
       : this.runInProcessHookEffect<OnCloseContext, void>(
           (ctxWithSignal) => inProcess!(ctxWithSignal),
@@ -1847,8 +1947,8 @@ export class AppHost {
       onTimeoutEvent: () =>
         this.broadcaster.sendToAgent(
           callerAgentId,
-          eventFrame(EventNames.AppHookTimeout, {
-            sessionId,
+          notificationFrame(AppHookTimeoutNotificationDefinition, {
+            sessionId: appSessionId(sessionId),
             appId,
             hookName: "on_close",
             timeoutMs,
@@ -1969,7 +2069,7 @@ export class AppHost {
       if (allRejected) {
         this.broadcaster.sendToAgent(
           initiatorAgentId,
-          eventFrame("app/sessionFailed", {
+          notificationFrame(AppSessionFailedNotificationDefinition, {
             sessionId: session.id,
           }),
         );
@@ -1991,7 +2091,7 @@ export class AppHost {
 
         this.broadcaster.sendToAgent(
           initiatorAgentId,
-          eventFrame("app/sessionReady", {
+          notificationFrame(AppSessionReadyNotificationDefinition, {
             sessionId: session.id,
             conversations: session.conversations,
           }),
@@ -2230,7 +2330,7 @@ export class AppHost {
 
         this.broadcaster.sendToAgent(
           agentId,
-          eventFrame("app/skillChallenge", {
+          notificationFrame(AppSkillChallengeNotificationDefinition, {
             challengeId,
             sessionId: session.id,
             appId: session.appId,
@@ -2608,11 +2708,14 @@ export class AppHost {
           }
         }
 
-        const admittedEvent = eventFrame("app/participantAdmitted", {
-          sessionId: session.id,
-          agentId,
-          grantedResources,
-        });
+        const admittedEvent = notificationFrame(
+          AppParticipantAdmittedNotificationDefinition,
+          {
+            sessionId: session.id,
+            agentId: protocolAgentId(agentId),
+            grantedResources,
+          },
+        );
         this.broadcaster.sendToAgent(agentId, admittedEvent);
         this.broadcaster.sendToAgent(session.initiatorAgentId, admittedEvent);
 
@@ -2655,9 +2758,9 @@ export class AppHost {
 
         this.broadcaster.sendToAgent(
           agentId,
-          eventFrame("app/participantRejected", {
-            sessionId,
-            agentId,
+          notificationFrame(AppParticipantRejectedNotificationDefinition, {
+            sessionId: appSessionId(sessionId),
+            agentId: protocolAgentId(agentId),
             reason,
             stage,
             suggestedAction,

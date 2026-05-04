@@ -54,7 +54,7 @@ describe("Scenario 8: Suspended Agent Restrictions", () => {
         autoConnect: false,
       });
       const result = yield* Effect.exit(
-        client.sendRpc(Connect.name, {
+        client.sendRpc(Connect, {
           agentKey: reg.apiKey,
           minProtocol: PROTOCOL_VERSION,
           maxProtocol: PROTOCOL_VERSION,
@@ -74,7 +74,7 @@ describe("Scenario 8: Suspended Agent Restrictions", () => {
       const { client } = yield* registerAndConnect("active-agent");
 
       // Should work immediately — agents are active on registration in core
-      const result = (yield* client.sendRpc(ConversationsList.name, {})) as {
+      const result = (yield* client.sendRpc(ConversationsList, {})) as {
         conversations: unknown[];
       };
       expect(result.conversations).toEqual([]);

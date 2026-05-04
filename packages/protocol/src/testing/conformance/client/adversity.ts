@@ -26,7 +26,8 @@
  * server-side adversity module's degradation contract.
  */
 import { Clock, Effect } from "effect";
-import type { EventFrame } from "../../../schema/frames.js";
+import { MessageDeliveredNotificationDefinition } from "../../../schema/notifications.js";
+import { brandNotificationFrame } from "../../../schema/internal-frames.js";
 import type { ClientConformanceRunContext } from "./runner.js";
 import { PropertyUnavailable, registerProperty } from "../registry.js";
 import {
@@ -79,20 +80,19 @@ export function registerLatencyResilienceClient(
           PROPERTY_LATENCY_RESILIENCE_CLIENT,
         );
         yield* subscribeAll(fx.handle);
-        const base: EventFrame = {
+        const base = brandNotificationFrame({
           jsonrpc: "2.0",
-          type: "event",
-          event: "messages.delivered",
-          data: {},
-        };
+          method: MessageDeliveredNotificationDefinition.name,
+          params: {},
+        });
         const N = 3;
         const campaign = yield* fx.window.freshEmissionTag;
         for (let i = 0; i < N; i++) {
-          yield* fx.window.emitTaggedEvent({
+          yield* fx.window.emitTaggedNotification({
             connection: fx.connection,
             base: {
               ...base,
-              data: { positionIndex: i },
+              params: { positionIndex: i },
             },
             emissionTag: campaign,
           });

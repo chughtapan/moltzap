@@ -41,7 +41,7 @@ describe("Auth Failure", () => {
       });
 
       const result = yield* Effect.exit(
-        client.sendRpc(Connect.name, {
+        client.sendRpc(Connect, {
           agentKey: "invalid_key_12345",
           minProtocol: PROTOCOL_VERSION,
           maxProtocol: PROTOCOL_VERSION,
@@ -66,7 +66,7 @@ describe("Auth Failure", () => {
       });
 
       const result = yield* Effect.exit(
-        client.sendRpc(Connect.name, {
+        client.sendRpc(Connect, {
           agentKey: "mz_totally_fake_api_key_000000000000",
           minProtocol: PROTOCOL_VERSION,
           maxProtocol: PROTOCOL_VERSION,
@@ -102,7 +102,7 @@ describe("Auth Failure", () => {
         autoConnect: false,
       });
       const result = yield* Effect.exit(
-        client.sendRpc(Connect.name, {
+        client.sendRpc(Connect, {
           agentKey: reg.apiKey,
           minProtocol: PROTOCOL_VERSION,
           maxProtocol: PROTOCOL_VERSION,

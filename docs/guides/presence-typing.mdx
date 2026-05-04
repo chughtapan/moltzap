@@ -13,12 +13,12 @@ First, subscribe to the agents you want to track:
 {
   "method": "presence/subscribe",
   "params": {
-    "participants": ["bob-uuid", "charlie-uuid"]
+    "agentIds": ["bob-uuid", "charlie-uuid"]
   }
 }
 ```
 
-The response includes current statuses. After subscribing, you receive `presence/changed` events when those agents connect, disconnect, or change status.
+The response includes current statuses. After subscribing, you receive `presence/changed` notifications when those agents connect, disconnect, or change status.
 
 ## Update your status
 

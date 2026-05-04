@@ -15,7 +15,7 @@ import type {
 // We mock `@moltzap/client` to expose `handleServerRpc` (the real client
 // keeps an internal `Ref<HashMap<method, handler>>`; we mirror that shape
 // using Effect's own `Ref` so the duplicate-registration test goes through
-// the same code path as production).  Each test drives an inbound s2c
+// the same code path as production).  Each test drives an inbound app-callback
 // admission request directly into the registered handler and asserts on
 // the outbound reply shape.
 //
@@ -74,7 +74,8 @@ vi.mock("@moltzap/client", async () => {
         connect: vi
           .fn()
           .mockImplementation(() => Effect.succeed({ agentId: "agent-1" })),
-        sendRpc: vi.fn().mockImplementation((method: string) => {
+        sendRpc: vi.fn().mockImplementation((definition: { name: string }) => {
+          const method = definition.name;
           if (method === AppsAttachConversation.name) {
             if (attachShouldFail !== null) {
               const err = attachShouldFail.error;
@@ -89,16 +90,18 @@ vi.mock("@moltzap/client", async () => {
         disconnect: vi.fn().mockImplementation(() => Effect.succeed(undefined)),
         handleServerRpc: vi
           .fn()
-          .mockImplementation((method: string, handler: InstalledHandler) =>
-            Effect.gen(function* () {
-              const swapped = yield* Ref.modify(handlers, (m) => {
-                if (HashMap.has(m, method)) return [false, m];
-                return [true, HashMap.set(m, method, handler)];
-              });
-              if (!swapped) {
-                return yield* Effect.fail(new MockDuplicateError(method));
-              }
-            }),
+          .mockImplementation(
+            (definition: { name: string }, handler: InstalledHandler) =>
+              Effect.gen(function* () {
+                const method = definition.name;
+                const swapped = yield* Ref.modify(handlers, (m) => {
+                  if (HashMap.has(m, method)) return [false, m];
+                  return [true, HashMap.set(m, method, handler)];
+                });
+                if (!swapped) {
+                  return yield* Effect.fail(new MockDuplicateError(method));
+                }
+              }),
           ),
         // Test helpers exposed via underscore prefix.
         _invokeHandler(
@@ -147,6 +150,9 @@ import {
   AppsOnClose,
   AppsOnJoin,
   AppsOnSessionActive,
+  agentId,
+  conversationId,
+  messageId,
 } from "@moltzap/protocol";
 
 interface MockedWsClient {
@@ -160,42 +166,49 @@ interface MockedWsClient {
 
 const asMock = (c: unknown): MockedWsClient => c as MockedWsClient;
 
+const SESSION_ID = "11111111-1111-4111-8111-111111111111";
+const CONVERSATION_ID = conversationId("22222222-2222-4222-8222-222222222222");
+const RECIPIENT_AGENT_ID = agentId("33333333-3333-4333-8333-333333333333");
+const SENDER_AGENT_ID = agentId("44444444-4444-4444-8444-444444444444");
+const LIFECYCLE_AGENT_ID = agentId("55555555-5555-4555-8555-555555555555");
+const MESSAGE_ID = messageId("66666666-6666-4666-8666-666666666666");
+
 const baseDispatchCtx: BeforeDispatchContext = {
-  sessionId: "00000000-0000-0000-0000-000000000001",
+  sessionId: SESSION_ID,
   appId: "test-app",
-  conversationId: "conv-1",
-  recipient: { agentId: "agent-r", ownerId: "owner-r" },
-  message: { id: "msg-1", senderAgentId: "agent-s" },
+  conversationId: CONVERSATION_ID,
+  recipient: { agentId: RECIPIENT_AGENT_ID, ownerId: "owner-r" },
+  message: { id: MESSAGE_ID, senderAgentId: SENDER_AGENT_ID },
   attempt: 0,
 };
 
 const baseDeliveryCtx: BeforeMessageDeliveryContext = {
-  sessionId: "00000000-0000-0000-0000-000000000001",
+  sessionId: SESSION_ID,
   appId: "test-app",
-  conversationId: "conv-1",
-  sender: { agentId: "agent-s", ownerId: "owner-s" },
+  conversationId: CONVERSATION_ID,
+  sender: { agentId: SENDER_AGENT_ID, ownerId: "owner-s" },
   message: { parts: [{ type: "text", text: "hi" }] },
 };
 
 const baseSessionActiveCtx: OnSessionActiveContext = {
-  sessionId: "00000000-0000-0000-0000-000000000001",
+  sessionId: SESSION_ID,
   appId: "test-app",
-  conversations: { default: "conv-1" },
-  admittedAgentIds: ["agent-1"],
+  conversations: { default: CONVERSATION_ID },
+  admittedAgentIds: [LIFECYCLE_AGENT_ID],
 };
 
 const baseJoinCtx: OnJoinContext = {
-  sessionId: "00000000-0000-0000-0000-000000000001",
+  sessionId: SESSION_ID,
   appId: "test-app",
-  conversations: { default: "conv-1" },
-  agent: { agentId: "agent-1", ownerId: "owner-1" },
+  conversations: { default: CONVERSATION_ID },
+  agent: { agentId: LIFECYCLE_AGENT_ID, ownerId: "owner-1" },
 };
 
 const baseCloseCtx: OnCloseContext = {
-  sessionId: "00000000-0000-0000-0000-000000000001",
+  sessionId: SESSION_ID,
   appId: "test-app",
-  conversations: { default: "conv-1" },
-  closedBy: { agentId: "agent-1", ownerId: "owner-1" },
+  conversations: { default: CONVERSATION_ID },
+  closedBy: { agentId: LIFECYCLE_AGENT_ID, ownerId: "owner-1" },
 };
 
 describe("MoltZapApp — admission/lifecycle handler surface", () => {
@@ -232,14 +245,15 @@ describe("MoltZapApp — admission/lifecycle handler surface", () => {
         ),
       );
       expect(reply).toEqual({
-        admission: { decision: "grant", leaseId: "lease-0000" },
+        admission: { decision: "grant", leaseId: "lease-1111" },
       });
     });
 
     it("does not impose its own timeout on a long-running handler (AppHost owns timeout)", async () => {
       // Architect plan §3.4: "Timeout policy moves into AppHost, not the
       // schema."  The SDK must not abort or shorten a user handler — the
-      // server-side AppHost wraps the s2c RPC in `Effect.timeout(manifestMs)`.
+      // server-side AppHost wraps the app-callback RPC in
+      // `Effect.timeout(manifestMs)`.
       // This test pins the contract: while the WS is healthy, a slow handler
       // returns its verdict verbatim, no SDK-side cancellation.
       app.onBeforeDispatch((ctx) =>
@@ -259,7 +273,7 @@ describe("MoltZapApp — admission/lifecycle handler surface", () => {
       );
       const elapsed = Date.now() - start;
       expect(reply).toEqual({
-        admission: { decision: "grant", leaseId: "slow-0000" },
+        admission: { decision: "grant", leaseId: "slow-1111" },
       });
       // Lower bound: the handler actually waited.  Upper bound is loose
       // (CI variance) — the assertion is "at least the sleep ran", not
@@ -400,10 +414,7 @@ describe("MoltZapApp — admission/lifecycle handler surface", () => {
   describe("attachConversation", () => {
     it("succeeds when the RPC succeeds", async () => {
       const result = await Effect.runPromise(
-        app.attachConversation(
-          "00000000-0000-0000-0000-000000000001",
-          "conv-2",
-        ),
+        app.attachConversation(SESSION_ID, CONVERSATION_ID),
       );
       expect(result).toBeUndefined();
     });
@@ -424,10 +435,7 @@ describe("MoltZapApp — admission/lifecycle handler surface", () => {
           }),
         );
         const exit = await Effect.runPromiseExit(
-          app.attachConversation(
-            "00000000-0000-0000-0000-000000000001",
-            "conv-2",
-          ),
+          app.attachConversation(SESSION_ID, CONVERSATION_ID),
         );
         expect(Exit.isFailure(exit)).toBe(true);
         if (Exit.isFailure(exit)) {
@@ -451,10 +459,7 @@ describe("MoltZapApp — admission/lifecycle handler surface", () => {
         }),
       );
       const exit = await Effect.runPromiseExit(
-        app.attachConversation(
-          "00000000-0000-0000-0000-000000000001",
-          "conv-2",
-        ),
+        app.attachConversation(SESSION_ID, CONVERSATION_ID),
       );
       expect(Exit.isFailure(exit)).toBe(true);
       if (Exit.isFailure(exit)) {
@@ -468,10 +473,7 @@ describe("MoltZapApp — admission/lifecycle handler surface", () => {
         new MockRpcServerError({ code: -32099, message: "boom" }),
       );
       const exit = await Effect.runPromiseExit(
-        app.attachConversation(
-          "00000000-0000-0000-0000-000000000001",
-          "conv-2",
-        ),
+        app.attachConversation(SESSION_ID, CONVERSATION_ID),
       );
       expect(Exit.isFailure(exit)).toBe(true);
       if (Exit.isFailure(exit)) {
@@ -498,10 +500,7 @@ describe("MoltZapApp — admission/lifecycle handler surface", () => {
           new MockRpcServerError({ code: numericCode, message: "rejected" }),
         );
         const exit = await Effect.runPromiseExit(
-          app.attachConversation(
-            "00000000-0000-0000-0000-000000000001",
-            "conv-2",
-          ),
+          app.attachConversation(SESSION_ID, CONVERSATION_ID),
         );
         expect(Exit.isFailure(exit)).toBe(true);
         if (Exit.isFailure(exit)) {

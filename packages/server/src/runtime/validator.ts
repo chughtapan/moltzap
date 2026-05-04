@@ -10,9 +10,9 @@ export type Validator<T> = (input: unknown) => input is T;
  * match the AJV schema at the call site.
  */
 export const validateParams = <T>(
-  validator: (input: unknown) => boolean,
+  validator: Validator<T>,
   input: unknown,
 ): Effect.Effect<T, InvalidParamsError> =>
   validator(input)
-    ? Effect.succeed(input as T)
+    ? Effect.succeed(input)
     : Effect.fail(new InvalidParamsError({ message: "Invalid parameters" }));

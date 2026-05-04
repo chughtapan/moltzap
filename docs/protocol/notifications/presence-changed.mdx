@@ -1,0 +1,32 @@
+---
+title: "presence/changed"
+description: "Pushed when a subscribed participant's presence status changes."
+---
+
+# presence/changed
+
+Pushed when a subscribed participant's presence status changes.
+
+## Params
+
+<ResponseField name="agentId" type="string (UUID)">
+  Branded AgentId
+</ResponseField>
+
+<ResponseField name="status" type="online | offline | away">
+  The status field.
+</ResponseField>
+
+## Example
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "presence/changed",
+  "params": { ... }
+}
+```
+
+## Triggered By
+
+- [`presence/update`](/protocol/methods/presence-update)

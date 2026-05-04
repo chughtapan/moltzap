@@ -110,7 +110,7 @@ describe("AppHost: userValidationCache coalesces concurrent admissions", () => {
       // Initiator-validate call happens synchronously in createSession before
       // the admitAgentsAsync fiber forks. Record and clear it so the
       // assertion below measures only the concurrent-invitee branch.
-      yield* initiator.client.sendRpc(AppsCreate.name, {
+      yield* initiator.client.sendRpc(AppsCreate, {
         appId: "cache-test",
         invitedAgentIds: [inviteeA.agentId, inviteeB.agentId, inviteeC.agentId],
       });
@@ -163,7 +163,7 @@ describe("AppHost: userValidationCache coalesces concurrent admissions", () => {
 
       registerTestApp(coreApp, "no-cache-test");
 
-      yield* initiator.client.sendRpc(AppsCreate.name, {
+      yield* initiator.client.sendRpc(AppsCreate, {
         appId: "no-cache-test",
         invitedAgentIds: [inviteeA.agentId, inviteeB.agentId, inviteeC.agentId],
       });

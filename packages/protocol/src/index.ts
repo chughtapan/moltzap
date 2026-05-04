@@ -1,16 +1,21 @@
 export { PROTOCOL_VERSION } from "./version.js";
 export { validators } from "./validators.js";
 export { ErrorCodes } from "./schema/errors.js";
-export { EventNames } from "./schema/events.js";
+export * from "./brands.js";
 export * from "./schema/index.js";
 export * from "./types.js";
 export * from "./rpc.js";
+export * from "./notification.js";
+export * from "./rpc-groups.js";
 export * from "./rpc-registry.js";
 export {
   stringEnum,
   brandedId,
+  brandedString,
+  brandedNumber,
   DateTimeString,
-  eventFrame,
+  notificationFrame,
+  requestFrame,
   responseFrame,
 } from "./helpers.js";
 export {

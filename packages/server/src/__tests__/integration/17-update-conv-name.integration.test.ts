@@ -9,7 +9,11 @@ import {
 } from "./helpers.js";
 import type { ConnectedAgent } from "./helpers.js";
 
-import { ConversationsList, ConversationsUpdate } from "@moltzap/protocol";
+import {
+  ConversationsList,
+  ConversationsUpdate,
+  ConversationUpdatedNotificationDefinition,
+} from "@moltzap/protocol";
 
 beforeAll(async () => {
   await startTestServer();
@@ -48,11 +52,11 @@ describe("Update Conversation Name", () => {
 
       expect(updateResult.conversation.name).toBe("New Name");
 
-      const bobUpdated = yield* bob.client.waitForEvent(
-        "conversations/updated",
+      const bobUpdated = yield* bob.client.waitForNotification(
+        ConversationUpdatedNotificationDefinition,
       );
-      const eveUpdated = yield* eve.client.waitForEvent(
-        "conversations/updated",
+      const eveUpdated = yield* eve.client.waitForNotification(
+        ConversationUpdatedNotificationDefinition,
       );
 
       expect(

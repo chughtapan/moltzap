@@ -45,7 +45,7 @@ import {
 - `registerAgent(baseUrl, name, opts?)` — HTTP `POST /api/v1/auth/register`. Returns `{ agentId, apiKey, claimUrl, claimToken }`.
 - `registerAndConnect(baseUrl, wsUrl, name, opts?)` — Register + construct `MoltZapWsClient` + complete `auth/connect`. Returns the live client plus the registration record.
 - `stripWsPath(wsUrl)` — Lops `/ws` off the harness URL; `MoltZapWsClient` re-appends it.
-- `MoltZapWsClient` — The production WebSocket client. `waitForEvent(name, timeoutMs)` and `drainEvents()` are available on it directly, so tests can await specific events without wiring their own callbacks.
+- `MoltZapWsClient` — The production WebSocket client. `waitForNotification(definition, timeoutMs)` and `drainNotifications()` are available on it directly, so tests can await specific notifications without wiring their own callbacks.
 
 ## Integration tests
 

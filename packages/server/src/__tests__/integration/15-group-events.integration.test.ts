@@ -9,7 +9,10 @@ import {
 } from "./helpers.js";
 import type { ConnectedAgent } from "./helpers.js";
 
-import { ConversationsCreate } from "@moltzap/protocol";
+import {
+  ConversationsCreate,
+  ConversationCreatedNotificationDefinition,
+} from "@moltzap/protocol";
 
 beforeAll(async () => {
   await startTestServer();
@@ -37,7 +40,7 @@ describe("Group Creation Events", () => {
 
         // Set up event waiters on Bob and Eve BEFORE creating the group
 
-        const conv = (yield* alice.client.sendRpc(ConversationsCreate.name, {
+        const conv = (yield* alice.client.sendRpc(ConversationsCreate, {
           type: "group",
           name: "Eval Group",
           participants: [
@@ -51,11 +54,11 @@ describe("Group Creation Events", () => {
         expect(conv.conversation.type).toBe("group");
         expect(conv.conversation.name).toBe("Eval Group");
 
-        const bobCreated = yield* bob.client.waitForEvent(
-          "conversations/created",
+        const bobCreated = yield* bob.client.waitForNotification(
+          ConversationCreatedNotificationDefinition,
         );
-        const eveCreated = yield* eve.client.waitForEvent(
-          "conversations/created",
+        const eveCreated = yield* eve.client.waitForNotification(
+          ConversationCreatedNotificationDefinition,
         );
 
         const bobConv = (bobCreated.data as { conversation: { id: string } })

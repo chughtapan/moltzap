@@ -14,7 +14,10 @@ import {
   AppsCloseSession,
   AppsCreate,
   ErrorCodes,
-  EventNames,
+  ConversationArchivedNotificationDefinition,
+  AppParticipantAdmittedNotificationDefinition,
+  AppSessionClosedNotificationDefinition,
+  AppHookTimeoutNotificationDefinition,
 } from "@moltzap/protocol";
 import type { ConnectedAgent } from "../../test-utils/helpers.js";
 import { expectRpcFailure } from "../../test-utils/index.js";
@@ -93,7 +96,7 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
           return { block: true, reason: "never" };
         });
 
-        const session = (yield* agent.client.sendRpc(AppsCreate.name, {
+        const session = (yield* agent.client.sendRpc(AppsCreate, {
           appId: "bmd-timeout-app",
           invitedAgentIds: [],
         })) as {
@@ -105,15 +108,15 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
         // Fail-closed: send rejects with HookBlocked. The app/hookTimeout
         // event asserted below is what distinguishes timeout from throw.
         yield* expectRpcFailure(
-          agent.client.sendRpc(MessagesSend.name, {
+          agent.client.sendRpc(MessagesSend, {
             conversationId: convId,
             parts: [{ type: "text", text: "trigger timeout" }],
           }),
           ErrorCodes.HookBlocked,
         );
 
-        const timeoutEvent = yield* agent.client.waitForEvent(
-          "app/hookTimeout",
+        const timeoutEvent = yield* agent.client.waitForNotification(
+          AppHookTimeoutNotificationDefinition,
           3000,
         );
         const data = timeoutEvent.data as {
@@ -141,19 +144,19 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
           await new Promise((r) => setTimeout(r, 1000));
         });
 
-        const session = (yield* agent.client.sendRpc(AppsCreate.name, {
+        const session = (yield* agent.client.sendRpc(AppsCreate, {
           appId: "close-timeout-app",
           invitedAgentIds: [],
         })) as {
           session: { id: string; conversations: Record<string, string> };
         };
 
-        yield* agent.client.sendRpc(AppsCloseSession.name, {
+        yield* agent.client.sendRpc(AppsCloseSession, {
           sessionId: session.session.id,
         });
 
-        const timeoutEvent = yield* agent.client.waitForEvent(
-          "app/hookTimeout",
+        const timeoutEvent = yield* agent.client.waitForNotification(
+          AppHookTimeoutNotificationDefinition,
           3000,
         );
         const data = timeoutEvent.data as {
@@ -177,14 +180,14 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
 
         registerTestApp(coreApp, "close-basic-app");
 
-        const session = (yield* agent.client.sendRpc(AppsCreate.name, {
+        const session = (yield* agent.client.sendRpc(AppsCreate, {
           appId: "close-basic-app",
           invitedAgentIds: [],
         })) as {
           session: { id: string; conversations: Record<string, string> };
         };
 
-        const result = (yield* agent.client.sendRpc(AppsCloseSession.name, {
+        const result = (yield* agent.client.sendRpc(AppsCloseSession, {
           sessionId: session.session.id,
         })) as { closed: boolean };
 
@@ -233,14 +236,14 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
           hookCtx = ctx;
         });
 
-        const session = (yield* agent.client.sendRpc(AppsCreate.name, {
+        const session = (yield* agent.client.sendRpc(AppsCreate, {
           appId: "close-hook-app",
           invitedAgentIds: [],
         })) as {
           session: { id: string; conversations: Record<string, string> };
         };
 
-        yield* agent.client.sendRpc(AppsCloseSession.name, {
+        yield* agent.client.sendRpc(AppsCloseSession, {
           sessionId: session.session.id,
         });
 
@@ -258,19 +261,19 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
 
         registerTestApp(coreApp, "double-close-app");
 
-        const session = (yield* agent.client.sendRpc(AppsCreate.name, {
+        const session = (yield* agent.client.sendRpc(AppsCreate, {
           appId: "double-close-app",
           invitedAgentIds: [],
         })) as {
           session: { id: string; conversations: Record<string, string> };
         };
 
-        yield* agent.client.sendRpc(AppsCloseSession.name, {
+        yield* agent.client.sendRpc(AppsCloseSession, {
           sessionId: session.session.id,
         });
 
         yield* expectRpcFailure(
-          agent.client.sendRpc(AppsCloseSession.name, {
+          agent.client.sendRpc(AppsCloseSession, {
             sessionId: session.session.id,
           }),
           ErrorCodes.SessionClosed,
@@ -285,7 +288,7 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
 
         registerTestApp(coreApp, "close-forbidden-app");
 
-        const session = (yield* initiator.client.sendRpc(AppsCreate.name, {
+        const session = (yield* initiator.client.sendRpc(AppsCreate, {
           appId: "close-forbidden-app",
           invitedAgentIds: [],
         })) as {
@@ -293,7 +296,7 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
         };
 
         yield* expectRpcFailure(
-          stranger.client.sendRpc(AppsCloseSession.name, {
+          stranger.client.sendRpc(AppsCloseSession, {
             sessionId: session.session.id,
           }),
           ErrorCodes.Forbidden,
@@ -306,7 +309,7 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
         const agent = yield* registerAppAgent("close-notfound");
 
         yield* expectRpcFailure(
-          agent.client.sendRpc(AppsCloseSession.name, {
+          agent.client.sendRpc(AppsCloseSession, {
             sessionId: crypto.randomUUID(),
           }),
           ErrorCodes.SessionNotFound,
@@ -325,25 +328,28 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
 
           coreApp.onAppJoin("close-broadcast-app", () => {});
 
-          const session = (yield* initiator.client.sendRpc(AppsCreate.name, {
+          const session = (yield* initiator.client.sendRpc(AppsCreate, {
             appId: "close-broadcast-app",
             invitedAgentIds: [invitee.agentId],
           })) as {
             session: { id: string; conversations: Record<string, string> };
           };
 
-          yield* invitee.client.waitForEvent("app/participantAdmitted", 5000);
+          yield* invitee.client.waitForNotification(
+            AppParticipantAdmittedNotificationDefinition,
+            5000,
+          );
 
-          yield* initiator.client.sendRpc(AppsCloseSession.name, {
+          yield* initiator.client.sendRpc(AppsCloseSession, {
             sessionId: session.session.id,
           });
 
-          const initEvent = yield* initiator.client.waitForEvent(
-            "app/sessionClosed",
+          const initEvent = yield* initiator.client.waitForNotification(
+            AppSessionClosedNotificationDefinition,
             3000,
           );
-          const invEvent = yield* invitee.client.waitForEvent(
-            "app/sessionClosed",
+          const invEvent = yield* invitee.client.waitForNotification(
+            AppSessionClosedNotificationDefinition,
             3000,
           );
 
@@ -370,7 +376,7 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
         registerTestApp(coreApp, "close-archive-app");
         coreApp.onAppJoin("close-archive-app", () => {});
 
-        const session = (yield* initiator.client.sendRpc(AppsCreate.name, {
+        const session = (yield* initiator.client.sendRpc(AppsCreate, {
           appId: "close-archive-app",
           invitedAgentIds: [invitee.agentId],
         })) as {
@@ -378,21 +384,24 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
         };
         const convId = session.session.conversations["main"]!;
 
-        yield* invitee.client.waitForEvent("app/participantAdmitted", 5000);
+        yield* invitee.client.waitForNotification(
+          AppParticipantAdmittedNotificationDefinition,
+          5000,
+        );
 
-        yield* initiator.client.sendRpc(AppsCloseSession.name, {
+        yield* initiator.client.sendRpc(AppsCloseSession, {
           sessionId: session.session.id,
         });
 
-        const archived = yield* invitee.client.waitForEvent(
-          EventNames.ConversationArchived,
+        const archived = yield* invitee.client.waitForNotification(
+          ConversationArchivedNotificationDefinition,
           3000,
         );
         expect(
           (archived.data as { conversationId: string }).conversationId,
         ).toBe(convId);
-        const closed = yield* invitee.client.waitForEvent(
-          EventNames.AppSessionClosed,
+        const closed = yield* invitee.client.waitForNotification(
+          AppSessionClosedNotificationDefinition,
           3000,
         );
         expect((closed.data as { sessionId: string }).sessionId).toBe(
@@ -407,7 +416,7 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
 
         registerTestApp(coreApp, "archived-msg-app");
 
-        const session = (yield* agent.client.sendRpc(AppsCreate.name, {
+        const session = (yield* agent.client.sendRpc(AppsCreate, {
           appId: "archived-msg-app",
           invitedAgentIds: [],
         })) as {
@@ -416,12 +425,12 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
 
         const convId = session.session.conversations["main"]!;
 
-        yield* agent.client.sendRpc(AppsCloseSession.name, {
+        yield* agent.client.sendRpc(AppsCloseSession, {
           sessionId: session.session.id,
         });
 
         yield* expectRpcFailure(
-          agent.client.sendRpc(MessagesSend.name, {
+          agent.client.sendRpc(MessagesSend, {
             conversationId: convId,
             parts: [{ type: "text", text: "should fail" }],
           }),
@@ -438,7 +447,7 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
 
           registerTestApp(coreApp, "archived-dispatch-app");
 
-          const session = (yield* agent.client.sendRpc(AppsCreate.name, {
+          const session = (yield* agent.client.sendRpc(AppsCreate, {
             appId: "archived-dispatch-app",
             invitedAgentIds: [],
           })) as {
@@ -446,26 +455,23 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
           };
           const convId = session.session.conversations["main"]!;
 
-          yield* agent.client.sendRpc(AppsCloseSession.name, {
+          yield* agent.client.sendRpc(AppsCloseSession, {
             sessionId: session.session.id,
           });
 
-          const result = yield* agent.client.sendRpc(
-            AppsAuthorizeDispatch.name,
-            {
-              conversationId: convId,
-              messageId: crypto.randomUUID(),
-              senderAgentId: agent.agentId,
-              attempt: 0,
-              receivedAt: new Date().toISOString(),
-              clock: {
-                domainId: convId,
-                epoch: 1,
-                vector: { [agent.agentId]: 1 },
-              },
-              pending: [],
+          const result = yield* agent.client.sendRpc(AppsAuthorizeDispatch, {
+            conversationId: convId,
+            messageId: crypto.randomUUID(),
+            senderAgentId: agent.agentId,
+            attempt: 0,
+            receivedAt: new Date().toISOString(),
+            clock: {
+              domainId: convId,
+              epoch: 1,
+              vector: { [agent.agentId]: 1 },
             },
-          );
+            pending: [],
+          });
 
           expect(result.admission).toEqual({
             decision: "deny",
@@ -480,7 +486,7 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
 
         registerTestApp(coreApp, "archived-list-app");
 
-        const session = (yield* agent.client.sendRpc(AppsCreate.name, {
+        const session = (yield* agent.client.sendRpc(AppsCreate, {
           appId: "archived-list-app",
           invitedAgentIds: [],
         })) as {
@@ -489,7 +495,7 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
 
         // Verify conversation appears before close
         const beforeList = (yield* agent.client.sendRpc(
-          ConversationsList.name,
+          ConversationsList,
           {},
         )) as {
           conversations: Array<{ id: string }>;
@@ -499,12 +505,12 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
           true,
         );
 
-        yield* agent.client.sendRpc(AppsCloseSession.name, {
+        yield* agent.client.sendRpc(AppsCloseSession, {
           sessionId: session.session.id,
         });
 
         const afterList = (yield* agent.client.sendRpc(
-          ConversationsList.name,
+          ConversationsList,
           {},
         )) as {
           conversations: Array<{ id: string }>;
@@ -526,7 +532,7 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
           const mainConvId = ctx.conversations["main"];
           if (mainConvId) {
             await Effect.runPromise(
-              agent.client.sendRpc(MessagesSend.name, {
+              agent.client.sendRpc(MessagesSend, {
                 conversationId: mainConvId,
                 parts: [{ type: "text", text: "Final message before close" }],
               }),
@@ -535,14 +541,14 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
           }
         });
 
-        const session = (yield* agent.client.sendRpc(AppsCreate.name, {
+        const session = (yield* agent.client.sendRpc(AppsCreate, {
           appId: "close-final-msg-app",
           invitedAgentIds: [],
         })) as {
           session: { id: string; conversations: Record<string, string> };
         };
 
-        yield* agent.client.sendRpc(AppsCloseSession.name, {
+        yield* agent.client.sendRpc(AppsCloseSession, {
           sessionId: session.session.id,
         });
 
@@ -570,14 +576,14 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
 
         registerTestApp(coreApp, "get-init-app");
 
-        const created = (yield* agent.client.sendRpc(AppsCreate.name, {
+        const created = (yield* agent.client.sendRpc(AppsCreate, {
           appId: "get-init-app",
           invitedAgentIds: [],
         })) as {
           session: { id: string; conversations: Record<string, string> };
         };
 
-        const result = (yield* agent.client.sendRpc(AppsGetSession.name, {
+        const result = (yield* agent.client.sendRpc(AppsGetSession, {
           sessionId: created.session.id,
         })) as {
           session: {
@@ -603,16 +609,19 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
         registerTestApp(coreApp, "get-part-app");
         coreApp.onAppJoin("get-part-app", () => {});
 
-        const session = (yield* initiator.client.sendRpc(AppsCreate.name, {
+        const session = (yield* initiator.client.sendRpc(AppsCreate, {
           appId: "get-part-app",
           invitedAgentIds: [invitee.agentId],
         })) as {
           session: { id: string };
         };
 
-        yield* invitee.client.waitForEvent("app/participantAdmitted", 5000);
+        yield* invitee.client.waitForNotification(
+          AppParticipantAdmittedNotificationDefinition,
+          5000,
+        );
 
-        const result = (yield* invitee.client.sendRpc(AppsGetSession.name, {
+        const result = (yield* invitee.client.sendRpc(AppsGetSession, {
           sessionId: session.session.id,
         })) as {
           session: { id: string; appId: string };
@@ -630,7 +639,7 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
           const agent = yield* registerAppAgent("get-notfound");
 
           yield* expectRpcFailure(
-            agent.client.sendRpc(AppsGetSession.name, {
+            agent.client.sendRpc(AppsGetSession, {
               sessionId: crypto.randomUUID(),
             }),
             ErrorCodes.SessionNotFound,
@@ -645,7 +654,7 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
 
         registerTestApp(coreApp, "get-stranger-app");
 
-        const session = (yield* initiator.client.sendRpc(AppsCreate.name, {
+        const session = (yield* initiator.client.sendRpc(AppsCreate, {
           appId: "get-stranger-app",
           invitedAgentIds: [],
         })) as {
@@ -653,7 +662,7 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
         };
 
         yield* expectRpcFailure(
-          stranger.client.sendRpc(AppsGetSession.name, {
+          stranger.client.sendRpc(AppsGetSession, {
             sessionId: session.session.id,
           }),
           ErrorCodes.Forbidden,
@@ -670,18 +679,18 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
 
         registerTestApp(coreApp, "list-app");
 
-        yield* alice.client.sendRpc(AppsCreate.name, {
+        yield* alice.client.sendRpc(AppsCreate, {
           appId: "list-app",
           invitedAgentIds: [],
         });
 
-        yield* bob.client.sendRpc(AppsCreate.name, {
+        yield* bob.client.sendRpc(AppsCreate, {
           appId: "list-app",
           invitedAgentIds: [],
         });
 
         const aliceResult = (yield* alice.client.sendRpc(
-          AppsListSessions.name,
+          AppsListSessions,
           {},
         )) as {
           sessions: Array<{ id: string; initiatorAgentId: string }>;
@@ -690,10 +699,7 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
         expect(aliceResult.sessions.length).toBe(1);
         expect(aliceResult.sessions[0]!.initiatorAgentId).toBe(alice.agentId);
 
-        const bobResult = (yield* bob.client.sendRpc(
-          AppsListSessions.name,
-          {},
-        )) as {
+        const bobResult = (yield* bob.client.sendRpc(AppsListSessions, {})) as {
           sessions: Array<{ id: string; initiatorAgentId: string }>;
         };
 
@@ -709,36 +715,36 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
         registerTestApp(coreApp, "list-filter-a");
         registerTestApp(coreApp, "list-filter-b");
 
-        const sessionA = (yield* agent.client.sendRpc(AppsCreate.name, {
+        const sessionA = (yield* agent.client.sendRpc(AppsCreate, {
           appId: "list-filter-a",
           invitedAgentIds: [],
         })) as { session: { id: string } };
 
-        yield* agent.client.sendRpc(AppsCreate.name, {
+        yield* agent.client.sendRpc(AppsCreate, {
           appId: "list-filter-b",
           invitedAgentIds: [],
         });
 
         // Close session A
-        yield* agent.client.sendRpc(AppsCloseSession.name, {
+        yield* agent.client.sendRpc(AppsCloseSession, {
           sessionId: sessionA.session.id,
         });
 
         // Filter by appId
-        const byApp = (yield* agent.client.sendRpc(AppsListSessions.name, {
+        const byApp = (yield* agent.client.sendRpc(AppsListSessions, {
           appId: "list-filter-a",
         })) as { sessions: Array<{ appId: string }> };
         expect(byApp.sessions.length).toBe(1);
         expect(byApp.sessions[0]!.appId).toBe("list-filter-a");
 
         // Filter by status
-        const active = (yield* agent.client.sendRpc(AppsListSessions.name, {
+        const active = (yield* agent.client.sendRpc(AppsListSessions, {
           status: "active",
         })) as { sessions: Array<{ status: string }> };
         expect(active.sessions.length).toBe(1);
         expect(active.sessions[0]!.status).toBe("active");
 
-        const closed = (yield* agent.client.sendRpc(AppsListSessions.name, {
+        const closed = (yield* agent.client.sendRpc(AppsListSessions, {
           status: "closed",
         })) as { sessions: Array<{ status: string }> };
         expect(closed.sessions.length).toBe(1);
@@ -754,22 +760,19 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
 
         // Create 3 sessions, request limit of 2
         for (let i = 0; i < 3; i++) {
-          yield* agent.client.sendRpc(AppsCreate.name, {
+          yield* agent.client.sendRpc(AppsCreate, {
             appId: "list-limit-app",
             invitedAgentIds: [],
           });
         }
 
-        const limited = (yield* agent.client.sendRpc(AppsListSessions.name, {
+        const limited = (yield* agent.client.sendRpc(AppsListSessions, {
           limit: 2,
         })) as { sessions: Array<{ id: string }> };
         expect(limited.sessions.length).toBe(2);
 
         // Default (no limit param) returns all 3
-        const all = (yield* agent.client.sendRpc(
-          AppsListSessions.name,
-          {},
-        )) as {
+        const all = (yield* agent.client.sendRpc(AppsListSessions, {})) as {
           sessions: Array<{ id: string }>;
         };
         expect(all.sessions.length).toBe(3);
@@ -784,18 +787,18 @@ describe("Scenario 31: Session Close + Conversation Archival", () => {
 
         registerTestApp(coreApp, "get-closed-app");
 
-        const session = (yield* agent.client.sendRpc(AppsCreate.name, {
+        const session = (yield* agent.client.sendRpc(AppsCreate, {
           appId: "get-closed-app",
           invitedAgentIds: [],
         })) as {
           session: { id: string };
         };
 
-        yield* agent.client.sendRpc(AppsCloseSession.name, {
+        yield* agent.client.sendRpc(AppsCloseSession, {
           sessionId: session.session.id,
         });
 
-        const result = (yield* agent.client.sendRpc(AppsGetSession.name, {
+        const result = (yield* agent.client.sendRpc(AppsGetSession, {
           sessionId: session.session.id,
         })) as {
           session: {

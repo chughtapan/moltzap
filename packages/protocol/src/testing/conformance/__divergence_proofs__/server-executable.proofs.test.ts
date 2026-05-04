@@ -383,14 +383,14 @@ function makeBadResponse(
     (behavior === "reject-authorized" &&
       request.method === ConversationsList.name)
   ) {
-    return responseFrame("c2s", request.id, {
+    return responseFrame(request.id, {
       error: {
         code: ErrorCodes.InternalError,
         message: "bad server rejects model-ok call",
       },
     });
   }
-  return responseFrame("c2s", request.id, {
+  return responseFrame(request.id, {
     result: makeBadResult(request, behavior, ordinal),
   });
 }

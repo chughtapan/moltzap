@@ -25,7 +25,11 @@ import {
 import type { CoreApp } from "../../app/types.js";
 import type { ConnectedAgent } from "../../test-utils/helpers.js";
 
-import { AppsCreate } from "@moltzap/protocol";
+import {
+  AppsCreate,
+  AppSessionReadyNotificationDefinition,
+  AppHookTimeoutNotificationDefinition,
+} from "@moltzap/protocol";
 
 let coreApp: CoreApp;
 
@@ -105,14 +109,17 @@ describe("Scenario 31b: on_session_active hook", () => {
         });
       });
 
-      const session = (yield* initiator.client.sendRpc(AppsCreate.name, {
+      const session = (yield* initiator.client.sendRpc(AppsCreate, {
         appId: "osa-fire-once",
         invitedAgentIds: [inviteeA.agentId, inviteeB.agentId],
       })) as {
         session: { id: string; conversations: Record<string, string> };
       };
 
-      yield* initiator.client.waitForEvent("app/sessionReady", 5000);
+      yield* initiator.client.waitForNotification(
+        AppSessionReadyNotificationDefinition,
+        5000,
+      );
       // admitAgentsAsync runs on a daemon fiber; give it a beat to fire
       // the hook and update the session row even after sessionReady
       // (the hook runs synchronously before broadcast, but defensive).
@@ -144,13 +151,13 @@ describe("Scenario 31b: on_session_active hook", () => {
         hookFinishedAt = Date.now();
       });
 
-      yield* initiator.client.sendRpc(AppsCreate.name, {
+      yield* initiator.client.sendRpc(AppsCreate, {
         appId: "osa-order",
         invitedAgentIds: [invitee.agentId],
       });
 
-      const ready = yield* initiator.client.waitForEvent(
-        "app/sessionReady",
+      const ready = yield* initiator.client.waitForNotification(
+        AppSessionReadyNotificationDefinition,
         5000,
       );
       const readyAt = Date.now();
@@ -174,13 +181,13 @@ describe("Scenario 31b: on_session_active hook", () => {
         await new Promise((r) => setTimeout(r, 600));
       });
 
-      const session = (yield* initiator.client.sendRpc(AppsCreate.name, {
+      const session = (yield* initiator.client.sendRpc(AppsCreate, {
         appId: "osa-timeout-app",
         invitedAgentIds: [invitee.agentId],
       })) as { session: { id: string } };
 
-      const timeoutEvent = yield* initiator.client.waitForEvent(
-        "app/hookTimeout",
+      const timeoutEvent = yield* initiator.client.waitForNotification(
+        AppHookTimeoutNotificationDefinition,
         3000,
       );
       const data = timeoutEvent.data as {
@@ -195,7 +202,10 @@ describe("Scenario 31b: on_session_active hook", () => {
       expect(data.timeoutMs).toBe(150);
 
       // Fail-open: sessionReady still fires and session row reaches active.
-      yield* initiator.client.waitForEvent("app/sessionReady", 3000);
+      yield* initiator.client.waitForNotification(
+        AppSessionReadyNotificationDefinition,
+        3000,
+      );
       const db = getKyselyDb();
       const sessionRow = yield* Effect.tryPromise(() =>
         db
@@ -219,12 +229,15 @@ describe("Scenario 31b: on_session_active hook", () => {
         throw new Error("boom from on_session_active");
       });
 
-      const session = (yield* initiator.client.sendRpc(AppsCreate.name, {
+      const session = (yield* initiator.client.sendRpc(AppsCreate, {
         appId: "osa-throw-app",
         invitedAgentIds: [invitee.agentId],
       })) as { session: { id: string } };
 
-      yield* initiator.client.waitForEvent("app/sessionReady", 3000);
+      yield* initiator.client.waitForNotification(
+        AppSessionReadyNotificationDefinition,
+        3000,
+      );
 
       const db = getKyselyDb();
       const sessionRow = yield* Effect.tryPromise(() =>

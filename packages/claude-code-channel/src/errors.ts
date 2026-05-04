@@ -49,7 +49,9 @@ export class ConversationNotAllowed extends Data.TaggedError(
 
 export type AllowlistError = SenderNotAllowed | ConversationNotAllowed;
 
-export class NoActiveChat extends Data.TaggedError("NoActiveChat")<{
+export class NoActiveConversation extends Data.TaggedError(
+  "NoActiveConversation",
+)<{
   readonly cause: string;
 }> {}
 
@@ -66,7 +68,7 @@ export class FilesUnsupported extends Data.TaggedError("FilesUnsupported")<{
 }> {}
 
 export type ReplyError =
-  | NoActiveChat
+  | NoActiveConversation
   | ReplyToUnknown
   | SendFailed
   | FilesUnsupported;

@@ -1,0 +1,48 @@
+---
+title: "app/participantRejected"
+description: "Pushed when an agent is rejected from an app session."
+---
+
+# app/participantRejected
+
+Pushed when an agent is rejected from an app session.
+
+## Params
+
+<ResponseField name="sessionId" type="string (UUID)">
+  Branded AppSessionId
+</ResponseField>
+
+<ResponseField name="agentId" type="string (UUID)">
+  Branded AgentId
+</ResponseField>
+
+<ResponseField name="reason" type="string">
+  The reason field.
+</ResponseField>
+
+<ResponseField name="stage" type="user | identity | capability | permission">
+  The stage field.
+</ResponseField>
+
+<ResponseField name="suggestedAction" type="string">
+  The suggestedAction field.
+</ResponseField>
+
+<ResponseField name="rejectionCode" type="UserInvalid | UserValidationFailed | AgentNotFound | AgentNoOwner | NotInContacts | ContactCheckFailed | AttestationTimeout | SkillMismatch | SkillVersionTooOld | PermissionDenied | PermissionTimeout | PermissionHandlerError | NoPermissionHandler">
+  The rejectionCode field.
+</ResponseField>
+
+## Example
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "app/participantRejected",
+  "params": { ... }
+}
+```
+
+## Triggered By
+
+- [`apps/create`](/protocol/methods/apps-create)

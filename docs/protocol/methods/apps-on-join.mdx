@@ -1,0 +1,30 @@
+---
+title: "apps/onJoin"
+description: "App-callback RPC fired when an agent joins a session."
+---
+
+# apps/onJoin
+
+App-callback RPC fired when an agent joins a session.
+
+## Parameters
+
+<ParamField path="sessionId" type="string (UUID)" required>
+  The sessionId field.
+</ParamField>
+
+<ParamField path="appId" type="string" required>
+  The appId field.
+</ParamField>
+
+<ParamField path="conversations" type="object (map)" required>
+  The conversations field.
+</ParamField>
+
+<ParamField path="agent" type="object" required>
+  The agent field.
+</ParamField>
+
+## Response
+
+This method returns an empty object.

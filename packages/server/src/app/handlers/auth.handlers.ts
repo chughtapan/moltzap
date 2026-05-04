@@ -19,7 +19,10 @@ import {
   AgentsLookup,
   AgentsLookupByName,
   AgentsList,
+  agentId as protocolAgentId,
+  userId as protocolUserId,
 } from "@moltzap/protocol";
+import { AgentId as ServerAgentId, UserId as ServerUserId } from "../types.js";
 import type { RpcFailure } from "../../runtime/index.js";
 import { unauthorized } from "../../runtime/index.js";
 import {
@@ -36,12 +39,15 @@ function toAgentCard(row: {
   owner_user_id: string | null;
 }): AgentCard {
   return {
-    id: row.id,
+    id: protocolAgentId(row.id),
     name: row.name,
     displayName: row.display_name ?? undefined,
     description: row.description ?? undefined,
     status: row.status as AgentCard["status"],
-    ownerUserId: row.owner_user_id ?? undefined,
+    ownerUserId:
+      row.owner_user_id === null
+        ? undefined
+        : protocolUserId(row.owner_user_id),
   };
 }
 
@@ -55,8 +61,8 @@ export function createCoreAuthHandlers(deps: {
    * `sessionToken` requests with Unauthorized. */
   userService: UserService | null;
 }): RpcMethodRegistry {
-  return {
-    [Connect.name]: defineMethod(Connect, {
+  return [
+    defineMethod(Connect, {
       handler: (params) =>
         catchSqlErrorAsDefect(
           Effect.gen(function* () {
@@ -104,9 +110,7 @@ export function createCoreAuthHandlers(deps: {
         ),
     }),
 
-    // Key must match the manifest's `name` field so the dispatcher resolves
-    // it correctly; `AgentsLookup.name === "agents/lookup"`.
-    [AgentsLookup.name]: defineMethod(AgentsLookup, {
+    defineMethod(AgentsLookup, {
       handler: (params) =>
         catchSqlErrorAsDefect(
           Effect.gen(function* () {
@@ -125,8 +129,7 @@ export function createCoreAuthHandlers(deps: {
           }),
         ),
     }),
-
-    [AgentsLookupByName.name]: defineMethod(AgentsLookupByName, {
+    defineMethod(AgentsLookupByName, {
       handler: (params) =>
         catchSqlErrorAsDefect(
           Effect.gen(function* () {
@@ -146,8 +149,7 @@ export function createCoreAuthHandlers(deps: {
           }),
         ),
     }),
-
-    [AgentsList.name]: defineMethod(AgentsList, {
+    defineMethod(AgentsList, {
       requiresActive: true,
       handler: (_params, ctx) =>
         catchSqlErrorAsDefect(
@@ -183,7 +185,7 @@ export function createCoreAuthHandlers(deps: {
           }),
         ),
     }),
-  };
+  ];
 }
 
 /** Agent API-key path — existing behavior, typed `never` from authService. */
@@ -227,9 +229,12 @@ function authenticateSession(
       }
       if (result.agentStatus !== undefined) {
         return {
-          agentId: result.agentId,
+          agentId: ServerAgentId(result.agentId),
           agentStatus: result.agentStatus,
-          ownerUserId: result.ownerUserId,
+          ownerUserId:
+            result.ownerUserId === null
+              ? null
+              : ServerUserId(result.ownerUserId),
         };
       }
       const rowOpt = yield* takeFirstOption(
@@ -242,9 +247,10 @@ function authenticateSession(
         return yield* Effect.fail(unauthorized("Authentication failed"));
       }
       return {
-        agentId: result.agentId,
+        agentId: ServerAgentId(result.agentId),
         agentStatus: rowOpt.value.status,
-        ownerUserId: result.ownerUserId,
+        ownerUserId:
+          result.ownerUserId === null ? null : ServerUserId(result.ownerUserId),
       };
     }),
   );

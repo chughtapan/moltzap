@@ -8,8 +8,8 @@ import { ConnIdTag } from "../layers.js";
 export function createPresenceHandlers(deps: {
   presenceService: PresenceService;
 }): RpcMethodRegistry {
-  return {
-    [PresenceUpdate.name]: defineMethod(PresenceUpdate, {
+  return [
+    defineMethod(PresenceUpdate, {
       requiresActive: true,
       handler: (params, ctx) =>
         Effect.gen(function* () {
@@ -20,8 +20,7 @@ export function createPresenceHandlers(deps: {
           return {};
         }),
     }),
-
-    [PresenceSubscribe.name]: defineMethod(PresenceSubscribe, {
+    defineMethod(PresenceSubscribe, {
       requiresActive: true,
       handler: (params) =>
         Effect.gen(function* () {
@@ -31,5 +30,5 @@ export function createPresenceHandlers(deps: {
           return { statuses };
         }),
     }),
-  };
+  ];
 }

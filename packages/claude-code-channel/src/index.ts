@@ -10,7 +10,7 @@ export type {
   Handle,
   ClaudeChannelNotification,
   GateInbound,
-  ChatId,
+  ConversationId,
   MessageId,
   UserId,
   IsoTimestamp,

@@ -109,10 +109,10 @@ export * as clientConformance from "./conformance/client/index.js";
 export type {
   ClientConformanceRunContext,
   ClientConformanceRunOptions,
-  ObservedEvent,
+  ObservedNotification,
   RealClientCloseEvent,
-  RealClientEventFilter,
-  RealClientEventSubscriber,
+  RealClientNotificationFilter,
+  RealClientNotificationSubscriber,
   RealClientFactoryArgs,
   RealClientHandle,
   RealClientRpcCaller,

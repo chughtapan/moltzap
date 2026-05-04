@@ -8,7 +8,17 @@ import {
   type Scope,
 } from "effect";
 import * as Socket from "@effect/platform/Socket";
-import type { ResponseFrame, RequestFrame } from "@moltzap/protocol";
+import {
+  isJsonRpcStringId,
+  jsonRpcStringId,
+  requestFrame,
+  type AnyAppCallbackRpcDefinition,
+  type JsonRpcMethod,
+  type JsonRpcStringId,
+  type ParamsOf,
+  type ResponseFrame,
+  type ResultOf,
+} from "@moltzap/protocol";
 import type { AuthenticatedContext } from "../rpc/context.js";
 
 /**
@@ -18,60 +28,68 @@ import type { AuthenticatedContext } from "../rpc/context.js";
  */
 export class AppDisconnected extends Data.TaggedError("AppDisconnected")<{
   readonly connectionId: string;
-  readonly method: string;
-  readonly requestId: string;
+  readonly method: JsonRpcMethod;
+  readonly requestId: JsonRpcStringId;
 }> {}
 
-export class S2cRpcResponseError extends Data.TaggedError(
-  "S2cRpcResponseError",
+export class AppCallbackRpcResponseError extends Data.TaggedError(
+  "AppCallbackRpcResponseError",
 )<{
   readonly connectionId: string;
-  readonly method: string;
-  readonly requestId: string;
+  readonly method: JsonRpcMethod;
+  readonly requestId: JsonRpcStringId;
   readonly code: number;
   readonly message: string;
   readonly data?: unknown;
 }> {}
 
-export class S2cRpcDecodeError extends Data.TaggedError("S2cRpcDecodeError")<{
+export class AppCallbackRpcDecodeError extends Data.TaggedError(
+  "AppCallbackRpcDecodeError",
+)<{
   readonly connectionId: string;
-  readonly method: string;
-  readonly requestId: string;
+  readonly method: JsonRpcMethod;
+  readonly requestId: JsonRpcStringId;
   readonly reason: string;
 }> {}
 
-export class S2cRpcSocketError extends Data.TaggedError("S2cRpcSocketError")<{
+export class AppCallbackRpcSocketError extends Data.TaggedError(
+  "AppCallbackRpcSocketError",
+)<{
   readonly connectionId: string;
-  readonly method: string;
-  readonly requestId: string;
+  readonly method: JsonRpcMethod;
+  readonly requestId: JsonRpcStringId;
   readonly cause: Socket.SocketError;
 }> {}
 
-export type S2cRpcError =
+export type AppCallbackRpcError =
   | AppDisconnected
-  | S2cRpcResponseError
-  | S2cRpcDecodeError
-  | S2cRpcSocketError;
+  | AppCallbackRpcResponseError
+  | AppCallbackRpcDecodeError
+  | AppCallbackRpcSocketError;
 
 /**
- * Per-connection s2c pending map. Each entry correlates an outbound s2c
+ * Per-connection appCallback pending map. Each entry correlates an outbound appCallback
  * request with the `Deferred` that `sendRpcToClient` is awaiting.
  *
  * Entries are inserted by `sendRpcToClient` and drained by either:
- *   - the inbound s2c response router (`completeS2cResponse`), on success
+ *   - the inbound appCallback response router (`completeAppCallbackResponse`), on success
  *     or typed error response, or
  *   - the connection's `Scope` finalizer (`drainPendingWithAppDisconnected`,
- *     wired by `acquireS2cConnectionState`), which fails every entry with
+ *     wired by `acquireAppCallbackConnectionState`), which fails every entry with
  *     `AppDisconnected` on disconnect.
  *
- * Routing is `(side, type)`-disjoint: c2s requests/responses go through
- * separate paths and never key into this map.
+ * Routing is local-role disjoint: inbound response-shaped JSON-RPC frames
+ * complete this map, while inbound request-shaped frames go through the
+ * client-originated RPC router.
  */
-export type S2cPendingMap = HashMap.HashMap<string, S2cPendingEntry<unknown>>;
+export type AppCallbackPendingMap = HashMap.HashMap<
+  JsonRpcStringId,
+  AppCallbackPendingEntry<unknown>
+>;
 
-interface S2cPendingEntry<R> {
-  readonly method: string;
-  readonly deferred: Deferred.Deferred<R, S2cRpcError>;
+interface AppCallbackPendingEntry<R> {
+  readonly method: JsonRpcMethod;
+  readonly deferred: Deferred.Deferred<R, AppCallbackRpcError>;
 }
 
 export interface MoltZapConnection {
@@ -87,37 +105,37 @@ export interface MoltZapConnection {
   mutedConversations: Set<string>;
   /**
    * Per-connection map of pending server-initiated RPC requests.
-   * `sendRpcToClient` inserts on send; the inbound s2c response router
-   * (`completeS2cResponse`) deletes + resolves on reply; the connection
+   * `sendRpcToClient` inserts on send; the inbound appCallback response router
+   * (`completeAppCallbackResponse`) deletes + resolves on reply; the connection
    * scope's finalizer (`drainPendingWithAppDisconnected`, wired by
-   * `acquireS2cConnectionState`) fails every entry with `AppDisconnected`
+   * `acquireAppCallbackConnectionState`) fails every entry with `AppDisconnected`
    * on disconnect.
    */
-  readonly s2cPending: Ref.Ref<S2cPendingMap>;
+  readonly appCallbackPending: Ref.Ref<AppCallbackPendingMap>;
   /**
-   * Monotonic counter for minting outbound s2c request ids
-   * (`srv-<connId>-<seq>`). Direction-namespaced: c2s and s2c id pools may
-   * collide on the wire without confusing routing because the pending maps
-   * are keyed on `(side, type)`.
+   * Monotonic counter for minting outbound appCallback request ids
+   * (`srv-<connId>-<seq>`). The prefix keeps server-originated ids
+   * distinguishable in captures and logs while routing derives from
+   * JSON-RPC frame shape.
    */
-  readonly s2cRequestCounter: Ref.Ref<number>;
+  readonly appCallbackRequestCounter: Ref.Ref<number>;
 }
 
 /**
  * Drain a pending-map Ref by failing every Deferred with
  * `AppDisconnected(connectionId, method, requestId)`. Used by the
- * connection scope finalizer in `acquireS2cConnectionState` and by any
+ * connection scope finalizer in `acquireAppCallbackConnectionState` and by any
  * direct teardown path. Idempotent — `getAndSet(..., empty())` means a
  * second call observes an empty map and is a no-op.
  */
 function drainPendingWithAppDisconnected(
   connectionId: string,
-  pendingRef: Ref.Ref<S2cPendingMap>,
+  pendingRef: Ref.Ref<AppCallbackPendingMap>,
 ): Effect.Effect<void> {
   return Effect.gen(function* () {
     const pending = yield* Ref.getAndSet(
       pendingRef,
-      HashMap.empty<string, S2cPendingEntry<unknown>>(),
+      HashMap.empty<JsonRpcStringId, AppCallbackPendingEntry<unknown>>(),
     );
     for (const [id, entry] of HashMap.entries(pending)) {
       yield* Deferred.fail(
@@ -133,17 +151,16 @@ function drainPendingWithAppDisconnected(
 }
 
 /**
- * Mint the next request id for an outbound s2c RPC. Format
- * `srv-<connId>-<seq>` is direction-namespaced from c2s ids the client mints
- * (`rpc-N`, `tc-...`, etc.) so the two pending maps may overlap on raw id
- * without ambiguity.
+ * Mint the next request id for an outbound appCallback RPC. Format
+ * `srv-<connId>-<seq>` distinguishes server-originated ids from ids the client
+ * mints (`rpc-N`, `tc-...`, etc.) in logs and captures.
  */
-function nextS2cRequestId(
+function nextAppCallbackRequestId(
   connection: MoltZapConnection,
-): Effect.Effect<string> {
-  return Ref.modify(connection.s2cRequestCounter, (n) => {
+): Effect.Effect<JsonRpcStringId> {
+  return Ref.modify(connection.appCallbackRequestCounter, (n) => {
     const next = n + 1;
-    return [`srv-${connection.id}-${next}`, next];
+    return [jsonRpcStringId(`srv-${connection.id}-${next}`), next];
   });
 }
 
@@ -154,16 +171,16 @@ function nextS2cRequestId(
  * pool, no callback registry, no setTimeout retry loop):
  *
  *   1. Mint a fresh request id from the connection's counter.
- *   2. Allocate `Deferred<unknown, S2cRpcError>`.
+ *   2. Allocate `Deferred<unknown, AppCallbackRpcError>`.
  *   3. `Effect.acquireUseRelease` around the pending-map pair:
  *      - acquire: register the `{method, deferred}` entry in
- *        `connection.s2cPending` keyed by the request id (atomic
+ *        `connection.appCallbackPending` keyed by the request id (atomic
  *        `Ref.update`).
- *      - use: encode the `RequestFrame` with `direction: "s2c"`, write
- *        it via `connection.write`, then `Deferred.await`. Socket
- *        failures fail the Deferred with `S2cRpcSocketError` so the
+ *      - use: encode the JSON-RPC request, write it via `connection.write`,
+ *        then `Deferred.await`. Socket
+ *        failures fail the Deferred with `AppCallbackRpcSocketError` so the
  *        caller's await observes the failure rather than hanging.
- *      - release: remove the entry from `s2cPending` (atomic
+ *      - release: remove the entry from `appCallbackPending` (atomic
  *        `Ref.update`). Fires on success, error, AND interrupt.
  *
  * Cleanup contract (Issue #310). The pending registry insert/remove are
@@ -177,47 +194,41 @@ function nextS2cRequestId(
  *     (`drainPendingWithAppDisconnected`) drains the map and fails the
  *     Deferred with `AppDisconnected`; the release then runs an
  *     idempotent `HashMap.remove` (no-op).
- *   - Normal completion via `completeS2cResponse`: removes the entry in
+ *   - Normal completion via `completeAppCallbackResponse`: removes the entry in
  *     its own atomic `Ref.modify`; release re-removes (no-op).
  *
  * All three paths converge through atomic `Ref` ops on a single map, so
  * no torn state. A late inbound response frame for a request whose
- * caller was interrupted finds `Option.none()` in `completeS2cResponse`
+ * caller was interrupted finds `Option.none()` in `completeAppCallbackResponse`
  * and is silently dropped (no panic, no Deferred re-resolve).
  *
  * Caller controls timeout via `Effect.timeout` at the call site — there
  * is NO schema-level cap. Result decoding from `unknown` to a typed
  * verdict is the caller's responsibility (Phase 1.1 / B.2 narrows this
- * signature generically against `S2cRpcMap` and folds decoding inside
+ * signature generically against `AppCallbackRpcMap` and folds decoding inside
  * the function).
  */
-export function sendRpcToClient(
+export function sendRpcToClient<D extends AnyAppCallbackRpcDefinition>(
   connection: MoltZapConnection,
-  method: string,
-  params: unknown,
-): Effect.Effect<unknown, S2cRpcError, never> {
+  definition: D,
+  params: ParamsOf<D>,
+): Effect.Effect<ResultOf<D>, AppCallbackRpcError, never> {
   return Effect.gen(function* () {
-    const requestId = yield* nextS2cRequestId(connection);
-    const deferred = yield* Deferred.make<unknown, S2cRpcError>();
-    const frame: RequestFrame = {
-      jsonrpc: "2.0",
-      type: "request",
-      direction: "s2c",
-      id: requestId,
-      method,
-      params,
-    };
+    const method = definition.name;
+    const requestId = yield* nextAppCallbackRequestId(connection);
+    const deferred = yield* Deferred.make<unknown, AppCallbackRpcError>();
+    const frame = requestFrame(requestId, definition, params);
     const raw = JSON.stringify(frame);
 
     return yield* Effect.acquireUseRelease(
       // acquire: register the pending entry. Atomic `Ref.update` —
-      // `completeS2cResponse` and the connection-Scope finalizer key
+      // `completeAppCallbackResponse` and the connection-Scope finalizer key
       // off the same Ref, so all three writers serialize.
-      Ref.update(connection.s2cPending, (m) =>
+      Ref.update(connection.appCallbackPending, (m) =>
         HashMap.set(m, requestId, {
           method,
           deferred,
-        } satisfies S2cPendingEntry<unknown>),
+        } satisfies AppCallbackPendingEntry<unknown>),
       ),
       // use: write the frame, then await the Deferred. Socket failures
       // settle the Deferred so a late inbound frame's `Deferred.succeed`
@@ -227,7 +238,7 @@ export function sendRpcToClient(
       // fires between the acquire above and the write below, the
       // finalizer drains the entry first and fails the Deferred with
       // `AppDisconnected`. The write may then fail (socket already
-      // closed) and we attempt `Deferred.fail` with `S2cRpcSocketError`
+      // closed) and we attempt `Deferred.fail` with `AppCallbackRpcSocketError`
       // — `Effect.ignore` swallows the no-op on an already-settled
       // Deferred. Caller observes whichever completion landed first;
       // both error tags are correct readings of the failure.
@@ -235,7 +246,7 @@ export function sendRpcToClient(
         Effect.gen(function* () {
           yield* connection.write(raw).pipe(
             Effect.catchAll((cause) => {
-              const err = new S2cRpcSocketError({
+              const err = new AppCallbackRpcSocketError({
                 connectionId: connection.id,
                 method,
                 requestId,
@@ -243,30 +254,43 @@ export function sendRpcToClient(
               });
               return Deferred.fail(deferred, err).pipe(
                 Effect.ignore,
-                Effect.zipRight(Effect.fail<S2cRpcError>(err)),
+                Effect.zipRight(Effect.fail<AppCallbackRpcError>(err)),
               );
             }),
           );
-          return yield* Deferred.await(deferred);
+          const result = yield* Deferred.await(deferred);
+          if (!definition.validateResult(result)) {
+            return yield* Effect.fail(
+              new AppCallbackRpcDecodeError({
+                connectionId: connection.id,
+                method,
+                requestId,
+                reason: `Invalid result for method: ${method}`,
+              }),
+            );
+          }
+          return result as ResultOf<D>;
         }),
       // release: remove the entry. Idempotent — `HashMap.remove` on an
       // already-removed key is a no-op, so this is safe whether
-      // `completeS2cResponse` already removed it (success/error path)
+      // `completeAppCallbackResponse` already removed it (success/error path)
       // or the connection-Scope finalizer drained it (disconnect path).
       () =>
-        Ref.update(connection.s2cPending, (m) => HashMap.remove(m, requestId)),
+        Ref.update(connection.appCallbackPending, (m) =>
+          HashMap.remove(m, requestId),
+        ),
     );
   });
 }
 
 /**
- * Resolve the s2c pending entry that matches `frame.id`, if any. Called by
- * the inbound s2c response router on the server's read fiber.
+ * Resolve the appCallback pending entry that matches `frame.id`, if any. Called by
+ * the inbound appCallback response router on the server's read fiber.
  *
  * Three completion outcomes (totally exhaustive — every well-formed
  * response that arrives lands in exactly one branch):
  *
- *   - `frame.error` present → `Deferred.fail` with `S2cRpcResponseError`.
+ *   - `frame.error` present → `Deferred.fail` with `AppCallbackRpcResponseError`.
  *   - `frame.error` absent  → `Deferred.succeed` with `frame.result`.
  *   - id not in map         → returns `Option.none()`; caller decides
  *                              whether to log (likely a stale reply after
@@ -275,25 +299,27 @@ export function sendRpcToClient(
  * Returns `Option.some(method)` when a pending entry was completed, so the
  * caller can record telemetry or attribute the response to its method.
  */
-export function completeS2cResponse(
+export function completeAppCallbackResponse(
   connection: MoltZapConnection,
   frame: ResponseFrame,
-): Effect.Effect<Option.Option<string>> {
+): Effect.Effect<Option.Option<JsonRpcMethod>> {
   return Effect.gen(function* () {
-    const removed = yield* Ref.modify(connection.s2cPending, (m) => {
-      const entry = HashMap.get(m, frame.id);
+    if (!isJsonRpcStringId(frame.id)) return Option.none();
+    const responseId = frame.id;
+    const removed = yield* Ref.modify(connection.appCallbackPending, (m) => {
+      const entry = HashMap.get(m, responseId);
       if (Option.isNone(entry)) return [Option.none(), m];
-      return [Option.some(entry.value), HashMap.remove(m, frame.id)];
+      return [Option.some(entry.value), HashMap.remove(m, responseId)];
     });
     if (Option.isNone(removed)) return Option.none();
     const entry = removed.value;
-    if (frame.error !== undefined) {
+    if ("error" in frame) {
       yield* Deferred.fail(
         entry.deferred,
-        new S2cRpcResponseError({
+        new AppCallbackRpcResponseError({
           connectionId: connection.id,
           method: entry.method,
-          requestId: frame.id,
+          requestId: responseId,
           code: frame.error.code,
           message: frame.error.message,
           data: frame.error.data,
@@ -307,7 +333,7 @@ export function completeS2cResponse(
 }
 
 /**
- * Acquire the per-connection s2c machinery and bind a Scope finalizer that
+ * Acquire the per-connection appCallback machinery and bind a Scope finalizer that
  * fails every still-pending Deferred with `AppDisconnected` when the scope
  * closes. Caller composes this inside the connection's `Effect.scoped`
  * boundary.
@@ -316,21 +342,25 @@ export function completeS2cResponse(
  * is a side-effect on the surrounding scope; nothing the caller has to
  * track directly.
  */
-export function acquireS2cConnectionState(connectionId: string): Effect.Effect<
+export function acquireAppCallbackConnectionState(
+  connectionId: string,
+): Effect.Effect<
   {
-    readonly s2cPending: Ref.Ref<S2cPendingMap>;
-    readonly s2cRequestCounter: Ref.Ref<number>;
+    readonly appCallbackPending: Ref.Ref<AppCallbackPendingMap>;
+    readonly appCallbackRequestCounter: Ref.Ref<number>;
   },
   never,
   Scope.Scope
 > {
   return Effect.gen(function* () {
-    const s2cPending = yield* Ref.make<S2cPendingMap>(HashMap.empty());
-    const s2cRequestCounter = yield* Ref.make(0);
-    yield* Effect.addFinalizer(() =>
-      drainPendingWithAppDisconnected(connectionId, s2cPending),
+    const appCallbackPending = yield* Ref.make<AppCallbackPendingMap>(
+      HashMap.empty(),
     );
-    return { s2cPending, s2cRequestCounter };
+    const appCallbackRequestCounter = yield* Ref.make(0);
+    yield* Effect.addFinalizer(() =>
+      drainPendingWithAppDisconnected(connectionId, appCallbackPending),
+    );
+    return { appCallbackPending, appCallbackRequestCounter };
   });
 }
 

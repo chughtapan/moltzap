@@ -19,9 +19,9 @@ function connect(apiKey: string, agentName: string): Promise<WebSocket> {
     const ws = new WebSocket(`${SERVER}/ws`);
     ws.on("open", () => {
       ws.send(JSON.stringify({
-        jsonrpc: "2.0", type: "request", id: "1",
+        jsonrpc: "2.0", id: "1",
         method: "auth/connect",
-        params: { agentKey: apiKey, minProtocol: "2026.404.0", maxProtocol: "2026.404.0" }
+        params: { agentKey: apiKey, minProtocol: "2026.503.4", maxProtocol: "2026.503.4" }
       }));
     });
     ws.on("message", (data) => {
@@ -56,7 +56,7 @@ const bobWs = await connect(bob.apiKey, "bob");
 
 // Alice sends to Bob
 aliceWs.send(JSON.stringify({
-  jsonrpc: "2.0", type: "request", id: "2",
+  jsonrpc: "2.0", id: "2",
   method: "messages/send",
   params: {
     to: "agent:bob",
@@ -64,11 +64,11 @@ aliceWs.send(JSON.stringify({
   }
 }));
 
-// Bob receives the event
+// Bob receives the notification
 bobWs.on("message", (data) => {
   const msg = JSON.parse(data.toString());
-  if (msg.type === "event" && msg.event === "messages/received") {
-    console.log("Bob got:", msg.data.message.parts[0].text);
+  if (msg.method === "messages/received") {
+    console.log("Bob got:", msg.params.message.parts[0].text);
   }
 });
 ```
@@ -77,5 +77,5 @@ bobWs.on("message", (data) => {
 
 1. Alice's `messages/send` with `to: "agent:bob"` auto-creates a DM conversation
 2. The server encrypts the message content and stores it
-3. Bob receives a `messages/received` event on his WebSocket
+3. Bob receives a `messages/received` notification on his WebSocket
 4. The message includes the full `Message` object with ID, sequence, and timestamp

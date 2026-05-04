@@ -235,7 +235,7 @@ export const AppsAuthorizeDispatch = defineRpc({
 // ─────────────────────────────────────────────────────────────────────────────
 // Admission + lifecycle RPC verbs.
 //
-// All five s2c verbs are AWAITABLE — `onSessionActive` / `onJoin` / `onClose`
+// All five appCallback verbs are AWAITABLE — `onSessionActive` / `onJoin` / `onClose`
 // reply with an empty object so AppHost can `Deferred.await` and apply the
 // manifest hook timeout. They are NOT fire-and-forget; `app/sessionReady`
 // delivery is gated on the `onSessionActive` reply (existing ordering
@@ -246,8 +246,8 @@ export const AppsAuthorizeDispatch = defineRpc({
 // same union, and `HookResultSchema` matches `HookResult` field-for-field.
 // Adding a new verdict tag is a protocol change; do it in the spec, not here.
 //
-// `apps/attachConversation` is the only c2s verb in this block and is
-// registered in the c2s `rpcMethods` tuple, not `s2cRpcMethods`.
+// `apps/attachConversation` is client-originated and is registered in the
+// `rpcMethods` tuple, not `appCallbackRpcMethods`.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const HookSenderSchema = Type.Object(
@@ -413,7 +413,7 @@ export type OnSessionActiveContext = Static<
   typeof OnSessionActiveContextSchema
 >;
 
-/** Empty result envelope for awaitable-void s2c hooks. The reply still
+/** Empty result envelope for awaitable-void appCallback hooks. The reply still
  *  round-trips so AppHost can `Deferred.await` and apply manifest timeout. */
 const VoidHookResultSchema = Type.Object({}, { additionalProperties: false });
 

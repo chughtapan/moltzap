@@ -1,6 +1,7 @@
 import { it } from "@effect/vitest";
 import { Context, Effect, Layer } from "effect";
 import { expect } from "vitest";
+import { agentId, conversationId, messageId } from "@moltzap/protocol";
 
 import {
   InMemoryTraceCaptureLive,
@@ -12,16 +13,16 @@ import {
 const sampleEvent: TraceEvent = {
   _tag: "Message",
   message: {
-    id: "message-1",
-    conversationId: "conversation-1",
-    senderId: "agent-1",
+    id: messageId("00000000-0000-0000-0000-000000000001"),
+    conversationId: conversationId("00000000-0000-0000-0000-000000000002"),
+    senderId: agentId("00000000-0000-0000-0000-000000000003"),
     parts: [{ type: "text", text: "hello" }],
     createdAt: "2026-04-22T00:00:00.000Z",
   },
   channelKey: "conversation-1",
   senderDisplayName: "Agent 1",
-  recipientAgentIds: ["agent-2"],
-  deliveredAgentIds: ["agent-2"],
+  recipientAgentIds: [agentId("00000000-0000-0000-0000-000000000004")],
+  deliveredAgentIds: [agentId("00000000-0000-0000-0000-000000000004")],
 };
 
 it.effect("NoopTraceCaptureLive ignores writes and snapshots empty", () =>

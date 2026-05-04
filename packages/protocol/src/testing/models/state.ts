@@ -11,7 +11,7 @@
  */
 import { Brand } from "effect";
 import type { Agent, Conversation, Message } from "../../types.js";
-import type { EventFrame } from "../../schema/frames.js";
+import type { NotificationFrame } from "../../schema/frames.js";
 
 /** Monotonic logical clock — the model does not read wall time. */
 export type LogicalTick = number & Brand.Brand<"LogicalTick">;
@@ -32,7 +32,7 @@ export interface ReferenceState {
   /** Messages per conversation, append-only, ordered. */
   readonly messages: ReadonlyMap<string, ReadonlyArray<Message>>;
   /** Per-agent outbox of events the model predicts the server will emit. */
-  readonly pendingEvents: ReadonlyMap<string, ReadonlyArray<EventFrame>>;
+  readonly pendingEvents: ReadonlyMap<string, ReadonlyArray<NotificationFrame>>;
   /** Authorization table — (agentId, conversationId) → role. */
   readonly authz: ReadonlyMap<
     string,

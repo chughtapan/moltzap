@@ -84,12 +84,15 @@ describe("Session failure state", () => {
       const alice = yield* registerWithOwner("alice-sf", USER_ALICE);
 
       // Invite an agent that doesn't exist — will be rejected at identity stage
-      yield* alice.client.sendRpc(AppsCreate.name, {
+      yield* alice.client.sendRpc(AppsCreate, {
         appId: "fail-test-app",
         invitedAgentIds: ["00000000-0000-4000-dead-000000000001"],
       });
 
-      const event = yield* alice.client.waitForEvent("app/sessionFailed", 5000);
+      const event = yield* alice.client.waitForNotification(
+        AppSessionFailedNotificationDefinition,
+        5000,
+      );
       expect(event.data).toHaveProperty("sessionId");
 
       // The DB update is async (fire-and-forget from checkDone), give it a moment
@@ -126,12 +129,15 @@ describe("Session failure state", () => {
       };
       getTestCoreApp().registerApp(noPermManifest);
 
-      yield* alice.client.sendRpc(AppsCreate.name, {
+      yield* alice.client.sendRpc(AppsCreate, {
         appId: "no-perm-app",
         invitedAgentIds: [bob.agentId],
       });
 
-      const event = yield* alice.client.waitForEvent("app/sessionReady", 5000);
+      const event = yield* alice.client.waitForNotification(
+        AppSessionReadyNotificationDefinition,
+        5000,
+      );
       expect(event.data).toHaveProperty("sessionId");
       expect(event.data).toHaveProperty("conversations");
 
@@ -157,12 +163,15 @@ describe("Session failure state", () => {
 
       const bob = yield* registerWithOwner("bob-mx", USER_ALICE);
 
-      yield* alice.client.sendRpc(AppsCreate.name, {
+      yield* alice.client.sendRpc(AppsCreate, {
         appId: "mixed-app",
         invitedAgentIds: [bob.agentId, "00000000-0000-4000-dead-000000000002"],
       });
 
-      const event = yield* alice.client.waitForEvent("app/sessionReady", 5000);
+      const event = yield* alice.client.waitForNotification(
+        AppSessionReadyNotificationDefinition,
+        5000,
+      );
       const sessionId = (event.data as { sessionId: string }).sessionId;
       expect(sessionId).toBeDefined();
 

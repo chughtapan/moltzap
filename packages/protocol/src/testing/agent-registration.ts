@@ -11,14 +11,16 @@
  * Principle 3: returns `Effect<TestAgent, AgentRegistrationError>` — no
  * bare throws.
  */
+import type { Static } from "@sinclair/typebox";
 import { Data, Effect } from "effect";
+import { AgentId, agentId } from "../schema/primitives.js";
 
 const UNIQUE_SUFFIX_RADIX = 36;
 const UNIQUE_SUFFIX_START = 2;
 const UNIQUE_SUFFIX_END = 8;
 
 export interface TestAgent {
-  readonly agentId: string;
+  readonly agentId: Static<typeof AgentId>;
   readonly apiKey: string;
   readonly name: string;
   readonly claimUrl?: string;
@@ -107,7 +109,7 @@ export function registerTestAgent(opts: {
       catch: toRegistrationError,
     });
     return {
-      agentId: parsed.agentId,
+      agentId: agentId(parsed.agentId),
       apiKey: parsed.apiKey,
       claimUrl: parsed.claimUrl,
       claimToken: parsed.claimToken,

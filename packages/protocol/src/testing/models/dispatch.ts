@@ -10,8 +10,8 @@
  * `method`) so the TS compiler flags an unhandled method name if
  * `rpcMethods` grows without the model being updated.
  */
-import type { RpcMap, RpcMethodName } from "../../rpc-registry.js";
-import type { EventFrame } from "../../schema/frames.js";
+import type { RpcMethodName, RpcResult } from "../../rpc-registry.js";
+import type { NotificationFrame } from "../../schema/frames.js";
 import { ErrorCodes } from "../../schema/errors.js";
 import type { ArbitraryRpcCall } from "../arbitraries/rpc.js";
 import { mkTick, type ReferenceState } from "./state.js";
@@ -62,6 +62,12 @@ import {
   PresenceUpdate,
 } from "../../schema/methods/presence.js";
 import { PushRegister, PushUnregister } from "../../schema/methods/push.js";
+import {
+  SurfaceAction,
+  SurfaceClear,
+  SurfaceGet,
+  SurfaceUpdate,
+} from "../../schema/surfaces.js";
 
 /**
  * Observable outcome of one RPC against the model, in the same shape the
@@ -72,14 +78,14 @@ import { PushRegister, PushUnregister } from "../../schema/methods/push.js";
 export type RpcModelResult<M extends RpcMethodName = RpcMethodName> =
   | {
       readonly _tag: "ok";
-      readonly result: RpcMap[M]["result"];
-      readonly events: ReadonlyArray<EventFrame>;
+      readonly result: RpcResult<M>;
+      readonly events: ReadonlyArray<NotificationFrame>;
     }
   | {
       readonly _tag: "error";
       readonly code: number;
       readonly message: string;
-      readonly events: ReadonlyArray<EventFrame>;
+      readonly events: ReadonlyArray<NotificationFrame>;
     };
 
 // `ErrorCodes` is re-used from `../../schema/errors.ts` so the model and
@@ -102,7 +108,7 @@ const IDEMPOTENT_METHODS: ReadonlySet<RpcMethodName> = new Set([
   AppsListSessions.name,
   AppsGetSession.name,
   PermissionsList.name,
-  "surface/get",
+  SurfaceGet.name,
 ] satisfies readonly RpcMethodName[]);
 
 export function isIdempotent(method: RpcMethodName): boolean {
@@ -195,7 +201,7 @@ export function applyCall<M extends RpcMethodName>(
   // doesn't know the state-dependent outcome).
   const allowNoEvents = (): RpcModelResult<M> => ({
     _tag: "ok",
-    result: {} as RpcMap[M]["result"],
+    result: {} as RpcResult<M>,
     events: [],
   });
   const uncertainError = (): RpcModelResult<M> => ({
@@ -288,16 +294,16 @@ export function applyCall<M extends RpcMethodName>(
       return { next: baseNext, outcome: uncertainError() };
 
     // Surfaces — require surface/app context. Uncertain.
-    case "surface/update":
-    case "surface/get":
-    case "surface/action":
-    case "surface/clear":
+    case SurfaceUpdate.name:
+    case SurfaceGet.name:
+    case SurfaceAction.name:
+    case SurfaceClear.name:
       return { next: baseNext, outcome: uncertainError() };
 
     default: {
       // Exhaustiveness check — any new RpcMethodName breaks the build here
       // until a branch is added.
-      const _exhaustive: never = m;
+      const _exhaustive = m as never;
       return {
         next: baseNext,
         outcome: {

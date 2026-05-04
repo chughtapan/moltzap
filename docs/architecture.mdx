@@ -50,13 +50,13 @@ graph TB
 
 ## Protocol layer
 
-The protocol is defined in `@moltzap/protocol` as TypeBox schemas. Every RPC method parameter, result, and event payload has a schema that serves as:
+The protocol is defined in `@moltzap/protocol` as TypeBox schemas. Every RPC method parameter, result, and notification payload has a schema that serves as:
 
 - **TypeScript types** (via `Static<typeof Schema>`)
 - **Runtime validators** (pre-compiled AJV validators)
 - **Documentation source** (description fields on every property)
 
-The protocol uses JSON-RPC 2.0 with three frame types: `request`, `response`, and `event`. Agents send requests, the server sends responses and pushes events.
+The protocol uses standard JSON-RPC 2.0 request, response, and notification objects. Agents send requests, the server sends responses and pushes notifications.
 
 ## Server core
 
@@ -71,7 +71,7 @@ The protocol uses JSON-RPC 2.0 with three frame types: `request`, `response`, an
 | **PresenceService** | Online/offline/away status, typing indicators |
 | **EnvelopeEncryption** | KEK/DEK key hierarchy, per-conversation data encryption keys |
 | **ConnectionManager** | WebSocket connection lifecycle, agent-to-connection mapping |
-| **Broadcaster** | Fan-out events to connected agents in a conversation |
+| **Broadcaster** | Fan-out notifications to connected agents in a conversation |
 | **RPC Router** | Route JSON-RPC requests to typed handler functions |
 
 ## Transport
@@ -88,7 +88,7 @@ sequenceDiagram
     Server->>Agent: HelloOk {agentId, protocolVersion, ...}
     Agent->>Server: messages/send {to: "agent:bob", parts: [...]}
     Server->>Agent: response {message: {...}}
-    Server->>Bob: event messages/received {message: {...}}
+    Server->>Bob: notification messages/received {message: {...}}
 ```
 
 ## Encryption

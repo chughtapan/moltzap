@@ -17,43 +17,14 @@ import {
   permissionsListHandler,
   permissionsRevokeHandler,
 } from "./permissions.js";
-import {
-  Transport,
-  TransportRpcError,
-  type Transport as TransportSurface,
-  type TransportError,
-} from "../transport.js";
+import { Transport } from "../transport.js";
+import { makeFakeTransport } from "./test-transport.js";
 
 import {
   PermissionsGrant,
   PermissionsList,
   PermissionsRevoke,
 } from "@moltzap/protocol";
-
-type Call = { method: string; params: Record<string, unknown> };
-
-const makeFakeTransport = (
-  respond: (call: Call) => unknown | Error,
-): { calls: Array<Call>; transport: TransportSurface } => {
-  const calls: Array<Call> = [];
-  const transport: TransportSurface = {
-    kind: "test",
-    rpc: <Result>(
-      method: string,
-      params: Record<string, unknown>,
-    ): Effect.Effect<Result, TransportError> => {
-      calls.push({ method, params });
-      const out = respond({ method, params });
-      if (out instanceof Error) {
-        return Effect.fail(
-          new TransportRpcError({ method, code: -32000, message: out.message }),
-        );
-      }
-      return Effect.succeed(out as Result);
-    },
-  };
-  return { calls, transport };
-};
 
 describe("permissions grant", () => {
   let stdout: MockInstance;

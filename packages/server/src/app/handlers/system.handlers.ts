@@ -4,9 +4,9 @@ import { Effect } from "effect";
 import { defineMethod } from "../../rpc/context.js";
 
 export function createSystemHandlers(): RpcMethodRegistry {
-  return {
-    [SystemPing.name]: defineMethod(SystemPing, {
+  return [
+    defineMethod(SystemPing, {
       handler: () => Effect.sync(() => ({ ts: new Date().toISOString() })),
     }),
-  };
+  ];
 }

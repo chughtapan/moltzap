@@ -1,7 +1,19 @@
 import type { Kysely } from "kysely";
 import { Brand, type Effect, type Layer } from "effect";
-import type { RpcMethodDef } from "../rpc/context.js";
-import type { AppManifest, AppSession } from "@moltzap/protocol";
+import type { RpcMethodBinding } from "../rpc/context.js";
+import {
+  AgentId as AgentIdSchema,
+  AppSessionId as AppSessionIdSchema,
+  ConversationId as ConversationIdSchema,
+  UserId as UserIdSchema,
+  agentId as makeAgentId,
+  appSessionId as makeAppSessionId,
+  conversationId as makeConversationId,
+  userId as makeUserId,
+  type AppManifest,
+  type AppSession,
+  type Static,
+} from "@moltzap/protocol";
 import type { Database } from "../db/database.js";
 import type { ContactService, PermissionService } from "./app-host.js";
 import type { RpcFailure } from "../runtime/index.js";
@@ -24,24 +36,17 @@ import type {
   TraceCaptureTag,
 } from "../runtime-surface/trace-capture.js";
 
-/**
- * Branded identifier types. Each constructor is a nominal brand — it wraps a
- * validated string into the branded type at a trust boundary (HTTP handler,
- * DB row mapper, webhook body decoder) without runtime cost. Branded IDs are
- * assignable TO `string`, but a plain `string` is not assignable TO a brand
- * without an explicit constructor call, so the compiler catches ID swaps.
- */
-export type UserId = string & Brand.Brand<"UserId">;
-export const UserId = Brand.nominal<UserId>();
+export type UserId = Static<typeof UserIdSchema>;
+export const UserId = makeUserId;
 
-export type AgentId = string & Brand.Brand<"AgentId">;
-export const AgentId = Brand.nominal<AgentId>();
+export type AgentId = Static<typeof AgentIdSchema>;
+export const AgentId = makeAgentId;
 
-export type ConversationId = string & Brand.Brand<"ConversationId">;
-export const ConversationId = Brand.nominal<ConversationId>();
+export type ConversationId = Static<typeof ConversationIdSchema>;
+export const ConversationId = makeConversationId;
 
-export type SessionId = string & Brand.Brand<"SessionId">;
-export const SessionId = Brand.nominal<SessionId>();
+export type SessionId = Static<typeof AppSessionIdSchema>;
+export const SessionId = makeAppSessionId;
 
 export type AppId = string & Brand.Brand<"AppId">;
 export const AppId = Brand.nominal<AppId>();
@@ -115,7 +120,7 @@ export type DisconnectionHook = (params: {
 
 export interface CoreApp {
   readonly port: number;
-  registerRpcMethod: (name: string, def: RpcMethodDef) => void;
+  registerRpcMethod: (method: RpcMethodBinding) => void;
   onConnection: (hook: ConnectionHook) => void;
   /**
    * Fires when a WebSocket closes, after auth was established. Use for

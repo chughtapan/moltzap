@@ -1,6 +1,10 @@
 import { Args, Command, Options } from "@effect/cli";
 import { Effect } from "effect";
-import type { Contact } from "@moltzap/protocol";
+import {
+  contactId as toContactId,
+  userId,
+  type Contact,
+} from "@moltzap/protocol";
 import { request } from "../socket-client.js";
 
 import { ContactsAccept, ContactsAdd, ContactsList } from "@moltzap/protocol";
@@ -27,10 +31,7 @@ const wrap = <A>(
 
 const listContacts = Command.make("list", { json: jsonOption }, ({ json }) =>
   wrap(
-    request(ContactsList.name, {}) as Effect.Effect<
-      { contacts: Contact[] },
-      Error
-    >,
+    request(ContactsList, {}) as Effect.Effect<{ contacts: Contact[] }, Error>,
     (r) => {
       if (json) {
         console.log(JSON.stringify(r.contacts, null, JSON_INDENT_SPACES));
@@ -56,16 +57,11 @@ const addContact = Command.make(
   "add",
   { identifier: identifierArg },
   ({ identifier }) => {
-    const params: Record<string, string> = {};
-    if (identifier.startsWith("+")) {
-      params.phone = identifier;
-      params.source = "phone";
-    } else {
-      params.contactUserId = identifier;
-      params.source = "manual";
-    }
+    const params = identifier.startsWith("+")
+      ? { source: "phone" as const }
+      : { contactUserId: userId(identifier), source: "manual" as const };
     return wrap(
-      request(ContactsAdd.name, params) as Effect.Effect<
+      request(ContactsAdd, params) as Effect.Effect<
         { contact: Contact },
         Error
       >,
@@ -85,47 +81,22 @@ const acceptContact = Command.make(
   { contactId: contactIdArg },
   ({ contactId }) =>
     wrap(
-      request(ContactsAccept.name, { contactId }) as Effect.Effect<
-        { contact: Contact },
-        Error
-      >,
+      request(ContactsAccept, {
+        contactId: toContactId(contactId),
+      }) as Effect.Effect<{ contact: Contact }, Error>,
       (r) => {
         console.log(`Contact accepted: ${r.contact.id}`);
       },
     ),
 ).pipe(Command.withDescription("Accept a contact request"));
 
-const blockContact = Command.make(
-  "block",
-  { contactId: contactIdArg },
-  ({ contactId }) =>
-    wrap(request("contacts/block", { contactId }), () => {
-      console.log(`Contact ${contactId} blocked.`);
-    }),
-).pipe(Command.withDescription("Block a contact"));
-
-const removeContact = Command.make(
-  "remove",
-  { contactId: contactIdArg },
-  ({ contactId }) =>
-    wrap(request("contacts/remove", { contactId }), () => {
-      console.log(`Contact ${contactId} removed.`);
-    }),
-).pipe(Command.withDescription("Remove a contact"));
-
 /**
- * `moltzap contacts [list|add|accept|block|remove]` — contact CRUD over the
+ * `moltzap contacts [list|add|accept]` — contact CRUD over the
  * local Unix socket. Addresses by phone (+E.164 prefix) or explicit user id.
  */
 export const contactsCommand = Command.make("contacts", {}, () =>
   listContacts.handler({ json: false }),
 ).pipe(
   Command.withDescription("Manage contacts"),
-  Command.withSubcommands([
-    listContacts,
-    addContact,
-    acceptContact,
-    blockContact,
-    removeContact,
-  ]),
+  Command.withSubcommands([listContacts, addContact, acceptContact]),
 );

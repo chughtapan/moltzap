@@ -1,80 +1,71 @@
 import { Type, type Static } from "@sinclair/typebox";
 import { RpcErrorSchema } from "./errors.js";
+import {
+  JsonRpcIdSchema,
+  JsonRpcMethodSchema,
+  JsonRpcStringIdSchema,
+} from "./json-rpc.js";
+export { JSON_RPC_VERSION, JsonRpcIdSchema } from "./json-rpc.js";
 
 /**
- * Direction discriminator for `request` / `response` frames.
- *
- * `c2s` (client→server) and `s2c` (server→client) request-id pools live in
- * disjoint pending maps keyed on `(side, type)`. The `direction` field is
- * required so wire-level inspection can route without re-deriving who
- * originated a frame. Events remain s2c-only and do NOT carry a
- * `direction` field — they're not request/response.
- *
- * Implemented as `Type.Union([Type.Literal, ...])` rather than the
- * `stringEnum` helper because `Value.Check` — used by
- * `packages/protocol/src/testing/codec.ts` for the conformance round-trip
- * — requires a native TypeBox `[Kind]` on every node, and `stringEnum`
- * produces a `Type.Unsafe` node that `Value.Check` rejects with
- * `"Unknown type"`. AJV strict mode accepts the resulting `anyOf` shape.
- */
-export const FrameDirectionSchema = Type.Union([
-  Type.Literal("c2s"),
-  Type.Literal("s2c"),
-]);
-export type FrameDirection = Static<typeof FrameDirectionSchema>;
-
-/**
- * Bidirectional request envelope.
- *
- * - `direction: "c2s"` — client-initiated RPC. Routed on the server to the
- *   existing `RpcRouter` dispatcher.
- * - `direction: "s2c"` — server-initiated RPC. Routed on the client to the
- *   per-method handler registry registered via
- *   `MoltZapWsClient.handleServerRpc` / `TestClient.handleServerRpc`.
+ * JSON-RPC 2.0 Request object. Direction is derived from the local peer role
+ * and socket path, not carried on the wire.
  */
 export const RequestFrameSchema = Type.Object(
   {
     jsonrpc: Type.Literal("2.0"),
-    type: Type.Literal("request"),
-    direction: FrameDirectionSchema,
-    id: Type.String(),
-    method: Type.String(),
+    id: JsonRpcStringIdSchema,
+    method: JsonRpcMethodSchema,
     params: Type.Optional(Type.Unknown()),
-    traceparent: Type.Optional(Type.String()),
   },
   { additionalProperties: false },
 );
 
 /**
- * Bidirectional response envelope.
- *
- * - `direction: "c2s"` — server's reply to a client-initiated request. Routed
- *   on the client to the c2s pending map keyed by `id`.
- * - `direction: "s2c"` — client's reply to a server-initiated request. Routed
- *   on the server to the per-connection s2c pending map keyed by `id`.
+ * JSON-RPC 2.0 Response object. Success and error are modeled as a union so
+ * a well-typed response cannot carry both `result` and `error`.
  */
-export const ResponseFrameSchema = Type.Object(
+export const ResponseFrameSchema = Type.Union([
+  Type.Object(
+    {
+      jsonrpc: Type.Literal("2.0"),
+      id: JsonRpcIdSchema,
+      result: Type.Unknown(),
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      jsonrpc: Type.Literal("2.0"),
+      id: JsonRpcIdSchema,
+      error: RpcErrorSchema,
+    },
+    { additionalProperties: false },
+  ),
+]);
+
+/**
+ * JSON-RPC 2.0 Notification object. MoltZap notification delivery uses this
+ * shape: the notification name is the JSON-RPC `method`, and the payload is
+ * `params`.
+ */
+export const NotificationFrameSchema = Type.Object(
   {
     jsonrpc: Type.Literal("2.0"),
-    type: Type.Literal("response"),
-    direction: FrameDirectionSchema,
-    id: Type.String(),
-    result: Type.Optional(Type.Unknown()),
-    error: Type.Optional(RpcErrorSchema),
+    method: JsonRpcMethodSchema,
+    params: Type.Optional(Type.Unknown()),
   },
   { additionalProperties: false },
 );
 
-export const EventFrameSchema = Type.Object(
-  {
-    jsonrpc: Type.Literal("2.0"),
-    type: Type.Literal("event"),
-    event: Type.String(),
-    data: Type.Optional(Type.Unknown()),
-  },
-  { additionalProperties: false },
-);
+declare const frameBrand: unique symbol;
+type FrameBrand<Kind extends string> = { readonly [frameBrand]: Kind };
 
-export type RequestFrame = Static<typeof RequestFrameSchema>;
-export type ResponseFrame = Static<typeof ResponseFrameSchema>;
-export type EventFrame = Static<typeof EventFrameSchema>;
+type RawRequestFrame = Static<typeof RequestFrameSchema>;
+type RawResponseFrame = Static<typeof ResponseFrameSchema>;
+type RawNotificationFrame = Static<typeof NotificationFrameSchema>;
+
+export type RequestFrame = RawRequestFrame & FrameBrand<"RequestFrame">;
+export type ResponseFrame = RawResponseFrame & FrameBrand<"ResponseFrame">;
+export type NotificationFrame = RawNotificationFrame &
+  FrameBrand<"NotificationFrame">;

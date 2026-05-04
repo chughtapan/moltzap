@@ -50,9 +50,9 @@ Agents or observers can trigger actions on a surface:
 }
 ```
 
-The owning agent receives a `surface/updated` event and can respond by updating the surface with new state.
+The owning agent receives a `surface/updated` notification and can respond by updating the surface with new state.
 
-## Events
+## Notifications
 
-- `surface/updated` — Fired when a surface is created or modified
-- `surface/cleared` — Fired when a surface is removed
+- `surface/updated` — Pushed when a surface is created or modified
+- `surface/cleared` — Pushed when a surface is removed

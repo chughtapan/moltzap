@@ -29,7 +29,6 @@ import {
   extractContactAccepted,
   extractPresenceChanged,
 } from "./mapping.js";
-import { EventNames } from "@moltzap/protocol";
 
 import {
   AgentsLookup,
@@ -250,10 +249,7 @@ export function createMoltzapChannelPlugin() {
             params.accountId ?? DEFAULT_ACCOUNT_ID,
           );
           if (!service) return [];
-          const { contacts } = (yield* service.sendRpc(
-            ContactsList.name,
-            {},
-          )) as {
+          const { contacts } = (yield* service.sendRpc(ContactsList, {})) as {
             contacts: Array<{
               id: string;
               agents?: Array<{ id: string; name: string }>;
@@ -263,7 +259,7 @@ export function createMoltzapChannelPlugin() {
             (c.agents ?? []).map((a) => a.id),
           );
           if (agentIds.length === 0) return [];
-          const { agents } = (yield* service.sendRpc(AgentsLookup.name, {
+          const { agents } = (yield* service.sendRpc(AgentsLookup, {
             agentIds,
           })) as {
             agents: Array<{ id: string; name: string; displayName?: string }>;
@@ -288,7 +284,7 @@ export function createMoltzapChannelPlugin() {
           );
           if (!service) return [];
           const { conversations } = (yield* service.sendRpc(
-            ConversationsList.name,
+            ConversationsList,
             {},
           )) as {
             conversations: Array<{ id: string; type: string; name?: string }>;
@@ -517,66 +513,58 @@ export function createMoltzapChannelPlugin() {
 
         // Forward non-message events for status/logging.
         // Sync dispatcher: log + setStatus only.
-        service.on("rawEvent", (event) => {
-          switch (event.event) {
-            case EventNames.MessageDelivered: {
-              const delivery = extractDelivery(event);
-              if (delivery) {
-                log?.debug?.(
-                  `MoltZap: delivery for ${delivery.messageId} in ${delivery.conversationId}`,
-                );
-                setStatus({ accountId, lastEventAt: Date.now() });
-              }
-              break;
-            }
-            case EventNames.ConversationCreated: {
-              const created = extractConversationCreated(event);
-              if (created) {
-                log?.debug?.(
-                  `MoltZap: conversation created ${created.conversation.id}`,
-                );
-                setStatus({ accountId, lastEventAt: Date.now() });
-              }
-              break;
-            }
-            case EventNames.ConversationUpdated: {
-              const updated = extractConversationUpdated(event);
-              if (updated) {
-                log?.debug?.(
-                  `MoltZap: conversation updated ${updated.conversation.id}`,
-                );
-                setStatus({ accountId, lastEventAt: Date.now() });
-              }
-              break;
-            }
-            case EventNames.ContactRequest: {
-              const contact = extractContactRequest(event);
-              if (contact) {
-                log?.debug?.(
-                  `MoltZap: contact request from ${contact.contact.contactUserId}`,
-                );
-                setStatus({ accountId, lastEventAt: Date.now() });
-              }
-              break;
-            }
-            case EventNames.ContactAccepted: {
-              const contact = extractContactAccepted(event);
-              if (contact) {
-                log?.debug?.(`MoltZap: contact accepted ${contact.contact.id}`);
-                setStatus({ accountId, lastEventAt: Date.now() });
-              }
-              break;
-            }
-            case EventNames.PresenceChanged: {
-              const presence = extractPresenceChanged(event);
-              if (presence) {
-                log?.debug?.(
-                  `MoltZap: ${presence.agentId} is now ${presence.status}`,
-                );
-                setStatus({ accountId, lastEventAt: Date.now() });
-              }
-              break;
-            }
+        service.on("rawNotification", (event) => {
+          const delivery = extractDelivery(event);
+          if (delivery) {
+            log?.debug?.(
+              `MoltZap: delivery for ${delivery.messageId} in ${delivery.conversationId}`,
+            );
+            setStatus({ accountId, lastEventAt: Date.now() });
+            return;
+          }
+
+          const created = extractConversationCreated(event);
+          if (created) {
+            log?.debug?.(
+              `MoltZap: conversation created ${created.conversation.id}`,
+            );
+            setStatus({ accountId, lastEventAt: Date.now() });
+            return;
+          }
+
+          const updated = extractConversationUpdated(event);
+          if (updated) {
+            log?.debug?.(
+              `MoltZap: conversation updated ${updated.conversation.id}`,
+            );
+            setStatus({ accountId, lastEventAt: Date.now() });
+            return;
+          }
+
+          const contactRequest = extractContactRequest(event);
+          if (contactRequest) {
+            log?.debug?.(
+              `MoltZap: contact request from ${contactRequest.contact.contactUserId}`,
+            );
+            setStatus({ accountId, lastEventAt: Date.now() });
+            return;
+          }
+
+          const contactAccepted = extractContactAccepted(event);
+          if (contactAccepted) {
+            log?.debug?.(
+              `MoltZap: contact accepted ${contactAccepted.contact.id}`,
+            );
+            setStatus({ accountId, lastEventAt: Date.now() });
+            return;
+          }
+
+          const presence = extractPresenceChanged(event);
+          if (presence) {
+            log?.debug?.(
+              `MoltZap: ${presence.agentId} is now ${presence.status}`,
+            );
+            setStatus({ accountId, lastEventAt: Date.now() });
           }
         });
 

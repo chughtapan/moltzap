@@ -16,6 +16,8 @@
  * throws. Errors are mapped into `PropertyFailure` tags before surfacing.
  */
 import { Effect, Scope } from "effect";
+import type { NotificationFrame } from "../../../schema/frames.js";
+import { validators } from "../../../validators.js";
 import type { TestServerConnection } from "../../test-server.js";
 import {
   awaitConnection,
@@ -91,8 +93,8 @@ export function acquireFixture(
 }
 
 /**
- * Poll a real client's observation stream for events whose
- * `data.__emissionTag` matches `tag`. Returns the accumulated tagged
+ * Poll a real client's observation stream for notifications whose
+ * `params.__emissionTag` matches `tag`. Returns the accumulated tagged
  * observations (possibly empty) after `budgetMs` has elapsed or
  * `expected` matches have arrived, whichever comes first.
  *
@@ -102,27 +104,37 @@ export function acquireFixture(
 export interface TaggedObservation {
   readonly tag: string;
   readonly raw: Uint8Array;
-  readonly data: unknown;
-  readonly eventName: string;
+  readonly params: Readonly<Record<string, unknown>>;
+  readonly notificationName: NotificationFrame["method"];
+}
+
+export function notificationParamsRecord(
+  params: unknown,
+): Readonly<Record<string, unknown>> {
+  if (typeof params !== "object" || params === null || Array.isArray(params)) {
+    return {};
+  }
+  return Object.fromEntries(Object.entries(params));
 }
 
 function filterTagged(
   snap: ReadonlyArray<{
-    readonly decoded: { readonly event: string; readonly data?: unknown };
+    readonly decoded: unknown;
     readonly rawBytes: Uint8Array;
   }>,
   predicate: (tag: string) => boolean,
 ): ReadonlyArray<TaggedObservation> {
   const out: TaggedObservation[] = [];
   for (const o of snap) {
-    const data = o.decoded.data as { __emissionTag?: string } | undefined;
-    const tag = data?.__emissionTag;
+    if (!validators.notificationFrame(o.decoded)) continue;
+    const params = notificationParamsRecord(o.decoded.params);
+    const tag = params.__emissionTag;
     if (typeof tag === "string" && predicate(tag)) {
       out.push({
         tag,
         raw: o.rawBytes,
-        data,
-        eventName: o.decoded.event,
+        params,
+        notificationName: o.decoded.method,
       });
     }
   }
@@ -137,12 +149,12 @@ export function collectTagged(
   return Effect.gen(function* () {
     const deadline = Date.now() + opts.budgetMs;
     while (Date.now() < deadline) {
-      const snap = yield* handle.events.snapshot;
+      const snap = yield* handle.notifications.snapshot;
       const matched = filterTagged(snap, predicate);
       if (matched.length >= opts.expected) return matched;
       yield* Effect.sleep("25 millis");
     }
-    const snap = yield* handle.events.snapshot;
+    const snap = yield* handle.notifications.snapshot;
     return filterTagged(snap, predicate);
   });
 }
@@ -161,7 +173,7 @@ export function invariant(
 }
 
 /**
- * Subscribe the fixture's real client to all events (no filter) so the
+ * Subscribe the fixture's real client to all notifications (no filter) so the
  * property body can observe every tagged emission. Returns the
  * subscription so the Scope teardown can call `unsubscribe`.
  */
@@ -169,7 +181,7 @@ export function subscribeAll(
   handle: RealClientHandle,
 ): Effect.Effect<void, PropertyUnavailable, Scope.Scope> {
   return Effect.gen(function* () {
-    const sub = yield* handle.events.subscribe({}).pipe(
+    const sub = yield* handle.notifications.subscribe({}).pipe(
       Effect.mapError(
         (e) =>
           new PropertyUnavailable({
