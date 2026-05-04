@@ -206,20 +206,11 @@ const methodDocs: Readonly<Record<string, MethodDocMeta>> = {
   "presence/subscribe": {
     description: "Subscribe to presence changes for a list of participants.",
   },
-  "push/register": {
-    description: "Register a push notification target.",
-  },
-  "push/unregister": {
-    description: "Unregister a push notification target.",
-  },
   "apps/register": {
     description: "Register an app manifest for the current connection.",
   },
   "apps/create": {
     description: "Create an app session.",
-  },
-  "apps/attestSkill": {
-    description: "Respond to an app skill challenge.",
   },
   "permissions/grant": {
     description: "Grant a permission requested by an app session.",
@@ -259,20 +250,6 @@ const methodDocs: Readonly<Record<string, MethodDocMeta>> = {
   },
   "apps/onClose": {
     description: "App-callback RPC fired when a session closes.",
-  },
-  "surface/update": {
-    description: "Push or replace an interactive surface in a conversation.",
-    relatedNotifications: ["surface/updated"],
-  },
-  "surface/get": {
-    description: "Retrieve the current surface for a conversation.",
-  },
-  "surface/action": {
-    description: "Trigger a named action on a conversation's surface.",
-  },
-  "surface/clear": {
-    description: "Remove the surface from a conversation.",
-    relatedNotifications: ["surface/cleared"],
   },
   "system/ping": {
     description: "Liveness probe. Returns server timestamp.",
@@ -322,19 +299,6 @@ const notificationDocs: Readonly<Record<string, NotificationDocMeta>> = {
     description:
       "Pushed when a subscribed participant's presence status changes.",
     triggeredBy: ["presence/update"],
-  },
-  "surface/updated": {
-    description:
-      "Pushed when a surface is created or updated in a conversation.",
-    triggeredBy: ["surface/update"],
-  },
-  "surface/cleared": {
-    description: "Pushed when a surface is removed from a conversation.",
-    triggeredBy: ["surface/clear"],
-  },
-  "app/skillChallenge": {
-    description: "Pushed when the AppHost needs an agent to attest a skill.",
-    triggeredBy: ["apps/create"],
   },
   "permissions/required": {
     description:

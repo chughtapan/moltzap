@@ -3,7 +3,6 @@ import type { RpcMethodRegistry } from "../../rpc/context.js";
 import {
   AppsRegister,
   AppsCreate,
-  AppsAttestSkill,
   AppsAttachConversation,
   AppsCloseSession,
   AppsGetSession,
@@ -46,18 +45,6 @@ export function createAppHandlers(deps: {
             params.invitedAgentIds,
           );
           return { session };
-        }),
-    }),
-    defineMethod(AppsAttestSkill, {
-      handler: (params, ctx) =>
-        Effect.sync(() => {
-          deps.appHost.resolveChallenge(
-            params.challengeId,
-            ctx.agentId,
-            params.skillUrl,
-            params.version,
-          );
-          return {};
         }),
     }),
     defineMethod(AppsCloseSession, {

@@ -26,6 +26,4 @@ export {
   SEED_CONTACTS,
   SEED_MESSAGES,
   SEED_CONTROL_MESSAGES,
-  SEED_SURFACES,
-  SEED_SURFACE_HISTORY,
 } from "./test-fixtures/seed-data.js";

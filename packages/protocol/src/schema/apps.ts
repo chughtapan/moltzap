@@ -38,9 +38,6 @@ export const AppManifestSchema = Type.Object(
     appId: Type.String(),
     name: Type.String(),
     description: Type.Optional(Type.String()),
-    skillUrl: Type.Optional(Type.String()),
-    skillMinVersion: Type.Optional(Type.String()),
-    challengeTimeoutMs: Type.Optional(Type.Integer({ default: 30000 })),
     limits: Type.Optional(
       Type.Object(
         {
