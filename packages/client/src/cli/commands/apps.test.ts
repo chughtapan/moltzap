@@ -20,7 +20,6 @@ import {
   type MockInstance,
 } from "vitest";
 import {
-  appsAttestSkillHandler,
   appsCloseHandler,
   appsCreateHandler,
   appsGetHandler,
@@ -31,7 +30,6 @@ import { Transport } from "../transport.js";
 import { makeFakeTransport } from "./test-transport.js";
 
 import {
-  AppsAttestSkill,
   AppsCloseSession,
   AppsCreate,
   AppsGetSession,
@@ -246,50 +244,6 @@ describe("apps close", () => {
       appsCloseHandler({ sessionId: "s-42" }).pipe(
         Effect.provideService(Transport, transport),
       ),
-    );
-    expect(result._tag).toBe("Failure");
-  });
-});
-
-describe("apps attest-skill", () => {
-  let stdout: MockInstance;
-  beforeEach(() => {
-    stdout = vi.spyOn(console, "log").mockImplementation(() => {});
-  });
-  afterEach(() => stdout.mockRestore());
-
-  it("calls apps/attestSkill with challengeId, skillUrl, version and emits no stdout", async () => {
-    const { calls, transport } = makeFakeTransport(() => ({}));
-    await Effect.runPromise(
-      appsAttestSkillHandler({
-        challengeId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-        skillUrl: "https://example.com/skills/my-skill",
-        version: "1.0.0",
-      }).pipe(Effect.provideService(Transport, transport)),
-    );
-    expect(calls).toEqual([
-      {
-        method: AppsAttestSkill.name,
-        params: {
-          challengeId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-          skillUrl: "https://example.com/skills/my-skill",
-          version: "1.0.0",
-        },
-      },
-    ]);
-    expect(stdout).not.toHaveBeenCalled();
-  });
-
-  it("surfaces TransportRpcError on RPC failure", async () => {
-    const { transport } = makeFakeTransport(
-      () => new Error("attestation rejected"),
-    );
-    const result = await Effect.runPromiseExit(
-      appsAttestSkillHandler({
-        challengeId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-        skillUrl: "https://example.com/skills/my-skill",
-        version: "1.0.0",
-      }).pipe(Effect.provideService(Transport, transport)),
     );
     expect(result._tag).toBe("Failure");
   });

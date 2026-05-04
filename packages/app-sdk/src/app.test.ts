@@ -12,7 +12,6 @@ import {
 } from "./errors.js";
 
 import {
-  AppsAttestSkill,
   AppsCloseSession,
   AppsCreate,
   AppsGetSession,
@@ -21,7 +20,6 @@ import {
   AppParticipantRejectedNotificationDefinition,
   AppSessionClosedNotificationDefinition,
   AppSessionReadyNotificationDefinition,
-  AppSkillChallengeNotificationDefinition,
   MessagesSend,
   MessageReceivedNotificationDefinition,
   SystemPing,
@@ -43,7 +41,6 @@ const OTHER_CONVERSATION_ID = conversationId(
   "55555555-5555-4555-8555-555555555555",
 );
 const OTHER_AGENT_ID = agentId("66666666-6666-4666-8666-666666666666");
-const CHALLENGE_ID = "77777777-7777-4777-8777-777777777777";
 
 // Mock MoltZapWsClient. Client methods return Effects (primary API), so
 // mocks return `Effect.succeed` / `Effect.fail`. Captures constructor
@@ -523,57 +520,6 @@ describe("MoltZapApp", () => {
       expect(app.getSession(SESSION_ID)).toBeUndefined();
       expect(errorHandler).toHaveBeenCalledTimes(1);
       expect(errorHandler.mock.calls[0]![0]).toBeInstanceOf(SessionClosedError);
-    });
-
-    it("app/skillChallenge auto-responds with apps/attestSkill when manifest.skillUrl is set", async () => {
-      const appWithSkill = new MoltZapApp({
-        serverUrl: "ws://localhost:3000",
-        agentKey: "test-key",
-        manifest: {
-          appId: "skilled",
-          name: "Skilled",
-          skillUrl: "https://example.com/skill",
-          skillMinVersion: "1.2.3",
-          conversations: [
-            { key: "default", name: "Skilled", participantFilter: "all" },
-          ],
-        },
-      });
-
-      await Effect.runPromise(appWithSkill.start());
-      fireNotification(appWithSkill, AppSkillChallengeNotificationDefinition, {
-        challengeId: CHALLENGE_ID,
-        sessionId: SESSION_ID,
-        appId: "skilled",
-        skillUrl: "https://example.com/skill",
-      });
-
-      expect(appWithSkill.client.sendRpc).toHaveBeenCalledWith(
-        AppsAttestSkill,
-        {
-          challengeId: CHALLENGE_ID,
-          skillUrl: "https://example.com/skill",
-          version: "1.2.3",
-        },
-      );
-    });
-
-    it("app/skillChallenge is a no-op when manifest.skillUrl is absent", async () => {
-      await Effect.runPromise(app.start());
-      const sendRpc = app.client.sendRpc as ReturnType<typeof vi.fn>;
-      sendRpc.mockClear();
-
-      fireNotification(app, AppSkillChallengeNotificationDefinition, {
-        challengeId: CHALLENGE_ID,
-        sessionId: SESSION_ID,
-        appId: "test-app",
-        skillUrl: "https://example.com/skill",
-      });
-
-      expect(sendRpc).not.toHaveBeenCalledWith(
-        AppsAttestSkill,
-        expect.anything(),
-      );
     });
   });
 

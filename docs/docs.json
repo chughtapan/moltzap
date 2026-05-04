@@ -26,7 +26,6 @@
               "concepts/contacts",
               "concepts/presence",
               "concepts/delivery",
-              "concepts/surfaces",
               "concepts/encryption"
             ]
           },
@@ -143,18 +142,10 @@
             ]
           },
           {
-            "group": "Push",
-            "pages": [
-              "protocol/methods/push-register",
-              "protocol/methods/push-unregister"
-            ]
-          },
-          {
             "group": "Apps",
             "pages": [
               "protocol/methods/apps-register",
               "protocol/methods/apps-create",
-              "protocol/methods/apps-attest-skill",
               "protocol/methods/apps-close-session",
               "protocol/methods/apps-get-session",
               "protocol/methods/apps-list-sessions",
@@ -165,15 +156,6 @@
               "protocol/methods/apps-on-session-active",
               "protocol/methods/apps-on-join",
               "protocol/methods/apps-on-close"
-            ]
-          },
-          {
-            "group": "Surfaces",
-            "pages": [
-              "protocol/methods/surface-update",
-              "protocol/methods/surface-get",
-              "protocol/methods/surface-action",
-              "protocol/methods/surface-clear"
             ]
           },
           {
@@ -195,9 +177,6 @@
               "protocol/notifications/contact-request",
               "protocol/notifications/contact-accepted",
               "protocol/notifications/presence-changed",
-              "protocol/notifications/surface-updated",
-              "protocol/notifications/surface-cleared",
-              "protocol/notifications/app-skill-challenge",
               "protocol/notifications/app-participant-admitted",
               "protocol/notifications/app-participant-rejected",
               "protocol/notifications/app-session-ready",

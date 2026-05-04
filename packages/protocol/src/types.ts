@@ -25,12 +25,6 @@ export type { RpcError, ErrorCode } from "./schema/errors.js";
 // Auth shared shapes (not RPC params/results — those come from the manifest).
 export type { HelloOk, OwnedAgent } from "./schema/methods/auth.js";
 
-// Push preferences schema shape (not an RPC method).
-export type { PushPreferences } from "./schema/methods/push.js";
-
-// Surface shared shape (not an RPC method).
-export type { Surface } from "./schema/surfaces.js";
-
 // App shared shapes.
 export type {
   AppManifest,
@@ -48,9 +42,6 @@ export type {
   ContactRequestNotification,
   ContactAcceptedNotification,
   PresenceChangedNotification,
-  SurfaceUpdatedNotification,
-  SurfaceClearedNotification,
-  AppSkillChallengeNotification,
   AppParticipantAdmittedNotification,
   AppParticipantRejectedNotification,
   AppSessionReadyNotification,

@@ -28,7 +28,6 @@ import {
   AppSessionClosedNotificationDefinition,
   AppSessionFailedNotificationDefinition,
   AppSessionReadyNotificationDefinition,
-  AppSkillChallengeNotificationDefinition,
   ConversationArchivedNotificationDefinition,
   agentId as protocolAgentId,
   appSessionId,
@@ -74,10 +73,8 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-const SEMVER_PART_COUNT = 3;
 const MAX_AGENT_ADMISSION_CONCURRENCY = 16;
 const MAX_AGENT_ADMISSION_CHECK_CONCURRENCY = 2;
-const DEFAULT_CHALLENGE_TIMEOUT_MS = 30_000;
 const DEFAULT_APP_MAX_PARTICIPANTS = 50;
 const DEFAULT_SESSION_LIST_LIMIT = 50;
 const DEFAULT_APP_HOOK_TIMEOUT_MS = 5000;
@@ -94,35 +91,8 @@ function toProtocolConversationMap(
   );
 }
 
-/** Compare two semver strings. Returns <0 if a<b, 0 if equal, >0 if a>b. */
-function compareSemver(a: string, b: string): number {
-  const pa = a.split(".").map(Number);
-  const pb = b.split(".").map(Number);
-  for (let i = 0; i < SEMVER_PART_COUNT; i++) {
-    const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
-    if (diff !== 0) return diff;
-  }
-  return 0;
-}
-
 export interface ContactService {
   areInContact(userIdA: string, userIdB: string): Effect.Effect<boolean, never>;
-}
-
-class AttestationTimeoutError extends Data.TaggedError("AttestationTimeout")<{
-  readonly challengeId: string;
-}> {
-  override get message(): string {
-    return "attestation timeout";
-  }
-}
-
-class SkillAttestationError extends Data.TaggedError("SkillAttestation")<{
-  readonly reason: string;
-}> {
-  override get message(): string {
-    return this.reason;
-  }
 }
 
 class RemoteHookError extends Data.TaggedError("RemoteHookError")<{
@@ -137,17 +107,14 @@ class RemoteHookError extends Data.TaggedError("RemoteHookError")<{
   }
 }
 
-type RejectionStage = "user" | "identity" | "capability";
+type RejectionStage = "user" | "identity";
 type RejectionCode =
   | "UserInvalid"
   | "UserValidationFailed"
   | "AgentNotFound"
   | "AgentNoOwner"
   | "NotInContacts"
-  | "ContactCheckFailed"
-  | "AttestationTimeout"
-  | "SkillMismatch"
-  | "SkillVersionTooOld";
+  | "ContactCheckFailed";
 
 interface RejectionInfo {
   readonly stage: RejectionStage;
@@ -156,15 +123,7 @@ interface RejectionInfo {
   readonly suggestedAction?: string;
 }
 
-interface PendingChallenge {
-  targetAgentId: string;
-  sessionId: string;
-  resolve: (result: { skillUrl: string; version: string }) => void;
-  reject: (reason: string) => void;
-}
-
 export class AppHost {
-  private pendingChallenges = new Map<string, PendingChallenge>();
   private manifests = new Map<string, AppManifest>();
   private contactService: ContactService | null = null;
   private hooks = new Map<string, AppHooks>();
@@ -707,27 +666,6 @@ export class AppHost {
     );
   }
 
-  resolveChallenge(
-    challengeId: string,
-    callerAgentId: string,
-    skillUrl: string,
-    version: string,
-  ): void {
-    const pending = this.pendingChallenges.get(challengeId);
-    if (!pending) return; // expired or unknown
-
-    if (pending.targetAgentId !== callerAgentId) {
-      logger.warn(
-        { challengeId, expected: pending.targetAgentId, got: callerAgentId },
-        "Skill attestation from wrong agent",
-      );
-      return;
-    }
-
-    this.pendingChallenges.delete(challengeId);
-    pending.resolve({ skillUrl, version });
-  }
-
   closeSession(
     sessionId: string,
     callerAgentId: string,
@@ -1156,12 +1094,8 @@ export class AppHost {
     );
   }
 
-  /** Clear pending challenge state. Called on shutdown. */
+  /** Clear in-memory state. Called on shutdown. */
   destroy(): void {
-    // Pending challenges are guarded by an outer Effect.timeoutFail in
-    // checkCapability; their awaiting fibers are interrupted via the
-    // session teardown path. Clearing the Map is enough.
-    this.pendingChallenges.clear();
     this.hooks.clear();
     this.remoteRegistrations.clear();
     this.conversationToSession.clear();
@@ -1917,7 +1851,7 @@ export class AppHost {
         );
       }
 
-      // User, identity, and capability checks are independent — run concurrently.
+      // User and identity checks are independent — run concurrently.
       // Track whether we've already rejected this agent so concurrent failures
       // don't send duplicate rejection events.
       let rejected = false;
@@ -1941,12 +1875,6 @@ export class AppHost {
           guardedReject,
         ),
       ];
-
-      if (manifest.skillUrl) {
-        checks.push(
-          this.checkCapability(session, agentId, manifest, guardedReject),
-        );
-      }
 
       // User validation (coalesced per ownerUserId). Two concurrent
       // admitAgent fibers for agents owned by the same user share a
@@ -2051,120 +1979,6 @@ export class AppHost {
     });
   }
 
-  private checkCapability(
-    session: AppSession,
-    agentId: string,
-    manifest: AppManifest,
-    reject?: (info: RejectionInfo) => Effect.Effect<void, RpcFailure>,
-  ): Effect.Effect<void, RpcFailure> {
-    return Effect.gen(this, function* () {
-      const doReject =
-        reject ??
-        ((info: RejectionInfo) => this.rejectAgent(session.id, agentId, info));
-
-      const challengeId = crypto.randomUUID();
-      const timeoutMs =
-        manifest.challengeTimeoutMs ?? DEFAULT_CHALLENGE_TIMEOUT_MS;
-
-      // Await external attestation only; the timeout is expressed as
-      // Effect.timeoutFail below so it uses the Effect Clock (TestClock-
-      // drivable) instead of raw setTimeout.
-      const waitForAttestation = Effect.async<
-        { skillUrl: string; version: string },
-        SkillAttestationError
-      >((resume) => {
-        this.pendingChallenges.set(challengeId, {
-          targetAgentId: agentId,
-          sessionId: session.id,
-          resolve: (result) => resume(Effect.succeed(result)),
-          reject: (reason: string) =>
-            resume(Effect.fail(new SkillAttestationError({ reason }))),
-        });
-
-        this.broadcaster.sendToAgent(
-          agentId,
-          notificationFrame(AppSkillChallengeNotificationDefinition, {
-            challengeId,
-            sessionId: session.id,
-            appId: session.appId,
-            skillUrl: manifest.skillUrl!,
-            minVersion: manifest.skillMinVersion,
-          }),
-        );
-
-        // Fiber interrupt cleanup (Effect.timeoutFail interrupts this
-        // Effect when the outer timeout fires; session teardown does
-        // too via the pending.reject path).
-        return Effect.sync(() => {
-          this.pendingChallenges.delete(challengeId);
-        });
-      });
-
-      const attestation = yield* Effect.either(
-        waitForAttestation.pipe(
-          Effect.timeoutFail({
-            duration: Duration.millis(timeoutMs),
-            onTimeout: () => new AttestationTimeoutError({ challengeId }),
-          }),
-        ),
-      );
-
-      const result = yield* Either.match(attestation, {
-        onLeft: (err) => {
-          if (err instanceof AttestationTimeoutError) {
-            const failure: {
-              readonly code: RejectionCode;
-              readonly reason: string;
-            } = {
-              code: "AttestationTimeout",
-              reason: "Skill attestation timed out",
-            };
-            return doReject({
-              stage: "capability",
-              reason: failure.reason,
-              suggestedAction: `Install the skill from ${manifest.skillUrl} and ensure version >= ${manifest.skillMinVersion ?? "any"}`,
-              code: failure.code,
-            }).pipe(Effect.zipRight(Effect.fail(forbidden(failure.reason))));
-          }
-          const failure: {
-            readonly code: RejectionCode;
-            readonly reason: string;
-          } = {
-            code: "SkillMismatch",
-            reason: `Skill attestation failed: ${err.message}`,
-          };
-          return doReject({
-            stage: "capability",
-            reason: failure.reason,
-            suggestedAction: `Install the skill from ${manifest.skillUrl} and ensure version >= ${manifest.skillMinVersion ?? "any"}`,
-            code: failure.code,
-          }).pipe(Effect.zipRight(Effect.fail(forbidden(failure.reason))));
-        },
-        onRight: (attested) => Effect.succeed(attested),
-      });
-
-      if (result.skillUrl !== manifest.skillUrl) {
-        yield* doReject({
-          stage: "capability",
-          reason: `Skill URL mismatch: expected ${manifest.skillUrl}, got ${result.skillUrl}`,
-          code: "SkillMismatch",
-        });
-        return yield* Effect.fail(forbidden("Skill mismatch"));
-      }
-
-      if (
-        manifest.skillMinVersion &&
-        compareSemver(result.version, manifest.skillMinVersion) < 0
-      ) {
-        yield* doReject({
-          stage: "capability",
-          reason: `Skill version ${result.version} below minimum ${manifest.skillMinVersion}`,
-          code: "SkillVersionTooOld",
-        });
-        return yield* Effect.fail(forbidden("Skill version too low"));
-      }
-    });
-  }
 
   private admitAgentToSession(
     session: AppSession,
