@@ -73,8 +73,8 @@ export function registerAndClaim(name: string) {
   );
 }
 
-export function extractMessage(event: { data: unknown }): Message {
-  return (event.data as { message: Message }).message;
+export function extractMessage(event: { params?: unknown }): Message {
+  return (event.params as { message: Message }).message;
 }
 
 export function extractConvId(result: unknown): string {

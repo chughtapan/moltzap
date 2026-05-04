@@ -61,7 +61,7 @@ describe("Scenario 1: Registration", () => {
           autoConnect: false,
         });
 
-        const hello = (yield* client.sendRpc(Connect.name, {
+        const hello = (yield* client.sendRpc(Connect, {
           agentKey: reg.apiKey,
           minProtocol: PROTOCOL_VERSION,
           maxProtocol: PROTOCOL_VERSION,
@@ -69,7 +69,7 @@ describe("Scenario 1: Registration", () => {
         expect(hello.protocolVersion).toBeDefined();
         expect(hello.agentId).toBe(reg.agentId);
 
-        const result = (yield* client.sendRpc(ConversationsList.name, {})) as {
+        const result = (yield* client.sendRpc(ConversationsList, {})) as {
           conversations: unknown[];
         };
         expect(result.conversations).toEqual([]);
@@ -98,7 +98,7 @@ describe("Scenario 1: Registration", () => {
         autoConnect: false,
       });
       const result = yield* Effect.exit(
-        client.sendRpc(Connect.name, {
+        client.sendRpc(Connect, {
           agentKey: reg.apiKey,
           minProtocol: PROTOCOL_VERSION,
           maxProtocol: PROTOCOL_VERSION,

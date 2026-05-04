@@ -5,9 +5,12 @@ import { validateParams } from "./validator.js";
 import { InvalidParamsError } from "./errors.js";
 
 // Trivial validators — each exercises one branch of `validateParams`.
-const acceptAll = (_x: unknown): _x is unknown => true;
-const rejectAll = (_x: unknown): _x is unknown => false;
-const throwingValidator = (_x: unknown): _x is unknown => {
+const acceptAll = (x: unknown): x is { hello: string } =>
+  typeof x === "object" &&
+  x !== null &&
+  typeof (x as Record<string, unknown>)["hello"] === "string";
+const rejectAll = (_x: unknown): _x is never => false;
+const throwingValidator = (_x: unknown): _x is never => {
   throw new Error("validator blew up");
 };
 

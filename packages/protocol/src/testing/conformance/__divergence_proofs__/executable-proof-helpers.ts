@@ -2,12 +2,19 @@ import { Cause, Chunk, Effect, Option } from "effect";
 import {
   PropertyAssertionFailure,
   PropertyInvariantViolation,
+  PropertyUnavailable,
   type PropertyFailure,
   type RegisteredProperty,
 } from "../registry.js";
 
 class ProofExpectationError extends Error {
   override readonly name = "ProofExpectationError";
+}
+
+function describeFailure(failure: PropertyFailure): string {
+  if (failure instanceof PropertyUnavailable) return failure.reason;
+  if (failure instanceof PropertyInvariantViolation) return failure.reason;
+  return String(failure.cause);
 }
 
 export function runExpectingFailure(
@@ -37,7 +44,7 @@ export function expectInvariant(
 ): void {
   if (!(failure instanceof PropertyInvariantViolation)) {
     throw new ProofExpectationError(
-      `expected invariant failure, got ${failure._tag}`,
+      `expected invariant failure, got ${failure._tag}: ${describeFailure(failure)}`,
     );
   }
   if (failure.name !== propertyName) {
@@ -53,7 +60,7 @@ export function expectAssertionFailure(
 ): void {
   if (!(failure instanceof PropertyAssertionFailure)) {
     throw new ProofExpectationError(
-      `expected assertion failure, got ${failure._tag}`,
+      `expected assertion failure, got ${failure._tag}: ${describeFailure(failure)}`,
     );
   }
   if (failure.name !== propertyName) {

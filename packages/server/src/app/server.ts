@@ -26,12 +26,22 @@ import { createRpcRouter } from "../rpc/router.js";
 import type {
   AuthenticatedContext,
   RpcMethodRegistry,
+  RpcResolveError,
+} from "../rpc/context.js";
+import {
+  RpcMethodNotFoundError,
+  makeRpcMethodBoundaryService,
 } from "../rpc/context.js";
 import type { RequestFrame, ResponseFrame } from "@moltzap/protocol";
-import { ErrorCodes, responseFrame, validators } from "@moltzap/protocol";
 import {
-  acquireS2cConnectionState,
-  completeS2cResponse,
+  ErrorCodes,
+  jsonRpcIdFromWire,
+  responseFrame,
+  validators,
+} from "@moltzap/protocol";
+import {
+  acquireAppCallbackConnectionState,
+  completeAppCallbackResponse,
 } from "../ws/connection.js";
 import { EnvelopeEncryption } from "../crypto/envelope.js";
 
@@ -43,10 +53,7 @@ import { createPresenceHandlers } from "./handlers/presence.handlers.js";
 import { createAppHandlers } from "./handlers/apps.handlers.js";
 import { createSystemHandlers } from "./handlers/system.handlers.js";
 
-import {
-  WebhookClient,
-  type AsyncWebhookAdapter,
-} from "../adapters/webhook.js";
+import { WebhookClient } from "../adapters/webhook.js";
 
 import type {
   CoreConfig,
@@ -171,22 +178,15 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     presenceService,
     messageService,
     appHost,
-    defaultPermissionService,
     traceCapture,
   } = services;
-
-  appHost.setPermissionService(defaultPermissionService);
 
   // Connection hooks
   const connectionHooks: ConnectionHook[] = [];
   const disconnectionHooks: DisconnectionHook[] = [];
 
-  // Webhook permission callback state (set via setWebhookPermissionCallback)
-  let _webhookPermAdapter: AsyncWebhookAdapter | null = null;
-  let _callbackToken: string | null = null;
-
-  // Mutable RPC method registry — core handlers + extension methods
-  const methods: RpcMethodRegistry = {
+  // Descriptor-backed RPC method registry — core handlers + extension methods.
+  const methods: RpcMethodRegistry = [
     ...createCoreAuthHandlers({
       authService,
       conversationService,
@@ -210,12 +210,12 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     }),
     ...createAppHandlers({
       appHost,
-      permissionService: defaultPermissionService,
     }),
     ...createSystemHandlers(),
-  };
+  ];
 
-  const dispatch = createRpcRouter(methods);
+  const dispatch = createRpcRouter();
+  const rpcMethodBoundary = makeRpcMethodBoundaryService(methods);
 
   // ── HTTP routes via @effect/platform HttpRouter ──────────────────────
 
@@ -385,67 +385,6 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     }),
   );
 
-  const permissionsResolveRoute = HttpRouter.post(
-    "/api/v1/permissions/resolve",
-    Effect.gen(function* () {
-      if (!_webhookPermAdapter) {
-        return HttpServerResponse.unsafeJson(
-          { error: "Webhook permissions not configured" },
-          { status: 404 },
-        );
-      }
-
-      const request = yield* HttpServerRequest.HttpServerRequest;
-      const authHeader = request.headers["authorization"];
-      if (!authHeader || !_callbackToken) {
-        return HttpServerResponse.unsafeJson(
-          { error: "Unauthorized" },
-          { status: 401 },
-        );
-      }
-      const token = authHeader.replace("Bearer ", "");
-      if (!safeEqual(token, _callbackToken)) {
-        return HttpServerResponse.unsafeJson(
-          { error: "Invalid callback token" },
-          { status: 401 },
-        );
-      }
-
-      const rawBody = yield* request.json.pipe(
-        Effect.catchAll(() => Effect.succeed(INVALID_JSON_BODY)),
-      );
-      if (rawBody === INVALID_JSON_BODY) {
-        return HttpServerResponse.unsafeJson(
-          { error: ERROR_INVALID_JSON },
-          { status: HTTP_BAD_REQUEST },
-        );
-      }
-      const body = rawBody as {
-        request_id?: string;
-        access?: string[];
-      };
-      if (!body.request_id || !Array.isArray(body.access)) {
-        return HttpServerResponse.unsafeJson(
-          { error: "Invalid body: need request_id and access[]" },
-          { status: HTTP_BAD_REQUEST },
-        );
-      }
-
-      const found = yield* _webhookPermAdapter.resolveCallback(
-        body.request_id,
-        body.access,
-      );
-      if (!found) {
-        return HttpServerResponse.unsafeJson(
-          { error: "Unknown or expired request_id" },
-          { status: 404 },
-        );
-      }
-
-      return HttpServerResponse.unsafeJson({ ok: true });
-    }),
-  );
-
   const allowedOriginsPredicate = (origin: string): boolean => {
     if (config.corsOrigins.includes("*")) return true;
     if (config.corsOrigins.includes(origin)) return true;
@@ -476,11 +415,12 @@ export function createCoreApp(config: CoreConfig): CoreApp {
             ),
           );
 
-        // Acquire per-connection s2c state and bind the disconnect-finalizer
+        // Acquire per-connection appCallback state and bind the disconnect-finalizer
         // to this socket's scope. The finalizer fails every still-pending
-        // s2c Deferred with `AppDisconnected` when the socket closes —
+        // appCallback Deferred with `AppDisconnected` when the socket closes —
         // before, during, or after a typical connection lifecycle.
-        const s2cState = yield* acquireS2cConnectionState(connId);
+        const appCallbackState =
+          yield* acquireAppCallbackConnectionState(connId);
 
         connections.add({
           id: connId,
@@ -492,8 +432,8 @@ export function createCoreApp(config: CoreConfig): CoreApp {
           lastPong: Date.now(),
           conversationIds: new Set(),
           mutedConversations: new Set(),
-          s2cPending: s2cState.s2cPending,
-          s2cRequestCounter: s2cState.s2cRequestCounter,
+          appCallbackPending: appCallbackState.appCallbackPending,
+          appCallbackRequestCounter: appCallbackState.appCallbackRequestCounter,
         });
         logger.info({ connId }, "WebSocket connected");
 
@@ -513,154 +453,116 @@ export function createCoreApp(config: CoreConfig): CoreApp {
                   "Failed to parse WebSocket frame",
                 );
               }
-              yield* sendFrame({
-                jsonrpc: "2.0",
-                type: "response",
-                direction: "c2s",
-                id: null,
-                error: {
-                  code: ErrorCodes.ParseError,
-                  message: ERROR_INVALID_JSON,
-                },
-              });
+              yield* sendFrame(
+                responseFrame(null, {
+                  error: {
+                    code: ErrorCodes.ParseError,
+                    message: ERROR_INVALID_JSON,
+                  },
+                }),
+              );
               return;
             }
 
-            // Inbound `s2c` response: route to the connection's s2c
-            // pending map, NOT to the c2s RPC router. Direction-keyed
-            // dispatch keeps c2s and s2c id pools disjoint even when ids
-            // numerically collide.
-            //
-            // Hot-path order: dispatch on `parsed.type` BEFORE running
-            // either AJV validator. The schemas pin `type` to a literal,
-            // so the discriminator is cheaper than two failed AJV calls
-            // on every c2s request.
-            const inboundType =
-              typeof parsed === "object" &&
-              parsed !== null &&
-              typeof (parsed as { type?: unknown }).type === "string"
-                ? (parsed as { type: string }).type
-                : null;
-            if (
-              inboundType === "response" &&
-              validators.responseFrame(parsed)
-            ) {
+            // Responses complete app-callback RPCs that this server initiated.
+            // Requests enter the app RPC router below. JSON-RPC frame shape is
+            // the only discriminator; there is no direction field on the wire.
+            if (validators.responseFrame(parsed)) {
               const inboundResponse = parsed as ResponseFrame;
-              if (inboundResponse.direction !== "s2c") {
-                logger.warn(
-                  { connId, id: inboundResponse.id },
-                  "client sent a non-s2c response; ignoring",
-                );
-                return;
-              }
-              const completed = yield* completeS2cResponse(
+              const completed = yield* completeAppCallbackResponse(
                 conn,
                 inboundResponse,
               );
               if (completed._tag === "None") {
                 logger.warn(
                   { connId, id: inboundResponse.id },
-                  "no pending s2c request matched inbound response",
+                  "no pending appCallback request matched inbound response",
                 );
               }
               return;
             }
 
             if (!validators.requestFrame(parsed)) {
-              const id =
-                typeof parsed === "object" &&
-                parsed !== null &&
-                typeof (parsed as { id?: unknown }).id === "string"
-                  ? (parsed as { id: string }).id
-                  : null;
-              yield* sendFrame({
-                jsonrpc: "2.0",
-                type: "response",
-                direction: "c2s",
-                id,
-                error: {
-                  code: ErrorCodes.InvalidRequest,
-                  message: "Invalid request frame",
-                },
-              });
+              const id = isStringKeyedRecord(parsed)
+                ? jsonRpcIdFromWire(parsed["id"])
+                : null;
+              yield* sendFrame(
+                responseFrame(id, {
+                  error: {
+                    code: ErrorCodes.InvalidRequest,
+                    message: "Invalid request frame",
+                  },
+                }),
+              );
               return;
             }
 
             const frame = parsed as RequestFrame;
-            // Wrong-direction guard (codex P2): the schema accepts both
-            // `c2s` and `s2c` request frames, but only `c2s` are
-            // legitimate inbound at the server. A peer sending
-            // `direction: "s2c"` would otherwise hit the c2s RPC router
-            // and execute side effects. Reject explicitly.
-            if (frame.direction !== "c2s") {
-              yield* sendFrame({
-                jsonrpc: "2.0",
-                type: "response",
-                direction: "c2s",
-                id: frame.id,
-                error: {
-                  code: ErrorCodes.InvalidRequest,
-                  message: `request frame must be direction:"c2s" inbound; got direction:"${frame.direction}"`,
-                },
-              });
-              return;
-            }
-            if (frame.method !== Connect.name && !conn.auth) {
-              yield* sendFrame({
-                jsonrpc: "2.0",
-                type: "response",
-                direction: "c2s",
-                id: frame.id,
-                error: {
-                  code: ErrorCodes.Unauthorized,
-                  message: "Not authenticated. Send auth/connect first.",
-                },
-              });
-              return;
-            }
+            yield* rpcMethodBoundary.resolve(frame).pipe(
+              Effect.matchEffect({
+                onFailure: (error) => sendFrame(rpcResolveErrorResponse(error)),
+                onSuccess: (request) =>
+                  Effect.gen(function* () {
+                    const isConnectRequest = request.definition === Connect;
+                    if (!isConnectRequest && !conn.auth) {
+                      yield* sendFrame(
+                        responseFrame(frame.id, {
+                          error: {
+                            code: ErrorCodes.Unauthorized,
+                            message:
+                              "Not authenticated. Send auth/connect first.",
+                          },
+                        }),
+                      );
+                      return;
+                    }
 
-            const ctx = conn.auth ?? ({} as AuthenticatedContext);
-            const response = yield* Effect.tryPromise({
-              try: () => dispatch(frame, ctx, connId),
-              catch: (err) => err,
-            }).pipe(
-              Effect.catchAll((err) =>
-                Effect.sync(() => {
-                  logger.error({ err, connId }, "RPC dispatch failed");
-                  return responseFrame("c2s", frame.id, {
-                    error: {
-                      code: ErrorCodes.InternalError,
-                      message: "Internal error",
-                    },
-                  });
-                }),
-              ),
+                    const ctx = conn.auth ?? ({} as AuthenticatedContext);
+                    const response = yield* Effect.tryPromise({
+                      try: () => dispatch(request, ctx, connId),
+                      catch: (err) => err,
+                    }).pipe(
+                      Effect.catchAll((err) =>
+                        Effect.sync(() => {
+                          logger.error({ err, connId }, "RPC dispatch failed");
+                          return responseFrame(frame.id, {
+                            error: {
+                              code: ErrorCodes.InternalError,
+                              message: "Internal error",
+                            },
+                          });
+                        }),
+                      ),
+                    );
+                    yield* sendFrame(response);
+
+                    // Fire connection hooks after a successful auth/connect —
+                    // auth was populated by the dispatch handler if the
+                    // credentials were valid.
+                    if (isConnectRequest) {
+                      const authCtx = connections.get(connId)?.auth;
+                      if (!authCtx) return;
+                      const { agentId, ownerUserId } = authCtx;
+                      const agentRow = yield* Effect.tryPromise(() =>
+                        db
+                          .selectFrom("agents")
+                          .select("name")
+                          .where("id", "=", agentId)
+                          .executeTakeFirst(),
+                      ).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+                      const agentName = agentRow?.name ?? agentId;
+                      for (const hook of connectionHooks) {
+                        yield* runUserHook(
+                          hook,
+                          { agentId, agentName, ownerUserId, connId },
+                          "Connection hook",
+                          { agentId, connId },
+                        );
+                      }
+                    }
+                  }),
+              }),
             );
-            yield* sendFrame(response);
-
-            // Fire connection hooks after a successful auth/connect — auth was
-            // populated by the dispatch handler if the credentials were valid.
-            if (frame.method === Connect.name) {
-              const authCtx = connections.get(connId)?.auth;
-              if (!authCtx) return;
-              const { agentId, ownerUserId } = authCtx;
-              const agentRow = yield* Effect.tryPromise(() =>
-                db
-                  .selectFrom("agents")
-                  .select("name")
-                  .where("id", "=", agentId)
-                  .executeTakeFirst(),
-              ).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
-              const agentName = agentRow?.name ?? agentId;
-              for (const hook of connectionHooks) {
-                yield* runUserHook(
-                  hook,
-                  { agentId, agentName, ownerUserId, connId },
-                  "Connection hook",
-                  { agentId, connId },
-                );
-              }
-            }
           });
 
         const reader = socket.runRaw((data) =>
@@ -733,21 +635,15 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     !config.skipDefaultRegisterRoute && config.registrationSecret !== undefined;
   const httpApp = (
     config.skipDefaultRegisterRoute
-      ? HttpRouter.empty.pipe(healthRoute, permissionsResolveRoute, wsRoute)
+      ? HttpRouter.empty.pipe(healthRoute, wsRoute)
       : adminRouteEnabled
         ? HttpRouter.empty.pipe(
             healthRoute,
             registerRoute,
             adminRegisterAgentRoute,
-            permissionsResolveRoute,
             wsRoute,
           )
-        : HttpRouter.empty.pipe(
-            healthRoute,
-            registerRoute,
-            permissionsResolveRoute,
-            wsRoute,
-          )
+        : HttpRouter.empty.pipe(healthRoute, registerRoute, wsRoute)
   ).pipe(
     HttpMiddleware.cors({
       allowedOrigins: allowedOriginsPredicate,
@@ -782,8 +678,8 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     get port() {
       return actualPort;
     },
-    registerRpcMethod(name: string, def) {
-      methods[name] = def;
+    registerRpcMethod(method) {
+      methods.push(method);
     },
     onConnection(hook: ConnectionHook) {
       connectionHooks.push(hook);
@@ -805,13 +701,6 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     },
     setContactService(checker) {
       appHost.setContactService(checker);
-    },
-    setPermissionService(handler) {
-      appHost.setPermissionService(handler);
-    },
-    setWebhookPermissionCallback(adapter, token) {
-      _webhookPermAdapter = adapter;
-      _callbackToken = token;
     },
     createAppSession(appId, initiatorAgentId, invitedAgentIds) {
       return appHost.createSession(appId, initiatorAgentId, invitedAgentIds);
@@ -846,10 +735,6 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     close() {
       return Effect.runPromise(
         Effect.gen(function* () {
-          if (_webhookPermAdapter) {
-            yield* _webhookPermAdapter.shutdown;
-          }
-          defaultPermissionService.destroy();
           // Interrupt in-flight delivery-webhook retries before scope close so
           // pending POSTs don't race the HTTP server teardown.
           yield* messageService.close();
@@ -878,4 +763,21 @@ export function createCoreApp(config: CoreConfig): CoreApp {
       );
     },
   };
+}
+
+function rpcResolveErrorResponse(error: RpcResolveError): ResponseFrame {
+  if (error instanceof RpcMethodNotFoundError) {
+    return responseFrame(error.frame.id, {
+      error: {
+        code: ErrorCodes.MethodNotFound,
+        message: `Unknown method: ${error.frame.method}`,
+      },
+    });
+  }
+  return responseFrame(error.frame.id, {
+    error: {
+      code: ErrorCodes.InvalidParams,
+      message: "Invalid parameters",
+    },
+  });
 }

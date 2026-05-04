@@ -19,7 +19,7 @@ const jsonOption = Options.boolean("json").pipe(
 const JSON_INDENT_SPACES = 2;
 
 const listAgents = Command.make("list", { json: jsonOption }, ({ json }) =>
-  request(AgentsList.name, {}).pipe(
+  request(AgentsList, {}).pipe(
     Effect.tap((result) =>
       Effect.sync(() => {
         const r = result as AgentsListResult;
@@ -58,7 +58,7 @@ const namesArg = Args.text({ name: "name" }).pipe(
 );
 
 const lookupAgents = Command.make("lookup", { names: namesArg }, ({ names }) =>
-  request(AgentsLookupByName.name, { names }).pipe(
+  request(AgentsLookupByName, { names }).pipe(
     Effect.tap((result) =>
       Effect.sync(() => {
         const r = result as LookupResult;

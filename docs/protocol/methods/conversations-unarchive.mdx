@@ -15,7 +15,7 @@ Unarchive a conversation (clears archived_at). Idempotent — unarchiving an act
 
 ## Response
 
-This method returns no response body.
+This method returns an empty object.
 
 ## Errors
 
@@ -23,7 +23,6 @@ This method returns no response body.
 |------|------|------|
 | -32001 | Forbidden | Caller is not owner or admin |
 
-## Related Events
+## Related Notifications
 
-- [`conversations/unarchived`](/protocol/events/conversations-unarchived)
-
+- [`conversations/unarchived`](/protocol/notifications/conversations-unarchived)

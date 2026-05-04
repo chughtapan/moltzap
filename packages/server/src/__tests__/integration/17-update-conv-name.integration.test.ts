@@ -9,7 +9,11 @@ import {
 } from "./helpers.js";
 import type { ConnectedAgent } from "./helpers.js";
 
-import { ConversationsList, ConversationsUpdate } from "@moltzap/protocol";
+import {
+  ConversationsList,
+  ConversationsUpdate,
+  ConversationUpdatedNotificationDefinition,
+} from "@moltzap/protocol";
 
 beforeAll(async () => {
   await startTestServer();
@@ -38,35 +42,32 @@ describe("Update Conversation Name", () => {
 
       // Set up event waiters on Bob and Eve BEFORE the update
 
-      const updateResult = (yield* alice.client.sendRpc(
-        ConversationsUpdate.name,
-        {
-          conversationId,
-          name: "New Name",
-        },
-      )) as { conversation: { id: string; name: string } };
+      const updateResult = (yield* alice.client.sendRpc(ConversationsUpdate, {
+        conversationId,
+        name: "New Name",
+      })) as { conversation: { id: string; name: string } };
 
       expect(updateResult.conversation.name).toBe("New Name");
 
-      const bobUpdated = yield* bob.client.waitForEvent(
-        "conversations/updated",
+      const bobUpdated = yield* bob.client.waitForNotification(
+        ConversationUpdatedNotificationDefinition,
       );
-      const eveUpdated = yield* eve.client.waitForEvent(
-        "conversations/updated",
+      const eveUpdated = yield* eve.client.waitForNotification(
+        ConversationUpdatedNotificationDefinition,
       );
 
       expect(
-        (bobUpdated.data as { conversation: { name: string } }).conversation
+        (bobUpdated.params as { conversation: { name: string } }).conversation
           .name,
       ).toBe("New Name");
       expect(
-        (eveUpdated.data as { conversation: { name: string } }).conversation
+        (eveUpdated.params as { conversation: { name: string } }).conversation
           .name,
       ).toBe("New Name");
 
       // Verify persistence via conversations/list
       const listResult = (yield* alice.client.sendRpc(
-        ConversationsList.name,
+        ConversationsList,
         {},
       )) as {
         conversations: Array<{ id: string; name?: string }>;

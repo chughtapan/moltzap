@@ -2,15 +2,25 @@ import * as net from "node:net";
 import * as fs from "node:fs";
 import { Data, Effect } from "effect";
 import { MoltZapService } from "../service.js";
+import {
+  LocalServiceCommands,
+  type LocalServiceCommand,
+} from "../runtime/local-service-commands.js";
 
-import { AgentsLookupByName } from "@moltzap/protocol";
+import {
+  AgentsLookupByName,
+  agentId,
+  decodeRpcResult,
+  type ParamsOf,
+  type ResultOf,
+  type RpcDefinition,
+  type TSchema,
+} from "@moltzap/protocol";
 
 const SOCKET_REQUEST_TIMEOUT_MS = 10_000;
 
-interface RawResponse {
-  result?: unknown;
-  error?: string;
-}
+export { LocalServiceCommands };
+export type { LocalServiceCommand };
 
 export class SocketRequestError extends Data.TaggedError("SocketRequestError")<{
   readonly method: string;
@@ -34,6 +44,9 @@ const socketRequestError = (
   cause?: unknown,
 ): SocketRequestError => new SocketRequestError({ method, message, cause });
 
+const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
 /**
  * Send a request to the MoltZapService via Unix socket, returning the `result`
  * field as an Effect. Typed failures:
@@ -45,9 +58,35 @@ const socketRequestError = (
  * Uses `Effect.async` so fiber interruption cleanly destroys the socket
  * (AbortSignal callback) — no leaked fd if a parent fiber times out.
  */
-export const request = (
-  method: string,
+export const request = <D extends RpcDefinition<string, TSchema, TSchema>>(
+  definition: D,
+  params: ParamsOf<D>,
+  socketPath?: string,
+): Effect.Effect<ResultOf<D>, SocketRequestError> =>
+  sendSocketRequest(definition.name, params, socketPath).pipe(
+    Effect.flatMap((result) =>
+      decodeRpcResult(definition, result).pipe(
+        Effect.mapError(() =>
+          socketRequestError(
+            definition.name,
+            `Malformed result for method: ${definition.name}`,
+            result,
+          ),
+        ),
+      ),
+    ),
+  );
+
+export const requestLocalService = (
+  command: LocalServiceCommand,
   params?: Record<string, unknown>,
+  socketPath?: string,
+): Effect.Effect<unknown, SocketRequestError> =>
+  sendSocketRequest(command, params, socketPath);
+
+export const sendSocketRequest = (
+  method: string,
+  params: unknown,
   socketPath?: string,
 ): Effect.Effect<unknown, SocketRequestError> =>
   Effect.async<unknown, SocketRequestError>((resume, signal) => {
@@ -83,9 +122,9 @@ export const request = (
       if (idx !== -1) {
         const line = buffer.slice(0, idx);
         conn.end();
-        let parsed: RawResponse;
+        let parsed: unknown;
         try {
-          parsed = JSON.parse(line) as RawResponse;
+          parsed = JSON.parse(line);
         } catch (err) {
           done(
             Effect.fail(
@@ -100,16 +139,44 @@ export const request = (
           );
           return;
         }
-        if (parsed.error) {
-          done(Effect.fail(socketRequestError(method, parsed.error)));
-        } else {
-          done(Effect.succeed(parsed.result));
+        if (!isPlainRecord(parsed)) {
+          done(
+            Effect.fail(
+              socketRequestError(
+                method,
+                "Malformed response from service: expected object",
+                parsed,
+              ),
+            ),
+          );
+          return;
         }
+        const error = parsed["error"];
+        if (error !== undefined) {
+          if (typeof error === "string") {
+            done(Effect.fail(socketRequestError(method, error)));
+            return;
+          }
+          done(
+            Effect.fail(
+              socketRequestError(
+                method,
+                "Malformed response from service: error must be a string",
+                parsed,
+              ),
+            ),
+          );
+          return;
+        }
+        done(Effect.succeed(parsed["result"]));
       }
     });
 
     conn.on("error", (err) => {
-      const code = (err as NodeJS.ErrnoException).code;
+      const code =
+        typeof err === "object" && err !== null && "code" in err
+          ? err.code
+          : undefined;
       if (code === "ENOENT" || code === "ECONNREFUSED") {
         done(
           Effect.fail(
@@ -129,14 +196,13 @@ export const request = (
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-interface LookupResult {
-  agents: Array<{ id: string }>;
-}
-
 /** Resolve "agent:name" or "agent:<uuid>" to { type, id }. */
 export const resolveParticipant = (
   raw: string,
-): Effect.Effect<{ type: string; id: string }, SocketClientError> =>
+): Effect.Effect<
+  { readonly type: "agent"; readonly id: ReturnType<typeof agentId> },
+  SocketClientError
+> =>
   Effect.gen(function* () {
     const colon = raw.indexOf(":");
     if (colon === -1) {
@@ -149,7 +215,6 @@ export const resolveParticipant = (
     }
     const type = raw.slice(0, colon);
     const value = raw.slice(colon + 1);
-    if (UUID_RE.test(value)) return { type, id: value };
     if (type !== "agent") {
       return yield* Effect.fail(
         new ParticipantResolveError({
@@ -158,9 +223,10 @@ export const resolveParticipant = (
         }),
       );
     }
-    const result = (yield* request(AgentsLookupByName.name, {
+    if (UUID_RE.test(value)) return { type: "agent", id: agentId(value) };
+    const result = yield* request(AgentsLookupByName, {
       names: [value],
-    })) as LookupResult;
+    });
     if (result.agents.length === 0) {
       return yield* Effect.fail(
         new ParticipantResolveError({
@@ -169,7 +235,7 @@ export const resolveParticipant = (
         }),
       );
     }
-    return { type: "agent", id: result.agents[0]!.id };
+    return { type: "agent", id: agentId(result.agents[0]!.id) };
   });
 
 /** Pure predicate: socket path exists. Wrapped in Effect so callers compose it. */

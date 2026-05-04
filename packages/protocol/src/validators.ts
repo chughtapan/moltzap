@@ -1,11 +1,12 @@
-import Ajv from "ajv";
-import addFormats from "ajv-formats";
 import {
   RequestFrameSchema,
   ResponseFrameSchema,
-  EventFrameSchema,
+  NotificationFrameSchema,
+  type RequestFrame,
+  type ResponseFrame,
+  type NotificationFrame,
 } from "./schema/index.js";
-import { PushPreferencesSchema } from "./schema/methods/push.js";
+import { ajv } from "./internal/ajv.js";
 import {
   Register,
   InviteAgent,
@@ -40,20 +41,26 @@ import {
   PresenceUpdate,
   PresenceSubscribe,
 } from "./schema/methods/presence.js";
-import { PushRegister, PushUnregister } from "./schema/methods/push.js";
 import {
-  SurfaceUpdate,
-  SurfaceGet,
-  SurfaceAction,
-  SurfaceClear,
-} from "./schema/surfaces.js";
+  AppHookTimeoutNotificationDefinition,
+  AppParticipantAdmittedNotificationDefinition,
+  AppParticipantRejectedNotificationDefinition,
+  AppSessionClosedNotificationDefinition,
+  AppSessionFailedNotificationDefinition,
+  AppSessionReadyNotificationDefinition,
+  ContactAcceptedNotificationDefinition,
+  ContactRequestNotificationDefinition,
+  ConversationArchivedNotificationDefinition,
+  ConversationCreatedNotificationDefinition,
+  ConversationUnarchivedNotificationDefinition,
+  ConversationUpdatedNotificationDefinition,
+  MessageDeliveredNotificationDefinition,
+  MessageReceivedNotificationDefinition,
+  PresenceChangedNotificationDefinition,
+} from "./schema/notifications.js";
 import {
   AppsRegister,
   AppsCreate,
-  AppsAttestSkill,
-  PermissionsGrant,
-  PermissionsList,
-  PermissionsRevoke,
   AppsCloseSession,
   AppsGetSession,
   AppsListSessions,
@@ -63,23 +70,21 @@ import {
 import { SystemPing } from "./schema/methods/system.js";
 
 /**
- * This AJV instance handles frame-level validation only. Each RPC
- * manifest carries its own pre-compiled `validateParams` (compiled once
- * inside `defineRpc`), which is what the router dispatches against.
- */
-const ajv = addFormats(new Ajv({ strict: true, allErrors: true }));
-
-/**
  * Named validator table. Every RPC manifest's `validateParams` is re-exported
- * here under the legacy `xxxParams` key so existing call sites keep working.
- * Frame validators (`requestFrame`, `responseFrame`, `eventFrame`) live here
- * because they're not RPC methods.
+ * here under a stable `xxxParams` key. Frame validators and notification
+ * payload validators live here because they are not request/response RPCs.
  */
 export const validators = {
   // Frames.
-  requestFrame: ajv.compile(RequestFrameSchema),
-  responseFrame: ajv.compile(ResponseFrameSchema),
-  eventFrame: ajv.compile(EventFrameSchema),
+  requestFrame: ajv.compile(RequestFrameSchema) as (
+    value: unknown,
+  ) => value is RequestFrame,
+  responseFrame: ajv.compile(ResponseFrameSchema) as (
+    value: unknown,
+  ) => value is ResponseFrame,
+  notificationFrame: ajv.compile(NotificationFrameSchema) as (
+    value: unknown,
+  ) => value is NotificationFrame,
 
   // Auth.
   registerParams: Register.validateParams,
@@ -121,24 +126,9 @@ export const validators = {
   presenceUpdateParams: PresenceUpdate.validateParams,
   presenceSubscribeParams: PresenceSubscribe.validateParams,
 
-  // Push.
-  pushRegisterParams: PushRegister.validateParams,
-  pushUnregisterParams: PushUnregister.validateParams,
-  pushPreferencesParams: ajv.compile(PushPreferencesSchema),
-
-  // Surfaces.
-  surfaceUpdateParams: SurfaceUpdate.validateParams,
-  surfaceGetParams: SurfaceGet.validateParams,
-  surfaceActionParams: SurfaceAction.validateParams,
-  surfaceClearParams: SurfaceClear.validateParams,
-
   // Apps.
   appsRegisterParams: AppsRegister.validateParams,
   appsCreateParams: AppsCreate.validateParams,
-  appsAttestSkillParams: AppsAttestSkill.validateParams,
-  permissionsGrantParams: PermissionsGrant.validateParams,
-  permissionsListParams: PermissionsList.validateParams,
-  permissionsRevokeParams: PermissionsRevoke.validateParams,
   appsCloseSessionParams: AppsCloseSession.validateParams,
   appsGetSessionParams: AppsGetSession.validateParams,
   appsListSessionsParams: AppsListSessions.validateParams,
@@ -147,6 +137,38 @@ export const validators = {
 
   // System.
   systemPingParams: SystemPing.validateParams,
+
+  // Notifications.
+  messageReceivedNotification:
+    MessageReceivedNotificationDefinition.validateParams,
+  messageDeliveredNotification:
+    MessageDeliveredNotificationDefinition.validateParams,
+  conversationCreatedNotification:
+    ConversationCreatedNotificationDefinition.validateParams,
+  conversationUpdatedNotification:
+    ConversationUpdatedNotificationDefinition.validateParams,
+  conversationArchivedNotification:
+    ConversationArchivedNotificationDefinition.validateParams,
+  conversationUnarchivedNotification:
+    ConversationUnarchivedNotificationDefinition.validateParams,
+  contactRequestNotification:
+    ContactRequestNotificationDefinition.validateParams,
+  contactAcceptedNotification:
+    ContactAcceptedNotificationDefinition.validateParams,
+  presenceChangedNotification:
+    PresenceChangedNotificationDefinition.validateParams,
+  appParticipantAdmittedNotification:
+    AppParticipantAdmittedNotificationDefinition.validateParams,
+  appParticipantRejectedNotification:
+    AppParticipantRejectedNotificationDefinition.validateParams,
+  appSessionReadyNotification:
+    AppSessionReadyNotificationDefinition.validateParams,
+  appSessionFailedNotification:
+    AppSessionFailedNotificationDefinition.validateParams,
+  appSessionClosedNotification:
+    AppSessionClosedNotificationDefinition.validateParams,
+  appHookTimeoutNotification:
+    AppHookTimeoutNotificationDefinition.validateParams,
 } as const;
 
 export type ValidatorName = keyof typeof validators;

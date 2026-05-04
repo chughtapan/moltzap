@@ -9,14 +9,7 @@ export {
   type ServiceOptions,
   type ServiceRpcError,
 } from "./service.js";
-export type { PermissionsRequiredEvent } from "@moltzap/protocol";
-export {
-  AgentNotFoundError,
-  NotConnectedError,
-  RpcServerError,
-  RpcTimeoutError,
-  MalformedFrameError,
-} from "./runtime/errors.js";
+export { AgentNotFoundError, MalformedFrameError } from "./runtime/errors.js";
 export {
   MoltZapChannelCore,
   type ChannelCoreOptions,
@@ -38,7 +31,7 @@ export {
 export type {
   SubscriptionFilter,
   SubscriptionId,
-  EventSubscription,
+  NotificationSubscription,
   SubscriberHandler,
 } from "./runtime/subscribers.js";
 export type { CloseInfo } from "./runtime/close-info.js";

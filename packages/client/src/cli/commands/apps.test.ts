@@ -20,57 +20,22 @@ import {
   type MockInstance,
 } from "vitest";
 import {
-  appsAttestSkillHandler,
   appsCloseHandler,
   appsCreateHandler,
   appsGetHandler,
   appsListHandler,
   appsRegisterHandler,
 } from "./apps.js";
-import {
-  Transport,
-  TransportRpcError,
-  type Transport as TransportSurface,
-  type TransportError,
-} from "../transport.js";
+import { Transport } from "../transport.js";
+import { makeFakeTransport } from "./test-transport.js";
 
 import {
-  AppsAttestSkill,
   AppsCloseSession,
   AppsCreate,
   AppsGetSession,
   AppsListSessions,
   AppsRegister,
 } from "@moltzap/protocol";
-
-type Call = { method: string; params: Record<string, unknown> };
-
-const makeFakeTransport = (
-  respond: (call: Call) => unknown | Error,
-): { calls: Array<Call>; transport: TransportSurface } => {
-  const calls: Array<Call> = [];
-  const transport: TransportSurface = {
-    kind: "test",
-    rpc: <Result>(
-      method: string,
-      params: Record<string, unknown>,
-    ): Effect.Effect<Result, TransportError> => {
-      calls.push({ method, params });
-      const out = respond({ method, params });
-      if (out instanceof Error) {
-        return Effect.fail(
-          new TransportRpcError({
-            method,
-            code: -32000,
-            message: out.message,
-          }),
-        );
-      }
-      return Effect.succeed(out as Result);
-    },
-  };
-  return { calls, transport };
-};
 
 describe("apps register", () => {
   let tmp: string;
@@ -90,7 +55,14 @@ describe("apps register", () => {
 
   it("calls apps/register with the manifest body and prints appId", async () => {
     const manifestPath = join(tmp, "m.json");
-    writeFileSync(manifestPath, JSON.stringify({ name: "demo-app" }));
+    const manifest = {
+      appId: "demo-app",
+      name: "Demo App",
+      conversations: [
+        { key: "main", name: "Main", participantFilter: "all" as const },
+      ],
+    };
+    writeFileSync(manifestPath, JSON.stringify(manifest));
     const { calls, transport } = makeFakeTransport(() => ({
       appId: "app-xyz",
     }));
@@ -100,7 +72,7 @@ describe("apps register", () => {
       ),
     );
     expect(calls).toEqual([
-      { method: AppsRegister.name, params: { manifest: { name: "demo-app" } } },
+      { method: AppsRegister.name, params: { manifest } },
     ]);
     expect(stdout).toHaveBeenCalledWith("app-xyz");
   });
@@ -143,22 +115,34 @@ describe("apps create", () => {
   afterEach(() => stdout.mockRestore());
 
   it("calls apps/create with appId and invitedAgentIds and prints session.id", async () => {
+    const SESS_ID = "00000000-0000-4000-8000-0000000005e5";
+    const AGENT_A = "00000000-0000-4000-8000-00000000000a";
+    const AGENT_B = "00000000-0000-4000-8000-00000000000b";
+    const INITIATOR = "00000000-0000-4000-8000-000000001717";
+    const CONV_MAIN = "00000000-0000-4000-8000-000000000c01";
     const { calls, transport } = makeFakeTransport(() => ({
-      session: { id: "sess-1" },
+      session: {
+        id: SESS_ID,
+        appId: "app-1",
+        initiatorAgentId: INITIATOR,
+        status: "active",
+        conversations: { main: CONV_MAIN },
+        createdAt: "2026-05-04T00:00:00.000Z",
+      },
     }));
     await Effect.runPromise(
       appsCreateHandler({
         appId: "app-1",
-        invitedAgentIds: ["agent-a", "agent-b"],
+        invitedAgentIds: [AGENT_A, AGENT_B],
       }).pipe(Effect.provideService(Transport, transport)),
     );
     expect(calls).toEqual([
       {
         method: AppsCreate.name,
-        params: { appId: "app-1", invitedAgentIds: ["agent-a", "agent-b"] },
+        params: { appId: "app-1", invitedAgentIds: [AGENT_A, AGENT_B] },
       },
     ]);
-    expect(stdout).toHaveBeenCalledWith("sess-1");
+    expect(stdout).toHaveBeenCalledWith(SESS_ID);
   });
 
   it("surfaces TransportRpcError", async () => {
@@ -180,10 +164,20 @@ describe("apps list", () => {
   afterEach(() => stdout.mockRestore());
 
   it("calls apps/listSessions with optional filters and prints one per line", async () => {
+    const SESS_1 = "00000000-0000-4000-8000-000000000501";
+    const SESS_2 = "00000000-0000-4000-8000-000000000502";
+    const INITIATOR = "00000000-0000-4000-8000-000000001717";
+    const CONV_MAIN = "00000000-0000-4000-8000-000000000c01";
+    const baseSession = {
+      appId: "app-1",
+      initiatorAgentId: INITIATOR,
+      conversations: { main: CONV_MAIN },
+      createdAt: "2026-05-04T00:00:00.000Z",
+    };
     const { calls, transport } = makeFakeTransport(() => ({
       sessions: [
-        { id: "s1", appId: "app-1", status: "active" },
-        { id: "s2", appId: "app-1", status: "closed" },
+        { ...baseSession, id: SESS_1, status: "active" },
+        { ...baseSession, id: SESS_2, status: "closed" },
       ],
     }));
     await Effect.runPromise(
@@ -225,18 +219,28 @@ describe("apps get", () => {
   afterEach(() => stdout.mockRestore());
 
   it("calls apps/getSession and prints session as JSON", async () => {
-    const sessionObj = { id: "s1", appId: "app-1", status: "active" };
+    const SESS_1 = "00000000-0000-4000-8000-000000000501";
+    const INITIATOR = "00000000-0000-4000-8000-000000001717";
+    const CONV_MAIN = "00000000-0000-4000-8000-000000000c01";
+    const sessionObj = {
+      id: SESS_1,
+      appId: "app-1",
+      initiatorAgentId: INITIATOR,
+      status: "active",
+      conversations: { main: CONV_MAIN },
+      createdAt: "2026-05-04T00:00:00.000Z",
+    };
     const { calls, transport } = makeFakeTransport(() => ({
       session: sessionObj,
     }));
     await Effect.runPromise(
-      appsGetHandler({ sessionId: "s1" }).pipe(
+      appsGetHandler({ sessionId: SESS_1 }).pipe(
         Effect.provideService(Transport, transport),
       ),
     );
     expect(calls[0]).toEqual({
       method: AppsGetSession.name,
-      params: { sessionId: "s1" },
+      params: { sessionId: SESS_1 },
     });
     expect(stdout).toHaveBeenCalledWith(JSON.stringify(sessionObj, null, 2));
   });
@@ -259,70 +263,28 @@ describe("apps close", () => {
   });
   afterEach(() => stdout.mockRestore());
 
+  const SESS_42 = "00000000-0000-4000-8000-000000000042";
+
   it("calls apps/closeSession and prints the closed session id", async () => {
     const { calls, transport } = makeFakeTransport(() => ({ closed: true }));
     await Effect.runPromise(
-      appsCloseHandler({ sessionId: "s-42" }).pipe(
+      appsCloseHandler({ sessionId: SESS_42 }).pipe(
         Effect.provideService(Transport, transport),
       ),
     );
     expect(calls[0]).toEqual({
       method: AppsCloseSession.name,
-      params: { sessionId: "s-42" },
+      params: { sessionId: SESS_42 },
     });
-    expect(stdout).toHaveBeenCalledWith("s-42");
+    expect(stdout).toHaveBeenCalledWith(SESS_42);
   });
 
   it("surfaces TransportRpcError", async () => {
     const { transport } = makeFakeTransport(() => new Error("nope"));
     const result = await Effect.runPromiseExit(
-      appsCloseHandler({ sessionId: "s-42" }).pipe(
+      appsCloseHandler({ sessionId: SESS_42 }).pipe(
         Effect.provideService(Transport, transport),
       ),
-    );
-    expect(result._tag).toBe("Failure");
-  });
-});
-
-describe("apps attest-skill", () => {
-  let stdout: MockInstance;
-  beforeEach(() => {
-    stdout = vi.spyOn(console, "log").mockImplementation(() => {});
-  });
-  afterEach(() => stdout.mockRestore());
-
-  it("calls apps/attestSkill with challengeId, skillUrl, version and emits no stdout", async () => {
-    const { calls, transport } = makeFakeTransport(() => ({}));
-    await Effect.runPromise(
-      appsAttestSkillHandler({
-        challengeId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-        skillUrl: "https://example.com/skills/my-skill",
-        version: "1.0.0",
-      }).pipe(Effect.provideService(Transport, transport)),
-    );
-    expect(calls).toEqual([
-      {
-        method: AppsAttestSkill.name,
-        params: {
-          challengeId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-          skillUrl: "https://example.com/skills/my-skill",
-          version: "1.0.0",
-        },
-      },
-    ]);
-    expect(stdout).not.toHaveBeenCalled();
-  });
-
-  it("surfaces TransportRpcError on RPC failure", async () => {
-    const { transport } = makeFakeTransport(
-      () => new Error("attestation rejected"),
-    );
-    const result = await Effect.runPromiseExit(
-      appsAttestSkillHandler({
-        challengeId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-        skillUrl: "https://example.com/skills/my-skill",
-        version: "1.0.0",
-      }).pipe(Effect.provideService(Transport, transport)),
     );
     expect(result._tag).toBe("Failure");
   });

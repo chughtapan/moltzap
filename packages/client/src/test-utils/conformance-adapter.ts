@@ -18,8 +18,8 @@
  * Spec #222 atomic migration:
  *   - `outboundIdsRef` is populated from `sendRpcTracked.id` — the real
  *     `rpc-N` identity, not a `local-${random}` mirror (B4).
- *   - `ResponseFrame.type` is forwarded from `tracked.type`, not a
- *     hardcoded `"response"` (V5).
+ *   - `responseFrame(...)` constructs the JSON-RPC response envelope
+ *     instead of hand-writing wire fields.
  *   - `closeRef` is populated from `CloseInfo.{code, reason}` passed
  *     into `onDisconnect`, not the hardcoded `{1000, "disconnect"}`
  *     (V7).
@@ -27,17 +27,23 @@
  *     no-op stub is gone (C4 + subscribe-stub).
  */
 import { Data, Effect, Either, Ref, Scope } from "effect";
-import type { EventFrame, ResponseFrame } from "@moltzap/protocol";
+import {
+  jsonRpcStringId,
+  rpcMethods,
+  responseFrame,
+  type NotificationFrame,
+  type ResponseFrame,
+} from "@moltzap/protocol";
 import type {
   RealClientCloseEvent,
-  RealClientEventFilter,
+  RealClientNotificationFilter,
   RealClientHandle,
-  RealClientEventSubscriber,
+  RealClientNotificationSubscriber,
   RealClientLifecycleError,
   RealClientRpcError,
   RealClientRpcCaller,
   RealClientSubscription,
-  ObservedEvent,
+  ObservedNotification,
 } from "@moltzap/protocol/testing";
 import { MoltZapWsClient, type CloseInfo } from "../ws-client.js";
 import type { SubscriptionFilter } from "../runtime/subscribers.js";
@@ -45,7 +51,7 @@ import {
   NotConnectedError,
   RpcServerError,
   RpcTimeoutError,
-} from "../runtime/errors.js";
+} from "@moltzap/protocol";
 
 const CONNECT_READY_TIMEOUT_MS = 30_000;
 
@@ -119,17 +125,17 @@ function rpcError(
 }
 
 /**
- * Project a `RealClientEventFilter` (protocol-side shape) onto a
+ * Project a `RealClientNotificationFilter` (protocol-side shape) onto a
  * `SubscriptionFilter` (client-side shape). One-for-one field mapping
  * — both interfaces share the same three optional fields by design.
  */
 function filterFromRealClient(
-  filter: RealClientEventFilter,
+  filter: RealClientNotificationFilter,
 ): SubscriptionFilter {
   return {
     emissionTag: filter.emissionTag,
     conversationId: filter.conversationId,
-    eventNamePrefix: filter.eventNamePrefix,
+    notificationNamePrefix: filter.notificationNamePrefix,
   };
 }
 
@@ -146,7 +152,9 @@ export function createMoltZapRealClientFactory(
 }) => Effect.Effect<RealClientHandle, RealClientLifecycleError, Scope.Scope> {
   return (args) =>
     Effect.gen(function* () {
-      const eventsRef = yield* Ref.make<ReadonlyArray<ObservedEvent>>([]);
+      const notificationsRef = yield* Ref.make<
+        ReadonlyArray<ObservedNotification>
+      >([]);
       const outboundIdsRef = yield* Ref.make<ReadonlyArray<string>>([]);
       const closeRef = yield* Ref.make<RealClientCloseEvent | null>(null);
 
@@ -177,26 +185,30 @@ export function createMoltZapRealClientFactory(
       });
 
       // C4 + subscribe-stub: register a `{}`-filter subscription that
-      // captures every frame into `eventsRef`. The previous top-level
-      // `onEvent` callback was deleted — `subscribe({})` is the
+      // captures every frame into `notificationsRef`. The previous top-level
+      // `onNotification` callback was deleted — `subscribe({})` is the
       // replacement. Pre-`connect()` registration is supported.
       const captureAll = yield* ws
-        .subscribe({}, (frame: EventFrame) =>
+        .subscribe({}, (frame: NotificationFrame) =>
           Effect.sync(() => {
             const encoded = new TextEncoder().encode(JSON.stringify(frame));
-            const data = frame.data as { __emissionTag?: string } | undefined;
+            const params = frame.params as
+              | { __emissionTag?: string }
+              | undefined;
             const tag =
-              typeof data?.__emissionTag === "string"
-                ? data.__emissionTag
+              typeof params?.__emissionTag === "string"
+                ? params.__emissionTag
                 : null;
-            const obs: ObservedEvent = {
+            const obs: ObservedNotification = {
               emissionTag: tag,
               decoded: frame,
               rawBytes: encoded,
               observedAtMs: Date.now(),
             };
             try {
-              Effect.runSync(Ref.update(eventsRef, (xs) => [...xs, obs]));
+              Effect.runSync(
+                Ref.update(notificationsRef, (xs) => [...xs, obs]),
+              );
             } catch (recordErr) {
               console.warn(
                 "failed to record conformance observation",
@@ -249,7 +261,7 @@ export function createMoltZapRealClientFactory(
         },
       );
 
-      const subscribe: RealClientEventSubscriber["subscribe"] = (
+      const subscribe: RealClientNotificationSubscriber["subscribe"] = (
         filter,
       ): Effect.Effect<RealClientSubscription, RealClientLifecycleError> =>
         ws
@@ -262,32 +274,43 @@ export function createMoltZapRealClientFactory(
             Effect.mapError((cause) => lifecycleError(cause)),
           );
 
-      const snapshot: RealClientEventSubscriber["snapshot"] =
-        Ref.get(eventsRef);
+      const snapshot: RealClientNotificationSubscriber["snapshot"] =
+        Ref.get(notificationsRef);
 
-      const events: RealClientEventSubscriber = { subscribe, snapshot };
+      const notifications: RealClientNotificationSubscriber = {
+        subscribe,
+        snapshot,
+      };
 
       const call: RealClientRpcCaller["call"] = (
         method: string,
         params: unknown,
       ) =>
         Effect.gen(function* () {
-          // B4 + V5: `sendRpcTracked` returns the real outbound id and
-          // the response envelope `type`. The adapter forwards both
-          // straight through — no mirror id, no hardcoded `"response"`.
+          const definition = rpcMethods.find((def) => def.name === method);
+          if (definition === undefined || !definition.validateParams(params)) {
+            return yield* Effect.fail(
+              new RealClientRpcFailure({
+                cause: { method, params },
+                documentedErrorTag: null,
+                kind: "malformed-response",
+                method,
+              }) as RealClientRpcError,
+            );
+          }
+          // B4: `sendRpcTracked` returns the real outbound id. The adapter
+          // records it and builds the JSON-RPC response through the shared
+          // helper — no mirror id, no hand-written frame.
           const tracked = yield* ws
-            .sendRpcTracked(method, params)
+            .sendRpcTracked(definition, params)
             .pipe(Effect.mapError((cause) => rpcError(cause, method)));
           // Record the real id (Invariant 3 from spec #222: same id
           // minted at the `rpc-${++counter}` site, surfaced as-is).
           yield* Ref.update(outboundIdsRef, (xs) => [...xs, tracked.id]);
-          const frame: ResponseFrame = {
-            jsonrpc: "2.0",
-            type: tracked.type,
-            direction: "c2s",
-            id: tracked.id,
-            result: tracked.result,
-          };
+          const frame: ResponseFrame = responseFrame(
+            jsonRpcStringId(tracked.id),
+            { result: tracked.result },
+          );
           return frame;
         });
 
@@ -311,7 +334,7 @@ export function createMoltZapRealClientFactory(
       return {
         agentId: opts.agentId,
         ready,
-        events,
+        notifications,
         call: rpcCaller,
         closeSignal,
         close,

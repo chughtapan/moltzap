@@ -19,18 +19,20 @@ import {
   arbitraryAnyCall,
   arbitraryCallFor,
 } from "../arbitraries/rpc.js";
-import { s2cRpcMethods, type S2cRpcMethodName } from "../../rpc-registry.js";
 import {
-  arbitraryEventFrame,
+  arbitraryNotificationFrame,
   arbitraryMalformedFrame,
 } from "../arbitraries/frames.js";
-import { decodeFrame, encodeFrame } from "../codec.js";
-import { FrameSchemaError } from "../errors.js";
 import {
-  EventFrameSchema,
-  RequestFrameSchema,
+  decodeFrame,
+  encodeFrame,
+  isNotificationFrame,
+  isRequestFrame,
+  isResponseFrame,
+} from "../codec.js";
+import {
+  NotificationFrameSchema,
   ResponseFrameSchema,
-  type RequestFrame,
   type ResponseFrame,
 } from "../../schema/frames.js";
 import { makeTestClient } from "../test-client.js";
@@ -48,11 +50,8 @@ import { ConversationsList } from "../../schema/methods/conversations.js";
 
 const CATEGORY = "schema-conformance" as const;
 const DEFAULT_MALFORMED_RESPONSE_RUNS = 3;
-const DEFAULT_EVENT_SCHEMA_RUNS = 20;
+const DEFAULT_NOTIFICATION_SCHEMA_RUNS = 20;
 const DEFAULT_ROUNDTRIP_RUNS = 50;
-const DEFAULT_MALFORMED_S2C_RUNS = 50;
-const DEFAULT_RESPONSE_VALIDATION_RUNS = 50;
-const DEFAULT_DIRECTION_PARTITION_RUNS = 30;
 const DEFAULT_TIMEOUT_MS = 3000;
 const DEFAULT_CAPTURE_CAPACITY = 64;
 
@@ -92,7 +91,7 @@ export function registerRequestWellFormedness(
                 // that landed before the sampled call.
                 const handshakeEnd = (yield* client.snapshot).length;
                 yield* client
-                  .sendRpc(call.method, call.params)
+                  .sendRpc(call.definition, call.params)
                   .pipe(Effect.either);
                 return (yield* client.snapshot).slice(handshakeEnd);
               }),
@@ -108,24 +107,37 @@ export function registerRequestWellFormedness(
                 const outbound = observed.find(
                   (s) =>
                     s.kind === "outbound" &&
-                    s.frame?.type === "request" &&
+                    s.frame !== null &&
+                    isRequestFrame(s.frame) &&
                     s.frame.method === call.method,
                 );
-                if (outbound?.frame?.type !== "request") return false;
+                if (
+                  outbound?.frame === null ||
+                  outbound?.frame === undefined ||
+                  !isRequestFrame(outbound.frame)
+                ) {
+                  return false;
+                }
                 const expectedId = outbound.frame.id;
                 const replies = observed.filter(
-                  (s) => s.kind === "inbound" && s.frame?.type === "response",
+                  (s) =>
+                    s.kind === "inbound" &&
+                    s.frame !== null &&
+                    isResponseFrame(s.frame),
                 );
                 if (replies.length < 1) return false;
                 const allValid = replies.every(
                   (r) =>
-                    r.frame?.type === "response" &&
+                    r.frame !== null &&
+                    isResponseFrame(r.frame) &&
                     Value.Check(ResponseFrameSchema, r.frame as ResponseFrame),
                 );
                 if (!allValid) return false;
                 return replies.some(
                   (r) =>
-                    r.frame?.type === "response" && r.frame.id === expectedId,
+                    r.frame !== null &&
+                    isResponseFrame(r.frame) &&
+                    r.frame.id === expectedId,
                 );
               }),
             ),
@@ -145,7 +157,7 @@ export function registerRequestWellFormedness(
 }
 
 /**
- * Valid event frame round-trips the codec cleanly.
+ * Valid notification frame round-trips the codec cleanly.
  *
  * `@pure-codec` — does NOT drive a real server or real client. Spec A2's
  * "accepted by a real client" assertion requires a TestServer + real
@@ -153,19 +165,21 @@ export function registerRequestWellFormedness(
  * `packages/client` or `moltzap-arena`) and is tracked under #186.
  *
  * Tightened per architect §4.4: predicate demands `Right` AND schema
- * check of the specific event variant — the previous `Right || Left`
+ * check of the specific notification variant — the previous `Right || Left`
  * shape was a tautology over the union.
  */
-export function registerEventWellFormedness(ctx: ConformanceRunContext): void {
+export function registerNotificationWellFormedness(
+  ctx: ConformanceRunContext,
+): void {
   registerProperty(
     ctx,
     CATEGORY,
-    "event-well-formedness",
-    "valid event frame decodes cleanly and re-encodes to match",
-    assertProperty(CATEGORY, "event-well-formedness", () =>
+    "notification-well-formedness",
+    "valid notification frame decodes cleanly and re-encodes to match",
+    assertProperty(CATEGORY, "notification-well-formedness", () =>
       Promise.resolve(
         fc.assert(
-          fc.property(arbitraryEventFrame(), (frame) => {
+          fc.property(arbitraryNotificationFrame(), (frame) => {
             const raw = encodeFrame(frame);
             const decoded = Effect.runSync(
               Effect.either(decodeFrame(raw, "inbound")),
@@ -173,12 +187,13 @@ export function registerEventWellFormedness(ctx: ConformanceRunContext): void {
             return Either.match(decoded, {
               onLeft: () => false,
               onRight: (frame) =>
-                frame.type === "event" && Value.Check(EventFrameSchema, frame),
+                isNotificationFrame(frame) &&
+                Value.Check(NotificationFrameSchema, frame),
             });
           }),
           {
             seed: ctx.seed,
-            numRuns: ctx.opts.numRuns ?? DEFAULT_EVENT_SCHEMA_RUNS,
+            numRuns: ctx.opts.numRuns ?? DEFAULT_NOTIFICATION_SCHEMA_RUNS,
           },
         ),
       ),
@@ -257,7 +272,8 @@ export function registerMalformedFrameHandling(
                   malformedQuiescenceMs: 500,
                 });
                 const response = yield* client.sendMalformed({
-                  baseMethod: AgentsList.name,
+                  baseDefinition: AgentsList,
+                  baseParams: {},
                   kind,
                   seed,
                 });
@@ -265,7 +281,7 @@ export function registerMalformedFrameHandling(
                 // normal RPC — proves the server didn't crash or
                 // poison its state.
                 const post = yield* client
-                  .sendRpc(AgentsList.name, {})
+                  .sendRpc(AgentsList, {})
                   .pipe(Effect.either);
                 return { malformedReply: response, post };
               }),
@@ -312,317 +328,6 @@ const COVERAGE_SAMPLE = [
   ConversationsList.name,
   ContactsList.name,
 ] as const;
-
-/**
- * S2C request frames round-trip through the codec. Architect plan §3.1 +
- * §1.7: `direction: "s2c"` is part of the wire identity — encode →
- * decodeFrame → re-encode must be byte-identical for every well-formed
- * server-initiated request.
- *
- * `@pure-codec` — does NOT drive a real server. Asserts the codec preserves
- * `direction: "s2c"` so c2s and s2c request-id pools can coexist on the
- * wire without confusion.
- */
-export function registerS2cRequestRoundTripIdentity(
-  ctx: ConformanceRunContext,
-): void {
-  registerProperty(
-    ctx,
-    CATEGORY,
-    "s2c-request-roundtrip-identity",
-    "encode(s2c request) ⇒ decode ⇒ encode is byte-identical",
-    assertProperty(CATEGORY, "s2c-request-roundtrip-identity", () =>
-      Promise.resolve(
-        fc.assert(
-          fc.property(arbitraryS2cRequestFrame(), (frame) => {
-            const raw = encodeFrame(frame);
-            const decoded = Effect.runSync(
-              Effect.either(decodeFrame(raw, "inbound")),
-            );
-            return Either.match(decoded, {
-              onLeft: () => false,
-              onRight: (frame) => {
-                if (frame.type !== "request") return false;
-                if (frame.direction !== "s2c") return false;
-                const redone = encodeFrame(frame);
-                return (
-                  JSON.stringify(JSON.parse(raw)) ===
-                  JSON.stringify(JSON.parse(redone))
-                );
-              },
-            });
-          }),
-          {
-            seed: ctx.seed,
-            numRuns: ctx.opts.numRuns ?? DEFAULT_ROUNDTRIP_RUNS,
-          },
-        ),
-      ),
-    ),
-  );
-}
-
-/**
- * S2C response frames validate against `ResponseFrameSchema`. Architect plan
- * §3.1: c2s and s2c responses share one schema discriminated by `direction`.
- * Property asserts `Value.Check` accepts every drawn s2c response — the
- * positive shape every consumer's decoder relies on.
- */
-export function registerS2cResponseValidation(
-  ctx: ConformanceRunContext,
-): void {
-  registerProperty(
-    ctx,
-    CATEGORY,
-    "s2c-response-validation",
-    "every well-formed s2c response frame Value.Checks",
-    assertProperty(CATEGORY, "s2c-response-validation", () =>
-      Promise.resolve(
-        fc.assert(
-          fc.property(arbitraryS2cResponseFrame(), (frame) => {
-            if (!Value.Check(ResponseFrameSchema, frame)) return false;
-            return frame.direction === "s2c";
-          }),
-          {
-            seed: ctx.seed,
-            numRuns: ctx.opts.numRuns ?? DEFAULT_RESPONSE_VALIDATION_RUNS,
-          },
-        ),
-      ),
-    ),
-  );
-}
-
-/**
- * Malformed s2c request bytes do not crash the codec — `decodeFrame`
- * returns `FrameSchemaError`, never throws. `@pure-codec` — exercises
- * the codec only. Wire-level liveness with a real server is covered by
- * `malformed-frame-handling` (above).
- */
-export function registerS2cMalformedRequestHandling(
-  ctx: ConformanceRunContext,
-): void {
-  registerProperty(
-    ctx,
-    CATEGORY,
-    "s2c-malformed-request-handling",
-    "malformed s2c request bytes ⇒ FrameSchemaError or drop; never crash",
-    assertProperty(CATEGORY, "s2c-malformed-request-handling", () =>
-      Promise.resolve(
-        fc.assert(
-          fc.property(arbitraryMalformedS2cRequestFrame(), (raw) => {
-            const decoded = Effect.runSync(
-              Effect.either(decodeFrame(raw, "inbound")),
-            );
-            return Either.match(decoded, {
-              // Either decode fails with FrameSchemaError (rejected at the
-              // edge) or succeeds with a typed frame — both are fine. The
-              // crash-free contract is what this property enforces.
-              onLeft: (err) => err instanceof FrameSchemaError,
-              onRight: (frame) => {
-                // If decode succeeds, the frame must validate against its
-                // schema; the codec must not surface an in-between value.
-                if (frame.type === "request")
-                  return Value.Check(RequestFrameSchema, frame);
-                if (frame.type === "response")
-                  return Value.Check(ResponseFrameSchema, frame);
-                return Value.Check(EventFrameSchema, frame);
-              },
-            });
-          }),
-          {
-            seed: ctx.seed,
-            numRuns: ctx.opts.numRuns ?? DEFAULT_MALFORMED_S2C_RUNS,
-          },
-        ),
-      ),
-    ),
-  );
-}
-
-/**
- * Dual-direction request-id collision — c2s and s2c request frames
- * carrying the same `id` decode to distinct frames whose `direction`
- * field discriminates the routing pool. Architect plan §3.1: pending
- * maps key on `(side, id)`, not `id` alone — a c2s request with id
- * `tc-1` and an s2c request with id `tc-1` must NOT collide.
- *
- * `@pure-codec` — pure-codec proof of the contract every transport
- * relies on. Wire-level routing is enforced by sender/receiver pending
- * maps; this property anchors the codec piece.
- */
-export function registerDualDirectionIdCollision(
-  ctx: ConformanceRunContext,
-): void {
-  registerProperty(
-    ctx,
-    CATEGORY,
-    "dual-direction-id-collision",
-    "c2s id=X and s2c id=X decode to distinct frames discriminated by direction",
-    assertProperty(CATEGORY, "dual-direction-id-collision", () =>
-      Promise.resolve(
-        fc.assert(
-          fc.property(
-            // A shared id and a method name; no need to vary params for
-            // the routing-discrimination property.
-            fc.tuple(
-              fc
-                .string({ minLength: 1, maxLength: 32 })
-                .filter((s) => /^[a-zA-Z0-9_\-:.]+$/.test(s)),
-              fc.constantFrom<string>(
-                Connect.name,
-                AgentsList.name,
-                ...s2cRpcMethods.map((m) => m.name),
-              ),
-            ),
-            ([id, method]) => {
-              const c2s: RequestFrame = {
-                jsonrpc: "2.0",
-                type: "request",
-                direction: "c2s",
-                id,
-                method,
-                params: {},
-              };
-              const s2c: RequestFrame = {
-                jsonrpc: "2.0",
-                type: "request",
-                direction: "s2c",
-                id,
-                method,
-                params: {},
-              };
-              const decC2s = Effect.runSync(
-                Effect.either(decodeFrame(encodeFrame(c2s), "inbound")),
-              );
-              const decS2c = Effect.runSync(
-                Effect.either(decodeFrame(encodeFrame(s2c), "inbound")),
-              );
-              return Either.match(decC2s, {
-                onLeft: () => false,
-                onRight: (c2sFrame) =>
-                  Either.match(decS2c, {
-                    onLeft: () => false,
-                    onRight: (s2cFrame) => {
-                      if (
-                        c2sFrame.type !== "request" ||
-                        s2cFrame.type !== "request"
-                      ) {
-                        return false;
-                      }
-                      // Same id, different direction — they are NOT equal
-                      // frames and a pending map keyed on (direction, id)
-                      // yields disjoint entries.
-                      if (c2sFrame.id !== s2cFrame.id) return false;
-                      if (c2sFrame.direction === s2cFrame.direction) {
-                        return false;
-                      }
-                      const keyC2s = `${c2sFrame.direction}:${c2sFrame.id}`;
-                      const keyS2c = `${s2cFrame.direction}:${s2cFrame.id}`;
-                      return keyC2s !== keyS2c;
-                    },
-                  }),
-              });
-            },
-          ),
-          {
-            seed: ctx.seed,
-            numRuns: ctx.opts.numRuns ?? DEFAULT_DIRECTION_PARTITION_RUNS,
-          },
-        ),
-      ),
-    ),
-  );
-}
-
-// ── s2c arbitraries (local to this module) ────────────────────────────
-//
-// Kept private — only the four properties above use them. If a future
-// module needs s2c-direction frames, promote to `arbitraries/frames.ts`.
-
-function arbitraryS2cRequestFrame(): fc.Arbitrary<RequestFrame> {
-  // Drive method names from the typed `s2cRpcMethods` registry so adding
-  // a verb to the protocol auto-widens conformance coverage; no manual
-  // sync required between this arbitrary and `rpc-registry.ts`.
-  const methodNames = s2cRpcMethods.map(
-    (m) => m.name,
-  ) as ReadonlyArray<S2cRpcMethodName>;
-  return fc.record({
-    jsonrpc: fc.constant("2.0" as const),
-    type: fc.constant("request" as const),
-    direction: fc.constant("s2c" as const),
-    id: fc
-      .string({ minLength: 1, maxLength: 32 })
-      .filter((s) => /^[a-zA-Z0-9_\-:.]+$/.test(s)),
-    method: fc.constantFrom(...methodNames),
-    params: fc.option(fc.dictionary(fc.string(), fc.anything()), {
-      nil: undefined,
-    }),
-  });
-}
-
-function arbitraryS2cResponseFrame(): fc.Arbitrary<ResponseFrame> {
-  const successBody = fc.record({
-    result: fc.dictionary(
-      fc.string({ minLength: 1, maxLength: 8 }),
-      fc.anything(),
-    ),
-  });
-  const errorBody = fc.record({
-    error: fc.record({
-      code: fc.integer({ min: -32700, max: -32000 }),
-      message: fc.string({ minLength: 1, maxLength: 64 }),
-    }),
-  });
-  const id = fc
-    .string({ minLength: 1, maxLength: 32 })
-    .filter((s) => /^[a-zA-Z0-9_\-:.]+$/.test(s));
-  return fc
-    .tuple(id, fc.oneof(successBody, errorBody))
-    .map(([frameId, body]) => ({
-      jsonrpc: "2.0" as const,
-      type: "response" as const,
-      direction: "s2c" as const,
-      id: frameId,
-      ...body,
-    }));
-}
-
-/**
- * Generate raw bytes that purport to be an s2c request but are malformed
- * in one of the kinds the codec must absorb. Mixes wire-level corruptions
- * (invalid JSON, missing `direction`, bad `direction`, extra property)
- * with schema-violation kinds the existing codec already rejects.
- */
-function arbitraryMalformedS2cRequestFrame(): fc.Arbitrary<string> {
-  const valid = arbitraryS2cRequestFrame();
-  return fc.oneof(
-    // Invalid JSON.
-    fc.constant("not-json"),
-    fc.constant("{not-json"),
-    // Wrong direction value.
-    valid.map((f) => {
-      const invalidDirection: string = "lateral";
-      const corrupted = { ...f, direction: invalidDirection };
-      return JSON.stringify(corrupted);
-    }),
-    // Missing direction.
-    valid.map((f) => {
-      const { direction: _drop, ...rest } = f;
-      void _drop;
-      return JSON.stringify(rest);
-    }),
-    // Missing id.
-    valid.map((f) => {
-      const { id: _drop, ...rest } = f;
-      void _drop;
-      return JSON.stringify(rest);
-    }),
-    // Extra property — schema is `additionalProperties: false`.
-    valid.map((f) => JSON.stringify({ ...f, extra: "rejected" })),
-  );
-}
-
 export function registerRpcMapCoverage(ctx: ConformanceRunContext): void {
   registerProperty(
     ctx,
@@ -661,21 +366,29 @@ export function registerRpcMapCoverage(ctx: ConformanceRunContext): void {
             // OWN response with a matching request id.
             const handshakeEnd = (yield* client.snapshot).length;
             yield* client
-              .sendRpc(sampled.method, sampled.params)
+              .sendRpc(sampled.definition, sampled.params)
               .pipe(Effect.either);
             const snap = (yield* client.snapshot).slice(handshakeEnd);
             const outbound = snap.find(
               (s) =>
                 s.kind === "outbound" &&
-                s.frame?.type === "request" &&
+                s.frame !== null &&
+                isRequestFrame(s.frame) &&
                 s.frame.method === sampled.method,
             );
-            if (outbound?.frame?.type !== "request") return false;
+            if (
+              outbound?.frame === null ||
+              outbound?.frame === undefined ||
+              !isRequestFrame(outbound.frame)
+            ) {
+              return false;
+            }
             const expectedId = outbound.frame.id;
             return snap.some(
               (s) =>
                 s.kind === "inbound" &&
-                s.frame?.type === "response" &&
+                s.frame !== null &&
+                isResponseFrame(s.frame) &&
                 s.frame.id === expectedId,
             );
           }),

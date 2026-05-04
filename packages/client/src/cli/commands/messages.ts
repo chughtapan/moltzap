@@ -23,7 +23,7 @@ import {
   type TransportError,
 } from "../transport.js";
 
-import { MessagesList } from "@moltzap/protocol";
+import { MessagesList, conversationId } from "@moltzap/protocol";
 
 // ─── Errors ────────────────────────────────────────────────────────────────
 
@@ -46,14 +46,6 @@ export interface MessagesListArgs {
   readonly limit?: number;
 }
 
-interface WireMessage {
-  readonly id: string;
-  readonly senderId: string;
-  readonly senderName?: string;
-  readonly createdAt: string;
-  readonly parts: ReadonlyArray<{ type: string; text?: string }>;
-}
-
 // ─── Handlers ──────────────────────────────────────────────────────────────
 
 /**
@@ -69,18 +61,21 @@ export const messagesListHandler = (
   args: MessagesListArgs,
 ): Effect.Effect<void, MessagesCommandError, Transport> =>
   Effect.gen(function* () {
-    const params: Record<string, unknown> = {
-      conversationId: args.conversationId,
-    };
-    if (args.limit !== undefined) params.limit = args.limit;
-    const result = yield* rpc<{
-      messages: ReadonlyArray<WireMessage>;
-      hasMore: boolean;
-    }>(MessagesList.name, params);
+    const params =
+      args.limit === undefined
+        ? { conversationId: conversationId(args.conversationId) }
+        : {
+            conversationId: conversationId(args.conversationId),
+            limit: args.limit,
+          };
+    const result = yield* rpc(MessagesList, params);
     yield* Effect.sync(() => {
       for (const m of result.messages) {
         const text = m.parts.find((p) => p.type === "text")?.text ?? "";
-        const sender = m.senderName ?? m.senderId;
+        const sender =
+          "senderName" in m && typeof m.senderName === "string"
+            ? m.senderName
+            : m.senderId;
         console.log(`${m.createdAt}\t${sender}\t${text}`);
       }
       if (result.hasMore) {

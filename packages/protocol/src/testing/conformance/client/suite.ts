@@ -46,7 +46,7 @@ import {
   type AllowedCoverageGap,
 } from "../coverage-policy.js";
 import {
-  registerEventWellFormednessClient,
+  registerNotificationWellFormednessClient,
   registerMalformedFrameHandlingClient,
 } from "./schema-conformance.js";
 import {
@@ -110,7 +110,7 @@ export interface ClientConformanceSuiteOptions {
 export function registerAllClientProperties(
   ctx: ClientConformanceRunContext,
 ): void {
-  registerEventWellFormednessClient(ctx);
+  registerNotificationWellFormednessClient(ctx);
   registerMalformedFrameHandlingClient(ctx);
   registerModelEquivalenceClient(ctx);
   registerRequestIdUniquenessClient(ctx);

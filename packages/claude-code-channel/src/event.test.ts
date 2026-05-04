@@ -9,20 +9,27 @@
 import { describe, it, expect } from "vitest";
 import type { EnrichedInboundMessage } from "@moltzap/client";
 import {
-  brandChatId,
+  brandConversationId,
   brandIsoTimestamp,
   brandMessageId,
   brandUserId,
   toClaudeChannelNotification,
 } from "./event.js";
 
+const CONVERSATION_ID = "00000000-0000-4000-8000-0000000000a1";
+const CONVERSATION_OTHER = "00000000-0000-4000-8000-0000000000a2";
+const MESSAGE_ID = "00000000-0000-4000-8000-0000000001a1";
+const MESSAGE_OTHER = "00000000-0000-4000-8000-0000000001a2";
+const AGENT_ALICE = "00000000-0000-4000-8000-0000000002a1";
+const AGENT_BOB = "00000000-0000-4000-8000-0000000002a2";
+
 function makeEvent(
   overrides: Partial<EnrichedInboundMessage> = {},
 ): EnrichedInboundMessage {
   return {
-    id: "msg-01",
-    conversationId: "conv-01",
-    sender: { id: "agent-alice", name: "Alice" },
+    id: MESSAGE_ID,
+    conversationId: CONVERSATION_ID,
+    sender: { id: AGENT_ALICE, name: "Alice" },
     text: "hello world",
     isFromMe: false,
     createdAt: "2026-04-24T12:00:00.000Z",
@@ -33,26 +40,28 @@ function makeEvent(
 
 describe("toClaudeChannelNotification — meta-key mapping (spec A5, A12)", () => {
   it("maps conversationId → chat_id verbatim", () => {
-    const r = toClaudeChannelNotification(makeEvent({ conversationId: "C42" }));
+    const r = toClaudeChannelNotification(
+      makeEvent({ conversationId: CONVERSATION_OTHER }),
+    );
     expect(r._tag).toBe("Ok");
     if (r._tag !== "Ok") return;
-    expect(r.value.params.meta.chat_id).toBe("C42");
+    expect(r.value.params.meta.chat_id).toBe(CONVERSATION_OTHER);
   });
 
   it("maps sender.id → user verbatim", () => {
     const r = toClaudeChannelNotification(
-      makeEvent({ sender: { id: "agent-bob", name: "Bob" } }),
+      makeEvent({ sender: { id: AGENT_BOB, name: "Bob" } }),
     );
     expect(r._tag).toBe("Ok");
     if (r._tag !== "Ok") return;
-    expect(r.value.params.meta.user).toBe("agent-bob");
+    expect(r.value.params.meta.user).toBe(AGENT_BOB);
   });
 
   it("maps inbound .id → message_id verbatim", () => {
-    const r = toClaudeChannelNotification(makeEvent({ id: "M-42" }));
+    const r = toClaudeChannelNotification(makeEvent({ id: MESSAGE_OTHER }));
     expect(r._tag).toBe("Ok");
     if (r._tag !== "Ok") return;
-    expect(r.value.params.meta.message_id).toBe("M-42");
+    expect(r.value.params.meta.message_id).toBe(MESSAGE_OTHER);
   });
 
   it("maps createdAt (ISO string) → ts verbatim", () => {
@@ -126,12 +135,16 @@ describe("toClaudeChannelNotification — meta-key mapping (spec A5, A12)", () =
 });
 
 describe("branded-type narrowers (Principle 1)", () => {
-  it("brandChatId accepts non-empty string", () => {
-    expect(brandChatId("abc")).toBe("abc");
+  it("brandConversationId accepts valid protocol UUID", () => {
+    expect(brandConversationId(CONVERSATION_ID)).toBe(CONVERSATION_ID);
   });
 
-  it("brandChatId rejects empty string", () => {
-    expect(() => brandChatId("")).toThrow(/non-empty/);
+  it("brandConversationId rejects invalid non-UUID string", () => {
+    expect(() => brandConversationId("abc")).toThrow(/valid conversation id/);
+  });
+
+  it("brandConversationId rejects empty string", () => {
+    expect(() => brandConversationId("")).toThrow(/non-empty/);
   });
 
   it("brandMessageId rejects whitespace-only", () => {

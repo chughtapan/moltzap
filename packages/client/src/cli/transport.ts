@@ -20,7 +20,7 @@ import {
   NotConnectedError,
   RpcServerError,
   RpcTimeoutError,
-} from "../runtime/errors.js";
+} from "@moltzap/protocol";
 import { MoltZapWsClient } from "../ws-client.js";
 import { request as daemonRequest } from "./socket-client.js";
 import type { ProfileError } from "./profile.js";
@@ -29,6 +29,12 @@ import {
   parseProfileName,
   resolveProfileAuth,
 } from "./profile.js";
+import type {
+  ParamsOf,
+  ResultOf,
+  RpcDefinition,
+  TSchema,
+} from "@moltzap/protocol";
 
 // ─── Errors ────────────────────────────────────────────────────────────────
 
@@ -102,10 +108,10 @@ export type TransportKind = "daemon" | "direct" | "test";
  */
 export interface Transport {
   readonly kind: TransportKind;
-  readonly rpc: <Result>(
-    method: string,
-    params: Record<string, unknown>,
-  ) => Effect.Effect<Result, TransportError>;
+  readonly rpc: <D extends RpcDefinition<string, TSchema, TSchema>>(
+    definition: D,
+    params: ParamsOf<D>,
+  ) => Effect.Effect<ResultOf<D>, TransportError>;
 }
 
 export const Transport = Context.GenericTag<Transport>("moltzap/cli/Transport");
@@ -233,10 +239,12 @@ const tagDaemonError = (method: string, err: Error): TransportError => {
 
 const makeDaemonTransport = (socketPath: string): Transport => ({
   kind: "daemon",
-  rpc: <Result>(method: string, params: Record<string, unknown>) =>
-    daemonRequest(method, params, socketPath).pipe(
-      Effect.map((v) => v as Result),
-      Effect.mapError((err) => tagDaemonError(method, err)),
+  rpc: <D extends RpcDefinition<string, TSchema, TSchema>>(
+    definition: D,
+    params: ParamsOf<D>,
+  ) =>
+    daemonRequest(definition, params, socketPath).pipe(
+      Effect.mapError((err) => tagDaemonError(definition.name, err)),
     ),
 });
 
@@ -327,17 +335,16 @@ const makeDirectTransport = (
 
     return {
       kind: "direct" as const,
-      rpc: <Result>(
-        method: string,
-        params: Record<string, unknown>,
-      ): Effect.Effect<Result, TransportError> =>
+      rpc: <D extends RpcDefinition<string, TSchema, TSchema>>(
+        definition: D,
+        params: ParamsOf<D>,
+      ): Effect.Effect<ResultOf<D>, TransportError> =>
         connectOnce.pipe(
           Effect.flatMap((c) =>
             c
-              .sendRpc(method, params)
-              .pipe(Effect.mapError((e) => tagWsError(method, e))),
+              .sendRpc(definition, params)
+              .pipe(Effect.mapError((e) => tagWsError(definition.name, e))),
           ),
-          Effect.map((v) => v as Result),
         ),
     };
   });
@@ -406,11 +413,11 @@ export const makeTransportLayer = (
  * Every new subcommand routes through this helper; raw `socket-client.request`
  * imports in new commands are a lint-level violation (see design doc §3).
  */
-export const rpc = <Result>(
-  method: string,
-  params: Record<string, unknown>,
-): Effect.Effect<Result, TransportError, Transport> =>
-  Effect.flatMap(Transport, (t) => t.rpc<Result>(method, params));
+export const rpc = <D extends RpcDefinition<string, TSchema, TSchema>>(
+  definition: D,
+  params: ParamsOf<D>,
+): Effect.Effect<ResultOf<D>, TransportError, Transport> =>
+  Effect.flatMap(Transport, (t) => t.rpc(definition, params));
 
 /**
  * Uniform error-to-exit adapter for subcommand handlers. Catches every error

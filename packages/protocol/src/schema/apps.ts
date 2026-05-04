@@ -1,22 +1,17 @@
 import { Type, type Static } from "@sinclair/typebox";
+import { Value } from "@sinclair/typebox/value";
 import { stringEnum, brandedId, DateTimeString } from "../helpers.js";
 import { AgentId, ConversationId } from "./primitives.js";
 
 export const AppSessionId = brandedId("AppSessionId");
+export const appSessionId = (value: string): Static<typeof AppSessionId> =>
+  Value.Decode(AppSessionId, value);
 
 export const AppParticipantStatusEnum = stringEnum([
   "pending",
   "admitted",
   "rejected",
 ]);
-
-export const AppPermissionSchema = Type.Object(
-  {
-    resource: Type.String(),
-    access: Type.Array(Type.String()),
-  },
-  { additionalProperties: false },
-);
 
 export const AppManifestConversationSchema = Type.Object(
   {
@@ -43,17 +38,6 @@ export const AppManifestSchema = Type.Object(
     appId: Type.String(),
     name: Type.String(),
     description: Type.Optional(Type.String()),
-    permissions: Type.Object(
-      {
-        required: Type.Array(AppPermissionSchema),
-        optional: Type.Array(AppPermissionSchema),
-      },
-      { additionalProperties: false },
-    ),
-    skillUrl: Type.Optional(Type.String()),
-    skillMinVersion: Type.Optional(Type.String()),
-    challengeTimeoutMs: Type.Optional(Type.Integer({ default: 30000 })),
-    permissionTimeoutMs: Type.Optional(Type.Integer({ default: 120000 })),
     limits: Type.Optional(
       Type.Object(
         {
@@ -92,7 +76,6 @@ export const AppSessionSchema = Type.Object(
   { additionalProperties: false },
 );
 
-export type AppPermission = Static<typeof AppPermissionSchema>;
 export type AppManifest = Static<typeof AppManifestSchema>;
 export type AppManifestConversation = Static<
   typeof AppManifestConversationSchema

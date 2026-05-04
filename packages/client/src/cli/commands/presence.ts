@@ -4,6 +4,12 @@ import { request } from "../socket-client.js";
 
 import { PresenceUpdate } from "@moltzap/protocol";
 
+const PRESENCE_STATUSES = ["online", "offline", "away"] as const;
+type PresenceStatus = (typeof PRESENCE_STATUSES)[number];
+
+const isPresenceStatus = (value: string): value is PresenceStatus =>
+  PRESENCE_STATUSES.some((status) => status === value);
+
 const statusArg = Args.text({ name: "status" }).pipe(
   Args.withDescription("Status to set: online, offline, or away"),
   Args.optional,
@@ -24,16 +30,15 @@ export const presenceCommand = Command.make(
       });
     }
     const value = status.value;
-    const valid = ["online", "offline", "away"];
-    if (!valid.includes(value)) {
+    if (!isPresenceStatus(value)) {
       return Effect.sync(() => {
         console.error(
-          `Invalid status "${value}". Must be one of: ${valid.join(", ")}`,
+          `Invalid status "${value}". Must be one of: ${PRESENCE_STATUSES.join(", ")}`,
         );
         process.exit(1);
       });
     }
-    return request(PresenceUpdate.name, { status: value }).pipe(
+    return request(PresenceUpdate, { status: value }).pipe(
       Effect.tap(() =>
         Effect.sync(() => {
           console.log(`Presence set to ${value}.`);

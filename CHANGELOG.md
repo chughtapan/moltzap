@@ -9,25 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Server-initiated awaitable RPC channel. `RequestFrameSchema` and
-  `ResponseFrameSchema` carry a required `direction: "c2s" | "s2c"`
-  discriminator; c2s and s2c request-id pools live in disjoint pending
-  maps. `MoltZapWsClient.handleServerRpc(method, handler)` registers
-  handlers for inbound s2c requests; the server allocates a `Deferred`
-  per outbound request and finalizes pending Deferreds with
-  `AppDisconnected` on connection scope close.
-- Five new s2c RPC verbs for app hooks:
+- App-callback awaitable RPC channel over standard JSON-RPC request and
+  response frames. `MoltZapWsClient.handleServerRpc(definition, handler)`
+  registers handlers for descriptor-backed app-callback requests; the
+  server allocates a `Deferred` per outbound request and finalizes pending
+  Deferreds with `AppDisconnected` on connection scope close.
+- Five app-callback RPC descriptors for app hooks:
   `apps/onBeforeDispatch`, `apps/onBeforeMessageDelivery`,
   `apps/onSessionActive`, `apps/onJoin`, `apps/onClose`. All five are
   awaitable; the lifecycle verbs reply with `{}` so the AppHost's
   `Effect.timeout(manifestMs)` applies and `app/sessionReady` ordering
   is preserved.
-- New c2s RPC verb `apps/attachConversation` for adding an existing
+- New RPC descriptor `apps/attachConversation` for adding an existing
   conversation to a session's membership pipeline.
 - `MoltZapApp.onBeforeDispatch`, `onBeforeMessageDelivery`,
   `onSessionActive`, `onJoin`, `onClose`, and `attachConversation`
   on the app-sdk surface. Each `onX` registers a handler against the
-  matching s2c RPC verb; duplicate registration throws
+  matching app-callback RPC descriptor; duplicate registration throws
   `AppError("DUPLICATE_HOOK_HANDLER")`.
 - Typed errors in `@moltzap/app-sdk`: `AppHandlerError`,
   `AdmissionTimeoutError`, `AppDisconnected`, `AttachError`.
@@ -42,23 +40,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **BREAKING (wire format):** `RequestFrameSchema` and
-  `ResponseFrameSchema` now require a `direction: "c2s" | "s2c"`
-  field on every frame. Raw clients or servers that hand-craft JSON
-  envelopes must populate this field; missing or unknown values are
-  rejected by the schema. `MoltZapWsClient`, `@moltzap/server-core`,
-  and `@moltzap/app-sdk` consumers are unaffected — they emit/parse
-  the field internally.
-- `app/hookTimeout` event schema (`packages/protocol/src/schema/events.ts:189`):
+- **BREAKING (wire format):** MoltZap now uses standard unary JSON-RPC
+  request, response, and notification frames. Custom `type`,
+  `direction`, `event`, and `data` envelope fields are removed; raw
+  clients or servers that hand-craft JSON envelopes must use
+  `{ jsonrpc, id, method, params }`, `{ jsonrpc, id, result/error }`,
+  and `{ jsonrpc, method, params }`.
+- `app/hookTimeout` notification schema (`packages/protocol/src/schema/notifications.ts`):
   `hookName` enum extended to
   `["before_message_delivery", "before_dispatch", "on_join", "on_session_active", "on_close"]`.
-  AppHost emits the event for all five hook kinds; the schema previously
+  AppHost emits the notification for all five hook kinds; the schema previously
   rejected `before_dispatch` and `on_session_active`.
 - AppHost composes hooks with `Effect.forEach` in registration-order
   FIFO with first-deny short-circuit. Hook signatures unified to
   `Effect<Verdict, never>` regardless of source (in-process or remote).
 - Manifest hook timeout (`manifest.hooks.<name>.timeout_ms`) is now
   enforced at the AppHost call site via `Effect.timeout(manifestMs)`.
+- **BREAKING (Phase 1C):** `RpcServerError`, `NotConnectedError`, and
+  `RpcTimeoutError` moved from `@moltzap/client` to `@moltzap/protocol`.
+  Re-import these from `@moltzap/protocol` (or a shared barrel) — the
+  `@moltzap/client` re-exports are gone.
+- **Internal (Phase 1C):** Protocol validation now uses a single shared
+  frozen-singleton AJV instance. All schema compilation goes through one
+  AJV configured identically, removing per-call AJV construction and
+  ensuring consistent validation options across the codebase.
 
 ### Removed
 
@@ -93,12 +98,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING:** `WebhookAdapterProbe` interface and
   `registerWebhookGracefulShutdown` function removed from
   `packages/protocol/src/testing/conformance/`. Replaced by an
-  `app-disconnect-fail-policy` property that asserts pending s2c
-  admissions fail with `AppDisconnected` and AppHost applies
-  fail-closed verdicts when the app's WS is severed.
+  `app-disconnect-fail-policy` property that asserts pending
+  app-callback admissions fail with `AppDisconnected` and AppHost
+  applies fail-closed verdicts when the app's WS is severed.
 - 30s upper bound on `hooks.<name>.timeout_ms` (B.4 follow-up #324).
   The schema in `packages/protocol/src/schema/apps.ts` now reads
   `Type.Integer({ default: 5000, minimum: 1 })` — no `maximum`.
+- **BREAKING (Phase 1A — surfaces):** Surface RPC + notification surface
+  removed end-to-end. Deleted RPCs: `surface/update`, `surface/get`,
+  `surface/action`, `surface/clear`. Deleted notifications:
+  `surface/updated` and `surface/cleared`.
+- **BREAKING (Phase 1A — push):** Push-token RPCs `push/register` and
+  `push/unregister` deleted; the server no longer maintains app
+  push-token state.
+- **BREAKING (Phase 1A — attestation):** Skill-attestation surface
+  deleted. Removed: RPC `apps/attestSkill`; notification
+  `app/skillChallenge`; manifest fields `AppManifest.skillUrl`,
+  `AppManifest.skillMinVersion`, `AppManifest.challengeTimeoutMs`;
+  attestation rejection codes; `ErrorCodes.SkillTimeout` and
+  `ErrorCodes.SkillMismatch`.
+- **BREAKING (Phase 1B — permissions):** Permissions surface deleted
+  end-to-end. Removed: RPCs `permissions/grant`, `permissions/list`,
+  `permissions/revoke`; notification `permissions/required`; manifest
+  fields `AppManifest.permissions` and `AppManifest.permissionTimeoutMs`;
+  DB table `app_permission_grants`; server modules
+  `DefaultPermissionService`, `WebhookPermissionService`, and the
+  `checkPermissions` server function; permission rejection codes;
+  `ErrorCodes.PermissionTimeout` and `ErrorCodes.PermissionDenied`; CLI
+  command `packages/client/src/cli/commands/permissions.ts`.
+- **BREAKING (Phase 1C):** `@effect/rpc` bridge dropped. The internal
+  shims `opaqueEffectSchema` and `bridgeEffectRpcType` are gone;
+  protocol descriptors are JSON-Schema-only.
 
 ### Migration
 
@@ -109,7 +139,16 @@ The TL;DR: delete the manifest webhook fields, register a handler on
 handler, drop the HMAC validation (the apiKey on the WS connection is
 the auth boundary).
 
-The server-level external-integration surfaces are unaffected:
-`MessageService.deliveryWebhook`, `WebhookContactService`,
-`WebhookPermissionService`, and the `services.contacts` /
-`services.permissions` / `services.users` YAML configs all survive.
+The remaining server-level external-integration surfaces are
+unaffected: `MessageService.deliveryWebhook`, `WebhookContactService`,
+and the `services.contacts` / `services.users` YAML configs all
+survive.
+
+Phase 1B deleted the permissions surface entirely. There is no
+permissions service. Apps that previously declared
+`manifest.permissions` (or `manifest.permissionTimeoutMs`) must remove
+those fields — the schema now rejects them. Clients that previously
+read or wrote permission-grant state must adapt to the no-permissions
+model: there are no `permissions/grant`, `permissions/list`, or
+`permissions/revoke` calls, no `permissions/required` notification,
+and no `services.permissions` YAML config.

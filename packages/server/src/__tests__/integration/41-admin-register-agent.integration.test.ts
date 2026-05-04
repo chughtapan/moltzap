@@ -30,7 +30,6 @@ const ADMIN_TEST_MANIFEST: AppManifest = {
   name: "Admin Register Test App",
   // Empty permissions — admission auto-completes without prompting,
   // keeping this test focused on the owner-id check at app-host.ts:753.
-  permissions: { required: [], optional: [] },
   conversations: [{ key: "main", name: "Main", participantFilter: "all" }],
 };
 
@@ -151,7 +150,7 @@ describe("/api/v1/admin/register-agent — secret-gated ownerUserId", () => {
         });
         trackClient(client);
 
-        const session = (yield* client.sendRpc(AppsCreate.name, {
+        const session = (yield* client.sendRpc(AppsCreate, {
           appId: ADMIN_TEST_MANIFEST.appId,
           invitedAgentIds: [invitee.agentId],
         })) as { session: { id: string; status: string } };
@@ -278,7 +277,7 @@ describe("/api/v1/admin/register-agent — secret-gated ownerUserId", () => {
       });
       trackClient(staleClient);
       const staleResult = yield* Effect.exit(
-        staleClient.sendRpc(Connect.name, {
+        staleClient.sendRpc(Connect, {
           agentKey: oldKey,
           minProtocol: PROTOCOL_VERSION,
           maxProtocol: PROTOCOL_VERSION,
@@ -293,7 +292,7 @@ describe("/api/v1/admin/register-agent — secret-gated ownerUserId", () => {
         autoConnect: false,
       });
       trackClient(freshClient);
-      const hello = (yield* freshClient.sendRpc(Connect.name, {
+      const hello = (yield* freshClient.sendRpc(Connect, {
         agentKey: rotated.apiKey,
         minProtocol: PROTOCOL_VERSION,
         maxProtocol: PROTOCOL_VERSION,

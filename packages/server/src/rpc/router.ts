@@ -1,53 +1,31 @@
 import { Cause, Effect, Exit } from "effect";
-import type { RequestFrame, ResponseFrame } from "@moltzap/protocol";
+import type { JsonRpcId, ResponseFrame } from "@moltzap/protocol";
 import { ErrorCodes, responseFrame } from "@moltzap/protocol";
-import type { AuthenticatedContext, RpcMethodRegistry } from "./context.js";
-import {
-  ForbiddenError,
-  InvalidParamsError,
-  RpcFailure,
-  validateParams,
-} from "../runtime/index.js";
+import type { AuthenticatedContext, ResolvedRpcMethod } from "./context.js";
+import { ForbiddenError, RpcFailure } from "../runtime/index.js";
 import { LoggerLive, logger } from "../logger.js";
 import { ConnIdTag } from "../app/layers.js";
 
-export function createRpcRouter(methods: RpcMethodRegistry) {
+export function createRpcRouter() {
   return function dispatch(
-    frame: RequestFrame,
+    request: ResolvedRpcMethod,
     ctx: AuthenticatedContext,
     connId: string,
   ) {
+    const frame = request.frame;
     const requestId = frame.id;
     const methodName = frame.method;
-    const method = methods[methodName];
-    if (!method) {
-      logger.warn({ requestId, method: methodName }, "Unknown RPC method");
-      return Effect.runPromise(
-        Effect.succeed(
-          errorResponse(
-            requestId,
-            ErrorCodes.MethodNotFound,
-            `Unknown method: ${methodName}`,
-          ),
-        ),
-      );
-    }
-
-    const params = frame.params ?? {};
     const startMs = Date.now();
 
     const program = Effect.gen(function* () {
-      const validated = method.validator
-        ? yield* validateParams<unknown>(method.validator, params)
-        : params;
-      if (method.requiresActive && ctx.agentStatus !== "active") {
+      if (request.requiresActive && ctx.agentStatus !== "active") {
         return yield* Effect.fail(
           new ForbiddenError({
             message: "Agent must be claimed before performing this action",
           }),
         );
       }
-      return yield* method.handler(validated, ctx);
+      return yield* request.handle(ctx);
     }).pipe(
       Effect.provideService(ConnIdTag, connId),
       Effect.provide(LoggerLive),
@@ -69,13 +47,6 @@ export function createRpcRouter(methods: RpcMethodRegistry) {
         const failure = Cause.failureOption(exit.cause);
         if (failure._tag === "Some") {
           const err = failure.value;
-          if (err instanceof InvalidParamsError) {
-            return errorResponse(
-              requestId,
-              ErrorCodes.InvalidParams,
-              err.message,
-            );
-          }
           if (err instanceof ForbiddenError) {
             return errorResponse(requestId, ErrorCodes.Forbidden, err.message);
           }
@@ -112,17 +83,17 @@ export function createRpcRouter(methods: RpcMethodRegistry) {
   };
 }
 
-function successResponse(id: string, result: unknown): ResponseFrame {
-  return responseFrame("c2s", id, { result });
+function successResponse(id: JsonRpcId, result: unknown): ResponseFrame {
+  return responseFrame(id, { result });
 }
 
 function errorResponse(
-  id: string,
+  id: JsonRpcId,
   code: number,
   message: string,
   data?: unknown,
 ): ResponseFrame {
-  return responseFrame("c2s", id, {
+  return responseFrame(id, {
     error: {
       code,
       message,

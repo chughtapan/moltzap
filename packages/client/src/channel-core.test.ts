@@ -12,9 +12,18 @@ import {
   createFakeChannelService,
   buildMessage,
   flushDispatchChain,
+  testAgentId,
+  testConversationId,
+  testMessageId,
   type FakeChannelService,
 } from "./test-utils/index.js";
-import { RpcServerError } from "./runtime/errors.js";
+import { RpcServerError } from "@moltzap/protocol";
+
+const agent = testAgentId;
+const conversation = testConversationId;
+const message = testMessageId;
+const participant = (agentLabel: string): string =>
+  `agent:${agent(agentLabel)}`;
 
 function customSetup(): {
   fake: FakeChannelService;
@@ -130,9 +139,9 @@ describe("MoltZapChannelCore", () => {
       expect(inbound).toHaveLength(1);
       const enriched = inbound[0]!;
       expect(enriched).toMatchObject({
-        id: "msg-abc",
-        conversationId: "conv-1",
-        sender: { id: "agent-alice", name: "Alice" },
+        id: message("msg-abc"),
+        conversationId: conversation("conv-1"),
+        sender: { id: agent("agent-alice"), name: "Alice" },
         text: "hi there",
         isFromMe: false,
         createdAt: "2026-04-10T13:00:00.000Z",
@@ -175,7 +184,7 @@ describe("MoltZapChannelCore", () => {
       fake.emit.message(buildMessage({ senderId: "agent-unknown" }));
       await flushDispatchChain();
 
-      expect(received[0]!.sender.name).toBe("agent-unknown");
+      expect(received[0]!.sender.name).toBe(agent("agent-unknown"));
     });
 
     it("swallows resolveAgentName errors and falls back to sender.id", async () => {
@@ -190,7 +199,7 @@ describe("MoltZapChannelCore", () => {
       fake.emit.message(buildMessage({ senderId: "agent-broken" }));
       await flushDispatchChain();
 
-      expect(received[0]!.sender.name).toBe("agent-broken");
+      expect(received[0]!.sender.name).toBe(agent("agent-broken"));
     });
 
     it("concatenates multi-text-part messages with newlines", async () => {
@@ -243,7 +252,7 @@ describe("MoltZapChannelCore", () => {
       fake.emit.message(buildMessage({ replyToId: "msg-parent-123" }));
       await flushDispatchChain();
 
-      expect(inbound[0]!.replyToId).toBe("msg-parent-123");
+      expect(inbound[0]!.replyToId).toBe(message("msg-parent-123"));
     });
 
     it("logs failures from the inbound handler's Effect error channel and keeps the consumer alive", async () => {
@@ -274,7 +283,7 @@ describe("MoltZapChannelCore", () => {
       fake.emit.message(buildMessage({ id: "msg-2" }));
       await flushDispatchChain();
       expect(received).toHaveLength(1);
-      expect(received[0]!.id).toBe("msg-2");
+      expect(received[0]!.id).toBe(message("msg-2"));
     });
 
     it("logs synchronous defects thrown from inside the handler's Effect", async () => {
@@ -302,7 +311,7 @@ describe("MoltZapChannelCore", () => {
       );
       fake.emit.message(buildMessage({ id: "msg-2" }));
       await flushDispatchChain();
-      expect(next.map((r) => r.id)).toEqual(["msg-2"]);
+      expect(next.map((r) => r.id)).toEqual([message("msg-2")]);
     });
   });
 
@@ -324,8 +333,8 @@ describe("MoltZapChannelCore", () => {
       fake.emit.message(buildMessage({ id: "msg-1" }));
       await flushDispatchChain();
 
-      expect(requests).toEqual([{ messageId: "msg-1", attempt: 0 }]);
-      expect(received.map((m) => m.id)).toEqual(["msg-1"]);
+      expect(requests).toEqual([{ messageId: message("msg-1"), attempt: 0 }]);
+      expect(received.map((m) => m.id)).toEqual([message("msg-1")]);
     });
 
     it("reports a per-conversation observed logical clock to admission", async () => {
@@ -357,14 +366,14 @@ describe("MoltZapChannelCore", () => {
 
       expect(clocks).toEqual([
         {
-          domainId: "conv-1",
+          domainId: conversation("conv-1"),
           epoch: 1,
-          vector: { "agent-alice": 1 },
+          vector: { [agent("agent-alice")]: 1 },
         },
         {
-          domainId: "conv-1",
+          domainId: conversation("conv-1"),
           epoch: 2,
-          vector: { "agent-alice": 1, "agent-bob": 1 },
+          vector: { [agent("agent-alice")]: 1, [agent("agent-bob")]: 1 },
         },
       ]);
     });
@@ -383,7 +392,7 @@ describe("MoltZapChannelCore", () => {
 
       expect(fake.state.sent).toEqual([
         {
-          convId: "conv-1",
+          convId: conversation("conv-1"),
           text: "reply",
           dispatchLeaseId: "lease-active",
         },
@@ -427,7 +436,9 @@ describe("MoltZapChannelCore", () => {
       await flushDispatchChain();
 
       expect(boundService.admissionCalls).toBe(1);
-      expect(received.map((m) => m.id)).toEqual(["msg-bound-admission"]);
+      expect(received.map((m) => m.id)).toEqual([
+        message("msg-bound-admission"),
+      ]);
     });
 
     it("drops denied inbound dispatch work without calling the handler", async () => {
@@ -444,7 +455,7 @@ describe("MoltZapChannelCore", () => {
       expect(received).toHaveLength(0);
       expect(infoSpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          messageId: "msg-denied",
+          messageId: message("msg-denied"),
           attempt: 0,
           reason: "not this slot",
         }),
@@ -491,18 +502,21 @@ describe("MoltZapChannelCore", () => {
       );
       await flushDispatchChain();
 
-      expect(pendingSnapshots).toEqual([["msg-1"], ["msg-1", "msg-2"]]);
+      expect(pendingSnapshots).toEqual([
+        [message("msg-1")],
+        [message("msg-1"), message("msg-2")],
+      ]);
       expect(received).toHaveLength(1);
-      expect(received[0]!.id).toBe("msg-1");
+      expect(received[0]!.id).toBe(message("msg-1"));
       expect(received[0]!.text).toContain("first");
       expect(received[0]!.text).toContain("second");
       expect(received[0]!.coalescedMessages?.map((m) => m.id)).toEqual([
-        "msg-1",
-        "msg-2",
+        message("msg-1"),
+        message("msg-2"),
       ]);
       expect(infoSpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          messageId: "msg-1",
+          messageId: message("msg-1"),
           attempt: 0,
           reason: "not_yet",
         }),
@@ -534,7 +548,7 @@ describe("MoltZapChannelCore", () => {
             conversationId: request.conversationId,
             pending: request.pending.map((m) => m.messageId),
           });
-          if (request.conversationId === "town-square") {
+          if (request.conversationId === conversation("town-square")) {
             return { _tag: "hold" as const, reason: "town_square_night" };
           }
           return { _tag: "grant" as const, leaseId: "lease-den" };
@@ -562,18 +576,21 @@ describe("MoltZapChannelCore", () => {
 
       expect(requests).toEqual([
         {
-          messageId: "town-night-narration",
-          conversationId: "town-square",
-          pending: ["town-night-narration"],
+          messageId: message("town-night-narration"),
+          conversationId: conversation("town-square"),
+          pending: [message("town-night-narration")],
         },
         {
-          messageId: "den-kill-prompt",
-          conversationId: "werewolf-den",
-          pending: ["den-kill-prompt", "town-night-narration"],
+          messageId: message("den-kill-prompt"),
+          conversationId: conversation("werewolf-den"),
+          pending: [
+            message("den-kill-prompt"),
+            message("town-night-narration"),
+          ],
         },
       ]);
-      expect(received.map((m) => m.id)).toEqual(["den-kill-prompt"]);
-      expect(received[0]!.conversationId).toBe("werewolf-den");
+      expect(received.map((m) => m.id)).toEqual([message("den-kill-prompt")]);
+      expect(received[0]!.conversationId).toBe(conversation("werewolf-den"));
       expect(received[0]!.dispatchLeaseId).toBe("lease-den");
     });
 
@@ -599,14 +616,14 @@ describe("MoltZapChannelCore", () => {
       expect(received).toHaveLength(0);
       expect(infoSpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          conversationId: "conv-1",
+          conversationId: conversation("conv-1"),
         }),
         "MoltZapChannelCore: closed conversation dispatch work purged",
       );
       expect(infoSpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          messageId: "msg-after-archive",
-          conversationId: "conv-1",
+          messageId: message("msg-after-archive"),
+          conversationId: conversation("conv-1"),
         }),
         "MoltZapChannelCore: dropping inbound message for closed conversation",
       );
@@ -652,14 +669,14 @@ describe("MoltZapChannelCore", () => {
 
       expect(
         pendingSnapshots.map((snapshot) => snapshot.map((m) => m.messageId)),
-      ).toEqual([["msg-1"]]);
+      ).toEqual([[message("msg-1")]]);
       expect(received).toHaveLength(1);
-      expect(received[0]!.id).toBe("msg-1");
+      expect(received[0]!.id).toBe(message("msg-1"));
       expect(received[0]!.text).toContain("first");
       expect(received[0]!.text).toContain("second");
       expect(received[0]!.coalescedMessages?.map((m) => m.id)).toEqual([
-        "msg-1",
-        "msg-2",
+        message("msg-1"),
+        message("msg-2"),
       ]);
     });
 
@@ -677,7 +694,7 @@ describe("MoltZapChannelCore", () => {
           return {
             _tag: "grant" as const,
             leaseId: "lease-marker",
-            dispatchMessageId: "msg-marker",
+            dispatchMessageId: message("msg-marker"),
           };
         });
 
@@ -711,13 +728,13 @@ describe("MoltZapChannelCore", () => {
       await flushDispatchChain();
 
       expect(received).toHaveLength(1);
-      expect(received[0]!.id).toBe("msg-marker");
+      expect(received[0]!.id).toBe(message("msg-marker"));
       expect(received[0]!.text).toContain("Time to vote");
       expect(received[0]!.text).toContain("after marker");
       expect(received[0]!.text).not.toContain("old discussion");
       expect(received[0]!.coalescedMessages?.map((m) => m.id)).toEqual([
-        "msg-marker",
-        "msg-after",
+        message("msg-marker"),
+        message("msg-after"),
       ]);
       expect(received[0]!.dispatchLeaseId).toBe("lease-marker");
     });
@@ -752,7 +769,7 @@ describe("MoltZapChannelCore", () => {
       expect(received).toHaveLength(0);
       expect(warnSpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          messageId: "msg-fail-closed",
+          messageId: message("msg-fail-closed"),
           attempt: 0,
         }),
         "MoltZapChannelCore: dispatch admission failed closed",
@@ -784,7 +801,7 @@ describe("MoltZapChannelCore", () => {
         () =>
           expect(warnSpy).toHaveBeenCalledWith(
             expect.objectContaining({
-              messageId: "msg-timeout-closed",
+              messageId: message("msg-timeout-closed"),
               attempt: 0,
             }),
             "MoltZapChannelCore: dispatch admission failed closed",
@@ -807,14 +824,14 @@ describe("MoltZapChannelCore", () => {
         Effect.succeed({
           _tag: "grant" as const,
           leaseId: `lease-${request.message.id}`,
-          leaseTimeoutMs: request.message.id === "msg-stuck" ? 1 : 50,
+          leaseTimeoutMs: request.message.id === message("msg-stuck") ? 1 : 50,
         });
       const core = new MoltZapChannelCore({
         service: fake.service,
         logger: { info: () => {}, warn: warnSpy, error: errorSpy },
       });
       core.onInbound((m) => {
-        if (m.id === "msg-stuck") return Effect.never;
+        if (m.id === message("msg-stuck")) return Effect.never;
         return Effect.sync(() => {
           received.push(m.id);
         });
@@ -826,11 +843,11 @@ describe("MoltZapChannelCore", () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
       await flushDispatchChain();
 
-      expect(received).toEqual(["msg-next"]);
+      expect(received).toEqual([message("msg-next")]);
       expect(warnSpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          messageId: "msg-stuck",
-          leaseId: "lease-msg-stuck",
+          messageId: message("msg-stuck"),
+          leaseId: `lease-${message("msg-stuck")}`,
           timeoutMs: 1,
         }),
         "MoltZapChannelCore: inbound dispatch lease expired",
@@ -863,13 +880,16 @@ describe("MoltZapChannelCore", () => {
       // Resolve the first, chain advances.
       resolvers[0]!("agent-alice");
       await flushDispatchChain();
-      expect(received.map((r) => r.id)).toEqual(["msg-1"]);
+      expect(received.map((r) => r.id)).toEqual([message("msg-1")]);
       expect(resolvers).toHaveLength(2);
 
       // Resolve the second.
       resolvers[1]!("agent-bob");
       await flushDispatchChain();
-      expect(received.map((r) => r.id)).toEqual(["msg-1", "msg-2"]);
+      expect(received.map((r) => r.id)).toEqual([
+        message("msg-1"),
+        message("msg-2"),
+      ]);
     });
 
     it("awaits async handler fully before processing the next message", async () => {
@@ -895,21 +915,25 @@ describe("MoltZapChannelCore", () => {
       await flushDispatchChain();
 
       // Handler started for msg-1, hasn't returned yet. msg-2 has NOT entered.
-      expect(order).toEqual(["enter:msg-1"]);
+      expect(order).toEqual([`enter:${message("msg-1")}`]);
 
       handlerBarriers[0]!();
       await flushDispatchChain();
 
       // msg-1 fully processed; msg-2 has entered.
-      expect(order).toEqual(["enter:msg-1", "exit:msg-1", "enter:msg-2"]);
+      expect(order).toEqual([
+        `enter:${message("msg-1")}`,
+        `exit:${message("msg-1")}`,
+        `enter:${message("msg-2")}`,
+      ]);
 
       handlerBarriers[1]!();
       await flushDispatchChain();
       expect(order).toEqual([
-        "enter:msg-1",
-        "exit:msg-1",
-        "enter:msg-2",
-        "exit:msg-2",
+        `enter:${message("msg-1")}`,
+        `exit:${message("msg-1")}`,
+        `enter:${message("msg-2")}`,
+        `exit:${message("msg-2")}`,
       ]);
     });
 
@@ -951,9 +975,9 @@ describe("MoltZapChannelCore", () => {
         type: "group",
         name: "devs",
         participants: [
-          "agent:agent-alice",
-          "agent:agent-bob",
-          "agent:agent-self",
+          participant("agent-alice"),
+          participant("agent-bob"),
+          participant("agent-self"),
         ],
       });
     });
@@ -1131,16 +1155,20 @@ describe("MoltZapChannelCore", () => {
 
   describe("sendReply", () => {
     it("delegates to service.send with conversationId and text", async () => {
-      await Effect.runPromise(core.sendReply("conv-42", "hello there"));
+      await Effect.runPromise(
+        core.sendReply(conversation("conv-42"), "hello there"),
+      );
       expect(fake.state.sent).toEqual([
-        { convId: "conv-42", text: "hello there" },
+        { convId: conversation("conv-42"), text: "hello there" },
       ]);
     });
 
     it("drops replies locally after the conversation is archived", async () => {
       fake.emit.conversationArchived({ conversationId: "conv-42" });
 
-      await Effect.runPromise(core.sendReply("conv-42", "hello there"));
+      await Effect.runPromise(
+        core.sendReply(conversation("conv-42"), "hello there"),
+      );
 
       expect(fake.state.sent).toEqual([]);
     });
@@ -1149,10 +1177,12 @@ describe("MoltZapChannelCore", () => {
       fake.emit.conversationArchived({ conversationId: "conv-42" });
       fake.emit.conversationUnarchived({ conversationId: "conv-42" });
 
-      await Effect.runPromise(core.sendReply("conv-42", "hello again"));
+      await Effect.runPromise(
+        core.sendReply(conversation("conv-42"), "hello again"),
+      );
 
       expect(fake.state.sent).toEqual([
-        { convId: "conv-42", text: "hello again" },
+        { convId: conversation("conv-42"), text: "hello again" },
       ]);
     });
   });
@@ -1186,9 +1216,9 @@ describe("MoltZapChannelCore", () => {
       );
 
       expect(staticResult).toMatchObject({
-        id: "msg-static",
-        conversationId: "conv-1",
-        sender: { id: "agent-alice", name: "Alice" },
+        id: message("msg-static"),
+        conversationId: conversation("conv-1"),
+        sender: { id: agent("agent-alice"), name: "Alice" },
         text: "static enrichment",
         isFromMe: false,
       });
@@ -1213,7 +1243,7 @@ describe("MoltZapChannelCore", () => {
         ),
       );
 
-      expect(result.sender.name).toBe("agent-unknown");
+      expect(result.sender.name).toBe(agent("agent-unknown"));
     });
   });
 

@@ -84,8 +84,8 @@ function bootClaudeCodeChannelEffect(
     const core = new MoltZapChannelCore({ service, logger });
     const routing = createRoutingState();
 
-    const sendReply = (chatId: string, text: string) =>
-      core.sendReply(chatId, text).pipe(
+    const sendReply = (conversationId: string, text: string) =>
+      core.sendReply(conversationId, text).pipe(
         Effect.mapError(
           (cause): ReplyError =>
             new SendFailed({

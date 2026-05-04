@@ -2,16 +2,15 @@
 
 import { Effect } from "effect";
 import type { Message } from "@moltzap/protocol";
+import { testAgentId, testConversationId } from "./ids.js";
 import type {
   ChannelService,
   CrossConversationEntry,
   CrossConvMessage,
-  PermissionsRequiredEvent,
 } from "../index.js";
 
 type MessageHandler = (msg: Message) => void;
 type VoidHandler = () => void;
-type PermissionRequiredHandler = (data: PermissionsRequiredEvent) => void;
 type ConversationArchivedHandler = (data: { conversationId: string }) => void;
 type ConversationUnarchivedHandler = (data: { conversationId: string }) => void;
 
@@ -21,12 +20,22 @@ interface FixtureConversationMeta {
   participants: string[];
 }
 
+const agentKey = (id: string): string => testAgentId(id);
+const conversationKey = (id: string): string => testConversationId(id);
+
+function participantKey(participant: string): string {
+  const separatorIndex = participant.indexOf(":");
+  if (separatorIndex === -1) return participant;
+  const type = participant.slice(0, separatorIndex);
+  const id = participant.slice(separatorIndex + ":".length);
+  return type === "agent" ? `${type}:${agentKey(id)}` : participant;
+}
+
 /** Fire events on the fixture service. */
 export interface ChannelServiceEmit {
   message(msg: Message): void;
   disconnect(): void;
   reconnect(): void;
-  permissionRequired(data: PermissionsRequiredEvent): void;
   conversationArchived(data: { conversationId: string }): void;
   conversationUnarchived(data: { conversationId: string }): void;
 }
@@ -67,7 +76,6 @@ export function createFakeChannelService(
   const messageHandlers: MessageHandler[] = [];
   const disconnectHandlers: VoidHandler[] = [];
   const reconnectHandlers: VoidHandler[] = [];
-  const permissionRequiredHandlers: PermissionRequiredHandler[] = [];
   const conversationArchivedHandlers: ConversationArchivedHandler[] = [];
   const conversationUnarchivedHandlers: ConversationUnarchivedHandler[] = [];
 
@@ -86,7 +94,8 @@ export function createFakeChannelService(
   const connectCalls = { count: 0 };
   const closeCalls = { count: 0 };
   let connectResult: unknown = {};
-  let ownAgentId: string | undefined = opts.ownAgentId;
+  let ownAgentId: string | undefined =
+    opts.ownAgentId !== undefined ? agentKey(opts.ownAgentId) : undefined;
 
   const service: ChannelService = {
     get ownAgentId() {
@@ -98,13 +107,11 @@ export function createFakeChannelService(
         | "message"
         | "disconnect"
         | "reconnect"
-        | "permissionRequired"
         | "conversationArchived"
         | "conversationUnarchived",
       handler:
         | MessageHandler
         | VoidHandler
-        | PermissionRequiredHandler
         | ConversationArchivedHandler
         | ConversationUnarchivedHandler,
     ): void {
@@ -114,8 +121,6 @@ export function createFakeChannelService(
         disconnectHandlers.push(handler as VoidHandler);
       } else if (event === "reconnect") {
         reconnectHandlers.push(handler as VoidHandler);
-      } else if (event === "permissionRequired") {
-        permissionRequiredHandlers.push(handler as PermissionRequiredHandler);
       } else if (event === "conversationArchived") {
         conversationArchivedHandlers.push(
           handler as ConversationArchivedHandler,
@@ -209,35 +214,37 @@ export function createFakeChannelService(
     reconnect() {
       for (const h of reconnectHandlers) h();
     },
-    permissionRequired(data) {
-      for (const h of permissionRequiredHandlers) h(data);
-    },
     conversationArchived(data) {
-      archivedConversationIds.add(data.conversationId);
-      conversations.delete(data.conversationId);
-      for (const h of conversationArchivedHandlers) h(data);
+      const conversationId = conversationKey(data.conversationId);
+      archivedConversationIds.add(conversationId);
+      conversations.delete(conversationId);
+      for (const h of conversationArchivedHandlers) h({ conversationId });
     },
     conversationUnarchived(data) {
-      archivedConversationIds.delete(data.conversationId);
-      for (const h of conversationUnarchivedHandlers) h(data);
+      const conversationId = conversationKey(data.conversationId);
+      archivedConversationIds.delete(conversationId);
+      for (const h of conversationUnarchivedHandlers) h({ conversationId });
     },
   };
 
   const state: ChannelServiceState = {
     setConversation(id, meta) {
-      conversations.set(id, meta);
+      conversations.set(conversationKey(id), {
+        ...meta,
+        participants: meta.participants.map(participantKey),
+      });
     },
     setAgentName(id, name) {
-      agentNames.set(id, name);
+      agentNames.set(agentKey(id), name);
     },
     setContextEntries(currentConvId, entries) {
-      contextEntriesByConv.set(currentConvId, entries);
+      contextEntriesByConv.set(conversationKey(currentConvId), entries);
     },
     setFullMessages(currentConvId, messages) {
-      fullMessagesByConv.set(currentConvId, messages);
+      fullMessagesByConv.set(conversationKey(currentConvId), messages);
     },
     setResolveAgentNameFailure(agentId, err) {
-      resolveFailures.set(agentId, err);
+      resolveFailures.set(agentKey(agentId), err);
     },
     setConnectResult(result) {
       connectResult = result;
@@ -248,7 +255,7 @@ export function createFakeChannelService(
     connectCalls,
     closeCalls,
     resolveAgentNameCallCount(agentId) {
-      return resolveCalls.filter((id) => id === agentId).length;
+      return resolveCalls.filter((id) => id === agentKey(agentId)).length;
     },
   };
 

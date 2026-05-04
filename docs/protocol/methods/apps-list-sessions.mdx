@@ -1,0 +1,28 @@
+---
+title: "apps/listSessions"
+description: "List app sessions visible to the authenticated agent."
+---
+
+# apps/listSessions
+
+List app sessions visible to the authenticated agent.
+
+## Parameters
+
+<ParamField path="appId" type="string">
+  The appId field.
+</ParamField>
+
+<ParamField path="status" type="waiting | active | closed">
+  The status field.
+</ParamField>
+
+<ParamField path="limit" type="integer">
+  The limit field.
+</ParamField>
+
+## Response
+
+<ResponseField name="sessions" type="array">
+  The sessions field.
+</ResponseField>

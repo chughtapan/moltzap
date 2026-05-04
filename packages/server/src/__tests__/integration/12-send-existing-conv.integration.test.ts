@@ -8,7 +8,11 @@ import {
   setupAgentPair,
 } from "./helpers.js";
 
-import { ConversationsCreate, MessagesSend } from "@moltzap/protocol";
+import {
+  ConversationsCreate,
+  MessagesSend,
+  MessageReceivedNotificationDefinition,
+} from "@moltzap/protocol";
 
 beforeAll(async () => {
   await startTestServer();
@@ -29,20 +33,22 @@ describe("Send to Existing Conversation", () => {
       Effect.gen(function* () {
         const { alice, bob } = yield* setupAgentPair();
 
-        const conv = (yield* alice.client.sendRpc(ConversationsCreate.name, {
+        const conv = (yield* alice.client.sendRpc(ConversationsCreate, {
           type: "dm",
           participants: [{ type: "agent", id: bob.agentId }],
         })) as { conversation: { id: string } };
         const conversationId = conv.conversation.id;
 
-        yield* alice.client.sendRpc(MessagesSend.name, {
+        yield* alice.client.sendRpc(MessagesSend, {
           conversationId,
           parts: [{ type: "text", text: "First message" }],
         });
-        yield* bob.client.waitForEvent("messages/received");
+        yield* bob.client.waitForNotification(
+          MessageReceivedNotificationDefinition,
+        );
 
         // Send second message using conversationId
-        const send2 = (yield* alice.client.sendRpc(MessagesSend.name, {
+        const send2 = (yield* alice.client.sendRpc(MessagesSend, {
           conversationId,
           parts: [{ type: "text", text: "Second message" }],
         })) as {
@@ -56,9 +62,11 @@ describe("Send to Existing Conversation", () => {
         expect(send2.message.conversationId).toBe(conversationId);
         expect(send2.message.senderId).toBe(alice.agentId);
 
-        const bobEvent2 = yield* bob.client.waitForEvent("messages/received");
+        const bobEvent2 = yield* bob.client.waitForNotification(
+          MessageReceivedNotificationDefinition,
+        );
         const received = (
-          bobEvent2.data as {
+          bobEvent2.params as {
             message: {
               conversationId: string;
               parts: Array<{ text: string }>;

@@ -9,8 +9,9 @@ import * as fc from "fast-check";
 import { Data } from "effect";
 import {
   rpcMethods,
-  type RpcMap,
+  type RpcDefinitionFor,
   type RpcMethodName,
+  type RpcParams,
 } from "../../rpc-registry.js";
 import { applyCall } from "../models/dispatch.js";
 import { initialReferenceState } from "../models/state.js";
@@ -27,8 +28,9 @@ class RpcArbitraryInvariantError extends Data.TaggedError(
  * reference model so it can pick the matching reducer.
  */
 export interface ArbitraryRpcCall<M extends RpcMethodName = RpcMethodName> {
+  readonly definition: RpcDefinitionFor<M>;
   readonly method: M;
-  readonly params: RpcMap[M]["params"];
+  readonly params: RpcParams<M>;
 }
 
 /**
@@ -47,7 +49,7 @@ const methodByName = new Map(rpcMethods.map((m) => [m.name, m]));
 export function arbitraryCallFor<M extends RpcMethodName>(
   method: M,
 ): fc.Arbitrary<ArbitraryRpcCall<M>> {
-  const def = methodByName.get(method);
+  const def = methodByName.get(method) as RpcDefinitionFor<M> | undefined;
   if (def === undefined) {
     throw new RpcArbitraryInvariantError({
       message: `arbitraryCallFor: unknown method ${String(method)}`,
@@ -56,8 +58,9 @@ export function arbitraryCallFor<M extends RpcMethodName>(
   return arbitraryForParams(def.paramsSchema).map(
     (params) =>
       ({
+        definition: def,
         method,
-        params: params as RpcMap[M]["params"],
+        params: params as RpcParams<M>,
       }) as const,
   );
 }

@@ -12,7 +12,6 @@ import {
 } from "./commands/conversations.js";
 import { inviteCommand } from "./commands/invite.js";
 import { messagesCommand } from "./commands/messages.js";
-import { permissionsCommand } from "./commands/permissions.js";
 import { pingCommand } from "./commands/ping.js";
 import { presenceCommand } from "./commands/presence.js";
 import { registerCommand } from "./commands/register.js";
@@ -150,7 +149,6 @@ const moltzap = Command.make("moltzap").pipe(
     agentsCommand,
     // sbd#177 v2 additions:
     appsCommand,
-    permissionsCommand,
     messagesCommand,
   ]),
 );

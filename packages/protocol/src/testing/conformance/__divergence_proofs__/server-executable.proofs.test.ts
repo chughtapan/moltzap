@@ -18,7 +18,7 @@ import {
   ConversationsUpdate,
 } from "../../../schema/methods/conversations.js";
 import { MessagesSend } from "../../../schema/methods/messages.js";
-import { decodeFrame, encodeFrame } from "../../codec.js";
+import { decodeFrame, encodeFrame, isRequestFrame } from "../../codec.js";
 import type { ConformanceArtifact } from "../runner.js";
 import type { ConformanceRunContext, RealServerHandle } from "../runner.js";
 import {
@@ -244,6 +244,15 @@ function makeBadServerContext(
   });
 }
 
+const BAD_SERVER_AGENT_UUID_PREFIX = "00000000-0000-4000-8000-";
+const BAD_SERVER_AGENT_UUID_NODE_LEN = 12;
+
+function badServerAgentId(counter: number): string {
+  return `${BAD_SERVER_AGENT_UUID_PREFIX}${counter
+    .toString(16)
+    .padStart(BAD_SERVER_AGENT_UUID_NODE_LEN, "0")}`;
+}
+
 const makeRegistrationHttpServer: Effect.Effect<
   { readonly baseUrl: string },
   never,
@@ -262,7 +271,7 @@ const makeRegistrationHttpServer: Effect.Effect<
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(
         JSON.stringify({
-          agentId: `bad-server-agent-${counter}`,
+          agentId: badServerAgentId(counter),
           apiKey: `bad-server-key-${counter}`,
           claimUrl: `http://127.0.0.1/claim/${counter}`,
           claimToken: `claim-${counter}`,
@@ -319,26 +328,19 @@ function makeBadWebSocketServer(
                 const decoded = yield* Effect.either(
                   decodeFrame(raw, "inbound"),
                 );
-                if (
-                  decoded._tag === "Left" ||
-                  decoded.right.type !== "request"
-                ) {
-                  return;
-                }
+                if (decoded._tag === "Left") return;
+                const frame = decoded.right;
+                if (!isRequestFrame(frame)) return;
                 const ordinal = yield* Ref.updateAndGet(
                   requestCounter,
                   (n) => n + 1,
                 );
-                const response = makeBadResponse(
-                  decoded.right,
-                  behavior,
-                  ordinal,
-                );
+                const response = makeBadResponse(frame, behavior, ordinal);
                 if (response === null) return;
                 yield* writer(encodeFrame(response)).pipe(Effect.orDie);
                 if (
                   behavior === "duplicate-response-id" &&
-                  decoded.right.method === ConversationsList.name
+                  frame.method === ConversationsList.name
                 ) {
                   yield* writer(encodeFrame(response)).pipe(Effect.orDie);
                 }
@@ -383,14 +385,14 @@ function makeBadResponse(
     (behavior === "reject-authorized" &&
       request.method === ConversationsList.name)
   ) {
-    return responseFrame("c2s", request.id, {
+    return responseFrame(request.id, {
       error: {
         code: ErrorCodes.InternalError,
         message: "bad server rejects model-ok call",
       },
     });
   }
-  return responseFrame("c2s", request.id, {
+  return responseFrame(request.id, {
     result: makeBadResult(request, behavior, ordinal),
   });
 }
@@ -435,7 +437,15 @@ function makeBadResult(
       return { agents: {} };
     case ConversationsList.name:
       return behavior === "drift-idempotent-result"
-        ? { conversations: [{ id: `drift-${ordinal}`, name: "drift" }] }
+        ? {
+            conversations: [
+              {
+                id: `00000000-0000-4000-8000-${ordinal.toString(16).padStart(12, "0")}`,
+                type: "group",
+                unreadCount: ordinal,
+              },
+            ],
+          }
         : { conversations: [] };
     default:
       return {};
@@ -459,7 +469,7 @@ function makeAppSessionCloseLifecycleBadResult(request: RequestFrame): unknown {
         id: "00000000-0000-4000-8000-000000000201",
         appId:
           typeof params.appId === "string" ? params.appId : "bad-close-app",
-        initiatorAgentId: "bad-server-agent-2",
+        initiatorAgentId: "00000000-0000-4000-8000-000000000301",
         status: "active",
         conversations: {
           main: "00000000-0000-4000-8000-000000000202",

@@ -3,84 +3,46 @@
  *
  * Run: pnpm --filter @moltzap/protocol tsx ../../scripts/generate-protocol-docs.ts
  */
-import { writeFileSync, mkdirSync } from "node:fs";
+import { readdirSync, unlinkSync, writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { Kind, type TSchema, type TProperties } from "@sinclair/typebox";
+import type { RpcDefinition } from "../packages/protocol/src/rpc.js";
+import {
+  appCallbackRpcMethods,
+  rpcMethods,
+} from "../packages/protocol/src/rpc-registry.js";
+import type { NotificationDefinition } from "../packages/protocol/src/notification.js";
+import { notificationDefinitions } from "../packages/protocol/src/schema/notifications.js";
+import * as protocolSchema from "../packages/protocol/src/schema/index.js";
 
-// Import all schemas
-import {
-  // Auth method manifests
-  Register,
-  Connect,
-  InviteAgent,
-  AgentsLookup,
-  AgentsLookupByName,
-  AgentsList,
-  HelloOkSchema,
-} from "../packages/protocol/src/schema/methods/auth.js";
-import {
-  MessagesSend,
-  MessagesList,
-} from "../packages/protocol/src/schema/methods/messages.js";
-import {
-  ConversationsCreate,
-  ConversationsList,
-  ConversationsGet,
-  ConversationsUpdate,
-  ConversationsMute,
-  ConversationsUnmute,
-  ConversationsAddParticipant,
-  ConversationsRemoveParticipant,
-  ConversationsLeave,
-  ConversationsArchive,
-  ConversationsUnarchive,
-} from "../packages/protocol/src/schema/methods/conversations.js";
-import {
-  PresenceUpdate,
-  PresenceSubscribe,
-} from "../packages/protocol/src/schema/methods/presence.js";
-import {
-  SurfaceUpdate,
-  SurfaceGet,
-  SurfaceAction,
-  SurfaceClear,
-} from "../packages/protocol/src/schema/surfaces.js";
-import { SystemPing } from "../packages/protocol/src/schema/methods/system.js";
-import {
-  EventNames,
-  MessageReceivedEventSchema,
-  MessageDeliveredEventSchema,
-  ConversationCreatedEventSchema,
-  ConversationUpdatedEventSchema,
-  ConversationArchivedEventSchema,
-  ConversationUnarchivedEventSchema,
-  PresenceChangedEventSchema,
-  SurfaceUpdatedEventSchema,
-  SurfaceClearedEventSchema,
-} from "../packages/protocol/src/schema/index.js";
+// ── Protocol Registry ───────────────────────────────────────────────────
 
-// ── Method Registry ──────────────────────────────────────────────────────
+type AnyRpcDocDefinition = RpcDefinition<string, TSchema, TSchema>;
 
-interface MethodDef {
-  method: string;
-  description: string;
-  params: TSchema;
-  result?: TSchema;
-  resultDescription?: string;
-  errors?: Array<{ code: number; name: string; when: string }>;
-  relatedEvents?: string[];
-  category: string;
+interface ErrorDoc {
+  readonly code: number;
+  readonly name: string;
+  readonly when: string;
 }
 
-const methods: MethodDef[] = [
-  // Auth
-  {
-    method: "auth/register",
+interface MethodDocMeta {
+  readonly description?: string;
+  readonly resultDescription?: string;
+  readonly errors?: readonly ErrorDoc[];
+  readonly relatedNotifications?: readonly string[];
+}
+
+interface NotificationDocMeta {
+  readonly description?: string;
+  readonly triggeredBy?: readonly string[];
+}
+
+// Page existence, names, params, and results come from protocol descriptors.
+// This map is prose-only so docs copy can improve without duplicating schema.
+const methodDocs: Readonly<Record<string, MethodDocMeta>> = {
+  "auth/register": {
     description: "Register a new agent and receive an API key.",
-    params: Register.paramsSchema,
-    result: Register.resultSchema,
     resultDescription: "Agent ID, API key, and claim URL.",
-    category: "auth",
     errors: [
       { code: -32003, name: "Conflict", when: "Agent name already taken" },
       {
@@ -90,15 +52,11 @@ const methods: MethodDef[] = [
       },
     ],
   },
-  {
-    method: "auth/connect",
+  "auth/connect": {
     description:
       "Authenticate a WebSocket connection. Must be the first message on a new connection.",
-    params: Connect.paramsSchema,
-    result: HelloOkSchema,
     resultDescription:
       "Connection metadata including agent ID, protocol version, conversations, and server policy.",
-    category: "auth",
     errors: [
       { code: -32000, name: "Unauthorized", when: "Invalid API key or JWT" },
       {
@@ -108,45 +66,27 @@ const methods: MethodDef[] = [
       },
     ],
   },
-  {
-    method: "auth/invite-agent",
+  "auth/invite-agent": {
     description: "Create an agent invite for a phone number.",
-    params: InviteAgent.paramsSchema,
-    category: "auth",
   },
-  // Agents
-  {
-    method: "agents/lookup",
+  "auth/selectAgent": {
+    description: "Select an owned agent for the authenticated connection.",
+  },
+  "agents/lookup": {
     description:
       "Look up agents by their UUIDs. Returns agent cards for found agents.",
-    params: AgentsLookup.paramsSchema,
-    result: AgentsLookup.resultSchema,
-    category: "agents",
   },
-  {
-    method: "agents/lookup-by-name",
+  "agents/lookupByName": {
     description: "Look up agents by their short names.",
-    params: AgentsLookupByName.paramsSchema,
-    result: AgentsLookupByName.resultSchema,
-    category: "agents",
   },
-  {
-    method: "agents/list",
+  "agents/list": {
     description: "List all registered agents on the server.",
-    params: AgentsList.paramsSchema,
-    result: AgentsList.resultSchema,
-    category: "agents",
   },
-  // Messages
-  {
-    method: "messages/send",
+  "messages/send": {
     description:
       'Send a message to a conversation or agent. Creates a DM automatically when using `to: "agent:<name>"`.',
-    params: MessagesSend.paramsSchema,
-    result: MessagesSend.resultSchema,
     resultDescription:
       "The created message with ID, sequence number, and timestamp.",
-    category: "messages",
     errors: [
       {
         code: -32002,
@@ -164,58 +104,35 @@ const methods: MethodDef[] = [
         when: "Message rate limit exceeded",
       },
     ],
-    relatedEvents: ["messages/received"],
+    relatedNotifications: ["messages/received"],
   },
-  {
-    method: "messages/list",
+  "messages/list": {
     description:
       "List messages in a conversation with cursor-based pagination using sequence numbers.",
-    params: MessagesList.paramsSchema,
-    result: MessagesList.resultSchema,
-    category: "messages",
     errors: [
       { code: -32002, name: "NotFound", when: "Conversation not found" },
       { code: -32001, name: "Forbidden", when: "Not a participant" },
     ],
   },
-  // Conversations
-  {
-    method: "conversations/create",
+  "conversations/create": {
     description: "Create a new group conversation with participants.",
-    params: ConversationsCreate.paramsSchema,
-    result: ConversationsCreate.resultSchema,
-    category: "conversations",
-    relatedEvents: ["conversations/created"],
+    relatedNotifications: ["conversations/created"],
   },
-  {
-    method: "conversations/list",
+  "conversations/list": {
     description:
       "List your conversations with message previews and unread counts.",
-    params: ConversationsList.paramsSchema,
-    result: ConversationsList.resultSchema,
-    category: "conversations",
   },
-  {
-    method: "conversations/get",
+  "conversations/get": {
     description:
       "Get conversation details including the full participant list.",
-    params: ConversationsGet.paramsSchema,
-    result: ConversationsGet.resultSchema,
-    category: "conversations",
   },
-  {
-    method: "conversations/update",
+  "conversations/update": {
     description: "Update conversation metadata (name).",
-    params: ConversationsUpdate.paramsSchema,
-    category: "conversations",
-    relatedEvents: ["conversations/updated"],
+    relatedNotifications: ["conversations/updated"],
   },
-  {
-    method: "conversations/add-participant",
+  "conversations/addParticipant": {
     description:
       "Add a participant to a group conversation. Requires admin or owner role.",
-    params: ConversationsAddParticipant.paramsSchema,
-    category: "conversations",
     errors: [
       { code: -32001, name: "Forbidden", when: "Caller is not admin or owner" },
       {
@@ -225,38 +142,23 @@ const methods: MethodDef[] = [
       },
     ],
   },
-  {
-    method: "conversations/remove-participant",
+  "conversations/removeParticipant": {
     description: "Remove a participant from a group conversation.",
-    params: ConversationsRemoveParticipant.paramsSchema,
-    category: "conversations",
   },
-  {
-    method: "conversations/leave",
+  "conversations/leave": {
     description: "Leave a group conversation.",
-    params: ConversationsLeave.paramsSchema,
-    category: "conversations",
   },
-  {
-    method: "conversations/mute",
+  "conversations/mute": {
     description:
       "Mute notifications for a conversation, optionally until a specific time.",
-    params: ConversationsMute.paramsSchema,
-    category: "conversations",
   },
-  {
-    method: "conversations/unmute",
+  "conversations/unmute": {
     description: "Unmute notifications for a conversation.",
-    params: ConversationsUnmute.paramsSchema,
-    category: "conversations",
   },
-  {
-    method: "conversations/archive",
+  "conversations/archive": {
     description:
       "Archive a conversation. Idempotent — archiving an already-archived conversation succeeds without changing state. Owner/admin only.",
-    params: ConversationsArchive.paramsSchema,
-    category: "conversations",
-    relatedEvents: ["conversations/archived"],
+    relatedNotifications: ["conversations/archived"],
     errors: [
       {
         code: -32001,
@@ -270,13 +172,10 @@ const methods: MethodDef[] = [
       },
     ],
   },
-  {
-    method: "conversations/unarchive",
+  "conversations/unarchive": {
     description:
       "Unarchive a conversation (clears archived_at). Idempotent — unarchiving an active conversation is a no-op. Owner/admin only.",
-    params: ConversationsUnarchive.paramsSchema,
-    category: "conversations",
-    relatedEvents: ["conversations/unarchived"],
+    relatedNotifications: ["conversations/unarchived"],
     errors: [
       {
         code: -32001,
@@ -285,132 +184,201 @@ const methods: MethodDef[] = [
       },
     ],
   },
-  // Presence
-  {
-    method: "presence/update",
+  "contacts/list": {
+    description: "List contacts for the authenticated agent.",
+  },
+  "contacts/add": {
+    description: "Create a contact request.",
+  },
+  "contacts/accept": {
+    description: "Accept a pending contact request.",
+  },
+  "contacts/byId": {
+    description: "Look up a contact by its identifier.",
+  },
+  "invites/createAgent": {
+    description: "Create an agent invite.",
+  },
+  "presence/update": {
     description: "Update your presence status (online, offline, away).",
-    params: PresenceUpdate.paramsSchema,
-    category: "presence",
-    relatedEvents: ["presence/changed"],
+    relatedNotifications: ["presence/changed"],
   },
-  {
-    method: "presence/subscribe",
+  "presence/subscribe": {
     description: "Subscribe to presence changes for a list of participants.",
-    params: PresenceSubscribe.paramsSchema,
-    result: PresenceSubscribe.resultSchema,
-    category: "presence",
   },
-  // Surfaces
-  {
-    method: "surface/update",
-    description: "Push or replace an interactive surface in a conversation.",
-    params: SurfaceUpdate.paramsSchema,
-    category: "surfaces",
-    relatedEvents: ["surface/updated"],
+  "apps/register": {
+    description: "Register an app manifest for the current connection.",
   },
-  {
-    method: "surface/get",
-    description: "Retrieve the current surface for a conversation.",
-    params: SurfaceGet.paramsSchema,
-    category: "surfaces",
+  "apps/create": {
+    description: "Create an app session.",
   },
-  {
-    method: "surface/action",
-    description: "Trigger a named action on a conversation's surface.",
-    params: SurfaceAction.paramsSchema,
-    category: "surfaces",
+  "permissions/grant": {
+    description: "Grant a permission requested by an app session.",
   },
-  {
-    method: "surface/clear",
-    description: "Remove the surface from a conversation.",
-    params: SurfaceClear.paramsSchema,
-    category: "surfaces",
-    relatedEvents: ["surface/cleared"],
+  "permissions/list": {
+    description: "List permission grants for the authenticated owner.",
   },
-  // System
-  {
-    method: "system/ping",
+  "permissions/revoke": {
+    description: "Revoke a persisted permission grant.",
+  },
+  "apps/closeSession": {
+    description: "Close an app session.",
+  },
+  "apps/getSession": {
+    description: "Get an app session by ID.",
+  },
+  "apps/listSessions": {
+    description: "List app sessions visible to the authenticated agent.",
+  },
+  "apps/authorizeDispatch": {
+    description: "Authorize a dispatch through an app admission policy.",
+  },
+  "apps/attachConversation": {
+    description: "Attach an existing conversation to an app session.",
+  },
+  "apps/onBeforeDispatch": {
+    description: "App-callback RPC for before-dispatch admission.",
+  },
+  "apps/onBeforeMessageDelivery": {
+    description: "App-callback RPC for before-message-delivery admission.",
+  },
+  "apps/onSessionActive": {
+    description: "App-callback RPC fired when a session becomes active.",
+  },
+  "apps/onJoin": {
+    description: "App-callback RPC fired when an agent joins a session.",
+  },
+  "apps/onClose": {
+    description: "App-callback RPC fired when a session closes.",
+  },
+  "system/ping": {
     description: "Liveness probe. Returns server timestamp.",
-    params: SystemPing.paramsSchema,
-    result: SystemPing.resultSchema,
-    category: "system",
   },
-];
+};
 
-// ── Event Registry ───────────────────────────────────────────────────────
-
-interface EventDef {
-  event: string;
-  description: string;
-  data: TSchema;
-  triggeredBy?: string[];
-}
-
-const events: EventDef[] = [
-  {
-    event: EventNames.MessageReceived,
+// Same split for notifications: descriptors own the protocol; this owns prose.
+const notificationDocs: Readonly<Record<string, NotificationDocMeta>> = {
+  "messages/received": {
     description:
-      "Fired when a new message is delivered to your WebSocket connection.",
-    data: MessageReceivedEventSchema,
+      "Pushed when a new message is delivered to your WebSocket connection.",
     triggeredBy: ["messages/send"],
   },
-  {
-    event: EventNames.MessageDelivered,
+  "messages/delivered": {
     description:
-      "Fired when a message is confirmed delivered to a participant.",
-    data: MessageDeliveredEventSchema,
+      "Pushed when a message is confirmed delivered to a participant.",
   },
-  {
-    event: EventNames.ConversationCreated,
-    description: "Fired when you are added to a new conversation.",
-    data: ConversationCreatedEventSchema,
+  "conversations/created": {
+    description: "Pushed when you are added to a new conversation.",
     triggeredBy: ["conversations/create", "messages/send"],
   },
-  {
-    event: EventNames.ConversationUpdated,
+  "conversations/updated": {
     description:
-      "Fired when a conversation's metadata changes (name, participants).",
-    data: ConversationUpdatedEventSchema,
+      "Pushed when a conversation's metadata changes (name, participants).",
     triggeredBy: [
       "conversations/update",
-      "conversations/add-participant",
-      "conversations/remove-participant",
+      "conversations/addParticipant",
+      "conversations/removeParticipant",
     ],
   },
-  {
-    event: EventNames.ConversationArchived,
+  "conversations/archived": {
     description:
-      "Fired when a conversation is archived (explicit archive call or app-session close).",
-    data: ConversationArchivedEventSchema,
+      "Pushed when a conversation is archived (explicit archive call or app-session close).",
     triggeredBy: ["conversations/archive"],
   },
-  {
-    event: EventNames.ConversationUnarchived,
-    description: "Fired when a conversation is unarchived.",
-    data: ConversationUnarchivedEventSchema,
+  "conversations/unarchived": {
+    description: "Pushed when a conversation is unarchived.",
     triggeredBy: ["conversations/unarchive"],
   },
-  {
-    event: EventNames.PresenceChanged,
+  "contact/request": {
+    description: "Pushed when an agent receives a contact request.",
+  },
+  "contact/accepted": {
+    description: "Pushed when a contact request is accepted.",
+  },
+  "presence/changed": {
     description:
-      "Fired when a subscribed participant's presence status changes.",
-    data: PresenceChangedEventSchema,
+      "Pushed when a subscribed participant's presence status changes.",
     triggeredBy: ["presence/update"],
   },
-  {
-    event: EventNames.SurfaceUpdated,
+  "permissions/required": {
     description:
-      "Fired when a surface is created or updated in a conversation.",
-    data: SurfaceUpdatedEventSchema,
-    triggeredBy: ["surface/update"],
+      "Pushed when the AppHost needs an agent's owner to grant app permissions.",
+    triggeredBy: ["apps/create"],
   },
-  {
-    event: EventNames.SurfaceCleared,
-    description: "Fired when a surface is removed from a conversation.",
-    data: SurfaceClearedEventSchema,
-    triggeredBy: ["surface/clear"],
+  "app/participantAdmitted": {
+    description: "Pushed when an agent is admitted to an app session.",
+    triggeredBy: ["apps/create"],
   },
-];
+  "app/participantRejected": {
+    description: "Pushed when an agent is rejected from an app session.",
+    triggeredBy: ["apps/create"],
+  },
+  "app/sessionReady": {
+    description:
+      "Pushed when all required agents are admitted and the app session is active.",
+    triggeredBy: ["apps/create"],
+  },
+  "app/sessionFailed": {
+    description: "Pushed when an app session fails before becoming ready.",
+    triggeredBy: ["apps/create"],
+  },
+  "app/sessionClosed": {
+    description: "Pushed when an app session closes.",
+  },
+  "app/hookTimeout": {
+    description: "Pushed when an app hook exceeds its configured timeout.",
+  },
+};
+
+const orderedRpcDefinitions = protocolRpcDefinitions();
+
+function protocolRpcDefinitions(): readonly AnyRpcDocDefinition[] {
+  const ordered = [
+    ...rpcMethods,
+    ...appCallbackRpcMethods,
+    ...Object.values(protocolSchema).filter(isRpcDefinition),
+  ];
+  const byName = new Map<string, AnyRpcDocDefinition>();
+  for (const definition of ordered) {
+    byName.set(definition.name, definition);
+  }
+  return [...byName.values()].sort((left, right) =>
+    methodSortKey(left.name).localeCompare(methodSortKey(right.name)),
+  );
+}
+
+function isRpcDefinition(value: unknown): value is AnyRpcDocDefinition {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.name === "string" &&
+    typeof candidate.paramsSchema === "object" &&
+    candidate.paramsSchema !== null &&
+    typeof candidate.resultSchema === "object" &&
+    candidate.resultSchema !== null &&
+    typeof candidate.validateParams === "function" &&
+    typeof candidate.validateResult === "function"
+  );
+}
+
+function methodSortKey(method: string): string {
+  const prefixOrder = [
+    "auth",
+    "agents",
+    "messages",
+    "conversations",
+    "contacts",
+    "invites",
+    "presence",
+    "apps",
+    "permissions",
+    "system",
+  ];
+  const prefix = method.split("/")[0] ?? "";
+  const index = prefixOrder.indexOf(prefix);
+  const order = index === -1 ? prefixOrder.length : index;
+  return `${order.toString().padStart(2, "0")}:${method}`;
+}
 
 // ── Schema Introspection ─────────────────────────────────────────────────
 
@@ -490,25 +458,31 @@ function extractProperties(schema: TSchema): Array<{
 // ── MDX Generation ───────────────────────────────────────────────────────
 
 function slugify(method: string): string {
-  return method.replace(/\//g, "-");
+  return method
+    .replace(/\//g, "-")
+    .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+    .toLowerCase();
 }
 
 function escapeFrontmatter(s: string): string {
   return s.replace(/"/g, '\\"');
 }
 
-function generateMethodPage(def: MethodDef): string {
-  const params = extractProperties(def.params);
-  const result = def.result ? extractProperties(def.result) : [];
+function generateMethodPage(def: AnyRpcDocDefinition): string {
+  const method = def.name;
+  const meta = methodDocs[method] ?? {};
+  const description = meta.description ?? `Call \`${method}\`.`;
+  const params = extractProperties(def.paramsSchema);
+  const result = extractProperties(def.resultSchema);
 
   let mdx = `---
-title: "${def.method}"
-description: "${escapeFrontmatter(def.description)}"
+title: "${method}"
+description: "${escapeFrontmatter(description)}"
 ---
 
-# ${def.method}
+# ${method}
 
-${def.description}
+${description}
 
 `;
 
@@ -527,31 +501,31 @@ ${def.description}
   // Response
   if (result.length > 0) {
     mdx += `## Response\n\n`;
-    if (def.resultDescription) {
-      mdx += `${def.resultDescription}\n\n`;
+    if (meta.resultDescription) {
+      mdx += `${meta.resultDescription}\n\n`;
     }
     for (const r of result) {
       const desc = r.description || `The ${r.name} field.`;
       mdx += `<ResponseField name="${r.name}" type="${r.type}">\n  ${desc}\n</ResponseField>\n\n`;
     }
-  } else if (!def.result) {
-    mdx += `## Response\n\nThis method returns no response body.\n\n`;
+  } else {
+    mdx += `## Response\n\nThis method returns an empty object.\n\n`;
   }
 
   // Errors
-  if (def.errors && def.errors.length > 0) {
+  if (meta.errors && meta.errors.length > 0) {
     mdx += `## Errors\n\n| Code | Name | When |\n|------|------|------|\n`;
-    for (const e of def.errors) {
+    for (const e of meta.errors) {
       mdx += `| ${e.code} | ${e.name} | ${e.when} |\n`;
     }
     mdx += `\n`;
   }
 
-  // Related events
-  if (def.relatedEvents && def.relatedEvents.length > 0) {
-    mdx += `## Related Events\n\n`;
-    for (const ev of def.relatedEvents) {
-      mdx += `- [\`${ev}\`](/protocol/events/${slugify(ev)})\n`;
+  // Related notifications
+  if (meta.relatedNotifications && meta.relatedNotifications.length > 0) {
+    mdx += `## Related Notifications\n\n`;
+    for (const notification of meta.relatedNotifications) {
+      mdx += `- [\`${notification}\`](/protocol/notifications/${slugify(notification)})\n`;
     }
     mdx += `\n`;
   }
@@ -559,19 +533,25 @@ ${def.description}
   return mdx;
 }
 
-function generateEventPage(def: EventDef): string {
-  const fields = extractProperties(def.data);
+function generateNotificationPage(
+  def: NotificationDefinition<string, TSchema>,
+): string {
+  const fields = extractProperties(def.paramsSchema);
+  const name = def.name;
+  const meta = notificationDocs[name] ?? {};
+  const description =
+    meta.description ?? `Pushed as the \`${name}\` notification.`;
 
   let mdx = `---
-title: "${def.event}"
-description: "${def.description}"
+title: "${name}"
+description: "${escapeFrontmatter(description)}"
 ---
 
-# ${def.event}
+# ${name}
 
-${def.description}
+${description}
 
-## Data
+## Params
 
 `;
 
@@ -581,12 +561,12 @@ ${def.description}
   }
 
   // Example
-  mdx += `## Example\n\n\`\`\`json\n{\n  "jsonrpc": "2.0",\n  "type": "event",\n  "event": "${def.event}",\n  "data": { ... }\n}\n\`\`\`\n\n`;
+  mdx += `## Example\n\n\`\`\`json\n{\n  "jsonrpc": "2.0",\n  "method": "${name}",\n  "params": { ... }\n}\n\`\`\`\n\n`;
 
   // Triggered by
-  if (def.triggeredBy && def.triggeredBy.length > 0) {
+  if (meta.triggeredBy && meta.triggeredBy.length > 0) {
     mdx += `## Triggered By\n\n`;
-    for (const m of def.triggeredBy) {
+    for (const m of meta.triggeredBy) {
       mdx += `- [\`${m}\`](/protocol/methods/${slugify(m)})\n`;
     }
     mdx += `\n`;
@@ -599,51 +579,104 @@ ${def.description}
 
 const docsRoot = join(dirname(new URL(import.meta.url).pathname), "..", "docs");
 const methodsDir = join(docsRoot, "protocol", "methods");
-const eventsDir = join(docsRoot, "protocol", "events");
+const notificationsDir = join(docsRoot, "protocol", "notifications");
 
 mkdirSync(methodsDir, { recursive: true });
-mkdirSync(eventsDir, { recursive: true });
+mkdirSync(notificationsDir, { recursive: true });
+
+const methodFileNames = new Set(
+  orderedRpcDefinitions.map((definition) => `${slugify(definition.name)}.mdx`),
+);
+const notificationFileNames = new Set([
+  "overview.mdx",
+  ...notificationDefinitions.map(
+    (definition) => `${slugify(definition.name)}.mdx`,
+  ),
+]);
+
+deleteStaleGeneratedPages(methodsDir, methodFileNames);
+deleteStaleGeneratedPages(notificationsDir, notificationFileNames);
 
 // Generate method pages
-for (const def of methods) {
-  const slug = slugify(def.method);
+for (const def of orderedRpcDefinitions) {
+  const slug = slugify(def.name);
   const content = generateMethodPage(def);
-  writeFileSync(join(methodsDir, `${slug}.mdx`), content);
+  writeGeneratedPage(join(methodsDir, `${slug}.mdx`), content);
 }
 
-// Generate event pages
-for (const def of events) {
-  const slug = slugify(def.event);
-  const content = generateEventPage(def);
-  writeFileSync(join(eventsDir, `${slug}.mdx`), content);
+// Generate notification pages
+for (const def of notificationDefinitions) {
+  const slug = slugify(def.name);
+  const content = generateNotificationPage(def);
+  writeGeneratedPage(join(notificationsDir, `${slug}.mdx`), content);
 }
 
-// Generate events overview
-const eventsOverview = `---
-title: Events Overview
-description: Real-time events pushed by the server
+// Generate notifications overview
+const notificationsOverview = `---
+title: Notifications Overview
+description: Real-time JSON-RPC notifications pushed by the server
 ---
 
-# Events
+# Notifications
 
-The server pushes events over WebSocket to notify agents of real-time changes. Events have no \`id\` field and do not expect a response.
+The server pushes JSON-RPC notifications over WebSocket to notify agents of real-time changes. Notifications have no \`id\` field and do not expect a response.
 
-## Event list
+## Notification list
 
-| Event | Description |
-|-------|-------------|
-${events.map((e) => `| [\`${e.event}\`](/protocol/events/${slugify(e.event)}) | ${e.description} |`).join("\n")}
+| Notification | Description |
+|--------------|-------------|
+${notificationDefinitions
+  .map((definition) => {
+    const name = definition.name;
+    const description =
+      notificationDocs[name]?.description ??
+      `Pushed as the \`${name}\` notification.`;
+    return `| [\`${name}\`](/protocol/notifications/${slugify(name)}) | ${description} |`;
+  })
+  .join("\n")}
 `;
-writeFileSync(join(eventsDir, "overview.mdx"), eventsOverview);
+writeGeneratedPage(
+  join(notificationsDir, "overview.mdx"),
+  notificationsOverview,
+);
 
 // Generate nav entries for docs.json consumption
-const methodPages = methods.map((m) => `protocol/methods/${slugify(m.method)}`);
-const eventPages = [
-  "protocol/events/overview",
-  ...events.map((e) => `protocol/events/${slugify(e.event)}`),
+const methodPages = orderedRpcDefinitions.map(
+  (m) => `protocol/methods/${slugify(m.name)}`,
+);
+const notificationPages = [
+  "protocol/notifications/overview",
+  ...notificationDefinitions.map(
+    (definition) => `protocol/notifications/${slugify(definition.name)}`,
+  ),
 ];
 
-console.log(`Generated ${methods.length} method pages in ${methodsDir}`);
-console.log(`Generated ${events.length + 1} event pages in ${eventsDir}`);
+console.log(
+  `Generated ${orderedRpcDefinitions.length} method pages in ${methodsDir}`,
+);
+console.log(
+  `Generated ${notificationDefinitions.length + 1} notification pages in ${notificationsDir}`,
+);
 console.log(`\nMethod nav entries:\n${JSON.stringify(methodPages, null, 2)}`);
-console.log(`\nEvent nav entries:\n${JSON.stringify(eventPages, null, 2)}`);
+console.log(
+  `\nNotification nav entries:\n${JSON.stringify(notificationPages, null, 2)}`,
+);
+
+function deleteStaleGeneratedPages(
+  dir: string,
+  expectedFileNames: ReadonlySet<string>,
+): void {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (
+      entry.isFile() &&
+      entry.name.endsWith(".mdx") &&
+      !expectedFileNames.has(entry.name)
+    ) {
+      unlinkSync(join(dir, entry.name));
+    }
+  }
+}
+
+function writeGeneratedPage(file: string, content: string): void {
+  writeFileSync(file, `${content.trimEnd()}\n`);
+}

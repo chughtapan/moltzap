@@ -35,7 +35,7 @@ async function waitForRepliesByList(params: {
 
   while (Date.now() < deadline) {
     const result = (await Effect.runPromise(
-      params.client.sendRpc(MessagesList.name, {
+      params.client.sendRpc(MessagesList, {
         conversationId: params.conversationId,
         limit: 50,
       }),
@@ -113,19 +113,19 @@ describe.skipIf(inject("containerAId") === "")(
             const [convA, convB, convC] = yield* Effect.all(
               [
                 clientA
-                  .sendRpc(ConversationsCreate.name, {
+                  .sendRpc(ConversationsCreate, {
                     type: "dm",
                     participants: [{ type: "agent", id: receiverAgentId }],
                   })
                   .pipe(Effect.map(extractConvId)),
                 clientB
-                  .sendRpc(ConversationsCreate.name, {
+                  .sendRpc(ConversationsCreate, {
                     type: "dm",
                     participants: [{ type: "agent", id: receiverAgentId }],
                   })
                   .pipe(Effect.map(extractConvId)),
                 clientC
-                  .sendRpc(ConversationsCreate.name, {
+                  .sendRpc(ConversationsCreate, {
                     type: "dm",
                     participants: [{ type: "agent", id: receiverAgentId }],
                   })
@@ -136,19 +136,19 @@ describe.skipIf(inject("containerAId") === "")(
 
             const sendEffects = [
               ...Array.from({ length: 4 }, (_, i) =>
-                clientA.sendRpc(MessagesSend.name, {
+                clientA.sendRpc(MessagesSend, {
                   conversationId: convA,
                   parts: [{ type: "text", text: `A-msg-${i}` }],
                 }),
               ),
               ...Array.from({ length: 3 }, (_, i) =>
-                clientB.sendRpc(MessagesSend.name, {
+                clientB.sendRpc(MessagesSend, {
                   conversationId: convB,
                   parts: [{ type: "text", text: `B-msg-${i}` }],
                 }),
               ),
               ...Array.from({ length: 3 }, (_, i) =>
-                clientC.sendRpc(MessagesSend.name, {
+                clientC.sendRpc(MessagesSend, {
                   conversationId: convC,
                   parts: [{ type: "text", text: `C-msg-${i}` }],
                 }),

@@ -13,6 +13,7 @@ import {
   ConversationsMute,
   ConversationsUnmute,
   MessagesSend,
+  MessageReceivedNotificationDefinition,
 } from "@moltzap/protocol";
 
 beforeAll(async () => {
@@ -43,36 +44,41 @@ describe("Mute and Unmute", () => {
         const conversationId = group.conversationId!;
 
         // Alice mutes the conversation
-        yield* alice.client.sendRpc(ConversationsMute.name, { conversationId });
+        yield* alice.client.sendRpc(ConversationsMute, { conversationId });
 
         // Bob sends a message — Eve should receive, Alice should NOT
-        yield* bob.client.sendRpc(MessagesSend.name, {
+        yield* bob.client.sendRpc(MessagesSend, {
           conversationId,
           parts: [{ type: "text", text: "Alice is muted" }],
         });
-        yield* eve.client.waitForEvent("messages/received");
+        yield* eve.client.waitForNotification(
+          MessageReceivedNotificationDefinition,
+        );
 
         // Wait for any stray events to arrive, then verify Alice got nothing
         yield* Effect.promise(() => new Promise((r) => setTimeout(r, 500)));
         const aliceMutedEvents = alice.client
-          .drainEvents()
-          .filter((e) => e.event === "messages/received");
+          .drainNotifications()
+          .filter(
+            (e) => e.definition === MessageReceivedNotificationDefinition,
+          );
         expect(aliceMutedEvents).toHaveLength(0);
 
         // Alice unmutes
-        yield* alice.client.sendRpc(ConversationsUnmute.name, {
+        yield* alice.client.sendRpc(ConversationsUnmute, {
           conversationId,
         });
 
         // Bob sends another message — Alice SHOULD receive it now
-        yield* bob.client.sendRpc(MessagesSend.name, {
+        yield* bob.client.sendRpc(MessagesSend, {
           conversationId,
           parts: [{ type: "text", text: "Alice is back" }],
         });
-        const aliceEvent =
-          yield* alice.client.waitForEvent("messages/received");
+        const aliceEvent = yield* alice.client.waitForNotification(
+          MessageReceivedNotificationDefinition,
+        );
         expect(
-          (aliceEvent.data as { message: { parts: Array<{ text: string }> } })
+          (aliceEvent.params as { message: { parts: Array<{ text: string }> } })
             .message.parts[0]!.text,
         ).toBe("Alice is back");
       }),

@@ -8,7 +8,7 @@ export {
 export {
   arbitraryRequestFrame,
   arbitraryResponseFrame,
-  arbitraryEventFrame,
+  arbitraryNotificationFrame,
   arbitraryMalformedFrame,
   type ArbitraryMalformedFrame,
 } from "./frames.js";

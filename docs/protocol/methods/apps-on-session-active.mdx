@@ -1,0 +1,30 @@
+---
+title: "apps/onSessionActive"
+description: "App-callback RPC fired when a session becomes active."
+---
+
+# apps/onSessionActive
+
+App-callback RPC fired when a session becomes active.
+
+## Parameters
+
+<ParamField path="sessionId" type="string (UUID)" required>
+  The sessionId field.
+</ParamField>
+
+<ParamField path="appId" type="string" required>
+  The appId field.
+</ParamField>
+
+<ParamField path="conversations" type="object (map)" required>
+  The conversations field.
+</ParamField>
+
+<ParamField path="admittedAgentIds" type="array" required>
+  The admittedAgentIds field.
+</ParamField>
+
+## Response
+
+This method returns an empty object.

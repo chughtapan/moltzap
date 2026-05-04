@@ -10,7 +10,11 @@ import {
 } from "./helpers.js";
 import { getBaseUrl } from "../../test-utils/index.js";
 
-import { PresenceSubscribe, PresenceUpdate } from "@moltzap/protocol";
+import {
+  PresenceSubscribe,
+  PresenceUpdate,
+  PresenceChangedNotificationDefinition,
+} from "@moltzap/protocol";
 
 beforeAll(async () => {
   await startTestServer();
@@ -30,7 +34,7 @@ describe("Presence Lifecycle", () => {
       const alice = yield* registerAndConnect("alice-pres");
       const bob = yield* registerAndConnect("bob-pres");
 
-      const result = (yield* alice.client.sendRpc(PresenceSubscribe.name, {
+      const result = (yield* alice.client.sendRpc(PresenceSubscribe, {
         agentIds: [bob.agentId],
       })) as { statuses: Array<{ agentId: string; status: string }> };
 
@@ -44,14 +48,16 @@ describe("Presence Lifecycle", () => {
       const alice = yield* registerAndConnect("alice-away");
       const bob = yield* registerAndConnect("bob-away");
 
-      yield* alice.client.sendRpc(PresenceSubscribe.name, {
+      yield* alice.client.sendRpc(PresenceSubscribe, {
         agentIds: [bob.agentId],
       });
 
-      yield* bob.client.sendRpc(PresenceUpdate.name, { status: "away" });
+      yield* bob.client.sendRpc(PresenceUpdate, { status: "away" });
 
-      const event = yield* alice.client.waitForEvent("presence/changed");
-      const data = event.data as {
+      const event = yield* alice.client.waitForNotification(
+        PresenceChangedNotificationDefinition,
+      );
+      const data = event.params as {
         agentId: string;
         status: string;
       };
@@ -65,24 +71,32 @@ describe("Presence Lifecycle", () => {
       const alice = yield* registerAndConnect("alice-cycle");
       const bob = yield* registerAndConnect("bob-cycle");
 
-      yield* alice.client.sendRpc(PresenceSubscribe.name, {
+      yield* alice.client.sendRpc(PresenceSubscribe, {
         agentIds: [bob.agentId],
       });
 
       // away
-      yield* bob.client.sendRpc(PresenceUpdate.name, { status: "away" });
-      const awayEvent = yield* alice.client.waitForEvent("presence/changed");
-      expect((awayEvent.data as { status: string }).status).toBe("away");
+      yield* bob.client.sendRpc(PresenceUpdate, { status: "away" });
+      const awayEvent = yield* alice.client.waitForNotification(
+        PresenceChangedNotificationDefinition,
+      );
+      expect((awayEvent.params as { status: string }).status).toBe("away");
 
       // back online
-      yield* bob.client.sendRpc(PresenceUpdate.name, { status: "online" });
-      const onlineEvent = yield* alice.client.waitForEvent("presence/changed");
-      expect((onlineEvent.data as { status: string }).status).toBe("online");
+      yield* bob.client.sendRpc(PresenceUpdate, { status: "online" });
+      const onlineEvent = yield* alice.client.waitForNotification(
+        PresenceChangedNotificationDefinition,
+      );
+      expect((onlineEvent.params as { status: string }).status).toBe("online");
 
       // offline
-      yield* bob.client.sendRpc(PresenceUpdate.name, { status: "offline" });
-      const offlineEvent = yield* alice.client.waitForEvent("presence/changed");
-      expect((offlineEvent.data as { status: string }).status).toBe("offline");
+      yield* bob.client.sendRpc(PresenceUpdate, { status: "offline" });
+      const offlineEvent = yield* alice.client.waitForNotification(
+        PresenceChangedNotificationDefinition,
+      );
+      expect((offlineEvent.params as { status: string }).status).toBe(
+        "offline",
+      );
     }),
   );
 
@@ -95,7 +109,7 @@ describe("Presence Lifecycle", () => {
 
         // Subscribe BEFORE target connects so the snapshot reads offline.
         const target = yield* registerAgent(getBaseUrl(), "target-connect");
-        const sub = (yield* watcher.client.sendRpc(PresenceSubscribe.name, {
+        const sub = (yield* watcher.client.sendRpc(PresenceSubscribe, {
           agentIds: [target.agentId],
         })) as { statuses: Array<{ agentId: string; status: string }> };
         expect(sub.statuses[0]!.status).toBe("offline");
@@ -106,8 +120,10 @@ describe("Presence Lifecycle", () => {
         });
         trackClient(targetClient);
 
-        const event = yield* watcher.client.waitForEvent("presence/changed");
-        const data = event.data as { agentId: string; status: string };
+        const event = yield* watcher.client.waitForNotification(
+          PresenceChangedNotificationDefinition,
+        );
+        const data = event.params as { agentId: string; status: string };
         expect(data.agentId).toBe(target.agentId);
         expect(data.status).toBe("online");
       }),
@@ -119,14 +135,16 @@ describe("Presence Lifecycle", () => {
       const target = yield* registerAndConnect("target-disconnect");
 
       // Subscribe AFTER target is online; close is the only offline trigger.
-      yield* watcher.client.sendRpc(PresenceSubscribe.name, {
+      yield* watcher.client.sendRpc(PresenceSubscribe, {
         agentIds: [target.agentId],
       });
 
       yield* target.client.close();
 
-      const event = yield* watcher.client.waitForEvent("presence/changed");
-      const data = event.data as { agentId: string; status: string };
+      const event = yield* watcher.client.waitForNotification(
+        PresenceChangedNotificationDefinition,
+      );
+      const data = event.params as { agentId: string; status: string };
       expect(data.agentId).toBe(target.agentId);
       expect(data.status).toBe("offline");
     }),

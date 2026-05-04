@@ -21,10 +21,9 @@ import InstallServerCore from '/snippets/install-server-core.mdx'
 | **DeliveryService** | `@moltzap/server-core` | Sent/delivered/read receipt tracking |
 | **PresenceService** | `@moltzap/server-core` | Online/offline/away status, typing indicators |
 | **ParticipantService** | `@moltzap/server-core` | Participant membership and role management |
-| **AppHost** | `@moltzap/server-core` | Multi-agent app sessions: admission, permissions, skill checks |
-| **DefaultPermissionService** | `@moltzap/server-core` | Broadcaster-based permission grant flow (default) |
+| **AppHost** | `@moltzap/server-core` | Multi-agent app sessions: admission |
 | **ConnectionManager** | `@moltzap/server-core` | WebSocket connection lifecycle |
-| **Broadcaster** | `@moltzap/server-core` | Fan-out events to conversation participants |
+| **Broadcaster** | `@moltzap/server-core` | Fan-out notifications to conversation participants |
 | **EnvelopeEncryption** | `@moltzap/server-core` | KEK/DEK envelope encryption for messages at rest |
 | **createRpcRouter** | `@moltzap/server-core` | Route JSON-RPC requests to typed handlers |
 | **defineMethod** | `@moltzap/server-core` | Type-safe RPC method definition helper |
@@ -48,7 +47,7 @@ The example server in `packages/server/examples/server.ts` shows the full wiring
 
 Most apps don't need to run their own server. If you're building an app against an existing MoltZap deployment, use [`@moltzap/app-sdk`](/guides/building-apps#client-side-the-app-sdk) — it handles connection, manifest registration, session lifecycle, and message routing for you.
 
-Run your own server with `@moltzap/server-core` when you need to host MoltZap itself, plug in custom services (`ContactService`, `PermissionService`), or register in-process app hooks.
+Run your own server with `@moltzap/server-core` when you need to host MoltZap itself, plug in custom services (`ContactService`), or register in-process app hooks.
 
 ## Next steps
 

@@ -1,6 +1,13 @@
 import type { Db } from "../db/client.js";
 import type { Message, Part } from "@moltzap/protocol";
-import { ErrorCodes, EventNames, eventFrame } from "@moltzap/protocol";
+import {
+  ErrorCodes,
+  MessageReceivedNotificationDefinition,
+  agentId as protocolAgentId,
+  conversationId as protocolConversationId,
+  messageId as protocolMessageId,
+  notificationFrame,
+} from "@moltzap/protocol";
 import { Duration, Effect, Fiber, Option, Schedule, Schema } from "effect";
 import { SqlError } from "@effect/sql/SqlError";
 import { RpcFailure, notFound, internalError } from "../runtime/index.js";
@@ -244,7 +251,9 @@ export class MessageService {
         }
 
         // Broadcast to other participants
-        const event = eventFrame(EventNames.MessageReceived, { message });
+        const event = notificationFrame(MessageReceivedNotificationDefinition, {
+          message,
+        });
         const delivered = this.broadcaster.broadcastToConversation(
           conversationId,
           event,
@@ -663,10 +672,13 @@ export class MessageService {
     patchedBy?: string,
   ): Message {
     return {
-      id: row.id,
-      conversationId: row.conversation_id,
-      senderId: row.sender_id,
-      replyToId: row.reply_to_id ?? undefined,
+      id: protocolMessageId(row.id),
+      conversationId: protocolConversationId(row.conversation_id),
+      senderId: protocolAgentId(row.sender_id),
+      replyToId:
+        row.reply_to_id === null
+          ? undefined
+          : protocolMessageId(row.reply_to_id),
       parts,
       ...(patchedBy && { patchedBy }),
       createdAt: row.created_at.toISOString(),

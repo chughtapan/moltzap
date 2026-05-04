@@ -7,21 +7,33 @@ import {
   AppsAuthorizeDispatch,
   ConversationsGet,
   ErrorCodes,
-  EventNames,
+  ConversationArchivedNotificationDefinition,
+  ConversationCreatedNotificationDefinition,
+  ConversationUnarchivedNotificationDefinition,
+  MessageReceivedNotificationDefinition,
   MessagesSend,
-  eventFrame,
+  notificationFrame,
 } from "@moltzap/protocol";
 import { sanitizeForSystemReminder } from "./service.js";
 import { FakeMoltZapService } from "./test-utils/fake-service.js";
-
 import {
-  AgentsLookupByName,
-  ConversationsCreate,
-  PermissionsGrant,
-} from "@moltzap/protocol";
+  buildMessage,
+  testAgentId,
+  testConversationId,
+  testMessageId,
+} from "./test-utils/index.js";
+
+import { AgentsLookupByName, ConversationsCreate } from "@moltzap/protocol";
 
 /** Run a service Effect to a Promise for test assertions. */
 const run = <A, E>(e: Effect.Effect<A, E>): Promise<A> => Effect.runPromise(e);
+
+const AGENT_ALICE_ID = testAgentId("agent-alice-id");
+const AGENT_SELF_ID = testAgentId("agent-self");
+const AGENT_GM_ID = testAgentId("agent-gm");
+const CONVERSATION_ALICE_ID = testConversationId("conv-alice");
+const CONVERSATION_ARCHIVED_ID = testConversationId("conv-archived");
+const DISPATCH_MESSAGE_ID = testMessageId("msg-dispatch");
 
 describe("MoltZapService.sendToAgent", () => {
   let service: FakeMoltZapService;
@@ -29,34 +41,34 @@ describe("MoltZapService.sendToAgent", () => {
   beforeEach(() => {
     service = new FakeMoltZapService();
     // `setResponse` is typed: the wire name must be a `RpcMethodName` literal
-    // and the value must match `RpcMap[M]["result"]`. Both guard against the
+    // and the value must match `RpcResult<M>`. Both guard against the
     // contract-drift bug (A7) that motivated this fake.
-    service.setResponse(AgentsLookupByName.name, {
+    service.setResponse(AgentsLookupByName, {
       agents: [
         {
-          id: "agent-alice-id",
+          id: AGENT_ALICE_ID,
           name: "alice",
           status: "active",
         },
       ],
     });
-    service.setResponse(ConversationsCreate.name, {
+    service.setResponse(ConversationsCreate, {
       conversation: {
-        id: "conv-alice",
+        id: CONVERSATION_ALICE_ID,
         type: "dm",
-        createdBy: "agent-self",
+        createdBy: AGENT_SELF_ID,
         createdAt: "2026-04-16T00:00:00Z",
         updatedAt: "2026-04-16T00:00:00Z",
       },
     });
-    service.setResponse(MessagesSend.name, {
-      message: {
+    service.setResponse(MessagesSend, {
+      message: buildMessage({
         id: "msg-1",
         conversationId: "conv-alice",
         senderId: "agent-self",
         parts: [{ type: "text", text: "placeholder" }],
         createdAt: "2026-04-16T00:00:00Z",
-      } as Message,
+      }),
     });
   });
 
@@ -69,13 +81,13 @@ describe("MoltZapService.sendToAgent", () => {
         method: ConversationsCreate.name,
         params: {
           type: "dm",
-          participants: [{ type: "agent", id: "agent-alice-id" }],
+          participants: [{ type: "agent", id: AGENT_ALICE_ID }],
         },
       },
       {
         method: MessagesSend.name,
         params: {
-          conversationId: "conv-alice",
+          conversationId: CONVERSATION_ALICE_ID,
           parts: [{ type: "text", text: "hello" }],
         },
       },
@@ -92,7 +104,7 @@ describe("MoltZapService.sendToAgent", () => {
       {
         method: MessagesSend.name,
         params: {
-          conversationId: "conv-alice",
+          conversationId: CONVERSATION_ALICE_ID,
           parts: [{ type: "text", text: "second" }],
         },
       },
@@ -100,32 +112,35 @@ describe("MoltZapService.sendToAgent", () => {
   });
 
   it("forwards replyTo to messages/send as replyToId", async () => {
+    const replyToId = testMessageId("msg-123");
     await run(
-      service.sendToAgent("alice", "reply text", { replyTo: "msg-123" }),
+      service.sendToAgent("alice", "reply text", { replyTo: replyToId }),
     );
 
     const sendCall = service.calls.find((c) => c.method === MessagesSend.name);
     expect(sendCall?.params).toEqual({
-      conversationId: "conv-alice",
+      conversationId: CONVERSATION_ALICE_ID,
       parts: [{ type: "text", text: "reply text" }],
-      replyToId: "msg-123",
+      replyToId,
     });
   });
 
   it("maintains separate cache entries per agent name", async () => {
-    service.setResponse(AgentsLookupByName.name, {
-      agents: [{ id: "agent-alice-id", name: "alice", status: "active" }],
+    service.setResponse(AgentsLookupByName, {
+      agents: [{ id: AGENT_ALICE_ID, name: "alice", status: "active" }],
     });
     await run(service.sendToAgent("alice", "hello alice"));
 
-    service.setResponse(AgentsLookupByName.name, {
-      agents: [{ id: "agent-bob-id", name: "bob", status: "active" }],
+    service.setResponse(AgentsLookupByName, {
+      agents: [
+        { id: testAgentId("agent-bob-id"), name: "bob", status: "active" },
+      ],
     });
-    service.setResponse(ConversationsCreate.name, {
+    service.setResponse(ConversationsCreate, {
       conversation: {
-        id: "conv-bob",
+        id: testConversationId("conv-bob"),
         type: "dm",
-        createdBy: "agent-self",
+        createdBy: AGENT_SELF_ID,
         createdAt: "2026-04-16T00:00:00Z",
         updatedAt: "2026-04-16T00:00:00Z",
       },
@@ -142,14 +157,14 @@ describe("MoltZapService.sendToAgent", () => {
     expect(sendCalls).toHaveLength(2);
     expect(
       (sendCalls[0]!.params as { conversationId: string }).conversationId,
-    ).toBe("conv-alice");
+    ).toBe(CONVERSATION_ALICE_ID);
     expect(
       (sendCalls[1]!.params as { conversationId: string }).conversationId,
-    ).toBe("conv-bob");
+    ).toBe(testConversationId("conv-bob"));
   });
 
   it("throws a clear error when no agent is found for the given name", async () => {
-    service.setResponse(AgentsLookupByName.name, { agents: [] });
+    service.setResponse(AgentsLookupByName, { agents: [] });
 
     await expect(run(service.sendToAgent("nobody", "hi"))).rejects.toThrow(
       /Agent not found: nobody/,
@@ -157,7 +172,7 @@ describe("MoltZapService.sendToAgent", () => {
   });
 
   it("propagates errors from agents/lookupByName", async () => {
-    service.deleteResponse(AgentsLookupByName.name);
+    service.deleteResponse(AgentsLookupByName);
 
     await expect(run(service.sendToAgent("alice", "hi"))).rejects.toThrow(
       /no canned response for agents\/lookupByName/,
@@ -165,7 +180,7 @@ describe("MoltZapService.sendToAgent", () => {
   });
 
   it("propagates errors from conversations/create", async () => {
-    service.deleteResponse(ConversationsCreate.name);
+    service.deleteResponse(ConversationsCreate);
 
     await expect(run(service.sendToAgent("alice", "hi"))).rejects.toThrow(
       /no canned response for conversations\/create/,
@@ -173,7 +188,7 @@ describe("MoltZapService.sendToAgent", () => {
   });
 
   it("propagates errors from messages/send", async () => {
-    service.deleteResponse(MessagesSend.name);
+    service.deleteResponse(MessagesSend);
 
     await expect(run(service.sendToAgent("alice", "hi"))).rejects.toThrow(
       /no canned response for messages\/send/,
@@ -215,7 +230,7 @@ describe("sanitizeForSystemReminder", () => {
 describe("MoltZapService.authorizeDispatch", () => {
   it("uses the long app-dispatch RPC timeout instead of the generic RPC timeout", async () => {
     const service = new FakeMoltZapService();
-    service.setResponse(AppsAuthorizeDispatch.name, {
+    service.setResponse(AppsAuthorizeDispatch, {
       admission: {
         decision: "grant",
         leaseId: "lease-1",
@@ -225,23 +240,23 @@ describe("MoltZapService.authorizeDispatch", () => {
 
     const result = await run(
       service.authorizeDispatch({
-        conversationId: "conv-1",
-        senderAgentId: "agent-gm",
+        conversationId: CONVERSATION_ALICE_ID,
+        senderAgentId: AGENT_GM_ID,
         attempt: 0,
         receivedAt: "2026-04-29T22:00:00.000Z",
         clock: {
-          domainId: "conv-1",
+          domainId: CONVERSATION_ALICE_ID,
           epoch: 1,
-          vector: { "agent-gm": 1 },
+          vector: { [AGENT_GM_ID]: 1 },
         },
         pending: [],
-        message: {
-          id: "msg-1",
-          conversationId: "conv-1",
-          senderId: "agent-gm",
+        message: buildMessage({
+          id: DISPATCH_MESSAGE_ID,
+          conversationId: CONVERSATION_ALICE_ID,
+          senderId: AGENT_GM_ID,
           parts: [{ type: "text", text: "Time to vote!" }],
           createdAt: "2026-04-29T22:00:00.000Z",
-        },
+        }),
       }),
     );
 
@@ -260,15 +275,15 @@ describe("MoltZapService.authorizeDispatch", () => {
 
 describe("MoltZapService.getContext — XML injection hardening", () => {
   /** Build a message that lands in `messages` via addMessage(). */
-  function msg(overrides: Partial<Message>): Message {
-    return {
-      id: overrides.id ?? "msg-1",
-      conversationId: overrides.conversationId ?? "conv-other",
-      senderId: overrides.senderId ?? "agent-attacker",
-      parts: overrides.parts ?? [{ type: "text", text: "hello" }],
-      createdAt: overrides.createdAt ?? new Date().toISOString(),
+  function msg(overrides: Parameters<typeof buildMessage>[0]): Message {
+    return buildMessage({
+      id: "msg-1",
+      conversationId: "conv-other",
+      senderId: "agent-attacker",
+      parts: [{ type: "text", text: "hello" }],
+      createdAt: new Date().toISOString(),
       ...overrides,
-    } as Message;
+    });
   }
 
   it("escapes senderName with </system-reminder> injection attempt", () => {
@@ -376,13 +391,16 @@ describe("MoltZapService.peekContextEntries", () => {
     seq: number,
     text = "hi",
   ): void {
-    service.addMessage(convId, {
-      id: `m-${seq}`,
-      conversationId: convId,
-      senderId: "agent-bob",
-      parts: [{ type: "text", text }],
-      createdAt: new Date().toISOString(),
-    } as Message);
+    service.addMessage(
+      convId,
+      buildMessage({
+        id: `m-${seq}`,
+        conversationId: convId,
+        senderId: "agent-bob",
+        parts: [{ type: "text", text }],
+        createdAt: new Date().toISOString(),
+      }),
+    );
   }
 
   it("returns structured entries without advancing markers", () => {
@@ -497,50 +515,62 @@ describe("MoltZapService.peekFullMessages", () => {
     service.setAgentNameDirect("agent-bob", "Bob");
     service.setAgentNameDirect("agent-alice", "Alice");
 
-    service.addMessage("conv-a", {
-      id: "m-1",
-      conversationId: "conv-a",
-      senderId: "agent-bob",
-      parts: [{ type: "text", text: "first" }],
-      createdAt: "2026-04-13T22:00:00Z",
-    } as Message);
+    service.addMessage(
+      "conv-a",
+      buildMessage({
+        id: "m-1",
+        conversationId: "conv-a",
+        senderId: "agent-bob",
+        parts: [{ type: "text", text: "first" }],
+        createdAt: "2026-04-13T22:00:00Z",
+      }),
+    );
 
-    service.addMessage("conv-b", {
-      id: "m-2",
-      conversationId: "conv-b",
-      senderId: "agent-alice",
-      parts: [{ type: "text", text: "second" }],
-      createdAt: "2026-04-13T22:00:01Z",
-    } as Message);
+    service.addMessage(
+      "conv-b",
+      buildMessage({
+        id: "m-2",
+        conversationId: "conv-b",
+        senderId: "agent-alice",
+        parts: [{ type: "text", text: "second" }],
+        createdAt: "2026-04-13T22:00:01Z",
+      }),
+    );
 
-    service.addMessage("conv-a", {
-      id: "m-3",
-      conversationId: "conv-a",
-      senderId: "agent-bob",
-      parts: [{ type: "text", text: "third" }],
-      createdAt: "2026-04-13T22:00:02Z",
-    } as Message);
+    service.addMessage(
+      "conv-a",
+      buildMessage({
+        id: "m-3",
+        conversationId: "conv-a",
+        senderId: "agent-bob",
+        parts: [{ type: "text", text: "third" }],
+        createdAt: "2026-04-13T22:00:02Z",
+      }),
+    );
 
     const { messages } = service.peekFullMessages("conv-self");
     expect(messages).toHaveLength(3);
     expect(messages.map((m) => m.text)).toEqual(["first", "second", "third"]);
     expect(messages[0]!.conversationId).toBe("conv-a");
     expect(messages[0]!.senderName).toBe("Bob");
-    expect(messages[0]!.senderId).toBe("agent-bob");
+    expect(messages[0]!.senderId).toBe(testAgentId("agent-bob"));
     expect(messages[1]!.conversationId).toBe("conv-b");
     expect(messages[1]!.senderName).toBe("Alice");
-    expect(messages[1]!.senderId).toBe("agent-alice");
+    expect(messages[1]!.senderId).toBe(testAgentId("agent-alice"));
   });
 
   it("excludes messages from the current conversation", () => {
     const service = new FakeMoltZapService();
-    service.addMessage("conv-self", {
-      id: "m-1",
-      conversationId: "conv-self",
-      senderId: "agent-bob",
-      parts: [{ type: "text", text: "own conv" }],
-      createdAt: "2026-04-13T22:00:00Z",
-    } as Message);
+    service.addMessage(
+      "conv-self",
+      buildMessage({
+        id: "m-1",
+        conversationId: "conv-self",
+        senderId: "agent-bob",
+        parts: [{ type: "text", text: "own conv" }],
+        createdAt: "2026-04-13T22:00:00Z",
+      }),
+    );
 
     const { messages } = service.peekFullMessages("conv-self");
     expect(messages).toHaveLength(0);
@@ -548,25 +578,31 @@ describe("MoltZapService.peekFullMessages", () => {
 
   it("commit advances markers; subsequent peek returns only new messages", () => {
     const service = new FakeMoltZapService();
-    service.addMessage("conv-a", {
-      id: "m-1",
-      conversationId: "conv-a",
-      senderId: "agent-bob",
-      parts: [{ type: "text", text: "old" }],
-      createdAt: "2026-04-13T22:00:00Z",
-    } as Message);
+    service.addMessage(
+      "conv-a",
+      buildMessage({
+        id: "m-1",
+        conversationId: "conv-a",
+        senderId: "agent-bob",
+        parts: [{ type: "text", text: "old" }],
+        createdAt: "2026-04-13T22:00:00Z",
+      }),
+    );
 
     const first = service.peekFullMessages("conv-self");
     first.commit();
     expect(first.messages).toHaveLength(1);
 
-    service.addMessage("conv-a", {
-      id: "m-2",
-      conversationId: "conv-a",
-      senderId: "agent-bob",
-      parts: [{ type: "text", text: "new" }],
-      createdAt: "2026-04-13T22:01:00Z",
-    } as Message);
+    service.addMessage(
+      "conv-a",
+      buildMessage({
+        id: "m-2",
+        conversationId: "conv-a",
+        senderId: "agent-bob",
+        parts: [{ type: "text", text: "new" }],
+        createdAt: "2026-04-13T22:01:00Z",
+      }),
+    );
 
     const second = service.peekFullMessages("conv-self");
     expect(second.messages).toHaveLength(1);
@@ -577,14 +613,18 @@ describe("MoltZapService.peekFullMessages", () => {
     const service = new FakeMoltZapService();
     for (let c = 0; c < 10; c++) {
       for (let m = 0; m < 5; m++) {
-        service.addMessage(`conv-${c}`, {
-          id: `m-${c}-${m}`,
-          conversationId: `conv-${c}`,
-          senderId: "agent-bob",
-          seq: m + 1,
-          parts: [{ type: "text", text: `c${c}-m${m}` }],
-          createdAt: new Date(Date.now() + c * 10000 + m * 1000).toISOString(),
-        } as Message);
+        service.addMessage(
+          `conv-${c}`,
+          buildMessage({
+            id: `m-${c}-${m}`,
+            conversationId: `conv-${c}`,
+            senderId: "agent-bob",
+            parts: [{ type: "text", text: `c${c}-m${m}` }],
+            createdAt: new Date(
+              Date.now() + c * 10000 + m * 1000,
+            ).toISOString(),
+          }),
+        );
       }
     }
 
@@ -594,13 +634,16 @@ describe("MoltZapService.peekFullMessages", () => {
 
   it("peek without commit is idempotent", () => {
     const service = new FakeMoltZapService();
-    service.addMessage("conv-a", {
-      id: "m-1",
-      conversationId: "conv-a",
-      senderId: "agent-bob",
-      parts: [{ type: "text", text: "hi" }],
-      createdAt: "2026-04-13T22:00:00Z",
-    } as Message);
+    service.addMessage(
+      "conv-a",
+      buildMessage({
+        id: "m-1",
+        conversationId: "conv-a",
+        senderId: "agent-bob",
+        parts: [{ type: "text", text: "hi" }],
+        createdAt: "2026-04-13T22:00:00Z",
+      }),
+    );
 
     const a = service.peekFullMessages("conv-self").messages;
     const b = service.peekFullMessages("conv-self").messages;
@@ -610,13 +653,16 @@ describe("MoltZapService.peekFullMessages", () => {
 
   it("commit for one viewing conv does not affect another", () => {
     const service = new FakeMoltZapService();
-    service.addMessage("conv-a", {
-      id: "m-1",
-      conversationId: "conv-a",
-      senderId: "agent-bob",
-      parts: [{ type: "text", text: "hi" }],
-      createdAt: "2026-04-13T22:00:00Z",
-    } as Message);
+    service.addMessage(
+      "conv-a",
+      buildMessage({
+        id: "m-1",
+        conversationId: "conv-a",
+        senderId: "agent-bob",
+        parts: [{ type: "text", text: "hi" }],
+        createdAt: "2026-04-13T22:00:00Z",
+      }),
+    );
 
     service.peekFullMessages("viewer-1").commit();
     expect(service.peekFullMessages("viewer-2").messages).toHaveLength(1);
@@ -625,136 +671,93 @@ describe("MoltZapService.peekFullMessages", () => {
   it("stores more than 20 messages per conversation without eviction", () => {
     const service = new FakeMoltZapService();
     for (let i = 1; i <= 30; i++) {
-      service.addMessage("conv-a", {
-        id: `m-${i}`,
-        conversationId: "conv-a",
-        senderId: "agent-bob",
-        seq: i,
-        parts: [{ type: "text", text: `msg-${i}` }],
-        createdAt: new Date(Date.now() + i * 1000).toISOString(),
-      } as Message);
+      service.addMessage(
+        "conv-a",
+        buildMessage({
+          id: `m-${i}`,
+          conversationId: "conv-a",
+          senderId: "agent-bob",
+          parts: [{ type: "text", text: `msg-${i}` }],
+          createdAt: new Date(Date.now() + i * 1000).toISOString(),
+        }),
+      );
     }
     const { messages } = service.peekFullMessages("conv-self");
     expect(messages).toHaveLength(30);
   });
 });
 
-describe("MoltZapService.on('permissionRequired')", () => {
-  it("fires handler when permissions/required event arrives", () => {
-    const service = new FakeMoltZapService();
-    const received: unknown[] = [];
-    service.on("permissionRequired", (data) => received.push(data));
-
-    const event = {
-      jsonrpc: "2.0" as const,
-      type: "event" as const,
-      event: EventNames.PermissionsRequired,
-      data: {
-        sessionId: "sess-1",
-        appId: "test-app",
-        resource: "contacts",
-        access: ["read"],
-        requestId: crypto.randomUUID(),
-        targetUserId: crypto.randomUUID(),
-      },
-    };
-    (Reflect.get(service, "handleEvent") as (e: typeof event) => void).call(
-      service,
-      event,
-    );
-
-    expect(received).toHaveLength(1);
-    expect(received[0]).toMatchObject({
-      sessionId: "sess-1",
-      appId: "test-app",
-      resource: "contacts",
-      access: ["read"],
-    });
-  });
-
-  it("does not fire for unrelated events", () => {
-    const service = new FakeMoltZapService();
-    const received: unknown[] = [];
-    service.on("permissionRequired", (data) => received.push(data));
-
-    const event = {
-      jsonrpc: "2.0" as const,
-      type: "event" as const,
-      event: EventNames.PresenceChanged,
-      data: { agentId: "agent-1", status: "online" },
-    };
-    (Reflect.get(service, "handleEvent") as (e: typeof event) => void).call(
-      service,
-      event,
-    );
-
-    expect(received).toHaveLength(0);
-  });
-});
-
 describe("MoltZapService conversation archive lifecycle", () => {
   it("purges local state, fires conversationArchived, and locally rejects sends", async () => {
     const service = new FakeMoltZapService();
-    service.setResponse(ConversationsGet.name, {
+    service.setResponse(ConversationsGet, {
       conversation: {
-        id: "conv-archived",
+        id: CONVERSATION_ARCHIVED_ID,
         type: "group",
         name: "Archived",
-        createdBy: "agent-self",
+        createdBy: AGENT_SELF_ID,
         createdAt: "2026-05-01T00:00:00.000Z",
         updatedAt: "2026-05-01T00:00:00.000Z",
       },
       participants: [],
     });
-    service.setResponse(MessagesSend.name, {
-      message: {
+    service.setResponse(MessagesSend, {
+      message: buildMessage({
         id: "msg-unreachable",
         conversationId: "conv-archived",
         senderId: "agent-self",
         parts: [{ type: "text", text: "unreachable" }],
         createdAt: "2026-05-01T00:00:00.000Z",
-      } as Message,
+      }),
     });
 
     service.emitEvent(
-      eventFrame(EventNames.ConversationCreated, {
+      notificationFrame(ConversationCreatedNotificationDefinition, {
         conversation: {
-          id: "conv-archived",
+          id: CONVERSATION_ARCHIVED_ID,
           type: "group",
           name: "Archived",
-          createdBy: "agent-self",
+          createdBy: AGENT_SELF_ID,
           createdAt: "2026-05-01T00:00:00.000Z",
           updatedAt: "2026-05-01T00:00:00.000Z",
         },
       }),
     );
-    service.addMessage("conv-archived", {
-      id: "msg-1",
-      conversationId: "conv-archived",
-      senderId: "agent-other",
-      parts: [{ type: "text", text: "old" }],
-      createdAt: "2026-05-01T00:00:00.000Z",
-    } as Message);
+    service.addMessage(
+      CONVERSATION_ARCHIVED_ID,
+      buildMessage({
+        id: "msg-1",
+        conversationId: "conv-archived",
+        senderId: "agent-other",
+        parts: [{ type: "text", text: "old" }],
+        createdAt: "2026-05-01T00:00:00.000Z",
+      }),
+    );
 
     const archivedEvents: unknown[] = [];
     const unarchivedEvents: unknown[] = [];
     service.on("conversationArchived", (data) => archivedEvents.push(data));
     service.on("conversationUnarchived", (data) => unarchivedEvents.push(data));
 
-    const archivedEvent = eventFrame(EventNames.ConversationArchived, {
-      conversationId: "conv-archived",
-      archivedAt: "2026-05-01T00:01:00.000Z",
-      by: "agent-gm",
-    });
+    const archivedEvent = notificationFrame(
+      ConversationArchivedNotificationDefinition,
+      {
+        conversationId: CONVERSATION_ARCHIVED_ID,
+        archivedAt: "2026-05-01T00:01:00.000Z",
+        by: AGENT_GM_ID,
+      },
+    );
     service.emitEvent(archivedEvent);
 
-    expect(service.isConversationArchived("conv-archived")).toBe(true);
-    expect(service.getConversation("conv-archived")).toBeUndefined();
-    expect(service.getHistory("conv-archived")).toEqual([]);
-    expect(archivedEvents).toEqual([archivedEvent.data]);
+    expect(service.isConversationArchived(CONVERSATION_ARCHIVED_ID)).toBe(true);
+    expect(service.getConversation(CONVERSATION_ARCHIVED_ID)).toBeUndefined();
+    expect(service.getHistory(CONVERSATION_ARCHIVED_ID)).toEqual([]);
+    expect(archivedEvents).toEqual([archivedEvent.params]);
 
     const lateSend = await run(
-      Effect.either(service.send("conv-archived", "should not hit rpc")),
+      Effect.either(
+        service.send(CONVERSATION_ARCHIVED_ID, "should not hit rpc"),
+      ),
     );
     expect(Either.isLeft(lateSend)).toBe(true);
     if (Either.isLeft(lateSend)) {
@@ -767,40 +770,19 @@ describe("MoltZapService conversation archive lifecycle", () => {
       [],
     );
 
-    const unarchivedEvent = eventFrame(EventNames.ConversationUnarchived, {
-      conversationId: "conv-archived",
-      by: "agent-gm",
-    });
+    const unarchivedEvent = notificationFrame(
+      ConversationUnarchivedNotificationDefinition,
+      {
+        conversationId: CONVERSATION_ARCHIVED_ID,
+        by: AGENT_GM_ID,
+      },
+    );
     service.emitEvent(unarchivedEvent);
 
-    expect(service.isConversationArchived("conv-archived")).toBe(false);
-    expect(unarchivedEvents).toEqual([unarchivedEvent.data]);
-  });
-});
-
-describe("MoltZapService.grantPermission", () => {
-  it("sends permissions/grant RPC", async () => {
-    const service = new FakeMoltZapService();
-    service.setResponse(PermissionsGrant.name, {});
-
-    await run(
-      service.grantPermission({
-        sessionId: "sess-1",
-        agentId: "agent-2",
-        resource: "contacts",
-        access: ["read"],
-      }),
+    expect(service.isConversationArchived(CONVERSATION_ARCHIVED_ID)).toBe(
+      false,
     );
-
-    expect(service.calls).toContainEqual({
-      method: PermissionsGrant.name,
-      params: {
-        sessionId: "sess-1",
-        agentId: "agent-2",
-        resource: "contacts",
-        access: ["read"],
-      },
-    });
+    expect(unarchivedEvents).toEqual([unarchivedEvent.params]);
   });
 });
 
@@ -921,26 +903,18 @@ describe("MoltZapService.fanout — message handlers", () => {
       seen.push(m);
     });
 
-    const msg: Message = {
+    const msg: Message = buildMessage({
       id: "m-1",
       conversationId: "conv-1",
       senderId: "agent-other",
       parts: [{ type: "text", text: "hi" }],
       createdAt: "2026-04-16T00:00:00.000Z",
-    } as Message;
-    const event = {
-      jsonrpc: "2.0" as const,
-      type: "event" as const,
-      event: EventNames.MessageReceived,
-      data: { message: msg },
-    };
+    });
+    const event = notificationFrame(MessageReceivedNotificationDefinition, {
+      message: msg,
+    });
 
-    // handleEvent is private; reach into it the same way the existing
-    // permissions test does.
-    (Reflect.get(service, "handleEvent") as (e: typeof event) => void).call(
-      service,
-      event,
-    );
+    service.emitEvent(event);
 
     // Second handler still fired despite first handler throwing.
     expect(seen).toEqual([msg]);

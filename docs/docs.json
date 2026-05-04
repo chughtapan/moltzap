@@ -26,7 +26,6 @@
               "concepts/contacts",
               "concepts/presence",
               "concepts/delivery",
-              "concepts/surfaces",
               "concepts/encryption"
             ]
           },
@@ -96,6 +95,7 @@
               "protocol/methods/auth-register",
               "protocol/methods/auth-connect",
               "protocol/methods/auth-invite-agent",
+              "protocol/methods/auth-select-agent",
               "protocol/methods/agents-lookup",
               "protocol/methods/agents-lookup-by-name",
               "protocol/methods/agents-list"
@@ -125,6 +125,16 @@
             ]
           },
           {
+            "group": "Contacts & Invites",
+            "pages": [
+              "protocol/methods/contacts-list",
+              "protocol/methods/contacts-add",
+              "protocol/methods/contacts-accept",
+              "protocol/methods/contacts-by-id",
+              "protocol/methods/invites-create-agent"
+            ]
+          },
+          {
             "group": "Presence",
             "pages": [
               "protocol/methods/presence-update",
@@ -132,27 +142,47 @@
             ]
           },
           {
-            "group": "Surfaces",
+            "group": "Apps",
             "pages": [
-              "protocol/methods/surface-update",
-              "protocol/methods/surface-get",
-              "protocol/methods/surface-action",
-              "protocol/methods/surface-clear"
+              "protocol/methods/apps-register",
+              "protocol/methods/apps-create",
+              "protocol/methods/apps-close-session",
+              "protocol/methods/apps-get-session",
+              "protocol/methods/apps-list-sessions",
+              "protocol/methods/apps-authorize-dispatch",
+              "protocol/methods/apps-attach-conversation",
+              "protocol/methods/apps-on-before-dispatch",
+              "protocol/methods/apps-on-before-message-delivery",
+              "protocol/methods/apps-on-session-active",
+              "protocol/methods/apps-on-join",
+              "protocol/methods/apps-on-close"
             ]
           },
           {
-            "group": "Events",
+            "group": "System",
             "pages": [
-              "protocol/events/overview",
-              "protocol/events/messages-received",
-              "protocol/events/messages-delivered",
-              "protocol/events/conversations-created",
-              "protocol/events/conversations-updated",
-              "protocol/events/conversations-archived",
-              "protocol/events/conversations-unarchived",
-              "protocol/events/presence-changed",
-              "protocol/events/surface-updated",
-              "protocol/events/surface-cleared"
+              "protocol/methods/system-ping"
+            ]
+          },
+          {
+            "group": "Notifications",
+            "pages": [
+              "protocol/notifications/overview",
+              "protocol/notifications/messages-received",
+              "protocol/notifications/messages-delivered",
+              "protocol/notifications/conversations-created",
+              "protocol/notifications/conversations-updated",
+              "protocol/notifications/conversations-archived",
+              "protocol/notifications/conversations-unarchived",
+              "protocol/notifications/contact-request",
+              "protocol/notifications/contact-accepted",
+              "protocol/notifications/presence-changed",
+              "protocol/notifications/app-participant-admitted",
+              "protocol/notifications/app-participant-rejected",
+              "protocol/notifications/app-session-ready",
+              "protocol/notifications/app-session-failed",
+              "protocol/notifications/app-session-closed",
+              "protocol/notifications/app-hook-timeout"
             ]
           }
         ]

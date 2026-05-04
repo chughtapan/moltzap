@@ -1,5 +1,5 @@
 import { Data, Effect } from "effect";
-import type { EventFrame } from "@moltzap/protocol";
+import type { NotificationFrame } from "@moltzap/protocol";
 import {
   makeCloseableTestClient,
   registerTestAgent,
@@ -8,12 +8,12 @@ import {
 } from "@moltzap/protocol/testing";
 import { getBaseUrl, getWsUrl } from "./index.js";
 
-import { ConversationsCreate } from "@moltzap/protocol";
+import { agentId, ConversationsCreate } from "@moltzap/protocol";
 
 export interface ServerTestClient
-  extends Omit<CloseableTestClient, "close" | "drainEvents"> {
+  extends Omit<CloseableTestClient, "close" | "drainNotifications"> {
   close(): Effect.Effect<void, never>;
-  drainEvents(): ReadonlyArray<EventFrame>;
+  drainNotifications(): ReadonlyArray<NotificationFrame>;
 }
 
 export interface ConnectedAgent {
@@ -64,7 +64,7 @@ export function connectTestClient(opts: {
   return Effect.gen(function* () {
     const client = yield* makeCloseableTestClient({
       serverUrl: opts.wsUrl ?? getWsUrl(),
-      agentId: opts.agentId,
+      agentId: agentId(opts.agentId),
       agentKey: opts.apiKey,
       defaultTimeoutMs: 5000,
       captureCapacity: 1024,
@@ -73,7 +73,7 @@ export function connectTestClient(opts: {
     return {
       ...client,
       close: () => client.close,
-      drainEvents: () => Effect.runSync(client.drainEvents),
+      drainNotifications: () => Effect.runSync(client.drainNotifications),
     };
   });
 }
@@ -155,7 +155,7 @@ export function setupAgentGroup(
         type: "agent" as const,
         id: a.agentId,
       }));
-      const conv = (yield* creator.client.sendRpc(ConversationsCreate.name, {
+      const conv = (yield* creator.client.sendRpc(ConversationsCreate, {
         type: "group",
         name: opts.groupName,
         participants: others,

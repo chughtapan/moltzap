@@ -9,7 +9,9 @@
  */
 import { Effect } from "effect";
 import * as fc from "fast-check";
-import { arbitraryEventFrame } from "../../arbitraries/frames.js";
+import { MessageDeliveredNotificationDefinition } from "../../../schema/notifications.js";
+import { brandNotificationFrame } from "../../../schema/internal-frames.js";
+import { arbitraryNotificationFrame } from "../../arbitraries/frames.js";
 import type { ClientConformanceRunContext } from "./runner.js";
 import { registerProperty } from "../registry.js";
 import {
@@ -25,13 +27,13 @@ const DEFAULT_FUZZ_BURST_RUNS = 10;
 const PROPERTY_SCHEMA_EXHAUSTIVE_FUZZ_CLIENT = "schema-exhaustive-fuzz-client";
 
 /**
- * E2 client half — TestServer emits arbitrary `EventFrame`s across
+ * E2 client half — TestServer emits arbitrary `NotificationFrame`s across
  * many shapes to a real client. Properties interleave with a tagged
  * liveness probe and a task-boundary assertion.
  *
  * Predicate (both must hold):
  *   1. No crash — real client stays `ready`; no spurious closeSignal.
- *   2. Liveness probe — a valid tagged event emitted post-fuzz surfaces.
+ *   2. Liveness probe — a valid tagged notification emitted post-fuzz surfaces.
  */
 export function registerSchemaExhaustiveFuzzClient(
   ctx: ClientConformanceRunContext,
@@ -40,7 +42,7 @@ export function registerSchemaExhaustiveFuzzClient(
     ctx,
     CATEGORY,
     PROPERTY_SCHEMA_EXHAUSTIVE_FUZZ_CLIENT,
-    "real client absorbs arbitrary EventFrames; liveness and boundary hold",
+    "real client absorbs arbitrary NotificationFrames; liveness and boundary hold",
     Effect.scoped(
       Effect.gen(function* () {
         const fx = yield* acquireFixture(
@@ -52,13 +54,13 @@ export function registerSchemaExhaustiveFuzzClient(
         // Fuzz burst: default 10 frames; stress mode scales with
         // CONFORMANCE_NUM_RUNS through ctx.opts.numRuns.
         const fuzzRuns = ctx.opts.numRuns ?? DEFAULT_FUZZ_BURST_RUNS;
-        const burst = fc.sample(arbitraryEventFrame(), {
+        const burst = fc.sample(arbitraryNotificationFrame(), {
           numRuns: fuzzRuns,
           seed: ctx.seed,
         });
         for (const frame of burst) {
           yield* fx.connection
-            .emitEvent(frame)
+            .emitNotification(frame)
             .pipe(Effect.orElseSucceed(() => undefined));
         }
         // (1) Real client still alive — closeSignal not fired.
@@ -77,14 +79,13 @@ export function registerSchemaExhaustiveFuzzClient(
         }
         // (2) Liveness probe.
         const tag = yield* fx.window.freshEmissionTag;
-        yield* fx.window.emitTaggedEvent({
+        yield* fx.window.emitTaggedNotification({
           connection: fx.connection,
-          base: {
+          base: brandNotificationFrame({
             jsonrpc: "2.0",
-            type: "event",
-            event: "messages.delivered",
-            data: {},
-          },
+            method: MessageDeliveredNotificationDefinition.name,
+            params: {},
+          }),
           emissionTag: tag,
         });
         const observed = yield* collectTagged(fx.handle, (t) => t === tag, {

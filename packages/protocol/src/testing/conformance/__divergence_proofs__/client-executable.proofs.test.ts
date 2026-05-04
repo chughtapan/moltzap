@@ -1,18 +1,25 @@
 import { describe, it } from "vitest";
 import { Deferred, Effect, Ref, Scope } from "effect";
 import type {
-  EventFrame,
+  NotificationFrame,
   RequestFrame,
   ResponseFrame,
 } from "../../../schema/frames.js";
-import { EventNames } from "../../../schema/events.js";
+import {
+  ConversationArchivedNotificationDefinition,
+  ConversationUnarchivedNotificationDefinition,
+} from "../../../schema/notifications.js";
 import type { TestServer, TestServerConnection } from "../../test-server.js";
 import { makeCaptureBuffer, recordFrame } from "../../captures.js";
 import { encodeFrame } from "../../codec.js";
+import { requestFrame } from "../../../helpers.js";
+import { rpcMethods } from "../../../rpc-registry.js";
+import { brandNotificationFrame } from "../../../schema/internal-frames.js";
+import { jsonRpcMethod, jsonRpcStringId } from "../../../schema/json-rpc.js";
 import type { ConformanceArtifact } from "../runner.js";
 import { collectProperties, type PropertyFailure } from "../registry.js";
 import {
-  registerEventWellFormednessClient,
+  registerNotificationWellFormednessClient,
   registerMalformedFrameHandlingClient,
   registerModelEquivalenceClient,
   registerRequestIdUniquenessClient,
@@ -25,9 +32,9 @@ import {
 import type {
   ClientConformanceRunContext,
   ClientHandshakeWindow,
-  ObservedEvent,
+  ObservedNotification,
   RealClientCloseEvent,
-  RealClientEventSubscriber,
+  RealClientNotificationSubscriber,
   RealClientHandle,
   RealClientRpcCaller,
   RealClientRpcError,
@@ -56,13 +63,13 @@ interface BadClientOptions {
 }
 
 describe("client-side conformance executable divergence proofs", () => {
-  it("registerEventWellFormednessClient fails when surfaced events lose required fields", async () => {
+  it("registerNotificationWellFormednessClient fails when surfaced notifications lose required fields", async () => {
     const failure = await runSingleClientProof(
-      registerEventWellFormednessClient,
+      registerNotificationWellFormednessClient,
       { eventBehavior: "strip-required-field" },
     );
-    expectInvariant(failure, "event-well-formedness-client");
-  });
+    expectInvariant(failure, "notification-well-formedness-client");
+  }, 10_000);
 
   it("registerFanOutCardinalityClient fails when a real client scrambles fan-out order", async () => {
     const failure = await runSingleClientProof(
@@ -158,22 +165,27 @@ function makeBadClientContext(
   opts: BadClientOptions,
 ): Effect.Effect<ClientConformanceRunContext, never, Scope.Scope> {
   return Effect.gen(function* () {
-    const eventsRef = yield* Ref.make<ReadonlyArray<ObservedEvent>>([]);
+    const eventsRef = yield* Ref.make<ReadonlyArray<ObservedNotification>>([]);
     const outboundIdsRef = yield* Ref.make<ReadonlyArray<string>>([]);
     const closeRef = yield* Ref.make<RealClientCloseEvent | null>(null);
     const connectionRef = yield* Ref.make<TestServerConnection | null>(null);
     const pendingRef = yield* Ref.make<
-      ReadonlyMap<string, Deferred.Deferred<ResponseFrame, RealClientRpcError>>
+      ReadonlyMap<
+        string,
+        Deferred.Deferred<ResponseFrame | NotificationFrame, RealClientRpcError>
+      >
     >(new Map());
     const artifacts = yield* Ref.make<ReadonlyArray<ConformanceArtifact>>([]);
     const inbound = yield* makeCaptureBuffer({ capacity: 256 });
 
-    const publishEvent = (frame: EventFrame): Effect.Effect<void> =>
+    const publishNotification = (
+      frame: NotificationFrame,
+    ): Effect.Effect<void> =>
       Effect.gen(function* () {
         const behavior = opts.eventBehavior ?? "normal";
         const close = yield* Ref.get(closeRef);
         if (close !== null && behavior === "close-on-malformed") return;
-        const data = frame.data as { __emissionTag?: string } | undefined;
+        const data = frame.params as { __emissionTag?: string } | undefined;
         const tag =
           typeof data?.__emissionTag === "string" ? data.__emissionTag : null;
         if (behavior === "close-on-untagged-fuzz" && tag === null) {
@@ -185,7 +197,7 @@ function makeBadClientContext(
         }
         const surfaceFrame =
           behavior === "strip-required-field"
-            ? stripEventName(frame)
+            ? stripNotificationName(frame)
             : behavior === "scramble-position-index"
               ? rewriteEventData(frame, { positionIndex: 999 })
               : behavior === "rewrite-payload"
@@ -195,7 +207,7 @@ function makeBadClientContext(
                       conversationId: "cross-wired-task",
                     })
                   : behavior === "swap-archive-lifecycle"
-                    ? swapArchiveLifecycleEvent(frame)
+                    ? swapArchiveLifecycleNotification(frame)
                     : frame;
         const encoded = new TextEncoder().encode(JSON.stringify(surfaceFrame));
         yield* Ref.update(eventsRef, (events) => [
@@ -222,7 +234,11 @@ function makeBadClientContext(
         if (deferred === undefined) return;
         const resolved =
           behavior === "non-response-type"
-            ? ({ ...response, type: "event" } as ResponseFrame)
+            ? brandNotificationFrame({
+                jsonrpc: "2.0",
+                method: jsonRpcMethod("proof/non-response"),
+                params: response,
+              })
             : behavior === "spurious-id"
               ? { ...response, id: "spurious-id-that-was-never-requested" }
               : response;
@@ -233,7 +249,7 @@ function makeBadClientContext(
       connectionId: "bad-client-proof-connection",
       remoteAddr: "in-memory",
       inbound,
-      emitEvent: (event) => publishEvent(event),
+      emitNotification: (notification) => publishNotification(notification),
       emitResponse: (response) => resolveResponse(response),
       emitMalformed: () =>
         opts.eventBehavior === "close-on-malformed"
@@ -252,7 +268,7 @@ function makeBadClientContext(
     };
     yield* Ref.set(connectionRef, connection);
 
-    const events: RealClientEventSubscriber = {
+    const notifications: RealClientNotificationSubscriber = {
       subscribe: () =>
         Effect.succeed({
           id: "bad-client-proof-subscription",
@@ -267,7 +283,7 @@ function makeBadClientContext(
         requestCounter += 1;
         const id = `rpc-${requestCounter}`;
         const deferred = yield* Deferred.make<
-          ResponseFrame,
+          ResponseFrame | NotificationFrame,
           RealClientRpcError
         >();
         yield* Ref.update(
@@ -279,14 +295,15 @@ function makeBadClientContext(
         if (conn === null) {
           return yield* Effect.die(new Error("connection not initialized"));
         }
-        const request: RequestFrame = {
-          jsonrpc: "2.0",
-          type: "request",
-          direction: "c2s",
-          id,
-          method,
-          params: _params,
-        };
+        const definition = rpcMethods.find((def) => def.name === method);
+        if (definition === undefined || !definition.validateParams(_params)) {
+          return yield* Effect.die(new Error(`invalid proof RPC: ${method}`));
+        }
+        const request: RequestFrame = requestFrame(
+          jsonRpcStringId(id),
+          definition,
+          _params,
+        );
         yield* recordFrame(
           conn.inbound,
           "inbound",
@@ -297,9 +314,9 @@ function makeBadClientContext(
       });
 
     const handle: RealClientHandle = {
-      agentId: "bad-client-proof-agent",
+      agentId: "00000000-0000-4000-8000-baadc11e7e57",
       ready: Effect.void,
-      events,
+      notifications,
       call: { call, outboundIdFeed: Ref.get(outboundIdsRef) },
       closeSignal: Effect.gen(function* () {
         while (true) {
@@ -321,9 +338,9 @@ function makeBadClientContext(
 
     const handshakeWindow: ClientHandshakeWindow = {
       freshEmissionTag: Effect.succeed("unused"),
-      emitTaggedEvent: ({ connection, base, emissionTag }) =>
+      emitTaggedNotification: ({ connection, base, emissionTag }) =>
         connection
-          .emitEvent(taggedEvent(base, emissionTag))
+          .emitNotification(taggedNotification(base, emissionTag))
           .pipe(Effect.as(emissionTag)),
       emitTaggedResponse: ({ connection, base }) =>
         connection.emitResponse(base).pipe(Effect.as(base.id)),
@@ -345,37 +362,48 @@ function makeBadClientContext(
   });
 }
 
-function taggedEvent(base: EventFrame, emissionTag: string): EventFrame {
-  const data = (base.data ?? {}) as Record<string, unknown>;
-  return {
+function taggedNotification(
+  base: NotificationFrame,
+  emissionTag: string,
+): NotificationFrame {
+  const params = (base.params ?? {}) as Record<string, unknown>;
+  return brandNotificationFrame({
     ...base,
-    data: { ...data, __emissionTag: emissionTag },
-  };
+    params: { ...params, __emissionTag: emissionTag },
+  });
 }
 
 function rewriteEventData(
-  frame: EventFrame,
+  frame: NotificationFrame,
   patch: Record<string, unknown>,
-): EventFrame {
-  const data = (frame.data ?? {}) as Record<string, unknown>;
-  return {
+): NotificationFrame {
+  const params = (frame.params ?? {}) as Record<string, unknown>;
+  return brandNotificationFrame({
     ...frame,
-    data: { ...data, ...patch },
-  };
+    params: { ...params, ...patch },
+  });
 }
 
-function stripEventName(frame: EventFrame): EventFrame {
-  const withoutEvent: Partial<EventFrame> = { ...frame };
-  delete withoutEvent.event;
-  return withoutEvent as EventFrame;
+function stripNotificationName(frame: NotificationFrame): unknown {
+  const withoutMethod: Partial<NotificationFrame> = { ...frame };
+  delete withoutMethod.method;
+  return withoutMethod;
 }
 
-function swapArchiveLifecycleEvent(frame: EventFrame): EventFrame {
-  if (frame.event === EventNames.ConversationArchived) {
-    return { ...frame, event: EventNames.ConversationUnarchived };
+function swapArchiveLifecycleNotification(
+  frame: NotificationFrame,
+): NotificationFrame {
+  if (frame.method === ConversationArchivedNotificationDefinition.name) {
+    return brandNotificationFrame({
+      ...frame,
+      method: ConversationUnarchivedNotificationDefinition.name,
+    });
   }
-  if (frame.event === EventNames.ConversationUnarchived) {
-    return { ...frame, event: EventNames.ConversationArchived };
+  if (frame.method === ConversationUnarchivedNotificationDefinition.name) {
+    return brandNotificationFrame({
+      ...frame,
+      method: ConversationArchivedNotificationDefinition.name,
+    });
   }
   return frame;
 }

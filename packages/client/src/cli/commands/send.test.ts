@@ -29,16 +29,18 @@ describe("send command handler", () => {
     process.exit = originalExit;
   });
 
+  const CONV_UUID = "00000000-0000-4000-8000-00000000abc1";
+
   it("sends to conversation by conv: prefix", async () => {
     await Effect.runPromise(
       sendCommand.handler({
-        target: "conv:abc-123",
+        target: `conv:${CONV_UUID}`,
         message: "Hello world",
         replyTo: Option.none(),
       }),
     );
-    expect(mockRequest).toHaveBeenCalledWith(MessagesSend.name, {
-      conversationId: "abc-123",
+    expect(mockRequest).toHaveBeenCalledWith(MessagesSend, {
+      conversationId: CONV_UUID,
       parts: [{ type: "text", text: "Hello world" }],
     });
   });
@@ -51,24 +53,25 @@ describe("send command handler", () => {
         replyTo: Option.none(),
       }),
     );
-    expect(mockRequest).toHaveBeenCalledWith(MessagesSend.name, {
+    expect(mockRequest).toHaveBeenCalledWith(MessagesSend, {
       to: "agent:alice",
       parts: [{ type: "text", text: "Hi Alice" }],
     });
   });
 
   it("includes replyToId when --reply-to is provided", async () => {
+    const REPLY_MSG = "00000000-0000-4000-8000-0000000000a1";
     await Effect.runPromise(
       sendCommand.handler({
-        target: "conv:abc-123",
+        target: `conv:${CONV_UUID}`,
         message: "Reply text",
-        replyTo: Option.some("msg-original"),
+        replyTo: Option.some(REPLY_MSG),
       }),
     );
-    expect(mockRequest).toHaveBeenCalledWith(MessagesSend.name, {
-      conversationId: "abc-123",
+    expect(mockRequest).toHaveBeenCalledWith(MessagesSend, {
+      conversationId: CONV_UUID,
       parts: [{ type: "text", text: "Reply text" }],
-      replyToId: "msg-original",
+      replyToId: REPLY_MSG,
     });
   });
 });

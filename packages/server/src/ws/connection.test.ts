@@ -5,7 +5,7 @@ import type { AgentId } from "../app/types.js";
 import {
   ConnectionManager,
   type MoltZapConnection,
-  type S2cPendingMap,
+  type AppCallbackPendingMap,
 } from "./connection.js";
 
 /**
@@ -36,8 +36,8 @@ function makeConn(id: string, agentId: string | null): MoltZapConnection {
     lastPong: Date.now(),
     conversationIds: new Set<string>(),
     mutedConversations: new Set<string>(),
-    s2cPending: Ref.unsafeMake<S2cPendingMap>(HashMap.empty()),
-    s2cRequestCounter: Ref.unsafeMake(0),
+    appCallbackPending: Ref.unsafeMake<AppCallbackPendingMap>(HashMap.empty()),
+    appCallbackRequestCounter: Ref.unsafeMake(0),
   };
 }
 

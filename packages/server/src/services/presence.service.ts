@@ -40,9 +40,9 @@ export class PresenceService {
     return this.statuses.get(agentId) ?? "offline";
   }
 
-  getMany(
-    agentIds: ReadonlyArray<string>,
-  ): Array<{ agentId: string; status: PresenceStatus }> {
+  getMany<AgentIdValue extends string>(
+    agentIds: ReadonlyArray<AgentIdValue>,
+  ): Array<{ agentId: AgentIdValue; status: PresenceStatus }> {
     return agentIds.map((agentId) => ({
       agentId,
       status: this.get(agentId),

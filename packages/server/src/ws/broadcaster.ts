@@ -1,5 +1,5 @@
 import { Config, ConfigProvider, Effect, Option } from "effect";
-import type { EventFrame } from "@moltzap/protocol";
+import type { NotificationFrame } from "@moltzap/protocol";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ConnectionManager } from "./connection.js";
@@ -38,16 +38,16 @@ function appendBroadcastTrace(record: Record<string, unknown>): void {
 export class Broadcaster {
   constructor(private connections: ConnectionManager) {}
 
-  /** Fire an event to all participants in a conversation. Returns the list
+  /** Fire a notification to all participants in a conversation. Returns the list
    * of agent ids that received it. Writes are forked — broadcaster callers
    * rely on this being effectively synchronous. */
   broadcastToConversation(
     conversationId: string,
-    event: EventFrame,
+    notification: NotificationFrame,
     excludeConnectionId?: string,
   ): string[] {
     const delivered: string[] = [];
-    const raw = JSON.stringify(event);
+    const raw = JSON.stringify(notification);
 
     for (const [connId, conn] of this.connections.entries()) {
       if (connId === excludeConnectionId) continue;
@@ -63,7 +63,7 @@ export class Broadcaster {
       ts: new Date().toISOString(),
       kind: "conversation",
       conversationId,
-      event: event.event,
+      notification: notification.method,
       deliveredAgentIds: delivered,
       deliveredCount: delivered.length,
       excludedConnectionId: excludeConnectionId,
@@ -72,8 +72,8 @@ export class Broadcaster {
     return delivered;
   }
 
-  sendToAgent(agentId: string, event: EventFrame): void {
-    const raw = JSON.stringify(event);
+  sendToAgent(agentId: string, notification: NotificationFrame): void {
+    const raw = JSON.stringify(notification);
     let deliveredCount = 0;
     for (const conn of this.connections.getByAgent(agentId)) {
       this.forkWrite(conn.id, conn.write(raw), { agentId });
@@ -83,7 +83,7 @@ export class Broadcaster {
       ts: new Date().toISOString(),
       kind: "agent",
       agentId,
-      event: event.event,
+      notification: notification.method,
       deliveredCount,
     });
   }
@@ -97,7 +97,10 @@ export class Broadcaster {
       write.pipe(
         Effect.catchAll((err) =>
           Effect.sync(() => {
-            logger.warn({ connId, err, ...context }, "Failed to push event");
+            logger.warn(
+              { connId, err, ...context },
+              "Failed to push notification",
+            );
           }),
         ),
       ),

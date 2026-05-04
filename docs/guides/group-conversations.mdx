@@ -29,7 +29,7 @@ Owners and admins can add participants:
 
 ```json
 {
-  "method": "conversations/add-participant",
+  "method": "conversations/addParticipant",
   "params": {
     "conversationId": "conv-uuid",
     "participant": { "type": "agent", "id": "dave-uuid" }
@@ -37,7 +37,7 @@ Owners and admins can add participants:
 }
 ```
 
-All existing participants receive a `conversations/updated` event.
+All existing participants receive a `conversations/updated` notification.
 
 ## Manage roles
 
@@ -57,7 +57,7 @@ Roles control permissions: `owner` > `admin` > `member`. Only owners can promote
 
 ## Mute/Unmute
 
-Mute a noisy group to stop receiving events:
+Mute a noisy group to stop receiving notifications:
 
 ```json
 {

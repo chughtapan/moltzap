@@ -2,25 +2,38 @@ import { describe, expect, it } from "vitest";
 import Ajv from "ajv";
 import addFormats from "ajv-formats";
 import {
+  JsonRpcIdSchema,
   RequestFrameSchema,
   ResponseFrameSchema,
-  EventFrameSchema,
+  NotificationFrameSchema,
 } from "./frames.js";
 
-import { AppsOnJoin } from "./methods/apps.js";
 import { MessagesSend } from "./methods/messages.js";
 
 const ajv = addFormats(new Ajv({ strict: true }));
 
+describe("JsonRpcIdSchema", () => {
+  const validate = ajv.compile(JsonRpcIdSchema);
+
+  it("accepts JSON-RPC id values", () => {
+    expect(validate("req-1")).toBe(true);
+    expect(validate(1)).toBe(true);
+    expect(validate(null)).toBe(true);
+  });
+
+  it("rejects non-id values", () => {
+    expect(validate({ id: "req-1" })).toBe(false);
+    expect(validate(undefined)).toBe(false);
+  });
+});
+
 describe("RequestFrameSchema", () => {
   const validate = ajv.compile(RequestFrameSchema);
 
-  it("accepts valid c2s request frame", () => {
+  it("accepts valid request frame", () => {
     expect(
       validate({
         jsonrpc: "2.0",
-        type: "request",
-        direction: "c2s",
         id: "req-1",
         method: MessagesSend.name,
         params: { text: "hello" },
@@ -28,38 +41,21 @@ describe("RequestFrameSchema", () => {
     ).toBe(true);
   });
 
-  it("accepts valid s2c request frame", () => {
+  it("rejects missing id", () => {
     expect(
       validate({
         jsonrpc: "2.0",
-        type: "request",
-        direction: "s2c",
-        id: "srv-1",
-        method: AppsOnJoin.name,
-        params: { sessionId: "s-1" },
-      }),
-    ).toBe(true);
-  });
-
-  it("rejects missing direction", () => {
-    expect(
-      validate({
-        jsonrpc: "2.0",
-        type: "request",
-        id: "req-1",
         method: MessagesSend.name,
         params: { text: "hello" },
       }),
     ).toBe(false);
   });
 
-  it("rejects unknown direction", () => {
+  it("rejects notification id values", () => {
     expect(
       validate({
         jsonrpc: "2.0",
-        type: "request",
-        direction: "broadcast",
-        id: "req-1",
+        id: null,
         method: MessagesSend.name,
       }),
     ).toBe(false);
@@ -68,20 +64,17 @@ describe("RequestFrameSchema", () => {
   it("rejects missing jsonrpc field", () => {
     expect(
       validate({
-        type: "request",
-        direction: "c2s",
         id: "req-1",
         method: "test",
       }),
     ).toBe(false);
   });
 
-  it("rejects wrong type", () => {
+  it("rejects extra non-JSON-RPC fields", () => {
     expect(
       validate({
         jsonrpc: "2.0",
-        type: "response",
-        direction: "c2s",
+        extra: "not allowed",
         id: "req-1",
         method: "test",
       }),
@@ -92,26 +85,30 @@ describe("RequestFrameSchema", () => {
 describe("ResponseFrameSchema", () => {
   const validate = ajv.compile(ResponseFrameSchema);
 
-  it("accepts c2s success response", () => {
+  it("accepts success response", () => {
     expect(
       validate({
         jsonrpc: "2.0",
-        type: "response",
-        direction: "c2s",
         id: "req-1",
         result: { ok: true },
       }),
     ).toBe(true);
   });
 
-  it("accepts s2c success response", () => {
+  it("accepts numeric and null ids", () => {
     expect(
       validate({
         jsonrpc: "2.0",
-        type: "response",
-        direction: "s2c",
-        id: "srv-1",
+        id: 1,
         result: {},
+      }),
+    ).toBe(true);
+
+    expect(
+      validate({
+        jsonrpc: "2.0",
+        id: null,
+        error: { code: -32700, message: "Parse error" },
       }),
     ).toBe(true);
   });
@@ -120,37 +117,54 @@ describe("ResponseFrameSchema", () => {
     expect(
       validate({
         jsonrpc: "2.0",
-        type: "response",
-        direction: "c2s",
         id: "req-1",
         error: { code: -32000, message: "Unauthorized" },
       }),
     ).toBe(true);
   });
 
-  it("rejects missing direction", () => {
+  it("rejects responses with both result and error", () => {
     expect(
       validate({
         jsonrpc: "2.0",
-        type: "response",
         id: "req-1",
         result: { ok: true },
+        error: { code: -32000, message: "Unauthorized" },
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects responses with neither result nor error", () => {
+    expect(
+      validate({
+        jsonrpc: "2.0",
+        id: "req-1",
       }),
     ).toBe(false);
   });
 });
 
-describe("EventFrameSchema", () => {
-  const validate = ajv.compile(EventFrameSchema);
+describe("NotificationFrameSchema", () => {
+  const validate = ajv.compile(NotificationFrameSchema);
 
-  it("accepts valid event", () => {
+  it("accepts valid notification", () => {
     expect(
       validate({
         jsonrpc: "2.0",
-        type: "event",
-        event: "messages/received",
-        data: { message: {} },
+        method: "messages/received",
+        params: { message: {} },
       }),
     ).toBe(true);
+  });
+
+  it("rejects request ids", () => {
+    expect(
+      validate({
+        jsonrpc: "2.0",
+        id: "req-1",
+        method: "messages/received",
+        params: { message: {} },
+      }),
+    ).toBe(false);
   });
 });

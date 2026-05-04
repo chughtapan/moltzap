@@ -3,7 +3,7 @@
  * Historical grouping note: spec #181 §5 calls this "Tier E". Code uses
  * semantic names only.
  *
- * The s2c-RPC fail-on-app-disconnect invariant — replacing the deleted
+ * The app-callback-RPC fail-on-app-disconnect invariant — replacing the deleted
  * `webhook-graceful-shutdown` probe under B.1's awaitable RPC transport
  * — is registered as `app-disconnect-fail-policy` below.
  */
@@ -29,6 +29,7 @@ import {
   AppsOnBeforeMessageDelivery,
   AppsRegister,
 } from "../../schema/methods/apps.js";
+import { conversationId, messageId } from "../../schema/primitives.js";
 
 /**
  * Tagged sentinel for "the dispatch RPC did not reply within the
@@ -115,7 +116,7 @@ export function registerSchemaExhaustiveFuzz(ctx: ConformanceRunContext): void {
           }
           for (const sampled of samples) {
             yield* client
-              .sendRpc(sampled.method, sampled.params)
+              .sendRpc(sampled.definition, sampled.params)
               .pipe(Effect.either);
             // Post-fuzz liveness: a follow-up RPC must return a typed
             // response. Accepting any `Left` would let a timeout or
@@ -123,7 +124,7 @@ export function registerSchemaExhaustiveFuzz(ctx: ConformanceRunContext): void {
             // exactly what the property must reject. Require the post
             // call to SUCCEED; timeouts are failures here.
             const post = yield* client
-              .sendRpc(AgentsList.name, {})
+              .sendRpc(AgentsList, {})
               .pipe(Effect.either);
             const postFailure = leftOrNull(post);
             if (postFailure !== null) {
@@ -151,7 +152,7 @@ export function registerSchemaExhaustiveFuzz(ctx: ConformanceRunContext): void {
  *     server's pending Deferreds fail with a typed close.
  *   - AppHost applies fail-CLOSED verdicts: `before_dispatch` →
  *     `decision: "deny"`; `before_message_delivery` → `block: true`.
- *   - The per-connection s2c pending map drains; no Deferred leaks past
+ *   - The per-connection appCallback pending map drains; no Deferred leaks past
  *     the connection's Scope.
  *
  * Conformance reach: the fail-closed verdicts are observable through the
@@ -182,7 +183,7 @@ export function registerAppDisconnectFailPolicy(
     ctx,
     CATEGORY,
     APP_DISCONNECT_FAIL_POLICY_PROPERTY,
-    "app WS sever ⇒ pending s2c Deferreds fail-closed; no leaks",
+    "app WS sever ⇒ pending appCallback Deferreds fail-closed; no leaks",
     Effect.scoped(
       Effect.gen(function* () {
         // Step 1: register the app-side agent (will host admission
@@ -229,29 +230,19 @@ export function registerAppDisconnectFailPolicy(
         // (see apps.handlers.ts:25-41) — succeeds even when the agent's
         // owner_user_id is null.
         const appId = `adfp-${Date.now().toString(DATE_ID_RADIX)}`;
-        // `apps/register` is server-handled but absent from the typed
-        // `rpcMethods` registry today (see `rpc-registry.ts:60-118`);
-        // app-sdk and `34-rpc-additions.integration.test.ts:48` use the
-        // same untyped-cast path. Adding it to the registry is an
-        // accretive change outside this sub-issue's scope.
-        const registerOutcome = yield* sendUntypedRpc(
-          appClient,
-          AppsRegister.name,
-          {
-            manifest: {
-              appId,
-              name: `Disconnect-fail app ${appId}`,
-              permissions: { required: [], optional: [] },
-              conversations: [
-                { key: "main", name: "Main", participantFilter: "all" },
-              ],
-              hooks: {
-                before_dispatch: { timeout_ms: 5000 },
-                before_message_delivery: { timeout_ms: 5000 },
-              },
+        const registerOutcome = yield* sendUntypedRpc(appClient, AppsRegister, {
+          manifest: {
+            appId,
+            name: `Disconnect-fail app ${appId}`,
+            conversations: [
+              { key: "main", name: "Main", participantFilter: "all" },
+            ],
+            hooks: {
+              before_dispatch: { timeout_ms: 5000 },
+              before_message_delivery: { timeout_ms: 5000 },
             },
           },
-        ).pipe(Effect.either);
+        }).pipe(Effect.either);
         const registerFailure = leftOrNull(registerOutcome);
         if (registerFailure !== null) {
           yield* Scope.close(appScope, Exit.void);
@@ -268,11 +259,11 @@ export function registerAppDisconnectFailPolicy(
         // the server-side Deferred is parked. The sever in step 6 is the
         // event the property exercises.
         yield* appClient.handleServerRpc(
-          AppsOnBeforeDispatch.name,
+          AppsOnBeforeDispatch,
           () => Effect.never,
         );
         yield* appClient.handleServerRpc(
-          AppsOnBeforeMessageDelivery.name,
+          AppsOnBeforeMessageDelivery,
           () => Effect.never,
         );
 
@@ -312,7 +303,7 @@ export function registerAppDisconnectFailPolicy(
           ),
         );
         const sessionOutcome = yield* senderClient
-          .sendRpc(AppsCreate.name, { appId, invitedAgentIds: [] })
+          .sendRpc(AppsCreate, { appId, invitedAgentIds: [] })
           .pipe(Effect.either);
         const sessionResult = yield* Either.match(sessionOutcome, {
           onLeft: (error) =>
@@ -364,10 +355,9 @@ export function registerAppDisconnectFailPolicy(
         // class makes the leak observable in the Left branch.
         const dispatchStarted = Date.now();
         const dispatchOutcome = yield* senderClient
-          .sendRpc(AppsAuthorizeDispatch.name, {
-            conversationId:
-              sessionConvId as `${string}-${string}-${string}-${string}-${string}`,
-            messageId: `00000000-0000-0000-0000-000000000001`,
+          .sendRpc(AppsAuthorizeDispatch, {
+            conversationId: conversationId(sessionConvId),
+            messageId: messageId("00000000-0000-0000-0000-000000000001"),
             senderAgentId: sender.agentId,
           })
           .pipe(

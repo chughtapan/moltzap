@@ -103,7 +103,7 @@ async function bootHarness(): Promise<Harness> {
 
   // Peer creates a DM with channel-agent-A.
   const convResponse = (await Effect.runPromise(
-    peerService.sendRpc(ConversationsCreate.name, {
+    peerService.sendRpc(ConversationsCreate, {
       type: "dm",
       participants: [{ type: "agent", id: channelAgentId }],
     }),

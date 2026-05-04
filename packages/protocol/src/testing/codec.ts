@@ -12,11 +12,12 @@ import { Value } from "@sinclair/typebox/value";
 import {
   RequestFrameSchema,
   ResponseFrameSchema,
-  EventFrameSchema,
+  NotificationFrameSchema,
   type RequestFrame,
   type ResponseFrame,
-  type EventFrame,
+  type NotificationFrame,
 } from "../schema/frames.js";
+import { isJsonRpcStringId, type JsonRpcStringId } from "../schema/json-rpc.js";
 import { FrameSchemaError } from "./errors.js";
 
 const BIT_FLIP_VARIANTS = 8;
@@ -26,14 +27,34 @@ const LCG_INCREMENT = 1_013_904_223;
 const LCG_MODULUS = 0x100000000;
 
 /**
- * Valid-frame kinds exposed on the wire. The string literal discriminator
- * matches the `type` field in `RequestFrameSchema` / `ResponseFrameSchema`
- * and the outer `type: "event"` sentinel for `EventFrameSchema`.
+ * Valid JSON-RPC frame objects exposed on the wire. Requests carry
+ * `method + id`, responses carry `id + result/error`, and notifications
+ * carry `method` without `id`.
  */
-export type AnyFrame =
-  | ({ readonly type: "request" } & RequestFrame)
-  | ({ readonly type: "response" } & ResponseFrame)
-  | ({ readonly type: "event" } & EventFrame);
+export type AnyFrame = RequestFrame | ResponseFrame | NotificationFrame;
+export type CorrelatedResponseFrame = ResponseFrame & {
+  readonly id: JsonRpcStringId;
+};
+
+export function isRequestFrame(frame: AnyFrame): frame is RequestFrame {
+  return "id" in frame && "method" in frame;
+}
+
+export function isResponseFrame(frame: AnyFrame): frame is ResponseFrame {
+  return "id" in frame && ("result" in frame || "error" in frame);
+}
+
+export function isCorrelatedResponseFrame(
+  frame: AnyFrame,
+): frame is CorrelatedResponseFrame {
+  return isResponseFrame(frame) && isJsonRpcStringId(frame.id);
+}
+
+export function isNotificationFrame(
+  frame: AnyFrame,
+): frame is NotificationFrame {
+  return !("id" in frame) && "method" in frame;
+}
 
 /**
  * Kinds of malformation Tier A / Tier D-slicer can inject. Each maps to a
@@ -76,70 +97,35 @@ export function decodeFrame(
       );
     }
 
-    if (
-      parsed === null ||
-      typeof parsed !== "object" ||
-      !("type" in parsed) ||
-      typeof (parsed as { type: unknown }).type !== "string"
-    ) {
+    if (parsed === null || typeof parsed !== "object") {
       return Effect.fail(
         new FrameSchemaError({
           direction,
           expected: "request",
           raw,
-          reason: "frame missing required `type` discriminator",
+          reason: "frame must be a JSON object",
         }),
       );
     }
 
-    const type = (parsed as { type: string }).type;
-    switch (type) {
-      case "request":
-        if (Value.Check(RequestFrameSchema, parsed)) {
-          return Effect.succeed(parsed as AnyFrame);
-        }
-        return Effect.fail(
-          new FrameSchemaError({
-            direction,
-            expected: "request",
-            raw,
-            reason: firstValueError(RequestFrameSchema, parsed),
-          }),
-        );
-      case "response":
-        if (Value.Check(ResponseFrameSchema, parsed)) {
-          return Effect.succeed(parsed as AnyFrame);
-        }
-        return Effect.fail(
-          new FrameSchemaError({
-            direction,
-            expected: "response",
-            raw,
-            reason: firstValueError(ResponseFrameSchema, parsed),
-          }),
-        );
-      case "event":
-        if (Value.Check(EventFrameSchema, parsed)) {
-          return Effect.succeed(parsed as AnyFrame);
-        }
-        return Effect.fail(
-          new FrameSchemaError({
-            direction,
-            expected: "event",
-            raw,
-            reason: firstValueError(EventFrameSchema, parsed),
-          }),
-        );
-      default:
-        return Effect.fail(
-          new FrameSchemaError({
-            direction,
-            expected: "request",
-            raw,
-            reason: `unknown frame type: ${type}`,
-          }),
-        );
+    if (Value.Check(ResponseFrameSchema, parsed)) {
+      return Effect.succeed(parsed as AnyFrame);
     }
+    if (Value.Check(RequestFrameSchema, parsed)) {
+      return Effect.succeed(parsed as AnyFrame);
+    }
+    if (Value.Check(NotificationFrameSchema, parsed)) {
+      return Effect.succeed(parsed as AnyFrame);
+    }
+
+    return Effect.fail(
+      new FrameSchemaError({
+        direction,
+        expected: "request",
+        raw,
+        reason: firstValueError(RequestFrameSchema, parsed),
+      }),
+    );
   });
 }
 
