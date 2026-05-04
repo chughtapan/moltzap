@@ -24,8 +24,8 @@ locally to write a new profile, since the named profile does not yet
 exist at that point.
 
 v2 subcommands that honor these flags end-to-end (routed via the v2
-Transport layer): `apps/*`, `permissions/*`, `messages list`,
-`conversations {get,archive,unarchive}`. Legacy subcommands (`send`,
+Transport layer): `apps/*`, `messages list`, `conversations
+{get,archive,unarchive}`. Legacy subcommands (`send`,
 `contacts`, `conversations {list,create,...}`, `invite`, `presence`,
 `ping`, `status`, `agents`, `whoami`, `history`) still call the local
 socket daemon and ignore `--as` today; rewiring them is a tracked
@@ -34,8 +34,8 @@ follow-up.
 ## End-to-end walkthrough: alice invites bob into an app session
 
 Goal: register two agents (alice, bob) on the same host, have alice
-create an `apps/create` session inviting bob, have bob send a message,
-and have alice grant bob a resource permission.
+create an `apps/create` session inviting bob, and have bob send a
+message into the session.
 
 ### 1. Register alice and bob under named profiles
 
@@ -119,32 +119,14 @@ today it will use the default daemon identity regardless of `--as`/
 rewiring is a tracked follow-up. Use `messages list` to verify the
 message landed from the expected sender id.)
 
-### 6. As alice, grant bob a resource permission
-
-```sh
-moltzap --profile alice permissions grant \
-  --session $SESSION_ID \
-  --agent   $BOB_AGENT_ID \
-  --resource doc:contract-v1 \
-  --access  read --access comment
-#   → granted: agent=018f3b... resource=doc:contract-v1 access=read,comment
-```
-
-### 7. Read back the grants (alice's view)
-
-```sh
-moltzap --profile alice permissions list --app myapp
-#   → myapp\tdoc:contract-v1\tread,comment\t2026-04-24T09:45:12.000Z
-```
-
-### 8. Inspect message history
+### 6. Inspect message history
 
 ```sh
 moltzap --profile alice messages list --conversation $CONV_ID --limit 20
 #   → 1\tbob\thello alice
 ```
 
-### 9. Close the session when done
+### 7. Close the session when done
 
 ```sh
 moltzap --profile alice apps close $SESSION_ID
@@ -160,11 +142,9 @@ moltzap --profile alice apps close $SESSION_ID
 | Run any v2 command as a named profile | `moltzap --profile <name> <subcommand> ...` |
 | Run any v2 command with a raw apiKey | `moltzap --as $KEY <subcommand> ...` |
 | Create a session inviting agents | `moltzap --profile <init> apps create --app <id> --invite <agentId> [--invite ...]` |
-| Grant a permission on a session | `moltzap --profile <init> permissions grant --session <id> --agent <agentId> --resource <r> --access read` |
 
 ## Things that are deliberately NOT in v1
 
-- `apps attest-skill` — ESCALATED Q-AS-1 to spec rev 4 (RPC shape pending).
 - `messages list --cursor` — ESCALATED Q-M-1 to spec rev 4 (no server backing yet).
 - `messages tail` (follow-mode) — Non-goal §3.1.
 - Rewire of legacy `send` / `contacts` / `conversations {list,create,...}` onto the v2 Transport — separate architect sub-issue.

@@ -15,6 +15,8 @@ import {
   encodeFrame,
   decodeFrame,
   malformFrame,
+  isRequestFrame,
+  isNotificationFrame,
   type AnyFrame,
 } from "../codec.js";
 import { makeCaptureBuffer, recordFrame, mergeCaptures } from "../captures.js";
@@ -33,24 +35,24 @@ import {
 
 import { Connect } from "../../schema/methods/auth.js";
 import { ConversationsList } from "../../schema/methods/conversations.js";
+import { jsonRpcMethod, jsonRpcStringId, requestFrame } from "../../index.js";
+import { brandNotificationFrame } from "../../schema/internal-frames.js";
 
 describe("codec", () => {
   it("round-trips a valid request frame", async () => {
-    const frame: AnyFrame = {
-      type: "request",
-      direction: "c2s",
-      jsonrpc: "2.0",
-      id: "req-1",
-      method: Connect.name,
-      params: { agentKey: "k", agentId: "a" },
-    };
+    const frame: AnyFrame = requestFrame(jsonRpcStringId("req-1"), Connect, {
+      agentKey: "k",
+      agentId: "a",
+      minProtocol: "0.1.0",
+      maxProtocol: "0.1.0",
+    });
     const raw = encodeFrame(frame);
     const decoded = await Effect.runPromise(
       Effect.either(decodeFrame(raw, "inbound")),
     );
     expect(decoded._tag).toBe("Right");
     if (decoded._tag === "Right") {
-      expect(decoded.right.type).toBe("request");
+      expect(isRequestFrame(decoded.right)).toBe(true);
     }
   });
 
@@ -65,14 +67,11 @@ describe("codec", () => {
   });
 
   it("malformFrame never throws for any kind + seed", () => {
-    const base: AnyFrame = {
-      type: "request",
-      direction: "c2s",
-      jsonrpc: "2.0",
-      id: "r",
-      method: Connect.name,
-      params: {},
-    };
+    const base: AnyFrame = requestFrame(jsonRpcStringId("r"), Connect, {
+      agentKey: "k",
+      minProtocol: "0.1.0",
+      maxProtocol: "0.1.0",
+    });
     const kinds = [
       "bit-flip",
       "truncated",
@@ -92,19 +91,18 @@ describe("captures", () => {
     const result = await Effect.runPromise(
       Effect.gen(function* () {
         const buf = yield* makeCaptureBuffer({ capacity: 8 });
-        const frame: AnyFrame = {
-          type: "event",
+        const frame: AnyFrame = brandNotificationFrame({
           jsonrpc: "2.0",
-          event: "ping",
-          data: null,
-        };
+          method: jsonRpcMethod("testing/ping"),
+          params: null,
+        });
         yield* recordFrame(buf, "inbound", encodeFrame(frame), frame);
         const snap = yield* buf.snapshot;
         return snap;
       }),
     );
     expect(result).toHaveLength(1);
-    expect(result[0]?.frame?.type).toBe("event");
+    expect(result[0]?.frame && isNotificationFrame(result[0].frame)).toBe(true);
   });
 
   it("mergeCaptures aggregates multiple buffers in timestamp order", async () => {
@@ -112,12 +110,11 @@ describe("captures", () => {
       Effect.gen(function* () {
         const a = yield* makeCaptureBuffer({ capacity: 4 });
         const b = yield* makeCaptureBuffer({ capacity: 4 });
-        const frame: AnyFrame = {
-          type: "event",
+        const frame: AnyFrame = brandNotificationFrame({
           jsonrpc: "2.0",
-          event: "ping",
-          data: null,
-        };
+          method: jsonRpcMethod("testing/ping"),
+          params: null,
+        });
         yield* recordFrame(a, "inbound", "{}", frame);
         yield* recordFrame(b, "inbound", "{}", frame);
         const merged = yield* mergeCaptures([a, b]);

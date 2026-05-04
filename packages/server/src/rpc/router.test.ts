@@ -1,54 +1,103 @@
 import { describe, expect, it } from "vitest";
 import { it as effectIt } from "@effect/vitest";
 import { Effect } from "effect";
-import { ErrorCodes, type RequestFrame } from "@moltzap/protocol";
+import { Type } from "@sinclair/typebox";
+import {
+  defineRpc,
+  ErrorCodes,
+  jsonRpcStringId,
+  requestFrame,
+  type ParamsOf,
+  type RpcDefinition,
+  type RequestFrame,
+  type ResponseFrame,
+  type TSchema,
+} from "@moltzap/protocol";
 import { createRpcRouter } from "./router.js";
-import type { AuthenticatedContext, RpcMethodDef } from "./context.js";
+import { defineMethod, makeRpcMethodBoundaryService } from "./context.js";
+import type { AuthenticatedContext } from "./context.js";
 import { ForbiddenError, RpcFailure } from "../runtime/index.js";
 import { AgentId, UserId } from "../app/types.js";
 
-// Router tests assemble handler fixtures directly as `RpcMethodDef` literals
-// rather than going through `defineMethod` — these aren't real RPC methods
-// with TypeBox manifests, they're synthetic test shapes that exercise the
-// router's branches (success, Forbidden, RpcFailure, defect, InvalidParams).
-const makeMethod = (def: RpcMethodDef): RpcMethodDef => def;
-
 const activeAgent: AuthenticatedContext = {
-  agentId: AgentId("agent-1"),
+  agentId: AgentId("00000000-0000-4000-8000-0000000000a1"),
   agentStatus: "active",
-  ownerUserId: UserId("user-1"),
+  ownerUserId: UserId("00000000-0000-4000-8000-0000000001a1"),
 };
 
 const pendingAgent: AuthenticatedContext = {
-  agentId: AgentId("agent-2"),
+  agentId: AgentId("00000000-0000-4000-8000-0000000000a2"),
   agentStatus: "pending_claim",
   ownerUserId: null,
 };
 
-function frame(method: string, params?: unknown): RequestFrame {
-  return {
-    jsonrpc: "2.0",
-    type: "request",
-    direction: "c2s",
-    id: "req-1",
-    method,
-    params,
-  };
+const AnyParams = Type.Any();
+const AnyResult = Type.Any();
+
+const TestEcho = defineRpc({
+  name: "test/echo",
+  params: AnyParams,
+  result: AnyResult,
+});
+const TestActiveOnly = defineRpc({
+  name: "test/active-only",
+  params: AnyParams,
+  result: AnyResult,
+});
+const TestFail = defineRpc({
+  name: "test/fail",
+  params: AnyParams,
+  result: AnyResult,
+});
+const TestFailWithData = defineRpc({
+  name: "test/fail-with-data",
+  params: AnyParams,
+  result: AnyResult,
+});
+const TestDefect = defineRpc({
+  name: "test/defect",
+  params: AnyParams,
+  result: AnyResult,
+});
+const TestForbidden = defineRpc({
+  name: "test/forbidden",
+  params: AnyParams,
+  result: AnyResult,
+});
+
+function frame<D extends RpcDefinition<string, TSchema, TSchema>>(
+  definition: D,
+  params: ParamsOf<D>,
+): RequestFrame {
+  return requestFrame(jsonRpcStringId("req-1"), definition, params);
+}
+
+function expectResult(response: ResponseFrame): unknown {
+  if (!("result" in response)) {
+    throw new Error(`expected result response, got ${response.error.message}`);
+  }
+  return response.result;
+}
+
+function expectError(
+  response: ResponseFrame,
+): Extract<ResponseFrame, { error: unknown }>["error"] {
+  if (!("error" in response)) {
+    throw new Error("expected error response");
+  }
+  return response.error;
 }
 
 describe("createRpcRouter", () => {
-  const methods = {
-    "test/echo": makeMethod({
-      validator: () => true,
+  const methods = [
+    defineMethod(TestEcho, {
       handler: (params) => Effect.succeed(params),
     }),
-    "test/active-only": makeMethod({
-      validator: () => true,
+    defineMethod(TestActiveOnly, {
       handler: () => Effect.succeed({ ok: true as const }),
       requiresActive: true,
     }),
-    "test/fail": makeMethod({
-      validator: () => true,
+    defineMethod(TestFail, {
       handler: () =>
         Effect.fail(
           new RpcFailure({
@@ -57,8 +106,7 @@ describe("createRpcRouter", () => {
           }),
         ),
     }),
-    "test/fail-with-data": makeMethod({
-      validator: () => true,
+    defineMethod(TestFailWithData, {
       handler: () =>
         Effect.fail(
           new RpcFailure({
@@ -68,17 +116,10 @@ describe("createRpcRouter", () => {
           }),
         ),
     }),
-    "test/defect": makeMethod({
-      validator: () => true,
+    defineMethod(TestDefect, {
       handler: () => Effect.die(new Error("kaboom")),
     }),
-    "test/validated": makeMethod({
-      validator: (params: unknown): params is { name: string } =>
-        typeof params === "object" && params !== null && "name" in params,
-      handler: (params) => Effect.succeed(params),
-    }),
-    "test/forbidden": makeMethod({
-      validator: () => true,
+    defineMethod(TestForbidden, {
       // ForbiddenError isn't in the RpcHandler error channel (which is
       // RpcFailure), but the router matches `instanceof ForbiddenError`
       // independently — we synthesize it here via `as never` to exercise
@@ -86,61 +127,66 @@ describe("createRpcRouter", () => {
       handler: () =>
         Effect.fail(new ForbiddenError({ message: "not allowed" }) as never),
     }),
-  };
+  ];
 
-  const dispatch = createRpcRouter(methods);
+  const dispatchResolved = createRpcRouter();
+  const boundary = makeRpcMethodBoundaryService(methods);
+  const dispatch = async (
+    request: RequestFrame,
+    ctx: AuthenticatedContext,
+    connId: string,
+  ) => {
+    const resolved = await Effect.runPromise(boundary.resolve(request));
+    return dispatchResolved(resolved, ctx, connId);
+  };
 
   it("dispatches to handler and returns result", async () => {
     const res = await dispatch(
-      frame("test/echo", { hello: "world" }),
+      frame(TestEcho, { hello: "world" }),
       activeAgent,
       "test-conn-id",
     );
-    expect(res.result).toEqual({ hello: "world" });
-    expect(res.error).toBeUndefined();
-  });
-
-  it("returns MethodNotFound for unknown method", async () => {
-    const res = await dispatch(
-      frame("test/nonexistent"),
-      activeAgent,
-      "test-conn-id",
-    );
-    expect(res.error?.code).toBe(ErrorCodes.MethodNotFound);
+    expect(expectResult(res)).toEqual({ hello: "world" });
   });
 
   it("blocks pending agents on requiresActive methods", async () => {
     const res = await dispatch(
-      frame("test/active-only"),
+      frame(TestActiveOnly, {}),
       pendingAgent,
       "test-conn-id",
     );
-    expect(res.error?.code).toBe(ErrorCodes.Forbidden);
+    expect(expectError(res).code).toBe(ErrorCodes.Forbidden);
   });
 
   it("allows active agents on requiresActive methods", async () => {
     const res = await dispatch(
-      frame("test/active-only"),
+      frame(TestActiveOnly, {}),
       activeAgent,
       "test-conn-id",
     );
-    expect(res.result).toEqual({ ok: true });
+    expect(expectResult(res)).toEqual({ ok: true });
   });
 
   it("maps Effect.fail(RpcFailure) to typed wire error", async () => {
-    const res = await dispatch(frame("test/fail"), activeAgent, "test-conn-id");
-    expect(res.error?.code).toBe(ErrorCodes.NotFound);
-    expect(res.error?.message).toBe("Not found");
+    const res = await dispatch(
+      frame(TestFail, {}),
+      activeAgent,
+      "test-conn-id",
+    );
+    const error = expectError(res);
+    expect(error.code).toBe(ErrorCodes.NotFound);
+    expect(error.message).toBe("Not found");
   });
 
   it("preserves RpcFailure data field", async () => {
     const res = await dispatch(
-      frame("test/fail-with-data"),
+      frame(TestFailWithData, {}),
       activeAgent,
       "test-conn-id",
     );
-    expect(res.error?.code).toBe(ErrorCodes.Conflict);
-    expect(res.error?.data).toEqual({ id: "x" });
+    const error = expectError(res);
+    expect(error.code).toBe(ErrorCodes.Conflict);
+    expect(error.data).toEqual({ id: "x" });
   });
 
   it("maps Effect.fail(ForbiddenError) to Forbidden wire error", async () => {
@@ -149,48 +195,32 @@ describe("createRpcRouter", () => {
     // synthesizes the ForbiddenError inside the router. Here the handler
     // itself fails with ForbiddenError and we check the same mapping.
     const res = await dispatch(
-      frame("test/forbidden"),
+      frame(TestForbidden, {}),
       activeAgent,
       "test-conn-id",
     );
-    expect(res.error?.code).toBe(ErrorCodes.Forbidden);
-    expect(res.error?.message).toBe("not allowed");
+    const error = expectError(res);
+    expect(error.code).toBe(ErrorCodes.Forbidden);
+    expect(error.message).toBe("not allowed");
   });
 
   it("maps Effect.die to InternalError (defect)", async () => {
     const res = await dispatch(
-      frame("test/defect"),
+      frame(TestDefect, {}),
       activeAgent,
       "test-conn-id",
     );
-    expect(res.error?.code).toBe(ErrorCodes.InternalError);
-    expect(res.error?.message).toBe("Internal error");
-  });
-
-  it("rejects invalid params with InvalidParams", async () => {
-    const res = await dispatch(
-      frame("test/validated", {}),
-      activeAgent,
-      "test-conn-id",
-    );
-    expect(res.error?.code).toBe(ErrorCodes.InvalidParams);
-  });
-
-  it("passes valid params through validator", async () => {
-    const res = await dispatch(
-      frame("test/validated", { name: "alice" }),
-      activeAgent,
-      "test-conn-id",
-    );
-    expect(res.result).toEqual({ name: "alice" });
+    const error = expectError(res);
+    expect(error.code).toBe(ErrorCodes.InternalError);
+    expect(error.message).toBe("Internal error");
   });
 
   effectIt.effect("composes with @effect/vitest for effect-native tests", () =>
     Effect.gen(function* () {
       const res = yield* Effect.promise(() =>
-        dispatch(frame("test/echo", { x: 1 }), activeAgent, "test-conn-id"),
+        dispatch(frame(TestEcho, { x: 1 }), activeAgent, "test-conn-id"),
       );
-      expect(res.result).toEqual({ x: 1 });
+      expect(expectResult(res)).toEqual({ x: 1 });
     }),
   );
 });

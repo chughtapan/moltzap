@@ -6,11 +6,7 @@ export {
   type FakeChannelService,
 } from "./channel-service-fixture.js";
 
-export {
-  FakeMoltZapService,
-  type CannedResponses,
-  type RecordedCall,
-} from "./fake-service.js";
+export { FakeMoltZapService, type RecordedCall } from "./fake-service.js";
 
 export {
   createMoltZapRealClientFactory,
@@ -19,6 +15,9 @@ export {
 
 import type { Message } from "@moltzap/protocol";
 import { Data, Effect } from "effect";
+import { testAgentId, testConversationId, testMessageId } from "./ids.js";
+
+export { testAgentId, testConversationId, testMessageId } from "./ids.js";
 
 const FLUSH_DISPATCH_TURNS = 20;
 
@@ -28,15 +27,32 @@ class FlushDispatchChainError extends Data.TaggedError(
   readonly cause: unknown;
 }> {}
 
-export function buildMessage(overrides: Partial<Message> = {}): Message {
+type MessageFixtureOverrides = Omit<
+  Partial<Message>,
+  "id" | "conversationId" | "senderId" | "replyToId" | "taggedEntities"
+> & {
+  readonly id?: string;
+  readonly conversationId?: string;
+  readonly senderId?: string;
+  readonly replyToId?: string;
+  readonly taggedEntities?: ReadonlyArray<string>;
+};
+
+export function buildMessage(overrides: MessageFixtureOverrides = {}): Message {
+  const { id, conversationId, senderId, replyToId, taggedEntities, ...rest } =
+    overrides;
   return {
-    id: "msg-1",
-    conversationId: "conv-1",
-    senderId: "agent-alice",
+    id: testMessageId(id ?? "msg-1"),
+    conversationId: testConversationId(conversationId ?? "conv-1"),
+    senderId: testAgentId(senderId ?? "agent-alice"),
     parts: [{ type: "text", text: "hello" }],
     createdAt: "2026-04-10T12:00:00.000Z",
-    ...overrides,
-  } as Message;
+    ...(replyToId !== undefined ? { replyToId: testMessageId(replyToId) } : {}),
+    ...(taggedEntities !== undefined
+      ? { taggedEntities: taggedEntities.map(testAgentId) }
+      : {}),
+    ...rest,
+  };
 }
 
 export function flushDispatchChain() {

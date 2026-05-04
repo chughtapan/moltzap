@@ -1,7 +1,7 @@
 /**
  * `moltzap apps <subcommand>` — handlers for spec sbd#177 rev 3 §5.3.
  *
- * Six subcommands, each a one-to-one wrap of a JSON-RPC method defined in
+ * Five subcommands, each a one-to-one wrap of a JSON-RPC method defined in
  * `packages/protocol/src/schema/methods/apps.ts`:
  *
  *   apps register       → apps/register
@@ -9,7 +9,6 @@
  *   apps list           → apps/listSessions
  *   apps get            → apps/getSession
  *   apps close          → apps/closeSession
- *   apps attest-skill   → apps/attestSkill   (ESCALATED Q-AS-1, stub only)
  *
  * Every handler is an Effect requiring the {@link Transport} tag; impl-staff
  * wires each into `Command.make(...)` per the existing `@effect/cli` pattern
@@ -30,7 +29,7 @@ import {
 } from "../transport.js";
 
 import {
-  AppsAttestSkill,
+  agentId,
   AppsCloseSession,
   AppsCreate,
   AppsGetSession,
@@ -94,18 +93,6 @@ export interface AppsCloseArgs {
   readonly sessionId: string;
 }
 
-/**
- * `moltzap apps attest-skill --session <id> --skill <id>` — spec §5.3 bullet 6.
- *
- * ESCALATED (Q-AS-1, spec rev 4). The stub remains here so the module
- * compiles; impl-staff does NOT wire a `Command.make` for this subcommand.
- */
-export interface AppsAttestSkillArgs {
-  readonly challengeId: string;
-  readonly skillUrl: string;
-  readonly version: string;
-}
-
 // ─── Handlers ──────────────────────────────────────────────────────────────
 
 /** Wraps `apps/register`. Prints the registered app id to stdout. */
@@ -141,9 +128,16 @@ export const appsRegisterHandler = (
         }),
       );
     }
-    const result = yield* rpc<{ appId: string }>(AppsRegister.name, {
-      manifest,
-    });
+    const params = { manifest };
+    if (!AppsRegister.validateParams(params)) {
+      return yield* Effect.fail(
+        new AppsInputError({
+          message: `manifest at ${args.manifestPath} does not match the app manifest schema`,
+          reason: "invalid app manifest",
+        }),
+      );
+    }
+    const result = yield* rpc(AppsRegister, params);
     yield* Effect.sync(() => {
       console.log(result.appId);
     });
@@ -154,9 +148,9 @@ export const appsCreateHandler = (
   args: AppsCreateArgs,
 ): Effect.Effect<void, AppsCommandError, Transport> =>
   Effect.gen(function* () {
-    const result = yield* rpc<{ session: { id: string } }>(AppsCreate.name, {
+    const result = yield* rpc(AppsCreate, {
       appId: args.appId,
-      invitedAgentIds: [...args.invitedAgentIds],
+      invitedAgentIds: args.invitedAgentIds.map(agentId),
     });
     yield* Effect.sync(() => {
       console.log(result.session.id);
@@ -168,17 +162,12 @@ export const appsListHandler = (
   args: AppsListArgs,
 ): Effect.Effect<void, AppsCommandError, Transport> =>
   Effect.gen(function* () {
-    const params: Record<string, unknown> = {};
-    if (args.appId !== undefined) params.appId = args.appId;
-    if (args.status !== undefined) params.status = args.status;
-    if (args.limit !== undefined) params.limit = args.limit;
-    const result = yield* rpc<{
-      sessions: ReadonlyArray<{
-        id: string;
-        appId: string;
-        status: AppSessionStatus;
-      }>;
-    }>(AppsListSessions.name, params);
+    const params = {
+      ...(args.appId !== undefined ? { appId: args.appId } : {}),
+      ...(args.status !== undefined ? { status: args.status } : {}),
+      ...(args.limit !== undefined ? { limit: args.limit } : {}),
+    };
+    const result = yield* rpc(AppsListSessions, params);
     yield* Effect.sync(() => {
       for (const s of result.sessions) {
         console.log(`${s.id}\t${s.appId}\t${s.status}`);
@@ -191,7 +180,7 @@ export const appsGetHandler = (
   args: AppsGetArgs,
 ): Effect.Effect<void, AppsCommandError, Transport> =>
   Effect.gen(function* () {
-    const result = yield* rpc<{ session: unknown }>(AppsGetSession.name, {
+    const result = yield* rpc(AppsGetSession, {
       sessionId: args.sessionId,
     });
     yield* Effect.sync(() => {
@@ -204,28 +193,13 @@ export const appsCloseHandler = (
   args: AppsCloseArgs,
 ): Effect.Effect<void, AppsCommandError, Transport> =>
   Effect.gen(function* () {
-    yield* rpc<{ closed: boolean }>(AppsCloseSession.name, {
+    yield* rpc(AppsCloseSession, {
       sessionId: args.sessionId,
     });
     yield* Effect.sync(() => {
       console.log(args.sessionId);
     });
   });
-
-/**
- * Wraps `apps/attestSkill` — spec rev 4 addendum §3 (Q-AS-1 resolved).
- *
- * All three flags are required; the RPC result is `{}`.
- * Exit 0 on success with no stdout payload (Invariant §4.6; result is void).
- */
-export const appsAttestSkillHandler = (
-  args: AppsAttestSkillArgs,
-): Effect.Effect<void, AppsCommandError, Transport> =>
-  rpc<Record<string, never>>(AppsAttestSkill.name, {
-    challengeId: args.challengeId,
-    skillUrl: args.skillUrl,
-    version: args.version,
-  }).pipe(Effect.asVoid);
 
 // ─── CLI commands ──────────────────────────────────────────────────────────
 
@@ -328,43 +302,11 @@ const appsCloseCommand = Command.make(
   ({ sessionId }) => runHandler(appsCloseHandler({ sessionId })),
 ).pipe(Command.withDescription("Close an app session"));
 
-const challengeIdOption = Options.text("challenge-id").pipe(
-  Options.withDescription("Challenge id (UUID) from the attestation challenge"),
-);
-const skillUrlOption = Options.text("skill-url").pipe(
-  Options.withDescription("Skill URL being attested"),
-);
-const versionOption = Options.text("version").pipe(
-  Options.withDescription("Skill version string"),
-);
-
-/**
- * `moltzap apps attest-skill --challenge-id <id> --skill-url <url> --version <v>`
- *
- * Wraps `apps/attestSkill`. All three flags required.
- * Exits 0 on success with no stdout; error to stderr with non-zero exit
- * (spec rev 4 addendum §3 Q-AS-1; Invariant §4.6).
- */
-const appsAttestSkillCommand = Command.make(
-  "attest-skill",
-  {
-    challengeId: challengeIdOption,
-    skillUrl: skillUrlOption,
-    version: versionOption,
-  },
-  ({ challengeId, skillUrl, version }) =>
-    runHandler(appsAttestSkillHandler({ challengeId, skillUrl, version })),
-).pipe(
-  Command.withDescription(
-    "Attest a skill for a session. All three flags are required.",
-  ),
-);
-
-/** `moltzap apps [register|create|list|get|close|attest-skill]` — subcommand group. */
+/** `moltzap apps [register|create|list|get|close]` — subcommand group. */
 export const appsCommand = Command.make("apps", {}, () =>
   Effect.sync(() => {
     console.log(
-      "Usage: moltzap apps <register|create|list|get|close|attest-skill> [options]",
+      "Usage: moltzap apps <register|create|list|get|close> [options]",
     );
   }),
 ).pipe(
@@ -380,6 +322,5 @@ export const appsCommand = Command.make("apps", {}, () =>
     appsListCommand,
     appsGetCommand,
     appsCloseCommand,
-    appsAttestSkillCommand,
   ]),
 );

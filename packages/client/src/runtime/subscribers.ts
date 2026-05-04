@@ -1,20 +1,20 @@
 /**
- * Per-subscription event registry for `MoltZapWsClient`.
+ * Per-subscription notification registry for `MoltZapWsClient`.
  *
  * Responsibility: own the list of live `subscribe()` handles and fan each
- * inbound `EventFrame` out to every subscription whose filter matches.
+ * inbound JSON-RPC notification out to every subscription whose filter matches.
  * Implements spec #222 §5.3 (C4 + the `RealClientEventSubscriber.subscribe`
  * filter stub). Lives as an internal collaborator of `MoltZapWsClient`;
- * the public types (`SubscriptionFilter`, `EventSubscription`,
+ * the public types (`SubscriptionFilter`, `NotificationSubscription`,
  * `SubscriptionId`) re-export from the package barrel.
  *
- * Dispatch ordering (Invariant 6 — events delivered in arrival order):
+ * Dispatch ordering (Invariant 6 — notifications delivered in arrival order):
  *   1. Inbound frames are handed to the registry in arrival order.
  *   2. Within a single frame, subscriptions are notified in registration
  *      order.
- *   3. There is no separate legacy `onEvent` fanout — spec #222 OQ-4 is
- *      resolved by DELETING `MoltZapWsClientOptions.onEvent`. Callers
- *      that want "every event" register `subscribe({}, handler)` after
+ *   3. There is no separate legacy `onNotification` fanout — spec #222 OQ-4 is
+ *      resolved by DELETING `MoltZapWsClientOptions.onNotification`. Callers
+ *      that want every notification register `subscribe({}, handler)` after
  *      construction and before `connect()`.
  *
  * Unsubscribe semantics (OQ-3 A): `unsubscribe` takes effect on the next
@@ -25,21 +25,26 @@
  *
  * Error channel: handlers are invoked inside a defect-catcher; a throw is
  * logged via the client's injected `WsClientLogger` and swallowed
- * (matching the prior `onEvent` contract at `ws-client.ts:650-655`
+ * (matching the prior `onNotification` contract at `ws-client.ts:650-655`
  * pre-deletion). The registry itself has no typed error surface —
  * `register`, `dispatch`, and `closeAll` are `Effect<T, never>`.
  */
 import { Brand, Effect, Ref } from "effect";
-import type { EventFrame } from "@moltzap/protocol";
+import type { DecodedNotification } from "./frame.js";
+
+interface FilterableNotificationFrame {
+  readonly method: string;
+  readonly params?: unknown;
+}
 
 /** Branded identifier for a subscription handle. Minted by `register`. */
 export type SubscriptionId = string & Brand.Brand<"SubscriptionId">;
 export const SubscriptionId = Brand.nominal<SubscriptionId>();
 
 /**
- * Filter grammar for `subscribe`. An event is delivered to a subscription
+ * Filter grammar for `subscribe`. A notification is delivered to a subscription
  * iff it matches **every** field that is set on the filter. Unset fields
- * are wildcards; the empty filter `{}` matches every event.
+ * are wildcards; the empty filter `{}` matches every notification.
  *
  * OQ-2 resolution (A): exactly these three fields, no free-form
  * predicate, no schema-derived matcher. Matches the existing
@@ -48,20 +53,20 @@ export const SubscriptionId = Brand.nominal<SubscriptionId>();
  * one-for-one.
  *
  *   - `emissionTag` — exact match against the canonical payload key
- *     `frame.data.__emissionTag`. (The adapter reads the same key at
+ *     `frame.params.__emissionTag`. (The adapter reads the same key at
  *     `packages/client/src/test-utils/conformance-adapter.ts:77-79`;
  *     `emitTaggedEventDefault` writes it at `runner.ts:343-357`. The
  *     `__emissionId` string in the `runner.ts:108` doc comment is a
  *     known doc-bug — architect files a follow-up issue against
  *     protocol to correct the comment; it is not the canonical name.)
- *   - `conversationId` — exact match against `frame.data.conversationId`
- *     when set on the event payload.
- *   - `eventNamePrefix` — `frame.event.startsWith(prefix)`.
+ *   - `conversationId` — exact match against `frame.params.conversationId`
+ *     when set on the notification payload.
+ *   - `notificationNamePrefix` — `frame.method.startsWith(prefix)`.
  */
 export interface SubscriptionFilter {
   readonly emissionTag?: string;
   readonly conversationId?: string;
-  readonly eventNamePrefix?: string;
+  readonly notificationNamePrefix?: string;
 }
 
 /**
@@ -72,7 +77,7 @@ export interface SubscriptionFilter {
  * `unsubscribe` is `Effect<void, never>`: it is idempotent and total.
  * Calling `unsubscribe` a second time, or after `closeAll`, is a no-op.
  */
-export interface EventSubscription {
+export interface NotificationSubscription {
   readonly id: SubscriptionId;
   readonly unsubscribe: Effect.Effect<void, never>;
 }
@@ -90,7 +95,7 @@ export interface EventSubscription {
  * subscription B across frames.
  */
 export type SubscriberHandler = (
-  frame: EventFrame,
+  frame: DecodedNotification,
 ) => Effect.Effect<void, never>;
 
 /**
@@ -104,17 +109,17 @@ export interface SubscriberRegistry {
    * Add a subscription. Returns the handle immediately; delivery starts
    * with the next frame passed to `dispatch`. Does not await any
    * connection state — subscribe is legal pre-connect (spec §5.3 +
-   * Assumption 1 deletion: post-delete of `onEvent`, subscribe is the
-   * only pre-connect event hook).
+   * Assumption 1 deletion: post-delete of `onNotification`, subscribe is the
+   * only pre-connect notification hook).
    */
   readonly register: (
     filter: SubscriptionFilter,
     handler: SubscriberHandler,
-  ) => Effect.Effect<EventSubscription, never>;
+  ) => Effect.Effect<NotificationSubscription, never>;
 
   /**
-   * Fan an inbound event out to every matching subscription. Called by
-   * `MoltZapWsClient.handleIncoming` at the existing event-dispatch
+   * Fan an inbound notification out to every matching subscription. Called by
+   * `MoltZapWsClient.handleIncoming` at the existing notification-dispatch
    * point (`ws-client.ts:649-685`). Implementation snapshots the
    * live-subscription list at the start of dispatch so
    * unsubscribe-during-dispatch observes next-frame semantics (OQ-3 A).
@@ -123,7 +128,7 @@ export interface SubscriberRegistry {
    * handlers block later subscriptions for this frame but never
    * reorder frame N relative to frame N+1.
    */
-  readonly dispatch: (frame: EventFrame) => Effect.Effect<void, never>;
+  readonly dispatch: (frame: DecodedNotification) => Effect.Effect<void, never>;
 
   /**
    * Drop every live subscription. Called from `MoltZapWsClient.close`
@@ -138,7 +143,9 @@ interface LiveSubscription {
   readonly handler: SubscriberHandler;
 }
 
-function isEventDataRecord(value: unknown): value is Record<string, unknown> {
+function isNotificationParamsRecord(
+  value: unknown,
+): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -159,7 +166,7 @@ function isEventDataRecord(value: unknown): value is Record<string, unknown> {
  *   - Handler exceptions are caught with `Effect.catchAllDefect` after
  *     the handler Effect. Sync `throw` from a `(frame) => …` body
  *     surfaces as a defect; we log + swallow to match the pre-deletion
- *     `onEvent` contract.
+ *     `onNotification` contract.
  */
 export function makeSubscriberRegistry(logger: {
   readonly warn: (...args: ReadonlyArray<unknown>) => void;
@@ -217,28 +224,30 @@ export function makeSubscriberRegistry(logger: {
  * behavior without bypassing the production dispatch path.
  *
  * Returns `true` iff `frame` matches every set field on `filter`:
- *   - `filter.emissionTag === frame.data.__emissionTag` (strict ===)
- *   - `filter.conversationId === frame.data.conversationId` (strict ===)
- *   - `frame.event.startsWith(filter.eventNamePrefix)`
+ *   - `filter.emissionTag === frame.params.__emissionTag` (strict ===)
+ *   - `filter.conversationId === frame.params.conversationId` (strict ===)
+ *   - `frame.method.startsWith(filter.notificationNamePrefix)`
  * Unset filter fields are wildcards.
  */
 export function matchesFilter(
   filter: SubscriptionFilter,
-  frame: EventFrame,
+  frame: FilterableNotificationFrame,
 ): boolean {
-  if (filter.eventNamePrefix !== undefined) {
-    if (!frame.event.startsWith(filter.eventNamePrefix)) return false;
+  if (filter.notificationNamePrefix !== undefined) {
+    if (!frame.method.startsWith(filter.notificationNamePrefix)) return false;
   }
-  const data: Record<string, unknown> | null = isEventDataRecord(frame.data)
-    ? frame.data
+  const params: Record<string, unknown> | null = isNotificationParamsRecord(
+    frame.params,
+  )
+    ? frame.params
     : null;
 
   if (filter.emissionTag !== undefined) {
-    const tag = data?.["__emissionTag"];
+    const tag = params?.["__emissionTag"];
     if (tag !== filter.emissionTag) return false;
   }
   if (filter.conversationId !== undefined) {
-    const cid = data?.["conversationId"];
+    const cid = params?.["conversationId"];
     if (cid !== filter.conversationId) return false;
   }
   return true;

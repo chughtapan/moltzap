@@ -18,12 +18,14 @@
  * Principle 3: every property body is `Effect<void, PropertyFailure>`
  * — no bare throws, no `Effect.void` shortcuts.
  */
+import type { Static } from "@sinclair/typebox";
 import { Clock, Effect, Either, type Scope } from "effect";
 import { defaultToxicProfile } from "../toxics/defaults.js";
 import type { Proxy } from "../toxics/client.js";
 import type { ToxicProfile } from "../toxics/profile.js";
 import { makeTestClient, type TestClient } from "../test-client.js";
 import { registerTestAgent, type TestAgent } from "../agent-registration.js";
+import { isNotificationFrame } from "../codec.js";
 import { TransportClosedError } from "../errors.js";
 import type { ConformanceRunContext } from "./runner.js";
 import {
@@ -38,6 +40,7 @@ import {
   ConversationsList,
 } from "../../schema/methods/conversations.js";
 import { MessagesSend } from "../../schema/methods/messages.js";
+import { ConversationId, conversationId } from "../../schema/primitives.js";
 
 const CATEGORY = "adversity" as const;
 const DEFAULT_CAPTURE_CAPACITY = 128;
@@ -54,6 +57,7 @@ const TIMEOUT_EXPECTED_BUDGET_MS = 3_000;
 const SLOW_CLOSE_CLIENT_TIMEOUT_MS = 2_000;
 const SLOW_CLOSE_BUDGET_MS = 5_000;
 const TIMEOUT_SURFACE_PROPERTY = "timeout-surface";
+type ConversationIdValue = Static<typeof ConversationId>;
 
 function violation(name: string, reason: string): PropertyInvariantViolation {
   return new PropertyInvariantViolation({ category: CATEGORY, name, reason });
@@ -235,7 +239,7 @@ export function registerLatencyResilience(ctx: ConformanceRunContext): void {
           Effect.gen(function* () {
             yield* attachToxic;
             yield* owner.client
-              .sendRpc(MessagesSend.name, {
+              .sendRpc(MessagesSend, {
                 conversationId,
                 parts: [{ type: "text", text: "lat-ping" }],
               })
@@ -248,9 +252,9 @@ export function registerLatencyResilience(ctx: ConformanceRunContext): void {
         const delivered = snap.filter(
           (s) =>
             s.kind === "inbound" &&
-            s.frame?.type === "event" &&
-            typeof s.frame.event === "string" &&
-            s.frame.event.includes("message"),
+            s.frame !== null &&
+            isNotificationFrame(s.frame) &&
+            s.frame.method.includes("message"),
         ).length;
         if (delivered === 0) {
           return yield* Effect.fail(
@@ -320,7 +324,7 @@ export function registerSlicerFraming(ctx: ConformanceRunContext): void {
           Effect.gen(function* () {
             yield* attachToxic;
             yield* owner.client
-              .sendRpc(MessagesSend.name, {
+              .sendRpc(MessagesSend, {
                 conversationId,
                 parts: [{ type: "text", text: token }],
               })
@@ -332,7 +336,8 @@ export function registerSlicerFraming(ctx: ConformanceRunContext): void {
         const matched = snap.some(
           (s) =>
             s.kind === "inbound" &&
-            s.frame?.type === "event" &&
+            s.frame !== null &&
+            isNotificationFrame(s.frame) &&
             s.raw.includes(token),
         );
         if (!matched) {
@@ -380,7 +385,7 @@ export function registerResetPeerRecovery(ctx: ConformanceRunContext): void {
             const start = yield* Clock.currentTimeMillis;
             for (let i = 0; i < RESET_POLL_ATTEMPTS; i++) {
               const outcome = yield* sender.client
-                .sendRpc(ConversationsList.name, {})
+                .sendRpc(ConversationsList, {})
                 .pipe(Effect.either);
               const transportClosed = Either.match(outcome, {
                 onLeft: (error) => error instanceof TransportClosedError,
@@ -438,7 +443,7 @@ export function registerTimeoutSurface(ctx: ConformanceRunContext): void {
             yield* attachToxic;
             const start = yield* Clock.currentTimeMillis;
             const outcome = yield* proxied.client
-              .sendRpc(ConversationsList.name, {})
+              .sendRpc(ConversationsList, {})
               .pipe(Effect.either);
             const elapsed = (yield* Clock.currentTimeMillis) - start;
             return {
@@ -511,7 +516,7 @@ export function registerSlowCloseCleanup(ctx: ConformanceRunContext): void {
             );
             // A single RPC proves the socket is alive before close.
             yield* _client.client
-              .sendRpc(ConversationsList.name, {})
+              .sendRpc(ConversationsList, {})
               .pipe(Effect.either);
           }),
         );
@@ -535,10 +540,10 @@ function createOneOnOneConversation(
   owner: { agent: TestAgent; client: TestClient },
   participant: { agent: TestAgent; client: TestClient },
   propertyName: string,
-): Effect.Effect<string, PropertyInvariantViolation> {
+): Effect.Effect<ConversationIdValue, PropertyInvariantViolation> {
   return Effect.gen(function* () {
     const create = yield* owner.client
-      .sendRpc(ConversationsCreate.name, {
+      .sendRpc(ConversationsCreate, {
         type: "group",
         name: `adv-conv-${owner.agent.name}`,
         participants: [
@@ -562,6 +567,6 @@ function createOneOnOneConversation(
         ),
       );
     }
-    return id;
+    return conversationId(id);
   });
 }

@@ -1,0 +1,30 @@
+---
+title: "conversations/updated"
+description: "Pushed when a conversation's metadata changes (name, participants)."
+---
+
+# conversations/updated
+
+Pushed when a conversation's metadata changes (name, participants).
+
+## Params
+
+<ResponseField name="conversation" type="object">
+  The conversation field.
+</ResponseField>
+
+## Example
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "conversations/updated",
+  "params": { ... }
+}
+```
+
+## Triggered By
+
+- [`conversations/update`](/protocol/methods/conversations-update)
+- [`conversations/addParticipant`](/protocol/methods/conversations-add-participant)
+- [`conversations/removeParticipant`](/protocol/methods/conversations-remove-participant)

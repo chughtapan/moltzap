@@ -97,22 +97,18 @@ export interface SuiteResult {
  */
 export function registerAllProperties(ctx: ConformanceRunContext): void {
   schemaConformance.registerRequestWellFormedness(ctx);
-  schemaConformance.registerEventWellFormedness(ctx);
+  schemaConformance.registerNotificationWellFormedness(ctx);
   schemaConformance.registerRoundTripIdentity(ctx);
   schemaConformance.registerMalformedFrameHandling(ctx);
   schemaConformance.registerRpcMapCoverage(ctx);
-  schemaConformance.registerS2cRequestRoundTripIdentity(ctx);
-  schemaConformance.registerS2cResponseValidation(ctx);
-  schemaConformance.registerS2cMalformedRequestHandling(ctx);
-  schemaConformance.registerDualDirectionIdCollision(ctx);
 
   rpcSemantics.registerModelEquivalence(ctx);
   rpcSemantics.registerAuthorityPositive(ctx);
   rpcSemantics.registerAuthorityNegative(ctx);
   rpcSemantics.registerRequestIdUniqueness(ctx);
   rpcSemantics.registerIdempotence(ctx);
-  rpcSemantics.registerSpuriousS2cFrameHandling(ctx);
-  rpcSemantics.registerCallerControlledS2cTimeout(ctx);
+  rpcSemantics.registerSpuriousAppCallbackFrameHandling(ctx);
+  rpcSemantics.registerCallerControlledAppCallbackTimeout(ctx);
 
   delivery.registerFanOutCardinality(ctx);
   delivery.registerStoreAndReplay(ctx);
@@ -321,12 +317,12 @@ function allowedServerCoverageGaps(
       id: "boundary/app-disconnect-fail-policy",
       reasonIncludes: "B.9",
     },
-    // Spurious s2c frame handling needs a wire-level injection seam
+    // Spurious appCallback frame handling needs a wire-level injection seam
     // TestClient does not expose; tombstoned to B.9 (#318) where the
     // server-side fault-injection path is reachable.
     {
       kind: "deferred",
-      id: "rpc-semantics/spurious-s2c-frame-handling",
+      id: "rpc-semantics/spurious-app-callback-frame-handling",
       reasonIncludes: "B.9",
     },
   ];

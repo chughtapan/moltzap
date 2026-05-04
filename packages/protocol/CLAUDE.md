@@ -1,12 +1,16 @@
 # @moltzap/protocol
 
-TypeBox schema definitions and AJV validators for the MoltZap JSON-RPC protocol. Source of truth for all message types.
+TypeBox schema definitions, descriptor-backed RPC/notification definitions, and AJV validators for the MoltZap JSON-RPC protocol. Source of truth for all wire message types.
 
 ## Key Files
-- `src/schema/` — TypeBox schemas: identity, contacts, conversations, messages, invites, presence, delivery, frames, errors, events
-- `src/schema/methods/` — RPC method param/result schemas (see directory for full list)
+- `src/schema/` — TypeBox schemas: identity, contacts, conversations, messages, invites, presence, delivery, frames, errors, notifications
+- `src/schema/methods/` — RPC method descriptors with param/result schemas (see directory for full list)
+- `src/schema/notifications.ts` — JSON-RPC notification descriptors and payload schemas
+- `src/schema/json-rpc.ts` — Branded JSON-RPC IDs/methods and the `"2.0"` constant
+- `src/rpc-groups.ts` — Effect boundary helpers for descriptor-backed RPC and notification groups
+- `src/rpc-registry.ts` — Canonical task/app-callback RPC descriptor groups
 - `src/validators.ts` — Pre-compiled AJV validators for all RPC params and frame types
-- `src/helpers.ts` — `stringEnum()`, `brandedId()`, `DateTimeString` schema helpers
+- `src/helpers.ts` — `stringEnum()`, branded schema helpers, `DateTimeString`, and descriptor-backed frame constructors
 - `src/types.ts` — Re-exported TypeScript types derived from schemas
 - `src/version.ts` — `PROTOCOL_VERSION` constant
 - `scripts/generate-json-schema.ts` — Emits standalone JSON Schema files from TypeBox
@@ -20,7 +24,8 @@ TypeBox schema definitions and AJV validators for the MoltZap JSON-RPC protocol.
 - All `Type.Object()` calls use `{ additionalProperties: false }`
 - Use `stringEnum()` instead of `Type.Union([Type.Literal(...)])`
 - Use `brandedId("FooId")` for UUID string fields
-- Exports both schemas (for validation) and types (for TypeScript) — import types from root, schemas from `@moltzap/protocol/schemas`
+- Exports schemas, descriptors, validators, and types — import descriptors and types from root, schemas from `@moltzap/protocol/schemas`
+- Request/response/notification frames are standard JSON-RPC objects. Do not add custom `type`, `direction`, `event`, or `data` envelope fields.
 
 ## Dependencies
 - None on other workspace packages (this is the leaf dependency)

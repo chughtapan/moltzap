@@ -1,22 +1,5 @@
 import { Data } from "effect";
-
-/** The socket is not in the OPEN state when an RPC was attempted. */
-export class NotConnectedError extends Data.TaggedError("NotConnectedError")<{
-  readonly message: string;
-}> {}
-
-/** The RPC exceeded the per-call timeout without a response frame. */
-export class RpcTimeoutError extends Data.TaggedError("RpcTimeoutError")<{
-  readonly method: string;
-  readonly timeoutMs: number;
-}> {}
-
-/** The server returned an `error` response frame. */
-export class RpcServerError extends Data.TaggedError("RpcServerError")<{
-  readonly code: number;
-  readonly message: string;
-  readonly data?: unknown;
-}> {}
+import type { AppCallbackRpcMethodName } from "@moltzap/protocol";
 
 /** Inbound frame failed to parse as JSON or did not match the expected shape. */
 export class MalformedFrameError extends Data.TaggedError(
@@ -43,7 +26,7 @@ export class AgentNotFoundError extends Data.TaggedError("AgentNotFoundError")<{
 export class DuplicateServerRpcHandlerError extends Data.TaggedError(
   "DuplicateServerRpcHandlerError",
 )<{
-  readonly method: string;
+  readonly method: AppCallbackRpcMethodName;
 }> {
   override get message(): string {
     return `Server RPC handler already registered for method: ${this.method}`;

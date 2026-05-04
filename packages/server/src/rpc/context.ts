@@ -1,5 +1,13 @@
-import type { Effect } from "effect";
-import type { RpcDefinition, Static, TSchema } from "@moltzap/protocol";
+import { Context, Data, Effect, Layer } from "effect";
+import { decodeRpcParams as decodeProtocolRpcParams } from "@moltzap/protocol";
+import type {
+  ParamsOf,
+  RequestFrame,
+  ResultOf,
+  RpcDefinition,
+  Static,
+  TSchema,
+} from "@moltzap/protocol";
 import type { RpcFailure } from "../runtime/index.js";
 import type { ConnIdTag } from "../app/layers.js";
 import type { AgentId, UserId } from "../app/types.js";
@@ -23,13 +31,88 @@ export type RpcHandler = (
   ctx: AuthenticatedContext,
 ) => Effect.Effect<unknown, RpcFailure, ConnIdTag>;
 
-export interface RpcMethodDef {
-  handler: RpcHandler;
-  validator?: (params: unknown) => boolean;
+export interface RpcMethodDef<
+  D extends RpcDefinition<string, TSchema, TSchema>,
+> {
+  handler: (
+    params: ParamsOf<D>,
+    ctx: AuthenticatedContext,
+  ) => Effect.Effect<ResultOf<D>, RpcFailure, ConnIdTag>;
   requiresActive?: boolean;
 }
 
-export type RpcMethodRegistry = Record<string, RpcMethodDef>;
+export class RpcMethodNotFoundError extends Data.TaggedError(
+  "RpcMethodNotFoundError",
+)<{
+  readonly frame: RequestFrame;
+}> {}
+
+export class RpcParamsDecodeError extends Data.TaggedError(
+  "RpcParamsDecodeError",
+)<{
+  readonly frame: RequestFrame;
+  readonly definition: RpcDefinition<string, TSchema, TSchema>;
+}> {}
+
+export type RpcResolveError = RpcMethodNotFoundError | RpcParamsDecodeError;
+
+export interface ResolvedRpcMethod {
+  readonly frame: RequestFrame;
+  readonly definition: RpcDefinition<string, TSchema, TSchema>;
+  readonly requiresActive: boolean;
+  readonly handle: (
+    ctx: AuthenticatedContext,
+  ) => Effect.Effect<unknown, RpcFailure, ConnIdTag>;
+}
+
+export interface RpcMethodBinding<
+  D extends RpcDefinition<string, TSchema, TSchema> = RpcDefinition<
+    string,
+    TSchema,
+    TSchema
+  >,
+> {
+  readonly definition: D;
+  readonly resolve: (
+    frame: RequestFrame,
+  ) => Effect.Effect<ResolvedRpcMethod, RpcParamsDecodeError>;
+}
+
+export type RpcMethodRegistry = RpcMethodBinding[];
+
+export interface RpcMethodBoundaryService {
+  readonly resolve: (
+    frame: RequestFrame,
+  ) => Effect.Effect<ResolvedRpcMethod, RpcResolveError>;
+}
+
+export class RpcMethodBoundaryTag extends Context.Tag(
+  "@moltzap/server/RpcMethodBoundary",
+)<RpcMethodBoundaryTag, RpcMethodBoundaryService>() {}
+
+export function makeRpcMethodBoundaryService(
+  methods: RpcMethodRegistry,
+): RpcMethodBoundaryService {
+  return {
+    resolve: (frame) => {
+      for (const binding of methods) {
+        if (binding.definition.name === frame.method) {
+          return binding.resolve(frame);
+        }
+      }
+      return Effect.fail(new RpcMethodNotFoundError({ frame }));
+    },
+  };
+}
+
+export function makeRpcMethodBoundaryLayer(
+  methods: RpcMethodRegistry,
+): Layer.Layer<RpcMethodBoundaryTag> {
+  return Layer.succeed(
+    RpcMethodBoundaryTag,
+    makeRpcMethodBoundaryService(methods),
+  );
+}
 
 /**
  * Type-safe RPC method definition driven by a protocol manifest.
@@ -43,19 +126,31 @@ export type RpcMethodRegistry = Record<string, RpcMethodDef>;
  * or its TypeScript types because all three come from the same manifest
  * object.
  */
-export function defineMethod<D extends RpcDefinition<string, TSchema, TSchema>>(
-  definition: D,
+export function defineMethod<
+  Name extends string,
+  P extends TSchema,
+  R extends TSchema,
+>(
+  definition: RpcDefinition<Name, P, R>,
   def: {
     handler: (
-      params: Static<D["paramsSchema"]>,
+      params: Static<P>,
       ctx: AuthenticatedContext,
-    ) => Effect.Effect<Static<D["resultSchema"]>, RpcFailure, ConnIdTag>;
+    ) => Effect.Effect<Static<R>, RpcFailure, ConnIdTag>;
     requiresActive?: boolean;
   },
-): RpcMethodDef {
+): RpcMethodBinding<RpcDefinition<Name, P, R>> {
   return {
-    validator: definition.validateParams,
-    ...(def.requiresActive ? { requiresActive: true } : {}),
-    handler: def.handler as RpcHandler,
+    definition,
+    resolve: (frame) =>
+      decodeProtocolRpcParams(definition, frame.params ?? {}).pipe(
+        Effect.mapError(() => new RpcParamsDecodeError({ frame, definition })),
+        Effect.map((params) => ({
+          frame,
+          definition,
+          requiresActive: def.requiresActive ?? false,
+          handle: (ctx: AuthenticatedContext) => def.handler(params, ctx),
+        })),
+      ),
   };
 }

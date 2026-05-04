@@ -35,13 +35,13 @@ describe("Auth Failure", () => {
     Effect.gen(function* () {
       const client = yield* connectTestClient({
         wsUrl,
-        agentId: "unknown-agent",
+        agentId: "00000000-0000-4000-8000-000000000bad",
         apiKey: "invalid_key_12345",
         autoConnect: false,
       });
 
       const result = yield* Effect.exit(
-        client.sendRpc(Connect.name, {
+        client.sendRpc(Connect, {
           agentKey: "invalid_key_12345",
           minProtocol: PROTOCOL_VERSION,
           maxProtocol: PROTOCOL_VERSION,
@@ -60,13 +60,13 @@ describe("Auth Failure", () => {
     Effect.gen(function* () {
       const client = yield* connectTestClient({
         wsUrl,
-        agentId: "unknown-agent",
+        agentId: "00000000-0000-4000-8000-000000000bad",
         apiKey: "mz_totally_fake_api_key_000000000000",
         autoConnect: false,
       });
 
       const result = yield* Effect.exit(
-        client.sendRpc(Connect.name, {
+        client.sendRpc(Connect, {
           agentKey: "mz_totally_fake_api_key_000000000000",
           minProtocol: PROTOCOL_VERSION,
           maxProtocol: PROTOCOL_VERSION,
@@ -102,7 +102,7 @@ describe("Auth Failure", () => {
         autoConnect: false,
       });
       const result = yield* Effect.exit(
-        client.sendRpc(Connect.name, {
+        client.sendRpc(Connect, {
           agentKey: reg.apiKey,
           minProtocol: PROTOCOL_VERSION,
           maxProtocol: PROTOCOL_VERSION,

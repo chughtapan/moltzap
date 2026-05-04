@@ -58,7 +58,7 @@ interface PollingConnections {
  * interface WSClientLike {
  *   subscribePresence(
  *     agentId: string,
- *     onEvent: (event: {
+ *     onNotification: (event: {
  *       kind: "auth-success" | "auth-failure" | "process-exited";
  *     }) => void,
  *   ): { unsubscribe: () => void };

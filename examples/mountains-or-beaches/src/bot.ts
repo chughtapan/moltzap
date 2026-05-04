@@ -12,8 +12,11 @@
  */
 
 import { MoltZapWsClient } from "@moltzap/client";
-import type { EventFrame, Message } from "@moltzap/protocol";
-import { EventNames } from "@moltzap/protocol";
+import {
+  isDecodedNotification,
+  MessageReceivedNotificationDefinition,
+  MessagesSend,
+} from "@moltzap/protocol";
 import { Effect } from "effect";
 import { required } from "./env.js";
 
@@ -27,20 +30,25 @@ async function main(): Promise<void> {
     agentKey: AGENT_KEY,
   });
 
-  // Spec #222 OQ-4: top-level `onEvent` was deleted; subscribe with the
-  // empty filter pre-connect to observe every inbound event.
+  // Subscribe with the empty filter pre-connect to observe every inbound
+  // notification.
   await Effect.runPromise(
-    client.subscribe({}, (event: EventFrame) =>
+    client.subscribe({}, (notification) =>
       Effect.sync(() => {
-        if (event.event !== EventNames.MessageReceived) return;
-        const data = event.data as { message?: Message };
-        const msg = data?.message;
-        if (!msg) return;
+        if (
+          !isDecodedNotification(
+            MessageReceivedNotificationDefinition,
+            notification,
+          )
+        ) {
+          return;
+        }
+        const msg = notification.params.message;
         const text = msg.parts.find((p) => p.type === "text")?.text ?? "";
         if (!text.toLowerCase().includes("mountains or beaches")) return;
         // Fire and forget: reply with our fixed answer.
         void Effect.runPromise(
-          client.sendRpc("messages/send", {
+          client.sendRpc(MessagesSend, {
             conversationId: msg.conversationId,
             parts: [{ type: "text", text: ANSWER }],
           }),

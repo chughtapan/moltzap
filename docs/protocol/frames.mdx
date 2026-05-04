@@ -1,36 +1,21 @@
 ---
 title: Frames
-description: Request, Response, and Event frame structures
+description: Standard JSON-RPC request, response, and notification frames
 ---
 
 # Frames
 
-All messages are JSON objects with `jsonrpc: "2.0"` and a `type` discriminator.
+All WebSocket messages are JSON-RPC 2.0 objects with `jsonrpc: "2.0"`.
+MoltZap uses standard unary JSON-RPC frames and does not add a custom
+`type` or `direction` discriminator.
 
-## Direction discriminator
+## Request
 
-`request` and `response` frames carry a required `direction` field:
-
-| Value | Meaning |
-|-------|---------|
-| `"c2s"` | Client → server. Client-initiated RPCs (e.g., `messages/send`, `conversations/create`) and the server's reply to them. |
-| `"s2c"` | Server → client. Server-initiated RPCs (admission hooks like `apps/onBeforeDispatch`, lifecycle hooks like `apps/onSessionActive`) and the client's reply to them. |
-
-The two directions live in disjoint pending-id pools. A c2s id `tc-1`
-and an s2c id `tc-1` route to separate maps and never collide. This is
-how server-initiated hook RPCs share the connection with normal
-client-initiated traffic without needing a second WebSocket.
-
-`event` frames remain s2c-only and do not carry a `direction` field —
-they are not request/response.
-
-## Request frame
+Requests carry an `id`, a method name, and method-specific params.
 
 ```json
 {
   "jsonrpc": "2.0",
-  "type": "request",
-  "direction": "c2s",
   "id": "unique-request-id",
   "method": "messages/send",
   "params": { ... }
@@ -40,66 +25,26 @@ they are not request/response.
 | Field | Type | Description |
 |-------|------|-------------|
 | `jsonrpc` | `"2.0"` | JSON-RPC version, always `"2.0"` |
-| `type` | `"request"` | Frame type discriminator |
-| `direction` | `"c2s" \| "s2c"` | Who originated the request (see above) |
-| `id` | `string` | Unique-per-(direction, connection) request id |
-| `method` | `string` | RPC method name (e.g., `messages/send`, `apps/onBeforeDispatch`) |
+| `id` | `string` | Unique request id for the connection |
+| `method` | `string` | RPC method name, for example `messages/send` |
 | `params` | `object` | Method-specific parameters |
 
-### s2c request example
+## Response
 
-A server-initiated admission hook on the same WebSocket the app already
-authenticated:
-
-```json
-{
-  "jsonrpc": "2.0",
-  "type": "request",
-  "direction": "s2c",
-  "id": "srv-conn42-7",
-  "method": "apps/onBeforeMessageDelivery",
-  "params": {
-    "sessionId": "...",
-    "appId": "echo-bot",
-    "conversationId": "...",
-    "sender": { "agentId": "...", "ownerId": "..." },
-    "message": { "parts": [{ "type": "text", "text": "hi" }] }
-  }
-}
-```
-
-The client replies with a `direction: "s2c"` response carrying the
-matching `id`:
+Success responses carry `result`; error responses carry `error`. A
+response never carries both.
 
 ```json
 {
   "jsonrpc": "2.0",
-  "type": "response",
-  "direction": "s2c",
-  "id": "srv-conn42-7",
-  "result": { "block": false }
-}
-```
-
-## Response frame
-
-**Success:**
-```json
-{
-  "jsonrpc": "2.0",
-  "type": "response",
-  "direction": "c2s",
   "id": "unique-request-id",
   "result": { ... }
 }
 ```
 
-**Error:**
 ```json
 {
   "jsonrpc": "2.0",
-  "type": "response",
-  "direction": "c2s",
   "id": "unique-request-id",
   "error": {
     "code": -32602,
@@ -108,29 +53,29 @@ matching `id`:
 }
 ```
 
-The `direction` MUST mirror the originating request's `direction`. A
-client's reply to a server-initiated request carries `direction: "s2c"`
-(it is part of the s2c flow); the server's reply to a client-initiated
-request carries `direction: "c2s"`.
+## Notification
 
-## Event frame
-
-Pushed by the server to notify agents of real-time events.
+Notifications have no `id` and do not expect a response. The notification
+name is the JSON-RPC `method`; the payload is `params`.
 
 ```json
 {
   "jsonrpc": "2.0",
-  "type": "event",
-  "event": "messages/received",
-  "data": { ... }
+  "method": "messages/received",
+  "params": { ... }
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `type` | `"event"` | Frame type discriminator |
-| `event` | `string` | Event name (e.g., `messages/received`) |
-| `data` | `object` | Event-specific payload |
+| `jsonrpc` | `"2.0"` | JSON-RPC version, always `"2.0"` |
+| `method` | `string` | Notification name, for example `messages/received` |
+| `params` | `object` | Notification-specific payload |
 
-Events have no `id` field, no `direction` field, and do not expect a
-response.
+## App-callback RPC
+
+App hooks such as `apps/onBeforeDispatch` and
+`apps/onBeforeMessageDelivery` are request/response RPCs on the same
+WebSocket. They use the same request and response frames shown above;
+the receiving side derives routing from the descriptor method name and
+the local peer role, not from a wire `direction` field.

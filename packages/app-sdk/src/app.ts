@@ -1,26 +1,28 @@
-import {
-  MoltZapWsClient,
-  NotConnectedError,
-  RpcServerError,
-  RpcTimeoutError,
-} from "@moltzap/client";
+import { MoltZapWsClient } from "@moltzap/client";
 import type {
   WsClientLogger,
   MoltZapWsClientOptions,
-  EventSubscription,
+  NotificationSubscription,
 } from "@moltzap/client";
+import {
+  NotConnectedError,
+  RpcServerError,
+  RpcTimeoutError,
+} from "@moltzap/protocol";
 import type {
+  AnyNotificationDefinition,
   AppManifest,
-  EventFrame,
+  DecodedNotification,
   Part,
+  ResultOf,
+  Static,
   Message,
   AppSession,
-  MessageReceivedEvent,
-  AppSessionReadyEvent,
-  AppSessionClosedEvent,
-  AppSkillChallengeEvent,
-  AppParticipantAdmittedEvent,
-  AppParticipantRejectedEvent,
+  MessageReceivedNotification,
+  AppSessionReadyNotification,
+  AppSessionClosedNotification,
+  AppParticipantAdmittedNotification,
+  AppParticipantRejectedNotification,
   BeforeDispatchContext,
   BeforeMessageDeliveryContext,
   OnSessionActiveContext,
@@ -28,8 +30,9 @@ import type {
   OnCloseContext,
   DispatchAdmissionResult,
   HookResult,
+  AnyAppCallbackRpcDefinition,
 } from "@moltzap/protocol";
-import { EventNames } from "@moltzap/protocol";
+import type { ServerRpcHandler } from "@moltzap/client";
 import { Cause, Effect, Exit, Fiber } from "effect";
 import { AppSessionHandle } from "./session.js";
 import { HeartbeatManager } from "./heartbeat.js";
@@ -55,23 +58,47 @@ import {
 
 import {
   AppsAttachConversation,
-  AppsAttestSkill,
   AppsCloseSession,
   AppsCreate,
   AppsGetSession,
+  ErrorCodes,
+  AppParticipantAdmittedNotificationDefinition,
+  AppParticipantRejectedNotificationDefinition,
+  AppSessionClosedNotificationDefinition,
+  AppSessionReadyNotificationDefinition,
   AppsOnBeforeDispatch,
   AppsOnBeforeMessageDelivery,
   AppsOnClose,
   AppsOnJoin,
   AppsOnSessionActive,
   AppsRegister,
+  agentId,
+  bindNotificationHandler,
+  conversationId as toConversationId,
+  defineEffectNotificationHandlers,
+  defineNotificationGroup,
+  isDecodedNotificationInGroup,
+  messageId as toMessageId,
+  MessageReceivedNotificationDefinition,
   MessagesSend,
   SystemPing,
 } from "@moltzap/protocol";
 
+const appSdkNotificationDefinitions = [
+  AppSessionReadyNotificationDefinition,
+  AppSessionClosedNotificationDefinition,
+  MessageReceivedNotificationDefinition,
+  AppParticipantAdmittedNotificationDefinition,
+  AppParticipantRejectedNotificationDefinition,
+] as const;
+
+const appSdkNotificationGroup = defineNotificationGroup(
+  "appSdk",
+  appSdkNotificationDefinitions,
+);
+
 type MessageHandler = (message: Message) => void | Promise<void>;
 type SessionReadyHandler = (session: AppSessionHandle) => void | Promise<void>;
-
 export interface MoltZapAppOptions {
   serverUrl: string;
   agentKey: string;
@@ -113,16 +140,16 @@ export class MoltZapApp {
   private sessions = new Map<string, AppSessionHandle>();
   /** Reverse map: conversationId -> conversation key */
   private reverseConvMap = new Map<string, string>();
-  /** Sessions for which sessionReady handlers have fired (dedup across start() + event) */
+  /** Sessions for which sessionReady handlers have fired (dedup across start() + notification) */
   private firedSessionReady = new Set<string>();
 
   private sessionReadyHandlers: SessionReadyHandler[] = [];
   private messageHandlers = new Map<string, MessageHandler>();
   private participantAdmittedHandlers: ((
-    event: AppParticipantAdmittedEvent,
+    notification: AppParticipantAdmittedNotification,
   ) => void)[] = [];
   private participantRejectedHandlers: ((
-    event: AppParticipantRejectedEvent,
+    notification: AppParticipantRejectedNotification,
   ) => void)[] = [];
   private errorHandler: ((error: AppError) => void) | null = null;
 
@@ -132,10 +159,11 @@ export class MoltZapApp {
   private recoveringSessions = new Set<string>();
 
   private started = false;
-  /** Handle from the `{}` event subscription registered in `start()`. Stored so
+  /** Handle from the `{}` notification subscription registered in `start()`. Stored so
    *  `stop()` can unsubscribe cleanly, and `start()` can unsubscribe before
    *  rethrowing if a later step fails (preventing subscription leaks on retry). */
-  private activeSubscription: EventSubscription | null = null;
+  private activeSubscription: NotificationSubscription | null = null;
+  private readonly notificationHandlers = this.createNotificationHandlers();
 
   constructor(options: MoltZapAppOptions) {
     if (!options.appId && !options.manifest) {
@@ -147,7 +175,6 @@ export class MoltZapApp {
     this.manifest = options.manifest ?? {
       appId: options.appId!,
       name: options.appId!,
-      permissions: { required: [], optional: [] },
       conversations: [
         { key: "default", name: options.appId!, participantFilter: "all" },
       ],
@@ -184,16 +211,18 @@ export class MoltZapApp {
 
   start(): Effect.Effect<AppSessionHandle, StartError> {
     return Effect.gen(this, function* () {
-      // Spec #222 OQ-4 deletion: per-event `onEvent` callback is gone.
+      // Spec #222 OQ-4 deletion: per-notification `onNotification` callback is gone.
       // Replacement: register a `{}` filter subscription before
-      // `connect()` so every inbound event still reaches `handleEvent`.
+      // `connect()` so every inbound notification still reaches `handleNotification`.
       const sub = yield* this.client
-        .subscribe({}, (event) => Effect.sync(() => this.handleEvent(event)))
+        .subscribe({}, (notification) =>
+          Effect.sync(() => this.handleNotification(notification)),
+        )
         .pipe(
           Effect.mapError(
             (err) =>
               new AuthError({
-                message: "Failed to register event subscription",
+                message: "Failed to register notification subscription",
                 ...errorCause(err),
               }),
           ),
@@ -214,7 +243,7 @@ export class MoltZapApp {
       );
 
       yield* this.client
-        .sendRpc(AppsRegister.name, { manifest: this.manifest })
+        .sendRpc(AppsRegister, { manifest: this.manifest })
         .pipe(
           Effect.mapError(
             (err) =>
@@ -226,9 +255,9 @@ export class MoltZapApp {
         );
 
       const sessionResult = (yield* this.client
-        .sendRpc(AppsCreate.name, {
+        .sendRpc(AppsCreate, {
           appId: this.manifest.appId,
-          invitedAgentIds: this.invitedAgentIds,
+          invitedAgentIds: this.invitedAgentIds.map(agentId),
         })
         .pipe(
           Effect.mapError(
@@ -288,7 +317,7 @@ export class MoltZapApp {
       for (const session of this.sessions.values()) {
         if (session.isActive) {
           yield* this.client
-            .sendRpc(AppsCloseSession.name, { sessionId: session.id })
+            .sendRpc(AppsCloseSession, { sessionId: session.id })
             .pipe(Effect.ignore);
         }
       }
@@ -309,8 +338,8 @@ export class MoltZapApp {
 
   /**
    * Fork a background Effect and track the fiber so stop() can interrupt it.
-   * Used for user-handler dispatch, skill-challenge attestation, and post-reconnect
-   * session recovery, all of which must not outlive the app.
+   * Used for user-handler dispatch and post-reconnect session recovery, both
+   * of which must not outlive the app.
    */
   private trackFork<E>(effect: Effect.Effect<void, E>): void {
     const fibers = this.backgroundFibers;
@@ -331,9 +360,9 @@ export class MoltZapApp {
   ): Effect.Effect<AppSessionHandle, SessionError> {
     return Effect.gen(this, function* () {
       const result = (yield* this.client
-        .sendRpc(AppsCreate.name, {
+        .sendRpc(AppsCreate, {
           appId: this.manifest.appId,
-          invitedAgentIds: invitedAgentIds ?? [],
+          invitedAgentIds: (invitedAgentIds ?? []).map(agentId),
         })
         .pipe(
           Effect.mapError(
@@ -360,7 +389,7 @@ export class MoltZapApp {
     return [...this.sessions.values()].filter((s) => s.isActive);
   }
 
-  // ── Event registration ─────────────────────────────────────────────
+  // ── Notification registration ──────────────────────────────────────
 
   onSessionReady(
     handler: (session: AppSessionHandle) => void | Promise<void>,
@@ -373,13 +402,13 @@ export class MoltZapApp {
   }
 
   onParticipantAdmitted(
-    handler: (event: AppParticipantAdmittedEvent) => void,
+    handler: (notification: AppParticipantAdmittedNotification) => void,
   ): void {
     this.participantAdmittedHandlers.push(handler);
   }
 
   onParticipantRejected(
-    handler: (event: AppParticipantRejectedEvent) => void,
+    handler: (notification: AppParticipantRejectedNotification) => void,
   ): void {
     this.participantRejectedHandlers.push(handler);
   }
@@ -390,7 +419,7 @@ export class MoltZapApp {
 
   // ── Admission + lifecycle handler surface (Phase 1.4 / B.5) ─────────────
   //
-  // Each `onX(handler)` registers against the corresponding s2c admission
+  // Each `onX(handler)` registers against the corresponding app-callback
   // RPC verb (`apps/onBeforeDispatch`, `apps/onBeforeMessageDelivery`,
   // `apps/onSessionActive`, `apps/onJoin`, `apps/onClose`). The underlying
   // `client.handleServerRpc` decodes inbound frames against the protocol
@@ -419,11 +448,8 @@ export class MoltZapApp {
       ctx: BeforeDispatchContext,
     ) => Effect.Effect<DispatchAdmissionResult, never>,
   ): void {
-    this.registerAdmissionHandler<
-      BeforeDispatchContext,
-      DispatchAdmissionResult
-    >(
-      AppsOnBeforeDispatch.name,
+    this.registerAdmissionHandler(
+      AppsOnBeforeDispatch,
       handler,
       (decision) => ({ admission: decision }),
       () => ({ admission: { decision: "deny", reason: "app_handler_error" } }),
@@ -445,8 +471,8 @@ export class MoltZapApp {
       ctx: BeforeMessageDeliveryContext,
     ) => Effect.Effect<HookResult, never>,
   ): void {
-    this.registerAdmissionHandler<BeforeMessageDeliveryContext, HookResult>(
-      AppsOnBeforeMessageDelivery.name,
+    this.registerAdmissionHandler(
+      AppsOnBeforeMessageDelivery,
       handler,
       (verdict) => verdict,
       () => ({ block: true, reason: "app_handler_error" }),
@@ -464,25 +490,22 @@ export class MoltZapApp {
   onSessionActive(
     handler: (ctx: OnSessionActiveContext) => Effect.Effect<void, never>,
   ): void {
-    this.registerLifecycleHandler<OnSessionActiveContext>(
-      AppsOnSessionActive.name,
-      handler,
-    );
+    this.registerLifecycleHandler(AppsOnSessionActive, handler);
   }
 
   /** Register an awaitable `on_join` lifecycle handler. */
   onJoin(handler: (ctx: OnJoinContext) => Effect.Effect<void, never>): void {
-    this.registerLifecycleHandler<OnJoinContext>(AppsOnJoin.name, handler);
+    this.registerLifecycleHandler(AppsOnJoin, handler);
   }
 
   /** Register an awaitable `on_close` lifecycle handler. */
   onClose(handler: (ctx: OnCloseContext) => Effect.Effect<void, never>): void {
-    this.registerLifecycleHandler<OnCloseContext>(AppsOnClose.name, handler);
+    this.registerLifecycleHandler(AppsOnClose, handler);
   }
 
   /**
    * Attach an existing conversation to a session for membership / role-DM
-   * purposes. Wraps the c2s RPC `apps/attachConversation`.
+   * purposes. Wraps the client-originated RPC `apps/attachConversation`.
    *
    * Errors map server response codes to `AttachError`:
    *   - `SessionNotFound`, `ConversationNotFound`, `NotAuthorized` → typed
@@ -493,7 +516,10 @@ export class MoltZapApp {
     conversationId: string,
   ): Effect.Effect<void, AttachError> {
     return this.client
-      .sendRpc(AppsAttachConversation.name, { sessionId, conversationId })
+      .sendRpc(AppsAttachConversation, {
+        sessionId,
+        conversationId: toConversationId(conversationId),
+      })
       .pipe(
         Effect.asVoid,
         Effect.mapError((err) => mapAttachError(err)),
@@ -510,16 +536,21 @@ export class MoltZapApp {
    * `Effect.runSyncExit` is safe here: `handleServerRpc` mutates a `Ref`
    * synchronously and only fails with `DuplicateServerRpcHandlerError`.
    */
-  private registerAdmissionHandler<Ctx, Verdict>(
-    method: string,
-    handler: (ctx: Ctx) => Effect.Effect<Verdict, never>,
-    wrapVerdict: (verdict: Verdict) => unknown,
-    failClosedVerdict: () => unknown,
+  private registerAdmissionHandler<
+    D extends AnyAppCallbackRpcDefinition,
+    Verdict,
+  >(
+    definition: D,
+    handler: (ctx: Static<D["paramsSchema"]>) => Effect.Effect<Verdict, never>,
+    wrapVerdict: (verdict: Verdict) => ResultOf<D>,
+    failClosedVerdict: () => ResultOf<D>,
   ): void {
-    const wrapped = (params: unknown): Effect.Effect<unknown, RpcServerError> =>
+    const method = definition.name;
+    const wrapped: ServerRpcHandler<D> = (
+      params,
+    ): Effect.Effect<ResultOf<D>, RpcServerError> =>
       Effect.gen(this, function* () {
-        const ctx = params as Ctx;
-        const verdictExit = yield* Effect.exit(handler(ctx));
+        const verdictExit = yield* Effect.exit(handler(params));
         if (Exit.isSuccess(verdictExit)) {
           return wrapVerdict(verdictExit.value);
         }
@@ -535,17 +566,19 @@ export class MoltZapApp {
         return failClosedVerdict();
       });
 
-    this.installServerRpc(method, wrapped);
+    this.installServerRpc(definition, wrapped);
   }
 
-  private registerLifecycleHandler<Ctx>(
-    method: string,
-    handler: (ctx: Ctx) => Effect.Effect<void, never>,
+  private registerLifecycleHandler<D extends AnyAppCallbackRpcDefinition>(
+    definition: D,
+    handler: (ctx: Static<D["paramsSchema"]>) => Effect.Effect<void, never>,
   ): void {
-    const wrapped = (params: unknown): Effect.Effect<unknown, RpcServerError> =>
+    const method = definition.name;
+    const wrapped: ServerRpcHandler<D> = (
+      params,
+    ): Effect.Effect<ResultOf<D>, RpcServerError> =>
       Effect.gen(this, function* () {
-        const ctx = params as Ctx;
-        const exit = yield* Effect.exit(handler(ctx));
+        const exit = yield* Effect.exit(handler(params));
         if (Exit.isFailure(exit)) {
           // Lifecycle hooks are awaitable-void: log and reply void so the
           // server-side AppHost stops waiting. Never blocks session lifecycle.
@@ -557,18 +590,28 @@ export class MoltZapApp {
             }),
           );
         }
-        return {};
+        const result: unknown = {};
+        if (isRpcResult(definition, result)) {
+          return result;
+        }
+        return yield* Effect.fail(
+          new RpcServerError({
+            code: ErrorCodes.InternalError,
+            message: `Invalid lifecycle result for ${method}`,
+          }),
+        );
       });
 
-    this.installServerRpc(method, wrapped);
+    this.installServerRpc(definition, wrapped);
   }
 
-  private installServerRpc(
-    method: string,
-    wrapped: (params: unknown) => Effect.Effect<unknown, RpcServerError>,
+  private installServerRpc<D extends AnyAppCallbackRpcDefinition>(
+    definition: D,
+    wrapped: ServerRpcHandler<D>,
   ): void {
+    const method = definition.name;
     const exit = Effect.runSyncExit(
-      this.client.handleServerRpc(method, wrapped),
+      this.client.handleServerRpc(definition, wrapped),
     );
     if (Exit.isFailure(exit)) {
       // Only failure mode is `DuplicateServerRpcHandlerError`; surface as
@@ -602,7 +645,10 @@ export class MoltZapApp {
     parts: Part[],
   ): Effect.Effect<void, SendError> {
     return this.client
-      .sendRpc(MessagesSend.name, { conversationId, parts })
+      .sendRpc(MessagesSend, {
+        conversationId: toConversationId(conversationId),
+        parts,
+      })
       .pipe(
         Effect.mapError(
           (err) =>
@@ -621,7 +667,7 @@ export class MoltZapApp {
    */
   reply(messageId: string, parts: Part[]): Effect.Effect<void, SendError> {
     return this.client
-      .sendRpc(MessagesSend.name, { replyToId: messageId, parts })
+      .sendRpc(MessagesSend, { replyToId: toMessageId(messageId), parts })
       .pipe(
         Effect.mapError(
           (err) =>
@@ -686,39 +732,39 @@ export class MoltZapApp {
     }
   }
 
-  private handleEvent(event: EventFrame): void {
-    if (event.data === undefined) return;
-
-    // The server validates event.data against each event's schema before
-    // emitting; ws-client also validates the EventFrame envelope. Each case
-    // casts data to the typed Static<> payload for that specific event.
-    switch (event.event) {
-      case EventNames.AppSessionReady:
-        this.handleSessionReady(event.data as AppSessionReadyEvent);
-        break;
-      case EventNames.AppSessionClosed:
-        this.handleSessionClosed(event.data as AppSessionClosedEvent);
-        break;
-      case EventNames.AppSkillChallenge:
-        this.handleSkillChallenge(event.data as AppSkillChallengeEvent);
-        break;
-      case EventNames.MessageReceived:
-        this.handleMessage(event.data as MessageReceivedEvent);
-        break;
-      case EventNames.AppParticipantAdmitted:
-        this.handleParticipantAdmitted(
-          event.data as AppParticipantAdmittedEvent,
-        );
-        break;
-      case EventNames.AppParticipantRejected:
-        this.handleParticipantRejected(
-          event.data as AppParticipantRejectedEvent,
-        );
-        break;
+  private handleNotification(
+    notification: DecodedNotification<AnyNotificationDefinition>,
+  ): void {
+    if (!isDecodedNotificationInGroup(appSdkNotificationGroup, notification)) {
+      return;
     }
+    Effect.runSync(this.notificationHandlers.dispatch(notification));
   }
 
-  private handleSessionReady(data: AppSessionReadyEvent): void {
+  private createNotificationHandlers() {
+    return defineEffectNotificationHandlers(appSdkNotificationGroup, [
+      bindNotificationHandler(AppSessionReadyNotificationDefinition, (params) =>
+        Effect.sync(() => this.handleSessionReady(params)),
+      ),
+      bindNotificationHandler(
+        AppSessionClosedNotificationDefinition,
+        (params) => Effect.sync(() => this.handleSessionClosed(params)),
+      ),
+      bindNotificationHandler(MessageReceivedNotificationDefinition, (params) =>
+        Effect.sync(() => this.handleMessage(params)),
+      ),
+      bindNotificationHandler(
+        AppParticipantAdmittedNotificationDefinition,
+        (params) => Effect.sync(() => this.handleParticipantAdmitted(params)),
+      ),
+      bindNotificationHandler(
+        AppParticipantRejectedNotificationDefinition,
+        (params) => Effect.sync(() => this.handleParticipantRejected(params)),
+      ),
+    ]);
+  }
+
+  private handleSessionReady(data: AppSessionReadyNotification): void {
     let handle = this.sessions.get(data.sessionId);
     if (handle) {
       handle = new AppSessionHandle({
@@ -736,7 +782,7 @@ export class MoltZapApp {
     }
   }
 
-  private handleSessionClosed(data: AppSessionClosedEvent): void {
+  private handleSessionClosed(data: AppSessionClosedNotification): void {
     const handle = this.sessions.get(data.sessionId);
     if (handle) {
       for (const convId of Object.values(handle.conversations)) {
@@ -752,35 +798,7 @@ export class MoltZapApp {
     }
   }
 
-  private handleSkillChallenge(data: AppSkillChallengeEvent): void {
-    const skillUrl = this.manifest.skillUrl;
-
-    if (skillUrl) {
-      this.trackFork(
-        this.client
-          .sendRpc(AppsAttestSkill.name, {
-            challengeId: data.challengeId,
-            skillUrl,
-            version: this.manifest.skillMinVersion ?? "0.0.0",
-          })
-          .pipe(
-            Effect.asVoid,
-            Effect.catchAll((err) =>
-              Effect.sync(() => {
-                this.emitError(
-                  new SessionError({
-                    message: "Failed to respond to skill challenge",
-                    ...errorCause(err),
-                  }),
-                );
-              }),
-            ),
-          ),
-      );
-    }
-  }
-
-  private handleMessage(data: MessageReceivedEvent): void {
+  private handleMessage(data: MessageReceivedNotification): void {
     const message = data.message as Message;
     const key = this.reverseConvMap.get(message.conversationId);
 
@@ -835,13 +853,17 @@ export class MoltZapApp {
     );
   }
 
-  private handleParticipantAdmitted(data: AppParticipantAdmittedEvent): void {
+  private handleParticipantAdmitted(
+    data: AppParticipantAdmittedNotification,
+  ): void {
     for (const handler of this.participantAdmittedHandlers) {
       handler(data);
     }
   }
 
-  private handleParticipantRejected(data: AppParticipantRejectedEvent): void {
+  private handleParticipantRejected(
+    data: AppParticipantRejectedNotification,
+  ): void {
     for (const handler of this.participantRejectedHandlers) {
       handler(data);
     }
@@ -849,7 +871,7 @@ export class MoltZapApp {
 
   private fireSessionReady(handle: AppSessionHandle): void {
     // Dedup: session can become active via both the apps/create result and
-    // a subsequent app/sessionReady event — handlers must only fire once.
+    // a subsequent app/sessionReady notification — handlers must only fire once.
     if (this.firedSessionReady.has(handle.id)) return;
     this.firedSessionReady.add(handle.id);
 
@@ -889,55 +911,53 @@ export class MoltZapApp {
   private recoverSessionOnReconnect(
     session: AppSessionHandle,
   ): Effect.Effect<void, never> {
-    return this.client
-      .sendRpc(AppsGetSession.name, { sessionId: session.id })
-      .pipe(
-        Effect.flatMap((result: unknown) =>
-          Effect.sync(() => {
-            const { session: freshSession } = result as {
-              session: AppSession;
-            };
-            if (
-              freshSession.status === "closed" ||
-              freshSession.status === "failed"
-            ) {
-              this.sessions.delete(session.id);
-              this.firedSessionReady.delete(session.id);
-              for (const convId of Object.values(session.conversations)) {
-                this.reverseConvMap.delete(convId);
-              }
-              this.emitError(
-                new SessionClosedError({
-                  message: `Session ${session.id} closed during disconnect`,
-                }),
-              );
-            } else {
-              const updated = new AppSessionHandle(freshSession);
-              this.sessions.set(session.id, updated);
-              this.buildReverseConvMap(updated);
+    return this.client.sendRpc(AppsGetSession, { sessionId: session.id }).pipe(
+      Effect.flatMap((result: unknown) =>
+        Effect.sync(() => {
+          const { session: freshSession } = result as {
+            session: AppSession;
+          };
+          if (
+            freshSession.status === "closed" ||
+            freshSession.status === "failed"
+          ) {
+            this.sessions.delete(session.id);
+            this.firedSessionReady.delete(session.id);
+            for (const convId of Object.values(session.conversations)) {
+              this.reverseConvMap.delete(convId);
             }
-          }),
-        ),
-        Effect.catchAll((err) =>
-          Effect.sync(() => {
             this.emitError(
-              new SessionError({
-                message: `Failed to recover session ${session.id} after reconnect`,
-                ...errorCause(err),
+              new SessionClosedError({
+                message: `Session ${session.id} closed during disconnect`,
               }),
             );
-          }),
-        ),
-        Effect.ensuring(
-          Effect.sync(() => {
-            this.recoveringSessions.delete(session.id);
-          }),
-        ),
-      );
+          } else {
+            const updated = new AppSessionHandle(freshSession);
+            this.sessions.set(session.id, updated);
+            this.buildReverseConvMap(updated);
+          }
+        }),
+      ),
+      Effect.catchAll((err) =>
+        Effect.sync(() => {
+          this.emitError(
+            new SessionError({
+              message: `Failed to recover session ${session.id} after reconnect`,
+              ...errorCause(err),
+            }),
+          );
+        }),
+      ),
+      Effect.ensuring(
+        Effect.sync(() => {
+          this.recoveringSessions.delete(session.id);
+        }),
+      ),
+    );
   }
 
   private sendPing(): Effect.Effect<void, Error> {
-    return this.client.sendRpc(SystemPing.name, {}).pipe(
+    return this.client.sendRpc(SystemPing, {}).pipe(
       Effect.asVoid,
       Effect.mapError(
         (e): Error => (e instanceof Error ? e : new Error(String(e))),
@@ -974,6 +994,13 @@ function causeToError(cause: Cause.Cause<unknown>): Error {
       : new Error(String(defect.value));
   }
   return new Error(Cause.pretty(cause));
+}
+
+function isRpcResult<D extends AnyAppCallbackRpcDefinition>(
+  definition: D,
+  value: unknown,
+): value is ResultOf<D> {
+  return definition.validateResult(value);
 }
 
 /**

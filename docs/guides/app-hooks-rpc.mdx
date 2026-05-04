@@ -38,7 +38,6 @@ import { Effect } from "effect";
 const manifest: AppManifest = {
   appId: "echo-bot",
   name: "Echo Bot",
-  permissions: { required: [], optional: [] },
   conversations: [
     { key: "default", name: "Echo Room", participantFilter: "all" },
   ],
@@ -70,7 +69,7 @@ await app.startAsync();
 ```
 
 That's the full app. The SDK opens the WebSocket, registers the manifest,
-creates the session, wires the hook handler to the s2c RPC channel, and
+creates the session, wires the hook handler to the app-callback RPC channel, and
 reconnects on drop. The hook fires synchronously on every inbound
 message; replying `{ block: false }` lets the message through.
 
@@ -188,7 +187,7 @@ the legacy webhook surface, this table is the port.
 | **Timeout** | `manifest.hooks.X.timeout_ms_remote_only` (separate from in-process timeout) | `manifest.hooks.X.timeout_ms` — single value, applied via `Effect.timeout` at the AppHost. |
 | **Schema-level cap** | 30s `maximum` constraint on `timeout_ms` | No cap (B.4 follow-up #324 dropped the 30s `maximum`); the schema is `Type.Integer({ default: 5000, minimum: 1 })` and the AppHost enforces the manifest's declared value via `Effect.timeout(manifestMs)` per call. |
 | **Failure mode** | Non-2xx → server retried, then fail-closed | App disconnect mid-admission → fail-closed via the connection's Scope finalizer |
-| **Observability** | HTTP request log on your endpoint | `app/hookTimeout` event when a handler exceeds `timeout_ms`; SDK logger captures handler errors |
+| **Observability** | HTTP request log on your endpoint | `app/hookTimeout` notification when a handler exceeds `timeout_ms`; SDK logger captures handler errors |
 
 **Removed manifest fields.** All of these are gone in Phase 1 and the
 schema rejects them:
@@ -200,12 +199,11 @@ schema rejects them:
 **Surviving webhook surfaces.** These are NOT app hooks. They are
 server-level integration surfaces and are unaffected:
 
-- `services.contacts` / `services.permissions` / `services.users` —
-  external admission services configured in the server YAML.
+- `services.contacts` / `services.users` — external admission services
+  configured in the server YAML.
 - `MessageService.deliveryWebhook` — per-message audit fanout to
   Datadog / syslog / archive.
-- `WebhookContactService` / `WebhookPermissionService` — external
-  contact and permission resolvers.
+- `WebhookContactService` — external contact resolver.
 
 If you only consumed app hooks, you have nothing to port on the survivor
 side. If you ran an external service via webhook, those configs still
@@ -252,5 +250,5 @@ yourself gives you control over the `reason` string.
   full SDK surface.
 - [Migration: Webhook → RPC](/migration/webhook-to-rpc) — step-by-step
   port for existing webhook code.
-- [Protocol → Frames](/protocol/frames) — wire format for s2c request
-  and response envelopes.
+- [Protocol → Frames](/protocol/frames) — wire format for request,
+  response, and notification envelopes.

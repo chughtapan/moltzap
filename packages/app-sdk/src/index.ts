@@ -34,14 +34,13 @@ export type { AppError, AttachError } from "./errors.js";
 export type {
   AppManifest,
   AppManifestConversation,
-  AppPermission,
   AppSession,
   Part,
   TextPart,
   ImagePart,
   FilePart,
   Message,
-  EventFrame,
+  NotificationFrame,
   // Admission + lifecycle handler context types (Phase 1.4 / B.5).
   // Surfaced here so app developers can import them directly from
   // `@moltzap/app-sdk` without reaching into the protocol package.
@@ -53,7 +52,6 @@ export type {
   HookResult,
   DispatchAdmissionResult,
 } from "@moltzap/protocol";
-export { EventNames } from "@moltzap/protocol";
 
 // Re-export client types
 export type { WsClientLogger } from "@moltzap/client";

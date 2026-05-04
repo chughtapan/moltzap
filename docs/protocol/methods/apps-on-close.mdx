@@ -1,0 +1,30 @@
+---
+title: "apps/onClose"
+description: "App-callback RPC fired when a session closes."
+---
+
+# apps/onClose
+
+App-callback RPC fired when a session closes.
+
+## Parameters
+
+<ParamField path="sessionId" type="string (UUID)" required>
+  The sessionId field.
+</ParamField>
+
+<ParamField path="appId" type="string" required>
+  The appId field.
+</ParamField>
+
+<ParamField path="conversations" type="object (map)" required>
+  The conversations field.
+</ParamField>
+
+<ParamField path="closedBy" type="object" required>
+  The closedBy field.
+</ParamField>
+
+## Response
+
+This method returns an empty object.

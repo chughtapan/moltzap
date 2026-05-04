@@ -57,7 +57,7 @@ vi.mock("@moltzap/client", async () => {
       on: vi.fn().mockImplementation((event: string, handler: Function) => {
         if (event === "message")
           capturedOnMessage = handler as typeof capturedOnMessage;
-        if (event === "rawEvent")
+        if (event === "rawNotification")
           capturedOnRawEvent = handler as typeof capturedOnRawEvent;
         if (event === "reconnect")
           capturedOnReconnect = handler as typeof capturedOnReconnect;

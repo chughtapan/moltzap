@@ -1,109 +1,155 @@
-import type { Message, EventFrame } from "@moltzap/protocol";
-import { EventNames } from "@moltzap/protocol";
+import { Effect, Option } from "effect";
+import type {
+  AnyNotificationDefinition,
+  DecodedNotification,
+  Message,
+  NotificationFrame,
+} from "@moltzap/protocol";
+import {
+  ContactAcceptedNotificationDefinition,
+  ContactRequestNotificationDefinition,
+  ConversationCreatedNotificationDefinition,
+  ConversationUpdatedNotificationDefinition,
+  MessageDeliveredNotificationDefinition,
+  MessageReceivedNotificationDefinition,
+  PresenceChangedNotificationDefinition,
+  decodeNotification,
+  isDecodedNotification,
+  notificationGroup,
+} from "@moltzap/protocol";
 
-export function isMessageEvent(frame: EventFrame): boolean {
-  return frame.event === EventNames.MessageReceived;
+type AnyDecodedNotification = DecodedNotification<AnyNotificationDefinition>;
+
+function decodedNotification(
+  frame: NotificationFrame,
+): Option.Option<AnyDecodedNotification> {
+  return Effect.runSync(
+    decodeNotification(notificationGroup, frame).pipe(Effect.option),
+  );
 }
 
-export function extractMessage(frame: EventFrame): Message | null {
-  if (!isMessageEvent(frame)) return null;
-  const data = frame.data as { message?: Message } | undefined;
-  return data?.message ?? null;
+export function isMessageNotification(frame: NotificationFrame): boolean {
+  return Option.match(decodedNotification(frame), {
+    onNone: () => false,
+    onSome: (notification) =>
+      isDecodedNotification(
+        MessageReceivedNotificationDefinition,
+        notification,
+      ),
+  });
 }
 
-// --- Event extractors ---
+export function extractMessage(frame: NotificationFrame): Message | null {
+  return Option.match(decodedNotification(frame), {
+    onNone: () => null,
+    onSome: (notification) =>
+      isDecodedNotification(MessageReceivedNotificationDefinition, notification)
+        ? notification.params.message
+        : null,
+  });
+}
 
-export function extractDelivery(frame: EventFrame): {
+// --- Notification extractors ---
+
+export function extractDelivery(frame: NotificationFrame): {
   messageId: string;
   conversationId: string;
   agentId: string;
 } | null {
-  if (frame.event !== EventNames.MessageDelivered) return null;
-  const data = frame.data as
-    | {
-        messageId?: string;
-        conversationId?: string;
-        agentId?: string;
+  return Option.match(decodedNotification(frame), {
+    onNone: () => null,
+    onSome: (notification) => {
+      if (
+        !isDecodedNotification(
+          MessageDeliveredNotificationDefinition,
+          notification,
+        )
+      ) {
+        return null;
       }
-    | undefined;
-  if (!data?.messageId || !data.conversationId || !data.agentId) return null;
-  return {
-    messageId: data.messageId,
-    conversationId: data.conversationId,
-    agentId: data.agentId,
-  };
+      return {
+        messageId: notification.params.messageId,
+        conversationId: notification.params.conversationId,
+        agentId: notification.params.agentId,
+      };
+    },
+  });
 }
 
-export function extractConversationCreated(frame: EventFrame): {
+export function extractConversationCreated(frame: NotificationFrame): {
   conversation: { id: string; type: string; name?: string };
 } | null {
-  if (frame.event !== EventNames.ConversationCreated) return null;
-  const data = frame.data as
-    | { conversation?: { id: string; type: string; name?: string } }
-    | undefined;
-  if (!data?.conversation) return null;
-  return { conversation: data.conversation };
+  return Option.match(decodedNotification(frame), {
+    onNone: () => null,
+    onSome: (notification) =>
+      isDecodedNotification(
+        ConversationCreatedNotificationDefinition,
+        notification,
+      )
+        ? { conversation: notification.params.conversation }
+        : null,
+  });
 }
 
-export function extractConversationUpdated(frame: EventFrame): {
+export function extractConversationUpdated(frame: NotificationFrame): {
   conversation: { id: string; type: string; name?: string };
 } | null {
-  if (frame.event !== EventNames.ConversationUpdated) return null;
-  const data = frame.data as
-    | { conversation?: { id: string; type: string; name?: string } }
-    | undefined;
-  if (!data?.conversation) return null;
-  return { conversation: data.conversation };
+  return Option.match(decodedNotification(frame), {
+    onNone: () => null,
+    onSome: (notification) =>
+      isDecodedNotification(
+        ConversationUpdatedNotificationDefinition,
+        notification,
+      )
+        ? { conversation: notification.params.conversation }
+        : null,
+  });
 }
 
-export function extractContactRequest(frame: EventFrame): {
+export function extractContactRequest(frame: NotificationFrame): {
   contact: {
     id: string;
     contactUserId: string;
     source: string;
   };
 } | null {
-  if (frame.event !== EventNames.ContactRequest) return null;
-  const data = frame.data as
-    | {
-        contact?: {
-          id: string;
-          contactUserId: string;
-          source: string;
-        };
-      }
-    | undefined;
-  if (!data?.contact) return null;
-  return { contact: data.contact };
+  return Option.match(decodedNotification(frame), {
+    onNone: () => null,
+    onSome: (notification) =>
+      isDecodedNotification(ContactRequestNotificationDefinition, notification)
+        ? { contact: notification.params.contact }
+        : null,
+  });
 }
 
-export function extractContactAccepted(frame: EventFrame): {
+export function extractContactAccepted(frame: NotificationFrame): {
   contact: {
     id: string;
     contactUserId: string;
     source: string;
   };
 } | null {
-  if (frame.event !== EventNames.ContactAccepted) return null;
-  const data = frame.data as
-    | {
-        contact?: {
-          id: string;
-          contactUserId: string;
-          source: string;
-        };
-      }
-    | undefined;
-  if (!data?.contact) return null;
-  return { contact: data.contact };
+  return Option.match(decodedNotification(frame), {
+    onNone: () => null,
+    onSome: (notification) =>
+      isDecodedNotification(ContactAcceptedNotificationDefinition, notification)
+        ? { contact: notification.params.contact }
+        : null,
+  });
 }
 
-export function extractPresenceChanged(frame: EventFrame): {
+export function extractPresenceChanged(frame: NotificationFrame): {
   agentId: string;
   status: string;
 } | null {
-  if (frame.event !== EventNames.PresenceChanged) return null;
-  const data = frame.data as { agentId?: string; status?: string } | undefined;
-  if (!data?.agentId || !data.status) return null;
-  return { agentId: data.agentId, status: data.status };
+  return Option.match(decodedNotification(frame), {
+    onNone: () => null,
+    onSome: (notification) =>
+      isDecodedNotification(PresenceChangedNotificationDefinition, notification)
+        ? {
+            agentId: notification.params.agentId,
+            status: notification.params.status,
+          }
+        : null,
+  });
 }

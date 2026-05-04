@@ -13,12 +13,7 @@ import { createCoreApp } from "./app/server.js";
 import { seedInitialKek } from "./crypto/key-rotation.js";
 import { EnvelopeEncryption } from "./crypto/envelope.js";
 import { makeEffectKysely } from "./db/effect-kysely-toolkit.js";
-import {
-  WebhookClient,
-  WebhookContactService,
-  AsyncWebhookAdapter,
-  WebhookPermissionService,
-} from "./adapters/webhook.js";
+import { WebhookClient, WebhookContactService } from "./adapters/webhook.js";
 import { WebhookUserService } from "./services/user.service.js";
 import { logger } from "./logger.js";
 import type { CoreApp, CoreConfig } from "./app/types.js";
@@ -279,8 +274,8 @@ function startServerEffect(
     // Build CoreConfig
     // Wire webhook services. UserService is part of CoreConfig (injected into
     // AppHost via Layer) because the admission path needs it at construction
-    // time; other services (contacts, permissions) can be bound imperatively
-    // after createCoreApp since they gate per-request behavior.
+    // time; the contacts service can be bound imperatively after
+    // createCoreApp since it gates per-request behavior.
     const webhookClient = new WebhookClient();
 
     const userServiceCfg = appConfig.services?.users;
@@ -336,25 +331,6 @@ function startServerEffect(
           log,
         ),
       );
-    }
-
-    if (
-      appConfig.services?.permissions?.type === "webhook" &&
-      appConfig.services.permissions.webhook_url
-    ) {
-      const adapter = new AsyncWebhookAdapter();
-      const token =
-        appConfig.services.permissions.callback_token ?? crypto.randomUUID();
-      const callbackBaseUrl = `http://127.0.0.1:${app.port}`;
-      const permService = new WebhookPermissionService(
-        adapter,
-        appConfig.services.permissions.webhook_url,
-        callbackBaseUrl,
-        token,
-        log,
-      );
-      app.setPermissionService(permService);
-      app.setWebhookPermissionCallback(adapter, token);
     }
 
     // Register app manifests (resolve paths relative to config file location)

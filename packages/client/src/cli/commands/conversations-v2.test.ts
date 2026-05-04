@@ -20,43 +20,14 @@ import {
   conversationsGetHandler,
   conversationsUnarchiveHandler,
 } from "./conversations.js";
-import {
-  Transport,
-  TransportRpcError,
-  type Transport as TransportSurface,
-  type TransportError,
-} from "../transport.js";
+import { Transport } from "../transport.js";
+import { makeFakeTransport } from "./test-transport.js";
 
 import {
   ConversationsArchive,
   ConversationsGet,
   ConversationsUnarchive,
 } from "@moltzap/protocol";
-
-type Call = { method: string; params: Record<string, unknown> };
-
-const makeFakeTransport = (
-  respond: (call: Call) => unknown | Error,
-): { calls: Array<Call>; transport: TransportSurface } => {
-  const calls: Array<Call> = [];
-  const transport: TransportSurface = {
-    kind: "test",
-    rpc: <Result>(
-      method: string,
-      params: Record<string, unknown>,
-    ): Effect.Effect<Result, TransportError> => {
-      calls.push({ method, params });
-      const out = respond({ method, params });
-      if (out instanceof Error) {
-        return Effect.fail(
-          new TransportRpcError({ method, code: -32000, message: out.message }),
-        );
-      }
-      return Effect.succeed(out as Result);
-    },
-  };
-  return { calls, transport };
-};
 
 describe("conversations get (v2)", () => {
   let stdout: MockInstance;
@@ -67,18 +38,24 @@ describe("conversations get (v2)", () => {
 
   it("calls conversations/get and prints { conversation, participants } as JSON", async () => {
     const body = {
-      conversation: { id: "c1", type: "dm" },
+      conversation: {
+        id: "00000000-0000-4000-8000-00000000000c",
+        type: "dm",
+        createdBy: "00000000-0000-4000-8000-000000000aaa",
+        createdAt: "2026-05-04T00:00:00.000Z",
+        updatedAt: "2026-05-04T00:00:00.000Z",
+      },
       participants: [],
     };
     const { calls, transport } = makeFakeTransport(() => body);
     await Effect.runPromise(
-      conversationsGetHandler({ conversationId: "c1" }).pipe(
-        Effect.provideService(Transport, transport),
-      ),
+      conversationsGetHandler({
+        conversationId: "00000000-0000-4000-8000-00000000000c",
+      }).pipe(Effect.provideService(Transport, transport)),
     );
     expect(calls[0]).toEqual({
       method: ConversationsGet.name,
-      params: { conversationId: "c1" },
+      params: { conversationId: "00000000-0000-4000-8000-00000000000c" },
     });
     expect(stdout).toHaveBeenCalledWith(JSON.stringify(body, null, 2));
   });
@@ -86,9 +63,9 @@ describe("conversations get (v2)", () => {
   it("surfaces TransportRpcError", async () => {
     const { transport } = makeFakeTransport(() => new Error("404"));
     const result = await Effect.runPromiseExit(
-      conversationsGetHandler({ conversationId: "c1" }).pipe(
-        Effect.provideService(Transport, transport),
-      ),
+      conversationsGetHandler({
+        conversationId: "00000000-0000-4000-8000-00000000000c",
+      }).pipe(Effect.provideService(Transport, transport)),
     );
     expect(result._tag).toBe("Failure");
   });
@@ -104,22 +81,22 @@ describe("conversations archive (v2)", () => {
   it("calls conversations/archive with the supplied id", async () => {
     const { calls, transport } = makeFakeTransport(() => ({}));
     await Effect.runPromise(
-      conversationsArchiveHandler({ conversationId: "c1" }).pipe(
-        Effect.provideService(Transport, transport),
-      ),
+      conversationsArchiveHandler({
+        conversationId: "00000000-0000-4000-8000-00000000000c",
+      }).pipe(Effect.provideService(Transport, transport)),
     );
     expect(calls[0]).toEqual({
       method: ConversationsArchive.name,
-      params: { conversationId: "c1" },
+      params: { conversationId: "00000000-0000-4000-8000-00000000000c" },
     });
   });
 
   it("surfaces TransportRpcError", async () => {
     const { transport } = makeFakeTransport(() => new Error("fail"));
     const result = await Effect.runPromiseExit(
-      conversationsArchiveHandler({ conversationId: "c1" }).pipe(
-        Effect.provideService(Transport, transport),
-      ),
+      conversationsArchiveHandler({
+        conversationId: "00000000-0000-4000-8000-00000000000c",
+      }).pipe(Effect.provideService(Transport, transport)),
     );
     expect(result._tag).toBe("Failure");
   });
@@ -135,22 +112,22 @@ describe("conversations unarchive (v2)", () => {
   it("calls conversations/unarchive with the supplied id", async () => {
     const { calls, transport } = makeFakeTransport(() => ({}));
     await Effect.runPromise(
-      conversationsUnarchiveHandler({ conversationId: "c1" }).pipe(
-        Effect.provideService(Transport, transport),
-      ),
+      conversationsUnarchiveHandler({
+        conversationId: "00000000-0000-4000-8000-00000000000c",
+      }).pipe(Effect.provideService(Transport, transport)),
     );
     expect(calls[0]).toEqual({
       method: ConversationsUnarchive.name,
-      params: { conversationId: "c1" },
+      params: { conversationId: "00000000-0000-4000-8000-00000000000c" },
     });
   });
 
   it("surfaces TransportRpcError", async () => {
     const { transport } = makeFakeTransport(() => new Error("fail"));
     const result = await Effect.runPromiseExit(
-      conversationsUnarchiveHandler({ conversationId: "c1" }).pipe(
-        Effect.provideService(Transport, transport),
-      ),
+      conversationsUnarchiveHandler({
+        conversationId: "00000000-0000-4000-8000-00000000000c",
+      }).pipe(Effect.provideService(Transport, transport)),
     );
     expect(result._tag).toBe("Failure");
   });

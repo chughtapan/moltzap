@@ -12,6 +12,7 @@ import {
   ConversationsCreate,
   MessagesList,
   MessagesSend,
+  MessageReceivedNotificationDefinition,
 } from "@moltzap/protocol";
 
 beforeAll(async () => {
@@ -31,7 +32,7 @@ describe("Multipart Message", () => {
     Effect.gen(function* () {
       const { alice, bob } = yield* setupAgentPair();
 
-      const conv = (yield* alice.client.sendRpc(ConversationsCreate.name, {
+      const conv = (yield* alice.client.sendRpc(ConversationsCreate, {
         type: "dm",
         participants: [{ type: "agent", id: bob.agentId }],
       })) as { conversation: { id: string } };
@@ -45,7 +46,7 @@ describe("Multipart Message", () => {
 
       // Set up Bob's event waiter BEFORE send
 
-      const sendResult = (yield* alice.client.sendRpc(MessagesSend.name, {
+      const sendResult = (yield* alice.client.sendRpc(MessagesSend, {
         conversationId,
         parts,
       })) as {
@@ -55,9 +56,11 @@ describe("Multipart Message", () => {
       expect(sendResult.message.parts).toHaveLength(3);
       expect(sendResult.message.parts).toEqual(parts);
 
-      const bobEvent = yield* bob.client.waitForEvent("messages/received");
+      const bobEvent = yield* bob.client.waitForNotification(
+        MessageReceivedNotificationDefinition,
+      );
       const received = (
-        bobEvent.data as {
+        bobEvent.params as {
           message: { parts: Array<{ type: string; text: string }> };
         }
       ).message;
@@ -68,7 +71,7 @@ describe("Multipart Message", () => {
       expect(received.parts[2]!.text).toBe("Part 3: Conclusion");
 
       // Verify via message listing
-      const history = (yield* bob.client.sendRpc(MessagesList.name, {
+      const history = (yield* bob.client.sendRpc(MessagesList, {
         conversationId,
       })) as {
         messages: Array<{ parts: Array<{ type: string; text: string }> }>;

@@ -3,14 +3,18 @@ import { it } from "@effect/vitest";
 import { Effect } from "effect";
 import { MoltZapWsClient } from "@moltzap/client";
 import { stripWsPath } from "@moltzap/client/test";
-import type { EventFrame, Message } from "@moltzap/protocol";
-import { EventNames } from "@moltzap/protocol";
+import type { Message } from "@moltzap/protocol";
 import { registerAndClaim, waitFor } from "./test-helpers.js";
 
 import {
   AgentsLookup,
   ConversationsCreate,
+  MessageReceivedNotificationDefinition,
   MessagesSend,
+  type ParamsOf,
+  type ResultOf,
+  type RpcDefinition,
+  type TSchema,
 } from "@moltzap/protocol";
 
 /** The MoltZapWsClient API is Effect-native. These helpers run the Effects
@@ -18,8 +22,11 @@ import {
 const connectWs = (c: MoltZapWsClient) => Effect.runPromise(c.connect());
 const disconnectWs = (c: MoltZapWsClient) => Effect.runSync(c.disconnect());
 const closeWs = (c: MoltZapWsClient) => Effect.runSync(c.close());
-const rpcWs = (c: MoltZapWsClient, method: string, params?: unknown) =>
-  Effect.runPromise(c.sendRpc(method, params));
+const rpcWs = <D extends RpcDefinition<string, TSchema, TSchema>>(
+  c: MoltZapWsClient,
+  definition: D,
+  params: ParamsOf<D>,
+): Promise<ResultOf<D>> => Effect.runPromise(c.sendRpc(definition, params));
 
 let baseUrl: string;
 let wsUrl: string;
@@ -44,7 +51,7 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
         serverUrl: baseUrl,
         agentKey: bob.apiKey,
         // Spec #222 OQ-6: arg required, body ignores it. OQ-4 deletion:
-        // no `onEvent` option — this test doesn't observe events.
+        // no `onNotification` option — this test doesn't observe events.
         onDisconnect: (_close) => {
           disconnected = true;
         },
@@ -90,7 +97,7 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
       });
       yield* aliceClient.connect();
 
-      const conv = (yield* aliceClient.sendRpc(ConversationsCreate.name, {
+      const conv = (yield* aliceClient.sendRpc(ConversationsCreate, {
         type: "dm",
         participants: [{ type: "agent", id: bob.agentId }],
       })) as { conversation: { id: string } };
@@ -102,7 +109,7 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
         serverUrl: baseUrl,
         agentKey: bob.apiKey,
         // Spec #222 OQ-6 / OQ-4: arg required (ignored here);
-        // no top-level `onEvent` option — this fixture doesn't observe
+        // no top-level `onNotification` option — this fixture doesn't observe
         // events directly.
         onDisconnect: (_close) => {},
         onReconnect: (helloOk: unknown) => {
@@ -121,7 +128,7 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
         catch: (err) => (err instanceof Error ? err : new Error(String(err))),
       });
 
-      yield* aliceClient.sendRpc(MessagesSend.name, {
+      yield* aliceClient.sendRpc(MessagesSend, {
         conversationId,
         parts: [{ type: "text", text: "Missed while offline" }],
       });
@@ -163,15 +170,12 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
           reconnected = true;
         },
       });
-      // Spec #222 OQ-4 deletion: per-event `onEvent` callback is gone.
+      // Spec #222 OQ-4 deletion: per-event `onNotification` callback is gone.
       // Replacement: register a `{}` filter subscription pre-connect.
-      yield* bobClient.subscribe({}, (event: EventFrame) =>
+      yield* bobClient.subscribe({}, (event) =>
         Effect.sync(() => {
-          if (event.event === EventNames.MessageReceived) {
-            const data = event.data as { message?: Message } | undefined;
-            if (data?.message) {
-              receivedMessages.push(data.message);
-            }
+          if (event.definition === MessageReceivedNotificationDefinition) {
+            receivedMessages.push(event.params.message);
           }
         }),
       );
@@ -184,12 +188,12 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
       });
       yield* aliceClient.connect();
 
-      const conv = (yield* aliceClient.sendRpc(ConversationsCreate.name, {
+      const conv = (yield* aliceClient.sendRpc(ConversationsCreate, {
         type: "dm",
         participants: [{ type: "agent", id: bob.agentId }],
       })) as { conversation: { id: string } };
 
-      yield* aliceClient.sendRpc(MessagesSend.name, {
+      yield* aliceClient.sendRpc(MessagesSend, {
         conversationId: conv.conversation.id,
         parts: [{ type: "text", text: "Before disconnect" }],
       });
@@ -216,7 +220,7 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
 
       receivedMessages.length = 0;
 
-      yield* aliceClient.sendRpc(MessagesSend.name, {
+      yield* aliceClient.sendRpc(MessagesSend, {
         conversationId: conv.conversation.id,
         parts: [{ type: "text", text: "After reconnect" }],
       });
@@ -249,7 +253,7 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
         serverUrl: baseUrl,
         agentKey: bob.apiKey,
         // Spec #222 OQ-6 / OQ-4: arg-required onDisconnect, no
-        // top-level `onEvent`.
+        // top-level `onNotification`.
         onDisconnect: (_close) => {
           disconnected = true;
         },
@@ -286,7 +290,7 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
         serverUrl: baseUrl,
         agentKey: bob.apiKey,
         // Spec #222 OQ-6 / OQ-4: arg-required onDisconnect (body
-        // ignored), no top-level `onEvent`.
+        // ignored), no top-level `onNotification`.
         onDisconnect: (_close) => {},
         onReconnect: () => {
           reconnected = true;
@@ -302,11 +306,11 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
         catch: (err) => (err instanceof Error ? err : new Error(String(err))),
       });
 
-      const result = (yield* Effect.promise(() =>
-        rpcWs(client, AgentsLookup.name, {
+      const result = yield* Effect.promise(() =>
+        rpcWs(client, AgentsLookup, {
           agentIds: [bob.agentId],
         }),
-      )) as { agents: Array<{ id: string; name: string }> };
+      );
 
       expect(result.agents).toHaveLength(1);
       expect(result.agents[0]!.name).toBe("recon-bob-rpc");

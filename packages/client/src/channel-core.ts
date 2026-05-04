@@ -3,11 +3,7 @@
  */
 
 import { Cause, Chunk, Duration, Effect, Fiber, Queue } from "effect";
-import type {
-  LogicalClock,
-  Message,
-  PermissionsRequiredEvent,
-} from "@moltzap/protocol";
+import type { LogicalClock, Message } from "@moltzap/protocol";
 import type {
   CrossConversationEntry,
   CrossConvMessage,
@@ -102,10 +98,6 @@ export interface ChannelService {
   on(
     event: "conversationUnarchived",
     handler: (data: { conversationId: string }) => void,
-  ): void;
-  on(
-    event: "permissionRequired",
-    handler: (data: PermissionsRequiredEvent) => void,
   ): void;
   connect(): Effect.Effect<unknown, ServiceRpcError>;
   close(): void;
@@ -230,9 +222,6 @@ export class MoltZapChannelCore {
   private readonly consumerFiber: Fiber.RuntimeFiber<void, never>;
   private disconnectHandlers: Array<() => void> = [];
   private reconnectHandlers: Array<() => void> = [];
-  private permissionRequiredHandler:
-    | ((data: PermissionsRequiredEvent) => void)
-    | null = null;
 
   constructor(opts: ChannelCoreOptions) {
     this.service = opts.service;
@@ -296,12 +285,6 @@ export class MoltZapChannelCore {
       this.fanout(this.reconnectHandlers, "reconnect");
     });
 
-    this.service.on("permissionRequired", (data) => {
-      if (this.permissionRequiredHandler) {
-        this.permissionRequiredHandler(data);
-      }
-    });
-
     this.service.on("conversationArchived", ({ conversationId }) => {
       this.closeConversation(conversationId);
     });
@@ -322,12 +305,6 @@ export class MoltZapChannelCore {
 
   onReconnect(handler: () => void): void {
     this.reconnectHandlers.push(handler);
-  }
-
-  onPermissionRequired(
-    handler: (data: PermissionsRequiredEvent) => void,
-  ): void {
-    this.permissionRequiredHandler = handler;
   }
 
   private fanout(handlers: ReadonlyArray<() => void>, label: string): void {

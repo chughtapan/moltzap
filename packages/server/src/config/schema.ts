@@ -66,7 +66,6 @@ export const MoltZapConfigSchema = Type.Object(
         {
           users: Type.Optional(ServiceSchema),
           contacts: Type.Optional(ServiceSchema),
-          permissions: Type.Optional(ServiceSchema),
         },
         { additionalProperties: false },
       ),

@@ -1,4 +1,33 @@
-import { FormatRegistry, Type, type TString } from "@sinclair/typebox";
+import {
+  FormatRegistry,
+  Type,
+  type TString,
+  type TSchema,
+} from "@sinclair/typebox";
+import { JSON_RPC_VERSION, type JsonRpcId } from "./schema/json-rpc.js";
+import type {
+  NotificationFrame,
+  RequestFrame,
+  ResponseFrame,
+} from "./schema/frames.js";
+import type { JsonRpcStringId } from "./schema/json-rpc.js";
+import type {
+  NotificationDefinition,
+  NotificationParamsOf,
+} from "./notification.js";
+import type { ParamsOf, RpcDefinition } from "./rpc.js";
+import {
+  brandNotificationFrame,
+  brandRequestFrame,
+  brandResponseFrame,
+} from "./schema/internal-frames.js";
+export {
+  brandedNumber,
+  brandedString,
+  type BrandedNumber,
+  type BrandedString,
+} from "./brands.js";
+import { brandedString } from "./brands.js";
 
 /**
  * Register the string formats this protocol uses with TypeBox's
@@ -58,8 +87,11 @@ export function stringEnum<T extends string[]>(values: [...T]) {
  * Branded UUID string type for TypeBox schemas.
  * Usage: brandedId("UserId") produces a string schema with format: "uuid"
  */
-export function brandedId(brand: string) {
-  return Type.String({ format: "uuid", description: `Branded ${brand}` });
+export function brandedId<const BrandName extends string>(brand: BrandName) {
+  return brandedString(brand, {
+    format: "uuid",
+    description: `Branded ${brand}`,
+  });
 }
 
 /**
@@ -68,38 +100,53 @@ export function brandedId(brand: string) {
 export const DateTimeString = Type.String({ format: "date-time" });
 
 /**
- * Construct a typed EventFrame. Eliminates manual `{ jsonrpc: "2.0", type: "event" }` boilerplate.
+ * Construct a typed JSON-RPC notification from a notification descriptor.
+ * Production code should pass descriptors, not raw method names.
  */
-export function eventFrame(
-  event: string,
-  data?: Record<string, unknown>,
-): {
-  jsonrpc: "2.0";
-  type: "event";
-  event: string;
-  data?: Record<string, unknown>;
+export function notificationFrame<
+  D extends NotificationDefinition<string, TSchema>,
+>(
+  definition: D,
+  params: NotificationParamsOf<D>,
+): NotificationFrame & {
+  readonly method: D["name"];
+  readonly params: NotificationParamsOf<D>;
 } {
-  return {
-    jsonrpc: "2.0",
-    type: "event",
-    event,
-    ...(data !== undefined ? { data } : {}),
-  };
+  return brandNotificationFrame({
+    jsonrpc: JSON_RPC_VERSION,
+    method: definition.name,
+    params,
+  });
 }
 
 /**
- * Construct a typed ResponseFrame literal. Centralizes the
- * `{ jsonrpc, type: "response", direction, id, result | error }` shape
- * so c2s and s2c response sites do not drift on field order, escaping,
- * or `direction` typing. Mirrors `eventFrame()` for the symmetric
- * surface.
- *
- * Pass `{ result }` for success, `{ error }` for failure; the schema
- * permits both fields to be `Type.Optional` but exactly one of them is
- * present in any well-formed reply, so the discriminated body argument
- * keeps the type system aligned with the wire contract.
+ * Construct a JSON-RPC Request object. This is the single public helper for
+ * request frame construction; callers should pass a descriptor-backed method,
+ * not hand-write frame object literals.
  */
-export type ResponseFrameDirection = "c2s" | "s2c";
+export function requestFrame<D extends RpcDefinition<string, TSchema, TSchema>>(
+  id: JsonRpcStringId,
+  definition: D,
+  params: ParamsOf<D>,
+): RequestFrame & {
+  readonly method: D["name"];
+  readonly params: ParamsOf<D>;
+} {
+  return brandRequestFrame({
+    jsonrpc: JSON_RPC_VERSION,
+    id,
+    method: definition.name,
+    params,
+  });
+}
+
+/**
+ * Construct a typed JSON-RPC Response object. Pass `{ result }` for success
+ * or `{ error }` for failure; exactly one body branch is present.
+ *
+ * Parse errors whose id is unknown should be written directly with `id: null`;
+ * normal replies use the string id minted by the matching request.
+ */
 export type ResponseFrameError = {
   code: number;
   message: string;
@@ -110,22 +157,12 @@ export type ResponseFrameBody =
   | { error: ResponseFrameError };
 
 export function responseFrame(
-  direction: ResponseFrameDirection,
-  id: string,
+  id: JsonRpcId,
   body: ResponseFrameBody,
-): {
-  jsonrpc: "2.0";
-  type: "response";
-  direction: ResponseFrameDirection;
-  id: string;
-  result?: unknown;
-  error?: ResponseFrameError;
-} {
-  return {
-    jsonrpc: "2.0",
-    type: "response",
-    direction,
+): ResponseFrame {
+  return brandResponseFrame({
+    jsonrpc: JSON_RPC_VERSION,
     id,
     ...body,
-  };
+  });
 }

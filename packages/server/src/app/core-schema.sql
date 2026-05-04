@@ -149,13 +149,3 @@ CREATE TABLE app_session_conversations (
   conversation_id UUID NOT NULL REFERENCES conversations(id),
   PRIMARY KEY (session_id, conversation_key)
 );
-
-CREATE TABLE app_permission_grants (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL,
-  app_id TEXT NOT NULL,
-  resource TEXT NOT NULL,
-  access TEXT[] NOT NULL,
-  granted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (user_id, app_id, resource)
-);

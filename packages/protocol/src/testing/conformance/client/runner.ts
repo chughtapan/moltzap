@@ -25,7 +25,14 @@ import {
   Ref,
   type Scope,
 } from "effect";
-import type { EventFrame, ResponseFrame } from "../../../schema/frames.js";
+import type {
+  NotificationFrame,
+  ResponseFrame,
+} from "../../../schema/frames.js";
+import { responseFrame } from "../../../helpers.js";
+import { brandNotificationFrame } from "../../../schema/internal-frames.js";
+import { isJsonRpcStringId } from "../../../schema/json-rpc.js";
+import { isRequestFrame } from "../../codec.js";
 import {
   makeTestServer,
   type TestServer,
@@ -77,18 +84,18 @@ export interface RealClientHandle {
   readonly agentId: string;
   /**
    * Fully-connected promise — resolves after the handshake completes and
-   * the client is ready to receive events. Property bodies await this
+   * the client is ready to receive notifications. Property bodies await this
    * before scripting TestServer emissions so the handshake-noise guard
    * window is closed (see `ClientHandshakeWindow`).
    */
   readonly ready: Effect.Effect<void, RealClientLifecycleError>;
   /**
-   * Real client's public event-subscriber surface. Every captured event
+   * Real client's public notification-subscriber surface. Every captured notification
    * is tagged with the property-authored `emissionId` when the property
-   * uses `ClientHandshakeWindow.emitTaggedEvent`; predicates filter by
+   * uses `ClientHandshakeWindow.emitTaggedNotification`; predicates filter by
    * that tag to exclude handshake-noise frames.
    */
-  readonly events: RealClientEventSubscriber;
+  readonly notifications: RealClientNotificationSubscriber;
   /**
    * Real client's documented RPC caller. B1 / B4 / D5 predicates invoke
    * this and assert on the returned promise's resolution / rejection.
@@ -108,16 +115,16 @@ export interface RealClientHandle {
 }
 
 /**
- * Real client's public event-subscriber surface. Property bodies `subscribe`
+ * Real client's public notification-subscriber surface. Property bodies `subscribe`
  * once per fixture and drain via `snapshot`. Concrete shape is per-consumer
- * (packages/client's `waitForEvent` + `onEvent`, channel packages' native
+ * (packages/client's `waitForNotification` + `onNotification`, channel packages' native
  * event pipe); the wrapper adapts it to this interface.
  */
-export interface RealClientEventSubscriber {
+export interface RealClientNotificationSubscriber {
   readonly subscribe: (
-    filter: RealClientEventFilter,
+    filter: RealClientNotificationFilter,
   ) => Effect.Effect<RealClientSubscription, RealClientLifecycleError>;
-  readonly snapshot: Effect.Effect<ReadonlyArray<ObservedEvent>>;
+  readonly snapshot: Effect.Effect<ReadonlyArray<ObservedNotification>>;
 }
 
 export interface RealClientSubscription {
@@ -125,28 +132,29 @@ export interface RealClientSubscription {
   readonly unsubscribe: Effect.Effect<void>;
 }
 
-export interface RealClientEventFilter {
+export interface RealClientNotificationFilter {
   /**
    * Property-authored emission tag. The real client surfaces only
-   * events whose payload carries this tag, excluding handshake-noise.
+   * notifications whose payload carries this tag, excluding handshake-noise.
    * Implementations match on the event payload's `__emissionId` field
-   * (set by `ClientHandshakeWindow.emitTaggedEvent`).
+   * (set by `ClientHandshakeWindow.emitTaggedNotification`).
    */
   readonly emissionTag?: string;
   /** Restrict to a specific conversation / task. */
   readonly conversationId?: string;
-  /** Restrict to a specific event-name family. */
-  readonly eventNamePrefix?: string;
+  /** Restrict to a specific notification-name family. */
+  readonly notificationNamePrefix?: string;
 }
 
 /**
- * Observed event after the real client has surfaced it on its public
+ * Observed notification after the real client has surfaced it on its public
  * subscriber API. `rawBytes` carries the payload byte-for-byte (C3);
- * `decoded` is the schema-decoded frame (A2 validation target).
+ * `decoded` is unknown because divergence proofs intentionally model clients
+ * that surface malformed notifications.
  */
-export interface ObservedEvent {
+export interface ObservedNotification {
   readonly emissionTag: string | null;
-  readonly decoded: EventFrame;
+  readonly decoded: unknown;
   readonly rawBytes: Uint8Array;
   readonly observedAtMs: number;
 }
@@ -162,7 +170,7 @@ export interface RealClientRpcCaller {
   readonly call: (
     method: string,
     params: unknown,
-  ) => Effect.Effect<ResponseFrame, RealClientRpcError>;
+  ) => Effect.Effect<ResponseFrame | NotificationFrame, RealClientRpcError>;
   /** Stream of outbound request IDs the real client has minted. */
   readonly outboundIdFeed: Effect.Effect<ReadonlyArray<string>>;
 }
@@ -206,18 +214,18 @@ export interface RealClientCloseEvent {
  *
  * Every client-side property that observes frames requests a
  * `ClientHandshakeWindow` on its fixture and emits via
- * `emitTaggedEvent` / `emitTaggedResponse`. The window stamps each
+ * `emitTaggedNotification` / `emitTaggedResponse`. The window stamps each
  * emission with a property-authored `emissionTag`; the
- * `RealClientEventSubscriber` filter drops untagged events.
+ * `RealClientNotificationSubscriber` filter drops untagged notifications.
  *
  * D6 is the only client-side property exempt (observes lifecycle
  * signals, not frames).
  */
 export interface ClientHandshakeWindow {
   readonly freshEmissionTag: Effect.Effect<string>;
-  readonly emitTaggedEvent: (opts: {
+  readonly emitTaggedNotification: (opts: {
     readonly connection: TestServerConnection;
-    readonly base: EventFrame;
+    readonly base: NotificationFrame;
     readonly emissionTag: string;
   }) => Effect.Effect<string>;
   readonly emitTaggedResponse: (opts: {
@@ -344,8 +352,8 @@ export function acquireClientRunContext(
             .toString(RANDOM_TAG_RADIX)
             .slice(RANDOM_TAG_SLICE_START, RANDOM_TAG_SLICE_END)}`,
       ),
-      emitTaggedEvent: ({ connection, base, emissionTag }) =>
-        emitTaggedEventDefault(connection, base, emissionTag),
+      emitTaggedNotification: ({ connection, base, emissionTag }) =>
+        emitTaggedNotificationDefault(connection, base, emissionTag),
       emitTaggedResponse: ({ connection, base, emissionTag }) =>
         emitTaggedResponseDefault(connection, base, emissionTag),
       awaitHandshakeComplete: Effect.void,
@@ -364,26 +372,26 @@ export function acquireClientRunContext(
 }
 
 /**
- * Default tagged-event emission: stamp the event payload with the
+ * Default tagged-notification emission: stamp the notification payload with the
  * caller's `emissionTag` under the reserved `__emissionTag` key, then
- * forward to the connection's real `emitEvent`. Returns the tag so the
+ * forward to the connection's real `emitNotification`. Returns the tag so the
  * caller can filter subscriber observations by the same string.
  *
- * `EventFrame.data` is `Type.Optional(Type.Unknown())`; injecting an
+ * `NotificationFrame.params` is `Type.Optional(Type.Unknown())`; injecting an
  * object field is schema-valid. The real clients under test are
  * payload-opaque (C3 predicate), so the extra field round-trips cleanly.
  */
-function emitTaggedEventDefault(
+function emitTaggedNotificationDefault(
   connection: TestServerConnection,
-  base: EventFrame,
+  base: NotificationFrame,
   emissionTag: string,
 ): Effect.Effect<string> {
-  const base_data = isStringKeyedRecord(base.data) ? base.data : {};
-  const tagged: EventFrame = {
+  const baseParams = isStringKeyedRecord(base.params) ? base.params : {};
+  const tagged: NotificationFrame = brandNotificationFrame({
     ...base,
-    data: { ...base_data, __emissionTag: emissionTag },
-  };
-  return connection.emitEvent(tagged).pipe(
+    params: { ...baseParams, __emissionTag: emissionTag },
+  });
+  return connection.emitNotification(tagged).pipe(
     Effect.orElseSucceed(() => undefined),
     Effect.as(emissionTag),
   );
@@ -398,13 +406,13 @@ function emitTaggedResponseDefault(
   base: ResponseFrame,
   _emissionTag: string,
 ): Effect.Effect<string> {
-  void _emissionTag;
-  // Response frames don't carry a free-form `data` field; responses are
+  // Response frames don't carry a free-form `params` field; responses are
   // correlated by `id` instead — the response's `id` IS its emission tag
   // from the property's perspective (see B1 / B4 / D5 predicates).
+  const tag = isJsonRpcStringId(base.id) ? base.id : _emissionTag;
   return connection.emitResponse(base).pipe(
     Effect.orElseSucceed(() => undefined),
-    Effect.as(base.id),
+    Effect.as(tag),
   );
 }
 
@@ -423,8 +431,8 @@ export function makeClientHandshakeWindow(
       freshEmissionTag: Ref.updateAndGet(tagCounter, (n) => n + 1).pipe(
         Effect.map((n) => `emit-${handle.agentId}-${n}`),
       ),
-      emitTaggedEvent: ({ connection, base, emissionTag }) =>
-        emitTaggedEventDefault(connection, base, emissionTag),
+      emitTaggedNotification: ({ connection, base, emissionTag }) =>
+        emitTaggedNotificationDefault(connection, base, emissionTag),
       emitTaggedResponse: ({ connection, base, emissionTag }) =>
         emitTaggedResponseDefault(connection, base, emissionTag),
       awaitHandshakeComplete: handle.ready,
@@ -457,7 +465,7 @@ export function runAutoHandshakeResponder(
           if (
             entry.kind === "inbound" &&
             entry.frame !== null &&
-            entry.frame.type === "request" &&
+            isRequestFrame(entry.frame) &&
             entry.frame.method === Connect.name
           ) {
             const helloOk = {
@@ -478,13 +486,7 @@ export function runAutoHandshakeResponder(
               },
             };
             yield* connection
-              .emitResponse({
-                jsonrpc: "2.0",
-                type: "response",
-                direction: "c2s",
-                id: entry.frame.id,
-                result: helloOk,
-              })
+              .emitResponse(responseFrame(entry.frame.id, { result: helloOk }))
               .pipe(Effect.orElseSucceed(() => undefined));
             handshakeHandled = true;
             break;

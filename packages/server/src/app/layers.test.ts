@@ -14,7 +14,7 @@ import { DeliveryService } from "../services/delivery.service.js";
 import { MessageService } from "../services/message.service.js";
 import { ParticipantService } from "../services/participant.service.js";
 import { PresenceService } from "../services/presence.service.js";
-import { AppHost, DefaultPermissionService } from "./app-host.js";
+import { AppHost } from "./app-host.js";
 import { WebhookClient } from "../adapters/webhook.js";
 import {
   DbTag,
@@ -29,7 +29,7 @@ import {
 /**
  * Minimal Kysely stub. None of the constructors under test execute queries
  * — they just stash the db reference — so we don't need a real connection
- * to verify that the Layer graph wires 13 services together.
+ * to verify that the Layer graph wires the services together.
  */
 const fakeDb = {} as Kysely<Database> as Db;
 
@@ -71,15 +71,12 @@ it.effect("ServicesLive resolves every service via resolveServices", () =>
     expect(services.deliveryService).toBeInstanceOf(DeliveryService);
     expect(services.presenceService).toBeInstanceOf(PresenceService);
     expect(services.appHost).toBeInstanceOf(AppHost);
-    expect(services.defaultPermissionService).toBeInstanceOf(
-      DefaultPermissionService,
-    );
     expect(services.messageService).toBeInstanceOf(MessageService);
     expect(typeof services.traceCapture.record).toBe("function");
 
-    // All 14 slots are populated — `null` counts for encryption.
+    // All 13 slots are populated — `null` counts for encryption.
     const keys = Object.keys(services);
-    expect(keys.length).toBe(14);
+    expect(keys.length).toBe(13);
     for (const k of keys) {
       if (k === "encryption") continue;
       expect(services[k as keyof typeof services]).not.toBeNull();

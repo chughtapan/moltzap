@@ -5,26 +5,30 @@ description: Building type-safe JSON-RPC handlers
 
 # RPC Handlers
 
-RPC handlers are functions that process incoming JSON-RPC requests. The server uses `createRpcRouter` to dispatch requests to the correct handler based on the method name.
+RPC handlers are functions that process decoded JSON-RPC requests. The server resolves a request through descriptor-backed method bindings, validates params at that boundary, and then passes the typed request to `createRpcRouter`.
 
 ## Defining a handler
 
-Use `defineMethod` for type-safe handler definitions:
+Use `defineMethod` with a protocol descriptor for type-safe handler definitions:
 
 ```typescript
 import { defineMethod } from "@moltzap/server-core";
-import { validators, type MessagesSendParams } from "@moltzap/protocol";
+import { MessagesSend } from "@moltzap/protocol";
+import { Effect } from "effect";
 
-const handler = defineMethod<MessagesSendParams>({
-  validator: validators.messagesSendParams,
-  handler: async (params, ctx) => {
-    // params is typed as MessagesSendParams
-    // ctx has agentId, agentName, connId
-    const message = await messageService.send(params, ctx.agentId);
-    return { message };
-  },
+const handler = defineMethod(MessagesSend, {
+  handler: (params, ctx) =>
+    Effect.gen(function* () {
+      // params is typed from MessagesSend.paramsSchema
+      // ctx has the authenticated agent identity
+      const message = yield* messageService.send(params, ctx.agentId);
+      return { message };
+    }),
 });
 ```
+
+The method name, params schema, result schema, and TypeScript types all
+come from the same `RpcDefinition` descriptor.
 
 ## Handler context
 
@@ -33,26 +37,29 @@ Every handler receives an `AuthenticatedContext`:
 ```typescript
 interface AuthenticatedContext {
   agentId: string;
-  agentName: string;
-  connId: string;
+  agentStatus: string;
+  ownerUserId: string | null;
 }
 ```
 
-## Creating the router
+## Routing
 
 ```typescript
-import { createRpcRouter } from "@moltzap/server-core";
+import { createRpcRouter, type RpcMethodRegistry } from "@moltzap/server-core";
 
-const methods = {
-  "messages/send": sendHandler,
-  "messages/list": listHandler,
+const methods: RpcMethodRegistry = [
+  handler,
   // ...
-};
+];
 
-const dispatch = createRpcRouter(methods);
+const dispatch = createRpcRouter();
 ```
 
-The router validates params against the schema, calls the handler, and formats the JSON-RPC response. Validation errors return `-32602 InvalidParams` automatically.
+`createCoreApp` wires the method registry into the boundary service
+before dispatch. The boundary validates params against the descriptor
+schema and returns a typed handler closure. Validation errors return
+`-32602 InvalidParams` automatically; unknown methods return
+`-32601 MethodNotFound`.
 
 ## Handler groups
 

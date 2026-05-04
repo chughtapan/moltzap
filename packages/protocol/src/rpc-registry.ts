@@ -31,13 +31,8 @@ import {
   PresenceUpdate,
   PresenceSubscribe,
 } from "./schema/methods/presence.js";
-import { PushRegister, PushUnregister } from "./schema/methods/push.js";
 import {
   AppsCreate,
-  AppsAttestSkill,
-  PermissionsGrant,
-  PermissionsList,
-  PermissionsRevoke,
   AppsCloseSession,
   AppsGetSession,
   AppsListSessions,
@@ -49,13 +44,21 @@ import {
   AppsOnJoin,
   AppsOnClose,
 } from "./schema/methods/apps.js";
-import {
-  SurfaceUpdate,
-  SurfaceGet,
-  SurfaceAction,
-  SurfaceClear,
-} from "./schema/surfaces.js";
-import type { RpcDefinition } from "./rpc.js";
+import type { RpcDefinition, ParamsOf, ResultOf } from "./rpc.js";
+import type { JsonRpcMethod } from "./schema/json-rpc.js";
+import { defineRpcGroup } from "./rpc-groups.js";
+
+type RpcDefinitionForName<
+  Methods extends ReadonlyArray<RpcDefinition<string, any, any>>,
+  Name extends JsonRpcMethod,
+> = Extract<
+  Methods[number],
+  RpcDefinition<
+    Name extends JsonRpcMethod<infer RawName> ? RawName : never,
+    any,
+    any
+  >
+>;
 
 /**
  * Every RPC manifest the protocol defines, as a literal tuple. Order doesn't
@@ -96,52 +99,36 @@ export const rpcMethods = [
   // Presence
   PresenceUpdate,
   PresenceSubscribe,
-  // Push
-  PushRegister,
-  PushUnregister,
   // Apps
   AppsCreate,
-  AppsAttestSkill,
-  PermissionsGrant,
-  PermissionsList,
-  PermissionsRevoke,
   AppsCloseSession,
   AppsGetSession,
   AppsListSessions,
   AppsAuthorizeDispatch,
   AppsAttachConversation,
-  // Surfaces
-  SurfaceUpdate,
-  SurfaceGet,
-  SurfaceAction,
-  SurfaceClear,
 ] as const;
 
-/**
- * Projection of `rpcMethods` by wire name. For any method `M = RpcMap[Name]`:
- *   - `M.params` is the params type
- *   - `M.result` is the result type
- *   - `M.definition` is the full `RpcDefinition` (useful for introspection)
- */
-export type RpcMap = {
-  [M in (typeof rpcMethods)[number] as M["name"]]: {
-    params: M["Params"];
-    result: M["Result"];
-    definition: M;
-  };
-};
+export const taskRpcGroup = defineRpcGroup("task", rpcMethods);
 
 /**
- * A method name is any key of `RpcMap`. Contract-drift check: if you add a
- * method to `rpcMethods`, this union expands automatically. If you rename
- * the wire `name` field, every call site typed against `RpcMethodName`
- * fails at compile time.
+ * Branded union of every client → server method name. The only public method
+ * values should come from descriptors (`MessagesSend.name`), not raw strings.
  */
-export type RpcMethodName = keyof RpcMap;
+export type RpcMethodName = (typeof rpcMethods)[number]["name"];
 
 /** Helper for callers that want the manifest type for a given name. */
-export type RpcDefinitionFor<Name extends RpcMethodName> =
-  RpcMap[Name]["definition"];
+export type RpcDefinitionFor<Name extends RpcMethodName> = RpcDefinitionForName<
+  typeof rpcMethods,
+  Name
+>;
+
+/** Extract params/result types from a branded RPC method name. */
+export type RpcParams<Name extends RpcMethodName> = ParamsOf<
+  RpcDefinitionFor<Name>
+>;
+export type RpcResult<Name extends RpcMethodName> = ResultOf<
+  RpcDefinitionFor<Name>
+>;
 
 /**
  * The `rpcMethods` tuple typed as a general array of RpcDefinitions — useful
@@ -151,16 +138,16 @@ export type AnyRpcDefinition = (typeof rpcMethods)[number] &
   RpcDefinition<string, any, any>;
 
 /**
- * Server-initiated RPC manifests (server → client). Direction-namespaced so
- * c2s dispatch (server router) cannot collide with s2c dispatch (client
- * handler registry); the two pools may share `id` values without confusion.
+ * App-callback RPC manifests. These are normal JSON-RPC requests whose
+ * handlers live in the connected app client; the wire frame carries no
+ * direction marker.
  *
  * Shape parity with `rpcMethods` is load-bearing: callers type against
- * `S2cRpcMethodName` / `S2cRpcMap[M]`, and the `as const` preserves literal
- * names for the projection. All entries are AWAITABLE; void-result verbs
- * still reply (with `{}`) so the caller's `Deferred.await` can fire.
+ * `AppCallbackRpcMethodName`, and the `as const` preserves literal names for
+ * the projection. All entries are AWAITABLE; void-result verbs still reply
+ * (with `{}`) so the caller's `Deferred.await` can fire.
  */
-export const s2cRpcMethods = [
+export const appCallbackRpcMethods = [
   AppsOnBeforeDispatch,
   AppsOnBeforeMessageDelivery,
   AppsOnSessionActive,
@@ -168,25 +155,31 @@ export const s2cRpcMethods = [
   AppsOnClose,
 ] as const satisfies ReadonlyArray<RpcDefinition<string, any, any>>;
 
-/**
- * Projection of `s2cRpcMethods` by wire name. Shape mirrors `RpcMap`.
- */
-export type S2cRpcMap = {
-  [M in (typeof s2cRpcMethods)[number] as M["name"]]: {
-    params: M["Params"];
-    result: M["Result"];
-    definition: M;
-  };
-};
+export const appCallbackRpcGroup = defineRpcGroup(
+  "appCallback",
+  appCallbackRpcMethods,
+);
 
 /**
- * Union of every s2c method's wire name. `sendRpcToClient` / `handleServerRpc`
- * narrow against this — adding a verb to `s2cRpcMethods` widens the union
- * automatically; renaming the wire `name` of a manifest fails every typed
- * call site at compile time.
+ * Branded union of every app-callback method name.
  */
-export type S2cRpcMethodName = keyof S2cRpcMap;
+export type AppCallbackRpcMethodName =
+  (typeof appCallbackRpcMethods)[number]["name"];
 
-/** Helper for callers that want the manifest type for a given s2c method. */
-export type S2cRpcDefinitionFor<Name extends S2cRpcMethodName> =
-  S2cRpcMap[Name]["definition"];
+/**
+ * The app-callback tuple typed as general RpcDefinitions for descriptor-backed
+ * APIs that dispatch by descriptor object and only extract `.name` at the wire
+ * encoder/decoder edge.
+ */
+export type AnyAppCallbackRpcDefinition =
+  (typeof appCallbackRpcMethods)[number];
+
+/** Helper for callers that want the manifest type for an app-callback method. */
+export type AppCallbackRpcDefinitionFor<Name extends AppCallbackRpcMethodName> =
+  RpcDefinitionForName<typeof appCallbackRpcMethods, Name>;
+
+/** Extract params/result types from a branded app-callback RPC name. */
+export type AppCallbackRpcParams<Name extends AppCallbackRpcMethodName> =
+  ParamsOf<AppCallbackRpcDefinitionFor<Name>>;
+export type AppCallbackRpcResult<Name extends AppCallbackRpcMethodName> =
+  ResultOf<AppCallbackRpcDefinitionFor<Name>>;

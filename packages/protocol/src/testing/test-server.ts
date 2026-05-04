@@ -1,6 +1,6 @@
 /**
  * TestServer — accepts real client WebSocket connections and lets property
- * code script arbitrary server-side traffic (valid events, malformed
+ * code script arbitrary server-side traffic (valid notifications, malformed
  * frames, delayed / out-of-order sequences).
  *
  * Per D1 (WS-only) and Invariant I1, TestServer binds a real
@@ -9,13 +9,13 @@
  * in-process counterpart of TestClient; it exists to exercise real client
  * code (`packages/client`, `openclaw-channel`, `nanoclaw-channel`, arena).
  *
- * Satisfies AC3. Consumed by Tier A (A2), Tier B (server-emitted event
+ * Satisfies AC3. Consumed by Tier A (A2), Tier B (server-emitted notification
  * replay), and Tier E E2 (schema-exhaustive fuzz).
  */
 import { Context, Effect, Ref, type Scope } from "effect";
 import * as NodeSocketServer from "@effect/platform-node/NodeSocketServer";
 import * as Socket from "@effect/platform/Socket";
-import type { EventFrame, ResponseFrame } from "../schema/frames.js";
+import type { NotificationFrame, ResponseFrame } from "../schema/frames.js";
 import {
   makeCaptureBuffer,
   mergeCaptures,
@@ -54,14 +54,14 @@ export interface TestServerConnection {
   readonly connectionId: string;
   readonly remoteAddr: string;
   readonly inbound: CaptureBuffer;
-  readonly emitEvent: (
-    event: EventFrame,
+  readonly emitNotification: (
+    notification: NotificationFrame,
   ) => Effect.Effect<void, TransportIoError | FrameSchemaError>;
   readonly emitResponse: (
     response: ResponseFrame,
   ) => Effect.Effect<void, TransportIoError | FrameSchemaError>;
   readonly emitMalformed: (opts: {
-    readonly baseEvent: EventFrame;
+    readonly baseNotification: NotificationFrame;
     readonly kind: MalformedFrameKind;
     readonly seed: number;
   }) => Effect.Effect<void, TransportIoError>;
@@ -125,11 +125,11 @@ function makeConnection(
       connectionId,
       remoteAddr,
       inbound,
-      emitEvent: (event) => emit(event as AnyFrame),
+      emitNotification: (notification) => emit(notification as AnyFrame),
       emitResponse: (response) => emit(response as AnyFrame),
       emitMalformed: (opts) =>
         Effect.gen(function* () {
-          const base: AnyFrame = opts.baseEvent as AnyFrame;
+          const base: AnyFrame = opts.baseNotification as AnyFrame;
           const raw = malformFrame(base, opts.kind, opts.seed);
           yield* writer(raw).pipe(
             Effect.mapError(

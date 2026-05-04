@@ -25,7 +25,6 @@ describe("AppManifestSchema", () => {
     const manifest = {
       appId: "werewolf",
       name: "Werewolf",
-      permissions: { required: [], optional: [] },
     };
     expect(validateManifest(manifest)).toBe(true);
   });
@@ -35,14 +34,6 @@ describe("AppManifestSchema", () => {
       appId: "werewolf",
       name: "Werewolf",
       description: "Social deduction game",
-      permissions: {
-        required: [{ resource: "calendar", access: ["read", "write"] }],
-        optional: [{ resource: "email", access: ["read"] }],
-      },
-      skillUrl: "https://example.com/skill.md",
-      skillMinVersion: "0.2",
-      challengeTimeoutMs: 60000,
-      permissionTimeoutMs: 300000,
       limits: { maxParticipants: 12 },
       conversations: [
         { key: "town_square", name: "Town Square", participantFilter: "all" },
@@ -62,7 +53,6 @@ describe("AppManifestSchema", () => {
     const manifest = {
       appId: "test",
       name: "Test",
-      permissions: { required: [], optional: [] },
       conversations: [
         { key: "main", name: "Main", participantFilter: "invalid" },
       ],
@@ -74,8 +64,30 @@ describe("AppManifestSchema", () => {
     const manifest = {
       appId: "test",
       name: "Test",
-      permissions: { required: [], optional: [] },
       extra: "nope",
+    };
+    expect(validateManifest(manifest)).toBe(false);
+  });
+
+  // The `permissions` field was deleted in Phase 1B alongside the entire
+  // permissions surface (RPCs, server class, DB table). The schema is
+  // `additionalProperties: false`, so a manifest carrying a stale
+  // permissions block must reject — proves the field is gone, not silently
+  // accepted via a missed schema edit.
+  it("rejects retired permissions field", () => {
+    const manifest = {
+      appId: "test",
+      name: "Test",
+      permissions: { required: [], optional: [] },
+    };
+    expect(validateManifest(manifest)).toBe(false);
+  });
+
+  it("rejects retired permissionTimeoutMs field", () => {
+    const manifest = {
+      appId: "test",
+      name: "Test",
+      permissionTimeoutMs: 30000,
     };
     expect(validateManifest(manifest)).toBe(false);
   });
@@ -84,7 +96,6 @@ describe("AppManifestSchema", () => {
     const manifest = {
       appId: "werewolf",
       name: "Werewolf",
-      permissions: { required: [], optional: [] },
       hooks: {
         before_message_delivery: { timeout_ms: 3000 },
         on_join: {},
@@ -102,7 +113,6 @@ describe("AppManifestSchema", () => {
     const manifest = {
       appId: "werewolf",
       name: "Werewolf",
-      permissions: { required: [], optional: [] },
       hooks: {
         before_dispatch: { timeout_ms: 900_000 },
       },
@@ -114,7 +124,6 @@ describe("AppManifestSchema", () => {
     const manifest = {
       appId: "werewolf",
       name: "Werewolf",
-      permissions: { required: [], optional: [] },
       hooks: {
         before_dispatch: { timeout_ms: 0 },
       },
@@ -126,7 +135,6 @@ describe("AppManifestSchema", () => {
     const manifest = {
       appId: "test",
       name: "Test",
-      permissions: { required: [], optional: [] },
       hooks: {
         before_message_delivery: { unexpected: "value" },
       },

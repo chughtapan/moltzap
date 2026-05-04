@@ -20,16 +20,26 @@
  */
 import { Effect } from "effect";
 import * as fc from "fast-check";
-import { eventFrame } from "../../../helpers.js";
-import { EventNames } from "../../../schema/events.js";
-import type { EventFrame } from "../../../schema/frames.js";
-import { arbitraryEventFrame } from "../../arbitraries/frames.js";
+import { notificationFrame } from "../../../helpers.js";
+import {
+  ConversationArchivedNotificationDefinition,
+  ConversationUnarchivedNotificationDefinition,
+  MessageDeliveredNotificationDefinition,
+} from "../../../schema/notifications.js";
+import {
+  agentId,
+  conversationId as toConversationId,
+} from "../../../schema/primitives.js";
+import type { NotificationFrame } from "../../../schema/frames.js";
+import { brandNotificationFrame } from "../../../schema/internal-frames.js";
+import { arbitraryNotificationFrame } from "../../arbitraries/frames.js";
 import type { ClientConformanceRunContext } from "./runner.js";
 import { registerProperty } from "../registry.js";
 import {
   acquireFixture,
   collectTagged,
   invariant,
+  notificationParamsRecord,
   subscribeAll,
 } from "./_fixtures.js";
 
@@ -43,16 +53,8 @@ const PAYLOAD_TOKEN_RADIX = 36;
 const TASK_BOUNDARY_EMISSION_COUNT = 3;
 const LIFECYCLE_OBSERVATION_COUNT = 2;
 
-function isStringKeyedRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function eventDataRecord(data: unknown): Record<string, unknown> {
-  return isStringKeyedRecord(data) ? data : {};
-}
-
 /**
- * C1 client-side — TestServer emits N fan-out `EventFrame`s (one
+ * C1 client-side — TestServer emits N fan-out `NotificationFrame`s (one
  * per conversation participant position) to a real client subscribed
  * to the conversation. All N carry the same `emissionTag` campaign;
  * each carries a per-position `positionIndex` in the payload.
@@ -72,7 +74,7 @@ export function registerFanOutCardinalityClient(
     ctx,
     CATEGORY,
     PROPERTY_FAN_OUT_CARDINALITY_CLIENT,
-    "N fan-out events surface on real client in emission order, no drops, no dups",
+    "N fan-out notifications surface on real client in emission order, no drops, no dups",
     Effect.scoped(
       Effect.gen(function* () {
         const fx = yield* acquireFixture(
@@ -81,7 +83,7 @@ export function registerFanOutCardinalityClient(
           PROPERTY_FAN_OUT_CARDINALITY_CLIENT,
         );
         yield* subscribeAll(fx.handle);
-        const base = fc.sample(arbitraryEventFrame(), {
+        const base = fc.sample(arbitraryNotificationFrame(), {
           numRuns: 1,
           seed: ctx.seed,
         })[0];
@@ -96,13 +98,13 @@ export function registerFanOutCardinalityClient(
         }
         const N = 5;
         const campaign = yield* fx.window.freshEmissionTag;
-        const baseData = eventDataRecord(base.data);
+        const baseParams = notificationParamsRecord(base.params);
         for (let i = 0; i < N; i++) {
-          const positional: EventFrame = {
+          const positional: NotificationFrame = brandNotificationFrame({
             ...base,
-            data: { ...baseData, positionIndex: i },
-          };
-          yield* fx.window.emitTaggedEvent({
+            params: { ...baseParams, positionIndex: i },
+          });
+          yield* fx.window.emitTaggedNotification({
             connection: fx.connection,
             base: positional,
             emissionTag: campaign,
@@ -122,10 +124,7 @@ export function registerFanOutCardinalityClient(
             ),
           );
         }
-        const indices = observed.map(
-          (o) =>
-            (o.data as { positionIndex?: unknown } | undefined)?.positionIndex,
-        );
+        const indices = observed.map((o) => o.params.positionIndex);
         // Strict ordering check against `[0..N)`.
         for (let i = 0; i < N; i++) {
           if (indices[i] !== i) {
@@ -144,12 +143,12 @@ export function registerFanOutCardinalityClient(
 }
 
 /**
- * C3 client-side — TestServer emits a single `EventFrame` whose
+ * C3 client-side — TestServer emits a single `NotificationFrame` whose
  * payload contains a distinct byte-sequence token; real client's
  * subscriber surfaces a frame whose raw bytes still contain that
  * token.
  *
- * Predicate (strict): the raw-bytes view of the surfaced event
+ * Predicate (strict): the raw-bytes view of the surfaced notification
  * includes the emitted token byte-for-byte. A client that routes
  * payloads through a lossy re-serialization (e.g., key-reorder JSON
  * stringify) fails.
@@ -171,14 +170,15 @@ export function registerPayloadOpacityClient(
         );
         yield* subscribeAll(fx.handle);
         const token = `opq-${ctx.seed.toString(PAYLOAD_TOKEN_RADIX)}-${Date.now().toString(PAYLOAD_TOKEN_RADIX)}`;
-        const base: EventFrame = {
+        const base = brandNotificationFrame({
           jsonrpc: "2.0",
-          type: "event",
-          event: "messages.delivered",
-          data: { opaqueToken: token },
-        };
+          method: MessageDeliveredNotificationDefinition.name,
+          params: {
+            opaqueToken: token,
+          },
+        });
         const tag = yield* fx.window.freshEmissionTag;
-        yield* fx.window.emitTaggedEvent({
+        yield* fx.window.emitTaggedNotification({
           connection: fx.connection,
           base,
           emissionTag: tag,
@@ -213,8 +213,8 @@ export function registerPayloadOpacityClient(
 }
 
 /**
- * C4 client half — TestServer emits N task-A events (tagged campaignA)
- * and M task-B events (tagged campaignB) to a real client subscribed
+ * C4 client half — TestServer emits N task-A notifications (tagged campaignA)
+ * and M task-B notifications (tagged campaignB) to a real client subscribed
  * with a `conversationId` filter set to task-A. The client's task-A
  * subscriber surfaces zero campaignB events.
  *
@@ -227,7 +227,7 @@ export function registerTaskBoundaryIsolationClient(
     ctx,
     CATEGORY,
     PROPERTY_TASK_BOUNDARY_ISOLATION_CLIENT,
-    "task-A subscriber does not surface task-B events — no leakage",
+    "task-A subscriber does not surface task-B notifications — no leakage",
     Effect.scoped(
       Effect.gen(function* () {
         const fx = yield* acquireFixture(
@@ -236,11 +236,11 @@ export function registerTaskBoundaryIsolationClient(
           PROPERTY_TASK_BOUNDARY_ISOLATION_CLIENT,
         );
         yield* subscribeAll(fx.handle);
-        const baseEvent = fc.sample(arbitraryEventFrame(), {
+        const baseNotification = fc.sample(arbitraryNotificationFrame(), {
           numRuns: 1,
           seed: ctx.seed,
         })[0];
-        if (baseEvent === undefined) {
+        if (baseNotification === undefined) {
           return yield* Effect.fail(
             invariant(
               CATEGORY,
@@ -253,14 +253,14 @@ export function registerTaskBoundaryIsolationClient(
         const campaignB = yield* fx.window.freshEmissionTag;
         const taskA = `task-a-${ctx.seed}`;
         const taskB = `task-b-${ctx.seed}`;
-        const baseEventData = eventDataRecord(baseEvent.data);
+        const baseParams = notificationParamsRecord(baseNotification.params);
         // Emit task-A frames.
         for (let i = 0; i < TASK_BOUNDARY_EMISSION_COUNT; i++) {
-          yield* fx.window.emitTaggedEvent({
+          yield* fx.window.emitTaggedNotification({
             connection: fx.connection,
             base: {
-              ...baseEvent,
-              data: { ...baseEventData, conversationId: taskA },
+              ...baseNotification,
+              params: { ...baseParams, conversationId: taskA },
             },
             emissionTag: campaignA,
           });
@@ -268,11 +268,11 @@ export function registerTaskBoundaryIsolationClient(
         // Emit task-B frames that must be filtered out by the client's
         // subscription (via conversationId filter).
         for (let i = 0; i < TASK_BOUNDARY_EMISSION_COUNT; i++) {
-          yield* fx.window.emitTaggedEvent({
+          yield* fx.window.emitTaggedNotification({
             connection: fx.connection,
             base: {
-              ...baseEvent,
-              data: { ...baseEventData, conversationId: taskB },
+              ...baseNotification,
+              params: { ...baseParams, conversationId: taskB },
             },
             emissionTag: campaignB,
           });
@@ -292,7 +292,7 @@ export function registerTaskBoundaryIsolationClient(
         // filter, the property is vacuous; architect O5 notes channel
         // packages re-export a bare WS client so no server-side filter is
         // inserted. To keep the predicate discriminating, require that
-        // every task-A-emitted event carry the task-A conversationId on
+        // every task-A-emitted notification carry the task-A conversationId on
         // the surfaced raw frame (positive-path witness) — a
         // cross-wiring bug in the client would route a task-B payload
         // under a task-A campaign tag and fail this predicate.
@@ -302,8 +302,7 @@ export function registerTaskBoundaryIsolationClient(
           { expected: 3, budgetMs: 0 },
         );
         for (const obs of taggedA) {
-          const cid = (obs.data as { conversationId?: unknown } | undefined)
-            ?.conversationId;
+          const cid = obs.params.conversationId;
           if (cid !== taskA) {
             return yield* Effect.fail(
               invariant(
@@ -320,8 +319,7 @@ export function registerTaskBoundaryIsolationClient(
           { expected: 0, budgetMs: 0 },
         );
         for (const obs of taggedB) {
-          const cid = (obs.data as { conversationId?: unknown } | undefined)
-            ?.conversationId;
+          const cid = obs.params.conversationId;
           if (cid !== taskB) {
             return yield* Effect.fail(
               invariant(
@@ -350,29 +348,35 @@ export function registerArchiveLifecycleClient(
     ctx,
     CATEGORY,
     name,
-    "archive/unarchive lifecycle events surface on the real client in order",
+    "archive/unarchive lifecycle notifications surface on the real client in order",
     Effect.scoped(
       Effect.gen(function* () {
         const fx = yield* acquireFixture(ctx, CATEGORY, name);
         yield* subscribeAll(fx.handle);
 
-        const conversationId = "00000000-0000-4000-8000-000000000001";
+        const conversationId = toConversationId(
+          "00000000-0000-4000-8000-000000000001",
+        );
+        const by = agentId(fx.handle.agentId);
         const tag = yield* fx.window.freshEmissionTag;
-        yield* fx.window.emitTaggedEvent({
+        yield* fx.window.emitTaggedNotification({
           connection: fx.connection,
-          base: eventFrame(EventNames.ConversationArchived, {
+          base: notificationFrame(ConversationArchivedNotificationDefinition, {
             conversationId,
             archivedAt: new Date(0).toISOString(),
-            by: fx.handle.agentId,
+            by,
           }),
           emissionTag: tag,
         });
-        yield* fx.window.emitTaggedEvent({
+        yield* fx.window.emitTaggedNotification({
           connection: fx.connection,
-          base: eventFrame(EventNames.ConversationUnarchived, {
-            conversationId,
-            by: fx.handle.agentId,
-          }),
+          base: notificationFrame(
+            ConversationUnarchivedNotificationDefinition,
+            {
+              conversationId,
+              by,
+            },
+          ),
           emissionTag: tag,
         });
 
@@ -390,14 +394,16 @@ export function registerArchiveLifecycleClient(
           );
         }
         if (
-          observed[0]?.eventName !== EventNames.ConversationArchived ||
-          observed[1]?.eventName !== EventNames.ConversationUnarchived
+          observed[0]?.notificationName !==
+            ConversationArchivedNotificationDefinition.name ||
+          observed[1]?.notificationName !==
+            ConversationUnarchivedNotificationDefinition.name
         ) {
           return yield* Effect.fail(
             invariant(
               CATEGORY,
               name,
-              `lifecycle order mismatch: ${observed.map((o) => o.eventName).join(",")}`,
+              `lifecycle order mismatch: ${observed.map((o) => o.notificationName).join(",")}`,
             ),
           );
         }

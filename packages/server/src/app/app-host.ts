@@ -7,10 +7,13 @@ import type { UserService } from "../services/user.service.js";
 import { UserId } from "./types.js";
 import { logger } from "../logger.js";
 import type {
+  AnyAppCallbackRpcDefinition,
   AppManifest,
   AppSession,
   LogicalClock,
+  ParamsOf,
   Part,
+  ResultOf,
 } from "@moltzap/protocol";
 import {
   AppsOnBeforeDispatch,
@@ -19,13 +22,20 @@ import {
   AppsOnJoin,
   AppsOnSessionActive,
   ErrorCodes,
-  EventNames,
-  eventFrame,
+  AppHookTimeoutNotificationDefinition,
+  AppParticipantAdmittedNotificationDefinition,
+  AppParticipantRejectedNotificationDefinition,
+  AppSessionClosedNotificationDefinition,
+  AppSessionFailedNotificationDefinition,
+  AppSessionReadyNotificationDefinition,
+  ConversationArchivedNotificationDefinition,
+  agentId as protocolAgentId,
+  appSessionId,
+  conversationId as protocolConversationId,
+  messageId as protocolMessageId,
+  notificationFrame,
 } from "@moltzap/protocol";
 import {
-  decodeBeforeDispatchRpcResult,
-  decodeBeforeMessageDeliveryRpcResult,
-  decodeVoidRpcResult,
   type AppHooks,
   type BeforeDispatchContext,
   type BeforeDispatchHook,
@@ -44,20 +54,13 @@ import {
   Cause,
   Data,
   Deferred,
-  Duration,
   Either,
   Effect,
-  Exit,
   HashMap,
   Option,
   Ref,
 } from "effect";
-import {
-  RpcFailure,
-  coalesce,
-  drainCoalesceMap,
-  forbidden,
-} from "../runtime/index.js";
+import { RpcFailure, coalesce, forbidden } from "../runtime/index.js";
 import {
   catchSqlErrorAsDefect,
   takeFirstOrFail,
@@ -69,92 +72,26 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-const SEMVER_PART_COUNT = 3;
 const MAX_AGENT_ADMISSION_CONCURRENCY = 16;
 const MAX_AGENT_ADMISSION_CHECK_CONCURRENCY = 2;
-const MAX_PERMISSION_REQUEST_CONCURRENCY = 8;
-const DEFAULT_CHALLENGE_TIMEOUT_MS = 30_000;
-const DEFAULT_PERMISSION_TIMEOUT_MS = 120_000;
 const DEFAULT_APP_MAX_PARTICIPANTS = 50;
 const DEFAULT_SESSION_LIST_LIMIT = 50;
 const DEFAULT_APP_HOOK_TIMEOUT_MS = 5000;
 const MSG_SESSION_NOT_FOUND = "Session not found";
 
-/**
- * True iff `stored` contains every access string in `required`. Missing or
- * empty `stored` always fails. Used both for existing-grant coverage checks
- * and post-handler validation of a fresh permission response.
- */
-function grantsAllRequiredAccess(
-  stored: readonly string[] | null | undefined,
-  required: readonly string[],
-): boolean {
-  if (!stored) return false;
-  const storedSet = new Set(stored);
-  return required.every((a) => storedSet.has(a));
-}
-
-/** Compare two semver strings. Returns <0 if a<b, 0 if equal, >0 if a>b. */
-function compareSemver(a: string, b: string): number {
-  const pa = a.split(".").map(Number);
-  const pb = b.split(".").map(Number);
-  for (let i = 0; i < SEMVER_PART_COUNT; i++) {
-    const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
-    if (diff !== 0) return diff;
-  }
-  return 0;
+function toProtocolConversationMap(
+  conversations: Record<string, string>,
+): AppSession["conversations"] {
+  return Object.fromEntries(
+    Object.entries(conversations).map(([key, id]) => [
+      key,
+      protocolConversationId(id),
+    ]),
+  );
 }
 
 export interface ContactService {
   areInContact(userIdA: string, userIdB: string): Effect.Effect<boolean, never>;
-}
-
-export interface PermissionService {
-  requestPermission(params: {
-    userId: string;
-    agentId: string;
-    sessionId: string;
-    appId: string;
-    resource: string;
-    access: string[];
-    timeoutMs: number;
-  }): Effect.Effect<string[], Error>;
-}
-
-export class PermissionDeniedError extends Data.TaggedError(
-  "PermissionDenied",
-)<{
-  readonly resource: string;
-}> {
-  override get message(): string {
-    return `Permission denied for resource: ${this.resource}`;
-  }
-}
-
-export class PermissionTimeoutError extends Data.TaggedError(
-  "PermissionTimeout",
-)<{
-  readonly resource: string;
-}> {
-  override get message(): string {
-    return `Permission timeout for resource: ${this.resource}`;
-  }
-}
-
-class AttestationTimeoutError extends Data.TaggedError("AttestationTimeout")<{
-  readonly challengeId: string;
-}> {
-  override get message(): string {
-    return "attestation timeout";
-  }
-}
-
-class SkillAttestationError extends Data.TaggedError("SkillAttestation")<{
-  readonly reason: string;
-}> {
-  override get message(): string {
-    return this.reason;
-  }
 }
 
 class RemoteHookError extends Data.TaggedError("RemoteHookError")<{
@@ -169,21 +106,14 @@ class RemoteHookError extends Data.TaggedError("RemoteHookError")<{
   }
 }
 
-type RejectionStage = "user" | "identity" | "capability" | "permission";
+type RejectionStage = "user" | "identity";
 type RejectionCode =
   | "UserInvalid"
   | "UserValidationFailed"
   | "AgentNotFound"
   | "AgentNoOwner"
   | "NotInContacts"
-  | "ContactCheckFailed"
-  | "AttestationTimeout"
-  | "SkillMismatch"
-  | "SkillVersionTooOld"
-  | "PermissionDenied"
-  | "PermissionTimeout"
-  | "PermissionHandlerError"
-  | "NoPermissionHandler";
+  | "ContactCheckFailed";
 
 interface RejectionInfo {
   readonly stage: RejectionStage;
@@ -192,134 +122,9 @@ interface RejectionInfo {
   readonly suggestedAction?: string;
 }
 
-interface PendingChallenge {
-  targetAgentId: string;
-  sessionId: string;
-  resolve: (result: { skillUrl: string; version: string }) => void;
-  reject: (reason: string) => void;
-}
-
-interface PendingPermission {
-  targetUserId: string;
-  agentId: string;
-  sessionId: string;
-  appId: string;
-  resource: string;
-  resolve: (access: string[]) => void;
-  reject: (reason: string) => void;
-}
-
-export class DefaultPermissionService implements PermissionService {
-  private pendingPermissions = new Map<string, PendingPermission>();
-
-  constructor(private broadcaster: Broadcaster) {}
-
-  requestPermission(params: {
-    userId: string;
-    agentId: string;
-    sessionId: string;
-    appId: string;
-    resource: string;
-    access: string[];
-    timeoutMs: number;
-  }): Effect.Effect<string[], PermissionDeniedError | PermissionTimeoutError> {
-    const key = `${params.sessionId}:${params.agentId}:${params.resource}`;
-
-    // Await external resolution (grant/reject). Timeout lives OUTSIDE as
-    // `Effect.timeoutFail` so it drives on the Effect Clock (TestClock-
-    // drivable) — and reliably propagates through `coalesce` because the
-    // coalesce helper restores interruptibility for the daemon body.
-    const waitForResolution = Effect.async<string[], PermissionDeniedError>(
-      (resume) => {
-        const requestId = crypto.randomUUID();
-
-        this.pendingPermissions.set(key, {
-          targetUserId: params.userId,
-          agentId: params.agentId,
-          sessionId: params.sessionId,
-          appId: params.appId,
-          resource: params.resource,
-          resolve: (access) => resume(Effect.succeed(access)),
-          reject: (reason: string) =>
-            resume(
-              Effect.fail(new PermissionDeniedError({ resource: reason })),
-            ),
-        });
-
-        this.broadcaster.sendToAgent(
-          params.agentId,
-          eventFrame(EventNames.PermissionsRequired, {
-            sessionId: params.sessionId,
-            appId: params.appId,
-            resource: params.resource,
-            access: params.access,
-            requestId,
-            targetUserId: params.userId,
-          }),
-        );
-
-        return Effect.sync(() => {
-          this.pendingPermissions.delete(key);
-        });
-      },
-    );
-
-    return waitForResolution.pipe(
-      Effect.timeoutFail({
-        duration: Duration.millis(params.timeoutMs),
-        onTimeout: () =>
-          new PermissionTimeoutError({ resource: params.resource }),
-      }),
-    );
-  }
-
-  resolvePermission(
-    callerUserId: string,
-    sessionId: string,
-    agentId: string,
-    resource: string,
-    access: string[],
-  ): void {
-    const key = `${sessionId}:${agentId}:${resource}`;
-    const pending = this.pendingPermissions.get(key);
-    if (!pending) return;
-
-    if (pending.targetUserId !== callerUserId) {
-      logger.warn(
-        {
-          expected: pending.targetUserId,
-          got: callerUserId,
-          agentId,
-          sessionId,
-          resource,
-        },
-        "Permission grant from wrong user",
-      );
-      return;
-    }
-
-    this.pendingPermissions.delete(key);
-    pending.resolve(access);
-  }
-
-  destroy(): void {
-    for (const pending of this.pendingPermissions.values()) {
-      // `reject(reason)` puts `reason` into PermissionDeniedError.resource,
-      // which callers use to build UI copy. On shutdown the real resource
-      // name preserves "permission denied for resource: X" shape rather
-      // than producing "…for resource: shutdown". The outer
-      // `Effect.timeoutFail` wrapper has no external timer to cancel.
-      pending.reject(pending.resource);
-    }
-    this.pendingPermissions.clear();
-  }
-}
-
 export class AppHost {
-  private pendingChallenges = new Map<string, PendingChallenge>();
   private manifests = new Map<string, AppManifest>();
   private contactService: ContactService | null = null;
-  private permissionService: PermissionService | null = null;
   private hooks = new Map<string, AppHooks>();
   /**
    * Remote-app routing table. An entry exists iff `registerRemoteApp` was
@@ -348,14 +153,6 @@ export class AppHost {
     private connections: ConnectionManager,
     /** null → no user validation (admit all owners). */
     private userService: UserService | null,
-    /**
-     * Coalesce map for in-flight permission requests. Constructed in the
-     * AppHost Layer so `Ref.make` runs inside an Effect rather than via
-     * `Effect.runSync` at field-initializer time.
-     */
-    private inflightPermissions: Ref.Ref<
-      HashMap.HashMap<string, Deferred.Deferred<string[], Error>>
-    >,
   ) {}
 
   registerApp(manifest: AppManifest): void {
@@ -380,9 +177,9 @@ export class AppHost {
    * remote").
    *
    * Disconnect handling: when `connectionId` later goes away, every
-   * pending Deferred for that connection's s2c RPCs fails with
+   * pending Deferred for that connection's appCallback RPCs fails with
    * `AppDisconnected` via the connection's Scope finalizer. The dispatch
-   * envelope catches `AppDisconnected` (and every other `S2cRpcError`
+   * envelope catches `AppDisconnected` (and every other `AppCallbackRpcError`
    * variant) and synthesizes a fail-closed verdict — `deny` for
    * admission hooks, `block: true` for `before_message_delivery`, void +
    * log + `app/hookTimeout` for lifecycle hooks. Callers do not need to
@@ -502,10 +299,6 @@ export class AppHost {
    */
   getContactService(): ContactService | null {
     return this.contactService;
-  }
-
-  setPermissionService(handler: PermissionService): void {
-    this.permissionService = handler;
   }
 
   onBeforeMessageDelivery(
@@ -762,7 +555,7 @@ export class AppHost {
           }
         }
 
-        const sessionId = crypto.randomUUID();
+        const sessionId = appSessionId(crypto.randomUUID());
         const conversationMap: Record<string, string> = {};
 
         yield* transaction(this.db, (trx) =>
@@ -838,9 +631,9 @@ export class AppHost {
         const session: AppSession = {
           id: sessionId,
           appId,
-          initiatorAgentId,
+          initiatorAgentId: protocolAgentId(initiatorAgentId),
           status: uniqueInvitedIds.length === 0 ? "active" : "waiting",
-          conversations: conversationMap,
+          conversations: toProtocolConversationMap(conversationMap),
           createdAt: new Date().toISOString(),
         };
 
@@ -848,9 +641,9 @@ export class AppHost {
           session.status = "active";
           this.broadcaster.sendToAgent(
             initiatorAgentId,
-            eventFrame("app/sessionReady", {
+            notificationFrame(AppSessionReadyNotificationDefinition, {
               sessionId,
-              conversations: conversationMap,
+              conversations: toProtocolConversationMap(conversationMap),
             }),
           );
         } else {
@@ -870,27 +663,6 @@ export class AppHost {
         return session;
       }),
     );
-  }
-
-  resolveChallenge(
-    challengeId: string,
-    callerAgentId: string,
-    skillUrl: string,
-    version: string,
-  ): void {
-    const pending = this.pendingChallenges.get(challengeId);
-    if (!pending) return; // expired or unknown
-
-    if (pending.targetAgentId !== callerAgentId) {
-      logger.warn(
-        { challengeId, expected: pending.targetAgentId, got: callerAgentId },
-        "Skill attestation from wrong agent",
-      );
-      return;
-    }
-
-    this.pendingChallenges.delete(challengeId);
-    pending.resolve({ skillUrl, version });
   }
 
   closeSession(
@@ -1010,10 +782,10 @@ export class AppHost {
         for (const convId of convIdArray) {
           this.broadcaster.broadcastToConversation(
             convId,
-            eventFrame(EventNames.ConversationArchived, {
-              conversationId: convId,
+            notificationFrame(ConversationArchivedNotificationDefinition, {
+              conversationId: protocolConversationId(convId),
               archivedAt: archivedAt.toISOString(),
-              by: callerAgentId,
+              by: protocolAgentId(callerAgentId),
             }),
           );
         }
@@ -1030,10 +802,13 @@ export class AppHost {
           }
         }
 
-        const closedEvent = eventFrame("app/sessionClosed", {
-          sessionId,
-          closedBy: callerAgentId,
-        });
+        const closedEvent = notificationFrame(
+          AppSessionClosedNotificationDefinition,
+          {
+            sessionId: appSessionId(sessionId),
+            closedBy: protocolAgentId(callerAgentId),
+          },
+        );
         this.broadcaster.sendToAgent(callerAgentId, closedEvent);
         for (const agentId of participantAgentIds) {
           this.broadcaster.sendToAgent(agentId, closedEvent);
@@ -1261,11 +1036,11 @@ export class AppHost {
         );
 
         const session: AppSession = {
-          id: sessionRow.id,
+          id: appSessionId(sessionRow.id),
           appId: sessionRow.app_id,
-          initiatorAgentId: sessionRow.initiator_agent_id,
+          initiatorAgentId: protocolAgentId(sessionRow.initiator_agent_id),
           status: sessionRow.status,
-          conversations,
+          conversations: toProtocolConversationMap(conversations),
           createdAt: new Date(sessionRow.created_at).toISOString(),
         };
         if (sessionRow.closed_at) {
@@ -1302,9 +1077,9 @@ export class AppHost {
 
         return rows.map((row) => {
           const session: AppSession = {
-            id: row.id,
+            id: appSessionId(row.id),
             appId: row.app_id,
-            initiatorAgentId: row.initiator_agent_id,
+            initiatorAgentId: protocolAgentId(row.initiator_agent_id),
             status: row.status,
             conversations: {},
             createdAt: new Date(row.created_at).toISOString(),
@@ -1318,67 +1093,12 @@ export class AppHost {
     );
   }
 
-  /** Clear pending challenge state. Called on shutdown. */
+  /** Clear in-memory state. Called on shutdown. */
   destroy(): void {
-    // Pending challenges are guarded by an outer Effect.timeoutFail in
-    // checkCapability; their awaiting fibers are interrupted via the
-    // session teardown path. Clearing the Map is enough.
-    this.pendingChallenges.clear();
-    Effect.runSync(drainCoalesceMap(this.inflightPermissions));
     this.hooks.clear();
     this.remoteRegistrations.clear();
     this.conversationToSession.clear();
     this.sessionToConversations.clear();
-  }
-
-  listGrants(
-    userId: string,
-    appId?: string,
-  ): Effect.Effect<
-    Array<{
-      appId: string;
-      resource: string;
-      access: string[];
-      grantedAt: string;
-    }>,
-    RpcFailure
-  > {
-    return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
-        let query = this.db
-          .selectFrom("app_permission_grants")
-          .select(["app_id", "resource", "access", "granted_at"])
-          .where("user_id", "=", userId);
-
-        if (appId) {
-          query = query.where("app_id", "=", appId);
-        }
-
-        const rows = yield* query;
-        return rows.map((r) => ({
-          appId: r.app_id,
-          resource: r.resource,
-          access: r.access,
-          grantedAt: new Date(r.granted_at).toISOString(),
-        }));
-      }),
-    );
-  }
-
-  revokeGrant(
-    userId: string,
-    appId: string,
-    resource: string,
-  ): Effect.Effect<void, RpcFailure> {
-    return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
-        yield* this.db
-          .deleteFrom("app_permission_grants")
-          .where("user_id", "=", userId)
-          .where("app_id", "=", appId)
-          .where("resource", "=", resource);
-      }),
-    );
   }
 
   private subscribeToConversation(agentId: string, convId: string): void {
@@ -1410,7 +1130,7 @@ export class AppHost {
 
   /**
    * Strip non-wire-safe fields from a hook context so it can be sent over
-   * the s2c RPC. Currently the only such field is `signal: AbortSignal`,
+   * the appCallback RPC. Currently the only such field is `signal: AbortSignal`,
    * which has meaning only in-process. Returns a new object — does not
    * mutate `ctx`.
    */
@@ -1423,6 +1143,104 @@ export class AppHost {
     const out = { ...ctx } as { signal?: AbortSignal } & Omit<C, "signal">;
     delete out.signal;
     return out;
+  }
+
+  private beforeDispatchParamsForWire(
+    ctx: BeforeDispatchContext,
+  ): ParamsOf<typeof AppsOnBeforeDispatch> {
+    const wire = this.contextForWire(ctx);
+    return {
+      sessionId: wire.sessionId,
+      appId: wire.appId,
+      conversationId: protocolConversationId(wire.conversationId),
+      recipient: {
+        ...wire.recipient,
+        agentId: protocolAgentId(wire.recipient.agentId),
+      },
+      message: {
+        id: protocolMessageId(wire.message.id),
+        senderAgentId: protocolAgentId(wire.message.senderAgentId),
+        ...(wire.message.parts !== undefined
+          ? { parts: wire.message.parts }
+          : {}),
+      },
+      attempt: wire.attempt,
+      ...(wire.receivedAt !== undefined ? { receivedAt: wire.receivedAt } : {}),
+      ...(wire.clock !== undefined ? { clock: wire.clock } : {}),
+      ...(wire.pending !== undefined
+        ? {
+            pending: wire.pending.map((pending) => ({
+              messageId: protocolMessageId(pending.messageId),
+              conversationId: protocolConversationId(pending.conversationId),
+              senderAgentId: protocolAgentId(pending.senderAgentId),
+              createdAt: pending.createdAt,
+              receivedAt: pending.receivedAt,
+              ...(pending.clock !== undefined ? { clock: pending.clock } : {}),
+              ...(pending.parts !== undefined ? { parts: pending.parts } : {}),
+            })),
+          }
+        : {}),
+    };
+  }
+
+  private beforeMessageDeliveryParamsForWire(
+    ctx: BeforeMessageDeliveryContext,
+  ): ParamsOf<typeof AppsOnBeforeMessageDelivery> {
+    const wire = this.contextForWire(ctx);
+    return {
+      sessionId: wire.sessionId,
+      appId: wire.appId,
+      conversationId: protocolConversationId(wire.conversationId),
+      sender: {
+        ...wire.sender,
+        agentId: protocolAgentId(wire.sender.agentId),
+      },
+      message: {
+        parts: wire.message.parts,
+        ...(wire.message.dispatchLeaseId !== undefined
+          ? { dispatchLeaseId: wire.message.dispatchLeaseId }
+          : {}),
+        ...(wire.message.replyToId !== undefined
+          ? { replyToId: protocolMessageId(wire.message.replyToId) }
+          : {}),
+      },
+    };
+  }
+
+  private onSessionActiveParamsForWire(
+    ctx: OnSessionActiveContext,
+  ): ParamsOf<typeof AppsOnSessionActive> {
+    const wire = this.contextForWire(ctx);
+    return {
+      ...wire,
+      conversations: toProtocolConversationMap(wire.conversations),
+      admittedAgentIds: wire.admittedAgentIds.map(protocolAgentId),
+    };
+  }
+
+  private onJoinParamsForWire(ctx: OnJoinContext): ParamsOf<typeof AppsOnJoin> {
+    return {
+      ...ctx,
+      conversations: toProtocolConversationMap(ctx.conversations),
+      agent: {
+        ...ctx.agent,
+        agentId: protocolAgentId(ctx.agent.agentId),
+      },
+    };
+  }
+
+  private onCloseParamsForWire(
+    ctx: OnCloseContext,
+  ): ParamsOf<typeof AppsOnClose> {
+    const wire = this.contextForWire(ctx);
+    return {
+      ...wire,
+      conversations: toProtocolConversationMap(wire.conversations),
+      closedBy: {
+        ...wire.closedBy,
+        agentId: protocolAgentId(wire.closedBy.agentId),
+      },
+    };
   }
 
   /**
@@ -1462,25 +1280,18 @@ export class AppHost {
    * schema decode failure, missing connection) lands in the failure
    * channel for the dispatch envelope to map to fail-closed.
    *
-   * Result decoding happens at this seam — Principle 2: schemas at
-   * boundaries, types inside. After decode the rest of AppHost trusts
-   * the verdict shape.
+   * Result decoding happens in `sendRpcToClient`, where the descriptor
+   * that constructed the frame validates the response against its TypeBox
+   * result schema before this method can observe a value.
    */
-  private runRemoteHookEffect<T>(opts: {
+  private runRemoteHookEffect<D extends AnyAppCallbackRpcDefinition>(opts: {
     appId: string;
-    method: string;
+    definition: D;
     connectionId: string;
-    params: unknown;
-    /**
-     * Precompiled decoder (`Schema.decodeUnknown(schema)`) lifted to a
-     * module-level constant in `hooks.ts`. Passing the decoder rather
-     * than the schema avoids rebuilding the closure on every dispatch
-     * — `messages/send` triggers `runBeforeDispatch` per recipient, so
-     * this is the per-message hot path.
-     */
-    decode: (raw: unknown) => Effect.Effect<T, unknown, never>;
-  }): Effect.Effect<T, RemoteHookError> {
+    params: ParamsOf<D>;
+  }): Effect.Effect<ResultOf<D>, RemoteHookError> {
     return Effect.gen(this, function* () {
+      const method = opts.definition.name;
       const conn: MoltZapConnection | undefined = this.connections.get(
         opts.connectionId,
       );
@@ -1491,32 +1302,20 @@ export class AppHost {
         return yield* Effect.fail(
           new RemoteHookError({
             appId: opts.appId,
-            method: opts.method,
+            method,
             connectionId: opts.connectionId,
             reason: `Remote app ${opts.appId} connection ${opts.connectionId} is gone`,
           }),
         );
       }
-      const raw = yield* sendRpcToClient(conn, opts.method, opts.params).pipe(
+      return yield* sendRpcToClient(conn, opts.definition, opts.params).pipe(
         Effect.mapError(
           (err) =>
             new RemoteHookError({
               appId: opts.appId,
-              method: opts.method,
+              method,
               connectionId: opts.connectionId,
-              reason: `s2c RPC failed: ${errorMessage(err)}`,
-              cause: err,
-            }),
-        ),
-      );
-      return yield* opts.decode(raw).pipe(
-        Effect.mapError(
-          (err) =>
-            new RemoteHookError({
-              appId: opts.appId,
-              method: opts.method,
-              connectionId: opts.connectionId,
-              reason: `s2c RPC ${opts.method} response decode failed: ${String(err)}`,
+              reason: `appCallback RPC failed: ${errorMessage(err)}`,
               cause: err,
             }),
         ),
@@ -1603,10 +1402,9 @@ export class AppHost {
     const raw: Effect.Effect<DispatchAdmissionResult, Error> = remote
       ? this.runRemoteHookEffect({
           appId,
-          method: AppsOnBeforeDispatch.name,
+          definition: AppsOnBeforeDispatch,
           connectionId: remote.connectionId,
-          params: this.contextForWire(ctx),
-          decode: decodeBeforeDispatchRpcResult,
+          params: this.beforeDispatchParamsForWire(ctx),
         }).pipe(Effect.map((envelope) => envelope.admission))
       : this.runInProcessHookEffect<
           BeforeDispatchContext,
@@ -1619,8 +1417,8 @@ export class AppHost {
       onTimeoutEvent: () =>
         this.broadcaster.sendToAgent(
           ctx.recipient.agentId,
-          eventFrame(EventNames.AppHookTimeout, {
-            sessionId,
+          notificationFrame(AppHookTimeoutNotificationDefinition, {
+            sessionId: appSessionId(sessionId),
             appId,
             hookName: "before_dispatch",
             timeoutMs,
@@ -1666,10 +1464,9 @@ export class AppHost {
     const raw: Effect.Effect<HookResult, Error> = remote
       ? this.runRemoteHookEffect({
           appId,
-          method: AppsOnBeforeMessageDelivery.name,
+          definition: AppsOnBeforeMessageDelivery,
           connectionId: remote.connectionId,
-          params: this.contextForWire(ctx),
-          decode: decodeBeforeMessageDeliveryRpcResult,
+          params: this.beforeMessageDeliveryParamsForWire(ctx),
         })
       : this.runInProcessHookEffect<BeforeMessageDeliveryContext, HookResult>(
           (ctxWithSignal) => inProcess!(ctxWithSignal),
@@ -1682,8 +1479,8 @@ export class AppHost {
       onTimeoutEvent: () =>
         this.broadcaster.sendToAgent(
           ctx.sender.agentId,
-          eventFrame(EventNames.AppHookTimeout, {
-            sessionId,
+          notificationFrame(AppHookTimeoutNotificationDefinition, {
+            sessionId: appSessionId(sessionId),
             appId,
             hookName: "before_message_delivery",
             timeoutMs,
@@ -1727,10 +1524,9 @@ export class AppHost {
     const raw: Effect.Effect<void, Error> = remote
       ? this.runRemoteHookEffect({
           appId,
-          method: AppsOnSessionActive.name,
+          definition: AppsOnSessionActive,
           connectionId: remote.connectionId,
-          params: this.contextForWire(ctx),
-          decode: decodeVoidRpcResult,
+          params: this.onSessionActiveParamsForWire(ctx),
         })
       : this.runInProcessHookEffect<OnSessionActiveContext, void>(
           (ctxWithSignal) => inProcess!(ctxWithSignal),
@@ -1743,8 +1539,8 @@ export class AppHost {
       onTimeoutEvent: () =>
         this.broadcaster.sendToAgent(
           initiatorAgentId,
-          eventFrame(EventNames.AppHookTimeout, {
-            sessionId,
+          notificationFrame(AppHookTimeoutNotificationDefinition, {
+            sessionId: appSessionId(sessionId),
             appId,
             hookName: "on_session_active",
             timeoutMs,
@@ -1778,10 +1574,9 @@ export class AppHost {
     const raw: Effect.Effect<void, Error> = remote
       ? this.runRemoteHookEffect({
           appId,
-          method: AppsOnJoin.name,
+          definition: AppsOnJoin,
           connectionId: remote.connectionId,
-          params: ctx, // no signal field on OnJoinContext
-          decode: decodeVoidRpcResult,
+          params: this.onJoinParamsForWire(ctx),
         })
       : Effect.tryPromise({
           try: () => Promise.resolve(inProcess!(ctx)),
@@ -1794,8 +1589,8 @@ export class AppHost {
       onTimeoutEvent: () =>
         this.broadcaster.sendToAgent(
           ctx.agent.agentId,
-          eventFrame(EventNames.AppHookTimeout, {
-            sessionId,
+          notificationFrame(AppHookTimeoutNotificationDefinition, {
+            sessionId: appSessionId(sessionId),
             appId,
             hookName: "on_join",
             timeoutMs,
@@ -1831,10 +1626,9 @@ export class AppHost {
     const raw: Effect.Effect<void, Error> = remote
       ? this.runRemoteHookEffect({
           appId,
-          method: AppsOnClose.name,
+          definition: AppsOnClose,
           connectionId: remote.connectionId,
-          params: this.contextForWire(ctx),
-          decode: decodeVoidRpcResult,
+          params: this.onCloseParamsForWire(ctx),
         })
       : this.runInProcessHookEffect<OnCloseContext, void>(
           (ctxWithSignal) => inProcess!(ctxWithSignal),
@@ -1847,8 +1641,8 @@ export class AppHost {
       onTimeoutEvent: () =>
         this.broadcaster.sendToAgent(
           callerAgentId,
-          eventFrame(EventNames.AppHookTimeout, {
-            sessionId,
+          notificationFrame(AppHookTimeoutNotificationDefinition, {
+            sessionId: appSessionId(sessionId),
             appId,
             hookName: "on_close",
             timeoutMs,
@@ -1906,9 +1700,9 @@ export class AppHost {
     // Runs as a daemon fiber (via Effect.forkDaemon at the caller).
     return Effect.gen(this, function* () {
       // Cache UserService results per ownerUserId to avoid redundant webhook
-      // calls. Uses the same `coalesce` helper as `inflightPermissions` so
-      // concurrent admitAgent fibers for the same owner race-safely share
-      // one in-flight validateUser call (see runtime/coalesce.ts).
+      // calls. Uses the `coalesce` helper so concurrent admitAgent fibers
+      // for the same owner race-safely share one in-flight validateUser call
+      // (see runtime/coalesce.ts).
       const userValidationCache = yield* Ref.make(
         HashMap.empty<string, Deferred.Deferred<{ valid: boolean }, never>>(),
       );
@@ -1969,7 +1763,7 @@ export class AppHost {
       if (allRejected) {
         this.broadcaster.sendToAgent(
           initiatorAgentId,
-          eventFrame("app/sessionFailed", {
+          notificationFrame(AppSessionFailedNotificationDefinition, {
             sessionId: session.id,
           }),
         );
@@ -1991,7 +1785,7 @@ export class AppHost {
 
         this.broadcaster.sendToAgent(
           initiatorAgentId,
-          eventFrame("app/sessionReady", {
+          notificationFrame(AppSessionReadyNotificationDefinition, {
             sessionId: session.id,
             conversations: session.conversations,
           }),
@@ -2056,7 +1850,7 @@ export class AppHost {
         );
       }
 
-      // User, identity, and capability checks are independent — run concurrently.
+      // User and identity checks are independent — run concurrently.
       // Track whether we've already rejected this agent so concurrent failures
       // don't send duplicate rejection events.
       let rejected = false;
@@ -2080,12 +1874,6 @@ export class AppHost {
           guardedReject,
         ),
       ];
-
-      if (manifest.skillUrl) {
-        checks.push(
-          this.checkCapability(session, agentId, manifest, guardedReject),
-        );
-      }
 
       // User validation (coalesced per ownerUserId). Two concurrent
       // admitAgent fibers for agents owned by the same user share a
@@ -2129,17 +1917,9 @@ export class AppHost {
         }
       }
 
-      const grantedResources = yield* this.checkPermissions(
-        session,
-        agentId,
-        manifest,
-        agentMap,
-      );
-
       yield* this.admitAgentToSession(
         session,
         agentId,
-        grantedResources,
         agent.owner_user_id ?? "",
       );
     });
@@ -2198,386 +1978,9 @@ export class AppHost {
     });
   }
 
-  private checkCapability(
-    session: AppSession,
-    agentId: string,
-    manifest: AppManifest,
-    reject?: (info: RejectionInfo) => Effect.Effect<void, RpcFailure>,
-  ): Effect.Effect<void, RpcFailure> {
-    return Effect.gen(this, function* () {
-      const doReject =
-        reject ??
-        ((info: RejectionInfo) => this.rejectAgent(session.id, agentId, info));
-
-      const challengeId = crypto.randomUUID();
-      const timeoutMs =
-        manifest.challengeTimeoutMs ?? DEFAULT_CHALLENGE_TIMEOUT_MS;
-
-      // Await external attestation only; the timeout is expressed as
-      // Effect.timeoutFail below so it uses the Effect Clock (TestClock-
-      // drivable) instead of raw setTimeout.
-      const waitForAttestation = Effect.async<
-        { skillUrl: string; version: string },
-        SkillAttestationError
-      >((resume) => {
-        this.pendingChallenges.set(challengeId, {
-          targetAgentId: agentId,
-          sessionId: session.id,
-          resolve: (result) => resume(Effect.succeed(result)),
-          reject: (reason: string) =>
-            resume(Effect.fail(new SkillAttestationError({ reason }))),
-        });
-
-        this.broadcaster.sendToAgent(
-          agentId,
-          eventFrame("app/skillChallenge", {
-            challengeId,
-            sessionId: session.id,
-            appId: session.appId,
-            skillUrl: manifest.skillUrl!,
-            minVersion: manifest.skillMinVersion,
-          }),
-        );
-
-        // Fiber interrupt cleanup (Effect.timeoutFail interrupts this
-        // Effect when the outer timeout fires; session teardown does
-        // too via the pending.reject path).
-        return Effect.sync(() => {
-          this.pendingChallenges.delete(challengeId);
-        });
-      });
-
-      const attestation = yield* Effect.either(
-        waitForAttestation.pipe(
-          Effect.timeoutFail({
-            duration: Duration.millis(timeoutMs),
-            onTimeout: () => new AttestationTimeoutError({ challengeId }),
-          }),
-        ),
-      );
-
-      const result = yield* Either.match(attestation, {
-        onLeft: (err) => {
-          if (err instanceof AttestationTimeoutError) {
-            const failure: {
-              readonly code: RejectionCode;
-              readonly reason: string;
-            } = {
-              code: "AttestationTimeout",
-              reason: "Skill attestation timed out",
-            };
-            return doReject({
-              stage: "capability",
-              reason: failure.reason,
-              suggestedAction: `Install the skill from ${manifest.skillUrl} and ensure version >= ${manifest.skillMinVersion ?? "any"}`,
-              code: failure.code,
-            }).pipe(Effect.zipRight(Effect.fail(forbidden(failure.reason))));
-          }
-          const failure: {
-            readonly code: RejectionCode;
-            readonly reason: string;
-          } = {
-            code: "SkillMismatch",
-            reason: `Skill attestation failed: ${err.message}`,
-          };
-          return doReject({
-            stage: "capability",
-            reason: failure.reason,
-            suggestedAction: `Install the skill from ${manifest.skillUrl} and ensure version >= ${manifest.skillMinVersion ?? "any"}`,
-            code: failure.code,
-          }).pipe(Effect.zipRight(Effect.fail(forbidden(failure.reason))));
-        },
-        onRight: (attested) => Effect.succeed(attested),
-      });
-
-      if (result.skillUrl !== manifest.skillUrl) {
-        yield* doReject({
-          stage: "capability",
-          reason: `Skill URL mismatch: expected ${manifest.skillUrl}, got ${result.skillUrl}`,
-          code: "SkillMismatch",
-        });
-        return yield* Effect.fail(forbidden("Skill mismatch"));
-      }
-
-      if (
-        manifest.skillMinVersion &&
-        compareSemver(result.version, manifest.skillMinVersion) < 0
-      ) {
-        yield* doReject({
-          stage: "capability",
-          reason: `Skill version ${result.version} below minimum ${manifest.skillMinVersion}`,
-          code: "SkillVersionTooOld",
-        });
-        return yield* Effect.fail(forbidden("Skill version too low"));
-      }
-    });
-  }
-
-  private findGrant(
-    userId: string,
-    appId: string,
-    resource: string,
-    requiredAccess: string[],
-  ): Effect.Effect<{ access: string[] } | undefined, RpcFailure> {
-    return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
-        const rowOpt = yield* takeFirstOption(
-          this.db
-            .selectFrom("app_permission_grants")
-            .select("access")
-            .where("user_id", "=", userId)
-            .where("app_id", "=", appId)
-            .where("resource", "=", resource),
-        );
-
-        if (Option.isNone(rowOpt)) return undefined;
-        const row = rowOpt.value;
-        // Set-containment: stored access must cover ALL required access
-        const stored = new Set(row.access);
-        const covers = requiredAccess.every((a) => stored.has(a));
-        return covers ? row : undefined;
-      }),
-    );
-  }
-
-  private checkPermissions(
-    session: AppSession,
-    agentId: string,
-    manifest: AppManifest,
-    agentMap: Map<
-      string,
-      { id: string; owner_user_id: string | null; status: string }
-    >,
-  ): Effect.Effect<string[], RpcFailure> {
-    return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
-        const agent = agentMap.get(agentId)!;
-        const ownerUserId = agent.owner_user_id!;
-        const granted: string[] = [];
-
-        const allResources = [
-          ...manifest.permissions.required,
-          ...manifest.permissions.optional,
-        ].map((p) => p.resource);
-        const existingGrants = new Map<string, string[]>();
-        if (allResources.length > 0) {
-          const rows = yield* this.db
-            .selectFrom("app_permission_grants")
-            .select(["resource", "access"])
-            .where("user_id", "=", ownerUserId)
-            .where("app_id", "=", session.appId)
-            .where("resource", "in", allResources);
-          for (const row of rows) {
-            existingGrants.set(row.resource, row.access);
-          }
-        }
-
-        // Split required perms by whether the existing grant already
-        // covers them. Covered perms skip the permission RPC entirely;
-        // the rest run in parallel so admission isn't serialized on the
-        // slowest permission handler.
-        const needsRequest: typeof manifest.permissions.required = [];
-        for (const perm of manifest.permissions.required) {
-          if (
-            grantsAllRequiredAccess(
-              existingGrants.get(perm.resource),
-              perm.access,
-            )
-          ) {
-            granted.push(perm.resource);
-          } else {
-            needsRequest.push(perm);
-          }
-        }
-
-        if (needsRequest.length > 0 && !this.permissionService) {
-          const firstResource = needsRequest[0]!.resource;
-          yield* this.rejectAgent(session.id, agentId, {
-            stage: "permission",
-            reason: `No permission handler configured for resource: ${firstResource}`,
-            suggestedAction:
-              "Server must configure a PermissionService to process permission requests",
-            code: "NoPermissionHandler",
-          });
-          return yield* Effect.fail(forbidden("No permission handler"));
-        }
-
-        const permissionService = this.permissionService;
-        const requested = yield* Effect.forEach(
-          needsRequest,
-          (perm) =>
-            // Coalescing: same userId+appId+resource reuses in-flight request.
-            // Race-safe via `coalesce`'s atomic Ref.modify test-and-insert.
-            this.requestAndStorePermission(
-              permissionService!,
-              session,
-              agentId,
-              ownerUserId,
-              perm,
-              manifest.permissionTimeoutMs ?? DEFAULT_PERMISSION_TIMEOUT_MS,
-            ),
-          { concurrency: MAX_PERMISSION_REQUEST_CONCURRENCY },
-        );
-        for (const resource of requested) {
-          granted.push(resource);
-        }
-
-        for (const perm of manifest.permissions.optional) {
-          if (
-            grantsAllRequiredAccess(
-              existingGrants.get(perm.resource),
-              perm.access,
-            )
-          ) {
-            granted.push(perm.resource);
-          }
-        }
-
-        return granted;
-      }),
-    );
-  }
-
-  /**
-   * Issue a permission request for one resource, validate the response
-   * covers the required access, and persist the grant. Emits rejection
-   * and fails with `forbidden` on denial / timeout / handler error.
-   * Coalesced per (userId, appId, resource) so concurrent admissions
-   * for the same grant share one RPC.
-   */
-  private requestAndStorePermission(
-    permissionService: PermissionService,
-    session: AppSession,
-    agentId: string,
-    ownerUserId: string,
-    perm: { resource: string; access: string[] },
-    timeoutMs: number,
-  ): Effect.Effect<string, RpcFailure> {
-    return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
-        const coalesceKey = `${ownerUserId}:${session.appId}:${perm.resource}`;
-        yield* Effect.logInfo("Requesting permission from handler").pipe(
-          Effect.annotateLogs({
-            sessionId: session.id,
-            appId: session.appId,
-            resource: perm.resource,
-            agentId,
-          }),
-        );
-
-        const exit = yield* Effect.exit(
-          coalesce(
-            this.inflightPermissions,
-            coalesceKey,
-            permissionService.requestPermission({
-              userId: ownerUserId,
-              agentId,
-              sessionId: session.id,
-              appId: session.appId,
-              resource: perm.resource,
-              access: perm.access,
-              timeoutMs,
-            }),
-          ),
-        );
-
-        if (Exit.isFailure(exit)) {
-          const failure = Cause.failureOption(exit.cause);
-          const err = failure._tag === "Some" ? failure.value : null;
-
-          if (
-            err instanceof PermissionDeniedError ||
-            err instanceof PermissionTimeoutError
-          ) {
-            const code: RejectionCode =
-              err instanceof PermissionTimeoutError
-                ? "PermissionTimeout"
-                : "PermissionDenied";
-            yield* Effect.logWarning("Permission request failed").pipe(
-              Effect.annotateLogs({
-                err: err.message,
-                sessionId: session.id,
-                resource: perm.resource,
-              }),
-            );
-            yield* this.rejectAgent(session.id, agentId, {
-              stage: "permission",
-              reason: err.message,
-              suggestedAction: `Grant ${perm.resource} access via the permission prompt`,
-              code,
-            });
-            return yield* Effect.fail(forbidden(err.message));
-          }
-
-          yield* Effect.logError("Permission handler error").pipe(
-            Effect.annotateLogs({
-              cause: Cause.pretty(exit.cause),
-              sessionId: session.id,
-              resource: perm.resource,
-            }),
-          );
-          yield* this.rejectAgent(session.id, agentId, {
-            stage: "permission",
-            reason: `Permission handler error for resource: ${perm.resource}`,
-            suggestedAction: `Grant ${perm.resource} access via the permission prompt`,
-            code: "PermissionHandlerError",
-          });
-          return yield* Effect.fail(
-            forbidden(`Permission denied for resource: ${perm.resource}`),
-          );
-        }
-
-        const access = exit.value;
-
-        yield* Effect.logInfo("Permission handler responded").pipe(
-          Effect.annotateLogs({
-            sessionId: session.id,
-            resource: perm.resource,
-            access,
-          }),
-        );
-
-        if (!grantsAllRequiredAccess(access, perm.access)) {
-          yield* Effect.logWarning("Permission request failed").pipe(
-            Effect.annotateLogs({
-              sessionId: session.id,
-              resource: perm.resource,
-            }),
-          );
-          yield* this.rejectAgent(session.id, agentId, {
-            stage: "permission",
-            reason: `Permission denied for resource: ${perm.resource}`,
-            suggestedAction: `Grant ${perm.resource} access via the permission prompt`,
-            code: "PermissionDenied",
-          });
-          return yield* Effect.fail(
-            forbidden(`Permission denied for resource: ${perm.resource}`),
-          );
-        }
-
-        yield* this.db
-          .insertInto("app_permission_grants")
-          .values({
-            user_id: ownerUserId,
-            app_id: session.appId,
-            resource: perm.resource,
-            access,
-          })
-          .onConflict((oc) =>
-            oc
-              .columns(["user_id", "app_id", "resource"])
-              .doUpdateSet({ access }),
-          );
-
-        return perm.resource;
-      }),
-    );
-  }
-
   private admitAgentToSession(
     session: AppSession,
     agentId: string,
-    grantedResources: string[],
     ownerId: string,
   ): Effect.Effect<void, RpcFailure> {
     return catchSqlErrorAsDefect(
@@ -2608,11 +2011,13 @@ export class AppHost {
           }
         }
 
-        const admittedEvent = eventFrame("app/participantAdmitted", {
-          sessionId: session.id,
-          agentId,
-          grantedResources,
-        });
+        const admittedEvent = notificationFrame(
+          AppParticipantAdmittedNotificationDefinition,
+          {
+            sessionId: session.id,
+            agentId: protocolAgentId(agentId),
+          },
+        );
         this.broadcaster.sendToAgent(agentId, admittedEvent);
         this.broadcaster.sendToAgent(session.initiatorAgentId, admittedEvent);
 
@@ -2620,7 +2025,6 @@ export class AppHost {
           Effect.annotateLogs({
             sessionId: session.id,
             agentId,
-            grantedResources,
           }),
         );
 
@@ -2655,9 +2059,9 @@ export class AppHost {
 
         this.broadcaster.sendToAgent(
           agentId,
-          eventFrame("app/participantRejected", {
-            sessionId,
-            agentId,
+          notificationFrame(AppParticipantRejectedNotificationDefinition, {
+            sessionId: appSessionId(sessionId),
+            agentId: protocolAgentId(agentId),
             reason,
             stage,
             suggestedAction,

@@ -2,9 +2,11 @@
 set -e
 
 pnpm exec oxfmt .
+pnpm docs:generate
+
 if ! git diff --quiet; then
   echo ""
-  echo "oxfmt fixed formatting. Run: git add -u && git commit"
+  echo "pre-commit updated generated/formatted files. Run: git add -u && git add docs/protocol && git commit"
   exit 1
 fi
 

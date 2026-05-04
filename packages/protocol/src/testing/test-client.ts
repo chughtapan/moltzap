@@ -28,13 +28,24 @@ import {
 import * as Socket from "@effect/platform/Socket";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import type {
-  RpcMap,
-  RpcMethodName,
-  S2cRpcMap,
-  S2cRpcMethodName,
+  AnyAppCallbackRpcDefinition,
+  AnyRpcDefinition,
 } from "../rpc-registry.js";
-import type { EventFrame } from "../schema/frames.js";
-import { responseFrame } from "../helpers.js";
+import { appCallbackRpcGroup } from "../rpc-registry.js";
+import { decodeRpcResult, type ParamsOf, type ResultOf } from "../rpc.js";
+import {
+  decodeNotification,
+  decodeRpcRequest,
+  isDecodedNotification,
+  type DecodedNotification,
+} from "../rpc-groups.js";
+import type { ResponseFrame } from "../schema/frames.js";
+import { requestFrame, responseFrame } from "../helpers.js";
+import { type JsonRpcStringId, jsonRpcStringId } from "../schema/json-rpc.js";
+import type { AnyNotificationDefinition } from "../schema/notifications.js";
+import { notificationGroup } from "../schema/notifications.js";
+import type { Static } from "@sinclair/typebox";
+import { AgentId } from "../schema/primitives.js";
 import { PROTOCOL_VERSION } from "../version.js";
 import {
   makeCaptureBuffer,
@@ -46,8 +57,11 @@ import {
 import {
   decodeFrame,
   encodeFrame,
+  isCorrelatedResponseFrame,
+  isNotificationFrame,
+  isRequestFrame,
+  isResponseFrame,
   malformFrame,
-  type AnyFrame,
   type MalformedFrameKind,
 } from "./codec.js";
 import {
@@ -68,7 +82,7 @@ import { Connect } from "../schema/methods/auth.js";
 export interface TestClientConfig {
   readonly serverUrl: string;
   readonly agentKey: string;
-  readonly agentId: string;
+  readonly agentId: Static<typeof AgentId>;
   readonly defaultTimeoutMs: number;
   /** Soft cap on captured frames before the ring buffer drops oldest. */
   readonly captureCapacity: number;
@@ -87,12 +101,12 @@ export interface TestClientConfig {
  * them inside `Effect.forEach` / `fc.asyncProperty`.
  */
 export interface TestClient {
-  readonly sendRpc: <M extends RpcMethodName>(
-    method: M,
-    params: RpcMap[M]["params"],
+  readonly sendRpc: <D extends AnyRpcDefinition>(
+    definition: D,
+    params: ParamsOf<D>,
     opts?: { readonly timeoutMs?: number },
   ) => Effect.Effect<
-    RpcMap[M]["result"],
+    ResultOf<D>,
     | RpcResponseError
     | RpcTimeoutError
     | TransportClosedError
@@ -100,8 +114,9 @@ export interface TestClient {
     | FrameSchemaError
   >;
 
-  readonly sendMalformed: (opts: {
-    readonly baseMethod: RpcMethodName;
+  readonly sendMalformed: <D extends AnyRpcDefinition>(opts: {
+    readonly baseDefinition: D;
+    readonly baseParams: ParamsOf<D>;
     readonly kind: MalformedFrameKind;
     readonly seed: number;
   }) => Effect.Effect<
@@ -109,19 +124,24 @@ export interface TestClient {
     TransportClosedError | TransportIoError | FrameSchemaError
   >;
 
-  readonly events: Stream.Stream<EventFrame, TransportClosedError>;
+  readonly notifications: Stream.Stream<
+    DecodedNotification<AnyNotificationDefinition>,
+    TransportClosedError
+  >;
   readonly captures: CaptureBuffer;
   readonly snapshot: Effect.Effect<ReadonlyArray<CapturedFrame>>;
-  readonly waitForEvent: (
-    eventName: string,
+  readonly waitForNotification: <D extends AnyNotificationDefinition>(
+    definition: D,
     timeoutMs?: number,
-  ) => Effect.Effect<EventFrame, EventWaitError>;
-  readonly drainEvents: Effect.Effect<ReadonlyArray<EventFrame>>;
+  ) => Effect.Effect<DecodedNotification<D>, NotificationWaitError>;
+  readonly drainNotifications: Effect.Effect<
+    ReadonlyArray<DecodedNotification<AnyNotificationDefinition>>
+  >;
 
   /**
-   * Register a handler for a server-initiated (`direction: "s2c"`) RPC.
+   * Register a handler for an app-callback RPC.
    * When `handleInbound` sees a request frame whose method matches, the
-   * handler runs and its outcome is encoded as the s2c response:
+   * handler runs and its outcome is encoded as the JSON-RPC response:
    *   - `Effect.succeed(value)` → `{ result: value }`
    *   - `Effect.fail(err: RpcResponseError)` → `{ error: { code, message, data? } }`
    *   - defects collapse to a generic `-32603 InternalError` reply so the
@@ -131,22 +151,19 @@ export interface TestClient {
    * `HashMap.set`. The TestClient does NOT raise on duplicates the way the
    * production client does; tests routinely swap behaviour mid-scenario.
    *
-   * Type narrowing: once `s2cRpcMethods` (`packages/protocol/src/rpc-registry.ts`)
-   * registers verbs in B.2, `M` constrains to the registered method names
-   * and `params`/`result` bind to `S2cRpcMap[M]`. While the registry is
-   * empty, the constraint falls through to `string` / `unknown` so callers
-   * can still drive the surface — see {@link ServerRpcMethod}.
+   * `M` constrains to the registered app-callback method names and
+   * `params`/`result` bind to the matching descriptor.
    */
-  readonly handleServerRpc: <M extends ServerRpcMethod>(
-    method: M,
+  readonly handleServerRpc: <D extends ServerRpcDefinition>(
+    definition: D,
     handler: (
-      params: ServerRpcParams<M>,
+      params: ServerRpcParams<D>,
       ctx: ServerRpcContext,
-    ) => Effect.Effect<ServerRpcResult<M>, RpcResponseError>,
+    ) => Effect.Effect<ServerRpcResult<D>, RpcResponseError>,
   ) => Effect.Effect<void>;
 
   /**
-   * Park until the server sends an s2c request for `method`. The handler
+   * Park until the server sends an app-callback request for `method`. The handler
    * registered via {@link handleServerRpc} (if any) still runs and replies;
    * `awaitServerRequest` is an OBSERVATION primitive — it lets a test
    * assert the request payload before the response goes back without
@@ -160,15 +177,17 @@ export interface TestClient {
    * Effect with `Effect.timeout` at the call site (architect plan §3.6
    * "Effect.timeout at call site, not schema cap").
    */
-  readonly awaitServerRequest: <M extends ServerRpcMethod>(
-    method: M,
-    predicate?: (params: ServerRpcParams<M>) => boolean,
+  readonly awaitServerRequest: <D extends ServerRpcDefinition>(
+    definition: D,
+    predicate?: (params: ServerRpcParams<D>) => boolean,
     timeoutMs?: number,
-  ) => Effect.Effect<ServerRpcParams<M>, ServerRequestWaitError>;
+  ) => Effect.Effect<ServerRpcParams<D>, ServerRequestWaitError>;
 }
 
-export class EventWaitError extends Data.TaggedError("TestingEventWaitError")<{
-  readonly eventName: string;
+export class NotificationWaitError extends Data.TaggedError(
+  "TestingNotificationWaitError",
+)<{
+  readonly definition: AnyNotificationDefinition;
   readonly message: string;
   readonly reason: "closed" | "timeout";
 }> {}
@@ -177,43 +196,28 @@ export class ServerRequestWaitError extends Data.TaggedError(
   "TestingServerRequestWaitError",
 )<{
   readonly message: string;
-  readonly method: string;
+  readonly definition: ServerRpcDefinition;
   readonly reason: "timeout";
 }> {}
 
 /**
- * Method-name constraint for server-initiated RPC test surface. Narrows to
- * the registered s2c methods (`S2cRpcMethodName`) once B.2 populates
- * `s2cRpcMethods` in `rpc-registry.ts`. While the registry is empty, the
- * constraint falls through to `string` so the test surface remains usable
- * during Phase 1.0 — `[never] extends [never]` is true, but `never` as a
- * generic constraint blocks every caller. The fallback collapses
- * automatically the moment a verb registers.
+ * Descriptor constraint for app-callback RPC test surface.
  */
-export type ServerRpcMethod = [S2cRpcMethodName] extends [never]
-  ? string
-  : S2cRpcMethodName;
+export type ServerRpcDefinition = AnyAppCallbackRpcDefinition;
 
 /**
- * Inbound params type for an s2c method. Resolves to the registered
- * params schema via `S2cRpcMap[M]["params"]` once verbs land; falls
- * through to `unknown` for the bootstrap window — same condition as
- * {@link ServerRpcMethod}.
+ * Inbound params type for an app-callback method.
  */
-export type ServerRpcParams<M extends ServerRpcMethod> =
-  M extends S2cRpcMethodName ? S2cRpcMap[M]["params"] : unknown;
+export type ServerRpcParams<D extends ServerRpcDefinition> = ParamsOf<D>;
 
 /**
- * Outbound result type for an s2c method handler. See {@link ServerRpcParams}
- * for the bootstrap fallback rationale.
+ * Outbound result type for an app-callback method handler.
  */
-export type ServerRpcResult<M extends ServerRpcMethod> =
-  M extends S2cRpcMethodName ? S2cRpcMap[M]["result"] : unknown;
+export type ServerRpcResult<D extends ServerRpcDefinition> = ResultOf<D>;
 
 export interface ServerRpcContext {
-  readonly requestId: string;
-  readonly method: string;
-  readonly traceparent?: string;
+  readonly requestId: JsonRpcStringId;
+  readonly definition: ServerRpcDefinition;
 }
 
 export interface CloseableTestClient extends TestClient {
@@ -226,8 +230,8 @@ export const TestClient = Context.GenericTag<TestClient>(
 );
 
 type PendingMap = Map<
-  string,
-  Deferred.Deferred<AnyFrame, RpcResponseError | TransportClosedError>
+  JsonRpcStringId,
+  Deferred.Deferred<ResponseFrame, RpcResponseError | TransportClosedError>
 >;
 
 interface CloseState {
@@ -240,7 +244,7 @@ let requestIdCounter = 0;
 
 const DEFAULT_AWAIT_SERVER_REQUEST_TIMEOUT_MS = 5_000;
 const DEFAULT_MALFORMED_QUIESCENCE_MS = 500;
-const DEFAULT_WAIT_FOR_EVENT_TIMEOUT_MS = 5_000;
+const DEFAULT_WAIT_FOR_NOTIFICATION_TIMEOUT_MS = 5_000;
 const HANDLER_DEFECT_MESSAGE_LIMIT = 200;
 const POLL_INTERVAL_MS = 10;
 const REQUEST_ID_RADIX = 36;
@@ -272,7 +276,9 @@ export function makeTestClient(
       code: 0,
       reason: "",
     });
-    const eventQueue = yield* Ref.make<ReadonlyArray<EventFrame>>([]);
+    const notificationQueue = yield* Ref.make<
+      ReadonlyArray<DecodedNotification<AnyNotificationDefinition>>
+    >([]);
 
     // Per-method registry of server-initiated RPC handlers. The handler
     // returns `Effect<unknown, RpcResponseError>` — successes encode as
@@ -281,17 +287,17 @@ export function makeTestClient(
     // hangs on a crashing test handler.
     //
     // The internal type is intentionally `unknown → unknown`: handlers
-    // registered via the typed `handleServerRpc<M>` overload are widened
+    // registered via the typed `handleServerRpc` overload are widened
     // at the registration boundary so the dispatcher can dispatch by
-    // string method name regardless of which method-specific shape was
+    // descriptor identity regardless of which method-specific shape was
     // registered. Type narrowing is restored at the public surface.
-    type S2cHandler = (
+    type AppCallbackHandler = (
       params: unknown,
       ctx: ServerRpcContext,
     ) => Effect.Effect<unknown, RpcResponseError>;
-    const s2cHandlersRef = yield* Ref.make<HashMap.HashMap<string, S2cHandler>>(
-      HashMap.empty(),
-    );
+    const appCallbackHandlersRef = yield* Ref.make<
+      HashMap.HashMap<ServerRpcDefinition, AppCallbackHandler>
+    >(HashMap.empty());
 
     // `awaitServerRequest` is an observation primitive — it parks a
     // `Deferred<inbound params>`, then `notifyAwaiters` fans out the
@@ -305,7 +311,7 @@ export function makeTestClient(
       readonly deferred: Deferred.Deferred<unknown, ServerRequestWaitError>;
     }
     const awaitersRef = yield* Ref.make<
-      HashMap.HashMap<string, ReadonlyArray<AwaitEntry>>
+      HashMap.HashMap<ServerRpcDefinition, ReadonlyArray<AwaitEntry>>
     >(HashMap.empty());
 
     // Acquire the WS socket via @effect/platform. The Node WebSocket
@@ -329,6 +335,28 @@ export function makeTestClient(
       ),
     );
 
+    const writeFrame = (
+      raw: string,
+    ): Effect.Effect<void, TransportClosedError | TransportIoError> =>
+      Effect.gen(function* () {
+        const state = yield* Ref.get(closeRef);
+        if (state.closed) {
+          return yield* Effect.fail(
+            new TransportClosedError({
+              direction: "outbound",
+              code: state.code,
+              reason: state.reason,
+            }),
+          );
+        }
+        yield* writer(raw).pipe(
+          Effect.mapError(
+            (err) =>
+              new TransportIoError({ direction: "outbound", cause: err }),
+          ),
+        );
+      });
+
     const handleInbound = (raw: string): Effect.Effect<void> =>
       Effect.gen(function* () {
         const frame = yield* decodeFrame(raw, "inbound").pipe(
@@ -346,21 +374,18 @@ export function makeTestClient(
         if (frame === null) return;
         yield* recordFrame(captures, "inbound", raw, frame);
 
-        if (frame.type === "response") {
-          // c2s response (server's reply to a TestClient-initiated RPC).
-          // s2c responses (the TestClient's reply to the server's
-          // request) never arrive inbound — TestClient is the originator
-          // of c2s, the responder for s2c.
-          if (frame.direction !== "c2s") return;
-          const def = pending.get(frame.id);
+        if (isResponseFrame(frame)) {
+          if (!isCorrelatedResponseFrame(frame)) return;
+          const responseId = frame.id;
+          const def = pending.get(responseId);
           if (def !== undefined) {
-            pending.delete(frame.id);
-            if (frame.error !== undefined) {
+            pending.delete(responseId);
+            if ("error" in frame) {
               yield* Deferred.fail(
                 def,
                 new RpcResponseError({
                   method: "",
-                  requestId: frame.id,
+                  requestId: responseId,
                   code: frame.error.code,
                   message: frame.error.message,
                   data: frame.error.data,
@@ -372,60 +397,86 @@ export function makeTestClient(
           }
           return;
         }
-        if (frame.type === "request") {
-          // s2c request (server-initiated). Architect plan §3.6 third
+        if (isRequestFrame(frame)) {
+          // Server-initiated request. Architect plan §3.6 third
           // dispatch branch: notify any `awaitServerRequest` observer
           // that matches, then run the registered handler (if any) and
           // write the response back. Both legs are independent — the
           // observer fires regardless of whether a handler is registered.
-          if (frame.direction !== "s2c") return;
-          yield* notifyAwaiters(frame.method, frame.params);
-          yield* dispatchHandler(
-            frame.id,
-            frame.method,
-            frame.params,
-            frame.traceparent,
+          yield* decodeRpcRequest(appCallbackRpcGroup, frame).pipe(
+            Effect.matchEffect({
+              onFailure: () =>
+                writeReply(
+                  responseFrame(frame.id, {
+                    error: {
+                      code: -32601,
+                      message:
+                        "Invalid app-callback request descriptor or params",
+                    },
+                  }),
+                ),
+              onSuccess: (request) =>
+                Effect.gen(function* () {
+                  yield* notifyAwaiters(request.definition, request.params);
+                  yield* dispatchHandler(
+                    request.id,
+                    request.definition,
+                    request.params,
+                  );
+                }),
+            }),
           );
           return;
         }
-        if (frame.type === "event") {
-          yield* Ref.update(eventQueue, (q) => [...q, frame as EventFrame]);
+        if (isNotificationFrame(frame)) {
+          yield* decodeNotification(notificationGroup, frame).pipe(
+            Effect.matchEffect({
+              onFailure: () => Effect.void,
+              onSuccess: (notification) =>
+                Ref.update(notificationQueue, (q) => [...q, notification]),
+            }),
+          );
         }
       });
 
     // ── handleServerRpc / awaitServerRequest internals ────────────────
     //
     // `dispatchHandler` looks up the registered handler in
-    // `s2cHandlersRef`, runs it as an Effect, and writes the response.
+    // `appCallbackHandlersRef`, runs it as an Effect, and writes the response.
     // Defects (untagged crashes) collapse to a generic InternalError so
     // the server's `Deferred.await` never hangs.
 
+    const writeReply = (reply: ResponseFrame): Effect.Effect<void> => {
+      const raw = JSON.stringify(reply);
+      return recordFrame(captures, "outbound", raw, reply).pipe(
+        Effect.zipRight(writeFrame(raw).pipe(Effect.ignore)),
+      );
+    };
+
     const dispatchHandler = (
-      requestId: string,
-      method: string,
+      requestId: JsonRpcStringId,
+      definition: ServerRpcDefinition,
       params: unknown,
-      traceparent: string | undefined,
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
-        const handlers = yield* Ref.get(s2cHandlersRef);
-        const lookup = HashMap.get(handlers, method);
+        const handlers = yield* Ref.get(appCallbackHandlersRef);
+        const lookup = HashMap.get(handlers, definition);
 
         const buildReply =
           lookup._tag === "None"
             ? Effect.succeed(
-                responseFrame("s2c", requestId, {
+                responseFrame(requestId, {
                   error: {
                     code: -32601,
-                    message: `No handler registered for method: ${method}`,
+                    message: `No handler registered for app callback descriptor ${definition.name}`,
                   },
                 }),
               )
-            : lookup.value(params, { requestId, method, traceparent }).pipe(
+            : lookup.value(params, { requestId, definition }).pipe(
                 Effect.match({
-                  onSuccess: (result) =>
-                    responseFrame("s2c", requestId, { result }),
+                  onSuccess: (result) => responseFrame(requestId, { result }),
                   onFailure: (err) =>
-                    responseFrame("s2c", requestId, {
+                    responseFrame(requestId, {
                       error: {
                         code: err.code,
                         message: err.message,
@@ -435,7 +486,7 @@ export function makeTestClient(
                 }),
                 Effect.catchAllCause((cause) =>
                   Effect.succeed(
-                    responseFrame("s2c", requestId, {
+                    responseFrame(requestId, {
                       error: {
                         code: -32603,
                         message: `Handler defected: ${Cause.pretty(cause).slice(0, HANDLER_DEFECT_MESSAGE_LIMIT)}`,
@@ -446,18 +497,16 @@ export function makeTestClient(
               );
 
         const reply = yield* buildReply;
-        const raw = JSON.stringify(reply);
-        yield* recordFrame(captures, "outbound", raw, reply as AnyFrame);
-        yield* writeFrame(raw).pipe(Effect.ignore);
+        yield* writeReply(reply);
       });
 
     const notifyAwaiters = (
-      method: string,
+      definition: ServerRpcDefinition,
       params: unknown,
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
         const matched = yield* Ref.modify(awaitersRef, (m) => {
-          const bucket = Option.getOrUndefined(HashMap.get(m, method));
+          const bucket = Option.getOrUndefined(HashMap.get(m, definition));
           if (bucket === undefined) return [undefined, m];
           const idx = bucket.findIndex(
             (e) => e.predicate === undefined || e.predicate(params),
@@ -467,8 +516,8 @@ export function makeTestClient(
           const rest = [...bucket.slice(0, idx), ...bucket.slice(idx + 1)];
           const next =
             rest.length === 0
-              ? HashMap.remove(m, method)
-              : HashMap.set(m, method, rest);
+              ? HashMap.remove(m, definition)
+              : HashMap.set(m, definition, rest);
           return [chosen, next];
         });
         if (matched === undefined) return;
@@ -509,43 +558,15 @@ export function makeTestClient(
         ),
     );
 
-    const writeFrame = (
-      raw: string,
-    ): Effect.Effect<void, TransportClosedError | TransportIoError> =>
+    const sendRpc: TestClient["sendRpc"] = (definition, params, opts) =>
       Effect.gen(function* () {
-        const state = yield* Ref.get(closeRef);
-        if (state.closed) {
-          return yield* Effect.fail(
-            new TransportClosedError({
-              direction: "outbound",
-              code: state.code,
-              reason: state.reason,
-            }),
-          );
-        }
-        yield* writer(raw).pipe(
-          Effect.mapError(
-            (err) =>
-              new TransportIoError({ direction: "outbound", cause: err }),
-          ),
-        );
-      });
-
-    const sendRpc: TestClient["sendRpc"] = (method, params, opts) =>
-      Effect.gen(function* () {
-        const id = nextRequestId();
+        const method = definition.name;
+        const id = jsonRpcStringId(nextRequestId());
         const timeoutMs = opts?.timeoutMs ?? config.defaultTimeoutMs;
-        const request: AnyFrame = {
-          type: "request",
-          jsonrpc: "2.0",
-          direction: "c2s",
-          id,
-          method,
-          params,
-        };
+        const request = requestFrame(id, definition, params);
         const raw = encodeFrame(request);
         const deferred = yield* Deferred.make<
-          AnyFrame,
+          ResponseFrame,
           RpcResponseError | TransportClosedError
         >();
         pending.set(id, deferred);
@@ -563,7 +584,7 @@ export function makeTestClient(
             }),
           ),
         );
-        if (result.type !== "response") {
+        if (!("result" in result)) {
           return yield* Effect.fail(
             new FrameSchemaError({
               direction: "inbound",
@@ -573,32 +594,48 @@ export function makeTestClient(
             }),
           );
         }
-        return result.result as RpcMap[typeof method]["result"];
+        return yield* decodeRpcResult(definition, result.result).pipe(
+          Effect.mapError(
+            () =>
+              new FrameSchemaError({
+                direction: "inbound",
+                expected: "response",
+                raw: encodeFrame(result),
+                reason: `invalid result for rpc method ${method}`,
+              }),
+          ),
+        );
       });
 
-    const takeEvent = (eventName: string): Effect.Effect<EventFrame | null> =>
-      Ref.modify(eventQueue, (events) => {
-        const idx = events.findIndex((event) => event.event === eventName);
-        if (idx === -1) return [null, events];
-        const event = events[idx]!;
-        return [event, [...events.slice(0, idx), ...events.slice(idx + 1)]];
+    const takeNotification = <D extends AnyNotificationDefinition>(
+      definition: D,
+    ): Effect.Effect<DecodedNotification<D> | null> =>
+      Ref.modify(notificationQueue, (notifications) => {
+        for (const [idx, notification] of notifications.entries()) {
+          if (!isDecodedNotification(definition, notification)) continue;
+          return [
+            notification,
+            [...notifications.slice(0, idx), ...notifications.slice(idx + 1)],
+          ];
+        }
+        return [null, notifications];
       });
 
-    const waitForEvent: TestClient["waitForEvent"] = (
-      eventName,
-      timeoutMs = DEFAULT_WAIT_FOR_EVENT_TIMEOUT_MS,
+    const waitForNotification: TestClient["waitForNotification"] = (
+      definition,
+      timeoutMs = DEFAULT_WAIT_FOR_NOTIFICATION_TIMEOUT_MS,
     ) =>
       Effect.gen(function* () {
         while (true) {
-          const event = yield* takeEvent(eventName);
-          if (event !== null) return event;
+          const notification = yield* takeNotification(definition);
+          if (notification !== null) return notification;
 
           const state = yield* Ref.get(closeRef);
           if (state.closed) {
             return yield* Effect.fail(
-              new EventWaitError({
-                eventName,
-                message: `Connection closed while waiting for event: ${eventName}`,
+              new NotificationWaitError({
+                definition,
+                message: `Connection closed while waiting for notification: ${definition.name}`,
                 reason: "closed",
               }),
             );
@@ -610,9 +647,9 @@ export function makeTestClient(
         Effect.timeoutFail({
           duration: Duration.millis(timeoutMs),
           onTimeout: () =>
-            new EventWaitError({
-              eventName,
-              message: `Timeout waiting for event: ${eventName}`,
+            new NotificationWaitError({
+              definition,
+              message: `Timeout waiting for notification: ${definition.name}`,
               reason: "timeout",
             }),
         }),
@@ -631,18 +668,15 @@ export function makeTestClient(
      */
     const sendMalformed: TestClient["sendMalformed"] = (opts) =>
       Effect.gen(function* () {
-        const id = nextRequestId();
-        const baseFrame: AnyFrame = {
-          type: "request",
-          jsonrpc: "2.0",
-          direction: "c2s",
+        const id = jsonRpcStringId(nextRequestId());
+        const baseFrame = requestFrame(
           id,
-          method: opts.baseMethod,
-          params: {},
-        };
+          opts.baseDefinition,
+          opts.baseParams,
+        );
         const raw = malformFrame(baseFrame, opts.kind, opts.seed);
         const deferred = yield* Deferred.make<
-          AnyFrame,
+          ResponseFrame,
           RpcResponseError | TransportClosedError
         >();
         pending.set(id, deferred);
@@ -678,48 +712,53 @@ export function makeTestClient(
         return outcome;
       });
 
-    // Event stream — repeatedly drain `eventQueue`, ending when the WS closes.
-    const events: Stream.Stream<EventFrame, TransportClosedError> =
-      Stream.unwrap(
-        Effect.sync(() => {
-          const pullOne: Effect.Effect<
-            ReadonlyArray<EventFrame>,
-            TransportClosedError
-          > = Effect.gen(function* () {
-            while (true) {
-              const state = yield* Ref.get(closeRef);
-              if (state.closed) {
-                return yield* Effect.fail(
-                  new TransportClosedError({
-                    direction: "inbound",
-                    code: state.code,
-                    reason: state.reason,
-                  }),
-                );
-              }
-              const q = yield* Ref.getAndSet(eventQueue, []);
-              if (q.length > 0) return q;
-              yield* Effect.sleep(Duration.millis(POLL_INTERVAL_MS));
+    // Notification stream — repeatedly drain `notificationQueue`, ending when the WS closes.
+    const notifications: Stream.Stream<
+      DecodedNotification<AnyNotificationDefinition>,
+      TransportClosedError
+    > = Stream.unwrap(
+      Effect.sync(() => {
+        const pullOne: Effect.Effect<
+          ReadonlyArray<DecodedNotification<AnyNotificationDefinition>>,
+          TransportClosedError
+        > = Effect.gen(function* () {
+          while (true) {
+            const state = yield* Ref.get(closeRef);
+            if (state.closed) {
+              return yield* Effect.fail(
+                new TransportClosedError({
+                  direction: "inbound",
+                  code: state.code,
+                  reason: state.reason,
+                }),
+              );
             }
-          });
-          return Stream.repeatEffectChunk(
-            pullOne.pipe(Effect.map((arr) => Chunk.fromIterable(arr))),
-          );
-        }),
-      );
+            const q = yield* Ref.getAndSet(notificationQueue, []);
+            if (q.length > 0) return q;
+            yield* Effect.sleep(Duration.millis(POLL_INTERVAL_MS));
+          }
+        });
+        return Stream.repeatEffectChunk(
+          pullOne.pipe(Effect.map((arr) => Chunk.fromIterable(arr))),
+        );
+      }),
+    );
 
-    const handleServerRpc: TestClient["handleServerRpc"] = (method, handler) =>
-      Ref.update(s2cHandlersRef, (m) =>
-        HashMap.set(m, method, handler as S2cHandler),
+    const handleServerRpc: TestClient["handleServerRpc"] = (
+      definition,
+      handler,
+    ) =>
+      Ref.update(appCallbackHandlersRef, (m) =>
+        HashMap.set(m, definition, handler as AppCallbackHandler),
       );
 
     const awaitServerRequest: TestClient["awaitServerRequest"] = <
-      M extends ServerRpcMethod,
+      D extends ServerRpcDefinition,
     >(
-      method: M,
-      predicate?: (params: ServerRpcParams<M>) => boolean,
+      definition: D,
+      predicate?: (params: ServerRpcParams<D>) => boolean,
       timeoutMs = DEFAULT_AWAIT_SERVER_REQUEST_TIMEOUT_MS,
-    ): Effect.Effect<ServerRpcParams<M>, ServerRequestWaitError> =>
+    ): Effect.Effect<ServerRpcParams<D>, ServerRequestWaitError> =>
       Effect.gen(function* () {
         const deferred = yield* Deferred.make<
           unknown,
@@ -734,45 +773,45 @@ export function makeTestClient(
             : {}),
         };
         yield* Ref.update(awaitersRef, (m) => {
-          const bucket = HashMap.get(m, method);
+          const bucket = HashMap.get(m, definition);
           const next =
             bucket._tag === "Some" ? [...bucket.value, entry] : [entry];
-          return HashMap.set(m, method, next as ReadonlyArray<AwaitEntry>);
+          return HashMap.set(m, definition, next as ReadonlyArray<AwaitEntry>);
         });
         const result = yield* Deferred.await(deferred).pipe(
           Effect.timeoutFail({
             duration: Duration.millis(timeoutMs),
             onTimeout: () =>
               new ServerRequestWaitError({
-                message: `Timeout waiting for server-initiated request: ${method}`,
-                method,
+                message: `Timeout waiting for server-initiated request ${definition.name}`,
+                definition,
                 reason: "timeout",
               }),
           }),
           Effect.onExit((exit) =>
             exit._tag === "Failure"
               ? Ref.update(awaitersRef, (m) => {
-                  const bucket = HashMap.get(m, method);
+                  const bucket = HashMap.get(m, definition);
                   if (Option.isNone(bucket)) return m;
                   const filtered = bucket.value.filter((e) => e !== entry);
                   return filtered.length === 0
-                    ? HashMap.remove(m, method)
-                    : HashMap.set(m, method, filtered);
+                    ? HashMap.remove(m, definition)
+                    : HashMap.set(m, definition, filtered);
                 })
               : Effect.void,
           ),
         );
-        return result as ServerRpcParams<M>;
+        return result as ServerRpcParams<D>;
       });
 
     const client: TestClient = {
       sendRpc,
       sendMalformed,
-      events,
+      notifications,
       captures,
       snapshot: captures.snapshot,
-      waitForEvent,
-      drainEvents: Ref.getAndSet(eventQueue, []),
+      waitForNotification,
+      drainNotifications: Ref.getAndSet(notificationQueue, []),
       handleServerRpc,
       awaitServerRequest,
     };
@@ -783,12 +822,12 @@ export function makeTestClient(
     // unauthenticated traffic (e.g., authority-negative) can skip
     // autoConnect without the acquire path faulting.
     if (config.autoConnect !== false) {
-      const handshakeParams: RpcMap[typeof Connect.name]["params"] = {
+      const handshakeParams: ParamsOf<typeof Connect> = {
         agentKey: config.agentKey,
         minProtocol: PROTOCOL_VERSION,
         maxProtocol: PROTOCOL_VERSION,
       };
-      const handshake = sendRpc(Connect.name, handshakeParams).pipe(
+      const handshake = sendRpc(Connect, handshakeParams).pipe(
         Effect.catchTag("TestingRpcTimeoutError", () => Effect.void),
         Effect.catchTag("TestingFrameSchemaError", () => Effect.void),
         Effect.catchTag("TestingRpcResponseError", () => Effect.void),

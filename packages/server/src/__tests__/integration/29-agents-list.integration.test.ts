@@ -66,19 +66,19 @@ describe(AgentsList.name, () => {
       const bob = yield* registerAndConnect("bob-agent");
       const carol = yield* registerAndConnect("carol-ag");
 
-      yield* alice.client.sendRpc(ConversationsCreate.name, {
+      yield* alice.client.sendRpc(ConversationsCreate, {
         type: "dm",
         participants: [{ type: "agent", id: bob.agentId }],
       });
 
-      yield* alice.client.sendRpc(ConversationsCreate.name, {
+      yield* alice.client.sendRpc(ConversationsCreate, {
         type: "group",
         name: "test-group",
         participants: [{ type: "agent", id: carol.agentId }],
       });
 
       const aliceResult = (yield* alice.client.sendRpc(
-        AgentsList.name,
+        AgentsList,
         {},
       )) as AgentsListResult;
       const aliceAgentIds = Object.keys(aliceResult.agents);
@@ -87,7 +87,7 @@ describe(AgentsList.name, () => {
       expect(aliceAgentIds).not.toContain(alice.agentId);
 
       const bobResult = (yield* bob.client.sendRpc(
-        AgentsList.name,
+        AgentsList,
         {},
       )) as AgentsListResult;
       const bobAgentIds = Object.keys(bobResult.agents);
@@ -95,7 +95,7 @@ describe(AgentsList.name, () => {
       expect(bobAgentIds).not.toContain(carol.agentId);
 
       const carolResult = (yield* carol.client.sendRpc(
-        AgentsList.name,
+        AgentsList,
         {},
       )) as AgentsListResult;
       const carolAgentIds = Object.keys(carolResult.agents);
@@ -109,7 +109,7 @@ describe(AgentsList.name, () => {
       const loner = yield* registerAndConnect("loner-ag");
 
       const result = (yield* loner.client.sendRpc(
-        AgentsList.name,
+        AgentsList,
         {},
       )) as AgentsListResult;
       expect(result.agents).toEqual({});
@@ -121,19 +121,19 @@ describe(AgentsList.name, () => {
       const alice = yield* registerAndConnect("alice-ag");
       const bob = yield* registerAndConnect("bob-agent");
 
-      yield* alice.client.sendRpc(ConversationsCreate.name, {
+      yield* alice.client.sendRpc(ConversationsCreate, {
         type: "dm",
         participants: [{ type: "agent", id: bob.agentId }],
       });
 
-      yield* alice.client.sendRpc(ConversationsCreate.name, {
+      yield* alice.client.sendRpc(ConversationsCreate, {
         type: "group",
         name: "shared-group",
         participants: [{ type: "agent", id: bob.agentId }],
       });
 
       const result = (yield* alice.client.sendRpc(
-        AgentsList.name,
+        AgentsList,
         {},
       )) as AgentsListResult;
       const agentIds = Object.keys(result.agents);
@@ -147,13 +147,13 @@ describe(AgentsList.name, () => {
       const alice = yield* registerAndConnect("alice-ag");
       const bob = yield* registerAndConnect("bob-agent");
 
-      yield* alice.client.sendRpc(ConversationsCreate.name, {
+      yield* alice.client.sendRpc(ConversationsCreate, {
         type: "dm",
         participants: [{ type: "agent", id: bob.agentId }],
       });
 
       const result = (yield* alice.client.sendRpc(
-        AgentsList.name,
+        AgentsList,
         {},
       )) as AgentsListResult;
       expect(result.agents[alice.agentId]).toBeUndefined();
@@ -168,13 +168,13 @@ describe(AgentsList.name, () => {
       });
       const other = yield* registerAndConnect("other-ag");
 
-      yield* described.client.sendRpc(ConversationsCreate.name, {
+      yield* described.client.sendRpc(ConversationsCreate, {
         type: "dm",
         participants: [{ type: "agent", id: other.agentId }],
       });
 
       const result = (yield* other.client.sendRpc(
-        AgentsList.name,
+        AgentsList,
         {},
       )) as AgentsListResult;
       const card = result.agents[described.agentId];
@@ -192,7 +192,7 @@ describe(AgentsLookup.name, () => {
     Effect.gen(function* () {
       const alice = yield* registerAndConnect("alice-ag");
 
-      const result = (yield* alice.client.sendRpc(AgentsLookup.name, {
+      const result = (yield* alice.client.sendRpc(AgentsLookup, {
         agentIds: [alice.agentId],
       })) as AgentsArrayResult;
 
@@ -207,7 +207,7 @@ describe(AgentsLookup.name, () => {
     Effect.gen(function* () {
       const alice = yield* registerAndConnect("alice-ag");
 
-      const result = (yield* alice.client.sendRpc(AgentsLookup.name, {
+      const result = (yield* alice.client.sendRpc(AgentsLookup, {
         agentIds: ["00000000-0000-0000-0000-000000000000"],
       })) as AgentsArrayResult;
 
@@ -221,7 +221,7 @@ describe(AgentsLookup.name, () => {
         description: "Has a description",
       });
 
-      const result = (yield* described.client.sendRpc(AgentsLookup.name, {
+      const result = (yield* described.client.sendRpc(AgentsLookup, {
         agentIds: [described.agentId],
       })) as AgentsArrayResult;
 
@@ -235,7 +235,7 @@ describe(AgentsLookupByName.name, () => {
     Effect.gen(function* () {
       const alice = yield* registerAndConnect("alice-ag");
 
-      const result = (yield* alice.client.sendRpc(AgentsLookupByName.name, {
+      const result = (yield* alice.client.sendRpc(AgentsLookupByName, {
         names: ["alice-ag"],
       })) as AgentsArrayResult;
 
@@ -259,7 +259,7 @@ describe(AgentsLookupByName.name, () => {
       );
 
       const bob = yield* registerAndConnect("bob-agent");
-      const result = (yield* bob.client.sendRpc(AgentsLookupByName.name, {
+      const result = (yield* bob.client.sendRpc(AgentsLookupByName, {
         names: ["alice-ag"],
       })) as AgentsArrayResult;
 
@@ -271,7 +271,7 @@ describe(AgentsLookupByName.name, () => {
     Effect.gen(function* () {
       const alice = yield* registerAndConnect("alice-ag");
 
-      const result = (yield* alice.client.sendRpc(AgentsLookupByName.name, {
+      const result = (yield* alice.client.sendRpc(AgentsLookupByName, {
         names: ["nonexistent"],
       })) as AgentsArrayResult;
 
