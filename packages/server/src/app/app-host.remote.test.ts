@@ -130,10 +130,6 @@ const baseManifest = (appId: string, hookTimeoutMs?: number): AppManifest => ({
     : undefined,
 });
 
-// AppHost's `*ParamsForWire` helpers decode every id field through
-// @moltzap/protocol's branded UUID schemas (see app-host.ts:1155-1244 +
-// schema/primitives.ts). Tests must use UUID-shaped fixtures or the
-// dispatch path throws at decode time.
 const FIXTURE_CONVERSATION_ID = "00000000-0000-4000-8000-000000000c01";
 const FIXTURE_AGENT_RECIPIENT = "00000000-0000-4000-8000-000000000a01";
 const FIXTURE_AGENT_SENDER = "00000000-0000-4000-8000-000000000a02";

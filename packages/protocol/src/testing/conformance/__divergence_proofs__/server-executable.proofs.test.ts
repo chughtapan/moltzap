@@ -247,13 +247,6 @@ function makeBadServerContext(
 const BAD_SERVER_AGENT_UUID_PREFIX = "00000000-0000-4000-8000-";
 const BAD_SERVER_AGENT_UUID_NODE_LEN = 12;
 
-/**
- * The bad-server registrar must return a UUID-shaped agentId because the
- * protocol-strict client decodes it through the `AgentId` brand schema
- * (UUID format). A non-UUID string fails decode at
- * `agent-registration.ts:112` before any property assertion runs and the
- * harness reports the resulting Effect.die as `proof harness defect`.
- */
 function badServerAgentId(counter: number): string {
   return `${BAD_SERVER_AGENT_UUID_PREFIX}${counter
     .toString(16)
@@ -443,12 +436,6 @@ function makeBadResult(
     case AgentsList.name:
       return { agents: {} };
     case ConversationsList.name:
-      // Drift body must be schema-valid (decoded against
-      // ConversationSummarySchema in the strict response validator)
-      // AND differ across replays under canonical projection. We bump
-      // `unreadCount` per ordinal — the canonical projection sorts the
-      // `conversations` array by id but preserves `unreadCount`, so two
-      // replays with different ordinals canon-diverge.
       return behavior === "drift-idempotent-result"
         ? {
             conversations: [
@@ -482,10 +469,6 @@ function makeAppSessionCloseLifecycleBadResult(request: RequestFrame): unknown {
         id: "00000000-0000-4000-8000-000000000201",
         appId:
           typeof params.appId === "string" ? params.appId : "bad-close-app",
-        // initiatorAgentId is decoded against AgentId (UUID-formatted) by
-        // the strict response validator in test-client; non-UUID strings
-        // surface as FrameSchemaError and the property reports
-        // PropertyUnavailable instead of the divergence-target invariant.
         initiatorAgentId: "00000000-0000-4000-8000-000000000301",
         status: "active",
         conversations: {

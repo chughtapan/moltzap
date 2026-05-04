@@ -18,7 +18,7 @@ describe("@moltzap/claude-code-channel client-side conformance", () => {
   it("client-side properties pass against the claude-code-channel real client", async () => {
     const factory = createMoltZapRealClientFactory({
       agentKey: "claude-code-test-agent-key",
-      agentId: "claude-code-test-agent-id",
+      agentId: "00000000-0000-4000-8000-00000000ccc1",
     });
     const exit = await Effect.runPromiseExit(
       clientConformance.runClientConformanceSuite({
