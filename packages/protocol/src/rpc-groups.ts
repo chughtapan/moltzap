@@ -1,73 +1,22 @@
-import { Rpc, RpcGroup } from "@effect/rpc";
-import { Data, Effect, Layer, Schema } from "effect";
+/**
+ * Descriptor-driven Effect-native RPC + notification group helpers.
+ *
+ * TypeBox + the shared AJV instance (`internal/ajv.ts`) is the single
+ * runtime decode authority for wire data. This module owns the
+ * Effect-native plumbing on top of those descriptors: group construction,
+ * per-frame decode, handler binding, and dispatch.
+ */
+import { Data, Effect } from "effect";
 import type { NotificationFrame, RequestFrame } from "./schema/frames.js";
 import type { JsonRpcMethod, JsonRpcStringId } from "./schema/json-rpc.js";
 import type {
   NotificationDefinition,
   NotificationParamsOf,
 } from "./notification.js";
-import type { ParamsOf, ResultOf, RpcDefinition, TSchema } from "./rpc.js";
+import type { ParamsOf, RpcDefinition, TSchema } from "./rpc.js";
 
 type AnyRpcDefinition = RpcDefinition<string, TSchema, TSchema>;
 type AnyNotificationDefinition = NotificationDefinition<string, TSchema>;
-
-type EffectRpcFor<D extends AnyRpcDefinition> = Rpc.Rpc<
-  D["name"],
-  Schema.Schema<ParamsOf<D>>,
-  Schema.Schema<ResultOf<D>>
->;
-
-type EffectNotificationRpcFor<D extends AnyNotificationDefinition> = Rpc.Rpc<
-  D["name"],
-  Schema.Schema<NotificationParamsOf<D>>,
-  typeof Schema.Void
->;
-
-type EffectRpcUnion<Definitions extends readonly AnyRpcDefinition[]> =
-  Definitions[number] extends infer D
-    ? D extends AnyRpcDefinition
-      ? EffectRpcFor<D>
-      : never
-    : never;
-
-type EffectNotificationRpcUnion<
-  Definitions extends readonly AnyNotificationDefinition[],
-> = Definitions[number] extends infer D
-  ? D extends AnyNotificationDefinition
-    ? EffectNotificationRpcFor<D>
-    : never
-  : never;
-
-/**
- * TypeBox remains the runtime decode authority for MoltZap wire data.
- * `@effect/rpc` needs an Effect Schema at descriptor-construction time, so
- * we give it an opaque schema with the TypeBox static type projected onto it.
- * These schemas are intentionally not used to validate the wire; the
- * descriptor's compiled AJV validator is the only boundary decoder.
- */
-const bridgeEffectRpcType = <A>(value: unknown): A => value as A;
-
-const opaqueEffectSchema = <A>(): Schema.Schema<A> =>
-  Schema.declare<A>((input): input is A => {
-    void input;
-    return true;
-  });
-
-const toEffectRpc = <D extends AnyRpcDefinition>(
-  definition: D,
-): EffectRpcFor<D> =>
-  Rpc.make(definition.name, {
-    payload: opaqueEffectSchema<ParamsOf<D>>(),
-    success: opaqueEffectSchema<ResultOf<D>>(),
-  });
-
-const toEffectNotificationRpc = <D extends AnyNotificationDefinition>(
-  definition: D,
-): EffectNotificationRpcFor<D> =>
-  Rpc.make(definition.name, {
-    payload: opaqueEffectSchema<NotificationParamsOf<D>>(),
-    success: Schema.Void,
-  });
 
 const descriptorMap = <D extends { readonly name: JsonRpcMethod }>(
   definitions: readonly D[],
@@ -88,7 +37,6 @@ export interface RpcDescriptorGroup<
 > {
   readonly layer: LayerName;
   readonly definitions: Definitions;
-  readonly effectGroup: RpcGroup.RpcGroup<EffectRpcUnion<Definitions>>;
   readonly byName: ReadonlyMap<JsonRpcMethod, Definitions[number]>;
   readonly byDefinition: ReadonlySet<Definitions[number]>;
 }
@@ -99,9 +47,6 @@ export interface NotificationDescriptorGroup<
 > {
   readonly layer: LayerName;
   readonly definitions: Definitions;
-  readonly effectGroup: RpcGroup.RpcGroup<
-    EffectNotificationRpcUnion<Definitions>
-  >;
   readonly byName: ReadonlyMap<JsonRpcMethod, Definitions[number]>;
   readonly byDefinition: ReadonlySet<Definitions[number]>;
 }
@@ -113,13 +58,9 @@ export function defineRpcGroup<
   layer: LayerName,
   definitions: Definitions,
 ): RpcDescriptorGroup<LayerName, Definitions> {
-  const effectRpcs = definitions.map(toEffectRpc);
   return {
     layer,
     definitions,
-    effectGroup: bridgeEffectRpcType<
-      RpcGroup.RpcGroup<EffectRpcUnion<Definitions>>
-    >(RpcGroup.make(...effectRpcs)),
     byName: descriptorMap(definitions),
     byDefinition: descriptorSet(definitions),
   };
@@ -132,13 +73,9 @@ export function defineNotificationGroup<
   layer: LayerName,
   definitions: Definitions,
 ): NotificationDescriptorGroup<LayerName, Definitions> {
-  const effectRpcs = definitions.map(toEffectNotificationRpc);
   return {
     layer,
     definitions,
-    effectGroup: bridgeEffectRpcType<
-      RpcGroup.RpcGroup<EffectNotificationRpcUnion<Definitions>>
-    >(RpcGroup.make(...effectRpcs)),
     byName: descriptorMap(definitions),
     byDefinition: descriptorSet(definitions),
   };
@@ -317,101 +254,6 @@ export function isDecodedNotification<D extends AnyNotificationDefinition>(
   return notification.definition === definition;
 }
 
-export interface RpcHandlerBinding<D extends AnyRpcDefinition, E, R> {
-  readonly definition: D;
-  readonly handler: (params: ParamsOf<D>) => Effect.Effect<ResultOf<D>, E, R>;
-}
-
-export interface NotificationHandlerBinding<
-  D extends AnyNotificationDefinition,
-  E,
-  R,
-> {
-  readonly definition: D;
-  readonly handler: (
-    params: NotificationParamsOf<D>,
-  ) => Effect.Effect<void, E, R>;
-}
-
-export const bindRpcHandler = <D extends AnyRpcDefinition, E, R>(
-  definition: D,
-  handler: (params: ParamsOf<D>) => Effect.Effect<ResultOf<D>, E, R>,
-): RpcHandlerBinding<D, E, R> => ({ definition, handler });
-
-export const bindNotificationHandler = <
-  D extends AnyNotificationDefinition,
-  E,
-  R,
->(
-  definition: D,
-  handler: (params: NotificationParamsOf<D>) => Effect.Effect<void, E, R>,
-): NotificationHandlerBinding<D, E, R> => ({ definition, handler });
-
-type RpcHandlerTuple<Definitions extends readonly AnyRpcDefinition[], E> = {
-  readonly [Index in keyof Definitions]: Definitions[Index] extends AnyRpcDefinition
-    ? RpcHandlerBinding<Definitions[Index], E, unknown>
-    : never;
-};
-
-type NotificationHandlerTuple<
-  Definitions extends readonly AnyNotificationDefinition[],
-  E,
-> = {
-  readonly [Index in keyof Definitions]: Definitions[Index] extends AnyNotificationDefinition
-    ? NotificationHandlerBinding<Definitions[Index], E, unknown>
-    : never;
-};
-
-type RpcBindingRequirements<Bindings extends readonly unknown[]> =
-  Bindings[number] extends RpcHandlerBinding<AnyRpcDefinition, unknown, infer R>
-    ? R
-    : never;
-
-type NotificationBindingRequirements<Bindings extends readonly unknown[]> =
-  Bindings[number] extends NotificationHandlerBinding<
-    AnyNotificationDefinition,
-    unknown,
-    infer R
-  >
-    ? R
-    : never;
-
-export interface EffectRpcHandlerLayer<
-  Definitions extends readonly AnyRpcDefinition[],
-  E,
-  R,
-> {
-  readonly group: RpcDescriptorGroup<string, Definitions>;
-  readonly layer: Layer.Layer<
-    Rpc.ToHandler<EffectRpcUnion<Definitions>>,
-    never,
-    R
-  >;
-  readonly byName: ReadonlyMap<JsonRpcMethod, Definitions[number]>;
-  readonly byDefinition: ReadonlySet<Definitions[number]>;
-  readonly dispatch: (
-    request: DecodedRpcRequest<Definitions[number]>,
-  ) => Effect.Effect<ResultOf<Definitions[number]>, E, R>;
-}
-
-export interface EffectNotificationHandlerLayer<
-  Definitions extends readonly AnyNotificationDefinition[],
-  E,
-  R,
-> {
-  readonly group: NotificationDescriptorGroup<string, Definitions>;
-  readonly layer: Layer.Layer<
-    Rpc.ToHandler<EffectNotificationRpcUnion<Definitions>>,
-    never,
-    R
-  >;
-  readonly byName: ReadonlyMap<JsonRpcMethod, Definitions[number]>;
-  readonly byDefinition: ReadonlySet<Definitions[number]>;
-  readonly dispatch: (
-    notification: DecodedNotification<Definitions[number]>,
-  ) => Effect.Effect<void, E, R>;
-}
-
 export function isDecodedRpcRequestInGroup<
   const Definitions extends readonly AnyRpcDefinition[],
 >(
@@ -430,55 +272,70 @@ export function isDecodedNotificationInGroup<
   return group.byDefinition.has(notification.definition as Definitions[number]);
 }
 
-export function defineEffectRpcHandlers<
-  const Definitions extends readonly AnyRpcDefinition[],
+export interface NotificationHandlerBinding<
+  D extends AnyNotificationDefinition,
   E,
-  const Bindings extends RpcHandlerTuple<Definitions, E>,
->(
-  group: RpcDescriptorGroup<string, Definitions>,
-  bindings: Bindings,
-): EffectRpcHandlerLayer<Definitions, E, RpcBindingRequirements<Bindings>> {
-  const dispatchHandlers = new Map<
-    Definitions[number],
-    (params: unknown) => Effect.Effect<unknown, E, unknown>
-  >();
-  const handlers = Object.fromEntries(
-    bindings.map((binding) => {
-      const handler = (params: unknown) =>
-        binding.handler(bridgeEffectRpcType<never>(params));
-      dispatchHandlers.set(binding.definition as Definitions[number], handler);
-      return [binding.definition.name, handler];
-    }),
-  );
-  return {
-    group,
-    layer: group.effectGroup.toLayer(
-      group.effectGroup.of(
-        bridgeEffectRpcType<RpcGroup.HandlersFrom<EffectRpcUnion<Definitions>>>(
-          handlers,
-        ),
-      ),
-    ) as Layer.Layer<
-      Rpc.ToHandler<EffectRpcUnion<Definitions>>,
-      never,
-      RpcBindingRequirements<Bindings>
-    >,
-    byName: group.byName,
-    byDefinition: group.byDefinition,
-    dispatch: (request) => {
-      const handler = dispatchHandlers.get(request.definition);
-      if (handler === undefined) {
-        return Effect.die(new Error("Missing RPC handler for descriptor"));
-      }
-      return handler(request.params) as Effect.Effect<
-        ResultOf<Definitions[number]>,
-        E,
-        RpcBindingRequirements<Bindings>
-      >;
-    },
-  };
+  R,
+> {
+  readonly definition: D;
+  readonly handler: (
+    params: NotificationParamsOf<D>,
+  ) => Effect.Effect<void, E, R>;
 }
 
+export const bindNotificationHandler = <
+  D extends AnyNotificationDefinition,
+  E,
+  R,
+>(
+  definition: D,
+  handler: (params: NotificationParamsOf<D>) => Effect.Effect<void, E, R>,
+): NotificationHandlerBinding<D, E, R> => ({ definition, handler });
+
+type NotificationHandlerTuple<
+  Definitions extends readonly AnyNotificationDefinition[],
+  E,
+> = {
+  readonly [Index in keyof Definitions]: Definitions[Index] extends AnyNotificationDefinition
+    ? NotificationHandlerBinding<Definitions[Index], E, unknown>
+    : never;
+};
+
+type NotificationBindingRequirements<Bindings extends readonly unknown[]> =
+  Bindings[number] extends NotificationHandlerBinding<
+    AnyNotificationDefinition,
+    unknown,
+    infer R
+  >
+    ? R
+    : never;
+
+export interface EffectNotificationHandlerLayer<
+  Definitions extends readonly AnyNotificationDefinition[],
+  E,
+  R,
+> {
+  readonly group: NotificationDescriptorGroup<string, Definitions>;
+  readonly byName: ReadonlyMap<JsonRpcMethod, Definitions[number]>;
+  readonly byDefinition: ReadonlySet<Definitions[number]>;
+  readonly dispatch: (
+    notification: DecodedNotification<Definitions[number]>,
+  ) => Effect.Effect<void, E, R>;
+}
+
+/**
+ * Bind a tuple of notification handlers to their descriptors. Returns a
+ * dispatcher that routes each `DecodedNotification` to its handler by
+ * descriptor identity (set during construction), so dispatch is O(1)
+ * lookup with no name-string comparison on the hot path.
+ *
+ * The internal handler map stores `unknown -> Effect<void, E, R>` because
+ * `Definitions[number]` is a union and each individual binding is keyed
+ * to one concrete `D`. Descriptor identity (set during construction) is
+ * the soundness proof: dispatch only sees `params` produced by the same
+ * descriptor's pre-compiled AJV validator, so the unknown→params cast is
+ * the boundary where validation already passed.
+ */
 export function defineEffectNotificationHandlers<
   const Definitions extends readonly AnyNotificationDefinition[],
   E,
@@ -491,45 +348,33 @@ export function defineEffectNotificationHandlers<
   E,
   NotificationBindingRequirements<Bindings>
 > {
+  type Requirements = NotificationBindingRequirements<Bindings>;
   const dispatchHandlers = new Map<
-    Definitions[number],
-    (params: unknown) => Effect.Effect<void, E, unknown>
+    AnyNotificationDefinition,
+    (params: unknown) => Effect.Effect<void, E, Requirements>
   >();
-  const handlers = Object.fromEntries(
-    bindings.map((binding) => {
-      const handler = (params: unknown) =>
-        binding.handler(bridgeEffectRpcType<never>(params));
-      dispatchHandlers.set(binding.definition as Definitions[number], handler);
-      return [binding.definition.name, handler];
-    }),
-  );
+  for (const binding of bindings) {
+    dispatchHandlers.set(
+      binding.definition,
+      binding.handler as (
+        params: unknown,
+      ) => Effect.Effect<void, E, Requirements>,
+    );
+  }
   return {
     group,
-    layer: group.effectGroup.toLayer(
-      group.effectGroup.of(
-        bridgeEffectRpcType<
-          RpcGroup.HandlersFrom<EffectNotificationRpcUnion<Definitions>>
-        >(handlers),
-      ),
-    ) as Layer.Layer<
-      Rpc.ToHandler<EffectNotificationRpcUnion<Definitions>>,
-      never,
-      NotificationBindingRequirements<Bindings>
-    >,
     byName: group.byName,
     byDefinition: group.byDefinition,
     dispatch: (notification) => {
       const handler = dispatchHandlers.get(notification.definition);
       if (handler === undefined) {
         return Effect.die(
-          new Error("Missing notification handler for descriptor"),
+          new Error(
+            `Missing notification handler for ${String(notification.method)}`,
+          ),
         );
       }
-      return handler(notification.params) as Effect.Effect<
-        void,
-        E,
-        NotificationBindingRequirements<Bindings>
-      >;
+      return handler(notification.params);
     },
   };
 }

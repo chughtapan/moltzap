@@ -1,7 +1,6 @@
 import { type TSchema, type Static } from "@sinclair/typebox";
-import Ajv from "ajv";
-import addFormats from "ajv-formats";
 import { Data, Effect } from "effect";
+import { ajv } from "./internal/ajv.js";
 import { jsonRpcMethod, type JsonRpcMethod } from "./schema/json-rpc.js";
 
 /**
@@ -9,13 +8,6 @@ import { jsonRpcMethod, type JsonRpcMethod } from "./schema/json-rpc.js";
  * can type against manifests without taking a direct typebox dependency.
  */
 export type { TSchema, Static } from "@sinclair/typebox";
-
-/**
- * Shared AJV instance across every `defineRpc` call. Pre-compiles each
- * `params` schema once at module load so validation is a single function
- * call per inbound RPC — no per-call compilation cost on the hot path.
- */
-const ajv = addFormats(new Ajv({ strict: true, allErrors: true }));
 
 /**
  * A typed manifest for one RPC method. Couples:
@@ -54,14 +46,12 @@ export function defineRpc<
   P extends TSchema,
   R extends TSchema,
 >(def: { name: Name; params: P; result: R }): RpcDefinition<Name, P, R> {
-  const validateParams = ajv.compile<Static<P>>(def.params);
-  const validateResult = ajv.compile<Static<R>>(def.result);
   return {
     name: jsonRpcMethod(def.name),
     paramsSchema: def.params,
     resultSchema: def.result,
-    validateParams: (data: unknown): data is Static<P> => validateParams(data),
-    validateResult: (data: unknown): data is Static<R> => validateResult(data),
+    validateParams: ajv.compile(def.params),
+    validateResult: ajv.compile(def.result),
     // Phantom — never read at runtime. Typed as `Static<P>` so
     // `typeof def.Params` at the type level yields the params type.
     Params: null!,

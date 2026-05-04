@@ -31,11 +31,11 @@ import {
   decodeNotification,
   ErrorCodes,
   notificationGroup,
+  RpcServerError,
 } from "@moltzap/protocol";
 import { Effect, HashMap, Option, Ref } from "effect";
 import { MoltZapService, type ServiceRpcError } from "../service.js";
 import type { RpcCallOptions } from "../ws-client.js";
-import { RpcServerError } from "../runtime/errors.js";
 import { testAgentId } from "./ids.js";
 
 /** A tracked `sendRpc` invocation. */

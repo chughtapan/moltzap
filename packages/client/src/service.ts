@@ -35,8 +35,11 @@ import {
   messageId as toMessageId,
   MessagesList,
   MessagesSend,
+  NotConnectedError,
   PermissionsGrant,
   rpcMethods,
+  RpcServerError,
+  RpcTimeoutError,
   type RpcDefinition,
   type ParamsOf,
   type ResultOf,
@@ -57,12 +60,7 @@ import {
   type RpcCallOptions,
   type WsClientLogger,
 } from "./ws-client.js";
-import {
-  AgentNotFoundError,
-  NotConnectedError,
-  RpcServerError,
-  RpcTimeoutError,
-} from "./runtime/errors.js";
+import { AgentNotFoundError } from "./runtime/errors.js";
 import { getOr, snapshot } from "./runtime/refs.js";
 import { LocalServiceCommands } from "./runtime/local-service-commands.js";
 import type {

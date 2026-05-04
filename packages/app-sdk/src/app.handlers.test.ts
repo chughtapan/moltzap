@@ -51,6 +51,16 @@ interface InstalledHandler {
   (params: unknown): Effect.Effect<unknown, MockRpcServerErrorInstance>;
 }
 
+// Override `RpcServerError` so `mapAttachError`'s `instanceof` check
+// matches the failures the mock client raises.
+vi.mock("@moltzap/protocol", async () => {
+  const actual =
+    await vi.importActual<typeof import("@moltzap/protocol")>(
+      "@moltzap/protocol",
+    );
+  return { ...actual, RpcServerError: MockRpcServerError };
+});
+
 vi.mock("@moltzap/client", async () => {
   return {
     MoltZapWsClient: vi.fn().mockImplementation(() => {
@@ -127,7 +137,6 @@ vi.mock("@moltzap/client", async () => {
         },
       };
     }),
-    RpcServerError: MockRpcServerError,
     DuplicateServerRpcHandlerError: MockDuplicateError,
   };
 });

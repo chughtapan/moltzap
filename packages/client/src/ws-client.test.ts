@@ -35,7 +35,7 @@ import {
   RPC_TIMEOUT_MS,
   type CloseInfo,
 } from "./ws-client.js";
-import { RpcServerError, RpcTimeoutError } from "./runtime/errors.js";
+import { RpcServerError, RpcTimeoutError } from "@moltzap/protocol";
 
 import {
   AppsOnClose,
