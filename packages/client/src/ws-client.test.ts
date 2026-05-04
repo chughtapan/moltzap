@@ -39,7 +39,7 @@ import { RpcServerError, RpcTimeoutError } from "@moltzap/protocol";
 
 import {
   AppsOnClose,
-  AppsOnJoin,
+  AppsOnSessionActive,
   Connect,
   ConversationsList,
   JSON_RPC_VERSION,
@@ -62,7 +62,7 @@ import {
 } from "@moltzap/protocol";
 import {
   onCloseParams,
-  onJoinParams,
+  onSessionActiveParams,
   SESSION_A,
   SESSION_B,
 } from "./internal/__tests__/app-callback-test-requests.js";
@@ -1099,8 +1099,8 @@ describe("Phase 1.0 (B.1) — handleServerRpc round-trip", () => {
                 JSON.stringify(
                   requestFrame(
                     jsonRpcStringId("srv-test-1"),
-                    AppsOnJoin,
-                    onJoinParams(SESSION_A),
+                    AppsOnSessionActive,
+                    onSessionActiveParams(SESSION_A),
                   ),
                 ),
               );
@@ -1110,7 +1110,7 @@ describe("Phase 1.0 (B.1) — handleServerRpc round-trip", () => {
         const client = makeClient(server.url);
         // Register a handler BEFORE connect so the dispatcher fiber sees
         // it on the very first inbound appCallback request.
-        yield* client.handleServerRpc(AppsOnJoin, (params) =>
+        yield* client.handleServerRpc(AppsOnSessionActive, (params) =>
           Effect.succeed({
             ack: true,
             saw: params.sessionId,
@@ -1261,11 +1261,11 @@ describe("Phase 1.0 (B.1) — handleServerRpc round-trip", () => {
       agentKey: "test",
     });
     const first = await Effect.runPromiseExit(
-      client.handleServerRpc(AppsOnJoin, () => Effect.succeed({})),
+      client.handleServerRpc(AppsOnSessionActive, () => Effect.succeed({})),
     );
     expect(Exit.isSuccess(first)).toBe(true);
     const second = await Effect.runPromiseExit(
-      client.handleServerRpc(AppsOnJoin, () => Effect.succeed({})),
+      client.handleServerRpc(AppsOnSessionActive, () => Effect.succeed({})),
     );
     expect(Exit.isFailure(second)).toBe(true);
     if (Exit.isFailure(second)) {

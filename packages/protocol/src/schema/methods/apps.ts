@@ -170,7 +170,7 @@ export const AppsAuthorizeDispatch = defineRpc({
 // ─────────────────────────────────────────────────────────────────────────────
 // Admission + lifecycle RPC verbs.
 //
-// All five appCallback verbs are AWAITABLE — `onSessionActive` / `onJoin` / `onClose`
+// All four appCallback verbs are AWAITABLE — `onSessionActive` / `onClose`
 // reply with an empty object so AppHost can `Deferred.await` and apply the
 // manifest hook timeout. They are NOT fire-and-forget; `app/sessionReady`
 // delivery is gated on the `onSessionActive` reply (existing ordering
@@ -307,19 +307,6 @@ const LifecycleAgentSchema = Type.Object(
   { additionalProperties: false },
 );
 
-/** Context passed to an `on_join` lifecycle handler. */
-export const OnJoinContextSchema = Type.Object(
-  {
-    sessionId: Type.String({ format: "uuid" }),
-    appId: Type.String(),
-    conversations: Type.Record(Type.String(), Type.String()),
-    agent: LifecycleAgentSchema,
-  },
-  { additionalProperties: false },
-);
-
-export type OnJoinContext = Static<typeof OnJoinContextSchema>;
-
 /** Context passed to an `on_close` lifecycle handler. */
 export const OnCloseContextSchema = Type.Object(
   {
@@ -370,12 +357,6 @@ export const AppsOnBeforeMessageDelivery = defineRpc({
 export const AppsOnSessionActive = defineRpc({
   name: "apps/onSessionActive",
   params: OnSessionActiveContextSchema,
-  result: VoidHookResultSchema,
-});
-
-export const AppsOnJoin = defineRpc({
-  name: "apps/onJoin",
-  params: OnJoinContextSchema,
   result: VoidHookResultSchema,
 });
 

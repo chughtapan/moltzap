@@ -4,7 +4,6 @@ import type {
   BeforeDispatchContext,
   BeforeMessageDeliveryContext,
   OnSessionActiveContext,
-  OnJoinContext,
   OnCloseContext,
   DispatchAdmissionResult,
   HookResult,
@@ -157,7 +156,6 @@ import {
   AppsOnBeforeDispatch,
   AppsOnBeforeMessageDelivery,
   AppsOnClose,
-  AppsOnJoin,
   AppsOnSessionActive,
   agentId,
   conversationId,
@@ -204,13 +202,6 @@ const baseSessionActiveCtx: OnSessionActiveContext = {
   appId: "test-app",
   conversations: { default: CONVERSATION_ID },
   admittedAgentIds: [LIFECYCLE_AGENT_ID],
-};
-
-const baseJoinCtx: OnJoinContext = {
-  sessionId: SESSION_ID,
-  appId: "test-app",
-  conversations: { default: CONVERSATION_ID },
-  agent: { agentId: LIFECYCLE_AGENT_ID, ownerId: "owner-1" },
 };
 
 const baseCloseCtx: OnCloseContext = {
@@ -365,22 +356,18 @@ describe("MoltZapApp — admission/lifecycle handler surface", () => {
     });
   });
 
-  describe("lifecycle hooks (onSessionActive / onJoin / onClose)", () => {
+  describe("lifecycle hooks (onSessionActive / onClose)", () => {
     it.each([
       [AppsOnSessionActive.name, baseSessionActiveCtx, "onSessionActive"],
-      [AppsOnJoin.name, baseJoinCtx, "onJoin"],
       [AppsOnClose.name, baseCloseCtx, "onClose"],
     ] as const)(
       "%s replies with empty result on success",
       async (method, ctx, methodName) => {
         const seen = vi.fn();
-        // dynamic dispatch via index — avoids 3 near-identical blocks
         const register =
           methodName === "onSessionActive"
             ? app.onSessionActive.bind(app)
-            : methodName === "onJoin"
-              ? app.onJoin.bind(app)
-              : app.onClose.bind(app);
+            : app.onClose.bind(app);
         register((c: unknown) =>
           Effect.sync(() => {
             seen(c);
@@ -413,8 +400,8 @@ describe("MoltZapApp — admission/lifecycle handler surface", () => {
     });
 
     it("each lifecycle hook rejects duplicate registration", () => {
-      app.onJoin(() => Effect.void);
-      expect(() => app.onJoin(() => Effect.void)).toThrow(
+      app.onClose(() => Effect.void);
+      expect(() => app.onClose(() => Effect.void)).toThrow(
         DuplicateHookHandlerError,
       );
     });

@@ -14,7 +14,6 @@ import {
   AppsOnBeforeDispatch,
   AppsOnBeforeMessageDelivery,
   AppsOnSessionActive,
-  AppsOnJoin,
   AppsOnClose,
   AppsAttachConversation,
   AppsCloseSession,
@@ -42,13 +41,12 @@ const HOOK_AGENT = { agentId: AGENT_ID, ownerId: "owner-1" };
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("admission RPC registration", () => {
-  it("registers the five admission/lifecycle verbs as appCallback", () => {
+  it("registers the four admission/lifecycle verbs as appCallback", () => {
     const appCallbackNames = appCallbackRpcMethods.map((m) => m.name);
     expect(appCallbackNames).toEqual([
       AppsOnBeforeDispatch.name,
       AppsOnBeforeMessageDelivery.name,
       AppsOnSessionActive.name,
-      AppsOnJoin.name,
       AppsOnClose.name,
     ] satisfies AppCallbackRpcMethodName[]);
   });
@@ -211,7 +209,7 @@ describe("AppsOnBeforeMessageDelivery", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Awaitable-void lifecycle hooks — onSessionActive / onJoin / onClose share
+// Awaitable-void lifecycle hooks — onSessionActive / onClose share
 // the `{}` result envelope; their context shapes diverge only in field set.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -220,13 +218,6 @@ const onSessionActiveParams = {
   appId: APP_ID,
   conversations: { town_square: CONVERSATION_ID },
   admittedAgentIds: [AGENT_ID],
-};
-
-const onJoinParams = {
-  sessionId: SESSION_ID,
-  appId: APP_ID,
-  conversations: { town_square: CONVERSATION_ID },
-  agent: HOOK_AGENT,
 };
 
 const onCloseParams = {
@@ -242,7 +233,6 @@ describe.each([
     manifest: AppsOnSessionActive,
     valid: onSessionActiveParams,
   },
-  { label: "AppsOnJoin", manifest: AppsOnJoin, valid: onJoinParams },
   { label: "AppsOnClose", manifest: AppsOnClose, valid: onCloseParams },
 ])("$label", ({ manifest, valid }) => {
   const validateResult = ajv.compile(manifest.resultSchema);
@@ -257,19 +247,6 @@ describe.each([
 
   it("rejects extra result fields (void hook payloads are ignored, not extended)", () => {
     expect(validateResult({ ack: true })).toBe(false);
-  });
-});
-
-describe("AppsOnJoin", () => {
-  it("rejects missing agent.ownerId", () => {
-    expect(
-      AppsOnJoin.validateParams({
-        sessionId: SESSION_ID,
-        appId: APP_ID,
-        conversations: {},
-        agent: { agentId: AGENT_ID },
-      }),
-    ).toBe(false);
   });
 });
 

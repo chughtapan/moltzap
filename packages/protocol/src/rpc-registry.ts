@@ -41,7 +41,6 @@ import {
   AppsOnBeforeDispatch,
   AppsOnBeforeMessageDelivery,
   AppsOnSessionActive,
-  AppsOnJoin,
   AppsOnClose,
 } from "./schema/methods/apps.js";
 import type { RpcDefinition, ParamsOf, ResultOf } from "./rpc.js";
@@ -151,7 +150,6 @@ export const appCallbackRpcMethods = [
   AppsOnBeforeDispatch,
   AppsOnBeforeMessageDelivery,
   AppsOnSessionActive,
-  AppsOnJoin,
   AppsOnClose,
 ] as const satisfies ReadonlyArray<RpcDefinition<string, any, any>>;
 

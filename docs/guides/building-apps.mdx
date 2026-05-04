@@ -139,7 +139,7 @@ On WebSocket drop, the SDK auto-reconnects (exponential backoff, handled by the 
 ### Hooks
 
 Hooks (`before_dispatch`, `before_message_delivery`, `on_session_active`,
-`on_join`, `on_close`) dispatch over the same WebSocket connection your
+`on_close`) dispatch over the same WebSocket connection your
 app already speaks. Register hook handlers via app-sdk over the same WS
 connection — no separate HTTPS endpoint, no manifest webhook URL:
 

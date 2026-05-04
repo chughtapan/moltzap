@@ -827,7 +827,6 @@ function acquireAppSessionFixture(
         ],
         hooks: {
           before_message_delivery: { timeout_ms: 5000 },
-          on_join: {},
         },
       },
     }).pipe(Effect.either);

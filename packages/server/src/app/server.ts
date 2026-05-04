@@ -711,9 +711,6 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     onBeforeDispatch(appId, handler) {
       appHost.onBeforeDispatch(appId, handler);
     },
-    onAppJoin(appId, handler) {
-      appHost.onAppJoin(appId, handler);
-    },
     onSessionClose(appId, handler) {
       appHost.onSessionClose(appId, handler);
     },

@@ -46,13 +46,10 @@ import {
   type BeforeDispatchContext,
   type BeforeMessageDeliveryContext,
   type OnSessionActiveContext,
-  type OnJoinContext,
   type OnCloseContext,
   type DispatchAdmissionResult,
   type HookResult,
-  AppParticipantAdmittedNotificationDefinition,
   AppSessionReadyNotificationDefinition,
-  AppHookTimeoutNotificationDefinition,
 } from "@moltzap/protocol";
 import { expectRpcFailure } from "../../test-utils/index.js";
 import { getBaseUrl } from "../../test-utils/index.js";
@@ -65,7 +62,6 @@ import {
   AppsOnBeforeDispatch,
   AppsOnBeforeMessageDelivery,
   AppsOnClose,
-  AppsOnJoin,
   AppsOnSessionActive,
   AppsRegister,
   ConversationsCreate,
@@ -155,9 +151,6 @@ interface AppClientHandlers {
   readonly onSessionActive?: (
     ctx: OnSessionActiveContext,
   ) => Effect.Effect<Record<string, never>, never>;
-  readonly onJoin?: (
-    ctx: OnJoinContext,
-  ) => Effect.Effect<Record<string, never>, never>;
   readonly onClose?: (
     ctx: OnCloseContext,
   ) => Effect.Effect<Record<string, never>, never>;
@@ -206,10 +199,6 @@ function registerAppClient(opts: {
       h.onSessionActive ?? (() => Effect.succeed({})),
     );
     yield* client.handleServerRpc(
-      AppsOnJoin,
-      h.onJoin ?? (() => Effect.succeed({})),
-    );
-    yield* client.handleServerRpc(
       AppsOnClose,
       h.onClose ?? (() => Effect.succeed({})),
     );
@@ -241,7 +230,6 @@ function manifestFor(
     hooks: {
       before_dispatch: { timeout_ms: opts?.beforeDispatchTimeoutMs ?? 5000 },
       before_message_delivery: { timeout_ms: opts?.hookTimeoutMs ?? 5000 },
-      on_join: {},
       on_close: { timeout_ms: opts?.onCloseTimeoutMs ?? 5000 },
       on_session_active: {
         timeout_ms: opts?.onSessionActiveTimeoutMs ?? 5000,
@@ -708,10 +696,13 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
         }),
     );
 
-    it.live("times out fail-closed and emits app/hookTimeout", () =>
+    it.live("times out fail-closed", () =>
       Effect.gen(function* () {
         // Migrated from deleted 32-webhook-hooks.integration.test.ts
         // (timeout fail-closed). Real wall-clock 200ms hookTimeout.
+        // The `app/hookTimeout` notification was deleted in Phase 1D
+        // (no consumer); the surviving observable is the typed
+        // HookBlocked RPC failure.
         const userAgent = yield* registerAppAgent("bmd-timeout-user");
 
         yield* registerAppClient({
@@ -740,20 +731,6 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
           }),
           ErrorCodes.HookBlocked,
         );
-
-        const timeoutEvent = yield* userAgent.client.waitForNotification(
-          AppHookTimeoutNotificationDefinition,
-          3000,
-        );
-        const data = timeoutEvent.params as {
-          sessionId: string;
-          appId: string;
-          hookName: string;
-          timeoutMs: number;
-        };
-        expect(data.hookName).toBe("before_message_delivery");
-        expect(data.timeoutMs).toBe(200);
-        expect(data.appId).toBe("bmd-timeout-app");
       }),
     );
   });
@@ -803,50 +780,6 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
           expect(hookFinishedAt).not.toBeNull();
           expect(hookFinishedAt!).toBeLessThanOrEqual(readyAt);
         }),
-    );
-  });
-
-  // ── on_join ────────────────────────────────────────────────────────
-  describe(AppsOnJoin.name, () => {
-    it.live("fires on_join with correct context when invitee is admitted", () =>
-      Effect.gen(function* () {
-        // Migrated from deleted 32-webhook-hooks.integration.test.ts
-        // (on_join context shape).
-        const userAgent = yield* registerAppAgent("oj-init");
-        const invitee = yield* registerAppAgent("oj-invitee");
-
-        let joinCtx: OnJoinContext | null = null;
-
-        yield* registerAppClient({
-          name: "oj-app",
-          manifest: manifestFor("oj-app"),
-          handlers: {
-            onJoin: (ctx) =>
-              Effect.sync(() => {
-                joinCtx = ctx;
-                return {};
-              }),
-          },
-        });
-
-        yield* userAgent.client.sendRpc(AppsCreate, {
-          appId: "oj-app",
-          invitedAgentIds: [invitee.agentId],
-        });
-
-        yield* invitee.client.waitForNotification(
-          AppParticipantAdmittedNotificationDefinition,
-          5000,
-        );
-        // admitAgentsAsync is daemon-forked; give it a beat to fire the
-        // hook against the remote app's WS and receive its reply.
-        yield* Effect.promise(() => new Promise((r) => setTimeout(r, 200)));
-
-        expect(joinCtx).not.toBeNull();
-        expect(joinCtx!.agent.agentId).toBe(invitee.agentId);
-        expect(joinCtx!.appId).toBe("oj-app");
-        expect(joinCtx!.conversations).toHaveProperty("main");
-      }),
     );
   });
 

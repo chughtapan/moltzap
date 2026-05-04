@@ -52,7 +52,6 @@ export const AppManifestSchema = Type.Object(
         {
           before_message_delivery: Type.Optional(HookEntrySchema),
           before_dispatch: Type.Optional(HookEntrySchema),
-          on_join: Type.Optional(HookEntrySchema),
           on_close: Type.Optional(HookEntrySchema),
           on_session_active: Type.Optional(HookEntrySchema),
         },

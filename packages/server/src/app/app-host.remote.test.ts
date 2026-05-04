@@ -6,7 +6,7 @@
  * `MoltZapConnection` + `ConnectionManager`. Wire-level coverage of
  * `sendRpcToClient` itself lives in `ws/connection.appCallback.test.ts`; this
  * file tests the AppHost-side composition (timeout envelope, fail-closed
- * mapping, hookTimeout event emission, multi-app deny short-circuit).
+ * mapping, multi-app deny short-circuit).
  *
  * Running against `MoltZapConnection` directly (no testcontainers, no
  * real WS) keeps the tests pure-Effect — `TestClock`-drivable, no real
@@ -47,7 +47,6 @@ import type {
   BeforeDispatchContext,
   BeforeMessageDeliveryContext,
   OnCloseContext,
-  OnJoinContext,
   OnSessionActiveContext,
 } from "./hooks.js";
 
@@ -124,7 +123,6 @@ const baseManifest = (appId: string, hookTimeoutMs?: number): AppManifest => ({
         before_dispatch: { timeout_ms: hookTimeoutMs },
         before_message_delivery: { timeout_ms: hookTimeoutMs },
         on_session_active: { timeout_ms: hookTimeoutMs },
-        on_join: { timeout_ms: hookTimeoutMs },
         on_close: { timeout_ms: hookTimeoutMs },
       }
     : undefined,
@@ -133,7 +131,6 @@ const baseManifest = (appId: string, hookTimeoutMs?: number): AppManifest => ({
 const FIXTURE_CONVERSATION_ID = "00000000-0000-4000-8000-000000000c01";
 const FIXTURE_AGENT_RECIPIENT = "00000000-0000-4000-8000-000000000a01";
 const FIXTURE_AGENT_SENDER = "00000000-0000-4000-8000-000000000a02";
-const FIXTURE_AGENT_JOINER = "00000000-0000-4000-8000-000000000a03";
 const FIXTURE_AGENT_CLOSER = "00000000-0000-4000-8000-000000000a04";
 const FIXTURE_AGENT_ADMITTED = "00000000-0000-4000-8000-000000000a05";
 const FIXTURE_MESSAGE_ID = "00000000-0000-4000-8000-000000000201";
@@ -172,13 +169,6 @@ const baseOnSessionActiveCtx = (
   conversations: { main: FIXTURE_CONVERSATION_ID },
   admittedAgentIds: [FIXTURE_AGENT_ADMITTED],
   signal: new AbortController().signal,
-});
-
-const baseOnJoinCtx = (appId: string, sessionId: string): OnJoinContext => ({
-  sessionId,
-  appId,
-  conversations: { main: FIXTURE_CONVERSATION_ID },
-  agent: { agentId: FIXTURE_AGENT_JOINER, ownerId: "owner-j" },
 });
 
 const baseOnCloseCtx = (appId: string, sessionId: string): OnCloseContext => ({
@@ -233,16 +223,10 @@ type BeforeMessageDeliveryDispatch = (
 type OnSessionActiveDispatch = (
   appId: string,
   ctx: OnSessionActiveContext,
-  initiatorAgentId: string,
-) => Effect.Effect<void, never>;
-type OnJoinDispatch = (
-  appId: string,
-  ctx: OnJoinContext,
 ) => Effect.Effect<void, never>;
 type OnCloseDispatch = (
   appId: string,
   ctx: OnCloseContext,
-  callerAgentId: string,
 ) => Effect.Effect<void, never>;
 type DenyShortCircuitDispatch = <V>(
   appIds: readonly string[],
@@ -264,9 +248,6 @@ const dispatchBeforeMessageDelivery = (
 
 const dispatchOnSessionActive = (host: AppHost): OnSessionActiveDispatch =>
   bindPrivateMethod(host, "dispatchOnSessionActiveHook");
-
-const dispatchOnJoin = (host: AppHost): OnJoinDispatch =>
-  bindPrivateMethod(host, "dispatchOnJoinHook");
 
 const dispatchOnClose = (host: AppHost): OnCloseDispatch =>
   bindPrivateMethod(host, "dispatchOnCloseHook");
@@ -497,66 +478,54 @@ describe("AppHost remote dispatch — apps/onBeforeDispatch", () => {
     });
   });
 
-  itEffect(
-    "timeout: manifest timeout fires → fail-closed deny + emits app/hookTimeout",
-    () =>
-      Effect.gen(function* () {
-        const fixture = makeAppHostFixture();
-        // Use a real (Scope-managed) connection but never settle the
-        // pending Deferred. The TestClock advances time; the dispatch
-        // envelope's Effect.timeout catches `TimeoutException`.
-        const setup = yield* Effect.scoped(
-          Effect.gen(function* () {
-            const { conn } = yield* makeFakeConnection("conn-rd-tout");
-            fixture.connections.add(conn);
-            return conn.id;
-          }),
-        ).pipe(Effect.fork);
-        // Re-acquire under a longer-lived scope: the disconnect path
-        // would short-circuit our timeout assertion. Instead, register
-        // a fresh connection in a fresh scope kept alive for the test.
-        yield* Fiber.interrupt(setup);
+  itEffect("timeout: manifest timeout fires → fail-closed deny", () =>
+    Effect.gen(function* () {
+      const fixture = makeAppHostFixture();
+      // Use a real (Scope-managed) connection but never settle the
+      // pending Deferred. The TestClock advances time; the dispatch
+      // envelope's Effect.timeout catches `TimeoutException`.
+      const setup = yield* Effect.scoped(
+        Effect.gen(function* () {
+          const { conn } = yield* makeFakeConnection("conn-rd-tout");
+          fixture.connections.add(conn);
+          return conn.id;
+        }),
+      ).pipe(Effect.fork);
+      // Re-acquire under a longer-lived scope: the disconnect path
+      // would short-circuit our timeout assertion. Instead, register
+      // a fresh connection in a fresh scope kept alive for the test.
+      yield* Fiber.interrupt(setup);
 
-        // Long-lived scoped connection.
-        const longScope = yield* Scope.make();
-        const conn2 = yield* Scope.extend(
-          makeFakeConnection("conn-rd-tout-2"),
-          longScope,
-        ).pipe(Effect.map((s) => s.conn));
-        fixture.connections.add(conn2);
-        fixture.host.registerRemoteApp(
-          baseManifest("app-r", 200),
-          "conn-rd-tout-2",
-        );
+      // Long-lived scoped connection.
+      const longScope = yield* Scope.make();
+      const conn2 = yield* Scope.extend(
+        makeFakeConnection("conn-rd-tout-2"),
+        longScope,
+      ).pipe(Effect.map((s) => s.conn));
+      fixture.connections.add(conn2);
+      fixture.host.registerRemoteApp(
+        baseManifest("app-r", 200),
+        "conn-rd-tout-2",
+      );
 
-        const dispatch = dispatchBeforeDispatch(fixture.host);
+      const dispatch = dispatchBeforeDispatch(fixture.host);
 
-        const fiber = yield* Effect.fork(
-          dispatch("app-r", baseBeforeDispatchCtx("app-r", "sess-tout")),
-        );
-        // Let the request frame land and the Deferred park.
-        yield* Effect.yieldNow();
-        // Drive the manifest timeout under TestClock.
-        yield* TestClock.adjust(Duration.millis(250));
-        const verdict = yield* Fiber.join(fiber);
+      const fiber = yield* Effect.fork(
+        dispatch("app-r", baseBeforeDispatchCtx("app-r", "sess-tout")),
+      );
+      // Let the request frame land and the Deferred park.
+      yield* Effect.yieldNow();
+      // Drive the manifest timeout under TestClock.
+      yield* TestClock.adjust(Duration.millis(250));
+      const verdict = yield* Fiber.join(fiber);
 
-        expect(verdict).toEqual({
-          decision: "deny",
-          reason: "before_dispatch hook timed out",
-        });
-        // app/hookTimeout event fired against the recipient.
-        const hookTimeoutEvents = fixture.sentEvents.filter(
-          (e) => (e.event as { event?: string }).event === "app/hookTimeout",
-        );
-        expect(hookTimeoutEvents.length).toBeGreaterThan(0);
-        const ev = hookTimeoutEvents[0]!;
-        expect(ev.agentId).toBe(FIXTURE_AGENT_RECIPIENT);
-        expect((ev.event as { data: { hookName: string } }).data.hookName).toBe(
-          "before_dispatch",
-        );
+      expect(verdict).toEqual({
+        decision: "deny",
+        reason: "before_dispatch hook timed out",
+      });
 
-        yield* Scope.close(longScope, Exit.void);
-      }),
+      yield* Scope.close(longScope, Exit.void);
+    }),
   );
 });
 
@@ -659,23 +628,9 @@ describe("AppHost remote dispatch — lifecycle (on_*)", () => {
       const fixture = makeAppHostFixture();
       fixture.host.registerRemoteApp(baseManifest("app-osa"), "no-conn");
       const dispatch = dispatchOnSessionActive(fixture.host);
-      yield* dispatch(
-        "app-osa",
-        baseOnSessionActiveCtx("app-osa", "sess-osa"),
-        "agent-init",
-      );
+      yield* dispatch("app-osa", baseOnSessionActiveCtx("app-osa", "sess-osa"));
     });
     // Just runs to completion without throwing.
-    await Effect.runPromise(program);
-  });
-
-  it("on_join: missing-connection collapses to void (fail-OPEN)", async () => {
-    const program = Effect.gen(function* () {
-      const fixture = makeAppHostFixture();
-      fixture.host.registerRemoteApp(baseManifest("app-oj"), "no-conn");
-      const dispatch = dispatchOnJoin(fixture.host);
-      yield* dispatch("app-oj", baseOnJoinCtx("app-oj", "sess-oj"));
-    });
     await Effect.runPromise(program);
   });
 
@@ -684,11 +639,7 @@ describe("AppHost remote dispatch — lifecycle (on_*)", () => {
       const fixture = makeAppHostFixture();
       fixture.host.registerRemoteApp(baseManifest("app-oc"), "no-conn");
       const dispatch = dispatchOnClose(fixture.host);
-      yield* dispatch(
-        "app-oc",
-        baseOnCloseCtx("app-oc", "sess-oc"),
-        "agent-closer",
-      );
+      yield* dispatch("app-oc", baseOnCloseCtx("app-oc", "sess-oc"));
     });
     await Effect.runPromise(program);
   });
