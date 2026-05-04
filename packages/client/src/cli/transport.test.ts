@@ -9,7 +9,7 @@ import {
   NotConnectedError,
   RpcServerError,
   RpcTimeoutError,
-} from "../runtime/errors.js";
+} from "@moltzap/protocol";
 import {
   decideTransport,
   makeTransportLayer,
@@ -33,13 +33,13 @@ import { AppsListSessions } from "@moltzap/protocol";
  */
 vi.mock("../ws-client.js", async () => {
   const effect = await import("effect");
-  const errors = await import("../runtime/errors.js");
+  const protocol = await import("@moltzap/protocol");
   return {
     MoltZapWsClient: vi.fn().mockImplementation(() => ({
       connect: () => effect.Effect.void,
       sendRpc: (_definition: unknown, _params: unknown) =>
         effect.Effect.fail(
-          new errors.RpcServerError({
+          new protocol.RpcServerError({
             code: -32001,
             message: "item not found",
           }),

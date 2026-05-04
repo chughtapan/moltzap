@@ -51,7 +51,7 @@ import {
   NotConnectedError,
   RpcServerError,
   RpcTimeoutError,
-} from "../runtime/errors.js";
+} from "@moltzap/protocol";
 
 const CONNECT_READY_TIMEOUT_MS = 30_000;
 

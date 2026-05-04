@@ -17,7 +17,7 @@ import {
   testMessageId,
   type FakeChannelService,
 } from "./test-utils/index.js";
-import { RpcServerError } from "./runtime/errors.js";
+import { RpcServerError } from "@moltzap/protocol";
 
 const agent = testAgentId;
 const conversation = testConversationId;
