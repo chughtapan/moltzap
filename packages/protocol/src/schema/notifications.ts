@@ -4,7 +4,6 @@ import { ConversationSchema } from "./conversations.js";
 import { ContactSchema } from "./contacts.js";
 import { ConversationId, MessageId, AgentId } from "./primitives.js";
 import { PresenceStatusEnum } from "./presence.js";
-import { SurfaceSchema } from "./surfaces.js";
 import { AppSessionId } from "./apps.js";
 import { stringEnum, DateTimeString } from "../helpers.js";
 import { jsonRpcMethod } from "./json-rpc.js";
@@ -21,9 +20,6 @@ const notificationNames = {
   ContactRequest: jsonRpcMethod("contact/request"),
   ContactAccepted: jsonRpcMethod("contact/accepted"),
   PresenceChanged: jsonRpcMethod("presence/changed"),
-  SurfaceUpdated: jsonRpcMethod("surface/updated"),
-  SurfaceCleared: jsonRpcMethod("surface/cleared"),
-  AppSkillChallenge: jsonRpcMethod("app/skillChallenge"),
   AppParticipantAdmitted: jsonRpcMethod("app/participantAdmitted"),
   AppParticipantRejected: jsonRpcMethod("app/participantRejected"),
   AppSessionReady: jsonRpcMethod("app/sessionReady"),
@@ -91,28 +87,7 @@ export const PresenceChangedNotificationSchema = Type.Object(
   { additionalProperties: false },
 );
 
-export const SurfaceUpdatedNotificationSchema = Type.Object(
-  { surface: SurfaceSchema },
-  { additionalProperties: false },
-);
-
-export const SurfaceClearedNotificationSchema = Type.Object(
-  { conversationId: ConversationId },
-  { additionalProperties: false },
-);
-
 // App notifications
-
-export const AppSkillChallengeNotificationSchema = Type.Object(
-  {
-    challengeId: Type.String({ format: "uuid" }),
-    sessionId: AppSessionId,
-    appId: Type.String(),
-    skillUrl: Type.String(),
-    minVersion: Type.Optional(Type.String()),
-  },
-  { additionalProperties: false },
-);
 
 export const AppParticipantAdmittedNotificationSchema = Type.Object(
   {
@@ -127,7 +102,7 @@ export const AppParticipantRejectedNotificationSchema = Type.Object(
     sessionId: AppSessionId,
     agentId: AgentId,
     reason: Type.String(),
-    stage: stringEnum(["user", "identity", "capability"]),
+    stage: stringEnum(["user", "identity"]),
     suggestedAction: Type.Optional(Type.String()),
     rejectionCode: stringEnum([
       "UserInvalid",
@@ -136,9 +111,6 @@ export const AppParticipantRejectedNotificationSchema = Type.Object(
       "AgentNoOwner",
       "NotInContacts",
       "ContactCheckFailed",
-      "AttestationTimeout",
-      "SkillMismatch",
-      "SkillVersionTooOld",
     ]),
   },
   { additionalProperties: false },
@@ -210,15 +182,6 @@ export type ContactAcceptedNotification = Static<
 export type PresenceChangedNotification = Static<
   typeof PresenceChangedNotificationSchema
 >;
-export type SurfaceUpdatedNotification = Static<
-  typeof SurfaceUpdatedNotificationSchema
->;
-export type SurfaceClearedNotification = Static<
-  typeof SurfaceClearedNotificationSchema
->;
-export type AppSkillChallengeNotification = Static<
-  typeof AppSkillChallengeNotificationSchema
->;
 export type AppParticipantAdmittedNotification = Static<
   typeof AppParticipantAdmittedNotificationSchema
 >;
@@ -283,21 +246,6 @@ export const PresenceChangedNotificationDefinition = defineNotification({
   params: PresenceChangedNotificationSchema,
 });
 
-export const SurfaceUpdatedNotificationDefinition = defineNotification({
-  name: notificationNames.SurfaceUpdated,
-  params: SurfaceUpdatedNotificationSchema,
-});
-
-export const SurfaceClearedNotificationDefinition = defineNotification({
-  name: notificationNames.SurfaceCleared,
-  params: SurfaceClearedNotificationSchema,
-});
-
-export const AppSkillChallengeNotificationDefinition = defineNotification({
-  name: notificationNames.AppSkillChallenge,
-  params: AppSkillChallengeNotificationSchema,
-});
-
 export const AppParticipantAdmittedNotificationDefinition = defineNotification({
   name: notificationNames.AppParticipantAdmitted,
   params: AppParticipantAdmittedNotificationSchema,
@@ -338,9 +286,6 @@ export const notificationDefinitions = [
   ContactRequestNotificationDefinition,
   ContactAcceptedNotificationDefinition,
   PresenceChangedNotificationDefinition,
-  SurfaceUpdatedNotificationDefinition,
-  SurfaceClearedNotificationDefinition,
-  AppSkillChallengeNotificationDefinition,
   AppParticipantAdmittedNotificationDefinition,
   AppParticipantRejectedNotificationDefinition,
   AppSessionReadyNotificationDefinition,

@@ -37,18 +37,6 @@ export const AppsCreate = defineRpc({
   ),
 });
 
-export const AppsAttestSkill = defineRpc({
-  name: "apps/attestSkill",
-  params: Type.Object(
-    {
-      challengeId: Type.String({ format: "uuid" }),
-      skillUrl: Type.String(),
-      version: Type.String(),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object({}, { additionalProperties: false }),
-});
 
 export const AppsCloseSession = defineRpc({
   name: "apps/closeSession",

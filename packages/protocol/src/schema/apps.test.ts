@@ -34,9 +34,6 @@ describe("AppManifestSchema", () => {
       appId: "werewolf",
       name: "Werewolf",
       description: "Social deduction game",
-      skillUrl: "https://example.com/skill.md",
-      skillMinVersion: "0.2",
-      challengeTimeoutMs: 60000,
       limits: { maxParticipants: 12 },
       conversations: [
         { key: "town_square", name: "Town Square", participantFilter: "all" },
