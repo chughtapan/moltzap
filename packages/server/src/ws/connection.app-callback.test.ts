@@ -36,7 +36,6 @@ import {
   AppsOnBeforeDispatch,
   AppsOnBeforeMessageDelivery,
   AppsOnClose,
-  AppsOnJoin,
   AppsOnSessionActive,
   agentId,
   conversationId,
@@ -53,13 +52,6 @@ const AGENT_ID = agentId("22222222-2222-4222-8222-222222222222");
 const CONVERSATION_ID = conversationId("33333333-3333-4333-8333-333333333333");
 const MESSAGE_ID = messageId("44444444-4444-4444-8444-444444444444");
 const PARTICIPANT = { agentId: AGENT_ID, ownerId: "owner-a" } as const;
-
-const onJoinParams = (sessionId = SESSION_ID) => ({
-  sessionId,
-  appId: APP_ID,
-  conversations: { main: CONVERSATION_ID },
-  agent: PARTICIPANT,
-});
 
 const onCloseParams = (sessionId = SESSION_ID) => ({
   sessionId,
@@ -152,7 +144,11 @@ describe("sendRpcToClient — happy-path round-trip", () => {
       // `completeAppCallbackResponse` settles it. Forking lets the test thread
       // synthesize the matching response.
       const fiber = yield* Effect.fork(
-        sendRpcToClient(conn, AppsOnJoin, onJoinParams("sess-1")),
+        sendRpcToClient(
+          conn,
+          AppsOnSessionActive,
+          onSessionActiveParams("sess-1"),
+        ),
       );
 
       // Wait for the outbound frame to land in the Ref. `Effect.repeat`
@@ -168,8 +164,8 @@ describe("sendRpcToClient — happy-path round-trip", () => {
       );
 
       const frame = parseRequestFrame(captured);
-      expect(frame.method).toBe(AppsOnJoin.name);
-      expect(frame.params).toEqual(onJoinParams("sess-1"));
+      expect(frame.method).toBe(AppsOnSessionActive.name);
+      expect(frame.params).toEqual(onSessionActiveParams("sess-1"));
       // `srv-<connId>-<seq>` namespace prefix keeps server-minted ids
       // disjoint from client-minted request ids.
       expect(frame.id.startsWith("srv-conn-happy-")).toBe(true);
@@ -382,8 +378,8 @@ describe("sendRpcToClient — caller timeout", () => {
       const start = Date.now();
       const exit = yield* sendRpcToClient(
         conn,
-        AppsOnJoin,
-        onJoinParams("s"),
+        AppsOnSessionActive,
+        onSessionActiveParams("s"),
       ).pipe(Effect.timeout(Duration.millis(100)), Effect.exit);
       const elapsed = Date.now() - start;
 
@@ -471,7 +467,11 @@ describe("sendRpcToClient — caller timeout", () => {
       );
 
       const fiber = yield* Effect.fork(
-        sendRpcToClient(conn, AppsOnJoin, onJoinParams("late")),
+        sendRpcToClient(
+          conn,
+          AppsOnSessionActive,
+          onSessionActiveParams("late"),
+        ),
       );
 
       // Wait for the entry to be registered + the frame to be written.
@@ -587,8 +587,8 @@ describe("sendRpcToClient — caller timeout", () => {
 
       const exit = yield* sendRpcToClient(
         conn,
-        AppsOnJoin,
-        onJoinParams("s"),
+        AppsOnSessionActive,
+        onSessionActiveParams("s"),
       ).pipe(Effect.timeout(Duration.millis(50)), Effect.exit);
 
       // Frame was written before timeout fired (proves the primitive

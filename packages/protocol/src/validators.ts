@@ -42,7 +42,6 @@ import {
   PresenceSubscribe,
 } from "./schema/methods/presence.js";
 import {
-  AppHookTimeoutNotificationDefinition,
   AppParticipantAdmittedNotificationDefinition,
   AppParticipantRejectedNotificationDefinition,
   AppSessionClosedNotificationDefinition,
@@ -167,8 +166,6 @@ export const validators = {
     AppSessionFailedNotificationDefinition.validateParams,
   appSessionClosedNotification:
     AppSessionClosedNotificationDefinition.validateParams,
-  appHookTimeoutNotification:
-    AppHookTimeoutNotificationDefinition.validateParams,
 } as const;
 
 export type ValidatorName = keyof typeof validators;

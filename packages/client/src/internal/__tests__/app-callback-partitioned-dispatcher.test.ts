@@ -26,7 +26,7 @@ import {
   CONV_X,
   CONV_Y,
   CONV_Z,
-  onJoin,
+  onClose,
   SESSION_A,
 } from "./app-callback-test-requests.js";
 
@@ -411,7 +411,7 @@ describe("makePartitionedDispatcher — scope teardown", () => {
         });
         yield* dispatcher.offer(beforeDispatch("rpc-1"));
         yield* dispatcher.offer(beforeMessageDelivery("rpc-2"));
-        yield* dispatcher.offer(onJoin("rpc-3"));
+        yield* dispatcher.offer(onClose("rpc-3"));
         // Close while every handler is parked. Must not hang.
         yield* Scope.close(scope, Exit.void);
         // Release any awaiters (no-op if scope close already

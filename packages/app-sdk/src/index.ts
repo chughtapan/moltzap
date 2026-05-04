@@ -47,7 +47,6 @@ export type {
   BeforeDispatchContext,
   BeforeMessageDeliveryContext,
   OnSessionActiveContext,
-  OnJoinContext,
   OnCloseContext,
   HookResult,
   DispatchAdmissionResult,

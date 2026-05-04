@@ -98,7 +98,6 @@ describe("AppManifestSchema", () => {
       name: "Werewolf",
       hooks: {
         before_message_delivery: { timeout_ms: 3000 },
-        on_join: {},
         on_close: { timeout_ms: 5000 },
       },
     };

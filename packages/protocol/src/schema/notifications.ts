@@ -25,7 +25,6 @@ const notificationNames = {
   AppSessionReady: jsonRpcMethod("app/sessionReady"),
   AppSessionFailed: jsonRpcMethod("app/sessionFailed"),
   AppSessionClosed: jsonRpcMethod("app/sessionClosed"),
-  AppHookTimeout: jsonRpcMethod("app/hookTimeout"),
 } as const;
 
 export const MessageReceivedNotificationSchema = Type.Object(
@@ -139,22 +138,6 @@ export const AppSessionClosedNotificationSchema = Type.Object(
   { additionalProperties: false },
 );
 
-export const AppHookTimeoutNotificationSchema = Type.Object(
-  {
-    sessionId: AppSessionId,
-    appId: Type.String(),
-    hookName: stringEnum([
-      "before_message_delivery",
-      "before_dispatch",
-      "on_join",
-      "on_session_active",
-      "on_close",
-    ]),
-    timeoutMs: Type.Integer(),
-  },
-  { additionalProperties: false },
-);
-
 export type MessageReceivedNotification = Static<
   typeof MessageReceivedNotificationSchema
 >;
@@ -196,9 +179,6 @@ export type AppSessionFailedNotification = Static<
 >;
 export type AppSessionClosedNotification = Static<
   typeof AppSessionClosedNotificationSchema
->;
-export type AppHookTimeoutNotification = Static<
-  typeof AppHookTimeoutNotificationSchema
 >;
 
 export const MessageReceivedNotificationDefinition = defineNotification({
@@ -271,11 +251,6 @@ export const AppSessionClosedNotificationDefinition = defineNotification({
   params: AppSessionClosedNotificationSchema,
 });
 
-export const AppHookTimeoutNotificationDefinition = defineNotification({
-  name: notificationNames.AppHookTimeout,
-  params: AppHookTimeoutNotificationSchema,
-});
-
 export const notificationDefinitions = [
   MessageReceivedNotificationDefinition,
   MessageDeliveredNotificationDefinition,
@@ -291,7 +266,6 @@ export const notificationDefinitions = [
   AppSessionReadyNotificationDefinition,
   AppSessionFailedNotificationDefinition,
   AppSessionClosedNotificationDefinition,
-  AppHookTimeoutNotificationDefinition,
 ] as const;
 
 export const notificationGroup = defineNotificationGroup(

@@ -19,10 +19,8 @@ import {
   AppsOnBeforeDispatch,
   AppsOnBeforeMessageDelivery,
   AppsOnClose,
-  AppsOnJoin,
   AppsOnSessionActive,
   ErrorCodes,
-  AppHookTimeoutNotificationDefinition,
   AppParticipantAdmittedNotificationDefinition,
   AppParticipantRejectedNotificationDefinition,
   AppSessionClosedNotificationDefinition,
@@ -45,8 +43,6 @@ import {
   type HookResult,
   type OnCloseContext,
   type OnCloseHook,
-  type OnJoinContext,
-  type OnJoinHook,
   type OnSessionActiveContext,
   type OnSessionActiveHook,
 } from "./hooks.js";
@@ -164,7 +160,7 @@ export class AppHost {
    * Register an app whose hook handlers run in a remote process (typically
    * an `@moltzap/app-sdk` client connected over WebSocket). Hook RPCs
    * (`apps/onBeforeDispatch`, `onBeforeMessageDelivery`, `onSessionActive`,
-   * `onJoin`, `onClose`) are dispatched to `connectionId` via
+   * `onClose`) are dispatched to `connectionId` via
    * {@link sendRpcToClient}; verdicts decode through the schemas defined in
    * `hooks.ts` and feed the same fail-closed envelope as in-process hooks.
    *
@@ -182,7 +178,7 @@ export class AppHost {
    * envelope catches `AppDisconnected` (and every other `AppCallbackRpcError`
    * variant) and synthesizes a fail-closed verdict — `deny` for
    * admission hooks, `block: true` for `before_message_delivery`, void +
-   * log + `app/hookTimeout` for lifecycle hooks. Callers do not need to
+   * log for lifecycle hooks. Callers do not need to
    * call {@link unregisterRemoteApp} on disconnect; the registration
    * keeps pointing at the dead connection id and dispatches keep
    * fail-closed until the app re-registers (typically via `apps/register`
@@ -313,12 +309,6 @@ export class AppHost {
   onBeforeDispatch(appId: string, handler: BeforeDispatchHook): void {
     const existing = this.hooks.get(appId) ?? {};
     existing.beforeDispatch = handler;
-    this.hooks.set(appId, existing);
-  }
-
-  onAppJoin(appId: string, handler: OnJoinHook): void {
-    const existing = this.hooks.get(appId) ?? {};
-    existing.onJoin = handler;
     this.hooks.set(appId, existing);
   }
 
@@ -763,11 +753,7 @@ export class AppHost {
             closedBy,
             signal: new AbortController().signal,
           };
-          yield* this.dispatchOnCloseHook(
-            sessionRow.app_id,
-            ctx,
-            callerAgentId,
-          );
+          yield* this.dispatchOnCloseHook(sessionRow.app_id, ctx);
         }
 
         const convIdArray = [...convIds];
@@ -1120,7 +1106,7 @@ export class AppHost {
   // INSIDE the dispatch helpers; call sites observe one type. Failure
   // modes (timeout, throw, RPC error, AppDisconnected, decode failure)
   // collapse into fail-closed verdicts for admission hooks (`deny` /
-  // `block`), or void + `app/hookTimeout` event for lifecycle hooks.
+  // `block`), or void + log for lifecycle hooks.
   //
   // Multi-app composition (architect plan §3.4: "Effect.forEach in
   // registration order, first deny short-circuits") is implemented by
@@ -1215,17 +1201,6 @@ export class AppHost {
       ...wire,
       conversations: toProtocolConversationMap(wire.conversations),
       admittedAgentIds: wire.admittedAgentIds.map(protocolAgentId),
-    };
-  }
-
-  private onJoinParamsForWire(ctx: OnJoinContext): ParamsOf<typeof AppsOnJoin> {
-    return {
-      ...ctx,
-      conversations: toProtocolConversationMap(ctx.conversations),
-      agent: {
-        ...ctx.agent,
-        agentId: protocolAgentId(ctx.agent.agentId),
-      },
     };
   }
 
@@ -1345,7 +1320,6 @@ export class AppHost {
   private wrapHookEffectWithEnvelope<Verdict>(opts: {
     raw: Effect.Effect<Verdict, Error>;
     timeoutMs: number;
-    onTimeoutEvent?: () => void; // emit `app/hookTimeout` if provided
     timeoutLogMessage: string;
     timeoutLogContext: Record<string, unknown>;
     errorLogMessage: string;
@@ -1357,7 +1331,6 @@ export class AppHost {
       Effect.timeout(`${opts.timeoutMs} millis`),
       Effect.catchTag("TimeoutException", () =>
         Effect.gen(function* () {
-          if (opts.onTimeoutEvent) opts.onTimeoutEvent();
           yield* Effect.logWarning(opts.timeoutLogMessage).pipe(
             Effect.annotateLogs(opts.timeoutLogContext),
           );
@@ -1414,16 +1387,6 @@ export class AppHost {
     return this.wrapHookEffectWithEnvelope<DispatchAdmissionResult>({
       raw,
       timeoutMs,
-      onTimeoutEvent: () =>
-        this.broadcaster.sendToAgent(
-          ctx.recipient.agentId,
-          notificationFrame(AppHookTimeoutNotificationDefinition, {
-            sessionId: appSessionId(sessionId),
-            appId,
-            hookName: "before_dispatch",
-            timeoutMs,
-          }),
-        ),
       timeoutLogMessage: "before_dispatch hook timed out",
       timeoutLogContext: { sessionId, appId, timeoutMs },
       errorLogMessage: "before_dispatch hook error",
@@ -1476,16 +1439,6 @@ export class AppHost {
     return this.wrapHookEffectWithEnvelope<HookResult>({
       raw,
       timeoutMs,
-      onTimeoutEvent: () =>
-        this.broadcaster.sendToAgent(
-          ctx.sender.agentId,
-          notificationFrame(AppHookTimeoutNotificationDefinition, {
-            sessionId: appSessionId(sessionId),
-            appId,
-            hookName: "before_message_delivery",
-            timeoutMs,
-          }),
-        ),
       timeoutLogMessage: "before_message_delivery hook timed out",
       timeoutLogContext: { sessionId, appId, timeoutMs },
       errorLogMessage: "before_message_delivery hook error",
@@ -1503,14 +1456,13 @@ export class AppHost {
 
   /**
    * Uniform `on_session_active` dispatch — awaitable void with timeout.
-   * Fail-OPEN: timeout/throw logs + emits `app/hookTimeout` but the caller
-   * continues to broadcast `app/sessionReady` (the ordering invariant
-   * verified by `31-on-session-active.integration.test.ts:200-230`).
+   * Fail-OPEN: timeout/throw logs but the caller continues to broadcast
+   * `app/sessionReady` (the ordering invariant verified by
+   * `31-on-session-active.integration.test.ts:200-230`).
    */
   private dispatchOnSessionActiveHook(
     appId: string,
     ctx: OnSessionActiveContext,
-    initiatorAgentId: string,
   ): Effect.Effect<void, never> {
     const remote = this.remoteRegistrations.get(appId);
     const inProcess = this.hooks.get(appId)?.onSessionActive;
@@ -1536,16 +1488,6 @@ export class AppHost {
     return this.wrapHookEffectWithEnvelope<void>({
       raw,
       timeoutMs,
-      onTimeoutEvent: () =>
-        this.broadcaster.sendToAgent(
-          initiatorAgentId,
-          notificationFrame(AppHookTimeoutNotificationDefinition, {
-            sessionId: appSessionId(sessionId),
-            appId,
-            hookName: "on_session_active",
-            timeoutMs,
-          }),
-        ),
       timeoutLogMessage: "on_session_active hook timed out",
       timeoutLogContext: { sessionId, appId, timeoutMs },
       errorLogMessage: "on_session_active hook error",
@@ -1556,64 +1498,12 @@ export class AppHost {
   }
 
   /**
-   * Uniform `on_join` dispatch — awaitable void with timeout. Fail-OPEN
-   * per architect plan §3.4.
-   */
-  private dispatchOnJoinHook(
-    appId: string,
-    ctx: OnJoinContext,
-  ): Effect.Effect<void, never> {
-    const remote = this.remoteRegistrations.get(appId);
-    const inProcess = this.hooks.get(appId)?.onJoin;
-    if (!remote && !inProcess) return Effect.void;
-    const manifest = this.manifests.get(appId);
-    const timeoutMs =
-      manifest?.hooks?.on_join?.timeout_ms ?? DEFAULT_APP_HOOK_TIMEOUT_MS;
-    const sessionId = ctx.sessionId;
-
-    const raw: Effect.Effect<void, Error> = remote
-      ? this.runRemoteHookEffect({
-          appId,
-          definition: AppsOnJoin,
-          connectionId: remote.connectionId,
-          params: this.onJoinParamsForWire(ctx),
-        })
-      : Effect.tryPromise({
-          try: () => Promise.resolve(inProcess!(ctx)),
-          catch: (err) => (err instanceof Error ? err : new Error(String(err))),
-        });
-
-    return this.wrapHookEffectWithEnvelope<void>({
-      raw,
-      timeoutMs,
-      onTimeoutEvent: () =>
-        this.broadcaster.sendToAgent(
-          ctx.agent.agentId,
-          notificationFrame(AppHookTimeoutNotificationDefinition, {
-            sessionId: appSessionId(sessionId),
-            appId,
-            hookName: "on_join",
-            timeoutMs,
-          }),
-        ),
-      timeoutLogMessage: "on_join hook timed out",
-      timeoutLogContext: { sessionId, appId, timeoutMs },
-      errorLogMessage: "on_join hook error",
-      errorLogContext: { sessionId, appId, agentId: ctx.agent.agentId },
-      onTimeout: () => undefined,
-      onError: () => undefined,
-    });
-  }
-
-  /**
    * Uniform `on_close` dispatch — awaitable void with timeout. Fail-OPEN
-   * per architect plan §3.4. Target of `app/hookTimeout` event is the
-   * caller (closer) since the session is being torn down.
+   * per architect plan §3.4.
    */
   private dispatchOnCloseHook(
     appId: string,
     ctx: OnCloseContext,
-    callerAgentId: string,
   ): Effect.Effect<void, never> {
     const remote = this.remoteRegistrations.get(appId);
     const inProcess = this.hooks.get(appId)?.onClose;
@@ -1638,16 +1528,6 @@ export class AppHost {
     return this.wrapHookEffectWithEnvelope<void>({
       raw,
       timeoutMs,
-      onTimeoutEvent: () =>
-        this.broadcaster.sendToAgent(
-          callerAgentId,
-          notificationFrame(AppHookTimeoutNotificationDefinition, {
-            sessionId: appSessionId(sessionId),
-            appId,
-            hookName: "on_close",
-            timeoutMs,
-          }),
-        ),
       timeoutLogMessage: "on_close hook timed out",
       timeoutLogContext: { sessionId, appId, timeoutMs },
       errorLogMessage: "on_close hook error",
@@ -1773,15 +1653,9 @@ export class AppHost {
       } else {
         // on_session_active fires once per session, after the status row is
         // active but BEFORE app/sessionReady is broadcast. Fail-open matches
-        // on_join/on_close: timeout or handler throw logs + emits
-        // app/hookTimeout, but admission still completes and sessionReady
-        // still fires.
-        yield* this.runOnSessionActive(
-          session,
-          manifest,
-          initiatorAgentId,
-          admittedAgentIds,
-        );
+        // on_close: timeout or handler throw logs, but admission still
+        // completes and sessionReady still fires.
+        yield* this.runOnSessionActive(session, admittedAgentIds);
 
         this.broadcaster.sendToAgent(
           initiatorAgentId,
@@ -1796,15 +1670,13 @@ export class AppHost {
 
   private runOnSessionActive(
     session: AppSession,
-    manifest: AppManifest,
-    initiatorAgentId: string,
     admittedAgentIds: string[],
   ): Effect.Effect<void, never> {
     return Effect.gen(this, function* () {
       // Uniform Effect dispatch — in-process / remote choice INSIDE the
-      // helper. Fail-OPEN: any timeout or error logs + emits hookTimeout
-      // but the caller still proceeds to broadcast `app/sessionReady`,
-      // preserving the ordering invariant covered by
+      // helper. Fail-OPEN: any timeout or error logs, but the caller still
+      // proceeds to broadcast `app/sessionReady`, preserving the ordering
+      // invariant covered by
       // 31-on-session-active.integration.test.ts:200-230.
       const ctx: OnSessionActiveContext = {
         sessionId: session.id,
@@ -1813,11 +1685,7 @@ export class AppHost {
         admittedAgentIds,
         signal: new AbortController().signal,
       };
-      yield* this.dispatchOnSessionActiveHook(
-        session.appId,
-        ctx,
-        initiatorAgentId,
-      );
+      yield* this.dispatchOnSessionActiveHook(session.appId, ctx);
     });
   }
 
@@ -1917,11 +1785,7 @@ export class AppHost {
         }
       }
 
-      yield* this.admitAgentToSession(
-        session,
-        agentId,
-        agent.owner_user_id ?? "",
-      );
+      yield* this.admitAgentToSession(session, agentId);
     });
   }
 
@@ -1981,7 +1845,6 @@ export class AppHost {
   private admitAgentToSession(
     session: AppSession,
     agentId: string,
-    ownerId: string,
   ): Effect.Effect<void, RpcFailure> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
@@ -2027,18 +1890,6 @@ export class AppHost {
             agentId,
           }),
         );
-
-        // on_join hook dispatch. Fire-and-forget for admission purposes
-        // (the hook can't block admission); errors are logged but do not
-        // fail the fiber. Per architect plan §3.4 the in-process / remote
-        // choice is INSIDE `dispatchOnJoinHook`.
-        const ctx: OnJoinContext = {
-          conversations: session.conversations,
-          agent: { agentId, ownerId },
-          sessionId: session.id,
-          appId: session.appId,
-        };
-        yield* this.dispatchOnJoinHook(session.appId, ctx);
       }),
     );
   }

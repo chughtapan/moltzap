@@ -23,7 +23,7 @@ import {
 import {
   AppsOnBeforeDispatch,
   AppsOnBeforeMessageDelivery,
-  AppsOnJoin,
+  AppsOnClose,
 } from "@moltzap/protocol";
 
 describe("app SDK tagged errors", () => {
@@ -60,7 +60,7 @@ describe("app SDK tagged errors", () => {
     ).toBe(AppsOnBeforeDispatch.name);
     expect(
       new AdmissionTimeoutError({
-        method: AppsOnJoin.name,
+        method: AppsOnClose.name,
         timeoutMs: 30_000,
         message: "timeout",
       }).timeoutMs,
@@ -87,7 +87,7 @@ describe("app SDK tagged errors", () => {
   it("has stable tags for all exported SDK errors", () => {
     expect(
       new DuplicateHookHandlerError({
-        method: AppsOnJoin.name,
+        method: AppsOnClose.name,
         message: "duplicate",
       })._tag,
     ).toBe("DuplicateHookHandlerError");

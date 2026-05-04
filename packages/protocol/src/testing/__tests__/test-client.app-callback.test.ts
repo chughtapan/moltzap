@@ -28,11 +28,7 @@ import { validators } from "../../validators.js";
 import type { AnyAppCallbackRpcDefinition } from "../../rpc-registry.js";
 import type { ParamsOf } from "../../rpc.js";
 
-import {
-  AppsOnClose,
-  AppsOnJoin,
-  AppsOnSessionActive,
-} from "../../schema/methods/apps.js";
+import { AppsOnClose, AppsOnSessionActive } from "../../schema/methods/apps.js";
 import { agentId } from "../../schema/primitives.js";
 
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
@@ -41,15 +37,8 @@ const AGENT_ID = agentId("550e8400-e29b-41d4-a716-446655440001");
 const LIFECYCLE_AGENT = { agentId: AGENT_ID, ownerId: "owner-1" };
 const CONVERSATIONS = {};
 
-const onJoinParams = (sessionId = SESSION_ID) => ({
+const onCloseParams = (sessionId = SESSION_ID) => ({
   sessionId,
-  appId: APP_ID,
-  conversations: CONVERSATIONS,
-  agent: LIFECYCLE_AGENT,
-});
-
-const onCloseParams = () => ({
-  sessionId: SESSION_ID,
   appId: APP_ID,
   conversations: CONVERSATIONS,
   closedBy: LIFECYCLE_AGENT,
@@ -235,14 +224,14 @@ describe("TestClient — handleServerRpc", () => {
   it("dispatches an inbound appCallback request to the registered handler and writes the response back", async () => {
     await withClient((client, server) =>
       Effect.gen(function* () {
-        yield* client.handleServerRpc(AppsOnJoin, (params) =>
+        yield* client.handleServerRpc(AppsOnClose, (params) =>
           Effect.sync(() => {
             expect(params.sessionId).toBe(SESSION_ID);
             return {};
           }),
         );
         yield* server.send(
-          appCallbackRequest("srv-1", AppsOnJoin, onJoinParams()),
+          appCallbackRequest("srv-1", AppsOnClose, onCloseParams()),
         );
         const reply = yield* waitForResponse(server, "srv-1");
         expect(expectResponseResult(reply)).toEqual({});
@@ -302,10 +291,10 @@ describe("TestClient — handleServerRpc", () => {
         // `MoltZapWsClient.handleServerRpc`, which raises
         // `DuplicateServerRpcHandlerError`. Tests routinely swap handler
         // bodies mid-scenario.
-        yield* client.handleServerRpc(AppsOnJoin, () => Effect.succeed({}));
-        yield* client.handleServerRpc(AppsOnJoin, () => Effect.succeed({}));
+        yield* client.handleServerRpc(AppsOnClose, () => Effect.succeed({}));
+        yield* client.handleServerRpc(AppsOnClose, () => Effect.succeed({}));
         yield* server.send(
-          appCallbackRequest("srv-4", AppsOnJoin, onJoinParams()),
+          appCallbackRequest("srv-4", AppsOnClose, onCloseParams()),
         );
         const reply = yield* waitForResponse(server, "srv-4");
         expect(expectResponseResult(reply)).toEqual({});
@@ -318,7 +307,7 @@ describe("TestClient — awaitServerRequest", () => {
   it("resolves with the inbound request params and runs the handler in parallel", async () => {
     await withClient((client, server) =>
       Effect.gen(function* () {
-        yield* client.handleServerRpc(AppsOnJoin, (params) =>
+        yield* client.handleServerRpc(AppsOnClose, (params) =>
           Effect.sync(() => {
             expect(params.sessionId).toBe(SESSION_ID);
             return {};
@@ -328,16 +317,16 @@ describe("TestClient — awaitServerRequest", () => {
         // notification fires from `notifyAwaiters` during `handleInbound`,
         // which runs synchronously per inbound frame.
         const awaitFiber = yield* Effect.fork(
-          client.awaitServerRequest(AppsOnJoin),
+          client.awaitServerRequest(AppsOnClose),
         );
         // Tiny yield so the awaiter has a chance to enrol.
         yield* Effect.sleep("10 millis");
         yield* server.send(
-          appCallbackRequest("srv-5", AppsOnJoin, onJoinParams()),
+          appCallbackRequest("srv-5", AppsOnClose, onCloseParams()),
         );
 
         const observed = yield* awaitFiber;
-        expect(observed).toEqual(onJoinParams());
+        expect(observed).toEqual(onCloseParams());
 
         // Handler still ran — server saw the response.
         const reply = yield* waitForResponse(server, "srv-5");
@@ -349,25 +338,25 @@ describe("TestClient — awaitServerRequest", () => {
   it("predicate selects the FIRST matching request and skips earlier non-matches", async () => {
     await withClient((client, server) =>
       Effect.gen(function* () {
-        yield* client.handleServerRpc(AppsOnJoin, () => Effect.succeed({}));
+        yield* client.handleServerRpc(AppsOnClose, () => Effect.succeed({}));
         // Predicate matches sessionId === "WANTED".
         const awaitFiber = yield* Effect.fork(
           client.awaitServerRequest(
-            AppsOnJoin,
+            AppsOnClose,
             (p) => p.sessionId === "550e8400-e29b-41d4-a716-446655440099",
           ),
         );
         yield* Effect.sleep("10 millis");
         // Send a non-matching request first.
         yield* server.send(
-          appCallbackRequest("srv-skip", AppsOnJoin, {
-            ...onJoinParams("550e8400-e29b-41d4-a716-446655440098"),
+          appCallbackRequest("srv-skip", AppsOnClose, {
+            ...onCloseParams("550e8400-e29b-41d4-a716-446655440098"),
           }),
         );
         // Then the wanted one.
         yield* server.send(
-          appCallbackRequest("srv-want", AppsOnJoin, {
-            ...onJoinParams("550e8400-e29b-41d4-a716-446655440099"),
+          appCallbackRequest("srv-want", AppsOnClose, {
+            ...onCloseParams("550e8400-e29b-41d4-a716-446655440099"),
           }),
         );
 
@@ -383,7 +372,7 @@ describe("TestClient — awaitServerRequest", () => {
         // Caller-controlled timeout. No appCallback request is ever sent — the
         // awaiter must terminate by the timeout, not hang.
         return yield* Effect.exit(
-          client.awaitServerRequest(AppsOnJoin, undefined, 50),
+          client.awaitServerRequest(AppsOnClose, undefined, 50),
         );
       }),
     );
@@ -393,7 +382,7 @@ describe("TestClient — awaitServerRequest", () => {
       expect(opt._tag).toBe("Some");
       if (opt._tag === "Some") {
         expect(opt.value).toBeInstanceOf(Error);
-        expect(opt.value.message).toMatch(/Timeout.*apps\/onJoin/);
+        expect(opt.value.message).toMatch(/Timeout.*apps\/onClose/);
       }
     }
   });
@@ -406,7 +395,7 @@ describe("TestClient — awaitServerRequest", () => {
         // this as the supported pattern: "Effect.timeout at call site,
         // not schema cap."
         return yield* Effect.exit(
-          client.awaitServerRequest(AppsOnJoin, undefined, 60_000).pipe(
+          client.awaitServerRequest(AppsOnClose, undefined, 60_000).pipe(
             Effect.timeoutFail({
               duration: "30 millis",
               onTimeout: () => new Error("call-site-timeout"),
