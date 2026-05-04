@@ -1,12 +1,14 @@
 import {
-  AgentId as AgentIdSchema,
-  ConversationId as ConversationIdSchema,
-  MessageId as MessageIdSchema,
   agentId,
   conversationId,
   messageId,
   type Static,
 } from "@moltzap/protocol";
+import {
+  AgentId as AgentIdSchema,
+  ConversationId as ConversationIdSchema,
+  MessageId as MessageIdSchema,
+} from "@moltzap/protocol/schemas/primitives";
 
 type AgentId = Static<typeof AgentIdSchema>;
 type ConversationId = Static<typeof ConversationIdSchema>;
