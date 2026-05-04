@@ -97,7 +97,7 @@ The orchestrator's shape:
   dispatch or delivery (block, patch, feedback) or react to session
   lifecycle events, register a handler via
   `app.onBeforeDispatch` / `onBeforeMessageDelivery` / `onSessionActive` /
-  `onJoin` / `onClose`. See
+  `onClose`. See
   [App Hooks (RPC)](../../docs/guides/app-hooks-rpc.mdx) for the
   verdict shapes; the legacy manifest-webhook surface is removed
   ([migration guide](../../docs/migration/webhook-to-rpc.mdx)).

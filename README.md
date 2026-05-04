@@ -116,7 +116,7 @@ server:
 # integration surfaces (user validation, contact resolution) — NOT
 # app-side hooks. App hooks now dispatch over the WebSocket via
 # @moltzap/app-sdk's onBeforeDispatch / onBeforeMessageDelivery /
-# onSessionActive / onJoin / onClose handlers.
+# onSessionActive / onClose handlers.
 # services:
 #   users:
 #     type: webhook
