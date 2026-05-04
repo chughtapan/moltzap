@@ -825,7 +825,6 @@ function acquireAppSessionFixture(
         manifest: {
           appId,
           name: `Hook-gated app ${appId}`,
-          permissions: { required: [], optional: [] },
           conversations: [
             { key: "main", name: "Main", participantFilter: "all" },
           ],
@@ -922,7 +921,6 @@ function acquireAppSessionCloseFixture(
         manifest: {
           appId,
           name: `Close lifecycle app ${appId}`,
-          permissions: { required: [], optional: [] },
           conversations: [
             { key: "main", name: "Main", participantFilter: "all" },
           ],

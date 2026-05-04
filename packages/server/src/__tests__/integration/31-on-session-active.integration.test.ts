@@ -69,7 +69,6 @@ function registerTestApp(
   app.registerApp({
     appId,
     name: `Test App ${appId}`,
-    permissions: { required: [], optional: [] },
     conversations: [
       { key: "main", name: "Main Channel", participantFilter: "all" },
     ],

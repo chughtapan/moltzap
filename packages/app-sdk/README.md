@@ -38,10 +38,6 @@ const app = new MoltZapApp({
   manifest: {
     appId: "my-translator",
     name: "Translator",
-    permissions: {
-      required: [{ resource: "messages", access: ["read", "write"] }],
-      optional: [],
-    },
     conversations: [
       { key: "main", name: "Translation Room", participantFilter: "all" },
     ],

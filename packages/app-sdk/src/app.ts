@@ -179,7 +179,6 @@ export class MoltZapApp {
     this.manifest = options.manifest ?? {
       appId: options.appId!,
       name: options.appId!,
-      permissions: { required: [], optional: [] },
       conversations: [
         { key: "default", name: options.appId!, participantFilter: "all" },
       ],

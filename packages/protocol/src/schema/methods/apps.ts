@@ -50,58 +50,6 @@ export const AppsAttestSkill = defineRpc({
   result: Type.Object({}, { additionalProperties: false }),
 });
 
-export const PermissionsGrant = defineRpc({
-  name: "permissions/grant",
-  params: Type.Object(
-    {
-      sessionId: Type.String({ format: "uuid" }),
-      agentId: AgentId,
-      resource: Type.String(),
-      access: Type.Array(Type.String()),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object({}, { additionalProperties: false }),
-});
-
-export const PermissionsList = defineRpc({
-  name: "permissions/list",
-  params: Type.Object(
-    {
-      appId: Type.Optional(Type.String()),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    {
-      grants: Type.Array(
-        Type.Object(
-          {
-            appId: Type.String(),
-            resource: Type.String(),
-            access: Type.Array(Type.String()),
-            grantedAt: DateTimeString,
-          },
-          { additionalProperties: false },
-        ),
-      ),
-    },
-    { additionalProperties: false },
-  ),
-});
-
-export const PermissionsRevoke = defineRpc({
-  name: "permissions/revoke",
-  params: Type.Object(
-    {
-      appId: Type.String(),
-      resource: Type.String(),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object({}, { additionalProperties: false }),
-});
-
 export const AppsCloseSession = defineRpc({
   name: "apps/closeSession",
   params: Type.Object(

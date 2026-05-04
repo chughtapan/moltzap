@@ -13,13 +13,8 @@ export {
 } from "./app/types.js";
 
 // AppHost
-export {
-  AppHost,
-  DefaultPermissionService,
-  PermissionDeniedError,
-  PermissionTimeoutError,
-} from "./app/app-host.js";
-export type { ContactService, PermissionService } from "./app/app-host.js";
+export { AppHost } from "./app/app-host.js";
+export type { ContactService } from "./app/app-host.js";
 
 // Handler factories — for downstream consumers composing their own RPC router
 export { createCoreAuthHandlers } from "./app/handlers/auth.handlers.js";
@@ -37,11 +32,9 @@ export {
 } from "./services/user.service.js";
 export {
   WebhookClient,
-  AsyncWebhookAdapter,
   WebhookHttpError,
   WebhookTimeoutError,
   WebhookNetworkError,
-  WebhookDestroyedError,
 } from "./adapters/webhook.js";
 export type { WebhookError } from "./adapters/webhook.js";
 
@@ -174,9 +167,5 @@ export type {
   RpcMethodRegistry,
 } from "./rpc/context.js";
 export type { MoltZapConnection } from "./ws/connection.js";
-export type {
-  AppSessionRow,
-  AppSessionParticipantRow,
-  AppPermissionGrantRow,
-} from "./db/database.js";
+export type { AppSessionRow, AppSessionParticipantRow } from "./db/database.js";
 export { defineMethod } from "./rpc/context.js";

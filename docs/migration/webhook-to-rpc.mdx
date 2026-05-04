@@ -38,12 +38,11 @@ survive — they back the surviving non-hook surfaces (see below).
 These are NOT app hooks. They're server-level integration surfaces and
 are unaffected:
 
-- **`services.contacts` / `services.permissions` / `services.users`** —
-  external admission services configured in the server YAML.
+- **`services.contacts` / `services.users`** — external admission
+  services configured in the server YAML.
 - **`MessageService.deliveryWebhook`** — per-message audit fanout to
   Datadog / syslog / archive.
 - **`WebhookContactService`** — external contact validation provider.
-- **`WebhookPermissionService`** — external permission resolver.
 
 If you only consumed app hooks, skip to the port section. If you ran
 external services via webhook, your YAML config is unchanged.
@@ -68,7 +67,6 @@ import type { AppManifest } from "@moltzap/protocol";
 const manifest: AppManifest = {
   appId: "echo-bot",
   name: "Echo Bot",
-  permissions: { required: [], optional: [] },
   conversations: [{ key: "default", name: "Echo", participantFilter: "all" }],
   hooks: {
     before_message_delivery: {
@@ -89,7 +87,6 @@ import type { AppManifest } from "@moltzap/protocol";
 const manifest: AppManifest = {
   appId: "echo-bot",
   name: "Echo Bot",
-  permissions: { required: [], optional: [] },
   conversations: [{ key: "default", name: "Echo", participantFilter: "all" }],
   hooks: {
     before_message_delivery: { timeout_ms: 5_000 },
@@ -219,9 +216,8 @@ Hits in your own app code that reference `manifest.hooks.<name>.webhook`,
 incomplete — those fields are now schema-rejected and your manifest
 registration will fail with `MANIFEST_REJECTED`.
 
-Hits that reference `services.contacts` / `services.permissions` /
-`MessageService.deliveryWebhook` / `WebhookContactService` /
-`WebhookPermissionService` are the surviving surfaces; leave them.
+Hits that reference `services.contacts` / `MessageService.deliveryWebhook`
+/ `WebhookContactService` are the surviving surfaces; leave them.
 
 ## Related
 

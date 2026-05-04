@@ -35,11 +35,6 @@ describe("validateConfig", () => {
           webhook_url: "https://hooks.example.com/contacts",
           timeout_ms: 5000,
         },
-        permissions: {
-          type: "webhook",
-          webhook_url: "https://hooks.example.com/perms",
-          callback_token: "tok",
-        },
       },
       registration: { secret: "reg-secret" },
       apps: [{ manifest: "https://example.com/manifest.json" }],

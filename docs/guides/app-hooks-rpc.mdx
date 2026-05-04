@@ -38,7 +38,6 @@ import { Effect } from "effect";
 const manifest: AppManifest = {
   appId: "echo-bot",
   name: "Echo Bot",
-  permissions: { required: [], optional: [] },
   conversations: [
     { key: "default", name: "Echo Room", participantFilter: "all" },
   ],
@@ -200,12 +199,11 @@ schema rejects them:
 **Surviving webhook surfaces.** These are NOT app hooks. They are
 server-level integration surfaces and are unaffected:
 
-- `services.contacts` / `services.permissions` / `services.users` —
-  external admission services configured in the server YAML.
+- `services.contacts` / `services.users` — external admission services
+  configured in the server YAML.
 - `MessageService.deliveryWebhook` — per-message audit fanout to
   Datadog / syslog / archive.
-- `WebhookContactService` / `WebhookPermissionService` — external
-  contact and permission resolvers.
+- `WebhookContactService` — external contact resolver.
 
 If you only consumed app hooks, you have nothing to port on the survivor
 side. If you ran an external service via webhook, those configs still
