@@ -67,7 +67,6 @@ import type { AppManifest } from "@moltzap/protocol";
 const manifest: AppManifest = {
   appId: "echo-bot",
   name: "Echo Bot",
-  permissions: { required: [], optional: [] },
   conversations: [{ key: "default", name: "Echo", participantFilter: "all" }],
   hooks: {
     before_message_delivery: {
@@ -88,7 +87,6 @@ import type { AppManifest } from "@moltzap/protocol";
 const manifest: AppManifest = {
   appId: "echo-bot",
   name: "Echo Bot",
-  permissions: { required: [], optional: [] },
   conversations: [{ key: "default", name: "Echo", participantFilter: "all" }],
   hooks: {
     before_message_delivery: { timeout_ms: 5_000 },

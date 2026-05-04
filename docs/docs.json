@@ -150,7 +150,7 @@
             ]
           },
           {
-            "group": "Apps & Permissions",
+            "group": "Apps",
             "pages": [
               "protocol/methods/apps-register",
               "protocol/methods/apps-create",
