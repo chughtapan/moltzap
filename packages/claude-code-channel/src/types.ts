@@ -11,14 +11,16 @@
 import { Brand, type Effect } from "effect";
 import type { EnrichedInboundMessage, WsClientLogger } from "@moltzap/client";
 import {
-  AgentId as AgentIdSchema,
-  ConversationId as ConversationIdSchema,
-  MessageId as MessageIdSchema,
   agentId,
   conversationId,
   messageId,
   type Static,
 } from "@moltzap/protocol";
+import {
+  AgentId as AgentIdSchema,
+  ConversationId as ConversationIdSchema,
+  MessageId as MessageIdSchema,
+} from "@moltzap/protocol/schemas/primitives";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { AllowlistError, PushError } from "./errors.js";
 

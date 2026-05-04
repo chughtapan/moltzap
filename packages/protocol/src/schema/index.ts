@@ -1,8 +1,9 @@
+// `UserId`, `AgentId`, `ConversationId`, `MessageId` are intentionally NOT
+// re-exported here. The flat barrel and the `./schemas` subpath would shadow
+// the actor-model brand types (Phase 3 Slice F) that own those names.
+// Consumers needing the TypeBox schema values import directly from
+// `@moltzap/protocol/schemas/primitives`. See plan §2.10 / #420.
 export {
-  UserId,
-  AgentId,
-  ConversationId,
-  MessageId,
   ContactId,
   userId,
   agentId,

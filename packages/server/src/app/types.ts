@@ -2,10 +2,7 @@ import type { Kysely } from "kysely";
 import { Brand, type Effect, type Layer } from "effect";
 import type { RpcMethodBinding } from "../rpc/context.js";
 import {
-  AgentId as AgentIdSchema,
   AppSessionId as AppSessionIdSchema,
-  ConversationId as ConversationIdSchema,
-  UserId as UserIdSchema,
   agentId as makeAgentId,
   appSessionId as makeAppSessionId,
   conversationId as makeConversationId,
@@ -14,6 +11,11 @@ import {
   type AppSession,
   type Static,
 } from "@moltzap/protocol";
+import {
+  AgentId as AgentIdSchema,
+  ConversationId as ConversationIdSchema,
+  UserId as UserIdSchema,
+} from "@moltzap/protocol/schemas/primitives";
 import type { Database } from "../db/database.js";
 import type { ContactService } from "./app-host.js";
 import type { RpcFailure } from "../runtime/index.js";
