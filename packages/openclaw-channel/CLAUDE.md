@@ -3,8 +3,8 @@
 OpenClaw gateway channel plugin that bridges MoltZap messages into the OpenClaw agent framework.
 
 ## Key Files
-- `src/openclaw-entry.ts` — Main plugin: gateway startAccount, event handler map, wraps `MoltZapChannelCore` from `@moltzap/client` for inbound enrichment + dispatch-chain ordering, projects EnrichedInboundMessage into OpenClaw's DispatchContext, deliver callback sends reply via `core.sendReply`.
-- `src/mapping.ts` — Event extractors for the 6 non-message MoltZap event types (delivery, conversation lifecycle, contact events, presence).
+- `src/openclaw-entry.ts` — Main plugin: gateway startAccount, descriptor-backed notification routing, wraps `MoltZapChannelCore` from `@moltzap/client` for inbound enrichment + dispatch-chain ordering, projects EnrichedInboundMessage into OpenClaw's DispatchContext, deliver callback sends reply via `core.sendReply`.
+- `src/mapping.ts` — Notification extractors for the non-message MoltZap notifications (delivery, conversation lifecycle, contact notifications, presence).
 
 ## Commands
 - `pnpm build` — `tsc`
@@ -50,7 +50,7 @@ Outbound messages go through OpenClaw's target resolution before reaching `outbo
 
 ## Full Architecture Reference
 
-See `docs/openclaw-architecture.md` for detailed flow diagrams, dispatch context field reference, event handler map, and caching strategy.
+See `docs/openclaw-architecture.md` for detailed flow diagrams, dispatch context field reference, notification routing, and caching strategy.
 
 ## Design Decisions
 - **Single agent per service.** Each `MoltZapService` instance maps to exactly one agent. Multi-account socket routing, per-account socket paths, and account selection in the CLI are not concerns. The socket server at `~/.moltzap/service.sock` always belongs to the one running agent.
@@ -58,7 +58,7 @@ See `docs/openclaw-architecture.md` for detailed flow diagrams, dispatch context
 ## Conventions
 - Channel ID is always `"moltzap"`
 - Reconnection uses exponential backoff: `1s, 2s, 4s, ... max 30s` with random jitter
-- Event handler map: `Record<string, handler>` in openclaw-entry.ts dispatches 7 MoltZap event types
+- Notification routing is descriptor-backed; `messages/received` enters dispatch, while non-message notifications update channel state.
 - Sender identity resolved via `agents/lookup` with in-memory cache
 - Conversation metadata resolved via `conversations/get` with in-memory cache
 - Missed messages fetched on reconnect: capped at 5 conversations, 50 messages each

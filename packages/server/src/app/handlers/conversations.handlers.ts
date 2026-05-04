@@ -14,8 +14,11 @@ import {
   ConversationsRemoveParticipant,
   ConversationsArchive,
   ConversationsUnarchive,
-  EventNames,
-  eventFrame,
+  ConversationArchivedNotificationDefinition,
+  ConversationCreatedNotificationDefinition,
+  ConversationUnarchivedNotificationDefinition,
+  ConversationUpdatedNotificationDefinition,
+  notificationFrame,
 } from "@moltzap/protocol";
 import { Effect } from "effect";
 import { defineMethod } from "../../rpc/context.js";
@@ -26,8 +29,8 @@ export function createConversationHandlers(deps: {
   broadcaster: Broadcaster;
   connections: ConnectionManager;
 }): RpcMethodRegistry {
-  return {
-    [ConversationsCreate.name]: defineMethod(ConversationsCreate, {
+  return [
+    defineMethod(ConversationsCreate, {
       requiresActive: true,
       handler: (params, ctx) =>
         Effect.gen(function* () {
@@ -47,15 +50,16 @@ export function createConversationHandlers(deps: {
           for (const participant of params.participants) {
             deps.broadcaster.sendToAgent(
               participant.id,
-              eventFrame(EventNames.ConversationCreated, { conversation }),
+              notificationFrame(ConversationCreatedNotificationDefinition, {
+                conversation,
+              }),
             );
           }
 
           return { conversation };
         }),
     }),
-
-    [ConversationsList.name]: defineMethod(ConversationsList, {
+    defineMethod(ConversationsList, {
       requiresActive: true,
       handler: (params, ctx) =>
         deps.conversationService.list(
@@ -65,14 +69,12 @@ export function createConversationHandlers(deps: {
           params.archived,
         ),
     }),
-
-    [ConversationsGet.name]: defineMethod(ConversationsGet, {
+    defineMethod(ConversationsGet, {
       requiresActive: true,
       handler: (params, ctx) =>
         deps.conversationService.get(params.conversationId, ctx.agentId),
     }),
-
-    [ConversationsUpdate.name]: defineMethod(ConversationsUpdate, {
+    defineMethod(ConversationsUpdate, {
       requiresActive: true,
       handler: (params, ctx) =>
         Effect.gen(function* () {
@@ -84,14 +86,15 @@ export function createConversationHandlers(deps: {
 
           deps.broadcaster.broadcastToConversation(
             params.conversationId,
-            eventFrame(EventNames.ConversationUpdated, { conversation }),
+            notificationFrame(ConversationUpdatedNotificationDefinition, {
+              conversation,
+            }),
           );
 
           return { conversation };
         }),
     }),
-
-    [ConversationsLeave.name]: defineMethod(ConversationsLeave, {
+    defineMethod(ConversationsLeave, {
       requiresActive: true,
       handler: (params, ctx) =>
         Effect.gen(function* () {
@@ -107,8 +110,7 @@ export function createConversationHandlers(deps: {
           return {};
         }),
     }),
-
-    [ConversationsArchive.name]: defineMethod(ConversationsArchive, {
+    defineMethod(ConversationsArchive, {
       requiresActive: true,
       handler: (params, ctx) =>
         Effect.gen(function* () {
@@ -118,7 +120,7 @@ export function createConversationHandlers(deps: {
           );
           deps.broadcaster.broadcastToConversation(
             params.conversationId,
-            eventFrame(EventNames.ConversationArchived, {
+            notificationFrame(ConversationArchivedNotificationDefinition, {
               conversationId: params.conversationId,
               archivedAt,
               by: ctx.agentId,
@@ -127,8 +129,7 @@ export function createConversationHandlers(deps: {
           return {};
         }),
     }),
-
-    [ConversationsUnarchive.name]: defineMethod(ConversationsUnarchive, {
+    defineMethod(ConversationsUnarchive, {
       requiresActive: true,
       handler: (params, ctx) =>
         Effect.gen(function* () {
@@ -138,7 +139,7 @@ export function createConversationHandlers(deps: {
           );
           deps.broadcaster.broadcastToConversation(
             params.conversationId,
-            eventFrame(EventNames.ConversationUnarchived, {
+            notificationFrame(ConversationUnarchivedNotificationDefinition, {
               conversationId: params.conversationId,
               by: ctx.agentId,
             }),
@@ -146,8 +147,7 @@ export function createConversationHandlers(deps: {
           return {};
         }),
     }),
-
-    [ConversationsMute.name]: defineMethod(ConversationsMute, {
+    defineMethod(ConversationsMute, {
       requiresActive: true,
       handler: (params, ctx) =>
         Effect.gen(function* () {
@@ -164,8 +164,7 @@ export function createConversationHandlers(deps: {
           return {};
         }),
     }),
-
-    [ConversationsUnmute.name]: defineMethod(ConversationsUnmute, {
+    defineMethod(ConversationsUnmute, {
       requiresActive: true,
       handler: (params, ctx) =>
         Effect.gen(function* () {
@@ -182,41 +181,35 @@ export function createConversationHandlers(deps: {
         }),
     }),
 
-    [ConversationsAddParticipant.name]: defineMethod(
-      ConversationsAddParticipant,
-      {
-        requiresActive: true,
-        handler: (params, ctx) =>
-          Effect.gen(function* () {
-            const participant = yield* deps.conversationService.addParticipant(
-              params.conversationId,
-              params.participant.id,
-              ctx.agentId,
-            );
-            for (const conn of deps.connections.getByAgent(
-              params.participant.id,
-            )) {
-              conn.conversationIds.add(params.conversationId);
-            }
-            return { participant };
-          }),
-      },
-    ),
+    defineMethod(ConversationsAddParticipant, {
+      requiresActive: true,
+      handler: (params, ctx) =>
+        Effect.gen(function* () {
+          const participant = yield* deps.conversationService.addParticipant(
+            params.conversationId,
+            params.participant.id,
+            ctx.agentId,
+          );
+          for (const conn of deps.connections.getByAgent(
+            params.participant.id,
+          )) {
+            conn.conversationIds.add(params.conversationId);
+          }
+          return { participant };
+        }),
+    }),
 
-    [ConversationsRemoveParticipant.name]: defineMethod(
-      ConversationsRemoveParticipant,
-      {
-        requiresActive: true,
-        handler: (params, ctx) =>
-          Effect.gen(function* () {
-            yield* deps.conversationService.removeParticipant(
-              params.conversationId,
-              params.participant.id,
-              ctx.agentId,
-            );
-            return {};
-          }),
-      },
-    ),
-  };
+    defineMethod(ConversationsRemoveParticipant, {
+      requiresActive: true,
+      handler: (params, ctx) =>
+        Effect.gen(function* () {
+          yield* deps.conversationService.removeParticipant(
+            params.conversationId,
+            params.participant.id,
+            ctx.agentId,
+          );
+          return {};
+        }),
+    }),
+  ];
 }

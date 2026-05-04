@@ -28,7 +28,12 @@ import { ConversationsList } from "../../schema/methods/conversations.js";
 import { canonicalJson, sortJsonArray } from "../canonicalize.js";
 import { RpcResponseError } from "../errors.js";
 import { makeTestClient } from "../test-client.js";
+import { isRequestFrame, isResponseFrame } from "../codec.js";
 import { registerTestAgent } from "../agent-registration.js";
+import {
+  isJsonRpcStringId,
+  type JsonRpcStringId,
+} from "../../schema/json-rpc.js";
 import { allRpcMethods } from "../arbitraries/rpc.js";
 import type { ConformanceRunContext } from "./runner.js";
 import {
@@ -47,7 +52,8 @@ const MODEL_EQUIVALENCE_PROPERTY = "model-equivalence";
 const AUTHORITY_POSITIVE_PROPERTY = "authority-positive";
 const AUTHORITY_NEGATIVE_PROPERTY = "authority-negative";
 const REQUEST_ID_UNIQUENESS_PROPERTY = "request-id-uniqueness";
-const CALLER_CONTROLLED_S2C_TIMEOUT_PROPERTY = "caller-controlled-s2c-timeout";
+const CALLER_CONTROLLED_APP_CALLBACK_TIMEOUT_PROPERTY =
+  "caller-controlled-app-callback-timeout";
 const IDEMPOTENCE_PROPERTY = "idempotence";
 const MODEL_NUM_RUNS_FLOOR = 10;
 const MODEL_RUNS_PER_CONFIDENT_METHOD = 2;
@@ -134,7 +140,7 @@ export function registerModelEquivalence(ctx: ConformanceRunContext): void {
                   captureCapacity: DEFAULT_CAPTURE_CAPACITY,
                 });
                 const outcome = yield* client
-                  .sendRpc(call.method, call.params)
+                  .sendRpc(call.definition, call.params)
                   .pipe(Effect.either);
                 return Either.match(outcome, {
                   onLeft: () => "error" as const,
@@ -196,7 +202,7 @@ export function registerAuthorityPositive(ctx: ConformanceRunContext): void {
           ),
         );
         const outcome = yield* client
-          .sendRpc(ConversationsList.name, {})
+          .sendRpc(ConversationsList, {})
           .pipe(Effect.either);
         const failure = leftOrNull(outcome);
         if (failure !== null) {
@@ -260,7 +266,7 @@ export function registerAuthorityNegative(ctx: ConformanceRunContext): void {
           ),
         );
         const outcome = yield* client
-          .sendRpc(ConversationsList.name, {})
+          .sendRpc(ConversationsList, {})
           .pipe(Effect.either);
         const error = yield* Either.match(outcome, {
           onLeft: (failure) => Effect.succeed(failure),
@@ -304,7 +310,11 @@ export function registerAuthorityNegative(ctx: ConformanceRunContext): void {
         // server.
         const modelVerdict = authorizationOutcome(
           initialReferenceState,
-          { method: ConversationsList.name, params: {} },
+          {
+            definition: ConversationsList,
+            method: ConversationsList.name,
+            params: {},
+          },
           "unknown-agent",
         );
         if (modelVerdict !== "deny-unauthenticated") {
@@ -355,30 +365,25 @@ export function registerRequestIdUniqueness(ctx: ConformanceRunContext): void {
                 yield* Effect.forEach(
                   Array.from({ length: n }, (_, i) => i),
                   () =>
-                    client
-                      .sendRpc(ConversationsList.name, {})
-                      .pipe(Effect.either),
+                    client.sendRpc(ConversationsList, {}).pipe(Effect.either),
                   { concurrency: n },
                 );
                 const snap = (yield* client.snapshot).slice(handshakeEnd);
-                const outboundIds = new Set<string>();
-                const inboundIds = new Set<string>();
+                const outboundIds = new Set<JsonRpcStringId>();
+                const inboundIds = new Set<JsonRpcStringId>();
                 let inboundCount = 0;
                 for (const entry of snap) {
-                  if (
-                    entry.frame?.type !== "request" &&
-                    entry.frame?.type !== "response"
-                  )
-                    continue;
+                  if (entry.frame === null) continue;
                   if (
                     entry.kind === "outbound" &&
-                    entry.frame.type === "request"
+                    isRequestFrame(entry.frame)
                   ) {
                     outboundIds.add(entry.frame.id);
                   }
                   if (
                     entry.kind === "inbound" &&
-                    entry.frame.type === "response"
+                    isResponseFrame(entry.frame) &&
+                    isJsonRpcStringId(entry.frame.id)
                   ) {
                     inboundIds.add(entry.frame.id);
                     inboundCount += 1;
@@ -416,32 +421,32 @@ export function registerRequestIdUniqueness(ctx: ConformanceRunContext): void {
 }
 
 /**
- * Spurious s2c responses do not crash or poison the server. Architect
- * plan §3.3 + §1.7: the server's `s2cPending` map keys on the request id
- * it allocated; an inbound s2c response with no matching pending entry
+ * Spurious appCallback responses do not crash or poison the server. Architect
+ * plan §3.3 + §1.7: the server's `appCallbackPending` map keys on the request id
+ * it allocated; an inbound appCallback response with no matching pending entry
  * is dropped, the connection stays responsive.
  *
  * Status: tombstoned as `PropertyDeferred`. TestClient's public surface
- * is c2s-only; injecting an unsolicited `direction: "s2c"` response on
- * the wire requires either a raw-write primitive on TestClient or a
- * server-side fault-injection seam. The wire-level injection is
- * exercised in B.9 server integration tests where the connection ref is
- * reachable. Tombstoning here keeps the conformance contract visible
+ * only sends normal client-originated requests; injecting an unsolicited
+ * server-originated response on the wire requires either a raw-write primitive
+ * on TestClient or a server-side fault-injection seam. The wire-level
+ * injection is exercised in B.9 server integration tests where the connection
+ * ref is reachable. Tombstoning here keeps the conformance contract visible
  * and avoids reporting false coverage (codex review #327, finding 1).
  */
-export function registerSpuriousS2cFrameHandling(
+export function registerSpuriousAppCallbackFrameHandling(
   ctx: ConformanceRunContext,
 ): void {
   void ctx;
   registerProperty(
     ctx,
     CATEGORY,
-    "spurious-s2c-frame-handling",
-    "stray s2c response with no matching pending ⇒ server drops & stays alive",
+    "spurious-app-callback-frame-handling",
+    "stray appCallback response with no matching pending ⇒ server drops & stays alive",
     Effect.fail(
       new PropertyDeferred({
         category: CATEGORY,
-        name: "spurious-s2c-frame-handling",
+        name: "spurious-app-callback-frame-handling",
         followUp:
           "wire-level raw-frame injection requires TestClient extension; B.9 (#318) covers via server-side fault injection",
       }),
@@ -450,8 +455,8 @@ export function registerSpuriousS2cFrameHandling(
 }
 
 /**
- * Caller-controlled s2c timeout — `awaitServerRequest(method, undef,
- * timeoutMs)` returns a timeout error when no s2c request arrives in the
+ * Caller-controlled appCallback timeout — `awaitServerRequest(method, undef,
+ * timeoutMs)` returns a timeout error when no appCallback request arrives in the
  * window. Architect plan §3.4: timeout policy lives in the caller
  * (`Effect.timeout(manifestHookTimeout)` at the AppHost call site), NOT
  * in the schema. This property anchors the caller-side behaviour the
@@ -462,13 +467,13 @@ export function registerSpuriousS2cFrameHandling(
  * and FIRES IN THE WINDOW the caller passed (within 2x to absorb CI
  * scheduling noise).
  */
-export function registerCallerControlledS2cTimeout(
+export function registerCallerControlledAppCallbackTimeout(
   ctx: ConformanceRunContext,
 ): void {
   registerProperty(
     ctx,
     CATEGORY,
-    CALLER_CONTROLLED_S2C_TIMEOUT_PROPERTY,
+    CALLER_CONTROLLED_APP_CALLBACK_TIMEOUT_PROPERTY,
     "awaitServerRequest(_, _, timeoutMs) fires within the caller's window",
     Effect.scoped(
       Effect.gen(function* () {
@@ -480,7 +485,7 @@ export function registerCallerControlledS2cTimeout(
             (e) =>
               new PropertyInvariantViolation({
                 category: CATEGORY,
-                name: CALLER_CONTROLLED_S2C_TIMEOUT_PROPERTY,
+                name: CALLER_CONTROLLED_APP_CALLBACK_TIMEOUT_PROPERTY,
                 reason: `register agent: ${e.body}`,
               }),
           ),
@@ -496,7 +501,7 @@ export function registerCallerControlledS2cTimeout(
             (e) =>
               new PropertyInvariantViolation({
                 category: CATEGORY,
-                name: CALLER_CONTROLLED_S2C_TIMEOUT_PROPERTY,
+                name: CALLER_CONTROLLED_APP_CALLBACK_TIMEOUT_PROPERTY,
                 reason: `client acquire: ${String(e)}`,
               }),
           ),
@@ -510,7 +515,7 @@ export function registerCallerControlledS2cTimeout(
         const upperBoundMs = timeoutMs * TIMEOUT_UPPER_MULTIPLIER;
         const before = Date.now();
         const outcome = yield* client
-          .awaitServerRequest(AppsOnBeforeDispatch.name, undefined, timeoutMs)
+          .awaitServerRequest(AppsOnBeforeDispatch, undefined, timeoutMs)
           .pipe(Effect.either);
         const elapsed = Date.now() - before;
         const timeoutError = yield* Either.match(outcome, {
@@ -519,8 +524,8 @@ export function registerCallerControlledS2cTimeout(
             Effect.fail(
               new PropertyInvariantViolation({
                 category: CATEGORY,
-                name: CALLER_CONTROLLED_S2C_TIMEOUT_PROPERTY,
-                reason: `expected Left (timeout); got Right (s2c request fired)`,
+                name: CALLER_CONTROLLED_APP_CALLBACK_TIMEOUT_PROPERTY,
+                reason: `expected Left (timeout); got Right (appCallback request fired)`,
               }),
             ),
         });
@@ -528,7 +533,7 @@ export function registerCallerControlledS2cTimeout(
           return yield* Effect.fail(
             new PropertyInvariantViolation({
               category: CATEGORY,
-              name: CALLER_CONTROLLED_S2C_TIMEOUT_PROPERTY,
+              name: CALLER_CONTROLLED_APP_CALLBACK_TIMEOUT_PROPERTY,
               reason: `expected timeout error; got ${timeoutError.message}`,
             }),
           );
@@ -542,7 +547,7 @@ export function registerCallerControlledS2cTimeout(
           return yield* Effect.fail(
             new PropertyInvariantViolation({
               category: CATEGORY,
-              name: CALLER_CONTROLLED_S2C_TIMEOUT_PROPERTY,
+              name: CALLER_CONTROLLED_APP_CALLBACK_TIMEOUT_PROPERTY,
               reason: `timeout fired at ${elapsed}ms; caller asked for ${timeoutMs}ms (window: ${lowerBoundMs}–${upperBoundMs}ms)`,
             }),
           );
@@ -571,11 +576,9 @@ export function registerIdempotence(ctx: ConformanceRunContext): void {
     IDEMPOTENCE_PROPERTY,
     "isIdempotent methods: two sends yield identical response bodies",
     Effect.gen(function* () {
-      const emptyParamIdempotents = [
-        AgentsList.name,
-        ConversationsList.name,
-      ] as const;
-      for (const method of emptyParamIdempotents) {
+      const emptyParamIdempotents = [AgentsList, ConversationsList] as const;
+      for (const definition of emptyParamIdempotents) {
+        const method = definition.name;
         if (!isIdempotent(method)) {
           return yield* Effect.fail(
             new PropertyInvariantViolation({
@@ -598,8 +601,8 @@ export function registerIdempotence(ctx: ConformanceRunContext): void {
               defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
               captureCapacity: DEFAULT_CAPTURE_CAPACITY,
             });
-            const a = yield* client.sendRpc(method, {}).pipe(Effect.either);
-            const b = yield* client.sendRpc(method, {}).pipe(Effect.either);
+            const a = yield* client.sendRpc(definition, {}).pipe(Effect.either);
+            const b = yield* client.sendRpc(definition, {}).pipe(Effect.either);
             return { a, b };
           }),
         ).pipe(

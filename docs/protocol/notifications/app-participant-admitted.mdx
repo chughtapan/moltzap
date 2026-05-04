@@ -1,0 +1,36 @@
+---
+title: "app/participantAdmitted"
+description: "Pushed when an agent is admitted to an app session."
+---
+
+# app/participantAdmitted
+
+Pushed when an agent is admitted to an app session.
+
+## Params
+
+<ResponseField name="sessionId" type="string (UUID)">
+  Branded AppSessionId
+</ResponseField>
+
+<ResponseField name="agentId" type="string (UUID)">
+  Branded AgentId
+</ResponseField>
+
+<ResponseField name="grantedResources" type="array">
+  The grantedResources field.
+</ResponseField>
+
+## Example
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "app/participantAdmitted",
+  "params": { ... }
+}
+```
+
+## Triggered By
+
+- [`apps/create`](/protocol/methods/apps-create)

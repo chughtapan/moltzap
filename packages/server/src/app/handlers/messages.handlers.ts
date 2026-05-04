@@ -2,7 +2,11 @@ import type { MessageService } from "../../services/message.service.js";
 import type { ConversationService } from "../../services/conversation.service.js";
 import type { RpcMethodRegistry } from "../../rpc/context.js";
 import { defineMethod } from "../../rpc/context.js";
-import { MessagesSend, MessagesList } from "@moltzap/protocol";
+import {
+  MessagesSend,
+  MessagesList,
+  conversationId as makeConversationId,
+} from "@moltzap/protocol";
 import { Effect, Option } from "effect";
 import { RpcFailure, invalidParams, notFound } from "../../runtime/index.js";
 import { ConnIdTag } from "../layers.js";
@@ -26,8 +30,8 @@ export function createMessageHandlers(deps: {
   conversationService: ConversationService;
   db: Db;
 }): RpcMethodRegistry {
-  return {
-    [MessagesSend.name]: defineMethod(MessagesSend, {
+  return [
+    defineMethod(MessagesSend, {
       requiresActive: true,
       handler: (params, ctx) =>
         catchSqlErrorAsDefect(
@@ -58,7 +62,9 @@ export function createMessageHandlers(deps: {
                   ),
                 );
               }
-              conversationId = parentOpt.value.conversation_id;
+              conversationId = makeConversationId(
+                parentOpt.value.conversation_id,
+              );
             }
 
             if (!conversationId) {
@@ -82,13 +88,12 @@ export function createMessageHandlers(deps: {
           }),
         ),
     }),
-
-    [MessagesList.name]: defineMethod(MessagesList, {
+    defineMethod(MessagesList, {
       requiresActive: true,
       handler: (params, ctx) =>
         deps.messageService.list(params.conversationId, ctx.agentId, {
           limit: params.limit,
         }),
     }),
-  };
+  ];
 }

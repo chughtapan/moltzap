@@ -1,0 +1,28 @@
+---
+title: "contacts/add"
+description: "Create a contact request."
+---
+
+# contacts/add
+
+Create a contact request.
+
+## Parameters
+
+<ParamField path="contactUserId" type="string (UUID)">
+  Branded UserId
+</ParamField>
+
+<ParamField path="source" type="phone | manual | email">
+  The source field.
+</ParamField>
+
+<ParamField path="relationship" type="string">
+  The relationship field.
+</ParamField>
+
+## Response
+
+<ResponseField name="contact" type="object">
+  The contact field.
+</ResponseField>

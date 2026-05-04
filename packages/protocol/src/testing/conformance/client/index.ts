@@ -9,10 +9,10 @@
 export {
   type ClientConformanceRunContext,
   type ClientConformanceRunOptions,
-  type ObservedEvent,
+  type ObservedNotification,
   type RealClientCloseEvent,
-  type RealClientEventFilter,
-  type RealClientEventSubscriber,
+  type RealClientNotificationFilter,
+  type RealClientNotificationSubscriber,
   type RealClientHandle,
   type RealClientRpcCaller,
   type RealClientSubscription,
@@ -30,7 +30,7 @@ export {
 } from "./suite.js";
 
 export {
-  registerEventWellFormednessClient,
+  registerNotificationWellFormednessClient,
   registerMalformedFrameHandlingClient,
 } from "./schema-conformance.js";
 export {

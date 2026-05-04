@@ -37,7 +37,7 @@ vi.mock("../ws-client.js", async () => {
   return {
     MoltZapWsClient: vi.fn().mockImplementation(() => ({
       connect: () => effect.Effect.void,
-      sendRpc: (_method: string, _params: unknown) =>
+      sendRpc: (_definition: unknown, _params: unknown) =>
         effect.Effect.fail(
           new errors.RpcServerError({
             code: -32001,
@@ -258,7 +258,7 @@ describe("makeDirectTransport — composed rpc() failure path", () => {
     };
     const exit = await Effect.runPromise(
       Transport.pipe(
-        Effect.flatMap((t) => t.rpc(AppsListSessions.name, {})),
+        Effect.flatMap((t) => t.rpc(AppsListSessions, {})),
         Effect.exit,
         Effect.provide(makeTransportLayer(opts)),
       ),

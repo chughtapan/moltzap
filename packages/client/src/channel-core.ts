@@ -6,7 +6,7 @@ import { Cause, Chunk, Duration, Effect, Fiber, Queue } from "effect";
 import type {
   LogicalClock,
   Message,
-  PermissionsRequiredEvent,
+  PermissionsRequiredNotification,
 } from "@moltzap/protocol";
 import type {
   CrossConversationEntry,
@@ -105,7 +105,7 @@ export interface ChannelService {
   ): void;
   on(
     event: "permissionRequired",
-    handler: (data: PermissionsRequiredEvent) => void,
+    handler: (data: PermissionsRequiredNotification) => void,
   ): void;
   connect(): Effect.Effect<unknown, ServiceRpcError>;
   close(): void;
@@ -231,7 +231,7 @@ export class MoltZapChannelCore {
   private disconnectHandlers: Array<() => void> = [];
   private reconnectHandlers: Array<() => void> = [];
   private permissionRequiredHandler:
-    | ((data: PermissionsRequiredEvent) => void)
+    | ((data: PermissionsRequiredNotification) => void)
     | null = null;
 
   constructor(opts: ChannelCoreOptions) {
@@ -325,7 +325,7 @@ export class MoltZapChannelCore {
   }
 
   onPermissionRequired(
-    handler: (data: PermissionsRequiredEvent) => void,
+    handler: (data: PermissionsRequiredNotification) => void,
   ): void {
     this.permissionRequiredHandler = handler;
   }

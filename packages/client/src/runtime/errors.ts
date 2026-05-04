@@ -1,4 +1,8 @@
 import { Data } from "effect";
+import type {
+  AppCallbackRpcMethodName,
+  JsonRpcMethod,
+} from "@moltzap/protocol";
 
 /** The socket is not in the OPEN state when an RPC was attempted. */
 export class NotConnectedError extends Data.TaggedError("NotConnectedError")<{
@@ -7,7 +11,7 @@ export class NotConnectedError extends Data.TaggedError("NotConnectedError")<{
 
 /** The RPC exceeded the per-call timeout without a response frame. */
 export class RpcTimeoutError extends Data.TaggedError("RpcTimeoutError")<{
-  readonly method: string;
+  readonly method: JsonRpcMethod;
   readonly timeoutMs: number;
 }> {}
 
@@ -43,7 +47,7 @@ export class AgentNotFoundError extends Data.TaggedError("AgentNotFoundError")<{
 export class DuplicateServerRpcHandlerError extends Data.TaggedError(
   "DuplicateServerRpcHandlerError",
 )<{
-  readonly method: string;
+  readonly method: AppCallbackRpcMethodName;
 }> {
   override get message(): string {
     return `Server RPC handler already registered for method: ${this.method}`;

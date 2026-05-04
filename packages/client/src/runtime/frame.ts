@@ -1,42 +1,60 @@
 import { Effect } from "effect";
 import {
   validators,
-  type EventFrame,
-  type RequestFrame,
+  type AnyAppCallbackRpcDefinition,
+  type AnyNotificationDefinition,
+  AppsOnBeforeDispatch,
+  AppsOnBeforeMessageDelivery,
+  AppsOnClose,
+  AppsOnJoin,
+  AppsOnSessionActive,
+  appCallbackRpcGroup,
+  decodeNotification,
+  decodeRpcRequest,
+  isDecodedRpcRequest,
+  isJsonRpcStringId,
+  notificationGroup,
+  type DecodedNotification as ProtocolDecodedNotification,
+  type DecodedRpcRequest,
+  type JsonRpcStringId,
   type ResponseFrame,
 } from "@moltzap/protocol";
 import { MalformedFrameError } from "./errors.js";
+import {
+  LIFECYCLE_CONVERSATION_SENTINEL,
+  type AppCallbackPartitionRoute,
+} from "../internal/app-callback-partition-key.js";
 
-/** Decoded c2s response frame — narrowed from the protocol's `ResponseFrame`. */
+/** Decoded response frame — narrowed from the protocol's `ResponseFrame`. */
 export interface DecodedResponse {
   readonly _tag: "Response";
-  readonly id: string;
+  readonly id: JsonRpcStringId;
   readonly result?: unknown;
-  readonly error?: ResponseFrame["error"];
+  readonly error?: Extract<ResponseFrame, { error: unknown }>["error"];
 }
 
-/** Decoded event frame — forwarded to the service's onEvent callback. */
-export interface DecodedEvent {
-  readonly _tag: "Event";
-  readonly frame: EventFrame;
-}
+/** Decoded notification frame. */
+export type DecodedNotification<
+  D extends AnyNotificationDefinition = AnyNotificationDefinition,
+> = ProtocolDecodedNotification<D> & {
+  readonly _tag: "Notification";
+};
 
 /**
- * Decoded server-initiated (s2c) request frame. The client routes these to
+ * Decoded server-initiated (appCallback) request frame. The client routes these to
  * its per-method handler registry; the server is the originator and awaits
- * a matching `direction: "s2c"` response.
+ * a matching JSON-RPC response with the same id.
  */
-export interface DecodedServerRequest {
+export type DecodedServerRequest<
+  D extends AnyAppCallbackRpcDefinition = AnyAppCallbackRpcDefinition,
+> = DecodedRpcRequest<D> & {
   readonly _tag: "ServerRequest";
-  readonly id: string;
-  readonly method: string;
-  readonly params: unknown;
-  readonly traceparent?: string;
-}
+  readonly partition: AppCallbackPartitionRoute;
+};
 
 export type DecodedFrame =
   | DecodedResponse
-  | DecodedEvent
+  | DecodedNotification
   | DecodedServerRequest;
 
 const isFramePadding = (char: string): boolean =>
@@ -44,44 +62,82 @@ const isFramePadding = (char: string): boolean =>
 
 const toDecodedFrame = (
   parsed: unknown,
-): DecodedFrame | MalformedFrameError => {
+): Effect.Effect<DecodedFrame, MalformedFrameError> => {
+  const raw = JSON.stringify(parsed);
   if (validators.responseFrame(parsed)) {
-    const frame = parsed as ResponseFrame;
-    // Defense-in-depth: a `direction: "s2c"` response inbound on the
-    // client would correspond to a client-originated server reply — but
-    // the client never originates s2c requests, so route as malformed.
-    if (frame.direction !== "c2s") {
-      return new MalformedFrameError({ raw: JSON.stringify(parsed) });
+    if (!isJsonRpcStringId(parsed.id)) {
+      return Effect.fail(new MalformedFrameError({ raw }));
     }
-    return {
+    return Effect.succeed({
       _tag: "Response" as const,
-      id: frame.id,
-      result: frame.result,
-      error: frame.error,
-    };
+      id: parsed.id,
+      result: "result" in parsed ? parsed.result : undefined,
+      error: "error" in parsed ? parsed.error : undefined,
+    });
   }
 
   if (validators.requestFrame(parsed)) {
-    const frame = parsed as RequestFrame;
-    // Symmetric defense: a `direction: "c2s"` request inbound on the
-    // client would mean the server is acting as a client — never legal.
-    if (frame.direction !== "s2c") {
-      return new MalformedFrameError({ raw: JSON.stringify(parsed) });
-    }
-    return {
-      _tag: "ServerRequest" as const,
-      id: frame.id,
-      method: frame.method,
-      params: frame.params,
-      traceparent: frame.traceparent,
-    };
+    return decodeRpcRequest(appCallbackRpcGroup, parsed).pipe(
+      Effect.mapError((cause) => new MalformedFrameError({ raw, cause })),
+      Effect.flatMap((request) =>
+        appCallbackPartitionRoute(request).pipe(
+          Effect.map((partition) => ({
+            _tag: "ServerRequest" as const,
+            ...request,
+            partition,
+          })),
+        ),
+      ),
+    );
   }
 
-  if (validators.eventFrame(parsed)) {
-    return { _tag: "Event" as const, frame: parsed as EventFrame };
+  if (validators.notificationFrame(parsed)) {
+    return decodeNotification(notificationGroup, parsed).pipe(
+      Effect.mapError((cause) => new MalformedFrameError({ raw, cause })),
+      Effect.map((notification) => ({
+        _tag: "Notification" as const,
+        ...notification,
+      })),
+    );
   }
 
-  return new MalformedFrameError({ raw: JSON.stringify(parsed) });
+  return Effect.fail(new MalformedFrameError({ raw }));
+};
+
+const lifecycleRoute = (sessionId: string): AppCallbackPartitionRoute => ({
+  sessionId,
+  conversationId: LIFECYCLE_CONVERSATION_SENTINEL,
+});
+
+const appCallbackPartitionRoute = (
+  request: DecodedRpcRequest<AnyAppCallbackRpcDefinition>,
+): Effect.Effect<AppCallbackPartitionRoute, MalformedFrameError> => {
+  if (isDecodedRpcRequest(AppsOnBeforeDispatch, request)) {
+    return Effect.succeed({
+      sessionId: request.params.sessionId,
+      conversationId: request.params.conversationId,
+    });
+  }
+  if (isDecodedRpcRequest(AppsOnBeforeMessageDelivery, request)) {
+    return Effect.succeed({
+      sessionId: request.params.sessionId,
+      conversationId: request.params.conversationId,
+    });
+  }
+  if (isDecodedRpcRequest(AppsOnSessionActive, request)) {
+    return Effect.succeed(lifecycleRoute(request.params.sessionId));
+  }
+  if (isDecodedRpcRequest(AppsOnJoin, request)) {
+    return Effect.succeed(lifecycleRoute(request.params.sessionId));
+  }
+  if (isDecodedRpcRequest(AppsOnClose, request)) {
+    return Effect.succeed(lifecycleRoute(request.params.sessionId));
+  }
+  return Effect.fail(
+    new MalformedFrameError({
+      raw: "unroutable app-callback request descriptor",
+    }),
+  );
 };
 
 export const splitRawFrames = (
@@ -181,10 +237,11 @@ export const decodeFrames = (
         );
       }
 
-      const decoded = toDecodedFrame(parsed);
-      if (decoded instanceof MalformedFrameError) {
-        return yield* Effect.fail(new MalformedFrameError({ raw: frameText }));
-      }
+      const decoded = yield* toDecodedFrame(parsed).pipe(
+        Effect.mapError(
+          (cause) => new MalformedFrameError({ raw: frameText, cause }),
+        ),
+      );
       decodedFrames.push(decoded);
     }
 

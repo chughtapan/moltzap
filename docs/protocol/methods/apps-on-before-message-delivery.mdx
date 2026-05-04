@@ -1,0 +1,48 @@
+---
+title: "apps/onBeforeMessageDelivery"
+description: "App-callback RPC for before-message-delivery admission."
+---
+
+# apps/onBeforeMessageDelivery
+
+App-callback RPC for before-message-delivery admission.
+
+## Parameters
+
+<ParamField path="sessionId" type="string (UUID)" required>
+  The sessionId field.
+</ParamField>
+
+<ParamField path="appId" type="string" required>
+  The appId field.
+</ParamField>
+
+<ParamField path="conversationId" type="string (UUID)" required>
+  Branded ConversationId
+</ParamField>
+
+<ParamField path="sender" type="object" required>
+  The sender field.
+</ParamField>
+
+<ParamField path="message" type="object" required>
+  The message field.
+</ParamField>
+
+## Response
+
+<ResponseField name="block" type="boolean">
+  The block field.
+</ResponseField>
+
+<ResponseField name="reason" type="string">
+  The reason field.
+</ResponseField>
+
+<ResponseField name="patch" type="object">
+  The patch field.
+</ResponseField>
+
+<ResponseField name="feedback" type="object">
+  The feedback field.
+</ResponseField>

@@ -8,7 +8,11 @@ import {
   setupAgentGroup,
 } from "./helpers.js";
 
-import { ConversationsCreate, MessagesSend } from "@moltzap/protocol";
+import {
+  ConversationsCreate,
+  MessagesSend,
+  MessageReceivedNotificationDefinition,
+} from "@moltzap/protocol";
 
 let _baseUrl: string;
 let _wsUrl: string;
@@ -40,7 +44,7 @@ describe("Concurrent Messages", () => {
         // Create 4 separate DM conversations between agent-0 and each of agents 1-4
         const conversations: Array<{ id: string; receiverIdx: number }> = [];
         for (let i = 0; i < receivers.length; i++) {
-          const conv = (yield* sender.client.sendRpc(ConversationsCreate.name, {
+          const conv = (yield* sender.client.sendRpc(ConversationsCreate, {
             type: "dm",
             participants: [{ type: "agent", id: receivers[i]!.agentId }],
           })) as { conversation: { id: string } };
@@ -52,7 +56,7 @@ describe("Concurrent Messages", () => {
         // Send messages to all 4 conversations simultaneously
         yield* Effect.all(
           conversations.map((conv, i) =>
-            sender.client.sendRpc(MessagesSend.name, {
+            sender.client.sendRpc(MessagesSend, {
               conversationId: conv.id,
               parts: [{ type: "text", text: `Hello receiver-${i + 1}` }],
             }),
@@ -61,7 +65,9 @@ describe("Concurrent Messages", () => {
         );
 
         const events = yield* Effect.all(
-          receivers.map((r) => r.client.waitForEvent("messages/received")),
+          receivers.map((r) =>
+            r.client.waitForNotification(MessageReceivedNotificationDefinition),
+          ),
           { concurrency: "unbounded" },
         );
 
@@ -81,8 +87,10 @@ describe("Concurrent Messages", () => {
         // Verify no extra events leaked to any receiver
         for (const receiver of receivers) {
           const extra = receiver.client
-            .drainEvents()
-            .filter((e) => e.event === "messages/received");
+            .drainNotifications()
+            .filter(
+              (e) => e.definition === MessageReceivedNotificationDefinition,
+            );
           expect(extra).toHaveLength(0);
         }
       }),

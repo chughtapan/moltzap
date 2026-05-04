@@ -21,8 +21,8 @@ import {
 } from "./apps.js";
 import {
   rpcMethods,
-  s2cRpcMethods,
-  type S2cRpcMethodName,
+  appCallbackRpcMethods,
+  type AppCallbackRpcMethodName,
 } from "../../rpc-registry.js";
 
 const ajv = addFormats(new Ajv({ strict: true, allErrors: true }));
@@ -42,26 +42,26 @@ const HOOK_AGENT = { agentId: AGENT_ID, ownerId: "owner-1" };
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("admission RPC registration", () => {
-  it("registers the five admission/lifecycle verbs as s2c", () => {
-    const s2cNames = s2cRpcMethods.map((m) => m.name);
-    expect(s2cNames).toEqual([
+  it("registers the five admission/lifecycle verbs as appCallback", () => {
+    const appCallbackNames = appCallbackRpcMethods.map((m) => m.name);
+    expect(appCallbackNames).toEqual([
       AppsOnBeforeDispatch.name,
       AppsOnBeforeMessageDelivery.name,
       AppsOnSessionActive.name,
       AppsOnJoin.name,
       AppsOnClose.name,
-    ] satisfies S2cRpcMethodName[]);
+    ] satisfies AppCallbackRpcMethodName[]);
   });
 
-  it("registers apps/attachConversation as c2s alongside apps/closeSession", () => {
-    const c2sNames = rpcMethods.map((m) => m.name);
-    expect(c2sNames).toContain(AppsAttachConversation.name);
-    expect(c2sNames).toContain(AppsCloseSession.name);
+  it("registers apps/attachConversation as client-originated alongside apps/closeSession", () => {
+    const clientRpcNames = rpcMethods.map((m) => m.name);
+    expect(clientRpcNames).toContain(AppsAttachConversation.name);
+    expect(clientRpcNames).toContain(AppsCloseSession.name);
   });
 
-  it("does not place apps/attachConversation in the s2c tuple", () => {
-    const s2cNames = s2cRpcMethods.map((m) => m.name);
-    expect(s2cNames).not.toContain(AppsAttachConversation.name);
+  it("does not place apps/attachConversation in the appCallback tuple", () => {
+    const appCallbackNames = appCallbackRpcMethods.map((m) => m.name);
+    expect(appCallbackNames).not.toContain(AppsAttachConversation.name);
   });
 });
 
@@ -274,7 +274,7 @@ describe("AppsOnJoin", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// apps/attachConversation — c2s, void result
+// apps/attachConversation — client-originated, void result
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("AppsAttachConversation", () => {

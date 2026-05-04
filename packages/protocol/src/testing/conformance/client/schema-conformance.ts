@@ -2,16 +2,16 @@
  * Client-side schema-conformance properties.
  *
  * Covers spec-amendment #200 §5:
- *   A2 — event-well-formedness (client-side new)
+ *   A2 — notification-well-formedness (client-side new)
  *   A4 — malformed-frame-handling (client half of both-sides)
  *
  * Predicate-authoring discipline:
  *   - P1 (#195): every predicate names a client-realistic misbehaviour.
- *     Here it's "real client surfaces a malformed or dropped event."
+ *     Here it's "real client surfaces a malformed or dropped notification."
  *   - P2 (#195): executable divergence proofs live under
  *     `__divergence_proofs__/*-executable.proofs.test.ts`.
  *   - O7 (#200): every observation filters by property-authored
- *     `emissionTag` via `ClientHandshakeWindow.emitTaggedEvent` — auto-
+ *     `emissionTag` via `ClientHandshakeWindow.emitTaggedNotification` — auto-
  *     subscribe / hello / resume frames never satisfy a predicate.
  *   - O6 (#200): when spec names a typed error, assert exact match.
  *     A4 client half: `MalformedFrameError` is documented; the adapter
@@ -21,8 +21,8 @@
  */
 import { Effect } from "effect";
 import { Value } from "@sinclair/typebox/value";
-import { EventFrameSchema, type EventFrame } from "../../../schema/frames.js";
-import { arbitraryEventFrame } from "../../arbitraries/frames.js";
+import { NotificationFrameSchema } from "../../../schema/frames.js";
+import { arbitraryNotificationFrame } from "../../arbitraries/frames.js";
 import * as fc from "fast-check";
 import type { ClientConformanceRunContext } from "./runner.js";
 import { registerProperty } from "../registry.js";
@@ -34,40 +34,41 @@ import {
 } from "./_fixtures.js";
 
 const CATEGORY = "schema-conformance" as const;
-const PROPERTY_EVENT_WELL_FORMEDNESS_CLIENT = "event-well-formedness-client";
+const PROPERTY_NOTIFICATION_WELL_FORMEDNESS_CLIENT =
+  "notification-well-formedness-client";
 const PROPERTY_MALFORMED_FRAME_HANDLING_CLIENT =
   "malformed-frame-handling-client";
 const PROPERTY_BUDGET_MS = 8_000;
 
 /**
  * A2 client-side — TestServer emits a property-sampled valid
- * `EventFrame` with a property-authored `emissionTag`; real client's
- * subscriber surfaces an event whose payload schema-matches within
+ * `NotificationFrame` with a property-authored `emissionTag`; real client's
+ * subscriber surfaces a notification whose payload schema-matches within
  * deadline.
  *
- * Predicate: `Value.Check(EventFrameSchema, observed.decoded)` passes
- * AND `data.__emissionTag === emissionTag`.
+ * Predicate: `Value.Check(NotificationFrameSchema, observed.decoded)` passes
+ * AND `params.__emissionTag === emissionTag`.
  *
  * Discriminates: a client that strips or reorders required schema
- * fields when surfacing events fails.
+ * fields when surfacing notifications fails.
  */
-export function registerEventWellFormednessClient(
+export function registerNotificationWellFormednessClient(
   ctx: ClientConformanceRunContext,
 ): void {
   registerProperty(
     ctx,
     CATEGORY,
-    PROPERTY_EVENT_WELL_FORMEDNESS_CLIENT,
-    "valid EventFrame emitted by TestServer surfaces schema-clean on real client",
+    PROPERTY_NOTIFICATION_WELL_FORMEDNESS_CLIENT,
+    "valid NotificationFrame emitted by TestServer surfaces schema-clean on real client",
     Effect.scoped(
       Effect.gen(function* () {
         const fx = yield* acquireFixture(
           ctx,
           CATEGORY,
-          PROPERTY_EVENT_WELL_FORMEDNESS_CLIENT,
+          PROPERTY_NOTIFICATION_WELL_FORMEDNESS_CLIENT,
         );
         yield* subscribeAll(fx.handle);
-        const sampled = fc.sample(arbitraryEventFrame(), {
+        const sampled = fc.sample(arbitraryNotificationFrame(), {
           numRuns: 1,
           seed: ctx.seed,
         })[0];
@@ -75,13 +76,13 @@ export function registerEventWellFormednessClient(
           return yield* Effect.fail(
             invariant(
               CATEGORY,
-              PROPERTY_EVENT_WELL_FORMEDNESS_CLIENT,
-              "failed to sample EventFrame",
+              PROPERTY_NOTIFICATION_WELL_FORMEDNESS_CLIENT,
+              "failed to sample NotificationFrame",
             ),
           );
         }
         const tag = yield* fx.window.freshEmissionTag;
-        yield* fx.window.emitTaggedEvent({
+        yield* fx.window.emitTaggedNotification({
           connection: fx.connection,
           base: sampled,
           emissionTag: tag,
@@ -94,24 +95,24 @@ export function registerEventWellFormednessClient(
           return yield* Effect.fail(
             invariant(
               CATEGORY,
-              PROPERTY_EVENT_WELL_FORMEDNESS_CLIENT,
-              `tagged event ${tag} not surfaced within ${PROPERTY_BUDGET_MS}ms`,
+              PROPERTY_NOTIFICATION_WELL_FORMEDNESS_CLIENT,
+              `tagged notification ${tag} not surfaced within ${PROPERTY_BUDGET_MS}ms`,
             ),
           );
         }
-        // Reconstruct the expected event shape and re-check schema.
-        const reconstructed: EventFrame = {
+        const reconstructed = {
           jsonrpc: "2.0",
-          type: "event",
-          event: observed[0]!.eventName,
-          data: observed[0]!.data,
+          method: observed[0]!.notificationName,
+          ...(observed[0]!.params !== undefined
+            ? { params: observed[0]!.params }
+            : {}),
         };
-        if (!Value.Check(EventFrameSchema, reconstructed)) {
+        if (!Value.Check(NotificationFrameSchema, reconstructed)) {
           return yield* Effect.fail(
             invariant(
               CATEGORY,
-              PROPERTY_EVENT_WELL_FORMEDNESS_CLIENT,
-              "real client surfaced event that fails EventFrameSchema",
+              PROPERTY_NOTIFICATION_WELL_FORMEDNESS_CLIENT,
+              "real client surfaced notification that fails NotificationFrameSchema",
             ),
           );
         }
@@ -123,11 +124,11 @@ export function registerEventWellFormednessClient(
 /**
  * A4 client half — TestServer emits a bit-flipped / truncated /
  * oversized frame; real client drops it silently. A subsequent tagged
- * valid event still surfaces (liveness proof, mirrors #187 round-5
+ * valid notification still surfaces (liveness proof, mirrors #187 round-5
  * guard). A client that crashes on the malformed frame disconnects,
  * preventing the liveness probe from surfacing within the deadline.
  *
- * Predicate: liveness — next tagged event surfaces within deadline.
+ * Predicate: liveness — next tagged notification surfaces within deadline.
  */
 export function registerMalformedFrameHandlingClient(
   ctx: ClientConformanceRunContext,
@@ -145,32 +146,32 @@ export function registerMalformedFrameHandlingClient(
           PROPERTY_MALFORMED_FRAME_HANDLING_CLIENT,
         );
         yield* subscribeAll(fx.handle);
-        const baseEvent = fc.sample(arbitraryEventFrame(), {
+        const baseNotification = fc.sample(arbitraryNotificationFrame(), {
           numRuns: 1,
           seed: ctx.seed,
         })[0];
-        if (baseEvent === undefined) {
+        if (baseNotification === undefined) {
           return yield* Effect.fail(
             invariant(
               CATEGORY,
               PROPERTY_MALFORMED_FRAME_HANDLING_CLIENT,
-              "failed to sample base EventFrame",
+              "failed to sample base NotificationFrame",
             ),
           );
         }
         // Emit a malformed frame — the real client must absorb it.
         yield* fx.connection
           .emitMalformed({
-            baseEvent,
+            baseNotification,
             kind: "bit-flip",
             seed: ctx.seed,
           })
           .pipe(Effect.orElseSucceed(() => undefined));
-        // Liveness probe: emit a valid tagged event after the malformed one.
+        // Liveness probe: emit a valid tagged notification after the malformed one.
         const tag = yield* fx.window.freshEmissionTag;
-        yield* fx.window.emitTaggedEvent({
+        yield* fx.window.emitTaggedNotification({
           connection: fx.connection,
-          base: baseEvent,
+          base: baseNotification,
           emissionTag: tag,
         });
         const observed = yield* collectTagged(fx.handle, (t) => t === tag, {
@@ -182,7 +183,7 @@ export function registerMalformedFrameHandlingClient(
             invariant(
               CATEGORY,
               PROPERTY_MALFORMED_FRAME_HANDLING_CLIENT,
-              "liveness failed: no tagged event after malformed emission",
+              "liveness failed: no tagged notification after malformed emission",
             ),
           );
         }

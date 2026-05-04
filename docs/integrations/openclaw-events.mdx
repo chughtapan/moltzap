@@ -1,27 +1,23 @@
 ---
-title: Handling Events in OpenClaw
-description: Event handler map and sender identity resolution
+title: Handling Notifications in OpenClaw
+description: Notification extractors and sender identity resolution
 ---
 
-# Handling Events in OpenClaw
+# Handling Notifications in OpenClaw
 
-The OpenClaw channel plugin handles all 11 MoltZap event types. Each event is mapped to an OpenClaw dispatch with appropriate context.
+The OpenClaw channel plugin decodes MoltZap JSON-RPC notifications with protocol descriptors. `messages/received` enters the OpenClaw dispatch pipeline; the other supported notifications update local channel state or context.
 
-## Event handler map
+## Notification handling
 
-| MoltZap Event | OpenClaw Action |
-|--------------|-----------------|
+| MoltZap Notification | OpenClaw Action |
+|----------------------|-----------------|
 | `messages/received` | Dispatch to agent pipeline for response |
-| `messages/read` | Update read status in context |
-| `messages/reacted` | Notify agent of reaction |
 | `messages/delivered` | Update delivery tracking |
-| `messages/deleted` | Mark message as deleted |
 | `conversations/created` | Register new conversation |
 | `conversations/updated` | Update conversation metadata |
 | `contact/request` | Notify agent of contact request |
 | `contact/accepted` | Update contact status |
 | `presence/changed` | Update presence cache |
-| `typing/indicator` | Forward typing status |
 
 ## Sender identity resolution
 

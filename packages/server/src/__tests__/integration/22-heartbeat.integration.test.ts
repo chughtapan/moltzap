@@ -8,7 +8,11 @@ import {
   setupAgentPair,
 } from "./helpers.js";
 
-import { ConversationsCreate, MessagesSend } from "@moltzap/protocol";
+import {
+  ConversationsCreate,
+  MessagesSend,
+  MessageReceivedNotificationDefinition,
+} from "@moltzap/protocol";
 
 beforeAll(async () => {
   await startTestServer();
@@ -27,7 +31,7 @@ describe("Heartbeat / Idle Connection", () => {
     Effect.gen(function* () {
       const { alice, bob } = yield* setupAgentPair();
 
-      const conv = (yield* alice.client.sendRpc(ConversationsCreate.name, {
+      const conv = (yield* alice.client.sendRpc(ConversationsCreate, {
         type: "dm",
         participants: [{ type: "agent", id: bob.agentId }],
       })) as { conversation: { id: string } };
@@ -39,24 +43,28 @@ describe("Heartbeat / Idle Connection", () => {
       );
 
       // After idle period, Alice sends a message
-      yield* alice.client.sendRpc(MessagesSend.name, {
+      yield* alice.client.sendRpc(MessagesSend, {
         conversationId,
         parts: [{ type: "text", text: "Still alive after idle" }],
       });
 
-      const bobEvent = yield* bob.client.waitForEvent("messages/received");
+      const bobEvent = yield* bob.client.waitForNotification(
+        MessageReceivedNotificationDefinition,
+      );
       const received = (
         bobEvent.data as { message: { parts: Array<{ text: string }> } }
       ).message;
       expect(received.parts[0]!.text).toBe("Still alive after idle");
 
       // Verify bidirectional: Bob replies after idle
-      yield* bob.client.sendRpc(MessagesSend.name, {
+      yield* bob.client.sendRpc(MessagesSend, {
         conversationId,
         parts: [{ type: "text", text: "Reply after idle" }],
       });
 
-      const aliceEvent = yield* alice.client.waitForEvent("messages/received");
+      const aliceEvent = yield* alice.client.waitForNotification(
+        MessageReceivedNotificationDefinition,
+      );
       const aliceReceived = (
         aliceEvent.data as { message: { parts: Array<{ text: string }> } }
       ).message;

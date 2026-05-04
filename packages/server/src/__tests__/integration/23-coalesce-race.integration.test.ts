@@ -132,7 +132,7 @@ describe("Scenario 23: coalesce race on permission requests", () => {
         // `${USER_BOB}:coalesce-race-app:calendar`, identical across all N.
         const N = 5;
         const createEffects = Array.from({ length: N }, () =>
-          alice.client.sendRpc(AppsCreate.name, {
+          alice.client.sendRpc(AppsCreate, {
             appId: "coalesce-race-app",
             invitedAgentIds: [bob.agentId],
           }),

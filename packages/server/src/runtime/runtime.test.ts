@@ -7,7 +7,7 @@ import { InvalidParamsError, RpcFailure } from "./errors.js";
 interface Shape {
   name: string;
 }
-const accept = (x: unknown): boolean =>
+const accept = (x: unknown): x is Shape =>
   typeof x === "object" &&
   x !== null &&
   typeof (x as Record<string, unknown>)["name"] === "string";

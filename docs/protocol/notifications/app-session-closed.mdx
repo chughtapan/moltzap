@@ -1,0 +1,28 @@
+---
+title: "app/sessionClosed"
+description: "Pushed when an app session closes."
+---
+
+# app/sessionClosed
+
+Pushed when an app session closes.
+
+## Params
+
+<ResponseField name="sessionId" type="string (UUID)">
+  Branded AppSessionId
+</ResponseField>
+
+<ResponseField name="closedBy" type="string (UUID)">
+  Branded AgentId
+</ResponseField>
+
+## Example
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "app/sessionClosed",
+  "params": { ... }
+}
+```

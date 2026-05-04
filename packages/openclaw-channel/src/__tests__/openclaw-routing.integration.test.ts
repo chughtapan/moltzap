@@ -73,19 +73,22 @@ describe.skipIf(inject("containerAId") === "")(
             yield* aliceClient.connect();
 
             const convId = extractConvId(
-              yield* aliceClient.sendRpc(ConversationsCreate.name, {
+              yield* aliceClient.sendRpc(ConversationsCreate, {
                 type: "dm",
                 participants: [{ type: "agent", id: containerAAgentId }],
               }),
             );
 
-            yield* aliceClient.sendRpc(MessagesSend.name, {
+            yield* aliceClient.sendRpc(MessagesSend, {
               conversationId: convId,
               parts: [{ type: "text", text: "hello from alice" }],
             });
 
             const reply = extractMessage(
-              yield* aliceClient.waitForEvent("messages/received", 60_000),
+              yield* aliceClient.waitForNotification(
+                "messages/received",
+                60_000,
+              ),
             );
             expect(reply.parts.length).toBeGreaterThan(0);
             expect(reply.conversationId).toBe(convId);
@@ -119,7 +122,7 @@ describe.skipIf(inject("containerAId") === "")(
             yield* aliceClient.connect();
 
             const convId = extractConvId(
-              yield* aliceClient.sendRpc(ConversationsCreate.name, {
+              yield* aliceClient.sendRpc(ConversationsCreate, {
                 type: "group",
                 name: "Integration Group",
                 participants: [
@@ -132,13 +135,16 @@ describe.skipIf(inject("containerAId") === "")(
             // Wait for conversation event to propagate to the gateway
             yield* Effect.promise(() => new Promise((r) => setTimeout(r, 500)));
 
-            yield* aliceClient.sendRpc(MessagesSend.name, {
+            yield* aliceClient.sendRpc(MessagesSend, {
               conversationId: convId,
               parts: [{ type: "text", text: "hello group" }],
             });
 
             const reply = extractMessage(
-              yield* aliceClient.waitForEvent("messages/received", 60_000),
+              yield* aliceClient.waitForNotification(
+                "messages/received",
+                60_000,
+              ),
             );
             expect(reply.parts.length).toBeGreaterThan(0);
             expect(reply.conversationId).toBe(convId);
@@ -166,14 +172,14 @@ describe.skipIf(inject("containerAId") === "")(
             yield* aliceClient.connect();
 
             const convId = extractConvId(
-              yield* aliceClient.sendRpc(ConversationsCreate.name, {
+              yield* aliceClient.sendRpc(ConversationsCreate, {
                 type: "dm",
                 participants: [{ type: "agent", id: containerAAgentId }],
               }),
             );
 
             for (let i = 0; i < 3; i++) {
-              yield* aliceClient.sendRpc(MessagesSend.name, {
+              yield* aliceClient.sendRpc(MessagesSend, {
                 conversationId: convId,
                 parts: [{ type: "text", text: `Message ${i}` }],
               });
@@ -181,9 +187,9 @@ describe.skipIf(inject("containerAId") === "")(
 
             const replies = yield* Effect.all(
               [
-                aliceClient.waitForEvent("messages/received", 60_000),
-                aliceClient.waitForEvent("messages/received", 60_000),
-                aliceClient.waitForEvent("messages/received", 60_000),
+                aliceClient.waitForNotification("messages/received", 60_000),
+                aliceClient.waitForNotification("messages/received", 60_000),
+                aliceClient.waitForNotification("messages/received", 60_000),
               ],
               { concurrency: "unbounded" },
             );
@@ -220,32 +226,32 @@ describe.skipIf(inject("containerAId") === "")(
           yield* aliceClient.connect();
 
           const convAId = extractConvId(
-            yield* aliceClient.sendRpc(ConversationsCreate.name, {
+            yield* aliceClient.sendRpc(ConversationsCreate, {
               type: "dm",
               participants: [{ type: "agent", id: containerAAgentId }],
             }),
           );
 
           const convBId = extractConvId(
-            yield* aliceClient.sendRpc(ConversationsCreate.name, {
+            yield* aliceClient.sendRpc(ConversationsCreate, {
               type: "dm",
               participants: [{ type: "agent", id: containerBAgentId }],
             }),
           );
 
-          yield* aliceClient.sendRpc(MessagesSend.name, {
+          yield* aliceClient.sendRpc(MessagesSend, {
             conversationId: convAId,
             parts: [{ type: "text", text: "hello container-a" }],
           });
-          yield* aliceClient.sendRpc(MessagesSend.name, {
+          yield* aliceClient.sendRpc(MessagesSend, {
             conversationId: convBId,
             parts: [{ type: "text", text: "hello container-b" }],
           });
 
           const events = yield* Effect.all(
             [
-              aliceClient.waitForEvent("messages/received", 60_000),
-              aliceClient.waitForEvent("messages/received", 60_000),
+              aliceClient.waitForNotification("messages/received", 60_000),
+              aliceClient.waitForNotification("messages/received", 60_000),
             ],
             { concurrency: "unbounded" },
           );
@@ -292,14 +298,14 @@ describe.skipIf(inject("containerAId") === "")(
             yield* senderClient.connect();
 
             const lookupResult = (yield* senderClient.sendRpc(
-              AgentsLookupByName.name,
+              AgentsLookupByName,
               {
                 names: ["out-receiver-pro"],
               },
             )) as { agents: { id: string }[] };
 
             const convId = extractConvId(
-              yield* senderClient.sendRpc(ConversationsCreate.name, {
+              yield* senderClient.sendRpc(ConversationsCreate, {
                 type: "dm",
                 participants: [
                   { type: "agent", id: lookupResult.agents[0]!.id },
@@ -307,13 +313,16 @@ describe.skipIf(inject("containerAId") === "")(
               }),
             );
 
-            yield* senderClient.sendRpc(MessagesSend.name, {
+            yield* senderClient.sendRpc(MessagesSend, {
               conversationId: convId,
               parts: [{ type: "text", text: "proactive hello" }],
             });
 
             const received = extractMessage(
-              yield* receiverClient.waitForEvent("messages/received", 60_000),
+              yield* receiverClient.waitForNotification(
+                "messages/received",
+                60_000,
+              ),
             );
             expect(received.senderId).toBe(containerAAgentId);
             expect(extractText(received)).toBe("proactive hello");
@@ -348,14 +357,14 @@ describe.skipIf(inject("containerAId") === "")(
             yield* senderClient.connect();
 
             const lookupResult = (yield* senderClient.sendRpc(
-              AgentsLookupByName.name,
+              AgentsLookupByName,
               {
                 names: ["out-receiver-dup"],
               },
             )) as { agents: { id: string }[] };
 
             const convId1 = extractConvId(
-              yield* senderClient.sendRpc(ConversationsCreate.name, {
+              yield* senderClient.sendRpc(ConversationsCreate, {
                 type: "dm",
                 participants: [
                   { type: "agent", id: lookupResult.agents[0]!.id },
@@ -363,20 +372,26 @@ describe.skipIf(inject("containerAId") === "")(
               }),
             );
 
-            yield* senderClient.sendRpc(MessagesSend.name, {
+            yield* senderClient.sendRpc(MessagesSend, {
               conversationId: convId1,
               parts: [{ type: "text", text: "first" }],
             });
             const msg1 = extractMessage(
-              yield* receiverClient.waitForEvent("messages/received", 60_000),
+              yield* receiverClient.waitForNotification(
+                "messages/received",
+                60_000,
+              ),
             );
 
-            yield* senderClient.sendRpc(MessagesSend.name, {
+            yield* senderClient.sendRpc(MessagesSend, {
               conversationId: convId1,
               parts: [{ type: "text", text: "second" }],
             });
             const msg2 = extractMessage(
-              yield* receiverClient.waitForEvent("messages/received", 60_000),
+              yield* receiverClient.waitForNotification(
+                "messages/received",
+                60_000,
+              ),
             );
 
             expect(msg1.conversationId).toBe(convId1);
@@ -406,7 +421,7 @@ describe.skipIf(inject("containerAId") === "")(
             yield* agentClient.connect();
 
             const result = yield* Effect.exit(
-              agentClient.sendRpc(AgentsLookupByName.name, {
+              agentClient.sendRpc(AgentsLookupByName, {
                 name: "nonexistent-agent-xyz",
               }),
             );
@@ -434,7 +449,7 @@ describe.skipIf(inject("containerAId") === "")(
             yield* aliceClient.connect();
 
             const convId = extractConvId(
-              yield* aliceClient.sendRpc(ConversationsCreate.name, {
+              yield* aliceClient.sendRpc(ConversationsCreate, {
                 type: "dm",
                 participants: [{ type: "agent", id: containerAAgentId }],
               }),
@@ -442,13 +457,16 @@ describe.skipIf(inject("containerAId") === "")(
 
             const largeText = "A".repeat(5000);
 
-            yield* aliceClient.sendRpc(MessagesSend.name, {
+            yield* aliceClient.sendRpc(MessagesSend, {
               conversationId: convId,
               parts: [{ type: "text", text: largeText }],
             });
 
             const reply = extractMessage(
-              yield* aliceClient.waitForEvent("messages/received", 60_000),
+              yield* aliceClient.waitForNotification(
+                "messages/received",
+                60_000,
+              ),
             );
             expect(reply.conversationId).toBe(convId);
             expect(reply.senderId).toBe(containerAAgentId);
@@ -478,19 +496,22 @@ describe.skipIf(inject("containerAId") === "")(
             yield* aliceClient.connect();
 
             const convId = extractConvId(
-              yield* aliceClient.sendRpc(ConversationsCreate.name, {
+              yield* aliceClient.sendRpc(ConversationsCreate, {
                 type: "dm",
                 participants: [{ type: "agent", id: containerAAgentId }],
               }),
             );
 
             // Send first message to verify baseline works
-            yield* aliceClient.sendRpc(MessagesSend.name, {
+            yield* aliceClient.sendRpc(MessagesSend, {
               conversationId: convId,
               parts: [{ type: "text", text: "before drop" }],
             });
             const reply1 = extractMessage(
-              yield* aliceClient.waitForEvent("messages/received", 60_000),
+              yield* aliceClient.waitForNotification(
+                "messages/received",
+                60_000,
+              ),
             );
             expect(extractText(reply1)).toContain("ECHO:");
 
@@ -508,12 +529,15 @@ describe.skipIf(inject("containerAId") === "")(
             yield* aliceClient2.connect();
 
             // Send message after reconnection
-            yield* aliceClient2.sendRpc(MessagesSend.name, {
+            yield* aliceClient2.sendRpc(MessagesSend, {
               conversationId: convId,
               parts: [{ type: "text", text: "after reconnect" }],
             });
             const reply2 = extractMessage(
-              yield* aliceClient2.waitForEvent("messages/received", 60_000),
+              yield* aliceClient2.waitForNotification(
+                "messages/received",
+                60_000,
+              ),
             );
             expect(extractText(reply2)).toContain("ECHO:");
             expect(reply2.conversationId).toBe(convId);

@@ -1,9 +1,13 @@
 import Ajv from "ajv";
 import addFormats from "ajv-formats";
+import { type Static, type TSchema } from "@sinclair/typebox";
 import {
   RequestFrameSchema,
   ResponseFrameSchema,
-  EventFrameSchema,
+  NotificationFrameSchema,
+  type RequestFrame,
+  type ResponseFrame,
+  type NotificationFrame,
 } from "./schema/index.js";
 import { PushPreferencesSchema } from "./schema/methods/push.js";
 import {
@@ -40,6 +44,27 @@ import {
   PresenceUpdate,
   PresenceSubscribe,
 } from "./schema/methods/presence.js";
+import {
+  AppHookTimeoutNotificationDefinition,
+  AppParticipantAdmittedNotificationDefinition,
+  AppParticipantRejectedNotificationDefinition,
+  AppSessionClosedNotificationDefinition,
+  AppSessionFailedNotificationDefinition,
+  AppSessionReadyNotificationDefinition,
+  AppSkillChallengeNotificationDefinition,
+  ContactAcceptedNotificationDefinition,
+  ContactRequestNotificationDefinition,
+  ConversationArchivedNotificationDefinition,
+  ConversationCreatedNotificationDefinition,
+  ConversationUnarchivedNotificationDefinition,
+  ConversationUpdatedNotificationDefinition,
+  MessageDeliveredNotificationDefinition,
+  MessageReceivedNotificationDefinition,
+  PermissionsRequiredNotificationDefinition,
+  PresenceChangedNotificationDefinition,
+  SurfaceClearedNotificationDefinition,
+  SurfaceUpdatedNotificationDefinition,
+} from "./schema/notifications.js";
 import { PushRegister, PushUnregister } from "./schema/methods/push.js";
 import {
   SurfaceUpdate,
@@ -69,17 +94,28 @@ import { SystemPing } from "./schema/methods/system.js";
  */
 const ajv = addFormats(new Ajv({ strict: true, allErrors: true }));
 
+const compileGuard = <S extends TSchema, Guarded = Static<S>>(schema: S) => {
+  const validate = ajv.compile<Static<S>>(schema);
+  return (value: unknown): value is Guarded => validate(value);
+};
+
 /**
  * Named validator table. Every RPC manifest's `validateParams` is re-exported
- * here under the legacy `xxxParams` key so existing call sites keep working.
- * Frame validators (`requestFrame`, `responseFrame`, `eventFrame`) live here
- * because they're not RPC methods.
+ * here under a stable `xxxParams` key. Frame validators and notification
+ * payload validators live here because they are not request/response RPCs.
  */
 export const validators = {
   // Frames.
-  requestFrame: ajv.compile(RequestFrameSchema),
-  responseFrame: ajv.compile(ResponseFrameSchema),
-  eventFrame: ajv.compile(EventFrameSchema),
+  requestFrame: compileGuard<typeof RequestFrameSchema, RequestFrame>(
+    RequestFrameSchema,
+  ),
+  responseFrame: compileGuard<typeof ResponseFrameSchema, ResponseFrame>(
+    ResponseFrameSchema,
+  ),
+  notificationFrame: compileGuard<
+    typeof NotificationFrameSchema,
+    NotificationFrame
+  >(NotificationFrameSchema),
 
   // Auth.
   registerParams: Register.validateParams,
@@ -124,7 +160,7 @@ export const validators = {
   // Push.
   pushRegisterParams: PushRegister.validateParams,
   pushUnregisterParams: PushUnregister.validateParams,
-  pushPreferencesParams: ajv.compile(PushPreferencesSchema),
+  pushPreferencesParams: compileGuard(PushPreferencesSchema),
 
   // Surfaces.
   surfaceUpdateParams: SurfaceUpdate.validateParams,
@@ -147,6 +183,46 @@ export const validators = {
 
   // System.
   systemPingParams: SystemPing.validateParams,
+
+  // Notifications.
+  messageReceivedNotification:
+    MessageReceivedNotificationDefinition.validateParams,
+  messageDeliveredNotification:
+    MessageDeliveredNotificationDefinition.validateParams,
+  conversationCreatedNotification:
+    ConversationCreatedNotificationDefinition.validateParams,
+  conversationUpdatedNotification:
+    ConversationUpdatedNotificationDefinition.validateParams,
+  conversationArchivedNotification:
+    ConversationArchivedNotificationDefinition.validateParams,
+  conversationUnarchivedNotification:
+    ConversationUnarchivedNotificationDefinition.validateParams,
+  contactRequestNotification:
+    ContactRequestNotificationDefinition.validateParams,
+  contactAcceptedNotification:
+    ContactAcceptedNotificationDefinition.validateParams,
+  presenceChangedNotification:
+    PresenceChangedNotificationDefinition.validateParams,
+  surfaceUpdatedNotification:
+    SurfaceUpdatedNotificationDefinition.validateParams,
+  surfaceClearedNotification:
+    SurfaceClearedNotificationDefinition.validateParams,
+  appSkillChallengeNotification:
+    AppSkillChallengeNotificationDefinition.validateParams,
+  permissionsRequiredNotification:
+    PermissionsRequiredNotificationDefinition.validateParams,
+  appParticipantAdmittedNotification:
+    AppParticipantAdmittedNotificationDefinition.validateParams,
+  appParticipantRejectedNotification:
+    AppParticipantRejectedNotificationDefinition.validateParams,
+  appSessionReadyNotification:
+    AppSessionReadyNotificationDefinition.validateParams,
+  appSessionFailedNotification:
+    AppSessionFailedNotificationDefinition.validateParams,
+  appSessionClosedNotification:
+    AppSessionClosedNotificationDefinition.validateParams,
+  appHookTimeoutNotification:
+    AppHookTimeoutNotificationDefinition.validateParams,
 } as const;
 
 export type ValidatorName = keyof typeof validators;

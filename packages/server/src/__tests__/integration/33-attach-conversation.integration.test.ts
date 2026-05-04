@@ -85,7 +85,7 @@ function createSoloSession(
   appId: string,
 ): Effect.Effect<{ sessionId: string }, Error> {
   return Effect.gen(function* () {
-    const res = (yield* agent.client.sendRpc(AppsCreate.name, {
+    const res = (yield* agent.client.sendRpc(AppsCreate, {
       appId,
       invitedAgentIds: [],
     })) as { session: { id: string } };
@@ -107,7 +107,7 @@ describe("Scenario 33: attachConversation", () => {
         "attach-basic",
       );
 
-      const dm = (yield* initiator.client.sendRpc(ConversationsCreate.name, {
+      const dm = (yield* initiator.client.sendRpc(ConversationsCreate, {
         type: "dm",
         participants: [{ type: "agent", id: peer.agentId }],
       })) as { conversation: { id: string } };
@@ -142,7 +142,7 @@ describe("Scenario 33: attachConversation", () => {
         "attach-idem",
       );
 
-      const dm = (yield* initiator.client.sendRpc(ConversationsCreate.name, {
+      const dm = (yield* initiator.client.sendRpc(ConversationsCreate, {
         type: "dm",
         participants: [{ type: "agent", id: peer.agentId }],
       })) as { conversation: { id: string } };
@@ -179,7 +179,7 @@ describe("Scenario 33: attachConversation", () => {
           "attach-keyswap",
         );
 
-        const dm = (yield* initiator.client.sendRpc(ConversationsCreate.name, {
+        const dm = (yield* initiator.client.sendRpc(ConversationsCreate, {
           type: "dm",
           participants: [{ type: "agent", id: peer.agentId }],
         })) as { conversation: { id: string } };
@@ -216,11 +216,11 @@ describe("Scenario 33: attachConversation", () => {
           "attach-convswap",
         );
 
-        const dmA = (yield* initiator.client.sendRpc(ConversationsCreate.name, {
+        const dmA = (yield* initiator.client.sendRpc(ConversationsCreate, {
           type: "dm",
           participants: [{ type: "agent", id: peerA.agentId }],
         })) as { conversation: { id: string } };
-        const dmB = (yield* initiator.client.sendRpc(ConversationsCreate.name, {
+        const dmB = (yield* initiator.client.sendRpc(ConversationsCreate, {
           type: "dm",
           participants: [{ type: "agent", id: peerB.agentId }],
         })) as { conversation: { id: string } };
@@ -260,9 +260,9 @@ describe("Scenario 33: attachConversation", () => {
         "attach-closed",
       );
 
-      yield* initiator.client.sendRpc(AppsCloseSession.name, { sessionId });
+      yield* initiator.client.sendRpc(AppsCloseSession, { sessionId });
 
-      const dm = (yield* initiator.client.sendRpc(ConversationsCreate.name, {
+      const dm = (yield* initiator.client.sendRpc(ConversationsCreate, {
         type: "dm",
         participants: [{ type: "agent", id: peer.agentId }],
       })) as { conversation: { id: string } };
@@ -291,7 +291,7 @@ describe("Scenario 33: attachConversation", () => {
         const a = yield* createSoloSession(coreApp, initiator, "attach-xsess");
         const b = yield* createSoloSession(coreApp, initiator, "attach-xsess");
 
-        const dm = (yield* initiator.client.sendRpc(ConversationsCreate.name, {
+        const dm = (yield* initiator.client.sendRpc(ConversationsCreate, {
           type: "dm",
           participants: [{ type: "agent", id: peer.agentId }],
         })) as { conversation: { id: string } };
@@ -345,7 +345,7 @@ describe("Scenario 33: attachConversation", () => {
           "attach-hook",
         );
 
-        const dm = (yield* initiator.client.sendRpc(ConversationsCreate.name, {
+        const dm = (yield* initiator.client.sendRpc(ConversationsCreate, {
           type: "dm",
           participants: [{ type: "agent", id: peer.agentId }],
         })) as { conversation: { id: string } };
@@ -354,7 +354,7 @@ describe("Scenario 33: attachConversation", () => {
         // Sanity: before attaching, the hook is bypassed — the convId is not
         // in AppHost.conversationToSession, so runBeforeMessageDelivery
         // returns null and the message passes through unchanged.
-        const preAttach = (yield* initiator.client.sendRpc(MessagesSend.name, {
+        const preAttach = (yield* initiator.client.sendRpc(MessagesSend, {
           conversationId: dmId,
           parts: [{ type: "text", text: "pre-attach" }],
         })) as { message: { parts: Array<{ text: string }> } };
@@ -363,7 +363,7 @@ describe("Scenario 33: attachConversation", () => {
         yield* coreApp.attachAppConversation(sessionId, dmId, "role_dm");
 
         // Post-attach: hook fires and patches the parts.
-        const postAttach = (yield* initiator.client.sendRpc(MessagesSend.name, {
+        const postAttach = (yield* initiator.client.sendRpc(MessagesSend, {
           conversationId: dmId,
           parts: [{ type: "text", text: "post-attach" }],
         })) as {
@@ -391,7 +391,7 @@ describe("Scenario 33: attachConversation", () => {
         initiator,
         "attach-ecode",
       );
-      const dm = (yield* initiator.client.sendRpc(ConversationsCreate.name, {
+      const dm = (yield* initiator.client.sendRpc(ConversationsCreate, {
         type: "dm",
         participants: [{ type: "agent", id: peer.agentId }],
       })) as { conversation: { id: string } };

@@ -93,7 +93,7 @@ async onMessage(evt, ws) {
 
 ### 3. Agent responds
 
-The agent sends messages through server-core normally. Your app listens for events targeted at the user's agent and relays them to the human's WebSocket:
+The agent sends messages through server-core normally. Your app listens for messages targeted at the user's agent and relays them to the human's WebSocket:
 
 ```typescript
 moltzapService.on("message", (msg) => {
@@ -117,7 +117,7 @@ moltzapService.on("message", (msg) => {
 Check that the agent is connected to server-core and subscribed to the conversation. Use `moltzap conversations list --agent <name>` to verify.
 
 **Agent responds but human doesn't see it**
-Your app needs to listen for `messages/received` events on the agent's connection and relay them to the human's WebSocket. Make sure your event handler is registered before the agent sends.
+Your app needs to listen for `messages/received` notifications on the agent's connection and relay them to the human's WebSocket. Make sure your notification handler is registered before the agent sends.
 
 **Multiple agents per user**
 If a user owns multiple agents, your app needs to track which agent the user is currently talking to. Store the active agent ID in the user's session.

@@ -4,34 +4,39 @@
  *
  * Strategy: extend the real `MoltZapService`, keeping all stateful logic
  * intact, and override only `sendRpc` so every RPC is answered from a
- * canned-response map. The typed `setResponse` helper indexes by
- * `RpcMethodName` so a typo in the wire name is a compile error — unknown
- * methods fail *at compile time*, not at runtime.
+ * canned-response map. `setResponse` indexes by protocol descriptor so a
+ * typo in the wire name cannot compile.
  *
  * Motivation: the `sendToAgent` contract drift bug (A7) happened because a
  * hand-maintained mock drifted from the real wire shape. Typed method names
  * surface renames and additions to the RPC surface as compile errors across
  * every test that uses the fake.
  *
- * Two APIs:
- *   (1) `setResponse(method, result)` — strict. `method` must be a
- *       `RpcMethodName`; `result` must match `RpcMap[M]["result"]`.
- *   (2) `responses` — the underlying `Map<string, unknown>`. Permissive,
- *       preserved so existing callers that set unstyped shapes
- *       (e.g. `{}` for a method whose real result has required fields)
- *       keep working. Prefer `setResponse` in new code.
+ * Canned responses are validated through the descriptor's result schema before
+ * they are returned, matching the real transport boundary.
  */
 
 import type {
-  EventFrame,
+  DecodedNotification,
+  AnyNotificationDefinition,
+  NotificationFrame,
   Message,
-  RpcMap,
-  RpcMethodName,
+  ParamsOf,
+  ResultOf,
+  RpcDefinition,
+  TSchema,
+} from "@moltzap/protocol";
+import {
+  decodeRpcResult,
+  decodeNotification,
+  ErrorCodes,
+  notificationGroup,
 } from "@moltzap/protocol";
 import { Effect, HashMap, Option, Ref } from "effect";
 import { MoltZapService, type ServiceRpcError } from "../service.js";
 import type { RpcCallOptions } from "../ws-client.js";
 import { RpcServerError } from "../runtime/errors.js";
+import { testAgentId } from "./ids.js";
 
 /** A tracked `sendRpc` invocation. */
 export interface RecordedCall {
@@ -40,27 +45,12 @@ export interface RecordedCall {
   opts?: RpcCallOptions;
 }
 
-/**
- * Strict canned-response registry shape. Methods must be known protocol
- * names; results must match their declared schema. Use via `setResponse` —
- * spelled out as a type so downstream consumers can compose their own
- * factories.
- */
-export type CannedResponses = Partial<{
-  [M in RpcMethodName]:
-    | RpcMap[M]["result"]
-    | ((params: RpcMap[M]["params"]) => RpcMap[M]["result"]);
-}>;
-
 export class FakeMoltZapService extends MoltZapService {
   calls: RecordedCall[] = [];
-  /**
-   * Permissive response map. Prefer {@link setResponse} for typed
-   * registration. Keep this as `Map<string, unknown>` so tests that pass
-   * partial or loosely-shaped canned values — and tests that assert on
-   * unknown-method rejection — keep working.
-   */
-  responses = new Map<string, unknown>();
+  private readonly responses = new Map<
+    string,
+    (params: unknown) => Effect.Effect<unknown, ServiceRpcError>
+  >();
 
   constructor(
     opts: {
@@ -75,48 +65,54 @@ export class FakeMoltZapService extends MoltZapService {
   }
 
   /**
-   * Register a canned response, typed against the real RPC map. Unknown
-   * method names are a compile error (`RpcMethodName` is a union literal),
-   * and values must match `RpcMap[M]["result"]` — a schema change in the
-   * protocol flows through to every test that sets a response for that
-   * method.
+   * Register a canned response, typed against the real RPC descriptor.
    */
-  setResponse<M extends RpcMethodName>(
-    method: M,
-    result:
-      | RpcMap[M]["result"]
-      | ((params: RpcMap[M]["params"]) => RpcMap[M]["result"]),
+  setResponse<D extends RpcDefinition<string, TSchema, TSchema>>(
+    definition: D,
+    result: ResultOf<D>,
   ): void {
-    this.responses.set(method, result);
+    this.responses.set(definition.name, () => Effect.succeed(result));
   }
 
   /**
-   * Remove a previously-registered response. Typed against `RpcMethodName`
-   * so `deleteResponse("agents/lookpByName")` (typo) is a compile error.
+   * Remove a previously-registered response.
    */
-  deleteResponse(method: RpcMethodName): void {
-    this.responses.delete(method);
+  deleteResponse<D extends RpcDefinition<string, TSchema, TSchema>>(
+    definition: D,
+  ): void {
+    this.responses.delete(definition.name);
   }
 
-  override sendRpc(
-    method: string,
-    params?: unknown,
+  override sendRpc<D extends RpcDefinition<string, TSchema, TSchema>>(
+    definition: D,
+    params: ParamsOf<D>,
     opts?: RpcCallOptions,
-  ): Effect.Effect<unknown, ServiceRpcError> {
+  ): Effect.Effect<ResultOf<D>, ServiceRpcError> {
     return Effect.suspend(() => {
+      const method = definition.name;
       this.calls.push(
         opts === undefined ? { method, params } : { method, params, opts },
       );
-      if (this.responses.has(method)) {
-        const entry = this.responses.get(method);
-        if (typeof entry === "function") {
-          return Effect.sync(() => (entry as (p: unknown) => unknown)(params));
-        }
-        return Effect.succeed(entry);
+      const responder = this.responses.get(method);
+      if (responder !== undefined) {
+        return responder(params).pipe(
+          Effect.flatMap((result) =>
+            decodeRpcResult(definition, result).pipe(
+              Effect.mapError(
+                () =>
+                  new RpcServerError({
+                    code: ErrorCodes.InternalError,
+                    message: `FakeMoltZapService: invalid result for ${method}`,
+                    data: result,
+                  }),
+              ),
+            ),
+          ),
+        );
       }
       return Effect.fail(
         new RpcServerError({
-          code: -32601,
+          code: ErrorCodes.MethodNotFound,
           message: `FakeMoltZapService: no canned response for ${method}`,
         }),
       );
@@ -142,18 +138,35 @@ export class FakeMoltZapService extends MoltZapService {
     );
   }
 
-  /** Deliver a protocol event through the real service event handler. */
-  emitEvent(event: EventFrame): void {
-    (Reflect.get(this, "handleEvent") as (frame: EventFrame) => void).call(
-      this,
-      event,
+  /** Deliver a protocol notification through the real service handler. */
+  emitEvent(event: NotificationFrame): void {
+    const notification = Effect.runSync(
+      decodeNotification(notificationGroup, event).pipe(
+        Effect.mapError(
+          () =>
+            new RpcServerError({
+              code: ErrorCodes.InvalidParams,
+              message: `FakeMoltZapService: invalid notification ${event.method}`,
+              data: event.params,
+            }),
+        ),
+      ),
     );
+    this.emitNotification(notification);
+  }
+
+  emitNotification(
+    notification: DecodedNotification<AnyNotificationDefinition>,
+  ): void {
+    this.handleNotification(notification);
   }
 
   /** Pin an agent name in the internal cache without an RPC round-trip. */
   setAgentNameDirect(id: string, name: string): void {
     Effect.runSync(
-      Ref.update(this.parentAgentNamesRef, (m) => HashMap.set(m, id, name)),
+      Ref.update(this.parentAgentNamesRef, (m) =>
+        HashMap.set(m, testAgentId(id), name),
+      ),
     );
   }
 

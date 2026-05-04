@@ -1,7 +1,14 @@
 export {
+  UserId,
+  AgentId,
   ConversationId,
   MessageId,
   ContactId,
+  userId,
+  agentId,
+  conversationId,
+  messageId,
+  contactId,
   InviteToken,
 } from "./primitives.js";
 export * from "./identity.js";
@@ -12,10 +19,11 @@ export * from "./logical-clock.js";
 export * from "./invites.js";
 export * from "./presence.js";
 export * from "./delivery.js";
+export * from "./json-rpc.js";
 export * from "./frames.js";
 export * from "./errors.js";
 export * from "./surfaces.js";
-export * from "./events.js";
+export * from "./notifications.js";
 export * from "./methods/auth.js";
 export * from "./methods/contacts.js";
 export * from "./methods/conversations.js";

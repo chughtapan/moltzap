@@ -6,7 +6,16 @@ import { startRuntimeAgent, type RuntimeKind } from "./fleet.js";
 import type { Runtime } from "./runtime.js";
 import { RuntimeReadyTimedOut, SpawnFailed } from "./errors.js";
 
-import { ConversationsCreate, MessagesSend } from "@moltzap/protocol";
+import {
+  type AnyRpcDefinition,
+  ConversationsCreate,
+  MessagesSend,
+  MessageReceivedNotificationDefinition,
+  conversationId,
+  type DecodedNotification,
+  type ParamsOf,
+  type ResultOf,
+} from "@moltzap/protocol";
 
 const DEFAULT_READY_TIMEOUT_MS = 120_000;
 const DEFAULT_RESPONSE_TIMEOUT_MS = 120_000;
@@ -68,28 +77,18 @@ interface TraceCaptureEvent {
 
 interface HarnessClient {
   close(): Effect.Effect<void, never, never>;
-  waitForEvent(
-    method: "messages/received",
+  waitForNotification(
+    definition: typeof MessageReceivedNotificationDefinition,
     timeoutMs: number,
   ): Effect.Effect<
-    {
-      readonly data: {
-        readonly message: {
-          readonly senderId: string;
-          readonly conversationId: string;
-          readonly id: string;
-          readonly createdAt: string;
-          readonly parts: ReadonlyArray<MessagePart>;
-        };
-      };
-    },
+    DecodedNotification<typeof MessageReceivedNotificationDefinition>,
     Error,
     never
   >;
-  sendRpc(
-    method: string,
-    payload: unknown,
-  ): Effect.Effect<unknown, Error, never>;
+  sendRpc<D extends AnyRpcDefinition>(
+    method: D,
+    payload: ParamsOf<D>,
+  ): Effect.Effect<ResultOf<D>, Error, never>;
 }
 
 interface ConnectedActor {
@@ -664,11 +663,14 @@ function waitForTargetResponse(input: {
     while (Date.now() < deadline) {
       const remaining = Math.max(MIN_EVENT_WAIT_MS, deadline - Date.now());
       const next = yield* Effect.either(
-        input.client.waitForEvent("messages/received", remaining),
+        input.client.waitForNotification(
+          MessageReceivedNotificationDefinition,
+          remaining,
+        ),
       );
       const data = Either.match(next, {
         onLeft: () => null,
-        onRight: (event) => event.data,
+        onRight: (event) => event.params,
       });
       if (data === null) {
         continue;
@@ -714,8 +716,8 @@ function sendMessageAndWait(input: {
 > {
   return Effect.gen(function* () {
     yield* input.sender.client
-      .sendRpc(MessagesSend.name, {
-        conversationId: input.conversationId,
+      .sendRpc(MessagesSend, {
+        conversationId: conversationId(input.conversationId),
         parts: [{ type: "text", text: input.message }],
       })
       .pipe(Effect.mapError((error) => failHarness(error.message)));
@@ -773,17 +775,12 @@ function createDirectConversation(
   never
 > {
   return sender.client
-    .sendRpc(ConversationsCreate.name, {
+    .sendRpc(ConversationsCreate, {
       type: "dm",
       participants: [{ type: "agent", id: targetAgentId }],
     })
     .pipe(
-      Effect.map((result) => {
-        const conversation = result as {
-          readonly conversation: { readonly id: string };
-        };
-        return conversation.conversation.id;
-      }),
+      Effect.map((result) => result.conversation.id),
       Effect.mapError((error) => failHarness(error.message)),
     );
 }
@@ -807,24 +804,19 @@ function createGroupConversation(input: {
   never
 > {
   return input.sender.client
-    .sendRpc(ConversationsCreate.name, {
+    .sendRpc(ConversationsCreate, {
       type: "group",
       name: input.groupName,
       participants: [
         { type: "agent", id: input.targetAgentId },
         ...input.participants.map((participant) => ({
-          type: "agent",
+          type: "agent" as const,
           id: participant.agentId,
         })),
       ],
     })
     .pipe(
-      Effect.map((result) => {
-        const conversation = result as {
-          readonly conversation: { readonly id: string };
-        };
-        return conversation.conversation.id;
-      }),
+      Effect.map((result) => result.conversation.id),
       Effect.mapError((error) => failHarness(error.message)),
     );
 }

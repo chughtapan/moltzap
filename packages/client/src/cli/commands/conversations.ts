@@ -1,7 +1,12 @@
 import { Args, Command, Options } from "@effect/cli";
 import { Data, Effect, Option } from "effect";
-import type { ConversationSummary } from "@moltzap/protocol";
-import { request, resolveParticipant } from "../socket-client.js";
+import { conversationId, type ConversationSummary } from "@moltzap/protocol";
+import {
+  LocalServiceCommands,
+  request,
+  requestLocalService,
+  resolveParticipant,
+} from "../socket-client.js";
 
 const jsonOption = Options.boolean("json").pipe(
   Options.withDescription("Output as JSON"),
@@ -37,7 +42,7 @@ const listConversations = Command.make(
   { limit: limitOption, json: jsonOption },
   ({ limit, json }) =>
     wrap(
-      request(ConversationsList.name, { limit }) as Effect.Effect<
+      request(ConversationsList, { limit }) as Effect.Effect<
         { conversations: ConversationSummary[] },
         Error
       >,
@@ -91,11 +96,18 @@ const createConversation = Command.make(
         participants.map((p) => resolveParticipant(p)),
       );
       const convType = Option.isSome(type)
-        ? type.value
+        ? type.value === "dm" || type.value === "group"
+          ? type.value
+          : yield* Effect.fail(
+              new ConversationsInputError({
+                message: `invalid conversation type: ${type.value}`,
+                reason: "type must be dm or group",
+              }),
+            )
         : parsed.length === 1
           ? "dm"
           : "group";
-      const result = (yield* request(ConversationsCreate.name, {
+      const result = (yield* request(ConversationsCreate, {
         type: convType,
         name,
         participants: parsed,
@@ -120,10 +132,15 @@ const conversationIdArg = Args.text({ name: "conversationId" }).pipe(
 const leaveConversation = Command.make(
   "leave",
   { conversationId: conversationIdArg },
-  ({ conversationId }) =>
-    wrap(request(ConversationsLeave.name, { conversationId }), () => {
-      console.log(`Left conversation ${conversationId}.`);
-    }),
+  ({ conversationId: rawConversationId }) =>
+    wrap(
+      request(ConversationsLeave, {
+        conversationId: conversationId(rawConversationId),
+      }),
+      () => {
+        console.log(`Left conversation ${rawConversationId}.`);
+      },
+    ),
 ).pipe(Command.withDescription("Leave a conversation"));
 
 const untilOption = Options.text("until").pipe(
@@ -134,14 +151,21 @@ const untilOption = Options.text("until").pipe(
 const muteConversation = Command.make(
   "mute",
   { conversationId: conversationIdArg, until: untilOption },
-  ({ conversationId, until }) => {
-    const params: Record<string, string> = { conversationId };
-    if (Option.isSome(until)) params.until = until.value;
-    return wrap(request(ConversationsMute.name, params), () => {
+  ({ conversationId: rawConversationId, until }) => {
+    const params: {
+      readonly conversationId: ReturnType<typeof conversationId>;
+      readonly until?: string;
+    } = Option.isSome(until)
+      ? {
+          conversationId: conversationId(rawConversationId),
+          until: until.value,
+        }
+      : { conversationId: conversationId(rawConversationId) };
+    return wrap(request(ConversationsMute, params), () => {
       console.log(
         Option.isSome(until)
-          ? `Conversation ${conversationId} muted until ${until.value}.`
-          : `Conversation ${conversationId} muted.`,
+          ? `Conversation ${rawConversationId} muted until ${until.value}.`
+          : `Conversation ${rawConversationId} muted.`,
       );
     });
   },
@@ -150,10 +174,15 @@ const muteConversation = Command.make(
 const unmuteConversation = Command.make(
   "unmute",
   { conversationId: conversationIdArg },
-  ({ conversationId }) =>
-    wrap(request(ConversationsUnmute.name, { conversationId }), () => {
-      console.log(`Conversation ${conversationId} unmuted.`);
-    }),
+  ({ conversationId: rawConversationId }) =>
+    wrap(
+      request(ConversationsUnmute, {
+        conversationId: conversationId(rawConversationId),
+      }),
+      () => {
+        console.log(`Conversation ${rawConversationId} unmuted.`);
+      },
+    ),
 ).pipe(Command.withDescription("Unmute a conversation"));
 
 const nameOption = Options.text("name").pipe(
@@ -163,19 +192,14 @@ const nameOption = Options.text("name").pipe(
 const updateConversation = Command.make(
   "update",
   { conversationId: conversationIdArg, name: nameOption },
-  ({ conversationId, name }) =>
+  ({ conversationId: rawConversationId, name }) =>
     wrap(
-      request(ConversationsUpdate.name, {
-        conversationId,
+      request(ConversationsUpdate, {
+        conversationId: conversationId(rawConversationId),
         name,
-      }) as Effect.Effect<
-        { conversation: { id: string; name: string } },
-        Error
-      >,
-      (r) => {
-        console.log(
-          `Conversation updated: ${r.conversation.id} (name: ${r.conversation.name})`,
-        );
+      }),
+      () => {
+        console.log(`Conversation ${rawConversationId} updated.`);
       },
     ),
 ).pipe(Command.withDescription("Update conversation settings"));
@@ -183,14 +207,14 @@ const updateConversation = Command.make(
 const addParticipantCommand = Command.make(
   "add-participant",
   { conversationId: conversationIdArg, participant: participantArg },
-  ({ conversationId, participant }) =>
+  ({ conversationId: rawConversationId, participant }) =>
     Effect.gen(function* () {
       const ref = yield* resolveParticipant(participant);
-      yield* request(ConversationsAddParticipant.name, {
-        conversationId,
+      yield* request(ConversationsAddParticipant, {
+        conversationId: conversationId(rawConversationId),
         participant: ref,
       });
-      console.log(`Added ${participant} to ${conversationId}.`);
+      console.log(`Added ${participant} to ${rawConversationId}.`);
     }).pipe(
       Effect.catchAll((err) =>
         Effect.sync(() => {
@@ -204,14 +228,14 @@ const addParticipantCommand = Command.make(
 const removeParticipantCommand = Command.make(
   "remove-participant",
   { conversationId: conversationIdArg, participant: participantArg },
-  ({ conversationId, participant }) =>
+  ({ conversationId: rawConversationId, participant }) =>
     Effect.gen(function* () {
       const ref = yield* resolveParticipant(participant);
-      yield* request(ConversationsRemoveParticipant.name, {
-        conversationId,
+      yield* request(ConversationsRemoveParticipant, {
+        conversationId: conversationId(rawConversationId),
         participant: ref,
       });
-      console.log(`Removed ${participant} from ${conversationId}.`);
+      console.log(`Removed ${participant} from ${rawConversationId}.`);
     }).pipe(
       Effect.catchAll((err) =>
         Effect.sync(() => {
@@ -300,7 +324,10 @@ const historyHandler = ({
   const params: Record<string, unknown> = { conversationId, limit };
   if (Option.isSome(sessionKey)) params.sessionKey = sessionKey.value;
   return wrap(
-    request("history", params) as Effect.Effect<HistoryResult, Error>,
+    requestLocalService(LocalServiceCommands.History, params) as Effect.Effect<
+      HistoryResult,
+      Error
+    >,
     (result) => {
       renderHistory(conversationId, sessionKey, result, json);
     },
@@ -362,10 +389,9 @@ export const conversationsGetHandler = (args: {
   readonly conversationId: string;
 }): Effect.Effect<void, ConversationsCommandError, Transport> =>
   Effect.gen(function* () {
-    const result = yield* transportRpc<{
-      conversation: unknown;
-      participants: unknown;
-    }>(ConversationsGet.name, { conversationId: args.conversationId });
+    const result = yield* transportRpc(ConversationsGet, {
+      conversationId: conversationId(args.conversationId),
+    });
     yield* Effect.sync(() => {
       console.log(JSON.stringify(result, null, JSON_INDENT_SPACES));
     });
@@ -376,8 +402,8 @@ export const conversationsArchiveHandler = (args: {
   readonly conversationId: string;
 }): Effect.Effect<void, ConversationsCommandError, Transport> =>
   Effect.gen(function* () {
-    yield* transportRpc<Record<string, never>>(ConversationsArchive.name, {
-      conversationId: args.conversationId,
+    yield* transportRpc(ConversationsArchive, {
+      conversationId: conversationId(args.conversationId),
     });
     yield* Effect.sync(() => {
       console.log(`archived: ${args.conversationId}`);
@@ -389,8 +415,8 @@ export const conversationsUnarchiveHandler = (args: {
   readonly conversationId: string;
 }): Effect.Effect<void, ConversationsCommandError, Transport> =>
   Effect.gen(function* () {
-    yield* transportRpc<Record<string, never>>(ConversationsUnarchive.name, {
-      conversationId: args.conversationId,
+    yield* transportRpc(ConversationsUnarchive, {
+      conversationId: conversationId(args.conversationId),
     });
     yield* Effect.sync(() => {
       console.log(`unarchived: ${args.conversationId}`);

@@ -14,10 +14,15 @@
  * asserts set equality — no typed-error involvement.
  */
 import { Effect } from "effect";
-import type { ResponseFrame } from "../../../schema/frames.js";
+import { responseFrame } from "../../../helpers.js";
+import {
+  isJsonRpcStringId,
+  jsonRpcStringId,
+} from "../../../schema/json-rpc.js";
 import type { ClientConformanceRunContext } from "./runner.js";
 import { registerProperty } from "../registry.js";
 import { acquireFixture, invariant } from "./_fixtures.js";
+import { isRequestFrame } from "../../codec.js";
 
 import { AgentsList } from "../../../schema/methods/auth.js";
 
@@ -63,16 +68,12 @@ export function registerModelEquivalenceClient(
                 if (
                   entry.kind === "inbound" &&
                   entry.frame !== null &&
-                  entry.frame.type === "request" &&
+                  isRequestFrame(entry.frame) &&
                   entry.frame.method === AgentsList.name
                 ) {
-                  const response: ResponseFrame = {
-                    jsonrpc: "2.0",
-                    type: "response",
-                    direction: "c2s",
-                    id: entry.frame.id,
+                  const response = responseFrame(entry.frame.id, {
                     result: { agents: {} },
-                  };
+                  });
                   yield* fx.window.emitTaggedResponse({
                     connection: fx.connection,
                     base: response,
@@ -105,7 +106,7 @@ export function registerModelEquivalenceClient(
               : e,
           ),
         );
-        if (result.type !== "response") {
+        if (!("result" in result)) {
           return yield* Effect.fail(
             invariant(
               CATEGORY,
@@ -150,13 +151,11 @@ export function registerRequestIdUniquenessClient(
         // Emit a spurious response with an id the client never sent.
         const spuriousId = "spurious-id-that-was-never-requested";
         yield* fx.connection
-          .emitResponse({
-            jsonrpc: "2.0",
-            type: "response",
-            direction: "c2s",
-            id: spuriousId,
-            result: { agents: {} },
-          })
+          .emitResponse(
+            responseFrame(jsonRpcStringId(spuriousId), {
+              result: { agents: {} },
+            }),
+          )
           .pipe(Effect.orElseSucceed(() => undefined));
         // Fork a responder that correctly routes the matching response.
         yield* Effect.forkScoped(
@@ -169,17 +168,15 @@ export function registerRequestIdUniquenessClient(
                 if (
                   entry.kind === "inbound" &&
                   entry.frame !== null &&
-                  entry.frame.type === "request" &&
+                  isRequestFrame(entry.frame) &&
                   entry.frame.method === AgentsList.name
                 ) {
                   yield* fx.connection
-                    .emitResponse({
-                      jsonrpc: "2.0",
-                      type: "response",
-                      direction: "c2s",
-                      id: entry.frame.id,
-                      result: { agents: {} },
-                    })
+                    .emitResponse(
+                      responseFrame(entry.frame.id, {
+                        result: { agents: {} },
+                      }),
+                    )
                     .pipe(Effect.orElseSucceed(() => undefined));
                   responded = true;
                   break;
@@ -209,7 +206,7 @@ export function registerRequestIdUniquenessClient(
               : e,
           ),
         );
-        if (result.id !== undefined) {
+        if ("id" in result && isJsonRpcStringId(result.id)) {
           // Inspect: the resolved id must appear in the outboundIdFeed —
           // any resolution via the spurious id is a cross-wiring bug.
           const outbound = yield* fx.handle.call.outboundIdFeed;

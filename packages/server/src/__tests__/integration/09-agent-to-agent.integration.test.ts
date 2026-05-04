@@ -12,6 +12,8 @@ import {
   ConversationsCreate,
   MessagesList,
   MessagesSend,
+  MessageReceivedNotificationDefinition,
+  ConversationCreatedNotificationDefinition,
 } from "@moltzap/protocol";
 
 let _baseUrl: string;
@@ -40,7 +42,7 @@ describe("Scenario 1: Full Agent-to-Agent DM Flow", () => {
         const bob = yield* registerAndConnect("bob-a2a");
 
         // Alice creates DM — server subscribes Bob's already-open connection
-        const conv = (yield* alice.client.sendRpc(ConversationsCreate.name, {
+        const conv = (yield* alice.client.sendRpc(ConversationsCreate, {
           type: "dm",
           participants: [{ type: "agent", id: bob.agentId }],
         })) as { conversation: { id: string; type: string } };
@@ -48,29 +50,32 @@ describe("Scenario 1: Full Agent-to-Agent DM Flow", () => {
         const conversationId = conv.conversation.id;
 
         // Set up waiter before send
-        yield* alice.client.sendRpc(MessagesSend.name, {
+        yield* alice.client.sendRpc(MessagesSend, {
           conversationId,
           parts: [{ type: "text", text: "Hello Bob!" }],
         });
-        const bobEvent = yield* bob.client.waitForEvent("messages/received");
+        const bobEvent = yield* bob.client.waitForNotification(
+          MessageReceivedNotificationDefinition,
+        );
         expect(
           (bobEvent.data as { message: { parts: Array<{ text: string }> } })
             .message.parts[0]!.text,
         ).toBe("Hello Bob!");
 
-        yield* bob.client.sendRpc(MessagesSend.name, {
+        yield* bob.client.sendRpc(MessagesSend, {
           conversationId,
           parts: [{ type: "text", text: "Hey Alice!" }],
         });
-        const aliceEvent =
-          yield* alice.client.waitForEvent("messages/received");
+        const aliceEvent = yield* alice.client.waitForNotification(
+          MessageReceivedNotificationDefinition,
+        );
         expect(
           (aliceEvent.data as { message: { parts: Array<{ text: string }> } })
             .message.parts[0]!.text,
         ).toBe("Hey Alice!");
 
         // Both list messages
-        const msgs = (yield* alice.client.sendRpc(MessagesList.name, {
+        const msgs = (yield* alice.client.sendRpc(MessagesList, {
           conversationId,
         })) as {
           messages: Array<{ parts: Array<{ text: string }> }>;
@@ -92,7 +97,7 @@ describe("Scenario 5: Group Chat Fan-Out", () => {
       const bob = yield* registerAndConnect("bob-fan");
       const eve = yield* registerAndConnect("eve-fan");
 
-      const conv = (yield* alice.client.sendRpc(ConversationsCreate.name, {
+      const conv = (yield* alice.client.sendRpc(ConversationsCreate, {
         type: "group",
         name: "Team Chat",
         participants: [
@@ -103,13 +108,17 @@ describe("Scenario 5: Group Chat Fan-Out", () => {
       const conversationId = conv.conversation.id;
 
       // Set up waiters before send
-      yield* alice.client.sendRpc(MessagesSend.name, {
+      yield* alice.client.sendRpc(MessagesSend, {
         conversationId,
         parts: [{ type: "text", text: "Team standup" }],
       });
 
-      const bobEvent = yield* bob.client.waitForEvent("messages/received");
-      const eveEvent = yield* eve.client.waitForEvent("messages/received");
+      const bobEvent = yield* bob.client.waitForNotification(
+        MessageReceivedNotificationDefinition,
+      );
+      const eveEvent = yield* eve.client.waitForNotification(
+        MessageReceivedNotificationDefinition,
+      );
       expect(
         (bobEvent.data as { message: { parts: Array<{ text: string }> } })
           .message.parts[0]!.text,
@@ -120,13 +129,17 @@ describe("Scenario 5: Group Chat Fan-Out", () => {
       ).toBe("Team standup");
 
       // Set up waiters for Bob's reply
-      yield* bob.client.sendRpc(MessagesSend.name, {
+      yield* bob.client.sendRpc(MessagesSend, {
         conversationId,
         parts: [{ type: "text", text: "All clear" }],
       });
 
-      const aliceReply = yield* alice.client.waitForEvent("messages/received");
-      const eveReply = yield* eve.client.waitForEvent("messages/received");
+      const aliceReply = yield* alice.client.waitForNotification(
+        MessageReceivedNotificationDefinition,
+      );
+      const eveReply = yield* eve.client.waitForNotification(
+        MessageReceivedNotificationDefinition,
+      );
       expect(
         (aliceReply.data as { message: { parts: Array<{ text: string }> } })
           .message.parts[0]!.text,
@@ -152,23 +165,25 @@ describe("Regression: conversations/create subscribes connected participants", (
         const bob = yield* registerAndConnect("bob-sub");
 
         // Bob is already connected when Alice creates the DM
-        const conv = (yield* alice.client.sendRpc(ConversationsCreate.name, {
+        const conv = (yield* alice.client.sendRpc(ConversationsCreate, {
           type: "dm",
           participants: [{ type: "agent", id: bob.agentId }],
         })) as { conversation: { id: string } };
 
         // Bob should receive the ConversationCreated event
-        const createdEvent = yield* bob.client.waitForEvent(
-          "conversations/created",
+        const createdEvent = yield* bob.client.waitForNotification(
+          ConversationCreatedNotificationDefinition,
         );
         expect(createdEvent).toBeDefined();
 
         // Bob should also receive messages WITHOUT reconnecting
-        yield* alice.client.sendRpc(MessagesSend.name, {
+        yield* alice.client.sendRpc(MessagesSend, {
           conversationId: conv.conversation.id,
           parts: [{ type: "text", text: "No reconnect needed" }],
         });
-        const msgEvent = yield* bob.client.waitForEvent("messages/received");
+        const msgEvent = yield* bob.client.waitForNotification(
+          MessageReceivedNotificationDefinition,
+        );
         expect(
           (msgEvent.data as { message: { parts: Array<{ text: string }> } })
             .message.parts[0]!.text,
@@ -180,36 +195,40 @@ describe("Regression: conversations/create subscribes connected participants", (
   );
 });
 
-describe("Regression: waitForEvent does not double-consume buffered events", () => {
+describe("Regression: waitForNotification does not double-consume buffered events", () => {
   it.live(
-    "sequential waitForEvent calls return distinct events, not duplicates",
+    "sequential waitForNotification calls return distinct events, not duplicates",
     () =>
       Effect.gen(function* () {
         const alice = yield* registerAndConnect("alice-buf");
         const bob = yield* registerAndConnect("bob-buf");
 
-        const conv = (yield* alice.client.sendRpc(ConversationsCreate.name, {
+        const conv = (yield* alice.client.sendRpc(ConversationsCreate, {
           type: "dm",
           participants: [{ type: "agent", id: bob.agentId }],
         })) as { conversation: { id: string } };
 
         // Set up waiter for first message
-        yield* alice.client.sendRpc(MessagesSend.name, {
+        yield* alice.client.sendRpc(MessagesSend, {
           conversationId: conv.conversation.id,
           parts: [{ type: "text", text: "First" }],
         });
-        const msg1 = yield* bob.client.waitForEvent("messages/received");
+        const msg1 = yield* bob.client.waitForNotification(
+          MessageReceivedNotificationDefinition,
+        );
         expect(
           (msg1.data as { message: { parts: Array<{ text: string }> } }).message
             .parts[0]!.text,
         ).toBe("First");
 
         // Set up waiter for second message — must NOT return "First" again
-        yield* alice.client.sendRpc(MessagesSend.name, {
+        yield* alice.client.sendRpc(MessagesSend, {
           conversationId: conv.conversation.id,
           parts: [{ type: "text", text: "Second" }],
         });
-        const msg2 = yield* bob.client.waitForEvent("messages/received");
+        const msg2 = yield* bob.client.waitForNotification(
+          MessageReceivedNotificationDefinition,
+        );
         expect(
           (msg2.data as { message: { parts: Array<{ text: string }> } }).message
             .parts[0]!.text,
@@ -227,7 +246,7 @@ describe("Regression: messages/send excludes sender from broadcast", () => {
       const alice = yield* registerAndConnect("alice-noecho");
       const bob = yield* registerAndConnect("bob-noecho");
 
-      const conv = (yield* alice.client.sendRpc(ConversationsCreate.name, {
+      const conv = (yield* alice.client.sendRpc(ConversationsCreate, {
         type: "dm",
         participants: [{ type: "agent", id: bob.agentId }],
       })) as { conversation: { id: string } };
@@ -235,19 +254,21 @@ describe("Regression: messages/send excludes sender from broadcast", () => {
       // Bob waits for the message
 
       // Alice sends
-      yield* alice.client.sendRpc(MessagesSend.name, {
+      yield* alice.client.sendRpc(MessagesSend, {
         conversationId: conv.conversation.id,
         parts: [{ type: "text", text: "Only Bob should see this event" }],
       });
 
       // Bob receives it
-      const bobMsg = yield* bob.client.waitForEvent("messages/received");
+      const bobMsg = yield* bob.client.waitForNotification(
+        MessageReceivedNotificationDefinition,
+      );
       expect(bobMsg).toBeDefined();
 
       // Alice should NOT have received an event — drain her buffer and verify
       const aliceEvents = alice.client
-        .drainEvents()
-        .filter((e) => e.event === "messages/received");
+        .drainNotifications()
+        .filter((e) => e.definition === MessageReceivedNotificationDefinition);
       expect(aliceEvents).toHaveLength(0);
 
       yield* alice.client.close();

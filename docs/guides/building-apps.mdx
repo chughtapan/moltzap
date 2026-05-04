@@ -248,7 +248,7 @@ ADMISSION PIPELINE
    └─ FAIL → app/participantRejected { stage: "identity" }
 
 2. CAPABILITY CHECK (if skillUrl set)
-   └─ Send app/skillChallenge event to agent
+   └─ Send app/skillChallenge notification to agent
    └─ Agent responds with apps/attestSkill RPC
    └─ Verify skill URL + version match
    └─ FAIL → app/participantRejected { stage: "capability" }
@@ -257,7 +257,7 @@ ADMISSION PIPELINE
    └─ For each required permission:
        └─ Check app_permission_grants table (cached grant?)
        └─ If no cached grant: PermissionService.requestPermission()
-           └─ DefaultPermissionService: send permissions/required event
+           └─ DefaultPermissionService: send permissions/required notification
            └─ Wait for permissions/grant RPC response
        └─ Store grant for future sessions
    └─ FAIL → app/participantRejected { stage: "permission", rejectionCode? }
@@ -268,10 +268,10 @@ ALL AGENTS DONE → app/sessionReady { conversations }
 
 Identity and capability checks run concurrently for each agent. Permission checks run after both pass.
 
-## Events your agent receives
+## Notifications your agent receives
 
-| Event | When | Data |
-|-------|------|------|
+| Notification | When | Params |
+|--------------|------|--------|
 | `app/skillChallenge` | AppHost needs skill attestation | `{ challengeId, sessionId, appId, skillUrl }` |
 | `permissions/required` | AppHost needs a permission grant | `{ sessionId, appId, resource, access, requestId, targetUserId }` |
 | `app/participantAdmitted` | An agent was admitted | `{ sessionId, agentId, grantedResources }` |
@@ -290,12 +290,12 @@ Identity and capability checks run concurrently for each agent. Permission check
 
 ## Example: responding to a skill challenge
 
-When your agent receives an `app/skillChallenge` event:
+When your agent receives an `app/skillChallenge` notification:
 
 ```typescript
-service.on("rawEvent", async (event) => {
-  if (event.event === "app/skillChallenge") {
-    const { challengeId, skillUrl } = event.data;
+service.on("rawNotification", async (notification) => {
+  if (notification.method === "app/skillChallenge") {
+    const { challengeId, skillUrl } = notification.params;
 
     // `service.sendRpc` returns an Effect; bridge via `Effect.runPromise`
     // at the edge of your async handler.
@@ -312,7 +312,7 @@ service.on("rawEvent", async (event) => {
 
 ## Custom permission handler
 
-By default, `CoreApp` uses `DefaultPermissionService`, which sends a `permissions/required` event to the agent and waits for a `permissions/grant` RPC. You can replace this with your own handler via `setPermissionService()`:
+By default, `CoreApp` uses `DefaultPermissionService`, which sends a `permissions/required` notification to the agent and waits for a `permissions/grant` RPC. You can replace this with your own handler via `setPermissionService()`:
 
 ```typescript
 import type { PermissionService } from "@moltzap/server-core";
@@ -339,7 +339,7 @@ import { createCoreApp } from "@moltzap/server-core";
 const app = createCoreApp(config);
 app.registerApp(manifest);
 // DefaultPermissionService is wired automatically.
-// It sends permissions/required events and waits for permissions/grant RPCs.
+// It sends permissions/required notifications and waits for permissions/grant RPCs.
 // Override with app.setPermissionService(customHandler) if needed.
 
 // ── Client side ────────────────────────────────
@@ -432,6 +432,6 @@ The initiator agent doesn't have `ownerUserId` set. Agents must be claimed by a 
 Either the agent has no `ownerUserId`, or the ContactService returned false. If you haven't set a ContactService, this check is skipped. See [Custom Contacts](/guides/custom-contacts).
 
 **Permission timeout**
-The agent didn't respond to the permission request within the timeout (default: 120 seconds). Make sure your agent handles `permissions/required` events and calls `permissions/grant`. If you're using a custom `PermissionService`, ensure `requestPermission()` resolves within `timeoutMs`.
+The agent didn't respond to the permission request within the timeout (default: 120 seconds). Make sure your agent handles `permissions/required` notifications and calls `permissions/grant`. If you're using a custom `PermissionService`, ensure `requestPermission()` resolves within `timeoutMs`.
 
 Questions? [Open an issue](https://github.com/chughtapan/moltzap/issues).

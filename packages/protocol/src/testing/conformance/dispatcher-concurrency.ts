@@ -1,9 +1,9 @@
 /**
- * Conformance — s2c dispatcher concurrency invariants.
+ * Conformance — appCallback dispatcher concurrency invariants.
  *
  * Spec: moltzap#356 §8 (test plan, file 4).
  *
- * Cross-implementation contract: any client that drains s2c request
+ * Cross-implementation contract: any client that drains appCallback request
  * frames MUST run hooks for distinct `(sessionId, conversationId,
  * hookKind)` tuples on independent fibers. A `before_dispatch` hook
  * suspended on a `Deferred.await` MUST NOT delay a sibling
@@ -26,7 +26,7 @@
  * The properties P1-P4 below are the cross-implementation contract.
  * They are NOT registered with the conformance property registry in
  * this PR because cross-impl execution requires the conformance
- * `TestServer` to emit s2c request frames — a surface addition the
+ * `TestServer` to emit appCallback request frames — a surface addition the
  * architect plan §6 ("No public-package-barrel change. No public
  * surface change to pre-existing modules.") explicitly excluded
  * from the spec's scope.
@@ -36,23 +36,23 @@
  * (`@moltzap/client`):
  *
  *   - **P1 (disjoint-key concurrency)** —
- *     `packages/client/src/internal/__tests__/s2c-partitioned-dispatcher.test.ts`
+ *     `packages/client/src/internal/__tests__/app-callback-partitioned-dispatcher.test.ts`
  *     `"two offers with different keys execute concurrently"`.
  *
  *   - **P2 (arena#248 reproducer)** —
- *     `packages/client/src/internal/__tests__/s2c-partitioned-dispatcher.test.ts`
+ *     `packages/client/src/internal/__tests__/app-callback-partitioned-dispatcher.test.ts`
  *     `"before_dispatch suspended on Deferred.await does NOT block
  *     before_message_delivery for the same (sessionId, conversationId)"`
  *     and the real-WS integration test in
- *     `s2c-partitioned-dispatcher-real-ws.test.ts`.
+ *     `app-callback-partitioned-dispatcher-real-ws.test.ts`.
  *
  *   - **P3 (same-key FIFO)** —
- *     `s2c-partitioned-dispatcher.test.ts` `"two offers with the same
+ *     `app-callback-partitioned-dispatcher.test.ts` `"two offers with the same
  *     key land on the same worker (FIFO preserved)"` and the per-tuple
- *     ordering assertion in `s2c-partition-worker.test.ts`.
+ *     ordering assertion in `app-callback-partition-worker.test.ts`.
  *
  *   - **P4 (per-partition backpressure independence)** —
- *     `s2c-partitioned-dispatcher.test.ts` `"partitionQueueFull on
+ *     `app-callback-partitioned-dispatcher.test.ts` `"partitionQueueFull on
  *     partition A does not block partition B"`.
  *
  * The vitest stubs below remain as documentation for the future
@@ -66,9 +66,9 @@
  */
 import { describe, it } from "vitest";
 
-describe("conformance: s2c dispatcher concurrency", () => {
+describe("conformance: appCallback dispatcher concurrency", () => {
   it.todo(
-    "P1: two s2c requests with disjoint (sessionId, conversationId, hookKind) " +
+    "P1: two appCallback requests with disjoint (sessionId, conversationId, hookKind) " +
       "keys complete concurrently when the first's handler suspends on a Deferred",
   );
   it.todo(
@@ -77,7 +77,7 @@ describe("conformance: s2c dispatcher concurrency", () => {
       "release path resolves and the suspended fiber resumes",
   );
   it.todo(
-    "P3: two s2c requests with identical key are serialized — second handler " +
+    "P3: two appCallback requests with identical key are serialized — second handler " +
       "starts only after first handler's Effect completes (FIFO within tuple)",
   );
   it.todo(

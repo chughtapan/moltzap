@@ -33,7 +33,7 @@ import { ParticipantService } from "./participant.service.js";
 import {
   ConnectionManager,
   type MoltZapConnection,
-  type S2cPendingMap,
+  type AppCallbackPendingMap,
 } from "../ws/connection.js";
 import { HashMap, Ref } from "effect";
 import type { AuthenticatedContext } from "../rpc/context.js";
@@ -82,8 +82,8 @@ function makeConn(connId: string, agentId: string): MoltZapConnection {
     lastPong: Date.now(),
     conversationIds: new Set<string>(),
     mutedConversations: new Set<string>(),
-    s2cPending: Ref.unsafeMake<S2cPendingMap>(HashMap.empty()),
-    s2cRequestCounter: Ref.unsafeMake(0),
+    appCallbackPending: Ref.unsafeMake<AppCallbackPendingMap>(HashMap.empty()),
+    appCallbackRequestCounter: Ref.unsafeMake(0),
   };
 }
 

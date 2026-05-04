@@ -18,10 +18,18 @@ import {
 } from "effect";
 import {
   PROTOCOL_VERSION,
+  Connect,
+  decodeRpcResult,
+  jsonRpcStringId,
+  requestFrame,
   responseFrame,
+  type AnyAppCallbackRpcDefinition,
+  type AnyNotificationDefinition,
+  type JsonRpcStringId,
+  type ParamsOf,
   type RequestFrame,
   type ResponseFrame,
-  type EventFrame,
+  type ResultOf,
   type RpcDefinition,
   type TSchema,
   type Static,
@@ -32,10 +40,10 @@ import {
   RpcServerError,
   RpcTimeoutError,
 } from "./runtime/errors.js";
-import { decodeFrames } from "./runtime/frame.js";
+import { decodeFrames, type DecodedNotification } from "./runtime/frame.js";
 import {
   makeSubscriberRegistry,
-  type EventSubscription,
+  type NotificationSubscription,
   type SubscriberHandler,
   type SubscriberRegistry,
   type SubscriptionFilter,
@@ -45,15 +53,12 @@ import {
   makePartitionedDispatcher,
   type PartitionedDispatcher,
   type PartitionedDispatcherConfig,
-} from "./internal/s2c-partitioned-dispatcher.js";
+} from "./internal/app-callback-partitioned-dispatcher.js";
 import {
-  MalformedPartitionKeyError,
   PartitionLimitError,
   PartitionQueueFullError,
   type OfferRejected,
-} from "./internal/s2c-dispatcher-errors.js";
-
-import { Connect } from "@moltzap/protocol";
+} from "./internal/app-callback-dispatcher-errors.js";
 
 // Re-export `CloseInfo` so consumers can import it from
 // `@moltzap/client` alongside `MoltZapWsClient` itself; the type lives
@@ -88,8 +93,8 @@ const JSON_RPC_INTERNAL_ERROR_CODE = -32603;
 const MALFORMED_LOG_EVERY = 50;
 
 /**
- * Cap on the per-client event buffer. Any frame that has no live
- * `waitForEvent` awaiter lands here until someone drains it. Excess
+ * Cap on the per-client notification buffer. Any frame that has no live
+ * `waitForNotification` awaiter lands here until someone drains it. Excess
  * frames are evicted FIFO so a slow consumer can't leak memory.
  */
 const MAX_EVENT_BUFFER = 1000;
@@ -101,6 +106,8 @@ const UTF8_DECODER = new TextDecoder("utf-8");
 
 const makeNotConnectedError = (): NotConnectedError =>
   new NotConnectedError({ message: MSG_NOT_CONNECTED });
+
+type ConnectResult = Static<typeof Connect.resultSchema>;
 
 /** Tagged error type for any pending-RPC Deferred. */
 type PendingError = RpcServerError | NotConnectedError | RpcTimeoutError;
@@ -115,7 +122,7 @@ class ReconnectAttemptFailedError extends Data.TaggedError(
  * Per-connection runtime state. `None` = not connected → `sendRpc` fails fast
  * with `NotConnectedError`.
  *
- * Spec #356: the single `Stream.runForEach`-driven `s2cInboundQueue` is
+ * Spec #356: the single `Stream.runForEach`-driven `appCallbackInboundQueue` is
  * replaced by a `PartitionedDispatcher` keyed on
  * `(sessionId, conversationId, hookKind)`. Each tuple owns one bounded
  * queue + one drain fiber; cross-tuple offers run concurrently. Held
@@ -132,9 +139,9 @@ interface ConnState {
   readonly scope: Scope.CloseableScope;
   /** Settled when the reader fiber exits, letting `connect()` race against
    * pre-open close and fail fast instead of waiting the RPC timeout. */
-  readonly handshakeSettled: Deferred.Deferred<unknown, PendingError>;
+  readonly handshakeSettled: Deferred.Deferred<ConnectResult, PendingError>;
   /**
-   * Per-connection partitioned s2c dispatcher. Routes inbound s2c
+   * Per-connection partitioned appCallback dispatcher. Routes inbound appCallback
    * requests by `(sessionId, conversationId, hookKind)`; replaces the
    * pre-#356 single drain fiber.
    */
@@ -149,20 +156,19 @@ interface ConnState {
 }
 
 /**
- * Internal type for a decoded inbound s2c request handed off to the
+ * Internal type for a decoded inbound appCallback request handed off to the
  * dispatcher. Mirrors `DecodedServerRequest` from `runtime/frame.ts`
  * but lives here so the dispatcher does not need a `runtime/` import
  * cycle.
  */
 interface DecodedServerRequest {
-  readonly id: string;
-  readonly method: string;
+  readonly id: JsonRpcStringId;
+  readonly definition: AnyAppCallbackRpcDefinition;
   readonly params: unknown;
-  readonly traceparent?: string;
 }
 
 /**
- * s2c dispatcher knobs exposed on `MoltZapWsClientOptions`. All optional;
+ * appCallback dispatcher knobs exposed on `MoltZapWsClientOptions`. All optional;
  * defaults from `DEFAULT_PARTITIONED_DISPATCHER_CONFIG`.
  *
  * Spec #356 OQ-3 (`idlePartitionTtlMs`) ships at the architect's
@@ -171,7 +177,7 @@ interface DecodedServerRequest {
  * at peak), so the cap doubles as a per-tenant DoS guard, not a
  * cardinality lever.
  */
-export type S2cDispatcherConfig = Partial<PartitionedDispatcherConfig>;
+export type AppCallbackDispatcherConfig = Partial<PartitionedDispatcherConfig>;
 
 /**
  * Handler signature for `handleServerRpc`. The handler returns an
@@ -181,37 +187,64 @@ export type S2cDispatcherConfig = Partial<PartitionedDispatcherConfig>;
  * generic InternalError reply.
  *
  * The `unknown`/`unknown` parameter and result types are transitional —
- * once Phase 1.1 (B.2) registers admission verbs in `s2cRpcMethods`, this
- * narrows generically against `S2cRpcMap[M]`.
+ * once Phase 1.1 (B.2) registers admission verbs in `appCallbackRpcMethods`, this
+ * narrows generically against `AppCallbackRpcMap[M]`.
  */
 export interface ServerRpcContext {
-  readonly requestId: string;
-  readonly method: string;
+  readonly requestId: JsonRpcStringId;
+  readonly definition: AnyAppCallbackRpcDefinition;
   readonly traceparent?: string;
 }
 
-export type ServerRpcHandler = (
+export type ServerRpcHandler<
+  D extends AnyAppCallbackRpcDefinition = AnyAppCallbackRpcDefinition,
+> = (
+  params: Static<D["paramsSchema"]>,
+  ctx: ServerRpcContext & { readonly definition: D },
+) => Effect.Effect<Static<D["resultSchema"]>, RpcServerError>;
+
+type ErasedServerRpcHandler = (
   params: unknown,
   ctx: ServerRpcContext,
 ) => Effect.Effect<unknown, RpcServerError>;
 
-interface EventWaiter {
-  readonly eventName: string;
-  readonly deferred: Deferred.Deferred<EventFrame, Error>;
+interface NotificationWaiter {
+  readonly definition: AnyNotificationDefinition;
+  readonly complete: (notification: DecodedNotification) => Effect.Effect<void>;
+  readonly fail: (error: Error) => Effect.Effect<void>;
 }
 
-/** Drop `waiter` from its event-name bucket, pruning an empty bucket. */
+type AnyDecodedNotification = DecodedNotification<AnyNotificationDefinition>;
+type DecodedNotificationFor<D extends AnyNotificationDefinition> = Extract<
+  AnyDecodedNotification,
+  { readonly definition: D }
+>;
+
+function notificationMatches<D extends AnyNotificationDefinition>(
+  definition: D,
+  notification: AnyDecodedNotification,
+): notification is DecodedNotificationFor<D> {
+  return notification.definition === definition;
+}
+
+/** Drop `waiter` from its notification-definition bucket, pruning an empty bucket. */
 function removeWaiter(
-  m: HashMap.HashMap<string, ReadonlyArray<EventWaiter>>,
-  eventName: string,
-  waiter: EventWaiter,
-): HashMap.HashMap<string, ReadonlyArray<EventWaiter>> {
-  const bucket = HashMap.get(m, eventName);
+  m: HashMap.HashMap<
+    AnyNotificationDefinition,
+    ReadonlyArray<NotificationWaiter>
+  >,
+  definition: AnyNotificationDefinition,
+  waiter: NotificationWaiter,
+): HashMap.HashMap<
+  AnyNotificationDefinition,
+  ReadonlyArray<NotificationWaiter>
+> {
+  const bucket = HashMap.get(m, definition);
   if (bucket._tag === "None") return m;
   const filtered = bucket.value.filter((w) => w !== waiter);
   return filtered.length === 0
-    ? HashMap.remove(m, eventName)
-    : HashMap.set(m, eventName, filtered);
+    ? HashMap.remove(m, definition)
+    : HashMap.set(m, definition, filtered);
 }
 
 export interface WsClientLogger {
@@ -230,39 +263,29 @@ export interface MoltZapWsClientOptions {
    * arg (OQ-6 rewrite): zero-arg `() => void` callers must migrate to
    * accept (and may ignore) the arg.
    *
-   * Migration note (spec #222 OQ-4 rewrite): the previous `onEvent`
+   * Migration note (spec #222 OQ-4 rewrite): the previous `onNotification`
    * callback was deleted in this rewrite. Callers that want to observe
-   * every inbound event register `client.subscribe({}, handler)` after
-   * construction; events flow through the per-subscription registry,
+   * every inbound notification register `client.subscribe({}, handler)` after
+   * construction; notifications flow through the per-subscription registry,
    * not through a top-level option.
    */
   onDisconnect?: (close: CloseInfo) => void;
-  onReconnect?: (helloOk: unknown) => void;
+  onReconnect?: (helloOk: ConnectResult) => void;
   logger?: WsClientLogger;
   /**
-   * Spec #356 — partitioned s2c dispatcher knobs. Optional; omitted
+   * Spec #356 — partitioned appCallback dispatcher knobs. Optional; omitted
    * fields fall back to `DEFAULT_PARTITIONED_DISPATCHER_CONFIG`.
    */
-  s2cDispatcher?: S2cDispatcherConfig;
+  appCallbackDispatcher?: AppCallbackDispatcherConfig;
 }
 
 /**
- * Return shape of `MoltZapWsClient.sendRpcTracked`. Spec #222 OQ-1
- * resolution (B): surface the outbound request `id` (un-vacuates B4 at
- * `packages/protocol/src/testing/conformance/client/rpc-semantics.ts:205-216`)
- * and the response envelope `type` (un-vacuates V5 at
- * `rpc-semantics.ts:103-110`), without leaking `jsonrpc` onto the
- * caller surface.
- *
- * `type` is the literal `"response"` — the only response-frame kind
- * `packages/protocol/src/schema/frames.ts:18` defines — but it is
- * surfaced as an observable value (not a synthesized adapter constant)
- * so the V5 predicate can flip under a mutation that forges a
- * non-response shape.
+ * Return shape of `MoltZapWsClient.sendRpcTracked`. Surfaces the outbound
+ * request `id` alongside the typed result without leaking the JSON-RPC wire
+ * object onto the caller surface.
  */
 export interface TrackedRpcResponse<R> {
-  readonly id: string;
-  readonly type: "response";
+  readonly id: JsonRpcStringId;
   readonly result: R;
 }
 
@@ -280,26 +303,29 @@ export interface TrackedRpcResponse<R> {
  */
 export class MoltZapWsClient {
   private readonly pendingRef: Ref.Ref<
-    HashMap.HashMap<string, Deferred.Deferred<unknown, PendingError>>
+    HashMap.HashMap<JsonRpcStringId, Deferred.Deferred<unknown, PendingError>>
   >;
   private readonly stateRef: Ref.Ref<Option.Option<ConnState>>;
   private readonly malformedRef: Ref.Ref<number>;
-  private readonly eventsBufferRef: Ref.Ref<ReadonlyArray<EventFrame>>;
+  private readonly notificationsBufferRef: Ref.Ref<
+    ReadonlyArray<DecodedNotification>
+  >;
   /**
-   * Waiters keyed by event name. Each bucket is a FIFO stack: delivery
-   * pops the most recently registered waiter (the tail). Keying by event
-   * name keeps dispatch O(1) per inbound frame regardless of total
-   * outstanding waiters.
+   * Waiters keyed by notification descriptor identity. Each bucket is a FIFO
+   * stack: delivery pops the most recently registered waiter (the tail).
    */
-  private readonly eventWaitersRef: Ref.Ref<
-    HashMap.HashMap<string, ReadonlyArray<EventWaiter>>
+  private readonly notificationWaitersRef: Ref.Ref<
+    HashMap.HashMap<
+      AnyNotificationDefinition,
+      ReadonlyArray<NotificationWaiter>
+    >
   >;
   private readonly runtime: ManagedRuntime.ManagedRuntime<
     Socket.WebSocketConstructor,
     never
   >;
   /**
-   * Per-subscription event registry. Spec #222 §5.3 (C4 + the
+   * Per-subscription notification registry. Spec #222 §5.3 (C4 + the
    * `RealClientEventSubscriber.subscribe` filter stub). Constructed
    * synchronously alongside the other Refs; `MoltZapWsClient.subscribe`
    * delegates to it directly.
@@ -310,35 +336,41 @@ export class MoltZapWsClient {
    * Per-method handler registry for server-initiated RPCs. Survives
    * reconnects so apps register once and re-attach automatically when the
    * socket comes back. Each entry is invoked by the per-connection
-   * dispatcher fiber when an s2c request frame arrives.
+   * dispatcher fiber when an appCallback request frame arrives.
    */
-  private readonly s2cHandlersRef: Ref.Ref<
-    HashMap.HashMap<string, ServerRpcHandler>
+  private readonly appCallbackHandlersRef: Ref.Ref<
+    HashMap.HashMap<AnyAppCallbackRpcDefinition, ErasedServerRpcHandler>
   >;
 
   private requestCounter = 0;
   private closed = false;
   private reconnectFiber: Fiber.RuntimeFiber<void, never> | null = null;
-  private _helloOk: unknown = null;
+  private _helloOk: ConnectResult | null = null;
 
   constructor(private readonly options: MoltZapWsClientOptions) {
     this.runtime = ManagedRuntime.make(NodeSocket.layerWebSocketConstructor);
     this.pendingRef = this.runtime.runSync(
       Ref.make<
-        HashMap.HashMap<string, Deferred.Deferred<unknown, PendingError>>
+        HashMap.HashMap<
+          JsonRpcStringId,
+          Deferred.Deferred<unknown, PendingError>
+        >
       >(HashMap.empty()),
     );
     this.stateRef = this.runtime.runSync(
       Ref.make<Option.Option<ConnState>>(Option.none()),
     );
     this.malformedRef = this.runtime.runSync(Ref.make(0));
-    this.eventsBufferRef = this.runtime.runSync(
-      Ref.make<ReadonlyArray<EventFrame>>([]),
+    this.notificationsBufferRef = this.runtime.runSync(
+      Ref.make<ReadonlyArray<DecodedNotification>>([]),
     );
-    this.eventWaitersRef = this.runtime.runSync(
-      Ref.make<HashMap.HashMap<string, ReadonlyArray<EventWaiter>>>(
-        HashMap.empty(),
-      ),
+    this.notificationWaitersRef = this.runtime.runSync(
+      Ref.make<
+        HashMap.HashMap<
+          AnyNotificationDefinition,
+          ReadonlyArray<NotificationWaiter>
+        >
+      >(HashMap.empty()),
     );
     // Registry construction is `Effect<…, never>`; running it sync here
     // matches every other Ref initializer in this constructor and
@@ -348,8 +380,10 @@ export class MoltZapWsClient {
         warn: (...args) => this.options.logger?.warn(...args),
       }),
     );
-    this.s2cHandlersRef = this.runtime.runSync(
-      Ref.make<HashMap.HashMap<string, ServerRpcHandler>>(HashMap.empty()),
+    this.appCallbackHandlersRef = this.runtime.runSync(
+      Ref.make<
+        HashMap.HashMap<AnyAppCallbackRpcDefinition, ErasedServerRpcHandler>
+      >(HashMap.empty()),
     );
   }
 
@@ -363,34 +397,37 @@ export class MoltZapWsClient {
    *
    * The dispatcher fiber forked at `connect()` time picks up handlers via
    * `Ref.get` per-frame, so a registration made BEFORE `connect()` is
-   * visible to the very first inbound s2c request, and a registration
+   * visible to the very first inbound appCallback request, and a registration
    * made AFTER `connect()` takes effect on the next inbound frame.
    */
-  handleServerRpc(
-    method: string,
-    handler: ServerRpcHandler,
+  handleServerRpc<D extends AnyAppCallbackRpcDefinition>(
+    definition: D,
+    handler: ServerRpcHandler<D>,
   ): Effect.Effect<void, DuplicateServerRpcHandlerError> {
     return Effect.gen(this, function* () {
-      const swapped = yield* Ref.modify(this.s2cHandlersRef, (m) => {
-        if (HashMap.has(m, method)) return [false, m];
-        return [true, HashMap.set(m, method, handler)];
+      const swapped = yield* Ref.modify(this.appCallbackHandlersRef, (m) => {
+        if (HashMap.has(m, definition)) return [false, m];
+        return [
+          true,
+          HashMap.set(m, definition, handler as ErasedServerRpcHandler),
+        ];
       });
       if (!swapped) {
         return yield* Effect.fail(
-          new DuplicateServerRpcHandlerError({ method }),
+          new DuplicateServerRpcHandlerError({ method: definition.name }),
         );
       }
     });
   }
 
-  get helloOk(): unknown {
+  get helloOk(): ConnectResult | null {
     return this._helloOk;
   }
 
   /** Open the socket, perform auth/connect, resolve with HelloOk. Fails
    * immediately on pre-open close or error. */
   connect(): Effect.Effect<
-    unknown,
+    ConnectResult,
     NotConnectedError | RpcTimeoutError | RpcServerError
   > {
     return Effect.suspend(() => {
@@ -412,42 +449,37 @@ export class MoltZapWsClient {
    *   - `RpcTimeoutError` after `RPC_TIMEOUT_MS` — no automatic retry
    *   - `RpcServerError` on a typed server-error frame
    *
-   * Overloads: pass an `RpcDefinition` for compile-time param/result typing,
-   * or a raw method string for untyped legacy call sites.
+   * Descriptor-backed RPC call. Callers pass the protocol descriptor, and the
+   * client extracts the wire method only inside the encoder path.
    */
   sendRpc<D extends RpcDefinition<string, TSchema, TSchema>>(
-    method: D,
-    params: Static<D["paramsSchema"]>,
+    definition: D,
+    params: ParamsOf<D>,
     opts?: RpcCallOptions,
   ): Effect.Effect<
-    Static<D["resultSchema"]>,
-    NotConnectedError | RpcTimeoutError | RpcServerError
-  >;
-  sendRpc(
-    method: string,
-    params?: unknown,
-    opts?: RpcCallOptions,
-  ): Effect.Effect<
-    unknown,
-    NotConnectedError | RpcTimeoutError | RpcServerError
-  >;
-  sendRpc(
-    method: string | RpcDefinition<string, TSchema, TSchema>,
-    params?: unknown,
-    opts?: RpcCallOptions,
-  ): Effect.Effect<
-    unknown,
+    ResultOf<D>,
     NotConnectedError | RpcTimeoutError | RpcServerError
   > {
-    const methodName = typeof method === "string" ? method : method.name;
-    return this.sendRpcEffect(methodName, params, opts);
+    return this.sendRpcEffect(definition, params, opts).pipe(
+      Effect.flatMap((result) =>
+        definition.validateResult(result)
+          ? Effect.succeed(result)
+          : Effect.fail(
+              new RpcServerError({
+                code: JSON_RPC_INTERNAL_ERROR_CODE,
+                message: `Invalid result for method: ${definition.name}`,
+                data: result,
+              }),
+            ),
+      ),
+    );
   }
 
   /**
    * Send an RPC and surface the outbound request id alongside the
    * response envelope `type` and `result`. Spec #222 §5.1–5.2:
    * un-vacuates B4 (request-id tracking) and V5 (response-type
-   * exposure). Mirrors `sendRpc`'s typed/raw overloads.
+   * exposure). Mirrors `sendRpc`'s descriptor-backed call shape.
    *
    * Invariant 3 (spec #222 §4): the returned `id` is the same identity
    * minted inside the existing `rpc-${++counter}` site — no parallel
@@ -455,34 +487,31 @@ export class MoltZapWsClient {
    * real check rather than a tautology.
    */
   sendRpcTracked<D extends RpcDefinition<string, TSchema, TSchema>>(
-    method: D,
-    params: Static<D["paramsSchema"]>,
+    definition: D,
+    params: ParamsOf<D>,
   ): Effect.Effect<
-    TrackedRpcResponse<Static<D["resultSchema"]>>,
-    NotConnectedError | RpcTimeoutError | RpcServerError
-  >;
-  sendRpcTracked(
-    method: string,
-    params?: unknown,
-  ): Effect.Effect<
-    TrackedRpcResponse<unknown>,
-    NotConnectedError | RpcTimeoutError | RpcServerError
-  >;
-  sendRpcTracked(
-    method: string | RpcDefinition<string, TSchema, TSchema>,
-    params?: unknown,
-  ): Effect.Effect<
-    TrackedRpcResponse<unknown>,
+    TrackedRpcResponse<ResultOf<D>>,
     NotConnectedError | RpcTimeoutError | RpcServerError
   > {
-    const methodName = typeof method === "string" ? method : method.name;
-    return this.sendRpcTrackedEffect(methodName, params);
+    return this.sendRpcTrackedEffect(definition, params).pipe(
+      Effect.flatMap((tracked) =>
+        definition.validateResult(tracked.result)
+          ? Effect.succeed({ id: tracked.id, result: tracked.result })
+          : Effect.fail(
+              new RpcServerError({
+                code: JSON_RPC_INTERNAL_ERROR_CODE,
+                message: `Invalid result for method: ${definition.name}`,
+                data: tracked.result,
+              }),
+            ),
+      ),
+    );
   }
 
   /**
-   * Register a per-subscription event handler. Spec #222 §5.3 + OQ-2
+   * Register a per-subscription notification handler. Spec #222 §5.3 + OQ-2
    * (A): filter grammar is the three-field `SubscriptionFilter`
-   * (`emissionTag` / `conversationId` / `eventNamePrefix`). Returns a
+   * (`emissionTag` / `conversationId` / `notificationNamePrefix`). Returns a
    * handle whose `unsubscribe` Effect drops delivery starting with the
    * next inbound frame (OQ-3 A snapshot semantics).
    *
@@ -494,7 +523,7 @@ export class MoltZapWsClient {
   subscribe(
     filter: SubscriptionFilter,
     handler: SubscriberHandler,
-  ): Effect.Effect<EventSubscription, NotConnectedError> {
+  ): Effect.Effect<NotificationSubscription, NotConnectedError> {
     return Effect.suspend(() => {
       if (this.closed) {
         return Effect.fail(makeNotConnectedError());
@@ -521,7 +550,7 @@ export class MoltZapWsClient {
         yield* Effect.forkDaemon(Fiber.interrupt(f));
       }
       yield* this.failAllPending(MSG_NOT_CONNECTED);
-      yield* this.failAllEventWaiters(MSG_NOT_CONNECTED);
+      yield* this.failAllNotificationWaiters(MSG_NOT_CONNECTED);
       // Drop every live subscription so handlers stop firing once
       // the client is permanently torn down. Idempotent.
       yield* this.subscribers.closeAll;
@@ -555,40 +584,56 @@ export class MoltZapWsClient {
     );
   }
 
-  /** Wait for the next inbound event whose `event` field equals `eventName`.
+  /** Wait for the next inbound notification matching `definition`.
    * Consumes a buffered match if present; otherwise awaits the next match
    * with a per-call timeout. */
-  waitForEvent(
-    eventName: string,
+  waitForNotification<D extends AnyNotificationDefinition>(
+    definition: D,
     timeoutMs = EVENT_WAIT_TIMEOUT_MS,
-  ): Effect.Effect<EventFrame, Error> {
+  ): Effect.Effect<DecodedNotificationFor<D>, Error> {
     return Effect.gen(this, function* () {
-      const buffered = yield* Ref.modify(this.eventsBufferRef, (events) => {
-        const idx = events.findIndex((e) => e.event === eventName);
-        if (idx === -1) return [null as EventFrame | null, events];
-        const chosen = events[idx]!;
-        const next = [...events.slice(0, idx), ...events.slice(idx + 1)];
-        return [chosen, next];
-      });
+      const buffered = yield* Ref.modify(
+        this.notificationsBufferRef,
+        (frames) => {
+          for (const [idx, frame] of frames.entries()) {
+            if (!notificationMatches(definition, frame)) continue;
+            const next = [...frames.slice(0, idx), ...frames.slice(idx + 1)];
+            return [frame, next];
+          }
+          return [null, frames];
+        },
+      );
       if (buffered !== null) return buffered;
 
-      const deferred = yield* Deferred.make<EventFrame, Error>();
-      const waiter: EventWaiter = { eventName, deferred };
-      yield* Ref.update(this.eventWaitersRef, (m) => {
-        const existing = HashMap.get(m, eventName);
+      const deferred = yield* Deferred.make<DecodedNotificationFor<D>, Error>();
+      const waiter: NotificationWaiter = {
+        definition,
+        complete: (notification) =>
+          notificationMatches(definition, notification)
+            ? Deferred.succeed(deferred, notification).pipe(Effect.asVoid)
+            : Effect.void,
+        fail: (error) => Deferred.fail(deferred, error).pipe(Effect.asVoid),
+      };
+      yield* Ref.update(this.notificationWaitersRef, (m) => {
+        const existing = HashMap.get(m, definition);
         const next =
           existing._tag === "Some" ? [...existing.value, waiter] : [waiter];
-        return HashMap.set(m, eventName, next as ReadonlyArray<EventWaiter>);
+        return HashMap.set(
+          m,
+          definition,
+          next as ReadonlyArray<NotificationWaiter>,
+        );
       });
       return yield* Deferred.await(deferred).pipe(
         Effect.timeoutFail({
           duration: `${timeoutMs} millis`,
-          onTimeout: () => new Error(`Timeout waiting for event: ${eventName}`),
+          onTimeout: () =>
+            new Error(`Timeout waiting for notification: ${definition.name}`),
         }),
         Effect.onExit((exit) =>
           exit._tag === "Failure"
-            ? Ref.update(this.eventWaitersRef, (m) =>
-                removeWaiter(m, eventName, waiter),
+            ? Ref.update(this.notificationWaitersRef, (m) =>
+                removeWaiter(m, definition, waiter),
               )
             : Effect.void,
         ),
@@ -596,10 +641,10 @@ export class MoltZapWsClient {
     });
   }
 
-  /** Return all buffered events and clear the buffer. Synchronous. */
-  drainEvents(): EventFrame[] {
-    const snapshot = this.runtime.runSync(Ref.get(this.eventsBufferRef));
-    this.runtime.runSync(Ref.set(this.eventsBufferRef, []));
+  /** Return all buffered notifications and clear the buffer. Synchronous. */
+  drainNotifications(): DecodedNotification[] {
+    const snapshot = this.runtime.runSync(Ref.get(this.notificationsBufferRef));
+    this.runtime.runSync(Ref.set(this.notificationsBufferRef, []));
     return [...snapshot];
   }
 
@@ -632,7 +677,7 @@ export class MoltZapWsClient {
   }
 
   private connectEffect(): Effect.Effect<
-    unknown,
+    ConnectResult,
     NotConnectedError | RpcTimeoutError | RpcServerError,
     Socket.WebSocketConstructor
   > {
@@ -670,10 +715,13 @@ export class MoltZapWsClient {
 
       // Settled first by whichever fires: the auth/connect response, or
       // reader-fiber exit on any close/error before handshake.
-      const handshakeSettled = yield* Deferred.make<unknown, PendingError>();
+      const handshakeSettled = yield* Deferred.make<
+        ConnectResult,
+        PendingError
+      >();
 
-      // Spec #356 — partitioned s2c dispatcher. Replaces the pre-#356
-      // single `Stream.runForEach`-driven `s2cInboundQueue` with a
+      // Spec #356 — partitioned appCallback dispatcher. Replaces the pre-#356
+      // single `Stream.runForEach`-driven `appCallbackInboundQueue` with a
       // partition router keyed on `(sessionId, conversationId,
       // hookKind)`. Each tuple owns one bounded queue + one drain
       // fiber; cross-tuple offers run on independent fibers, so a
@@ -695,8 +743,8 @@ export class MoltZapWsClient {
         handle: (req) =>
           this.dispatchInboundServerRequest(req as DecodedServerRequest, write),
         scope: dispatcherScope,
-        ...(this.options.s2cDispatcher !== undefined
-          ? { config: this.options.s2cDispatcher }
+        ...(this.options.appCallbackDispatcher !== undefined
+          ? { config: this.options.appCallbackDispatcher }
           : {}),
         ...(this.options.logger !== undefined
           ? { logger: this.options.logger }
@@ -726,10 +774,10 @@ export class MoltZapWsClient {
                 handshakeSettled,
                 makeNotConnectedError(),
               ).pipe(Effect.ignore);
-              // Clear connection state BEFORE the s2c teardown so
+              // Clear connection state BEFORE the appCallback teardown so
               // `sendRpc` and observers see the closed state immediately.
               // Awaiting `Fiber.interrupt` would block this branch on a
-              // slow s2c handler still draining (codex P2).
+              // slow appCallback handler still draining (codex P2).
               yield* Ref.set(this.stateRef, Option.none());
               // Tear down the partitioned dispatcher on socket-level
               // close (e.g. server-initiated). `close()` /
@@ -777,7 +825,7 @@ export class MoltZapWsClient {
         }),
       );
 
-      const authEffect = this.sendRpcEffect(Connect.name, {
+      const authEffect = this.sendRpc(Connect, {
         agentKey: this.options.agentKey,
         minProtocol: PROTOCOL_VERSION,
         maxProtocol: PROTOCOL_VERSION,
@@ -805,34 +853,30 @@ export class MoltZapWsClient {
   /**
    * Tracked variant of `sendRpcEffect`. Reuses the same Deferred /
    * pendingRef plumbing — the only difference is the resolved value:
-   * `{id, type: "response", result}` instead of bare `result`. This
+   * `{id, result}` instead of bare `result`. This
    * keeps Invariant 3 (single id source) trivially: we mint `id` once
    * inside this body, register the Deferred under that id, and return
    * the same id to the caller alongside the result.
    */
-  private sendRpcTrackedEffect(
-    method: string,
-    params: unknown,
+  private sendRpcTrackedEffect<
+    D extends RpcDefinition<string, TSchema, TSchema>,
+  >(
+    definition: D,
+    params: ParamsOf<D>,
     opts?: RpcCallOptions,
   ): Effect.Effect<
-    TrackedRpcResponse<unknown>,
+    TrackedRpcResponse<ResultOf<D>>,
     NotConnectedError | RpcTimeoutError | RpcServerError
   > {
     return Effect.gen(this, function* () {
+      const method = definition.name;
       const state = yield* Ref.get(this.stateRef);
       if (Option.isNone(state)) {
         return yield* Effect.fail(makeNotConnectedError());
       }
 
-      const id = `rpc-${++this.requestCounter}`;
-      const frame: RequestFrame = {
-        jsonrpc: "2.0",
-        type: "request",
-        direction: "c2s",
-        id,
-        method,
-        params,
-      };
+      const id = jsonRpcStringId(`rpc-${++this.requestCounter}`);
+      const frame: RequestFrame = requestFrame(id, definition, params);
 
       // Register the Deferred BEFORE writing. `write` yields to the
       // scheduler; the reader could interleave, see a close, and
@@ -881,14 +925,18 @@ export class MoltZapWsClient {
         ),
       );
 
-      // `type: "response"` is surfaced as an observable literal (V5):
-      // the value the caller sees comes from the same response
-      // envelope the reader fiber decoded, not a synthesized adapter
-      // constant. The Frame schema at
-      // `packages/protocol/src/schema/frames.ts:18` pins `type` to
-      // that literal at decode time, so this assignment is the
-      // value-level projection of that schema constraint.
-      return { id, type: "response" as const, result };
+      const decodedResult = yield* decodeRpcResult(definition, result).pipe(
+        Effect.mapError(
+          () =>
+            new RpcServerError({
+              code: JSON_RPC_INTERNAL_ERROR_CODE,
+              message: `Invalid result for method: ${definition.name}`,
+              data: result,
+            }),
+        ),
+      );
+
+      return { id, result: decodedResult };
     });
   }
 
@@ -900,15 +948,15 @@ export class MoltZapWsClient {
    * Invariant 5 (typed error channel), and the `socket.writer` latch
    * race described below.
    */
-  private sendRpcEffect(
-    method: string,
-    params: unknown,
+  private sendRpcEffect<D extends RpcDefinition<string, TSchema, TSchema>>(
+    definition: D,
+    params: ParamsOf<D>,
     opts?: RpcCallOptions,
   ): Effect.Effect<
-    unknown,
+    ResultOf<D>,
     NotConnectedError | RpcTimeoutError | RpcServerError
   > {
-    return this.sendRpcTrackedEffect(method, params, opts).pipe(
+    return this.sendRpcTrackedEffect(definition, params, opts).pipe(
       Effect.map((tracked) => tracked.result),
     );
   }
@@ -924,14 +972,17 @@ export class MoltZapWsClient {
    */
   private writeOfferRejection(
     err: OfferRejected,
-    requestId: string,
+    requestId: JsonRpcStringId,
     write: ConnState["write"],
   ): Effect.Effect<void, never> {
     const reply = this.offerRejectedResponse(err, requestId);
     return write(JSON.stringify(reply)).pipe(
       Effect.catchAll((werr) =>
         Effect.sync(() =>
-          this.options.logger?.warn("s2c offer-rejection write failed", werr),
+          this.options.logger?.warn(
+            "appCallback offer-rejection write failed",
+            werr,
+          ),
         ),
       ),
     );
@@ -939,18 +990,10 @@ export class MoltZapWsClient {
 
   private offerRejectedResponse(
     err: OfferRejected,
-    requestId: string,
+    requestId: JsonRpcStringId,
   ): ResponseFrame {
-    if (err instanceof MalformedPartitionKeyError) {
-      return responseFrame("s2c", requestId, {
-        error: {
-          code: -32602,
-          message: `Invalid params: ${err.reason}`,
-        },
-      });
-    }
     if (err instanceof PartitionLimitError) {
-      return responseFrame("s2c", requestId, {
+      return responseFrame(requestId, {
         error: {
           code: -32000,
           message: `Server busy: partition limit reached (${err.activePartitions}/${err.maxPartitions})`,
@@ -958,7 +1001,7 @@ export class MoltZapWsClient {
       });
     }
     if (err instanceof PartitionQueueFullError) {
-      return responseFrame("s2c", requestId, {
+      return responseFrame(requestId, {
         error: {
           code: -32000,
           message: `Server busy: partition queue full (capacity=${err.capacity})`,
@@ -970,7 +1013,7 @@ export class MoltZapWsClient {
   }
 
   /**
-   * Dispatch one inbound s2c request to the registered handler, encode
+   * Dispatch one inbound appCallback request to the registered handler, encode
    * the response, and write it back to the server. Errors are projected
    * onto an error response so the server's `Deferred.await` always
    * settles deterministically — never hangs on a missing or crashing
@@ -989,32 +1032,31 @@ export class MoltZapWsClient {
     write: ConnState["write"],
   ): Effect.Effect<void, never> {
     return Effect.gen(this, function* () {
-      const handlers = yield* Ref.get(this.s2cHandlersRef);
-      const lookup = HashMap.get(handlers, request.method);
+      const handlers = yield* Ref.get(this.appCallbackHandlersRef);
+      const lookup = HashMap.get(handlers, request.definition);
       const buildReply =
         lookup._tag === "None"
           ? Effect.succeed(
-              responseFrame("s2c", request.id, {
+              responseFrame(request.id, {
                 error: {
                   code: -32601,
-                  message: `No handler registered for method: ${request.method}`,
+                  message: "No handler registered for app callback descriptor",
                 },
               }) satisfies ResponseFrame,
             )
           : lookup
               .value(request.params, {
                 requestId: request.id,
-                method: request.method,
-                traceparent: request.traceparent,
+                definition: request.definition,
               })
               .pipe(
                 Effect.match({
                   onSuccess: (result) =>
-                    responseFrame("s2c", request.id, {
+                    responseFrame(request.id, {
                       result,
                     }) satisfies ResponseFrame,
                   onFailure: (err) =>
-                    responseFrame("s2c", request.id, {
+                    responseFrame(request.id, {
                       error: {
                         code: err.code,
                         message: err.message,
@@ -1025,10 +1067,10 @@ export class MoltZapWsClient {
                 Effect.catchAllCause((cause) =>
                   Effect.sync(() => {
                     this.options.logger?.warn(
-                      `s2c handler ${request.method} defected`,
+                      "appCallback handler defected",
                       Cause.pretty(cause),
                     );
-                    return responseFrame("s2c", request.id, {
+                    return responseFrame(request.id, {
                       error: { code: -32603, message: "Internal error" },
                     }) satisfies ResponseFrame;
                   }),
@@ -1038,15 +1080,15 @@ export class MoltZapWsClient {
       yield* write(JSON.stringify(reply)).pipe(
         Effect.catchAll((err) =>
           Effect.sync(() =>
-            this.options.logger?.warn("s2c response write failed", err),
+            this.options.logger?.warn("appCallback response write failed", err),
           ),
         ),
       );
     });
   }
 
-  /** Route an inbound frame. Malformed frames are logged + dropped; event
-   * frames dispatch to `onEvent` after the shape check. */
+  /** Route an inbound frame. Malformed frames are logged + dropped; notification
+   * frames dispatch to `onNotification` after the shape check. */
   private handleIncoming(raw: string): Effect.Effect<void> {
     return Effect.gen(this, function* () {
       const decodedFrames = yield* decodeFrames(raw).pipe(
@@ -1095,7 +1137,7 @@ export class MoltZapWsClient {
         }
 
         if (decoded._tag === "ServerRequest") {
-          // s2c request — hand off to the partitioned dispatcher
+          // appCallback request — hand off to the partitioned dispatcher
           // (spec #356). The dispatcher routes by
           // `(sessionId, conversationId, hookKind)`; the matching
           // per-tuple worker fiber drains and runs
@@ -1107,8 +1149,7 @@ export class MoltZapWsClient {
           // `dispatcher.offer` is non-blocking: every failure mode is
           // tagged in `OfferRejected` and translated below to a wire
           // error response so the server's `Deferred.await` always
-          // settles (no hangs on a malformed-key or partition-full
-          // request).
+          // settles (no hangs on partition-full requests).
           const state = yield* Ref.get(this.stateRef);
           if (Option.isNone(state)) {
             // Reader fiber observed a frame without a corresponding
@@ -1119,11 +1160,7 @@ export class MoltZapWsClient {
             continue;
           }
           const offered = yield* Effect.either(
-            state.value.dispatcher.offer({
-              id: decoded.id,
-              method: decoded.method,
-              params: decoded.params,
-            }),
+            state.value.dispatcher.offer(decoded),
           );
           const offerFailure = Either.match(offered, {
             onLeft: (err) => err,
@@ -1139,35 +1176,36 @@ export class MoltZapWsClient {
           continue;
         }
 
-        if (decoded._tag === "Event") {
+        if (decoded._tag === "Notification") {
           // Spec #222 §5.3 (C4 + subscribe-stub): per-subscription
-          // fan-out replaces the deleted top-level `onEvent` callback.
+          // fan-out replaces the deleted top-level `onNotification` callback.
           // Snapshot-at-dispatch semantics live inside the registry
           // (OQ-3 A); see runtime/subscribers.ts.
-          yield* this.subscribers.dispatch(decoded.frame);
-          const delivered = yield* Ref.modify(this.eventWaitersRef, (m) => {
-            const bucket = HashMap.get(m, decoded.frame.event);
-            if (bucket._tag === "None" || bucket.value.length === 0) {
-              return [null as EventWaiter | null, m];
-            }
-            const arr = bucket.value;
-            const chosen = arr[arr.length - 1]!;
-            const rest = arr.slice(0, -1);
-            const nextMap =
-              rest.length === 0
-                ? HashMap.remove(m, decoded.frame.event)
-                : HashMap.set(m, decoded.frame.event, rest);
-            return [chosen, nextMap];
-          });
+          yield* this.subscribers.dispatch(decoded);
+          const delivered = yield* Ref.modify(
+            this.notificationWaitersRef,
+            (m) => {
+              const bucket = HashMap.get(m, decoded.definition);
+              if (bucket._tag === "None" || bucket.value.length === 0) {
+                return [null as NotificationWaiter | null, m];
+              }
+              const arr = bucket.value;
+              const chosen = arr[arr.length - 1]!;
+              const rest = arr.slice(0, -1);
+              const nextMap =
+                rest.length === 0
+                  ? HashMap.remove(m, decoded.definition)
+                  : HashMap.set(m, decoded.definition, rest);
+              return [chosen, nextMap];
+            },
+          );
           if (delivered !== null) {
-            yield* Deferred.succeed(delivered.deferred, decoded.frame).pipe(
-              Effect.ignore,
-            );
+            yield* delivered.complete(decoded);
             continue;
           }
 
-          yield* Ref.update(this.eventsBufferRef, (xs) => {
-            const appended = [...xs, decoded.frame];
+          yield* Ref.update(this.notificationsBufferRef, (xs) => {
+            const appended = [...xs, decoded];
             return appended.length > MAX_EVENT_BUFFER
               ? appended.slice(-MAX_EVENT_BUFFER)
               : appended;
@@ -1177,18 +1215,19 @@ export class MoltZapWsClient {
     });
   }
 
-  /** Fail every outstanding event waiter with `message` and clear the map. */
-  private failAllEventWaiters(message: string): Effect.Effect<void> {
+  /** Fail every outstanding notification waiter with `message` and clear the map. */
+  private failAllNotificationWaiters(message: string): Effect.Effect<void> {
     return Effect.gen(this, function* () {
       const waiters = yield* Ref.getAndSet(
-        this.eventWaitersRef,
-        HashMap.empty<string, ReadonlyArray<EventWaiter>>(),
+        this.notificationWaitersRef,
+        HashMap.empty<
+          AnyNotificationDefinition,
+          ReadonlyArray<NotificationWaiter>
+        >(),
       );
       for (const [, bucket] of HashMap.entries(waiters)) {
         for (const w of bucket) {
-          yield* Deferred.fail(w.deferred, new Error(message)).pipe(
-            Effect.ignore,
-          );
+          yield* w.fail(new Error(message));
         }
       }
     });
@@ -1198,7 +1237,10 @@ export class MoltZapWsClient {
     return Effect.gen(this, function* () {
       const pending = yield* Ref.getAndSet(
         this.pendingRef,
-        HashMap.empty<string, Deferred.Deferred<unknown, PendingError>>(),
+        HashMap.empty<
+          JsonRpcStringId,
+          Deferred.Deferred<unknown, PendingError>
+        >(),
       );
       for (const [, d] of HashMap.entries(pending)) {
         yield* Deferred.fail(d, new NotConnectedError({ message })).pipe(

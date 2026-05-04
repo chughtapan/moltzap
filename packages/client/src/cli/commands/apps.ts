@@ -30,6 +30,7 @@ import {
 } from "../transport.js";
 
 import {
+  agentId,
   AppsAttestSkill,
   AppsCloseSession,
   AppsCreate,
@@ -141,9 +142,16 @@ export const appsRegisterHandler = (
         }),
       );
     }
-    const result = yield* rpc<{ appId: string }>(AppsRegister.name, {
-      manifest,
-    });
+    const params = { manifest };
+    if (!AppsRegister.validateParams(params)) {
+      return yield* Effect.fail(
+        new AppsInputError({
+          message: `manifest at ${args.manifestPath} does not match the app manifest schema`,
+          reason: "invalid app manifest",
+        }),
+      );
+    }
+    const result = yield* rpc(AppsRegister, params);
     yield* Effect.sync(() => {
       console.log(result.appId);
     });
@@ -154,9 +162,9 @@ export const appsCreateHandler = (
   args: AppsCreateArgs,
 ): Effect.Effect<void, AppsCommandError, Transport> =>
   Effect.gen(function* () {
-    const result = yield* rpc<{ session: { id: string } }>(AppsCreate.name, {
+    const result = yield* rpc(AppsCreate, {
       appId: args.appId,
-      invitedAgentIds: [...args.invitedAgentIds],
+      invitedAgentIds: args.invitedAgentIds.map(agentId),
     });
     yield* Effect.sync(() => {
       console.log(result.session.id);
@@ -168,17 +176,12 @@ export const appsListHandler = (
   args: AppsListArgs,
 ): Effect.Effect<void, AppsCommandError, Transport> =>
   Effect.gen(function* () {
-    const params: Record<string, unknown> = {};
-    if (args.appId !== undefined) params.appId = args.appId;
-    if (args.status !== undefined) params.status = args.status;
-    if (args.limit !== undefined) params.limit = args.limit;
-    const result = yield* rpc<{
-      sessions: ReadonlyArray<{
-        id: string;
-        appId: string;
-        status: AppSessionStatus;
-      }>;
-    }>(AppsListSessions.name, params);
+    const params = {
+      ...(args.appId !== undefined ? { appId: args.appId } : {}),
+      ...(args.status !== undefined ? { status: args.status } : {}),
+      ...(args.limit !== undefined ? { limit: args.limit } : {}),
+    };
+    const result = yield* rpc(AppsListSessions, params);
     yield* Effect.sync(() => {
       for (const s of result.sessions) {
         console.log(`${s.id}\t${s.appId}\t${s.status}`);
@@ -191,7 +194,7 @@ export const appsGetHandler = (
   args: AppsGetArgs,
 ): Effect.Effect<void, AppsCommandError, Transport> =>
   Effect.gen(function* () {
-    const result = yield* rpc<{ session: unknown }>(AppsGetSession.name, {
+    const result = yield* rpc(AppsGetSession, {
       sessionId: args.sessionId,
     });
     yield* Effect.sync(() => {
@@ -204,7 +207,7 @@ export const appsCloseHandler = (
   args: AppsCloseArgs,
 ): Effect.Effect<void, AppsCommandError, Transport> =>
   Effect.gen(function* () {
-    yield* rpc<{ closed: boolean }>(AppsCloseSession.name, {
+    yield* rpc(AppsCloseSession, {
       sessionId: args.sessionId,
     });
     yield* Effect.sync(() => {
@@ -221,7 +224,7 @@ export const appsCloseHandler = (
 export const appsAttestSkillHandler = (
   args: AppsAttestSkillArgs,
 ): Effect.Effect<void, AppsCommandError, Transport> =>
-  rpc<Record<string, never>>(AppsAttestSkill.name, {
+  rpc(AppsAttestSkill, {
     challengeId: args.challengeId,
     skillUrl: args.skillUrl,
     version: args.version,

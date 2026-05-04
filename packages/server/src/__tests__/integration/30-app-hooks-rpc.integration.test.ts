@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────
-// Phase 1.8 / B.9 — server integration tests for the s2c admission +
+// Phase 1.8 / B.9 — server integration tests for the appCallback admission +
 // lifecycle RPC pipeline (architect plan §3.4 + §B.9 acceptance).
 //
 // Where the existing `30-app-hooks.integration.test.ts` covers the
@@ -12,7 +12,7 @@
 // Topology mirrored:
 //   - `userAgent` — the orchestrator that creates app sessions and
 //     sends messages. Owns `owner_user_id` so admission accepts it.
-//   - `appAgent` — the remote app. Holds the s2c handlers via
+//   - `appAgent` — the remote app. Holds the appCallback handlers via
 //     `client.handleServerRpc(...)` then sends `apps/register` so AppHost
 //     binds (`appId → connId`) and routes future hook RPCs to this socket.
 //
@@ -50,6 +50,9 @@ import {
   type OnCloseContext,
   type DispatchAdmissionResult,
   type HookResult,
+  AppParticipantAdmittedNotificationDefinition,
+  AppSessionReadyNotificationDefinition,
+  AppHookTimeoutNotificationDefinition,
 } from "@moltzap/protocol";
 import { expectRpcFailure } from "../../test-utils/index.js";
 import { getBaseUrl } from "../../test-utils/index.js";
@@ -138,7 +141,7 @@ function registerAppAgent(name: string): Effect.Effect<ConnectedAgent, Error> {
 // captures / drive subsequent calls.
 //
 // Handlers are typed against the wire shapes (params decoded by the
-// TestClient against `S2cRpcMap`; replies must match the result shape
+// TestClient against `AppCallbackRpcMap`; replies must match the result shape
 // for that method). Lifecycle handlers default to a no-op `{}` reply
 // when omitted.
 
@@ -211,7 +214,7 @@ function registerAppClient(opts: {
       h.onClose ?? (() => Effect.succeed({})),
     );
 
-    yield* client.sendRpc(AppsRegister.name, { manifest: opts.manifest });
+    yield* client.sendRpc(AppsRegister, { manifest: opts.manifest });
 
     return { appAgentId: reg.agentId, appAgentKey: reg.apiKey, client };
   });
@@ -275,7 +278,7 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
             },
           });
 
-          const session = (yield* userAgent.client.sendRpc(AppsCreate.name, {
+          const session = (yield* userAgent.client.sendRpc(AppsCreate, {
             appId: "rpc-fixture-app",
             invitedAgentIds: [],
           })) as {
@@ -284,7 +287,7 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
 
           const convId = session.session.conversations["main"]!;
 
-          yield* userAgent.client.sendRpc(MessagesSend.name, {
+          yield* userAgent.client.sendRpc(MessagesSend, {
             conversationId: convId,
             parts: [{ type: "text", text: "fixture round-trip" }],
           });
@@ -299,7 +302,7 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
 
   // ── before_dispatch (via apps/authorizeDispatch) ───────────────────
   //
-  // `before_dispatch` fires inside the c2s `apps/authorizeDispatch`
+  // `before_dispatch` fires inside the client-originated `apps/authorizeDispatch`
   // handler (see `apps.handlers.ts` — the only `runBeforeDispatch`
   // call site outside the dispatch helper itself). The wire result is
   // `{ admission: DispatchAdmissionResult }` — i.e. the full verdict
@@ -342,7 +345,7 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
           },
         });
 
-        const session = (yield* userAgent.client.sendRpc(AppsCreate.name, {
+        const session = (yield* userAgent.client.sendRpc(AppsCreate, {
           appId: "bd-grant-app",
           invitedAgentIds: [],
         })) as {
@@ -351,7 +354,7 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
         const convId = session.session.conversations["main"]!;
 
         const result = (yield* userAgent.client.sendRpc(
-          AppsAuthorizeDispatch.name,
+          AppsAuthorizeDispatch,
           authorizeDispatchParams(convId, userAgent.agentId),
         )) as { admission: DispatchAdmissionResult };
 
@@ -377,7 +380,7 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
           },
         });
 
-        const session = (yield* userAgent.client.sendRpc(AppsCreate.name, {
+        const session = (yield* userAgent.client.sendRpc(AppsCreate, {
           appId: "bd-deny-app",
           invitedAgentIds: [],
         })) as {
@@ -386,7 +389,7 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
         const convId = session.session.conversations["main"]!;
 
         const result = (yield* userAgent.client.sendRpc(
-          AppsAuthorizeDispatch.name,
+          AppsAuthorizeDispatch,
           authorizeDispatchParams(convId, userAgent.agentId),
         )) as { admission: DispatchAdmissionResult };
 
@@ -422,7 +425,7 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
           },
         });
 
-        const session = (yield* userAgent.client.sendRpc(AppsCreate.name, {
+        const session = (yield* userAgent.client.sendRpc(AppsCreate, {
           appId: "bd-hold-app",
           invitedAgentIds: [],
         })) as {
@@ -431,7 +434,7 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
         const convId = session.session.conversations["main"]!;
 
         const result = (yield* userAgent.client.sendRpc(
-          AppsAuthorizeDispatch.name,
+          AppsAuthorizeDispatch,
           authorizeDispatchParams(convId, userAgent.agentId),
         )) as { admission: DispatchAdmissionResult };
 
@@ -466,7 +469,7 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
             },
           });
 
-          const session = (yield* userAgent.client.sendRpc(AppsCreate.name, {
+          const session = (yield* userAgent.client.sendRpc(AppsCreate, {
             appId: "bd-lease-app",
             invitedAgentIds: [],
           })) as {
@@ -475,7 +478,7 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
           const convId = session.session.conversations["main"]!;
 
           const result = (yield* userAgent.client.sendRpc(
-            AppsAuthorizeDispatch.name,
+            AppsAuthorizeDispatch,
             authorizeDispatchParams(convId, userAgent.agentId),
           )) as { admission: DispatchAdmissionResult };
 
@@ -493,7 +496,7 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
         Effect.gen(function* () {
           // Architect plan §3.4: `before_dispatch` fail-policy on
           // app-disconnect is `{ decision: "deny", reason: "..." }` —
-          // the c2s `apps/authorizeDispatch` returns `decision: "deny"`
+          // the client-originated `apps/authorizeDispatch` returns `decision: "deny"`
           // (it does NOT raise an RPC failure). The Scope finalizer on
           // the server-side connection fails the pending Deferred with
           // `AppDisconnected`, which the AppHost wrapper converts to the
@@ -512,7 +515,7 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
             },
           });
 
-          const session = (yield* userAgent.client.sendRpc(AppsCreate.name, {
+          const session = (yield* userAgent.client.sendRpc(AppsCreate, {
             appId: "bd-disco-app",
             invitedAgentIds: [],
           })) as {
@@ -525,12 +528,12 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
           // (fail-closed), not hang indefinitely.
           const callFiber = Effect.runFork(
             userAgent.client.sendRpc(
-              AppsAuthorizeDispatch.name,
+              AppsAuthorizeDispatch,
               authorizeDispatchParams(convId, userAgent.agentId),
             ),
           );
 
-          // Give the server time to dispatch the s2c request to the app,
+          // Give the server time to dispatch the appCallback request to the app,
           // then kill the app's WS. 200ms is empirical buffer.
           yield* Effect.promise(() => new Promise((r) => setTimeout(r, 200)));
           yield* app.client.close();
@@ -545,7 +548,7 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
           );
 
           // Fail-closed surfaces as `{decision: "deny", reason: ...}`,
-          // not as an RPC failure. The c2s call succeeds; the verdict
+          // not as an RPC failure. The client-originated call succeeds; the verdict
           // is the fail-closed shape.
           expect(Exit.isSuccess(exit)).toBe(true);
           if (Exit.isSuccess(exit)) {
@@ -585,7 +588,7 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
             },
           });
 
-          const session = (yield* userAgent.client.sendRpc(AppsCreate.name, {
+          const session = (yield* userAgent.client.sendRpc(AppsCreate, {
             appId: "bmd-block-app",
             invitedAgentIds: [],
           })) as {
@@ -594,7 +597,7 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
           const convId = session.session.conversations["main"]!;
 
           const rpcErr = yield* expectRpcFailure(
-            userAgent.client.sendRpc(MessagesSend.name, {
+            userAgent.client.sendRpc(MessagesSend, {
               conversationId: convId,
               parts: [{ type: "text", text: "bad command" }],
             }),
@@ -636,7 +639,7 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
           },
         });
 
-        const session = (yield* userAgent.client.sendRpc(AppsCreate.name, {
+        const session = (yield* userAgent.client.sendRpc(AppsCreate, {
           appId: "bmd-patch-app",
           invitedAgentIds: [],
         })) as {
@@ -644,7 +647,7 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
         };
         const convId = session.session.conversations["main"]!;
 
-        const result = (yield* userAgent.client.sendRpc(MessagesSend.name, {
+        const result = (yield* userAgent.client.sendRpc(MessagesSend, {
           conversationId: convId,
           parts: [{ type: "text", text: "secret info" }],
         })) as {
@@ -683,7 +686,7 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
             },
           });
 
-          const session = (yield* userAgent.client.sendRpc(AppsCreate.name, {
+          const session = (yield* userAgent.client.sendRpc(AppsCreate, {
             appId: "bmd-feedback-app",
             invitedAgentIds: [],
           })) as {
@@ -692,7 +695,7 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
           const convId = session.session.conversations["main"]!;
 
           const rpcErr = yield* expectRpcFailure(
-            userAgent.client.sendRpc(MessagesSend.name, {
+            userAgent.client.sendRpc(MessagesSend, {
               conversationId: convId,
               parts: [{ type: "text", text: "raw input" }],
             }),
@@ -723,7 +726,7 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
           },
         });
 
-        const session = (yield* userAgent.client.sendRpc(AppsCreate.name, {
+        const session = (yield* userAgent.client.sendRpc(AppsCreate, {
           appId: "bmd-timeout-app",
           invitedAgentIds: [],
         })) as {
@@ -732,15 +735,15 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
         const convId = session.session.conversations["main"]!;
 
         yield* expectRpcFailure(
-          userAgent.client.sendRpc(MessagesSend.name, {
+          userAgent.client.sendRpc(MessagesSend, {
             conversationId: convId,
             parts: [{ type: "text", text: "should-be-blocked" }],
           }),
           ErrorCodes.HookBlocked,
         );
 
-        const timeoutEvent = yield* userAgent.client.waitForEvent(
-          "app/hookTimeout",
+        const timeoutEvent = yield* userAgent.client.waitForNotification(
+          AppHookTimeoutNotificationDefinition,
           3000,
         );
         const data = timeoutEvent.data as {
@@ -788,12 +791,15 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
             },
           });
 
-          yield* userAgent.client.sendRpc(AppsCreate.name, {
+          yield* userAgent.client.sendRpc(AppsCreate, {
             appId: "osa-order-app",
             invitedAgentIds: [invitee.agentId],
           });
 
-          yield* userAgent.client.waitForEvent("app/sessionReady", 5000);
+          yield* userAgent.client.waitForNotification(
+            AppSessionReadyNotificationDefinition,
+            5000,
+          );
           const readyAt = Date.now();
           expect(hookFinishedAt).not.toBeNull();
           expect(hookFinishedAt!).toBeLessThanOrEqual(readyAt);
@@ -824,12 +830,15 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
           },
         });
 
-        yield* userAgent.client.sendRpc(AppsCreate.name, {
+        yield* userAgent.client.sendRpc(AppsCreate, {
           appId: "oj-app",
           invitedAgentIds: [invitee.agentId],
         });
 
-        yield* invitee.client.waitForEvent("app/participantAdmitted", 5000);
+        yield* invitee.client.waitForNotification(
+          AppParticipantAdmittedNotificationDefinition,
+          5000,
+        );
         // admitAgentsAsync is daemon-forked; give it a beat to fire the
         // hook against the remote app's WS and receive its reply.
         yield* Effect.promise(() => new Promise((r) => setTimeout(r, 200)));
@@ -864,17 +873,17 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
           },
         });
 
-        const session = (yield* userAgent.client.sendRpc(AppsCreate.name, {
+        const session = (yield* userAgent.client.sendRpc(AppsCreate, {
           appId: "oc-app",
           invitedAgentIds: [],
         })) as { session: { id: string } };
 
-        yield* userAgent.client.sendRpc(AppsCloseSession.name, {
+        yield* userAgent.client.sendRpc(AppsCloseSession, {
           sessionId: session.session.id,
         });
 
         // Allow the on_close round-trip + reply to complete; closeSession
-        // awaits the s2c reply but tracks it on a daemon dispatcher.
+        // awaits the appCallback reply but tracks it on a daemon dispatcher.
         yield* Effect.promise(() => new Promise((r) => setTimeout(r, 200)));
 
         expect(closeCtx).not.toBeNull();
@@ -886,9 +895,9 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
     );
   });
 
-  // ── apps/attachConversation (c2s) ──────────────────────────────────
+  // ── apps/attachConversation (client-originated) ────────────────────
   //
-  // Architect plan §3.5 / §B.9 acceptance — exercises the c2s
+  // Architect plan §3.5 / §B.9 acceptance — exercises the client-originated
   // `apps/attachConversation` RPC against the real server and asserts
   // the wire-level numeric error codes the SDK's `extractAttachCode`
   // depends on. Catches the bug where the SDK was string-matching
@@ -902,7 +911,7 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
   // top of this file) is unit-tested against the same numeric codes
   // in `app-sdk/src/app.handlers.test.ts`. Drift would surface in
   // either suite; both maps must update together.
-  describe("apps/attachConversation (c2s wire round-trip)", () => {
+  describe("apps/attachConversation (client-originated wire round-trip)", () => {
     it.live(
       "happy path: attaches a conversation under conversationId-as-key",
       () =>
@@ -937,12 +946,12 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
           // as the initiator and the same connection holds the remote-app
           // registration, so the session has the app as both initiator and
           // app-of-record. (Production SDK callers follow the same shape.)
-          const session = (yield* app.client.sendRpc(AppsCreate.name, {
+          const session = (yield* app.client.sendRpc(AppsCreate, {
             appId: "att-happy-app",
             invitedAgentIds: [],
           })) as { session: { id: string } };
 
-          const dm = (yield* app.client.sendRpc(ConversationsCreate.name, {
+          const dm = (yield* app.client.sendRpc(ConversationsCreate, {
             type: "dm",
             participants: [{ type: "agent", id: peer.agentId }],
           })) as { conversation: { id: string } };
@@ -950,7 +959,7 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
           // Wire shape for `apps/attachConversation` carries no `key`
           // field; the server handler uses `conversationId` as the key
           // (deterministic 1:1; see apps.handlers.ts comment).
-          yield* app.client.sendRpc(AppsAttachConversation.name, {
+          yield* app.client.sendRpc(AppsAttachConversation, {
             sessionId: session.session.id,
             conversationId: dm.conversation.id,
           });
@@ -976,7 +985,7 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
 
           // A well-formed UUID that does not refer to any session.
           const rpcErr = yield* expectRpcFailure(
-            userAgent.client.sendRpc(AppsAttachConversation.name, {
+            userAgent.client.sendRpc(AppsAttachConversation, {
               sessionId: crypto.randomUUID(),
               conversationId: crypto.randomUUID(),
             }),
@@ -1009,18 +1018,15 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
             ],
           });
 
-          const session = (yield* initiator.client.sendRpc(AppsCreate.name, {
+          const session = (yield* initiator.client.sendRpc(AppsCreate, {
             appId: "att-na-app",
             invitedAgentIds: [],
           })) as { session: { id: string } };
 
-          const dm = (yield* initiator.client.sendRpc(
-            ConversationsCreate.name,
-            {
-              type: "dm",
-              participants: [{ type: "agent", id: peer.agentId }],
-            },
-          )) as { conversation: { id: string } };
+          const dm = (yield* initiator.client.sendRpc(ConversationsCreate, {
+            type: "dm",
+            participants: [{ type: "agent", id: peer.agentId }],
+          })) as { conversation: { id: string } };
 
           // Stranger calls against a session they don't own and aren't
           // the app of record for. The wire RPC handler authorizes via
@@ -1032,7 +1038,7 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
           // wire surface; in-process callers must use
           // `attachAppConversation` directly.)
           const rpcErr = yield* expectRpcFailure(
-            stranger.client.sendRpc(AppsAttachConversation.name, {
+            stranger.client.sendRpc(AppsAttachConversation, {
               sessionId: session.session.id,
               conversationId: dm.conversation.id,
             }),
@@ -1099,7 +1105,7 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
           // NOT the app of record (App-A is); App-B is a participant.
           // AppHost runs admission for invitees inline; with owner_user_id
           // set, App-B passes the identity check and lands as `admitted`.
-          const session = (yield* appA.client.sendRpc(AppsCreate.name, {
+          const session = (yield* appA.client.sendRpc(AppsCreate, {
             appId: "att-xtenant-app-a",
             invitedAgentIds: [appB.appAgentId],
           })) as { session: { id: string } };
@@ -1114,7 +1120,7 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
           // App-A's session. Pre-fix this would succeed; post-fix the
           // app-of-record check rejects with Forbidden.
           const rpcErr = yield* expectRpcFailure(
-            appB.client.sendRpc(AppsAttachConversation.name, {
+            appB.client.sendRpc(AppsAttachConversation, {
               sessionId: session.session.id,
               conversationId: targetConvId,
             }),
@@ -1164,13 +1170,13 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
               .execute(),
           );
 
-          const session = (yield* app.client.sendRpc(AppsCreate.name, {
+          const session = (yield* app.client.sendRpc(AppsCreate, {
             appId: "att-cnf-app",
             invitedAgentIds: [],
           })) as { session: { id: string } };
 
           const rpcErr = yield* expectRpcFailure(
-            app.client.sendRpc(AppsAttachConversation.name, {
+            app.client.sendRpc(AppsAttachConversation, {
               sessionId: session.session.id,
               conversationId: crypto.randomUUID(),
             }),
@@ -1207,22 +1213,22 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
               .execute(),
           );
 
-          const sessionA = (yield* app.client.sendRpc(AppsCreate.name, {
+          const sessionA = (yield* app.client.sendRpc(AppsCreate, {
             appId: "att-aa-app",
             invitedAgentIds: [],
           })) as { session: { id: string } };
-          const sessionB = (yield* app.client.sendRpc(AppsCreate.name, {
+          const sessionB = (yield* app.client.sendRpc(AppsCreate, {
             appId: "att-aa-app",
             invitedAgentIds: [],
           })) as { session: { id: string } };
 
-          const dm = (yield* app.client.sendRpc(ConversationsCreate.name, {
+          const dm = (yield* app.client.sendRpc(ConversationsCreate, {
             type: "dm",
             participants: [{ type: "agent", id: peer.agentId }],
           })) as { conversation: { id: string } };
 
           // First attach: succeeds, binds dm.conversation.id → sessionA.
-          yield* app.client.sendRpc(AppsAttachConversation.name, {
+          yield* app.client.sendRpc(AppsAttachConversation, {
             sessionId: sessionA.session.id,
             conversationId: dm.conversation.id,
           });
@@ -1230,7 +1236,7 @@ describe("Scenario 30b: App hook RPC pipeline (B.9 — Phase 1.8)", () => {
           // Second attach for the same convId against sessionB collides
           // with the cross-session map; AppHost emits Conflict (-32003).
           const rpcErr = yield* expectRpcFailure(
-            app.client.sendRpc(AppsAttachConversation.name, {
+            app.client.sendRpc(AppsAttachConversation, {
               sessionId: sessionB.session.id,
               conversationId: dm.conversation.id,
             }),

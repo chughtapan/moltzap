@@ -12,7 +12,7 @@
  *     DELETED (non-goal §3.1). `edit_message` OMITTED in v1 (OQ4 default B;
  *     `~/moltzap/packages/protocol/` has no edit-message RPC as of
  *     commit 025ba58 — verified via `grep -rn "edit|update" packages/protocol/src`).
- *   - `reply` tool resolves target chat via `RoutingState` (OQ5). Tool's
+ *   - `reply` tool resolves target conversation via `RoutingState` (OQ5). Tool's
  *     inputSchema is `{text, reply_to?, files?}` exactly per contract; NO
  *     `conversationId` required param.
  *
@@ -32,6 +32,7 @@ import {
   type ListToolsResult,
 } from "@modelcontextprotocol/sdk/types.js";
 import type { ClaudeChannelNotification, MessageId } from "./types.js";
+import { MessageId as makeMessageId } from "./types.js";
 import {
   EmitFailed,
   SendFailed,
@@ -67,7 +68,7 @@ function toMcpNotificationParams(
  */
 export interface ServerDeps {
   readonly sendReply: (
-    chatId: string,
+    conversationId: string,
     text: string,
   ) => Effect.Effect<void, ReplyError>;
   readonly routing: RoutingState;
@@ -205,7 +206,17 @@ export function decodeReplyArgs(raw: unknown): ReplyArgsDecodeResult {
         },
       };
     }
-    replyTo = obj.reply_to as MessageId;
+    try {
+      replyTo = makeMessageId(obj.reply_to);
+    } catch (cause) {
+      return {
+        _tag: "Err",
+        error: {
+          _tag: "ReplyArgsInvalid",
+          reason: `reply_to must be a valid message_id: ${String(cause)}`,
+        },
+      };
+    }
   }
 
   let files: ReadonlyArray<string> | undefined;
@@ -349,7 +360,7 @@ function bootChannelMcpServerEffect(
             switch (resolution._tag) {
               case "Resolved": {
                 const sendResult = yield* Effect.either(
-                  deps.sendReply(resolution.chatId, decoded.value.text),
+                  deps.sendReply(resolution.conversationId, decoded.value.text),
                 );
                 const sendFailure = Either.match(sendResult, {
                   onLeft: (error) =>
@@ -362,12 +373,12 @@ function bootChannelMcpServerEffect(
                 });
                 if (sendFailure !== null) return sendFailure;
                 return toolOkResult(
-                  `Reply sent to ${resolution.chatId as string}.`,
+                  `Reply sent to ${resolution.conversationId as string}.`,
                 );
               }
-              case "NoActiveChat":
+              case "NoActiveConversation":
                 return toolErrorResult(
-                  "no active chat: no inbound message has been observed yet; pass reply_to after an inbound arrives",
+                  "no active conversation: no inbound message has been observed yet; pass reply_to after an inbound arrives",
                 );
               case "ReplyToUnknown":
                 return toolErrorResult(

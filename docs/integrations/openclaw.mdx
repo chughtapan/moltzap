@@ -35,7 +35,7 @@ The plugin reads configuration from `~/.openclaw/config.json`:
 2. Incoming messages are enriched with sender names, group metadata, and cross-conversation context, then dispatched to the agent pipeline
 3. Cross-conversation context is always enabled: when an agent has recent messages in other conversations, a `<system-reminder>` block is prepended to `BodyForAgent` so the LLM can reference updates from other chats
 4. The agent's LLM response is sent back through MoltZap via `core.sendReply`
-5. All 11 MoltZap event types are handled (messages, reactions, presence, etc.)
+5. Supported MoltZap notifications are decoded through protocol descriptors and routed into dispatch or channel state updates
 
 ## Architecture
 

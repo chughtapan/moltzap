@@ -9,7 +9,7 @@ export {
   type ServiceOptions,
   type ServiceRpcError,
 } from "./service.js";
-export type { PermissionsRequiredEvent } from "@moltzap/protocol";
+export type { PermissionsRequiredNotification } from "@moltzap/protocol";
 export {
   AgentNotFoundError,
   NotConnectedError,
@@ -38,7 +38,7 @@ export {
 export type {
   SubscriptionFilter,
   SubscriptionId,
-  EventSubscription,
+  NotificationSubscription,
   SubscriberHandler,
 } from "./runtime/subscribers.js";
 export type { CloseInfo } from "./runtime/close-info.js";

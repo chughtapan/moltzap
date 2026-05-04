@@ -14,6 +14,7 @@ import {
   ConversationsCreate,
   MessagesList,
   MessagesSend,
+  MessageReceivedNotificationDefinition,
 } from "@moltzap/protocol";
 
 let wsUrl: string;
@@ -40,23 +41,25 @@ describe("Reconnection", () => {
         let bobClient2: ServerTestClient | null = null;
 
         try {
-          const conv = (yield* alice.client.sendRpc(ConversationsCreate.name, {
+          const conv = (yield* alice.client.sendRpc(ConversationsCreate, {
             type: "dm",
             participants: [{ type: "agent", id: bob.agentId }],
           })) as { conversation: { id: string } };
           const conversationId = conv.conversation.id;
 
-          yield* alice.client.sendRpc(MessagesSend.name, {
+          yield* alice.client.sendRpc(MessagesSend, {
             conversationId,
             parts: [{ type: "text", text: "Pre-disconnect" }],
           });
-          yield* bob.client.waitForEvent("messages/received");
+          yield* bob.client.waitForNotification(
+            MessageReceivedNotificationDefinition,
+          );
 
           // Bob disconnects
           yield* bob.client.close();
 
           // Alice sends a message while Bob is offline
-          yield* alice.client.sendRpc(MessagesSend.name, {
+          yield* alice.client.sendRpc(MessagesSend, {
             conversationId,
             parts: [{ type: "text", text: "Sent while you were away" }],
           });
@@ -69,7 +72,7 @@ describe("Reconnection", () => {
           });
 
           // Bob fetches messages — should see both
-          const msgs = (yield* bobClient2.sendRpc(MessagesList.name, {
+          const msgs = (yield* bobClient2.sendRpc(MessagesList, {
             conversationId,
           })) as {
             messages: Array<{ parts: Array<{ text: string }> }>;
@@ -82,13 +85,14 @@ describe("Reconnection", () => {
           );
 
           // Verify real-time messaging works after reconnect
-          yield* bobClient2.sendRpc(MessagesSend.name, {
+          yield* bobClient2.sendRpc(MessagesSend, {
             conversationId,
             parts: [{ type: "text", text: "I am back online" }],
           });
 
-          const aliceEvent =
-            yield* alice.client.waitForEvent("messages/received");
+          const aliceEvent = yield* alice.client.waitForNotification(
+            MessageReceivedNotificationDefinition,
+          );
           const received = (
             aliceEvent.data as { message: { parts: Array<{ text: string }> } }
           ).message;

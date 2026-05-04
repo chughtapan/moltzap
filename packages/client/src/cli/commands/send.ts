@@ -2,7 +2,7 @@ import { Args, Command, Options } from "@effect/cli";
 import { Effect, Option } from "effect";
 import { request } from "../socket-client.js";
 
-import { MessagesSend } from "@moltzap/protocol";
+import { MessagesSend, conversationId, messageId } from "@moltzap/protocol";
 
 const CONVERSATION_TARGET_PREFIX = "conv:";
 
@@ -59,17 +59,37 @@ export const sendCommand = Command.make(
   "send",
   { target: targetArg, message: messageArg, replyTo: replyToOption },
   ({ target, message, replyTo }) => {
-    const params: Record<string, unknown> = {
-      parts: [{ type: "text", text: message }],
-    };
+    const reply = Option.isSome(replyTo)
+      ? { replyToId: messageId(replyTo.value) }
+      : {};
     if (target.startsWith(CONVERSATION_TARGET_PREFIX)) {
-      params.conversationId = target.slice(CONVERSATION_TARGET_PREFIX.length);
-    } else {
-      params.to = target;
+      return request(MessagesSend, {
+        conversationId: conversationId(
+          target.slice(CONVERSATION_TARGET_PREFIX.length),
+        ),
+        parts: [{ type: "text", text: message }],
+        ...reply,
+      }).pipe(
+        Effect.tap((result) =>
+          Effect.sync(() => {
+            const r = result as { message: { id: string } };
+            console.log(`Message sent (id: ${r.message.id})`);
+          }),
+        ),
+        Effect.asVoid,
+        Effect.catchAll((err) =>
+          Effect.sync(() => {
+            console.error(`Failed: ${err.message}`);
+            process.exit(1);
+          }),
+        ),
+      );
     }
-    if (Option.isSome(replyTo)) params.replyToId = replyTo.value;
-
-    return request(MessagesSend.name, params).pipe(
+    return request(MessagesSend, {
+      to: target,
+      parts: [{ type: "text", text: message }],
+      ...reply,
+    }).pipe(
       Effect.tap((result) =>
         Effect.sync(() => {
           const r = result as { message: { id: string } };

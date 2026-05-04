@@ -4,11 +4,17 @@
  * covered elsewhere; these properties pin the LIFECYCLE-driven path.
  * Closes arena#252.
  */
-import { Effect, Stream, Duration, type Scope } from "effect";
+import { Effect, Option, Stream, Duration, type Scope } from "effect";
+import type { Static } from "@sinclair/typebox";
 
 import { PROTOCOL_VERSION } from "../../version.js";
-import { EventNames } from "../../schema/events.js";
+import {
+  PresenceChangedNotificationDefinition,
+  notificationGroup,
+} from "../../schema/notifications.js";
+import { decodeNotification, isDecodedNotification } from "../../rpc-groups.js";
 import { PresenceSubscribe } from "../../schema/methods/presence.js";
+import { AgentId } from "../../schema/primitives.js";
 import {
   makeCloseableTestClient,
   makeTestClient,
@@ -16,6 +22,7 @@ import {
   type TestClient,
 } from "../test-client.js";
 import { registerTestAgent, type TestAgent } from "../agent-registration.js";
+import { isNotificationFrame } from "../codec.js";
 import type { ConformanceRunContext } from "./runner.js";
 import { PropertyInvariantViolation, registerProperty } from "./registry.js";
 
@@ -27,6 +34,7 @@ const DEFAULT_CAPTURE_CAPACITY = 256;
 const EXPECTED_PRESENCE_SEQUENCE_LENGTH = 3;
 
 type PresenceStatus = "online" | "offline" | "away";
+type AgentIdValue = Static<typeof AgentId>;
 
 interface PresenceChangedPayload {
   readonly agentId: string;
@@ -112,22 +120,20 @@ function acquireCloseableClient(
 
 function subscribePresence(
   subscriber: TestClient,
-  agentId: string,
+  agentId: AgentIdValue,
   propertyName: string,
 ): Effect.Effect<void, PropertyInvariantViolation> {
-  return subscriber
-    .sendRpc(PresenceSubscribe.name, { agentIds: [agentId] })
-    .pipe(
-      Effect.mapError((e) =>
-        violation(propertyName, `presence/subscribe failed: ${String(e)}`),
-      ),
-      Effect.asVoid,
-    );
+  return subscriber.sendRpc(PresenceSubscribe, { agentIds: [agentId] }).pipe(
+    Effect.mapError((e) =>
+      violation(propertyName, `presence/subscribe failed: ${String(e)}`),
+    ),
+    Effect.asVoid,
+  );
 }
 
 /**
- * `TestClient.waitForEvent` matches by event name only. We need a
- * payload predicate, so consume the events Stream with a filter and
+ * `TestClient.waitForNotification` matches by descriptor only. We need a
+ * payload predicate, so consume the notification Stream with a filter and
  * timeout it ourselves.
  */
 function waitForPresenceWithStatus(
@@ -136,9 +142,11 @@ function waitForPresenceWithStatus(
   propertyName: string,
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
 ): Effect.Effect<void, PropertyInvariantViolation> {
-  return client.events.pipe(
-    Stream.filter((frame) => frame.event === EventNames.PresenceChanged),
-    Stream.map((frame) => frame.data as PresenceChangedPayload | undefined),
+  return client.notifications.pipe(
+    Stream.filter(
+      (frame) => frame.definition === PresenceChangedNotificationDefinition,
+    ),
+    Stream.map((frame) => frame.params as PresenceChangedPayload | undefined),
     Stream.filter(
       (data): data is PresenceChangedPayload =>
         data !== undefined &&
@@ -174,26 +182,36 @@ function waitForPresenceWithStatus(
 
 function presenceStatusesFor(
   client: TestClient,
-  agentId: string,
+  agentId: AgentIdValue,
 ): Effect.Effect<ReadonlyArray<PresenceStatus>> {
-  return client.snapshot.pipe(
-    Effect.map((snap) =>
-      snap.flatMap((s) => {
-        if (s.kind !== "inbound") return [];
-        const frame = s.frame;
-        if (!frame || frame.type !== "event") return [];
-        if (frame.event !== EventNames.PresenceChanged) return [];
-        const data = frame.data as PresenceChangedPayload | undefined;
-        if (data === undefined || data.agentId !== agentId) return [];
-        return [data.status];
-      }),
-    ),
-  );
+  return Effect.gen(function* () {
+    const snap = yield* client.snapshot;
+    const statuses: PresenceStatus[] = [];
+    for (const s of snap) {
+      if (s.kind !== "inbound") continue;
+      const frame = s.frame;
+      if (frame === null || !isNotificationFrame(frame)) continue;
+      const notification = yield* decodeNotification(
+        notificationGroup,
+        frame,
+      ).pipe(Effect.option);
+      const presenceNotification = Option.filter(notification, (decoded) =>
+        isDecodedNotification(PresenceChangedNotificationDefinition, decoded),
+      );
+      if (Option.isNone(presenceNotification)) {
+        continue;
+      }
+      const data = presenceNotification.value.params;
+      if (data.agentId !== agentId) continue;
+      statuses.push(data.status);
+    }
+    return statuses;
+  });
 }
 
 function countPresenceChangedFor(
   client: TestClient,
-  agentId: string,
+  agentId: AgentIdValue,
 ): Effect.Effect<number> {
   return presenceStatusesFor(client, agentId).pipe(Effect.map((s) => s.length));
 }
@@ -345,7 +363,7 @@ export function registerSameStateNoDoubleFire(
         );
 
         yield* aClient
-          .sendRpc(Connect.name, {
+          .sendRpc(Connect, {
             agentKey: a.apiKey,
             minProtocol: PROTOCOL_VERSION,
             maxProtocol: PROTOCOL_VERSION,
@@ -432,7 +450,7 @@ export function registerSubscribeAfterConnect(
 
         const sub = yield* acquireClient(ctx, NAME, "p6-sub");
         const result = yield* sub.client
-          .sendRpc(PresenceSubscribe.name, { agentIds: [a.agentId] })
+          .sendRpc(PresenceSubscribe, { agentIds: [a.agentId] })
           .pipe(
             Effect.mapError((e) =>
               violation(NAME, `presence/subscribe failed: ${String(e)}`),

@@ -1,6 +1,6 @@
 ---
 title: WebSocket Layer
-description: Connection management and event broadcasting
+description: Connection management and notification broadcasting
 ---
 
 # WebSocket Layer
@@ -26,18 +26,17 @@ Connections start unauthenticated (`auth: null`). After `auth/connect` succeeds,
 
 ## Broadcaster
 
-Fan-out events to all participants in a conversation:
+Fan-out notifications to all participants in a conversation:
 
 ```typescript
 broadcaster.toConversation(conversationId, {
   jsonrpc: "2.0",
-  type: "event",
-  event: "messages/received",
-  data: { message },
+  method: "messages/received",
+  params: { message },
 });
 ```
 
-The broadcaster looks up which connections are subscribed to the conversation and sends the event to each one, skipping muted connections.
+The broadcaster looks up which connections are subscribed to the conversation and sends the notification to each one, skipping muted connections.
 
 ## Heartbeat
 

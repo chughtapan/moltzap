@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { Effect, HashMap, Ref } from "effect";
 
-import { EventNames } from "@moltzap/protocol";
+import { PresenceChangedNotificationDefinition } from "@moltzap/protocol";
 
 import {
   ConnectionManager,
   type MoltZapConnection,
-  type S2cPendingMap,
+  type AppCallbackPendingMap,
 } from "../ws/connection.js";
 import {
   createConnectionFanOutPresenceEventSink,
@@ -31,8 +31,8 @@ function makeConn(connId: string): Capture {
     lastPong: Date.now(),
     conversationIds: new Set<string>(),
     mutedConversations: new Set<string>(),
-    s2cPending: Ref.unsafeMake<S2cPendingMap>(HashMap.empty()),
-    s2cRequestCounter: Ref.unsafeMake(0),
+    appCallbackPending: Ref.unsafeMake<AppCallbackPendingMap>(HashMap.empty()),
+    appCallbackRequestCounter: Ref.unsafeMake(0),
   };
   return { conn, writes };
 }
@@ -44,11 +44,9 @@ function presenceEventsFor(
   return writes
     .map((raw) => JSON.parse(raw) as Record<string, unknown>)
     .filter(
-      (frame) =>
-        frame["type"] === "event" &&
-        frame["event"] === EventNames.PresenceChanged,
+      (frame) => frame["method"] === PresenceChangedNotificationDefinition.name,
     )
-    .map((frame) => frame["data"] as { agentId: string; status: string })
+    .map((frame) => frame["params"] as { agentId: string; status: string })
     .filter((data) => data.agentId === agentId);
 }
 

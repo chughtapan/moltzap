@@ -4,14 +4,14 @@
  * `registerRemoteApp` / `unregisterRemoteApp` registration shape and
  * each per-hook dispatch path's behaviour against a mocked
  * `MoltZapConnection` + `ConnectionManager`. Wire-level coverage of
- * `sendRpcToClient` itself lives in `ws/connection.s2c.test.ts`; this
+ * `sendRpcToClient` itself lives in `ws/connection.appCallback.test.ts`; this
  * file tests the AppHost-side composition (timeout envelope, fail-closed
  * mapping, hookTimeout event emission, multi-app deny short-circuit).
  *
  * Running against `MoltZapConnection` directly (no testcontainers, no
  * real WS) keeps the tests pure-Effect — `TestClock`-drivable, no real
  * sleeps. The connection's `write` records outbound frames; the test
- * synthesizes inbound responses by calling `completeS2cResponse` (the
+ * synthesizes inbound responses by calling `completeAppCallbackResponse` (the
  * same path the server's read fiber uses).
  */
 import { describe, expect, it } from "vitest";
@@ -29,10 +29,15 @@ import {
   TestClock,
 } from "effect";
 import type { Kysely } from "kysely";
-import type { AppManifest } from "@moltzap/protocol";
 import {
-  acquireS2cConnectionState,
-  completeS2cResponse,
+  responseFrame,
+  validators,
+  type AppManifest,
+  type JsonRpcStringId,
+} from "@moltzap/protocol";
+import {
+  acquireAppCallbackConnectionState,
+  completeAppCallbackResponse,
   ConnectionManager,
   type MoltZapConnection,
 } from "../ws/connection.js";
@@ -63,7 +68,7 @@ interface FakeConn {
  * Build a real {@link MoltZapConnection} whose `write` records outbound
  * frames into a Ref. Caller can `JSON.parse` the captured frame to get
  * the request id, then synthesize a matching response via
- * `completeS2cResponse`. The Scope finalizer wires `AppDisconnected` —
+ * `completeAppCallbackResponse`. The Scope finalizer wires `AppDisconnected` —
  * close the surrounding scope to drive the disconnect path.
  */
 const makeFakeConnection = (
@@ -71,7 +76,7 @@ const makeFakeConnection = (
 ): Effect.Effect<FakeConn, never, Scope.Scope> =>
   Effect.gen(function* () {
     const outbound = yield* Ref.make<ReadonlyArray<string>>([]);
-    const state = yield* acquireS2cConnectionState(connId);
+    const state = yield* acquireAppCallbackConnectionState(connId);
     const write: MoltZapConnection["write"] = (raw) =>
       Ref.update(outbound, (xs) => [...xs, raw]);
     const conn: MoltZapConnection = {
@@ -82,8 +87,8 @@ const makeFakeConnection = (
       lastPong: Date.now(),
       conversationIds: new Set<string>(),
       mutedConversations: new Set<string>(),
-      s2cPending: state.s2cPending,
-      s2cRequestCounter: state.s2cRequestCounter,
+      appCallbackPending: state.appCallbackPending,
+      appCallbackRequestCounter: state.appCallbackRequestCounter,
     };
     return { conn, outbound };
   });
@@ -191,14 +196,17 @@ const baseOnCloseCtx = (appId: string, sessionId: string): OnCloseContext => ({
 /** Decode the most recently captured outbound frame from a fake connection. */
 function captureLatestRequestId(
   outbound: Ref.Ref<ReadonlyArray<string>>,
-): Effect.Effect<string, Error> {
+): Effect.Effect<JsonRpcStringId, Error> {
   return Effect.gen(function* () {
     const xs = yield* Ref.get(outbound);
     if (xs.length === 0) {
       return yield* Effect.fail(new Error("no outbound frame yet"));
     }
-    const frame = JSON.parse(xs[xs.length - 1]!) as { id: string };
-    return frame.id;
+    const parsed: unknown = JSON.parse(xs[xs.length - 1]!);
+    if (!validators.requestFrame(parsed)) {
+      return yield* Effect.fail(new Error("expected JSON-RPC request frame"));
+    }
+    return parsed.id;
   });
 }
 
@@ -351,15 +359,14 @@ describe("AppHost remote dispatch — apps/onBeforeDispatch", () => {
         Effect.retry({ times: 50, schedule: undefined }),
       );
 
-      yield* completeS2cResponse(conn, {
-        jsonrpc: "2.0",
-        type: "response",
-        direction: "s2c",
-        id,
-        result: {
-          admission: { decision: "grant", leaseId: "lease-1" },
-        },
-      });
+      yield* completeAppCallbackResponse(
+        conn,
+        responseFrame(id, {
+          result: {
+            admission: { decision: "grant", leaseId: "lease-1" },
+          },
+        }),
+      );
 
       const verdict = yield* Fiber.join(fiber);
       yield* Scope.close(scope, Exit.void);
@@ -389,15 +396,14 @@ describe("AppHost remote dispatch — apps/onBeforeDispatch", () => {
       const id = yield* captureLatestRequestId(outbound).pipe(
         Effect.retry({ times: 50, schedule: undefined }),
       );
-      yield* completeS2cResponse(conn, {
-        jsonrpc: "2.0",
-        type: "response",
-        direction: "s2c",
-        id,
-        result: {
-          admission: { decision: "deny", reason: "policy/x" },
-        },
-      });
+      yield* completeAppCallbackResponse(
+        conn,
+        responseFrame(id, {
+          result: {
+            admission: { decision: "deny", reason: "policy/x" },
+          },
+        }),
+      );
       const verdict = yield* Fiber.join(fiber);
       yield* Scope.close(scope, Exit.void);
       return verdict;
@@ -480,13 +486,10 @@ describe("AppHost remote dispatch — apps/onBeforeDispatch", () => {
         Effect.retry({ times: 50, schedule: undefined }),
       );
       // Reply with a payload that does not match the envelope schema.
-      yield* completeS2cResponse(conn, {
-        jsonrpc: "2.0",
-        type: "response",
-        direction: "s2c",
-        id,
-        result: { wrongShape: "nope" },
-      });
+      yield* completeAppCallbackResponse(
+        conn,
+        responseFrame(id, { result: { wrongShape: "nope" } }),
+      );
       const verdict = yield* Fiber.join(fiber);
       yield* Scope.close(scope, Exit.void);
       return verdict;
@@ -585,13 +588,10 @@ describe("AppHost remote dispatch — apps/onBeforeMessageDelivery", () => {
       const id = yield* captureLatestRequestId(outbound).pipe(
         Effect.retry({ times: 50, schedule: undefined }),
       );
-      yield* completeS2cResponse(conn, {
-        jsonrpc: "2.0",
-        type: "response",
-        direction: "s2c",
-        id,
-        result: { block: false },
-      });
+      yield* completeAppCallbackResponse(
+        conn,
+        responseFrame(id, { result: { block: false } }),
+      );
       const result = yield* Fiber.join(fiber);
       yield* Scope.close(scope, Exit.void);
       return result;
@@ -636,13 +636,12 @@ describe("AppHost remote dispatch — apps/onBeforeMessageDelivery", () => {
       const id = yield* captureLatestRequestId(outbound).pipe(
         Effect.retry({ times: 50, schedule: undefined }),
       );
-      yield* completeS2cResponse(conn, {
-        jsonrpc: "2.0",
-        type: "response",
-        direction: "s2c",
-        id,
-        error: { code: -32000, message: "remote refused" },
-      });
+      yield* completeAppCallbackResponse(
+        conn,
+        responseFrame(id, {
+          error: { code: -32000, message: "remote refused" },
+        }),
+      );
       const result = yield* Fiber.join(fiber);
       yield* Scope.close(scope, Exit.void);
       return result;

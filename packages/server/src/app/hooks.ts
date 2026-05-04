@@ -1,5 +1,8 @@
-import type { LogicalClock, Part } from "@moltzap/protocol";
+import type { LogicalClock, Part, Static } from "@moltzap/protocol";
+import { MessageId } from "@moltzap/protocol";
 import { Schema } from "effect";
+
+type MessageIdValue = Static<typeof MessageId>;
 
 export interface BeforeMessageDeliveryContext {
   conversationId: string;
@@ -54,7 +57,7 @@ const PartArraySchema = Schema.declare(
 );
 
 /** Wire schema for the `HookResult` RPC response from
- *  `apps/onBeforeMessageDelivery` (s2c admission verb). Single-layer `as`
+ *  `apps/onBeforeMessageDelivery` (appCallback admission verb). Single-layer `as`
  *  reconciles effect-schema's encoded-type inference (which mirrors the
  *  Struct shape) with the caller's `Schema.Schema<_, unknown>` slot. */
 export const HookResultSchema = Schema.Struct({
@@ -75,7 +78,7 @@ export type DispatchAdmissionResult =
       decision: "grant";
       leaseId?: string;
       leaseTimeoutMs?: number;
-      dispatchMessageId?: string;
+      dispatchMessageId?: MessageIdValue;
     }
   | { decision: "deny"; reason?: string }
   | { decision: "hold"; reason?: string };
@@ -106,7 +109,7 @@ export const VoidHookSchema: Schema.Schema<void, unknown> = Schema.transform(
 
 /**
  * Wire-envelope schema for `apps/onBeforeDispatch`. The reply arrives as
- * `{ admission: ... }`, not the bare verdict — the other s2c verbs
+ * `{ admission: ... }`, not the bare verdict — the other appCallback verbs
  * either reply with `HookResult` directly (`onBeforeMessageDelivery` →
  * `HookResultSchema`) or an empty object (lifecycle hooks → `VoidHookSchema`).
  * Decoding at the RPC edge keeps AppHost's business logic typed

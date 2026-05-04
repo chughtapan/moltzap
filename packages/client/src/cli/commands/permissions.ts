@@ -20,6 +20,7 @@ import {
 } from "../transport.js";
 
 import {
+  agentId,
   PermissionsGrant,
   PermissionsList,
   PermissionsRevoke,
@@ -79,9 +80,9 @@ export const permissionsGrantHandler = (
         }),
       );
     }
-    yield* rpc<Record<string, never>>(PermissionsGrant.name, {
+    yield* rpc(PermissionsGrant, {
       sessionId: args.sessionId,
-      agentId: args.agentId,
+      agentId: agentId(args.agentId),
       resource: args.resource,
       access: [...args.access],
     });
@@ -102,14 +103,7 @@ export const permissionsListHandler = (
   Effect.gen(function* () {
     const params: Record<string, unknown> = {};
     if (args.appId !== undefined) params.appId = args.appId;
-    const result = yield* rpc<{
-      grants: ReadonlyArray<{
-        appId: string;
-        resource: string;
-        access: ReadonlyArray<string>;
-        grantedAt: string;
-      }>;
-    }>(PermissionsList.name, params);
+    const result = yield* rpc(PermissionsList, params);
     yield* Effect.sync(() => {
       for (const g of result.grants) {
         console.log(
@@ -124,7 +118,7 @@ export const permissionsRevokeHandler = (
   args: PermissionsRevokeArgs,
 ): Effect.Effect<void, PermissionsCommandError, Transport> =>
   Effect.gen(function* () {
-    yield* rpc<Record<string, never>>(PermissionsRevoke.name, {
+    yield* rpc(PermissionsRevoke, {
       appId: args.appId,
       resource: args.resource,
     });

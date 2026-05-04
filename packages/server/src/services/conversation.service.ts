@@ -14,7 +14,12 @@ import {
   invalidParams,
   notInContacts,
 } from "../runtime/index.js";
-import { ErrorCodes } from "@moltzap/protocol";
+import {
+  ErrorCodes,
+  agentId as protocolAgentId,
+  conversationId as protocolConversationId,
+  messageId as protocolMessageId,
+} from "@moltzap/protocol";
 import { ParticipantService } from "./participant.service.js";
 import type { ConnectionManager } from "../ws/connection.js";
 import { sql } from "kysely";
@@ -344,7 +349,7 @@ export class ConversationService {
           const convId = row.id;
           const cachedPreview = this.previewCache.get(convId);
           return {
-            id: convId,
+            id: protocolConversationId(convId),
             type: row.type,
             name: row.name ?? undefined,
             lastMessagePreview: cachedPreview,
@@ -960,10 +965,10 @@ export class ConversationService {
 
   private mapConversation(row: ConversationColumns): Conversation {
     return {
-      id: row.id,
+      id: protocolConversationId(row.id),
       type: row.type,
       name: row.name ?? undefined,
-      createdBy: row.created_by_id,
+      createdBy: protocolAgentId(row.created_by_id),
       createdAt: row.created_at.toISOString(),
       updatedAt: row.updated_at.toISOString(),
     };
@@ -981,14 +986,17 @@ export class ConversationService {
     last_read_message_id?: string | null;
   }): ConversationParticipant {
     return {
-      conversationId: row.conversation_id,
+      conversationId: protocolConversationId(row.conversation_id),
       participant: {
         type: "agent" as const,
-        id: row.agent_id,
+        id: protocolAgentId(row.agent_id),
       },
       role: row.role,
       joinedAt: row.joined_at.toISOString(),
-      lastReadMessageId: row.last_read_message_id ?? undefined,
+      lastReadMessageId:
+        row.last_read_message_id == null
+          ? undefined
+          : protocolMessageId(row.last_read_message_id),
       mutedUntil: row.muted_until ? row.muted_until.toISOString() : undefined,
       agentName: row.agent_name ?? undefined,
       agentDisplayName: row.agent_display_name ?? undefined,

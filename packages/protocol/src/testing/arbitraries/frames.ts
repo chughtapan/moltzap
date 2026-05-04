@@ -9,11 +9,16 @@ import * as fc from "fast-check";
 import {
   RequestFrameSchema,
   ResponseFrameSchema,
-  EventFrameSchema,
+  NotificationFrameSchema,
   type RequestFrame,
   type ResponseFrame,
-  type EventFrame,
+  type NotificationFrame,
 } from "../../schema/frames.js";
+import {
+  brandNotificationFrame,
+  brandRequestFrame,
+  brandResponseFrame,
+} from "../../schema/internal-frames.js";
 import type { MalformedFrameKind, AnyFrame } from "../codec.js";
 import { arbitraryFromSchema } from "./from-typebox.js";
 
@@ -29,15 +34,17 @@ const malformedKinds = [
 ] as const satisfies readonly MalformedFrameKind[];
 
 export function arbitraryRequestFrame(): fc.Arbitrary<RequestFrame> {
-  return arbitraryFromSchema(RequestFrameSchema);
+  return arbitraryFromSchema(RequestFrameSchema).map(brandRequestFrame);
 }
 
 export function arbitraryResponseFrame(): fc.Arbitrary<ResponseFrame> {
-  return arbitraryFromSchema(ResponseFrameSchema);
+  return arbitraryFromSchema(ResponseFrameSchema).map(brandResponseFrame);
 }
 
-export function arbitraryEventFrame(): fc.Arbitrary<EventFrame> {
-  return arbitraryFromSchema(EventFrameSchema);
+export function arbitraryNotificationFrame(): fc.Arbitrary<NotificationFrame> {
+  return arbitraryFromSchema(NotificationFrameSchema).map(
+    brandNotificationFrame,
+  );
 }
 
 /**
@@ -54,7 +61,7 @@ export function arbitraryMalformedFrame(): fc.Arbitrary<ArbitraryMalformedFrame>
   const baseArb: fc.Arbitrary<AnyFrame> = fc.oneof(
     arbitraryRequestFrame().map((f) => f as AnyFrame),
     arbitraryResponseFrame().map((f) => f as AnyFrame),
-    arbitraryEventFrame().map((f) => f as AnyFrame),
+    arbitraryNotificationFrame().map((f) => f as AnyFrame),
   );
   return fc.record({
     base: baseArb,
