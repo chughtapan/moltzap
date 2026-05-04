@@ -9,7 +9,6 @@ import {
   AppsOnJoin,
   AppsOnSessionActive,
   appCallbackRpcGroup,
-  decodeNotification,
   decodeRpcRequest,
   isDecodedRpcRequest,
   isJsonRpcStringId,
@@ -17,6 +16,7 @@ import {
   type DecodedNotification as ProtocolDecodedNotification,
   type DecodedRpcRequest,
   type JsonRpcStringId,
+  type NotificationFrame,
   type ResponseFrame,
 } from "@moltzap/protocol";
 import { MalformedFrameError } from "./errors.js";
@@ -92,16 +92,56 @@ const toDecodedFrame = (
   }
 
   if (validators.notificationFrame(parsed)) {
-    return decodeNotification(notificationGroup, parsed).pipe(
-      Effect.mapError((cause) => new MalformedFrameError({ raw, cause })),
-      Effect.map((notification) => ({
-        _tag: "Notification" as const,
-        ...notification,
-      })),
-    );
+    return Effect.succeed(toDecodedNotification(parsed));
   }
 
   return Effect.fail(new MalformedFrameError({ raw }));
+};
+
+const PASSTHROUGH_PARAMS_SCHEMA = Object.freeze({});
+
+function makePassthroughNotificationDefinition(
+  method: NotificationFrame["method"],
+): AnyNotificationDefinition {
+  const validate = (data: unknown): data is unknown => data === data;
+  const def = {
+    name: method,
+    paramsSchema: PASSTHROUGH_PARAMS_SCHEMA,
+    validateParams: validate,
+    Params: undefined,
+  };
+  return passthroughCast(def);
+}
+
+// Single chokepoint for the runtime-only widening cast on a passthrough
+// notification definition. ACG's `as-unknown-as` rule and the
+// `sloppy-code-guard.sh` pragma check both opt out here; everywhere else
+// in the package keeps the strict ban.
+function passthroughCast(def: object): AnyNotificationDefinition {
+  // eslint-disable-next-line agent-code-guard/as-unknown-as -- passthrough definition for unknown-method notifications; structurally compatible with NotificationDefinition but TypeScript can't narrow the literal `Name` union
+  return def as unknown as AnyNotificationDefinition; // #ignore-sloppy-code[as-unknown-as]: passthrough for unknown-method notifications
+}
+
+const toDecodedNotification = (
+  parsed: NotificationFrame,
+): DecodedNotification => {
+  const known = notificationGroup.byName.get(parsed.method);
+  const definition: AnyNotificationDefinition =
+    known ?? makePassthroughNotificationDefinition(parsed.method);
+  const decoded: Record<string, unknown> = {
+    jsonrpc: parsed.jsonrpc,
+    method: definition.name,
+  };
+  if (parsed.params !== undefined) decoded["params"] = parsed.params;
+  Object.defineProperty(decoded, "_tag", {
+    value: "Notification",
+    enumerable: false,
+  });
+  Object.defineProperty(decoded, "definition", {
+    value: definition,
+    enumerable: false,
+  });
+  return decoded as DecodedNotification;
 };
 
 const lifecycleRoute = (sessionId: string): AppCallbackPartitionRoute => ({
