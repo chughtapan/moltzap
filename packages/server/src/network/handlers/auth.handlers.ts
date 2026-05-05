@@ -157,7 +157,11 @@ export function createCoreAuthHandlers(deps: {
             // the alternative is a stale entry that the disconnect
             // finalizer would later have to remove via the idempotent
             // `remove` path anyway — making the pre-check explicit
-            // documents the invariant.
+            // documents the invariant. JS-level re-check is sufficient
+            // because Effect's interpreter does not preempt between the
+            // synchronous `connections.get(connId)` check and the inner
+            // `Ref.update` lambda body — both run in the same JS turn,
+            // with no `yield*` between.
             if (deps.connections.get(connId)) {
               yield* deps.agentEndpointResolver.add(
                 auth.agentId,

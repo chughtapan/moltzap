@@ -166,10 +166,17 @@ export const makeEndpointAddress = (
 /**
  * The kinds of endpoints the actor-model network resolves.
  *
- * - `"agent"` — a per-WS-connection endpoint resolved by `AgentId` via the
- *   resolver multimap. Volatile.
- * - `"taskManager"` — a registered TM endpoint, durable in the `tasks` row.
- *   Persists across the TM's reconnect window.
+ * Disambiguation: this is the legacy registration-tag union used by
+ * {@link EndpointRegistration}, NOT the address-prefix-driven
+ * {@link EndpointAddressKind}. `EndpointAddressKind` (`"agent-conn"`,
+ * `"agent"`, `"app"`) parses the wire-format `tm:<kind>:<uuid>` string;
+ * `EndpointKind` here labels a registration record's discriminator.
+ *
+ * - `"agent"` — a registered agent-identity endpoint. The resolver
+ *   multimap keys by `AgentId`; the matching wire address kinds are
+ *   `agent-conn` (volatile per-WS) and `agent` (durable per-agent).
+ * - `"taskManager"` — a registered TM endpoint, durable in the `tasks`
+ *   row. Persists across the TM's reconnect window.
  *
  * String-literal union: `switch` over `EndpointKind` is exhaustive at the
  * type level, so adding a third kind here forces every downstream switch to

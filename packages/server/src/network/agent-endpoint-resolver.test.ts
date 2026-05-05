@@ -292,14 +292,15 @@ describe("AgentEndpointResolver — Phase 8 codex deferrals", () => {
     );
   });
 
-  it("auth-handler failure after resolver.add: idempotent remove cleans up the entry", () => {
-    // Deferral 3 (auth-lifecycle transactional registration): the
-    // auth handler now defers `add` to AFTER all fallible setup, so
-    // the most-likely failure window is closed by construction. This
-    // test pins the disconnect-side guarantee: even if `add` did
-    // fire and the handler then failed, the WS scope's onExit
+  it("add+remove sequence is symmetric (resolver invariant exercised by auth-handler transactional flow; full auth-handler test in Phase 9b's 40-task-manager-routing.integration.test.ts)", () => {
+    // Resolver-contract guard: pins the disconnect-side guarantee the
+    // auth handler's transactional flow relies on. Even if `add`
+    // succeeded and the handler then failed, the WS scope's onExit
     // finalizer calls `remove`, which is idempotent and leaves the
-    // resolver in a consistent state.
+    // resolver in a consistent state. This test verifies the resolver
+    // invariant; the full auth-handler-level integration test (real
+    // WS, real DB, observed failure injection) lives in Phase 9b's
+    // 40-task-manager-routing.integration.test.ts.
     const resolver = makeResolver();
     const addr = agentConnectionEndpointAddress(CONN_A);
 
@@ -316,13 +317,14 @@ describe("AgentEndpointResolver — Phase 8 codex deferrals", () => {
     ).toBe(true);
   });
 
-  it("close-during-auth race: remove without prior add is a clean no-op", () => {
-    // Deferral 3 (auth-lifecycle transactional registration): the
-    // auth handler may not have called `add` yet when the WS scope
-    // closes. The disconnect finalizer cannot tell whether `add`
-    // fired, and it does not need to — `remove` on a never-added
-    // pair is documented idempotent. This is the worst-case ordering:
-    // never-added → finalizer → remove → resolver stays empty.
+  it("idempotent remove on never-added pairs (defensive precondition for close-during-auth in auth handler; full race test in Phase 9b)", () => {
+    // Resolver-contract guard: the auth handler's transactional flow
+    // skips `add` when `connections.get(connId)` returns undefined at
+    // re-check time (close-during-auth). The WS scope's onExit
+    // finalizer cannot tell whether `add` fired, and it does not need
+    // to — `remove` on a never-added pair is documented idempotent.
+    // This test verifies that resolver precondition; the full auth-
+    // handler race test (real WS close timing) lives in Phase 9b.
     const resolver = makeResolver();
     const addr = agentConnectionEndpointAddress(CONN_A);
 

@@ -250,6 +250,9 @@ export class NetworkSendService {
     return Effect.gen(this, function* () {
       const agentIdValue = parseAgentIdFromDurableAddress(to);
       const conns = yield* this.resolver.resolveAll(agentIdValue);
+      // Pick-one fan-out: TM is one logical entity per agent;
+      // multi-connection devices receive the same TM-routed dispatch
+      // only once. Confirmed via #459 review thread.
       const firstAddr = Option.fromIterable(HashSet.values(conns));
       if (Option.isNone(firstAddr)) {
         return yield* Effect.fail(new RecipientNotResolved({ to }));
