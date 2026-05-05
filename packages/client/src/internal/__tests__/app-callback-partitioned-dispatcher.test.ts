@@ -257,7 +257,7 @@ describe("makePartitionedDispatcher — backpressure", () => {
 
 describe("makePartitionedDispatcher — deadlock fix (D10 reproducer at dispatcher level)", () => {
   it("before_dispatch suspended on Deferred.await does NOT block before_message_delivery " +
-    "for the same (sessionId, conversationId) — release path completes; suspended fiber resumes", async () => {
+    "for the same (taskId, conversationId) — release path completes; suspended fiber resumes", async () => {
     // Direct reproducer of arena#248. Dispatcher boundary version of
     // the conformance + integration tests.
     //

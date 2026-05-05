@@ -7,10 +7,6 @@ import type { ColumnType } from "kysely";
 
 export type AgentStatus = "active" | "pending_claim" | "suspended";
 
-export type AppParticipantStatus = "admitted" | "pending" | "rejected";
-
-export type AppSessionStatus = "active" | "closed" | "failed" | "waiting";
-
 export type ContactStatus = "accepted" | "pending";
 
 export type ConversationType = "dm" | "group";
@@ -48,30 +44,6 @@ export interface Agents {
   owner_user_id: string | null;
   status: Generated<AgentStatus>;
   updated_at: Generated<Timestamp>;
-}
-
-export interface AppSessionConversations {
-  conversation_id: string;
-  conversation_key: string;
-  session_id: string;
-}
-
-export interface AppSessionParticipants {
-  admitted_at: Timestamp | null;
-  agent_id: string;
-  rejection_reason: string | null;
-  session_id: string;
-  status: Generated<AppParticipantStatus>;
-  updated_at: Generated<Timestamp>;
-}
-
-export interface AppSessions {
-  app_id: string;
-  closed_at: Timestamp | null;
-  created_at: Generated<Timestamp>;
-  id: Generated<string>;
-  initiator_agent_id: string;
-  status: Generated<AppSessionStatus>;
 }
 
 export interface Contacts {
@@ -163,9 +135,6 @@ export interface Tasks {
 
 export interface DB {
   agents: Agents;
-  app_session_conversations: AppSessionConversations;
-  app_session_participants: AppSessionParticipants;
-  app_sessions: AppSessions;
   contacts: Contacts;
   conversation_keys: ConversationKeys;
   conversation_participants: ConversationParticipants;

@@ -1,14 +1,11 @@
 import type { Kysely } from "kysely";
-import { Brand, type Effect, type Layer } from "effect";
+import { Brand, type Layer } from "effect";
 import type { RpcMethodBinding } from "../rpc/context.js";
 import {
-  AppSessionId as AppSessionIdSchema,
   agentId as makeAgentId,
-  appSessionId as makeAppSessionId,
   conversationId as makeConversationId,
   userId as makeUserId,
   type AppManifest,
-  type AppSession,
   type Static,
 } from "@moltzap/protocol";
 import {
@@ -18,7 +15,6 @@ import {
 } from "@moltzap/protocol/schemas/primitives";
 import type { Database } from "../db/database.js";
 import type { ContactService } from "./app-host.js";
-import type { RpcFailure } from "../runtime/index.js";
 import type { UserService } from "../services/user.service.js";
 import type { WebhookClient } from "../adapters/webhook.js";
 import type { Broadcaster } from "../ws/broadcaster.js";
@@ -42,9 +38,6 @@ export const AgentId = makeAgentId;
 
 export type ConversationId = Static<typeof ConversationIdSchema>;
 export const ConversationId = makeConversationId;
-
-export type SessionId = Static<typeof AppSessionIdSchema>;
-export const SessionId = makeAppSessionId;
 
 export type AppId = string & Brand.Brand<"AppId">;
 export const AppId = Brand.nominal<AppId>();
@@ -168,11 +161,6 @@ export interface CoreApp {
    */
   unregisterRemoteApp: (appId: string) => void;
   setContactService: (checker: ContactService) => void;
-  createAppSession: (
-    appId: string,
-    initiatorAgentId: string,
-    invitedAgentIds: string[],
-  ) => Effect.Effect<AppSession, RpcFailure>;
   onBeforeMessageDelivery: (
     appId: string,
     handler: BeforeMessageDeliveryHook,
@@ -180,28 +168,5 @@ export interface CoreApp {
   onBeforeDispatch: (appId: string, handler: BeforeDispatchHook) => void;
   onSessionClose: (appId: string, handler: OnCloseHook) => void;
   onSessionActive: (appId: string, handler: OnSessionActiveHook) => void;
-  closeAppSession: (
-    sessionId: string,
-    callerAgentId: string,
-  ) => Effect.Effect<{ closed: boolean }, RpcFailure>;
-  getAppSession: (
-    sessionId: string,
-    callerAgentId: string,
-  ) => Effect.Effect<AppSession, RpcFailure>;
-  listAppSessions: (
-    callerAgentId: string,
-    opts?: { appId?: string; status?: string; limit?: number },
-  ) => Effect.Effect<AppSession[], RpcFailure>;
-  /**
-   * Register a dynamically-created conversation with an app session so
-   * `before_message_delivery` fires on subsequent sends. Typical use: an app
-   * creates per-participant DMs inside its `on_session_active` handler, then
-   * attaches each under a distinct key (e.g. `role_dm_<agentId>`).
-   */
-  attachAppConversation: (
-    sessionId: string,
-    conversationId: string,
-    key: string,
-  ) => Effect.Effect<void, RpcFailure>;
   close: () => PromiseLike<void>;
 }

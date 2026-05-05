@@ -17,7 +17,6 @@ const DB_HOOK_TIMEOUT_MS = 30_000;
 const AGENT_ID = "00000000-0000-4000-8000-0000000a9e47";
 const TASK_ID = "00000000-0000-4000-8000-0000000fa5c0";
 const CONV_ID = "00000000-0000-4000-8000-0000000c01f5";
-const APP_SESSION_ID = "00000000-0000-4000-8000-0000000a99e5";
 const ORPHAN_TASK_ID = "00000000-0000-4000-8000-0000000d3ad0";
 
 let db: Kysely<Database>;
@@ -145,27 +144,16 @@ describe("tasks schema (core-schema.sql)", () => {
     expect(part.admitted_at).not.toBeNull();
   });
 
-  it("leaves app_sessions and unlinked conversations untouched", async () => {
-    await db
-      .insertInto("app_sessions")
-      .values({
-        id: APP_SESSION_ID,
-        app_id: "legacy-app",
-        initiator_agent_id: AGENT_ID,
-      })
-      .execute();
+  it("leaves unlinked conversations untouched (conversations.task_id stays nullable)", async () => {
+    // Phase 7 cutover dropped the `app_sessions/app_session_*` tables.
+    // The Phase 5 coexistence test that asserted `app_sessions` survived
+    // alongside the additive `tasks` schema is no longer applicable; the
+    // surviving invariant is "conversations created without a task stay
+    // task-less," which the `tasks/createConversation` flow relies on.
     await db
       .insertInto("conversations")
       .values({ id: CONV_ID, type: "dm", created_by_id: AGENT_ID })
       .execute();
-
-    const session = await db
-      .selectFrom("app_sessions")
-      .select(["app_id", "status"])
-      .where("id", "=", APP_SESSION_ID)
-      .executeTakeFirstOrThrow();
-    expect(session.app_id).toBe("legacy-app");
-    expect(session.status).toBe("waiting");
 
     const conv = await db
       .selectFrom("conversations")
@@ -187,5 +175,40 @@ describe("tasks schema (core-schema.sql)", () => {
         })
         .execute(),
     ).rejects.toThrow(/foreign key|violates/i);
+  });
+
+  // Phase 7 destructive-migration guard: every dropped relation must
+  // reject re-use. SELECTing the legacy table errors with
+  // `relation … does not exist`; the surviving `tasks` table SELECTs
+  // an empty row set. Future drift (re-introducing the tables OR
+  // leaving the enum types behind) trips the assertions below
+  // instead of silently reintroducing the schema.
+  it.each([
+    "app_sessions",
+    "app_session_participants",
+    "app_session_conversations",
+  ])("table %s is gone (Phase 7 cutover)", async (tableName) => {
+    await expect(
+      pglite.exec(`SELECT 1 FROM ${tableName} LIMIT 1`),
+    ).rejects.toThrow(/does not exist/i);
+  });
+
+  it.each(["app_session_status", "app_participant_status"])(
+    "enum %s is gone (Phase 7 cutover)",
+    async (typeName) => {
+      // Recreating the enum succeeds iff the prior cutover dropped it.
+      // CREATE TYPE on an existing name errors "already exists";
+      // the assertion proves the type is absent from the freshly-applied
+      // schema.
+      await pglite.exec(`CREATE TYPE ${typeName} AS ENUM ('probe')`);
+      await pglite.exec(`DROP TYPE ${typeName}`);
+    },
+  );
+
+  it("tasks + task_participants survive (positive control)", async () => {
+    // SELECT against the surviving tables succeeds — proves the cutover
+    // didn't accidentally drop too much.
+    await pglite.exec("SELECT 1 FROM tasks LIMIT 1");
+    await pglite.exec("SELECT 1 FROM task_participants LIMIT 1");
   });
 });

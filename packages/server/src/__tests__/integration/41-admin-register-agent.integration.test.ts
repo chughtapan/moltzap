@@ -16,7 +16,7 @@ import {
   registerAgent,
 } from "./helpers.js";
 
-import { AppsCreate, Connect } from "@moltzap/protocol";
+import { Connect } from "@moltzap/protocol";
 
 const REGISTRATION_SECRET = "admin-test-secret-zxcv";
 // Arbitrary v4 UUID used as the "system user" identity in arena. moltzap's
@@ -111,51 +111,12 @@ describe("/api/v1/admin/register-agent — secret-gated ownerUserId", () => {
       }),
   );
 
-  it.live(
-    "agent registered via admin endpoint passes AppHost owner check (no AgentNoOwner)",
-    () =>
-      Effect.gen(function* () {
-        // Register two agents — one initiator, one invitee. Both pre-claimed
-        // to SYSTEM_USER_ID via the admin route. AppHost.createSession
-        // (`app-host.ts:753`) refuses agents with null `owner_user_id` with
-        // `AgentNoOwner`; this test exercises the success path.
-        const initiatorRes = yield* Effect.tryPromise(() =>
-          postAdmin({
-            name: "admin-initiator",
-            inviteCode: REGISTRATION_SECRET,
-            ownerUserId: SYSTEM_USER_ID,
-          }),
-        );
-        expect(initiatorRes.status).toBe(201);
-        const initiator = initiatorRes.json as AdminRegisterResponse;
-
-        const inviteeRes = yield* Effect.tryPromise(() =>
-          postAdmin({
-            name: "admin-invitee",
-            inviteCode: REGISTRATION_SECRET,
-            ownerUserId: SYSTEM_USER_ID,
-          }),
-        );
-        expect(inviteeRes.status).toBe(201);
-        const invitee = inviteeRes.json as AdminRegisterResponse;
-
-        // Connect the initiator and create a session — this drives the
-        // owner_user_id check at app-host.ts:753.
-        const client = yield* connectTestClient({
-          wsUrl,
-          agentId: initiator.agentId,
-          apiKey: initiator.apiKey,
-        });
-        trackClient(client);
-
-        const session = (yield* client.sendRpc(AppsCreate, {
-          appId: ADMIN_TEST_MANIFEST.appId,
-          invitedAgentIds: [invitee.agentId],
-        })) as { session: { id: string; status: string } };
-
-        expect(session.session.id).toBeDefined();
-        expect(session.session.status).toBe("waiting");
-      }),
+  // Phase 7 cutover removed `apps/create` and `AppHost.createSession`
+  // along with the owner_user_id admission check at the legacy
+  // `app-host.ts:753`. The equivalent task-bootstrap admission flow
+  // moves to Phase 9's TM topology; reactivate this test then.
+  it.todo(
+    "agent registered via admin endpoint passes task-bootstrap owner check (Phase 9 reactivation)",
   );
 
   it.live("rejects when invite code is missing", () =>

@@ -1,0 +1,28 @@
+---
+title: "task/failed"
+description: "Pushed when a task fails before becoming ready."
+---
+
+# task/failed
+
+Pushed when a task fails before becoming ready.
+
+## Params
+
+<ResponseField name="taskId" type="string (UUID)">
+  Branded TaskId
+</ResponseField>
+
+## Example
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "task/failed",
+  "params": { ... }
+}
+```
+
+## Triggered By
+
+- [`tasks/create`](/protocol/methods/tasks-create)

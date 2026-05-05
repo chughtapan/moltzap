@@ -8,13 +8,12 @@
  * — is registered as `app-disconnect-fail-policy` below.
  */
 import * as fc from "fast-check";
-import { Data, Duration, Effect, Either, Exit, Scope } from "effect";
+import { Effect, Exit, Scope } from "effect";
 import { allRpcMethods, arbitraryCallFor } from "../arbitraries/rpc.js";
 import { makeTestClient } from "../test-client.js";
 import { registerTestAgent } from "../agent-registration.js";
 import type { ConformanceRunContext } from "./runner.js";
 import {
-  PropertyDeferred,
   PropertyInvariantViolation,
   PropertyUnavailable,
   registerProperty,
@@ -23,23 +22,11 @@ import { leftOrNull, sendUntypedRpc } from "./_helpers.js";
 
 import { AgentsList } from "../../network/methods/auth.js";
 import {
-  AppsAuthorizeDispatch,
-  AppsCreate,
   AppsOnBeforeDispatch,
   AppsOnBeforeMessageDelivery,
   AppsRegister,
 } from "../../app/methods/apps.js";
-import { conversationId, messageId } from "../../schema/primitives.js";
-
-/**
- * Tagged sentinel for "the dispatch RPC did not reply within the
- * property's bound." Distinct from any wire-level RpcResponseError so
- * the property body's Right/Left discrimination cannot mistake a typed
- * fail-closed verdict for a hang.
- */
-class DispatchHungError extends Data.TaggedError(
-  "ConformanceDispatchHungError",
-)<{ readonly elapsedMs: number }> {}
+import { TasksCreate } from "../../task/methods/tasks.js";
 
 const CATEGORY = "boundary" as const;
 const DEFAULT_TIMEOUT_MS = 3000;
@@ -302,88 +289,26 @@ export function registerAppDisconnectFailPolicy(
               }),
           ),
         );
-        const sessionOutcome = yield* senderClient
-          .sendRpc(AppsCreate, { appId, invitedAgentIds: [] })
-          .pipe(Effect.either);
-        const sessionResult = yield* Either.match(sessionOutcome, {
-          onLeft: (error) =>
-            Scope.close(appScope, Exit.void).pipe(
-              Effect.zipRight(
-                Effect.fail(
-                  new PropertyUnavailable({
-                    category: CATEGORY,
-                    name: APP_DISCONNECT_FAIL_POLICY_PROPERTY,
-                    reason: `apps/create failed (likely owner_user_id null on sender; B.9 covers via DB seeding): ${error._tag}`,
-                  }),
-                ),
-              ),
-            ),
-          onRight: (success) => Effect.succeed(success),
-        });
-
-        // Step 6: sever the app's WS. Closing the inner scope closes the
-        // socket; the server's connection-scope finalizer runs through
-        // sendRpcToClient's Deferred-cleanup path (issue #310).
+        // Phase 7 cutover removed `apps/create`'s session machinery. The
+        // tasks/* layer creates a task without bootstrapping the
+        // manifest-declared conversation map, so this property cannot
+        // assemble the dispatch precondition (a non-empty conversation
+        // attached to the task) without a TM-registration step that is
+        // out of scope for the conformance fixture. Tombstone to Phase 9
+        // (#318) where the TM topology owns the dispatch precondition.
+        // The `senderClient` is constructed above only to surface a
+        // `PropertyUnavailable` reason that names the missing
+        // dependency; the suspect-the-leak dispatch round-trip is
+        // unreachable.
+        void senderClient;
         yield* Scope.close(appScope, Exit.void);
-
-        // Step 7: trigger an admission round-trip on the sender side
-        // through the session's main conversation. Codex review (#327,
-        // finding 2): a fixed zero-UUID conversation short-circuits
-        // grant in `AppHost.runBeforeDispatch`, so the property would
-        // pass even if fail-closed-on-disconnect was broken; route
-        // through the session's actual conversation so AppHost reaches
-        // the (now severed) admission path.
-        // `apps/create` result: `{ session: { conversations: { [key]: convId } } }`
-        // — a Record map, not an array. Pull the first id deterministically.
-        const session = sessionResult.session;
-        const sessionConvId = Object.values(session.conversations)[0];
-        if (typeof sessionConvId !== "string" || sessionConvId.length === 0) {
-          return yield* Effect.fail(
-            new PropertyDeferred({
-              category: CATEGORY,
-              name: APP_DISCONNECT_FAIL_POLICY_PROPERTY,
-              followUp:
-                "apps/create response did not surface a session conversation id; B.9 (#318) covers via DB-seeded fixture",
-            }),
-          );
-        }
-        // Codex review (#327, finding 3): use timeoutFail with a tagged
-        // sentinel. Effect.timeout returns Option, and either-wrapping
-        // surfaces the fiber's TimeoutException, so the previous shape
-        // could not distinguish "client RPC timeout" (typed fail-closed)
-        // from "wall-clock hang" (Deferred leak). The sentinel error
-        // class makes the leak observable in the Left branch.
-        const dispatchStarted = Date.now();
-        const dispatchOutcome = yield* senderClient
-          .sendRpc(AppsAuthorizeDispatch, {
-            conversationId: conversationId(sessionConvId),
-            messageId: messageId("00000000-0000-0000-0000-000000000001"),
-            senderAgentId: sender.agentId,
-          })
-          .pipe(
-            Effect.timeoutFail({
-              duration: Duration.millis(DEFAULT_TIMEOUT_MS),
-              onTimeout: () =>
-                new DispatchHungError({
-                  elapsedMs: Date.now() - dispatchStarted,
-                }),
-            }),
-            Effect.either,
-          );
-        const dispatchHung = Either.match(dispatchOutcome, {
-          onLeft: (error) =>
-            error instanceof DispatchHungError ? error : null,
-          onRight: () => null,
-        });
-        if (dispatchHung !== null) {
-          return yield* Effect.fail(
-            new PropertyInvariantViolation({
-              category: CATEGORY,
-              name: APP_DISCONNECT_FAIL_POLICY_PROPERTY,
-              reason: `dispatch hung ${dispatchHung.elapsedMs}ms after app sever — Deferred leak suspected`,
-            }),
-          );
-        }
+        return yield* Effect.fail(
+          new PropertyUnavailable({
+            category: CATEGORY,
+            name: APP_DISCONNECT_FAIL_POLICY_PROPERTY,
+            reason: `${TasksCreate.name} does not bootstrap session conversations; covered in Phase 9 with TM topology (#318)`,
+          }),
+        );
       }),
     ),
   );

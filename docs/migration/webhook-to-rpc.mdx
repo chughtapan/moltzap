@@ -5,6 +5,15 @@ description: Port your app from manifest-webhook hooks to server-initiated RPC o
 
 # Migrating: Webhook → RPC
 
+> **Phase 7+ status:** the `@moltzap/app-sdk` package, the `MoltZapApp`
+> client class, the `apps/createSession` family of wire RPCs, and the
+> bundled `mountains-or-beaches` example were dropped in Phase 7
+> (chughtapan/moltzap#425). The hook RPCs themselves still ship on the
+> wire — Phase 9 (chughtapan/moltzap#427) wires the new TM-topology
+> trigger path. The post-refactor doc rewrite lands as Phase 14
+> (chughtapan/moltzap#454). Snippets below describe the pre-Phase-7
+> shape.
+
 Phase 1 deletes the manifest-webhook surface for app hooks. Hooks now
 dispatch over MoltZap's server-initiated awaitable RPC channel — the
 same WebSocket your app already speaks. This guide ports an existing

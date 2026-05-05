@@ -718,9 +718,6 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     setContactService(checker) {
       appHost.setContactService(checker);
     },
-    createAppSession(appId, initiatorAgentId, invitedAgentIds) {
-      return appHost.createSession(appId, initiatorAgentId, invitedAgentIds);
-    },
     onBeforeMessageDelivery(appId, handler) {
       appHost.onBeforeMessageDelivery(appId, handler);
     },
@@ -732,18 +729,6 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     },
     onSessionActive(appId, handler) {
       appHost.onSessionActive(appId, handler);
-    },
-    closeAppSession(sessionId, callerAgentId) {
-      return appHost.closeSession(sessionId, callerAgentId);
-    },
-    getAppSession(sessionId, callerAgentId) {
-      return appHost.getSession(sessionId, callerAgentId);
-    },
-    listAppSessions(callerAgentId, opts) {
-      return appHost.listSessions(callerAgentId, opts);
-    },
-    attachAppConversation(sessionId, conversationId, key) {
-      return appHost.attachConversation(sessionId, conversationId, key);
     },
     close() {
       return Effect.runPromise(

@@ -4,7 +4,6 @@ import { Command } from "@effect/cli";
 import { NodeContext, NodeRuntime } from "@effect/platform-node";
 import { Effect, Logger } from "effect";
 import { agentsCommand } from "./commands/agents.js";
-import { appsCommand } from "./commands/apps.js";
 import { contactsCommand } from "./commands/contacts.js";
 import {
   conversationsCommand,
@@ -148,7 +147,6 @@ const moltzap = Command.make("moltzap").pipe(
     statusCommand,
     agentsCommand,
     // sbd#177 v2 additions:
-    appsCommand,
     messagesCommand,
   ]),
 );

@@ -17,21 +17,19 @@
 import { describe, expect, it, vi } from "vitest";
 import { Effect, Ref } from "effect";
 import {
-  AppSessionFailedNotificationDefinition,
+  TaskFailedNotificationDefinition,
   ConversationArchivedNotificationDefinition,
   agentId,
-  appSessionId,
   conversationId,
-  decodeNotification,
-  notificationGroup,
   notificationFrame as makeNotificationFrame,
+  taskId,
   type NotificationParamsOf,
   type AnyNotificationDefinition,
 } from "@moltzap/protocol";
 import { makeSubscriberRegistry, matchesFilter } from "./subscribers.js";
 import type { DecodedNotification } from "./frame.js";
 
-const SESSION_ID = appSessionId("11111111-1111-4111-8111-111111111111");
+const TASK_ID = taskId("11111111-1111-4111-8111-111111111111");
 const CONV_1 = conversationId("22222222-2222-4222-8222-222222222222");
 const CONV_2 = conversationId("33333333-3333-4333-8333-333333333333");
 const AGENT_ID = agentId("44444444-4444-4444-8444-444444444444");
@@ -50,24 +48,35 @@ const filterableNotification = (
 const decodedNotification = <D extends AnyNotificationDefinition>(
   definition: D,
   params: NotificationParamsOf<D>,
-): DecodedNotification => {
-  const decoded = Effect.runSync(
-    decodeNotification(
-      notificationGroup,
-      makeNotificationFrame(definition, params),
-    ),
-  );
-  return { _tag: "Notification", ...decoded };
+): DecodedNotification<D> => {
+  // Construct a DecodedNotification<D> directly from the typed
+  // descriptor + params — bypassing the wire decoder is intentional
+  // for test fixtures so the result type stays narrow to D rather than
+  // collapsing to the group's union.
+  const frame = makeNotificationFrame(definition, params);
+  const decoded: Record<string, unknown> = {
+    ...frame,
+    definition,
+    method: definition.name,
+    params,
+  };
+  Object.defineProperty(decoded, "_tag", {
+    value: "Notification",
+    enumerable: false,
+  });
+  return decoded as DecodedNotification<D>;
 };
 
-const sessionFailedNotification = (): DecodedNotification =>
-  decodedNotification(AppSessionFailedNotificationDefinition, {
-    sessionId: SESSION_ID,
+const taskFailedNotification = (): DecodedNotification<
+  typeof TaskFailedNotificationDefinition
+> =>
+  decodedNotification(TaskFailedNotificationDefinition, {
+    taskId: TASK_ID,
   });
 
 const conversationArchivedNotification = (
   conv: typeof CONV_1,
-): DecodedNotification =>
+): DecodedNotification<typeof ConversationArchivedNotificationDefinition> =>
   decodedNotification(ConversationArchivedNotificationDefinition, {
     conversationId: conv,
     archivedAt: "2026-05-03T00:00:00Z",
@@ -149,7 +158,7 @@ describe("SubscriberRegistry", () => {
     await Effect.runPromise(
       registry.register({}, () => Effect.sync(() => void order.push("b"))),
     );
-    await Effect.runPromise(registry.dispatch(sessionFailedNotification()));
+    await Effect.runPromise(registry.dispatch(taskFailedNotification()));
     expect(order).toEqual(["a", "b"]);
   });
 
@@ -183,9 +192,9 @@ describe("SubscriberRegistry", () => {
     );
 
     frameIdx = 0;
-    await Effect.runPromise(registry.dispatch(sessionFailedNotification()));
+    await Effect.runPromise(registry.dispatch(taskFailedNotification()));
     frameIdx = 1;
-    await Effect.runPromise(registry.dispatch(sessionFailedNotification()));
+    await Effect.runPromise(registry.dispatch(taskFailedNotification()));
 
     expect(aCalls).toEqual([0]); // a saw frame 0, not frame 1.
     expect(bCalls).toEqual([0, 1]); // b saw both — snapshot at start of frame 0 still included a; b is unaffected by a's unsub.
@@ -195,8 +204,8 @@ describe("SubscriberRegistry", () => {
     const registry = await Effect.runPromise(
       makeSubscriberRegistry(noopLogger),
     );
-    const seenByConv1: DecodedNotification[] = [];
-    const seenByConv2: DecodedNotification[] = [];
+    const seenByConv1: DecodedNotification<AnyNotificationDefinition>[] = [];
+    const seenByConv2: DecodedNotification<AnyNotificationDefinition>[] = [];
     await Effect.runPromise(
       registry.register({ conversationId: CONV_1 }, (frame) =>
         Effect.sync(() => void seenByConv1.push(frame)),
@@ -240,7 +249,7 @@ describe("SubscriberRegistry", () => {
       registry.register({}, () => Effect.sync(() => void otherCalls.push(1))),
     );
 
-    await Effect.runPromise(registry.dispatch(sessionFailedNotification()));
+    await Effect.runPromise(registry.dispatch(taskFailedNotification()));
 
     expect(warn).toHaveBeenCalledTimes(1);
     expect(otherCalls).toEqual([1]); // other subscribers still fire.
@@ -260,7 +269,7 @@ describe("SubscriberRegistry", () => {
       registry.register({}, () => Effect.sync(() => void otherCalls.push(1))),
     );
 
-    await Effect.runPromise(registry.dispatch(sessionFailedNotification()));
+    await Effect.runPromise(registry.dispatch(taskFailedNotification()));
 
     expect(warn).toHaveBeenCalledTimes(1);
     expect(otherCalls).toEqual([1]); // subsequent subscribers still fire.
@@ -275,7 +284,7 @@ describe("SubscriberRegistry", () => {
       registry.register({}, () => Effect.sync(() => void calls.push(1))),
     );
     await Effect.runPromise(registry.closeAll);
-    await Effect.runPromise(registry.dispatch(sessionFailedNotification()));
+    await Effect.runPromise(registry.dispatch(taskFailedNotification()));
     expect(calls).toEqual([]);
   });
 
@@ -288,7 +297,7 @@ describe("SubscriberRegistry", () => {
         const registry = yield* makeSubscriberRegistry(noopLogger);
         const counter = yield* Ref.make(0);
         yield* registry.register({}, () => Ref.update(counter, (n) => n + 1));
-        yield* registry.dispatch(sessionFailedNotification());
+        yield* registry.dispatch(taskFailedNotification());
         return yield* Ref.get(counter);
       }),
     );

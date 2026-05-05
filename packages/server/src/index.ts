@@ -4,13 +4,7 @@
 export { createCoreApp } from "./app/server.js";
 export type { CoreConfig, CoreApp } from "./app/types.js";
 
-export {
-  AgentId,
-  UserId,
-  ConversationId,
-  SessionId,
-  AppId,
-} from "./app/types.js";
+export { AgentId, UserId, ConversationId, AppId } from "./app/types.js";
 
 // AppHost
 export { AppHost } from "./app/app-host.js";
@@ -169,5 +163,5 @@ export type {
   RpcMethodRegistry,
 } from "./rpc/context.js";
 export type { MoltZapConnection } from "./ws/connection.js";
-export type { AppSessionRow, AppSessionParticipantRow } from "./db/database.js";
+export type { TaskRow, TaskParticipantRow } from "./db/database.js";
 export { defineMethod } from "./rpc/context.js";

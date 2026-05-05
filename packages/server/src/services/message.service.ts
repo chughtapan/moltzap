@@ -580,27 +580,22 @@ export class MessageService {
   > {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
-        const [channelKeyRowOpt, senderRowOpt] = yield* Effect.all([
-          takeFirstOption(
-            this.db
-              .selectFrom("app_session_conversations")
-              .select("conversation_key")
-              .where("conversation_id", "=", conversationId)
-              .limit(1),
-          ),
-          takeFirstOption(
-            this.db
-              .selectFrom("agents")
-              .select(["display_name", "name"])
-              .where("id", "=", senderAgentId)
-              .limit(1),
-          ),
-        ]);
-
-        const channelKey = Option.match(channelKeyRowOpt, {
-          onNone: () => conversationId,
-          onSome: (row) => row.conversation_key,
-        });
+        // Phase 7 cutover: `app_session_conversations` is gone. Trace
+        // metadata used the (session, conversationId, conversation_key)
+        // triple to label the channel by its manifest-declared role
+        // (e.g. "town_square" instead of a UUID). The tasks/* layer does
+        // not carry per-task conversation keys; falling back to the raw
+        // conversationId preserves the trace shape and correctness
+        // (string identity stable across runs) while losing the
+        // semantic-key flavour. Phase 9's TM topology will introduce a
+        // new role-naming surface if needed.
+        const senderRowOpt = yield* takeFirstOption(
+          this.db
+            .selectFrom("agents")
+            .select(["display_name", "name"])
+            .where("id", "=", senderAgentId)
+            .limit(1),
+        );
 
         const senderDisplayName = Option.match(senderRowOpt, {
           onNone: () => senderAgentId,
@@ -608,7 +603,7 @@ export class MessageService {
         });
 
         return {
-          channelKey,
+          channelKey: conversationId,
           senderDisplayName,
         };
       }),

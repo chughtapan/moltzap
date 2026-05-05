@@ -122,7 +122,7 @@ class ReconnectAttemptFailedError extends Data.TaggedError(
  *
  * Spec #356: the single `Stream.runForEach`-driven `appCallbackInboundQueue` is
  * replaced by a `PartitionedDispatcher` keyed on
- * `(sessionId, conversationId, hookKind)`. Each tuple owns one bounded
+ * `(taskId, conversationId, hookKind)`. Each tuple owns one bounded
  * queue + one drain fiber; cross-tuple offers run concurrently. Held
  * here alongside its own `dispatcherScope` (NOT bound to the socket
  * scope) so `runSync(client.close())` can `runFork(Scope.close(…))`
@@ -140,7 +140,7 @@ interface ConnState {
   readonly handshakeSettled: Deferred.Deferred<ConnectResult, PendingError>;
   /**
    * Per-connection partitioned appCallback dispatcher. Routes inbound appCallback
-   * requests by `(sessionId, conversationId, hookKind)`; replaces the
+   * requests by `(taskId, conversationId, hookKind)`; replaces the
    * pre-#356 single drain fiber.
    */
   readonly dispatcher: PartitionedDispatcher;
@@ -208,7 +208,9 @@ type ErasedServerRpcHandler = (
 
 interface NotificationWaiter {
   readonly definition: AnyNotificationDefinition;
-  readonly complete: (notification: DecodedNotification) => Effect.Effect<void>;
+  readonly complete: (
+    notification: AnyDecodedNotification,
+  ) => Effect.Effect<void>;
   readonly fail: (error: Error) => Effect.Effect<void>;
 }
 
@@ -223,6 +225,48 @@ function notificationMatches<D extends AnyNotificationDefinition>(
   notification: AnyDecodedNotification,
 ): notification is DecodedNotificationFor<D> {
   return notification.definition === definition;
+}
+
+/**
+ * Validate `notification.params` against the schema attached by the
+ * decoder. Logs a structured drift warning and returns `false` on
+ * failure. Shared core for the inbound typed bridges — every typed
+ * dispatcher MUST route through this guard before invoking handlers,
+ * because the wire decoder is payload-opaque (required for the
+ * `delivery/payload-opacity-client` and
+ * `boundary/schema-exhaustive-fuzz-client` conformance properties).
+ * Current call sites: `acceptTypedNotification` below (typed-promise
+ * resolver) and `service.ts:handleNotification` (subscriber-fanout
+ * dispatch into the typed handler bucket).
+ */
+export function validateNotificationParams(
+  notification: AnyDecodedNotification,
+  logger: WsClientLogger | undefined,
+): boolean {
+  if (notification.definition.validateParams(notification.params)) return true;
+  logger?.warn(
+    `Notification ${notification.definition.name} dropped: params failed schema validation (drift signal)`,
+    notification.params,
+  );
+  return false;
+}
+
+/**
+ * Typed bridge for `waitForNotification`: matches the notification's
+ * descriptor against `definition` and then validates its params via
+ * `validateNotificationParams`. A frame whose method matches `definition`
+ * but whose params fail validation is logged and skipped — the typed
+ * promise never resolves with a malformed payload typed as if it were
+ * valid. "Skip on non-match" semantics for the bucketed waiter map are
+ * preserved; the validation guard is the only new behavior.
+ */
+export function acceptTypedNotification<D extends AnyNotificationDefinition>(
+  definition: D,
+  notification: AnyDecodedNotification,
+  logger: WsClientLogger | undefined,
+): notification is DecodedNotificationFor<D> {
+  if (!notificationMatches(definition, notification)) return false;
+  return validateNotificationParams(notification, logger);
 }
 
 /** Drop `waiter` from its notification-definition bucket, pruning an empty bucket. */
@@ -306,7 +350,7 @@ export class MoltZapWsClient {
   private readonly stateRef: Ref.Ref<Option.Option<ConnState>>;
   private readonly malformedRef: Ref.Ref<number>;
   private readonly notificationsBufferRef: Ref.Ref<
-    ReadonlyArray<DecodedNotification>
+    ReadonlyArray<AnyDecodedNotification>
   >;
   /**
    * Waiters keyed by notification descriptor identity. Each bucket is a FIFO
@@ -360,7 +404,7 @@ export class MoltZapWsClient {
     );
     this.malformedRef = this.runtime.runSync(Ref.make(0));
     this.notificationsBufferRef = this.runtime.runSync(
-      Ref.make<ReadonlyArray<DecodedNotification>>([]),
+      Ref.make<ReadonlyArray<AnyDecodedNotification>>([]),
     );
     this.notificationWaitersRef = this.runtime.runSync(
       Ref.make<
@@ -590,11 +634,12 @@ export class MoltZapWsClient {
     timeoutMs = EVENT_WAIT_TIMEOUT_MS,
   ): Effect.Effect<DecodedNotificationFor<D>, Error> {
     return Effect.gen(this, function* () {
+      const logger = this.options.logger;
       const buffered = yield* Ref.modify(
         this.notificationsBufferRef,
         (frames) => {
           for (const [idx, frame] of frames.entries()) {
-            if (!notificationMatches(definition, frame)) continue;
+            if (!acceptTypedNotification(definition, frame, logger)) continue;
             const next = [...frames.slice(0, idx), ...frames.slice(idx + 1)];
             return [frame, next];
           }
@@ -607,7 +652,7 @@ export class MoltZapWsClient {
       const waiter: NotificationWaiter = {
         definition,
         complete: (notification) =>
-          notificationMatches(definition, notification)
+          acceptTypedNotification(definition, notification, logger)
             ? Deferred.succeed(deferred, notification).pipe(Effect.asVoid)
             : Effect.void,
         fail: (error) => Deferred.fail(deferred, error).pipe(Effect.asVoid),
@@ -640,7 +685,7 @@ export class MoltZapWsClient {
   }
 
   /** Return all buffered notifications and clear the buffer. Synchronous. */
-  drainNotifications(): DecodedNotification[] {
+  drainNotifications(): AnyDecodedNotification[] {
     const snapshot = this.runtime.runSync(Ref.get(this.notificationsBufferRef));
     this.runtime.runSync(Ref.set(this.notificationsBufferRef, []));
     return [...snapshot];
@@ -720,7 +765,7 @@ export class MoltZapWsClient {
 
       // Spec #356 — partitioned appCallback dispatcher. Replaces the pre-#356
       // single `Stream.runForEach`-driven `appCallbackInboundQueue` with a
-      // partition router keyed on `(sessionId, conversationId,
+      // partition router keyed on `(taskId, conversationId,
       // hookKind)`. Each tuple owns one bounded queue + one drain
       // fiber; cross-tuple offers run on independent fibers, so a
       // parked `apps/onBeforeDispatch` cannot block the sibling
@@ -1137,7 +1182,7 @@ export class MoltZapWsClient {
         if (decoded._tag === "ServerRequest") {
           // appCallback request — hand off to the partitioned dispatcher
           // (spec #356). The dispatcher routes by
-          // `(sessionId, conversationId, hookKind)`; the matching
+          // `(taskId, conversationId, hookKind)`; the matching
           // per-tuple worker fiber drains and runs
           // `dispatchInboundServerRequest`, which writes the reply
           // back. Cross-tuple offers run concurrently — the arena#248

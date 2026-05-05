@@ -29,23 +29,23 @@ import type { AnyAppCallbackRpcDefinition } from "../../rpc-registry.js";
 import type { ParamsOf } from "../../rpc.js";
 
 import { AppsOnClose, AppsOnSessionActive } from "../../app/methods/apps.js";
-import { agentId } from "../../schema/primitives.js";
+import { agentId, taskId as makeTaskId } from "../../schema/primitives.js";
 
-const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
+const TASK_ID = makeTaskId("550e8400-e29b-41d4-a716-446655440000");
 const APP_ID = "test-app";
 const AGENT_ID = agentId("550e8400-e29b-41d4-a716-446655440001");
 const LIFECYCLE_AGENT = { agentId: AGENT_ID, ownerId: "owner-1" };
 const CONVERSATIONS = {};
 
-const onCloseParams = (sessionId = SESSION_ID) => ({
-  sessionId,
+const onCloseParams = (taskId = TASK_ID) => ({
+  taskId,
   appId: APP_ID,
   conversations: CONVERSATIONS,
   closedBy: LIFECYCLE_AGENT,
 });
 
 const onSessionActiveParams = () => ({
-  sessionId: SESSION_ID,
+  taskId: TASK_ID,
   appId: APP_ID,
   conversations: CONVERSATIONS,
   admittedAgentIds: [AGENT_ID],
@@ -226,7 +226,7 @@ describe("TestClient — handleServerRpc", () => {
       Effect.gen(function* () {
         yield* client.handleServerRpc(AppsOnClose, (params) =>
           Effect.sync(() => {
-            expect(params.sessionId).toBe(SESSION_ID);
+            expect(params.taskId).toBe(TASK_ID);
             return {};
           }),
         );
@@ -309,7 +309,7 @@ describe("TestClient — awaitServerRequest", () => {
       Effect.gen(function* () {
         yield* client.handleServerRpc(AppsOnClose, (params) =>
           Effect.sync(() => {
-            expect(params.sessionId).toBe(SESSION_ID);
+            expect(params.taskId).toBe(TASK_ID);
             return {};
           }),
         );
@@ -339,11 +339,11 @@ describe("TestClient — awaitServerRequest", () => {
     await withClient((client, server) =>
       Effect.gen(function* () {
         yield* client.handleServerRpc(AppsOnClose, () => Effect.succeed({}));
-        // Predicate matches sessionId === "WANTED".
+        // Predicate matches taskId === "WANTED".
         const awaitFiber = yield* Effect.fork(
           client.awaitServerRequest(
             AppsOnClose,
-            (p) => p.sessionId === "550e8400-e29b-41d4-a716-446655440099",
+            (p) => p.taskId === "550e8400-e29b-41d4-a716-446655440099",
           ),
         );
         yield* Effect.sleep("10 millis");
@@ -361,7 +361,7 @@ describe("TestClient — awaitServerRequest", () => {
         );
 
         const observed = yield* awaitFiber;
-        expect(observed.sessionId).toBe("550e8400-e29b-41d4-a716-446655440099");
+        expect(observed.taskId).toBe("550e8400-e29b-41d4-a716-446655440099");
       }),
     );
   });
