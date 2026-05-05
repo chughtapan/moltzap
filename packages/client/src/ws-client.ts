@@ -38,7 +38,11 @@ import {
   type Static,
 } from "@moltzap/protocol";
 import { DuplicateServerRpcHandlerError } from "./runtime/errors.js";
-import { decodeFrames, type DecodedNotification } from "./runtime/frame.js";
+import {
+  decodeFrames,
+  type DecodedNotification,
+  type RawDecodedNotification,
+} from "./runtime/frame.js";
 import {
   makeSubscriberRegistry,
   type NotificationSubscription,
@@ -209,40 +213,53 @@ type ErasedServerRpcHandler = (
 interface NotificationWaiter {
   readonly definition: AnyNotificationDefinition;
   readonly complete: (
-    notification: AnyDecodedNotification,
+    notification: AnyRawDecodedNotification,
   ) => Effect.Effect<void>;
   readonly fail: (error: Error) => Effect.Effect<void>;
 }
 
-type AnyDecodedNotification = DecodedNotification<AnyNotificationDefinition>;
-type DecodedNotificationFor<D extends AnyNotificationDefinition> = Extract<
-  AnyDecodedNotification,
-  { readonly definition: D }
->;
+/**
+ * Pre-validation alias used internally by buffer/waiter machinery —
+ * the decoder is payload-opaque so frames carry `params: unknown`
+ * until a typed bridge runs `validateNotificationParams`.
+ */
+type AnyRawDecodedNotification =
+  RawDecodedNotification<AnyNotificationDefinition>;
 
 function notificationMatches<D extends AnyNotificationDefinition>(
   definition: D,
-  notification: AnyDecodedNotification,
-): notification is DecodedNotificationFor<D> {
+  notification: AnyRawDecodedNotification,
+): notification is RawDecodedNotification<D> {
   return notification.definition === definition;
 }
 
 /**
  * Validate `notification.params` against the schema attached by the
- * decoder. Logs a structured drift warning and returns `false` on
- * failure. Shared core for the inbound typed bridges — every typed
- * dispatcher MUST route through this guard before invoking handlers,
- * because the wire decoder is payload-opaque (required for the
+ * decoder. Type predicate: a `true` result lifts the input from the
+ * raw (`params: unknown`) shape to the validated
+ * `DecodedNotification<…>` shape — the compiler-enforced lift the
+ * inbound bridges rely on. Logs a structured drift warning and
+ * returns `false` on failure. Every typed dispatcher MUST route
+ * through this guard before invoking handlers, because the wire
+ * decoder is payload-opaque (required for the
  * `delivery/payload-opacity-client` and
  * `boundary/schema-exhaustive-fuzz-client` conformance properties).
- * Current call sites: `acceptTypedNotification` below (typed-promise
- * resolver) and `service.ts:handleNotification` (subscriber-fanout
- * dispatch into the typed handler bucket).
+ *
+ * The signature is non-generic over a single descriptor: the input
+ * accepts the broad `AnyRawDecodedNotification` union (distributed
+ * over all known descriptors), and the predicate narrows to the
+ * matching distributed validated union. Per-descriptor narrowing is
+ * the job of the caller's enclosing `is`-predicate
+ * (e.g. `acceptTypedNotification<D>`); this helper just gates "params
+ * conform to the attached schema." Current call sites:
+ * `acceptTypedNotification` below (typed-promise resolver) and
+ * `service.ts:handleNotification` (subscriber-fanout dispatch into
+ * the typed handler bucket).
  */
 export function validateNotificationParams(
-  notification: AnyDecodedNotification,
+  notification: AnyRawDecodedNotification,
   logger: WsClientLogger | undefined,
-): boolean {
+): notification is DecodedNotification<AnyNotificationDefinition> {
   if (notification.definition.validateParams(notification.params)) return true;
   logger?.warn(
     `Notification ${notification.definition.name} dropped: params failed schema validation (drift signal)`,
@@ -258,13 +275,13 @@ export function validateNotificationParams(
  * but whose params fail validation is logged and skipped — the typed
  * promise never resolves with a malformed payload typed as if it were
  * valid. "Skip on non-match" semantics for the bucketed waiter map are
- * preserved; the validation guard is the only new behavior.
+ * preserved; the validation guard is the lift from raw to validated.
  */
 export function acceptTypedNotification<D extends AnyNotificationDefinition>(
   definition: D,
-  notification: AnyDecodedNotification,
+  notification: AnyRawDecodedNotification,
   logger: WsClientLogger | undefined,
-): notification is DecodedNotificationFor<D> {
+): notification is DecodedNotification<D> {
   if (!notificationMatches(definition, notification)) return false;
   return validateNotificationParams(notification, logger);
 }
@@ -350,7 +367,7 @@ export class MoltZapWsClient {
   private readonly stateRef: Ref.Ref<Option.Option<ConnState>>;
   private readonly malformedRef: Ref.Ref<number>;
   private readonly notificationsBufferRef: Ref.Ref<
-    ReadonlyArray<AnyDecodedNotification>
+    ReadonlyArray<AnyRawDecodedNotification>
   >;
   /**
    * Waiters keyed by notification descriptor identity. Each bucket is a FIFO
@@ -404,7 +421,7 @@ export class MoltZapWsClient {
     );
     this.malformedRef = this.runtime.runSync(Ref.make(0));
     this.notificationsBufferRef = this.runtime.runSync(
-      Ref.make<ReadonlyArray<AnyDecodedNotification>>([]),
+      Ref.make<ReadonlyArray<AnyRawDecodedNotification>>([]),
     );
     this.notificationWaitersRef = this.runtime.runSync(
       Ref.make<
@@ -632,7 +649,7 @@ export class MoltZapWsClient {
   waitForNotification<D extends AnyNotificationDefinition>(
     definition: D,
     timeoutMs = EVENT_WAIT_TIMEOUT_MS,
-  ): Effect.Effect<DecodedNotificationFor<D>, Error> {
+  ): Effect.Effect<DecodedNotification<D>, Error> {
     return Effect.gen(this, function* () {
       const logger = this.options.logger;
       const buffered = yield* Ref.modify(
@@ -648,7 +665,7 @@ export class MoltZapWsClient {
       );
       if (buffered !== null) return buffered;
 
-      const deferred = yield* Deferred.make<DecodedNotificationFor<D>, Error>();
+      const deferred = yield* Deferred.make<DecodedNotification<D>, Error>();
       const waiter: NotificationWaiter = {
         definition,
         complete: (notification) =>
@@ -684,8 +701,10 @@ export class MoltZapWsClient {
     });
   }
 
-  /** Return all buffered notifications and clear the buffer. Synchronous. */
-  drainNotifications(): AnyDecodedNotification[] {
+  /** Return all buffered notifications and clear the buffer. Synchronous.
+   * Frames are pre-validation (`params: unknown`) — buffer holds the
+   * raw shape produced by the wire decoder. */
+  drainNotifications(): AnyRawDecodedNotification[] {
     const snapshot = this.runtime.runSync(Ref.get(this.notificationsBufferRef));
     this.runtime.runSync(Ref.set(this.notificationsBufferRef, []));
     return [...snapshot];
@@ -1220,15 +1239,16 @@ export class MoltZapWsClient {
         }
 
         if (decoded._tag === "Notification") {
-          // Spec #222 §5.3 (C4 + subscribe-stub): per-subscription
-          // fan-out replaces the deleted top-level `onNotification` callback.
-          // Snapshot-at-dispatch semantics live inside the registry
-          // (OQ-3 A); see runtime/subscribers.ts.
+          // Spec #222 §5.3: subscribers see the full Raw|Unknown union
+          // (conformance fuzz exercises both); waiters require a known
+          // descriptor to key the bucket map.
           yield* this.subscribers.dispatch(decoded);
+          if (decoded.definition === undefined) continue;
+          const knownDecoded: AnyRawDecodedNotification = decoded;
           const delivered = yield* Ref.modify(
             this.notificationWaitersRef,
             (m) => {
-              const bucket = HashMap.get(m, decoded.definition);
+              const bucket = HashMap.get(m, knownDecoded.definition);
               if (bucket._tag === "None" || bucket.value.length === 0) {
                 return [null as NotificationWaiter | null, m];
               }
@@ -1237,18 +1257,18 @@ export class MoltZapWsClient {
               const rest = arr.slice(0, -1);
               const nextMap =
                 rest.length === 0
-                  ? HashMap.remove(m, decoded.definition)
-                  : HashMap.set(m, decoded.definition, rest);
+                  ? HashMap.remove(m, knownDecoded.definition)
+                  : HashMap.set(m, knownDecoded.definition, rest);
               return [chosen, nextMap];
             },
           );
           if (delivered !== null) {
-            yield* delivered.complete(decoded);
+            yield* delivered.complete(knownDecoded);
             continue;
           }
 
           yield* Ref.update(this.notificationsBufferRef, (xs) => {
-            const appended = [...xs, decoded];
+            const appended = [...xs, knownDecoded];
             return appended.length > MAX_EVENT_BUFFER
               ? appended.slice(-MAX_EVENT_BUFFER)
               : appended;
