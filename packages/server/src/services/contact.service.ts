@@ -24,6 +24,14 @@ export interface ContactCreateInput {
   readonly relationship?: string;
 }
 
+export interface ContactAcceptResult {
+  readonly contact: Contact;
+  /** True iff this call performed the pending → accepted transition.
+   * False when the contact was already accepted by a prior call (concurrent
+   * accept() races resolve so only one caller observes `transitioned: true`). */
+  readonly transitioned: boolean;
+}
+
 const ERR_SELF_ADD = "Cannot add yourself as a contact";
 const ERR_DUPLICATE = "Contact already exists";
 const ERR_NOT_FOUND = "Contact not found";
@@ -73,31 +81,46 @@ export class ContactsService {
     );
   }
 
+  /**
+   * Atomically transition a pending contact to accepted. Concurrent callers
+   * race on the `WHERE status = 'pending'` clause; the loser observes
+   * `transitioned: false` and the handler skips notification fan-out, so
+   * `contact/accepted` fires exactly once per accept.
+   */
   accept(
     owner: BrandedUserId,
     id: BrandedContactId,
-  ): Effect.Effect<Contact, RpcFailure> {
+  ): Effect.Effect<ContactAcceptResult, RpcFailure> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
-        const target = yield* this.db
-          .selectFrom("contacts")
-          .selectAll()
-          .where("id", "=", id);
-        if (target.length === 0) {
-          return yield* Effect.fail(notFound(ERR_NOT_FOUND));
-        }
-        const row = target[0]!;
-        if (row.contact_user_id !== owner) {
-          return yield* Effect.fail(forbidden(ERR_NOT_RECIPIENT));
-        }
-        if (row.status === "accepted") {
-          return rowToContact(row);
-        }
         const updated = yield* this.db
           .updateTable("contacts")
           .set({ status: "accepted" })
           .where("id", "=", id)
+          .where("contact_user_id", "=", owner)
+          .where("status", "=", "pending")
           .returningAll();
+
+        if (updated.length === 0) {
+          // Either: not-found, not-recipient, or already-accepted by a
+          // concurrent call. Disambiguate with one read.
+          const existing = yield* this.db
+            .selectFrom("contacts")
+            .selectAll()
+            .where("id", "=", id);
+          if (existing.length === 0) {
+            return yield* Effect.fail(notFound(ERR_NOT_FOUND));
+          }
+          const row = existing[0]!;
+          if (row.contact_user_id !== owner) {
+            return yield* Effect.fail(forbidden(ERR_NOT_RECIPIENT));
+          }
+          return { contact: rowToContact(row), transitioned: false };
+        }
+
+        const row = updated[0]!;
+        // Mirror row so both sides see the contact in their list. ON CONFLICT
+        // covers the race where the requester also has us as a contact.
         yield* this.db
           .insertInto("contacts")
           .values({
@@ -111,7 +134,7 @@ export class ContactsService {
               status: "accepted",
             }),
           );
-        return rowToContact(updated[0]!);
+        return { contact: rowToContact(row), transitioned: true };
       }),
     );
   }
