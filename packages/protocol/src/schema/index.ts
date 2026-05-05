@@ -21,7 +21,6 @@ export * from "./messages.js";
 export * from "./logical-clock.js";
 export * from "./invites.js";
 export * from "./presence.js";
-export * from "./delivery.js";
 export * from "./json-rpc.js";
 export * from "./frames.js";
 export * from "./errors.js";

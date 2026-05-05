@@ -5,7 +5,6 @@ import {
   ContactRequestNotificationDefinition,
   ConversationCreatedNotificationDefinition,
   ConversationUpdatedNotificationDefinition,
-  MessageDeliveredNotificationDefinition,
   MessageReceivedNotificationDefinition,
   PresenceChangedNotificationDefinition,
   agentId,
@@ -20,7 +19,6 @@ import {
 import {
   isMessageNotification,
   extractMessage,
-  extractDelivery,
   extractConversationCreated,
   extractConversationUpdated,
   extractContactRequest,
@@ -97,27 +95,6 @@ describe("extractMessage", () => {
 
   it("returns null for wrong notification method", () => {
     expect(extractMessage(PRESENCE_FRAME())).toBeNull();
-  });
-});
-
-describe("extractDelivery", () => {
-  it("extracts delivery from valid frame", () => {
-    const result = extractDelivery(
-      makeNotificationFrame(MessageDeliveredNotificationDefinition, {
-        messageId: MESSAGE_ID,
-        conversationId: CONVERSATION_ID,
-        agentId: AGENT_ID,
-      }),
-    );
-    expect(result).toEqual({
-      messageId: MESSAGE_ID,
-      conversationId: CONVERSATION_ID,
-      agentId: AGENT_ID,
-    });
-  });
-
-  it("returns null for wrong notification method", () => {
-    expect(extractDelivery(MESSAGE_RECEIVED_FRAME())).toBeNull();
   });
 });
 

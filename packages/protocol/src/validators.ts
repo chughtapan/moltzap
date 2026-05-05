@@ -51,7 +51,6 @@ import {
   ConversationCreatedNotificationDefinition,
   ConversationUnarchivedNotificationDefinition,
   ConversationUpdatedNotificationDefinition,
-  MessageDeliveredNotificationDefinition,
   MessageReceivedNotificationDefinition,
   PresenceChangedNotificationDefinition,
 } from "./schema/notifications.js";
@@ -125,8 +124,6 @@ export const validators = {
   // Notifications.
   messageReceivedNotification:
     MessageReceivedNotificationDefinition.validateParams,
-  messageDeliveredNotification:
-    MessageDeliveredNotificationDefinition.validateParams,
   conversationCreatedNotification:
     ConversationCreatedNotificationDefinition.validateParams,
   conversationUpdatedNotification:

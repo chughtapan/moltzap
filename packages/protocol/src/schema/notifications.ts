@@ -2,7 +2,7 @@ import { Type, type Static } from "@sinclair/typebox";
 import { MessageSchema } from "./messages.js";
 import { ConversationSchema } from "./conversations.js";
 import { ContactSchema } from "./contacts.js";
-import { ConversationId, MessageId, AgentId, TaskId } from "./primitives.js";
+import { ConversationId, AgentId, TaskId } from "./primitives.js";
 import { PresenceStatusEnum } from "./presence.js";
 import { stringEnum, DateTimeString } from "../helpers.js";
 import { jsonRpcMethod } from "./json-rpc.js";
@@ -12,7 +12,6 @@ import { LifecycleAgentSchema } from "../app/methods/apps.js";
 
 const notificationNames = {
   MessageReceived: jsonRpcMethod("messages/received"),
-  MessageDelivered: jsonRpcMethod("messages/delivered"),
   ConversationCreated: jsonRpcMethod("conversations/created"),
   ConversationUpdated: jsonRpcMethod("conversations/updated"),
   ConversationArchived: jsonRpcMethod("conversations/archived"),
@@ -30,15 +29,6 @@ const notificationNames = {
 
 export const MessageReceivedNotificationSchema = Type.Object(
   { message: MessageSchema },
-  { additionalProperties: false },
-);
-
-export const MessageDeliveredNotificationSchema = Type.Object(
-  {
-    messageId: MessageId,
-    conversationId: ConversationId,
-    agentId: AgentId,
-  },
   { additionalProperties: false },
 );
 
@@ -169,9 +159,6 @@ export const TaskAdmissionCompleteNotificationSchema = Type.Object(
 export type MessageReceivedNotification = Static<
   typeof MessageReceivedNotificationSchema
 >;
-export type MessageDeliveredNotification = Static<
-  typeof MessageDeliveredNotificationSchema
->;
 export type ConversationCreatedNotification = Static<
   typeof ConversationCreatedNotificationSchema
 >;
@@ -213,11 +200,6 @@ export type TaskAdmissionCompleteNotification = Static<
 export const MessageReceivedNotificationDefinition = defineNotification({
   name: notificationNames.MessageReceived,
   params: MessageReceivedNotificationSchema,
-});
-
-export const MessageDeliveredNotificationDefinition = defineNotification({
-  name: notificationNames.MessageDelivered,
-  params: MessageDeliveredNotificationSchema,
 });
 
 export const ConversationCreatedNotificationDefinition = defineNotification({
@@ -287,7 +269,6 @@ export const TaskAdmissionCompleteNotificationDefinition = defineNotification({
 
 export const notificationDefinitions = [
   MessageReceivedNotificationDefinition,
-  MessageDeliveredNotificationDefinition,
   ConversationCreatedNotificationDefinition,
   ConversationUpdatedNotificationDefinition,
   ConversationArchivedNotificationDefinition,

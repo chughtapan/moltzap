@@ -11,7 +11,6 @@ import { ConnectionManager } from "../ws/connection.js";
 import { AuthService } from "../services/auth.service.js";
 import { ContactsService } from "../services/contact.service.js";
 import { ConversationService } from "../services/conversation.service.js";
-import { DeliveryService } from "../services/delivery.service.js";
 import { MessageService } from "../services/message.service.js";
 import { ParticipantService } from "../services/participant.service.js";
 import { PresenceService } from "../services/presence.service.js";
@@ -70,7 +69,6 @@ it.effect("ServicesLive resolves every service via resolveServices", () =>
     expect(services.participantService).toBeInstanceOf(ParticipantService);
     expect(services.conversationService).toBeInstanceOf(ConversationService);
     expect(services.contactService).toBeInstanceOf(ContactsService);
-    expect(services.deliveryService).toBeInstanceOf(DeliveryService);
     expect(services.presenceService).toBeInstanceOf(PresenceService);
     expect(services.appHost).toBeInstanceOf(AppHost);
     expect(services.messageService).toBeInstanceOf(MessageService);
