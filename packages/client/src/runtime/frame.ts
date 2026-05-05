@@ -91,7 +91,7 @@ const toDecodedFrame = (
   }
 
   if (validators.notificationFrame(parsed)) {
-    return toDecodedNotification(parsed, raw);
+    return toDecodedNotification(parsed);
   }
 
   return Effect.fail(new MalformedFrameError({ raw }));
@@ -123,21 +123,16 @@ function passthroughCast(def: object): AnyNotificationDefinition {
 
 const toDecodedNotification = (
   parsed: NotificationFrame,
-  raw: string,
-): Effect.Effect<DecodedNotification, MalformedFrameError> => {
-  const known = notificationGroup.byName.get(parsed.method);
-  // Known notifications validate their params against the protocol's
-  // pre-compiled AJV schema (Principle 2: every wire boundary decodes
-  // through a schema). Stale payload shapes (e.g. a pre-Phase-7
-  // `task/closed` carrying `sessionId` instead of `taskId`) reject
-  // here instead of leaking a malformed payload to subscribers.
-  if (known !== undefined) {
-    if (!known.validateParams(parsed.params)) {
-      return Effect.fail(new MalformedFrameError({ raw }));
-    }
-  }
+): Effect.Effect<DecodedNotification> => {
+  // Wire decoder is payload-opaque: it routes by method name and attaches
+  // the protocol definition (when known) so subscribers can opt into
+  // `definition.validateParams` for drift detection. Strict per-payload
+  // validation lives at the typed-handler boundary, not here — conformance
+  // payload-opacity (#200 §5 C3) and fuzz-liveness (E2) require the
+  // subscriber stream to surface arbitrary params byte-identically.
   const definition: AnyNotificationDefinition =
-    known ?? makePassthroughNotificationDefinition(parsed.method);
+    notificationGroup.byName.get(parsed.method) ??
+    makePassthroughNotificationDefinition(parsed.method);
   const decoded: Record<string, unknown> = {
     jsonrpc: parsed.jsonrpc,
     method: definition.name,
