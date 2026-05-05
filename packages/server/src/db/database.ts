@@ -4,76 +4,48 @@
 import type { Insertable, Selectable, Updateable } from "kysely";
 import type {
   Agents,
+  AppSessionConversations,
+  AppSessionParticipants,
+  AppSessions,
+  Contacts,
   ConversationKeys,
   ConversationParticipants,
   Conversations,
   EncryptionKeys,
   MessageDelivery,
   Messages,
+  TaskParticipants,
+  Tasks,
 } from "./database.generated.js";
 
-// Re-export enum types
 export type {
   AgentStatus,
+  AppParticipantStatus,
+  AppSessionStatus,
+  ContactStatus,
   ConversationType,
   DeliveryStatus,
   EncryptionKeyStatus,
   ParticipantRole,
+  TaskStatus,
 } from "./database.generated.js";
 
-// App-specific types (hand-written — not in generated file until kysely-codegen runs)
-export type AppSessionStatus = "waiting" | "active" | "failed" | "closed";
-export type AppParticipantDbStatus = "pending" | "admitted" | "rejected";
-export type ContactStatus = "pending" | "accepted";
-
-import type { Generated, Timestamp } from "./database.generated.js";
-
-export interface AppSessions {
-  id: Generated<string>;
-  app_id: string;
-  initiator_agent_id: string;
-  status: Generated<AppSessionStatus>;
-  closed_at: Timestamp | null;
-  created_at: Generated<Timestamp>;
-}
-
-export interface AppSessionParticipants {
-  session_id: string;
-  agent_id: string;
-  status: Generated<AppParticipantDbStatus>;
-  rejection_reason: string | null;
-  admitted_at: Timestamp | null;
-  updated_at: Generated<Timestamp>;
-}
-
-export interface AppSessionConversations {
-  session_id: string;
-  conversation_key: string;
-  conversation_id: string;
-}
-
-export interface Contacts {
-  id: Generated<string>;
-  owner_user_id: string;
-  contact_user_id: string;
-  relationship: string | null;
-  status: Generated<ContactStatus>;
-  created_at: Generated<Timestamp>;
-  updated_at: Generated<Timestamp>;
-}
-
-// Re-export table interfaces
 export type {
   Agents,
+  AppSessionConversations,
+  AppSessionParticipants,
+  AppSessions,
+  Contacts,
   ConversationKeys,
   ConversationParticipants,
   Conversations,
   EncryptionKeys,
   MessageDelivery,
   Messages,
+  TaskParticipants,
+  Tasks,
 } from "./database.generated.js";
 
-// Selectable / Insertable / Updateable aliases
 export type AgentRow = Selectable<Agents>;
 export type NewAgent = Insertable<Agents>;
 export type AgentUpdate = Updateable<Agents>;
@@ -116,7 +88,14 @@ export type ContactRow = Selectable<Contacts>;
 export type NewContact = Insertable<Contacts>;
 export type ContactUpdate = Updateable<Contacts>;
 
-// Database interface (core tables only — no invites, push, surfaces)
+export type TaskRow = Selectable<Tasks>;
+export type NewTask = Insertable<Tasks>;
+export type TaskUpdate = Updateable<Tasks>;
+
+export type TaskParticipantRow = Selectable<TaskParticipants>;
+export type NewTaskParticipant = Insertable<TaskParticipants>;
+export type TaskParticipantUpdate = Updateable<TaskParticipants>;
+
 export interface Database {
   agents: Agents;
   conversations: Conversations;
@@ -129,4 +108,6 @@ export interface Database {
   app_session_participants: AppSessionParticipants;
   app_session_conversations: AppSessionConversations;
   contacts: Contacts;
+  tasks: Tasks;
+  task_participants: TaskParticipants;
 }
