@@ -168,3 +168,35 @@ CREATE INDEX idx_contacts_owner ON contacts(owner_user_id);
 CREATE INDEX idx_contacts_target ON contacts(contact_user_id);
 CREATE TRIGGER contacts_updated_at BEFORE UPDATE ON contacts
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+-- Tasks (durable actor-model task layer; coexists with app_sessions)
+CREATE TYPE task_status AS ENUM ('waiting', 'active', 'failed', 'closed');
+
+CREATE TABLE tasks (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  app_id TEXT,
+  initiator_agent_id UUID NOT NULL REFERENCES agents(id),
+  status task_status NOT NULL DEFAULT 'waiting',
+  tm_endpoint_address TEXT,
+  started_at TIMESTAMPTZ,
+  ended_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_tasks_initiator ON tasks(initiator_agent_id);
+CREATE INDEX idx_tasks_status ON tasks(status);
+
+CREATE TABLE task_participants (
+  task_id UUID NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  agent_id UUID NOT NULL REFERENCES agents(id),
+  admitted_at TIMESTAMPTZ,
+  PRIMARY KEY (task_id, agent_id)
+);
+CREATE INDEX idx_task_participants_agent ON task_participants(agent_id);
+
+ALTER TABLE conversations
+  ADD COLUMN task_id UUID REFERENCES tasks(id);
+CREATE INDEX idx_conversations_task ON conversations(task_id);
+
+ALTER TABLE messages
+  ADD COLUMN task_id UUID REFERENCES tasks(id);
+CREATE INDEX idx_messages_task_seq ON messages(task_id, seq);

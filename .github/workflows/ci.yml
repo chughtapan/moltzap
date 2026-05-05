@@ -21,12 +21,9 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm format:check
-      - run: pnpm test
+      - run: pnpm docs:check:drift
 
-      - name: Check protocol docs are up to date
-        run: pnpm docs:check:drift
-
-  test-integration:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -37,12 +34,6 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @moltzap/protocol build
-      - run: pnpm --filter @moltzap/server-core build
-      - run: pnpm --filter @moltzap/client build
-      - run: pnpm --filter @moltzap/server-core test:integration
-      - run: pnpm --filter @moltzap/client test:integration
-      # Openclaw integration suite skips at suite level via isImageAvailable()
-      # when the openclaw container image is unavailable; the globalSetup itself
-      # only requires Docker (Postgres testcontainer) and the built server.
-      - run: pnpm --filter @moltzap/openclaw-channel test:integration
+      - run: pnpm build
+      - run: pnpm test
+      - run: pnpm test:integration
