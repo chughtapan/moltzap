@@ -46,8 +46,6 @@ import { AppHost } from "./app-host.js";
 import type {
   BeforeDispatchContext,
   BeforeMessageDeliveryContext,
-  OnCloseContext,
-  OnSessionActiveContext,
 } from "./hooks.js";
 
 // ─────────────────────────────────────────────────────────────────────
@@ -131,8 +129,6 @@ const baseManifest = (appId: string, hookTimeoutMs?: number): AppManifest => ({
 const FIXTURE_CONVERSATION_ID = "00000000-0000-4000-8000-000000000c01";
 const FIXTURE_AGENT_RECIPIENT = "00000000-0000-4000-8000-000000000a01";
 const FIXTURE_AGENT_SENDER = "00000000-0000-4000-8000-000000000a02";
-const FIXTURE_AGENT_CLOSER = "00000000-0000-4000-8000-000000000a04";
-const FIXTURE_AGENT_ADMITTED = "00000000-0000-4000-8000-000000000a05";
 const FIXTURE_MESSAGE_ID = "00000000-0000-4000-8000-000000000201";
 
 const baseBeforeDispatchCtx = (
@@ -157,25 +153,6 @@ const baseBeforeMessageDeliveryCtx = (
   message: { parts: [{ type: "text", text: "hi" }] },
   sessionId,
   appId,
-  signal: new AbortController().signal,
-});
-
-const baseOnSessionActiveCtx = (
-  appId: string,
-  sessionId: string,
-): OnSessionActiveContext => ({
-  sessionId,
-  appId,
-  conversations: { main: FIXTURE_CONVERSATION_ID },
-  admittedAgentIds: [FIXTURE_AGENT_ADMITTED],
-  signal: new AbortController().signal,
-});
-
-const baseOnCloseCtx = (appId: string, sessionId: string): OnCloseContext => ({
-  sessionId,
-  appId,
-  conversations: { main: FIXTURE_CONVERSATION_ID },
-  closedBy: { agentId: FIXTURE_AGENT_CLOSER, ownerId: "owner-c" },
   signal: new AbortController().signal,
 });
 
@@ -220,14 +197,6 @@ type BeforeMessageDeliveryDispatch = (
   appId: string,
   ctx: BeforeMessageDeliveryContext,
 ) => Effect.Effect<unknown, never>;
-type OnSessionActiveDispatch = (
-  appId: string,
-  ctx: OnSessionActiveContext,
-) => Effect.Effect<void, never>;
-type OnCloseDispatch = (
-  appId: string,
-  ctx: OnCloseContext,
-) => Effect.Effect<void, never>;
 type DenyShortCircuitDispatch = <V>(
   appIds: readonly string[],
   isShortCircuit: (v: V) => boolean,
@@ -245,12 +214,6 @@ const dispatchBeforeMessageDelivery = (
   host: AppHost,
 ): BeforeMessageDeliveryDispatch =>
   bindPrivateMethod(host, "dispatchBeforeMessageDeliveryHook");
-
-const dispatchOnSessionActive = (host: AppHost): OnSessionActiveDispatch =>
-  bindPrivateMethod(host, "dispatchOnSessionActiveHook");
-
-const dispatchOnClose = (host: AppHost): OnCloseDispatch =>
-  bindPrivateMethod(host, "dispatchOnCloseHook");
 
 const dispatchWithDenyShortCircuit = (
   host: AppHost,
@@ -618,32 +581,12 @@ describe("AppHost remote dispatch — apps/onBeforeMessageDelivery", () => {
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────
-// Lifecycle hooks — fail-OPEN
-// ─────────────────────────────────────────────────────────────────────
-
-describe("AppHost remote dispatch — lifecycle (on_*)", () => {
-  it("on_session_active: missing-connection collapses to void (fail-OPEN)", async () => {
-    const program = Effect.gen(function* () {
-      const fixture = makeAppHostFixture();
-      fixture.host.registerRemoteApp(baseManifest("app-osa"), "no-conn");
-      const dispatch = dispatchOnSessionActive(fixture.host);
-      yield* dispatch("app-osa", baseOnSessionActiveCtx("app-osa", "sess-osa"));
-    });
-    // Just runs to completion without throwing.
-    await Effect.runPromise(program);
-  });
-
-  it("on_close: missing-connection collapses to void (fail-OPEN)", async () => {
-    const program = Effect.gen(function* () {
-      const fixture = makeAppHostFixture();
-      fixture.host.registerRemoteApp(baseManifest("app-oc"), "no-conn");
-      const dispatch = dispatchOnClose(fixture.host);
-      yield* dispatch("app-oc", baseOnCloseCtx("app-oc", "sess-oc"));
-    });
-    await Effect.runPromise(program);
-  });
-});
+// Phase 7 cutover removed `AppHost.dispatchOnSessionActiveHook` and
+// `dispatchOnCloseHook` along with the session-bootstrap path that was
+// the only caller. The lifecycle hook RPCs (`apps/onSessionActive`,
+// `apps/onClose`) survive on the wire until Phase 9 deletes them; the
+// fail-OPEN missing-connection assertions reactivate alongside Phase 9's
+// TM-topology lifecycle wiring.
 
 // ─────────────────────────────────────────────────────────────────────
 // In-process path remains unchanged

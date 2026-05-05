@@ -15,11 +15,8 @@ import {
   AppsOnBeforeMessageDelivery,
   AppsOnSessionActive,
   AppsOnClose,
-  AppsAttachConversation,
-  AppsCloseSession,
 } from "./apps.js";
 import {
-  rpcMethods,
   appCallbackRpcMethods,
   type AppCallbackRpcMethodName,
 } from "../../rpc-registry.js";
@@ -49,17 +46,6 @@ describe("admission RPC registration", () => {
       AppsOnSessionActive.name,
       AppsOnClose.name,
     ] satisfies AppCallbackRpcMethodName[]);
-  });
-
-  it("registers apps/attachConversation as client-originated alongside apps/closeSession", () => {
-    const clientRpcNames = rpcMethods.map((m) => m.name);
-    expect(clientRpcNames).toContain(AppsAttachConversation.name);
-    expect(clientRpcNames).toContain(AppsCloseSession.name);
-  });
-
-  it("does not place apps/attachConversation in the appCallback tuple", () => {
-    const appCallbackNames = appCallbackRpcMethods.map((m) => m.name);
-    expect(appCallbackNames).not.toContain(AppsAttachConversation.name);
   });
 });
 
@@ -247,40 +233,5 @@ describe.each([
 
   it("rejects extra result fields (void hook payloads are ignored, not extended)", () => {
     expect(validateResult({ ack: true })).toBe(false);
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// apps/attachConversation — client-originated, void result
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe("AppsAttachConversation", () => {
-  const validateParams = AppsAttachConversation.validateParams;
-  const validateResult = ajv.compile(AppsAttachConversation.resultSchema);
-
-  it("accepts {sessionId, conversationId}", () => {
-    expect(
-      validateParams({
-        sessionId: SESSION_ID,
-        conversationId: CONVERSATION_ID,
-      }),
-    ).toBe(true);
-  });
-
-  it("rejects malformed sessionId", () => {
-    expect(
-      validateParams({
-        sessionId: "not-a-uuid",
-        conversationId: CONVERSATION_ID,
-      }),
-    ).toBe(false);
-  });
-
-  it("rejects missing conversationId", () => {
-    expect(validateParams({ sessionId: SESSION_ID })).toBe(false);
-  });
-
-  it("accepts an empty result envelope", () => {
-    expect(validateResult({})).toBe(true);
   });
 });

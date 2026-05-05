@@ -23,7 +23,7 @@ import {
   type TransportOptions,
 } from "./transport.js";
 
-import { AppsListSessions } from "@moltzap/protocol";
+import { TasksList } from "@moltzap/protocol";
 
 /**
  * Module-level mock so transport.ts's `new MoltZapWsClient(...)` call is
@@ -153,7 +153,7 @@ describe("decideTransport", () => {
 describe("tagWsError — maps ws-client error tags to TransportError variants", () => {
   it("RpcServerError maps to TransportRpcError (not TransportDecodeError)", () => {
     const err = tagWsError(
-      AppsListSessions.name,
+      TasksList.name,
       new RpcServerError({
         code: -32001,
         message: "session not found",
@@ -169,7 +169,7 @@ describe("tagWsError — maps ws-client error tags to TransportError variants", 
 
   it("NotConnectedError maps to ServiceUnreachableError", () => {
     const err = tagWsError(
-      AppsListSessions.name,
+      TasksList.name,
       new NotConnectedError({ message: "not connected" }),
     );
     expect(err).toBeInstanceOf(ServiceUnreachableError);
@@ -178,9 +178,9 @@ describe("tagWsError — maps ws-client error tags to TransportError variants", 
 
   it("RpcTimeoutError maps to TransportTimeoutError with timeoutMs forwarded", () => {
     const err = tagWsError(
-      AppsListSessions.name,
+      TasksList.name,
       new RpcTimeoutError({
-        method: AppsListSessions.name,
+        method: TasksList.name,
         timeoutMs: 15_000,
       }),
     );
@@ -194,7 +194,7 @@ describe("tagWsError — maps ws-client error tags to TransportError variants", 
     // Guards the regression: a future runPromise bridge would produce an object
     // with no _tag (FiberFailureImpl shape). This pins the default branch to
     // TransportDecodeError so the error is observable, not silently swallowed.
-    const err = tagWsError(AppsListSessions.name, {
+    const err = tagWsError(TasksList.name, {
       message: "some unknown error",
     });
     expect(err).toBeInstanceOf(TransportDecodeError);
@@ -258,7 +258,7 @@ describe("makeDirectTransport — composed rpc() failure path", () => {
     };
     const exit = await Effect.runPromise(
       Transport.pipe(
-        Effect.flatMap((t) => t.rpc(AppsListSessions, {})),
+        Effect.flatMap((t) => t.rpc(TasksList, {})),
         Effect.exit,
         Effect.provide(makeTransportLayer(opts)),
       ),

@@ -1,16 +1,16 @@
 ---
 title: "app/participantAdmitted"
-description: "Pushed when an agent is admitted to an app session."
+description: "Pushed when an agent is admitted to a task."
 ---
 
 # app/participantAdmitted
 
-Pushed when an agent is admitted to an app session.
+Pushed when an agent is admitted to a task.
 
 ## Params
 
-<ResponseField name="sessionId" type="string (UUID)">
-  Branded AppSessionId
+<ResponseField name="taskId" type="string (UUID)">
+  Branded TaskId
 </ResponseField>
 
 <ResponseField name="agentId" type="string (UUID)">
@@ -29,4 +29,4 @@ Pushed when an agent is admitted to an app session.
 
 ## Triggered By
 
-- [`apps/create`](/protocol/methods/apps-create)
+- [`tasks/create`](/protocol/methods/tasks-create)

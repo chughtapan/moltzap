@@ -17,21 +17,21 @@
 import { describe, expect, it, vi } from "vitest";
 import { Effect, Ref } from "effect";
 import {
-  AppSessionFailedNotificationDefinition,
+  TaskFailedNotificationDefinition,
   ConversationArchivedNotificationDefinition,
   agentId,
-  appSessionId,
   conversationId,
   decodeNotification,
   notificationGroup,
   notificationFrame as makeNotificationFrame,
+  taskId,
   type NotificationParamsOf,
   type AnyNotificationDefinition,
 } from "@moltzap/protocol";
 import { makeSubscriberRegistry, matchesFilter } from "./subscribers.js";
 import type { DecodedNotification } from "./frame.js";
 
-const SESSION_ID = appSessionId("11111111-1111-4111-8111-111111111111");
+const TASK_ID = taskId("11111111-1111-4111-8111-111111111111");
 const CONV_1 = conversationId("22222222-2222-4222-8222-222222222222");
 const CONV_2 = conversationId("33333333-3333-4333-8333-333333333333");
 const AGENT_ID = agentId("44444444-4444-4444-8444-444444444444");
@@ -60,9 +60,9 @@ const decodedNotification = <D extends AnyNotificationDefinition>(
   return { _tag: "Notification", ...decoded };
 };
 
-const sessionFailedNotification = (): DecodedNotification =>
-  decodedNotification(AppSessionFailedNotificationDefinition, {
-    sessionId: SESSION_ID,
+const taskFailedNotification = (): DecodedNotification =>
+  decodedNotification(TaskFailedNotificationDefinition, {
+    taskId: TASK_ID,
   });
 
 const conversationArchivedNotification = (
@@ -149,7 +149,7 @@ describe("SubscriberRegistry", () => {
     await Effect.runPromise(
       registry.register({}, () => Effect.sync(() => void order.push("b"))),
     );
-    await Effect.runPromise(registry.dispatch(sessionFailedNotification()));
+    await Effect.runPromise(registry.dispatch(taskFailedNotification()));
     expect(order).toEqual(["a", "b"]);
   });
 
@@ -183,9 +183,9 @@ describe("SubscriberRegistry", () => {
     );
 
     frameIdx = 0;
-    await Effect.runPromise(registry.dispatch(sessionFailedNotification()));
+    await Effect.runPromise(registry.dispatch(taskFailedNotification()));
     frameIdx = 1;
-    await Effect.runPromise(registry.dispatch(sessionFailedNotification()));
+    await Effect.runPromise(registry.dispatch(taskFailedNotification()));
 
     expect(aCalls).toEqual([0]); // a saw frame 0, not frame 1.
     expect(bCalls).toEqual([0, 1]); // b saw both — snapshot at start of frame 0 still included a; b is unaffected by a's unsub.
@@ -240,7 +240,7 @@ describe("SubscriberRegistry", () => {
       registry.register({}, () => Effect.sync(() => void otherCalls.push(1))),
     );
 
-    await Effect.runPromise(registry.dispatch(sessionFailedNotification()));
+    await Effect.runPromise(registry.dispatch(taskFailedNotification()));
 
     expect(warn).toHaveBeenCalledTimes(1);
     expect(otherCalls).toEqual([1]); // other subscribers still fire.
@@ -260,7 +260,7 @@ describe("SubscriberRegistry", () => {
       registry.register({}, () => Effect.sync(() => void otherCalls.push(1))),
     );
 
-    await Effect.runPromise(registry.dispatch(sessionFailedNotification()));
+    await Effect.runPromise(registry.dispatch(taskFailedNotification()));
 
     expect(warn).toHaveBeenCalledTimes(1);
     expect(otherCalls).toEqual([1]); // subsequent subscribers still fire.
@@ -275,7 +275,7 @@ describe("SubscriberRegistry", () => {
       registry.register({}, () => Effect.sync(() => void calls.push(1))),
     );
     await Effect.runPromise(registry.closeAll);
-    await Effect.runPromise(registry.dispatch(sessionFailedNotification()));
+    await Effect.runPromise(registry.dispatch(taskFailedNotification()));
     expect(calls).toEqual([]);
   });
 
@@ -288,7 +288,7 @@ describe("SubscriberRegistry", () => {
         const registry = yield* makeSubscriberRegistry(noopLogger);
         const counter = yield* Ref.make(0);
         yield* registry.register({}, () => Ref.update(counter, (n) => n + 1));
-        yield* registry.dispatch(sessionFailedNotification());
+        yield* registry.dispatch(taskFailedNotification());
         return yield* Ref.get(counter);
       }),
     );

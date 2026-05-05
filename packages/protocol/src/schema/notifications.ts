@@ -2,13 +2,13 @@ import { Type, type Static } from "@sinclair/typebox";
 import { MessageSchema } from "./messages.js";
 import { ConversationSchema } from "./conversations.js";
 import { ContactSchema } from "./contacts.js";
-import { ConversationId, MessageId, AgentId } from "./primitives.js";
+import { ConversationId, MessageId, AgentId, TaskId } from "./primitives.js";
 import { PresenceStatusEnum } from "./presence.js";
-import { AppSessionId } from "./apps.js";
 import { stringEnum, DateTimeString } from "../helpers.js";
 import { jsonRpcMethod } from "./json-rpc.js";
 import { defineNotification } from "../notification.js";
 import { defineNotificationGroup } from "../rpc-groups.js";
+import { LifecycleAgentSchema } from "../app/methods/apps.js";
 
 const notificationNames = {
   MessageReceived: jsonRpcMethod("messages/received"),
@@ -22,9 +22,10 @@ const notificationNames = {
   PresenceChanged: jsonRpcMethod("presence/changed"),
   AppParticipantAdmitted: jsonRpcMethod("app/participantAdmitted"),
   AppParticipantRejected: jsonRpcMethod("app/participantRejected"),
-  AppSessionReady: jsonRpcMethod("app/sessionReady"),
-  AppSessionFailed: jsonRpcMethod("app/sessionFailed"),
-  AppSessionClosed: jsonRpcMethod("app/sessionClosed"),
+  TaskReady: jsonRpcMethod("task/ready"),
+  TaskFailed: jsonRpcMethod("task/failed"),
+  TaskClosed: jsonRpcMethod("task/closed"),
+  TaskAdmissionComplete: jsonRpcMethod("task/admissionComplete"),
 } as const;
 
 export const MessageReceivedNotificationSchema = Type.Object(
@@ -86,11 +87,15 @@ export const PresenceChangedNotificationSchema = Type.Object(
   { additionalProperties: false },
 );
 
-// App notifications
+// App-admission notifications. Field name `taskId` (not `sessionId`) since
+// Phase 7 dropped the `app_sessions` schema and renamed `AppSessionId →
+// TaskId`. The notification names keep the `app/` prefix because admission
+// is an app-framework concern; the lifecycle notifications below use the
+// `task/` prefix per plan §2.9.
 
 export const AppParticipantAdmittedNotificationSchema = Type.Object(
   {
-    sessionId: AppSessionId,
+    taskId: TaskId,
     agentId: AgentId,
   },
   { additionalProperties: false },
@@ -98,7 +103,7 @@ export const AppParticipantAdmittedNotificationSchema = Type.Object(
 
 export const AppParticipantRejectedNotificationSchema = Type.Object(
   {
-    sessionId: AppSessionId,
+    taskId: TaskId,
     agentId: AgentId,
     reason: Type.String(),
     stage: stringEnum(["user", "identity"]),
@@ -115,25 +120,48 @@ export const AppParticipantRejectedNotificationSchema = Type.Object(
   { additionalProperties: false },
 );
 
-export const AppSessionReadyNotificationSchema = Type.Object(
+// Task lifecycle notifications (renamed from app/sessionX in Phase 7 per
+// plan §2.9). Same wire payload as the prior app/sessionReady and
+// app/sessionFailed; task/closed augments the prior app/sessionClosed
+// payload with `conversations` and the closer's `ownerId`.
+
+export const TaskReadyNotificationSchema = Type.Object(
   {
-    sessionId: AppSessionId,
+    taskId: TaskId,
     conversations: Type.Record(Type.String(), ConversationId),
   },
   { additionalProperties: false },
 );
 
-export const AppSessionFailedNotificationSchema = Type.Object(
+export const TaskFailedNotificationSchema = Type.Object(
   {
-    sessionId: AppSessionId,
+    taskId: TaskId,
   },
   { additionalProperties: false },
 );
 
-export const AppSessionClosedNotificationSchema = Type.Object(
+export const TaskClosedNotificationSchema = Type.Object(
   {
-    sessionId: AppSessionId,
-    closedBy: AgentId,
+    taskId: TaskId,
+    conversations: Type.Record(Type.String(), ConversationId),
+    // `closedBy` reuses the hook-context shape so the closer payload
+    // stays in lockstep across the wire (this notification + the
+    // surviving `apps/onClose` hook context).
+    closedBy: LifecycleAgentSchema,
+  },
+  { additionalProperties: false },
+);
+
+// Server → TM notification per plan §2.9. Fires after admission completes,
+// before `task/ready` reaches the participants. Carries the agent ids the
+// server admitted so the TM can begin its setup phase with full membership
+// already known. In Phase 7 the TM endpoint may be unregistered; in that
+// case the notification is dropped.
+
+export const TaskAdmissionCompleteNotificationSchema = Type.Object(
+  {
+    taskId: TaskId,
+    admittedAgentIds: Type.Array(AgentId),
   },
   { additionalProperties: false },
 );
@@ -171,14 +199,15 @@ export type AppParticipantAdmittedNotification = Static<
 export type AppParticipantRejectedNotification = Static<
   typeof AppParticipantRejectedNotificationSchema
 >;
-export type AppSessionReadyNotification = Static<
-  typeof AppSessionReadyNotificationSchema
+export type TaskReadyNotification = Static<typeof TaskReadyNotificationSchema>;
+export type TaskFailedNotification = Static<
+  typeof TaskFailedNotificationSchema
 >;
-export type AppSessionFailedNotification = Static<
-  typeof AppSessionFailedNotificationSchema
+export type TaskClosedNotification = Static<
+  typeof TaskClosedNotificationSchema
 >;
-export type AppSessionClosedNotification = Static<
-  typeof AppSessionClosedNotificationSchema
+export type TaskAdmissionCompleteNotification = Static<
+  typeof TaskAdmissionCompleteNotificationSchema
 >;
 
 export const MessageReceivedNotificationDefinition = defineNotification({
@@ -236,19 +265,24 @@ export const AppParticipantRejectedNotificationDefinition = defineNotification({
   params: AppParticipantRejectedNotificationSchema,
 });
 
-export const AppSessionReadyNotificationDefinition = defineNotification({
-  name: notificationNames.AppSessionReady,
-  params: AppSessionReadyNotificationSchema,
+export const TaskReadyNotificationDefinition = defineNotification({
+  name: notificationNames.TaskReady,
+  params: TaskReadyNotificationSchema,
 });
 
-export const AppSessionFailedNotificationDefinition = defineNotification({
-  name: notificationNames.AppSessionFailed,
-  params: AppSessionFailedNotificationSchema,
+export const TaskFailedNotificationDefinition = defineNotification({
+  name: notificationNames.TaskFailed,
+  params: TaskFailedNotificationSchema,
 });
 
-export const AppSessionClosedNotificationDefinition = defineNotification({
-  name: notificationNames.AppSessionClosed,
-  params: AppSessionClosedNotificationSchema,
+export const TaskClosedNotificationDefinition = defineNotification({
+  name: notificationNames.TaskClosed,
+  params: TaskClosedNotificationSchema,
+});
+
+export const TaskAdmissionCompleteNotificationDefinition = defineNotification({
+  name: notificationNames.TaskAdmissionComplete,
+  params: TaskAdmissionCompleteNotificationSchema,
 });
 
 export const notificationDefinitions = [
@@ -263,9 +297,10 @@ export const notificationDefinitions = [
   PresenceChangedNotificationDefinition,
   AppParticipantAdmittedNotificationDefinition,
   AppParticipantRejectedNotificationDefinition,
-  AppSessionReadyNotificationDefinition,
-  AppSessionFailedNotificationDefinition,
-  AppSessionClosedNotificationDefinition,
+  TaskReadyNotificationDefinition,
+  TaskFailedNotificationDefinition,
+  TaskClosedNotificationDefinition,
+  TaskAdmissionCompleteNotificationDefinition,
 ] as const;
 
 export const notificationGroup = defineNotificationGroup(

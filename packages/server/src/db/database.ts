@@ -4,9 +4,6 @@
 import type { Insertable, Selectable, Updateable } from "kysely";
 import type {
   Agents,
-  AppSessionConversations,
-  AppSessionParticipants,
-  AppSessions,
   Contacts,
   ConversationKeys,
   ConversationParticipants,
@@ -20,8 +17,6 @@ import type {
 
 export type {
   AgentStatus,
-  AppParticipantStatus,
-  AppSessionStatus,
   ContactStatus,
   ConversationType,
   DeliveryStatus,
@@ -32,9 +27,6 @@ export type {
 
 export type {
   Agents,
-  AppSessionConversations,
-  AppSessionParticipants,
-  AppSessions,
   Contacts,
   ConversationKeys,
   ConversationParticipants,
@@ -75,15 +67,6 @@ export type ConversationKeyRow = Selectable<ConversationKeys>;
 export type NewConversationKey = Insertable<ConversationKeys>;
 export type ConversationKeyUpdate = Updateable<ConversationKeys>;
 
-export type AppSessionRow = Selectable<AppSessions>;
-export type NewAppSession = Insertable<AppSessions>;
-
-export type AppSessionParticipantRow = Selectable<AppSessionParticipants>;
-export type NewAppSessionParticipant = Insertable<AppSessionParticipants>;
-
-export type AppSessionConversationRow = Selectable<AppSessionConversations>;
-export type NewAppSessionConversation = Insertable<AppSessionConversations>;
-
 export type ContactRow = Selectable<Contacts>;
 export type NewContact = Insertable<Contacts>;
 export type ContactUpdate = Updateable<Contacts>;
@@ -104,9 +87,6 @@ export interface Database {
   message_delivery: MessageDelivery;
   encryption_keys: EncryptionKeys;
   conversation_keys: ConversationKeys;
-  app_sessions: AppSessions;
-  app_session_participants: AppSessionParticipants;
-  app_session_conversations: AppSessionConversations;
   contacts: Contacts;
   tasks: Tasks;
   task_participants: TaskParticipants;

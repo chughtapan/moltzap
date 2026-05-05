@@ -41,9 +41,10 @@ import { PresenceUpdate, PresenceSubscribe } from "./task/methods/presence.js";
 import {
   AppParticipantAdmittedNotificationDefinition,
   AppParticipantRejectedNotificationDefinition,
-  AppSessionClosedNotificationDefinition,
-  AppSessionFailedNotificationDefinition,
-  AppSessionReadyNotificationDefinition,
+  TaskAdmissionCompleteNotificationDefinition,
+  TaskClosedNotificationDefinition,
+  TaskFailedNotificationDefinition,
+  TaskReadyNotificationDefinition,
   ContactAcceptedNotificationDefinition,
   ContactRequestNotificationDefinition,
   ConversationArchivedNotificationDefinition,
@@ -54,15 +55,7 @@ import {
   MessageReceivedNotificationDefinition,
   PresenceChangedNotificationDefinition,
 } from "./schema/notifications.js";
-import {
-  AppsRegister,
-  AppsCreate,
-  AppsCloseSession,
-  AppsGetSession,
-  AppsListSessions,
-  AppsAuthorizeDispatch,
-  AppsAttachConversation,
-} from "./app/methods/apps.js";
+import { AppsRegister, AppsAuthorizeDispatch } from "./app/methods/apps.js";
 import { SystemPing } from "./network/methods/system.js";
 
 /**
@@ -124,12 +117,7 @@ export const validators = {
 
   // Apps.
   appsRegisterParams: AppsRegister.validateParams,
-  appsCreateParams: AppsCreate.validateParams,
-  appsCloseSessionParams: AppsCloseSession.validateParams,
-  appsGetSessionParams: AppsGetSession.validateParams,
-  appsListSessionsParams: AppsListSessions.validateParams,
   appsAuthorizeDispatchParams: AppsAuthorizeDispatch.validateParams,
-  appsAttachConversationParams: AppsAttachConversation.validateParams,
 
   // System.
   systemPingParams: SystemPing.validateParams,
@@ -157,12 +145,11 @@ export const validators = {
     AppParticipantAdmittedNotificationDefinition.validateParams,
   appParticipantRejectedNotification:
     AppParticipantRejectedNotificationDefinition.validateParams,
-  appSessionReadyNotification:
-    AppSessionReadyNotificationDefinition.validateParams,
-  appSessionFailedNotification:
-    AppSessionFailedNotificationDefinition.validateParams,
-  appSessionClosedNotification:
-    AppSessionClosedNotificationDefinition.validateParams,
+  taskReadyNotification: TaskReadyNotificationDefinition.validateParams,
+  taskFailedNotification: TaskFailedNotificationDefinition.validateParams,
+  taskClosedNotification: TaskClosedNotificationDefinition.validateParams,
+  taskAdmissionCompleteNotification:
+    TaskAdmissionCompleteNotificationDefinition.validateParams,
 } as const;
 
 export type ValidatorName = keyof typeof validators;

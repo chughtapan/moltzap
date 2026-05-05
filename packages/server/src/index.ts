@@ -169,5 +169,5 @@ export type {
   RpcMethodRegistry,
 } from "./rpc/context.js";
 export type { MoltZapConnection } from "./ws/connection.js";
-export type { AppSessionRow, AppSessionParticipantRow } from "./db/database.js";
+export type { TaskRow, TaskParticipantRow } from "./db/database.js";
 export { defineMethod } from "./rpc/context.js";

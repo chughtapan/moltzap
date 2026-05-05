@@ -1,6 +1,6 @@
 import { Type, type Static } from "@sinclair/typebox";
 import { AgentId, ConversationId, MessageId } from "../../schema/primitives.js";
-import { AppManifestSchema, AppSessionSchema } from "../../schema/apps.js";
+import { AppManifestSchema } from "../../schema/apps.js";
 import { PartSchema } from "../../schema/messages.js";
 import { LogicalClockSchema } from "../../schema/logical-clock.js";
 import { DateTimeString, stringEnum } from "../../helpers.js";
@@ -17,71 +17,6 @@ export const AppsRegister = defineRpc({
   result: Type.Object(
     {
       appId: Type.String(),
-    },
-    { additionalProperties: false },
-  ),
-});
-
-export const AppsCreate = defineRpc({
-  name: "apps/create",
-  params: Type.Object(
-    {
-      appId: Type.String(),
-      invitedAgentIds: Type.Array(AgentId),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    { session: AppSessionSchema },
-    { additionalProperties: false },
-  ),
-});
-
-export const AppsCloseSession = defineRpc({
-  name: "apps/closeSession",
-  params: Type.Object(
-    {
-      sessionId: Type.String({ format: "uuid" }),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    {
-      closed: Type.Boolean(),
-    },
-    { additionalProperties: false },
-  ),
-});
-
-export const AppsGetSession = defineRpc({
-  name: "apps/getSession",
-  params: Type.Object(
-    {
-      sessionId: Type.String({ format: "uuid" }),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    {
-      session: AppSessionSchema,
-    },
-    { additionalProperties: false },
-  ),
-});
-
-export const AppsListSessions = defineRpc({
-  name: "apps/listSessions",
-  params: Type.Object(
-    {
-      appId: Type.Optional(Type.String()),
-      status: Type.Optional(stringEnum(["waiting", "active", "closed"])),
-      limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    {
-      sessions: Type.Array(AppSessionSchema),
     },
     { additionalProperties: false },
   ),
@@ -299,7 +234,7 @@ export type BeforeMessageDeliveryContext = Static<
   typeof BeforeMessageDeliveryContextSchema
 >;
 
-const LifecycleAgentSchema = Type.Object(
+export const LifecycleAgentSchema = Type.Object(
   {
     agentId: AgentId,
     ownerId: Type.String(),
@@ -364,26 +299,4 @@ export const AppsOnClose = defineRpc({
   name: "apps/onClose",
   params: OnCloseContextSchema,
   result: VoidHookResultSchema,
-});
-
-/**
- * `apps/attachConversation` — client-originated. Adds an existing conversation
- * to a session's membership/role-DM pipeline. Mirrors today's in-process
- * `AppHost.attachConversation` (see 33-attach-conversation.integration.test.ts:312-369).
- *
- * Error channel (implementer wires via RpcResponseError codes):
- *   - SessionNotFound
- *   - ConversationNotFound
- *   - NotAuthorized (caller's app key does not own the session)
- */
-export const AppsAttachConversation = defineRpc({
-  name: "apps/attachConversation",
-  params: Type.Object(
-    {
-      sessionId: Type.String({ format: "uuid" }),
-      conversationId: ConversationId,
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object({}, { additionalProperties: false }),
 });
