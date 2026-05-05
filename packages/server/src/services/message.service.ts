@@ -387,6 +387,7 @@ export class MessageService {
     requesterAgentId: string,
     options: {
       limit?: number;
+      sinceSeq?: string;
     } = {},
   ): Effect.Effect<{ messages: Message[]; hasMore: boolean }, RpcFailure> {
     return catchSqlErrorAsDefect(
@@ -401,13 +402,15 @@ export class MessageService {
           MAX_MESSAGE_HISTORY_LIMIT,
         );
 
-        const rows = yield* this.db
+        let qb = this.db
           .selectFrom("messages")
           .selectAll()
           .where("conversation_id", "=", conversationId)
-          .where("is_deleted", "=", false)
-          .orderBy("seq", "desc")
-          .limit(limit + 1);
+          .where("is_deleted", "=", false);
+        if (options.sinceSeq !== undefined) {
+          qb = qb.where("seq", ">", options.sinceSeq);
+        }
+        const rows = yield* qb.orderBy("seq", "desc").limit(limit + 1);
 
         const hasMore = rows.length > limit;
         const resultRows = hasMore ? rows.slice(0, limit) : rows;

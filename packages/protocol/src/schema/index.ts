@@ -5,11 +5,13 @@
 // `@moltzap/protocol/schemas/primitives`. See plan §2.10 / #420.
 export {
   ContactId,
+  TaskId,
   userId,
   agentId,
   conversationId,
   messageId,
   contactId,
+  taskId,
   InviteToken,
 } from "./primitives.js";
 export * from "./identity.js";
@@ -31,5 +33,8 @@ export * from "../task/methods/messages.js";
 export * from "../task/methods/invites.js";
 export * from "../task/methods/presence.js";
 export * from "./apps.js";
+export * from "./tasks.js";
 export * from "../app/methods/apps.js";
 export * from "../network/methods/system.js";
+export * from "../network/methods/endpoints.js";
+export * from "../task/methods/tasks.js";

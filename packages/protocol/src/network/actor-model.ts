@@ -46,8 +46,40 @@ export const agentId = (value: string): AgentId => AgentIdBrand(value);
  * `HashMap<AgentId, Set<EndpointAddress>>` multimap keyed by agent.
  */
 export type EndpointAddress = BrandedString<"EndpointAddress">;
-const EndpointAddressBrand = Brand.nominal<EndpointAddress>();
-/** Brand a raw string as an {@link EndpointAddress}. */
+
+/** Endpoint kinds that may appear at the address prefix. Extending this list
+ *  is the single edit point for new endpoint kinds. */
+export const ENDPOINT_ADDRESS_KINDS = ["agent", "app"] as const;
+export type EndpointAddressKind = (typeof ENDPOINT_ADDRESS_KINDS)[number];
+
+const ENDPOINT_ADDRESS_PREFIX = "tm:";
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Predicate that an endpoint address has the canonical wire shape:
+ *  `tm:<kind>:<uuid>`. Exported for tests and reviewers. */
+export const isEndpointAddress = (value: unknown): value is EndpointAddress => {
+  if (typeof value !== "string") return false;
+  if (!value.startsWith(ENDPOINT_ADDRESS_PREFIX)) return false;
+  const rest = value.slice(ENDPOINT_ADDRESS_PREFIX.length);
+  for (const kind of ENDPOINT_ADDRESS_KINDS) {
+    const kindPrefix = `${kind}:`;
+    if (rest.startsWith(kindPrefix)) {
+      return UUID_PATTERN.test(rest.slice(kindPrefix.length));
+    }
+  }
+  return false;
+};
+
+const EndpointAddressBrand = Brand.refined<EndpointAddress>(
+  isEndpointAddress,
+  (value) =>
+    Brand.error(
+      `Invalid EndpointAddress: expected "tm:<kind>:<uuid>" with kind ∈ {${ENDPOINT_ADDRESS_KINDS.join(", ")}}, got ${JSON.stringify(value)}`,
+    ),
+);
+/** Brand a raw string as an {@link EndpointAddress}. Throws if the value
+ *  fails {@link isEndpointAddress}. */
 export const endpointAddress = (value: string): EndpointAddress =>
   EndpointAddressBrand(value);
 
