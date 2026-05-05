@@ -4,7 +4,7 @@
  * Spec: moltzap#356 §8 (test plan, file 4).
  *
  * Cross-implementation contract: any client that drains appCallback request
- * frames MUST run hooks for distinct `(sessionId, conversationId,
+ * frames MUST run hooks for distinct `(taskId, conversationId,
  * hookKind)` tuples on independent fibers. A `before_dispatch` hook
  * suspended on a `Deferred.await` MUST NOT delay a sibling
  * `before_message_delivery` hook for the same conversation.
@@ -42,7 +42,7 @@
  *   - **P2 (arena#248 reproducer)** —
  *     `packages/client/src/internal/__tests__/app-callback-partitioned-dispatcher.test.ts`
  *     `"before_dispatch suspended on Deferred.await does NOT block
- *     before_message_delivery for the same (sessionId, conversationId)"`
+ *     before_message_delivery for the same (taskId, conversationId)"`
  *     and the real-WS integration test in
  *     `app-callback-partitioned-dispatcher-real-ws.test.ts`.
  *
@@ -68,12 +68,12 @@ import { describe, it } from "vitest";
 
 describe("conformance: appCallback dispatcher concurrency", () => {
   it.todo(
-    "P1: two appCallback requests with disjoint (sessionId, conversationId, hookKind) " +
+    "P1: two appCallback requests with disjoint (taskId, conversationId, hookKind) " +
       "keys complete concurrently when the first's handler suspends on a Deferred",
   );
   it.todo(
     "P2 (arena#248 reproducer): suspended apps/onBeforeDispatch does NOT block " +
-      "apps/onBeforeMessageDelivery for the same (sessionId, conversationId); the " +
+      "apps/onBeforeMessageDelivery for the same (taskId, conversationId); the " +
       "release path resolves and the suspended fiber resumes",
   );
   it.todo(
@@ -81,7 +81,7 @@ describe("conformance: appCallback dispatcher concurrency", () => {
       "starts only after first handler's Effect completes (FIFO within tuple)",
   );
   it.todo(
-    "P4: per-partition backpressure — flooding one (sessionId, conversationId, " +
+    "P4: per-partition backpressure — flooding one (taskId, conversationId, " +
       "hookKind) does NOT delay handler dispatch for any other tuple",
   );
 });

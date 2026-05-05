@@ -101,9 +101,8 @@ if [ ! -d node_modules ]; then
 fi
 
 # Always run `pnpm -r build` — it's idempotent (tsc skips unchanged files in
-# seconds) and ensures every workspace package has a dist/ before the
-# example tries to import from @moltzap/app-sdk. Gating on a single file
-# misses packages outside the server-core dep tree.
+# seconds) and ensures every workspace package has a dist/. Gating on a
+# single file misses packages outside the server-core dep tree.
 info "building workspace (pnpm -r build) — idempotent, ~5–30s"
 pnpm -r build
 
@@ -186,8 +185,10 @@ info "done. server is running at $SERVER_URL (pid $SERVER_PID)"
 echo
 echo "next steps:"
 echo "  source ${ENV_FILE}"
-echo "  pnpm --filter @moltzap/example-mountains-or-beaches build"
-echo "  node examples/mountains-or-beaches/dist/index.js"
+echo "  # Phase 7 cutover dropped the bundled mountains-or-beaches example;"
+echo "  # the canonical app reference reactivates with Phase 9 / Phase 14."
+echo "  # In the meantime, drive tasks/* RPCs directly via @moltzap/client:"
+echo "  pnpm --filter @moltzap/client moltzap whoami"
 echo
 echo "to stop the server:"
 echo "  kill \$(cat ${PID_FILE})"

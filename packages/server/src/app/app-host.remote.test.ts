@@ -133,12 +133,12 @@ const FIXTURE_MESSAGE_ID = "00000000-0000-4000-8000-000000000201";
 
 const baseBeforeDispatchCtx = (
   appId: string,
-  sessionId: string,
+  taskId: string,
 ): BeforeDispatchContext => ({
   conversationId: FIXTURE_CONVERSATION_ID,
   recipient: { agentId: FIXTURE_AGENT_RECIPIENT, ownerId: "owner-r" },
   message: { id: FIXTURE_MESSAGE_ID, senderAgentId: FIXTURE_AGENT_SENDER },
-  sessionId,
+  taskId,
   appId,
   attempt: 0,
   signal: new AbortController().signal,
@@ -146,12 +146,12 @@ const baseBeforeDispatchCtx = (
 
 const baseBeforeMessageDeliveryCtx = (
   appId: string,
-  sessionId: string,
+  taskId: string,
 ): BeforeMessageDeliveryContext => ({
   conversationId: FIXTURE_CONVERSATION_ID,
   sender: { agentId: FIXTURE_AGENT_SENDER, ownerId: "owner-s" },
   message: { parts: [{ type: "text", text: "hi" }] },
-  sessionId,
+  taskId,
   appId,
   signal: new AbortController().signal,
 });
@@ -292,7 +292,13 @@ describe("AppHost remote dispatch — apps/onBeforeDispatch", () => {
       const dispatch = dispatchBeforeDispatch(fixture.host);
 
       const fiber = yield* Effect.fork(
-        dispatch("app-r", baseBeforeDispatchCtx("app-r", "sess-1")),
+        dispatch(
+          "app-r",
+          baseBeforeDispatchCtx(
+            "app-r",
+            "00000000-0000-4000-8000-000000ce5510",
+          ),
+        ),
       );
       // Yield repeatedly so the fork's inner write lands.
       const id = yield* captureLatestRequestId(outbound).pipe(
@@ -331,7 +337,13 @@ describe("AppHost remote dispatch — apps/onBeforeDispatch", () => {
       const dispatch = dispatchBeforeDispatch(fixture.host);
 
       const fiber = yield* Effect.fork(
-        dispatch("app-r", baseBeforeDispatchCtx("app-r", "sess-d")),
+        dispatch(
+          "app-r",
+          baseBeforeDispatchCtx(
+            "app-r",
+            "00000000-0000-4000-8000-000000ce55d0",
+          ),
+        ),
       );
       const id = yield* captureLatestRequestId(outbound).pipe(
         Effect.retry({ times: 50, schedule: undefined }),
@@ -364,7 +376,7 @@ describe("AppHost remote dispatch — apps/onBeforeDispatch", () => {
 
       return yield* dispatch(
         "app-r",
-        baseBeforeDispatchCtx("app-r", "sess-stale"),
+        baseBeforeDispatchCtx("app-r", "00000000-0000-4000-8000-000000ce5573"),
       );
     });
     const result = await Effect.runPromise(program);
@@ -388,7 +400,13 @@ describe("AppHost remote dispatch — apps/onBeforeDispatch", () => {
       const dispatch = dispatchBeforeDispatch(fixture.host);
 
       const fiber = yield* Effect.fork(
-        dispatch("app-r", baseBeforeDispatchCtx("app-r", "sess-drop")),
+        dispatch(
+          "app-r",
+          baseBeforeDispatchCtx(
+            "app-r",
+            "00000000-0000-4000-8000-000000ce5570",
+          ),
+        ),
       );
       // Tear down the connection scope before any response arrives.
       // The Scope finalizer fails the pending Deferred with
@@ -420,7 +438,13 @@ describe("AppHost remote dispatch — apps/onBeforeDispatch", () => {
       const dispatch = dispatchBeforeDispatch(fixture.host);
 
       const fiber = yield* Effect.fork(
-        dispatch("app-r", baseBeforeDispatchCtx("app-r", "sess-dec")),
+        dispatch(
+          "app-r",
+          baseBeforeDispatchCtx(
+            "app-r",
+            "00000000-0000-4000-8000-000000ce55de",
+          ),
+        ),
       );
       const id = yield* captureLatestRequestId(outbound).pipe(
         Effect.retry({ times: 50, schedule: undefined }),
@@ -474,7 +498,13 @@ describe("AppHost remote dispatch — apps/onBeforeDispatch", () => {
       const dispatch = dispatchBeforeDispatch(fixture.host);
 
       const fiber = yield* Effect.fork(
-        dispatch("app-r", baseBeforeDispatchCtx("app-r", "sess-tout")),
+        dispatch(
+          "app-r",
+          baseBeforeDispatchCtx(
+            "app-r",
+            "00000000-0000-4000-8000-000000ce5570",
+          ),
+        ),
       );
       // Let the request frame land and the Deferred park.
       yield* Effect.yieldNow();
@@ -511,7 +541,13 @@ describe("AppHost remote dispatch — apps/onBeforeMessageDelivery", () => {
       const dispatch = dispatchBeforeMessageDelivery(fixture.host);
 
       const fiber = yield* Effect.fork(
-        dispatch("app-bmd", baseBeforeMessageDeliveryCtx("app-bmd", "sess-1")),
+        dispatch(
+          "app-bmd",
+          baseBeforeMessageDeliveryCtx(
+            "app-bmd",
+            "00000000-0000-4000-8000-000000ce5510",
+          ),
+        ),
       );
       const id = yield* captureLatestRequestId(outbound).pipe(
         Effect.retry({ times: 50, schedule: undefined }),
@@ -536,7 +572,10 @@ describe("AppHost remote dispatch — apps/onBeforeMessageDelivery", () => {
 
       return yield* dispatch(
         "app-bmd",
-        baseBeforeMessageDeliveryCtx("app-bmd", "sess-stale"),
+        baseBeforeMessageDeliveryCtx(
+          "app-bmd",
+          "00000000-0000-4000-8000-000000ce5573",
+        ),
       );
     });
     expect(await Effect.runPromise(program)).toEqual({
@@ -559,7 +598,13 @@ describe("AppHost remote dispatch — apps/onBeforeMessageDelivery", () => {
       const dispatch = dispatchBeforeMessageDelivery(fixture.host);
 
       const fiber = yield* Effect.fork(
-        dispatch("app-bmd", baseBeforeMessageDeliveryCtx("app-bmd", "sess-e")),
+        dispatch(
+          "app-bmd",
+          baseBeforeMessageDeliveryCtx(
+            "app-bmd",
+            "00000000-0000-4000-8000-000000ce55e0",
+          ),
+        ),
       );
       const id = yield* captureLatestRequestId(outbound).pipe(
         Effect.retry({ times: 50, schedule: undefined }),
@@ -599,7 +644,10 @@ describe("AppHost in-process dispatch — preserved behaviour", () => {
 
     const dispatch = dispatchBeforeDispatch(fixture.host);
     const verdict = await Effect.runPromise(
-      dispatch("app-ip", baseBeforeDispatchCtx("app-ip", "sess-ip")),
+      dispatch(
+        "app-ip",
+        baseBeforeDispatchCtx("app-ip", "00000000-0000-4000-8000-000000ce5519"),
+      ),
     );
     expect(verdict).toEqual({ decision: "grant" });
   });
@@ -614,7 +662,10 @@ describe("AppHost in-process dispatch — preserved behaviour", () => {
 
     const dispatch = dispatchBeforeDispatch(fixture.host);
     const verdict = await Effect.runPromise(
-      dispatch("app-ip", baseBeforeDispatchCtx("app-ip", "sess-ip")),
+      dispatch(
+        "app-ip",
+        baseBeforeDispatchCtx("app-ip", "00000000-0000-4000-8000-000000ce5519"),
+      ),
     );
     expect(verdict).toEqual({
       decision: "deny",
@@ -631,7 +682,10 @@ describe("AppHost in-process dispatch — preserved behaviour", () => {
 
     const dispatch = dispatchBeforeDispatch(fixture.host);
     const verdict = await Effect.runPromise(
-      dispatch("app-ip", baseBeforeDispatchCtx("app-ip", "sess-ip")),
+      dispatch(
+        "app-ip",
+        baseBeforeDispatchCtx("app-ip", "00000000-0000-4000-8000-000000ce5519"),
+      ),
     );
     expect(verdict).toEqual({
       decision: "deny",

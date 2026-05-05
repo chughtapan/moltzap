@@ -122,7 +122,7 @@ class ReconnectAttemptFailedError extends Data.TaggedError(
  *
  * Spec #356: the single `Stream.runForEach`-driven `appCallbackInboundQueue` is
  * replaced by a `PartitionedDispatcher` keyed on
- * `(sessionId, conversationId, hookKind)`. Each tuple owns one bounded
+ * `(taskId, conversationId, hookKind)`. Each tuple owns one bounded
  * queue + one drain fiber; cross-tuple offers run concurrently. Held
  * here alongside its own `dispatcherScope` (NOT bound to the socket
  * scope) so `runSync(client.close())` can `runFork(Scope.close(…))`
@@ -140,7 +140,7 @@ interface ConnState {
   readonly handshakeSettled: Deferred.Deferred<ConnectResult, PendingError>;
   /**
    * Per-connection partitioned appCallback dispatcher. Routes inbound appCallback
-   * requests by `(sessionId, conversationId, hookKind)`; replaces the
+   * requests by `(taskId, conversationId, hookKind)`; replaces the
    * pre-#356 single drain fiber.
    */
   readonly dispatcher: PartitionedDispatcher;
@@ -720,7 +720,7 @@ export class MoltZapWsClient {
 
       // Spec #356 — partitioned appCallback dispatcher. Replaces the pre-#356
       // single `Stream.runForEach`-driven `appCallbackInboundQueue` with a
-      // partition router keyed on `(sessionId, conversationId,
+      // partition router keyed on `(taskId, conversationId,
       // hookKind)`. Each tuple owns one bounded queue + one drain
       // fiber; cross-tuple offers run on independent fibers, so a
       // parked `apps/onBeforeDispatch` cannot block the sibling
@@ -1137,7 +1137,7 @@ export class MoltZapWsClient {
         if (decoded._tag === "ServerRequest") {
           // appCallback request — hand off to the partitioned dispatcher
           // (spec #356). The dispatcher routes by
-          // `(sessionId, conversationId, hookKind)`; the matching
+          // `(taskId, conversationId, hookKind)`; the matching
           // per-tuple worker fiber drains and runs
           // `dispatchInboundServerRequest`, which writes the reply
           // back. Cross-tuple offers run concurrently — the arena#248

@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Exit } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   MessageReceivedNotificationDefinition,
@@ -45,5 +45,30 @@ describe("decodeFrames", () => {
       id: "rpc-7",
       result: { ok: true },
     });
+  });
+
+  // R2 regression: per-payload schema validation rejects pre-Phase-7
+  // shapes on a known notification method. The wire envelope is still
+  // a JSON-RPC notification and the method name still resolves to the
+  // current task/closed descriptor; only the payload shape drifted
+  // (renamed `sessionId`→`taskId`, augmented `closedBy`).
+  it("rejects a stale `task/closed` payload (pre-Phase-7 shape)", async () => {
+    const stale = JSON.stringify({
+      jsonrpc: "2.0",
+      method: "task/closed",
+      params: {
+        sessionId: "11111111-1111-4111-8111-111111111111",
+        closedBy: "33333333-3333-4333-8333-333333333333",
+      },
+    });
+
+    const exit = await Effect.runPromiseExit(decodeFrames(stale));
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      const error = exit.cause;
+      // Cause is `Fail(MalformedFrameError)` — the typed payload
+      // mismatch is rejected at the envelope-decoder boundary.
+      expect(JSON.stringify(error)).toMatch(/MalformedFrameError/);
+    }
   });
 });

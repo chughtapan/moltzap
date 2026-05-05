@@ -91,7 +91,7 @@ const toDecodedFrame = (
   }
 
   if (validators.notificationFrame(parsed)) {
-    return Effect.succeed(toDecodedNotification(parsed));
+    return toDecodedNotification(parsed, raw);
   }
 
   return Effect.fail(new MalformedFrameError({ raw }));
@@ -123,8 +123,19 @@ function passthroughCast(def: object): AnyNotificationDefinition {
 
 const toDecodedNotification = (
   parsed: NotificationFrame,
-): DecodedNotification => {
+  raw: string,
+): Effect.Effect<DecodedNotification, MalformedFrameError> => {
   const known = notificationGroup.byName.get(parsed.method);
+  // Known notifications validate their params against the protocol's
+  // pre-compiled AJV schema (Principle 2: every wire boundary decodes
+  // through a schema). Stale payload shapes (e.g. a pre-Phase-7
+  // `task/closed` carrying `sessionId` instead of `taskId`) reject
+  // here instead of leaking a malformed payload to subscribers.
+  if (known !== undefined) {
+    if (!known.validateParams(parsed.params)) {
+      return Effect.fail(new MalformedFrameError({ raw }));
+    }
+  }
   const definition: AnyNotificationDefinition =
     known ?? makePassthroughNotificationDefinition(parsed.method);
   const decoded: Record<string, unknown> = {
@@ -140,11 +151,11 @@ const toDecodedNotification = (
     value: definition,
     enumerable: false,
   });
-  return decoded as DecodedNotification;
+  return Effect.succeed(decoded as DecodedNotification);
 };
 
-const lifecycleRoute = (sessionId: string): AppCallbackPartitionRoute => ({
-  sessionId,
+const lifecycleRoute = (taskId: string): AppCallbackPartitionRoute => ({
+  taskId,
   conversationId: LIFECYCLE_CONVERSATION_SENTINEL,
 });
 
@@ -153,21 +164,21 @@ const appCallbackPartitionRoute = (
 ): Effect.Effect<AppCallbackPartitionRoute, MalformedFrameError> => {
   if (isDecodedRpcRequest(AppsOnBeforeDispatch, request)) {
     return Effect.succeed({
-      sessionId: request.params.sessionId,
+      taskId: request.params.taskId,
       conversationId: request.params.conversationId,
     });
   }
   if (isDecodedRpcRequest(AppsOnBeforeMessageDelivery, request)) {
     return Effect.succeed({
-      sessionId: request.params.sessionId,
+      taskId: request.params.taskId,
       conversationId: request.params.conversationId,
     });
   }
   if (isDecodedRpcRequest(AppsOnSessionActive, request)) {
-    return Effect.succeed(lifecycleRoute(request.params.sessionId));
+    return Effect.succeed(lifecycleRoute(request.params.taskId));
   }
   if (isDecodedRpcRequest(AppsOnClose, request)) {
-    return Effect.succeed(lifecycleRoute(request.params.sessionId));
+    return Effect.succeed(lifecycleRoute(request.params.taskId));
   }
   return Effect.fail(
     new MalformedFrameError({

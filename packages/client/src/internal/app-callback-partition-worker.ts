@@ -1,6 +1,6 @@
 /**
  * Per-partition worker — bounded queue + forked fiber, owning ordering
- * within one `(sessionId, conversationId, hookKind)` tuple.
+ * within one `(taskId, conversationId, hookKind)` tuple.
  *
  * Spec: moltzap#356.
  *

@@ -58,7 +58,7 @@ describe("AppsOnBeforeDispatch", () => {
   const validateResult = ajv.compile(AppsOnBeforeDispatch.resultSchema);
 
   const baseParams = {
-    sessionId: SESSION_ID,
+    taskId: SESSION_ID,
     appId: APP_ID,
     conversationId: CONVERSATION_ID,
     recipient: HOOK_AGENT,
@@ -99,8 +99,8 @@ describe("AppsOnBeforeDispatch", () => {
   });
 
   it("rejects missing required fields", () => {
-    const { sessionId: _omit, ...withoutSession } = baseParams;
-    expect(validateParams(withoutSession)).toBe(false);
+    const { taskId: _omit, ...withoutTask } = baseParams;
+    expect(validateParams(withoutTask)).toBe(false);
     expect(validateParams({})).toBe(false);
   });
 
@@ -128,7 +128,7 @@ describe("AppsOnBeforeMessageDelivery", () => {
   const validateResult = ajv.compile(AppsOnBeforeMessageDelivery.resultSchema);
 
   const baseParams = {
-    sessionId: SESSION_ID,
+    taskId: SESSION_ID,
     appId: APP_ID,
     conversationId: CONVERSATION_ID,
     sender: HOOK_AGENT,
@@ -200,14 +200,14 @@ describe("AppsOnBeforeMessageDelivery", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const onSessionActiveParams = {
-  sessionId: SESSION_ID,
+  taskId: SESSION_ID,
   appId: APP_ID,
   conversations: { town_square: CONVERSATION_ID },
   admittedAgentIds: [AGENT_ID],
 };
 
 const onCloseParams = {
-  sessionId: SESSION_ID,
+  taskId: SESSION_ID,
   appId: APP_ID,
   conversations: { town_square: CONVERSATION_ID },
   closedBy: HOOK_AGENT,
