@@ -1,13 +1,15 @@
-import { Effect, Exit } from "effect";
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   MessageReceivedNotificationDefinition,
+  TaskClosedNotificationDefinition,
   agentId,
   conversationId,
   messageId,
   notificationFrame,
+  notificationGroup,
 } from "@moltzap/protocol";
-import { decodeFrames } from "./frame.js";
+import { decodeFrames, type DecodedNotification } from "./frame.js";
 
 const TEST_MESSAGE = {
   id: messageId("11111111-1111-4111-8111-111111111111"),
@@ -47,12 +49,14 @@ describe("decodeFrames", () => {
     });
   });
 
-  // R2 regression: per-payload schema validation rejects pre-Phase-7
-  // shapes on a known notification method. The wire envelope is still
-  // a JSON-RPC notification and the method name still resolves to the
-  // current task/closed descriptor; only the payload shape drifted
-  // (renamed `sessionId`→`taskId`, augmented `closedBy`).
-  it("rejects a stale `task/closed` payload (pre-Phase-7 shape)", async () => {
+  // R2 regression: drift detection lives at the typed-handler boundary,
+  // not the wire decoder. The wire decoder is payload-opaque (conformance
+  // §5 C3 / E2 require it) but attaches the protocol definition to every
+  // known-method notification, so subscribers can validate via
+  // `definition.validateParams` and reject stale shapes — e.g. a
+  // pre-Phase-7 `task/closed` carrying `sessionId` instead of
+  // `{taskId, conversations, closedBy: {agentId, ownerId}}`.
+  it("attaches definition for known methods so subscribers can reject stale `task/closed` payload", async () => {
     const stale = JSON.stringify({
       jsonrpc: "2.0",
       method: "task/closed",
@@ -62,13 +66,30 @@ describe("decodeFrames", () => {
       },
     });
 
-    const exit = await Effect.runPromiseExit(decodeFrames(stale));
-    expect(Exit.isFailure(exit)).toBe(true);
-    if (Exit.isFailure(exit)) {
-      const error = exit.cause;
-      // Cause is `Fail(MalformedFrameError)` — the typed payload
-      // mismatch is rejected at the envelope-decoder boundary.
-      expect(JSON.stringify(error)).toMatch(/MalformedFrameError/);
-    }
+    const decoded = await Effect.runPromise(decodeFrames(stale));
+    expect(decoded).toHaveLength(1);
+    const notification = decoded[0] as DecodedNotification;
+    expect(notification._tag).toBe("Notification");
+    expect(notification.method).toBe(TaskClosedNotificationDefinition.name);
+
+    // The definition attached by the decoder is the live one; calling
+    // `validateParams` on the stale payload rejects, proving subscribers
+    // (or typed handlers) can detect drift even though the decoder
+    // itself stays opaque.
+    const definition = notificationGroup.byName.get(notification.method);
+    expect(definition).toBeDefined();
+    expect(definition?.validateParams(notification.params)).toBe(false);
+
+    // And the live shape passes — proves the validator is not vacuously false.
+    expect(
+      definition?.validateParams({
+        taskId: "11111111-1111-4111-8111-111111111111",
+        conversations: { main: "22222222-2222-4222-8222-222222222222" },
+        closedBy: {
+          agentId: "33333333-3333-4333-8333-333333333333",
+          ownerId: "owner-1",
+        },
+      }),
+    ).toBe(true);
   });
 });
