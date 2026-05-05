@@ -25,6 +25,7 @@ import {
   ContactsList,
   ContactsAdd,
   ContactsAccept,
+  ContactsById,
 } from "./schema/methods/contacts.js";
 import { InvitesCreateAgent } from "./schema/methods/invites.js";
 import {
@@ -43,6 +44,7 @@ import {
   AppsOnSessionActive,
   AppsOnClose,
 } from "./schema/methods/apps.js";
+import { SystemPing } from "./schema/methods/system.js";
 import type { RpcDefinition, ParamsOf, ResultOf } from "./rpc.js";
 import type { JsonRpcMethod } from "./schema/json-rpc.js";
 import { defineRpcGroup } from "./rpc-groups.js";
@@ -59,14 +61,7 @@ type RpcDefinitionForName<
   >
 >;
 
-/**
- * Every RPC manifest the protocol defines, as a literal tuple. Order doesn't
- * matter — the wire name is the dispatch key. The `as const` is load-bearing:
- * it preserves literal types so `RpcMap` can project every manifest by its
- * `name` into a keyed type.
- */
-export const rpcMethods = [
-  // Auth
+export const networkRpcMethods = [
   Connect,
   Register,
   InviteAgent,
@@ -74,7 +69,10 @@ export const rpcMethods = [
   AgentsLookup,
   AgentsLookupByName,
   AgentsList,
-  // Conversations
+  SystemPing,
+] as const;
+
+export const taskRpcMethods = [
   ConversationsCreate,
   ConversationsList,
   ConversationsGet,
@@ -86,19 +84,54 @@ export const rpcMethods = [
   ConversationsLeave,
   ConversationsArchive,
   ConversationsUnarchive,
-  // Messages
   MessagesSend,
   MessagesList,
-  // Contacts
+] as const;
+
+export const appRpcMethods = [
+  AppsCreate,
+  AppsCloseSession,
+  AppsGetSession,
+  AppsListSessions,
+  AppsAuthorizeDispatch,
+  AppsAttachConversation,
   ContactsList,
   ContactsAdd,
   ContactsAccept,
-  // Invites
-  InvitesCreateAgent,
-  // Presence
+  ContactsById,
   PresenceUpdate,
   PresenceSubscribe,
-  // Apps
+  InvitesCreateAgent,
+] as const;
+
+export const rpcMethods = [
+  Connect,
+  Register,
+  InviteAgent,
+  SelectAgent,
+  AgentsLookup,
+  AgentsLookupByName,
+  AgentsList,
+  ConversationsCreate,
+  ConversationsList,
+  ConversationsGet,
+  ConversationsUpdate,
+  ConversationsMute,
+  ConversationsUnmute,
+  ConversationsAddParticipant,
+  ConversationsRemoveParticipant,
+  ConversationsLeave,
+  ConversationsArchive,
+  ConversationsUnarchive,
+  MessagesSend,
+  MessagesList,
+  ContactsList,
+  ContactsAdd,
+  ContactsAccept,
+  ContactsById,
+  InvitesCreateAgent,
+  PresenceUpdate,
+  PresenceSubscribe,
   AppsCreate,
   AppsCloseSession,
   AppsGetSession,
@@ -107,21 +140,17 @@ export const rpcMethods = [
   AppsAttachConversation,
 ] as const;
 
-export const taskRpcGroup = defineRpcGroup("task", rpcMethods);
+export const networkRpcGroup = defineRpcGroup("network", networkRpcMethods);
+export const taskRpcGroup = defineRpcGroup("task", taskRpcMethods);
+export const appRpcGroup = defineRpcGroup("app", appRpcMethods);
 
-/**
- * Branded union of every client → server method name. The only public method
- * values should come from descriptors (`MessagesSend.name`), not raw strings.
- */
 export type RpcMethodName = (typeof rpcMethods)[number]["name"];
 
-/** Helper for callers that want the manifest type for a given name. */
 export type RpcDefinitionFor<Name extends RpcMethodName> = RpcDefinitionForName<
   typeof rpcMethods,
   Name
 >;
 
-/** Extract params/result types from a branded RPC method name. */
 export type RpcParams<Name extends RpcMethodName> = ParamsOf<
   RpcDefinitionFor<Name>
 >;
@@ -129,23 +158,13 @@ export type RpcResult<Name extends RpcMethodName> = ResultOf<
   RpcDefinitionFor<Name>
 >;
 
-/**
- * The `rpcMethods` tuple typed as a general array of RpcDefinitions — useful
- * for iteration helpers that don't care about preserving literal names.
- */
+export type NetworkRpcMethodName = (typeof networkRpcMethods)[number]["name"];
+export type TaskRpcMethodName = (typeof taskRpcMethods)[number]["name"];
+export type AppRpcMethodName = (typeof appRpcMethods)[number]["name"];
+
 export type AnyRpcDefinition = (typeof rpcMethods)[number] &
   RpcDefinition<string, any, any>;
 
-/**
- * App-callback RPC manifests. These are normal JSON-RPC requests whose
- * handlers live in the connected app client; the wire frame carries no
- * direction marker.
- *
- * Shape parity with `rpcMethods` is load-bearing: callers type against
- * `AppCallbackRpcMethodName`, and the `as const` preserves literal names for
- * the projection. All entries are AWAITABLE; void-result verbs still reply
- * (with `{}`) so the caller's `Deferred.await` can fire.
- */
 export const appCallbackRpcMethods = [
   AppsOnBeforeDispatch,
   AppsOnBeforeMessageDelivery,
@@ -158,25 +177,15 @@ export const appCallbackRpcGroup = defineRpcGroup(
   appCallbackRpcMethods,
 );
 
-/**
- * Branded union of every app-callback method name.
- */
 export type AppCallbackRpcMethodName =
   (typeof appCallbackRpcMethods)[number]["name"];
 
-/**
- * The app-callback tuple typed as general RpcDefinitions for descriptor-backed
- * APIs that dispatch by descriptor object and only extract `.name` at the wire
- * encoder/decoder edge.
- */
 export type AnyAppCallbackRpcDefinition =
   (typeof appCallbackRpcMethods)[number];
 
-/** Helper for callers that want the manifest type for an app-callback method. */
 export type AppCallbackRpcDefinitionFor<Name extends AppCallbackRpcMethodName> =
   RpcDefinitionForName<typeof appCallbackRpcMethods, Name>;
 
-/** Extract params/result types from a branded app-callback RPC name. */
 export type AppCallbackRpcParams<Name extends AppCallbackRpcMethodName> =
   ParamsOf<AppCallbackRpcDefinitionFor<Name>>;
 export type AppCallbackRpcResult<Name extends AppCallbackRpcMethodName> =

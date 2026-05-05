@@ -64,8 +64,11 @@ export default [
   // Block 4: network <-> task boundary (spec #135 AC8).
   // Defense-in-depth over the TS project-reference boundary in the subtree
   // tsconfigs; this gives reviewers a faster lint-time signal.
+  // Exempts `*.types-check.ts` canaries — they import across layers on
+  // purpose to verify the boundary fails to type-check.
   {
     files: ["packages/server/src/network/**/*.ts"],
+    ignores: ["packages/server/src/network/**/*.types-check.ts"],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -77,9 +80,40 @@ export default [
                 "../task/**",
                 "../../task/**",
                 "../../../task/**",
+                "**/app/handlers/**",
+                "../app/handlers/**",
+                "../../app/handlers/**",
+                "../../../app/handlers/**",
               ],
               message:
-                "packages/server/src/network/** may not import from the task subtree (spec #135 AC7/AC8). The network -> task direction is forbidden; see also the TS project-reference boundary in packages/server/src/network/tsconfig.json.",
+                "packages/server/src/network/** may not import from the task or app/handlers subtrees (spec #135 AC7/AC8). The network layer sits below task and app; see packages/server/src/network/tsconfig.json and packages/server/src/network/layer-scope.ts.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+
+  // Block 5: task -> app boundary.
+  // Task handlers may use the app/ shared layers (ConnIdTag etc.) but must
+  // not depend on app/handlers. Pairs with the network rule above and with
+  // the Effect Context tag in packages/server/src/task/layer-scope.ts.
+  {
+    files: ["packages/server/src/task/**/*.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: [
+                "**/app/handlers/**",
+                "../app/handlers/**",
+                "../../app/handlers/**",
+                "../../../app/handlers/**",
+              ],
+              message:
+                "packages/server/src/task/** may not import from the app/handlers subtree. Task sits below app; see packages/server/src/task/tsconfig.json and packages/server/src/task/layer-scope.ts.",
             },
           ],
         },

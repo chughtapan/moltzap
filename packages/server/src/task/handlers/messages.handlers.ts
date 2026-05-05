@@ -9,7 +9,7 @@ import {
 } from "@moltzap/protocol";
 import { Effect, Option } from "effect";
 import { RpcFailure, invalidParams, notFound } from "../../runtime/index.js";
-import { ConnIdTag } from "../layers.js";
+import { ConnIdTag } from "../../app/layers.js";
 import type { Db } from "../../db/client.js";
 import {
   catchSqlErrorAsDefect,

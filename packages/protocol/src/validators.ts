@@ -21,7 +21,7 @@ import {
   ContactsList,
   ContactsAdd,
   ContactsAccept,
-  ContactId_,
+  ContactsById,
 } from "./schema/methods/contacts.js";
 import {
   ConversationsCreate,
@@ -102,7 +102,7 @@ export const validators = {
   contactsListParams: ContactsList.validateParams,
   contactsAddParams: ContactsAdd.validateParams,
   contactsAcceptParams: ContactsAccept.validateParams,
-  contactIdParams: ContactId_.validateParams,
+  contactsByIdParams: ContactsById.validateParams,
 
   // Conversations.
   conversationsCreateParams: ConversationsCreate.validateParams,

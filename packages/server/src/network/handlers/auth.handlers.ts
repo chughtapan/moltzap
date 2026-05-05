@@ -5,7 +5,7 @@ import type { UserService } from "../../services/user.service.js";
 import { defineMethod } from "../../rpc/context.js";
 import { sql } from "kysely";
 import { Effect, Option } from "effect";
-import { ConnIdTag } from "../layers.js";
+import { ConnIdTag } from "../../app/layers.js";
 import type {
   RpcMethodRegistry,
   AuthenticatedContext,
@@ -22,7 +22,10 @@ import {
   agentId as protocolAgentId,
   userId as protocolUserId,
 } from "@moltzap/protocol";
-import { AgentId as ServerAgentId, UserId as ServerUserId } from "../types.js";
+import {
+  AgentId as ServerAgentId,
+  UserId as ServerUserId,
+} from "../../app/types.js";
 import type { RpcFailure } from "../../runtime/index.js";
 import { unauthorized } from "../../runtime/index.js";
 import {

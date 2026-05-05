@@ -36,6 +36,7 @@ import {
 import {
   ContactsAccept,
   ContactsAdd,
+  ContactsById,
   ContactsList,
 } from "../../schema/methods/contacts.js";
 import {
@@ -251,6 +252,7 @@ export function applyCall<M extends RpcMethodName>(
     case ContactsList.name:
     case ContactsAdd.name:
     case ContactsAccept.name:
+    case ContactsById.name:
       return { next: baseNext, outcome: uncertainError() };
 
     // Invites — requires state. Uncertain.
