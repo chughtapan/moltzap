@@ -13,7 +13,6 @@ import { SqlError } from "@effect/sql/SqlError";
 import { RpcFailure, notFound, internalError } from "../runtime/index.js";
 import { nextSnowflakeId } from "../db/snowflake.js";
 import type { ConversationService } from "./conversation.service.js";
-import type { DeliveryService } from "./delivery.service.js";
 import type { Broadcaster } from "../ws/broadcaster.js";
 import { type WebhookClient, signWebhookPayload } from "../adapters/webhook.js";
 import {
@@ -41,13 +40,6 @@ function toBuf(v: Buffer | Uint8Array): Buffer {
   return Buffer.isBuffer(v) ? v : Buffer.from(v);
 }
 
-/**
- * Per-message delivery tracking writes one `message_deliveries` row per
- * recipient. For large group conversations that's O(participants) writes
- * per message, which isn't worth it — we skip delivery tracking and rely
- * on the presence signal alone.
- */
-const DELIVERY_TRACKING_MAX_PARTICIPANTS = 20;
 const PATCH_MIN_PARTS = 1;
 const PATCH_MAX_PARTS = 10;
 const DELIVERY_WEBHOOK_RETRY_BASE_SECONDS = 1;
@@ -84,7 +76,6 @@ export class MessageService {
     private conversations: ConversationService,
     private broadcaster: Broadcaster,
     private encryption: EnvelopeEncryption | null,
-    private delivery: DeliveryService,
     private appHost: AppHost | null = null,
     private deliveryWebhook: DeliveryWebhookConfig | null = null,
     private webhookClient: WebhookClient | null = null,
@@ -260,17 +251,10 @@ export class MessageService {
           excludeConnectionId,
         );
 
-        // Get all participants (shared between delivery tracking)
+        // Participants drive trace capture's recipient list and the
+        // delivery-webhook's offline-recipient set below.
         const participants =
           yield* this.conversations.getParticipantAgentIds(conversationId);
-
-        // Delivery tracking (only for small conversations)
-        if (participants.length <= DELIVERY_TRACKING_MAX_PARTICIPANTS) {
-          const recipients = participants.filter((id) => id !== senderAgentId);
-          yield* this.delivery.recordSent(message.id, recipients);
-
-          yield* this.delivery.recordDeliveredBatch(message.id, delivered);
-        }
 
         if (this.traceCapture) {
           const traceMetadata = yield* this.getTraceMessageMetadata(
@@ -290,9 +274,9 @@ export class MessageService {
         }
 
         // Fire delivery webhook to the offline recipients on a detached daemon
-        // fiber so the `send` RPC returns immediately. `recordDeliveredBatch`
-        // above only runs for small conversations, so `delivered` is the
-        // authoritative presence signal for this message.
+        // fiber so the `send` RPC returns immediately. `delivered` is the
+        // presence signal — every participant not in that set is treated
+        // as offline for the webhook fanout.
         if (this.deliveryWebhook && this.webhookClient) {
           const deliveredSet = new Set(delivered);
           const offlineRecipientAgentIds = participants.filter(

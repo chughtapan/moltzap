@@ -9,7 +9,6 @@ import type {
   ConversationParticipants,
   Conversations,
   EncryptionKeys,
-  MessageDelivery,
   Messages,
   TaskParticipants,
   Tasks,
@@ -19,7 +18,6 @@ export type {
   AgentStatus,
   ContactStatus,
   ConversationType,
-  DeliveryStatus,
   EncryptionKeyStatus,
   ParticipantRole,
   TaskStatus,
@@ -32,7 +30,6 @@ export type {
   ConversationParticipants,
   Conversations,
   EncryptionKeys,
-  MessageDelivery,
   Messages,
   TaskParticipants,
   Tasks,
@@ -54,10 +51,6 @@ export type ConversationParticipantUpdate =
 export type MessageRow = Selectable<Messages>;
 export type NewMessage = Insertable<Messages>;
 export type MessageUpdate = Updateable<Messages>;
-
-export type MessageDeliveryRow = Selectable<MessageDelivery>;
-export type NewMessageDelivery = Insertable<MessageDelivery>;
-export type MessageDeliveryUpdate = Updateable<MessageDelivery>;
 
 export type EncryptionKeyRow = Selectable<EncryptionKeys>;
 export type NewEncryptionKey = Insertable<EncryptionKeys>;
@@ -84,7 +77,6 @@ export interface Database {
   conversations: Conversations;
   conversation_participants: ConversationParticipants;
   messages: Messages;
-  message_delivery: MessageDelivery;
   encryption_keys: EncryptionKeys;
   conversation_keys: ConversationKeys;
   contacts: Contacts;

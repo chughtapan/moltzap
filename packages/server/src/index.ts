@@ -98,7 +98,6 @@ export {
   type PresenceStatus,
   createConnectionFanOutPresenceEventSink,
 } from "./services/presence-event-sink.js";
-export { DeliveryService } from "./services/delivery.service.js";
 
 // Infrastructure
 export { createRpcRouter } from "./rpc/router.js";

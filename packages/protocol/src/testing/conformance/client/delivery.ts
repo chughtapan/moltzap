@@ -24,7 +24,7 @@ import { notificationFrame } from "../../../helpers.js";
 import {
   ConversationArchivedNotificationDefinition,
   ConversationUnarchivedNotificationDefinition,
-  MessageDeliveredNotificationDefinition,
+  MessageReceivedNotificationDefinition,
 } from "../../../schema/notifications.js";
 import {
   agentId,
@@ -170,9 +170,14 @@ export function registerPayloadOpacityClient(
         );
         yield* subscribeAll(fx.handle);
         const token = `opq-${ctx.seed.toString(PAYLOAD_TOKEN_RADIX)}-${Date.now().toString(PAYLOAD_TOKEN_RADIX)}`;
+        // Vehicle: pick a known notification method so the wire decoder
+        // routes by name; the params field is intentionally non-conformant
+        // (a bare opaqueToken) — the property asserts the decoder stays
+        // payload-opaque (#200 §5 C3) and surfaces the byte-identical raw
+        // frame to subscribers.
         const base = brandNotificationFrame({
           jsonrpc: "2.0",
-          method: MessageDeliveredNotificationDefinition.name,
+          method: MessageReceivedNotificationDefinition.name,
           params: {
             opaqueToken: token,
           },
