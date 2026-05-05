@@ -38,8 +38,17 @@ describe("actor-model brand factories", () => {
   });
 
   it("brands a string as EndpointAddress", () => {
-    const e: EndpointAddress = endpointAddress("ws://localhost:1");
-    expect(e).toBe("ws://localhost:1");
+    const e: EndpointAddress = endpointAddress(
+      "tm:agent:00000000-0000-4000-8000-000000000001",
+    );
+    expect(e).toBe("tm:agent:00000000-0000-4000-8000-000000000001");
+  });
+
+  it("rejects non-canonical endpoint formats at construction", () => {
+    expect(() => endpointAddress("ws://localhost:1")).toThrow();
+    expect(() => endpointAddress("")).toThrow();
+    expect(() => endpointAddress("tm:agent:not-a-uuid")).toThrow();
+    expect(() => endpointAddress("tm:unknown:uuid-here")).toThrow();
   });
 });
 
@@ -47,7 +56,7 @@ describe("actor-model record + union shapes", () => {
   it("constructs an EndpointRegistration agent arm", () => {
     const reg: EndpointRegistration = {
       kind: "agent",
-      address: endpointAddress("ws://localhost:1"),
+      address: endpointAddress("tm:agent:00000000-0000-4000-8000-000000000001"),
       agentId: agentId("00000000-0000-4000-8000-000000000001"),
     };
     expect(reg.kind).toBe("agent");
@@ -56,7 +65,7 @@ describe("actor-model record + union shapes", () => {
   it("constructs an EndpointRegistration taskManager arm", () => {
     const reg: EndpointRegistration = {
       kind: "taskManager",
-      address: endpointAddress("ws://tm:1"),
+      address: endpointAddress("tm:app:00000000-0000-4000-8000-000000000099"),
     };
     expect(reg.kind).toBe("taskManager");
   });
