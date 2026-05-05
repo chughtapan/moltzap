@@ -7,6 +7,12 @@ import type { ColumnType } from "kysely";
 
 export type AgentStatus = "active" | "pending_claim" | "suspended";
 
+export type AppParticipantStatus = "admitted" | "pending" | "rejected";
+
+export type AppSessionStatus = "active" | "closed" | "failed" | "waiting";
+
+export type ContactStatus = "accepted" | "pending";
+
 export type ConversationType = "dm" | "group";
 
 export type DeliveryStatus = "delivered" | "read" | "sent";
@@ -26,6 +32,8 @@ export type Int8 = ColumnType<
 
 export type ParticipantRole = "admin" | "member" | "owner";
 
+export type TaskStatus = "active" | "closed" | "failed" | "waiting";
+
 export type Timestamp = ColumnType<Date, Date | string, Date | string>;
 
 export interface Agents {
@@ -42,6 +50,40 @@ export interface Agents {
   updated_at: Generated<Timestamp>;
 }
 
+export interface AppSessionConversations {
+  conversation_id: string;
+  conversation_key: string;
+  session_id: string;
+}
+
+export interface AppSessionParticipants {
+  admitted_at: Timestamp | null;
+  agent_id: string;
+  rejection_reason: string | null;
+  session_id: string;
+  status: Generated<AppParticipantStatus>;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface AppSessions {
+  app_id: string;
+  closed_at: Timestamp | null;
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  initiator_agent_id: string;
+  status: Generated<AppSessionStatus>;
+}
+
+export interface Contacts {
+  contact_user_id: string;
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  owner_user_id: string;
+  relationship: string | null;
+  status: Generated<ContactStatus>;
+  updated_at: Generated<Timestamp>;
+}
+
 export interface ConversationKeys {
   conversation_id: string;
   created_at: Generated<Timestamp>;
@@ -51,11 +93,11 @@ export interface ConversationKeys {
 }
 
 export interface ConversationParticipants {
+  agent_id: string;
   conversation_id: string;
   joined_at: Generated<Timestamp>;
   last_read_seq: Generated<Int8>;
   muted_until: Timestamp | null;
-  agent_id: string;
   role: Generated<ParticipantRole>;
 }
 
@@ -65,6 +107,7 @@ export interface Conversations {
   created_by_id: string;
   id: Generated<string>;
   name: string | null;
+  task_id: string | null;
   type: ConversationType;
   updated_at: Generated<Timestamp>;
 }
@@ -78,9 +121,9 @@ export interface EncryptionKeys {
 }
 
 export interface MessageDelivery {
+  agent_id: string;
   delivered_at: Timestamp | null;
   message_id: string;
-  agent_id: string;
   read_at: Timestamp | null;
   status: Generated<DeliveryStatus>;
 }
@@ -98,14 +141,38 @@ export interface Messages {
   reply_to_id: string | null;
   sender_id: string;
   seq: Int8;
+  task_id: string | null;
+}
+
+export interface TaskParticipants {
+  admitted_at: Timestamp | null;
+  agent_id: string;
+  task_id: string;
+}
+
+export interface Tasks {
+  app_id: string | null;
+  created_at: Generated<Timestamp>;
+  ended_at: Timestamp | null;
+  id: Generated<string>;
+  initiator_agent_id: string;
+  started_at: Timestamp | null;
+  status: Generated<TaskStatus>;
+  tm_endpoint_address: string | null;
 }
 
 export interface DB {
   agents: Agents;
+  app_session_conversations: AppSessionConversations;
+  app_session_participants: AppSessionParticipants;
+  app_sessions: AppSessions;
+  contacts: Contacts;
   conversation_keys: ConversationKeys;
   conversation_participants: ConversationParticipants;
   conversations: Conversations;
   encryption_keys: EncryptionKeys;
   message_delivery: MessageDelivery;
   messages: Messages;
+  task_participants: TaskParticipants;
+  tasks: Tasks;
 }
