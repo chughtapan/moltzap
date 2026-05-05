@@ -1,6 +1,7 @@
 import { Effect, Option } from "effect";
 import {
   endpointAddress as brandEndpointAddress,
+  makeEndpointAddress,
   type EndpointAddress,
   type AgentId as ActorAgentId,
 } from "@moltzap/protocol/network";
@@ -58,12 +59,17 @@ interface TaskRow {
   readonly created_at: Date;
 }
 
-const TM_AGENT_PREFIX = "tm:agent:";
-
+/**
+ * Stable TM-endpoint address for a registering agent: `tm:agent:<agentId>`.
+ * Distinct from `agentConnectionEndpointAddress(connId)` in
+ * `network/agent-endpoint-resolver.ts`, which mints `tm:agent:<connId>`
+ * for the resolver multimap. Both reuse the protocol-side
+ * {@link makeEndpointAddress} primitive, so the wire prefix never forks.
+ */
 export function endpointAddressForAgent(
   agent: ActorAgentId | BrandedAgentId,
 ): EndpointAddress {
-  return brandEndpointAddress(`${TM_AGENT_PREFIX}${agent}`);
+  return makeEndpointAddress("agent", agent);
 }
 
 function rowToTask(row: TaskRow): Task {
