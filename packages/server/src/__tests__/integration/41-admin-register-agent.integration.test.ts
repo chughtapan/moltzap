@@ -28,8 +28,6 @@ const OTHER_USER_ID = "00000000-0000-4000-8000-000000000002";
 const ADMIN_TEST_MANIFEST: AppManifest = {
   appId: "admin-register-test-app",
   name: "Admin Register Test App",
-  // Empty permissions — admission auto-completes without prompting,
-  // keeping this test focused on the owner-id check at app-host.ts:753.
   conversations: [{ key: "main", name: "Main", participantFilter: "all" }],
 };
 
