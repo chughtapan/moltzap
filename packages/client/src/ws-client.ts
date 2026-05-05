@@ -225,6 +225,34 @@ function notificationMatches<D extends AnyNotificationDefinition>(
   return notification.definition === definition;
 }
 
+/**
+ * Bridge an opaque wire-decoded notification to a typed
+ * `waitForNotification` consumer. The wire decoder stays payload-opaque
+ * (so `delivery/payload-opacity-client` conformance holds — see
+ * `runtime/frame.ts`); this bridge is where drift turns into a visible
+ * signal. A frame whose method matches `definition` but whose params
+ * fail `definition.validateParams` is logged and skipped — the typed
+ * promise never resolves with a malformed payload typed as if it were
+ * valid. Existing "skip on non-match" semantics for the bucketed
+ * waiter map are preserved; the only new behavior is the per-payload
+ * validation guard.
+ */
+export function acceptTypedNotification<D extends AnyNotificationDefinition>(
+  definition: D,
+  notification: AnyDecodedNotification,
+  logger: WsClientLogger | undefined,
+): notification is DecodedNotificationFor<D> {
+  if (!notificationMatches(definition, notification)) return false;
+  if (!definition.validateParams(notification.params)) {
+    logger?.warn(
+      `waitForNotification: dropping ${definition.name} frame whose params failed schema validation (drift signal)`,
+      notification.params,
+    );
+    return false;
+  }
+  return true;
+}
+
 /** Drop `waiter` from its notification-definition bucket, pruning an empty bucket. */
 function removeWaiter(
   m: HashMap.HashMap<
@@ -590,11 +618,12 @@ export class MoltZapWsClient {
     timeoutMs = EVENT_WAIT_TIMEOUT_MS,
   ): Effect.Effect<DecodedNotificationFor<D>, Error> {
     return Effect.gen(this, function* () {
+      const logger = this.options.logger;
       const buffered = yield* Ref.modify(
         this.notificationsBufferRef,
         (frames) => {
           for (const [idx, frame] of frames.entries()) {
-            if (!notificationMatches(definition, frame)) continue;
+            if (!acceptTypedNotification(definition, frame, logger)) continue;
             const next = [...frames.slice(0, idx), ...frames.slice(idx + 1)];
             return [frame, next];
           }
@@ -607,7 +636,7 @@ export class MoltZapWsClient {
       const waiter: NotificationWaiter = {
         definition,
         complete: (notification) =>
-          notificationMatches(definition, notification)
+          acceptTypedNotification(definition, notification, logger)
             ? Deferred.succeed(deferred, notification).pipe(Effect.asVoid)
             : Effect.void,
         fail: (error) => Deferred.fail(deferred, error).pipe(Effect.asVoid),
