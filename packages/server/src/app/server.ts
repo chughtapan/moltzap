@@ -48,10 +48,12 @@ import { EnvelopeEncryption } from "../crypto/envelope.js";
 // Handlers
 import { createCoreAuthHandlers } from "../network/handlers/auth.handlers.js";
 import { createSystemHandlers } from "../network/handlers/system.handlers.js";
+import { createEndpointHandlers } from "../network/handlers/endpoints.handlers.js";
 import { createConversationHandlers } from "../task/handlers/conversations.handlers.js";
 import { createMessageHandlers } from "../task/handlers/messages.handlers.js";
 import { createPresenceHandlers } from "../task/handlers/presence.handlers.js";
 import { createContactHandlers } from "../task/handlers/contacts.handlers.js";
+import { createTaskHandlers } from "../task/handlers/tasks.handlers.js";
 import { createAppHandlers } from "./handlers/apps.handlers.js";
 
 import { WebhookClient } from "../adapters/webhook.js";
@@ -179,6 +181,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     contactService,
     presenceService,
     messageService,
+    taskService,
     appHost,
     traceCapture,
   } = services;
@@ -217,6 +220,12 @@ export function createCoreApp(config: CoreConfig): CoreApp {
       contactService,
       authService,
       broadcaster,
+    }),
+    ...createTaskHandlers({
+      taskService,
+    }),
+    ...createEndpointHandlers({
+      taskService,
     }),
     ...createSystemHandlers(),
   ];
