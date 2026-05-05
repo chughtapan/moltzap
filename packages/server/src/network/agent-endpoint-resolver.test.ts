@@ -8,7 +8,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { Effect, HashSet, Option } from "effect";
-import { agentId } from "@moltzap/protocol/network";
+import { agentId, makeEndpointAddress } from "@moltzap/protocol/network";
 import {
   AgentEndpointResolver,
   agentConnectionEndpointAddress,
@@ -23,6 +23,13 @@ const BOB = agentId("00000000-0000-4000-8000-00000000b0b0");
 const CONN_A = "00000000-0000-4000-8000-00000000c001";
 const CONN_B = "00000000-0000-4000-8000-00000000c002";
 const CONN_C = "00000000-0000-4000-8000-00000000c003";
+
+// Durable agent-id form: `tm:agent:<agentId>`. Phase 9 split (per
+// `actor-model.ts > ENDPOINT_ADDRESS_KINDS` doc): the `agent` kind is
+// reserved for task-manager registration; the resolver routes both
+// kinds, but durable addresses live on `tasks.tm_endpoint_address`
+// rather than the resolver's reverse index.
+const ALICE_DURABLE = makeEndpointAddress("agent", ALICE);
 
 const makeResolver = (): AgentEndpointResolver =>
   Effect.runSync(AgentEndpointResolver.make);
@@ -205,12 +212,130 @@ describe("AgentEndpointResolver", () => {
 });
 
 describe("agentConnectionEndpointAddress", () => {
-  it("produces a tm:agent:<connId> address satisfying the EndpointAddress brand", () => {
+  it("produces a tm:agent-conn:<connId> address satisfying the EndpointAddress brand", () => {
+    // Phase 9 namespace split (plan §2.4.a + Phase 8 codex deferral on
+    // PR #458): the volatile per-WS-connection address lives in the
+    // `agent-conn` kind so it cannot collide with the durable
+    // `tm:agent:<agentId>` form used for task-manager registration.
     const addr = agentConnectionEndpointAddress(CONN_A);
-    expect(String(addr)).toBe(`tm:agent:${CONN_A}`);
+    expect(String(addr)).toBe(`tm:agent-conn:${CONN_A}`);
   });
 
   it("rejects a non-UUID connection id at construction", () => {
     expect(() => agentConnectionEndpointAddress("not-a-uuid")).toThrow();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// Phase 8 codex-deferral test cases (folded into Phase 9 #427
+// acceptance per the issue body's "additional acceptance items"
+// section). Each test names exactly one deferral.
+// ─────────────────────────────────────────────────────────────────────
+
+describe("AgentEndpointResolver — Phase 8 codex deferrals", () => {
+  it("cross-agent add conflict: new add evicts the prior agent's forward entry atomically", () => {
+    // Defense-in-depth (deferral 2): if the same address ends up under
+    // two agents (UUID collision or programmer error), the new add
+    // takes ownership inside the same Ref.update so the forward and
+    // reverse views stay invariant. Without this, the prior agent
+    // would keep the address in its forward set even though the
+    // reverse index points at the new owner — a `network.send` that
+    // hit the prior agent's resolveAll would silently route to the
+    // wrong connection.
+    const resolver = makeResolver();
+    const addr = agentConnectionEndpointAddress(CONN_A);
+
+    Effect.runSync(resolver.add(ALICE, addr, CONN_A));
+    Effect.runSync(resolver.add(BOB, addr, CONN_A));
+
+    // BOB owns the address now.
+    const bobFan = Effect.runSync(resolver.resolveAll(BOB));
+    expect(HashSet.size(bobFan)).toBe(1);
+    expect(HashSet.has(bobFan, addr)).toBe(true);
+
+    // ALICE no longer owns it — the eviction inside `add` removed it.
+    const aliceFan = Effect.runSync(resolver.resolveAll(ALICE));
+    expect(HashSet.size(aliceFan)).toBe(0);
+
+    // Reverse index points at the new owner's connection id.
+    expect(Effect.runSync(resolver.connectionForAddress(addr))).toEqual(
+      Option.some(CONN_A),
+    );
+  });
+
+  it("durable tm:agent:<agentId> survives in the resolver alongside volatile tm:agent-conn:<connId>", () => {
+    // Deferral 1 (namespace split): the resolver MUST be able to hold
+    // both the durable and volatile forms without confusion. A
+    // consumer that mints `tm:agent:<agentId>` (TM registration) and
+    // `network.send`-routes to it relies on the kinds being distinct
+    // — pre-Phase-9, the durable form silently collapsed into the
+    // per-connection reverse lookup and `network.send` failed with
+    // `RecipientNotResolved`.
+    const resolver = makeResolver();
+    const volatileAddr = agentConnectionEndpointAddress(CONN_A);
+    Effect.runSync(resolver.add(ALICE, volatileAddr, CONN_A));
+
+    // Durable form points at the agent-id, not the connection-id, so
+    // the brand predicate accepts it (UUID tail) but the resolver's
+    // reverse index does not get a mapping until something registers
+    // it explicitly. Verify the two forms are not aliased: looking up
+    // the durable form must NOT return the connection bound to the
+    // volatile form.
+    expect(volatileAddr).not.toBe(ALICE_DURABLE);
+    expect(
+      Option.isNone(
+        Effect.runSync(resolver.connectionForAddress(ALICE_DURABLE)),
+      ),
+    ).toBe(true);
+    expect(Effect.runSync(resolver.connectionForAddress(volatileAddr))).toEqual(
+      Option.some(CONN_A),
+    );
+  });
+
+  it("add+remove sequence is symmetric (resolver invariant exercised by auth-handler transactional flow; full auth-handler test in Phase 9b's 40-task-manager-routing.integration.test.ts)", () => {
+    // Resolver-contract guard: pins the disconnect-side guarantee the
+    // auth handler's transactional flow relies on. Even if `add`
+    // succeeded and the handler then failed, the WS scope's onExit
+    // finalizer calls `remove`, which is idempotent and leaves the
+    // resolver in a consistent state. This test verifies the resolver
+    // invariant; the full auth-handler-level integration test (real
+    // WS, real DB, observed failure injection) lives in Phase 9b's
+    // 40-task-manager-routing.integration.test.ts.
+    const resolver = makeResolver();
+    const addr = agentConnectionEndpointAddress(CONN_A);
+
+    // Simulate the worst-case ordering: `add` succeeded, the auth
+    // handler failed, the disconnect finalizer fires `remove` even
+    // though the request was reported as failed.
+    Effect.runSync(resolver.add(ALICE, addr, CONN_A));
+    Effect.runSync(resolver.remove(ALICE, addr));
+
+    // No leaks in either index.
+    expect(HashSet.size(Effect.runSync(resolver.resolveAll(ALICE)))).toBe(0);
+    expect(
+      Option.isNone(Effect.runSync(resolver.connectionForAddress(addr))),
+    ).toBe(true);
+  });
+
+  it("idempotent remove on never-added pairs (defensive precondition for close-during-auth in auth handler; full race test in Phase 9b)", () => {
+    // Resolver-contract guard: the auth handler's transactional flow
+    // skips `add` when `connections.get(connId)` returns undefined at
+    // re-check time (close-during-auth). The WS scope's onExit
+    // finalizer cannot tell whether `add` fired, and it does not need
+    // to — `remove` on a never-added pair is documented idempotent.
+    // This test verifies that resolver precondition; the full auth-
+    // handler race test (real WS close timing) lives in Phase 9b.
+    const resolver = makeResolver();
+    const addr = agentConnectionEndpointAddress(CONN_A);
+
+    // The handler set conn.auth but the connection closed before the
+    // resolver.add re-check fired (the explicit `connections.get`
+    // pre-check returned undefined). The finalizer still runs remove.
+    Effect.runSync(resolver.remove(ALICE, addr));
+
+    expect(HashSet.size(Effect.runSync(resolver.resolveAll(ALICE)))).toBe(0);
+    expect(
+      Option.isNone(Effect.runSync(resolver.connectionForAddress(addr))),
+    ).toBe(true);
   });
 });

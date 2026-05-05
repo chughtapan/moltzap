@@ -104,22 +104,39 @@ export function createCoreAuthHandlers(deps: {
 
             conn.auth = auth;
 
-            // Slice G1 (plan §2.11): once `auth/connect` resolves an
-            // identity, register the connection's endpoint address with
-            // the resolver. The disconnect finalizer in `app/server.ts`
-            // mirrors this with `agentEndpointResolver.remove`.
+            // Phase 8 codex deferral on PR #458 (folded into Phase 9 #427
+            // acceptance): defer the resolver registration to AFTER all
+            // fallible setup completes, then re-check that the connection
+            // is still present in the manager before adding. Two failure
+            // modes the deferral closes:
             //
-            // Atomic relative to other resolver operations — `add` is a
-            // single `Ref.update`. Idempotent on the forward set, so a
-            // re-issued `auth/connect` (already-authed branch above
-            // short-circuits, but defense-in-depth) cannot duplicate
-            // entries.
-            yield* deps.agentEndpointResolver.add(
-              auth.agentId,
-              agentConnectionEndpointAddress(connId),
-              connId,
-            );
-
+            // (a) Auth-handler failure between `conn.auth = auth` and the
+            //     resolver.add (e.g., the conversation/muted-row queries
+            //     below): pre-Phase-9 the resolver entry was already
+            //     written before those queries fired. A query failure
+            //     left the entry in place even though the request as a
+            //     whole returned an error. Now the resolver.add only
+            //     fires after the queries succeed — partial-failure
+            //     auths leave the resolver clean.
+            //
+            // (b) Close-during-auth race: the WS scope's onExit
+            //     finalizer in `app/server.ts` calls `resolver.remove`
+            //     when `conn.auth` is set, regardless of whether the
+            //     resolver actually holds the entry. If the close lands
+            //     between resolver.add and the next observation, the
+            //     remove is idempotent (resolver.remove is a no-op on
+            //     never-added pairs). The re-check against
+            //     `connections.get(connId)` immediately before resolver.add
+            //     means a close that fires before the add is observed as
+            //     "connection no longer present" and we skip the add
+            //     entirely. The finalizer will still fire `remove`
+            //     (never-added → no-op).
+            //
+            // The disconnect finalizer in `app/server.ts:622` mirrors
+            // this with `agentEndpointResolver.remove`. `remove` is
+            // idempotent on never-added pairs (regression-tested at
+            // `agent-endpoint-resolver.test.ts > remove: idempotent on
+            // never-added pairs`).
             const convIds = yield* deps.conversationService.getConversationIds(
               auth.agentId,
             );
@@ -132,6 +149,25 @@ export function createCoreAuthHandlers(deps: {
               .where("muted_until", ">", sql<Date>`now()`);
             for (const row of mutedRows) {
               conn.mutedConversations.add(row.conversation_id);
+            }
+
+            // Re-check the connection is still in the manager before
+            // taking the resolver entry. Closes the close-during-auth
+            // race named above. The check is cheap (HashMap lookup) and
+            // the alternative is a stale entry that the disconnect
+            // finalizer would later have to remove via the idempotent
+            // `remove` path anyway — making the pre-check explicit
+            // documents the invariant. JS-level re-check is sufficient
+            // because Effect's interpreter does not preempt between the
+            // synchronous `connections.get(connId)` check and the inner
+            // `Ref.update` lambda body — both run in the same JS turn,
+            // with no `yield*` between.
+            if (deps.connections.get(connId)) {
+              yield* deps.agentEndpointResolver.add(
+                auth.agentId,
+                agentConnectionEndpointAddress(connId),
+                connId,
+              );
             }
 
             return yield* buildHelloOk(auth, deps);

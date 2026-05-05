@@ -62,9 +62,13 @@ interface TaskRow {
 /**
  * Stable TM-endpoint address for a registering agent: `tm:agent:<agentId>`.
  * Distinct from `agentConnectionEndpointAddress(connId)` in
- * `network/agent-endpoint-resolver.ts`, which mints `tm:agent:<connId>`
- * for the resolver multimap. Both reuse the protocol-side
- * {@link makeEndpointAddress} primitive, so the wire prefix never forks.
+ * `network/agent-endpoint-resolver.ts`, which mints
+ * `tm:agent-conn:<connId>` for the resolver multimap (the `agent-conn`
+ * kind). Both reuse the protocol-side {@link makeEndpointAddress}
+ * primitive, so the wire format never forks. Phase 9 namespace split
+ * (plan §2.4.a + Phase 8 codex deferral on PR #458) keeps the durable
+ * and volatile forms in distinct kinds so they cannot alias inside the
+ * resolver.
  */
 export function endpointAddressForAgent(
   agent: ActorAgentId | BrandedAgentId,
