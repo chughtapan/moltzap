@@ -21,11 +21,11 @@
  * inside a single {@link Ref.update} so the invariant cannot tear.
  *
  * Why the connection id is the routing target. The address format
- * `tm:agent:<connId>` is stable for the lifetime of the WS connection
- * and unique across connections (connId is a UUID minted at socket
- * accept). The reverse index stores `connId` directly so a send-time
- * lookup goes resolver → connId → `ConnectionManager.get(connId)` with
- * no parsing of the address string at the hot path.
+ * `tm:agent-conn:<connId>` is stable for the lifetime of the WS
+ * connection and unique across connections (connId is a UUID minted at
+ * socket accept). The reverse index stores `connId` directly so a
+ * send-time lookup goes resolver → connId → `ConnectionManager.get(connId)`
+ * with no parsing of the address string at the hot path.
  *
  * Auth-lifecycle (per §2.11):
  * - Socket connect: NOT yet added to the resolver (no `agentId` known).
@@ -46,26 +46,41 @@ import {
 } from "@moltzap/protocol/network";
 
 /**
- * Mint the `EndpointAddress` for an agent's WebSocket connection.
+ * Mint the volatile `EndpointAddress` for an agent's WebSocket connection.
  *
- * Format: `tm:agent:<connId>`. The connection id is a UUID (see
- * `app/server.ts:418` — `crypto.randomUUID()`), so the result satisfies
+ * Format: `tm:agent-conn:<connId>`. The connection id is a UUID (see
+ * `app/server.ts:421` — `crypto.randomUUID()`), so the result satisfies
  * the `tm:<kind>:<uuid>` brand predicate at
- * `packages/protocol/src/network/actor-model.ts:61`.
+ * `packages/protocol/src/network/actor-model.ts`.
  *
- * Distinct namespace from `endpointAddressForAgent` in
- * `services/task.service.ts`, which mints `tm:agent:<agentId>` for durable
- * task-manager registration. Both share the `tm:agent:` prefix because the
- * brand only checks `kind ∈ {agent, app}` and that the trailing token is a
- * UUID — the brand is intentionally agnostic about which UUID it carries.
- * The two namespaces never collide in a single map: the resolver is keyed
- * by per-connection addresses; the durable TM column lives on
- * `tasks.tm_endpoint_address`. {@link NetworkSendService.send} also routes
- * the two kinds through different code paths.
+ * Phase 9 note (plan §2.4.a + Phase 8 codex deferral on PR #458):
+ * the `agent-conn` kind is distinct from the durable
+ * {@link endpointAddressForAgent} form `tm:agent:<agentId>` minted by
+ * `services/task.service.ts` for task-manager registration in
+ * `tasks.tm_endpoint_address`. Pre-Phase-9 both forms shared the `agent`
+ * kind, which silently collapsed durable TM-routed `network.send` into the
+ * per-connection reverse lookup. The split keeps the resolver reverse
+ * index keyed by per-connection addresses and lets the durable form
+ * route through the resolver's forward map (every connection of the
+ * named agent) when consumers ask for `tm:agent:<agentId>` delivery.
  */
 export const agentConnectionEndpointAddress = (
   connectionId: string,
-): EndpointAddress => makeEndpointAddress("agent", connectionId);
+): EndpointAddress => makeEndpointAddress("agent-conn", connectionId);
+
+/**
+ * Reverse-index value: who owns the address right now. Phase 8 codex
+ * deferral on PR #458 asked for `{ agentId, connectionId }` rather than
+ * the bare connection id so {@link AgentEndpointResolver.add} can detect
+ * cross-agent ownership conflict atomically (defense-in-depth — UUID
+ * collisions are practically unreachable, but the detection is cheap and
+ * the alternative was a silent forward-map leak when the new add lands
+ * for a different agent than the existing reverse entry).
+ */
+interface ReverseEntry {
+  readonly agentId: AgentId;
+  readonly connectionId: string;
+}
 
 /**
  * Snapshot of the resolver's combined state. Held in a single {@link Ref}
@@ -74,12 +89,12 @@ export const agentConnectionEndpointAddress = (
  */
 interface ResolverState {
   readonly byAgent: HashMap.HashMap<AgentId, HashSet.HashSet<EndpointAddress>>;
-  readonly byAddress: HashMap.HashMap<EndpointAddress, string>;
+  readonly byAddress: HashMap.HashMap<EndpointAddress, ReverseEntry>;
 }
 
 const emptyState: ResolverState = {
   byAgent: HashMap.empty<AgentId, HashSet.HashSet<EndpointAddress>>(),
-  byAddress: HashMap.empty<EndpointAddress, string>(),
+  byAddress: HashMap.empty<EndpointAddress, ReverseEntry>(),
 };
 
 /**
@@ -100,33 +115,60 @@ export class AgentEndpointResolver {
   private constructor(private readonly state: Ref.Ref<ResolverState>) {}
 
   /**
-   * Atomically associate `(agentId, address)` and `(address, connectionId)`.
+   * Atomically associate `(agentId, address)` and the reverse entry
+   * `(address → { agentId, connectionId })`.
    *
    * Idempotent on the forward set: re-adding the same address to the same
    * agent leaves the set unchanged ({@link HashSet.add} is set-union
-   * semantics). The reverse index overwrites — a subsequent `add` for the
-   * same address with a different connection id wins. In practice the
-   * caller mints `address` from `connectionId` via
-   * {@link agentConnectionEndpointAddress}, so the address is unique per
-   * connection and the reverse-overwrite path only fires on programmer
-   * error.
+   * semantics).
+   *
+   * Cross-agent ownership conflict (Phase 8 codex deferral on PR #458):
+   * if `address` is already in the reverse index for a *different*
+   * agent, the new add takes ownership — the address is removed from
+   * the prior agent's forward set inside the same `Ref.update` so the
+   * forward and reverse views stay invariant. Practically unreachable
+   * (agent ids and connection ids are independent UUIDs in
+   * `tm:agent:<agentId>` and `tm:agent-conn:<connId>` namespaces;
+   * cross-namespace collision requires a UUID collision and matching
+   * caller mistake), but the detection is cheap and the alternative was
+   * a silent forward-map leak that would only manifest as
+   * `RecipientNotResolved` for the dispossessed agent's later `network.send`
+   * calls.
    */
   add(
     agentId: AgentId,
     address: EndpointAddress,
     connectionId: string,
   ): Effect.Effect<void> {
-    return Ref.update(this.state, (s) => ({
-      byAgent: HashMap.modifyAt(s.byAgent, agentId, (existing) =>
-        Option.some(
-          Option.match(existing, {
-            onNone: () => HashSet.make(address),
-            onSome: (set) => HashSet.add(set, address),
+    return Ref.update(this.state, (s) => {
+      // Cross-agent eviction: if a different agent owns the address
+      // already, drop it from their forward set inline so the new add
+      // does not produce a forward-map leak.
+      const prior = HashMap.get(s.byAddress, address);
+      let byAgent = s.byAgent;
+      if (Option.isSome(prior) && prior.value.agentId !== agentId) {
+        byAgent = HashMap.modifyAt(byAgent, prior.value.agentId, (existing) =>
+          Option.flatMap(existing, (set) => {
+            const next = HashSet.remove(set, address);
+            return HashSet.size(next) === 0 ? Option.none() : Option.some(next);
           }),
+        );
+      }
+      return {
+        byAgent: HashMap.modifyAt(byAgent, agentId, (existing) =>
+          Option.some(
+            Option.match(existing, {
+              onNone: () => HashSet.make(address),
+              onSome: (set) => HashSet.add(set, address),
+            }),
+          ),
         ),
-      ),
-      byAddress: HashMap.set(s.byAddress, address, connectionId),
-    }));
+        byAddress: HashMap.set(s.byAddress, address, {
+          agentId,
+          connectionId,
+        }),
+      };
+    });
   }
 
   /**
@@ -191,12 +233,20 @@ export class AgentEndpointResolver {
    * `address`, or `Option.none()` if no live connection holds that
    * address. {@link NetworkSendService.send} composes this with
    * `ConnectionManager.get` to produce the writable connection.
+   *
+   * Returns the bare connection id even though the reverse store carries
+   * `{ agentId, connectionId }` — call sites only need the connection id
+   * to look up the writable socket; the agent id is observable on the
+   * connection itself via {@link ConnectionManager.get}.
    */
   connectionForAddress(
     address: EndpointAddress,
   ): Effect.Effect<Option.Option<string>> {
     return Effect.map(Ref.get(this.state), (s) =>
-      HashMap.get(s.byAddress, address),
+      Option.map(
+        HashMap.get(s.byAddress, address),
+        (entry) => entry.connectionId,
+      ),
     );
   }
 }
