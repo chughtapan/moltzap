@@ -1,9 +1,8 @@
 import { Effect } from "effect";
 import { Type } from "@sinclair/typebox";
 import { defineRpc } from "@moltzap/protocol";
-import { defineNetworkMethod } from "./handlers/define-method.js";
-import { TaskLayerScope } from "../task/layer-scope.js";
-import { AppLayerScope } from "../app/layer-scope.js";
+import { defineNetworkMethod } from "../rpc/define-layered-method.js";
+import { TaskLayerScope, AppLayerScope } from "../rpc/layer-scopes.js";
 
 const Probe = defineRpc({
   name: "network/_probe" as const,
@@ -13,7 +12,6 @@ const Probe = defineRpc({
 
 const networkOnlyHandler = () => Effect.succeed({});
 
-// Positive: a handler whose only requirement is the network scope compiles.
 defineNetworkMethod(Probe, { handler: networkOnlyHandler });
 
 const handlerNeedingTaskScope = () =>
@@ -28,10 +26,8 @@ const handlerNeedingAppScope = () =>
     return {};
   });
 
-// Negative: a network handler that requires TaskLayerScope is rejected.
 // @ts-expect-error - network handler may not require TaskLayerScope
 defineNetworkMethod(Probe, { handler: handlerNeedingTaskScope });
 
-// Negative: same shape against AppLayerScope.
 // @ts-expect-error - network handler may not require AppLayerScope
 defineNetworkMethod(Probe, { handler: handlerNeedingAppScope });

@@ -1,10 +1,12 @@
 import { Effect } from "effect";
 import { Type } from "@sinclair/typebox";
 import { defineRpc } from "@moltzap/protocol";
-import { defineTaskMethod } from "./handlers/define-method.js";
-import { NetworkLayerScope } from "../network/layer-scope.js";
-import { TaskLayerScope } from "./layer-scope.js";
-import { AppLayerScope } from "../app/layer-scope.js";
+import { defineTaskMethod } from "../rpc/define-layered-method.js";
+import {
+  NetworkLayerScope,
+  TaskLayerScope,
+  AppLayerScope,
+} from "../rpc/layer-scopes.js";
 
 const Probe = defineRpc({
   name: "task/_probe" as const,
@@ -19,7 +21,6 @@ const okHandler = () =>
     return {};
   });
 
-// Positive: task handlers may yield from network and task scopes.
 defineTaskMethod(Probe, { handler: okHandler });
 
 const badHandler = () =>
@@ -28,6 +29,5 @@ const badHandler = () =>
     return {};
   });
 
-// Negative: task handler may not require AppLayerScope.
 // @ts-expect-error - task handler may not require AppLayerScope
 defineTaskMethod(Probe, { handler: badHandler });

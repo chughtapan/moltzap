@@ -1,11 +1,15 @@
 import { Effect } from "effect";
 import { Type } from "@sinclair/typebox";
 import { defineRpc } from "@moltzap/protocol";
-import { defineAppMethod } from "./handlers/define-method.js";
-import { defineNetworkMethod } from "../network/handlers/define-method.js";
-import { NetworkLayerScope } from "../network/layer-scope.js";
-import { TaskLayerScope } from "../task/layer-scope.js";
-import { AppLayerScope } from "./layer-scope.js";
+import {
+  defineAppMethod,
+  defineNetworkMethod,
+} from "../rpc/define-layered-method.js";
+import {
+  NetworkLayerScope,
+  TaskLayerScope,
+  AppLayerScope,
+} from "../rpc/layer-scopes.js";
 
 const Probe = defineRpc({
   name: "app/_probe" as const,
@@ -21,7 +25,6 @@ const okAppHandler = () =>
     return {};
   });
 
-// Positive: app handlers may yield from any layer scope.
 defineAppMethod(Probe, { handler: okAppHandler });
 
 const appShapedHandler = () =>
@@ -30,6 +33,5 @@ const appShapedHandler = () =>
     return {};
   });
 
-// Negative: an app-scoped handler can't be passed to defineNetworkMethod.
 // @ts-expect-error - cannot register an app-scoped handler at the network layer
 defineNetworkMethod(Probe, { handler: appShapedHandler });

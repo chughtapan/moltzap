@@ -8,15 +8,21 @@ import {
   ContactAcceptedNotificationDefinition,
   notificationFrame,
   userId as brandUserId,
-  type Contact,
+  type NotificationDefinition,
+  type NotificationParamsOf,
   type Static,
+  type TSchema,
 } from "@moltzap/protocol";
 import { UserId } from "@moltzap/protocol/schemas/primitives";
 import type { ContactsService } from "../../services/contact.service.js";
+import type { AuthService } from "../../services/auth.service.js";
 import type { Broadcaster } from "../../ws/broadcaster.js";
-import type { RpcMethodRegistry } from "../../rpc/context.js";
-import { unauthorized } from "../../runtime/index.js";
-import { defineAppMethod } from "./define-method.js";
+import type {
+  AuthenticatedContext,
+  RpcMethodRegistry,
+} from "../../rpc/context.js";
+import { unauthorized, type RpcFailure } from "../../runtime/index.js";
+import { defineAppMethod } from "../../rpc/define-layered-method.js";
 
 type BrandedUserId = Static<typeof UserId>;
 
@@ -24,50 +30,37 @@ const ERR_NEED_OWNER = "Contacts require a claimed agent owner";
 
 export function createContactHandlers(deps: {
   contactService: ContactsService;
+  authService: AuthService;
   broadcaster: Broadcaster;
 }): RpcMethodRegistry {
-  const { contactService, broadcaster } = deps;
+  const { contactService, authService, broadcaster } = deps;
 
-  const fanOutContactRequest = (
+  const fanOut = <D extends NotificationDefinition<string, TSchema>>(
     target: BrandedUserId,
-    contact: Contact,
+    definition: D,
+    params: NotificationParamsOf<D>,
   ): Effect.Effect<void, never> =>
     Effect.gen(function* () {
-      const agentIds = yield* contactService.agentsForUser(target);
-      const frame = notificationFrame(ContactRequestNotificationDefinition, {
-        contact,
-      });
+      const agentIds = yield* authService.agentsForOwner(target);
+      const frame = notificationFrame(definition, params);
       for (const agentId of agentIds) {
         broadcaster.sendToAgent(agentId, frame);
       }
     });
 
-  const fanOutContactAccepted = (
-    target: BrandedUserId,
-    contact: Contact,
-  ): Effect.Effect<void, never> =>
-    Effect.gen(function* () {
-      const agentIds = yield* contactService.agentsForUser(target);
-      const frame = notificationFrame(ContactAcceptedNotificationDefinition, {
-        contact,
-      });
-      for (const agentId of agentIds) {
-        broadcaster.sendToAgent(agentId, frame);
-      }
-    });
-
-  const owner = (ctxOwner: string | null): BrandedUserId | null =>
-    ctxOwner === null ? null : brandUserId(ctxOwner);
+  const requireOwner = (
+    ctx: AuthenticatedContext,
+  ): Effect.Effect<BrandedUserId, RpcFailure> =>
+    ctx.ownerUserId === null
+      ? Effect.fail(unauthorized(ERR_NEED_OWNER))
+      : Effect.succeed(brandUserId(ctx.ownerUserId));
 
   return [
     defineAppMethod(ContactsList, {
       handler: (_params, ctx) =>
         Effect.gen(function* () {
-          const ownerId = owner(ctx.ownerUserId);
-          if (ownerId === null) {
-            return yield* Effect.fail(unauthorized(ERR_NEED_OWNER));
-          }
-          const contacts = yield* contactService.list(ownerId);
+          const owner = yield* requireOwner(ctx);
+          const contacts = yield* contactService.list(owner);
           return { contacts: [...contacts] };
         }),
     }),
@@ -75,17 +68,18 @@ export function createContactHandlers(deps: {
     defineAppMethod(ContactsAdd, {
       handler: (params, ctx) =>
         Effect.gen(function* () {
-          const ownerId = owner(ctx.ownerUserId);
-          if (ownerId === null) {
-            return yield* Effect.fail(unauthorized(ERR_NEED_OWNER));
-          }
-          const contact = yield* contactService.add(ownerId, {
+          const owner = yield* requireOwner(ctx);
+          const contact = yield* contactService.add(owner, {
             contactUserId: params.contactUserId,
             ...(params.relationship !== undefined
               ? { relationship: params.relationship }
               : {}),
           });
-          yield* fanOutContactRequest(params.contactUserId, contact);
+          yield* fanOut(
+            params.contactUserId,
+            ContactRequestNotificationDefinition,
+            { contact },
+          );
           return { contact };
         }),
     }),
@@ -93,21 +87,15 @@ export function createContactHandlers(deps: {
     defineAppMethod(ContactsAccept, {
       handler: (params, ctx) =>
         Effect.gen(function* () {
-          const ownerId = owner(ctx.ownerUserId);
-          if (ownerId === null) {
-            return yield* Effect.fail(unauthorized(ERR_NEED_OWNER));
-          }
-          const contact = yield* contactService.accept(
-            ownerId,
-            params.contactId,
+          const owner = yield* requireOwner(ctx);
+          const contact = yield* contactService.accept(owner, params.contactId);
+          // Notify the original requester with the inverse view: their row
+          // points at the recipient (the caller).
+          yield* fanOut(
+            contact.contactUserId,
+            ContactAcceptedNotificationDefinition,
+            { contact: { ...contact, contactUserId: owner } },
           );
-          // After acceptance, the row is owned by the recipient (caller).
-          // Notify the original requester with the inverse view.
-          const requesterUserId = contact.contactUserId;
-          yield* fanOutContactAccepted(requesterUserId, {
-            ...contact,
-            contactUserId: ownerId,
-          });
           return { contact };
         }),
     }),
@@ -115,11 +103,8 @@ export function createContactHandlers(deps: {
     defineAppMethod(ContactsById, {
       handler: (params, ctx) =>
         Effect.gen(function* () {
-          const ownerId = owner(ctx.ownerUserId);
-          if (ownerId === null) {
-            return yield* Effect.fail(unauthorized(ERR_NEED_OWNER));
-          }
-          const contact = yield* contactService.byId(ownerId, params.contactId);
+          const owner = yield* requireOwner(ctx);
+          const contact = yield* contactService.byId(owner, params.contactId);
           return { contact };
         }),
     }),

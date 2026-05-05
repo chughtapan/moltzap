@@ -215,6 +215,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     }),
     ...createContactHandlers({
       contactService,
+      authService,
       broadcaster,
     }),
     ...createSystemHandlers(),

@@ -86,7 +86,7 @@ export default [
                 "../../../app/handlers/**",
               ],
               message:
-                "packages/server/src/network/** may not import from the task or app/handlers subtrees (spec #135 AC7/AC8). The network layer sits below task and app; see packages/server/src/network/tsconfig.json and packages/server/src/network/layer-scope.ts.",
+                "packages/server/src/network/** may not import from the task or app/handlers subtrees (spec #135 AC7/AC8). The network layer sits below task and app; see packages/server/src/network/tsconfig.json and packages/server/src/rpc/layer-scopes.ts.",
             },
           ],
         },
@@ -113,7 +113,7 @@ export default [
                 "../../../app/handlers/**",
               ],
               message:
-                "packages/server/src/task/** may not import from the app/handlers subtree. Task sits below app; see packages/server/src/task/tsconfig.json and packages/server/src/task/layer-scope.ts.",
+                "packages/server/src/task/** may not import from the app/handlers subtree. Task sits below app; see packages/server/src/task/tsconfig.json and packages/server/src/rpc/layer-scopes.ts.",
             },
           ],
         },
