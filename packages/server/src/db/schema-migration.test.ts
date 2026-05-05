@@ -51,7 +51,7 @@ async function freshDb(): Promise<void> {
     .execute();
 }
 
-describe("core-schema.sql Phase 5 B1 additive migration", () => {
+describe("tasks schema (core-schema.sql)", () => {
   beforeEach(async () => {
     await freshDb();
   }, DB_HOOK_TIMEOUT_MS);
@@ -145,7 +145,7 @@ describe("core-schema.sql Phase 5 B1 additive migration", () => {
     expect(part.admitted_at).not.toBeNull();
   });
 
-  it("leaves app_sessions and unlinked conversations untouched (additive coexistence)", async () => {
+  it("leaves app_sessions and unlinked conversations untouched", async () => {
     await db
       .insertInto("app_sessions")
       .values({
