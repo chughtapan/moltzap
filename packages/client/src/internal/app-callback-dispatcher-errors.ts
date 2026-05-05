@@ -2,7 +2,7 @@
  * Tagged error types for the partitioned appCallback dispatcher.
  *
  * Spec: moltzap#356 — partitioned dispatch keyed on
- * `(sessionId, conversationId, hookKind)`.
+ * `(taskId, conversationId, hookKind)`.
  *
  * All errors are surfaced on `PartitionedDispatcher.offer`'s typed channel.
  * The reader fiber translates each tag into an immediate appCallback error response

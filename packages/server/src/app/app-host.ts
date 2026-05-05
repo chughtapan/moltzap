@@ -19,6 +19,7 @@ import {
   agentId as protocolAgentId,
   conversationId as protocolConversationId,
   messageId as protocolMessageId,
+  taskId as protocolTaskId,
 } from "@moltzap/protocol";
 import {
   type AppHooks,
@@ -100,7 +101,8 @@ export class AppHost {
 
   /**
    * Register an app whose hook handlers run in a remote process (typically
-   * an `@moltzap/app-sdk` client connected over WebSocket). Hook RPCs
+   * a WebSocket client speaking the `apps/onBeforeDispatch` etc. protocol;
+   * Phase -1 vendored the canonical SDK out to arena). Hook RPCs
    * (`apps/onBeforeDispatch`, `onBeforeMessageDelivery`, `onSessionActive`,
    * `onClose`) are dispatched to `connectionId` via
    * {@link sendRpcToClient}; verdicts decode through the schemas defined in
@@ -274,7 +276,7 @@ export class AppHost {
             senderAgentId: params.senderAgentId,
             parts: params.parts,
           },
-          sessionId: session.id,
+          taskId: session.id,
           appId: session.appId,
           attempt: params.attempt ?? 0,
           receivedAt: params.receivedAt,
@@ -334,7 +336,7 @@ export class AppHost {
             ownerId: agent?.owner_user_id ?? "",
           },
           message: { parts, replyToId, dispatchLeaseId },
-          sessionId: session.id,
+          taskId: session.id,
           appId: session.appId,
           // Placeholder; the in-process dispatch helper overrides with
           // its AbortController-tied signal. Remote dispatch elides via
@@ -414,7 +416,7 @@ export class AppHost {
   ): ParamsOf<typeof AppsOnBeforeDispatch> {
     const wire = this.contextForWire(ctx);
     return {
-      sessionId: wire.sessionId,
+      taskId: protocolTaskId(wire.taskId),
       appId: wire.appId,
       conversationId: protocolConversationId(wire.conversationId),
       recipient: {
@@ -452,7 +454,7 @@ export class AppHost {
   ): ParamsOf<typeof AppsOnBeforeMessageDelivery> {
     const wire = this.contextForWire(ctx);
     return {
-      sessionId: wire.sessionId,
+      taskId: protocolTaskId(wire.taskId),
       appId: wire.appId,
       conversationId: protocolConversationId(wire.conversationId),
       sender: {
@@ -478,7 +480,9 @@ export class AppHost {
    *   - timeout fires → fiber interrupts → `Effect.onInterrupt` aborts
    *   - hook throws / rejects → `tapErrorCause` aborts
    * preserving the abort-on-timeout / abort-on-throw guarantees that
-   * `30-app-hooks.integration.test.ts:359-435` covers.
+   * Phase 9 will re-cover when the TM-topology hook flow is wired
+   * (the prior `30-app-hooks.integration.test.ts` was tombstoned by
+   * Phase 7 since the trigger path no longer fires).
    *
    * Returns the raw verdict in the success channel and a typed `Error`
    * in the failure channel (so the dispatch envelope's `catchAll` can
@@ -622,7 +626,7 @@ export class AppHost {
     const timeoutMs =
       manifest?.hooks?.before_dispatch?.timeout_ms ??
       DEFAULT_APP_HOOK_TIMEOUT_MS;
-    const sessionId = ctx.sessionId;
+    const taskId = ctx.taskId;
 
     const raw: Effect.Effect<DispatchAdmissionResult, Error> = remote
       ? this.runRemoteHookEffect({
@@ -640,9 +644,9 @@ export class AppHost {
       raw,
       timeoutMs,
       timeoutLogMessage: "before_dispatch hook timed out",
-      timeoutLogContext: { sessionId, appId, timeoutMs },
+      timeoutLogContext: { taskId, appId, timeoutMs },
       errorLogMessage: "before_dispatch hook error",
-      errorLogContext: { sessionId, appId },
+      errorLogContext: { taskId, appId },
       onTimeout: () => ({
         decision: "deny" as const,
         reason: "before_dispatch hook timed out",
@@ -656,8 +660,8 @@ export class AppHost {
 
   /**
    * Uniform `before_message_delivery` dispatch. Fail-CLOSED to
-   * `{ block: true }` on timeout/throw/RPC-failure per architect plan §3.4
-   * (verified against `30-app-hooks.integration.test.ts:229-272,296-357`).
+   * `{ block: true }` on timeout/throw/RPC-failure per architect plan §3.4.
+   * Verification reactivates with Phase 9's TM-topology hook flow.
    */
   private dispatchBeforeMessageDeliveryHook(
     appId: string,
@@ -674,7 +678,7 @@ export class AppHost {
     const timeoutMs =
       manifest?.hooks?.before_message_delivery?.timeout_ms ??
       DEFAULT_APP_HOOK_TIMEOUT_MS;
-    const sessionId = ctx.sessionId;
+    const taskId = ctx.taskId;
 
     const raw: Effect.Effect<HookResult, Error> = remote
       ? this.runRemoteHookEffect({
@@ -692,9 +696,9 @@ export class AppHost {
       raw,
       timeoutMs,
       timeoutLogMessage: "before_message_delivery hook timed out",
-      timeoutLogContext: { sessionId, appId, timeoutMs },
+      timeoutLogContext: { taskId, appId, timeoutMs },
       errorLogMessage: "before_message_delivery hook error",
-      errorLogContext: { sessionId, appId },
+      errorLogContext: { taskId, appId },
       onTimeout: () => ({
         block: true,
         reason: "before_message_delivery hook timed out",

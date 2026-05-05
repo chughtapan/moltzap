@@ -176,4 +176,39 @@ describe("tasks schema (core-schema.sql)", () => {
         .execute(),
     ).rejects.toThrow(/foreign key|violates/i);
   });
+
+  // Phase 7 destructive-migration guard: every dropped relation must
+  // reject re-use. SELECTing the legacy table errors with
+  // `relation … does not exist`; the surviving `tasks` table SELECTs
+  // an empty row set. Future drift (re-introducing the tables OR
+  // leaving the enum types behind) trips the assertions below
+  // instead of silently reintroducing the schema.
+  it.each([
+    "app_sessions",
+    "app_session_participants",
+    "app_session_conversations",
+  ])("table %s is gone (Phase 7 cutover)", async (tableName) => {
+    await expect(
+      pglite.exec(`SELECT 1 FROM ${tableName} LIMIT 1`),
+    ).rejects.toThrow(/does not exist/i);
+  });
+
+  it.each(["app_session_status", "app_participant_status"])(
+    "enum %s is gone (Phase 7 cutover)",
+    async (typeName) => {
+      // Recreating the enum succeeds iff the prior cutover dropped it.
+      // CREATE TYPE on an existing name errors "already exists";
+      // the assertion proves the type is absent from the freshly-applied
+      // schema.
+      await pglite.exec(`CREATE TYPE ${typeName} AS ENUM ('probe')`);
+      await pglite.exec(`DROP TYPE ${typeName}`);
+    },
+  );
+
+  it("tasks + task_participants survive (positive control)", async () => {
+    // SELECT against the surviving tables succeeds — proves the cutover
+    // didn't accidentally drop too much.
+    await pglite.exec("SELECT 1 FROM tasks LIMIT 1");
+    await pglite.exec("SELECT 1 FROM task_participants LIMIT 1");
+  });
 });

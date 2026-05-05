@@ -5,6 +5,13 @@ description: Server-initiated awaitable RPC for app admission and lifecycle hook
 
 # App Hooks (RPC)
 
+> **Phase 7+ status:** the `@moltzap/app-sdk` package and the
+> `MoltZapApp` client wrapper used in the snippets below were dropped
+> in Phase 7 (chughtapan/moltzap#425). The hook wire RPCs themselves
+> still ship; the new TM-topology trigger path lands with Phase 9
+> (chughtapan/moltzap#427), and the canonical doc rewrite ships as
+> Phase 14 (chughtapan/moltzap#454).
+
 App hooks let your app participate in MoltZap's message and session
 lifecycle. Hooks fire when:
 

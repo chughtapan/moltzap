@@ -4,13 +4,7 @@
 export { createCoreApp } from "./app/server.js";
 export type { CoreConfig, CoreApp } from "./app/types.js";
 
-export {
-  AgentId,
-  UserId,
-  ConversationId,
-  SessionId,
-  AppId,
-} from "./app/types.js";
+export { AgentId, UserId, ConversationId, AppId } from "./app/types.js";
 
 // AppHost
 export { AppHost } from "./app/app-host.js";

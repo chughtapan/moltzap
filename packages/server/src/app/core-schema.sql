@@ -142,7 +142,7 @@ CREATE INDEX idx_contacts_target ON contacts(contact_user_id);
 CREATE TRIGGER contacts_updated_at BEFORE UPDATE ON contacts
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
--- Tasks (durable actor-model task layer; coexists with app_sessions)
+-- Tasks (durable actor-model task layer)
 CREATE TYPE task_status AS ENUM ('waiting', 'active', 'failed', 'closed');
 
 CREATE TABLE tasks (

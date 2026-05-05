@@ -36,7 +36,7 @@ export class PartitionKeyInvariantError extends Data.TaggedError(
 /**
  * Sentinel placeholder for appCallback methods that carry no `conversationId`
  * (lifecycle: `apps/onClose`, `apps/onSessionActive`).
- * All lifecycle calls for the same `(sessionId, method)` share one
+ * All lifecycle calls for the same `(taskId, method)` share one
  * partition; cross-method lifecycle ordering is preserved by the server,
  * not the client.
  */
@@ -65,7 +65,7 @@ const segmentForDefinition = (
 };
 
 export interface AppCallbackPartitionRoute {
-  readonly sessionId: string;
+  readonly taskId: string;
   readonly conversationId: string;
 }
 
@@ -88,7 +88,7 @@ export function extractPartitionKey(
   request: PartitionableRequest,
 ): PartitionKey {
   return PartitionKey(
-    `${request.partition.sessionId}${KEY_SEP}${request.partition.conversationId}${KEY_SEP}${segmentForDefinition(request.definition)}`,
+    `${request.partition.taskId}${KEY_SEP}${request.partition.conversationId}${KEY_SEP}${segmentForDefinition(request.definition)}`,
   );
 }
 
@@ -99,11 +99,11 @@ export function extractPartitionKey(
  * `conversationId === LIFECYCLE_CONVERSATION_SENTINEL`.
  */
 export function describePartitionKey(key: PartitionKey): {
-  readonly sessionId: string;
+  readonly taskId: string;
   readonly conversationId: string;
   readonly definition: AnyAppCallbackRpcDefinition;
 } {
-  // Method is the only field that can contain a slash; sessionId is a
+  // Method is the only field that can contain a slash; taskId is a
   // UUID and conversationId is a UUID or the lifecycle sentinel. Split
   // on the first two `KEY_SEP` occurrences only so a hypothetical
   // future method name with `KEY_SEP` (impossible today; ASCII `|`)
@@ -127,7 +127,7 @@ export function describePartitionKey(key: PartitionKey): {
     });
   }
   return {
-    sessionId: key.slice(0, first),
+    taskId: key.slice(0, first),
     conversationId: key.slice(first + 1, second),
     definition,
   };

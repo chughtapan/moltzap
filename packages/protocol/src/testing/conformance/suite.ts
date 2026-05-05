@@ -117,7 +117,7 @@ export function registerAllProperties(ctx: ConformanceRunContext): void {
   delivery.registerHookGatedDelivery(ctx);
   delivery.registerMultiAppFifoShortCircuit(ctx);
   delivery.registerConversationLifecycle(ctx);
-  delivery.registerAppSessionCloseLifecycle(ctx);
+  delivery.registerTaskCloseLifecycle(ctx);
   delivery.registerArchiveLifecycle(ctx);
 
   adversity.registerLatencyResilience(ctx);
@@ -298,7 +298,7 @@ function allowedServerCoverageGaps(
     },
     {
       kind: "deferred",
-      id: "delivery/app-session-close-lifecycle",
+      id: "delivery/task-close-lifecycle",
       reasonIncludes: TasksClose.name,
     },
     {

@@ -13,7 +13,7 @@
  * `before_message_delivery` resolves it), and asserts both replies
  * round-trip back to the server. Pre-#356 this hangs; post-#356 it
  * completes via the partitioned dispatcher's
- * `(sessionId, conversationId, hookKind)` keying.
+ * `(taskId, conversationId, hookKind)` keying.
  *
  * No mocks — full transport, full schema validation, real fibers.
  */
@@ -301,7 +301,7 @@ describe("integration: AppHost + partitioned appCallback dispatcher", () => {
           });
           yield* client.handleServerRpc(AppsOnBeforeDispatch, (params) =>
             Effect.gen(function* () {
-              if (params.sessionId === SESSION_A) {
+              if (params.taskId === SESSION_A) {
                 yield* Deferred.await(release);
               }
               return { admission: { decision: "grant" } };

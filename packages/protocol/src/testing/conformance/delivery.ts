@@ -51,7 +51,7 @@ const DEFAULT_CAPTURE_CAPACITY = 256;
 const DEFAULT_PROPERTY_NUM_RUNS = 3;
 const MAX_N = 4;
 const CONVERSATION_LIFECYCLE_PROPERTY = "conversation-lifecycle";
-const APP_SESSION_CLOSE_LIFECYCLE_PROPERTY = "app-session-close-lifecycle";
+const TASK_CLOSE_LIFECYCLE_PROPERTY = "task-close-lifecycle";
 const ARCHIVE_LIFECYCLE_PROPERTY = "archive-lifecycle";
 const STORE_AND_REPLAY_PROPERTY = "store-and-replay";
 const TASK_BOUNDARY_ISOLATION_PROPERTY = "task-boundary-isolation";
@@ -889,13 +889,11 @@ export function registerConversationLifecycle(
  * bootstrap lands in Phase 9 (#318); until then this property reports
  * PropertyDeferred.
  */
-export function registerAppSessionCloseLifecycle(
-  ctx: ConformanceRunContext,
-): void {
+export function registerTaskCloseLifecycle(ctx: ConformanceRunContext): void {
   registerProperty(
     ctx,
     CATEGORY,
-    APP_SESSION_CLOSE_LIFECYCLE_PROPERTY,
+    TASK_CLOSE_LIFECYCLE_PROPERTY,
     "tasks/close archives task conversations and broadcasts task/closed",
     Effect.scoped(
       Effect.gen(function* () {
@@ -903,7 +901,7 @@ export function registerAppSessionCloseLifecycle(
         return yield* Effect.fail(
           new PropertyDeferred({
             category: CATEGORY,
-            name: APP_SESSION_CLOSE_LIFECYCLE_PROPERTY,
+            name: TASK_CLOSE_LIFECYCLE_PROPERTY,
             followUp: `Phase 9 TM topology (#318) wires task/closed emission + manifest conversation bootstrap (${TasksClose.name})`,
           }),
         );

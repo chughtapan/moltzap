@@ -1,5 +1,10 @@
 import { Type, type Static } from "@sinclair/typebox";
-import { AgentId, ConversationId, MessageId } from "../../schema/primitives.js";
+import {
+  AgentId,
+  ConversationId,
+  MessageId,
+  TaskId,
+} from "../../schema/primitives.js";
 import { AppManifestSchema } from "../../schema/apps.js";
 import { PartSchema } from "../../schema/messages.js";
 import { LogicalClockSchema } from "../../schema/logical-clock.js";
@@ -26,8 +31,6 @@ export const AppsRegister = defineRpc({
  * Verdict from a `before_dispatch` admission handler. Discriminated by
  * `decision`: `grant` (allow; optional lease for held delivery), `deny`
  * (reject), `hold` (defer behind a lease the app will release later).
- *
- * Re-exported from `@moltzap/app-sdk` as `DispatchAdmissionResult`.
  */
 export const DispatchAdmissionDecisionSchema = Type.Union([
   Type.Object(
@@ -107,17 +110,13 @@ export const AppsAuthorizeDispatch = defineRpc({
 //
 // All four appCallback verbs are AWAITABLE — `onSessionActive` / `onClose`
 // reply with an empty object so AppHost can `Deferred.await` and apply the
-// manifest hook timeout. They are NOT fire-and-forget; `app/sessionReady`
-// delivery is gated on the `onSessionActive` reply (existing ordering
-// invariant — see `31-on-session-active.integration.test.ts:200-230`).
+// manifest hook timeout. They are NOT fire-and-forget. (Phase 7 cutover
+// removed the trigger paths; Phase 9 wires equivalents via TM topology.)
 //
 // Verdict shapes mirror `packages/server/src/app/hooks.ts` verbatim — the
 // `DispatchAdmissionDecisionSchema` constant defined above (and reused here) is the
 // same union, and `HookResultSchema` matches `HookResult` field-for-field.
 // Adding a new verdict tag is a protocol change; do it in the spec, not here.
-//
-// `apps/attachConversation` is client-originated and is registered in the
-// `rpcMethods` tuple, not `appCallbackRpcMethods`.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const HookSenderSchema = Type.Object(
@@ -141,8 +140,6 @@ const HookFeedbackSchema = Type.Object(
  * Verdict from a `before_message_delivery` admission handler. `block: true`
  * drops the message; `block: false` allows. Optional `patch.parts` mutates
  * the recipient view; optional `feedback` emits an observability hook.
- *
- * Re-exported from `@moltzap/app-sdk` as `HookResult`.
  */
 export const HookResultSchema = Type.Object(
   {
@@ -167,7 +164,7 @@ export type HookResult = Static<typeof HookResultSchema>;
  */
 export const BeforeDispatchContextSchema = Type.Object(
   {
-    sessionId: Type.String({ format: "uuid" }),
+    taskId: TaskId,
     appId: Type.String(),
     conversationId: ConversationId,
     recipient: HookSenderSchema,
@@ -214,7 +211,7 @@ export type BeforeDispatchContext = Static<typeof BeforeDispatchContextSchema>;
  */
 export const BeforeMessageDeliveryContextSchema = Type.Object(
   {
-    sessionId: Type.String({ format: "uuid" }),
+    taskId: TaskId,
     appId: Type.String(),
     conversationId: ConversationId,
     sender: HookSenderSchema,
@@ -245,7 +242,7 @@ export const LifecycleAgentSchema = Type.Object(
 /** Context passed to an `on_close` lifecycle handler. */
 export const OnCloseContextSchema = Type.Object(
   {
-    sessionId: Type.String({ format: "uuid" }),
+    taskId: TaskId,
     appId: Type.String(),
     conversations: Type.Record(Type.String(), Type.String()),
     closedBy: LifecycleAgentSchema,
@@ -258,7 +255,7 @@ export type OnCloseContext = Static<typeof OnCloseContextSchema>;
 /** Context passed to an `on_session_active` lifecycle handler. */
 export const OnSessionActiveContextSchema = Type.Object(
   {
-    sessionId: Type.String({ format: "uuid" }),
+    taskId: TaskId,
     appId: Type.String(),
     conversations: Type.Record(Type.String(), Type.String()),
     admittedAgentIds: Type.Array(AgentId),

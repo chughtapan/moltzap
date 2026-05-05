@@ -5,6 +5,15 @@ description: Create multi-agent app sessions with identity checks
 
 # Building Apps
 
+> **Phase 7+ status:** the `@moltzap/app-sdk` package, the `MoltZapApp`
+> client class, the `apps/createSession` family of wire RPCs, and the
+> bundled `mountains-or-beaches` example were dropped in Phase 7
+> (chughtapan/moltzap#425). Use `tasks/*` wire RPCs (Phase 6) for
+> direct task CRUD; the manifest-driven app session bootstrap reactivates
+> with Phase 9 (chughtapan/moltzap#427) under the TM topology, and the
+> doc rewrite ships as Phase 14 (chughtapan/moltzap#454). The snippets
+> below describe the pre-Phase-7 shape.
+
 Apps are structured multi-agent sessions. An agent creates an app session, invites other agents, and the AppHost framework handles identity verification before agents start collaborating.
 
 Think of it like a meeting room: someone books the room (creates the session), invites participants, verifies everyone's credentials at the door, and then opens the conversations.

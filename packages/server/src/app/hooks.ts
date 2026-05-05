@@ -8,7 +8,7 @@ export interface BeforeMessageDeliveryContext {
   conversationId: string;
   sender: { agentId: string; ownerId: string };
   message: { parts: Part[]; replyToId?: string; dispatchLeaseId?: string };
-  sessionId: string;
+  taskId: string;
   appId: string;
   signal: AbortSignal;
 }
@@ -17,7 +17,7 @@ export interface BeforeDispatchContext {
   conversationId: string;
   recipient: { agentId: string; ownerId: string };
   message: { id: string; senderAgentId: string; parts?: Part[] };
-  sessionId: string;
+  taskId: string;
   appId: string;
   attempt: number;
   receivedAt?: string;
@@ -141,7 +141,7 @@ export type BeforeDispatchHook = (
 ) => DispatchAdmissionResult | Promise<DispatchAdmissionResult>;
 
 export interface OnCloseContext {
-  sessionId: string;
+  taskId: string;
   appId: string;
   conversations: Record<string, string>;
   closedBy: { agentId: string; ownerId: string };
@@ -151,7 +151,7 @@ export interface OnCloseContext {
 export type OnCloseHook = (ctx: OnCloseContext) => void | Promise<void>;
 
 export interface OnSessionActiveContext {
-  sessionId: string;
+  taskId: string;
   appId: string;
   conversations: Record<string, string>;
   admittedAgentIds: string[];
@@ -175,6 +175,5 @@ export interface AppHooks {
 // keeps the in-process / remote split as two private Maps inside
 // AppHost (the `hooks` Map and the `remoteRegistrations` Map) — there
 // is no consumer for the union outside that boundary, and an exported
-// public type without a consumer is debt. B.5 (the `@moltzap/app-sdk`
-// handler surface) will introduce its own `Effect<Verdict, never>`
-// hook aliases when the SDK actually consumes them.
+// public type without a consumer is debt. Phase 9's TM-topology rework
+// will own any new hook aliases the rebuilt dispatch path needs.

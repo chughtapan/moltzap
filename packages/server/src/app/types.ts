@@ -4,7 +4,6 @@ import type { RpcMethodBinding } from "../rpc/context.js";
 import {
   agentId as makeAgentId,
   conversationId as makeConversationId,
-  taskId as makeTaskId,
   userId as makeUserId,
   type AppManifest,
   type Static,
@@ -12,7 +11,6 @@ import {
 import {
   AgentId as AgentIdSchema,
   ConversationId as ConversationIdSchema,
-  TaskId as TaskIdSchema,
   UserId as UserIdSchema,
 } from "@moltzap/protocol/schemas/primitives";
 import type { Database } from "../db/database.js";
@@ -40,10 +38,6 @@ export const AgentId = makeAgentId;
 
 export type ConversationId = Static<typeof ConversationIdSchema>;
 export const ConversationId = makeConversationId;
-
-/** @deprecated Phase 7 cutover aliased SessionId to TaskId; prefer TaskId. */
-export type SessionId = Static<typeof TaskIdSchema>;
-export const SessionId = makeTaskId;
 
 export type AppId = string & Brand.Brand<"AppId">;
 export const AppId = Brand.nominal<AppId>();

@@ -7,11 +7,6 @@ import type { RequestFrame, ResponseFrame } from "../../../schema/frames.js";
 import { ErrorCodes } from "../../../schema/errors.js";
 import { responseFrame } from "../../../helpers.js";
 import {
-  AppsCloseSession,
-  AppsCreate,
-  AppsRegister,
-} from "../../../app/methods/apps.js";
-import {
   ConversationsArchive,
   ConversationsCreate,
   ConversationsUnarchive,
@@ -68,7 +63,6 @@ type BadServerBehavior =
   | "reject-authorized"
   | "drift-idempotent-result"
   | "conversation-missing-created-event"
-  | "app-close-missing-lifecycle-event"
   | "archive-missing-event"
   | "presence-silent"
   | "presence-stale-snapshot";
@@ -138,12 +132,12 @@ describe("server-side conformance executable divergence proofs", () => {
   }, 10_000);
 
   // Phase 7 cutover deleted the apps/createSession-driven bootstrap, so
-  // the registerAppSessionCloseLifecycle property short-circuits with
+  // the registerTaskCloseLifecycle property short-circuits with
   // PropertyUnavailable in fixture acquisition (no replacement path until
   // Phase 9 wires task/closed emission via TM topology). Tombstoning the
   // divergence proof until reactivated alongside that work (#318).
   it.todo(
-    "registerAppSessionCloseLifecycle fails when close does not broadcast lifecycle (Phase 9 reactivation)",
+    "registerTaskCloseLifecycle fails when close does not broadcast lifecycle (Phase 9 reactivation)",
   );
 
   // Presence — all six fail under a server that answers RPCs but never
@@ -406,9 +400,6 @@ function makeBadResult(
   if (behavior === "conversation-missing-created-event") {
     return makeConversationLifecycleBadResult(request);
   }
-  if (behavior === "app-close-missing-lifecycle-event") {
-    return makeAppSessionCloseLifecycleBadResult(request);
-  }
   if (
     behavior === "presence-silent" ||
     behavior === "presence-stale-snapshot"
@@ -448,46 +439,6 @@ function makeBadResult(
     default:
       return {};
   }
-}
-
-function makeAppSessionCloseLifecycleBadResult(request: RequestFrame): unknown {
-  if (request.method === AppsRegister.name) {
-    const params = request.params as { manifest?: { appId?: unknown } };
-    return {
-      appId:
-        typeof params.manifest?.appId === "string"
-          ? params.manifest.appId
-          : "bad-close-app",
-    };
-  }
-  if (request.method === AppsCreate.name) {
-    const params = request.params as { appId?: unknown };
-    return {
-      session: {
-        id: "00000000-0000-4000-8000-000000000201",
-        appId:
-          typeof params.appId === "string" ? params.appId : "bad-close-app",
-        initiatorAgentId: "00000000-0000-4000-8000-000000000301",
-        status: "active",
-        conversations: {
-          main: "00000000-0000-4000-8000-000000000202",
-        },
-        createdAt: "2026-01-01T00:00:00.000Z",
-      },
-    };
-  }
-  if (request.method === AppsCloseSession.name) {
-    return { closed: true };
-  }
-  if (request.method === MessagesSend.name) {
-    return {
-      message: {
-        id: "00000000-0000-4000-8000-000000000203",
-        conversationId: "00000000-0000-4000-8000-000000000202",
-      },
-    };
-  }
-  return {};
 }
 
 function makeConversationLifecycleBadResult(request: RequestFrame): unknown {

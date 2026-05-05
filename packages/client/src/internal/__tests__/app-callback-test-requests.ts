@@ -7,6 +7,7 @@ import {
   conversationId,
   jsonRpcStringId,
   messageId,
+  taskId as makeTaskId,
   type Static,
 } from "@moltzap/protocol";
 import {
@@ -14,8 +15,8 @@ import {
   type PartitionableRequest,
 } from "../app-callback-partition-key.js";
 
-export const SESSION_A = "11111111-1111-4111-8111-111111111111";
-export const SESSION_B = "22222222-2222-4222-8222-222222222222";
+export const SESSION_A = makeTaskId("11111111-1111-4111-8111-111111111111");
+export const SESSION_B = makeTaskId("22222222-2222-4222-8222-222222222222");
 export const CONV_X = conversationId("33333333-3333-4333-8333-333333333333");
 export const CONV_Y = conversationId("44444444-4444-4444-8444-444444444444");
 export const CONV_Z = conversationId("77777777-7777-4777-8777-777777777777");
@@ -29,11 +30,11 @@ export const conversationIdForIndex = (index: number) =>
   );
 
 export function beforeDispatchParams(
-  sessionId = SESSION_A,
+  taskId = SESSION_A,
   conv = CONV_X,
 ): Static<typeof AppsOnBeforeDispatch.paramsSchema> {
   return {
-    sessionId,
+    taskId,
     appId: "test-app",
     conversationId: conv,
     recipient: { agentId: AGENT_A, ownerId: "owner-a" },
@@ -48,24 +49,24 @@ export function beforeDispatchParams(
 
 export function beforeDispatch(
   id: string,
-  sessionId = SESSION_A,
+  taskId = SESSION_A,
   conv = CONV_X,
 ): PartitionableRequest {
-  const params = beforeDispatchParams(sessionId, conv);
+  const params = beforeDispatchParams(taskId, conv);
   return {
     id: jsonRpcStringId(id),
     definition: AppsOnBeforeDispatch,
     params,
-    partition: { sessionId, conversationId: conv },
+    partition: { taskId, conversationId: conv },
   };
 }
 
 export function beforeMessageDeliveryParams(
-  sessionId = SESSION_A,
+  taskId = SESSION_A,
   conv = CONV_X,
 ): Static<typeof AppsOnBeforeMessageDelivery.paramsSchema> {
   return {
-    sessionId,
+    taskId,
     appId: "test-app",
     conversationId: conv,
     sender: { agentId: AGENT_A, ownerId: "owner-a" },
@@ -75,49 +76,46 @@ export function beforeMessageDeliveryParams(
 
 export function beforeMessageDelivery(
   id: string,
-  sessionId = SESSION_A,
+  taskId = SESSION_A,
   conv = CONV_X,
 ): PartitionableRequest {
-  const params = beforeMessageDeliveryParams(sessionId, conv);
+  const params = beforeMessageDeliveryParams(taskId, conv);
   return {
     id: jsonRpcStringId(id),
     definition: AppsOnBeforeMessageDelivery,
     params,
-    partition: { sessionId, conversationId: conv },
+    partition: { taskId, conversationId: conv },
   };
 }
 
 export function onCloseParams(
-  sessionId = SESSION_A,
+  taskId = SESSION_A,
 ): Static<typeof AppsOnClose.paramsSchema> {
   return {
-    sessionId,
+    taskId,
     appId: "test-app",
     conversations: { main: CONV_X },
     closedBy: { agentId: AGENT_A, ownerId: "owner-a" },
   };
 }
 
-export function onClose(
-  id: string,
-  sessionId = SESSION_A,
-): PartitionableRequest {
+export function onClose(id: string, taskId = SESSION_A): PartitionableRequest {
   return {
     id: jsonRpcStringId(id),
     definition: AppsOnClose,
-    params: onCloseParams(sessionId),
+    params: onCloseParams(taskId),
     partition: {
-      sessionId,
+      taskId,
       conversationId: LIFECYCLE_CONVERSATION_SENTINEL,
     },
   };
 }
 
 export function onSessionActiveParams(
-  sessionId = SESSION_A,
+  taskId = SESSION_A,
 ): Static<typeof AppsOnSessionActive.paramsSchema> {
   return {
-    sessionId,
+    taskId,
     appId: "test-app",
     conversations: { main: CONV_X },
     admittedAgentIds: [AGENT_A],
@@ -126,14 +124,14 @@ export function onSessionActiveParams(
 
 export function onSessionActive(
   id: string,
-  sessionId = SESSION_A,
+  taskId = SESSION_A,
 ): PartitionableRequest {
   return {
     id: jsonRpcStringId(id),
     definition: AppsOnSessionActive,
-    params: onSessionActiveParams(sessionId),
+    params: onSessionActiveParams(taskId),
     partition: {
-      sessionId,
+      taskId,
       conversationId: LIFECYCLE_CONVERSATION_SENTINEL,
     },
   };
@@ -142,11 +140,10 @@ export function onSessionActive(
 export const lifecycleRequests = [
   {
     definition: AppsOnClose,
-    request: (id: string, sessionId = SESSION_A) => onClose(id, sessionId),
+    request: (id: string, taskId = SESSION_A) => onClose(id, taskId),
   },
   {
     definition: AppsOnSessionActive,
-    request: (id: string, sessionId = SESSION_A) =>
-      onSessionActive(id, sessionId),
+    request: (id: string, taskId = SESSION_A) => onSessionActive(id, taskId),
   },
 ] as const;
