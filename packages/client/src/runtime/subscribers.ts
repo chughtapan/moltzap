@@ -30,8 +30,7 @@
  * `register`, `dispatch`, and `closeAll` are `Effect<T, never>`.
  */
 import { Brand, Effect, Ref } from "effect";
-import type { AnyNotificationDefinition } from "@moltzap/protocol";
-import type { DecodedNotification } from "./frame.js";
+import type { DecodedNotificationFrame } from "./frame.js";
 
 interface FilterableNotificationFrame {
   readonly method: string;
@@ -88,6 +87,14 @@ export interface NotificationSubscription {
  * dispatch fiber. Must not throw — throws are caught by the registry,
  * logged via the injected logger, and swallowed.
  *
+ * The frame type is the pre-validation
+ * `DecodedNotificationFrame` union (known method with raw `params:
+ * unknown`, or unknown method with no descriptor). Subscribers run
+ * BEFORE the typed-bridge lift in `validateNotificationParams`, so
+ * `params` is genuinely opaque here — handlers that need a typed
+ * payload must validate themselves (`frame.definition?.validateParams`)
+ * or live behind the typed-handler bridge in `service.handleNotification`.
+ *
  * Returning an `Effect` (not a plain `void`) lets handlers compose with
  * Effect-native downstream code without an extra runSync shim. The
  * registry awaits each handler's effect before moving to the next
@@ -96,7 +103,7 @@ export interface NotificationSubscription {
  * subscription B across frames.
  */
 export type SubscriberHandler = (
-  frame: DecodedNotification<AnyNotificationDefinition>,
+  frame: DecodedNotificationFrame,
 ) => Effect.Effect<void, never>;
 
 /**
@@ -125,12 +132,16 @@ export interface SubscriberRegistry {
    * live-subscription list at the start of dispatch so
    * unsubscribe-during-dispatch observes next-frame semantics (OQ-3 A).
    *
+   * Frames are pre-validation (`DecodedNotificationFrame` union) — the
+   * type-system contract that subscribers see RAW frames, not the lifted
+   * `DecodedNotification<D>` shape that typed handlers see.
+   *
    * Dispatch order: registration order, iterated sequentially; slow
    * handlers block later subscriptions for this frame but never
    * reorder frame N relative to frame N+1.
    */
   readonly dispatch: (
-    frame: DecodedNotification<AnyNotificationDefinition>,
+    frame: DecodedNotificationFrame,
   ) => Effect.Effect<void, never>;
 
   /**

@@ -7,7 +7,11 @@ import { PresenceStatusEnum } from "./presence.js";
 import { stringEnum, DateTimeString } from "../helpers.js";
 import { jsonRpcMethod } from "./json-rpc.js";
 import { defineNotification } from "../notification.js";
-import { defineNotificationGroup } from "../rpc-groups.js";
+import {
+  defineNotificationGroup,
+  type RawDecodedNotification,
+  type UnknownDecodedNotification,
+} from "../rpc-groups.js";
 import { LifecycleAgentSchema } from "../app/methods/apps.js";
 
 const notificationNames = {
@@ -293,3 +297,20 @@ export type AnyNotificationDefinition =
   (typeof notificationDefinitions)[number];
 
 export type NotificationMethodName = AnyNotificationDefinition["name"];
+
+/**
+ * Discriminated union emitted by the client wire decoder for any
+ * inbound notification frame: a known method (descriptor attached,
+ * `params: unknown` until validated) or an unknown method (no
+ * descriptor). The consumer-facing union for `subscribers.dispatch`,
+ * the `notificationsBufferRef` queue, and `MoltZapService.handleNotification`
+ * — production typed handlers narrow this into `DecodedNotification<D>`
+ * via the typed-bridge lift (`validateNotificationParams`).
+ *
+ * Specialized over the closed `AnyNotificationDefinition` union so the
+ * Raw branch distributes per descriptor; the discriminator is the
+ * `definition` field (present + typed for known, absent on unknown).
+ */
+export type DecodedNotificationFrame =
+  | RawDecodedNotification<AnyNotificationDefinition>
+  | UnknownDecodedNotification;

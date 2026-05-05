@@ -27,7 +27,10 @@ import {
   type AnyNotificationDefinition,
 } from "@moltzap/protocol";
 import { makeSubscriberRegistry, matchesFilter } from "./subscribers.js";
-import type { DecodedNotification } from "./frame.js";
+import type {
+  DecodedNotificationFrame,
+  RawDecodedNotification,
+} from "./frame.js";
 
 const TASK_ID = taskId("11111111-1111-4111-8111-111111111111");
 const CONV_1 = conversationId("22222222-2222-4222-8222-222222222222");
@@ -48,11 +51,14 @@ const filterableNotification = (
 const decodedNotification = <D extends AnyNotificationDefinition>(
   definition: D,
   params: NotificationParamsOf<D>,
-): DecodedNotification<D> => {
-  // Construct a DecodedNotification<D> directly from the typed
+): RawDecodedNotification<D> => {
+  // Construct a RawDecodedNotification<D> directly from the typed
   // descriptor + params — bypassing the wire decoder is intentional
   // for test fixtures so the result type stays narrow to D rather than
-  // collapsing to the group's union.
+  // collapsing to the group's union. Subscribers receive the
+  // pre-validation `RawDecodedNotification<D>` shape (params: unknown);
+  // payload-typed fixtures are still safe to construct because
+  // `NotificationParamsOf<D>` assigns to `unknown`.
   const frame = makeNotificationFrame(definition, params);
   const decoded: Record<string, unknown> = {
     ...frame,
@@ -64,10 +70,10 @@ const decodedNotification = <D extends AnyNotificationDefinition>(
     value: "Notification",
     enumerable: false,
   });
-  return decoded as DecodedNotification<D>;
+  return decoded as RawDecodedNotification<D>;
 };
 
-const taskFailedNotification = (): DecodedNotification<
+const taskFailedNotification = (): RawDecodedNotification<
   typeof TaskFailedNotificationDefinition
 > =>
   decodedNotification(TaskFailedNotificationDefinition, {
@@ -76,7 +82,7 @@ const taskFailedNotification = (): DecodedNotification<
 
 const conversationArchivedNotification = (
   conv: typeof CONV_1,
-): DecodedNotification<typeof ConversationArchivedNotificationDefinition> =>
+): RawDecodedNotification<typeof ConversationArchivedNotificationDefinition> =>
   decodedNotification(ConversationArchivedNotificationDefinition, {
     conversationId: conv,
     archivedAt: "2026-05-03T00:00:00Z",
@@ -204,8 +210,8 @@ describe("SubscriberRegistry", () => {
     const registry = await Effect.runPromise(
       makeSubscriberRegistry(noopLogger),
     );
-    const seenByConv1: DecodedNotification<AnyNotificationDefinition>[] = [];
-    const seenByConv2: DecodedNotification<AnyNotificationDefinition>[] = [];
+    const seenByConv1: DecodedNotificationFrame[] = [];
+    const seenByConv2: DecodedNotificationFrame[] = [];
     await Effect.runPromise(
       registry.register({ conversationId: CONV_1 }, (frame) =>
         Effect.sync(() => void seenByConv1.push(frame)),

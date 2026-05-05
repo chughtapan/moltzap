@@ -25,15 +25,15 @@ import {
   agentId,
   conversationId,
   notificationFrame,
-  type AnyNotificationDefinition,
 } from "@moltzap/protocol";
 import { MoltZapService } from "./service.js";
-import type { DecodedNotification } from "./runtime/frame.js";
+import type {
+  DecodedNotificationFrame,
+  RawDecodedNotification,
+} from "./runtime/frame.js";
 
 class TestMoltZapService extends MoltZapService {
-  public driveNotification(
-    notification: DecodedNotification<AnyNotificationDefinition>,
-  ): void {
+  public driveNotification(notification: DecodedNotificationFrame): void {
     this.handleNotification(notification);
   }
 }
@@ -41,24 +41,25 @@ class TestMoltZapService extends MoltZapService {
 const CONV_ID = conversationId("00000000-0000-4000-8000-000000c0a4ed");
 const BY_AGENT = agentId("00000000-0000-4000-8000-0000000a9e47");
 
-type ConversationArchivedDecoded = DecodedNotification<
+type ConversationArchivedRaw = RawDecodedNotification<
   typeof ConversationArchivedNotificationDefinition
 >;
 
-const STALE_ARCHIVED = {
-  _tag: "Notification",
+// Constructing the stale-shape fixture as `RawDecodedNotification`
+// (params: unknown) lets TypeScript accept the unvalidated payload
+// without a type lie: the wire decoder is payload-opaque, so a frame
+// missing the required `archivedAt` field is structurally a Raw
+// notification — the typed-bridge lift in `validateNotificationParams`
+// is what rejects it at dispatch time.
+const STALE_ARCHIVED: ConversationArchivedRaw = {
   jsonrpc: "2.0",
   method: ConversationArchivedNotificationDefinition.name,
-  // Missing the required `archivedAt` field — schema requires all
-  // three fields with `additionalProperties: false`. The cast models a
-  // stale wire frame the opaque decoder forwards without payload
-  // validation; the deeper RawDecoded vs Decoded split would erase it
-  // (deferred to a follow-up phase).
   params: { conversationId: CONV_ID, by: BY_AGENT },
+  _tag: "Notification",
   definition: ConversationArchivedNotificationDefinition,
-} as unknown as ConversationArchivedDecoded; // #ignore-sloppy-code[as-unknown-as]: stale-shape fixture; structurally compatible with DecodedNotification but TS can't narrow params
+} as ConversationArchivedRaw;
 
-const LIVE_ARCHIVED: ConversationArchivedDecoded = {
+const LIVE_ARCHIVED: ConversationArchivedRaw = {
   ...notificationFrame(ConversationArchivedNotificationDefinition, {
     conversationId: CONV_ID,
     archivedAt: "2026-05-05T00:00:00.000Z",
