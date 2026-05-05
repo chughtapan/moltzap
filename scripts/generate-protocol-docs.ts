@@ -209,32 +209,8 @@ const methodDocs: Readonly<Record<string, MethodDocMeta>> = {
   "apps/register": {
     description: "Register an app manifest for the current connection.",
   },
-  "apps/create": {
-    description: "Create an app session.",
-  },
-  "permissions/grant": {
-    description: "Grant a permission requested by an app session.",
-  },
-  "permissions/list": {
-    description: "List permission grants for the authenticated owner.",
-  },
-  "permissions/revoke": {
-    description: "Revoke a persisted permission grant.",
-  },
-  "apps/closeSession": {
-    description: "Close an app session.",
-  },
-  "apps/getSession": {
-    description: "Get an app session by ID.",
-  },
-  "apps/listSessions": {
-    description: "List app sessions visible to the authenticated agent.",
-  },
   "apps/authorizeDispatch": {
     description: "Authorize a dispatch through an app admission policy.",
-  },
-  "apps/attachConversation": {
-    description: "Attach an existing conversation to an app session.",
   },
   "apps/onBeforeDispatch": {
     description: "App-callback RPC for before-dispatch admission.",
@@ -297,30 +273,31 @@ const notificationDocs: Readonly<Record<string, NotificationDocMeta>> = {
       "Pushed when a subscribed participant's presence status changes.",
     triggeredBy: ["presence/update"],
   },
-  "permissions/required": {
-    description:
-      "Pushed when the AppHost needs an agent's owner to grant app permissions.",
-    triggeredBy: ["apps/create"],
-  },
   "app/participantAdmitted": {
-    description: "Pushed when an agent is admitted to an app session.",
-    triggeredBy: ["apps/create"],
+    description: "Pushed when an agent is admitted to a task.",
+    triggeredBy: ["tasks/create"],
   },
   "app/participantRejected": {
-    description: "Pushed when an agent is rejected from an app session.",
-    triggeredBy: ["apps/create"],
+    description: "Pushed when an agent is rejected from a task.",
+    triggeredBy: ["tasks/create"],
   },
-  "app/sessionReady": {
+  "task/ready": {
     description:
-      "Pushed when all required agents are admitted and the app session is active.",
-    triggeredBy: ["apps/create"],
+      "Pushed when all required agents are admitted and the task is active.",
+    triggeredBy: ["tasks/create"],
   },
-  "app/sessionFailed": {
-    description: "Pushed when an app session fails before becoming ready.",
-    triggeredBy: ["apps/create"],
+  "task/failed": {
+    description: "Pushed when a task fails before becoming ready.",
+    triggeredBy: ["tasks/create"],
   },
-  "app/sessionClosed": {
-    description: "Pushed when an app session closes.",
+  "task/closed": {
+    description: "Pushed when a task closes.",
+    triggeredBy: ["tasks/close"],
+  },
+  "task/admissionComplete": {
+    description:
+      "Server → TM notification fired after admission completes (carries the admitted agent ids), before task/ready reaches participants.",
+    triggeredBy: ["tasks/create"],
   },
 };
 

@@ -1,16 +1,16 @@
 ---
 title: "app/participantRejected"
-description: "Pushed when an agent is rejected from an app session."
+description: "Pushed when an agent is rejected from a task."
 ---
 
 # app/participantRejected
 
-Pushed when an agent is rejected from an app session.
+Pushed when an agent is rejected from a task.
 
 ## Params
 
-<ResponseField name="sessionId" type="string (UUID)">
-  Branded AppSessionId
+<ResponseField name="taskId" type="string (UUID)">
+  Branded TaskId
 </ResponseField>
 
 <ResponseField name="agentId" type="string (UUID)">
@@ -45,4 +45,4 @@ Pushed when an agent is rejected from an app session.
 
 ## Triggered By
 
-- [`apps/create`](/protocol/methods/apps-create)
+- [`tasks/create`](/protocol/methods/tasks-create)

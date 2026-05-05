@@ -296,7 +296,7 @@ export function resetCoreTestDb() {
       }
       yield* execPglite(`
     TRUNCATE TABLE
-      app_session_conversations, app_session_participants, app_sessions,
+      task_participants, tasks,
       message_delivery, messages,
       conversation_participants, conversation_keys, conversations,
       contacts,

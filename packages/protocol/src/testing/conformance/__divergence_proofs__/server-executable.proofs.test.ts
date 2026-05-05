@@ -22,7 +22,6 @@ import { decodeFrame, encodeFrame, isRequestFrame } from "../../codec.js";
 import type { ConformanceArtifact } from "../runner.js";
 import type { ConformanceRunContext, RealServerHandle } from "../runner.js";
 import {
-  registerAppSessionCloseLifecycle,
   registerArchiveLifecycle,
   registerConversationLifecycle,
 } from "../delivery.js";
@@ -138,15 +137,14 @@ describe("server-side conformance executable divergence proofs", () => {
     expectInvariant(failure, "conversation-lifecycle");
   }, 10_000);
 
-  it("registerAppSessionCloseLifecycle fails when close does not broadcast lifecycle", async () => {
-    const failure = await runSingleServerProof(
-      registerAppSessionCloseLifecycle,
-      {
-        behavior: "app-close-missing-lifecycle-event",
-      },
-    );
-    expectInvariant(failure, "app-session-close-lifecycle");
-  }, 10_000);
+  // Phase 7 cutover deleted the apps/createSession-driven bootstrap, so
+  // the registerAppSessionCloseLifecycle property short-circuits with
+  // PropertyUnavailable in fixture acquisition (no replacement path until
+  // Phase 9 wires task/closed emission via TM topology). Tombstoning the
+  // divergence proof until reactivated alongside that work (#318).
+  it.todo(
+    "registerAppSessionCloseLifecycle fails when close does not broadcast lifecycle (Phase 9 reactivation)",
+  );
 
   // Presence — all six fail under a server that answers RPCs but never
   // broadcasts presence/changed (the pre-arena#252 shape).

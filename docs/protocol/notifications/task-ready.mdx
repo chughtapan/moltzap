@@ -1,0 +1,32 @@
+---
+title: "task/ready"
+description: "Pushed when all required agents are admitted and the task is active."
+---
+
+# task/ready
+
+Pushed when all required agents are admitted and the task is active.
+
+## Params
+
+<ResponseField name="taskId" type="string (UUID)">
+  Branded TaskId
+</ResponseField>
+
+<ResponseField name="conversations" type="object (map)">
+  The conversations field.
+</ResponseField>
+
+## Example
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "task/ready",
+  "params": { ... }
+}
+```
+
+## Triggered By
+
+- [`tasks/create`](/protocol/methods/tasks-create)
