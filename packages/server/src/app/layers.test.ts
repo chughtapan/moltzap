@@ -9,6 +9,7 @@ import { LoggerLive, getLogger } from "../logger.js";
 import { Broadcaster } from "../ws/broadcaster.js";
 import { ConnectionManager } from "../ws/connection.js";
 import { AuthService } from "../services/auth.service.js";
+import { ContactsService } from "../services/contact.service.js";
 import { ConversationService } from "../services/conversation.service.js";
 import { DeliveryService } from "../services/delivery.service.js";
 import { MessageService } from "../services/message.service.js";
@@ -68,16 +69,15 @@ it.effect("ServicesLive resolves every service via resolveServices", () =>
     expect(services.authService).toBeInstanceOf(AuthService);
     expect(services.participantService).toBeInstanceOf(ParticipantService);
     expect(services.conversationService).toBeInstanceOf(ConversationService);
+    expect(services.contactService).toBeInstanceOf(ContactsService);
     expect(services.deliveryService).toBeInstanceOf(DeliveryService);
     expect(services.presenceService).toBeInstanceOf(PresenceService);
     expect(services.appHost).toBeInstanceOf(AppHost);
     expect(services.messageService).toBeInstanceOf(MessageService);
     expect(typeof services.traceCapture.record).toBe("function");
 
-    // All 13 slots are populated — `null` counts for encryption.
-    const keys = Object.keys(services);
-    expect(keys.length).toBe(13);
-    for (const k of keys) {
+    // Every slot is populated — `null` counts for encryption.
+    for (const k of Object.keys(services)) {
       if (k === "encryption") continue;
       expect(services[k as keyof typeof services]).not.toBeNull();
       expect(services[k as keyof typeof services]).toBeDefined();

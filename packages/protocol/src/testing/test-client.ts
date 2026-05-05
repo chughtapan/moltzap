@@ -72,7 +72,7 @@ import {
   TransportIoError,
 } from "./errors.js";
 
-import { Connect } from "../schema/methods/auth.js";
+import { Connect } from "../network/methods/auth.js";
 
 /**
  * Options for connecting a TestClient. `serverUrl` is the `ws://…` URL of

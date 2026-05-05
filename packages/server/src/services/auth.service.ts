@@ -135,6 +135,21 @@ export class AuthService {
     );
   }
 
+  agentsForOwner(
+    ownerUserId: UserId,
+  ): Effect.Effect<ReadonlyArray<AgentId>, never> {
+    return catchSqlErrorAsDefect(
+      Effect.gen(this, function* () {
+        const rows = yield* this.db
+          .selectFrom("agents")
+          .select(["id"])
+          .where("owner_user_id", "=", ownerUserId)
+          .where("status", "=", "active");
+        return rows.map((r) => AgentId(r.id));
+      }),
+    );
+  }
+
   authenticateAgent(apiKey: string): Effect.Effect<
     {
       agentId: AgentId;

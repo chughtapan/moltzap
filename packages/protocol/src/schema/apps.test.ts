@@ -6,7 +6,7 @@ import {
   AppSessionSchema,
   AppParticipantStatusEnum,
 } from "./apps.js";
-import { AppsAuthorizeDispatch } from "./methods/apps.js";
+import { AppsAuthorizeDispatch } from "../app/methods/apps.js";
 
 const ajv = addFormats(new Ajv({ strict: true, allErrors: true }));
 

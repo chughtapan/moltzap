@@ -299,6 +299,7 @@ export function resetCoreTestDb() {
       app_session_conversations, app_session_participants, app_sessions,
       message_delivery, messages,
       conversation_participants, conversation_keys, conversations,
+      contacts,
       agents, encryption_keys
     CASCADE;
   `);

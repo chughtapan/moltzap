@@ -110,7 +110,6 @@ export function extractContactRequest(frame: NotificationFrame): {
   contact: {
     id: string;
     contactUserId: string;
-    source: string;
   };
 } | null {
   return Option.match(decodedNotification(frame), {
@@ -126,7 +125,6 @@ export function extractContactAccepted(frame: NotificationFrame): {
   contact: {
     id: string;
     contactUserId: string;
-    source: string;
   };
 } | null {
   return Option.match(decodedNotification(frame), {

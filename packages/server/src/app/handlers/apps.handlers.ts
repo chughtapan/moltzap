@@ -11,7 +11,7 @@ import {
 } from "@moltzap/protocol";
 import { Effect } from "effect";
 import { ConnIdTag } from "../layers.js";
-import { defineMethod } from "../../rpc/context.js";
+import { defineAppMethod } from "../../rpc/define-layered-method.js";
 
 const DEFAULT_APP_SESSION_LIST_LIMIT = 50;
 
@@ -19,7 +19,7 @@ export function createAppHandlers(deps: {
   appHost: AppHost;
 }): RpcMethodRegistry {
   return [
-    defineMethod(AppsRegister, {
+    defineAppMethod(AppsRegister, {
       // A client-originated `apps/register` call means the connected client wants to
       // serve the app's hook RPCs (`apps/onBeforeDispatch`, etc.). We
       // record the calling connection id so AppHost dispatches future
@@ -36,7 +36,7 @@ export function createAppHandlers(deps: {
           return { appId: params.manifest.appId };
         }),
     }),
-    defineMethod(AppsCreate, {
+    defineAppMethod(AppsCreate, {
       handler: (params, ctx) =>
         Effect.gen(function* () {
           const session = yield* deps.appHost.createSession(
@@ -47,11 +47,11 @@ export function createAppHandlers(deps: {
           return { session };
         }),
     }),
-    defineMethod(AppsCloseSession, {
+    defineAppMethod(AppsCloseSession, {
       handler: (params, ctx) =>
         deps.appHost.closeSession(params.sessionId, ctx.agentId),
     }),
-    defineMethod(AppsGetSession, {
+    defineAppMethod(AppsGetSession, {
       handler: (params, ctx) =>
         Effect.gen(function* () {
           const session = yield* deps.appHost.getSession(
@@ -61,7 +61,7 @@ export function createAppHandlers(deps: {
           return { session };
         }),
     }),
-    defineMethod(AppsListSessions, {
+    defineAppMethod(AppsListSessions, {
       handler: (params, ctx) =>
         Effect.gen(function* () {
           const sessions = yield* deps.appHost.listSessions(ctx.agentId, {
@@ -104,7 +104,7 @@ export function createAppHandlers(deps: {
     // session ownership + conversation existence; tracking convId→appId
     // ownership is a schema change that has to come from architect, not
     // senior. Filed as a ratchet escalation in the PR comment.
-    defineMethod(AppsAttachConversation, {
+    defineAppMethod(AppsAttachConversation, {
       handler: (params) =>
         Effect.gen(function* () {
           // SessionNotFound (-32021) and Forbidden (-32001) round-trip to
@@ -123,7 +123,7 @@ export function createAppHandlers(deps: {
           return {};
         }),
     }),
-    defineMethod(AppsAuthorizeDispatch, {
+    defineAppMethod(AppsAuthorizeDispatch, {
       requiresActive: true,
       handler: (params, ctx) =>
         Effect.gen(function* () {

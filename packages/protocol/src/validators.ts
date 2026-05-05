@@ -15,14 +15,14 @@ import {
   AgentsLookup,
   AgentsLookupByName,
   AgentsList,
-} from "./schema/methods/auth.js";
-import { MessagesSend, MessagesList } from "./schema/methods/messages.js";
+} from "./network/methods/auth.js";
+import { MessagesSend, MessagesList } from "./task/methods/messages.js";
 import {
   ContactsList,
   ContactsAdd,
   ContactsAccept,
-  ContactId_,
-} from "./schema/methods/contacts.js";
+  ContactsById,
+} from "./task/methods/contacts.js";
 import {
   ConversationsCreate,
   ConversationsList,
@@ -35,12 +35,9 @@ import {
   ConversationsUnmute,
   ConversationsArchive,
   ConversationsUnarchive,
-} from "./schema/methods/conversations.js";
-import { InvitesCreateAgent } from "./schema/methods/invites.js";
-import {
-  PresenceUpdate,
-  PresenceSubscribe,
-} from "./schema/methods/presence.js";
+} from "./task/methods/conversations.js";
+import { InvitesCreateAgent } from "./task/methods/invites.js";
+import { PresenceUpdate, PresenceSubscribe } from "./task/methods/presence.js";
 import {
   AppParticipantAdmittedNotificationDefinition,
   AppParticipantRejectedNotificationDefinition,
@@ -65,8 +62,8 @@ import {
   AppsListSessions,
   AppsAuthorizeDispatch,
   AppsAttachConversation,
-} from "./schema/methods/apps.js";
-import { SystemPing } from "./schema/methods/system.js";
+} from "./app/methods/apps.js";
+import { SystemPing } from "./network/methods/system.js";
 
 /**
  * Named validator table. Every RPC manifest's `validateParams` is re-exported
@@ -102,7 +99,7 @@ export const validators = {
   contactsListParams: ContactsList.validateParams,
   contactsAddParams: ContactsAdd.validateParams,
   contactsAcceptParams: ContactsAccept.validateParams,
-  contactIdParams: ContactId_.validateParams,
+  contactsByIdParams: ContactsById.validateParams,
 
   // Conversations.
   conversationsCreateParams: ConversationsCreate.validateParams,

@@ -1,8 +1,8 @@
 import { Type, type Static } from "@sinclair/typebox";
-import { AgentId, ConversationId, MessageId } from "../primitives.js";
-import { AppManifestSchema, AppSessionSchema } from "../apps.js";
-import { PartSchema } from "../messages.js";
-import { LogicalClockSchema } from "../logical-clock.js";
+import { AgentId, ConversationId, MessageId } from "../../schema/primitives.js";
+import { AppManifestSchema, AppSessionSchema } from "../../schema/apps.js";
+import { PartSchema } from "../../schema/messages.js";
+import { LogicalClockSchema } from "../../schema/logical-clock.js";
 import { DateTimeString, stringEnum } from "../../helpers.js";
 import { defineRpc } from "../../rpc.js";
 

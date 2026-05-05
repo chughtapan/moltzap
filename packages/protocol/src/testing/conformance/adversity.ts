@@ -38,8 +38,8 @@ import {
 import {
   ConversationsCreate,
   ConversationsList,
-} from "../../schema/methods/conversations.js";
-import { MessagesSend } from "../../schema/methods/messages.js";
+} from "../../task/methods/conversations.js";
+import { MessagesSend } from "../../task/methods/messages.js";
 import { ConversationId, conversationId } from "../../schema/primitives.js";
 
 const CATEGORY = "adversity" as const;

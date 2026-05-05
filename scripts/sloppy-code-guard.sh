@@ -159,24 +159,24 @@ const path = require("node:path");
 const ts = require("typescript");
 
 const repo = process.cwd();
-const methodsDir = path.join(
-  repo,
-  "packages",
-  "protocol",
-  "src",
-  "schema",
-  "methods",
-);
+const methodsDirs = [
+  path.join(repo, "packages", "protocol", "src", "network", "methods"),
+  path.join(repo, "packages", "protocol", "src", "task", "methods"),
+  path.join(repo, "packages", "protocol", "src", "app", "methods"),
+];
 
 const methodByName = new Map();
-for (const entry of fs.readdirSync(methodsDir)) {
-  if (!entry.endsWith(".ts") || entry.endsWith(".test.ts")) continue;
-  const file = path.join(methodsDir, entry);
-  const text = fs.readFileSync(file, "utf8");
-  const pattern =
-    /export\s+const\s+([A-Za-z0-9_]+)\s*=\s*defineRpc\(\s*\{[\s\S]*?\bname:\s*"([^"]+)"/g;
-  for (const match of text.matchAll(pattern)) {
-    methodByName.set(match[2], match[1]);
+for (const methodsDir of methodsDirs) {
+  if (!fs.existsSync(methodsDir)) continue;
+  for (const entry of fs.readdirSync(methodsDir)) {
+    if (!entry.endsWith(".ts") || entry.endsWith(".test.ts")) continue;
+    const file = path.join(methodsDir, entry);
+    const text = fs.readFileSync(file, "utf8");
+    const pattern =
+      /export\s+const\s+([A-Za-z0-9_]+)\s*=\s*defineRpc\(\s*\{[\s\S]*?\bname:\s*"([^"]+)"/g;
+    for (const match of text.matchAll(pattern)) {
+      methodByName.set(match[2], match[1]);
+    }
   }
 }
 
@@ -199,7 +199,7 @@ const files = [];
 walk(path.join(repo, "packages"), files);
 
 function isMethodDefinitionFile(file) {
-  return file.startsWith(methodsDir + path.sep);
+  return methodsDirs.some((dir) => file.startsWith(dir + path.sep));
 }
 
 for (const file of files) {

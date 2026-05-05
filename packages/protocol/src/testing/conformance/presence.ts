@@ -13,7 +13,7 @@ import {
   notificationGroup,
 } from "../../schema/notifications.js";
 import { decodeNotification, isDecodedNotification } from "../../rpc-groups.js";
-import { PresenceSubscribe } from "../../schema/methods/presence.js";
+import { PresenceSubscribe } from "../../task/methods/presence.js";
 import { AgentId } from "../../schema/primitives.js";
 import {
   makeCloseableTestClient,
@@ -26,7 +26,7 @@ import { isNotificationFrame } from "../codec.js";
 import type { ConformanceRunContext } from "./runner.js";
 import { PropertyInvariantViolation, registerProperty } from "./registry.js";
 
-import { Connect } from "../../schema/methods/auth.js";
+import { Connect } from "../../network/methods/auth.js";
 
 const CATEGORY = "presence" as const;
 const DEFAULT_TIMEOUT_MS = 5000;

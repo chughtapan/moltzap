@@ -23,7 +23,7 @@ export type {
 export type { RpcError, ErrorCode } from "./schema/errors.js";
 
 // Auth shared shapes (not RPC params/results — those come from the manifest).
-export type { HelloOk, OwnedAgent } from "./schema/methods/auth.js";
+export type { HelloOk, OwnedAgent } from "./network/methods/auth.js";
 
 // App shared shapes.
 export type {

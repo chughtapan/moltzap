@@ -24,7 +24,7 @@ import { registerProperty } from "../registry.js";
 import { acquireFixture, invariant } from "./_fixtures.js";
 import { isRequestFrame } from "../../codec.js";
 
-import { AgentsList } from "../../../schema/methods/auth.js";
+import { AgentsList } from "../../../network/methods/auth.js";
 
 const CATEGORY = "rpc-semantics" as const;
 const CALL_BUDGET_MS = 5_000;
