@@ -143,7 +143,8 @@ export class AuthService {
         const rows = yield* this.db
           .selectFrom("agents")
           .select(["id"])
-          .where("owner_user_id", "=", ownerUserId);
+          .where("owner_user_id", "=", ownerUserId)
+          .where("status", "=", "active");
         return rows.map((r) => AgentId(r.id));
       }),
     );

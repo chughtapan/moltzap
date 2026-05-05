@@ -21,7 +21,7 @@ import {
   notificationFrame,
 } from "@moltzap/protocol";
 import { Effect } from "effect";
-import { defineMethod } from "../../rpc/context.js";
+import { defineTaskMethod } from "../../rpc/define-layered-method.js";
 import { ConnIdTag } from "../../app/layers.js";
 
 export function createConversationHandlers(deps: {
@@ -30,7 +30,7 @@ export function createConversationHandlers(deps: {
   connections: ConnectionManager;
 }): RpcMethodRegistry {
   return [
-    defineMethod(ConversationsCreate, {
+    defineTaskMethod(ConversationsCreate, {
       requiresActive: true,
       handler: (params, ctx) =>
         Effect.gen(function* () {
@@ -59,7 +59,7 @@ export function createConversationHandlers(deps: {
           return { conversation };
         }),
     }),
-    defineMethod(ConversationsList, {
+    defineTaskMethod(ConversationsList, {
       requiresActive: true,
       handler: (params, ctx) =>
         deps.conversationService.list(
@@ -69,12 +69,12 @@ export function createConversationHandlers(deps: {
           params.archived,
         ),
     }),
-    defineMethod(ConversationsGet, {
+    defineTaskMethod(ConversationsGet, {
       requiresActive: true,
       handler: (params, ctx) =>
         deps.conversationService.get(params.conversationId, ctx.agentId),
     }),
-    defineMethod(ConversationsUpdate, {
+    defineTaskMethod(ConversationsUpdate, {
       requiresActive: true,
       handler: (params, ctx) =>
         Effect.gen(function* () {
@@ -94,7 +94,7 @@ export function createConversationHandlers(deps: {
           return { conversation };
         }),
     }),
-    defineMethod(ConversationsLeave, {
+    defineTaskMethod(ConversationsLeave, {
       requiresActive: true,
       handler: (params, ctx) =>
         Effect.gen(function* () {
@@ -110,7 +110,7 @@ export function createConversationHandlers(deps: {
           return {};
         }),
     }),
-    defineMethod(ConversationsArchive, {
+    defineTaskMethod(ConversationsArchive, {
       requiresActive: true,
       handler: (params, ctx) =>
         Effect.gen(function* () {
@@ -129,7 +129,7 @@ export function createConversationHandlers(deps: {
           return {};
         }),
     }),
-    defineMethod(ConversationsUnarchive, {
+    defineTaskMethod(ConversationsUnarchive, {
       requiresActive: true,
       handler: (params, ctx) =>
         Effect.gen(function* () {
@@ -147,7 +147,7 @@ export function createConversationHandlers(deps: {
           return {};
         }),
     }),
-    defineMethod(ConversationsMute, {
+    defineTaskMethod(ConversationsMute, {
       requiresActive: true,
       handler: (params, ctx) =>
         Effect.gen(function* () {
@@ -164,7 +164,7 @@ export function createConversationHandlers(deps: {
           return {};
         }),
     }),
-    defineMethod(ConversationsUnmute, {
+    defineTaskMethod(ConversationsUnmute, {
       requiresActive: true,
       handler: (params, ctx) =>
         Effect.gen(function* () {
@@ -181,7 +181,7 @@ export function createConversationHandlers(deps: {
         }),
     }),
 
-    defineMethod(ConversationsAddParticipant, {
+    defineTaskMethod(ConversationsAddParticipant, {
       requiresActive: true,
       handler: (params, ctx) =>
         Effect.gen(function* () {
@@ -199,7 +199,7 @@ export function createConversationHandlers(deps: {
         }),
     }),
 
-    defineMethod(ConversationsRemoveParticipant, {
+    defineTaskMethod(ConversationsRemoveParticipant, {
       requiresActive: true,
       handler: (params, ctx) =>
         Effect.gen(function* () {

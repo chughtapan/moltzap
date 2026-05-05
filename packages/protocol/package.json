@@ -26,6 +26,18 @@
       "types": "./dist/schema/primitives.d.ts",
       "import": "./dist/schema/primitives.js"
     },
+    "./network": {
+      "types": "./dist/network/index.d.ts",
+      "import": "./dist/network/index.js"
+    },
+    "./task": {
+      "types": "./dist/task/index.d.ts",
+      "import": "./dist/task/index.js"
+    },
+    "./app": {
+      "types": "./dist/app/index.d.ts",
+      "import": "./dist/app/index.js"
+    },
     "./testing": {
       "types": "./dist/testing/index.d.ts",
       "import": "./dist/testing/index.js"

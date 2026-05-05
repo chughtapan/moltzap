@@ -2,7 +2,7 @@ import type { AuthService } from "../../services/auth.service.js";
 import type { ConversationService } from "../../services/conversation.service.js";
 import type { PresenceService } from "../../services/presence.service.js";
 import type { UserService } from "../../services/user.service.js";
-import { defineMethod } from "../../rpc/context.js";
+import { defineNetworkMethod } from "../../rpc/define-layered-method.js";
 import { sql } from "kysely";
 import { Effect, Option } from "effect";
 import { ConnIdTag } from "../../app/layers.js";
@@ -65,7 +65,7 @@ export function createCoreAuthHandlers(deps: {
   userService: UserService | null;
 }): RpcMethodRegistry {
   return [
-    defineMethod(Connect, {
+    defineNetworkMethod(Connect, {
       handler: (params) =>
         catchSqlErrorAsDefect(
           Effect.gen(function* () {
@@ -113,7 +113,7 @@ export function createCoreAuthHandlers(deps: {
         ),
     }),
 
-    defineMethod(AgentsLookup, {
+    defineNetworkMethod(AgentsLookup, {
       handler: (params) =>
         catchSqlErrorAsDefect(
           Effect.gen(function* () {
@@ -132,7 +132,7 @@ export function createCoreAuthHandlers(deps: {
           }),
         ),
     }),
-    defineMethod(AgentsLookupByName, {
+    defineNetworkMethod(AgentsLookupByName, {
       handler: (params) =>
         catchSqlErrorAsDefect(
           Effect.gen(function* () {
@@ -152,7 +152,7 @@ export function createCoreAuthHandlers(deps: {
           }),
         ),
     }),
-    defineMethod(AgentsList, {
+    defineNetworkMethod(AgentsList, {
       requiresActive: true,
       handler: (_params, ctx) =>
         catchSqlErrorAsDefect(

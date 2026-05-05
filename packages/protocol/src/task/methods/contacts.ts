@@ -1,6 +1,6 @@
 import { Type } from "@sinclair/typebox";
-import { ContactId, UserId } from "../primitives.js";
-import { ContactSchema } from "../contacts.js";
+import { ContactId, UserId } from "../../schema/primitives.js";
+import { ContactSchema } from "../../schema/contacts.js";
 import { defineRpc } from "../../rpc.js";
 
 export const ContactsList = defineRpc({

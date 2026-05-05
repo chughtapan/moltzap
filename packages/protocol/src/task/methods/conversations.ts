@@ -1,12 +1,12 @@
 import { Type } from "@sinclair/typebox";
 import { stringEnum, DateTimeString } from "../../helpers.js";
-import { ConversationId } from "../primitives.js";
+import { ConversationId } from "../../schema/primitives.js";
 import {
   ConversationSchema,
   ConversationTypeEnum,
   ConversationParticipantSchema,
   ConversationSummarySchema,
-} from "../conversations.js";
+} from "../../schema/conversations.js";
 import { defineRpc } from "../../rpc.js";
 
 const AgentParticipantSchema = Type.Object(

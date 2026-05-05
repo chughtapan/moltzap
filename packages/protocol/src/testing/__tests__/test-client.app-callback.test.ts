@@ -28,7 +28,7 @@ import { validators } from "../../validators.js";
 import type { AnyAppCallbackRpcDefinition } from "../../rpc-registry.js";
 import type { ParamsOf } from "../../rpc.js";
 
-import { AppsOnClose, AppsOnSessionActive } from "../../schema/methods/apps.js";
+import { AppsOnClose, AppsOnSessionActive } from "../../app/methods/apps.js";
 import { agentId } from "../../schema/primitives.js";
 
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";

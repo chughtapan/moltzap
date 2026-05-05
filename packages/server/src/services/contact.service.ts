@@ -26,9 +26,7 @@ export interface ContactCreateInput {
 
 export interface ContactAcceptResult {
   readonly contact: Contact;
-  /** True iff this call performed the pending → accepted transition.
-   * False when the contact was already accepted by a prior call (concurrent
-   * accept() races resolve so only one caller observes `transitioned: true`). */
+  readonly requesterUserId: BrandedUserId;
   readonly transitioned: boolean;
 }
 
@@ -81,12 +79,6 @@ export class ContactsService {
     );
   }
 
-  /**
-   * Atomically transition a pending contact to accepted. Concurrent callers
-   * race on the `WHERE status = 'pending'` clause; the loser observes
-   * `transitioned: false` and the handler skips notification fan-out, so
-   * `contact/accepted` fires exactly once per accept.
-   */
   accept(
     owner: BrandedUserId,
     id: BrandedContactId,
@@ -102,8 +94,6 @@ export class ContactsService {
           .returningAll();
 
         if (updated.length === 0) {
-          // Either: not-found, not-recipient, or already-accepted by a
-          // concurrent call. Disambiguate with one read.
           const existing = yield* this.db
             .selectFrom("contacts")
             .selectAll()
@@ -115,12 +105,14 @@ export class ContactsService {
           if (row.contact_user_id !== owner) {
             return yield* Effect.fail(forbidden(ERR_NOT_RECIPIENT));
           }
-          return { contact: rowToContact(row), transitioned: false };
+          return {
+            contact: rowToContact(row),
+            requesterUserId: userId(row.owner_user_id),
+            transitioned: false,
+          };
         }
 
         const row = updated[0]!;
-        // Mirror row so both sides see the contact in their list. ON CONFLICT
-        // covers the race where the requester also has us as a contact.
         yield* this.db
           .insertInto("contacts")
           .values({
@@ -134,7 +126,11 @@ export class ContactsService {
               status: "accepted",
             }),
           );
-        return { contact: rowToContact(row), transitioned: true };
+        return {
+          contact: rowToContact(row),
+          requesterUserId: userId(row.owner_user_id),
+          transitioned: true,
+        };
       }),
     );
   }

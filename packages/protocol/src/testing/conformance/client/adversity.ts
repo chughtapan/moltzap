@@ -37,7 +37,7 @@ import {
   subscribeAll,
 } from "./_fixtures.js";
 
-import { AgentsList } from "../../../schema/methods/auth.js";
+import { AgentsList } from "../../../network/methods/auth.js";
 
 const CATEGORY = "adversity" as const;
 const PROPERTY_BUDGET_MS = 10_000;

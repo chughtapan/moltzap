@@ -1,7 +1,7 @@
 import type { MessageService } from "../../services/message.service.js";
 import type { ConversationService } from "../../services/conversation.service.js";
 import type { RpcMethodRegistry } from "../../rpc/context.js";
-import { defineMethod } from "../../rpc/context.js";
+import { defineTaskMethod } from "../../rpc/define-layered-method.js";
 import {
   MessagesSend,
   MessagesList,
@@ -31,7 +31,7 @@ export function createMessageHandlers(deps: {
   db: Db;
 }): RpcMethodRegistry {
   return [
-    defineMethod(MessagesSend, {
+    defineTaskMethod(MessagesSend, {
       requiresActive: true,
       handler: (params, ctx) =>
         catchSqlErrorAsDefect(
@@ -88,7 +88,7 @@ export function createMessageHandlers(deps: {
           }),
         ),
     }),
-    defineMethod(MessagesList, {
+    defineTaskMethod(MessagesList, {
       requiresActive: true,
       handler: (params, ctx) =>
         deps.messageService.list(params.conversationId, ctx.agentId, {

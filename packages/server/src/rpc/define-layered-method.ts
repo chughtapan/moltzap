@@ -9,38 +9,13 @@ import type { RpcFailure } from "../runtime/index.js";
 import type { ConnIdTag } from "../app/layers.js";
 import {
   AppLayerScope,
-  APP_SCOPE,
   NetworkLayerScope,
-  NETWORK_SCOPE,
   TaskLayerScope,
-  TASK_SCOPE,
 } from "./layer-scopes.js";
 
 type NetworkR = ConnIdTag | NetworkLayerScope;
 type TaskR = NetworkR | TaskLayerScope;
 type AppR = TaskR | AppLayerScope;
-
-const provideNetwork = <A, E>(
-  e: Effect.Effect<A, E, NetworkR>,
-): Effect.Effect<A, E, ConnIdTag> =>
-  e.pipe(Effect.provideService(NetworkLayerScope, NETWORK_SCOPE));
-
-const provideTask = <A, E>(
-  e: Effect.Effect<A, E, TaskR>,
-): Effect.Effect<A, E, ConnIdTag> =>
-  e.pipe(
-    Effect.provideService(NetworkLayerScope, NETWORK_SCOPE),
-    Effect.provideService(TaskLayerScope, TASK_SCOPE),
-  );
-
-const provideApp = <A, E>(
-  e: Effect.Effect<A, E, AppR>,
-): Effect.Effect<A, E, ConnIdTag> =>
-  e.pipe(
-    Effect.provideService(NetworkLayerScope, NETWORK_SCOPE),
-    Effect.provideService(TaskLayerScope, TASK_SCOPE),
-    Effect.provideService(AppLayerScope, APP_SCOPE),
-  );
 
 interface MethodDef<P extends TSchema, R extends TSchema, Required> {
   readonly handler: (
@@ -59,7 +34,10 @@ export function defineNetworkMethod<
   def: MethodDef<P, R, NetworkR>,
 ): RpcMethodBinding<RpcDefinition<Name, P, R>> {
   return defineMethod(definition, {
-    handler: (params, ctx) => provideNetwork(def.handler(params, ctx)),
+    handler: (params, ctx) =>
+      def
+        .handler(params, ctx)
+        .pipe(Effect.provideService(NetworkLayerScope, undefined)),
     requiresActive: def.requiresActive,
   });
 }
@@ -73,7 +51,13 @@ export function defineTaskMethod<
   def: MethodDef<P, R, TaskR>,
 ): RpcMethodBinding<RpcDefinition<Name, P, R>> {
   return defineMethod(definition, {
-    handler: (params, ctx) => provideTask(def.handler(params, ctx)),
+    handler: (params, ctx) =>
+      def
+        .handler(params, ctx)
+        .pipe(
+          Effect.provideService(NetworkLayerScope, undefined),
+          Effect.provideService(TaskLayerScope, undefined),
+        ),
     requiresActive: def.requiresActive,
   });
 }
@@ -87,7 +71,14 @@ export function defineAppMethod<
   def: MethodDef<P, R, AppR>,
 ): RpcMethodBinding<RpcDefinition<Name, P, R>> {
   return defineMethod(definition, {
-    handler: (params, ctx) => provideApp(def.handler(params, ctx)),
+    handler: (params, ctx) =>
+      def
+        .handler(params, ctx)
+        .pipe(
+          Effect.provideService(NetworkLayerScope, undefined),
+          Effect.provideService(TaskLayerScope, undefined),
+          Effect.provideService(AppLayerScope, undefined),
+        ),
     requiresActive: def.requiresActive,
   });
 }

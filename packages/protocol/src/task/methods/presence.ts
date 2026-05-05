@@ -1,6 +1,9 @@
 import { Type } from "@sinclair/typebox";
-import { PresenceStatusEnum, PresenceEntrySchema } from "../presence.js";
-import { AgentId } from "../primitives.js";
+import {
+  PresenceStatusEnum,
+  PresenceEntrySchema,
+} from "../../schema/presence.js";
+import { AgentId } from "../../schema/primitives.js";
 import { defineRpc } from "../../rpc.js";
 
 export const PresenceUpdate = defineRpc({

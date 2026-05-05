@@ -1,6 +1,6 @@
 import { Type } from "@sinclair/typebox";
-import { ConversationId, MessageId } from "../primitives.js";
-import { MessageSchema, PartSchema } from "../messages.js";
+import { ConversationId, MessageId } from "../../schema/primitives.js";
+import { MessageSchema, PartSchema } from "../../schema/messages.js";
 import { defineRpc } from "../../rpc.js";
 
 export const MessagesSend = defineRpc({
