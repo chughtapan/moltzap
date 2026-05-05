@@ -69,12 +69,7 @@ export function createContactHandlers(deps: {
       handler: (params, ctx) =>
         Effect.gen(function* () {
           const owner = yield* requireOwner(ctx);
-          const contact = yield* contactService.add(owner, {
-            contactUserId: params.contactUserId,
-            ...(params.relationship !== undefined
-              ? { relationship: params.relationship }
-              : {}),
-          });
+          const contact = yield* contactService.add(owner, params);
           yield* fanOut(
             params.contactUserId,
             ContactRequestNotificationDefinition,
@@ -88,15 +83,16 @@ export function createContactHandlers(deps: {
       handler: (params, ctx) =>
         Effect.gen(function* () {
           const owner = yield* requireOwner(ctx);
-          const contact = yield* contactService.accept(owner, params.contactId);
-          // Notify the original requester with the inverse view: their row
-          // points at the recipient (the caller).
-          yield* fanOut(
-            contact.contactUserId,
-            ContactAcceptedNotificationDefinition,
-            { contact: { ...contact, contactUserId: owner } },
-          );
-          return { contact };
+          const result = yield* contactService.accept(owner, params.contactId);
+          if (result.transitioned) {
+            // Inverse view: the requester's row points at the recipient.
+            yield* fanOut(
+              result.contact.contactUserId,
+              ContactAcceptedNotificationDefinition,
+              { contact: { ...result.contact, contactUserId: owner } },
+            );
+          }
+          return { contact: result.contact };
         }),
     }),
 
