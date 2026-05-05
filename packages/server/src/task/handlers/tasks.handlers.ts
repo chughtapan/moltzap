@@ -132,6 +132,7 @@ export function createTaskHandlers(deps: {
     defineTaskMethod(TasksGetMessages, {
       handler: (params, ctx) =>
         taskService.getMessages(params.taskId, ctx.agentId, {
+          conversationId: params.conversationId,
           limit: params.limit,
         }),
     }),
@@ -139,6 +140,7 @@ export function createTaskHandlers(deps: {
     defineTaskMethod(TasksGetMessagesSince, {
       handler: (params, ctx) =>
         taskService.getMessagesSince(params.taskId, ctx.agentId, {
+          conversationId: params.conversationId,
           sinceSeq: params.sinceSeq,
           limit: params.limit,
         }),

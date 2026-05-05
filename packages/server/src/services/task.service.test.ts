@@ -309,12 +309,30 @@ describe("TaskService", () => {
   });
 
   describe("brand-decoded TM authority", () => {
+    // The brand factory rejects malformed addresses at construction
+    // (Brand.refined predicate). The service maps the throw to a
+    // typed RpcFailure so a corrupt persisted column never silently
+    // compares as a non-match.
     it("rejects when persisted address is foreign-formatted", async () => {
       const svc = new TaskService(db, STUB_CONV, STUB_MSG);
       const task = await Effect.runPromise(svc.create(ALICE, {}));
       await db
         .updateTable("tasks")
         .set({ tm_endpoint_address: "tm://foreign/addr-1" })
+        .where("id", "=", task.id)
+        .execute();
+      const exit = await Effect.runPromise(
+        Effect.exit(svc.requireTmAuthority(task.id, ALICE)),
+      );
+      expect(rpcFailureCode(exit)).toBe(ErrorCodes.Forbidden);
+    });
+
+    it("rejects when persisted address is empty", async () => {
+      const svc = new TaskService(db, STUB_CONV, STUB_MSG);
+      const task = await Effect.runPromise(svc.create(ALICE, {}));
+      await db
+        .updateTable("tasks")
+        .set({ tm_endpoint_address: "" })
         .where("id", "=", task.id)
         .execute();
       const exit = await Effect.runPromise(

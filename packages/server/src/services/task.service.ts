@@ -1,4 +1,4 @@
-import { Effect, Either, Option } from "effect";
+import { Effect, Option } from "effect";
 import {
   endpointAddress as brandEndpointAddress,
   type EndpointAddress,
@@ -39,6 +39,10 @@ const ERR_TM_OWNED_BY_OTHER =
 const ERR_CONV_NOT_IN_TASK =
   "Conversation does not belong to the specified task";
 const ERR_TASK_NOT_OPEN = "Task is not open for mutation";
+
+function absurdTaskStatus(status: never): never {
+  throw new Error(`unreachable task status: ${JSON.stringify(status)}`);
+}
 
 const DEFAULT_TASK_LIST_LIMIT = 50;
 const DEFAULT_TASK_MESSAGES_LIMIT = 50;
@@ -99,10 +103,12 @@ export interface TaskListInput {
 }
 
 export interface TaskMessagesInput {
+  readonly conversationId: string;
   readonly limit?: number;
 }
 
 export interface TaskMessagesSinceInput {
+  readonly conversationId: string;
   readonly sinceSeq: string;
   readonly limit?: number;
 }
@@ -300,13 +306,23 @@ export class TaskService {
   ): Effect.Effect<Task, RpcFailure> {
     return Effect.gen(this, function* () {
       const task = yield* this.fetchTask(id);
-      if (task.status === "closed" || task.status === "failed") {
-        return yield* Effect.fail(forbidden(ERR_TASK_NOT_OPEN));
+      switch (task.status) {
+        case "waiting":
+        case "active":
+          break;
+        case "closed":
+        case "failed":
+          return yield* Effect.fail(forbidden(ERR_TASK_NOT_OPEN));
+        default:
+          return absurdTaskStatus(task.status);
       }
       if (task.tmEndpointAddress === null) {
         return yield* Effect.fail(forbidden(ERR_NO_TM));
       }
-      const recorded = brandEndpointAddress(task.tmEndpointAddress);
+      const recorded = yield* Effect.try({
+        try: () => brandEndpointAddress(task.tmEndpointAddress!),
+        catch: () => forbidden(ERR_NOT_TM),
+      });
       const expected = endpointAddressForAgent(caller);
       if (recorded !== expected) {
         return yield* Effect.fail(forbidden(ERR_NOT_TM));
@@ -458,8 +474,10 @@ export class TaskService {
   ): Effect.Effect<{ messages: Message[]; hasMore: boolean }, RpcFailure> {
     return Effect.gen(this, function* () {
       yield* this.requireReadAccess(id, caller);
-      const limit = input.limit ?? DEFAULT_TASK_MESSAGES_LIMIT;
-      return yield* this.fetchTaskMessages(id, caller, { limit });
+      yield* this.requireConversationInTask(id, input.conversationId);
+      return yield* this.messages.list(input.conversationId, caller, {
+        limit: input.limit ?? DEFAULT_TASK_MESSAGES_LIMIT,
+      });
     });
   }
 
@@ -470,9 +488,9 @@ export class TaskService {
   ): Effect.Effect<{ messages: Message[]; hasMore: boolean }, RpcFailure> {
     return Effect.gen(this, function* () {
       yield* this.requireReadAccess(id, caller);
-      const limit = input.limit ?? DEFAULT_TASK_MESSAGES_LIMIT;
-      return yield* this.fetchTaskMessages(id, caller, {
-        limit,
+      yield* this.requireConversationInTask(id, input.conversationId);
+      return yield* this.messages.list(input.conversationId, caller, {
+        limit: input.limit ?? DEFAULT_TASK_MESSAGES_LIMIT,
         sinceSeq: input.sinceSeq,
       });
     });
@@ -529,48 +547,6 @@ export class TaskService {
       );
       if (updated.length > 0) return;
       yield* this.requireConversationInTask(id, conversationId);
-    });
-  }
-
-  private fetchTaskMessages(
-    id: BrandedTaskId,
-    caller: BrandedAgentId,
-    opts: { limit: number; sinceSeq?: string },
-  ): Effect.Effect<{ messages: Message[]; hasMore: boolean }, RpcFailure> {
-    return Effect.gen(this, function* () {
-      const conversationIds = yield* catchSqlErrorAsDefect(
-        this.db
-          .selectFrom("conversations")
-          .select("id")
-          .where("task_id", "=", id),
-      );
-      if (conversationIds.length === 0) {
-        return { messages: [], hasMore: false };
-      }
-      const pages = yield* Effect.all(
-        conversationIds.map(({ id: convId }) =>
-          Effect.either(
-            this.messages.list(convId, caller, { limit: opts.limit + 1 }),
-          ),
-        ),
-        { concurrency: 8 },
-      );
-      const all: Message[] = [];
-      for (const result of pages) {
-        const messages = Either.match(result, {
-          onLeft: () => [] as readonly Message[],
-          onRight: (page) => page.messages,
-        });
-        for (const message of messages) {
-          if (opts.sinceSeq !== undefined && message.id <= opts.sinceSeq) {
-            continue;
-          }
-          all.push(message);
-        }
-      }
-      all.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
-      const trimmed = all.slice(0, opts.limit);
-      return { messages: trimmed, hasMore: all.length > opts.limit };
     });
   }
 }

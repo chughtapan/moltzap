@@ -153,6 +153,7 @@ export const TasksGetMessages = defineRpc({
   params: Type.Object(
     {
       taskId: TaskId,
+      conversationId: ConversationId,
       limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })),
     },
     { additionalProperties: false },
@@ -171,6 +172,7 @@ export const TasksGetMessagesSince = defineRpc({
   params: Type.Object(
     {
       taskId: TaskId,
+      conversationId: ConversationId,
       sinceSeq: Type.String({
         description: "Snowflake seq cursor (string-encoded BIGINT)",
       }),
