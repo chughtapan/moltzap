@@ -7,7 +7,6 @@ import {
   conversationId,
   messageId,
   notificationFrame,
-  notificationGroup,
 } from "@moltzap/protocol";
 import { decodeFrames, type DecodedNotification } from "./frame.js";
 
@@ -72,17 +71,21 @@ describe("decodeFrames", () => {
     expect(notification._tag).toBe("Notification");
     expect(notification.method).toBe(TaskClosedNotificationDefinition.name);
 
-    // The definition attached by the decoder is the live one; calling
-    // `validateParams` on the stale payload rejects, proving subscribers
-    // (or typed handlers) can detect drift even though the decoder
-    // itself stays opaque.
-    const definition = notificationGroup.byName.get(notification.method);
-    expect(definition).toBeDefined();
-    expect(definition?.validateParams(notification.params)).toBe(false);
+    // R14: assert the decoder ATTACHES the live definition by reference
+    // identity (not via the global registry roundtrip — that would pass
+    // even if the decoder dropped the attachment).
+    expect(notification.definition).toBe(TaskClosedNotificationDefinition);
+
+    // The attached definition rejects the stale payload — subscribers /
+    // typed handlers can detect drift even though the decoder itself
+    // stays opaque.
+    expect(notification.definition.validateParams(notification.params)).toBe(
+      false,
+    );
 
     // And the live shape passes — proves the validator is not vacuously false.
     expect(
-      definition?.validateParams({
+      notification.definition.validateParams({
         taskId: "11111111-1111-4111-8111-111111111111",
         conversations: { main: "22222222-2222-4222-8222-222222222222" },
         closedBy: {

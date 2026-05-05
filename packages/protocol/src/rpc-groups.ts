@@ -331,10 +331,19 @@ export interface EffectNotificationHandlerLayer<
  *
  * The internal handler map stores `unknown -> Effect<void, E, R>` because
  * `Definitions[number]` is a union and each individual binding is keyed
- * to one concrete `D`. Descriptor identity (set during construction) is
- * the soundness proof: dispatch only sees `params` produced by the same
- * descriptor's pre-compiled AJV validator, so the unknown→params cast is
- * the boundary where validation already passed.
+ * to one concrete `D`. Descriptor identity is what proves the type-level
+ * link between the dispatched `params` and the bound handler — but it
+ * does NOT prove the runtime params actually conform to the descriptor's
+ * schema for *inbound* notifications: the wire decoder is payload-opaque
+ * (Phase 7 R11; required so `delivery/payload-opacity-client` and
+ * `boundary/schema-exhaustive-fuzz-client` conformance hold — see
+ * `client/src/runtime/frame.ts`). Outbound handler bindings produced by
+ * trusted call sites that already constructed `params` against the
+ * schema are safe; *inbound* dispatchers MUST validate at the typed
+ * bridge before invoking the handler (see
+ * `client/src/ws-client.ts:acceptTypedNotification`). The cast inside
+ * `dispatch(notification.params)` below is sound for outbound, unsound
+ * for unguarded inbound — wire bridges own the validation step.
  */
 export function defineEffectNotificationHandlers<
   const Definitions extends readonly AnyNotificationDefinition[],

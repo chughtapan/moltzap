@@ -133,9 +133,10 @@ describe("server-side conformance executable divergence proofs", () => {
 
   // Phase 7 cutover deleted the apps/createSession-driven bootstrap, so
   // the registerTaskCloseLifecycle property short-circuits with
-  // PropertyUnavailable in fixture acquisition (no replacement path until
-  // Phase 9 wires task/closed emission via TM topology). Tombstoning the
-  // divergence proof until reactivated alongside that work (#318).
+  // PropertyDeferred in `delivery.ts:registerTaskCloseLifecycle` (no
+  // replacement path until Phase 9 wires task/closed emission via TM
+  // topology). Tombstoning the divergence proof until reactivated
+  // alongside that work (#318).
   it.todo(
     "registerTaskCloseLifecycle fails when close does not broadcast lifecycle (Phase 9 reactivation)",
   );
