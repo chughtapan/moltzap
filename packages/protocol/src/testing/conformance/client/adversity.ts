@@ -26,7 +26,7 @@
  * server-side adversity module's degradation contract.
  */
 import { Clock, Effect } from "effect";
-import { MessageDeliveredNotificationDefinition } from "../../../schema/notifications.js";
+import { MessageReceivedNotificationDefinition } from "../../../schema/notifications.js";
 import { brandNotificationFrame } from "../../../schema/internal-frames.js";
 import type { ClientConformanceRunContext } from "./runner.js";
 import { PropertyUnavailable, registerProperty } from "../registry.js";
@@ -80,9 +80,12 @@ export function registerLatencyResilienceClient(
           PROPERTY_LATENCY_RESILIENCE_CLIENT,
         );
         yield* subscribeAll(fx.handle);
+        // Vehicle: known notification method; params intentionally non-
+        // conformant. Decoder stays payload-opaque (#200 §5 C3) so the
+        // adversity probe is independent of params shape.
         const base = brandNotificationFrame({
           jsonrpc: "2.0",
-          method: MessageDeliveredNotificationDefinition.name,
+          method: MessageReceivedNotificationDefinition.name,
           params: {},
         });
         const N = 3;

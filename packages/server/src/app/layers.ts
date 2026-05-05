@@ -19,7 +19,6 @@ import { AuthService } from "../services/auth.service.js";
 import { ParticipantService } from "../services/participant.service.js";
 import { ContactsService } from "../services/contact.service.js";
 import { ConversationService } from "../services/conversation.service.js";
-import { DeliveryService } from "../services/delivery.service.js";
 import { PresenceService } from "../services/presence.service.js";
 import { createConnectionFanOutPresenceEventSink } from "../services/presence-event-sink.js";
 import {
@@ -84,11 +83,6 @@ export class ConversationServiceTag extends Context.Tag(
 export class ContactsServiceTag extends Context.Tag("moltzap/ContactsService")<
   ContactsServiceTag,
   ContactsService
->() {}
-
-export class DeliveryServiceTag extends Context.Tag("moltzap/DeliveryService")<
-  DeliveryServiceTag,
-  DeliveryService
 >() {}
 
 export class PresenceServiceTag extends Context.Tag("moltzap/PresenceService")<
@@ -195,14 +189,6 @@ export const ConversationServiceLive = Layer.effect(
   }),
 );
 
-export const DeliveryServiceLive = Layer.effect(
-  DeliveryServiceTag,
-  Effect.gen(function* () {
-    const db = yield* DbTag;
-    return new DeliveryService(db);
-  }),
-);
-
 export const ContactsServiceLive = Layer.effect(
   ContactsServiceTag,
   Effect.gen(function* () {
@@ -243,7 +229,6 @@ export const MessageServiceLive = Layer.effect(
     const conversations = yield* ConversationServiceTag;
     const broadcaster = yield* BroadcasterTag;
     const encryption = yield* EncryptionTag;
-    const delivery = yield* DeliveryServiceTag;
     const appHost = yield* AppHostTag;
     const deliveryWebhook = yield* DeliveryWebhookTag;
     const webhookClient = yield* WebhookClientTag;
@@ -253,7 +238,6 @@ export const MessageServiceLive = Layer.effect(
       conversations,
       broadcaster,
       encryption,
-      delivery,
       appHost,
       deliveryWebhook,
       webhookClient,
@@ -280,7 +264,6 @@ const Tier1 = Layer.mergeAll(
   ConnectionManagerLive,
   AuthServiceLive,
   ParticipantServiceLive,
-  DeliveryServiceLive,
   ContactsServiceLive,
 );
 
@@ -332,7 +315,6 @@ export interface ResolvedServices {
   readonly participantService: ParticipantService;
   readonly conversationService: ConversationService;
   readonly contactService: ContactsService;
-  readonly deliveryService: DeliveryService;
   readonly presenceService: PresenceService;
   readonly appHost: AppHost;
   readonly messageService: MessageService;
@@ -356,7 +338,6 @@ export const resolveServices = Effect.all({
   participantService: ParticipantServiceTag,
   conversationService: ConversationServiceTag,
   contactService: ContactsServiceTag,
-  deliveryService: DeliveryServiceTag,
   presenceService: PresenceServiceTag,
   appHost: AppHostTag,
   messageService: MessageServiceTag,

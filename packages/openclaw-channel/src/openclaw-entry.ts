@@ -22,7 +22,6 @@ import { Config, ConfigProvider, Data, Effect, Option } from "effect";
 import { formatCrossConvOpenClaw } from "./format-cross-conv.js";
 import { writeOpenClawContextLog } from "./context-log.js";
 import {
-  extractDelivery,
   extractConversationCreated,
   extractConversationUpdated,
   extractContactRequest,
@@ -514,15 +513,6 @@ export function createMoltzapChannelPlugin() {
         // Forward non-message events for status/logging.
         // Sync dispatcher: log + setStatus only.
         service.on("rawNotification", (event) => {
-          const delivery = extractDelivery(event);
-          if (delivery) {
-            log?.debug?.(
-              `MoltZap: delivery for ${delivery.messageId} in ${delivery.conversationId}`,
-            );
-            setStatus({ accountId, lastEventAt: Date.now() });
-            return;
-          }
-
           const created = extractConversationCreated(event);
           if (created) {
             log?.debug?.(

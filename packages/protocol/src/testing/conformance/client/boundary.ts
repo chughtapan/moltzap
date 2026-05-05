@@ -9,7 +9,7 @@
  */
 import { Effect } from "effect";
 import * as fc from "fast-check";
-import { MessageDeliveredNotificationDefinition } from "../../../schema/notifications.js";
+import { MessageReceivedNotificationDefinition } from "../../../schema/notifications.js";
 import { brandNotificationFrame } from "../../../schema/internal-frames.js";
 import { arbitraryNotificationFrame } from "../../arbitraries/frames.js";
 import type { ClientConformanceRunContext } from "./runner.js";
@@ -79,11 +79,14 @@ export function registerSchemaExhaustiveFuzzClient(
         }
         // (2) Liveness probe.
         const tag = yield* fx.window.freshEmissionTag;
+        // Vehicle: known notification method; params intentionally non-
+        // conformant. Decoder stays payload-opaque (#200 §5 C3); the
+        // liveness probe is independent of params shape.
         yield* fx.window.emitTaggedNotification({
           connection: fx.connection,
           base: brandNotificationFrame({
             jsonrpc: "2.0",
-            method: MessageDeliveredNotificationDefinition.name,
+            method: MessageReceivedNotificationDefinition.name,
             params: {},
           }),
           emissionTag: tag,

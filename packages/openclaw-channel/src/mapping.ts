@@ -10,7 +10,6 @@ import {
   ContactRequestNotificationDefinition,
   ConversationCreatedNotificationDefinition,
   ConversationUpdatedNotificationDefinition,
-  MessageDeliveredNotificationDefinition,
   MessageReceivedNotificationDefinition,
   PresenceChangedNotificationDefinition,
   decodeNotification,
@@ -50,31 +49,6 @@ export function extractMessage(frame: NotificationFrame): Message | null {
 }
 
 // --- Notification extractors ---
-
-export function extractDelivery(frame: NotificationFrame): {
-  messageId: string;
-  conversationId: string;
-  agentId: string;
-} | null {
-  return Option.match(decodedNotification(frame), {
-    onNone: () => null,
-    onSome: (notification) => {
-      if (
-        !isDecodedNotification(
-          MessageDeliveredNotificationDefinition,
-          notification,
-        )
-      ) {
-        return null;
-      }
-      return {
-        messageId: notification.params.messageId,
-        conversationId: notification.params.conversationId,
-        agentId: notification.params.agentId,
-      };
-    },
-  });
-}
 
 export function extractConversationCreated(frame: NotificationFrame): {
   conversation: { id: string; type: string; name?: string };

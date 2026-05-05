@@ -8,7 +8,6 @@
 CREATE TYPE agent_status AS ENUM ('pending_claim', 'active', 'suspended');
 CREATE TYPE conversation_type AS ENUM ('dm', 'group');
 CREATE TYPE participant_role AS ENUM ('owner', 'admin', 'member');
-CREATE TYPE delivery_status AS ENUM ('sent', 'delivered', 'read');
 CREATE TYPE encryption_key_status AS ENUM ('active', 'deprecated', 'revoked');
 
 -- Shared trigger for updated_at columns
@@ -89,15 +88,12 @@ CREATE TABLE messages (
 );
 CREATE INDEX idx_messages_conversation_seq ON messages(conversation_id, seq);
 
--- Message delivery status (per-message per-recipient)
-CREATE TABLE message_delivery (
-  message_id UUID NOT NULL REFERENCES messages(id),
-  agent_id UUID NOT NULL REFERENCES agents(id),
-  status delivery_status NOT NULL DEFAULT 'sent',
-  delivered_at TIMESTAMPTZ,
-  read_at TIMESTAMPTZ,
-  PRIMARY KEY (message_id, agent_id)
-);
+-- Message-delivery tracking (table `message_delivery`, enum `delivery_status`)
+-- dropped in Phase 7.5 (sub-issue #450). Per-message per-recipient
+-- sent/delivered/read state was server-side audit debt: zero internal
+-- consumers, no external API surface, the synchronous network.send
+-- ack-channel that lands in Phase 8 covers "did it deliver" semantics
+-- end-to-end without persistence.
 
 -- Key Encryption Keys (envelope encryption)
 CREATE TABLE encryption_keys (
