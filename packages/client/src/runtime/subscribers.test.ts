@@ -21,8 +21,6 @@ import {
   ConversationArchivedNotificationDefinition,
   agentId,
   conversationId,
-  decodeNotification,
-  notificationGroup,
   notificationFrame as makeNotificationFrame,
   taskId,
   type NotificationParamsOf,
@@ -50,24 +48,35 @@ const filterableNotification = (
 const decodedNotification = <D extends AnyNotificationDefinition>(
   definition: D,
   params: NotificationParamsOf<D>,
-): DecodedNotification => {
-  const decoded = Effect.runSync(
-    decodeNotification(
-      notificationGroup,
-      makeNotificationFrame(definition, params),
-    ),
-  );
-  return { _tag: "Notification", ...decoded };
+): DecodedNotification<D> => {
+  // Construct a DecodedNotification<D> directly from the typed
+  // descriptor + params — bypassing the wire decoder is intentional
+  // for test fixtures so the result type stays narrow to D rather than
+  // collapsing to the group's union.
+  const frame = makeNotificationFrame(definition, params);
+  const decoded: Record<string, unknown> = {
+    ...frame,
+    definition,
+    method: definition.name,
+    params,
+  };
+  Object.defineProperty(decoded, "_tag", {
+    value: "Notification",
+    enumerable: false,
+  });
+  return decoded as DecodedNotification<D>;
 };
 
-const taskFailedNotification = (): DecodedNotification =>
+const taskFailedNotification = (): DecodedNotification<
+  typeof TaskFailedNotificationDefinition
+> =>
   decodedNotification(TaskFailedNotificationDefinition, {
     taskId: TASK_ID,
   });
 
 const conversationArchivedNotification = (
   conv: typeof CONV_1,
-): DecodedNotification =>
+): DecodedNotification<typeof ConversationArchivedNotificationDefinition> =>
   decodedNotification(ConversationArchivedNotificationDefinition, {
     conversationId: conv,
     archivedAt: "2026-05-03T00:00:00Z",
@@ -195,8 +204,8 @@ describe("SubscriberRegistry", () => {
     const registry = await Effect.runPromise(
       makeSubscriberRegistry(noopLogger),
     );
-    const seenByConv1: DecodedNotification[] = [];
-    const seenByConv2: DecodedNotification[] = [];
+    const seenByConv1: DecodedNotification<AnyNotificationDefinition>[] = [];
+    const seenByConv2: DecodedNotification<AnyNotificationDefinition>[] = [];
     await Effect.runPromise(
       registry.register({ conversationId: CONV_1 }, (frame) =>
         Effect.sync(() => void seenByConv1.push(frame)),

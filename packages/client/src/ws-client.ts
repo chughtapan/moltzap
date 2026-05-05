@@ -208,7 +208,9 @@ type ErasedServerRpcHandler = (
 
 interface NotificationWaiter {
   readonly definition: AnyNotificationDefinition;
-  readonly complete: (notification: DecodedNotification) => Effect.Effect<void>;
+  readonly complete: (
+    notification: AnyDecodedNotification,
+  ) => Effect.Effect<void>;
   readonly fail: (error: Error) => Effect.Effect<void>;
 }
 
@@ -226,16 +228,37 @@ function notificationMatches<D extends AnyNotificationDefinition>(
 }
 
 /**
- * Bridge an opaque wire-decoded notification to a typed
- * `waitForNotification` consumer. The wire decoder stays payload-opaque
- * (so `delivery/payload-opacity-client` conformance holds — see
- * `runtime/frame.ts`); this bridge is where drift turns into a visible
- * signal. A frame whose method matches `definition` but whose params
- * fail `definition.validateParams` is logged and skipped — the typed
+ * Validate `notification.params` against the schema attached by the
+ * decoder. Logs a structured drift warning and returns `false` on
+ * failure. Shared core for the inbound typed bridges — every typed
+ * dispatcher MUST route through this guard before invoking handlers,
+ * because the wire decoder is payload-opaque (required for the
+ * `delivery/payload-opacity-client` and
+ * `boundary/schema-exhaustive-fuzz-client` conformance properties).
+ * Current call sites: `acceptTypedNotification` below (typed-promise
+ * resolver) and `service.ts:handleNotification` (subscriber-fanout
+ * dispatch into the typed handler bucket).
+ */
+export function validateNotificationParams(
+  notification: AnyDecodedNotification,
+  logger: WsClientLogger | undefined,
+): boolean {
+  if (notification.definition.validateParams(notification.params)) return true;
+  logger?.warn(
+    `Notification ${notification.definition.name} dropped: params failed schema validation (drift signal)`,
+    notification.params,
+  );
+  return false;
+}
+
+/**
+ * Typed bridge for `waitForNotification`: matches the notification's
+ * descriptor against `definition` and then validates its params via
+ * `validateNotificationParams`. A frame whose method matches `definition`
+ * but whose params fail validation is logged and skipped — the typed
  * promise never resolves with a malformed payload typed as if it were
- * valid. Existing "skip on non-match" semantics for the bucketed
- * waiter map are preserved; the only new behavior is the per-payload
- * validation guard.
+ * valid. "Skip on non-match" semantics for the bucketed waiter map are
+ * preserved; the validation guard is the only new behavior.
  */
 export function acceptTypedNotification<D extends AnyNotificationDefinition>(
   definition: D,
@@ -243,14 +266,7 @@ export function acceptTypedNotification<D extends AnyNotificationDefinition>(
   logger: WsClientLogger | undefined,
 ): notification is DecodedNotificationFor<D> {
   if (!notificationMatches(definition, notification)) return false;
-  if (!definition.validateParams(notification.params)) {
-    logger?.warn(
-      `waitForNotification: dropping ${definition.name} frame whose params failed schema validation (drift signal)`,
-      notification.params,
-    );
-    return false;
-  }
-  return true;
+  return validateNotificationParams(notification, logger);
 }
 
 /** Drop `waiter` from its notification-definition bucket, pruning an empty bucket. */
@@ -334,7 +350,7 @@ export class MoltZapWsClient {
   private readonly stateRef: Ref.Ref<Option.Option<ConnState>>;
   private readonly malformedRef: Ref.Ref<number>;
   private readonly notificationsBufferRef: Ref.Ref<
-    ReadonlyArray<DecodedNotification>
+    ReadonlyArray<AnyDecodedNotification>
   >;
   /**
    * Waiters keyed by notification descriptor identity. Each bucket is a FIFO
@@ -388,7 +404,7 @@ export class MoltZapWsClient {
     );
     this.malformedRef = this.runtime.runSync(Ref.make(0));
     this.notificationsBufferRef = this.runtime.runSync(
-      Ref.make<ReadonlyArray<DecodedNotification>>([]),
+      Ref.make<ReadonlyArray<AnyDecodedNotification>>([]),
     );
     this.notificationWaitersRef = this.runtime.runSync(
       Ref.make<
@@ -669,7 +685,7 @@ export class MoltZapWsClient {
   }
 
   /** Return all buffered notifications and clear the buffer. Synchronous. */
-  drainNotifications(): DecodedNotification[] {
+  drainNotifications(): AnyDecodedNotification[] {
     const snapshot = this.runtime.runSync(Ref.get(this.notificationsBufferRef));
     this.runtime.runSync(Ref.set(this.notificationsBufferRef, []));
     return [...snapshot];

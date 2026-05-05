@@ -1,38 +1,53 @@
 /**
- * R11 regression: the typed-bridge between the wire decoder (which is
- * payload-opaque per `delivery/payload-opacity-client` conformance) and
- * the typed `waitForNotification` consumer must validate `params`
- * against `definition.validateParams`. A stale Phase-6 `task/closed`
- * shape (carrying `sessionId` + scalar `closedBy`) is a known-method
- * notification whose method DOES match `TaskClosedNotificationDefinition`,
- * so a definition-only match would silently bridge a malformed payload
- * into a typed consumer. The bridge logs and skips instead.
+ * Typed-bridge regression: the wire decoder is payload-opaque (so
+ * `delivery/payload-opacity-client` conformance holds). Inbound typed
+ * consumers MUST validate `params` before exposing them to a typed
+ * handler. A stale Phase-6 `task/closed` shape (carrying `sessionId` +
+ * scalar `closedBy`) is a known-method notification whose method
+ * matches `TaskClosedNotificationDefinition`, so a definition-only
+ * match would silently bridge a malformed payload into a typed
+ * consumer. Both bridges (`acceptTypedNotification` for
+ * `waitForNotification` and the shared `validateNotificationParams`
+ * helper used by `service.handleNotification`) log and skip instead.
  */
 import { describe, expect, it, vi } from "vitest";
 import {
+  PresenceChangedNotificationDefinition,
   TaskClosedNotificationDefinition,
   agentId,
   conversationId,
   notificationFrame,
   taskId,
 } from "@moltzap/protocol";
-import { acceptTypedNotification } from "./ws-client.js";
+import {
+  acceptTypedNotification,
+  validateNotificationParams,
+} from "./ws-client.js";
 import type { DecodedNotification } from "./runtime/frame.js";
 
-const STALE_TASK_CLOSED: DecodedNotification = {
+type TaskClosedDecoded = DecodedNotification<
+  typeof TaskClosedNotificationDefinition
+>;
+type PresenceChangedDecoded = DecodedNotification<
+  typeof PresenceChangedNotificationDefinition
+>;
+
+const STALE_TASK_CLOSED = {
   _tag: "Notification",
   jsonrpc: "2.0",
   method: TaskClosedNotificationDefinition.name,
   // Pre-Phase-7 shape: `sessionId` (renamed → `taskId`) + scalar
-  // `closedBy` (now `{agentId, ownerId}` envelope).
+  // `closedBy` (now `{agentId, ownerId}` envelope). The cast models a
+  // wire frame the opaque decoder forwards without payload validation —
+  // splitting RawDecoded vs Decoded would erase it (deferred).
   params: {
     sessionId: "11111111-1111-4111-8111-111111111111",
     closedBy: "33333333-3333-4333-8333-333333333333",
   },
   definition: TaskClosedNotificationDefinition,
-} as unknown as DecodedNotification; // #ignore-sloppy-code[as-unknown-as]: hand-built fixture for typed-bridge unit test bypasses brand validation
+} as unknown as TaskClosedDecoded; // #ignore-sloppy-code[as-unknown-as]: stale-shape fixture; structurally compatible with DecodedNotification but TS can't narrow params across the type lie
 
-const LIVE_TASK_CLOSED: DecodedNotification = {
+const LIVE_TASK_CLOSED: TaskClosedDecoded = {
   ...notificationFrame(TaskClosedNotificationDefinition, {
     taskId: taskId("11111111-1111-4111-8111-111111111111"),
     conversations: {
@@ -45,7 +60,7 @@ const LIVE_TASK_CLOSED: DecodedNotification = {
   }),
   _tag: "Notification",
   definition: TaskClosedNotificationDefinition,
-} as unknown as DecodedNotification; // #ignore-sloppy-code[as-unknown-as]: hand-built fixture for typed-bridge unit test bypasses brand validation
+};
 
 function makeLogger(): {
   info: ReturnType<typeof vi.fn>;
@@ -59,7 +74,7 @@ function makeLogger(): {
   };
 }
 
-describe("acceptTypedNotification (R11 typed-bridge validation)", () => {
+describe("acceptTypedNotification", () => {
   it("rejects a stale `task/closed` payload, logs the drift signal", () => {
     const logger = makeLogger();
     const accepted = acceptTypedNotification(
@@ -91,13 +106,13 @@ describe("acceptTypedNotification (R11 typed-bridge validation)", () => {
       TaskClosedNotificationDefinition,
       "validateParams",
     );
-    const wrongMethod: DecodedNotification = {
+    const wrongMethod = {
       _tag: "Notification",
       jsonrpc: "2.0",
-      method: "presence/changed",
+      method: PresenceChangedNotificationDefinition.name,
       params: {},
-      definition: { name: "presence/changed" },
-    } as unknown as DecodedNotification; // #ignore-sloppy-code[as-unknown-as]: hand-built fixture for typed-bridge unit test bypasses brand validation
+      definition: PresenceChangedNotificationDefinition,
+    } as unknown as PresenceChangedDecoded; // #ignore-sloppy-code[as-unknown-as]: stale-shape fixture; see STALE_TASK_CLOSED rationale
     const accepted = acceptTypedNotification(
       TaskClosedNotificationDefinition,
       wrongMethod,
@@ -116,5 +131,26 @@ describe("acceptTypedNotification (R11 typed-bridge validation)", () => {
       undefined,
     );
     expect(accepted).toBe(false);
+  });
+});
+
+// Tests the shared validation core used by both inbound typed bridges
+// (`acceptTypedNotification` and `service.handleNotification`). A
+// refactor that breaks the shared core surfaces here, not via downstream
+// integration regressions.
+describe("validateNotificationParams", () => {
+  it("returns false + logs when params fail the attached schema", () => {
+    const logger = makeLogger();
+    expect(validateNotificationParams(STALE_TASK_CLOSED, logger)).toBe(false);
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect(String(logger.warn.mock.calls[0]?.[0])).toMatch(
+      /task\/closed.*drift signal/,
+    );
+  });
+
+  it("returns true + no log when params conform", () => {
+    const logger = makeLogger();
+    expect(validateNotificationParams(LIVE_TASK_CLOSED, logger)).toBe(true);
+    expect(logger.warn).not.toHaveBeenCalled();
   });
 });
