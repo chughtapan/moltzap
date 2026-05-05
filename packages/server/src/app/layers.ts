@@ -70,9 +70,14 @@ export class BroadcasterTag extends Context.Tag("moltzap/Broadcaster")<
 >() {}
 
 /**
- * `AgentId → Set<EndpointAddress>` multimap maintained by the `auth/connect`
- * success path and the WS disconnect finalizer. Read by
+ * `AgentId → HashSet<ConnectionId>` multimap maintained by the
+ * `auth/connect` success path and the WS disconnect finalizer. Read by
  * {@link NetworkSendServiceTag} for O(1) outbound routing.
+ *
+ * Phase 9b consumer-migration (sub-issue #460 amendment) collapsed the
+ * legacy `Set<EndpointAddress>` shape to raw `ConnectionId` inside the
+ * resolver — the per-connection address never appeared on the wire and
+ * wrapping it as an `EndpointAddress` was internal leakage.
  *
  * Coexists with {@link ConnectionManagerTag} during Phase 8 (Slice G1).
  * Phase 10 (Slice G2) deletes {@link BroadcasterTag} once consumers
@@ -268,9 +273,14 @@ export const AppHostLive = Layer.effect(
 );
 
 /**
- * MessageService calls `AppHost.runBeforeMessageDelivery` on send; AppHost
- * itself has no reverse edge, so the two sit cleanly in separate tiers
- * without a real cycle.
+ * Phase 9b consumer-migration (sub-issue #460, plan §2.4 + §2.4.a):
+ * MessageService.send no longer fires `appHost.runBeforeMessageDelivery`
+ * (the wire RPC retired with the deletion of `apps/onBeforeMessageDelivery`).
+ * The TM-as-endpoint topology routes inbound messages through
+ * `NetworkSendService.send(tm:agent:<id>, frame)` for task-bound
+ * conversations with a registered task-manager; non-task conversations
+ * still take the existing broadcast path (Phase 10 / Slice G2 deletes
+ * Broadcaster and migrates these too).
  */
 export const MessageServiceLive = Layer.effect(
   MessageServiceTag,
@@ -278,8 +288,8 @@ export const MessageServiceLive = Layer.effect(
     const db = yield* DbTag;
     const conversations = yield* ConversationServiceTag;
     const broadcaster = yield* BroadcasterTag;
+    const networkSend = yield* NetworkSendServiceTag;
     const encryption = yield* EncryptionTag;
-    const appHost = yield* AppHostTag;
     const deliveryWebhook = yield* DeliveryWebhookTag;
     const webhookClient = yield* WebhookClientTag;
     const traceCapture = yield* TraceCaptureTag;
@@ -287,8 +297,8 @@ export const MessageServiceLive = Layer.effect(
       db,
       conversations,
       broadcaster,
+      networkSend,
       encryption,
-      appHost,
       deliveryWebhook,
       webhookClient,
       traceCapture,

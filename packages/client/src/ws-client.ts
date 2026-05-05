@@ -26,7 +26,7 @@ import {
   responseFrame,
   RpcServerError,
   RpcTimeoutError,
-  type AnyAppCallbackRpcDefinition,
+  type AnyTaskCallbackRpcDefinition,
   type AnyNotificationDefinition,
   type JsonRpcStringId,
   type ParamsOf,
@@ -165,7 +165,7 @@ interface ConnState {
  */
 interface DecodedServerRequest {
   readonly id: JsonRpcStringId;
-  readonly definition: AnyAppCallbackRpcDefinition;
+  readonly definition: AnyTaskCallbackRpcDefinition;
   readonly params: unknown;
 }
 
@@ -188,18 +188,20 @@ export type AppCallbackDispatcherConfig = Partial<PartitionedDispatcherConfig>;
  * `error`. Defects (handler crashes, non-tagged exceptions) collapse to a
  * generic InternalError reply.
  *
- * The `unknown`/`unknown` parameter and result types are transitional —
- * once Phase 1.1 (B.2) registers admission verbs in `appCallbackRpcMethods`, this
- * narrows generically against `AppCallbackRpcMap[M]`.
+ * The `unknown`/`unknown` parameter and result types narrow generically
+ * against `taskCallbackRpcMethods` at each `handleServerRpc(definition,
+ * handler)` call site via the `AnyTaskCallbackRpcDefinition` union. Phase
+ * 9b consumer-migration retired the legacy `AppCallbackRpcMap` indirection
+ * alongside the appCallback group collapse to a single member.
  */
 export interface ServerRpcContext {
   readonly requestId: JsonRpcStringId;
-  readonly definition: AnyAppCallbackRpcDefinition;
+  readonly definition: AnyTaskCallbackRpcDefinition;
   readonly traceparent?: string;
 }
 
 export type ServerRpcHandler<
-  D extends AnyAppCallbackRpcDefinition = AnyAppCallbackRpcDefinition,
+  D extends AnyTaskCallbackRpcDefinition = AnyTaskCallbackRpcDefinition,
 > = (
   params: Static<D["paramsSchema"]>,
   ctx: ServerRpcContext & { readonly definition: D },
@@ -398,7 +400,7 @@ export class MoltZapWsClient {
    * dispatcher fiber when an appCallback request frame arrives.
    */
   private readonly appCallbackHandlersRef: Ref.Ref<
-    HashMap.HashMap<AnyAppCallbackRpcDefinition, ErasedServerRpcHandler>
+    HashMap.HashMap<AnyTaskCallbackRpcDefinition, ErasedServerRpcHandler>
   >;
 
   private requestCounter = 0;
@@ -441,7 +443,7 @@ export class MoltZapWsClient {
     );
     this.appCallbackHandlersRef = this.runtime.runSync(
       Ref.make<
-        HashMap.HashMap<AnyAppCallbackRpcDefinition, ErasedServerRpcHandler>
+        HashMap.HashMap<AnyTaskCallbackRpcDefinition, ErasedServerRpcHandler>
       >(HashMap.empty()),
     );
   }
@@ -459,7 +461,7 @@ export class MoltZapWsClient {
    * visible to the very first inbound appCallback request, and a registration
    * made AFTER `connect()` takes effect on the next inbound frame.
    */
-  handleServerRpc<D extends AnyAppCallbackRpcDefinition>(
+  handleServerRpc<D extends AnyTaskCallbackRpcDefinition>(
     definition: D,
     handler: ServerRpcHandler<D>,
   ): Effect.Effect<void, DuplicateServerRpcHandlerError> {
@@ -782,15 +784,18 @@ export class MoltZapWsClient {
         PendingError
       >();
 
-      // Spec #356 — partitioned appCallback dispatcher. Replaces the pre-#356
-      // single `Stream.runForEach`-driven `appCallbackInboundQueue` with a
-      // partition router keyed on `(taskId, conversationId,
-      // hookKind)`. Each tuple owns one bounded queue + one drain
+      // Spec #356 — partitioned task-callback dispatcher. Replaces
+      // the pre-#356 single `Stream.runForEach`-driven inbound queue
+      // with a partition router keyed on `(taskId, conversationId,
+      // descriptor)`. Each tuple owns one bounded queue + one drain
       // fiber; cross-tuple offers run on independent fibers, so a
-      // parked `apps/onBeforeDispatch` cannot block the sibling
-      // `apps/onBeforeMessageDelivery` whose response would resolve
-      // the parking Deferred (arena#248 deadlock — fixed
-      // structurally, not by timeout).
+      // parked task-callback request cannot block the sibling tuple
+      // whose response would resolve the parking Deferred (arena#248
+      // deadlock — fixed structurally, not by timeout). Phase 9b
+      // collapsed the appCallback group to one descriptor
+      // (`task/authorizeDispatch`); the partitioning still applies
+      // because conversations and tasks fan out independently per
+      // descriptor.
       //
       // Dispatcher Scope is allocated independently of the per-connect
       // socket Scope (`scope` above). Closing it cascades to every

@@ -10,45 +10,39 @@
  * Plan: `docs/plans/layered-network-refactor-2026-05.md` §1.3 in-process
  * loopback policy, §2.4.a `messages/send` TM routing, §2.10 (Slice G1),
  * §2.11 (resolver constraint). Issue #426 acceptance + #427 acceptance
- * (Phase 8 codex deferral on namespace split).
+ * (Phase 8 codex deferral on namespace split). Phase 9b consumer-migration
+ * (sub-issue #460 amendment) collapsed the `agent-conn` kind into a pure
+ * `ConnectionId` lookup inside the resolver; this dispatch only carries
+ * the durable-only `EndpointAddressKind` 2-tuple (`agent | app`).
  *
  * Why a tagged service rather than a free function. The send path needs
- * exactly two collaborators — the {@link AgentEndpointResolver} for both
- * volatile (`agent-conn`) and durable (`agent`) lookups, and the
- * {@link ConnectionManager} for the writable socket. The dual-DI
- * requirement asks for a Tag the rest of the server's `Layer` graph can
- * provide. A class with a single method composed from both collaborators
- * is the smallest shape that satisfies both.
+ * exactly two collaborators — the {@link AgentEndpointResolver} for the
+ * durable `agent` lookup, and the {@link ConnectionManager} for the
+ * writable socket. The dual-DI requirement asks for a Tag the rest of the
+ * server's `Layer` graph can provide. A class with a single method
+ * composed from both collaborators is the smallest shape that satisfies
+ * both.
  *
- * Why the error channel is `never` for the Context parameter. The service
- * holds its collaborators by direct reference, not Context, so callers do
- * not have to provide additional services to invoke `send`.
- *
- * Endpoint kind handling (post Phase 9 namespace split):
- * - `tm:agent-conn:<connId>` — volatile per-WebSocket-connection address.
- *   Resolves via the {@link AgentEndpointResolver}'s reverse index, then
- *   writes to the matching connection. O(1) hot path, no DB lookup (per
- *   §2.11). {@link RecipientNotResolved} on miss.
+ * Endpoint kind handling (post Phase 9b agent-conn collapse):
  * - `tm:agent:<agentId>` — durable agent-id form, used for task-manager
- *   registration in `tasks.tm_endpoint_address`. Resolves via the
- *   resolver's forward map (`resolveAll`) and writes to one of the
- *   agent's live connections. {@link RecipientNotResolved} when the
- *   agent has no live connection. Plan §1.3 in-process loopback policy:
- *   the same code path always runs, even when the durable address
- *   resolves to a connection in the same process.
- * - `tm:app:<id>` — app-TM registrations resolved via the resolver
- *   (apps register an endpoint address; the address routes through the
- *   same connection table as agent kinds). {@link EndpointKindNotImplemented}
- *   when the app-TM is not registered through the standard
- *   resolver-backed path; consumers that want app-TM dispatch wire
- *   the resolver registration at app start.
+ *   registration in `tasks.tm_endpoint_address` and for any consumer
+ *   addressing an agent by identity. Resolves via the resolver's forward
+ *   map (`resolveAll`) and writes to one of the agent's live connections.
+ *   {@link RecipientNotResolved} when the agent has no live connection.
+ *   Plan §1.3 in-process loopback policy: the same code path always runs,
+ *   even when the durable address resolves to a connection in the same
+ *   process.
+ * - `tm:app:<id>` — app-TM registrations. Reserved for the Phase 11+
+ *   arena cutover; consumers that want app-TM dispatch wire the resolver
+ *   registration at app start. Today returns
+ *   {@link EndpointKindNotImplemented}.
  *
  * The brand at `packages/protocol/src/network/actor-model.ts` already
  * encodes the kind in the prefix. The send path parses the prefix once
  * and switches; the switch is exhaustive over `EndpointAddressKind`
- * (Phase 6 R3 pattern).
+ * (Phase 6 R3 pattern; `Match.exhaustive` over the 2-kind union).
  */
-import { Brand, Data, Effect, HashSet, Match, Option } from "effect";
+import { Brand, Data, Effect, HashSet, Match } from "effect";
 import {
   agentId as makeAgentId,
   endpointAddressKind,
@@ -113,12 +107,13 @@ export class RecipientNotResolved extends Data.TaggedError(
 
 /**
  * The address is well-formed but its kind is not yet wired in this slice.
- * Specifically: `tm:app:` addresses are reserved for Phase 9 (Slice C).
+ * Specifically: `tm:app:` addresses are reserved for the Phase 11+ arena
+ * cutover.
  *
  * Distinguished from {@link RecipientNotResolved} because the failure is
  * a build-time gap (this slice does not ship the implementation), not a
  * runtime liveness gap (the recipient is gone). Caller observability
- * benefits from the distinction; once Phase 9 lands, this tag is removed
+ * benefits from the distinction; once `app` lands, this tag is removed
  * from the channel.
  */
 export class EndpointKindNotImplemented extends Data.TaggedError(
@@ -180,44 +175,12 @@ export class NetworkSendService {
   ): Effect.Effect<DeliveryAck, DeliveryError, never> {
     const kind: EndpointAddressKind = endpointAddressKind(to);
     return Match.value(kind).pipe(
-      Match.when("agent-conn", () => this.sendToAgentConnection(to, payload)),
       Match.when("agent", () => this.sendToDurableAgent(to, payload)),
       Match.when("app", () =>
         Effect.fail(new EndpointKindNotImplemented({ to, kind: "app" })),
       ),
       Match.exhaustive,
     );
-  }
-
-  /**
-   * Volatile per-connection delivery. Resolves the address to a live
-   * connection via the resolver's reverse index + the connection
-   * manager, writes the payload, and tags the outcome.
-   *
-   * Failure cases:
-   * - resolver miss OR resolver hit + closed connection (race):
-   *   {@link RecipientNotResolved} — both shapes mean "no live recipient
-   *   for this address," and callers cannot tell which without poking
-   *   internal state. Folded into one branch.
-   * - socket write fails → {@link WriteFailed}.
-   */
-  private sendToAgentConnection(
-    to: EndpointAddress,
-    payload: OpaquePayload,
-  ): Effect.Effect<DeliveryAck, DeliveryError, never> {
-    return Effect.gen(this, function* () {
-      const connOpt = Option.flatMap(
-        yield* this.resolver.connectionForAddress(to),
-        (id) => Option.fromNullable(this.connections.get(id)),
-      );
-      if (Option.isNone(connOpt)) {
-        return yield* Effect.fail(new RecipientNotResolved({ to }));
-      }
-      yield* connOpt.value
-        .write(payload)
-        .pipe(Effect.mapError((cause) => new WriteFailed({ to, cause })));
-      return new DeliveryAck({ to });
-    });
   }
 
   /**
@@ -228,12 +191,12 @@ export class NetworkSendService {
    * (`resolveAll`).
    *
    * Routing semantics:
-   * - The resolver's forward set carries the agent's volatile
-   *   `tm:agent-conn:<connId>` addresses (one per live connection).
-   *   `sendToDurableAgent` picks one and writes to it. The arbitrary
-   *   choice mirrors `Broadcaster.sendToAgent` today (also picks one
-   *   live connection from the per-agent list); plan §2.4.a does not
-   *   pin a per-connection policy.
+   * - The resolver's forward set carries the agent's live `ConnectionId`s
+   *   (one per WS connection of that agent). `sendToDurableAgent` picks
+   *   one and writes to it. The arbitrary choice mirrors
+   *   `Broadcaster.sendToAgent` today (also picks one live connection
+   *   from the per-agent list); plan §2.4.a does not pin a per-connection
+   *   policy.
    * - `RecipientNotResolved` when the agent has no live connection —
    *   the durable address persists in the column but no socket holds
    *   it right now. Caller-recoverable; the right response is usually
@@ -252,22 +215,23 @@ export class NetworkSendService {
       const conns = yield* this.resolver.resolveAll(agentIdValue);
       // Pick-one fan-out: TM is one logical entity per agent;
       // multi-connection devices receive the same TM-routed dispatch
-      // only once. Confirmed via #459 review thread.
-      const firstAddr = Option.fromIterable(HashSet.values(conns));
-      if (Option.isNone(firstAddr)) {
-        return yield* Effect.fail(new RecipientNotResolved({ to }));
+      // only once. Confirmed via #459 review thread. Iterate
+      // candidates so a stale resolver entry whose connection vanished
+      // does not poison the send when a sibling connection of the
+      // same agent is still live.
+      for (const candidate of HashSet.values(conns)) {
+        const conn = this.connections.get(candidate);
+        if (conn === undefined) continue;
+        yield* conn
+          .write(payload)
+          .pipe(Effect.mapError((cause) => new WriteFailed({ to, cause })));
+        return new DeliveryAck({ to });
       }
-      const connId = yield* this.resolver.connectionForAddress(firstAddr.value);
-      const connOpt = Option.flatMap(connId, (id) =>
-        Option.fromNullable(this.connections.get(id)),
-      );
-      if (Option.isNone(connOpt)) {
-        return yield* Effect.fail(new RecipientNotResolved({ to }));
-      }
-      yield* connOpt.value
-        .write(payload)
-        .pipe(Effect.mapError((cause) => new WriteFailed({ to, cause })));
-      return new DeliveryAck({ to });
+      // Resolver miss OR every resolved connection has gone away. Both
+      // shapes mean "no live recipient right now" — folded into one
+      // branch because callers cannot tell them apart without poking
+      // internal state.
+      return yield* Effect.fail(new RecipientNotResolved({ to }));
     });
   }
 }

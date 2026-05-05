@@ -2,8 +2,13 @@
  * Phase 1.0 (B.1) gating tests for the server-initiated awaitable RPC
  * primitives. Three scenarios — happy-path round-trip, disconnect mid-
  * request, caller timeout — exercise the contract that AppHost (B.3)
- * relies on. Comprehensive conformance lands in B.8; these are the
- * minimum tests that gate this PR.
+ * relies on.
+ *
+ * Phase 9b consumer-migration (sub-issue #460): the legacy appCallback
+ * verbs (`apps/onBeforeDispatch`, `onBeforeMessageDelivery`,
+ * `onSessionActive`, `onClose`) retired. Only `task/authorizeDispatch`
+ * remains as the canonical server→client awaitable RPC; every test
+ * scenario uses it as the wire-mechanics example.
  *
  * The tests run against `MoltZapConnection` directly: no testcontainers,
  * no real WebSocket. The connection's `write` is a mock that records
@@ -33,10 +38,7 @@ import {
 } from "./connection.js";
 
 import {
-  AppsOnBeforeDispatch,
-  AppsOnBeforeMessageDelivery,
-  AppsOnClose,
-  AppsOnSessionActive,
+  TaskAuthorizeDispatch,
   agentId,
   conversationId,
   messageId,
@@ -54,22 +56,8 @@ const CONVERSATION_ID = conversationId("33333333-3333-4333-8333-333333333333");
 const MESSAGE_ID = messageId("44444444-4444-4444-8444-444444444444");
 const PARTICIPANT = { agentId: AGENT_ID, ownerId: "owner-a" } as const;
 
-const onCloseParams = (taskId = TASK_ID) => ({
+const authorizeDispatchParams = (text: string, taskId = TASK_ID) => ({
   taskId,
-  appId: APP_ID,
-  conversations: { main: CONVERSATION_ID },
-  closedBy: PARTICIPANT,
-});
-
-const onSessionActiveParams = (taskId = TASK_ID) => ({
-  taskId,
-  appId: APP_ID,
-  conversations: { main: CONVERSATION_ID },
-  admittedAgentIds: [AGENT_ID],
-});
-
-const beforeDispatchParams = (text: string) => ({
-  taskId: TASK_ID,
   appId: APP_ID,
   conversationId: CONVERSATION_ID,
   recipient: PARTICIPANT,
@@ -79,14 +67,6 @@ const beforeDispatchParams = (text: string) => ({
     parts: [{ type: "text" as const, text }],
   },
   attempt: 0,
-});
-
-const beforeMessageDeliveryParams = (text: string) => ({
-  taskId: TASK_ID,
-  appId: APP_ID,
-  conversationId: CONVERSATION_ID,
-  sender: PARTICIPANT,
-  message: { parts: [{ type: "text" as const, text }] },
 });
 
 interface FakeConnSetup {
@@ -133,7 +113,7 @@ function parseRequestFrame(raw: string): RequestFrame {
 }
 
 describe("sendRpcToClient — happy-path round-trip", () => {
-  it("encodes an appCallback request, awaits the matching response, and returns the result", async () => {
+  it("encodes a task-callback request, awaits the matching response, and returns the result", async () => {
     const program = Effect.gen(function* () {
       const scope = yield* Scope.make();
       const { conn, outbound } = yield* Scope.extend(
@@ -144,14 +124,12 @@ describe("sendRpcToClient — happy-path round-trip", () => {
       // Fork the request — `sendRpcToClient` parks on a Deferred until
       // `completeAppCallbackResponse` settles it. Forking lets the test thread
       // synthesize the matching response.
+      const params = authorizeDispatchParams(
+        "happy",
+        makeTaskId("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+      );
       const fiber = yield* Effect.fork(
-        sendRpcToClient(
-          conn,
-          AppsOnSessionActive,
-          onSessionActiveParams(
-            makeTaskId("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
-          ),
-        ),
+        sendRpcToClient(conn, TaskAuthorizeDispatch, params),
       );
 
       // Wait for the outbound frame to land in the Ref. `Effect.repeat`
@@ -167,12 +145,8 @@ describe("sendRpcToClient — happy-path round-trip", () => {
       );
 
       const frame = parseRequestFrame(captured);
-      expect(frame.method).toBe(AppsOnSessionActive.name);
-      expect(frame.params).toEqual(
-        onSessionActiveParams(
-          makeTaskId("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
-        ),
-      );
+      expect(frame.method).toBe(TaskAuthorizeDispatch.name);
+      expect(frame.params).toEqual(params);
       // `srv-<connId>-<seq>` namespace prefix keeps server-minted ids
       // disjoint from client-minted request ids.
       expect(frame.id.startsWith("srv-conn-happy-")).toBe(true);
@@ -183,7 +157,7 @@ describe("sendRpcToClient — happy-path round-trip", () => {
       const completed = yield* completeAppCallbackResponse(
         conn,
         responseFrame(frame.id, {
-          result: {},
+          result: { admission: { decision: "grant" } },
         }),
       );
       expect(completed._tag).toBe("Some");
@@ -197,7 +171,7 @@ describe("sendRpcToClient — happy-path round-trip", () => {
     const exit = await Effect.runPromise(program);
     expect(Exit.isSuccess(exit)).toBe(true);
     if (Exit.isSuccess(exit)) {
-      expect(exit.value).toEqual({});
+      expect(exit.value).toEqual({ admission: { decision: "grant" } });
     }
   });
 
@@ -212,8 +186,8 @@ describe("sendRpcToClient — happy-path round-trip", () => {
       const fiber = yield* Effect.fork(
         sendRpcToClient(
           conn,
-          AppsOnClose,
-          onCloseParams(makeTaskId("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")),
+          TaskAuthorizeDispatch,
+          authorizeDispatchParams("err"),
         ),
       );
 
@@ -230,7 +204,7 @@ describe("sendRpcToClient — happy-path round-trip", () => {
       yield* completeAppCallbackResponse(
         conn,
         responseFrame(id, {
-          error: { code: -32000, message: "session-already-closed" },
+          error: { code: -32000, message: "task-already-closed" },
         }),
       );
 
@@ -248,8 +222,8 @@ describe("sendRpcToClient — happy-path round-trip", () => {
         expect(err.value).toBeInstanceOf(AppCallbackRpcResponseError);
         const e = err.value as AppCallbackRpcResponseError;
         expect(e.code).toBe(-32000);
-        expect(e.message).toBe("session-already-closed");
-        expect(e.method).toBe(AppsOnClose.name);
+        expect(e.message).toBe("task-already-closed");
+        expect(e.method).toBe(TaskAuthorizeDispatch.name);
       }
     }
   });
@@ -264,16 +238,20 @@ describe("sendRpcToClient — disconnect mid-request", () => {
         scope,
       );
 
-      // Two concurrent in-flight appCallback requests. Both must observe
+      // Two concurrent in-flight task-callback requests. Both must observe
       // `AppDisconnected` when the scope closes.
       const fiberA = yield* Effect.fork(
-        sendRpcToClient(conn, AppsOnBeforeDispatch, beforeDispatchParams("A")),
+        sendRpcToClient(
+          conn,
+          TaskAuthorizeDispatch,
+          authorizeDispatchParams("A"),
+        ),
       );
       const fiberB = yield* Effect.fork(
         sendRpcToClient(
           conn,
-          AppsOnBeforeMessageDelivery,
-          beforeMessageDeliveryParams("B"),
+          TaskAuthorizeDispatch,
+          authorizeDispatchParams("B"),
         ),
       );
 
@@ -303,10 +281,7 @@ describe("sendRpcToClient — disconnect mid-request", () => {
 
     const [exitA, exitB] = await Effect.runPromise(program);
 
-    const assertDisconnected = (
-      exit: Exit.Exit<unknown, unknown>,
-      expectedMethod: string,
-    ) => {
+    const assertDisconnected = (exit: Exit.Exit<unknown, unknown>) => {
       expect(Exit.isFailure(exit)).toBe(true);
       if (Exit.isFailure(exit)) {
         const err = Cause.failureOption(exit.cause);
@@ -314,13 +289,13 @@ describe("sendRpcToClient — disconnect mid-request", () => {
         if (err._tag === "Some") {
           expect(err.value).toBeInstanceOf(AppDisconnected);
           const e = err.value as AppDisconnected;
-          expect(e.method).toBe(expectedMethod);
+          expect(e.method).toBe(TaskAuthorizeDispatch.name);
           expect(e.connectionId).toBe("conn-drop");
         }
       }
     };
-    assertDisconnected(exitA, AppsOnBeforeDispatch.name);
-    assertDisconnected(exitB, AppsOnBeforeMessageDelivery.name);
+    assertDisconnected(exitA);
+    assertDisconnected(exitB);
   });
 
   it("propagates a write-time SocketError as AppCallbackRpcSocketError without leaking pending entries", async () => {
@@ -350,8 +325,8 @@ describe("sendRpcToClient — disconnect mid-request", () => {
 
       const exit = yield* sendRpcToClient(
         conn,
-        AppsOnClose,
-        onCloseParams(),
+        TaskAuthorizeDispatch,
+        authorizeDispatchParams("writefail"),
       ).pipe(Effect.exit);
       const pendingSize = HashMap.size(yield* Ref.get(conn.appCallbackPending));
       yield* Scope.close(scope, Exit.void);
@@ -389,8 +364,9 @@ describe("sendRpcToClient — caller timeout", () => {
       const start = Date.now();
       const exit = yield* sendRpcToClient(
         conn,
-        AppsOnSessionActive,
-        onSessionActiveParams(
+        TaskAuthorizeDispatch,
+        authorizeDispatchParams(
+          "timeout",
           makeTaskId("cccccccc-cccc-4ccc-8ccc-cccccccccccc"),
         ),
       ).pipe(Effect.timeout(Duration.millis(100)), Effect.exit);
@@ -436,7 +412,11 @@ describe("sendRpcToClient — caller timeout", () => {
       );
 
       const fiber = yield* Effect.fork(
-        sendRpcToClient(conn, AppsOnSessionActive, onSessionActiveParams()),
+        sendRpcToClient(
+          conn,
+          TaskAuthorizeDispatch,
+          authorizeDispatchParams("cancel"),
+        ),
       );
       yield* Ref.get(conn.appCallbackPending).pipe(
         Effect.flatMap((m) =>
@@ -482,8 +462,9 @@ describe("sendRpcToClient — caller timeout", () => {
       const fiber = yield* Effect.fork(
         sendRpcToClient(
           conn,
-          AppsOnSessionActive,
-          onSessionActiveParams(
+          TaskAuthorizeDispatch,
+          authorizeDispatchParams(
+            "late",
             makeTaskId("dddddddd-dddd-4ddd-8ddd-dddddddddddd"),
           ),
         ),
@@ -518,7 +499,9 @@ describe("sendRpcToClient — caller timeout", () => {
       // not throw, panic, or settle anything.
       const completed = yield* completeAppCallbackResponse(
         conn,
-        responseFrame(requestId, { result: { ok: true } }),
+        responseFrame(requestId, {
+          result: { admission: { decision: "grant" } },
+        }),
       );
 
       yield* Scope.close(scope, Exit.void);
@@ -545,7 +528,11 @@ describe("sendRpcToClient — caller timeout", () => {
       );
 
       const fiber = yield* Effect.fork(
-        sendRpcToClient(conn, AppsOnClose, onCloseParams()),
+        sendRpcToClient(
+          conn,
+          TaskAuthorizeDispatch,
+          authorizeDispatchParams("int"),
+        ),
       );
       yield* Ref.get(conn.appCallbackPending).pipe(
         Effect.flatMap((m) =>
@@ -602,8 +589,9 @@ describe("sendRpcToClient — caller timeout", () => {
 
       const exit = yield* sendRpcToClient(
         conn,
-        AppsOnSessionActive,
-        onSessionActiveParams(
+        TaskAuthorizeDispatch,
+        authorizeDispatchParams(
+          "drain",
           makeTaskId("cccccccc-cccc-4ccc-8ccc-cccccccccccc"),
         ),
       ).pipe(Effect.timeout(Duration.millis(50)), Effect.exit);

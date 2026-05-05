@@ -61,14 +61,12 @@ interface TaskRow {
 
 /**
  * Stable TM-endpoint address for a registering agent: `tm:agent:<agentId>`.
- * Distinct from `agentConnectionEndpointAddress(connId)` in
- * `network/agent-endpoint-resolver.ts`, which mints
- * `tm:agent-conn:<connId>` for the resolver multimap (the `agent-conn`
- * kind). Both reuse the protocol-side {@link makeEndpointAddress}
- * primitive, so the wire format never forks. Phase 9 namespace split
- * (plan §2.4.a + Phase 8 codex deferral on PR #458) keeps the durable
- * and volatile forms in distinct kinds so they cannot alias inside the
- * resolver.
+ * Persisted in `tasks.tm_endpoint_address` and routed through
+ * `network.send` via `AgentEndpointResolver.resolveAll`. Phase 9b
+ * consumer-migration (sub-issue #460 amendment) collapsed the volatile
+ * per-WS-connection form into a resolver-internal `ConnectionId` lookup
+ * — `tm:agent:<agentId>` is the only `EndpointAddress` shape that
+ * appears on the wire today.
  */
 export function endpointAddressForAgent(
   agent: ActorAgentId | BrandedAgentId,
@@ -463,6 +461,16 @@ export class TaskService {
         [...input.parts],
         input.senderAgentId,
         input.replyToId,
+        // No `excludeConnectionId` — the TM is the storeMessage caller
+        // but its connection is not the original sender's, so the
+        // broadcaster fans out normally.
+        undefined,
+        // Bypass TM routing: this insert IS the TM acting on a message
+        // it already admitted. Without the flag, MessageService.send
+        // would re-emit a `messages/received` frame to the TM's own
+        // socket via `network.send` — a self-loop on every TM-authored
+        // store. Phase 9b codex HIGH-1.
+        true,
       );
       // Stamp the message's task_id so cross-task queries (Phase 6
       // `tasks/getMessages`, future TM-routed reads) can scope by the

@@ -1,31 +1,21 @@
 /**
  * Phase 1.2 (B.3) gating tests for the AppHost remote-app routing
- * surface (architect plan §3.4). These tests exercise the
- * `registerRemoteApp` / `unregisterRemoteApp` registration shape and
- * each per-hook dispatch path's behaviour against a mocked
- * `MoltZapConnection` + `ConnectionManager`. Wire-level coverage of
- * `sendRpcToClient` itself lives in `ws/connection.appCallback.test.ts`; this
- * file tests the AppHost-side composition (timeout envelope, fail-closed
- * mapping, multi-app deny short-circuit).
+ * surface (architect plan §3.4). Phase 9b consumer-migration (sub-issue
+ * #460): the legacy `apps/onBeforeDispatch` retired in favour of the
+ * renamed `task/authorizeDispatch`; the lifecycle and message-delivery
+ * appCallback verbs (`onBeforeMessageDelivery`, `onSessionActive`,
+ * `onClose`) deleted entirely. The dispatch helpers and registration
+ * paths exercised here narrow to the single surviving server→client
+ * round-trip.
  *
- * Running against `MoltZapConnection` directly (no testcontainers, no
- * real WS) keeps the tests pure-Effect — `TestClock`-drivable, no real
+ * Tests run against `MoltZapConnection` directly (no testcontainers, no
+ * real WS) so they stay pure-Effect — `TestClock`-drivable, no real
  * sleeps. The connection's `write` records outbound frames; the test
- * synthesizes inbound responses by calling `completeAppCallbackResponse` (the
- * same path the server's read fiber uses).
+ * synthesizes inbound responses by calling `completeAppCallbackResponse`
+ * (the same path the server's read fiber uses).
  */
 import { describe, expect, it } from "vitest";
-import { it as itEffect } from "@effect/vitest";
-import {
-  Cause,
-  Duration,
-  Effect,
-  Exit,
-  Fiber,
-  Ref,
-  Scope,
-  TestClock,
-} from "effect";
+import { Effect, Exit, Fiber, Ref, Scope } from "effect";
 import type { Kysely } from "kysely";
 import {
   responseFrame,
@@ -43,10 +33,7 @@ import type { Database } from "../db/database.js";
 import type { Broadcaster } from "../ws/broadcaster.js";
 import { makeFakeService } from "../test-utils/fakes.js";
 import { AppHost } from "./app-host.js";
-import type {
-  BeforeDispatchContext,
-  BeforeMessageDeliveryContext,
-} from "./hooks.js";
+import type { TaskAuthorizeDispatchContext } from "./hooks.js";
 
 // ─────────────────────────────────────────────────────────────────────
 // Test fixtures
@@ -91,25 +78,14 @@ const makeFakeConnection = (
 interface AppHostFixture {
   readonly host: AppHost;
   readonly connections: ConnectionManager;
-  readonly sentEvents: Array<{ agentId: string; event: unknown }>;
 }
 
-/**
- * Build an AppHost with a real {@link ConnectionManager} (so registered
- * remote-app connections route correctly) and fake services for every
- * dependency that the dispatch helpers do not touch.
- */
 function makeAppHostFixture(): AppHostFixture {
-  const sentEvents: Array<{ agentId: string; event: unknown }> = [];
-  const broadcaster = makeFakeService<Broadcaster>({
-    sendToAgent: (agentId: string, event: unknown) => {
-      sentEvents.push({ agentId, event });
-    },
-  } as Partial<Broadcaster>);
+  const broadcaster = makeFakeService<Broadcaster>({} as Partial<Broadcaster>);
   const connections = new ConnectionManager();
   const db = makeFakeService<Kysely<Database>>({} as Partial<Kysely<Database>>);
   const host = new AppHost(db, broadcaster, connections, null);
-  return { host, connections, sentEvents };
+  return { host, connections };
 }
 
 const baseManifest = (appId: string, hookTimeoutMs?: number): AppManifest => ({
@@ -117,12 +93,7 @@ const baseManifest = (appId: string, hookTimeoutMs?: number): AppManifest => ({
   name: `Test App ${appId}`,
   conversations: [],
   hooks: hookTimeoutMs
-    ? {
-        before_dispatch: { timeout_ms: hookTimeoutMs },
-        before_message_delivery: { timeout_ms: hookTimeoutMs },
-        on_session_active: { timeout_ms: hookTimeoutMs },
-        on_close: { timeout_ms: hookTimeoutMs },
-      }
+    ? { task_authorize_dispatch: { timeout_ms: hookTimeoutMs } }
     : undefined,
 });
 
@@ -131,28 +102,16 @@ const FIXTURE_AGENT_RECIPIENT = "00000000-0000-4000-8000-000000000a01";
 const FIXTURE_AGENT_SENDER = "00000000-0000-4000-8000-000000000a02";
 const FIXTURE_MESSAGE_ID = "00000000-0000-4000-8000-000000000201";
 
-const baseBeforeDispatchCtx = (
+const baseAuthorizeDispatchCtx = (
   appId: string,
   taskId: string,
-): BeforeDispatchContext => ({
+): TaskAuthorizeDispatchContext => ({
   conversationId: FIXTURE_CONVERSATION_ID,
   recipient: { agentId: FIXTURE_AGENT_RECIPIENT, ownerId: "owner-r" },
   message: { id: FIXTURE_MESSAGE_ID, senderAgentId: FIXTURE_AGENT_SENDER },
   taskId,
   appId,
   attempt: 0,
-  signal: new AbortController().signal,
-});
-
-const baseBeforeMessageDeliveryCtx = (
-  appId: string,
-  taskId: string,
-): BeforeMessageDeliveryContext => ({
-  conversationId: FIXTURE_CONVERSATION_ID,
-  sender: { agentId: FIXTURE_AGENT_SENDER, ownerId: "owner-s" },
-  message: { parts: [{ type: "text", text: "hi" }] },
-  taskId,
-  appId,
   signal: new AbortController().signal,
 });
 
@@ -189,36 +148,16 @@ function bindPrivateMethod<Fn extends (...args: never[]) => unknown>(
 }
 
 type RemoteRegistrations = Map<string, { connectionId: string }>;
-type BeforeDispatchDispatch = (
+type AuthorizeDispatchDispatch = (
   appId: string,
-  ctx: BeforeDispatchContext,
+  ctx: TaskAuthorizeDispatchContext,
 ) => Effect.Effect<unknown, never>;
-type BeforeMessageDeliveryDispatch = (
-  appId: string,
-  ctx: BeforeMessageDeliveryContext,
-) => Effect.Effect<unknown, never>;
-type DenyShortCircuitDispatch = <V>(
-  appIds: readonly string[],
-  isShortCircuit: (v: V) => boolean,
-  defaultVerdict: V,
-  perApp: (appId: string) => Effect.Effect<V, never>,
-) => Effect.Effect<V, never>;
 
 const remoteRegistrations = (host: AppHost): RemoteRegistrations =>
   privateField<RemoteRegistrations>(host, "remoteRegistrations");
 
-const dispatchBeforeDispatch = (host: AppHost): BeforeDispatchDispatch =>
-  bindPrivateMethod(host, "dispatchBeforeDispatchHook");
-
-const dispatchBeforeMessageDelivery = (
-  host: AppHost,
-): BeforeMessageDeliveryDispatch =>
-  bindPrivateMethod(host, "dispatchBeforeMessageDeliveryHook");
-
-const dispatchWithDenyShortCircuit = (
-  host: AppHost,
-): DenyShortCircuitDispatch =>
-  bindPrivateMethod(host, "dispatchAcrossAppsWithDenyShortCircuit");
+const dispatchAuthorizeDispatch = (host: AppHost): AuthorizeDispatchDispatch =>
+  bindPrivateMethod(host, "dispatchAuthorizeDispatchHook");
 
 // ─────────────────────────────────────────────────────────────────────
 // Registration surface
@@ -229,8 +168,6 @@ describe("AppHost.registerRemoteApp", () => {
     const { host } = makeAppHostFixture();
     host.registerRemoteApp(baseManifest("app-r"), "conn-1");
 
-    // Inspect via private state — the public observation surface is
-    // the dispatch path, exercised in the dispatch suites below.
     const map = remoteRegistrations(host);
     expect(map.get("app-r")).toEqual({ connectionId: "conn-1" });
   });
@@ -271,10 +208,10 @@ describe("AppHost.unregisterRemoteApp", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// before_dispatch — remote round-trip + fail-closed paths
+// task/authorizeDispatch — remote round-trip + fail-closed paths
 // ─────────────────────────────────────────────────────────────────────
 
-describe("AppHost remote dispatch — apps/onBeforeDispatch", () => {
+describe("AppHost remote dispatch — task/authorizeDispatch", () => {
   it("happy: remote replies with grant verdict; envelope passes through", async () => {
     const program = Effect.gen(function* () {
       const scope = yield* Scope.make();
@@ -286,21 +223,17 @@ describe("AppHost remote dispatch — apps/onBeforeDispatch", () => {
       fixture.connections.add(conn);
       fixture.host.registerRemoteApp(baseManifest("app-r"), "conn-rd-1");
 
-      // Drive `dispatchBeforeDispatchHook` directly — it's the uniform
-      // surface that `runBeforeDispatch` calls. Keeps the test free of
-      // DB / conversation-mapping setup.
-      const dispatch = dispatchBeforeDispatch(fixture.host);
+      const dispatch = dispatchAuthorizeDispatch(fixture.host);
 
       const fiber = yield* Effect.fork(
         dispatch(
           "app-r",
-          baseBeforeDispatchCtx(
+          baseAuthorizeDispatchCtx(
             "app-r",
             "00000000-0000-4000-8000-000000ce5510",
           ),
         ),
       );
-      // Yield repeatedly so the fork's inner write lands.
       const id = yield* captureLatestRequestId(outbound).pipe(
         Effect.retry({ times: 50, schedule: undefined }),
       );
@@ -334,12 +267,12 @@ describe("AppHost remote dispatch — apps/onBeforeDispatch", () => {
       fixture.connections.add(conn);
       fixture.host.registerRemoteApp(baseManifest("app-r"), "conn-rd-deny");
 
-      const dispatch = dispatchBeforeDispatch(fixture.host);
+      const dispatch = dispatchAuthorizeDispatch(fixture.host);
 
       const fiber = yield* Effect.fork(
         dispatch(
           "app-r",
-          baseBeforeDispatchCtx(
+          baseAuthorizeDispatchCtx(
             "app-r",
             "00000000-0000-4000-8000-000000ce55d0",
           ),
@@ -372,17 +305,20 @@ describe("AppHost remote dispatch — apps/onBeforeDispatch", () => {
       // and folds into the fail-closed branch.
       fixture.host.registerRemoteApp(baseManifest("app-r"), "no-such-conn");
 
-      const dispatch = dispatchBeforeDispatch(fixture.host);
+      const dispatch = dispatchAuthorizeDispatch(fixture.host);
 
       return yield* dispatch(
         "app-r",
-        baseBeforeDispatchCtx("app-r", "00000000-0000-4000-8000-000000ce5573"),
+        baseAuthorizeDispatchCtx(
+          "app-r",
+          "00000000-0000-4000-8000-000000ce5573",
+        ),
       );
     });
     const result = await Effect.runPromise(program);
     expect(result).toEqual({
       decision: "deny",
-      reason: "before_dispatch hook error",
+      reason: "task/authorizeDispatch error",
     });
   });
 
@@ -397,12 +333,12 @@ describe("AppHost remote dispatch — apps/onBeforeDispatch", () => {
       fixture.connections.add(conn);
       fixture.host.registerRemoteApp(baseManifest("app-r"), "conn-rd-drop");
 
-      const dispatch = dispatchBeforeDispatch(fixture.host);
+      const dispatch = dispatchAuthorizeDispatch(fixture.host);
 
       const fiber = yield* Effect.fork(
         dispatch(
           "app-r",
-          baseBeforeDispatchCtx(
+          baseAuthorizeDispatchCtx(
             "app-r",
             "00000000-0000-4000-8000-000000ce5570",
           ),
@@ -420,7 +356,7 @@ describe("AppHost remote dispatch — apps/onBeforeDispatch", () => {
     const result = await Effect.runPromise(program);
     expect(result).toEqual({
       decision: "deny",
-      reason: "before_dispatch hook error",
+      reason: "task/authorizeDispatch error",
     });
   });
 
@@ -435,12 +371,12 @@ describe("AppHost remote dispatch — apps/onBeforeDispatch", () => {
       fixture.connections.add(conn);
       fixture.host.registerRemoteApp(baseManifest("app-r"), "conn-rd-decode");
 
-      const dispatch = dispatchBeforeDispatch(fixture.host);
+      const dispatch = dispatchAuthorizeDispatch(fixture.host);
 
       const fiber = yield* Effect.fork(
         dispatch(
           "app-r",
-          baseBeforeDispatchCtx(
+          baseAuthorizeDispatchCtx(
             "app-r",
             "00000000-0000-4000-8000-000000ce55de",
           ),
@@ -461,313 +397,7 @@ describe("AppHost remote dispatch — apps/onBeforeDispatch", () => {
     const result = await Effect.runPromise(program);
     expect(result).toEqual({
       decision: "deny",
-      reason: "before_dispatch hook error",
+      reason: "task/authorizeDispatch error",
     });
-  });
-
-  itEffect("timeout: manifest timeout fires → fail-closed deny", () =>
-    Effect.gen(function* () {
-      const fixture = makeAppHostFixture();
-      // Use a real (Scope-managed) connection but never settle the
-      // pending Deferred. The TestClock advances time; the dispatch
-      // envelope's Effect.timeout catches `TimeoutException`.
-      const setup = yield* Effect.scoped(
-        Effect.gen(function* () {
-          const { conn } = yield* makeFakeConnection("conn-rd-tout");
-          fixture.connections.add(conn);
-          return conn.id;
-        }),
-      ).pipe(Effect.fork);
-      // Re-acquire under a longer-lived scope: the disconnect path
-      // would short-circuit our timeout assertion. Instead, register
-      // a fresh connection in a fresh scope kept alive for the test.
-      yield* Fiber.interrupt(setup);
-
-      // Long-lived scoped connection.
-      const longScope = yield* Scope.make();
-      const conn2 = yield* Scope.extend(
-        makeFakeConnection("conn-rd-tout-2"),
-        longScope,
-      ).pipe(Effect.map((s) => s.conn));
-      fixture.connections.add(conn2);
-      fixture.host.registerRemoteApp(
-        baseManifest("app-r", 200),
-        "conn-rd-tout-2",
-      );
-
-      const dispatch = dispatchBeforeDispatch(fixture.host);
-
-      const fiber = yield* Effect.fork(
-        dispatch(
-          "app-r",
-          baseBeforeDispatchCtx(
-            "app-r",
-            "00000000-0000-4000-8000-000000ce5570",
-          ),
-        ),
-      );
-      // Let the request frame land and the Deferred park.
-      yield* Effect.yieldNow();
-      // Drive the manifest timeout under TestClock.
-      yield* TestClock.adjust(Duration.millis(250));
-      const verdict = yield* Fiber.join(fiber);
-
-      expect(verdict).toEqual({
-        decision: "deny",
-        reason: "before_dispatch hook timed out",
-      });
-
-      yield* Scope.close(longScope, Exit.void);
-    }),
-  );
-});
-
-// ─────────────────────────────────────────────────────────────────────
-// before_message_delivery — fail-CLOSED to block: true
-// ─────────────────────────────────────────────────────────────────────
-
-describe("AppHost remote dispatch — apps/onBeforeMessageDelivery", () => {
-  it("happy: remote replies with non-blocking HookResult", async () => {
-    const program = Effect.gen(function* () {
-      const scope = yield* Scope.make();
-      const fixture = makeAppHostFixture();
-      const { conn, outbound } = yield* Scope.extend(
-        makeFakeConnection("conn-bmd"),
-        scope,
-      );
-      fixture.connections.add(conn);
-      fixture.host.registerRemoteApp(baseManifest("app-bmd"), "conn-bmd");
-
-      const dispatch = dispatchBeforeMessageDelivery(fixture.host);
-
-      const fiber = yield* Effect.fork(
-        dispatch(
-          "app-bmd",
-          baseBeforeMessageDeliveryCtx(
-            "app-bmd",
-            "00000000-0000-4000-8000-000000ce5510",
-          ),
-        ),
-      );
-      const id = yield* captureLatestRequestId(outbound).pipe(
-        Effect.retry({ times: 50, schedule: undefined }),
-      );
-      yield* completeAppCallbackResponse(
-        conn,
-        responseFrame(id, { result: { block: false } }),
-      );
-      const result = yield* Fiber.join(fiber);
-      yield* Scope.close(scope, Exit.void);
-      return result;
-    });
-    expect(await Effect.runPromise(program)).toEqual({ block: false });
-  });
-
-  it("missing-connection: stale registration → fail-closed block: true", async () => {
-    const program = Effect.gen(function* () {
-      const fixture = makeAppHostFixture();
-      fixture.host.registerRemoteApp(baseManifest("app-bmd"), "no-conn");
-
-      const dispatch = dispatchBeforeMessageDelivery(fixture.host);
-
-      return yield* dispatch(
-        "app-bmd",
-        baseBeforeMessageDeliveryCtx(
-          "app-bmd",
-          "00000000-0000-4000-8000-000000ce5573",
-        ),
-      );
-    });
-    expect(await Effect.runPromise(program)).toEqual({
-      block: true,
-      reason: "before_message_delivery hook error",
-    });
-  });
-
-  it("rpc error: remote responds with typed RpcResponseError → fail-closed block: true", async () => {
-    const program = Effect.gen(function* () {
-      const scope = yield* Scope.make();
-      const fixture = makeAppHostFixture();
-      const { conn, outbound } = yield* Scope.extend(
-        makeFakeConnection("conn-bmd-err"),
-        scope,
-      );
-      fixture.connections.add(conn);
-      fixture.host.registerRemoteApp(baseManifest("app-bmd"), "conn-bmd-err");
-
-      const dispatch = dispatchBeforeMessageDelivery(fixture.host);
-
-      const fiber = yield* Effect.fork(
-        dispatch(
-          "app-bmd",
-          baseBeforeMessageDeliveryCtx(
-            "app-bmd",
-            "00000000-0000-4000-8000-000000ce55e0",
-          ),
-        ),
-      );
-      const id = yield* captureLatestRequestId(outbound).pipe(
-        Effect.retry({ times: 50, schedule: undefined }),
-      );
-      yield* completeAppCallbackResponse(
-        conn,
-        responseFrame(id, {
-          error: { code: -32000, message: "remote refused" },
-        }),
-      );
-      const result = yield* Fiber.join(fiber);
-      yield* Scope.close(scope, Exit.void);
-      return result;
-    });
-    expect(await Effect.runPromise(program)).toEqual({
-      block: true,
-      reason: "before_message_delivery hook error",
-    });
-  });
-});
-
-// Phase 7 cutover removed `AppHost.dispatchOnSessionActiveHook` and
-// `dispatchOnCloseHook` along with the session-bootstrap path that was
-// the only caller. The lifecycle hook RPCs (`apps/onSessionActive`,
-// `apps/onClose`) survive on the wire until Phase 9 deletes them; the
-// fail-OPEN missing-connection assertions reactivate alongside Phase 9's
-// TM-topology lifecycle wiring.
-
-// ─────────────────────────────────────────────────────────────────────
-// In-process path remains unchanged
-// ─────────────────────────────────────────────────────────────────────
-
-describe("AppHost in-process dispatch — preserved behaviour", () => {
-  it("returns grant when no hook is registered", async () => {
-    const fixture = makeAppHostFixture();
-    fixture.host.registerApp(baseManifest("app-ip"));
-
-    const dispatch = dispatchBeforeDispatch(fixture.host);
-    const verdict = await Effect.runPromise(
-      dispatch(
-        "app-ip",
-        baseBeforeDispatchCtx("app-ip", "00000000-0000-4000-8000-000000ce5519"),
-      ),
-    );
-    expect(verdict).toEqual({ decision: "grant" });
-  });
-
-  it("invokes the in-process handler and returns its verdict", async () => {
-    const fixture = makeAppHostFixture();
-    fixture.host.registerApp(baseManifest("app-ip"));
-    fixture.host.onBeforeDispatch("app-ip", () => ({
-      decision: "deny",
-      reason: "in-process-policy",
-    }));
-
-    const dispatch = dispatchBeforeDispatch(fixture.host);
-    const verdict = await Effect.runPromise(
-      dispatch(
-        "app-ip",
-        baseBeforeDispatchCtx("app-ip", "00000000-0000-4000-8000-000000ce5519"),
-      ),
-    );
-    expect(verdict).toEqual({
-      decision: "deny",
-      reason: "in-process-policy",
-    });
-  });
-
-  it("a thrown handler is mapped to fail-closed deny", async () => {
-    const fixture = makeAppHostFixture();
-    fixture.host.registerApp(baseManifest("app-ip"));
-    fixture.host.onBeforeDispatch("app-ip", () => {
-      throw new Error("boom");
-    });
-
-    const dispatch = dispatchBeforeDispatch(fixture.host);
-    const verdict = await Effect.runPromise(
-      dispatch(
-        "app-ip",
-        baseBeforeDispatchCtx("app-ip", "00000000-0000-4000-8000-000000ce5519"),
-      ),
-    );
-    expect(verdict).toEqual({
-      decision: "deny",
-      reason: "before_dispatch hook error",
-    });
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────
-// Multi-app FIFO short-circuit (architect plan §3.4 acceptance #3)
-// ─────────────────────────────────────────────────────────────────────
-
-describe("AppHost.dispatchAcrossAppsWithDenyShortCircuit", () => {
-  it("invokes apps in registration order and returns the last grant when none deny", async () => {
-    const fixture = makeAppHostFixture();
-    const calls: string[] = [];
-
-    const combinator = dispatchWithDenyShortCircuit(fixture.host);
-
-    type V = { decision: "grant" } | { decision: "deny"; reason: string };
-    const verdict = await Effect.runPromise(
-      combinator<V>(
-        ["a", "b", "c"],
-        (v): boolean => v.decision === "deny",
-        { decision: "grant" } as V,
-        (appId) =>
-          Effect.sync(() => {
-            calls.push(appId);
-            return { decision: "grant" } as V;
-          }),
-      ),
-    );
-
-    expect(calls).toEqual(["a", "b", "c"]);
-    expect(verdict).toEqual({ decision: "grant" });
-  });
-
-  it("short-circuits on first deny — later apps are NOT invoked", async () => {
-    const fixture = makeAppHostFixture();
-    const calls: string[] = [];
-
-    const combinator = dispatchWithDenyShortCircuit(fixture.host);
-
-    type V = { decision: "grant" } | { decision: "deny"; reason: string };
-    const verdict = await Effect.runPromise(
-      combinator<V>(
-        ["a", "b", "c"],
-        (v): boolean => v.decision === "deny",
-        { decision: "grant" } as V,
-        (appId) =>
-          Effect.sync(() => {
-            calls.push(appId);
-            return appId === "b"
-              ? ({ decision: "deny", reason: "stop" } as V)
-              : ({ decision: "grant" } as V);
-          }),
-      ),
-    );
-
-    expect(calls).toEqual(["a", "b"]);
-    expect(verdict).toEqual({ decision: "deny", reason: "stop" });
-  });
-
-  it("returns the default verdict for an empty list", async () => {
-    const fixture = makeAppHostFixture();
-
-    const combinator = dispatchWithDenyShortCircuit(fixture.host);
-
-    const verdict = await Effect.runPromise(
-      combinator<{ decision: "grant" }>(
-        [],
-        () => false,
-        { decision: "grant" } as const,
-        () => Effect.die("should not run"),
-      ),
-    );
-
-    expect(verdict).toEqual({ decision: "grant" });
-  });
-
-  // Suppress an unused-import lint if Cause isn't referenced after edits.
-  it("no leaked Causes (sanity)", () => {
-    expect(typeof Cause.pretty).toBe("function");
   });
 });

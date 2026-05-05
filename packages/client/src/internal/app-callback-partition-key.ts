@@ -14,7 +14,7 @@
 import { Brand, Data } from "effect";
 
 import {
-  type AnyAppCallbackRpcDefinition,
+  type AnyTaskCallbackRpcDefinition,
   type DecodedRpcRequest,
   type JsonRpcStringId,
 } from "@moltzap/protocol";
@@ -34,26 +34,17 @@ export class PartitionKeyInvariantError extends Data.TaggedError(
 }> {}
 
 /**
- * Sentinel placeholder for appCallback methods that carry no `conversationId`
- * (lifecycle: `apps/onClose`, `apps/onSessionActive`).
- * All lifecycle calls for the same `(taskId, method)` share one
- * partition; cross-method lifecycle ordering is preserved by the server,
- * not the client.
- */
-export const LIFECYCLE_CONVERSATION_SENTINEL = "*lifecycle*" as const;
-
-/**
  * Field separator inside a `PartitionKey`. ASCII vertical bar; not legal
  * in a UUID and not legal in any of our `appId` values, so the encoded
  * key parses unambiguously.
  */
 const KEY_SEP = "|";
-const definitionSegments = new WeakMap<AnyAppCallbackRpcDefinition, string>();
-const definitionsBySegment = new Map<string, AnyAppCallbackRpcDefinition>();
+const definitionSegments = new WeakMap<AnyTaskCallbackRpcDefinition, string>();
+const definitionsBySegment = new Map<string, AnyTaskCallbackRpcDefinition>();
 let nextDefinitionSegment = 0;
 
 const segmentForDefinition = (
-  definition: AnyAppCallbackRpcDefinition,
+  definition: AnyTaskCallbackRpcDefinition,
 ): string => {
   const existing = definitionSegments.get(definition);
   if (existing !== undefined) return existing;
@@ -74,7 +65,7 @@ export interface AppCallbackPartitionRoute {
  * app-callback descriptor and validated params against that descriptor.
  */
 export type PartitionableRequest =
-  DecodedRpcRequest<AnyAppCallbackRpcDefinition> & {
+  DecodedRpcRequest<AnyTaskCallbackRpcDefinition> & {
     readonly id: JsonRpcStringId;
     readonly partition: AppCallbackPartitionRoute;
   };
@@ -94,14 +85,12 @@ export function extractPartitionKey(
 
 /**
  * Inverse projection for tests + observability. Pure deconstruction of a
- * `PartitionKey` back into its three components. Returning a structured
- * record (rather than a tuple) lets callers discriminate on
- * `conversationId === LIFECYCLE_CONVERSATION_SENTINEL`.
+ * `PartitionKey` back into its three components.
  */
 export function describePartitionKey(key: PartitionKey): {
   readonly taskId: string;
   readonly conversationId: string;
-  readonly definition: AnyAppCallbackRpcDefinition;
+  readonly definition: AnyTaskCallbackRpcDefinition;
 } {
   // Method is the only field that can contain a slash; taskId is a
   // UUID and conversationId is a UUID or the lifecycle sentinel. Split

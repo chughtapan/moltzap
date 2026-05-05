@@ -86,28 +86,32 @@ describe("AppManifestSchema", () => {
     expect(validateManifest(manifest)).toBe(false);
   });
 
-  it("accepts manifest with hook timeouts", () => {
+  it("accepts manifest with task_authorize_dispatch timeout", () => {
+    // Phase 9b consumer-migration (sub-issue #460): the legacy
+    // `before_message_delivery` / `on_close` / `on_session_active` hook
+    // keys retired with their wire RPCs; only `task_authorize_dispatch`
+    // (renamed from `before_dispatch`) remains.
     const manifest = {
       appId: "werewolf",
       name: "Werewolf",
       hooks: {
-        before_message_delivery: { timeout_ms: 3000 },
-        on_close: { timeout_ms: 5000 },
+        task_authorize_dispatch: { timeout_ms: 3000 },
       },
     };
     expect(validateManifest(manifest)).toBe(true);
   });
 
   it("accepts hook timeouts above 30s (no upper cap)", () => {
-    // Werewolf Phase 2 declares `before_dispatch: 900_000ms` (15 min) for the
-    // player-input waiter pattern. The schema-level 30s `maximum` was removed
-    // in B.4 follow-up (#324) per architect plan §8.1; AppHost enforces the
-    // declared timeout via `Effect.timeout(manifestMs)`.
+    // Werewolf Phase 2 declares `task_authorize_dispatch: 900_000ms`
+    // (15 min) for the player-input waiter pattern. The schema-level
+    // 30s `maximum` was removed in B.4 follow-up (#324) per architect
+    // plan §8.1; AppHost enforces the declared timeout via
+    // `Effect.timeout(manifestMs)`.
     const manifest = {
       appId: "werewolf",
       name: "Werewolf",
       hooks: {
-        before_dispatch: { timeout_ms: 900_000 },
+        task_authorize_dispatch: { timeout_ms: 900_000 },
       },
     };
     expect(validateManifest(manifest)).toBe(true);
@@ -118,7 +122,7 @@ describe("AppManifestSchema", () => {
       appId: "werewolf",
       name: "Werewolf",
       hooks: {
-        before_dispatch: { timeout_ms: 0 },
+        task_authorize_dispatch: { timeout_ms: 0 },
       },
     };
     expect(validateManifest(manifest)).toBe(false);
@@ -129,10 +133,29 @@ describe("AppManifestSchema", () => {
       appId: "test",
       name: "Test",
       hooks: {
-        before_message_delivery: { unexpected: "value" },
+        task_authorize_dispatch: { unexpected: "value" },
       },
     };
     expect(validateManifest(manifest)).toBe(false);
+  });
+
+  it("rejects retired hook keys (`before_dispatch`, `before_message_delivery`, `on_close`, `on_session_active`)", () => {
+    // Phase 9b consumer-migration regression guard: these four keys
+    // were the legacy appCallback group; retired by sub-issue #460.
+    // The schema's `additionalProperties: false` enforces the deletion.
+    for (const key of [
+      "before_dispatch",
+      "before_message_delivery",
+      "on_close",
+      "on_session_active",
+    ] as const) {
+      const manifest = {
+        appId: "test",
+        name: "Test",
+        hooks: { [key]: { timeout_ms: 1000 } },
+      };
+      expect(validateManifest(manifest)).toBe(false);
+    }
   });
 });
 

@@ -28,10 +28,10 @@ import {
 import * as Socket from "@effect/platform/Socket";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import type {
-  AnyAppCallbackRpcDefinition,
+  AnyTaskCallbackRpcDefinition,
   AnyRpcDefinition,
 } from "../rpc-registry.js";
-import { appCallbackRpcGroup } from "../rpc-registry.js";
+import { taskCallbackRpcGroup } from "../rpc-registry.js";
 import { decodeRpcResult, type ParamsOf, type ResultOf } from "../rpc.js";
 import {
   decodeNotification,
@@ -203,7 +203,7 @@ export class ServerRequestWaitError extends Data.TaggedError(
 /**
  * Descriptor constraint for app-callback RPC test surface.
  */
-export type ServerRpcDefinition = AnyAppCallbackRpcDefinition;
+export type ServerRpcDefinition = AnyTaskCallbackRpcDefinition;
 
 /**
  * Inbound params type for an app-callback method.
@@ -403,7 +403,7 @@ export function makeTestClient(
           // that matches, then run the registered handler (if any) and
           // write the response back. Both legs are independent — the
           // observer fires regardless of whether a handler is registered.
-          yield* decodeRpcRequest(appCallbackRpcGroup, frame).pipe(
+          yield* decodeRpcRequest(taskCallbackRpcGroup, frame).pipe(
             Effect.matchEffect({
               onFailure: () =>
                 writeReply(

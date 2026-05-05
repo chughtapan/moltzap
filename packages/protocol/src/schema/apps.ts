@@ -11,8 +11,9 @@ export const AppManifestConversationSchema = Type.Object(
 );
 
 /**
- * Per-hook configuration entry. All five lifecycle hooks share the same
- * shape — only `timeout_ms` is configurable today.
+ * Per-hook configuration entry. The lone surviving hook entry post
+ * Phase 9b is `task_authorize_dispatch`; only `timeout_ms` is
+ * configurable today.
  */
 const HookEntrySchema = Type.Object(
   {
@@ -35,13 +36,17 @@ export const AppManifestSchema = Type.Object(
       ),
     ),
     conversations: Type.Optional(Type.Array(AppManifestConversationSchema)),
+    // Phase 9b consumer-migration (sub-issue #460, plan §2.4): the
+    // four-verb appCallback group retired; only `task/authorizeDispatch`
+    // (renamed from `apps/onBeforeDispatch`) survives. The
+    // `before_message_delivery`, `on_close`, and `on_session_active`
+    // hook keys retired with their wire RPCs; `before_dispatch` was
+    // renamed to `task_authorize_dispatch` so the manifest key matches
+    // the new wire RPC.
     hooks: Type.Optional(
       Type.Object(
         {
-          before_message_delivery: Type.Optional(HookEntrySchema),
-          before_dispatch: Type.Optional(HookEntrySchema),
-          on_close: Type.Optional(HookEntrySchema),
-          on_session_active: Type.Optional(HookEntrySchema),
+          task_authorize_dispatch: Type.Optional(HookEntrySchema),
         },
         { additionalProperties: false },
       ),

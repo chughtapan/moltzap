@@ -13,8 +13,7 @@ function privateField<T>(target: object, key: string): T {
 type HookRegistry = Map<
   string,
   {
-    onSessionActive?: unknown;
-    onClose?: unknown;
+    taskAuthorizeDispatch?: unknown;
   }
 >;
 
@@ -22,11 +21,11 @@ type HookRegistry = Map<
 // AppHost hook registration
 // ─────────────────────────────────────────────────────────────────────
 //
-// These tests exercise the in-process hook registration surface directly
-// on a bare `AppHost` instance. No DB, no broadcaster side effects — we
-// just verify the hooks get stored on the internal Map and that
-// duplicate registration overwrites the handler (last-writer-wins, same
-// behaviour as onBeforeMessageDelivery / onSessionClose).
+// Phase 9b consumer-migration (sub-issue #460): the lifecycle hooks
+// (`onSessionActive`, `onSessionClose`) and the receive-side gate hook
+// (`onBeforeMessageDelivery`) retired with the wire RPC deletions; only
+// `task/authorizeDispatch` remains. These tests exercise the in-process
+// hook registration surface directly on a bare `AppHost` instance.
 
 function makeAppHost(): {
   host: AppHost;
@@ -48,38 +47,24 @@ function makeAppHost(): {
   return { host, sent };
 }
 
-describe("AppHost.onSessionActive (registration surface)", () => {
+describe("AppHost.onTaskAuthorizeDispatch (registration surface)", () => {
   it("stores the handler keyed by appId", () => {
     const { host } = makeAppHost();
-    const handler = () => {};
-    host.onSessionActive("my-app", handler);
+    const handler = () => ({ decision: "grant" as const });
+    host.onTaskAuthorizeDispatch("my-app", handler);
 
     const hooks = privateField<HookRegistry>(host, "hooks");
-    expect(hooks.get("my-app")?.onSessionActive).toBe(handler);
+    expect(hooks.get("my-app")?.taskAuthorizeDispatch).toBe(handler);
   });
 
   it("overwrites a prior handler for the same appId (last-writer-wins)", () => {
     const { host } = makeAppHost();
-    const first = () => {};
-    const second = () => {};
-    host.onSessionActive("app-x", first);
-    host.onSessionActive("app-x", second);
+    const first = () => ({ decision: "grant" as const });
+    const second = () => ({ decision: "deny" as const });
+    host.onTaskAuthorizeDispatch("app-x", first);
+    host.onTaskAuthorizeDispatch("app-x", second);
 
     const hooks = privateField<HookRegistry>(host, "hooks");
-    expect(hooks.get("app-x")?.onSessionActive).toBe(second);
-  });
-
-  it("coexists with onSessionClose on the same appId", () => {
-    const { host } = makeAppHost();
-    const active = () => {};
-    const close = () => {};
-
-    host.onSessionClose("combo-app", close);
-    host.onSessionActive("combo-app", active);
-
-    const hooks = privateField<HookRegistry>(host, "hooks");
-    const entry = hooks.get("combo-app")!;
-    expect(entry.onSessionActive).toBe(active);
-    expect(entry.onClose).toBe(close);
+    expect(hooks.get("app-x")?.taskAuthorizeDispatch).toBe(second);
   });
 });

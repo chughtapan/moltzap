@@ -151,11 +151,8 @@
               "protocol/methods/apps-list-sessions",
               "protocol/methods/apps-authorize-dispatch",
               "protocol/methods/apps-attach-conversation",
-              "protocol/methods/apps-on-before-dispatch",
-              "protocol/methods/apps-on-before-message-delivery",
-              "protocol/methods/apps-on-session-active",
               "protocol/methods/apps-on-join",
-              "protocol/methods/apps-on-close"
+              "protocol/methods/task-authorize-dispatch"
             ]
           },
           {
