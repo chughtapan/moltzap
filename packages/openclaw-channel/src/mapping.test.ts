@@ -65,7 +65,6 @@ const PRESENCE_FRAME = () =>
 const CONTACT = {
   id: contactId("550e8400-e29b-41d4-a716-446655440301"),
   contactUserId: userId("550e8400-e29b-41d4-a716-446655440302"),
-  source: "manual",
 };
 
 const conversation = (type: "dm" | "group", name?: string) => ({

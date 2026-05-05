@@ -24,14 +24,14 @@ import {
   AppsCloseSession,
   AppsCreate,
   AppsRegister,
-} from "../../schema/methods/apps.js";
+} from "../../app/methods/apps.js";
 import {
   ConversationsArchive,
   ConversationsCreate,
   ConversationsUnarchive,
   ConversationsUpdate,
-} from "../../schema/methods/conversations.js";
-import { MessagesSend } from "../../schema/methods/messages.js";
+} from "../../task/methods/conversations.js";
+import { MessagesSend } from "../../task/methods/messages.js";
 import {
   AgentId,
   ConversationId,

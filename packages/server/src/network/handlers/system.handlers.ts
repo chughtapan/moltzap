@@ -1,11 +1,11 @@
 import type { RpcMethodRegistry } from "../../rpc/context.js";
 import { SystemPing } from "@moltzap/protocol";
 import { Effect } from "effect";
-import { defineMethod } from "../../rpc/context.js";
+import { defineNetworkMethod } from "../../rpc/define-layered-method.js";
 
 export function createSystemHandlers(): RpcMethodRegistry {
   return [
-    defineMethod(SystemPing, {
+    defineNetworkMethod(SystemPing, {
       handler: () => Effect.sync(() => ({ ts: new Date().toISOString() })),
     }),
   ];

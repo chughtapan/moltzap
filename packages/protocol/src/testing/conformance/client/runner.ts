@@ -51,7 +51,7 @@ import { conformanceNumRunsFromEnv } from "../env.js";
 import type { ConformanceArtifact } from "../runner.js";
 import { PROTOCOL_VERSION } from "../../../version.js";
 
-import { Connect } from "../../../schema/methods/auth.js";
+import { Connect } from "../../../network/methods/auth.js";
 
 const DEFAULT_ACCEPT_TIMEOUT_MS = 5_000;
 const RANDOM_TAG_RADIX = 36;

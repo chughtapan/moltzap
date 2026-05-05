@@ -10,14 +10,14 @@ import {
   AppsCloseSession,
   AppsCreate,
   AppsRegister,
-} from "../../../schema/methods/apps.js";
+} from "../../../app/methods/apps.js";
 import {
   ConversationsArchive,
   ConversationsCreate,
   ConversationsUnarchive,
   ConversationsUpdate,
-} from "../../../schema/methods/conversations.js";
-import { MessagesSend } from "../../../schema/methods/messages.js";
+} from "../../../task/methods/conversations.js";
+import { MessagesSend } from "../../../task/methods/messages.js";
 import { decodeFrame, encodeFrame, isRequestFrame } from "../../codec.js";
 import type { ConformanceArtifact } from "../runner.js";
 import type { ConformanceRunContext, RealServerHandle } from "../runner.js";
@@ -52,13 +52,13 @@ import {
   runExpectingFailure,
 } from "./executable-proof-helpers.js";
 
-import { AgentsList, Connect } from "../../../schema/methods/auth.js";
-import { ContactsList } from "../../../schema/methods/contacts.js";
-import { ConversationsList } from "../../../schema/methods/conversations.js";
+import { AgentsList, Connect } from "../../../network/methods/auth.js";
+import { ContactsList } from "../../../task/methods/contacts.js";
+import { ConversationsList } from "../../../task/methods/conversations.js";
 import {
   PresenceSubscribe,
   PresenceUpdate,
-} from "../../../schema/methods/presence.js";
+} from "../../../task/methods/presence.js";
 
 type BadServerBehavior =
   | "allow-unauthenticated"
@@ -372,11 +372,11 @@ function makeBadResponse(
   ) {
     return null;
   }
-  if (
-    behavior === "drop-sampled-response" &&
-    ordinal > 1 &&
-    request.method !== Connect.name
-  ) {
+  if (behavior === "drop-sampled-response" && ordinal > 1) {
+    // Auto-handshake (Connect) is ordinal 1 and stays. Everything past that
+    // is the sampled call — drop the response unconditionally so the
+    // request-well-formedness property fires regardless of which method
+    // `arbitraryAnyCall` happened to draw, including Connect itself.
     return null;
   }
   if (

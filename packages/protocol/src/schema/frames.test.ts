@@ -8,7 +8,7 @@ import {
   NotificationFrameSchema,
 } from "./frames.js";
 
-import { MessagesSend } from "./methods/messages.js";
+import { MessagesSend } from "../task/methods/messages.js";
 
 const ajv = addFormats(new Ajv({ strict: true }));
 

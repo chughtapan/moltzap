@@ -33,8 +33,8 @@ import {
   arbitraryAnyCall,
 } from "../arbitraries/index.js";
 
-import { Connect } from "../../schema/methods/auth.js";
-import { ConversationsList } from "../../schema/methods/conversations.js";
+import { Connect } from "../../network/methods/auth.js";
+import { ConversationsList } from "../../task/methods/conversations.js";
 import { jsonRpcMethod, jsonRpcStringId, requestFrame } from "../../index.js";
 import { brandNotificationFrame } from "../../schema/internal-frames.js";
 

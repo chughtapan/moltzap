@@ -17,6 +17,7 @@ import { ConnectionManager } from "../ws/connection.js";
 import { Broadcaster } from "../ws/broadcaster.js";
 import { AuthService } from "../services/auth.service.js";
 import { ParticipantService } from "../services/participant.service.js";
+import { ContactsService } from "../services/contact.service.js";
 import { ConversationService } from "../services/conversation.service.js";
 import { DeliveryService } from "../services/delivery.service.js";
 import { PresenceService } from "../services/presence.service.js";
@@ -78,6 +79,11 @@ export class ParticipantServiceTag extends Context.Tag(
 export class ConversationServiceTag extends Context.Tag(
   "moltzap/ConversationService",
 )<ConversationServiceTag, ConversationService>() {}
+
+export class ContactsServiceTag extends Context.Tag("moltzap/ContactsService")<
+  ContactsServiceTag,
+  ContactsService
+>() {}
 
 export class DeliveryServiceTag extends Context.Tag("moltzap/DeliveryService")<
   DeliveryServiceTag,
@@ -191,6 +197,14 @@ export const DeliveryServiceLive = Layer.effect(
   }),
 );
 
+export const ContactsServiceLive = Layer.effect(
+  ContactsServiceTag,
+  Effect.gen(function* () {
+    const db = yield* DbTag;
+    return new ContactsService(db);
+  }),
+);
+
 export const PresenceServiceLive = Layer.effect(
   PresenceServiceTag,
   Effect.gen(function* () {
@@ -261,6 +275,7 @@ const Tier1 = Layer.mergeAll(
   AuthServiceLive,
   ParticipantServiceLive,
   DeliveryServiceLive,
+  ContactsServiceLive,
 );
 
 /** Tier 2 — Broadcaster + Presence both need Tier 1's ConnectionManager.
@@ -299,6 +314,7 @@ export interface ResolvedServices {
   readonly authService: AuthService;
   readonly participantService: ParticipantService;
   readonly conversationService: ConversationService;
+  readonly contactService: ContactsService;
   readonly deliveryService: DeliveryService;
   readonly presenceService: PresenceService;
   readonly appHost: AppHost;
@@ -321,6 +337,7 @@ export const resolveServices = Effect.all({
   authService: AuthServiceTag,
   participantService: ParticipantServiceTag,
   conversationService: ConversationServiceTag,
+  contactService: ContactsServiceTag,
   deliveryService: DeliveryServiceTag,
   presenceService: PresenceServiceTag,
   appHost: AppHostTag,

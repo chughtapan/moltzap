@@ -1,15 +1,15 @@
 import type { PresenceService } from "../../services/presence.service.js";
 import type { RpcMethodRegistry } from "../../rpc/context.js";
-import { defineMethod } from "../../rpc/context.js";
+import { defineTaskMethod } from "../../rpc/define-layered-method.js";
 import { PresenceUpdate, PresenceSubscribe } from "@moltzap/protocol";
 import { Effect } from "effect";
-import { ConnIdTag } from "../layers.js";
+import { ConnIdTag } from "../../app/layers.js";
 
 export function createPresenceHandlers(deps: {
   presenceService: PresenceService;
 }): RpcMethodRegistry {
   return [
-    defineMethod(PresenceUpdate, {
+    defineTaskMethod(PresenceUpdate, {
       requiresActive: true,
       handler: (params, ctx) =>
         Effect.gen(function* () {
@@ -20,7 +20,7 @@ export function createPresenceHandlers(deps: {
           return {};
         }),
     }),
-    defineMethod(PresenceSubscribe, {
+    defineTaskMethod(PresenceSubscribe, {
       requiresActive: true,
       handler: (params) =>
         Effect.gen(function* () {

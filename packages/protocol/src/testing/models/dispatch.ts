@@ -24,7 +24,7 @@ import {
   InviteAgent,
   Register,
   SelectAgent,
-} from "../../schema/methods/auth.js";
+} from "../../network/methods/auth.js";
 import {
   AppsAttachConversation,
   AppsAuthorizeDispatch,
@@ -32,12 +32,13 @@ import {
   AppsCreate,
   AppsGetSession,
   AppsListSessions,
-} from "../../schema/methods/apps.js";
+} from "../../app/methods/apps.js";
 import {
   ContactsAccept,
   ContactsAdd,
+  ContactsById,
   ContactsList,
-} from "../../schema/methods/contacts.js";
+} from "../../task/methods/contacts.js";
 import {
   ConversationsAddParticipant,
   ConversationsArchive,
@@ -50,13 +51,14 @@ import {
   ConversationsUnarchive,
   ConversationsUnmute,
   ConversationsUpdate,
-} from "../../schema/methods/conversations.js";
-import { InvitesCreateAgent } from "../../schema/methods/invites.js";
-import { MessagesList, MessagesSend } from "../../schema/methods/messages.js";
+} from "../../task/methods/conversations.js";
+import { InvitesCreateAgent } from "../../task/methods/invites.js";
+import { MessagesList, MessagesSend } from "../../task/methods/messages.js";
 import {
   PresenceSubscribe,
   PresenceUpdate,
-} from "../../schema/methods/presence.js";
+} from "../../task/methods/presence.js";
+import { SystemPing } from "../../network/methods/system.js";
 
 /**
  * Observable outcome of one RPC against the model, in the same shape the
@@ -211,6 +213,10 @@ export function applyCall<M extends RpcMethodName>(
     case AgentsList.name:
       return { next: baseNext, outcome: allowNoEvents() };
 
+    // System — pure ping returns a timestamp; honest "ok" for any caller.
+    case SystemPing.name:
+      return { next: baseNext, outcome: allowNoEvents() };
+
     // Agents lookup-shaped — need a target; uncertain.
     case AgentsLookup.name:
     case AgentsLookupByName.name:
@@ -251,6 +257,7 @@ export function applyCall<M extends RpcMethodName>(
     case ContactsList.name:
     case ContactsAdd.name:
     case ContactsAccept.name:
+    case ContactsById.name:
       return { next: baseNext, outcome: uncertainError() };
 
     // Invites — requires state. Uncertain.
