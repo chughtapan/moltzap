@@ -45,7 +45,7 @@ import {
 } from "./coverage-policy.js";
 import { conformanceArtifactDirFromEnv } from "./env.js";
 
-import { TasksCreate } from "../../task/methods/tasks.js";
+import { TasksClose, TasksCreate } from "../../task/methods/tasks.js";
 
 const JSON_INDENT_SPACES = 2;
 const TOXIPROXY_NOT_PROVISIONED = "Toxiproxy client not provisioned";
@@ -277,48 +277,37 @@ function allowedServerCoverageGaps(
       id: "adversity/reset-peer-recovery",
       reasonIncludes: "reset_peer toxic did not close",
     },
-    // Hook-gated delivery, multi-app FIFO short-circuit, and
-    // app-disconnect fail-policy need app-session machinery
-    // (apps/create needs the initiator's owner_user_id to be non-null —
-    // app-host.ts:629). The default conformance fixture registers
-    // agents without owner_user_id and self-reports PropertyUnavailable;
-    // when a future fixture extension makes apps/create reachable the
-    // property body surfaces PropertyDeferred so the suite reports
-    // honest coverage (the deny/patch/attach + multi-app + Deferred-
-    // leak assertions land in B.9 server integration tests, #318).
-    // Both shapes are expected outcomes pre-B.9.
+    // Hook-gated delivery, multi-app FIFO short-circuit, app-session
+    // close lifecycle, and app-disconnect fail-policy properties all
+    // gate on the session-bootstrap path that Phase 7 cutover removed.
+    // They short-circuit to PropertyDeferred citing TasksCreate as the
+    // gating dependency until Phase 9 wires the TM-topology equivalent
+    // (#318). Both PropertyUnavailable and PropertyDeferred outcomes
+    // are accepted (the boundary fixture acquires more state than the
+    // delivery fixtures and therefore can self-report Unavailable
+    // earlier in its setup).
     {
-      kind: "unavailable",
+      kind: "deferred",
       id: "delivery/hook-gated-delivery",
       reasonIncludes: TasksCreate.name,
     },
     {
       kind: "deferred",
-      id: "delivery/hook-gated-delivery",
-      reasonIncludes: "B.9",
-    },
-    {
-      kind: "unavailable",
       id: "delivery/multi-app-fifo-short-circuit",
       reasonIncludes: TasksCreate.name,
     },
     {
       kind: "deferred",
-      id: "delivery/multi-app-fifo-short-circuit",
-      reasonIncludes: "B.9",
+      id: "delivery/app-session-close-lifecycle",
+      reasonIncludes: TasksClose.name,
     },
     {
       kind: "unavailable",
       id: "boundary/app-disconnect-fail-policy",
       reasonIncludes: TasksCreate.name,
-    },
-    {
-      kind: "deferred",
-      id: "boundary/app-disconnect-fail-policy",
-      reasonIncludes: "B.9",
     },
     // Spurious appCallback frame handling needs a wire-level injection seam
-    // TestClient does not expose; tombstoned to B.9 (#318) where the
+    // TestClient does not expose; tombstoned to Phase 9 (#318) where the
     // server-side fault-injection path is reachable.
     {
       kind: "deferred",
