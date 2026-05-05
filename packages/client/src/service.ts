@@ -6,7 +6,6 @@ import {
   AgentsLookup,
   AgentsLookupByName,
   type HelloOk,
-  type AnyNotificationDefinition,
   agentId as toAgentId,
   AppsAuthorizeDispatch,
   bindNotificationHandler,
@@ -15,7 +14,7 @@ import {
   type ConversationCreatedNotification,
   type ConversationUpdatedNotification,
   conversationId as toConversationId,
-  type DecodedNotification,
+  type DecodedNotificationFrame,
   defineEffectNotificationHandlers,
   defineNotificationGroup,
   type Message,
@@ -190,7 +189,16 @@ type NotificationHandler<T> = (data: T) => void;
 
 interface ServiceHandlerPayloads {
   readonly message: Message;
-  readonly rawNotification: DecodedNotification<AnyNotificationDefinition>;
+  /**
+   * The "raw notification" surface receives the wire decoder's
+   * `DecodedNotificationFrame` union — known methods carry the
+   * descriptor and a raw `params: unknown` payload (validation hasn't
+   * happened yet); unknown methods carry no descriptor at all.
+   * Subscribers that want validated payloads register specific typed
+   * `on(...)` handlers (e.g. `conversationArchived`) which run behind
+   * the typed-bridge lift in `handleNotification`.
+   */
+  readonly rawNotification: DecodedNotificationFrame;
   readonly disconnect: void;
   readonly reconnect: HelloOk;
   readonly conversationArchived: ConversationArchivedNotification;
@@ -1172,9 +1180,7 @@ export class MoltZapService {
     );
   }
 
-  protected handleNotification(
-    notification: DecodedNotification<AnyNotificationDefinition>,
-  ): void {
+  protected handleNotification(notification: DecodedNotificationFrame): void {
     const params: Record<string, unknown> = isPlainRecord(notification.params)
       ? notification.params
       : {};

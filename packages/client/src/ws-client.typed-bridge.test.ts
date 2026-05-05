@@ -23,31 +23,33 @@ import {
   acceptTypedNotification,
   validateNotificationParams,
 } from "./ws-client.js";
-import type { DecodedNotification } from "./runtime/frame.js";
+import type { RawDecodedNotification } from "./runtime/frame.js";
 
-type TaskClosedDecoded = DecodedNotification<
+type TaskClosedRaw = RawDecodedNotification<
   typeof TaskClosedNotificationDefinition
 >;
-type PresenceChangedDecoded = DecodedNotification<
+type PresenceChangedRaw = RawDecodedNotification<
   typeof PresenceChangedNotificationDefinition
 >;
 
-const STALE_TASK_CLOSED = {
-  _tag: "Notification",
+// Stale wire-shape fixture as `RawDecodedNotification` (params: unknown):
+// the wire decoder is payload-opaque, so the pre-Phase-7 `sessionId` /
+// scalar `closedBy` shape is structurally a valid Raw notification.
+// `validateNotificationParams` is what rejects it at the typed-bridge
+// boundary; the type system distinguishes "decoded from the wire" from
+// "validated against the schema."
+const STALE_TASK_CLOSED: TaskClosedRaw = {
   jsonrpc: "2.0",
   method: TaskClosedNotificationDefinition.name,
-  // Pre-Phase-7 shape: `sessionId` (renamed → `taskId`) + scalar
-  // `closedBy` (now `{agentId, ownerId}` envelope). The cast models a
-  // wire frame the opaque decoder forwards without payload validation —
-  // splitting RawDecoded vs Decoded would erase it (deferred).
   params: {
     sessionId: "11111111-1111-4111-8111-111111111111",
     closedBy: "33333333-3333-4333-8333-333333333333",
   },
+  _tag: "Notification",
   definition: TaskClosedNotificationDefinition,
-} as unknown as TaskClosedDecoded; // #ignore-sloppy-code[as-unknown-as]: stale-shape fixture; structurally compatible with DecodedNotification but TS can't narrow params across the type lie
+} as TaskClosedRaw;
 
-const LIVE_TASK_CLOSED: TaskClosedDecoded = {
+const LIVE_TASK_CLOSED: TaskClosedRaw = {
   ...notificationFrame(TaskClosedNotificationDefinition, {
     taskId: taskId("11111111-1111-4111-8111-111111111111"),
     conversations: {
@@ -106,13 +108,13 @@ describe("acceptTypedNotification", () => {
       TaskClosedNotificationDefinition,
       "validateParams",
     );
-    const wrongMethod = {
-      _tag: "Notification",
+    const wrongMethod: PresenceChangedRaw = {
       jsonrpc: "2.0",
       method: PresenceChangedNotificationDefinition.name,
       params: {},
+      _tag: "Notification",
       definition: PresenceChangedNotificationDefinition,
-    } as unknown as PresenceChangedDecoded; // #ignore-sloppy-code[as-unknown-as]: stale-shape fixture; see STALE_TASK_CLOSED rationale
+    } as PresenceChangedRaw;
     const accepted = acceptTypedNotification(
       TaskClosedNotificationDefinition,
       wrongMethod,
