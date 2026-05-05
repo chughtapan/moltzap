@@ -11,8 +11,6 @@ export type ContactStatus = "accepted" | "pending";
 
 export type ConversationType = "dm" | "group";
 
-export type DeliveryStatus = "delivered" | "read" | "sent";
-
 export type EncryptionKeyStatus = "active" | "deprecated" | "revoked";
 
 export type Generated<T> =
@@ -92,14 +90,6 @@ export interface EncryptionKeys {
   version: number;
 }
 
-export interface MessageDelivery {
-  agent_id: string;
-  delivered_at: Timestamp | null;
-  message_id: string;
-  read_at: Timestamp | null;
-  status: Generated<DeliveryStatus>;
-}
-
 export interface Messages {
   conversation_id: string;
   created_at: Generated<Timestamp>;
@@ -140,7 +130,6 @@ export interface DB {
   conversation_participants: ConversationParticipants;
   conversations: Conversations;
   encryption_keys: EncryptionKeys;
-  message_delivery: MessageDelivery;
   messages: Messages;
   task_participants: TaskParticipants;
   tasks: Tasks;

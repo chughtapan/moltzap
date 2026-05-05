@@ -24,7 +24,6 @@ import type { WebhookClient } from "../adapters/webhook.js";
 import type { AppHost } from "../app/app-host.js";
 import type { AuthService } from "../services/auth.service.js";
 import type { ConversationService } from "../services/conversation.service.js";
-import type { DeliveryService } from "../services/delivery.service.js";
 import type { MessageService } from "../services/message.service.js";
 import type { ParticipantService } from "../services/participant.service.js";
 import type { PresenceService } from "../services/presence.service.js";
@@ -37,7 +36,6 @@ import {
   BroadcasterTag,
   ConnectionManagerTag,
   ConversationServiceTag,
-  DeliveryServiceTag,
   MessageServiceTag,
   ParticipantServiceTag,
   PresenceServiceTag,
@@ -129,11 +127,6 @@ export const fakeConversationServiceLayer = (
     ConversationServiceTag,
     makeFakeService<ConversationService>(impl),
   );
-
-export const fakeDeliveryServiceLayer = (
-  impl: Partial<DeliveryService>,
-): Layer.Layer<DeliveryServiceTag> =>
-  Layer.succeed(DeliveryServiceTag, makeFakeService<DeliveryService>(impl));
 
 export const fakePresenceServiceLayer = (
   impl: Partial<PresenceService>,

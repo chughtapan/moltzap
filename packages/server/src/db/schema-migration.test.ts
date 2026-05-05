@@ -177,24 +177,26 @@ describe("tasks schema (core-schema.sql)", () => {
     ).rejects.toThrow(/foreign key|violates/i);
   });
 
-  // Phase 7 destructive-migration guard: every dropped relation must
-  // reject re-use. SELECTing the legacy table errors with
-  // `relation … does not exist`; the surviving `tasks` table SELECTs
-  // an empty row set. Future drift (re-introducing the tables OR
-  // leaving the enum types behind) trips the assertions below
-  // instead of silently reintroducing the schema.
+  // Destructive-migration guard: every dropped relation must reject
+  // re-use. SELECTing a legacy table errors with `relation … does not
+  // exist`; the surviving `tasks` table SELECTs an empty row set.
+  // Future drift (re-introducing tables OR leaving enum types behind)
+  // trips the assertions below instead of silently reintroducing the
+  // schema. `app_sessions*` rows are Phase 7 (sub-issue #425);
+  // `message_delivery` is Phase 7.5 (sub-issue #450).
   it.each([
     "app_sessions",
     "app_session_participants",
     "app_session_conversations",
-  ])("table %s is gone (Phase 7 cutover)", async (tableName) => {
+    "message_delivery",
+  ])("table %s is gone", async (tableName) => {
     await expect(
       pglite.exec(`SELECT 1 FROM ${tableName} LIMIT 1`),
     ).rejects.toThrow(/does not exist/i);
   });
 
-  it.each(["app_session_status", "app_participant_status"])(
-    "enum %s is gone (Phase 7 cutover)",
+  it.each(["app_session_status", "app_participant_status", "delivery_status"])(
+    "enum %s is gone",
     async (typeName) => {
       // Recreating the enum succeeds iff the prior cutover dropped it.
       // CREATE TYPE on an existing name errors "already exists";

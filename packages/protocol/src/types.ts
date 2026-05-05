@@ -14,7 +14,6 @@ export type {
 } from "./schema/messages.js";
 export type { Invite } from "./schema/invites.js";
 export type { PresenceEntry } from "./schema/presence.js";
-export type { DeliveryEntry } from "./schema/delivery.js";
 export type {
   RequestFrame,
   ResponseFrame,
@@ -31,7 +30,6 @@ export type { AppManifest, AppManifestConversation } from "./schema/apps.js";
 // Typed notification payloads (the `params` field of a `NotificationFrame`).
 export type {
   MessageReceivedNotification,
-  MessageDeliveredNotification,
   ConversationCreatedNotification,
   ConversationUpdatedNotification,
   ContactRequestNotification,
