@@ -8,6 +8,10 @@ import {
   AgentsList,
 } from "./network/methods/auth.js";
 import {
+  EndpointsRegisterTaskManager,
+  EndpointsUnregisterTaskManager,
+} from "./network/methods/endpoints.js";
+import {
   ConversationsCreate,
   ConversationsList,
   ConversationsGet,
@@ -29,6 +33,19 @@ import {
 } from "./task/methods/contacts.js";
 import { InvitesCreateAgent } from "./task/methods/invites.js";
 import { PresenceUpdate, PresenceSubscribe } from "./task/methods/presence.js";
+import {
+  TasksCreate,
+  TasksGet,
+  TasksList,
+  TasksClose,
+  TasksCreateConversation,
+  TasksCloseConversation,
+  TasksAddParticipant,
+  TasksRemoveParticipant,
+  TasksStoreMessage,
+  TasksGetMessages,
+  TasksGetMessagesSince,
+} from "./task/methods/tasks.js";
 import {
   AppsCreate,
   AppsCloseSession,
@@ -67,6 +84,8 @@ export const networkRpcMethods = [
   AgentsLookupByName,
   AgentsList,
   SystemPing,
+  EndpointsRegisterTaskManager,
+  EndpointsUnregisterTaskManager,
 ] as const;
 
 export const taskRpcMethods = [
@@ -90,6 +109,17 @@ export const taskRpcMethods = [
   InvitesCreateAgent,
   PresenceUpdate,
   PresenceSubscribe,
+  TasksCreate,
+  TasksGet,
+  TasksList,
+  TasksClose,
+  TasksCreateConversation,
+  TasksCloseConversation,
+  TasksAddParticipant,
+  TasksRemoveParticipant,
+  TasksStoreMessage,
+  TasksGetMessages,
+  TasksGetMessagesSince,
 ] as const;
 
 export const appRpcMethods = [

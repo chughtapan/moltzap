@@ -26,6 +26,7 @@ import {
   MessageService,
   type DeliveryWebhookConfig,
 } from "../services/message.service.js";
+import { TaskService } from "../services/task.service.js";
 import type { UserService } from "../services/user.service.js";
 import { AppHost } from "./app-host.js";
 import type { EnvelopeEncryption } from "../crypto/envelope.js";
@@ -103,6 +104,11 @@ export class AppHostTag extends Context.Tag("moltzap/AppHost")<
 export class MessageServiceTag extends Context.Tag("moltzap/MessageService")<
   MessageServiceTag,
   MessageService
+>() {}
+
+export class TaskServiceTag extends Context.Tag("moltzap/TaskService")<
+  TaskServiceTag,
+  TaskService
 >() {}
 
 /** Optional user validator. `null` means no validation — admit all owners. */
@@ -296,11 +302,22 @@ const Tier4 = Layer.provideMerge(ConversationServiceLive, Tier3);
 /** Tier 5 — MessageService needs ConversationService + AppHost + upstream. */
 const Tier5 = Layer.provideMerge(MessageServiceLive, Tier4);
 
+export const TaskServiceLive = Layer.effect(
+  TaskServiceTag,
+  Effect.gen(function* () {
+    const db = yield* DbTag;
+    const conversations = yield* ConversationServiceTag;
+    const messages = yield* MessageServiceTag;
+    return new TaskService(db, conversations, messages);
+  }),
+);
+const Tier6 = Layer.provideMerge(TaskServiceLive, Tier5);
+
 /**
  * All service Layers merged, with cross-layer deps resolved. Still requires
  * `DbTag | LoggerTag | EncryptionTag` from a base Layer.
  */
-export const ServicesLive = Tier5;
+export const ServicesLive = Tier6;
 
 /**
  * Shape of the fully-resolved services. Handler factories consume this
@@ -319,6 +336,7 @@ export interface ResolvedServices {
   readonly presenceService: PresenceService;
   readonly appHost: AppHost;
   readonly messageService: MessageService;
+  readonly taskService: TaskService;
   readonly encryption: EnvelopeEncryption | null;
   readonly traceCapture: TraceCapture;
 }
@@ -342,5 +360,6 @@ export const resolveServices = Effect.all({
   presenceService: PresenceServiceTag,
   appHost: AppHostTag,
   messageService: MessageServiceTag,
+  taskService: TaskServiceTag,
   traceCapture: TraceCaptureTag,
 }) satisfies Effect.Effect<ResolvedServices, never, unknown>;
