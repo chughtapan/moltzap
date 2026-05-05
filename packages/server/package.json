@@ -30,6 +30,7 @@
   },
   "scripts": {
     "build": "pnpm --filter @moltzap/protocol build && tsc",
+    "typecheck:layers": "tsc -p src/network && tsc -p src/task",
     "dev": "tsx watch src/app/dev.ts",
     "db:generate": "kysely-codegen --out-file src/db/database.generated.ts",
     "test": "vitest run",

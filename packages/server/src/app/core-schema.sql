@@ -149,3 +149,22 @@ CREATE TABLE app_session_conversations (
   conversation_id UUID NOT NULL REFERENCES conversations(id),
   PRIMARY KEY (session_id, conversation_key)
 );
+
+-- Contacts (user-to-user relationship graph)
+CREATE TYPE contact_status AS ENUM ('pending', 'accepted');
+
+CREATE TABLE contacts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  owner_user_id UUID NOT NULL,
+  contact_user_id UUID NOT NULL,
+  relationship TEXT,
+  status contact_status NOT NULL DEFAULT 'pending',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (owner_user_id, contact_user_id),
+  CHECK (owner_user_id <> contact_user_id)
+);
+CREATE INDEX idx_contacts_owner ON contacts(owner_user_id);
+CREATE INDEX idx_contacts_target ON contacts(contact_user_id);
+CREATE TRIGGER contacts_updated_at BEFORE UPDATE ON contacts
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at();

@@ -22,7 +22,7 @@ import {
 } from "@moltzap/protocol";
 import { Effect } from "effect";
 import { defineMethod } from "../../rpc/context.js";
-import { ConnIdTag } from "../layers.js";
+import { ConnIdTag } from "../../app/layers.js";
 
 export function createConversationHandlers(deps: {
   conversationService: ConversationService;
