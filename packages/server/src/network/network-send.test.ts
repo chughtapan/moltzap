@@ -2,11 +2,15 @@
  * Unit tests for {@link NetworkSendService}.
  *
  * Each test covers exactly one branch of the send path:
- *   - happy path: agent address resolves and write succeeds.
+ *   - happy path: agent-conn address resolves and write succeeds.
+ *   - durable agent address (`tm:agent:<agentId>`): resolves through
+ *     the resolver's forward map and writes to one of the agent's
+ *     live connections (Phase 9 + plan §1.3 in-process loopback).
  *   - {@link RecipientNotResolved}: resolver miss; connection-manager miss
  *     (race where the resolver retains a stale entry).
- *   - {@link EndpointKindNotImplemented}: app-kind addresses fail with the
- *     placeholder tag (Phase 9 territory).
+ *   - {@link EndpointKindNotImplemented}: app-kind addresses fail with
+ *     the placeholder tag (Phase 9 reserves; resolver-backed app TMs
+ *     wire later).
  *   - {@link WriteFailed}: connection.write rejects.
  *
  * The service is exercised directly (no Layer composition) so each test
@@ -15,7 +19,11 @@
 import { describe, expect, it } from "vitest";
 import { Cause, Effect, Exit, HashMap, Option, Ref } from "effect";
 import * as Socket from "@effect/platform/Socket";
-import { agentId, endpointAddress } from "@moltzap/protocol/network";
+import {
+  agentId,
+  endpointAddress,
+  makeEndpointAddress,
+} from "@moltzap/protocol/network";
 import { ConnectionManager } from "../ws/connection.js";
 import {
   AgentEndpointResolver,
@@ -34,6 +42,10 @@ const ALICE = agentId("00000000-0000-4000-8000-00000000a11c");
 const CONN_A = "00000000-0000-4000-8000-00000000c001";
 
 const APP_ADDR = endpointAddress(`tm:app:00000000-0000-4000-8000-0000000a9990`);
+// Durable agent-id form `tm:agent:<agentId>` — what task-manager
+// registration writes into `tasks.tm_endpoint_address`. Phase 9
+// namespace split: distinct from `tm:agent-conn:<connId>`.
+const ALICE_DURABLE = makeEndpointAddress("agent", ALICE);
 
 const makeResolver = (): AgentEndpointResolver =>
   Effect.runSync(AgentEndpointResolver.make);
@@ -80,7 +92,54 @@ function fakeConnection(
 }
 
 describe("NetworkSendService.send", () => {
-  it("agent address: resolves via resolver, writes payload, returns DeliveryAck", () => {
+  it("durable agent address (`tm:agent:<agentId>`): resolves through forward map, writes payload, returns DeliveryAck", () => {
+    // Phase 9 / plan §2.4.a + §1.3: durable TM-routed sends use the
+    // `tm:agent:<agentId>` form. The resolver knows the agent through
+    // its volatile `agent-conn` registration; sendToDurableAgent picks
+    // one of those connections and writes there. In-process loopback:
+    // the same code path always runs (no short-circuit).
+    const resolver = makeResolver();
+    const connections = new ConnectionManager();
+    const capture = { raw: null as string | null };
+    const conn = fakeConnection(CONN_A, "ok", capture);
+    connections.add(conn);
+
+    const volatileAddr = agentConnectionEndpointAddress(CONN_A);
+    Effect.runSync(resolver.add(ALICE, volatileAddr, CONN_A));
+
+    const service = new NetworkSendService(resolver, connections);
+    const payload = opaquePayload(`{"jsonrpc":"2.0","method":"x","params":{}}`);
+
+    const exit = Effect.runSyncExit(service.send(ALICE_DURABLE, payload));
+    expect(Exit.isSuccess(exit)).toBe(true);
+    if (Exit.isSuccess(exit)) {
+      expect(exit.value).toBeInstanceOf(DeliveryAck);
+      expect(exit.value.to).toEqual(ALICE_DURABLE);
+    }
+    expect(capture.raw).toBe(payload);
+  });
+
+  it("durable agent address: agent has no live connection → RecipientNotResolved", () => {
+    const resolver = makeResolver();
+    const connections = new ConnectionManager();
+    const service = new NetworkSendService(resolver, connections);
+    const payload = opaquePayload("{}");
+
+    // ALICE_DURABLE references a registered TM that is not currently
+    // connected. The durable address persists in the column, but no
+    // socket holds it.
+    const exit = Effect.runSyncExit(service.send(ALICE_DURABLE, payload));
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      const failure = Cause.failureOption(exit.cause);
+      expect(Option.isSome(failure)).toBe(true);
+      if (Option.isSome(failure)) {
+        expect(failure.value).toBeInstanceOf(RecipientNotResolved);
+      }
+    }
+  });
+
+  it("agent-conn address: resolves via resolver, writes payload, returns DeliveryAck", () => {
     const resolver = makeResolver();
     const connections = new ConnectionManager();
     const capture = { raw: null as string | null };
@@ -102,7 +161,7 @@ describe("NetworkSendService.send", () => {
     expect(capture.raw).toBe(payload);
   });
 
-  it("agent address: resolver miss → RecipientNotResolved", () => {
+  it("agent-conn address: resolver miss → RecipientNotResolved", () => {
     const resolver = makeResolver();
     const connections = new ConnectionManager();
     const service = new NetworkSendService(resolver, connections);
@@ -121,7 +180,7 @@ describe("NetworkSendService.send", () => {
     }
   });
 
-  it("agent address: resolver hit but connection gone → RecipientNotResolved", () => {
+  it("agent-conn address: resolver hit but connection gone → RecipientNotResolved", () => {
     // Race: resolver still holds the entry but the connection closed
     // between the WS finalizer and the send call.
     const resolver = makeResolver();
@@ -159,7 +218,7 @@ describe("NetworkSendService.send", () => {
     }
   });
 
-  it("agent address: socket write rejects → WriteFailed wraps the cause", async () => {
+  it("agent-conn address: socket write rejects → WriteFailed wraps the cause", async () => {
     const resolver = makeResolver();
     const connections = new ConnectionManager();
     const capture = { raw: null as string | null };

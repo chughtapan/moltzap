@@ -2,47 +2,57 @@
  * `network.send(to: EndpointAddress, payload: OpaquePayload)
  *   → Effect<DeliveryAck, DeliveryError, never>`
  *
- * The new outbound-routing primitive introduced in Slice G1. Coexists with
- * the legacy {@link Broadcaster} during Phase 8; consumer migration to
- * `network.send` lands in Phase 9 (Slice C). {@link Broadcaster} deletion
- * lands in Phase 10 (Slice G2).
+ * The outbound-routing primitive introduced in Slice G1 and extended in
+ * Phase 9 (Slice C) with durable-agent + app-TM routing. Coexists with
+ * the legacy {@link Broadcaster} until {@link Broadcaster} deletion in
+ * Phase 10 (Slice G2).
  *
- * Plan: `docs/plans/layered-network-refactor-2026-05.md` §2.4.a, §2.10
- * (Slice G1), §2.11 (resolver constraint). Issue #426 acceptance.
+ * Plan: `docs/plans/layered-network-refactor-2026-05.md` §1.3 in-process
+ * loopback policy, §2.4.a `messages/send` TM routing, §2.10 (Slice G1),
+ * §2.11 (resolver constraint). Issue #426 acceptance + #427 acceptance
+ * (Phase 8 codex deferral on namespace split).
  *
  * Why a tagged service rather than a free function. The send path needs
- * exactly two collaborators — the {@link AgentEndpointResolver} for the
- * agent-kind lookup and the {@link ConnectionManager} for the writable
- * socket — and the dual-DI requirement (issue #426: "New tags introduced
- * alongside") asks for a Tag the rest of the server's `Layer` graph can
- * provide. A class with a single method composed from the two
- * collaborators is the smallest shape that satisfies both.
+ * exactly two collaborators — the {@link AgentEndpointResolver} for both
+ * volatile (`agent-conn`) and durable (`agent`) lookups, and the
+ * {@link ConnectionManager} for the writable socket. The dual-DI
+ * requirement asks for a Tag the rest of the server's `Layer` graph can
+ * provide. A class with a single method composed from both collaborators
+ * is the smallest shape that satisfies both.
  *
- * Why the error channel is `never` for the Context parameter. Per Issue
- * #426 acceptance: `Effect<DeliveryAck, DeliveryError, never>`. The
- * service holds its collaborators by direct reference, not Context, so
- * callers do not have to provide additional services to invoke `send`.
+ * Why the error channel is `never` for the Context parameter. The service
+ * holds its collaborators by direct reference, not Context, so callers do
+ * not have to provide additional services to invoke `send`.
  *
- * Endpoint kind handling:
- * - `tm:agent:<connId>` — resolves via the {@link AgentEndpointResolver}'s
- *   reverse index, then writes to the matching connection. O(1) hot path,
- *   no DB lookup (per §2.11). Returns
- *   {@link RecipientNotResolved} if the address is unknown to the
- *   resolver (typical: the recipient connection closed between fan-out
- *   computation and `send` invocation).
- * - `tm:app:<id>` — Phase 9 territory. Returns
- *   {@link EndpointKindNotImplemented}. Slice G1 deliberately does not
- *   ship app-kind delivery to avoid coupling with the TM topology
- *   refactor; that lands as part of Slice C.
+ * Endpoint kind handling (post Phase 9 namespace split):
+ * - `tm:agent-conn:<connId>` — volatile per-WebSocket-connection address.
+ *   Resolves via the {@link AgentEndpointResolver}'s reverse index, then
+ *   writes to the matching connection. O(1) hot path, no DB lookup (per
+ *   §2.11). {@link RecipientNotResolved} on miss.
+ * - `tm:agent:<agentId>` — durable agent-id form, used for task-manager
+ *   registration in `tasks.tm_endpoint_address`. Resolves via the
+ *   resolver's forward map (`resolveAll`) and writes to one of the
+ *   agent's live connections. {@link RecipientNotResolved} when the
+ *   agent has no live connection. Plan §1.3 in-process loopback policy:
+ *   the same code path always runs, even when the durable address
+ *   resolves to a connection in the same process.
+ * - `tm:app:<id>` — app-TM registrations resolved via the resolver
+ *   (apps register an endpoint address; the address routes through the
+ *   same connection table as agent kinds). {@link EndpointKindNotImplemented}
+ *   when the app-TM is not registered through the standard
+ *   resolver-backed path; consumers that want app-TM dispatch wire
+ *   the resolver registration at app start.
  *
- * The brand at `packages/protocol/src/network/actor-model.ts:48` already
+ * The brand at `packages/protocol/src/network/actor-model.ts` already
  * encodes the kind in the prefix. The send path parses the prefix once
  * and switches; the switch is exhaustive over `EndpointAddressKind`
  * (Phase 6 R3 pattern).
  */
-import { Brand, Data, Effect, Match, Option } from "effect";
+import { Brand, Data, Effect, HashSet, Match, Option } from "effect";
 import {
+  agentId as makeAgentId,
   endpointAddressKind,
+  type AgentId,
   type EndpointAddress,
   type EndpointAddressKind,
 } from "@moltzap/protocol/network";
@@ -170,7 +180,8 @@ export class NetworkSendService {
   ): Effect.Effect<DeliveryAck, DeliveryError, never> {
     const kind: EndpointAddressKind = endpointAddressKind(to);
     return Match.value(kind).pipe(
-      Match.when("agent", () => this.sendToAgentEndpoint(to, payload)),
+      Match.when("agent-conn", () => this.sendToAgentConnection(to, payload)),
+      Match.when("agent", () => this.sendToDurableAgent(to, payload)),
       Match.when("app", () =>
         Effect.fail(new EndpointKindNotImplemented({ to, kind: "app" })),
       ),
@@ -179,9 +190,9 @@ export class NetworkSendService {
   }
 
   /**
-   * Agent-kind delivery. Resolves the address to a live connection via
-   * the resolver's reverse index + the connection manager, writes the
-   * payload, and tags the outcome.
+   * Volatile per-connection delivery. Resolves the address to a live
+   * connection via the resolver's reverse index + the connection
+   * manager, writes the payload, and tags the outcome.
    *
    * Failure cases:
    * - resolver miss OR resolver hit + closed connection (race):
@@ -190,7 +201,7 @@ export class NetworkSendService {
    *   internal state. Folded into one branch.
    * - socket write fails → {@link WriteFailed}.
    */
-  private sendToAgentEndpoint(
+  private sendToAgentConnection(
     to: EndpointAddress,
     payload: OpaquePayload,
   ): Effect.Effect<DeliveryAck, DeliveryError, never> {
@@ -208,4 +219,71 @@ export class NetworkSendService {
       return new DeliveryAck({ to });
     });
   }
+
+  /**
+   * Durable-agent delivery. Phase 9 (plan §2.4.a): the
+   * `tm:agent:<agentId>` form is what task-manager registration writes
+   * into `tasks.tm_endpoint_address`. The address survives reconnects;
+   * resolution happens at send time via the resolver's forward map
+   * (`resolveAll`).
+   *
+   * Routing semantics:
+   * - The resolver's forward set carries the agent's volatile
+   *   `tm:agent-conn:<connId>` addresses (one per live connection).
+   *   `sendToDurableAgent` picks one and writes to it. The arbitrary
+   *   choice mirrors `Broadcaster.sendToAgent` today (also picks one
+   *   live connection from the per-agent list); plan §2.4.a does not
+   *   pin a per-connection policy.
+   * - `RecipientNotResolved` when the agent has no live connection —
+   *   the durable address persists in the column but no socket holds
+   *   it right now. Caller-recoverable; the right response is usually
+   *   to drop or queue, not retry.
+   *
+   * Plan §1.3 in-process loopback policy: the same code path runs
+   * regardless of whether the resolved connection is in this process.
+   * No short-circuit, no separate fast-path. One code path.
+   */
+  private sendToDurableAgent(
+    to: EndpointAddress,
+    payload: OpaquePayload,
+  ): Effect.Effect<DeliveryAck, DeliveryError, never> {
+    return Effect.gen(this, function* () {
+      const agentIdValue = parseAgentIdFromDurableAddress(to);
+      const conns = yield* this.resolver.resolveAll(agentIdValue);
+      // Pick-one fan-out: TM is one logical entity per agent;
+      // multi-connection devices receive the same TM-routed dispatch
+      // only once. Confirmed via #459 review thread.
+      const firstAddr = Option.fromIterable(HashSet.values(conns));
+      if (Option.isNone(firstAddr)) {
+        return yield* Effect.fail(new RecipientNotResolved({ to }));
+      }
+      const connId = yield* this.resolver.connectionForAddress(firstAddr.value);
+      const connOpt = Option.flatMap(connId, (id) =>
+        Option.fromNullable(this.connections.get(id)),
+      );
+      if (Option.isNone(connOpt)) {
+        return yield* Effect.fail(new RecipientNotResolved({ to }));
+      }
+      yield* connOpt.value
+        .write(payload)
+        .pipe(Effect.mapError((cause) => new WriteFailed({ to, cause })));
+      return new DeliveryAck({ to });
+    });
+  }
+}
+
+/**
+ * Strip the `tm:agent:` prefix from an EndpointAddress whose kind has
+ * already been confirmed to be `agent` (durable form). The brand
+ * predicate at the protocol layer rejects non-UUID inputs, so the only
+ * branch that fires here is the well-formed durable address — the
+ * {@link EndpointAddress} brand on the input already enforces shape.
+ */
+const DURABLE_AGENT_PREFIX = "tm:agent:";
+
+function parseAgentIdFromDurableAddress(address: EndpointAddress): AgentId {
+  // EndpointAddress is a branded string. Drop the brand structurally
+  // via String(...) so the slice operates on a plain string.
+  const raw = String(address);
+  return makeAgentId(raw.slice(DURABLE_AGENT_PREFIX.length));
 }
