@@ -67,7 +67,9 @@ describe("decodeFrames", () => {
 
     const decoded = await Effect.runPromise(decodeFrames(stale));
     expect(decoded).toHaveLength(1);
-    const notification = decoded[0] as DecodedNotification;
+    const notification = decoded[0] as DecodedNotification<
+      typeof TaskClosedNotificationDefinition
+    >;
     expect(notification._tag).toBe("Notification");
     expect(notification.method).toBe(TaskClosedNotificationDefinition.name);
 

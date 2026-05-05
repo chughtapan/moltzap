@@ -30,6 +30,7 @@
  * `register`, `dispatch`, and `closeAll` are `Effect<T, never>`.
  */
 import { Brand, Effect, Ref } from "effect";
+import type { AnyNotificationDefinition } from "@moltzap/protocol";
 import type { DecodedNotification } from "./frame.js";
 
 interface FilterableNotificationFrame {
@@ -95,7 +96,7 @@ export interface NotificationSubscription {
  * subscription B across frames.
  */
 export type SubscriberHandler = (
-  frame: DecodedNotification,
+  frame: DecodedNotification<AnyNotificationDefinition>,
 ) => Effect.Effect<void, never>;
 
 /**
@@ -128,7 +129,9 @@ export interface SubscriberRegistry {
    * handlers block later subscriptions for this frame but never
    * reorder frame N relative to frame N+1.
    */
-  readonly dispatch: (frame: DecodedNotification) => Effect.Effect<void, never>;
+  readonly dispatch: (
+    frame: DecodedNotification<AnyNotificationDefinition>,
+  ) => Effect.Effect<void, never>;
 
   /**
    * Drop every live subscription. Called from `MoltZapWsClient.close`

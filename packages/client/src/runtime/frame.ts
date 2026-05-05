@@ -12,7 +12,7 @@ import {
   isDecodedRpcRequest,
   isJsonRpcStringId,
   notificationGroup,
-  type DecodedNotification as ProtocolDecodedNotification,
+  type DecodedNotification,
   type DecodedRpcRequest,
   type JsonRpcStringId,
   type NotificationFrame,
@@ -24,6 +24,8 @@ import {
   type AppCallbackPartitionRoute,
 } from "../internal/app-callback-partition-key.js";
 
+export type { DecodedNotification };
+
 /** Decoded response frame — narrowed from the protocol's `ResponseFrame`. */
 export interface DecodedResponse {
   readonly _tag: "Response";
@@ -31,13 +33,6 @@ export interface DecodedResponse {
   readonly result?: unknown;
   readonly error?: Extract<ResponseFrame, { error: unknown }>["error"];
 }
-
-/** Decoded notification frame. */
-export type DecodedNotification<
-  D extends AnyNotificationDefinition = AnyNotificationDefinition,
-> = ProtocolDecodedNotification<D> & {
-  readonly _tag: "Notification";
-};
 
 /**
  * Decoded server-initiated (appCallback) request frame. The client routes these to
@@ -53,7 +48,7 @@ export type DecodedServerRequest<
 
 export type DecodedFrame =
   | DecodedResponse
-  | DecodedNotification
+  | DecodedNotification<AnyNotificationDefinition>
   | DecodedServerRequest;
 
 const isFramePadding = (char: string): boolean =>
@@ -123,13 +118,15 @@ function passthroughCast(def: object): AnyNotificationDefinition {
 
 const toDecodedNotification = (
   parsed: NotificationFrame,
-): Effect.Effect<DecodedNotification> => {
-  // Wire decoder is payload-opaque: it routes by method name and attaches
-  // the protocol definition (when known) so subscribers can opt into
-  // `definition.validateParams` for drift detection. Strict per-payload
-  // validation lives at the typed-handler boundary, not here — conformance
-  // payload-opacity (#200 §5 C3) and fuzz-liveness (E2) require the
-  // subscriber stream to surface arbitrary params byte-identically.
+): Effect.Effect<DecodedNotification<AnyNotificationDefinition>> => {
+  // Payload-opaque: route by method name, attach the descriptor so
+  // subscribers can opt into `definition.validateParams` for drift
+  // detection. Strict per-payload validation lives at the typed-handler
+  // boundary; opacity here is required for the conformance properties
+  // `delivery/payload-opacity-client` and
+  // `boundary/schema-exhaustive-fuzz-client`. `_tag` and `definition`
+  // attach non-enumerably so the decoded value still satisfies
+  // `validators.notificationFrame` (strict `additionalProperties: false`).
   const definition: AnyNotificationDefinition =
     notificationGroup.byName.get(parsed.method) ??
     makePassthroughNotificationDefinition(parsed.method);
@@ -146,7 +143,9 @@ const toDecodedNotification = (
     value: definition,
     enumerable: false,
   });
-  return Effect.succeed(decoded as DecodedNotification);
+  return Effect.succeed(
+    decoded as DecodedNotification<AnyNotificationDefinition>,
+  );
 };
 
 const lifecycleRoute = (taskId: string): AppCallbackPartitionRoute => ({

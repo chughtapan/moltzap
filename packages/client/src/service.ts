@@ -54,6 +54,7 @@ import {
 } from "effect";
 import {
   MoltZapWsClient,
+  validateNotificationParams,
   type RpcCallOptions,
   type WsClientLogger,
 } from "./ws-client.js";
@@ -1200,7 +1201,15 @@ export class MoltZapService {
 
     fanout(this.handlers.rawNotification, notification, this.opts.logger);
 
-    if (isDecodedNotificationInGroup(serviceNotificationGroup, notification)) {
+    // Subscriber-fanout dispatch is the second inbound typed bridge
+    // (sibling of `acceptTypedNotification`'s waitForNotification path).
+    // Validate `params` against the attached schema before invoking the
+    // typed handler — otherwise a stale wire shape would reach a handler
+    // typed for the current shape.
+    if (
+      isDecodedNotificationInGroup(serviceNotificationGroup, notification) &&
+      validateNotificationParams(notification, this.opts.logger)
+    ) {
       Effect.runSync(this.notificationHandlers.dispatch(notification));
     }
   }
