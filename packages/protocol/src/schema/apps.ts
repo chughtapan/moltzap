@@ -1,17 +1,5 @@
 import { Type, type Static } from "@sinclair/typebox";
-import { Value } from "@sinclair/typebox/value";
-import { stringEnum, brandedId, DateTimeString } from "../helpers.js";
-import { AgentId, ConversationId } from "./primitives.js";
-
-export const AppSessionId = brandedId("AppSessionId");
-export const appSessionId = (value: string): Static<typeof AppSessionId> =>
-  Value.Decode(AppSessionId, value);
-
-export const AppParticipantStatusEnum = stringEnum([
-  "pending",
-  "admitted",
-  "rejected",
-]);
+import { stringEnum } from "../helpers.js";
 
 export const AppManifestConversationSchema = Type.Object(
   {
@@ -62,22 +50,7 @@ export const AppManifestSchema = Type.Object(
   { additionalProperties: false },
 );
 
-export const AppSessionSchema = Type.Object(
-  {
-    id: AppSessionId,
-    appId: Type.String(),
-    initiatorAgentId: AgentId,
-    status: stringEnum(["waiting", "active", "failed", "closed"]),
-    conversations: Type.Record(Type.String(), ConversationId),
-    createdAt: DateTimeString,
-    closedAt: Type.Optional(DateTimeString),
-  },
-  { additionalProperties: false },
-);
-
 export type AppManifest = Static<typeof AppManifestSchema>;
 export type AppManifestConversation = Static<
   typeof AppManifestConversationSchema
 >;
-export type AppSession = Static<typeof AppSessionSchema>;
-export type AppParticipantStatus = Static<typeof AppParticipantStatusEnum>;

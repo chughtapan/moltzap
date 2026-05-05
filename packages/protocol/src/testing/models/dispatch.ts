@@ -25,14 +25,13 @@ import {
   Register,
   SelectAgent,
 } from "../../network/methods/auth.js";
+import { AppsAuthorizeDispatch } from "../../app/methods/apps.js";
 import {
-  AppsAttachConversation,
-  AppsAuthorizeDispatch,
-  AppsCloseSession,
-  AppsCreate,
-  AppsGetSession,
-  AppsListSessions,
-} from "../../app/methods/apps.js";
+  TasksClose,
+  TasksCreate,
+  TasksGet,
+  TasksList,
+} from "../../task/methods/tasks.js";
 import {
   ContactsAccept,
   ContactsAdd,
@@ -96,8 +95,8 @@ const IDEMPOTENT_METHODS: ReadonlySet<RpcMethodName> = new Set([
   MessagesList.name,
   ContactsList.name,
   PresenceSubscribe.name,
-  AppsListSessions.name,
-  AppsGetSession.name,
+  TasksList.name,
+  TasksGet.name,
 ] satisfies readonly RpcMethodName[]);
 
 export function isIdempotent(method: RpcMethodName): boolean {
@@ -269,13 +268,16 @@ export function applyCall<M extends RpcMethodName>(
     case PresenceSubscribe.name:
       return { next: baseNext, outcome: uncertainError() };
 
-    // Apps — require app/user context the fresh agent doesn't have.
-    case AppsCreate.name:
-    case AppsCloseSession.name:
-    case AppsGetSession.name:
-    case AppsListSessions.name:
+    // Apps — only `apps/authorizeDispatch` survived Phase 7. Requires
+    // app/user context the fresh agent doesn't have.
     case AppsAuthorizeDispatch.name:
-    case AppsAttachConversation.name:
+      return { next: baseNext, outcome: uncertainError() };
+
+    // Tasks — require task/participant context. Uncertain across draws.
+    case TasksCreate.name:
+    case TasksGet.name:
+    case TasksList.name:
+    case TasksClose.name:
       return { next: baseNext, outcome: uncertainError() };
 
     default: {

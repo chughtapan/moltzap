@@ -2,12 +2,13 @@ import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   MessageReceivedNotificationDefinition,
+  TaskClosedNotificationDefinition,
   agentId,
   conversationId,
   messageId,
   notificationFrame,
 } from "@moltzap/protocol";
-import { decodeFrames } from "./frame.js";
+import { decodeFrames, type DecodedNotification } from "./frame.js";
 
 const TEST_MESSAGE = {
   id: messageId("11111111-1111-4111-8111-111111111111"),
@@ -45,5 +46,55 @@ describe("decodeFrames", () => {
       id: "rpc-7",
       result: { ok: true },
     });
+  });
+
+  // R2 regression: drift detection lives at the typed-handler boundary,
+  // not the wire decoder. The wire decoder is payload-opaque (conformance
+  // §5 C3 / E2 require it) but attaches the protocol definition to every
+  // known-method notification, so subscribers can validate via
+  // `definition.validateParams` and reject stale shapes — e.g. a
+  // pre-Phase-7 `task/closed` carrying `sessionId` instead of
+  // `{taskId, conversations, closedBy: {agentId, ownerId}}`.
+  it("attaches definition for known methods so subscribers can reject stale `task/closed` payload", async () => {
+    const stale = JSON.stringify({
+      jsonrpc: "2.0",
+      method: "task/closed",
+      params: {
+        sessionId: "11111111-1111-4111-8111-111111111111",
+        closedBy: "33333333-3333-4333-8333-333333333333",
+      },
+    });
+
+    const decoded = await Effect.runPromise(decodeFrames(stale));
+    expect(decoded).toHaveLength(1);
+    const notification = decoded[0] as DecodedNotification<
+      typeof TaskClosedNotificationDefinition
+    >;
+    expect(notification._tag).toBe("Notification");
+    expect(notification.method).toBe(TaskClosedNotificationDefinition.name);
+
+    // R14: assert the decoder ATTACHES the live definition by reference
+    // identity (not via the global registry roundtrip — that would pass
+    // even if the decoder dropped the attachment).
+    expect(notification.definition).toBe(TaskClosedNotificationDefinition);
+
+    // The attached definition rejects the stale payload — subscribers /
+    // typed handlers can detect drift even though the decoder itself
+    // stays opaque.
+    expect(notification.definition.validateParams(notification.params)).toBe(
+      false,
+    );
+
+    // And the live shape passes — proves the validator is not vacuously false.
+    expect(
+      notification.definition.validateParams({
+        taskId: "11111111-1111-4111-8111-111111111111",
+        conversations: { main: "22222222-2222-4222-8222-222222222222" },
+        closedBy: {
+          agentId: "33333333-3333-4333-8333-333333333333",
+          ownerId: "owner-1",
+        },
+      }),
+    ).toBe(true);
   });
 });

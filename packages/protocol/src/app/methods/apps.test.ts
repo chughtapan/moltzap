@@ -15,11 +15,8 @@ import {
   AppsOnBeforeMessageDelivery,
   AppsOnSessionActive,
   AppsOnClose,
-  AppsAttachConversation,
-  AppsCloseSession,
 } from "./apps.js";
 import {
-  rpcMethods,
   appCallbackRpcMethods,
   type AppCallbackRpcMethodName,
 } from "../../rpc-registry.js";
@@ -50,17 +47,6 @@ describe("admission RPC registration", () => {
       AppsOnClose.name,
     ] satisfies AppCallbackRpcMethodName[]);
   });
-
-  it("registers apps/attachConversation as client-originated alongside apps/closeSession", () => {
-    const clientRpcNames = rpcMethods.map((m) => m.name);
-    expect(clientRpcNames).toContain(AppsAttachConversation.name);
-    expect(clientRpcNames).toContain(AppsCloseSession.name);
-  });
-
-  it("does not place apps/attachConversation in the appCallback tuple", () => {
-    const appCallbackNames = appCallbackRpcMethods.map((m) => m.name);
-    expect(appCallbackNames).not.toContain(AppsAttachConversation.name);
-  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -72,7 +58,7 @@ describe("AppsOnBeforeDispatch", () => {
   const validateResult = ajv.compile(AppsOnBeforeDispatch.resultSchema);
 
   const baseParams = {
-    sessionId: SESSION_ID,
+    taskId: SESSION_ID,
     appId: APP_ID,
     conversationId: CONVERSATION_ID,
     recipient: HOOK_AGENT,
@@ -113,8 +99,8 @@ describe("AppsOnBeforeDispatch", () => {
   });
 
   it("rejects missing required fields", () => {
-    const { sessionId: _omit, ...withoutSession } = baseParams;
-    expect(validateParams(withoutSession)).toBe(false);
+    const { taskId: _omit, ...withoutTask } = baseParams;
+    expect(validateParams(withoutTask)).toBe(false);
     expect(validateParams({})).toBe(false);
   });
 
@@ -142,7 +128,7 @@ describe("AppsOnBeforeMessageDelivery", () => {
   const validateResult = ajv.compile(AppsOnBeforeMessageDelivery.resultSchema);
 
   const baseParams = {
-    sessionId: SESSION_ID,
+    taskId: SESSION_ID,
     appId: APP_ID,
     conversationId: CONVERSATION_ID,
     sender: HOOK_AGENT,
@@ -214,14 +200,14 @@ describe("AppsOnBeforeMessageDelivery", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const onSessionActiveParams = {
-  sessionId: SESSION_ID,
+  taskId: SESSION_ID,
   appId: APP_ID,
   conversations: { town_square: CONVERSATION_ID },
   admittedAgentIds: [AGENT_ID],
 };
 
 const onCloseParams = {
-  sessionId: SESSION_ID,
+  taskId: SESSION_ID,
   appId: APP_ID,
   conversations: { town_square: CONVERSATION_ID },
   closedBy: HOOK_AGENT,
@@ -247,40 +233,5 @@ describe.each([
 
   it("rejects extra result fields (void hook payloads are ignored, not extended)", () => {
     expect(validateResult({ ack: true })).toBe(false);
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// apps/attachConversation — client-originated, void result
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe("AppsAttachConversation", () => {
-  const validateParams = AppsAttachConversation.validateParams;
-  const validateResult = ajv.compile(AppsAttachConversation.resultSchema);
-
-  it("accepts {sessionId, conversationId}", () => {
-    expect(
-      validateParams({
-        sessionId: SESSION_ID,
-        conversationId: CONVERSATION_ID,
-      }),
-    ).toBe(true);
-  });
-
-  it("rejects malformed sessionId", () => {
-    expect(
-      validateParams({
-        sessionId: "not-a-uuid",
-        conversationId: CONVERSATION_ID,
-      }),
-    ).toBe(false);
-  });
-
-  it("rejects missing conversationId", () => {
-    expect(validateParams({ sessionId: SESSION_ID })).toBe(false);
-  });
-
-  it("accepts an empty result envelope", () => {
-    expect(validateResult({})).toBe(true);
   });
 });

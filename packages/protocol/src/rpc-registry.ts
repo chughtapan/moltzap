@@ -47,12 +47,7 @@ import {
   TasksGetMessagesSince,
 } from "./task/methods/tasks.js";
 import {
-  AppsCreate,
-  AppsCloseSession,
-  AppsGetSession,
-  AppsListSessions,
   AppsAuthorizeDispatch,
-  AppsAttachConversation,
   AppsOnBeforeDispatch,
   AppsOnBeforeMessageDelivery,
   AppsOnSessionActive,
@@ -122,14 +117,7 @@ export const taskRpcMethods = [
   TasksGetMessagesSince,
 ] as const;
 
-export const appRpcMethods = [
-  AppsCreate,
-  AppsCloseSession,
-  AppsGetSession,
-  AppsListSessions,
-  AppsAuthorizeDispatch,
-  AppsAttachConversation,
-] as const;
+export const appRpcMethods = [AppsAuthorizeDispatch] as const;
 
 export const rpcMethods = [
   ...networkRpcMethods,

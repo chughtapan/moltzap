@@ -12,7 +12,7 @@ import {
   isDecodedRpcRequest,
   isJsonRpcStringId,
   notificationGroup,
-  type DecodedNotification as ProtocolDecodedNotification,
+  type DecodedNotification,
   type DecodedRpcRequest,
   type JsonRpcStringId,
   type NotificationFrame,
@@ -24,6 +24,8 @@ import {
   type AppCallbackPartitionRoute,
 } from "../internal/app-callback-partition-key.js";
 
+export type { DecodedNotification };
+
 /** Decoded response frame — narrowed from the protocol's `ResponseFrame`. */
 export interface DecodedResponse {
   readonly _tag: "Response";
@@ -31,13 +33,6 @@ export interface DecodedResponse {
   readonly result?: unknown;
   readonly error?: Extract<ResponseFrame, { error: unknown }>["error"];
 }
-
-/** Decoded notification frame. */
-export type DecodedNotification<
-  D extends AnyNotificationDefinition = AnyNotificationDefinition,
-> = ProtocolDecodedNotification<D> & {
-  readonly _tag: "Notification";
-};
 
 /**
  * Decoded server-initiated (appCallback) request frame. The client routes these to
@@ -53,7 +48,7 @@ export type DecodedServerRequest<
 
 export type DecodedFrame =
   | DecodedResponse
-  | DecodedNotification
+  | DecodedNotification<AnyNotificationDefinition>
   | DecodedServerRequest;
 
 const isFramePadding = (char: string): boolean =>
@@ -91,7 +86,7 @@ const toDecodedFrame = (
   }
 
   if (validators.notificationFrame(parsed)) {
-    return Effect.succeed(toDecodedNotification(parsed));
+    return toDecodedNotification(parsed);
   }
 
   return Effect.fail(new MalformedFrameError({ raw }));
@@ -123,10 +118,18 @@ function passthroughCast(def: object): AnyNotificationDefinition {
 
 const toDecodedNotification = (
   parsed: NotificationFrame,
-): DecodedNotification => {
-  const known = notificationGroup.byName.get(parsed.method);
+): Effect.Effect<DecodedNotification<AnyNotificationDefinition>> => {
+  // Payload-opaque: route by method name, attach the descriptor so
+  // subscribers can opt into `definition.validateParams` for drift
+  // detection. Strict per-payload validation lives at the typed-handler
+  // boundary; opacity here is required for the conformance properties
+  // `delivery/payload-opacity-client` and
+  // `boundary/schema-exhaustive-fuzz-client`. `_tag` and `definition`
+  // attach non-enumerably so the decoded value still satisfies
+  // `validators.notificationFrame` (strict `additionalProperties: false`).
   const definition: AnyNotificationDefinition =
-    known ?? makePassthroughNotificationDefinition(parsed.method);
+    notificationGroup.byName.get(parsed.method) ??
+    makePassthroughNotificationDefinition(parsed.method);
   const decoded: Record<string, unknown> = {
     jsonrpc: parsed.jsonrpc,
     method: definition.name,
@@ -140,11 +143,13 @@ const toDecodedNotification = (
     value: definition,
     enumerable: false,
   });
-  return decoded as DecodedNotification;
+  return Effect.succeed(
+    decoded as DecodedNotification<AnyNotificationDefinition>,
+  );
 };
 
-const lifecycleRoute = (sessionId: string): AppCallbackPartitionRoute => ({
-  sessionId,
+const lifecycleRoute = (taskId: string): AppCallbackPartitionRoute => ({
+  taskId,
   conversationId: LIFECYCLE_CONVERSATION_SENTINEL,
 });
 
@@ -153,21 +158,21 @@ const appCallbackPartitionRoute = (
 ): Effect.Effect<AppCallbackPartitionRoute, MalformedFrameError> => {
   if (isDecodedRpcRequest(AppsOnBeforeDispatch, request)) {
     return Effect.succeed({
-      sessionId: request.params.sessionId,
+      taskId: request.params.taskId,
       conversationId: request.params.conversationId,
     });
   }
   if (isDecodedRpcRequest(AppsOnBeforeMessageDelivery, request)) {
     return Effect.succeed({
-      sessionId: request.params.sessionId,
+      taskId: request.params.taskId,
       conversationId: request.params.conversationId,
     });
   }
   if (isDecodedRpcRequest(AppsOnSessionActive, request)) {
-    return Effect.succeed(lifecycleRoute(request.params.sessionId));
+    return Effect.succeed(lifecycleRoute(request.params.taskId));
   }
   if (isDecodedRpcRequest(AppsOnClose, request)) {
-    return Effect.succeed(lifecycleRoute(request.params.sessionId));
+    return Effect.succeed(lifecycleRoute(request.params.taskId));
   }
   return Effect.fail(
     new MalformedFrameError({

@@ -11,24 +11,18 @@ import {
   stopTestServer,
   resetTestDb,
   setupAgentGroup,
-  registerAndConnect,
 } from "./helpers.js";
 import type { ConnectedAgent } from "./helpers.js";
-import type { CoreApp } from "../../app/types.js";
 import { getCoreDb, expectRpcFailure } from "../../test-utils/index.js";
 
 import {
-  AppsCreate,
   ConversationsArchive,
   ConversationsList,
   ConversationsUnarchive,
 } from "@moltzap/protocol";
 
-let coreApp: CoreApp;
-
 beforeAll(async () => {
-  const server = await startTestServer();
-  coreApp = server.coreApp;
+  await startTestServer();
 }, 60_000);
 
 afterAll(async () => {
@@ -172,48 +166,14 @@ describe("conversations/archive + /unarchive", () => {
     }),
   );
 
-  it.live("archive of session-attached conversation returns 409", () =>
-    Effect.gen(function* () {
-      const appId = "archive-test-app";
-      coreApp.registerApp({
-        appId,
-        name: "Archive Test App",
-        conversations: [
-          { key: "main", name: "Main", participantFilter: "all" },
-        ],
-        hooks: {
-          before_message_delivery: { timeout_ms: 5000 },
-          on_close: { timeout_ms: 5000 },
-        },
-      });
-
-      const alice = yield* registerAndConnect("archive-alice");
-      // owner_user_id is required for app session admission.
-      const db = getCoreDb();
-      yield* Effect.promise(() =>
-        db
-          .updateTable("agents")
-          .set({ owner_user_id: crypto.randomUUID() })
-          .where("id", "=", alice.agentId)
-          .execute(),
-      );
-
-      const session = (yield* alice.client.sendRpc(AppsCreate, {
-        appId,
-        invitedAgentIds: [],
-      })) as {
-        session: { id: string; conversations: Record<string, string> };
-      };
-      const convId = session.session.conversations["main"]!;
-
-      const err = yield* expectRpcFailure(
-        alice.client.sendRpc(ConversationsArchive, {
-          conversationId: convId,
-        }),
-        ErrorCodes.Conflict,
-      );
-      expect(err.message).toContain("active app session");
-    }),
+  // Phase 7 cutover removed `apps/create`'s session-bootstrap path that
+  // attached manifest conversations under the legacy `app_sessions` ⇄
+  // `app_session_conversations` join. The "archive returns 409 for a
+  // session-attached conversation" assertion has no production trigger
+  // until Phase 9 wires the equivalent invariant on `tasks`/TM topology.
+  // Tombstoned via it.todo so the suite reports the gap.
+  it.todo(
+    "archive of task-attached conversation returns 409 (Phase 9 reactivation)",
   );
 
   it.live("concurrent archive by two privileged callers — both succeed", () =>

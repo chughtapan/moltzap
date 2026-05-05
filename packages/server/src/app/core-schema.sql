@@ -118,37 +118,10 @@ CREATE TABLE conversation_keys (
   PRIMARY KEY (conversation_id, dek_version)
 );
 
--- App sessions (AppHost framework)
-CREATE TYPE app_session_status AS ENUM ('waiting', 'active', 'failed', 'closed');
-CREATE TYPE app_participant_status AS ENUM ('pending', 'admitted', 'rejected');
-
-CREATE TABLE app_sessions (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  app_id TEXT NOT NULL,
-  initiator_agent_id UUID NOT NULL REFERENCES agents(id),
-  status app_session_status NOT NULL DEFAULT 'waiting',
-  closed_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE TABLE app_session_participants (
-  session_id UUID NOT NULL REFERENCES app_sessions(id) ON DELETE CASCADE,
-  agent_id UUID NOT NULL REFERENCES agents(id),
-  status app_participant_status NOT NULL DEFAULT 'pending',
-  rejection_reason TEXT,
-  admitted_at TIMESTAMPTZ,
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  PRIMARY KEY (session_id, agent_id)
-);
-CREATE TRIGGER app_session_participants_updated_at BEFORE UPDATE ON app_session_participants
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-
-CREATE TABLE app_session_conversations (
-  session_id UUID NOT NULL REFERENCES app_sessions(id) ON DELETE CASCADE,
-  conversation_key TEXT NOT NULL,
-  conversation_id UUID NOT NULL REFERENCES conversations(id),
-  PRIMARY KEY (session_id, conversation_key)
-);
+-- App sessions: dropped in Phase 7 (B+E cutover, sub-issue #425). The
+-- `tasks/task_participants` schema below + `conversations.task_id` (added
+-- in Phase 5) is the durable replacement; `apps/createSession`-style
+-- wire RPCs are deleted in favour of `tasks/*` (Phase 6).
 
 -- Contacts (user-to-user relationship graph)
 CREATE TYPE contact_status AS ENUM ('pending', 'accepted');
@@ -169,7 +142,7 @@ CREATE INDEX idx_contacts_target ON contacts(contact_user_id);
 CREATE TRIGGER contacts_updated_at BEFORE UPDATE ON contacts
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
--- Tasks (durable actor-model task layer; coexists with app_sessions)
+-- Tasks (durable actor-model task layer)
 CREATE TYPE task_status AS ENUM ('waiting', 'active', 'failed', 'closed');
 
 CREATE TABLE tasks (

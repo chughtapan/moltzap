@@ -46,8 +46,6 @@ import { AppHost } from "./app-host.js";
 import type {
   BeforeDispatchContext,
   BeforeMessageDeliveryContext,
-  OnCloseContext,
-  OnSessionActiveContext,
 } from "./hooks.js";
 
 // ─────────────────────────────────────────────────────────────────────
@@ -131,18 +129,16 @@ const baseManifest = (appId: string, hookTimeoutMs?: number): AppManifest => ({
 const FIXTURE_CONVERSATION_ID = "00000000-0000-4000-8000-000000000c01";
 const FIXTURE_AGENT_RECIPIENT = "00000000-0000-4000-8000-000000000a01";
 const FIXTURE_AGENT_SENDER = "00000000-0000-4000-8000-000000000a02";
-const FIXTURE_AGENT_CLOSER = "00000000-0000-4000-8000-000000000a04";
-const FIXTURE_AGENT_ADMITTED = "00000000-0000-4000-8000-000000000a05";
 const FIXTURE_MESSAGE_ID = "00000000-0000-4000-8000-000000000201";
 
 const baseBeforeDispatchCtx = (
   appId: string,
-  sessionId: string,
+  taskId: string,
 ): BeforeDispatchContext => ({
   conversationId: FIXTURE_CONVERSATION_ID,
   recipient: { agentId: FIXTURE_AGENT_RECIPIENT, ownerId: "owner-r" },
   message: { id: FIXTURE_MESSAGE_ID, senderAgentId: FIXTURE_AGENT_SENDER },
-  sessionId,
+  taskId,
   appId,
   attempt: 0,
   signal: new AbortController().signal,
@@ -150,32 +146,13 @@ const baseBeforeDispatchCtx = (
 
 const baseBeforeMessageDeliveryCtx = (
   appId: string,
-  sessionId: string,
+  taskId: string,
 ): BeforeMessageDeliveryContext => ({
   conversationId: FIXTURE_CONVERSATION_ID,
   sender: { agentId: FIXTURE_AGENT_SENDER, ownerId: "owner-s" },
   message: { parts: [{ type: "text", text: "hi" }] },
-  sessionId,
+  taskId,
   appId,
-  signal: new AbortController().signal,
-});
-
-const baseOnSessionActiveCtx = (
-  appId: string,
-  sessionId: string,
-): OnSessionActiveContext => ({
-  sessionId,
-  appId,
-  conversations: { main: FIXTURE_CONVERSATION_ID },
-  admittedAgentIds: [FIXTURE_AGENT_ADMITTED],
-  signal: new AbortController().signal,
-});
-
-const baseOnCloseCtx = (appId: string, sessionId: string): OnCloseContext => ({
-  sessionId,
-  appId,
-  conversations: { main: FIXTURE_CONVERSATION_ID },
-  closedBy: { agentId: FIXTURE_AGENT_CLOSER, ownerId: "owner-c" },
   signal: new AbortController().signal,
 });
 
@@ -220,14 +197,6 @@ type BeforeMessageDeliveryDispatch = (
   appId: string,
   ctx: BeforeMessageDeliveryContext,
 ) => Effect.Effect<unknown, never>;
-type OnSessionActiveDispatch = (
-  appId: string,
-  ctx: OnSessionActiveContext,
-) => Effect.Effect<void, never>;
-type OnCloseDispatch = (
-  appId: string,
-  ctx: OnCloseContext,
-) => Effect.Effect<void, never>;
 type DenyShortCircuitDispatch = <V>(
   appIds: readonly string[],
   isShortCircuit: (v: V) => boolean,
@@ -245,12 +214,6 @@ const dispatchBeforeMessageDelivery = (
   host: AppHost,
 ): BeforeMessageDeliveryDispatch =>
   bindPrivateMethod(host, "dispatchBeforeMessageDeliveryHook");
-
-const dispatchOnSessionActive = (host: AppHost): OnSessionActiveDispatch =>
-  bindPrivateMethod(host, "dispatchOnSessionActiveHook");
-
-const dispatchOnClose = (host: AppHost): OnCloseDispatch =>
-  bindPrivateMethod(host, "dispatchOnCloseHook");
 
 const dispatchWithDenyShortCircuit = (
   host: AppHost,
@@ -329,7 +292,13 @@ describe("AppHost remote dispatch — apps/onBeforeDispatch", () => {
       const dispatch = dispatchBeforeDispatch(fixture.host);
 
       const fiber = yield* Effect.fork(
-        dispatch("app-r", baseBeforeDispatchCtx("app-r", "sess-1")),
+        dispatch(
+          "app-r",
+          baseBeforeDispatchCtx(
+            "app-r",
+            "00000000-0000-4000-8000-000000ce5510",
+          ),
+        ),
       );
       // Yield repeatedly so the fork's inner write lands.
       const id = yield* captureLatestRequestId(outbound).pipe(
@@ -368,7 +337,13 @@ describe("AppHost remote dispatch — apps/onBeforeDispatch", () => {
       const dispatch = dispatchBeforeDispatch(fixture.host);
 
       const fiber = yield* Effect.fork(
-        dispatch("app-r", baseBeforeDispatchCtx("app-r", "sess-d")),
+        dispatch(
+          "app-r",
+          baseBeforeDispatchCtx(
+            "app-r",
+            "00000000-0000-4000-8000-000000ce55d0",
+          ),
+        ),
       );
       const id = yield* captureLatestRequestId(outbound).pipe(
         Effect.retry({ times: 50, schedule: undefined }),
@@ -401,7 +376,7 @@ describe("AppHost remote dispatch — apps/onBeforeDispatch", () => {
 
       return yield* dispatch(
         "app-r",
-        baseBeforeDispatchCtx("app-r", "sess-stale"),
+        baseBeforeDispatchCtx("app-r", "00000000-0000-4000-8000-000000ce5573"),
       );
     });
     const result = await Effect.runPromise(program);
@@ -425,7 +400,13 @@ describe("AppHost remote dispatch — apps/onBeforeDispatch", () => {
       const dispatch = dispatchBeforeDispatch(fixture.host);
 
       const fiber = yield* Effect.fork(
-        dispatch("app-r", baseBeforeDispatchCtx("app-r", "sess-drop")),
+        dispatch(
+          "app-r",
+          baseBeforeDispatchCtx(
+            "app-r",
+            "00000000-0000-4000-8000-000000ce5570",
+          ),
+        ),
       );
       // Tear down the connection scope before any response arrives.
       // The Scope finalizer fails the pending Deferred with
@@ -457,7 +438,13 @@ describe("AppHost remote dispatch — apps/onBeforeDispatch", () => {
       const dispatch = dispatchBeforeDispatch(fixture.host);
 
       const fiber = yield* Effect.fork(
-        dispatch("app-r", baseBeforeDispatchCtx("app-r", "sess-dec")),
+        dispatch(
+          "app-r",
+          baseBeforeDispatchCtx(
+            "app-r",
+            "00000000-0000-4000-8000-000000ce55de",
+          ),
+        ),
       );
       const id = yield* captureLatestRequestId(outbound).pipe(
         Effect.retry({ times: 50, schedule: undefined }),
@@ -511,7 +498,13 @@ describe("AppHost remote dispatch — apps/onBeforeDispatch", () => {
       const dispatch = dispatchBeforeDispatch(fixture.host);
 
       const fiber = yield* Effect.fork(
-        dispatch("app-r", baseBeforeDispatchCtx("app-r", "sess-tout")),
+        dispatch(
+          "app-r",
+          baseBeforeDispatchCtx(
+            "app-r",
+            "00000000-0000-4000-8000-000000ce5570",
+          ),
+        ),
       );
       // Let the request frame land and the Deferred park.
       yield* Effect.yieldNow();
@@ -548,7 +541,13 @@ describe("AppHost remote dispatch — apps/onBeforeMessageDelivery", () => {
       const dispatch = dispatchBeforeMessageDelivery(fixture.host);
 
       const fiber = yield* Effect.fork(
-        dispatch("app-bmd", baseBeforeMessageDeliveryCtx("app-bmd", "sess-1")),
+        dispatch(
+          "app-bmd",
+          baseBeforeMessageDeliveryCtx(
+            "app-bmd",
+            "00000000-0000-4000-8000-000000ce5510",
+          ),
+        ),
       );
       const id = yield* captureLatestRequestId(outbound).pipe(
         Effect.retry({ times: 50, schedule: undefined }),
@@ -573,7 +572,10 @@ describe("AppHost remote dispatch — apps/onBeforeMessageDelivery", () => {
 
       return yield* dispatch(
         "app-bmd",
-        baseBeforeMessageDeliveryCtx("app-bmd", "sess-stale"),
+        baseBeforeMessageDeliveryCtx(
+          "app-bmd",
+          "00000000-0000-4000-8000-000000ce5573",
+        ),
       );
     });
     expect(await Effect.runPromise(program)).toEqual({
@@ -596,7 +598,13 @@ describe("AppHost remote dispatch — apps/onBeforeMessageDelivery", () => {
       const dispatch = dispatchBeforeMessageDelivery(fixture.host);
 
       const fiber = yield* Effect.fork(
-        dispatch("app-bmd", baseBeforeMessageDeliveryCtx("app-bmd", "sess-e")),
+        dispatch(
+          "app-bmd",
+          baseBeforeMessageDeliveryCtx(
+            "app-bmd",
+            "00000000-0000-4000-8000-000000ce55e0",
+          ),
+        ),
       );
       const id = yield* captureLatestRequestId(outbound).pipe(
         Effect.retry({ times: 50, schedule: undefined }),
@@ -618,32 +626,12 @@ describe("AppHost remote dispatch — apps/onBeforeMessageDelivery", () => {
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────
-// Lifecycle hooks — fail-OPEN
-// ─────────────────────────────────────────────────────────────────────
-
-describe("AppHost remote dispatch — lifecycle (on_*)", () => {
-  it("on_session_active: missing-connection collapses to void (fail-OPEN)", async () => {
-    const program = Effect.gen(function* () {
-      const fixture = makeAppHostFixture();
-      fixture.host.registerRemoteApp(baseManifest("app-osa"), "no-conn");
-      const dispatch = dispatchOnSessionActive(fixture.host);
-      yield* dispatch("app-osa", baseOnSessionActiveCtx("app-osa", "sess-osa"));
-    });
-    // Just runs to completion without throwing.
-    await Effect.runPromise(program);
-  });
-
-  it("on_close: missing-connection collapses to void (fail-OPEN)", async () => {
-    const program = Effect.gen(function* () {
-      const fixture = makeAppHostFixture();
-      fixture.host.registerRemoteApp(baseManifest("app-oc"), "no-conn");
-      const dispatch = dispatchOnClose(fixture.host);
-      yield* dispatch("app-oc", baseOnCloseCtx("app-oc", "sess-oc"));
-    });
-    await Effect.runPromise(program);
-  });
-});
+// Phase 7 cutover removed `AppHost.dispatchOnSessionActiveHook` and
+// `dispatchOnCloseHook` along with the session-bootstrap path that was
+// the only caller. The lifecycle hook RPCs (`apps/onSessionActive`,
+// `apps/onClose`) survive on the wire until Phase 9 deletes them; the
+// fail-OPEN missing-connection assertions reactivate alongside Phase 9's
+// TM-topology lifecycle wiring.
 
 // ─────────────────────────────────────────────────────────────────────
 // In-process path remains unchanged
@@ -656,7 +644,10 @@ describe("AppHost in-process dispatch — preserved behaviour", () => {
 
     const dispatch = dispatchBeforeDispatch(fixture.host);
     const verdict = await Effect.runPromise(
-      dispatch("app-ip", baseBeforeDispatchCtx("app-ip", "sess-ip")),
+      dispatch(
+        "app-ip",
+        baseBeforeDispatchCtx("app-ip", "00000000-0000-4000-8000-000000ce5519"),
+      ),
     );
     expect(verdict).toEqual({ decision: "grant" });
   });
@@ -671,7 +662,10 @@ describe("AppHost in-process dispatch — preserved behaviour", () => {
 
     const dispatch = dispatchBeforeDispatch(fixture.host);
     const verdict = await Effect.runPromise(
-      dispatch("app-ip", baseBeforeDispatchCtx("app-ip", "sess-ip")),
+      dispatch(
+        "app-ip",
+        baseBeforeDispatchCtx("app-ip", "00000000-0000-4000-8000-000000ce5519"),
+      ),
     );
     expect(verdict).toEqual({
       decision: "deny",
@@ -688,7 +682,10 @@ describe("AppHost in-process dispatch — preserved behaviour", () => {
 
     const dispatch = dispatchBeforeDispatch(fixture.host);
     const verdict = await Effect.runPromise(
-      dispatch("app-ip", baseBeforeDispatchCtx("app-ip", "sess-ip")),
+      dispatch(
+        "app-ip",
+        baseBeforeDispatchCtx("app-ip", "00000000-0000-4000-8000-000000ce5519"),
+      ),
     );
     expect(verdict).toEqual({
       decision: "deny",

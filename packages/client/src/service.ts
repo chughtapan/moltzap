@@ -54,6 +54,7 @@ import {
 } from "effect";
 import {
   MoltZapWsClient,
+  validateNotificationParams,
   type RpcCallOptions,
   type WsClientLogger,
 } from "./ws-client.js";
@@ -260,12 +261,12 @@ function fanout<T>(
  * Stateful MoltZap client that manages connection, conversation tracking,
  * agent name resolution, and cross-conversation context generation.
  *
- * API contract: **every fallible method returns `Effect`.** There are no
- * `*Async` Promise siblings (unlike `@moltzap/app-sdk`'s `MoltZapApp`);
- * async/await consumers run the Effect at the edge with `Effect.runPromise`.
- * `@moltzap/app-sdk` is the public app-facing surface and layers its own
- * `*Async` wrappers on top. Keep this class Effect-only so downstream
- * callers compose failures and cancellation explicitly.
+ * API contract: **every fallible method returns `Effect`.** No `*Async`
+ * Promise siblings — async/await consumers run the Effect at the edge
+ * with `Effect.runPromise`. Keep this class Effect-only so downstream
+ * callers compose failures and cancellation explicitly. (Phase -1
+ * vendored the legacy `@moltzap/app-sdk` Promise-shaped wrapper out
+ * to arena; consumers wanting Promise wrappers maintain their own.)
  */
 export class MoltZapService {
   private client: MoltZapWsClient | null = null;
@@ -1200,7 +1201,15 @@ export class MoltZapService {
 
     fanout(this.handlers.rawNotification, notification, this.opts.logger);
 
-    if (isDecodedNotificationInGroup(serviceNotificationGroup, notification)) {
+    // Subscriber-fanout dispatch is the second inbound typed bridge
+    // (sibling of `acceptTypedNotification`'s waitForNotification path).
+    // Validate `params` against the attached schema before invoking the
+    // typed handler — otherwise a stale wire shape would reach a handler
+    // typed for the current shape.
+    if (
+      isDecodedNotificationInGroup(serviceNotificationGroup, notification) &&
+      validateNotificationParams(notification, this.opts.logger)
+    ) {
       Effect.runSync(this.notificationHandlers.dispatch(notification));
     }
   }

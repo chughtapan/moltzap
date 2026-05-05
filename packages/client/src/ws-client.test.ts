@@ -1113,7 +1113,7 @@ describe("Phase 1.0 (B.1) — handleServerRpc round-trip", () => {
         yield* client.handleServerRpc(AppsOnSessionActive, (params) =>
           Effect.succeed({
             ack: true,
-            saw: params.sessionId,
+            saw: params.taskId,
           }),
         );
         yield* Effect.promise(() => connectP(client));

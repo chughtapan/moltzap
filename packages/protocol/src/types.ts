@@ -26,12 +26,7 @@ export type { RpcError, ErrorCode } from "./schema/errors.js";
 export type { HelloOk, OwnedAgent } from "./network/methods/auth.js";
 
 // App shared shapes.
-export type {
-  AppManifest,
-  AppManifestConversation,
-  AppSession,
-  AppParticipantStatus,
-} from "./schema/apps.js";
+export type { AppManifest, AppManifestConversation } from "./schema/apps.js";
 
 // Typed notification payloads (the `params` field of a `NotificationFrame`).
 export type {
@@ -44,9 +39,10 @@ export type {
   PresenceChangedNotification,
   AppParticipantAdmittedNotification,
   AppParticipantRejectedNotification,
-  AppSessionReadyNotification,
-  AppSessionFailedNotification,
-  AppSessionClosedNotification,
+  TaskReadyNotification,
+  TaskFailedNotification,
+  TaskClosedNotification,
+  TaskAdmissionCompleteNotification,
 } from "./schema/notifications.js";
 
 // RPC manifest-derived params/results aren't re-exported here; downstream

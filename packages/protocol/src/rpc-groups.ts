@@ -93,6 +93,7 @@ export type DecodedRpcRequest<D extends AnyRpcDefinition> =
 export type DecodedNotification<D extends AnyNotificationDefinition> =
   D extends AnyNotificationDefinition
     ? NotificationFrame & {
+        readonly _tag: "Notification";
         readonly definition: D;
         readonly method: D["name"];
         readonly params: NotificationParamsOf<D>;
@@ -232,12 +233,20 @@ export function decodeNotification<
       }),
     );
   }
-  return Effect.succeed({
+  // `_tag` attaches non-enumerably so the decoded value still satisfies
+  // `validators.notificationFrame` (strict `additionalProperties: false`):
+  // wire-shape preservation matters for downstream filters / serializers.
+  const decoded: Record<string, unknown> = {
     ...frame,
     definition,
     method: definition.name,
     params,
-  } as DecodedNotification<Definitions[number]>);
+  };
+  Object.defineProperty(decoded, "_tag", {
+    value: "Notification",
+    enumerable: false,
+  });
+  return Effect.succeed(decoded as DecodedNotification<Definitions[number]>);
 }
 
 export function isDecodedRpcRequest<D extends AnyRpcDefinition>(
@@ -326,15 +335,27 @@ export interface EffectNotificationHandlerLayer<
 /**
  * Bind a tuple of notification handlers to their descriptors. Returns a
  * dispatcher that routes each `DecodedNotification` to its handler by
- * descriptor identity (set during construction), so dispatch is O(1)
- * lookup with no name-string comparison on the hot path.
+ * descriptor identity, so dispatch is O(1) with no name-string compare.
  *
  * The internal handler map stores `unknown -> Effect<void, E, R>` because
- * `Definitions[number]` is a union and each individual binding is keyed
- * to one concrete `D`. Descriptor identity (set during construction) is
- * the soundness proof: dispatch only sees `params` produced by the same
- * descriptor's pre-compiled AJV validator, so the unknown→params cast is
- * the boundary where validation already passed.
+ * `Definitions[number]` is a union and each binding is keyed to one
+ * concrete `D`. Descriptor identity proves the type-level link between
+ * the dispatched `params` and the bound handler — but it does NOT prove
+ * the runtime params actually conform for *inbound* notifications: the
+ * wire decoder is payload-opaque (required so
+ * `delivery/payload-opacity-client` and
+ * `boundary/schema-exhaustive-fuzz-client` conformance hold). Outbound
+ * bindings whose call sites already constructed `params` against the
+ * schema are safe. *Inbound* dispatchers MUST route through
+ * `client/src/ws-client.ts:validateNotificationParams` before invoking
+ * the handler. Current inbound bridges that do so:
+ *   - `client/src/ws-client.ts:acceptTypedNotification` — typed
+ *     `waitForNotification` promise resolver.
+ *   - `client/src/service.ts:handleNotification` — subscriber-fanout
+ *     dispatch into `notificationHandlers.dispatch`.
+ * The cast inside `dispatch(notification.params)` below is sound for
+ * outbound, unsound for unguarded inbound — every inbound bridge owns
+ * the validation step.
  */
 export function defineEffectNotificationHandlers<
   const Definitions extends readonly AnyNotificationDefinition[],

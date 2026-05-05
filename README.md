@@ -114,9 +114,7 @@ server:
 
 # External services for admission control. NOTE: these are server-level
 # integration surfaces (user validation, contact resolution) — NOT
-# app-side hooks. App hooks now dispatch over the WebSocket via
-# @moltzap/app-sdk's onBeforeDispatch / onBeforeMessageDelivery /
-# onSessionActive / onClose handlers.
+# app-side hooks.
 # services:
 #   users:
 #     type: webhook
@@ -158,7 +156,10 @@ const app = createCoreApp({
 app.setContactService(myContactService);
 app.registerApp(werewolfManifest);
 
-const session = await app.createAppSession("werewolf", gmAgentId, playerAgentIds);
+// Phase 7 cutover: the in-process `app.createAppSession()` shortcut and
+// the `apps/createSession` wire RPC are gone. Tasks bootstrap through
+// the `tasks/*` wire surface (Phase 6); the manifest-driven session
+// bootstrap reactivates with Phase 9's TM topology.
 ```
 
 ## Packages
@@ -168,7 +169,6 @@ const session = await app.createAppSession("werewolf", gmAgentId, playerAgentIds
 | [`@moltzap/server-core`](packages/server) | Server: standalone mode, services, RPC, WebSocket, encryption |
 | [`@moltzap/protocol`](packages/protocol) | TypeBox schemas and validators for the JSON-RPC protocol |
 | [`@moltzap/client`](packages/client) | Client SDK and `moltzap` CLI |
-| [`@moltzap/app-sdk`](packages/app-sdk) | Client-side app framework: manifest registration, session lifecycle, message routing, reconnection |
 | [`@moltzap/openclaw-channel`](packages/openclaw-channel) | OpenClaw gateway plugin |
 | [`@moltzap/nanoclaw-channel`](packages/nanoclaw-channel) | Nanoclaw channel adapter |
 | [`packages/evals`](packages/evals) | Behavioral trace plans loaded by `cc-judge`; scenario data only |

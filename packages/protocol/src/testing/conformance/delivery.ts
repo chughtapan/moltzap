@@ -10,21 +10,16 @@
  */
 import * as fc from "fast-check";
 import type { Static } from "@sinclair/typebox";
-import { Effect, Either, Ref, type Scope } from "effect";
+import { Effect, Either, type Scope } from "effect";
 import { ErrorCodes } from "../../schema/errors.js";
 import {
-  AppSessionClosedNotificationDefinition,
   ConversationArchivedNotificationDefinition,
   ConversationCreatedNotificationDefinition,
   ConversationUnarchivedNotificationDefinition,
   ConversationUpdatedNotificationDefinition,
   MessageReceivedNotificationDefinition,
 } from "../../schema/notifications.js";
-import {
-  AppsCloseSession,
-  AppsCreate,
-  AppsRegister,
-} from "../../app/methods/apps.js";
+import { TasksCreate, TasksClose } from "../../task/methods/tasks.js";
 import {
   ConversationsArchive,
   ConversationsCreate,
@@ -45,20 +40,18 @@ import type { ConformanceRunContext } from "./runner.js";
 import {
   PropertyDeferred,
   PropertyInvariantViolation,
-  PropertyUnavailable,
   assertProperty,
   registerProperty,
 } from "./registry.js";
-import { leftOrNull, requireRight, sendUntypedRpc } from "./_helpers.js";
+import { leftOrNull, requireRight } from "./_helpers.js";
 
 const CATEGORY = "delivery" as const;
 const DEFAULT_TIMEOUT_MS = 5000;
 const DEFAULT_CAPTURE_CAPACITY = 256;
 const DEFAULT_PROPERTY_NUM_RUNS = 3;
-const DATE_ID_RADIX = 36;
 const MAX_N = 4;
 const CONVERSATION_LIFECYCLE_PROPERTY = "conversation-lifecycle";
-const APP_SESSION_CLOSE_LIFECYCLE_PROPERTY = "app-session-close-lifecycle";
+const TASK_CLOSE_LIFECYCLE_PROPERTY = "task-close-lifecycle";
 const ARCHIVE_LIFECYCLE_PROPERTY = "archive-lifecycle";
 const STORE_AND_REPLAY_PROPERTY = "store-and-replay";
 const TASK_BOUNDARY_ISOLATION_PROPERTY = "task-boundary-isolation";
@@ -96,11 +89,6 @@ type MessageEventData = {
   readonly message?: {
     readonly conversationId?: unknown;
   };
-};
-
-type AppSessionClosedNotificationData = {
-  readonly sessionId?: unknown;
-  readonly closedBy?: unknown;
 };
 
 type UnarchiveEventData = {
@@ -250,35 +238,6 @@ function waitForMessageReceivedNotification(
         violation(
           propertyName,
           `bad message event payload: ${JSON.stringify(event.params)}`,
-        ),
-      );
-    }
-  });
-}
-
-function waitForAppSessionClosedNotification(
-  observer: ConversationActor,
-  sessionId: string,
-  closedBy: string,
-  propertyName: string,
-): Effect.Effect<void, PropertyInvariantViolation> {
-  return Effect.gen(function* () {
-    const event = yield* observer.client
-      .waitForNotification(
-        AppSessionClosedNotificationDefinition,
-        DEFAULT_TIMEOUT_MS,
-      )
-      .pipe(
-        Effect.mapError((e) =>
-          violation(propertyName, `session closed event missing: ${e.message}`),
-        ),
-      );
-    const data = event.params as AppSessionClosedNotificationData | undefined;
-    if (data?.sessionId !== sessionId || data.closedBy !== closedBy) {
-      return yield* Effect.fail(
-        violation(
-          propertyName,
-          `bad session closed event payload: ${JSON.stringify(event.params)}`,
         ),
       );
     }
@@ -684,6 +643,13 @@ export function registerPayloadOpacity(ctx: ConformanceRunContext): void {
  * fixture's agents are owner-less (default `startCoreTestServer`), the
  * property reports `PropertyUnavailable` and B.9 carries the load.
  */
+// Phase 7 cutover removed `apps/create`'s session bootstrap. Both the
+// hook-gated-delivery and multi-app-fifo-short-circuit properties
+// short-circuit to PropertyDeferred — the assertions need TM-topology
+// hook routing that lands in Phase 9 (#318). The suite's
+// `allowedServerCoverageGaps` matches `reasonIncludes: TasksCreate.name`,
+// so naming the gating dependency keeps coverage honest.
+
 export function registerHookGatedDelivery(ctx: ConformanceRunContext): void {
   registerProperty(
     ctx,
@@ -692,26 +658,12 @@ export function registerHookGatedDelivery(ctx: ConformanceRunContext): void {
     "deny drops; patch mutates recipient view; attached conv enters hooks",
     Effect.scoped(
       Effect.gen(function* () {
-        const fixture = yield* acquireAppSessionFixture(
-          ctx,
-          "hgd",
-          "hook-gated-delivery",
-        ).pipe(Effect.either);
-        yield* requireRight(fixture, (error) => error);
-        // Codex review (#327, finding 4): the protocol fixture cannot
-        // drive the deny/patch/attach scenarios end-to-end (no DB seam
-        // to inspect the recipient view; `apps/attachConversation` is a
-        // client-originated RPC but the assertion needs a server-internal observation
-        // the conformance contract does not expose). When a future
-        // fixture extension makes apps/create reachable, surface a
-        // typed Deferred so the suite reports honest coverage instead
-        // of a vacuous pass.
+        void ctx;
         return yield* Effect.fail(
           new PropertyDeferred({
             category: CATEGORY,
             name: "hook-gated-delivery",
-            followUp:
-              "deny/patch/attach assertions live in B.9 server integration tests (#318) — protocol fixture lacks DB-level recipient inspection",
+            followUp: `deny/patch/attach assertions need TM-topology hook routing; reactivate alongside Phase 9 (${TasksCreate.name} bootstrap)`,
           }),
         );
       }),
@@ -719,16 +671,6 @@ export function registerHookGatedDelivery(ctx: ConformanceRunContext): void {
   );
 }
 
-/**
- * Multi-app FIFO short-circuit — register two apps on the same hook,
- * first denies, assert second handler is NOT invoked. Architect plan
- * §3.4: `Effect.forEach(registeredApps, ...)` iterates in registration
- * order; first-deny short-circuits the loop.
- *
- * Same fixture constraint as `hook-gated-delivery`: requires app session
- * machinery. Reports `PropertyUnavailable` when prerequisites are
- * absent.
- */
 export function registerMultiAppFifoShortCircuit(
   ctx: ConformanceRunContext,
 ): void {
@@ -739,259 +681,17 @@ export function registerMultiAppFifoShortCircuit(
     "two apps; first denies; second hook is NOT invoked",
     Effect.scoped(
       Effect.gen(function* () {
-        const fixture = yield* acquireAppSessionFixture(
-          ctx,
-          "mfs",
-          "multi-app-fifo-short-circuit",
-        ).pipe(Effect.either);
-        yield* requireRight(fixture, (error) => error);
-        // Codex review (#327, finding 5): once apps/create succeeds, the
-        // FIFO short-circuit assertion requires registering a SECOND
-        // app on the same hook and observing the second handler is NOT
-        // invoked — the protocol fixture exposes a single-app session.
-        // B.9 covers via the dual-app wire fixture; surface a typed
-        // Deferred here.
+        void ctx;
         return yield* Effect.fail(
           new PropertyDeferred({
             category: CATEGORY,
             name: "multi-app-fifo-short-circuit",
-            followUp:
-              "two-app dispatch + first-deny short-circuit assertion lives in B.9 server integration tests (#318)",
+            followUp: `dual-app first-deny short-circuit needs TM-topology dispatch; reactivate alongside Phase 9 (${TasksCreate.name} bootstrap)`,
           }),
         );
       }),
     ),
   );
-}
-
-/**
- * App-session fixture — registers an app via WS, opens a session as a
- * sender, returns the live clients ready for hook-gated assertions.
- * Returns `PropertyUnavailable` when the prerequisite chain (agent
- * `owner_user_id` on the sender) cannot be satisfied through the
- * fixture's HTTP register endpoint. Callers pattern-match Left to
- * surface the typed unavailability.
- */
-interface AppSessionFixture {
-  readonly app: { agent: TestAgent; client: TestClient; appId: string };
-  readonly sender: { agent: TestAgent; client: TestClient };
-  readonly sessionId: string;
-  readonly dispatchHits: Ref.Ref<number>;
-}
-
-interface AppSessionCloseFixture {
-  readonly initiator: { agent: TestAgent; client: TestClient };
-  readonly invitee: { agent: TestAgent; client: TestClient };
-  readonly sessionId: string;
-  readonly conversationId: ConversationIdValue;
-}
-
-type AppCreateResultData = {
-  readonly session?: {
-    readonly id?: unknown;
-    readonly conversations?: Record<string, unknown>;
-  };
-};
-
-function acquireAppSessionFixture(
-  ctx: ConformanceRunContext,
-  namePrefix: string,
-  propertyName: string,
-): Effect.Effect<AppSessionFixture, PropertyUnavailable, Scope.Scope> {
-  const unavailable = (reason: string): PropertyUnavailable =>
-    new PropertyUnavailable({ category: CATEGORY, name: propertyName, reason });
-  return Effect.gen(function* () {
-    const appAgent = yield* registerTestAgent({
-      baseUrl: ctx.realServer.baseUrl,
-      name: `${namePrefix}-app`,
-    }).pipe(
-      Effect.mapError((e) => unavailable(`app agent register: ${e.body}`)),
-    );
-    const appClient = yield* makeTestClient({
-      serverUrl: ctx.realServer.wsUrl,
-      agentKey: appAgent.apiKey,
-      agentId: appAgent.agentId,
-      defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
-      captureCapacity: DEFAULT_CAPTURE_CAPACITY,
-    }).pipe(
-      Effect.mapError((e) => unavailable(`app client acquire: ${String(e)}`)),
-    );
-
-    const appId = `${namePrefix}-${Date.now().toString(DATE_ID_RADIX)}`;
-    const registerOutcome = yield* sendUntypedRpc(appClient, AppsRegister, {
-      manifest: {
-        appId,
-        name: `Hook-gated app ${appId}`,
-        conversations: [
-          { key: "main", name: "Main", participantFilter: "all" },
-        ],
-        hooks: {
-          before_message_delivery: { timeout_ms: 5000 },
-        },
-      },
-    }).pipe(Effect.either);
-    yield* requireRight(registerOutcome, (error) =>
-      unavailable(`apps/register failed: ${error._tag}`),
-    );
-
-    const senderAgent = yield* registerTestAgent({
-      baseUrl: ctx.realServer.baseUrl,
-      name: `${namePrefix}-sender`,
-    }).pipe(Effect.mapError((e) => unavailable(`sender register: ${e.body}`)));
-    const senderClient = yield* makeTestClient({
-      serverUrl: ctx.realServer.wsUrl,
-      agentKey: senderAgent.apiKey,
-      agentId: senderAgent.agentId,
-      defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
-      captureCapacity: DEFAULT_CAPTURE_CAPACITY,
-    }).pipe(
-      Effect.mapError((e) =>
-        unavailable(`sender client acquire: ${String(e)}`),
-      ),
-    );
-
-    const createOutcome = yield* senderClient
-      .sendRpc(AppsCreate, { appId, invitedAgentIds: [] })
-      .pipe(Effect.either);
-    const createResult = yield* requireRight(createOutcome, (error) =>
-      unavailable(
-        // Most common cause: owner_user_id is null on the sender (see
-        // app-host.ts:629). The default `startCoreTestServer` does not
-        // configure `devModeUserId`; B.9 fills the gap via DB seeding.
-        `apps/create failed (likely sender owner_user_id null; B.9 covers via DB seeding): ${error._tag}`,
-      ),
-    );
-
-    const session = (createResult as { session?: { id?: string } }).session;
-    const sessionId = session?.id;
-    if (typeof sessionId !== "string" || sessionId.length === 0) {
-      return yield* Effect.fail(
-        unavailable(`apps/create returned no session.id`),
-      );
-    }
-
-    const dispatchHits = yield* Ref.make(0);
-    return {
-      app: { agent: appAgent, client: appClient, appId },
-      sender: { agent: senderAgent, client: senderClient },
-      sessionId,
-      dispatchHits,
-    } satisfies AppSessionFixture;
-  });
-}
-
-function acquireAppSessionCloseFixture(
-  ctx: ConformanceRunContext,
-): Effect.Effect<
-  AppSessionCloseFixture,
-  PropertyUnavailable | PropertyInvariantViolation,
-  Scope.Scope
-> {
-  const propertyName = APP_SESSION_CLOSE_LIFECYCLE_PROPERTY;
-  const unavailable = (reason: string): PropertyUnavailable =>
-    new PropertyUnavailable({ category: CATEGORY, name: propertyName, reason });
-  return Effect.gen(function* () {
-    const appAgent = yield* registerTestAgent({
-      baseUrl: ctx.realServer.baseUrl,
-      name: "clapp",
-      uniqueSuffix: false,
-    }).pipe(
-      Effect.mapError((e) => unavailable(`app agent register: ${e.body}`)),
-    );
-    const appClient = yield* makeTestClient({
-      serverUrl: ctx.realServer.wsUrl,
-      agentKey: appAgent.apiKey,
-      agentId: appAgent.agentId,
-      defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
-      captureCapacity: DEFAULT_CAPTURE_CAPACITY,
-    }).pipe(
-      Effect.mapError((e) => unavailable(`app client acquire: ${String(e)}`)),
-    );
-
-    const appId = `close-life-${Date.now().toString(DATE_ID_RADIX)}`;
-    const registerOutcome = yield* sendUntypedRpc(appClient, AppsRegister, {
-      manifest: {
-        appId,
-        name: `Close lifecycle app ${appId}`,
-        conversations: [
-          { key: "main", name: "Main", participantFilter: "all" },
-        ],
-      },
-    }).pipe(Effect.either);
-    yield* requireRight(registerOutcome, (error) =>
-      unavailable(`apps/register failed: ${error._tag}`),
-    );
-
-    const initiatorAgent = yield* registerTestAgent({
-      baseUrl: ctx.realServer.baseUrl,
-      name: "clinit",
-      uniqueSuffix: false,
-    }).pipe(
-      Effect.mapError((e) => unavailable(`initiator register: ${e.body}`)),
-    );
-    const initiatorClient = yield* makeTestClient({
-      serverUrl: ctx.realServer.wsUrl,
-      agentKey: initiatorAgent.apiKey,
-      agentId: initiatorAgent.agentId,
-      defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
-      captureCapacity: DEFAULT_CAPTURE_CAPACITY,
-    }).pipe(
-      Effect.mapError((e) =>
-        unavailable(`initiator client acquire: ${String(e)}`),
-      ),
-    );
-
-    const inviteeAgent = yield* registerTestAgent({
-      baseUrl: ctx.realServer.baseUrl,
-      name: "clinv",
-      uniqueSuffix: false,
-    }).pipe(Effect.mapError((e) => unavailable(`invitee register: ${e.body}`)));
-    const inviteeClient = yield* makeTestClient({
-      serverUrl: ctx.realServer.wsUrl,
-      agentKey: inviteeAgent.apiKey,
-      agentId: inviteeAgent.agentId,
-      defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
-      captureCapacity: DEFAULT_CAPTURE_CAPACITY,
-    }).pipe(
-      Effect.mapError((e) =>
-        unavailable(`invitee client acquire: ${String(e)}`),
-      ),
-    );
-
-    const createOutcome = yield* initiatorClient
-      .sendRpc(AppsCreate, {
-        appId,
-        invitedAgentIds: [inviteeAgent.agentId],
-      })
-      .pipe(Effect.either);
-    const createResult = yield* requireRight(createOutcome, (error) =>
-      unavailable(
-        `apps/create failed (likely agents lack owner_user_id): ${error._tag}`,
-      ),
-    );
-
-    const session = (createResult as AppCreateResultData).session;
-    const sessionId = session?.id;
-    const mainConversationId = session?.conversations?.["main"];
-    if (
-      typeof sessionId !== "string" ||
-      typeof mainConversationId !== "string"
-    ) {
-      return yield* Effect.fail(
-        violation(
-          propertyName,
-          `apps/create response missing session id or main conversation: ${JSON.stringify(createResult)}`,
-        ),
-      );
-    }
-
-    return {
-      initiator: { agent: initiatorAgent, client: initiatorClient },
-      invitee: { agent: inviteeAgent, client: inviteeClient },
-      sessionId,
-      conversationId: makeConversationId(mainConversationId),
-    } satisfies AppSessionCloseFixture;
-  });
 }
 
 /** Task-boundary isolation — conversation A's events don't leak into B. */
@@ -1180,56 +880,30 @@ export function registerConversationLifecycle(
 }
 
 /**
- * App-session close lifecycle — when app sessions are reachable, close is
- * observable as both conversation archival and app/sessionClosed, and the
- * archived app conversation rejects later traffic.
+ * Task close lifecycle — close is observable as both conversation
+ * archival and task/closed, and the archived task conversation rejects
+ * later traffic.
+ *
+ * Phase 7 cutover dropped the apps/createSession bootstrap that wired
+ * manifest conversations to a session. The replacement TM-topology
+ * bootstrap lands in Phase 9 (#318); until then this property reports
+ * PropertyDeferred.
  */
-export function registerAppSessionCloseLifecycle(
-  ctx: ConformanceRunContext,
-): void {
+export function registerTaskCloseLifecycle(ctx: ConformanceRunContext): void {
   registerProperty(
     ctx,
     CATEGORY,
-    APP_SESSION_CLOSE_LIFECYCLE_PROPERTY,
-    "apps/closeSession archives app conversations and broadcasts session close",
+    TASK_CLOSE_LIFECYCLE_PROPERTY,
+    "tasks/close archives task conversations and broadcasts task/closed",
     Effect.scoped(
       Effect.gen(function* () {
-        const fixture = yield* acquireAppSessionCloseFixture(ctx);
-
-        const close = yield* fixture.initiator.client
-          .sendRpc(AppsCloseSession, { sessionId: fixture.sessionId })
-          .pipe(Effect.either);
-        const closeResult = yield* requireRight(close, (error) =>
-          violation(
-            APP_SESSION_CLOSE_LIFECYCLE_PROPERTY,
-            `apps/closeSession failed: ${error._tag}`,
-          ),
-        );
-        if ((closeResult as { closed?: unknown }).closed !== true) {
-          return yield* Effect.fail(
-            violation(
-              APP_SESSION_CLOSE_LIFECYCLE_PROPERTY,
-              `apps/closeSession returned unexpected result: ${JSON.stringify(closeResult)}`,
-            ),
-          );
-        }
-
-        yield* waitForArchivedEvent(
-          fixture.invitee,
-          fixture.conversationId,
-          fixture.initiator.agent.agentId,
-          APP_SESSION_CLOSE_LIFECYCLE_PROPERTY,
-        );
-        yield* waitForAppSessionClosedNotification(
-          fixture.invitee,
-          fixture.sessionId,
-          fixture.initiator.agent.agentId,
-          APP_SESSION_CLOSE_LIFECYCLE_PROPERTY,
-        );
-        yield* assertConversationRejectsMessages(
-          fixture.initiator,
-          fixture.conversationId,
-          APP_SESSION_CLOSE_LIFECYCLE_PROPERTY,
+        void ctx;
+        return yield* Effect.fail(
+          new PropertyDeferred({
+            category: CATEGORY,
+            name: TASK_CLOSE_LIFECYCLE_PROPERTY,
+            followUp: `Phase 9 TM topology (#318) wires task/closed emission + manifest conversation bootstrap (${TasksClose.name})`,
+          }),
         );
       }),
     ),

@@ -41,34 +41,35 @@ import {
   conversationId,
   messageId,
   responseFrame,
+  taskId as makeTaskId,
   validators,
   type RequestFrame,
 } from "@moltzap/protocol";
 
 const noopShutdown: MoltZapConnection["shutdown"] = Effect.void;
-const SESSION_ID = "11111111-1111-4111-8111-111111111111";
+const TASK_ID = makeTaskId("11111111-1111-4111-8111-111111111111");
 const APP_ID = "test-app";
 const AGENT_ID = agentId("22222222-2222-4222-8222-222222222222");
 const CONVERSATION_ID = conversationId("33333333-3333-4333-8333-333333333333");
 const MESSAGE_ID = messageId("44444444-4444-4444-8444-444444444444");
 const PARTICIPANT = { agentId: AGENT_ID, ownerId: "owner-a" } as const;
 
-const onCloseParams = (sessionId = SESSION_ID) => ({
-  sessionId,
+const onCloseParams = (taskId = TASK_ID) => ({
+  taskId,
   appId: APP_ID,
   conversations: { main: CONVERSATION_ID },
   closedBy: PARTICIPANT,
 });
 
-const onSessionActiveParams = (sessionId = SESSION_ID) => ({
-  sessionId,
+const onSessionActiveParams = (taskId = TASK_ID) => ({
+  taskId,
   appId: APP_ID,
   conversations: { main: CONVERSATION_ID },
   admittedAgentIds: [AGENT_ID],
 });
 
 const beforeDispatchParams = (text: string) => ({
-  sessionId: SESSION_ID,
+  taskId: TASK_ID,
   appId: APP_ID,
   conversationId: CONVERSATION_ID,
   recipient: PARTICIPANT,
@@ -81,7 +82,7 @@ const beforeDispatchParams = (text: string) => ({
 });
 
 const beforeMessageDeliveryParams = (text: string) => ({
-  sessionId: SESSION_ID,
+  taskId: TASK_ID,
   appId: APP_ID,
   conversationId: CONVERSATION_ID,
   sender: PARTICIPANT,
@@ -147,7 +148,9 @@ describe("sendRpcToClient — happy-path round-trip", () => {
         sendRpcToClient(
           conn,
           AppsOnSessionActive,
-          onSessionActiveParams("sess-1"),
+          onSessionActiveParams(
+            makeTaskId("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+          ),
         ),
       );
 
@@ -165,7 +168,11 @@ describe("sendRpcToClient — happy-path round-trip", () => {
 
       const frame = parseRequestFrame(captured);
       expect(frame.method).toBe(AppsOnSessionActive.name);
-      expect(frame.params).toEqual(onSessionActiveParams("sess-1"));
+      expect(frame.params).toEqual(
+        onSessionActiveParams(
+          makeTaskId("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+        ),
+      );
       // `srv-<connId>-<seq>` namespace prefix keeps server-minted ids
       // disjoint from client-minted request ids.
       expect(frame.id.startsWith("srv-conn-happy-")).toBe(true);
@@ -203,7 +210,11 @@ describe("sendRpcToClient — happy-path round-trip", () => {
       );
 
       const fiber = yield* Effect.fork(
-        sendRpcToClient(conn, AppsOnClose, onCloseParams("sess-x")),
+        sendRpcToClient(
+          conn,
+          AppsOnClose,
+          onCloseParams(makeTaskId("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")),
+        ),
       );
 
       const captured = yield* Ref.get(outbound).pipe(
@@ -379,7 +390,9 @@ describe("sendRpcToClient — caller timeout", () => {
       const exit = yield* sendRpcToClient(
         conn,
         AppsOnSessionActive,
-        onSessionActiveParams("s"),
+        onSessionActiveParams(
+          makeTaskId("cccccccc-cccc-4ccc-8ccc-cccccccccccc"),
+        ),
       ).pipe(Effect.timeout(Duration.millis(100)), Effect.exit);
       const elapsed = Date.now() - start;
 
@@ -470,7 +483,9 @@ describe("sendRpcToClient — caller timeout", () => {
         sendRpcToClient(
           conn,
           AppsOnSessionActive,
-          onSessionActiveParams("late"),
+          onSessionActiveParams(
+            makeTaskId("dddddddd-dddd-4ddd-8ddd-dddddddddddd"),
+          ),
         ),
       );
 
@@ -588,7 +603,9 @@ describe("sendRpcToClient — caller timeout", () => {
       const exit = yield* sendRpcToClient(
         conn,
         AppsOnSessionActive,
-        onSessionActiveParams("s"),
+        onSessionActiveParams(
+          makeTaskId("cccccccc-cccc-4ccc-8ccc-cccccccccccc"),
+        ),
       ).pipe(Effect.timeout(Duration.millis(50)), Effect.exit);
 
       // Frame was written before timeout fired (proves the primitive

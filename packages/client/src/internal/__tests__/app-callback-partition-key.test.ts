@@ -21,7 +21,7 @@ describe("extractPartitionKey", () => {
     const parts = describePartitionKey(key);
 
     expect(parts).toEqual({
-      sessionId: SESSION_A,
+      taskId: SESSION_A,
       conversationId: CONV_X,
       definition: AppsOnBeforeDispatch,
     });
@@ -38,7 +38,7 @@ describe("extractPartitionKey", () => {
     for (const { definition, request } of lifecycleRequests) {
       const parts = describePartitionKey(extractPartitionKey(request("rpc-3")));
 
-      expect(parts.sessionId).toBe(SESSION_A);
+      expect(parts.taskId).toBe(SESSION_A);
       expect(parts.conversationId).toBe(LIFECYCLE_CONVERSATION_SENTINEL);
       expect(parts.definition).toBe(definition);
     }
