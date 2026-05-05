@@ -21,9 +21,9 @@ export { createCoreAuthHandlers } from "./network/handlers/auth.handlers.js";
 export { createSystemHandlers } from "./network/handlers/system.handlers.js";
 export { createConversationHandlers } from "./task/handlers/conversations.handlers.js";
 export { createMessageHandlers } from "./task/handlers/messages.handlers.js";
-export { createPresenceHandlers } from "./app/handlers/presence.handlers.js";
+export { createPresenceHandlers } from "./task/handlers/presence.handlers.js";
+export { createContactHandlers } from "./task/handlers/contacts.handlers.js";
 export { createAppHandlers } from "./app/handlers/apps.handlers.js";
-export { createContactHandlers } from "./app/handlers/contacts.handlers.js";
 export { ConnIdTag } from "./app/layers.js";
 
 // Service adapters

@@ -50,9 +50,9 @@ import { createCoreAuthHandlers } from "../network/handlers/auth.handlers.js";
 import { createSystemHandlers } from "../network/handlers/system.handlers.js";
 import { createConversationHandlers } from "../task/handlers/conversations.handlers.js";
 import { createMessageHandlers } from "../task/handlers/messages.handlers.js";
-import { createPresenceHandlers } from "./handlers/presence.handlers.js";
+import { createPresenceHandlers } from "../task/handlers/presence.handlers.js";
+import { createContactHandlers } from "../task/handlers/contacts.handlers.js";
 import { createAppHandlers } from "./handlers/apps.handlers.js";
-import { createContactHandlers } from "./handlers/contacts.handlers.js";
 
 import { WebhookClient } from "../adapters/webhook.js";
 

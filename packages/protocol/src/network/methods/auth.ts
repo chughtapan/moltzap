@@ -1,7 +1,7 @@
 import { Type, type Static } from "@sinclair/typebox";
-import { AgentId } from "../primitives.js";
-import { ConversationSummarySchema } from "../conversations.js";
-import { AgentCardSchema } from "../identity.js";
+import { AgentId } from "../../schema/primitives.js";
+import { ConversationSummarySchema } from "../../schema/conversations.js";
+import { AgentCardSchema } from "../../schema/identity.js";
 import { defineRpc } from "../../rpc.js";
 
 export const OwnedAgentSchema = AgentCardSchema;

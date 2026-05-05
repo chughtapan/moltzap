@@ -22,9 +22,9 @@ import {
 } from "../models/dispatch.js";
 import { initialReferenceState } from "../models/state.js";
 import { ErrorCodes } from "../../schema/errors.js";
-import { AgentsList } from "../../schema/methods/auth.js";
-import { AppsOnBeforeDispatch } from "../../schema/methods/apps.js";
-import { ConversationsList } from "../../schema/methods/conversations.js";
+import { AgentsList } from "../../network/methods/auth.js";
+import { AppsOnBeforeDispatch } from "../../app/methods/apps.js";
+import { ConversationsList } from "../../task/methods/conversations.js";
 import { canonicalJson, sortJsonArray } from "../canonicalize.js";
 import { RpcResponseError } from "../errors.js";
 import { makeTestClient } from "../test-client.js";

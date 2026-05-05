@@ -21,14 +21,14 @@ import {
 } from "./registry.js";
 import { leftOrNull, sendUntypedRpc } from "./_helpers.js";
 
-import { AgentsList } from "../../schema/methods/auth.js";
+import { AgentsList } from "../../network/methods/auth.js";
 import {
   AppsAuthorizeDispatch,
   AppsCreate,
   AppsOnBeforeDispatch,
   AppsOnBeforeMessageDelivery,
   AppsRegister,
-} from "../../schema/methods/apps.js";
+} from "../../app/methods/apps.js";
 import { conversationId, messageId } from "../../schema/primitives.js";
 
 /**

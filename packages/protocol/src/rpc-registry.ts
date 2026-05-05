@@ -6,7 +6,7 @@ import {
   AgentsLookup,
   AgentsLookupByName,
   AgentsList,
-} from "./schema/methods/auth.js";
+} from "./network/methods/auth.js";
 import {
   ConversationsCreate,
   ConversationsList,
@@ -19,19 +19,16 @@ import {
   ConversationsLeave,
   ConversationsArchive,
   ConversationsUnarchive,
-} from "./schema/methods/conversations.js";
-import { MessagesSend, MessagesList } from "./schema/methods/messages.js";
+} from "./task/methods/conversations.js";
+import { MessagesSend, MessagesList } from "./task/methods/messages.js";
 import {
   ContactsList,
   ContactsAdd,
   ContactsAccept,
   ContactsById,
-} from "./schema/methods/contacts.js";
-import { InvitesCreateAgent } from "./schema/methods/invites.js";
-import {
-  PresenceUpdate,
-  PresenceSubscribe,
-} from "./schema/methods/presence.js";
+} from "./task/methods/contacts.js";
+import { InvitesCreateAgent } from "./task/methods/invites.js";
+import { PresenceUpdate, PresenceSubscribe } from "./task/methods/presence.js";
 import {
   AppsCreate,
   AppsCloseSession,
@@ -43,8 +40,8 @@ import {
   AppsOnBeforeMessageDelivery,
   AppsOnSessionActive,
   AppsOnClose,
-} from "./schema/methods/apps.js";
-import { SystemPing } from "./schema/methods/system.js";
+} from "./app/methods/apps.js";
+import { SystemPing } from "./network/methods/system.js";
 import type { RpcDefinition, ParamsOf, ResultOf } from "./rpc.js";
 import type { JsonRpcMethod } from "./schema/json-rpc.js";
 import { defineRpcGroup } from "./rpc-groups.js";
@@ -86,6 +83,13 @@ export const taskRpcMethods = [
   ConversationsUnarchive,
   MessagesSend,
   MessagesList,
+  ContactsList,
+  ContactsAdd,
+  ContactsAccept,
+  ContactsById,
+  InvitesCreateAgent,
+  PresenceUpdate,
+  PresenceSubscribe,
 ] as const;
 
 export const appRpcMethods = [
@@ -95,49 +99,12 @@ export const appRpcMethods = [
   AppsListSessions,
   AppsAuthorizeDispatch,
   AppsAttachConversation,
-  ContactsList,
-  ContactsAdd,
-  ContactsAccept,
-  ContactsById,
-  PresenceUpdate,
-  PresenceSubscribe,
-  InvitesCreateAgent,
 ] as const;
 
 export const rpcMethods = [
-  Connect,
-  Register,
-  InviteAgent,
-  SelectAgent,
-  AgentsLookup,
-  AgentsLookupByName,
-  AgentsList,
-  ConversationsCreate,
-  ConversationsList,
-  ConversationsGet,
-  ConversationsUpdate,
-  ConversationsMute,
-  ConversationsUnmute,
-  ConversationsAddParticipant,
-  ConversationsRemoveParticipant,
-  ConversationsLeave,
-  ConversationsArchive,
-  ConversationsUnarchive,
-  MessagesSend,
-  MessagesList,
-  ContactsList,
-  ContactsAdd,
-  ContactsAccept,
-  ContactsById,
-  InvitesCreateAgent,
-  PresenceUpdate,
-  PresenceSubscribe,
-  AppsCreate,
-  AppsCloseSession,
-  AppsGetSession,
-  AppsListSessions,
-  AppsAuthorizeDispatch,
-  AppsAttachConversation,
+  ...networkRpcMethods,
+  ...taskRpcMethods,
+  ...appRpcMethods,
 ] as const;
 
 export const networkRpcGroup = defineRpcGroup("network", networkRpcMethods);

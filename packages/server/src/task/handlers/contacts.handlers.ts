@@ -22,7 +22,7 @@ import type {
   RpcMethodRegistry,
 } from "../../rpc/context.js";
 import { unauthorized, type RpcFailure } from "../../runtime/index.js";
-import { defineAppMethod } from "../../rpc/define-layered-method.js";
+import { defineTaskMethod } from "../../rpc/define-layered-method.js";
 
 type BrandedUserId = Static<typeof UserId>;
 
@@ -56,7 +56,7 @@ export function createContactHandlers(deps: {
       : Effect.succeed(brandUserId(ctx.ownerUserId));
 
   return [
-    defineAppMethod(ContactsList, {
+    defineTaskMethod(ContactsList, {
       handler: (_params, ctx) =>
         Effect.gen(function* () {
           const owner = yield* requireOwner(ctx);
@@ -65,7 +65,7 @@ export function createContactHandlers(deps: {
         }),
     }),
 
-    defineAppMethod(ContactsAdd, {
+    defineTaskMethod(ContactsAdd, {
       handler: (params, ctx) =>
         Effect.gen(function* () {
           const owner = yield* requireOwner(ctx);
@@ -79,24 +79,23 @@ export function createContactHandlers(deps: {
         }),
     }),
 
-    defineAppMethod(ContactsAccept, {
+    defineTaskMethod(ContactsAccept, {
       handler: (params, ctx) =>
         Effect.gen(function* () {
           const owner = yield* requireOwner(ctx);
           const result = yield* contactService.accept(owner, params.contactId);
           if (result.transitioned) {
-            // Inverse view: the requester's row points at the recipient.
             yield* fanOut(
-              result.contact.contactUserId,
+              result.requesterUserId,
               ContactAcceptedNotificationDefinition,
-              { contact: { ...result.contact, contactUserId: owner } },
+              { contact: result.contact },
             );
           }
           return { contact: result.contact };
         }),
     }),
 
-    defineAppMethod(ContactsById, {
+    defineTaskMethod(ContactsById, {
       handler: (params, ctx) =>
         Effect.gen(function* () {
           const owner = yield* requireOwner(ctx);

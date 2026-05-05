@@ -44,9 +44,9 @@ import {
   registerProperty,
 } from "./registry.js";
 
-import { AgentsList, Connect } from "../../schema/methods/auth.js";
-import { ContactsList } from "../../schema/methods/contacts.js";
-import { ConversationsList } from "../../schema/methods/conversations.js";
+import { AgentsList, Connect } from "../../network/methods/auth.js";
+import { ContactsList } from "../../task/methods/contacts.js";
+import { ConversationsList } from "../../task/methods/conversations.js";
 
 const CATEGORY = "schema-conformance" as const;
 const DEFAULT_MALFORMED_RESPONSE_RUNS = 3;
