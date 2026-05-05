@@ -13,10 +13,13 @@ import {
   isJsonRpcStringId,
   notificationGroup,
   type DecodedNotification,
+  type DecodedNotificationFrame,
   type DecodedRpcRequest,
   type JsonRpcStringId,
   type NotificationFrame,
+  type RawDecodedNotification,
   type ResponseFrame,
+  type UnknownDecodedNotification,
 } from "@moltzap/protocol";
 import { MalformedFrameError } from "./errors.js";
 import {
@@ -24,7 +27,12 @@ import {
   type AppCallbackPartitionRoute,
 } from "../internal/app-callback-partition-key.js";
 
-export type { DecodedNotification };
+export type {
+  DecodedNotification,
+  DecodedNotificationFrame,
+  RawDecodedNotification,
+  UnknownDecodedNotification,
+};
 
 /** Decoded response frame — narrowed from the protocol's `ResponseFrame`. */
 export interface DecodedResponse {
@@ -48,7 +56,7 @@ export type DecodedServerRequest<
 
 export type DecodedFrame =
   | DecodedResponse
-  | DecodedNotification<AnyNotificationDefinition>
+  | DecodedNotificationFrame
   | DecodedServerRequest;
 
 const isFramePadding = (char: string): boolean =>
@@ -92,60 +100,32 @@ const toDecodedFrame = (
   return Effect.fail(new MalformedFrameError({ raw }));
 };
 
-const PASSTHROUGH_PARAMS_SCHEMA = Object.freeze({});
-
-function makePassthroughNotificationDefinition(
-  method: NotificationFrame["method"],
-): AnyNotificationDefinition {
-  const validate = (data: unknown): data is unknown => data === data;
-  const def = {
-    name: method,
-    paramsSchema: PASSTHROUGH_PARAMS_SCHEMA,
-    validateParams: validate,
-    Params: undefined,
-  };
-  return passthroughCast(def);
-}
-
-// Single chokepoint for the runtime-only widening cast on a passthrough
-// notification definition. ACG's `as-unknown-as` rule and the
-// `sloppy-code-guard.sh` pragma check both opt out here; everywhere else
-// in the package keeps the strict ban.
-function passthroughCast(def: object): AnyNotificationDefinition {
-  // eslint-disable-next-line agent-code-guard/as-unknown-as -- passthrough definition for unknown-method notifications; structurally compatible with NotificationDefinition but TypeScript can't narrow the literal `Name` union
-  return def as unknown as AnyNotificationDefinition; // #ignore-sloppy-code[as-unknown-as]: passthrough for unknown-method notifications
-}
-
 const toDecodedNotification = (
   parsed: NotificationFrame,
-): Effect.Effect<DecodedNotification<AnyNotificationDefinition>> => {
-  // Payload-opaque: route by method name, attach the descriptor so
-  // subscribers can opt into `definition.validateParams` for drift
-  // detection. Strict per-payload validation lives at the typed-handler
-  // boundary; opacity here is required for the conformance properties
-  // `delivery/payload-opacity-client` and
-  // `boundary/schema-exhaustive-fuzz-client`. `_tag` and `definition`
-  // attach non-enumerably so the decoded value still satisfies
-  // `validators.notificationFrame` (strict `additionalProperties: false`).
-  const definition: AnyNotificationDefinition =
-    notificationGroup.byName.get(parsed.method) ??
-    makePassthroughNotificationDefinition(parsed.method);
-  const decoded: Record<string, unknown> = {
-    jsonrpc: parsed.jsonrpc,
-    method: definition.name,
-  };
-  if (parsed.params !== undefined) decoded["params"] = parsed.params;
-  Object.defineProperty(decoded, "_tag", {
+): Effect.Effect<DecodedNotificationFrame> => {
+  // Opacity contract (`delivery/payload-opacity-client`,
+  // `boundary/schema-exhaustive-fuzz-client`): no payload validation
+  // here. `_tag` and `definition` attach non-enumerably so the
+  // decoded value still satisfies `validators.notificationFrame`'s
+  // strict `additionalProperties: false`. Unknown methods (no
+  // descriptor) emit `UnknownDecodedNotification`; production typed
+  // handlers exclude that branch via the `definition` discriminator.
+  const definition: AnyNotificationDefinition | undefined =
+    notificationGroup.byName.get(parsed.method);
+  Object.defineProperty(parsed, "_tag", {
     value: "Notification",
     enumerable: false,
   });
-  Object.defineProperty(decoded, "definition", {
-    value: definition,
-    enumerable: false,
-  });
-  return Effect.succeed(
-    decoded as DecodedNotification<AnyNotificationDefinition>,
-  );
+  if (definition !== undefined) {
+    Object.defineProperty(parsed, "definition", {
+      value: definition,
+      enumerable: false,
+    });
+    return Effect.succeed(
+      parsed as RawDecodedNotification<AnyNotificationDefinition>,
+    );
+  }
+  return Effect.succeed(parsed as UnknownDecodedNotification);
 };
 
 const lifecycleRoute = (taskId: string): AppCallbackPartitionRoute => ({

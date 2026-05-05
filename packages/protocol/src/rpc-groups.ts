@@ -90,15 +90,76 @@ export type DecodedRpcRequest<D extends AnyRpcDefinition> =
       }
     : never;
 
+/**
+ * Common shape for a decoded notification — same wire fields and
+ * descriptor attachment regardless of validation state. The `params`
+ * channel is the only thing that differs between `Raw` and validated
+ * `DecodedNotification` (see below); keeping the rest in one place
+ * avoids drift if either shape evolves.
+ */
+type DecodedNotificationShape<
+  D extends AnyNotificationDefinition,
+  P,
+> = NotificationFrame & {
+  readonly _tag: "Notification";
+  readonly definition: D;
+  readonly method: D["name"];
+  readonly params: P;
+};
+
+/**
+ * What the wire decoder produces for a known method BEFORE payload
+ * validation. The decoder is payload-opaque per the
+ * `delivery/payload-opacity-client` and
+ * `boundary/schema-exhaustive-fuzz-client` conformance properties — the
+ * `params` field genuinely carries `unknown` until a typed bridge runs
+ * `definition.validateParams` (or the shared `validateNotificationParams`
+ * helper). Inbound flows: subscriber-fanout dispatch and the
+ * `notificationsBufferRef` / `notificationWaitersRef` queues hold this
+ * shape; typed bridges lift to `DecodedNotification<D>` after validation.
+ */
+export type RawDecodedNotification<D extends AnyNotificationDefinition> =
+  D extends AnyNotificationDefinition
+    ? DecodedNotificationShape<D, unknown>
+    : never;
+
+/**
+ * Post-validation notification: `params` is statically narrowed to the
+ * descriptor's payload type. Produced by the validating
+ * `decodeNotification` (group helper below) and by typed-bridge lifts
+ * (`validateNotificationParams` predicate); typed handlers consume this
+ * shape exclusively.
+ */
 export type DecodedNotification<D extends AnyNotificationDefinition> =
   D extends AnyNotificationDefinition
-    ? NotificationFrame & {
-        readonly _tag: "Notification";
-        readonly definition: D;
-        readonly method: D["name"];
-        readonly params: NotificationParamsOf<D>;
-      }
+    ? DecodedNotificationShape<D, NotificationParamsOf<D>>
     : never;
+
+/**
+ * What the wire decoder produces for an unknown method — the protocol
+ * has no `NotificationDefinition` registered for `method`, so there is
+ * no descriptor to attach. Conformance fuzz subscribers exercise this
+ * branch (e.g. `schema-conformance/notification-well-formedness-client`,
+ * `schema-conformance/malformed-frame-handling-client`); production
+ * typed handlers cannot consume it because the discriminator
+ * (`definition` field absent) excludes it from
+ * `RawDecodedNotification<…>`.
+ */
+export interface UnknownDecodedNotification extends NotificationFrame {
+  readonly _tag: "Notification";
+  // Discriminator vs `RawDecodedNotification<…>`: this branch never has
+  // `definition`. The compiler enforces the split — production code
+  // that reads `notification.definition` cannot accept this branch.
+  readonly definition?: undefined;
+}
+
+// `DecodedNotificationFrame` (the closed union over the protocol's
+// concrete notification descriptors plus the unknown-method branch) is
+// declared in `schema/notifications.ts` so it can specialize over the
+// concrete `AnyNotificationDefinition` union (vs. the broad
+// `NotificationDefinition<string, TSchema>` constraint visible here).
+// Consumers import it from the package barrel — see
+// `client/runtime/frame.ts` and `client/runtime/subscribers.ts`.
 
 export class UnknownRpcMethodError extends Data.TaggedError(
   "UnknownRpcMethodError",
@@ -256,10 +317,38 @@ export function isDecodedRpcRequest<D extends AnyRpcDefinition>(
   return request.definition === definition;
 }
 
+/**
+ * Definition-identity guard for a notification.
+ *
+ * Two overload shapes:
+ *   1. Post-validation input (`DecodedNotification<…>`): narrows to
+ *      `DecodedNotification<D>` — params remain typed.
+ *   2. Pre-validation input (raw + unknown union): narrows to
+ *      `RawDecodedNotification<D>` — params stay `unknown` until a
+ *      typed bridge lifts via `validateNotificationParams`.
+ *
+ * The runtime check is identical (descriptor identity); the type
+ * channel keeps the validated/unvalidated split honest. Order matters:
+ * the validated overload appears first so a `DecodedNotification`
+ * input picks it (subtype of the raw union).
+ */
 export function isDecodedNotification<D extends AnyNotificationDefinition>(
   definition: D,
   notification: DecodedNotification<AnyNotificationDefinition>,
-): notification is DecodedNotification<D> {
+): notification is DecodedNotification<D>;
+export function isDecodedNotification<D extends AnyNotificationDefinition>(
+  definition: D,
+  notification:
+    | RawDecodedNotification<AnyNotificationDefinition>
+    | UnknownDecodedNotification,
+): notification is RawDecodedNotification<D>;
+export function isDecodedNotification<D extends AnyNotificationDefinition>(
+  definition: D,
+  notification:
+    | DecodedNotification<AnyNotificationDefinition>
+    | RawDecodedNotification<AnyNotificationDefinition>
+    | UnknownDecodedNotification,
+): boolean {
   return notification.definition === definition;
 }
 
@@ -272,13 +361,43 @@ export function isDecodedRpcRequestInGroup<
   return group.byDefinition.has(request.definition as Definitions[number]);
 }
 
+/**
+ * Group-membership guard for a notification.
+ *
+ * Two overload shapes parallel `isDecodedNotification`: validated
+ * inputs narrow to `DecodedNotification<Definitions[number]>` (params
+ * stay typed); raw inputs narrow to
+ * `RawDecodedNotification<Definitions[number]>` (params stay
+ * `unknown`). Inbound typed-bridge consumers (`service.handleNotification`)
+ * use the raw overload, then run `validateNotificationParams` to lift
+ * to the validated form before dispatching to typed handlers.
+ */
 export function isDecodedNotificationInGroup<
   const Definitions extends readonly AnyNotificationDefinition[],
 >(
   group: NotificationDescriptorGroup<string, Definitions>,
   notification: DecodedNotification<AnyNotificationDefinition>,
-): notification is DecodedNotification<Definitions[number]> {
-  return group.byDefinition.has(notification.definition as Definitions[number]);
+): notification is DecodedNotification<Definitions[number]>;
+export function isDecodedNotificationInGroup<
+  const Definitions extends readonly AnyNotificationDefinition[],
+>(
+  group: NotificationDescriptorGroup<string, Definitions>,
+  notification:
+    | RawDecodedNotification<AnyNotificationDefinition>
+    | UnknownDecodedNotification,
+): notification is RawDecodedNotification<Definitions[number]>;
+export function isDecodedNotificationInGroup<
+  const Definitions extends readonly AnyNotificationDefinition[],
+>(
+  group: NotificationDescriptorGroup<string, Definitions>,
+  notification:
+    | DecodedNotification<AnyNotificationDefinition>
+    | RawDecodedNotification<AnyNotificationDefinition>
+    | UnknownDecodedNotification,
+): boolean {
+  const { definition } = notification;
+  if (definition === undefined) return false;
+  return group.byDefinition.has(definition as Definitions[number]);
 }
 
 export interface NotificationHandlerBinding<

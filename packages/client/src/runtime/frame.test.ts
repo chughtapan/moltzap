@@ -8,7 +8,7 @@ import {
   messageId,
   notificationFrame,
 } from "@moltzap/protocol";
-import { decodeFrames, type DecodedNotification } from "./frame.js";
+import { decodeFrames, type RawDecodedNotification } from "./frame.js";
 
 const TEST_MESSAGE = {
   id: messageId("11111111-1111-4111-8111-111111111111"),
@@ -67,7 +67,7 @@ describe("decodeFrames", () => {
 
     const decoded = await Effect.runPromise(decodeFrames(stale));
     expect(decoded).toHaveLength(1);
-    const notification = decoded[0] as DecodedNotification<
+    const notification = decoded[0] as RawDecodedNotification<
       typeof TaskClosedNotificationDefinition
     >;
     expect(notification._tag).toBe("Notification");
