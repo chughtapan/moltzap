@@ -15,6 +15,8 @@ import {
 } from "../runtime-surface/trace-capture.js";
 import { ConnectionManager } from "../ws/connection.js";
 import { Broadcaster } from "../ws/broadcaster.js";
+import { AgentEndpointResolver } from "../network/agent-endpoint-resolver.js";
+import { NetworkSendService } from "../network/network-send.js";
 import { AuthService } from "../services/auth.service.js";
 import { ParticipantService } from "../services/participant.service.js";
 import { ContactsService } from "../services/contact.service.js";
@@ -66,6 +68,29 @@ export class BroadcasterTag extends Context.Tag("moltzap/Broadcaster")<
   BroadcasterTag,
   Broadcaster
 >() {}
+
+/**
+ * `AgentId → Set<EndpointAddress>` multimap maintained by the `auth/connect`
+ * success path and the WS disconnect finalizer. Read by
+ * {@link NetworkSendServiceTag} for O(1) outbound routing.
+ *
+ * Coexists with {@link ConnectionManagerTag} during Phase 8 (Slice G1).
+ * Phase 10 (Slice G2) deletes {@link BroadcasterTag} once consumers
+ * migrate to {@link NetworkSendServiceTag}.
+ */
+export class AgentEndpointResolverTag extends Context.Tag(
+  "moltzap/AgentEndpointResolver",
+)<AgentEndpointResolverTag, AgentEndpointResolver>() {}
+
+/**
+ * The `network.send(to, payload)` outbound-routing primitive. New in
+ * Slice G1; lives alongside {@link BroadcasterTag} during Phase 8.
+ * Consumer migration is Phase 9 (Slice C); Broadcaster deletion is
+ * Phase 10 (Slice G2).
+ */
+export class NetworkSendServiceTag extends Context.Tag(
+  "moltzap/NetworkSendService",
+)<NetworkSendServiceTag, NetworkSendService>() {}
 
 export class AuthServiceTag extends Context.Tag("moltzap/AuthService")<
   AuthServiceTag,
@@ -143,6 +168,31 @@ export const BroadcasterLive = Layer.effect(
   Effect.gen(function* () {
     const connections = yield* ConnectionManagerTag;
     return new Broadcaster(connections);
+  }),
+);
+
+/**
+ * Build the resolver from its `Effect.make` constructor. The resolver is
+ * a `Ref`-backed in-memory data structure with no upstream deps; the
+ * Layer exists to register it under {@link AgentEndpointResolverTag} so
+ * downstream layers (and `network.send`) can pick it up via Context.
+ */
+export const AgentEndpointResolverLive = Layer.effect(
+  AgentEndpointResolverTag,
+  AgentEndpointResolver.make,
+);
+
+/**
+ * `network.send` Layer. Composes the resolver and the connection manager
+ * into the {@link NetworkSendService} instance the rest of the server
+ * holds via {@link NetworkSendServiceTag}.
+ */
+export const NetworkSendServiceLive = Layer.effect(
+  NetworkSendServiceTag,
+  Effect.gen(function* () {
+    const resolver = yield* AgentEndpointResolverTag;
+    const connections = yield* ConnectionManagerTag;
+    return new NetworkSendService(resolver, connections);
   }),
 );
 
@@ -267,17 +317,32 @@ const Tier1 = Layer.mergeAll(
   ContactsServiceLive,
 );
 
-/** Tier 2 — Broadcaster + Presence both need Tier 1's ConnectionManager.
- * Presence is here (not Tier 1) because it broadcasts `presence/changed`
- * directly to subscriber sockets via ConnectionManager — same wiring shape
- * as Broadcaster. */
+/** Tier 2 — Broadcaster + Presence + AgentEndpointResolver all sit
+ * directly above Tier 1's ConnectionManager. The resolver has no
+ * upstream deps (in-memory `Ref`); it joins this tier so
+ * NetworkSendServiceLive can pick it up at Tier 2.5 below.
+ *
+ * Slice G1 (Phase 8) introduces AgentEndpointResolverLive alongside
+ * the existing layers. */
 const Tier2 = Layer.provideMerge(
-  Layer.mergeAll(BroadcasterLive, PresenceServiceLive),
+  Layer.mergeAll(
+    BroadcasterLive,
+    PresenceServiceLive,
+    AgentEndpointResolverLive,
+  ),
   Tier1,
 );
 
+/** Tier 2.5 — NetworkSendServiceLive depends on the AgentEndpointResolver
+ * exposed by Tier 2 plus the ConnectionManager from Tier 1. `provideMerge`
+ * wires them in and keeps NetworkSendServiceTag visible to higher tiers.
+ *
+ * Coexists with BroadcasterTag during Phase 8; consumer migration to
+ * NetworkSendServiceTag lands in Phase 9 (Slice C). */
+const Tier2NetworkSend = Layer.provideMerge(NetworkSendServiceLive, Tier2);
+
 /** Tier 3 — AppHost needs Broadcaster/Connections. */
-const Tier3 = Layer.provideMerge(AppHostLive, Tier2);
+const Tier3 = Layer.provideMerge(AppHostLive, Tier2NetworkSend);
 
 /** Tier 4 — ConversationService needs AppHost for the session-attach check. */
 const Tier4 = Layer.provideMerge(ConversationServiceLive, Tier3);
@@ -311,6 +376,8 @@ export interface ResolvedServices {
   readonly logger: Logger;
   readonly connections: ConnectionManager;
   readonly broadcaster: Broadcaster;
+  readonly agentEndpointResolver: AgentEndpointResolver;
+  readonly networkSendService: NetworkSendService;
   readonly authService: AuthService;
   readonly participantService: ParticipantService;
   readonly conversationService: ConversationService;
@@ -334,6 +401,8 @@ export const resolveServices = Effect.all({
   encryption: EncryptionTag,
   connections: ConnectionManagerTag,
   broadcaster: BroadcasterTag,
+  agentEndpointResolver: AgentEndpointResolverTag,
+  networkSendService: NetworkSendServiceTag,
   authService: AuthServiceTag,
   participantService: ParticipantServiceTag,
   conversationService: ConversationServiceTag,

@@ -17,6 +17,8 @@ import {
 import {
   agentId,
   endpointAddress,
+  endpointAddressKind,
+  makeEndpointAddress,
   userId,
   type AgentId,
   type AuthenticatedIdentity,
@@ -49,6 +51,36 @@ describe("actor-model brand factories", () => {
     expect(() => endpointAddress("")).toThrow();
     expect(() => endpointAddress("tm:agent:not-a-uuid")).toThrow();
     expect(() => endpointAddress("tm:unknown:uuid-here")).toThrow();
+  });
+
+  it("makeEndpointAddress mints `tm:<kind>:<uuid>` for each declared kind", () => {
+    const a = makeEndpointAddress(
+      "agent",
+      "00000000-0000-4000-8000-000000000001",
+    );
+    expect(a).toBe("tm:agent:00000000-0000-4000-8000-000000000001");
+    const b = makeEndpointAddress(
+      "app",
+      "00000000-0000-4000-8000-000000000002",
+    );
+    expect(b).toBe("tm:app:00000000-0000-4000-8000-000000000002");
+  });
+
+  it("makeEndpointAddress rejects non-UUID inputs (brand predicate fires)", () => {
+    expect(() => makeEndpointAddress("agent", "not-a-uuid")).toThrow();
+  });
+
+  it("endpointAddressKind reads back the kind for each declared kind", () => {
+    expect(
+      endpointAddressKind(
+        endpointAddress("tm:agent:00000000-0000-4000-8000-000000000001"),
+      ),
+    ).toBe("agent");
+    expect(
+      endpointAddressKind(
+        endpointAddress("tm:app:00000000-0000-4000-8000-000000000002"),
+      ),
+    ).toBe("app");
   });
 });
 
@@ -127,6 +159,16 @@ describe("flat-barrel runtime negative canary", () => {
   const flatBarrelKeys = Object.keys(flatBarrel);
 
   for (const name of FORBIDDEN_RUNTIME_NAMES) {
+    it(`@moltzap/protocol does not re-export "${name}" as a runtime value`, () => {
+      expect(flatBarrelKeys).not.toContain(name);
+    });
+  }
+
+  // Phase 8 Slice G1 introduced two new helper exports — they must also stay
+  // scoped to the `./actor-model` import path. The brand-shape (`tm:<kind>:<uuid>`)
+  // is plan-§2.11 contract; a flat-barrel re-export would expand the public
+  // wire-format surface beyond what the plan authorized.
+  for (const name of ["endpointAddressKind", "makeEndpointAddress"] as const) {
     it(`@moltzap/protocol does not re-export "${name}" as a runtime value`, () => {
       expect(flatBarrelKeys).not.toContain(name);
     });
