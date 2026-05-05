@@ -15,10 +15,10 @@ import {
   extractPartitionKey,
   type PartitionableRequest,
 } from "../app-callback-partition-key.js";
-import { beforeDispatch } from "./app-callback-test-requests.js";
+import { authorizeDispatch } from "./app-callback-test-requests.js";
 
-const KEY = extractPartitionKey(beforeDispatch("rpc-key"));
-const REQ = beforeDispatch;
+const KEY = extractPartitionKey(authorizeDispatch("rpc-key"));
+const REQ = authorizeDispatch;
 
 /**
  * Drive a scoped Effect under a fresh Scope. Returns the Effect's

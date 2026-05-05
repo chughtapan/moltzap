@@ -23,7 +23,7 @@ import {
 import { initialReferenceState } from "../models/state.js";
 import { ErrorCodes } from "../../schema/errors.js";
 import { AgentsList } from "../../network/methods/auth.js";
-import { AppsOnBeforeDispatch } from "../../app/methods/apps.js";
+import { TaskAuthorizeDispatch } from "../../app/methods/apps.js";
 import { ConversationsList } from "../../task/methods/conversations.js";
 import { canonicalJson, sortJsonArray } from "../canonicalize.js";
 import { RpcResponseError } from "../errors.js";
@@ -515,7 +515,7 @@ export function registerCallerControlledAppCallbackTimeout(
         const upperBoundMs = timeoutMs * TIMEOUT_UPPER_MULTIPLIER;
         const before = Date.now();
         const outcome = yield* client
-          .awaitServerRequest(AppsOnBeforeDispatch, undefined, timeoutMs)
+          .awaitServerRequest(TaskAuthorizeDispatch, undefined, timeoutMs)
           .pipe(Effect.either);
         const elapsed = Date.now() - before;
         const timeoutError = yield* Either.match(outcome, {

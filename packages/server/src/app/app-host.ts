@@ -6,7 +6,7 @@ import type { ConnectionManager, MoltZapConnection } from "../ws/connection.js";
 import type { UserService } from "../services/user.service.js";
 import { logger } from "../logger.js";
 import type {
-  AnyAppCallbackRpcDefinition,
+  AnyTaskCallbackRpcDefinition,
   AppManifest,
   LogicalClock,
   ParamsOf,
@@ -14,8 +14,7 @@ import type {
   ResultOf,
 } from "@moltzap/protocol";
 import {
-  AppsOnBeforeDispatch,
-  AppsOnBeforeMessageDelivery,
+  TaskAuthorizeDispatch,
   agentId as protocolAgentId,
   conversationId as protocolConversationId,
   messageId as protocolMessageId,
@@ -23,14 +22,9 @@ import {
 } from "@moltzap/protocol";
 import {
   type AppHooks,
-  type BeforeDispatchContext,
-  type BeforeDispatchHook,
-  type BeforeMessageDeliveryContext,
-  type BeforeMessageDeliveryHook,
   type DispatchAdmissionResult,
-  type HookResult,
-  type OnCloseHook,
-  type OnSessionActiveHook,
+  type TaskAuthorizeDispatchContext,
+  type TaskAuthorizeDispatchHook,
 } from "./hooks.js";
 import { Data, Effect, Option } from "effect";
 import { RpcFailure } from "../runtime/index.js";
@@ -80,6 +74,20 @@ export class AppHost {
    * is the explicit promotion path.
    */
   private remoteRegistrations = new Map<string, { connectionId: string }>();
+  /**
+   * Phase 9b consumer-migration (sub-issue #460): the
+   * `conversationToSession` / `sessionToConversations` maps are
+   * orphaned dead state — Phase 7 cleanup deleted the `apps/createSession`
+   * flow that used to populate them. `runAuthorizeDispatch` still reads
+   * `conversationToSession` and short-circuits to `{ decision: "grant" }`
+   * when empty (which it always is post Phase 7). Phase 11 (arena
+   * cutover) is the natural seam to either wire a TM-registered
+   * conversation index back in or delete the maps + the
+   * `apps/authorizeDispatch` admission handler entirely. Kept here as
+   * scaffolding rather than removed in this PR because the rename
+   * `apps/onBeforeDispatch → task/authorizeDispatch` is the in-scope
+   * change; the surrounding admission flow is not.
+   */
   private conversationToSession = new Map<
     string,
     { id: string; appId: string }
@@ -100,34 +108,36 @@ export class AppHost {
   }
 
   /**
-   * Register an app whose hook handlers run in a remote process (typically
-   * a WebSocket client speaking the `apps/onBeforeDispatch` etc. protocol;
-   * Phase -1 vendored the canonical SDK out to arena). Hook RPCs
-   * (`apps/onBeforeDispatch`, `onBeforeMessageDelivery`, `onSessionActive`,
-   * `onClose`) are dispatched to `connectionId` via
-   * {@link sendRpcToClient}; verdicts decode through the schemas defined in
-   * `hooks.ts` and feed the same fail-closed envelope as in-process hooks.
+   * Register an app whose `task/authorizeDispatch` admission round-trips
+   * run in a remote process (typically a WebSocket client speaking the
+   * `task/authorizeDispatch` protocol). The verb is dispatched via
+   * {@link sendRpcToClient}; verdicts decode through the schemas defined
+   * in `hooks.ts` and feed the same fail-closed envelope as in-process
+   * hooks.
+   *
+   * Phase 9b consumer-migration (sub-issue #460, plan §2.4): the legacy
+   * `apps/onBeforeDispatch` rename to `task/authorizeDispatch` keeps this
+   * registration shape stable; the three deleted appCallback verbs
+   * (`onBeforeMessageDelivery`, `onSessionActive`, `onClose`) no longer
+   * carry through this path — TM-as-endpoint topology and the
+   * `task/admissionComplete` / `task/closed` notifications absorb them.
    *
    * Promotion: a remote registration takes precedence over any prior
    * in-process hook registrations for the same `appId`. The
    * {@link AppRegistrationSource} discrimination is internal — call sites
-   * (`runBeforeDispatch` / `runBeforeMessageDelivery` / etc.) consume one
-   * uniform `Effect<Verdict, never>` regardless of source per architect
-   * plan §3.4 ("No branching at the call site between in-process and
-   * remote").
+   * (`runAuthorizeDispatch`) consume one uniform `Effect<Verdict, never>`
+   * regardless of source per architect plan §3.4 ("No branching at the
+   * call site between in-process and remote").
    *
    * Disconnect handling: when `connectionId` later goes away, every
-   * pending Deferred for that connection's appCallback RPCs fails with
+   * pending Deferred for that connection's task-callback RPCs fails with
    * `AppDisconnected` via the connection's Scope finalizer. The dispatch
-   * envelope catches `AppDisconnected` (and every other `AppCallbackRpcError`
-   * variant) and synthesizes a fail-closed verdict — `deny` for
-   * admission hooks, `block: true` for `before_message_delivery`, void +
-   * log for lifecycle hooks. Callers do not need to
-   * call {@link unregisterRemoteApp} on disconnect; the registration
-   * keeps pointing at the dead connection id and dispatches keep
-   * fail-closed until the app re-registers (typically via `apps/register`
-   * after reconnecting). Operators that want eager cleanup can call
-   * {@link unregisterRemoteApp} from a connection-close hook.
+   * envelope catches `AppDisconnected` (and every other
+   * `AppCallbackRpcError` variant) and synthesizes a fail-closed verdict.
+   * Callers do not need to call {@link unregisterRemoteApp} on disconnect;
+   * the registration keeps pointing at the dead connection id and
+   * dispatches keep fail-closed until the app re-registers (typically
+   * via `apps/register` after reconnecting).
    */
   registerRemoteApp(manifest: AppManifest, connectionId: string): void {
     this.manifests.set(manifest.appId, manifest);
@@ -179,34 +189,16 @@ export class AppHost {
     return this.contactService;
   }
 
-  onBeforeMessageDelivery(
+  onTaskAuthorizeDispatch(
     appId: string,
-    handler: BeforeMessageDeliveryHook,
+    handler: TaskAuthorizeDispatchHook,
   ): void {
     const existing = this.hooks.get(appId) ?? {};
-    existing.beforeMessageDelivery = handler;
+    existing.taskAuthorizeDispatch = handler;
     this.hooks.set(appId, existing);
   }
 
-  onBeforeDispatch(appId: string, handler: BeforeDispatchHook): void {
-    const existing = this.hooks.get(appId) ?? {};
-    existing.beforeDispatch = handler;
-    this.hooks.set(appId, existing);
-  }
-
-  onSessionClose(appId: string, handler: OnCloseHook): void {
-    const existing = this.hooks.get(appId) ?? {};
-    existing.onClose = handler;
-    this.hooks.set(appId, existing);
-  }
-
-  onSessionActive(appId: string, handler: OnSessionActiveHook): void {
-    const existing = this.hooks.get(appId) ?? {};
-    existing.onSessionActive = handler;
-    this.hooks.set(appId, existing);
-  }
-
-  runBeforeDispatch(
+  runAuthorizeDispatch(
     conversationId: string,
     recipientAgentId: string,
     params: {
@@ -250,7 +242,7 @@ export class AppHost {
         const isRemote = this.remoteRegistrations.has(session.appId);
         const appHooks = this.hooks.get(session.appId);
 
-        if (!isRemote && !appHooks?.beforeDispatch) {
+        if (!isRemote && !appHooks?.taskAuthorizeDispatch) {
           return { decision: "grant" as const };
         }
 
@@ -265,7 +257,7 @@ export class AppHost {
         // ctx without `signal` — the in-process dispatch helper attaches
         // the AbortController-bound signal at call time. Remote dispatch
         // strips signal-shaped fields via `contextForWire` before encode.
-        const ctx: BeforeDispatchContext = {
+        const ctx: TaskAuthorizeDispatchContext = {
           conversationId,
           recipient: {
             agentId: recipientAgentId,
@@ -296,65 +288,8 @@ export class AppHost {
           [session.appId],
           (v) => v.decision === "deny",
           { decision: "grant" as const },
-          (appId) => this.dispatchBeforeDispatchHook(appId, ctx),
+          (appId) => this.dispatchAuthorizeDispatchHook(appId, ctx),
         );
-      }),
-    );
-  }
-
-  runBeforeMessageDelivery(
-    conversationId: string,
-    senderAgentId: string,
-    parts: Part[],
-    replyToId?: string,
-    dispatchLeaseId?: string,
-  ): Effect.Effect<{ result: HookResult; appId: string } | null, RpcFailure> {
-    return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
-        const session = this.conversationToSession.get(conversationId);
-        if (!session) return null;
-
-        const isRemote = this.remoteRegistrations.has(session.appId);
-        const appHooks = this.hooks.get(session.appId);
-
-        if (!isRemote && !appHooks?.beforeMessageDelivery) {
-          return null;
-        }
-
-        const agentOpt = yield* takeFirstOption(
-          this.db
-            .selectFrom("agents")
-            .select("owner_user_id")
-            .where("id", "=", senderAgentId),
-        );
-        const agent = Option.getOrNull(agentOpt);
-
-        const ctx: BeforeMessageDeliveryContext = {
-          conversationId,
-          sender: {
-            agentId: senderAgentId,
-            ownerId: agent?.owner_user_id ?? "",
-          },
-          message: { parts, replyToId, dispatchLeaseId },
-          taskId: session.id,
-          appId: session.appId,
-          // Placeholder; the in-process dispatch helper overrides with
-          // its AbortController-tied signal. Remote dispatch elides via
-          // `contextForWire`.
-          signal: new AbortController().signal,
-        };
-
-        // Uniform Effect dispatch — in-process / remote choice INSIDE
-        // the helper. Multi-app composition uses the forEach-with-block-
-        // short-circuit combinator (degenerate to N=1 today).
-        const result =
-          yield* this.dispatchAcrossAppsWithDenyShortCircuit<HookResult>(
-            [session.appId],
-            (v) => v.block,
-            { block: false },
-            (appId) => this.dispatchBeforeMessageDeliveryHook(appId, ctx),
-          );
-        return { result, appId: session.appId };
       }),
     );
   }
@@ -367,26 +302,13 @@ export class AppHost {
     this.sessionToConversations.clear();
   }
 
-  private subscribeToConversation(agentId: string, convId: string): void {
-    for (const conn of this.connections.getByAgent(agentId)) {
-      conn.conversationIds.add(convId);
-    }
-  }
-
-  private unsubscribeFromConversation(agentId: string, convId: string): void {
-    for (const conn of this.connections.getByAgent(agentId)) {
-      conn.conversationIds.delete(convId);
-    }
-  }
-
   // ── Uniform hook dispatch (in-process + remote) ────────────────────
   //
   // Per architect plan §3.4: every hook returns `Effect<Verdict, never>`
   // regardless of source. The branching between in-process and remote is
   // INSIDE the dispatch helpers; call sites observe one type. Failure
   // modes (timeout, throw, RPC error, AppDisconnected, decode failure)
-  // collapse into fail-closed verdicts for admission hooks (`deny` /
-  // `block`), or void + log for lifecycle hooks.
+  // collapse into fail-closed verdicts (`deny`).
   //
   // Multi-app composition (architect plan §3.4: "Effect.forEach in
   // registration order, first deny short-circuits") is implemented by
@@ -396,9 +318,9 @@ export class AppHost {
 
   /**
    * Strip non-wire-safe fields from a hook context so it can be sent over
-   * the appCallback RPC. Currently the only such field is `signal: AbortSignal`,
-   * which has meaning only in-process. Returns a new object — does not
-   * mutate `ctx`.
+   * the task-callback RPC. Currently the only such field is
+   * `signal: AbortSignal`, which has meaning only in-process. Returns a
+   * new object — does not mutate `ctx`.
    */
   private contextForWire<C extends { signal?: AbortSignal }>(
     ctx: C,
@@ -411,9 +333,9 @@ export class AppHost {
     return out;
   }
 
-  private beforeDispatchParamsForWire(
-    ctx: BeforeDispatchContext,
-  ): ParamsOf<typeof AppsOnBeforeDispatch> {
+  private authorizeDispatchParamsForWire(
+    ctx: TaskAuthorizeDispatchContext,
+  ): ParamsOf<typeof TaskAuthorizeDispatch> {
     const wire = this.contextForWire(ctx);
     return {
       taskId: protocolTaskId(wire.taskId),
@@ -449,40 +371,13 @@ export class AppHost {
     };
   }
 
-  private beforeMessageDeliveryParamsForWire(
-    ctx: BeforeMessageDeliveryContext,
-  ): ParamsOf<typeof AppsOnBeforeMessageDelivery> {
-    const wire = this.contextForWire(ctx);
-    return {
-      taskId: protocolTaskId(wire.taskId),
-      appId: wire.appId,
-      conversationId: protocolConversationId(wire.conversationId),
-      sender: {
-        ...wire.sender,
-        agentId: protocolAgentId(wire.sender.agentId),
-      },
-      message: {
-        parts: wire.message.parts,
-        ...(wire.message.dispatchLeaseId !== undefined
-          ? { dispatchLeaseId: wire.message.dispatchLeaseId }
-          : {}),
-        ...(wire.message.replyToId !== undefined
-          ? { replyToId: protocolMessageId(wire.message.replyToId) }
-          : {}),
-      },
-    };
-  }
-
   /**
    * Run an in-process Promise-returning hook under an `AbortController`
    * tied to fiber interrupts (e.g., from `Effect.timeout` upstream). The
    * controller is wired so:
    *   - timeout fires → fiber interrupts → `Effect.onInterrupt` aborts
    *   - hook throws / rejects → `tapErrorCause` aborts
-   * preserving the abort-on-timeout / abort-on-throw guarantees that
-   * Phase 9 will re-cover when the TM-topology hook flow is wired
-   * (the prior `30-app-hooks.integration.test.ts` was tombstoned by
-   * Phase 7 since the trigger path no longer fires).
+   * preserving the abort-on-timeout / abort-on-throw guarantees.
    *
    * Returns the raw verdict in the success channel and a typed `Error`
    * in the failure channel (so the dispatch envelope's `catchAll` can
@@ -516,7 +411,7 @@ export class AppHost {
    * that constructed the frame validates the response against its TypeBox
    * result schema before this method can observe a value.
    */
-  private runRemoteHookEffect<D extends AnyAppCallbackRpcDefinition>(opts: {
+  private runRemoteHookEffect<D extends AnyTaskCallbackRpcDefinition>(opts: {
     appId: string;
     definition: D;
     connectionId: string;
@@ -547,7 +442,7 @@ export class AppHost {
               appId: opts.appId,
               method,
               connectionId: opts.connectionId,
-              reason: `appCallback RPC failed: ${errorMessage(err)}`,
+              reason: `task-callback RPC failed: ${errorMessage(err)}`,
               cause: err,
             }),
         ),
@@ -567,10 +462,9 @@ export class AppHost {
    *     schema decode failure) → logs an error, returns the error
    *     verdict from `onError`.
    *
-   * For admission hooks `onTimeout` / `onError` synthesize fail-closed
-   * verdicts (`deny` / `block: true`); for lifecycle hooks they return
-   * `Effect.void`. The error-channel narrowing to `never` is the
-   * contract that lets call sites compose hooks via `Effect.forEach`
+   * For `task/authorizeDispatch` `onTimeout` / `onError` synthesize a
+   * fail-closed `deny` verdict. The error-channel narrowing to `never` is
+   * the contract that lets call sites compose hooks via `Effect.forEach`
    * with no handler-error visibility.
    */
   private wrapHookEffectWithEnvelope<Verdict>(opts: {
@@ -608,104 +502,53 @@ export class AppHost {
   }
 
   /**
-   * Uniform `before_dispatch` dispatch — the in-process / remote choice
-   * is made HERE; callers see one signature and one return type. Returns
-   * `{ decision: "grant" }` when no hook is registered. Fail-closed on
-   * timeout / handler error / RPC failure per architect plan §3.4.
+   * Uniform `task/authorizeDispatch` dispatch — the in-process / remote
+   * choice is made HERE; callers see one signature and one return type.
+   * Returns `{ decision: "grant" }` when no hook is registered.
+   * Fail-closed on timeout / handler error / RPC failure per architect
+   * plan §3.4.
    */
-  private dispatchBeforeDispatchHook(
+  private dispatchAuthorizeDispatchHook(
     appId: string,
-    ctx: BeforeDispatchContext,
+    ctx: TaskAuthorizeDispatchContext,
   ): Effect.Effect<DispatchAdmissionResult, never> {
     const remote = this.remoteRegistrations.get(appId);
-    const inProcess = this.hooks.get(appId)?.beforeDispatch;
+    const inProcess = this.hooks.get(appId)?.taskAuthorizeDispatch;
     if (!remote && !inProcess) {
       return Effect.succeed({ decision: "grant" as const });
     }
     const manifest = this.manifests.get(appId);
     const timeoutMs =
-      manifest?.hooks?.before_dispatch?.timeout_ms ??
+      manifest?.hooks?.task_authorize_dispatch?.timeout_ms ??
       DEFAULT_APP_HOOK_TIMEOUT_MS;
     const taskId = ctx.taskId;
 
     const raw: Effect.Effect<DispatchAdmissionResult, Error> = remote
       ? this.runRemoteHookEffect({
           appId,
-          definition: AppsOnBeforeDispatch,
+          definition: TaskAuthorizeDispatch,
           connectionId: remote.connectionId,
-          params: this.beforeDispatchParamsForWire(ctx),
+          params: this.authorizeDispatchParamsForWire(ctx),
         }).pipe(Effect.map((envelope) => envelope.admission))
       : this.runInProcessHookEffect<
-          BeforeDispatchContext,
+          TaskAuthorizeDispatchContext,
           DispatchAdmissionResult
         >((ctxWithSignal) => inProcess!(ctxWithSignal), ctx);
 
     return this.wrapHookEffectWithEnvelope<DispatchAdmissionResult>({
       raw,
       timeoutMs,
-      timeoutLogMessage: "before_dispatch hook timed out",
+      timeoutLogMessage: "task/authorizeDispatch timed out",
       timeoutLogContext: { taskId, appId, timeoutMs },
-      errorLogMessage: "before_dispatch hook error",
+      errorLogMessage: "task/authorizeDispatch error",
       errorLogContext: { taskId, appId },
       onTimeout: () => ({
         decision: "deny" as const,
-        reason: "before_dispatch hook timed out",
+        reason: "task/authorizeDispatch timed out",
       }),
       onError: () => ({
         decision: "deny" as const,
-        reason: "before_dispatch hook error",
-      }),
-    });
-  }
-
-  /**
-   * Uniform `before_message_delivery` dispatch. Fail-CLOSED to
-   * `{ block: true }` on timeout/throw/RPC-failure per architect plan §3.4.
-   * Verification reactivates with Phase 9's TM-topology hook flow.
-   */
-  private dispatchBeforeMessageDeliveryHook(
-    appId: string,
-    ctx: BeforeMessageDeliveryContext,
-  ): Effect.Effect<HookResult, never> {
-    const remote = this.remoteRegistrations.get(appId);
-    const inProcess = this.hooks.get(appId)?.beforeMessageDelivery;
-    if (!remote && !inProcess) {
-      // No-hook short-circuit: caller treats `block: false` and no patch as
-      // "pass through unchanged", same as the legacy `null` outcome.
-      return Effect.succeed({ block: false });
-    }
-    const manifest = this.manifests.get(appId);
-    const timeoutMs =
-      manifest?.hooks?.before_message_delivery?.timeout_ms ??
-      DEFAULT_APP_HOOK_TIMEOUT_MS;
-    const taskId = ctx.taskId;
-
-    const raw: Effect.Effect<HookResult, Error> = remote
-      ? this.runRemoteHookEffect({
-          appId,
-          definition: AppsOnBeforeMessageDelivery,
-          connectionId: remote.connectionId,
-          params: this.beforeMessageDeliveryParamsForWire(ctx),
-        })
-      : this.runInProcessHookEffect<BeforeMessageDeliveryContext, HookResult>(
-          (ctxWithSignal) => inProcess!(ctxWithSignal),
-          ctx,
-        );
-
-    return this.wrapHookEffectWithEnvelope<HookResult>({
-      raw,
-      timeoutMs,
-      timeoutLogMessage: "before_message_delivery hook timed out",
-      timeoutLogContext: { taskId, appId, timeoutMs },
-      errorLogMessage: "before_message_delivery hook error",
-      errorLogContext: { taskId, appId },
-      onTimeout: () => ({
-        block: true,
-        reason: "before_message_delivery hook timed out",
-      }),
-      onError: () => ({
-        block: true,
-        reason: "before_message_delivery hook error",
+        reason: "task/authorizeDispatch error",
       }),
     });
   }

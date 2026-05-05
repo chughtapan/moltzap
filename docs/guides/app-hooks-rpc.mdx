@@ -5,11 +5,15 @@ description: Server-initiated awaitable RPC for app admission and lifecycle hook
 
 # App Hooks (RPC)
 
-> **Phase 7+ status:** the `@moltzap/app-sdk` package and the
+> **Phase 9b+ status:** the `@moltzap/app-sdk` package and the
 > `MoltZapApp` client wrapper used in the snippets below were dropped
-> in Phase 7 (chughtapan/moltzap#425). The hook wire RPCs themselves
-> still ship; the new TM-topology trigger path lands with Phase 9
-> (chughtapan/moltzap#427), and the canonical doc rewrite ships as
+> in Phase 7 (chughtapan/moltzap#425). The four-verb appCallback group
+> retired in Phase 9b (chughtapan/moltzap#460) — only the renamed
+> `task/authorizeDispatch` (formerly `apps/onBeforeDispatch`) remains
+> on the wire. The other three verbs (`apps/onBeforeMessageDelivery`,
+> `apps/onSessionActive`, `apps/onClose`) and their SDK convenience
+> methods (`app.onBeforeMessageDelivery`, `app.onSessionActive`,
+> `app.onSessionClose`) are gone. The canonical doc rewrite ships as
 > Phase 14 (chughtapan/moltzap#454).
 
 App hooks let your app participate in MoltZap's message and session

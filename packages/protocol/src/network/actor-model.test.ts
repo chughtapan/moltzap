@@ -64,19 +64,11 @@ describe("actor-model brand factories", () => {
       "00000000-0000-4000-8000-000000000002",
     );
     expect(b).toBe("tm:app:00000000-0000-4000-8000-000000000002");
-    // Phase 9 namespace split (plan §2.4.a + Phase 8 codex deferral on
-    // PR #458): `agent-conn` is the volatile per-WebSocket-connection
-    // form, distinct from the durable `agent` (agent-id) form.
-    const c = makeEndpointAddress(
-      "agent-conn",
-      "00000000-0000-4000-8000-000000000003",
-    );
-    expect(c).toBe("tm:agent-conn:00000000-0000-4000-8000-000000000003");
   });
 
   it("makeEndpointAddress rejects non-UUID inputs (brand predicate fires)", () => {
     expect(() => makeEndpointAddress("agent", "not-a-uuid")).toThrow();
-    expect(() => makeEndpointAddress("agent-conn", "not-a-uuid")).toThrow();
+    expect(() => makeEndpointAddress("app", "not-a-uuid")).toThrow();
   });
 
   it("endpointAddressKind reads back the kind for each declared kind", () => {
@@ -90,22 +82,20 @@ describe("actor-model brand factories", () => {
         endpointAddress("tm:app:00000000-0000-4000-8000-000000000002"),
       ),
     ).toBe("app");
-    // Longest-prefix-wins: a `tm:agent-conn:` address must classify as
-    // `agent-conn`, not `agent` — the brand predicate's loop walks
-    // ENDPOINT_ADDRESS_KINDS in declaration order, and the const tuple
-    // places `agent-conn` first so `startsWith("agent:")` does not
-    // pre-empt the longer prefix.
-    expect(
-      endpointAddressKind(
-        endpointAddress("tm:agent-conn:00000000-0000-4000-8000-000000000003"),
-      ),
-    ).toBe("agent-conn");
+  });
+
+  it("isEndpointAddress: rejects addresses with the legacy `agent-conn` kind", () => {
+    // Phase 9b consumer-migration (sub-issue #460 amendment): the
+    // `agent-conn` kind retired with the resolver-internal collapse.
+    // The brand predicate must reject any address that still uses it.
+    expect(() =>
+      endpointAddress("tm:agent-conn:00000000-0000-4000-8000-000000000003"),
+    ).toThrow();
   });
 
   it("isEndpointAddress: rejects addresses with the wrong kind segment", () => {
     // Defense-in-depth: the brand predicate walks every declared kind
     // and accepts only those with a matching prefix + UUID tail.
-    // `tm:agentconn:<uuid>` (no hyphen) is malformed.
     expect(() =>
       endpointAddress("tm:agentconn:00000000-0000-4000-8000-000000000003"),
     ).toThrow();

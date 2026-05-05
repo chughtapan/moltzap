@@ -1,11 +1,11 @@
 ---
-title: "apps/onBeforeDispatch"
-description: "App-callback RPC for before-dispatch admission."
+title: "task/authorizeDispatch"
+description: "Server→TM awaitable RPC. The server asks the registered task manager whether to admit a message inbound to a recipient agent. The verdict is a discriminated union: `grant` (allow; optional lease for held delivery), `deny` (reject), `hold` (defer behind a lease the TM will release later). Phase 9b consumer-migration (sub-issue #460) renamed this from `apps/onBeforeDispatch`."
 ---
 
-# apps/onBeforeDispatch
+# task/authorizeDispatch
 
-App-callback RPC for before-dispatch admission.
+Server→TM awaitable RPC. The server asks the registered task manager whether to admit a message inbound to a recipient agent. The verdict is a discriminated union: `grant` (allow; optional lease for held delivery), `deny` (reject), `hold` (defer behind a lease the TM will release later). Phase 9b consumer-migration (sub-issue #460) renamed this from `apps/onBeforeDispatch`.
 
 ## Parameters
 

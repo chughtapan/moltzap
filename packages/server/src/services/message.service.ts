@@ -1,5 +1,5 @@
 import type { Db } from "../db/client.js";
-import type { Message, Part } from "@moltzap/protocol";
+import type { Message, Part, TaskStatus } from "@moltzap/protocol";
 import {
   ErrorCodes,
   MessageReceivedNotificationDefinition,
@@ -8,12 +8,23 @@ import {
   messageId as protocolMessageId,
   notificationFrame,
 } from "@moltzap/protocol";
+import {
+  isEndpointAddress,
+  type EndpointAddress,
+} from "@moltzap/protocol/network";
 import { Duration, Effect, Fiber, Option, Schedule, Schema } from "effect";
 import { SqlError } from "@effect/sql/SqlError";
 import { RpcFailure, notFound, internalError } from "../runtime/index.js";
 import { nextSnowflakeId } from "../db/snowflake.js";
 import type { ConversationService } from "./conversation.service.js";
 import type { Broadcaster } from "../ws/broadcaster.js";
+import type { NetworkSendService } from "../network/network-send.js";
+import {
+  opaquePayload,
+  RecipientNotResolved,
+  WriteFailed,
+  EndpointKindNotImplemented,
+} from "../network/network-send.js";
 import { type WebhookClient, signWebhookPayload } from "../adapters/webhook.js";
 import {
   type EnvelopeEncryption,
@@ -27,7 +38,6 @@ import {
 } from "../crypto/serialization.js";
 import { sql } from "kysely";
 import type { MessageRow } from "../db/database.js";
-import type { AppHost } from "../app/app-host.js";
 import type { TraceCapture } from "../runtime-surface/trace-capture.js";
 import {
   catchSqlErrorAsDefect,
@@ -40,8 +50,6 @@ function toBuf(v: Buffer | Uint8Array): Buffer {
   return Buffer.isBuffer(v) ? v : Buffer.from(v);
 }
 
-const PATCH_MIN_PARTS = 1;
-const PATCH_MAX_PARTS = 10;
 const DELIVERY_WEBHOOK_RETRY_BASE_SECONDS = 1;
 const DELIVERY_WEBHOOK_BACKOFF_FACTOR = 2;
 const DEFAULT_MESSAGE_HISTORY_LIMIT = 50;
@@ -66,6 +74,52 @@ export interface DeliveryWebhookConfig {
 const DELIVERY_WEBHOOK_TIMEOUT_MS = 5_000;
 const DELIVERY_WEBHOOK_MAX_ATTEMPTS = 3;
 
+/**
+ * Phase 9b consumer-migration (sub-issue #460, plan §2.4.a + §10.1 +
+ * §1.3): `messages/send` fires a fire-and-forget `network.send` frame
+ * to the conversation's registered task-manager BEFORE storing or
+ * broadcasting. The runtime path is one wire round-trip per §1.3
+ * ("ALWAYS through `network.send` — no short-circuit"); the message id
+ * is minted server-side so the TM frame and the DB insert agree on
+ * identity.
+ *
+ * Branch table (exhaustive over `(task_id, tm_endpoint_address,
+ * task.status)`):
+ *
+ *   `task_id === null`               → broadcast fallback (non-task
+ *                                       conversation; Phase 10 / Slice
+ *                                       G2 migrates to `network.send`
+ *                                       too)
+ *   `task_id !== null` &&
+ *     `tm_endpoint_address === null` → fail closed: HookBlocked,
+ *                                       reason `TaskWithoutTm` (codex
+ *                                       HIGH-2)
+ *   `task_id !== null` && tm set &&
+ *     status ∈ {closed, failed}      → fail closed: TaskClosed
+ *                                       (codex HIGH-3)
+ *   `task_id !== null` && tm set &&
+ *     status ∈ {waiting, active}     → fire `network.send`. DeliveryError
+ *                                       lifts to RpcFailure, preserving
+ *                                       the wire shape the deleted
+ *                                       `apps/onBeforeMessageDelivery →
+ *                                       block: true → HookBlocked` route
+ *                                       used to surface.
+ *
+ * Phase 9b scope boundary: `network.send` is one-way per §1.3. The TM
+ * observes the message and acts via CRUD (e.g., `tasks/storeMessage`);
+ * the `block/patch/feedback` admission shape (deleted
+ * `apps/onBeforeMessageDelivery`) does NOT round-trip through
+ * `network.send`. Phase 11 (arena cutover) is the natural seam to
+ * introduce an awaitable TM-side verdict RPC. Today the failure channel
+ * covers only delivery liveness (TM unreachable) plus the structural
+ * gates above (no TM, closed task) — not application-level denial.
+ *
+ * The `bypassTmRouting` flag exists for the TM-authored insert path:
+ * `tasks/storeMessage` calls `MessageService.send` from the TM's own
+ * connection, and without the flag the resulting `messages/received`
+ * frame would route via `network.send` back to the TM's own socket
+ * (self-loop on every TM-authored insert; codex HIGH-1).
+ */
 export class MessageService {
   private deliveryWebhookFibers = new Set<
     Fiber.RuntimeFiber<unknown, unknown>
@@ -75,8 +129,8 @@ export class MessageService {
     private db: Db,
     private conversations: ConversationService,
     private broadcaster: Broadcaster,
+    private networkSendService: NetworkSendService,
     private encryption: EnvelopeEncryption | null,
-    private appHost: AppHost | null = null,
     private deliveryWebhook: DeliveryWebhookConfig | null = null,
     private webhookClient: WebhookClient | null = null,
     private traceCapture: TraceCapture | null = null,
@@ -94,22 +148,48 @@ export class MessageService {
     senderAgentId: string,
     replyToId?: string,
     excludeConnectionId?: string,
-    dispatchLeaseId?: string,
+    /**
+     * When `true`, skip the entire TM-routing branch (lookup, fail-closed
+     * checks, `network.send` dispatch). The TM-authored insert path
+     * (`tasks/storeMessage`) sets this so a TM calling its own CRUD does
+     * not re-emit a `MessageReceivedNotification` frame back to itself
+     * via `network.send` — that would self-loop on every TM-authored
+     * insert (codex HIGH-1).
+     */
+    bypassTmRouting = false,
   ): Effect.Effect<Message, RpcFailure> {
+    // Phase 9b consumer-migration (sub-issue #460, plan §2.4): the
+    // `dispatchLeaseId` parameter retired alongside the
+    // `apps/onBeforeMessageDelivery` hook that consumed it. The wire
+    // schema at `packages/protocol/src/task/methods/messages.ts` keeps
+    // `dispatchLeaseId` as an optional field (Phase 11 arena cutover
+    // will retire the field once arena's channel runtime stops minting
+    // it); the server-side `MessageService.send` no longer threads it.
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
-        let parts = inputParts;
+        const parts = inputParts;
         yield* this.conversations.requireParticipant(
           conversationId,
           senderAgentId,
         );
 
-        // Reject messages to archived conversations
+        // Read archived/task/TM-address/task-status in one round-trip.
+        // LEFT JOIN returns null `task_id` for non-task conversations
+        // (broadcast-fallback path) and null `tm_endpoint_address` for
+        // task-bound conversations whose initiator never called
+        // `endpoints/registerTaskManager` — those fail closed below
+        // rather than silently bypassing the TM gate.
         const convOpt = yield* takeFirstOption(
           this.db
-            .selectFrom("conversations")
-            .select("archived_at")
-            .where("id", "=", conversationId),
+            .selectFrom("conversations as c")
+            .leftJoin("tasks as t", "t.id", "c.task_id")
+            .select([
+              "c.archived_at",
+              "c.task_id",
+              "t.tm_endpoint_address as tm_endpoint_address",
+              "t.status as task_status",
+            ])
+            .where("c.id", "=", conversationId),
         );
         if (Option.isSome(convOpt) && convOpt.value.archived_at) {
           return yield* Effect.fail(
@@ -133,70 +213,95 @@ export class MessageService {
           }
         }
 
-        let patchedBy: string | undefined;
-        if (this.appHost) {
-          const hookResponse = yield* this.appHost.runBeforeMessageDelivery(
-            conversationId,
-            senderAgentId,
-            parts,
-            replyToId,
-            dispatchLeaseId,
-          );
-          if (hookResponse?.result.block) {
-            const traceCapture = this.traceCapture;
-            if (traceCapture) {
-              yield* this.getTraceMessageMetadata(
-                conversationId,
-                senderAgentId,
-              ).pipe(
-                Effect.flatMap((traceMetadata) =>
-                  traceCapture.record({
-                    _tag: "HookBlocked",
-                    hookName: "before_message_delivery",
-                    conversationId,
-                    channelKey: traceMetadata.channelKey,
-                    senderAgentId,
-                    senderDisplayName: traceMetadata.senderDisplayName,
-                    reason: hookResponse.result.reason ?? "Blocked by app",
-                    parts,
-                    createdAt: new Date().toISOString(),
-                  }),
-                ),
-                Effect.catchAll(() => Effect.void),
-              );
-            }
+        // Mint the message id here so the TM-routed frame (sent ahead
+        // of the DB insert) and the eventual row agree on `id`. `seq`
+        // is a server-internal monotonic ordering token, not part of
+        // the wire `Message` shape.
+        const seq = nextSnowflakeId();
+        const messageIdValue = crypto.randomUUID();
+        const createdAtIso = new Date().toISOString();
+        const provisionalMessage: Message = {
+          id: protocolMessageId(messageIdValue),
+          conversationId: protocolConversationId(conversationId),
+          senderId: protocolAgentId(senderAgentId),
+          replyToId:
+            replyToId === undefined ? undefined : protocolMessageId(replyToId),
+          parts,
+          createdAt: createdAtIso,
+        };
+
+        // Phase 9b TM-as-endpoint dispatch (plan §2.4.a). The branch
+        // structure is exhaustive over `(task_id, tm_endpoint_address,
+        // task_status)`:
+        //
+        //   1. `task_id === null` (non-task conversation) — broadcast
+        //      fallback fires; no TM gate. Phase 10 (Slice G2) deletes
+        //      Broadcaster and migrates these too.
+        //   2. `task_id !== null && tm_endpoint_address === null` — task
+        //      whose initiator never called `endpoints/registerTaskManager`.
+        //      Fail closed with `HookBlocked` rather than silently
+        //      bypassing the TM gate (codex HIGH-2).
+        //   3. `task_id !== null && tm_endpoint_address !== null &&
+        //      task.status ∈ {closed, failed}` — closed-task surviving
+        //      TM address (`tasks.close` does not clear the column).
+        //      Fail closed with `TaskClosed` (codex HIGH-3).
+        //   4. `task_id !== null && tm_endpoint_address !== null &&
+        //      task.status ∈ {waiting, active}` — fire-and-forget the
+        //      message frame to the TM via `network.send` per §1.3.
+        //      `DeliveryError` lifts to `RpcFailure` (preserves the
+        //      `apps/onBeforeMessageDelivery → block: true → HookBlocked`
+        //      wire shape). A malformed `tm_endpoint_address` row
+        //      (corruption guard) surfaces as `InternalError`.
+        //
+        // Phase 9b scope boundary: `network.send` is one-way per §1.3
+        // ("ALWAYS through `network.send` — no short-circuit"). The TM
+        // observes the message and acts via CRUD; the
+        // `block/patch/feedback` admission shape (deleted
+        // `apps/onBeforeMessageDelivery`) does NOT round-trip through
+        // `network.send`. Phase 11 (arena cutover) is the natural seam
+        // to introduce an awaitable TM-side verdict RPC if needed.
+        const taskId = Option.isSome(convOpt) ? convOpt.value.task_id : null;
+        const rawTmAddr = Option.isSome(convOpt)
+          ? convOpt.value.tm_endpoint_address
+          : null;
+        const taskStatus = Option.isSome(convOpt)
+          ? convOpt.value.task_status
+          : null;
+
+        if (taskId !== null && !bypassTmRouting) {
+          if (rawTmAddr === null) {
+            // Branch 2: task without registered TM. Fail closed.
             return yield* Effect.fail(
               new RpcFailure({
                 code: ErrorCodes.HookBlocked,
-                message: hookResponse.result.reason ?? "Blocked by app",
-                data: hookResponse.result.feedback
-                  ? { feedback: hookResponse.result.feedback }
-                  : undefined,
+                message: "Task has no registered task manager",
+                data: { reason: "TaskWithoutTm", taskId },
               }),
             );
           }
-          if (hookResponse?.result.patch?.parts) {
-            const patched = hookResponse.result.patch.parts;
-            if (
-              patched.length >= PATCH_MIN_PARTS &&
-              patched.length <= PATCH_MAX_PARTS
-            ) {
-              parts = patched;
-              patchedBy = hookResponse.appId;
-            } else {
-              yield* Effect.logWarning(
-                "Hook returned invalid patch (must be 1-10 parts), ignoring patch",
-              ).pipe(
-                Effect.annotateLogs({
-                  appId: hookResponse.appId,
-                  patchLength: patched.length,
-                }),
-              );
-            }
+          // Branch 3: task closed/failed. Fail closed.
+          if (taskStatus !== null && !taskStatusAcceptsMessages(taskStatus)) {
+            return yield* Effect.fail(
+              new RpcFailure({
+                code: ErrorCodes.TaskClosed,
+                message: `Task is ${taskStatus}`,
+                data: { reason: "TaskClosed", taskId, status: taskStatus },
+              }),
+            );
+          }
+          // Branch 4: TM-routed dispatch.
+          const tmAddr = yield* decodeTmEndpointAddress(rawTmAddr);
+          if (Option.isSome(tmAddr)) {
+            const tmFrame = notificationFrame(
+              MessageReceivedNotificationDefinition,
+              { message: provisionalMessage },
+            );
+            yield* this.networkSendService
+              .send(tmAddr.value, opaquePayload(JSON.stringify(tmFrame)))
+              .pipe(Effect.mapError(deliveryErrorToRpcFailure));
           }
         }
 
-        const seq = nextSnowflakeId();
         const { encrypted, iv, tag, dekVersion, kekVersion } =
           yield* this.encryptParts(conversationId, parts);
 
@@ -213,6 +318,7 @@ export class MessageService {
             this.db
               .insertInto("messages")
               .values({
+                id: messageIdValue,
                 conversation_id: conversationId,
                 sender_id: senderAgentId,
                 seq: seq.toString(),
@@ -222,6 +328,13 @@ export class MessageService {
                 parts_tag: tag,
                 dek_version: dekVersion,
                 kek_version: kekVersion,
+                // Persist the same `created_at` the TM frame carried so
+                // the wire `Message.createdAt` agrees on both paths.
+                // Without this, the TM observes the provisional ISO
+                // timestamp while the broadcaster picks up DB `now()`
+                // — same id, different timestamp, surprising to any
+                // consumer that joins the two views.
+                created_at: new Date(createdAtIso),
               })
               .returningAll()
               .executeTakeFirstOrThrow(),
@@ -229,7 +342,7 @@ export class MessageService {
             new SqlError({ cause, message: "insert messages failed" }),
         });
 
-        const message = this.mapMessage(row, parts, patchedBy);
+        const message = this.mapMessage(row, parts);
 
         const firstTextPart = parts.find((p) => p.type === "text");
 
@@ -648,11 +761,7 @@ export class MessageService {
     );
   }
 
-  private mapMessage(
-    row: MessageRow,
-    parts: Part[],
-    patchedBy?: string,
-  ): Message {
+  private mapMessage(row: MessageRow, parts: Part[]): Message {
     return {
       id: protocolMessageId(row.id),
       conversationId: protocolConversationId(row.conversation_id),
@@ -662,8 +771,88 @@ export class MessageService {
           ? undefined
           : protocolMessageId(row.reply_to_id),
       parts,
-      ...(patchedBy && { patchedBy }),
       createdAt: row.created_at.toISOString(),
     };
   }
+}
+
+/**
+ * Exhaustive predicate over `tasks.status`. Returns true iff the task
+ * is in a state that can still receive messages (`waiting | active`);
+ * `closed | failed` fail-closed via the `TaskClosed` RPC error. The
+ * `default: absurd(s)` arm forces every future addition to the
+ * `TaskStatus` enum (Postgres + protocol) to surface here as a
+ * compile error rather than silently falling through to "accept".
+ */
+function taskStatusAcceptsMessages(status: TaskStatus): boolean {
+  switch (status) {
+    case "waiting":
+    case "active":
+      return true;
+    case "closed":
+    case "failed":
+      return false;
+    default: {
+      const _absurd: never = status;
+      return _absurd;
+    }
+  }
+}
+
+/**
+ * Decode the raw `tasks.tm_endpoint_address` column into a branded
+ * `EndpointAddress`. `Option.none()` means "no TM registered" (column
+ * is null — legitimate state for non-TM tasks); a malformed non-null
+ * row is data corruption and surfaces as `RpcFailure(InternalError)`
+ * so the TM gate fails closed instead of silently falling back to the
+ * broadcast path.
+ *
+ * `isEndpointAddress` is the protocol-side predicate; using it here
+ * avoids the `Effect.try { brandEndpointAddress(...) }` exception
+ * round-trip the brand factory's throwing form would force.
+ */
+function decodeTmEndpointAddress(
+  raw: string | null,
+): Effect.Effect<Option.Option<EndpointAddress>, RpcFailure> {
+  if (raw === null) return Effect.succeed(Option.none());
+  if (isEndpointAddress(raw)) return Effect.succeed(Option.some(raw));
+  return Effect.fail(
+    internalError(`Malformed tm_endpoint_address in tasks row: ${raw}`),
+  );
+}
+
+/**
+ * Translate a `network.send` `DeliveryError` into a `messages/send`
+ * `RpcFailure`. Phase 9b consumer-migration (sub-issue #460): replaces
+ * the `apps/onBeforeMessageDelivery → block: true → HookBlocked` pathway.
+ * `RecipientNotResolved` and `WriteFailed` map to `HookBlocked`
+ * (recoverable: TM is offline or its socket failed). `EndpointKindNotImplemented`
+ * is a config gap, surfaces as `InternalError`.
+ */
+function deliveryErrorToRpcFailure(
+  err: RecipientNotResolved | WriteFailed | EndpointKindNotImplemented,
+): RpcFailure {
+  if (err instanceof RecipientNotResolved) {
+    return new RpcFailure({
+      code: ErrorCodes.HookBlocked,
+      message: "Task manager is not reachable",
+      data: { reason: "RecipientNotResolved", to: String(err.to) },
+    });
+  }
+  if (err instanceof WriteFailed) {
+    return new RpcFailure({
+      code: ErrorCodes.HookBlocked,
+      message: "Task manager dispatch failed",
+      data: {
+        reason: "WriteFailed",
+        to: String(err.to),
+        cause: String(err.cause),
+      },
+    });
+  }
+  return new RpcFailure({
+    code: ErrorCodes.InternalError,
+    message: "Task manager endpoint kind not implemented",
+    data: { reason: "EndpointKindNotImplemented", kind: err.kind },
+  });
 }
