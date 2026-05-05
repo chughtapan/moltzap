@@ -8,6 +8,8 @@ import { NoopTraceCaptureLive } from "../runtime-surface/trace-capture.js";
 import { LoggerLive, getLogger } from "../logger.js";
 import { Broadcaster } from "../ws/broadcaster.js";
 import { ConnectionManager } from "../ws/connection.js";
+import { AgentEndpointResolver } from "../network/agent-endpoint-resolver.js";
+import { NetworkSendService } from "../network/network-send.js";
 import { AuthService } from "../services/auth.service.js";
 import { ContactsService } from "../services/contact.service.js";
 import { ConversationService } from "../services/conversation.service.js";
@@ -65,6 +67,10 @@ it.effect("ServicesLive resolves every service via resolveServices", () =>
     // fail to compile the graph or produce `undefined` at a tag.
     expect(services.connections).toBeInstanceOf(ConnectionManager);
     expect(services.broadcaster).toBeInstanceOf(Broadcaster);
+    expect(services.agentEndpointResolver).toBeInstanceOf(
+      AgentEndpointResolver,
+    );
+    expect(services.networkSendService).toBeInstanceOf(NetworkSendService);
     expect(services.authService).toBeInstanceOf(AuthService);
     expect(services.participantService).toBeInstanceOf(ParticipantService);
     expect(services.conversationService).toBeInstanceOf(ConversationService);

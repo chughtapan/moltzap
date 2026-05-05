@@ -49,6 +49,7 @@ import { EnvelopeEncryption } from "../crypto/envelope.js";
 import { createCoreAuthHandlers } from "../network/handlers/auth.handlers.js";
 import { createSystemHandlers } from "../network/handlers/system.handlers.js";
 import { createEndpointHandlers } from "../network/handlers/endpoints.handlers.js";
+import { agentConnectionEndpointAddress } from "../network/agent-endpoint-resolver.js";
 import { createConversationHandlers } from "../task/handlers/conversations.handlers.js";
 import { createMessageHandlers } from "../task/handlers/messages.handlers.js";
 import { createPresenceHandlers } from "../task/handlers/presence.handlers.js";
@@ -176,6 +177,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
   const {
     connections,
     broadcaster,
+    agentEndpointResolver,
     authService,
     conversationService,
     contactService,
@@ -197,6 +199,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
       conversationService,
       presenceService,
       connections,
+      agentEndpointResolver,
       db,
       userService: config.userService ?? null,
     }),
@@ -611,6 +614,17 @@ export function createCoreApp(config: CoreConfig): CoreApp {
                   );
                 }
               }
+              // Slice G1 (plan §2.11): remove the connection's endpoint
+              // address from the resolver. Skipped for never-authed
+              // connections — `auth/connect` is the single registration
+              // site, so an unauthed disconnect has nothing to clean up
+              // and would not have an `agentId` to address the entry by.
+              if (authCtx) {
+                yield* agentEndpointResolver.remove(
+                  authCtx.agentId,
+                  agentConnectionEndpointAddress(connId),
+                );
+              }
               presenceService.removeConnection(connId);
               connections.remove(connId);
               if (Exit.isFailure(exit)) {
@@ -704,6 +718,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
       disconnectionHooks.push(hook);
     },
     broadcaster,
+    networkSendService: services.networkSendService,
     traceCapture,
     connections,
     registerApp(manifest) {

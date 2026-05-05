@@ -52,7 +52,12 @@ export type EndpointAddress = BrandedString<"EndpointAddress">;
 export const ENDPOINT_ADDRESS_KINDS = ["agent", "app"] as const;
 export type EndpointAddressKind = (typeof ENDPOINT_ADDRESS_KINDS)[number];
 
-const ENDPOINT_ADDRESS_PREFIX = "tm:";
+/**
+ * Common prefix for every {@link EndpointAddress} on the wire — `tm:`.
+ * Exported so server-side code that mints addresses or routes by kind
+ * does not re-declare the same string and silently fork.
+ */
+export const ENDPOINT_ADDRESS_PREFIX = "tm:";
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -82,6 +87,47 @@ const EndpointAddressBrand = Brand.refined<EndpointAddress>(
  *  fails {@link isEndpointAddress}. */
 export const endpointAddress = (value: string): EndpointAddress =>
   EndpointAddressBrand(value);
+
+/**
+ * Read the `kind` segment out of a branded {@link EndpointAddress}.
+ *
+ * The brand predicate at {@link isEndpointAddress} already proves the
+ * shape `tm:<kind>:<uuid>` with `kind ∈ {@link ENDPOINT_ADDRESS_KINDS}`.
+ * This helper checks the kinds in declaration order and returns the
+ * first match. Adding a new kind to the const tuple automatically
+ * extends this dispatch as long as the brand predicate is updated in
+ * lockstep — the {@link ENDPOINT_ADDRESS_KINDS}-driven loop owns the
+ * exhaustiveness story.
+ *
+ * The trailing `return ENDPOINT_ADDRESS_KINDS[0]` is unreachable for any
+ * well-formed branded value (the brand guarantees at least one match)
+ * but appears for the type checker — `for...of` does not narrow to a
+ * non-empty result. The brand's own tests cover the malformed case.
+ */
+export const endpointAddressKind = (
+  address: EndpointAddress,
+): EndpointAddressKind => {
+  const raw = address as string;
+  const rest = raw.slice(ENDPOINT_ADDRESS_PREFIX.length);
+  for (const kind of ENDPOINT_ADDRESS_KINDS) {
+    if (rest.startsWith(`${kind}:`)) return kind;
+  }
+  return ENDPOINT_ADDRESS_KINDS[0];
+};
+
+/**
+ * Mint an `EndpointAddress` from a kind and a UUID. The single
+ * construction site for `tm:<kind>:<uuid>` strings — every other
+ * caller routes through here so the wire format does not fork.
+ *
+ * Throws if the resulting string fails {@link isEndpointAddress} (e.g.,
+ * `uuid` is not a UUID).
+ */
+export const makeEndpointAddress = (
+  kind: EndpointAddressKind,
+  uuid: string,
+): EndpointAddress =>
+  endpointAddress(`${ENDPOINT_ADDRESS_PREFIX}${kind}:${uuid}`);
 
 // ---------------------------------------------------------------------------
 // Endpoint kind / registration

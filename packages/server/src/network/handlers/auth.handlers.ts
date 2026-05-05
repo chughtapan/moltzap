@@ -13,6 +13,8 @@ import type {
 import type { HelloOk, AgentCard } from "@moltzap/protocol";
 import type { ConnectionManager } from "../../ws/connection.js";
 import type { Db } from "../../db/client.js";
+import type { AgentEndpointResolver } from "../agent-endpoint-resolver.js";
+import { agentConnectionEndpointAddress } from "../agent-endpoint-resolver.js";
 import {
   PROTOCOL_VERSION,
   Connect,
@@ -59,6 +61,14 @@ export function createCoreAuthHandlers(deps: {
   conversationService: ConversationService;
   presenceService: PresenceService;
   connections: ConnectionManager;
+  /**
+   * Slice G1 multimap of `AgentId → Set<EndpointAddress>`. Populated on
+   * successful `auth/connect` (this handler), cleared on socket close
+   * (the WS finalizer in `app/server.ts`). The new `network.send`
+   * outbound primitive routes through this resolver — see
+   * `network/network-send.ts` and plan §2.10/§2.11.
+   */
+  agentEndpointResolver: AgentEndpointResolver;
   db: Db;
   /** Optional app-minted session resolver. When null, auth/connect rejects
    * `sessionToken` requests with Unauthorized. */
@@ -93,6 +103,22 @@ export function createCoreAuthHandlers(deps: {
                   );
 
             conn.auth = auth;
+
+            // Slice G1 (plan §2.11): once `auth/connect` resolves an
+            // identity, register the connection's endpoint address with
+            // the resolver. The disconnect finalizer in `app/server.ts`
+            // mirrors this with `agentEndpointResolver.remove`.
+            //
+            // Atomic relative to other resolver operations — `add` is a
+            // single `Ref.update`. Idempotent on the forward set, so a
+            // re-issued `auth/connect` (already-authed branch above
+            // short-circuits, but defense-in-depth) cannot duplicate
+            // entries.
+            yield* deps.agentEndpointResolver.add(
+              auth.agentId,
+              agentConnectionEndpointAddress(connId),
+              connId,
+            );
 
             const convIds = yield* deps.conversationService.getConversationIds(
               auth.agentId,

@@ -19,6 +19,7 @@ import type { UserService } from "../services/user.service.js";
 import type { WebhookClient } from "../adapters/webhook.js";
 import type { Broadcaster } from "../ws/broadcaster.js";
 import type { ConnectionManager } from "../ws/connection.js";
+import type { NetworkSendService } from "../network/network-send.js";
 import type {
   BeforeMessageDeliveryHook,
   BeforeDispatchHook,
@@ -124,8 +125,26 @@ export interface CoreApp {
    * emit events out-of-band (not via `broadcastToConversation`) use this to
    * `sendToAgent(agentId, event)`. Stable identity — same ref across the
    * server lifetime.
+   *
+   * Coexists with {@link networkSendService} during Phase 8 (Slice G1).
+   * Phase 10 (Slice G2) deletes this field once consumers migrate.
    */
   readonly broadcaster: Broadcaster;
+  /**
+   * The new outbound-routing primitive introduced in Slice G1
+   * (Phase 8). Use `networkSendService.send(to, payload)` for new code;
+   * existing call sites continue to use {@link broadcaster} until
+   * Phase 9 (Slice C) migrates them.
+   *
+   * The backing `AgentEndpointResolver` is intentionally NOT exposed
+   * here — its mutable add/remove surface is server-internal lifecycle,
+   * not a CoreApp consumer concern (issue #426 authorizes the dual-DI
+   * pair, not raw resolver access). Tests that need to assert resolver
+   * state observe it indirectly via `networkSendService.send` outcomes.
+   *
+   * Plan: `docs/plans/layered-network-refactor-2026-05.md` §2.10.
+   */
+  readonly networkSendService: NetworkSendService;
   readonly traceCapture: TraceCapture;
   /**
    * Live ConnectionManager instance. Apps can query `getByParticipant` to
