@@ -46,3 +46,10 @@ export type {
 // RPC manifest-derived params/results aren't re-exported here; downstream
 // consumers get types from `Static<typeof Manifest.paramsSchema>` /
 // `Static<typeof Manifest.resultSchema>` at the import site.
+
+// Phase 9b consumer-migration (sub-issue #460 round 4 R16): the
+// `tmType` kind marker for `tasks/create` is one of the few RPC
+// params that gets a hand-rolled type alias — the `Static<>`-derived
+// shape collapses to `string`, but the handler-side address-
+// derivation switch needs the literal union to typecheck exhaustively.
+export type { TmType } from "./task/methods/tasks.js";

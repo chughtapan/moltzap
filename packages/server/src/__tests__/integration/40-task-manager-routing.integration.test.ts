@@ -146,8 +146,12 @@ function setupTaskBoundConversation(
   pair: AgentPair,
 ): Effect.Effect<TaskBinding, Error> {
   return Effect.gen(function* () {
+    // Phase 9b round 4 R16 (codex HIGH-A): the wire body carries
+    // `tmType: "self"` — the server resolves the address from the
+    // authenticated caller's agent id, rejecting the pre-R16 hole
+    // where a caller could pass `tm:agent:<stranger>`.
     const task = yield* pair.tm.sendRpc(TasksCreate, {
-      tmEndpointAddress: `tm:agent:${pair.tmAgentId}`,
+      tmType: "self",
     });
     yield* pair.tm.sendRpc(TasksAddParticipant, {
       taskId: task.task.id,

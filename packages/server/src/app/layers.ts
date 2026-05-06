@@ -22,8 +22,7 @@ import {
   DEFAULT_GROUP_TM_ADDRESS,
 } from "../network/app-tm-registry.js";
 import { NetworkSendService } from "../network/network-send.js";
-import { makeDefaultDmTmHandler } from "../services/default-tm/default-dm-tm.js";
-import { makeDefaultGroupTmHandler } from "../services/default-tm/default-group-tm.js";
+import { makeDefaultTmHandler } from "../services/default-tm.js";
 import { AuthService } from "../services/auth.service.js";
 import { ParticipantService } from "../services/participant.service.js";
 import { ContactsService } from "../services/contact.service.js";
@@ -216,10 +215,10 @@ export const AppTmRegistryLive = Layer.effect(
   AppTmRegistryTag,
   Effect.gen(function* () {
     const registry = yield* AppTmRegistry.make;
-    yield* registry.register(DEFAULT_DM_TM_ADDRESS, makeDefaultDmTmHandler());
+    yield* registry.register(DEFAULT_DM_TM_ADDRESS, makeDefaultTmHandler("dm"));
     yield* registry.register(
       DEFAULT_GROUP_TM_ADDRESS,
-      makeDefaultGroupTmHandler(),
+      makeDefaultTmHandler("group"),
     );
     return registry;
   }),
