@@ -18,12 +18,25 @@ import {
 import { MessageSchema, PartSchema } from "../../schema/messages.js";
 import { defineRpc } from "../../rpc.js";
 
+/**
+ * Phase 9b consumer-migration (sub-issue #460 round 3 R13): atomic
+ * task creation. The pre-R13 two-step (`tasks/create` then
+ * `endpoints/registerTaskManager`) collapsed into one transaction.
+ * `tmEndpointAddress` is REQUIRED — the schema-level NOT NULL
+ * constraint at `tasks.tm_endpoint_address` (R12) makes "task without
+ * registered TM" unrepresentable. Werewolf and other custom-TM
+ * callers pass `tm:agent:<callerAgentId>` (the address the deleted
+ * `endpoints/registerTaskManager` used to derive); `conversations/create`
+ * passes a default `tm:app:<defaultDmTm | defaultGroupTm>` address
+ * (R14) when the caller does not own a TM.
+ */
 export const TasksCreate = defineRpc({
   name: "tasks/create",
   params: Type.Object(
     {
       appId: Type.Optional(Type.String()),
       invitedAgentIds: Type.Optional(Type.Array(AgentId)),
+      tmEndpointAddress: Type.String({ minLength: 1 }),
     },
     { additionalProperties: false },
   ),

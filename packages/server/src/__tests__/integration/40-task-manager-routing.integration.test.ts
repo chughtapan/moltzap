@@ -8,23 +8,36 @@
  * verdicts as `RpcFailure(HookBlocked)`. The wire RPC retired in Phase
  * 9b; the gating contract moved to a fire-and-forget `network.send` per
  * §1.3 plus structural pre-checks on the `(task_id, tm_endpoint_address,
- * task.status)` triple. This test pins the new contract:
+ * task.status)` triple.
  *
- *  - TM live: `messages/send` succeeds; the TM observes the
- *    `MessageReceivedNotification` frame on its WS.
- *  - TM offline: `messages/send` fails with `HookBlocked` (RecipientNotResolved).
- *  - Task without registered TM: `messages/send` fails with `HookBlocked`
- *    (TaskWithoutTm) — closes the silent-fall-through hole codex HIGH-2
- *    flagged.
- *  - Task closed mid-flight: `messages/send` fails with `TaskClosed`
+ * Phase 9b round 3 (R12+R13+R14+R15) reframes the suite:
+ *   - R12 made `tasks.tm_endpoint_address` and `conversations.task_id`
+ *     NOT NULL — every conversation belongs to a task with a registered
+ *     TM. The "task without TM" and "non-task conversation" branches
+ *     are unrepresentable in the type system, so the R3 / non-task tests
+ *     retire.
+ *   - R13 collapsed `tasks/create` + `endpoints/registerTaskManager`
+ *     into one atomic call; the deleted `endpoints/*` wire RPCs no
+ *     longer appear in the suite.
+ *   - R14 added a default-DM / default-group `tm:app:<id>` TM that
+ *     `conversations/create` auto-binds; in-process dispatch via
+ *     {@link AppTmRegistry} runs on the server's Effect runtime, no
+ *     WebSocket round-trip (plan §1.3 in-process loopback policy).
+ *
+ * Surviving contracts pinned by the suite:
+ *  - Custom-TM (werewolf-shaped) routing: TM live → success; TM
+ *    offline → `HookBlocked (RecipientNotResolved)`.
+ *  - Closed task: `messages/send` fails closed with `TaskClosed`
  *    (codex HIGH-3).
- *  - Non-task conversation: `messages/send` falls back to broadcast.
- *  - `tasks/storeMessage` does NOT self-loop (codex HIGH-1): the
- *    TM-authored insert path skips TM routing.
+ *  - `tasks/storeMessage` does NOT self-loop the TM (codex HIGH-1).
+ *  - Default-DM-TM lifecycle: `conversations/create` auto-mints a
+ *    default-TM-bound task; `messages/send` succeeds without any
+ *    custom-TM caller registering anything.
  *
- * Setup uses ONLY wire RPCs — `tasks/create`, `endpoints/registerTaskManager`,
- * `tasks/addParticipant`, `tasks/createConversation`, `tasks/storeMessage`,
- * `tasks/close` — so the test exercises the same surface arena consumes.
+ * Setup uses ONLY wire RPCs — `tasks/create`, `tasks/addParticipant`,
+ * `tasks/createConversation`, `tasks/storeMessage`, `tasks/close`,
+ * `conversations/create` — so the test exercises the same surface
+ * arena consumes.
  *
  * Auth-handler transactional behaviour and the close-during-auth race
  * (Phase 9a deferral C2) are covered by the resolver-contract guards in
@@ -38,8 +51,6 @@ import { it } from "@effect/vitest";
 import { Effect, Either } from "effect";
 import {
   ConversationsCreate,
-  EndpointsRegisterTaskManager,
-  EndpointsUnregisterTaskManager,
   ErrorCodes,
   MessageReceivedNotificationDefinition,
   MessagesSend,
@@ -126,20 +137,17 @@ interface TaskBinding {
 }
 
 /**
- * Stand up a task with TM registered and a task-bound conversation
- * containing the sender + TM as participants. The "task without
- * registered TM" failure path is reached at runtime via
- * `endpoints/unregisterTaskManager` after creation — that is the only
- * wire-RPC route to the state because `tasks/createConversation`
- * requires TM authority.
+ * Stand up a task with TM bound atomically and a task-bound conversation
+ * containing the sender + TM as participants. Phase 9b round 3 R13: the
+ * pre-R13 two-step (`tasks/create` then `endpoints/registerTaskManager`)
+ * retired — `tmEndpointAddress` is required at create time.
  */
 function setupTaskBoundConversation(
   pair: AgentPair,
 ): Effect.Effect<TaskBinding, Error> {
   return Effect.gen(function* () {
-    const task = yield* pair.tm.sendRpc(TasksCreate, {});
-    yield* pair.tm.sendRpc(EndpointsRegisterTaskManager, {
-      taskId: task.task.id,
+    const task = yield* pair.tm.sendRpc(TasksCreate, {
+      tmEndpointAddress: `tm:agent:${pair.tmAgentId}`,
     });
     yield* pair.tm.sendRpc(TasksAddParticipant, {
       taskId: task.task.id,
@@ -226,44 +234,6 @@ describe("Phase 9b — messages/send → TM routing via network.send", () => {
   );
 
   it.live(
-    "Task without registered TM: messages/send fails closed with HookBlocked (TaskWithoutTm)",
-    () =>
-      // Codex HIGH-2 regression guard. After the Phase 9b fail-closed
-      // branch lands, a task-bound conversation whose initiator
-      // unregistered (or never registered) the TM admits zero
-      // messages — the broadcast-fallback short-circuit no longer
-      // covers it.
-      Effect.gen(function* () {
-        const pair = yield* setupTmAndSender(3);
-        const { taskId, conversationId } =
-          yield* setupTaskBoundConversation(pair);
-
-        // Unregister TM via the wire RPC. `tasks.tm_endpoint_address`
-        // becomes null while the conversation stays bound to the task.
-        yield* pair.tm.sendRpc(EndpointsUnregisterTaskManager, { taskId });
-
-        const outcome = yield* Effect.either(
-          pair.sender.sendRpc(MessagesSend, {
-            conversationId,
-            parts: [{ type: "text", text: "should fail" }],
-          }),
-        );
-        expect(Either.isLeft(outcome)).toBe(true);
-        if (Either.isLeft(outcome)) {
-          const err = outcome.left as {
-            code?: number;
-            message?: string;
-            data?: { reason?: string };
-          };
-          expect(err.code).toBe(ErrorCodes.HookBlocked);
-          expect(err.message).toMatch(/no registered task manager/i);
-          expect(err.data?.reason).toBe("TaskWithoutTm");
-        }
-      }),
-    20_000,
-  );
-
-  it.live(
     "Closed task: messages/send fails closed with TaskClosed",
     () =>
       // Codex HIGH-3 regression guard. `tasks.close` does not clear
@@ -306,13 +276,19 @@ describe("Phase 9b — messages/send → TM routing via network.send", () => {
   );
 
   it.live(
-    "Non-task conversation: messages/send falls back to broadcast",
+    "Default-DM-TM: conversations/create auto-binds the default TM; messages/send succeeds without a custom TM",
     () =>
+      // Phase 9b round 3 R14 lifecycle pin. Pre-R14, a non-app caller
+      // could create a DM via `conversations/create` and the
+      // conversation would land with `task_id IS NULL`. R12+R14 made
+      // every conversation task-bound; the wire handler mints a
+      // default-DM TM (a `tm:app:<deterministic-uuid>` address backed
+      // by an in-process `AppTmRegistry` no-op handler). The proof
+      // shape: send a message through that conversation and observe
+      // it round-trips. Without R14 the send would fail with
+      // `RecipientNotResolved` (no live socket holds `tm:app:`).
       Effect.gen(function* () {
         const pair = yield* setupTmAndSender(5);
-        // No task binding — `conversations.task_id` is null because
-        // the conversation is created via `conversations/create`
-        // directly, not `tasks/createConversation`.
         const conv = yield* pair.sender.sendRpc(ConversationsCreate, {
           type: "dm",
           participants: [{ type: "agent", id: pair.tmAgentId }],
@@ -320,10 +296,46 @@ describe("Phase 9b — messages/send → TM routing via network.send", () => {
 
         const sent = yield* pair.sender.sendRpc(MessagesSend, {
           conversationId: conv.conversation.id,
-          parts: [{ type: "text", text: "hello no-tm" }],
+          parts: [{ type: "text", text: "hello default TM" }],
         });
         expect(sent.message.parts).toEqual([
-          { type: "text", text: "hello no-tm" },
+          { type: "text", text: "hello default TM" },
+        ]);
+
+        // Both participants observe the message via Broadcaster — the
+        // app-TM in-process handler is a no-op observer, so the
+        // surviving delivery path is the conversation broadcast.
+        const received = yield* pair.tm.waitForNotification(
+          MessageReceivedNotificationDefinition,
+        );
+        const receivedMsg = (received.params as { message: Message }).message;
+        expect(receivedMsg.id).toBe(sent.message.id);
+      }),
+    20_000,
+  );
+
+  it.live(
+    "Default-group-TM: conversations/create type=group auto-binds the default group TM",
+    () =>
+      // Companion to the DM lifecycle test. The DM/group split is
+      // preserved as separate `tm:app:<id>` addresses (`R14`) so future
+      // differentiation lands without rewiring existing rows. The
+      // surviving invariant: a group conversation created without a
+      // custom TM accepts messages.
+      Effect.gen(function* () {
+        const pair = yield* setupTmAndSender(7);
+        const conv = yield* pair.sender.sendRpc(ConversationsCreate, {
+          type: "group",
+          name: "default-group-tm",
+          participants: [{ type: "agent", id: pair.tmAgentId }],
+        });
+
+        const sent = yield* pair.sender.sendRpc(MessagesSend, {
+          conversationId: conv.conversation.id,
+          parts: [{ type: "text", text: "group with default TM" }],
+        });
+        expect(sent.message.parts).toEqual([
+          { type: "text", text: "group with default TM" },
         ]);
 
         const received = yield* pair.tm.waitForNotification(

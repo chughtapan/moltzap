@@ -32,10 +32,13 @@
  *   Plan §1.3 in-process loopback policy: the same code path always runs,
  *   even when the durable address resolves to a connection in the same
  *   process.
- * - `tm:app:<id>` — app-TM registrations. Reserved for the Phase 11+
- *   arena cutover; consumers that want app-TM dispatch wire the resolver
- *   registration at app start. Today returns
- *   {@link EndpointKindNotImplemented}.
+ * - `tm:app:<id>` — app-TM registrations. Phase 9b consumer-migration
+ *   (sub-issue #460 round 3 R14): dispatches through the in-process
+ *   {@link AppTmRegistry}; default DM / group TMs and any future custom
+ *   in-process TMs register handlers at boot, and `network.send` runs
+ *   the handler on the server's Effect runtime. Plan §1.3 in-process
+ *   loopback policy. {@link RecipientNotResolved} when no handler is
+ *   registered.
  *
  * The brand at `packages/protocol/src/network/actor-model.ts` already
  * encodes the kind in the prefix. The send path parses the prefix once
@@ -53,6 +56,7 @@ import {
 import type * as Socket from "@effect/platform/Socket";
 import { ConnectionManager } from "../ws/connection.js";
 import { AgentEndpointResolver } from "./agent-endpoint-resolver.js";
+import type { AppTmRegistry } from "./app-tm-registry.js";
 
 /**
  * Branded raw-string payload. Opaque to the network: `network.send`
@@ -106,24 +110,6 @@ export class RecipientNotResolved extends Data.TaggedError(
 }> {}
 
 /**
- * The address is well-formed but its kind is not yet wired in this slice.
- * Specifically: `tm:app:` addresses are reserved for the Phase 11+ arena
- * cutover.
- *
- * Distinguished from {@link RecipientNotResolved} because the failure is
- * a build-time gap (this slice does not ship the implementation), not a
- * runtime liveness gap (the recipient is gone). Caller observability
- * benefits from the distinction; once `app` lands, this tag is removed
- * from the channel.
- */
-export class EndpointKindNotImplemented extends Data.TaggedError(
-  "EndpointKindNotImplemented",
-)<{
-  readonly to: EndpointAddress;
-  readonly kind: EndpointAddressKind;
-}> {}
-
-/**
  * The underlying socket write failed. Wraps the inner
  * {@link Socket.SocketError} so the caller can distinguish a write
  * failure from a resolution failure without re-running the lookup.
@@ -139,11 +125,12 @@ export class WriteFailed extends Data.TaggedError("WriteFailed")<{
 /**
  * Discriminated union of every failure mode `network.send` can produce.
  * Exhaustive at the call site via `_tag` matching (Phase 6 R3 pattern).
+ *
+ * Phase 9b consumer-migration (sub-issue #460 round 3 R14): the
+ * `EndpointKindNotImplemented` tag retired alongside the `app`-kind
+ * default — both `agent` and `app` now have concrete dispatch paths.
  */
-export type DeliveryError =
-  | RecipientNotResolved
-  | EndpointKindNotImplemented
-  | WriteFailed;
+export type DeliveryError = RecipientNotResolved | WriteFailed;
 
 // ---------------------------------------------------------------------------
 // Service
@@ -157,6 +144,7 @@ export class NetworkSendService {
   constructor(
     private readonly resolver: AgentEndpointResolver,
     private readonly connections: ConnectionManager,
+    private readonly appTmRegistry: AppTmRegistry,
   ) {}
 
   /**
@@ -176,11 +164,38 @@ export class NetworkSendService {
     const kind: EndpointAddressKind = endpointAddressKind(to);
     return Match.value(kind).pipe(
       Match.when("agent", () => this.sendToDurableAgent(to, payload)),
-      Match.when("app", () =>
-        Effect.fail(new EndpointKindNotImplemented({ to, kind: "app" })),
-      ),
+      Match.when("app", () => this.sendToAppTm(to, payload)),
       Match.exhaustive,
     );
+  }
+
+  /**
+   * App-TM dispatch. `tm:app:<id>` addresses route through the in-
+   * process {@link AppTmRegistry}. Phase 9b consumer-migration
+   * (sub-issue #460 round 3 R14): default DM / group TMs and any
+   * future custom in-process TMs register handlers at boot;
+   * `network.send` looks them up here and runs the handler on the
+   * server's Effect runtime — no WebSocket round-trip, plan §1.3
+   * in-process loopback policy.
+   *
+   * Failure cases:
+   * - no handler registered → {@link RecipientNotResolved}, matching
+   *   the agent-kind "no live connection" semantics.
+   * - handler errors are absorbed by the handler's `never` failure
+   *   channel (handlers must log + drop); they do not surface here.
+   */
+  private sendToAppTm(
+    to: EndpointAddress,
+    payload: OpaquePayload,
+  ): Effect.Effect<DeliveryAck, DeliveryError, never> {
+    return Effect.gen(this, function* () {
+      const handler = yield* this.appTmRegistry.resolve(to);
+      if (handler === undefined) {
+        return yield* Effect.fail(new RecipientNotResolved({ to }));
+      }
+      yield* handler(payload);
+      return new DeliveryAck({ to });
+    });
   }
 
   /**

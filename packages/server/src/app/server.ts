@@ -48,7 +48,6 @@ import { EnvelopeEncryption } from "../crypto/envelope.js";
 // Handlers
 import { createCoreAuthHandlers } from "../network/handlers/auth.handlers.js";
 import { createSystemHandlers } from "../network/handlers/system.handlers.js";
-import { createEndpointHandlers } from "../network/handlers/endpoints.handlers.js";
 import { connectionId as brandConnectionId } from "../network/agent-endpoint-resolver.js";
 import { createConversationHandlers } from "../task/handlers/conversations.handlers.js";
 import { createMessageHandlers } from "../task/handlers/messages.handlers.js";
@@ -205,12 +204,14 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     }),
     ...createConversationHandlers({
       conversationService,
+      taskService,
       broadcaster,
       connections,
     }),
     ...createMessageHandlers({
       messageService,
       conversationService,
+      taskService,
       db,
     }),
     ...createPresenceHandlers({
@@ -225,9 +226,6 @@ export function createCoreApp(config: CoreConfig): CoreApp {
       broadcaster,
     }),
     ...createTaskHandlers({
-      taskService,
-    }),
-    ...createEndpointHandlers({
       taskService,
     }),
     ...createSystemHandlers(),

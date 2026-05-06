@@ -16,7 +16,14 @@ import {
 import { ConnectionManager } from "../ws/connection.js";
 import { Broadcaster } from "../ws/broadcaster.js";
 import { AgentEndpointResolver } from "../network/agent-endpoint-resolver.js";
+import {
+  AppTmRegistry,
+  DEFAULT_DM_TM_ADDRESS,
+  DEFAULT_GROUP_TM_ADDRESS,
+} from "../network/app-tm-registry.js";
 import { NetworkSendService } from "../network/network-send.js";
+import { makeDefaultDmTmHandler } from "../services/default-tm/default-dm-tm.js";
+import { makeDefaultGroupTmHandler } from "../services/default-tm/default-group-tm.js";
 import { AuthService } from "../services/auth.service.js";
 import { ParticipantService } from "../services/participant.service.js";
 import { ContactsService } from "../services/contact.service.js";
@@ -86,6 +93,17 @@ export class BroadcasterTag extends Context.Tag("moltzap/Broadcaster")<
 export class AgentEndpointResolverTag extends Context.Tag(
   "moltzap/AgentEndpointResolver",
 )<AgentEndpointResolverTag, AgentEndpointResolver>() {}
+
+/**
+ * In-process app-TM handler registry. Phase 9b consumer-migration
+ * (sub-issue #460 round 3 R14): `tm:app:<id>` `EndpointAddress`
+ * routing dispatches through this registry; default DM / group TMs
+ * register at boot via {@link AppTmRegistryLive}.
+ */
+export class AppTmRegistryTag extends Context.Tag("moltzap/AppTmRegistry")<
+  AppTmRegistryTag,
+  AppTmRegistry
+>() {}
 
 /**
  * The `network.send(to, payload)` outbound-routing primitive. New in
@@ -188,16 +206,37 @@ export const AgentEndpointResolverLive = Layer.effect(
 );
 
 /**
- * `network.send` Layer. Composes the resolver and the connection manager
- * into the {@link NetworkSendService} instance the rest of the server
- * holds via {@link NetworkSendServiceTag}.
+ * Build the app-TM registry and seed it with the two default TMs
+ * (DM + group) at boot. Phase 9b consumer-migration (sub-issue #460
+ * round 3 R14): the schema-level NOT NULL constraint on
+ * `tasks.tm_endpoint_address` requires every task to have a registered
+ * TM at insert time; non-app DMs and groups bind to these defaults.
+ */
+export const AppTmRegistryLive = Layer.effect(
+  AppTmRegistryTag,
+  Effect.gen(function* () {
+    const registry = yield* AppTmRegistry.make;
+    yield* registry.register(DEFAULT_DM_TM_ADDRESS, makeDefaultDmTmHandler());
+    yield* registry.register(
+      DEFAULT_GROUP_TM_ADDRESS,
+      makeDefaultGroupTmHandler(),
+    );
+    return registry;
+  }),
+);
+
+/**
+ * `network.send` Layer. Composes the resolver, the connection manager,
+ * and the app-TM registry into the {@link NetworkSendService} instance
+ * the rest of the server holds via {@link NetworkSendServiceTag}.
  */
 export const NetworkSendServiceLive = Layer.effect(
   NetworkSendServiceTag,
   Effect.gen(function* () {
     const resolver = yield* AgentEndpointResolverTag;
     const connections = yield* ConnectionManagerTag;
-    return new NetworkSendService(resolver, connections);
+    const appTmRegistry = yield* AppTmRegistryTag;
+    return new NetworkSendService(resolver, connections, appTmRegistry);
   }),
 );
 
@@ -339,6 +378,7 @@ const Tier2 = Layer.provideMerge(
     BroadcasterLive,
     PresenceServiceLive,
     AgentEndpointResolverLive,
+    AppTmRegistryLive,
   ),
   Tier1,
 );
@@ -387,6 +427,7 @@ export interface ResolvedServices {
   readonly connections: ConnectionManager;
   readonly broadcaster: Broadcaster;
   readonly agentEndpointResolver: AgentEndpointResolver;
+  readonly appTmRegistry: AppTmRegistry;
   readonly networkSendService: NetworkSendService;
   readonly authService: AuthService;
   readonly participantService: ParticipantService;
@@ -412,6 +453,7 @@ export const resolveServices = Effect.all({
   connections: ConnectionManagerTag,
   broadcaster: BroadcasterTag,
   agentEndpointResolver: AgentEndpointResolverTag,
+  appTmRegistry: AppTmRegistryTag,
   networkSendService: NetworkSendServiceTag,
   authService: AuthServiceTag,
   participantService: ParticipantServiceTag,

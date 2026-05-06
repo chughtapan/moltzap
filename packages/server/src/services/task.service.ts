@@ -5,6 +5,7 @@ import {
   type EndpointAddress,
   type AgentId as ActorAgentId,
 } from "@moltzap/protocol/network";
+import { defaultTmAddressForType } from "../network/app-tm-registry.js";
 import {
   agentId as makeAgentId,
   taskId as makeTaskId,
@@ -32,11 +33,8 @@ type BrandedTaskId = Static<typeof TaskId>;
 type BrandedAgentId = Static<typeof AgentId>;
 
 const ERR_NOT_FOUND = "Task not found";
-const ERR_NO_TM = "No task manager registered for task";
 const ERR_NOT_TM = "Caller is not the registered task manager for this task";
 const ERR_NOT_PARTICIPANT = "Caller is not a participant of this task";
-const ERR_TM_OWNED_BY_OTHER =
-  "Task already has a different task manager registered";
 const ERR_CONV_NOT_IN_TASK =
   "Conversation does not belong to the specified task";
 const ERR_TASK_NOT_OPEN = "Task is not open for mutation";
@@ -53,7 +51,8 @@ interface TaskRow {
   readonly app_id: string | null;
   readonly initiator_agent_id: string;
   readonly status: TaskStatus;
-  readonly tm_endpoint_address: string | null;
+  // Phase 9b consumer-migration (sub-issue #460 round 3 R12): NOT NULL.
+  readonly tm_endpoint_address: string;
   readonly started_at: Date | null;
   readonly ended_at: Date | null;
   readonly created_at: Date;
@@ -102,6 +101,19 @@ function rowToParticipant(row: {
 export interface TaskCreateInput {
   readonly appId?: string;
   readonly invitedAgentIds?: readonly BrandedAgentId[];
+  /**
+   * Phase 9b consumer-migration (sub-issue #460 round 3 R13): atomic
+   * task creation. Replaces the pre-R13 two-step (`tasks/create` then
+   * `endpoints/registerTaskManager`). Required by the schema-level
+   * NOT NULL constraint on `tasks.tm_endpoint_address` (R12).
+   * - Custom-TM callers (e.g. werewolf) pass
+   *   `endpointAddressForAgent(callerAgentId)` so the TM IS the
+   *   caller, matching the address `endpoints/registerTaskManager`
+   *   used to derive.
+   * - `conversations/create` auto-task callers pass a default
+   *   `tm:app:<defaultDmTm | defaultGroupTm>` address (R14).
+   */
+  readonly tmEndpointAddress: EndpointAddress;
 }
 
 export interface TaskListInput {
@@ -119,11 +131,6 @@ export interface TaskMessagesSinceInput {
   readonly conversationId: string;
   readonly sinceSeq: string;
   readonly limit?: number;
-}
-
-export interface RegisterTmResult {
-  readonly taskId: BrandedTaskId;
-  readonly tmEndpointAddress: EndpointAddress;
 }
 
 export interface CreateConversationInput {
@@ -160,6 +167,7 @@ export class TaskService {
                 app_id: input.appId ?? null,
                 initiator_agent_id: initiator,
                 status: "waiting",
+                tm_endpoint_address: input.tmEndpointAddress,
               })
               .returningAll(),
           );
@@ -256,58 +264,43 @@ export class TaskService {
     });
   }
 
-  registerTm(
-    id: BrandedTaskId,
-    caller: BrandedAgentId,
-  ): Effect.Effect<RegisterTmResult, RpcFailure> {
-    return Effect.gen(this, function* () {
-      const task = yield* this.fetchTask(id);
-      if (task.initiatorAgentId !== caller) {
-        return yield* Effect.fail(
-          forbidden("Only the task initiator may register a task manager"),
-        );
-      }
-      const expected = endpointAddressForAgent(caller);
-      // Atomic claim: only succeeds if the column is currently null (first
-      // registration) or already equals `expected` (idempotent re-register).
-      // Closes the read-then-update race.
-      const updated = yield* catchSqlErrorAsDefect(
-        this.db
-          .updateTable("tasks")
-          .set({ tm_endpoint_address: expected })
-          .where("id", "=", id)
-          .where((eb) =>
-            eb.or([
-              eb("tm_endpoint_address", "is", null),
-              eb("tm_endpoint_address", "=", expected),
-            ]),
-          )
-          .returning("id"),
-      );
-      if (updated.length === 0) {
-        return yield* Effect.fail(forbidden(ERR_TM_OWNED_BY_OTHER));
-      }
-      return { taskId: id, tmEndpointAddress: expected };
+  /**
+   * Phase 9b consumer-migration (sub-issue #460 round 3 R14): server-
+   * internal helper for the `conversations/create` auto-task path and
+   * the `messages/send` auto-DM path. Creates a task whose TM is the
+   * default `tm:app:<dm | group>` endpoint, returning the row so the
+   * caller can pass `task.id` to `ConversationService.create`.
+   *
+   * Used by `conversations/create` (server handler) and the
+   * `messages/send` agent:<name> path. Custom-TM apps (werewolf etc.)
+   * call the public `create` directly with their own
+   * `tmEndpointAddress` instead.
+   */
+  createDefaultTaskForType(
+    type: "dm" | "group",
+    initiator: BrandedAgentId,
+    invitedAgentIds: readonly BrandedAgentId[] = [],
+  ): Effect.Effect<Task, RpcFailure> {
+    // Importing the constants lazily here would create a cycle —
+    // `app-tm-registry` is a network-layer module, `task.service` is
+    // service-layer. Module-load-time import via the top of file is
+    // fine; resolved lazily by the `taskTmAddressForType` helper at
+    // file end.
+    return this.create(initiator, {
+      invitedAgentIds,
+      tmEndpointAddress: defaultTmAddressForType(type),
     });
   }
 
-  unregisterTm(
-    id: BrandedTaskId,
-    caller: BrandedAgentId,
-  ): Effect.Effect<void, RpcFailure> {
-    return Effect.gen(this, function* () {
-      yield* this.requireTmAuthority(id, caller);
-      yield* catchSqlErrorAsDefect(
-        this.db
-          .updateTable("tasks")
-          .set({ tm_endpoint_address: null })
-          .where("id", "=", id),
-      );
-    });
-  }
+  // Phase 9b consumer-migration (sub-issue #460 round 3 R12): the
+  // `registerTm` / `unregisterTm` methods retired alongside the wire
+  // RPCs. Atomic creation in `create` (R13) sets `tm_endpoint_address`
+  // at insert time; the schema-level NOT NULL constraint forbids the
+  // intermediate "task without TM" state.
 
-  // Decode `tm_endpoint_address` (raw `string | null` from Kysely codegen)
-  // through the `EndpointAddress` brand BEFORE comparing.
+  // Phase 9b consumer-migration (sub-issue #460 round 3 R12):
+  // `task.tmEndpointAddress` is now non-null by construction. The
+  // pre-R12 null branch retired alongside `endpoints/unregisterTaskManager`.
   requireTmAuthority(
     id: BrandedTaskId,
     caller: BrandedAgentId,
@@ -324,11 +317,8 @@ export class TaskService {
         default:
           return absurdTaskStatus(task.status);
       }
-      if (task.tmEndpointAddress === null) {
-        return yield* Effect.fail(forbidden(ERR_NO_TM));
-      }
       const recorded = yield* Effect.try({
-        try: () => brandEndpointAddress(task.tmEndpointAddress!),
+        try: () => brandEndpointAddress(task.tmEndpointAddress),
         catch: () => forbidden(ERR_NOT_TM),
       });
       const expected = endpointAddressForAgent(caller);
@@ -415,23 +405,18 @@ export class TaskService {
   ): Effect.Effect<Conversation, RpcFailure> {
     return Effect.gen(this, function* () {
       yield* this.requireTmAuthority(id, caller);
-      // ConversationService.create wraps its own transaction; we follow
-      // the stamp UPDATE in the same Effect so a failure in either
-      // surfaces a typed RpcFailure. A crash between the two leaves an
-      // unstamped conversation that `requireConversationInTask` rejects
-      // (fail-closed): the row exists but `task_id` is NULL, so any
-      // tasks/* mutation against it gets ERR_CONV_NOT_IN_TASK.
+      // Phase 9b consumer-migration (sub-issue #460 round 3 R12):
+      // `conversations.task_id` is NOT NULL. Pass the task id at
+      // insert time inside ConversationService.create's transaction
+      // so the row exists with `task_id` set from the start. The
+      // pre-R12 post-insert UPDATE pattern retired alongside the
+      // nullable column.
       const conversation = yield* this.conversations.create(
         input.type,
         input.name,
         [...input.participantAgentIds],
         caller,
-      );
-      yield* catchSqlErrorAsDefect(
-        this.db
-          .updateTable("conversations")
-          .set({ task_id: id })
-          .where("id", "=", conversation.id),
+        id,
       );
       return conversation;
     });

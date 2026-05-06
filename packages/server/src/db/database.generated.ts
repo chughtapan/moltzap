@@ -77,7 +77,7 @@ export interface Conversations {
   created_by_id: string;
   id: Generated<string>;
   name: string | null;
-  task_id: string | null;
+  task_id: string;
   type: ConversationType;
   updated_at: Generated<Timestamp>;
 }
@@ -120,7 +120,7 @@ export interface Tasks {
   initiator_agent_id: string;
   started_at: Timestamp | null;
   status: Generated<TaskStatus>;
-  tm_endpoint_address: string | null;
+  tm_endpoint_address: string;
 }
 
 export interface DB {
