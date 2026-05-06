@@ -9,7 +9,6 @@ import {
   notificationFrame,
 } from "@moltzap/protocol";
 import {
-  agentId as makeAgentId,
   isEndpointAddress,
   type EndpointAddress,
 } from "@moltzap/protocol/network";
@@ -290,9 +289,12 @@ export class MessageService {
         });
         const eventPayload = opaquePayload(JSON.stringify(event));
         const broadcastResult = yield* this.networkSendService.broadcast(
-          participants.map((id) => makeAgentId(id)),
+          participants,
           eventPayload,
-          { forConversation: conversationId, excludeConnectionId },
+          {
+            forConversation: protocolConversationId(conversationId),
+            excludeConnectionId,
+          },
         );
         const delivered: readonly string[] = broadcastResult.delivered;
 
