@@ -59,7 +59,12 @@ describe("tasks schema (core-schema.sql)", () => {
     await pglite.close();
   }, DB_HOOK_TIMEOUT_MS);
 
-  it("creates a task with default status='waiting' and a nullable tm_endpoint_address", async () => {
+  it("creates a task with default status='waiting' and a NOT NULL tm_endpoint_address", async () => {
+    // Phase 9b consumer-migration (sub-issue #460 round 3 R12):
+    // `tasks.tm_endpoint_address` flipped to NOT NULL alongside the
+    // atomic `tasks/create` (R13) — the schema-level constraint is what
+    // forbids the intermediate "task without TM" state, replacing the
+    // pre-R12 service-level vacuous fail-closed branch.
     await db
       .insertInto("tasks")
       .values({
@@ -79,20 +84,28 @@ describe("tasks schema (core-schema.sql)", () => {
     expect(task.tm_endpoint_address).toBe("tm://werewolf/host-1");
     expect(task.started_at).toBeNull();
     expect(task.ended_at).toBeNull();
+  });
 
-    const unowned = await db
-      .insertInto("tasks")
-      .values({ initiator_agent_id: AGENT_ID })
-      .returning(["app_id", "tm_endpoint_address"])
-      .executeTakeFirstOrThrow();
-    expect(unowned.app_id).toBeNull();
-    expect(unowned.tm_endpoint_address).toBeNull();
+  it("rejects a task insert that omits tm_endpoint_address", async () => {
+    // Phase 9b consumer-migration (sub-issue #460 round 3 R12):
+    // pre-R12 this was a legal "register-the-TM-later" insert. Now the
+    // NOT NULL constraint rejects it at the SQL boundary, so no caller
+    // can sneak past the atomic `tasks/create` requirement.
+    await expect(
+      pglite.exec(
+        `INSERT INTO tasks (initiator_agent_id) VALUES ('${AGENT_ID}')`,
+      ),
+    ).rejects.toThrow(/null|violates|tm_endpoint_address/i);
   });
 
   it("admits an agent into a task and links a conversation + message to it", async () => {
     await db
       .insertInto("tasks")
-      .values({ id: TASK_ID, initiator_agent_id: AGENT_ID })
+      .values({
+        id: TASK_ID,
+        initiator_agent_id: AGENT_ID,
+        tm_endpoint_address: "tm:agent:00000000-0000-4000-8000-0000000a9e47",
+      })
       .execute();
     await db
       .insertInto("task_participants")
@@ -144,23 +157,18 @@ describe("tasks schema (core-schema.sql)", () => {
     expect(part.admitted_at).not.toBeNull();
   });
 
-  it("leaves unlinked conversations untouched (conversations.task_id stays nullable)", async () => {
-    // Phase 7 cutover dropped the `app_sessions/app_session_*` tables.
-    // The Phase 5 coexistence test that asserted `app_sessions` survived
-    // alongside the additive `tasks` schema is no longer applicable; the
-    // surviving invariant is "conversations created without a task stay
-    // task-less," which the `tasks/createConversation` flow relies on.
-    await db
-      .insertInto("conversations")
-      .values({ id: CONV_ID, type: "dm", created_by_id: AGENT_ID })
-      .execute();
-
-    const conv = await db
-      .selectFrom("conversations")
-      .select(["task_id"])
-      .where("id", "=", CONV_ID)
-      .executeTakeFirstOrThrow();
-    expect(conv.task_id).toBeNull();
+  it("rejects a conversation insert that omits task_id", async () => {
+    // Phase 9b consumer-migration (sub-issue #460 round 3 R12):
+    // `conversations.task_id` is NOT NULL by schema. Pre-R12 the
+    // `tasks/createConversation` flow tolerated unlinked conversations
+    // and post-bound them via UPDATE; the atomic `tasks/create` (R13)
+    // makes that two-step unnecessary, and the schema constraint
+    // forbids any caller from minting a task-less conversation.
+    await expect(
+      pglite.exec(
+        `INSERT INTO conversations (id, type, created_by_id) VALUES ('${CONV_ID}', 'dm', '${AGENT_ID}')`,
+      ),
+    ).rejects.toThrow(/null|violates|task_id/i);
   });
 
   it("rejects conversations.task_id that does not reference a real task", async () => {

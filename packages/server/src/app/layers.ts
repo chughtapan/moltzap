@@ -16,7 +16,13 @@ import {
 import { ConnectionManager } from "../ws/connection.js";
 import { Broadcaster } from "../ws/broadcaster.js";
 import { AgentEndpointResolver } from "../network/agent-endpoint-resolver.js";
+import {
+  AppTmRegistry,
+  DEFAULT_DM_TM_ADDRESS,
+  DEFAULT_GROUP_TM_ADDRESS,
+} from "../network/app-tm-registry.js";
 import { NetworkSendService } from "../network/network-send.js";
+import { makeDefaultTmHandler } from "../services/default-tm.js";
 import { AuthService } from "../services/auth.service.js";
 import { ParticipantService } from "../services/participant.service.js";
 import { ContactsService } from "../services/contact.service.js";
@@ -70,9 +76,14 @@ export class BroadcasterTag extends Context.Tag("moltzap/Broadcaster")<
 >() {}
 
 /**
- * `AgentId → Set<EndpointAddress>` multimap maintained by the `auth/connect`
- * success path and the WS disconnect finalizer. Read by
+ * `AgentId → HashSet<ConnectionId>` multimap maintained by the
+ * `auth/connect` success path and the WS disconnect finalizer. Read by
  * {@link NetworkSendServiceTag} for O(1) outbound routing.
+ *
+ * Phase 9b consumer-migration (sub-issue #460 amendment) collapsed the
+ * legacy `Set<EndpointAddress>` shape to raw `ConnectionId` inside the
+ * resolver — the per-connection address never appeared on the wire and
+ * wrapping it as an `EndpointAddress` was internal leakage.
  *
  * Coexists with {@link ConnectionManagerTag} during Phase 8 (Slice G1).
  * Phase 10 (Slice G2) deletes {@link BroadcasterTag} once consumers
@@ -81,6 +92,17 @@ export class BroadcasterTag extends Context.Tag("moltzap/Broadcaster")<
 export class AgentEndpointResolverTag extends Context.Tag(
   "moltzap/AgentEndpointResolver",
 )<AgentEndpointResolverTag, AgentEndpointResolver>() {}
+
+/**
+ * In-process app-TM handler registry. Phase 9b consumer-migration
+ * (sub-issue #460 round 3 R14): `tm:app:<id>` `EndpointAddress`
+ * routing dispatches through this registry; default DM / group TMs
+ * register at boot via {@link AppTmRegistryLive}.
+ */
+export class AppTmRegistryTag extends Context.Tag("moltzap/AppTmRegistry")<
+  AppTmRegistryTag,
+  AppTmRegistry
+>() {}
 
 /**
  * The `network.send(to, payload)` outbound-routing primitive. New in
@@ -183,16 +205,37 @@ export const AgentEndpointResolverLive = Layer.effect(
 );
 
 /**
- * `network.send` Layer. Composes the resolver and the connection manager
- * into the {@link NetworkSendService} instance the rest of the server
- * holds via {@link NetworkSendServiceTag}.
+ * Build the app-TM registry and seed it with the two default TMs
+ * (DM + group) at boot. Phase 9b consumer-migration (sub-issue #460
+ * round 3 R14): the schema-level NOT NULL constraint on
+ * `tasks.tm_endpoint_address` requires every task to have a registered
+ * TM at insert time; non-app DMs and groups bind to these defaults.
+ */
+export const AppTmRegistryLive = Layer.effect(
+  AppTmRegistryTag,
+  Effect.gen(function* () {
+    const registry = yield* AppTmRegistry.make;
+    yield* registry.register(DEFAULT_DM_TM_ADDRESS, makeDefaultTmHandler("dm"));
+    yield* registry.register(
+      DEFAULT_GROUP_TM_ADDRESS,
+      makeDefaultTmHandler("group"),
+    );
+    return registry;
+  }),
+);
+
+/**
+ * `network.send` Layer. Composes the resolver, the connection manager,
+ * and the app-TM registry into the {@link NetworkSendService} instance
+ * the rest of the server holds via {@link NetworkSendServiceTag}.
  */
 export const NetworkSendServiceLive = Layer.effect(
   NetworkSendServiceTag,
   Effect.gen(function* () {
     const resolver = yield* AgentEndpointResolverTag;
     const connections = yield* ConnectionManagerTag;
-    return new NetworkSendService(resolver, connections);
+    const appTmRegistry = yield* AppTmRegistryTag;
+    return new NetworkSendService(resolver, connections, appTmRegistry);
   }),
 );
 
@@ -268,9 +311,14 @@ export const AppHostLive = Layer.effect(
 );
 
 /**
- * MessageService calls `AppHost.runBeforeMessageDelivery` on send; AppHost
- * itself has no reverse edge, so the two sit cleanly in separate tiers
- * without a real cycle.
+ * Phase 9b consumer-migration (sub-issue #460, plan §2.4 + §2.4.a):
+ * MessageService.send no longer fires `appHost.runBeforeMessageDelivery`
+ * (the wire RPC retired with the deletion of `apps/onBeforeMessageDelivery`).
+ * The TM-as-endpoint topology routes inbound messages through
+ * `NetworkSendService.send(tm:agent:<id>, frame)` for task-bound
+ * conversations with a registered task-manager; non-task conversations
+ * still take the existing broadcast path (Phase 10 / Slice G2 deletes
+ * Broadcaster and migrates these too).
  */
 export const MessageServiceLive = Layer.effect(
   MessageServiceTag,
@@ -278,8 +326,8 @@ export const MessageServiceLive = Layer.effect(
     const db = yield* DbTag;
     const conversations = yield* ConversationServiceTag;
     const broadcaster = yield* BroadcasterTag;
+    const networkSend = yield* NetworkSendServiceTag;
     const encryption = yield* EncryptionTag;
-    const appHost = yield* AppHostTag;
     const deliveryWebhook = yield* DeliveryWebhookTag;
     const webhookClient = yield* WebhookClientTag;
     const traceCapture = yield* TraceCaptureTag;
@@ -287,8 +335,8 @@ export const MessageServiceLive = Layer.effect(
       db,
       conversations,
       broadcaster,
+      networkSend,
       encryption,
-      appHost,
       deliveryWebhook,
       webhookClient,
       traceCapture,
@@ -329,6 +377,7 @@ const Tier2 = Layer.provideMerge(
     BroadcasterLive,
     PresenceServiceLive,
     AgentEndpointResolverLive,
+    AppTmRegistryLive,
   ),
   Tier1,
 );
@@ -377,6 +426,7 @@ export interface ResolvedServices {
   readonly connections: ConnectionManager;
   readonly broadcaster: Broadcaster;
   readonly agentEndpointResolver: AgentEndpointResolver;
+  readonly appTmRegistry: AppTmRegistry;
   readonly networkSendService: NetworkSendService;
   readonly authService: AuthService;
   readonly participantService: ParticipantService;
@@ -402,6 +452,7 @@ export const resolveServices = Effect.all({
   connections: ConnectionManagerTag,
   broadcaster: BroadcasterTag,
   agentEndpointResolver: AgentEndpointResolverTag,
+  appTmRegistry: AppTmRegistryTag,
   networkSendService: NetworkSendServiceTag,
   authService: AuthServiceTag,
   participantService: ParticipantServiceTag,

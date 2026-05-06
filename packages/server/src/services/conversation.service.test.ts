@@ -98,6 +98,60 @@ async function seedAgent(
   return agentId;
 }
 
+/**
+ * Phase 9b consumer-migration (sub-issue #460 round 3 R12+R13):
+ * `conversations.task_id` and `tasks.tm_endpoint_address` are both
+ * NOT NULL, and `ConversationService.create` requires a task id at
+ * insert. Tests that previously called `service.create` directly now
+ * mint a fresh task per call via this helper — the TM is the
+ * initiator (matches `tasks/create` from a custom-TM caller).
+ */
+async function seedTask(initiator: string): Promise<string> {
+  const row = await db
+    .insertInto("tasks")
+    .values({
+      initiator_agent_id: initiator,
+      status: "waiting",
+      tm_endpoint_address: `tm:agent:${initiator}`,
+    })
+    .returning("id")
+    .executeTakeFirstOrThrow();
+  return row.id;
+}
+
+/**
+ * Wrap `ConversationService.create` so each test seeds a fresh
+ * default-TM task and supplies its id without manual plumbing. The
+ * helper preserves the wire-shape semantics of `ConversationsCreate`:
+ * one task per conversation insert.
+ */
+async function createConv(
+  service: ConversationService,
+  type: "dm" | "group",
+  name: string | undefined,
+  participants: string[],
+  initiator: string,
+) {
+  const taskId = await seedTask(initiator);
+  return Effect.runPromise(
+    service.create(type, name, participants, initiator, taskId),
+  );
+}
+
+/** Exit-returning twin of {@link createConv} for failure-path tests. */
+async function createConvExit(
+  service: ConversationService,
+  type: "dm" | "group",
+  name: string | undefined,
+  participants: string[],
+  initiator: string,
+) {
+  const taskId = await seedTask(initiator);
+  return Effect.runPromiseExit(
+    service.create(type, name, participants, initiator, taskId),
+  );
+}
+
 /** Extract the underlying RpcFailure so tests can assert on wire-level codes. */
 function expectRpcFailure<A>(exit: Exit.Exit<A, RpcFailure>): RpcFailure {
   if (Exit.isSuccess(exit)) {
@@ -137,8 +191,12 @@ describe("ConversationService.create auto-subscribes participants", () => {
     connections.add(bobConn);
     connections.add(carolConn);
 
-    const conv = await Effect.runPromise(
-      service.create("group", "planning", [bob, carol], alice),
+    const conv = await createConv(
+      service,
+      "group",
+      "planning",
+      [bob, carol],
+      alice,
     );
 
     expect(aliceConn.conversationIds.has(conv.id)).toBe(true);
@@ -162,9 +220,7 @@ describe("ConversationService.create auto-subscribes participants", () => {
     connections.add(bob1);
     connections.add(bob2);
 
-    const conv = await Effect.runPromise(
-      service.create("dm", undefined, [bob], alice),
-    );
+    const conv = await createConv(service, "dm", undefined, [bob], alice);
 
     expect(bob1.conversationIds.has(conv.id)).toBe(true);
     expect(bob2.conversationIds.has(conv.id)).toBe(true);
@@ -184,9 +240,7 @@ describe("ConversationService.create auto-subscribes participants", () => {
     const aliceConn = makeConn("c-alice", alice);
     connections.add(aliceConn);
 
-    const conv = await Effect.runPromise(
-      service.create("dm", undefined, [bob], alice),
-    );
+    const conv = await createConv(service, "dm", undefined, [bob], alice);
 
     expect(aliceConn.conversationIds.has(conv.id)).toBe(true);
   });
@@ -215,9 +269,7 @@ describe("ConversationService.addParticipant auto-subscribes the new member", ()
     connections.add(aliceConn);
     connections.add(bobConn);
 
-    const conv = await Effect.runPromise(
-      service.create("group", "planning", [bob], alice),
-    );
+    const conv = await createConv(service, "group", "planning", [bob], alice);
 
     // Carol connects AFTER conversation creation.
     const carolConn = makeConn("c-carol", carol);
@@ -243,9 +295,7 @@ describe("ConversationService.addParticipant auto-subscribes the new member", ()
     connections.add(aliceConn);
     connections.add(bobConn);
 
-    const conv = await Effect.runPromise(
-      service.create("group", "team", [bob], alice),
-    );
+    const conv = await createConv(service, "group", "team", [bob], alice);
 
     const bobConvCountBefore = bobConn.conversationIds.size;
     await Effect.runPromise(service.addParticipant(conv.id, bob, alice));
@@ -280,17 +330,13 @@ describe("ConversationService.create — archived DM lookup (issue #372)", () =>
     const bob = await seedAgent(authService, "bob");
 
     // 1. Create a DM between alice and bob.
-    const first = await Effect.runPromise(
-      service.create("dm", undefined, [bob], alice),
-    );
+    const first = await createConv(service, "dm", undefined, [bob], alice);
 
     // 2. Archive it (alice is the creator/owner, so archive is permitted).
     await Effect.runPromise(service.archive(first.id, alice));
 
     // 3. Create a DM again with the same participants.
-    const second = await Effect.runPromise(
-      service.create("dm", undefined, [bob], alice),
-    );
+    const second = await createConv(service, "dm", undefined, [bob], alice);
 
     // 4. The new DM must be a fresh row — not the archived one.
     expect(second.id).not.toBe(first.id);
@@ -309,12 +355,8 @@ describe("ConversationService.create — archived DM lookup (issue #372)", () =>
     const alice = await seedAgent(authService, "alice");
     const bob = await seedAgent(authService, "bob");
 
-    const first = await Effect.runPromise(
-      service.create("dm", undefined, [bob], alice),
-    );
-    const second = await Effect.runPromise(
-      service.create("dm", undefined, [bob], alice),
-    );
+    const first = await createConv(service, "dm", undefined, [bob], alice);
+    const second = await createConv(service, "dm", undefined, [bob], alice);
 
     expect(second.id).toBe(first.id);
   });
@@ -369,9 +411,7 @@ describe("ConversationService.create enforces contact policy on DMs", () => {
       "00000000-0000-0000-0000-0000000000b2",
     );
 
-    const exit = await Effect.runPromiseExit(
-      service.create("dm", undefined, [bob], alice),
-    );
+    const exit = await createConvExit(service, "dm", undefined, [bob], alice);
     const failure = expectRpcFailure(exit);
 
     expect(failure.code).toBe(ErrorCodes.NotInContacts);
@@ -414,9 +454,7 @@ describe("ConversationService.create enforces contact policy on DMs", () => {
     connections.add(aliceConn);
     connections.add(bobConn);
 
-    const conv = await Effect.runPromise(
-      service.create("dm", undefined, [bob], alice),
-    );
+    const conv = await createConv(service, "dm", undefined, [bob], alice);
 
     expect(conv.type).toBe("dm");
     expect(aliceConn.conversationIds.has(conv.id)).toBe(true);
@@ -446,9 +484,7 @@ describe("ConversationService.create enforces contact policy on DMs", () => {
     );
     const bob = await seedAgent(authService, "bob");
 
-    const exit = await Effect.runPromiseExit(
-      service.create("dm", undefined, [bob], alice),
-    );
+    const exit = await createConvExit(service, "dm", undefined, [bob], alice);
     const failure = expectRpcFailure(exit);
     expect(failure.code).toBe(ErrorCodes.NotInContacts);
   });
@@ -462,9 +498,7 @@ describe("ConversationService.create enforces contact policy on DMs", () => {
     const alice = await seedAgent(authService, "alice");
     const bob = await seedAgent(authService, "bob");
 
-    const conv = await Effect.runPromise(
-      service.create("dm", undefined, [bob], alice),
-    );
+    const conv = await createConv(service, "dm", undefined, [bob], alice);
     expect(conv.type).toBe("dm");
   });
 
@@ -498,12 +532,8 @@ describe("ConversationService.create enforces contact policy on DMs", () => {
       "00000000-0000-0000-0000-0000000000b2",
     );
 
-    const first = await Effect.runPromise(
-      service.create("dm", undefined, [bob], alice),
-    );
-    const second = await Effect.runPromise(
-      service.create("dm", undefined, [bob], alice),
-    );
+    const first = await createConv(service, "dm", undefined, [bob], alice);
+    const second = await createConv(service, "dm", undefined, [bob], alice);
 
     expect(second.id).toBe(first.id);
     // Policy invoked exactly once — for the create that actually inserted.
@@ -538,8 +568,9 @@ describe("ConversationService.create enforces contact policy on DMs", () => {
     );
     await seedAgent(authService, "bob", "00000000-0000-0000-0000-0000000000b2");
 
+    const dmTaskId = await seedTask(alice);
     const exit = await Effect.runPromiseExit(
-      service.createDmByAgentName("bob", alice),
+      service.createDmByAgentName("bob", alice, dmTaskId),
     );
     const failure = expectRpcFailure(exit);
     expect(failure.code).toBe(ErrorCodes.NotInContacts);
@@ -595,8 +626,12 @@ describe("ConversationService.create enforces contact policy on groups", () => {
       "00000000-0000-0000-0000-0000000000c3",
     );
 
-    const exit = await Effect.runPromiseExit(
-      service.create("group", "planning", [bob, carol], alice),
+    const exit = await createConvExit(
+      service,
+      "group",
+      "planning",
+      [bob, carol],
+      alice,
     );
     const failure = expectRpcFailure(exit);
     expect(failure.code).toBe(ErrorCodes.NotInContacts);
@@ -643,8 +678,12 @@ describe("ConversationService.create enforces contact policy on groups", () => {
       "00000000-0000-0000-0000-0000000000c3",
     );
 
-    const conv = await Effect.runPromise(
-      service.create("group", "planning", [bob, carol], alice),
+    const conv = await createConv(
+      service,
+      "group",
+      "planning",
+      [bob, carol],
+      alice,
     );
     expect(conv.type).toBe("group");
     expect(conv.name).toBe("planning");
@@ -676,8 +715,12 @@ describe("ConversationService.create enforces contact policy on groups", () => {
     // Carol has no owner.
     const carol = await seedAgent(authService, "carol");
 
-    const exit = await Effect.runPromiseExit(
-      service.create("group", "planning", [bob, carol], alice),
+    const exit = await createConvExit(
+      service,
+      "group",
+      "planning",
+      [bob, carol],
+      alice,
     );
     const failure = expectRpcFailure(exit);
     expect(failure.code).toBe(ErrorCodes.NotInContacts);
@@ -731,9 +774,7 @@ describe("ConversationService.addParticipant enforces contact policy", () => {
       "00000000-0000-0000-0000-0000000000c3",
     );
 
-    const conv = await Effect.runPromise(
-      service.create("group", "planning", [bob], alice),
-    );
+    const conv = await createConv(service, "group", "planning", [bob], alice);
 
     // Phase 2: now policy denies alice⇄carol.
     denying = true;
@@ -773,9 +814,7 @@ describe("ConversationService.addParticipant enforces contact policy", () => {
       "00000000-0000-0000-0000-0000000000c3",
     );
 
-    const conv = await Effect.runPromise(
-      service.create("group", "planning", [bob], alice),
-    );
+    const conv = await createConv(service, "group", "planning", [bob], alice);
     const carolConn = makeConn("c-carol", carol);
     connections.add(carolConn);
 
@@ -812,9 +851,7 @@ describe("ConversationService.addParticipant enforces contact policy", () => {
     // Carol has no owner.
     const carol = await seedAgent(authService, "carol");
 
-    const conv = await Effect.runPromise(
-      service.create("group", "planning", [bob], alice),
-    );
+    const conv = await createConv(service, "group", "planning", [bob], alice);
 
     const exit = await Effect.runPromiseExit(
       service.addParticipant(conv.id, carol, alice),
@@ -833,9 +870,7 @@ describe("ConversationService.addParticipant enforces contact policy", () => {
     const bob = await seedAgent(authService, "bob");
     const carol = await seedAgent(authService, "carol");
 
-    const conv = await Effect.runPromise(
-      service.create("group", "planning", [bob], alice),
-    );
+    const conv = await createConv(service, "group", "planning", [bob], alice);
     const participant = await Effect.runPromise(
       service.addParticipant(conv.id, carol, alice),
     );
@@ -894,9 +929,7 @@ describe("ConversationService.addParticipant rejects DM conversations", () => {
     );
 
     // Alice creates a DM with Bob. Both are in contacts; the DM lands.
-    const dm = await Effect.runPromise(
-      service.create("dm", undefined, [bob], alice),
-    );
+    const dm = await createConv(service, "dm", undefined, [bob], alice);
     expect(dm.type).toBe("dm");
 
     // Alice tries to drag Carol into the DM. Policy would allow the

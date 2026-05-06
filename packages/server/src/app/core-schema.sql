@@ -146,7 +146,18 @@ CREATE TABLE tasks (
   app_id TEXT,
   initiator_agent_id UUID NOT NULL REFERENCES agents(id),
   status task_status NOT NULL DEFAULT 'waiting',
-  tm_endpoint_address TEXT,
+  -- Phase 9b consumer-migration (sub-issue #460 round 3 R12): NOT NULL.
+  -- Every task carries a registered TM at insert time. The pre-Phase-9b
+  -- two-step (`tasks/create` then `endpoints/registerTaskManager`)
+  -- collapsed to one transaction; `endpoints/{,un}registerTaskManager`
+  -- wire RPCs retired with the schema constraint.
+  --
+  -- Round 4 R18 (codex HIGH-C): the schema is greenfield. Pre-prod
+  -- deployments rebuild the DB on every deploy — there is no in-place
+  -- upgrade path for the NOT NULL flip and no migration script
+  -- accompanies it. Future production cutover (Phase 11+) needs an
+  -- explicit migration framework before this column can be backfilled.
+  tm_endpoint_address TEXT NOT NULL,
   started_at TIMESTAMPTZ,
   ended_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -162,8 +173,17 @@ CREATE TABLE task_participants (
 );
 CREATE INDEX idx_task_participants_agent ON task_participants(agent_id);
 
+-- Phase 9b consumer-migration (sub-issue #460 round 3 R12): NOT NULL.
+-- Every conversation belongs to a task. `conversations/create` and
+-- `tasks/createConversation` both populate `task_id` in the same
+-- transaction as the conversation insert; the pre-R12 path that
+-- created task-less conversations retired alongside the broadcast
+-- fallback in `MessageService.send`.
+--
+-- Round 4 R18 (codex HIGH-C): greenfield schema. See the comment at
+-- `tasks.tm_endpoint_address` above — pre-prod rebuilds, no migration.
 ALTER TABLE conversations
-  ADD COLUMN task_id UUID REFERENCES tasks(id);
+  ADD COLUMN task_id UUID NOT NULL REFERENCES tasks(id);
 CREATE INDEX idx_conversations_task ON conversations(task_id);
 
 ALTER TABLE messages

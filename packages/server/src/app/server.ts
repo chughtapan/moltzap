@@ -48,8 +48,7 @@ import { EnvelopeEncryption } from "../crypto/envelope.js";
 // Handlers
 import { createCoreAuthHandlers } from "../network/handlers/auth.handlers.js";
 import { createSystemHandlers } from "../network/handlers/system.handlers.js";
-import { createEndpointHandlers } from "../network/handlers/endpoints.handlers.js";
-import { agentConnectionEndpointAddress } from "../network/agent-endpoint-resolver.js";
+import { connectionId as brandConnectionId } from "../network/agent-endpoint-resolver.js";
 import { createConversationHandlers } from "../task/handlers/conversations.handlers.js";
 import { createMessageHandlers } from "../task/handlers/messages.handlers.js";
 import { createPresenceHandlers } from "../task/handlers/presence.handlers.js";
@@ -205,12 +204,14 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     }),
     ...createConversationHandlers({
       conversationService,
+      taskService,
       broadcaster,
       connections,
     }),
     ...createMessageHandlers({
       messageService,
       conversationService,
+      taskService,
       db,
     }),
     ...createPresenceHandlers({
@@ -225,9 +226,6 @@ export function createCoreApp(config: CoreConfig): CoreApp {
       broadcaster,
     }),
     ...createTaskHandlers({
-      taskService,
-    }),
-    ...createEndpointHandlers({
       taskService,
     }),
     ...createSystemHandlers(),
@@ -622,7 +620,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
               if (authCtx) {
                 yield* agentEndpointResolver.remove(
                   authCtx.agentId,
-                  agentConnectionEndpointAddress(connId),
+                  brandConnectionId(connId),
                 );
               }
               presenceService.removeConnection(connId);
@@ -733,17 +731,8 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     setContactService(checker) {
       appHost.setContactService(checker);
     },
-    onBeforeMessageDelivery(appId, handler) {
-      appHost.onBeforeMessageDelivery(appId, handler);
-    },
-    onBeforeDispatch(appId, handler) {
-      appHost.onBeforeDispatch(appId, handler);
-    },
-    onSessionClose(appId, handler) {
-      appHost.onSessionClose(appId, handler);
-    },
-    onSessionActive(appId, handler) {
-      appHost.onSessionActive(appId, handler);
+    onTaskAuthorizeDispatch(appId, handler) {
+      appHost.onTaskAuthorizeDispatch(appId, handler);
     },
     close() {
       return Effect.runPromise(

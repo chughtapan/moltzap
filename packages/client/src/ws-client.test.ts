@@ -38,8 +38,7 @@ import {
 import { RpcServerError, RpcTimeoutError } from "@moltzap/protocol";
 
 import {
-  AppsOnClose,
-  AppsOnSessionActive,
+  TaskAuthorizeDispatch,
   Connect,
   ConversationsList,
   JSON_RPC_VERSION,
@@ -61,8 +60,7 @@ import {
   type TSchema,
 } from "@moltzap/protocol";
 import {
-  onCloseParams,
-  onSessionActiveParams,
+  authorizeDispatchParams,
   SESSION_A,
   SESSION_B,
 } from "./internal/__tests__/app-callback-test-requests.js";
@@ -1099,8 +1097,8 @@ describe("Phase 1.0 (B.1) — handleServerRpc round-trip", () => {
                 JSON.stringify(
                   requestFrame(
                     jsonRpcStringId("srv-test-1"),
-                    AppsOnSessionActive,
-                    onSessionActiveParams(SESSION_A),
+                    TaskAuthorizeDispatch,
+                    authorizeDispatchParams(SESSION_A),
                   ),
                 ),
               );
@@ -1109,12 +1107,12 @@ describe("Phase 1.0 (B.1) — handleServerRpc round-trip", () => {
         );
         const client = makeClient(server.url);
         // Register a handler BEFORE connect so the dispatcher fiber sees
-        // it on the very first inbound appCallback request.
-        yield* client.handleServerRpc(AppsOnSessionActive, (params) =>
+        // it on the very first inbound task-callback request.
+        yield* client.handleServerRpc(TaskAuthorizeDispatch, (params) =>
           Effect.succeed({
-            ack: true,
+            admission: { decision: "grant" as const },
             saw: params.taskId,
-          }),
+          } as { admission: { decision: "grant" }; saw: string }),
         );
         yield* Effect.promise(() => connectP(client));
 
@@ -1161,8 +1159,11 @@ describe("Phase 1.0 (B.1) — handleServerRpc round-trip", () => {
         expect(parsedResponse.id).toBe("srv-test-1");
         expect("result" in parsedResponse).toBe(true);
         if (!("result" in parsedResponse)) return;
-        const result = parsedResponse.result as { ack: boolean; saw: string };
-        expect(result.ack).toBe(true);
+        const result = parsedResponse.result as {
+          admission: { decision: string };
+          saw: string;
+        };
+        expect(result.admission.decision).toBe("grant");
         expect(result.saw).toBe(SESSION_A);
 
         yield* closeClient(client);
@@ -1192,8 +1193,8 @@ describe("Phase 1.0 (B.1) — handleServerRpc round-trip", () => {
                 JSON.stringify(
                   requestFrame(
                     jsonRpcStringId("srv-err-1"),
-                    AppsOnClose,
-                    onCloseParams(SESSION_B),
+                    TaskAuthorizeDispatch,
+                    authorizeDispatchParams(SESSION_B),
                   ),
                 ),
               );
@@ -1201,7 +1202,7 @@ describe("Phase 1.0 (B.1) — handleServerRpc round-trip", () => {
           }),
         );
         const client = makeClient(server.url);
-        yield* client.handleServerRpc(AppsOnClose, () =>
+        yield* client.handleServerRpc(TaskAuthorizeDispatch, () =>
           Effect.fail(
             new RpcServerError({
               code: -32099,
@@ -1261,11 +1262,15 @@ describe("Phase 1.0 (B.1) — handleServerRpc round-trip", () => {
       agentKey: "test",
     });
     const first = await Effect.runPromiseExit(
-      client.handleServerRpc(AppsOnSessionActive, () => Effect.succeed({})),
+      client.handleServerRpc(TaskAuthorizeDispatch, () =>
+        Effect.succeed({ admission: { decision: "grant" as const } }),
+      ),
     );
     expect(Exit.isSuccess(first)).toBe(true);
     const second = await Effect.runPromiseExit(
-      client.handleServerRpc(AppsOnSessionActive, () => Effect.succeed({})),
+      client.handleServerRpc(TaskAuthorizeDispatch, () =>
+        Effect.succeed({ admission: { decision: "grant" as const } }),
+      ),
     );
     expect(Exit.isFailure(second)).toBe(true);
     if (Exit.isFailure(second)) {

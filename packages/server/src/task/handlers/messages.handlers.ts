@@ -1,5 +1,6 @@
 import type { MessageService } from "../../services/message.service.js";
 import type { ConversationService } from "../../services/conversation.service.js";
+import type { TaskService } from "../../services/task.service.js";
 import type { RpcMethodRegistry } from "../../rpc/context.js";
 import { defineTaskMethod } from "../../rpc/define-layered-method.js";
 import {
@@ -28,6 +29,7 @@ export function parseTo(to: string): Effect.Effect<string, RpcFailure> {
 export function createMessageHandlers(deps: {
   messageService: MessageService;
   conversationService: ConversationService;
+  taskService: TaskService;
   db: Db;
 }): RpcMethodRegistry {
   return [
@@ -40,10 +42,22 @@ export function createMessageHandlers(deps: {
 
             if (!conversationId && params.to) {
               const agentName = yield* parseTo(params.to);
+              // Phase 9b consumer-migration (sub-issue #460 round 3
+              // R14): every conversation belongs to a task; the
+              // auto-DM path mints a default-DM-TM-bound task before
+              // calling `createDmByAgentName`. If the DM already
+              // exists the dedup branch returns the existing
+              // conversation and the freshly-minted task is orphaned
+              // — pre-prod harmless.
+              const task = yield* deps.taskService.createDefaultTaskForType(
+                "dm",
+                ctx.agentId,
+              );
               const conversation =
                 yield* deps.conversationService.createDmByAgentName(
                   agentName,
                   ctx.agentId,
+                  task.id,
                 );
               conversationId = conversation.id;
             }
@@ -76,13 +90,18 @@ export function createMessageHandlers(deps: {
             }
 
             const connId = yield* ConnIdTag;
+            // Phase 9b consumer-migration (sub-issue #460): the
+            // `dispatchLeaseId` field retired with the
+            // `apps/onBeforeMessageDelivery` hook deletion. The protocol
+            // schema keeps the optional field (Phase 11 arena cutover
+            // retires it on the wire); the server handler stops
+            // propagating it.
             const message = yield* deps.messageService.send(
               conversationId,
               params.parts,
               ctx.agentId,
               params.replyToId,
               connId,
-              params.dispatchLeaseId,
             );
             return { message };
           }),

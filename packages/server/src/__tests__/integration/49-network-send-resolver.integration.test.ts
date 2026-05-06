@@ -39,7 +39,7 @@ import {
   PresenceChangedNotificationDefinition,
   agentId as protocolAgentId,
 } from "@moltzap/protocol";
-import { agentConnectionEndpointAddress } from "../../network/agent-endpoint-resolver.js";
+import { makeEndpointAddress } from "@moltzap/protocol/network";
 import {
   opaquePayload,
   RecipientNotResolved,
@@ -73,13 +73,17 @@ function connIdsForAgent(agentIdString: string): readonly string[] {
 
 describe("AgentEndpointResolver + network.send lifecycle (Phase 8 G1)", () => {
   it.live(
-    "network.send delivers a real notification to a connected agent",
+    "network.send delivers a real notification to a connected agent via durable address",
     () =>
       Effect.gen(function* () {
         const alice = yield* registerAndConnect("alice-resolver");
         const [connId] = connIdsForAgent(alice.agentId);
         if (!connId) throw new Error("expected one live connection");
-        const address = agentConnectionEndpointAddress(connId);
+        // Phase 9b consumer-migration (sub-issue #460 amendment):
+        // `agent-conn` retired. Sends use the durable
+        // `tm:agent:<agentId>` form; the resolver picks one of the
+        // agent's live ConnectionIds internally.
+        const address = makeEndpointAddress("agent", alice.agentId);
 
         // Real notification frame so the client's typed-bridge accepts it.
         // Asserts end-to-end wire delivery, not just the server-side write
@@ -111,9 +115,7 @@ describe("AgentEndpointResolver + network.send lifecycle (Phase 8 G1)", () => {
     () =>
       Effect.gen(function* () {
         const alice = yield* registerAndConnect("alice-drain");
-        const [connId] = connIdsForAgent(alice.agentId);
-        if (!connId) throw new Error("expected one live connection");
-        const address = agentConnectionEndpointAddress(connId);
+        const address = makeEndpointAddress("agent", alice.agentId);
 
         yield* alice.client.close();
         // The WS finalizer that calls `agentEndpointResolver.remove`
@@ -139,7 +141,7 @@ describe("AgentEndpointResolver + network.send lifecycle (Phase 8 G1)", () => {
   );
 
   it.live(
-    "multimap: two connections of the same agent each receive their own send",
+    "multimap: two connections of the same agent both share the durable address routing",
     () =>
       Effect.gen(function* () {
         const { agentId: aId, apiKey } = yield* registerAgent(
@@ -151,10 +153,12 @@ describe("AgentEndpointResolver + network.send lifecycle (Phase 8 G1)", () => {
 
         const ids = connIdsForAgent(aId);
         expect(ids).toHaveLength(2);
-        const [id1, id2] = ids as readonly [string, string];
 
-        const addr1 = agentConnectionEndpointAddress(id1);
-        const addr2 = agentConnectionEndpointAddress(id2);
+        // Phase 9b: durable address fans out to one of the agent's live
+        // connections (pick-one routing). The send always succeeds when
+        // at least one connection is live; both connections register
+        // under the same agent in the resolver's forward map.
+        const address = makeEndpointAddress("agent", aId);
         const frame = notificationFrame(PresenceChangedNotificationDefinition, {
           agentId: protocolAgentId(aId),
           status: "online",
@@ -162,26 +166,25 @@ describe("AgentEndpointResolver + network.send lifecycle (Phase 8 G1)", () => {
         const payload = opaquePayload(JSON.stringify(frame));
 
         const ack1 = yield* getCoreApp().networkSendService.send(
-          addr1,
+          address,
           payload,
         );
         expect(ack1._tag).toBe("DeliveryAck");
+
+        // Drop c1 — c2 still serves the durable address.
+        yield* c1.close();
+        yield* Effect.sleep("100 millis");
+
         const ack2 = yield* getCoreApp().networkSendService.send(
-          addr2,
+          address,
           payload,
         );
         expect(ack2._tag).toBe("DeliveryAck");
-
-        const r1 = yield* c1.waitForNotification(
-          PresenceChangedNotificationDefinition,
-        );
         const r2 = yield* c2.waitForNotification(
           PresenceChangedNotificationDefinition,
         );
-        expect((r1.params as { agentId: string }).agentId).toBe(aId);
         expect((r2.params as { agentId: string }).agentId).toBe(aId);
 
-        yield* c1.close();
         yield* c2.close();
       }),
   );

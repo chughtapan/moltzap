@@ -2,8 +2,6 @@ import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { it } from "@effect/vitest";
 import { Effect, Either } from "effect";
 import {
-  EndpointsRegisterTaskManager,
-  EndpointsUnregisterTaskManager,
   TasksAddParticipant,
   TasksClose,
   TasksCreate,
@@ -111,16 +109,37 @@ function setupAliceAndBob(): Effect.Effect<
   });
 }
 
-describe("tasks/* + endpoints/* RPC end-to-end (Phase 6)", () => {
+/**
+ * Phase 9b consumer-migration (sub-issue #460 round 4 R16, codex
+ * HIGH-A): the wire body carries `tmType` (a kind marker), not a raw
+ * address. Custom-TM callers pass `tmType: "self"` so the server
+ * derives `tm:agent:<callerAgentId>` from the authenticated caller —
+ * the pre-R16 hole where caller A could pass
+ * `tmEndpointAddress: "tm:agent:<B>"` is closed at the wire boundary.
+ * The server-derived address is what `endpoints/registerTaskManager`
+ * used to mint pre-R13.
+ */
+function expectSelfTmAddress(agentId: string): string {
+  return `tm:agent:${agentId}`;
+}
+
+describe("tasks/* RPC end-to-end (Phase 6 + Phase 9b round 4)", () => {
   it.live(
-    "tasks/create returns a waiting task with the caller as initiator",
+    "tasks/create returns a waiting task with the caller as initiator and the server-derived self TM bound",
     () =>
       Effect.gen(function* () {
         const { aliceClient, aliceAgentId } = yield* setupAliceAndBob();
-        const result = yield* aliceClient.sendRpc(TasksCreate, {});
+        const result = yield* aliceClient.sendRpc(TasksCreate, {
+          tmType: "self",
+        });
         expect(result.task.status).toBe("waiting");
         expect(result.task.initiatorAgentId).toBe(aliceAgentId);
-        expect(result.task.tmEndpointAddress).toBeNull();
+        // Phase 9b round 4 R16: server derives the address from
+        // ctx.agentId; matches the address the deleted
+        // `endpoints/registerTaskManager` used to derive.
+        expect(result.task.tmEndpointAddress).toBe(
+          expectSelfTmAddress(aliceAgentId),
+        );
       }),
   );
 
@@ -129,42 +148,13 @@ describe("tasks/* + endpoints/* RPC end-to-end (Phase 6)", () => {
     () =>
       Effect.gen(function* () {
         const { aliceClient, bobClient } = yield* setupAliceAndBob();
-        const created = yield* aliceClient.sendRpc(TasksCreate, {});
+        const created = yield* aliceClient.sendRpc(TasksCreate, {
+          tmType: "self",
+        });
         const result = yield* Effect.either(
           bobClient.sendRpc(TasksGet, { taskId: created.task.id }),
         );
         expect(Either.isLeft(result)).toBe(true);
-      }),
-  );
-
-  it.live(
-    "endpoints/registerTaskManager records caller-derived address; non-initiator rejected",
-    () =>
-      Effect.gen(function* () {
-        const { aliceClient, bobClient } = yield* setupAliceAndBob();
-        const created = yield* aliceClient.sendRpc(TasksCreate, {});
-
-        // Bob (non-initiator) is rejected with Forbidden.
-        const denied = yield* Effect.either(
-          bobClient.sendRpc(EndpointsRegisterTaskManager, {
-            taskId: created.task.id,
-          }),
-        );
-        expect(Either.isLeft(denied)).toBe(true);
-
-        // Alice (initiator) succeeds; address is non-empty.
-        const ok = yield* aliceClient.sendRpc(EndpointsRegisterTaskManager, {
-          taskId: created.task.id,
-        });
-        expect(ok.taskId).toBe(created.task.id);
-        expect(ok.tmEndpointAddress.length).toBeGreaterThan(0);
-
-        // Re-register by Alice is idempotent.
-        const second = yield* aliceClient.sendRpc(
-          EndpointsRegisterTaskManager,
-          { taskId: created.task.id },
-        );
-        expect(second.tmEndpointAddress).toBe(ok.tmEndpointAddress);
       }),
   );
 
@@ -174,9 +164,8 @@ describe("tasks/* + endpoints/* RPC end-to-end (Phase 6)", () => {
       Effect.gen(function* () {
         const { aliceClient, bobClient, bobAgentId } =
           yield* setupAliceAndBob();
-        const created = yield* aliceClient.sendRpc(TasksCreate, {});
-        yield* aliceClient.sendRpc(EndpointsRegisterTaskManager, {
-          taskId: created.task.id,
+        const created = yield* aliceClient.sendRpc(TasksCreate, {
+          tmType: "self",
         });
 
         // Bob (not the TM) cannot mutate.
@@ -223,8 +212,12 @@ describe("tasks/* + endpoints/* RPC end-to-end (Phase 6)", () => {
   it.live("tasks/list scopes results to caller-as-participant", () =>
     Effect.gen(function* () {
       const { aliceClient, bobClient } = yield* setupAliceAndBob();
-      const aliceTask = yield* aliceClient.sendRpc(TasksCreate, {});
-      yield* bobClient.sendRpc(TasksCreate, {});
+      const aliceTask = yield* aliceClient.sendRpc(TasksCreate, {
+        tmType: "self",
+      });
+      yield* bobClient.sendRpc(TasksCreate, {
+        tmType: "self",
+      });
 
       const aliceList = yield* aliceClient.sendRpc(TasksList, {});
       expect(aliceList.tasks.map((t) => t.id)).toContain(aliceTask.task.id);
@@ -233,29 +226,28 @@ describe("tasks/* + endpoints/* RPC end-to-end (Phase 6)", () => {
   );
 
   it.live(
-    "endpoints/unregisterTaskManager only callable by the registered TM",
+    "tasks/create cannot bind a stranger's TM (R16 codex HIGH-A guard)",
     () =>
+      // Pre-R16 this scenario was the bug: caller A invokes
+      // `tasks/create({ tmEndpointAddress: "tm:agent:<B>" })` and the
+      // server happily wrote it. With `tmType` the wire body has no
+      // path for caller-supplied addresses; `"self"` always derives
+      // `tm:agent:<callerAgentId>`, never a stranger's id.
       Effect.gen(function* () {
-        const { aliceClient, bobClient } = yield* setupAliceAndBob();
-        const created = yield* aliceClient.sendRpc(TasksCreate, {});
-        yield* aliceClient.sendRpc(EndpointsRegisterTaskManager, {
-          taskId: created.task.id,
+        const { aliceClient, aliceAgentId, bobAgentId } =
+          yield* setupAliceAndBob();
+        const result = yield* aliceClient.sendRpc(TasksCreate, {
+          tmType: "self",
         });
-
-        const denied = yield* Effect.either(
-          bobClient.sendRpc(EndpointsUnregisterTaskManager, {
-            taskId: created.task.id,
-          }),
+        // The persisted address belongs to the caller, regardless of
+        // what bobAgentId looks like — there is no longer a wire
+        // affordance to name another agent.
+        expect(result.task.tmEndpointAddress).toBe(
+          expectSelfTmAddress(aliceAgentId),
         );
-        expect(Either.isLeft(denied)).toBe(true);
-
-        yield* aliceClient.sendRpc(EndpointsUnregisterTaskManager, {
-          taskId: created.task.id,
-        });
-        const view = yield* aliceClient.sendRpc(TasksGet, {
-          taskId: created.task.id,
-        });
-        expect(view.task.tmEndpointAddress).toBeNull();
+        expect(result.task.tmEndpointAddress).not.toBe(
+          expectSelfTmAddress(bobAgentId),
+        );
       }),
   );
 });

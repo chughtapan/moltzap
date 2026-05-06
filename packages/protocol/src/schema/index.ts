@@ -35,5 +35,4 @@ export * from "./apps.js";
 export * from "./tasks.js";
 export * from "../app/methods/apps.js";
 export * from "../network/methods/system.js";
-export * from "../network/methods/endpoints.js";
 export * from "../task/methods/tasks.js";

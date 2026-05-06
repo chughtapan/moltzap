@@ -20,12 +20,7 @@ import type { WebhookClient } from "../adapters/webhook.js";
 import type { Broadcaster } from "../ws/broadcaster.js";
 import type { ConnectionManager } from "../ws/connection.js";
 import type { NetworkSendService } from "../network/network-send.js";
-import type {
-  BeforeMessageDeliveryHook,
-  BeforeDispatchHook,
-  OnCloseHook,
-  OnSessionActiveHook,
-} from "./hooks.js";
+import type { TaskAuthorizeDispatchHook } from "./hooks.js";
 import type {
   TraceCapture,
   TraceCaptureTag,
@@ -154,24 +149,29 @@ export interface CoreApp {
   readonly connections: ConnectionManager;
   registerApp: (manifest: AppManifest) => void;
   /**
-   * Register an app whose hook handlers run in a remote process,
-   * connected over WebSocket. Hook RPCs (`apps/onBeforeDispatch`,
-   * `onBeforeMessageDelivery`, `onSessionActive`, `onClose`)
-   * route to `connectionId` via the server-initiated awaitable RPC
-   * primitive. Verdicts decode at the WS edge into the same typed
-   * shapes as in-process hooks (`DispatchAdmissionResult`, `HookResult`).
+   * Register an app whose `task/authorizeDispatch` admission round-trips
+   * run in a remote process, connected over WebSocket. The verb routes
+   * to `connectionId` via the server-initiated awaitable RPC primitive.
+   * Verdicts decode at the WS edge into the same typed shapes as
+   * in-process hooks (`DispatchAdmissionResult`).
    *
    * The dispatch surface is uniform with in-process per architect plan
-   * §3.4: callers of `runBeforeDispatch` etc. cannot observe whether a
+   * §3.4: callers of `runAuthorizeDispatch` cannot observe whether a
    * given app is in-process or remote. Fail-closed verdicts on
    * disconnect / timeout / RPC error preserve the existing security
-   * posture (see `30-app-hooks.integration.test.ts:229-272,296-357`).
+   * posture.
    *
    * Promotes any prior in-process registration for the same `appId` —
    * the remote routing wins. Use {@link unregisterRemoteApp} to drop
    * the registration eagerly when a connection is known to be gone
    * (operator-driven cleanup; the disconnect-finalizer handles
    * in-flight Deferreds either way).
+   *
+   * Phase 9b consumer-migration (sub-issue #460, plan §2.4): the legacy
+   * `apps/onBeforeMessageDelivery`, `apps/onSessionActive`, `apps/onClose`
+   * appCallback verbs were deleted; the TM-as-endpoint topology and the
+   * `task/admissionComplete` / `task/closed` notifications absorb their
+   * use-cases.
    */
   registerRemoteApp: (manifest: AppManifest, connectionId: string) => void;
   /**
@@ -180,12 +180,9 @@ export interface CoreApp {
    */
   unregisterRemoteApp: (appId: string) => void;
   setContactService: (checker: ContactService) => void;
-  onBeforeMessageDelivery: (
+  onTaskAuthorizeDispatch: (
     appId: string,
-    handler: BeforeMessageDeliveryHook,
+    handler: TaskAuthorizeDispatchHook,
   ) => void;
-  onBeforeDispatch: (appId: string, handler: BeforeDispatchHook) => void;
-  onSessionClose: (appId: string, handler: OnCloseHook) => void;
-  onSessionActive: (appId: string, handler: OnSessionActiveHook) => void;
   close: () => PromiseLike<void>;
 }

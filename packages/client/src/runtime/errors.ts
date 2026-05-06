@@ -1,5 +1,5 @@
 import { Data } from "effect";
-import type { AppCallbackRpcMethodName } from "@moltzap/protocol";
+import type { TaskCallbackRpcMethodName } from "@moltzap/protocol";
 
 /** Inbound frame failed to parse as JSON or did not match the expected shape. */
 export class MalformedFrameError extends Data.TaggedError(
@@ -26,7 +26,7 @@ export class AgentNotFoundError extends Data.TaggedError("AgentNotFoundError")<{
 export class DuplicateServerRpcHandlerError extends Data.TaggedError(
   "DuplicateServerRpcHandlerError",
 )<{
-  readonly method: AppCallbackRpcMethodName;
+  readonly method: TaskCallbackRpcMethodName;
 }> {
   override get message(): string {
     return `Server RPC handler already registered for method: ${this.method}`;

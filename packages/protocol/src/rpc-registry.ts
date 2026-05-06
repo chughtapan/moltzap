@@ -8,10 +8,6 @@ import {
   AgentsList,
 } from "./network/methods/auth.js";
 import {
-  EndpointsRegisterTaskManager,
-  EndpointsUnregisterTaskManager,
-} from "./network/methods/endpoints.js";
-import {
   ConversationsCreate,
   ConversationsList,
   ConversationsGet,
@@ -48,10 +44,7 @@ import {
 } from "./task/methods/tasks.js";
 import {
   AppsAuthorizeDispatch,
-  AppsOnBeforeDispatch,
-  AppsOnBeforeMessageDelivery,
-  AppsOnSessionActive,
-  AppsOnClose,
+  TaskAuthorizeDispatch,
 } from "./app/methods/apps.js";
 import { SystemPing } from "./network/methods/system.js";
 import type { RpcDefinition, ParamsOf, ResultOf } from "./rpc.js";
@@ -79,8 +72,6 @@ export const networkRpcMethods = [
   AgentsLookupByName,
   AgentsList,
   SystemPing,
-  EndpointsRegisterTaskManager,
-  EndpointsUnregisterTaskManager,
 ] as const;
 
 export const taskRpcMethods = [
@@ -150,28 +141,38 @@ export type AppRpcMethodName = (typeof appRpcMethods)[number]["name"];
 export type AnyRpcDefinition = (typeof rpcMethods)[number] &
   RpcDefinition<string, any, any>;
 
-export const appCallbackRpcMethods = [
-  AppsOnBeforeDispatch,
-  AppsOnBeforeMessageDelivery,
-  AppsOnSessionActive,
-  AppsOnClose,
+/**
+ * Server-initiated awaitable RPCs the WS client must handle. Phase 9b
+ * consumer-migration (sub-issue #460): the legacy `appCallbackRpcMethods`
+ * group retired with the deletion of `apps/onBeforeMessageDelivery`,
+ * `apps/onSessionActive`, `apps/onClose` and the rename of
+ * `apps/onBeforeDispatch` → `task/authorizeDispatch` (plan §2.4).
+ *
+ * `taskCallbackRpcMethods` is the surviving server→client awaitable
+ * surface. Single member today (the receive-side TM admission round-trip);
+ * post-Phase-11 arena migration the group may grow with additional
+ * task-layer awaitable verbs.
+ */
+export const taskCallbackRpcMethods = [
+  TaskAuthorizeDispatch,
 ] as const satisfies ReadonlyArray<RpcDefinition<string, any, any>>;
 
-export const appCallbackRpcGroup = defineRpcGroup(
-  "appCallback",
-  appCallbackRpcMethods,
+export const taskCallbackRpcGroup = defineRpcGroup(
+  "taskCallback",
+  taskCallbackRpcMethods,
 );
 
-export type AppCallbackRpcMethodName =
-  (typeof appCallbackRpcMethods)[number]["name"];
+export type TaskCallbackRpcMethodName =
+  (typeof taskCallbackRpcMethods)[number]["name"];
 
-export type AnyAppCallbackRpcDefinition =
-  (typeof appCallbackRpcMethods)[number];
+export type AnyTaskCallbackRpcDefinition =
+  (typeof taskCallbackRpcMethods)[number];
 
-export type AppCallbackRpcDefinitionFor<Name extends AppCallbackRpcMethodName> =
-  RpcDefinitionForName<typeof appCallbackRpcMethods, Name>;
+export type TaskCallbackRpcDefinitionFor<
+  Name extends TaskCallbackRpcMethodName,
+> = RpcDefinitionForName<typeof taskCallbackRpcMethods, Name>;
 
-export type AppCallbackRpcParams<Name extends AppCallbackRpcMethodName> =
-  ParamsOf<AppCallbackRpcDefinitionFor<Name>>;
-export type AppCallbackRpcResult<Name extends AppCallbackRpcMethodName> =
-  ResultOf<AppCallbackRpcDefinitionFor<Name>>;
+export type TaskCallbackRpcParams<Name extends TaskCallbackRpcMethodName> =
+  ParamsOf<TaskCallbackRpcDefinitionFor<Name>>;
+export type TaskCallbackRpcResult<Name extends TaskCallbackRpcMethodName> =
+  ResultOf<TaskCallbackRpcDefinitionFor<Name>>;
