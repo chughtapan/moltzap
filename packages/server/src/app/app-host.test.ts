@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Kysely } from "kysely";
 import type { Database } from "../db/database.js";
-import type { Broadcaster } from "../ws/broadcaster.js";
 import type { ConnectionManager } from "../ws/connection.js";
 import { makeFakeService } from "../test-utils/fakes.js";
 import { AppHost } from "./app-host.js";
@@ -17,34 +16,14 @@ type HookRegistry = Map<
   }
 >;
 
-// ─────────────────────────────────────────────────────────────────────
-// AppHost hook registration
-// ─────────────────────────────────────────────────────────────────────
-//
-// Phase 9b consumer-migration (sub-issue #460): the lifecycle hooks
-// (`onSessionActive`, `onSessionClose`) and the receive-side gate hook
-// (`onBeforeMessageDelivery`) retired with the wire RPC deletions; only
-// `task/authorizeDispatch` remains. These tests exercise the in-process
-// hook registration surface directly on a bare `AppHost` instance.
-
-function makeAppHost(): {
-  host: AppHost;
-  sent: Array<{ agentId: string; event: unknown }>;
-} {
-  const sent: Array<{ agentId: string; event: unknown }> = [];
-  const broadcaster = makeFakeService<Broadcaster>({
-    sendToAgent: (agentId: string, event: unknown) => {
-      sent.push({ agentId, event });
-    },
-  } as Partial<Broadcaster>);
+function makeAppHost(): { host: AppHost } {
   const connections = makeFakeService<ConnectionManager>(
     {} as Partial<ConnectionManager>,
   );
   // No DB methods are exercised by pure registration tests.
   const db = makeFakeService<Kysely<Database>>({} as Partial<Kysely<Database>>);
-
-  const host = new AppHost(db, broadcaster, connections, null);
-  return { host, sent };
+  const host = new AppHost(db, connections, null);
+  return { host };
 }
 
 describe("AppHost.onTaskAuthorizeDispatch (registration surface)", () => {

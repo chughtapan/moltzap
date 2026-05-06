@@ -27,13 +27,11 @@ import type { ConversationService } from "../services/conversation.service.js";
 import type { MessageService } from "../services/message.service.js";
 import type { ParticipantService } from "../services/participant.service.js";
 import type { PresenceService } from "../services/presence.service.js";
-import type { Broadcaster } from "../ws/broadcaster.js";
 import type { ConnectionManager } from "../ws/connection.js";
 
 import {
   AppHostTag,
   AuthServiceTag,
-  BroadcasterTag,
   ConnectionManagerTag,
   ConversationServiceTag,
   MessageServiceTag,
@@ -147,8 +145,3 @@ export const fakeConnectionManagerLayer = (
   impl: Partial<ConnectionManager>,
 ): Layer.Layer<ConnectionManagerTag> =>
   Layer.succeed(ConnectionManagerTag, makeFakeService<ConnectionManager>(impl));
-
-export const fakeBroadcasterLayer = (
-  impl: Partial<Broadcaster>,
-): Layer.Layer<BroadcasterTag> =>
-  Layer.succeed(BroadcasterTag, makeFakeService<Broadcaster>(impl));

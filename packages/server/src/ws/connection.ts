@@ -21,21 +21,9 @@ import {
 } from "@moltzap/protocol";
 import type { AuthenticatedContext } from "../rpc/context.js";
 
-/**
- * Tagged error channel for `sendRpcToClient`. Every public failure mode is
- * a discriminated tag — callers that ignore the channel's totality cannot
- * compile.
- *
- * Phase 9b consumer-migration (sub-issue #460) renamed the protocol-side
- * `appCallbackRpcGroup` to `taskCallbackRpcGroup` after collapsing
- * the appCallback verb set to a single member (`task/authorizeDispatch`).
- * The server-internal `AppDisconnected` / `AppCallbackRpc*` error tags
- * keep the legacy name on purpose: they describe the generic
- * server→client awaitable-RPC pattern (the *transport*), not the
- * protocol group identity. Renaming them would churn every call site
- * for no semantic gain. Phase 11 (arena cutover) is the natural seam
- * if the rename is ever justified.
- */
+/** Tagged error channel for `sendRpcToClient`. The `AppDisconnected` /
+ * `AppCallbackRpc*` names describe the generic server→client awaitable-
+ * RPC transport, not any specific protocol group. */
 export class AppDisconnected extends Data.TaggedError("AppDisconnected")<{
   readonly connectionId: string;
   readonly method: JsonRpcMethod;
@@ -216,9 +204,7 @@ function nextAppCallbackRequestId(
  * is NO schema-level cap. Result decoding from `unknown` to a typed
  * verdict happens inside this function: every call passes a typed
  * `AnyTaskCallbackRpcDefinition` whose `validateResult` predicate
- * narrows the response (Phase 9b consumer-migration; the legacy
- * `AppCallbackRpcMap` indirection retired alongside the appCallback
- * group rename).
+ * narrows the response.
  */
 export function sendRpcToClient<D extends AnyTaskCallbackRpcDefinition>(
   connection: MoltZapConnection,
@@ -404,8 +390,7 @@ export class ConnectionManager {
   /**
    * Subscribe all currently-connected sockets of the given agents to a
    * conversation. Adds `conversationId` to each matching connection's
-   * `conversationIds` set so subsequent `Broadcaster.broadcastToConversation`
-   * calls reach those sockets. Idempotent: a connection already subscribed is
+   * `conversationIds` set. Idempotent: a connection already subscribed is
    * a no-op (Set semantics). Returns the list of connection ids that were
    * subscribed (for observability + tests).
    *

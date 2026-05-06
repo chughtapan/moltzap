@@ -30,7 +30,6 @@ import {
   type MoltZapConnection,
 } from "../ws/connection.js";
 import type { Database } from "../db/database.js";
-import type { Broadcaster } from "../ws/broadcaster.js";
 import { makeFakeService } from "../test-utils/fakes.js";
 import { AppHost } from "./app-host.js";
 import type { TaskAuthorizeDispatchContext } from "./hooks.js";
@@ -81,10 +80,9 @@ interface AppHostFixture {
 }
 
 function makeAppHostFixture(): AppHostFixture {
-  const broadcaster = makeFakeService<Broadcaster>({} as Partial<Broadcaster>);
   const connections = new ConnectionManager();
   const db = makeFakeService<Kysely<Database>>({} as Partial<Kysely<Database>>);
-  const host = new AppHost(db, broadcaster, connections, null);
+  const host = new AppHost(db, connections, null);
   return { host, connections };
 }
 

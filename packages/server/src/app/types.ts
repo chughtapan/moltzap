@@ -17,7 +17,6 @@ import type { Database } from "../db/database.js";
 import type { ContactService } from "./app-host.js";
 import type { UserService } from "../services/user.service.js";
 import type { WebhookClient } from "../adapters/webhook.js";
-import type { Broadcaster } from "../ws/broadcaster.js";
 import type { ConnectionManager } from "../ws/connection.js";
 import type { NetworkSendService } from "../network/network-send.js";
 import type { TaskAuthorizeDispatchHook } from "./hooks.js";
@@ -116,28 +115,15 @@ export interface CoreApp {
    */
   onDisconnection: (hook: DisconnectionHook) => void;
   /**
-   * Live Broadcaster instance. Apps that register custom RPCs and want to
-   * emit events out-of-band (not via `broadcastToConversation`) use this to
-   * `sendToAgent(agentId, event)`. Stable identity — same ref across the
-   * server lifetime.
+   * Outbound-routing primitive. Apps emit events out-of-band via
+   * `networkSendService.send(to, payload)` (directed) or
+   * `networkSendService.broadcast(agentIds, payload, opts?)` (fan-out
+   * across participants). Stable identity across the server lifetime.
    *
-   * Coexists with {@link networkSendService} during Phase 8 (Slice G1).
-   * Phase 10 (Slice G2) deletes this field once consumers migrate.
-   */
-  readonly broadcaster: Broadcaster;
-  /**
-   * The new outbound-routing primitive introduced in Slice G1
-   * (Phase 8). Use `networkSendService.send(to, payload)` for new code;
-   * existing call sites continue to use {@link broadcaster} until
-   * Phase 9 (Slice C) migrates them.
-   *
-   * The backing `AgentEndpointResolver` is intentionally NOT exposed
-   * here — its mutable add/remove surface is server-internal lifecycle,
-   * not a CoreApp consumer concern (issue #426 authorizes the dual-DI
-   * pair, not raw resolver access). Tests that need to assert resolver
-   * state observe it indirectly via `networkSendService.send` outcomes.
-   *
-   * Plan: `docs/plans/layered-network-refactor-2026-05.md` §2.10.
+   * The backing `AgentEndpointResolver` is intentionally not exposed —
+   * its mutable add/remove surface is server-internal lifecycle, not a
+   * CoreApp consumer concern. Tests assert resolver state indirectly
+   * via `networkSendService.send` outcomes.
    */
   readonly networkSendService: NetworkSendService;
   readonly traceCapture: TraceCapture;
@@ -150,28 +136,15 @@ export interface CoreApp {
   registerApp: (manifest: AppManifest) => void;
   /**
    * Register an app whose `task/authorizeDispatch` admission round-trips
-   * run in a remote process, connected over WebSocket. The verb routes
-   * to `connectionId` via the server-initiated awaitable RPC primitive.
-   * Verdicts decode at the WS edge into the same typed shapes as
-   * in-process hooks (`DispatchAdmissionResult`).
+   * run in a remote process over WebSocket. The verb routes to
+   * `connectionId` via the server-initiated awaitable RPC primitive;
+   * verdicts decode at the WS edge into the same typed shapes as
+   * in-process hooks. Fail-closed on disconnect / timeout / RPC error.
    *
-   * The dispatch surface is uniform with in-process per architect plan
-   * §3.4: callers of `runAuthorizeDispatch` cannot observe whether a
-   * given app is in-process or remote. Fail-closed verdicts on
-   * disconnect / timeout / RPC error preserve the existing security
-   * posture.
-   *
-   * Promotes any prior in-process registration for the same `appId` —
-   * the remote routing wins. Use {@link unregisterRemoteApp} to drop
-   * the registration eagerly when a connection is known to be gone
-   * (operator-driven cleanup; the disconnect-finalizer handles
-   * in-flight Deferreds either way).
-   *
-   * Phase 9b consumer-migration (sub-issue #460, plan §2.4): the legacy
-   * `apps/onBeforeMessageDelivery`, `apps/onSessionActive`, `apps/onClose`
-   * appCallback verbs were deleted; the TM-as-endpoint topology and the
-   * `task/admissionComplete` / `task/closed` notifications absorb their
-   * use-cases.
+   * Promotes any prior in-process registration for the same `appId`.
+   * Use {@link unregisterRemoteApp} to drop the routing entry eagerly
+   * when a connection is known to be gone (operator-driven cleanup;
+   * the disconnect-finalizer handles in-flight Deferreds either way).
    */
   registerRemoteApp: (manifest: AppManifest, connectionId: string) => void;
   /**
