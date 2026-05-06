@@ -44,6 +44,11 @@ import {
   completeAppCallbackResponse,
 } from "../ws/connection.js";
 import { EnvelopeEncryption } from "../crypto/envelope.js";
+import {
+  CLAIM_NOT_FOUND,
+  CLAIM_OWNER_MISMATCH,
+  CLAIM_SUCCESS,
+} from "../services/auth.service.js";
 
 // Handlers
 import { createCoreAuthHandlers } from "../network/handlers/auth.handlers.js";
@@ -78,9 +83,12 @@ import { Connect } from "@moltzap/protocol";
 
 /** Grace period after closing all WebSockets so in-flight sends can flush. */
 const SHUTDOWN_DRAIN_MS = 500;
-const HTTP_BAD_REQUEST = 400;
 const HTTP_OK = 200;
 const HTTP_CREATED = 201;
+const HTTP_BAD_REQUEST = 400;
+const HTTP_UNAUTHORIZED = 401;
+const HTTP_FORBIDDEN = 403;
+const HTTP_INTERNAL_SERVER_ERROR = 500;
 const ERROR_INVALID_JSON = "Invalid JSON";
 const ERROR_INVALID_PARAMETERS = "Invalid parameters";
 const INVALID_JSON_BODY = Symbol("InvalidJsonBody");
@@ -100,6 +108,67 @@ function safeEqual(a: string, b: string): boolean {
   const bufB = Buffer.from(b);
   if (bufA.length !== bufB.length) return false;
   return timingSafeEqual(bufA, bufB);
+}
+
+/**
+ * Decode the request JSON body and check it against `validator`. On any
+ * failure (malformed JSON, schema rejection) returns the appropriate
+ * 400 response; on success returns the typed body. Used by the three
+ * mounted POST routes (`auth/register`, `auth/claim`,
+ * `admin/register-agent`) so they share one pre-flight implementation.
+ */
+function readValidatedBody<T>(
+  request: HttpServerRequest.HttpServerRequest,
+  validator: (value: unknown) => value is T,
+): Effect.Effect<
+  | { readonly _tag: "Body"; readonly body: T }
+  | {
+      readonly _tag: "Response";
+      readonly response: HttpServerResponse.HttpServerResponse;
+    }
+> {
+  return Effect.gen(function* () {
+    const body = yield* request.json.pipe(
+      Effect.catchAll(() => Effect.succeed(INVALID_JSON_BODY)),
+    );
+    if (body === INVALID_JSON_BODY) {
+      return {
+        _tag: "Response" as const,
+        response: HttpServerResponse.unsafeJson(
+          { error: ERROR_INVALID_JSON },
+          { status: HTTP_BAD_REQUEST },
+        ),
+      };
+    }
+    if (!validator(body)) {
+      return {
+        _tag: "Response" as const,
+        response: HttpServerResponse.unsafeJson(
+          { error: ERROR_INVALID_PARAMETERS },
+          { status: HTTP_BAD_REQUEST },
+        ),
+      };
+    }
+    return { _tag: "Body" as const, body };
+  });
+}
+
+/**
+ * Constant-time `inviteCode === registrationSecret` check. Returns null
+ * when authorization passes (open route when `secret` is unset; correct
+ * code when set); otherwise returns a 403 response that the caller
+ * should short-circuit on.
+ */
+function checkInviteCode(
+  inviteCode: string | undefined,
+  secret: string | undefined,
+): HttpServerResponse.HttpServerResponse | null {
+  if (!secret) return null;
+  if (inviteCode && safeEqual(inviteCode, secret)) return null;
+  return HttpServerResponse.unsafeJson(
+    { error: "Invalid or missing invite code" },
+    { status: HTTP_FORBIDDEN },
+  );
 }
 
 /** RFC 4122 canonical-string check (any version, any variant). */
@@ -250,48 +319,45 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     "/api/v1/auth/register",
     Effect.gen(function* () {
       const request = yield* HttpServerRequest.HttpServerRequest;
-      const body = yield* request.json.pipe(
-        Effect.catchAll(() => Effect.succeed(INVALID_JSON_BODY)),
+      const decoded = yield* readValidatedBody(
+        request,
+        validators.registerParams,
       );
-      if (body === INVALID_JSON_BODY) {
-        return HttpServerResponse.unsafeJson(
-          { error: ERROR_INVALID_JSON },
-          { status: HTTP_BAD_REQUEST },
-        );
-      }
+      if (decoded._tag === "Response") return decoded.response;
+      const body = decoded.body;
 
-      if (!validators.registerParams(body)) {
-        return HttpServerResponse.unsafeJson(
-          { error: ERROR_INVALID_PARAMETERS },
-          { status: HTTP_BAD_REQUEST },
-        );
-      }
-
-      if (config.registrationSecret) {
-        const inviteCode = (body as { inviteCode?: string }).inviteCode;
-        if (!inviteCode || !safeEqual(inviteCode, config.registrationSecret)) {
-          return HttpServerResponse.unsafeJson(
-            { error: "Invalid or missing invite code" },
-            { status: 403 },
-          );
-        }
-      }
+      const denial = checkInviteCode(
+        body.inviteCode,
+        config.registrationSecret,
+      );
+      if (denial) return denial;
 
       const exit = yield* Effect.exit(
-        authService.registerAgent(
-          body as Parameters<typeof authService.registerAgent>[0],
-          config.devModeUserId,
-        ),
+        authService.registerAgent(body, config.devModeUserId),
       );
       if (Exit.isSuccess(exit)) {
-        return HttpServerResponse.unsafeJson(exit.value, { status: 201 });
+        // Wire shape matches the protocol's `Register.result`. claimUrl
+        // is derived from the request so we don't introduce a new config
+        // field for the public base URL.
+        const { agentId, apiKey, claimToken } = exit.value;
+        const host = request.headers["host"] ?? "localhost";
+        const proto =
+          request.headers["x-forwarded-proto"]?.split(",")[0]?.trim() ?? "http";
+        return HttpServerResponse.unsafeJson(
+          {
+            agentId,
+            apiKey,
+            claimToken,
+            claimUrl: `${proto}://${host}/api/v1/auth/claim`,
+          },
+          { status: HTTP_CREATED },
+        );
       }
-      // registerAgent's error channel is `never` — any failure here is a defect
-      // (DB error, etc.) which maps to a 500.
+      // registerAgent's error channel is `never`; failures are defects.
       logger.error({ cause: Cause.pretty(exit.cause) }, "Registration failed");
       return HttpServerResponse.unsafeJson(
         { error: "Registration failed" },
-        { status: 500 },
+        { status: HTTP_INTERNAL_SERVER_ERROR },
       );
     }),
   );
@@ -301,6 +367,13 @@ export function createCoreApp(config: CoreConfig): CoreApp {
   // `UPDATE agents SET owner_user_id = ...` two-step. The route is mounted
   // only when `config.registrationSecret` is set (see the `httpApp` pipe
   // below) — there's no anonymous admin flow.
+  //
+  // The recommended path for app-spawned agents is `auth/register` →
+  // `auth/claim` (programmatic): the secret authorizes "claim-on-behalf-of,"
+  // not "register-with-impersonation." See sub-issue #486 — this admin
+  // route remains for system mints (e.g., system agents bound to
+  // `SYSTEM_USER_ID`) where the caller is authoritative for the agent's
+  // identity at insert time.
   const registrationSecret = config.registrationSecret;
   const adminRegisterAgentRoute = HttpRouter.post(
     "/api/v1/admin/register-agent",
@@ -347,13 +420,11 @@ export function createCoreApp(config: CoreConfig): CoreApp {
         );
       }
 
-      const inviteCode = (registerBody as { inviteCode?: string }).inviteCode;
-      if (!inviteCode || !safeEqual(inviteCode, registrationSecret)) {
-        return HttpServerResponse.unsafeJson(
-          { error: "Invalid or missing invite code" },
-          { status: 403 },
-        );
-      }
+      const denial = checkInviteCode(
+        (registerBody as { inviteCode?: string }).inviteCode,
+        registrationSecret,
+      );
+      if (denial) return denial;
 
       let resolvedOwnerUserId: string | undefined;
       if (ownerUserIdRaw !== undefined) {
@@ -399,6 +470,72 @@ export function createCoreApp(config: CoreConfig): CoreApp {
         { agentId: result.agentId, apiKey: result.apiKey },
         { status: result.rotated ? HTTP_OK : HTTP_CREATED },
       );
+    }),
+  );
+
+  // Programmatic claim path (sub-issue #486). The protocol-layer
+  // `Claim` schema (packages/protocol/src/network/methods/auth.ts)
+  // documents the wire contract — semantics, idempotency, and the
+  // `claimToken`-as-credential model. This route is the HTTP surface;
+  // the secret-holder model and admin-vs-claim trade-off live in the
+  // issue body.
+  const claimRoute = HttpRouter.post(
+    "/api/v1/auth/claim",
+    Effect.gen(function* () {
+      const request = yield* HttpServerRequest.HttpServerRequest;
+      const decoded = yield* readValidatedBody(request, validators.claimParams);
+      if (decoded._tag === "Response") return decoded.response;
+      const body = decoded.body;
+
+      const denial = checkInviteCode(
+        body.inviteCode,
+        config.registrationSecret,
+      );
+      if (denial) return denial;
+
+      const exit = yield* Effect.exit(
+        authService.claimAgent({
+          claimToken: body.claimToken,
+          ownerUserId: body.ownerUserId,
+        }),
+      );
+      if (Exit.isFailure(exit)) {
+        // claimAgent's error channel is `never`; failures are defects.
+        logger.error({ cause: Cause.pretty(exit.cause) }, "Claim failed");
+        return HttpServerResponse.unsafeJson(
+          { error: "Claim failed" },
+          { status: HTTP_INTERNAL_SERVER_ERROR },
+        );
+      }
+
+      const result = exit.value;
+      switch (result._tag) {
+        case CLAIM_SUCCESS:
+          // 201 = first claim, 200 = idempotent re-claim by same owner.
+          return HttpServerResponse.unsafeJson(
+            { agentId: result.agentId, ownerUserId: result.ownerUserId },
+            { status: result.alreadyClaimed ? HTTP_OK : HTTP_CREATED },
+          );
+        case CLAIM_NOT_FOUND:
+          return HttpServerResponse.unsafeJson(
+            { error: "Invalid claim token", code: CLAIM_NOT_FOUND },
+            { status: HTTP_UNAUTHORIZED },
+          );
+        case CLAIM_OWNER_MISMATCH:
+          return HttpServerResponse.unsafeJson(
+            {
+              error: "Agent already claimed by a different owner",
+              code: CLAIM_OWNER_MISMATCH,
+            },
+            { status: HTTP_FORBIDDEN },
+          );
+        default: {
+          // Exhaustiveness gate: a future tag added to ClaimAgentResult
+          // forces an update here at compile time (principle 4).
+          const _absurd: never = result;
+          return _absurd;
+        }
+      }
     }),
   );
 
@@ -659,6 +796,8 @@ export function createCoreApp(config: CoreConfig): CoreApp {
   // is in use AND (b) a `registrationSecret` is configured. Without the
   // secret there's no admin credential, so the route is absent — turning
   // "no secret = no admin route" into a router-level invariant.
+  // The claim route (#486) is mounted alongside register; its own
+  // `registrationSecret` gate is evaluated per-request.
   const adminRouteEnabled =
     !config.skipDefaultRegisterRoute && config.registrationSecret !== undefined;
   const httpApp = (
@@ -668,10 +807,11 @@ export function createCoreApp(config: CoreConfig): CoreApp {
         ? HttpRouter.empty.pipe(
             healthRoute,
             registerRoute,
+            claimRoute,
             adminRegisterAgentRoute,
             wsRoute,
           )
-        : HttpRouter.empty.pipe(healthRoute, registerRoute, wsRoute)
+        : HttpRouter.empty.pipe(healthRoute, registerRoute, claimRoute, wsRoute)
   ).pipe(
     HttpMiddleware.cors({
       allowedOrigins: allowedOriginsPredicate,

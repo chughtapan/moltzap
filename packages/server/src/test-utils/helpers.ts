@@ -90,6 +90,32 @@ export function registerAndConnect(
   });
 }
 
+/**
+ * POST `body` as JSON to `${baseUrl}${path}` and resolve with
+ * `{status, json}`. The endpoints under test (`/api/v1/auth/register`,
+ * `/api/v1/auth/claim`, `/api/v1/admin/register-agent`) all use this
+ * same wire envelope, so each integration test importing this helper
+ * can drop ~12 lines of `fetch + headers + JSON.stringify + .json()`
+ * boilerplate. Returns a Promise (not an Effect) because vitest
+ * `it.live(() => Effect.gen ...)` callers wrap with
+ * `Effect.tryPromise(() => postJson(...))`, mirroring the existing
+ * `Effect.tryPromise` wraps around raw fetch/db calls in this file.
+ */
+// eslint-disable-next-line agent-code-guard/async-keyword -- test plumbing: vitest hooks expect async callbacks
+export async function postJson(
+  baseUrl: string,
+  path: string,
+  body: Record<string, unknown>,
+  // eslint-disable-next-line agent-code-guard/promise-type -- test plumbing: see fn doc
+): Promise<{ status: number; json: unknown }> {
+  const res = await fetch(`${baseUrl}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return { status: res.status, json: await res.json() };
+}
+
 /** Register an agent without connecting (for tests that need the raw client). */
 export function registerOnly(name: string): Effect.Effect<
   {

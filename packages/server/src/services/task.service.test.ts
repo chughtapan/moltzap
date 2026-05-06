@@ -2,23 +2,16 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Cause, Effect, Exit } from "effect";
 import { ErrorCodes, agentId, taskId as makeTaskId } from "@moltzap/protocol";
 import type { Kysely } from "kysely";
-import { KyselyPGlite } from "kysely-pglite";
-import { readFileSync } from "node:fs";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-import { makeEffectKysely } from "../db/effect-kysely-toolkit.js";
 import type { Database } from "../db/database.js";
 import { RpcFailure } from "../runtime/index.js";
 import { TaskService, endpointAddressForAgent } from "./task.service.js";
 import type { ConversationService } from "./conversation.service.js";
 import type { MessageService } from "./message.service.js";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const schema = readFileSync(
-  join(__dirname, "..", "app", "core-schema.sql"),
-  "utf-8",
-);
-const DB_HOOK_TIMEOUT_MS = 30_000;
+import {
+  makePgliteHarness,
+  PGLITE_HOOK_TIMEOUT_MS,
+  type PgliteHarness,
+} from "../test-utils/index.js";
 
 // Lifecycle + authority methods never invoke these deps; the conversation
 // + message paths are covered by `__tests__/integration/43-tasks.integration.test.ts`.
@@ -29,20 +22,12 @@ const ALICE = agentId("00000000-0000-4000-8000-00000000a11c");
 const BOB = agentId("00000000-0000-4000-8000-00000000b0b0");
 const CAROL = agentId("00000000-0000-4000-8000-00000000ca20");
 
+let harness: PgliteHarness;
 let db: Kysely<Database>;
-let pglite: {
-  exec: (sql: string) => Promise<unknown>;
-  close: () => Promise<void>;
-};
 
 async function freshDb(): Promise<void> {
-  const kpg = await KyselyPGlite.create();
-  pglite = {
-    exec: (sql) => kpg.client.exec(sql),
-    close: () => kpg.client.close(),
-  };
-  db = makeEffectKysely<Database>({ dialect: kpg.dialect });
-  await pglite.exec(schema);
+  harness = await makePgliteHarness();
+  db = harness.db;
   // Seed agents — raw insert satisfies the FK without exercising the
   // full agents-service registration path.
   await db
@@ -89,11 +74,11 @@ function rpcFailureCode(exit: Exit.Exit<unknown, RpcFailure>): number | null {
 describe("TaskService", () => {
   beforeEach(async () => {
     await freshDb();
-  }, DB_HOOK_TIMEOUT_MS);
+  }, PGLITE_HOOK_TIMEOUT_MS);
 
   afterEach(async () => {
-    await pglite.close();
-  }, DB_HOOK_TIMEOUT_MS);
+    await harness.close();
+  }, PGLITE_HOOK_TIMEOUT_MS);
 
   // Phase 9b consumer-migration (sub-issue #460 round 3 R12+R13):
   // tasks.tm_endpoint_address is NOT NULL and tasks/create REQUIRES
