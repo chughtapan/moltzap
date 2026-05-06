@@ -191,10 +191,11 @@ describe("Phase 9b — messages/send → TM routing via network.send", () => {
 
         // The TM is also a conversation participant (DM type forces
         // the caller of `tasks/createConversation` into the participant
-        // set), so it receives the message both via `network.send` and
-        // via Broadcaster. The contractual proof that `network.send`
-        // is the gating mechanism lives in the next two tests; here
-        // we only assert the round-trip is healthy end-to-end.
+        // set), so it receives the message both via `network.send` (TM
+        // routing) and via the conversation broadcast. The contractual
+        // proof that `network.send` is the gating mechanism lives in
+        // the next two tests; here we only assert the round-trip is
+        // healthy end-to-end.
         const received = yield* pair.tm.waitForNotification(
           MessageReceivedNotificationDefinition,
         );
@@ -306,9 +307,9 @@ describe("Phase 9b — messages/send → TM routing via network.send", () => {
           { type: "text", text: "hello default TM" },
         ]);
 
-        // Both participants observe the message via Broadcaster — the
-        // app-TM in-process handler is a no-op observer, so the
-        // surviving delivery path is the conversation broadcast.
+        // Both participants observe the message via the conversation
+        // broadcast — the app-TM in-process handler is a no-op observer,
+        // so the surviving delivery path is the conversation fan-out.
         const received = yield* pair.tm.waitForNotification(
           MessageReceivedNotificationDefinition,
         );
@@ -361,7 +362,7 @@ describe("Phase 9b — messages/send → TM routing via network.send", () => {
       // true` from `TaskService.storeMessage` to
       // `MessageService.send`. This test pins it: TM stores a
       // message and observes EXACTLY ONE `messages/received` frame
-      // (the broadcaster's), not two.
+      // (the conversation broadcast), not two.
       Effect.gen(function* () {
         const pair = yield* setupTmAndSender(6);
         const { taskId, conversationId } =
@@ -377,8 +378,8 @@ describe("Phase 9b — messages/send → TM routing via network.send", () => {
         });
 
         // The TM (a conversation participant) should observe ONE
-        // notification via Broadcaster. Drain after a brief grace
-        // period and count.
+        // notification via the conversation broadcast. Drain after a
+        // brief grace period and count.
         yield* Effect.sleep("200 millis");
         const drained = pair.tm.drainNotifications();
         const receivedCount = drained.filter(
@@ -388,8 +389,8 @@ describe("Phase 9b — messages/send → TM routing via network.send", () => {
               undefined,
         ).length;
         // With the bypass flag honored, exactly one notification
-        // arrives (the broadcaster's). Without the fix, two would
-        // arrive (network.send self-loop + broadcaster).
+        // arrives (the conversation broadcast). Without the fix, two
+        // would arrive (network.send self-loop + conversation broadcast).
         expect(receivedCount).toBe(1);
       }),
     20_000,

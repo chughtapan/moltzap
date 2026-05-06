@@ -2,7 +2,7 @@
  * Regression: ConversationService.create + addParticipant must subscribe
  * every participant's open sockets to the conversation id.
  *
- * Why: broadcaster iterates connections and checks `conn.conversationIds`.
+ * Why: the conversation broadcast path gates on `conn.conversationIds`.
  * A participant whose connection isn't in the set silently misses every
  * event on the conversation. Before the service auto-subscribed, every
  * downstream caller (the conversations/create RPC handler, moltzap-arena's
