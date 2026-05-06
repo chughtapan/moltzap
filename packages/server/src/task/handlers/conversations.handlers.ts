@@ -1,4 +1,5 @@
 import type { ConversationService } from "../../services/conversation.service.js";
+import type { TaskService } from "../../services/task.service.js";
 import type { Broadcaster } from "../../ws/broadcaster.js";
 import type { ConnectionManager } from "../../ws/connection.js";
 import type { RpcMethodRegistry } from "../../rpc/context.js";
@@ -26,6 +27,7 @@ import { ConnIdTag } from "../../app/layers.js";
 
 export function createConversationHandlers(deps: {
   conversationService: ConversationService;
+  taskService: TaskService;
   broadcaster: Broadcaster;
   connections: ConnectionManager;
 }): RpcMethodRegistry {
@@ -35,11 +37,24 @@ export function createConversationHandlers(deps: {
       handler: (params, ctx) =>
         Effect.gen(function* () {
           const agentIds = params.participants.map((p) => p.id);
+          // Phase 9b consumer-migration (sub-issue #460 round 3 R14):
+          // every conversation belongs to a task; non-app conversations
+          // bind to the default DM / group TM at creation. A failed
+          // existing-DM dedup inside `ConversationService.create`
+          // returns the existing conversation; the freshly-minted
+          // default task is then orphaned. Pre-prod the orphan is
+          // harmless; future arena cutover wraps both inserts in one
+          // transaction if it matters.
+          const task = yield* deps.taskService.createDefaultTaskForType(
+            params.type,
+            ctx.agentId,
+          );
           const conversation = yield* deps.conversationService.create(
             params.type,
             params.name,
             agentIds,
             ctx.agentId,
+            task.id,
           );
 
           // ConversationService.create subscribes every participant's open

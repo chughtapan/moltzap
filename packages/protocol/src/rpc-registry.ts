@@ -8,10 +8,6 @@ import {
   AgentsList,
 } from "./network/methods/auth.js";
 import {
-  EndpointsRegisterTaskManager,
-  EndpointsUnregisterTaskManager,
-} from "./network/methods/endpoints.js";
-import {
   ConversationsCreate,
   ConversationsList,
   ConversationsGet,
@@ -76,8 +72,6 @@ export const networkRpcMethods = [
   AgentsLookupByName,
   AgentsList,
   SystemPing,
-  EndpointsRegisterTaskManager,
-  EndpointsUnregisterTaskManager,
 ] as const;
 
 export const taskRpcMethods = [

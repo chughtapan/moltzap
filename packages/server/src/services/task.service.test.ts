@@ -95,13 +95,23 @@ describe("TaskService", () => {
     await pglite.close();
   }, DB_HOOK_TIMEOUT_MS);
 
+  // Phase 9b consumer-migration (sub-issue #460 round 3 R12+R13):
+  // tasks.tm_endpoint_address is NOT NULL and tasks/create REQUIRES
+  // tmEndpointAddress at insert. Tests that pre-R13 created a task and
+  // then registerTm'd now pass `tmEndpointAddress: endpointAddressForAgent(<TM>)`
+  // at create time. The pre-R13 `registerTm` / `unregisterTm` describe
+  // block retired alongside the wire RPCs.
+  const aliceAsTm = () => ({
+    tmEndpointAddress: endpointAddressForAgent(ALICE),
+  });
+
   describe("create + get + list", () => {
-    it("creates a waiting task with the initiator auto-admitted", async () => {
+    it("creates a waiting task with the initiator auto-admitted and the requested TM bound", async () => {
       const svc = new TaskService(db, STUB_CONV, STUB_MSG);
-      const task = await Effect.runPromise(svc.create(ALICE, {}));
+      const task = await Effect.runPromise(svc.create(ALICE, aliceAsTm()));
       expect(task.status).toBe("waiting");
       expect(task.initiatorAgentId).toBe(ALICE);
-      expect(task.tmEndpointAddress).toBeNull();
+      expect(task.tmEndpointAddress).toBe(endpointAddressForAgent(ALICE));
 
       const view = await Effect.runPromise(svc.get(task.id, ALICE));
       expect(view.task.id).toBe(task.id);
@@ -113,7 +123,7 @@ describe("TaskService", () => {
     it("admits initiator and pre-creates pending invited participants", async () => {
       const svc = new TaskService(db, STUB_CONV, STUB_MSG);
       const task = await Effect.runPromise(
-        svc.create(ALICE, { invitedAgentIds: [BOB] }),
+        svc.create(ALICE, { ...aliceAsTm(), invitedAgentIds: [BOB] }),
       );
       const view = await Effect.runPromise(svc.get(task.id, ALICE));
       const bobRow = view.participants.find((p) => p.agentId === BOB);
@@ -123,9 +133,11 @@ describe("TaskService", () => {
 
     it("scopes list to caller's tasks (initiator OR participant)", async () => {
       const svc = new TaskService(db, STUB_CONV, STUB_MSG);
-      const aliceTask = await Effect.runPromise(svc.create(ALICE, {}));
-      // Bob's separate task
-      await Effect.runPromise(svc.create(BOB, {}));
+      const aliceTask = await Effect.runPromise(svc.create(ALICE, aliceAsTm()));
+      // Bob's separate task — Bob is the registered TM for his own task.
+      await Effect.runPromise(
+        svc.create(BOB, { tmEndpointAddress: endpointAddressForAgent(BOB) }),
+      );
 
       const aliceList = await Effect.runPromise(svc.list(ALICE, {}));
       expect(aliceList.map((t) => t.id)).toContain(aliceTask.id);
@@ -137,7 +149,7 @@ describe("TaskService", () => {
 
     it("rejects get when caller is neither initiator nor participant", async () => {
       const svc = new TaskService(db, STUB_CONV, STUB_MSG);
-      const task = await Effect.runPromise(svc.create(ALICE, {}));
+      const task = await Effect.runPromise(svc.create(ALICE, aliceAsTm()));
       const exit = await Effect.runPromise(Effect.exit(svc.get(task.id, BOB)));
       expect(rpcFailureCode(exit)).toBe(ErrorCodes.Forbidden);
     });
@@ -153,70 +165,34 @@ describe("TaskService", () => {
     });
   });
 
-  describe("registerTm + unregisterTm", () => {
-    it("first registration sets tm_endpoint_address to the caller-derived address", async () => {
+  describe("createDefaultTaskForType — server-internal default-TM helper", () => {
+    it("DM type binds the default DM TM address", async () => {
       const svc = new TaskService(db, STUB_CONV, STUB_MSG);
-      const task = await Effect.runPromise(svc.create(ALICE, {}));
-      const result = await Effect.runPromise(svc.registerTm(task.id, ALICE));
-      expect(result.taskId).toBe(task.id);
-      expect(result.tmEndpointAddress).toBe(endpointAddressForAgent(ALICE));
-
-      const view = await Effect.runPromise(svc.get(task.id, ALICE));
-      expect(view.task.tmEndpointAddress).toBe(endpointAddressForAgent(ALICE));
-    });
-
-    it("re-registration by the same caller is idempotent", async () => {
-      const svc = new TaskService(db, STUB_CONV, STUB_MSG);
-      const task = await Effect.runPromise(svc.create(ALICE, {}));
-      await Effect.runPromise(svc.registerTm(task.id, ALICE));
-      const second = await Effect.runPromise(svc.registerTm(task.id, ALICE));
-      expect(second.tmEndpointAddress).toBe(endpointAddressForAgent(ALICE));
-    });
-
-    it("rejects registration by a non-initiator", async () => {
-      const svc = new TaskService(db, STUB_CONV, STUB_MSG);
-      const task = await Effect.runPromise(svc.create(ALICE, {}));
-      const exit = await Effect.runPromise(
-        Effect.exit(svc.registerTm(task.id, BOB)),
+      const task = await Effect.runPromise(
+        svc.createDefaultTaskForType("dm", ALICE),
       );
-      expect(rpcFailureCode(exit)).toBe(ErrorCodes.Forbidden);
+      expect(task.tmEndpointAddress).toMatch(/^tm:app:/);
+      expect(task.initiatorAgentId).toBe(ALICE);
+      expect(task.status).toBe("waiting");
     });
 
-    it("rejects registration when a different TM is already registered", async () => {
+    it("group type binds the default group TM address (distinct from DM)", async () => {
       const svc = new TaskService(db, STUB_CONV, STUB_MSG);
-      const task = await Effect.runPromise(svc.create(ALICE, {}));
-      await db
-        .updateTable("tasks")
-        .set({ tm_endpoint_address: endpointAddressForAgent(BOB) })
-        .where("id", "=", task.id)
-        .execute();
-      const exit = await Effect.runPromise(
-        Effect.exit(svc.registerTm(task.id, ALICE)),
+      const dmTask = await Effect.runPromise(
+        svc.createDefaultTaskForType("dm", ALICE),
       );
-      expect(rpcFailureCode(exit)).toBe(ErrorCodes.Forbidden);
-    });
-
-    it("unregister clears tm_endpoint_address; only the registered TM may unregister", async () => {
-      const svc = new TaskService(db, STUB_CONV, STUB_MSG);
-      const task = await Effect.runPromise(svc.create(ALICE, {}));
-      await Effect.runPromise(svc.registerTm(task.id, ALICE));
-
-      const denied = await Effect.runPromise(
-        Effect.exit(svc.unregisterTm(task.id, BOB)),
+      const groupTask = await Effect.runPromise(
+        svc.createDefaultTaskForType("group", ALICE),
       );
-      expect(rpcFailureCode(denied)).toBe(ErrorCodes.Forbidden);
-
-      await Effect.runPromise(svc.unregisterTm(task.id, ALICE));
-      const view = await Effect.runPromise(svc.get(task.id, ALICE));
-      expect(view.task.tmEndpointAddress).toBeNull();
+      expect(groupTask.tmEndpointAddress).toMatch(/^tm:app:/);
+      expect(groupTask.tmEndpointAddress).not.toBe(dmTask.tmEndpointAddress);
     });
   });
 
   describe("requireTmAuthority — every mutation routes through it", () => {
     it("close: rejects caller that isn't the registered TM", async () => {
       const svc = new TaskService(db, STUB_CONV, STUB_MSG);
-      const task = await Effect.runPromise(svc.create(ALICE, {}));
-      await Effect.runPromise(svc.registerTm(task.id, ALICE));
+      const task = await Effect.runPromise(svc.create(ALICE, aliceAsTm()));
 
       const exit = await Effect.runPromise(
         Effect.exit(svc.close(task.id, BOB)),
@@ -226,27 +202,16 @@ describe("TaskService", () => {
 
     it("close: registered TM transitions task to closed", async () => {
       const svc = new TaskService(db, STUB_CONV, STUB_MSG);
-      const task = await Effect.runPromise(svc.create(ALICE, {}));
-      await Effect.runPromise(svc.registerTm(task.id, ALICE));
+      const task = await Effect.runPromise(svc.create(ALICE, aliceAsTm()));
 
       const closed = await Effect.runPromise(svc.close(task.id, ALICE));
       expect(closed.status).toBe("closed");
       expect(closed.endedAt).not.toBeNull();
     });
 
-    it("close: rejects when no TM is registered (no-TM = no-authority)", async () => {
-      const svc = new TaskService(db, STUB_CONV, STUB_MSG);
-      const task = await Effect.runPromise(svc.create(ALICE, {}));
-      const exit = await Effect.runPromise(
-        Effect.exit(svc.close(task.id, ALICE)),
-      );
-      expect(rpcFailureCode(exit)).toBe(ErrorCodes.Forbidden);
-    });
-
     it("addParticipant: only registered TM may add", async () => {
       const svc = new TaskService(db, STUB_CONV, STUB_MSG);
-      const task = await Effect.runPromise(svc.create(ALICE, {}));
-      await Effect.runPromise(svc.registerTm(task.id, ALICE));
+      const task = await Effect.runPromise(svc.create(ALICE, aliceAsTm()));
 
       const denied = await Effect.runPromise(
         Effect.exit(svc.addParticipant(task.id, BOB, CAROL)),
@@ -263,9 +228,8 @@ describe("TaskService", () => {
     it("removeParticipant: only registered TM may remove", async () => {
       const svc = new TaskService(db, STUB_CONV, STUB_MSG);
       const task = await Effect.runPromise(
-        svc.create(ALICE, { invitedAgentIds: [BOB] }),
+        svc.create(ALICE, { ...aliceAsTm(), invitedAgentIds: [BOB] }),
       );
-      await Effect.runPromise(svc.registerTm(task.id, ALICE));
 
       const denied = await Effect.runPromise(
         Effect.exit(svc.removeParticipant(task.id, CAROL, BOB)),
@@ -281,8 +245,7 @@ describe("TaskService", () => {
   describe("closed-task immutability", () => {
     it("rejects mutations after close even by the registered TM", async () => {
       const svc = new TaskService(db, STUB_CONV, STUB_MSG);
-      const task = await Effect.runPromise(svc.create(ALICE, {}));
-      await Effect.runPromise(svc.registerTm(task.id, ALICE));
+      const task = await Effect.runPromise(svc.create(ALICE, aliceAsTm()));
       await Effect.runPromise(svc.close(task.id, ALICE));
 
       const addExit = await Effect.runPromise(
@@ -301,7 +264,7 @@ describe("TaskService", () => {
     it("admitted_at IS NULL means no read access", async () => {
       const svc = new TaskService(db, STUB_CONV, STUB_MSG);
       const task = await Effect.runPromise(
-        svc.create(ALICE, { invitedAgentIds: [BOB] }),
+        svc.create(ALICE, { ...aliceAsTm(), invitedAgentIds: [BOB] }),
       );
       const exit = await Effect.runPromise(Effect.exit(svc.get(task.id, BOB)));
       expect(rpcFailureCode(exit)).toBe(ErrorCodes.Forbidden);
@@ -312,10 +275,13 @@ describe("TaskService", () => {
     // The brand factory rejects malformed addresses at construction
     // (Brand.refined predicate). The service maps the throw to a
     // typed RpcFailure so a corrupt persisted column never silently
-    // compares as a non-match.
+    // compares as a non-match. Phase 9b consumer-migration (sub-issue
+    // #460 round 3 R12): the schema-level NOT NULL forbids the null
+    // case at insert time; only foreign-formatted persisted strings
+    // (DB tampering) can still flow through this branch.
     it("rejects when persisted address is foreign-formatted", async () => {
       const svc = new TaskService(db, STUB_CONV, STUB_MSG);
-      const task = await Effect.runPromise(svc.create(ALICE, {}));
+      const task = await Effect.runPromise(svc.create(ALICE, aliceAsTm()));
       await db
         .updateTable("tasks")
         .set({ tm_endpoint_address: "tm://foreign/addr-1" })
@@ -329,7 +295,7 @@ describe("TaskService", () => {
 
     it("rejects when persisted address is empty", async () => {
       const svc = new TaskService(db, STUB_CONV, STUB_MSG);
-      const task = await Effect.runPromise(svc.create(ALICE, {}));
+      const task = await Effect.runPromise(svc.create(ALICE, aliceAsTm()));
       await db
         .updateTable("tasks")
         .set({ tm_endpoint_address: "" })

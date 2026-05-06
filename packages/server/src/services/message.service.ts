@@ -23,7 +23,6 @@ import {
   opaquePayload,
   RecipientNotResolved,
   WriteFailed,
-  EndpointKindNotImplemented,
 } from "../network/network-send.js";
 import { type WebhookClient, signWebhookPayload } from "../adapters/webhook.js";
 import {
@@ -173,16 +172,21 @@ export class MessageService {
           senderAgentId,
         );
 
-        // Read archived/task/TM-address/task-status in one round-trip.
-        // LEFT JOIN returns null `task_id` for non-task conversations
-        // (broadcast-fallback path) and null `tm_endpoint_address` for
-        // task-bound conversations whose initiator never called
-        // `endpoints/registerTaskManager` — those fail closed below
-        // rather than silently bypassing the TM gate.
+        // Phase 9b consumer-migration (sub-issue #460 round 3 R12):
+        // INNER JOIN on `conversations` ⋈ `tasks`. The pre-R12 LEFT
+        // JOIN existed to support task-less conversations (null
+        // `task_id`) and unregistered TMs (null `tm_endpoint_address`).
+        // Both states retired: every conversation has a task at insert
+        // time (`conversations/create` auto-creates a default-TM-bound
+        // task; `tasks/createConversation` always populates `task_id`),
+        // and every task has a registered TM at insert time
+        // (`tasks/create` requires `tmEndpointAddress`). The schema-
+        // level NOT NULL constraints make the previous fail-closed
+        // null-branches structurally unreachable.
         const convOpt = yield* takeFirstOption(
           this.db
             .selectFrom("conversations as c")
-            .leftJoin("tasks as t", "t.id", "c.task_id")
+            .innerJoin("tasks as t", "t.id", "c.task_id")
             .select([
               "c.archived_at",
               "c.task_id",
@@ -230,76 +234,56 @@ export class MessageService {
           createdAt: createdAtIso,
         };
 
-        // Phase 9b TM-as-endpoint dispatch (plan §2.4.a). The branch
-        // structure is exhaustive over `(task_id, tm_endpoint_address,
-        // task_status)`:
+        // Phase 9b TM-as-endpoint dispatch (plan §2.4.a). Branch
+        // structure post round 3 R12 schema reframe:
         //
-        //   1. `task_id === null` (non-task conversation) — broadcast
-        //      fallback fires; no TM gate. Phase 10 (Slice G2) deletes
-        //      Broadcaster and migrates these too.
-        //   2. `task_id !== null && tm_endpoint_address === null` — task
-        //      whose initiator never called `endpoints/registerTaskManager`.
-        //      Fail closed with `HookBlocked` rather than silently
-        //      bypassing the TM gate (codex HIGH-2).
-        //   3. `task_id !== null && tm_endpoint_address !== null &&
-        //      task.status ∈ {closed, failed}` — closed-task surviving
-        //      TM address (`tasks.close` does not clear the column).
-        //      Fail closed with `TaskClosed` (codex HIGH-3).
-        //   4. `task_id !== null && tm_endpoint_address !== null &&
-        //      task.status ∈ {waiting, active}` — fire-and-forget the
+        //   1. `task.status ∈ {closed, failed}` — closed-task fails
+        //      closed with `TaskClosed`. The `tasks.close` mutation
+        //      doesn't drop the row; status alone is the gate.
+        //   2. `task.status ∈ {waiting, active}` — fire-and-forget the
         //      message frame to the TM via `network.send` per §1.3.
-        //      `DeliveryError` lifts to `RpcFailure` (preserves the
-        //      `apps/onBeforeMessageDelivery → block: true → HookBlocked`
-        //      wire shape). A malformed `tm_endpoint_address` row
-        //      (corruption guard) surfaces as `InternalError`.
+        //      `DeliveryError` lifts to `RpcFailure(HookBlocked)`.
+        //
+        // The pre-R12 branches for `task_id IS NULL` (non-task
+        // conversation) and `tm_endpoint_address IS NULL` (task without
+        // registered TM) retired: NOT NULL constraints + the INNER
+        // JOIN above make them structurally unreachable. The only way
+        // to land here without a row is if `c.id` does not exist, in
+        // which case `requireParticipant` rejected earlier; the INNER
+        // JOIN's no-row branch is dead.
         //
         // Phase 9b scope boundary: `network.send` is one-way per §1.3
         // ("ALWAYS through `network.send` — no short-circuit"). The TM
         // observes the message and acts via CRUD; the
-        // `block/patch/feedback` admission shape (deleted
-        // `apps/onBeforeMessageDelivery`) does NOT round-trip through
-        // `network.send`. Phase 11 (arena cutover) is the natural seam
-        // to introduce an awaitable TM-side verdict RPC if needed.
-        const taskId = Option.isSome(convOpt) ? convOpt.value.task_id : null;
-        const rawTmAddr = Option.isSome(convOpt)
-          ? convOpt.value.tm_endpoint_address
-          : null;
-        const taskStatus = Option.isSome(convOpt)
-          ? convOpt.value.task_status
-          : null;
-
-        if (taskId !== null && !bypassTmRouting) {
-          if (rawTmAddr === null) {
-            // Branch 2: task without registered TM. Fail closed.
-            return yield* Effect.fail(
-              new RpcFailure({
-                code: ErrorCodes.HookBlocked,
-                message: "Task has no registered task manager",
-                data: { reason: "TaskWithoutTm", taskId },
-              }),
-            );
-          }
-          // Branch 3: task closed/failed. Fail closed.
-          if (taskStatus !== null && !taskStatusAcceptsMessages(taskStatus)) {
+        // `block/patch/feedback` admission shape retired with the
+        // deleted appCallback verbs. Phase 11 (arena cutover) is the
+        // natural seam to introduce an awaitable TM-side verdict RPC
+        // if a future contract demands it.
+        if (!bypassTmRouting && Option.isSome(convOpt)) {
+          const conv = convOpt.value;
+          if (!taskStatusAcceptsMessages(conv.task_status)) {
             return yield* Effect.fail(
               new RpcFailure({
                 code: ErrorCodes.TaskClosed,
-                message: `Task is ${taskStatus}`,
-                data: { reason: "TaskClosed", taskId, status: taskStatus },
+                message: `Task is ${conv.task_status}`,
+                data: {
+                  reason: "TaskClosed",
+                  taskId: conv.task_id,
+                  status: conv.task_status,
+                },
               }),
             );
           }
-          // Branch 4: TM-routed dispatch.
-          const tmAddr = yield* decodeTmEndpointAddress(rawTmAddr);
-          if (Option.isSome(tmAddr)) {
-            const tmFrame = notificationFrame(
-              MessageReceivedNotificationDefinition,
-              { message: provisionalMessage },
-            );
-            yield* this.networkSendService
-              .send(tmAddr.value, opaquePayload(JSON.stringify(tmFrame)))
-              .pipe(Effect.mapError(deliveryErrorToRpcFailure));
-          }
+          const tmAddr = yield* decodeTmEndpointAddress(
+            conv.tm_endpoint_address,
+          );
+          const tmFrame = notificationFrame(
+            MessageReceivedNotificationDefinition,
+            { message: provisionalMessage },
+          );
+          yield* this.networkSendService
+            .send(tmAddr, opaquePayload(JSON.stringify(tmFrame)))
+            .pipe(Effect.mapError(deliveryErrorToRpcFailure));
         }
 
         const { encrypted, iv, tag, dekVersion, kekVersion } =
@@ -800,22 +784,15 @@ function taskStatusAcceptsMessages(status: TaskStatus): boolean {
 }
 
 /**
- * Decode the raw `tasks.tm_endpoint_address` column into a branded
- * `EndpointAddress`. `Option.none()` means "no TM registered" (column
- * is null — legitimate state for non-TM tasks); a malformed non-null
+ * Decode the raw `tasks.tm_endpoint_address` column (NOT NULL post
+ * round 3 R12) into a branded `EndpointAddress`. A malformed non-null
  * row is data corruption and surfaces as `RpcFailure(InternalError)`
- * so the TM gate fails closed instead of silently falling back to the
- * broadcast path.
- *
- * `isEndpointAddress` is the protocol-side predicate; using it here
- * avoids the `Effect.try { brandEndpointAddress(...) }` exception
- * round-trip the brand factory's throwing form would force.
+ * so the TM gate fails closed instead of silently mis-routing.
  */
 function decodeTmEndpointAddress(
-  raw: string | null,
-): Effect.Effect<Option.Option<EndpointAddress>, RpcFailure> {
-  if (raw === null) return Effect.succeed(Option.none());
-  if (isEndpointAddress(raw)) return Effect.succeed(Option.some(raw));
+  raw: string,
+): Effect.Effect<EndpointAddress, RpcFailure> {
+  if (isEndpointAddress(raw)) return Effect.succeed(raw);
   return Effect.fail(
     internalError(`Malformed tm_endpoint_address in tasks row: ${raw}`),
   );
@@ -825,12 +802,11 @@ function decodeTmEndpointAddress(
  * Translate a `network.send` `DeliveryError` into a `messages/send`
  * `RpcFailure`. Phase 9b consumer-migration (sub-issue #460): replaces
  * the `apps/onBeforeMessageDelivery → block: true → HookBlocked` pathway.
- * `RecipientNotResolved` and `WriteFailed` map to `HookBlocked`
- * (recoverable: TM is offline or its socket failed). `EndpointKindNotImplemented`
- * is a config gap, surfaces as `InternalError`.
+ * Both `RecipientNotResolved` and `WriteFailed` map to `HookBlocked`
+ * (recoverable: TM is offline or its socket failed).
  */
 function deliveryErrorToRpcFailure(
-  err: RecipientNotResolved | WriteFailed | EndpointKindNotImplemented,
+  err: RecipientNotResolved | WriteFailed,
 ): RpcFailure {
   if (err instanceof RecipientNotResolved) {
     return new RpcFailure({
@@ -839,20 +815,13 @@ function deliveryErrorToRpcFailure(
       data: { reason: "RecipientNotResolved", to: String(err.to) },
     });
   }
-  if (err instanceof WriteFailed) {
-    return new RpcFailure({
-      code: ErrorCodes.HookBlocked,
-      message: "Task manager dispatch failed",
-      data: {
-        reason: "WriteFailed",
-        to: String(err.to),
-        cause: String(err.cause),
-      },
-    });
-  }
   return new RpcFailure({
-    code: ErrorCodes.InternalError,
-    message: "Task manager endpoint kind not implemented",
-    data: { reason: "EndpointKindNotImplemented", kind: err.kind },
+    code: ErrorCodes.HookBlocked,
+    message: "Task manager dispatch failed",
+    data: {
+      reason: "WriteFailed",
+      to: String(err.to),
+      cause: String(err.cause),
+    },
   });
 }

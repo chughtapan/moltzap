@@ -13,9 +13,11 @@ import {
   TasksStoreMessage,
   agentId as brandAgentId,
 } from "@moltzap/protocol";
+import { endpointAddress as brandEndpointAddress } from "@moltzap/protocol/network";
 import { defineTaskMethod } from "../../rpc/define-layered-method.js";
 import type { RpcMethodRegistry } from "../../rpc/context.js";
 import type { TaskService } from "../../services/task.service.js";
+import { invalidParams } from "../../runtime/index.js";
 
 export function createTaskHandlers(deps: {
   taskService: TaskService;
@@ -26,9 +28,23 @@ export function createTaskHandlers(deps: {
     defineTaskMethod(TasksCreate, {
       handler: (params, ctx) =>
         Effect.gen(function* () {
+          // Phase 9b consumer-migration (sub-issue #460 round 3 R13):
+          // brand the wire-string `tmEndpointAddress` at the boundary
+          // so the service receives a typed `EndpointAddress`. The
+          // brand predicate (`tm:<kind>:<uuid>`) is the same one
+          // `network.send` uses; a malformed input fails as
+          // `InvalidParams` here rather than at the SQL boundary.
+          const tmEndpointAddress = yield* Effect.try({
+            try: () => brandEndpointAddress(params.tmEndpointAddress),
+            catch: () =>
+              invalidParams(
+                "tmEndpointAddress must match `tm:<agent|app>:<uuid>`",
+              ),
+          });
           const task = yield* taskService.create(ctx.agentId, {
             appId: params.appId,
             invitedAgentIds: params.invitedAgentIds,
+            tmEndpointAddress,
           });
           return { task };
         }),
