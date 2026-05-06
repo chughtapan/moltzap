@@ -1,5 +1,5 @@
 import type { Db } from "../db/client.js";
-import type { Message, Part } from "@moltzap/protocol";
+import type { Message, Part, TaskStatus } from "@moltzap/protocol";
 import {
   ErrorCodes,
   MessageReceivedNotificationDefinition,
@@ -8,12 +8,22 @@ import {
   messageId as protocolMessageId,
   notificationFrame,
 } from "@moltzap/protocol";
+import {
+  isEndpointAddress,
+  type EndpointAddress,
+} from "@moltzap/protocol/network";
 import { Duration, Effect, Fiber, Option, Schedule, Schema } from "effect";
 import { SqlError } from "@effect/sql/SqlError";
 import { RpcFailure, notFound, internalError } from "../runtime/index.js";
 import { nextSnowflakeId } from "../db/snowflake.js";
 import type { ConversationService } from "./conversation.service.js";
 import type { Broadcaster } from "../ws/broadcaster.js";
+import type { NetworkSendService } from "../network/network-send.js";
+import {
+  opaquePayload,
+  RecipientNotResolved,
+  WriteFailed,
+} from "../network/network-send.js";
 import { type WebhookClient, signWebhookPayload } from "../adapters/webhook.js";
 import {
   type EnvelopeEncryption,
@@ -27,7 +37,6 @@ import {
 } from "../crypto/serialization.js";
 import { sql } from "kysely";
 import type { MessageRow } from "../db/database.js";
-import type { AppHost } from "../app/app-host.js";
 import type { TraceCapture } from "../runtime-surface/trace-capture.js";
 import {
   catchSqlErrorAsDefect,
@@ -40,8 +49,6 @@ function toBuf(v: Buffer | Uint8Array): Buffer {
   return Buffer.isBuffer(v) ? v : Buffer.from(v);
 }
 
-const PATCH_MIN_PARTS = 1;
-const PATCH_MAX_PARTS = 10;
 const DELIVERY_WEBHOOK_RETRY_BASE_SECONDS = 1;
 const DELIVERY_WEBHOOK_BACKOFF_FACTOR = 2;
 const DEFAULT_MESSAGE_HISTORY_LIMIT = 50;
@@ -66,6 +73,53 @@ export interface DeliveryWebhookConfig {
 const DELIVERY_WEBHOOK_TIMEOUT_MS = 5_000;
 const DELIVERY_WEBHOOK_MAX_ATTEMPTS = 3;
 
+/**
+ * Phase 9b consumer-migration (sub-issue #460, plan §2.4.a + §10.1 +
+ * §1.3): `messages/send` is the wire entry point that runs three
+ * structural checks against `(conversations ⋈ tasks)`, persists the
+ * message, then dispatches to the task's registered TM via
+ * `network.send` per the §1.3 in-process loopback policy ("ALWAYS
+ * through `network.send` — no short-circuit").
+ *
+ * Order (round 4 R17 — codex HIGH-B): DB insert FIRST, then
+ * `network.send`. Pre-R17 the order was reversed; if the insert failed
+ * (unique violation, encryption error, connection drop) the TM had
+ * already received a `messages/received` frame for a `messageId` that
+ * never landed in the server-of-truth. R17 swaps the order so the TM
+ * only ever observes message ids the DB committed.
+ *
+ * Branch table (exhaustive over `(task.status)` post round 3 R12 +
+ * round 4 R17):
+ *
+ *   `task.status ∈ {closed, failed}` → fail closed: TaskClosed (codex
+ *                                       HIGH-3); insert short-circuits.
+ *   `task.status ∈ {waiting, active}` → insert + broadcast. After the
+ *                                       insert lands, fire-and-forget
+ *                                       `network.send` to the TM.
+ *                                       DeliveryError lifts to
+ *                                       `RpcFailure(HookBlocked)` (TM
+ *                                       offline / write failed).
+ *
+ * The pre-R12 branches for `task_id IS NULL` (non-task conversation)
+ * and `tm_endpoint_address IS NULL` (task without registered TM)
+ * retired with the schema NOT NULL constraints; the INNER JOIN below
+ * makes them structurally unreachable.
+ *
+ * Phase 9b scope boundary: `network.send` is one-way per §1.3. The TM
+ * observes the message and acts via CRUD (e.g., `tasks/storeMessage`);
+ * the `block/patch/feedback` admission shape (deleted
+ * `apps/onBeforeMessageDelivery`) does NOT round-trip through
+ * `network.send`. Phase 11 (arena cutover) is the natural seam to
+ * introduce an awaitable TM-side verdict RPC. Today the failure
+ * channel covers only delivery liveness (TM unreachable) plus the
+ * `TaskClosed` structural gate — not application-level denial.
+ *
+ * The `bypassTmRouting` flag exists for the TM-authored insert path:
+ * `tasks/storeMessage` calls `MessageService.send` from the TM's own
+ * connection, and without the flag the resulting `messages/received`
+ * frame would route via `network.send` back to the TM's own socket
+ * (self-loop on every TM-authored insert; codex HIGH-1).
+ */
 export class MessageService {
   private deliveryWebhookFibers = new Set<
     Fiber.RuntimeFiber<unknown, unknown>
@@ -75,8 +129,8 @@ export class MessageService {
     private db: Db,
     private conversations: ConversationService,
     private broadcaster: Broadcaster,
+    private networkSendService: NetworkSendService,
     private encryption: EnvelopeEncryption | null,
-    private appHost: AppHost | null = null,
     private deliveryWebhook: DeliveryWebhookConfig | null = null,
     private webhookClient: WebhookClient | null = null,
     private traceCapture: TraceCapture | null = null,
@@ -94,24 +148,55 @@ export class MessageService {
     senderAgentId: string,
     replyToId?: string,
     excludeConnectionId?: string,
-    dispatchLeaseId?: string,
+    /**
+     * When `true`, skip the entire TM-routing branch (lookup, fail-closed
+     * checks, `network.send` dispatch). The TM-authored insert path
+     * (`tasks/storeMessage`) sets this so a TM calling its own CRUD does
+     * not re-emit a `MessageReceivedNotification` frame back to itself
+     * via `network.send` — that would self-loop on every TM-authored
+     * insert (codex HIGH-1).
+     */
+    bypassTmRouting = false,
   ): Effect.Effect<Message, RpcFailure> {
+    // Phase 9b consumer-migration (sub-issue #460, plan §2.4): the
+    // `dispatchLeaseId` parameter retired alongside the
+    // `apps/onBeforeMessageDelivery` hook that consumed it. The wire
+    // schema at `packages/protocol/src/task/methods/messages.ts` keeps
+    // `dispatchLeaseId` as an optional field (Phase 11 arena cutover
+    // will retire the field once arena's channel runtime stops minting
+    // it); the server-side `MessageService.send` no longer threads it.
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
-        let parts = inputParts;
+        const parts = inputParts;
         yield* this.conversations.requireParticipant(
           conversationId,
           senderAgentId,
         );
 
-        // Reject messages to archived conversations
-        const convOpt = yield* takeFirstOption(
+        // Phase 9b consumer-migration (sub-issue #460 round 3 R12 +
+        // round 4 R20): INNER JOIN on `conversations` ⋈ `tasks` is
+        // structurally total — every conversation has `task_id` NOT
+        // NULL and the FK to `tasks(id)` guarantees a row. The
+        // `requireParticipant` gate above already rejected when the
+        // conversation does not exist (no participant rows ⇒ FK to a
+        // missing conversation can't form). The remaining shape is
+        // "row exists" with a defined `task_status` and
+        // `tm_endpoint_address`; `takeFirstOrFail` enforces totality
+        // at the kysely seam so callers don't read through a vacuous
+        // `Option.isSome` guard.
+        const conv = yield* takeFirstOrFail(
           this.db
-            .selectFrom("conversations")
-            .select("archived_at")
-            .where("id", "=", conversationId),
+            .selectFrom("conversations as c")
+            .innerJoin("tasks as t", "t.id", "c.task_id")
+            .select([
+              "c.archived_at",
+              "c.task_id",
+              "t.tm_endpoint_address as tm_endpoint_address",
+              "t.status as task_status",
+            ])
+            .where("c.id", "=", conversationId),
         );
-        if (Option.isSome(convOpt) && convOpt.value.archived_at) {
+        if (conv.archived_at) {
           return yield* Effect.fail(
             new RpcFailure({
               code: ErrorCodes.ConversationArchived,
@@ -133,70 +218,33 @@ export class MessageService {
           }
         }
 
-        let patchedBy: string | undefined;
-        if (this.appHost) {
-          const hookResponse = yield* this.appHost.runBeforeMessageDelivery(
-            conversationId,
-            senderAgentId,
-            parts,
-            replyToId,
-            dispatchLeaseId,
+        // Phase 9b round 4 R17 (codex HIGH-B): the closed-task gate
+        // runs BEFORE the DB insert so a closed task short-circuits
+        // without a partial write. `task.status ∈ {closed, failed}`
+        // surfaces as `TaskClosed`; only the `{waiting, active}`
+        // branch falls through to insert + dispatch.
+        if (!bypassTmRouting && !taskStatusAcceptsMessages(conv.task_status)) {
+          return yield* Effect.fail(
+            new RpcFailure({
+              code: ErrorCodes.TaskClosed,
+              message: `Task is ${conv.task_status}`,
+              data: {
+                reason: "TaskClosed",
+                taskId: conv.task_id,
+                status: conv.task_status,
+              },
+            }),
           );
-          if (hookResponse?.result.block) {
-            const traceCapture = this.traceCapture;
-            if (traceCapture) {
-              yield* this.getTraceMessageMetadata(
-                conversationId,
-                senderAgentId,
-              ).pipe(
-                Effect.flatMap((traceMetadata) =>
-                  traceCapture.record({
-                    _tag: "HookBlocked",
-                    hookName: "before_message_delivery",
-                    conversationId,
-                    channelKey: traceMetadata.channelKey,
-                    senderAgentId,
-                    senderDisplayName: traceMetadata.senderDisplayName,
-                    reason: hookResponse.result.reason ?? "Blocked by app",
-                    parts,
-                    createdAt: new Date().toISOString(),
-                  }),
-                ),
-                Effect.catchAll(() => Effect.void),
-              );
-            }
-            return yield* Effect.fail(
-              new RpcFailure({
-                code: ErrorCodes.HookBlocked,
-                message: hookResponse.result.reason ?? "Blocked by app",
-                data: hookResponse.result.feedback
-                  ? { feedback: hookResponse.result.feedback }
-                  : undefined,
-              }),
-            );
-          }
-          if (hookResponse?.result.patch?.parts) {
-            const patched = hookResponse.result.patch.parts;
-            if (
-              patched.length >= PATCH_MIN_PARTS &&
-              patched.length <= PATCH_MAX_PARTS
-            ) {
-              parts = patched;
-              patchedBy = hookResponse.appId;
-            } else {
-              yield* Effect.logWarning(
-                "Hook returned invalid patch (must be 1-10 parts), ignoring patch",
-              ).pipe(
-                Effect.annotateLogs({
-                  appId: hookResponse.appId,
-                  patchLength: patched.length,
-                }),
-              );
-            }
-          }
         }
 
+        // Mint the message id here so the eventual DB row + the TM
+        // frame (dispatched after the insert lands) agree on `id`.
+        // `seq` is a server-internal monotonic ordering token, not
+        // part of the wire `Message` shape.
         const seq = nextSnowflakeId();
+        const messageIdValue = crypto.randomUUID();
+        const createdAtIso = new Date().toISOString();
+
         const { encrypted, iv, tag, dekVersion, kekVersion } =
           yield* this.encryptParts(conversationId, parts);
 
@@ -213,6 +261,7 @@ export class MessageService {
             this.db
               .insertInto("messages")
               .values({
+                id: messageIdValue,
                 conversation_id: conversationId,
                 sender_id: senderAgentId,
                 seq: seq.toString(),
@@ -222,6 +271,13 @@ export class MessageService {
                 parts_tag: tag,
                 dek_version: dekVersion,
                 kek_version: kekVersion,
+                // Persist the server-minted ISO timestamp so every
+                // downstream view (mapped Message, broadcaster frame,
+                // TM frame dispatched after the insert) agrees on
+                // `createdAt`. Without an explicit value here Postgres
+                // would default to its own `now()`, drifting from the
+                // wire `Message.createdAt`.
+                created_at: new Date(createdAtIso),
               })
               .returningAll()
               .executeTakeFirstOrThrow(),
@@ -229,7 +285,27 @@ export class MessageService {
             new SqlError({ cause, message: "insert messages failed" }),
         });
 
-        const message = this.mapMessage(row, parts, patchedBy);
+        const message = this.mapMessage(row, parts);
+
+        // Phase 9b round 4 R17 (codex HIGH-B): fire the TM-routed
+        // frame ONLY after the DB insert lands. Pre-R17 the order
+        // was reversed — if the insert failed (unique violation,
+        // encryption error, connection drop), the TM had already
+        // observed a `messages/received` frame for a `messageId`
+        // that never landed in the server-of-truth. Post-R17 the TM
+        // only observes ids the DB committed.
+        if (!bypassTmRouting) {
+          const tmAddr = yield* decodeTmEndpointAddress(
+            conv.tm_endpoint_address,
+          );
+          const tmFrame = notificationFrame(
+            MessageReceivedNotificationDefinition,
+            { message },
+          );
+          yield* this.networkSendService
+            .send(tmAddr, opaquePayload(JSON.stringify(tmFrame)))
+            .pipe(Effect.mapError(deliveryErrorToRpcFailure));
+        }
 
         const firstTextPart = parts.find((p) => p.type === "text");
 
@@ -648,11 +724,7 @@ export class MessageService {
     );
   }
 
-  private mapMessage(
-    row: MessageRow,
-    parts: Part[],
-    patchedBy?: string,
-  ): Message {
+  private mapMessage(row: MessageRow, parts: Part[]): Message {
     return {
       id: protocolMessageId(row.id),
       conversationId: protocolConversationId(row.conversation_id),
@@ -662,8 +734,73 @@ export class MessageService {
           ? undefined
           : protocolMessageId(row.reply_to_id),
       parts,
-      ...(patchedBy && { patchedBy }),
       createdAt: row.created_at.toISOString(),
     };
   }
+}
+
+/**
+ * Exhaustive predicate over `tasks.status`. Returns true iff the task
+ * is in a state that can still receive messages (`waiting | active`);
+ * `closed | failed` fail-closed via the `TaskClosed` RPC error. The
+ * `default: absurd(s)` arm forces every future addition to the
+ * `TaskStatus` enum (Postgres + protocol) to surface here as a
+ * compile error rather than silently falling through to "accept".
+ */
+function taskStatusAcceptsMessages(status: TaskStatus): boolean {
+  switch (status) {
+    case "waiting":
+    case "active":
+      return true;
+    case "closed":
+    case "failed":
+      return false;
+    default: {
+      const _absurd: never = status;
+      return _absurd;
+    }
+  }
+}
+
+/**
+ * Decode the raw `tasks.tm_endpoint_address` column (NOT NULL post
+ * round 3 R12) into a branded `EndpointAddress`. A malformed non-null
+ * row is data corruption and surfaces as `RpcFailure(InternalError)`
+ * so the TM gate fails closed instead of silently mis-routing.
+ */
+function decodeTmEndpointAddress(
+  raw: string,
+): Effect.Effect<EndpointAddress, RpcFailure> {
+  if (isEndpointAddress(raw)) return Effect.succeed(raw);
+  return Effect.fail(
+    internalError(`Malformed tm_endpoint_address in tasks row: ${raw}`),
+  );
+}
+
+/**
+ * Translate a `network.send` `DeliveryError` into a `messages/send`
+ * `RpcFailure`. Phase 9b consumer-migration (sub-issue #460): replaces
+ * the `apps/onBeforeMessageDelivery → block: true → HookBlocked` pathway.
+ * Both `RecipientNotResolved` and `WriteFailed` map to `HookBlocked`
+ * (recoverable: TM is offline or its socket failed).
+ */
+function deliveryErrorToRpcFailure(
+  err: RecipientNotResolved | WriteFailed,
+): RpcFailure {
+  if (err instanceof RecipientNotResolved) {
+    return new RpcFailure({
+      code: ErrorCodes.HookBlocked,
+      message: "Task manager is not reachable",
+      data: { reason: "RecipientNotResolved", to: String(err.to) },
+    });
+  }
+  return new RpcFailure({
+    code: ErrorCodes.HookBlocked,
+    message: "Task manager dispatch failed",
+    data: {
+      reason: "WriteFailed",
+      to: String(err.to),
+      cause: String(err.cause),
+    },
+  });
 }

@@ -8,8 +8,8 @@ import { join, dirname } from "node:path";
 import { Kind, type TSchema, type TProperties } from "@sinclair/typebox";
 import type { RpcDefinition } from "../packages/protocol/src/rpc.js";
 import {
-  appCallbackRpcMethods,
   rpcMethods,
+  taskCallbackRpcMethods,
 } from "../packages/protocol/src/rpc-registry.js";
 import type { NotificationDefinition } from "../packages/protocol/src/notification.js";
 import { notificationDefinitions } from "../packages/protocol/src/schema/notifications.js";
@@ -212,17 +212,9 @@ const methodDocs: Readonly<Record<string, MethodDocMeta>> = {
   "apps/authorizeDispatch": {
     description: "Authorize a dispatch through an app admission policy.",
   },
-  "apps/onBeforeDispatch": {
-    description: "App-callback RPC for before-dispatch admission.",
-  },
-  "apps/onBeforeMessageDelivery": {
-    description: "App-callback RPC for before-message-delivery admission.",
-  },
-  "apps/onSessionActive": {
-    description: "App-callback RPC fired when a session becomes active.",
-  },
-  "apps/onClose": {
-    description: "App-callback RPC fired when a session closes.",
+  "task/authorizeDispatch": {
+    description:
+      "Server→TM awaitable RPC. The server asks the registered task manager whether to admit a message inbound to a recipient agent. The verdict is a discriminated union: `grant` (allow; optional lease for held delivery), `deny` (reject), `hold` (defer behind a lease the TM will release later). Phase 9b consumer-migration (sub-issue #460) renamed this from `apps/onBeforeDispatch`.",
   },
   "system/ping": {
     description: "Liveness probe. Returns server timestamp.",
@@ -306,7 +298,7 @@ const orderedRpcDefinitions = protocolRpcDefinitions();
 function protocolRpcDefinitions(): readonly AnyRpcDocDefinition[] {
   const ordered = [
     ...rpcMethods,
-    ...appCallbackRpcMethods,
+    ...taskCallbackRpcMethods,
     ...Object.values(protocolSchema).filter(isRpcDefinition),
   ];
   const byName = new Map<string, AnyRpcDocDefinition>();

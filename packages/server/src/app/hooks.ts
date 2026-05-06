@@ -4,16 +4,19 @@ import { Schema } from "effect";
 
 type MessageIdValue = Static<typeof MessageId>;
 
-export interface BeforeMessageDeliveryContext {
-  conversationId: string;
-  sender: { agentId: string; ownerId: string };
-  message: { parts: Part[]; replyToId?: string; dispatchLeaseId?: string };
-  taskId: string;
-  appId: string;
-  signal: AbortSignal;
-}
-
-export interface BeforeDispatchContext {
+/**
+ * Phase 9b consumer-migration (sub-issue #460, plan §2.4): the legacy
+ * server-side hook surface (`BeforeMessageDeliveryContext`,
+ * `OnCloseContext`, `OnSessionActiveContext`, plus the matching `Hook`
+ * type aliases) was deleted with the wire RPCs `apps/onBeforeMessageDelivery`,
+ * `apps/onSessionActive`, `apps/onClose`. Only `task/authorizeDispatch`
+ * (renamed from `apps/onBeforeDispatch`) survives.
+ *
+ * The `BeforeDispatch*` names retire alongside the wire rename — the
+ * surviving server-side context type and hook alias are
+ * `TaskAuthorizeDispatchContext` and `TaskAuthorizeDispatchHook`.
+ */
+export interface TaskAuthorizeDispatchContext {
   conversationId: string;
   recipient: { agentId: string; ownerId: string };
   message: { id: string; senderAgentId: string; parts?: Part[] };
@@ -33,45 +36,6 @@ export interface BeforeDispatchContext {
   }>;
   signal: AbortSignal;
 }
-
-export interface HookResult {
-  block: boolean;
-  reason?: string;
-  patch?: { parts: Part[] };
-  feedback?: {
-    type: "error" | "warning" | "info";
-    content: Record<string, unknown>;
-    retry?: boolean;
-  };
-}
-
-/**
- * Typed `Part[]` schema. Server-core doesn't duplicate the canonical
- * `Part` schema (TypeBox, in @moltzap/protocol); we accept any array and
- * trust the message-send boundary to re-validate shape. `Schema.declare`
- * attaches the type witness via a runtime type-guard.
- */
-const PartArraySchema = Schema.declare(
-  (input: unknown): input is Part[] => Array.isArray(input),
-  { identifier: "PartArray" },
-);
-
-/** Wire schema for the `HookResult` RPC response from
- *  `apps/onBeforeMessageDelivery` (appCallback admission verb). Single-layer `as`
- *  reconciles effect-schema's encoded-type inference (which mirrors the
- *  Struct shape) with the caller's `Schema.Schema<_, unknown>` slot. */
-export const HookResultSchema = Schema.Struct({
-  block: Schema.Boolean,
-  reason: Schema.optional(Schema.String),
-  patch: Schema.optional(Schema.Struct({ parts: PartArraySchema })),
-  feedback: Schema.optional(
-    Schema.Struct({
-      type: Schema.Literal("error", "warning", "info"),
-      content: Schema.Record({ key: Schema.String, value: Schema.Unknown }),
-      retry: Schema.optional(Schema.Boolean),
-    }),
-  ),
-}) as Schema.Schema<HookResult, unknown>;
 
 export type DispatchAdmissionResult =
   | {
@@ -100,80 +64,30 @@ export const DispatchAdmissionResultSchema = Schema.Union(
   }),
 ) as Schema.Schema<DispatchAdmissionResult, unknown>;
 
-/** Fire-and-forget hooks (`on_close`, `on_session_active`) — any payload is ignored. */
-export const VoidHookSchema: Schema.Schema<void, unknown> = Schema.transform(
-  Schema.Unknown,
-  Schema.Void,
-  { decode: () => undefined, encode: () => undefined },
-);
-
 /**
- * Wire-envelope schema for `apps/onBeforeDispatch`. The reply arrives as
- * `{ admission: ... }`, not the bare verdict — the other appCallback verbs
- * either reply with `HookResult` directly (`onBeforeMessageDelivery` →
- * `HookResultSchema`) or an empty object (lifecycle hooks → `VoidHookSchema`).
- * Decoding at the RPC edge keeps AppHost's business logic typed
- * (Principle 2: schemas at boundaries, types inside).
+ * Wire-envelope schema for `task/authorizeDispatch`. The reply arrives as
+ * `{ admission: ... }`, not the bare verdict. Decoding at the RPC edge
+ * keeps AppHost's business logic typed (Principle 2: schemas at
+ * boundaries, types inside).
  */
-export const BeforeDispatchRpcResultSchema = Schema.Struct({
+export const TaskAuthorizeDispatchRpcResultSchema = Schema.Struct({
   admission: DispatchAdmissionResultSchema,
 }) as Schema.Schema<{ admission: DispatchAdmissionResult }, unknown>;
 
 /**
- * Module-level precompiled decoders. `Schema.decodeUnknown(schema)`
- * produces a fresh closure each call; lifting the decoders here means
+ * Module-level precompiled decoder. `Schema.decodeUnknown(schema)`
+ * produces a fresh closure each call; lifting the decoder here means
  * the per-dispatch hot path (`runRemoteHookEffect` → `decode`) reuses
- * one closure per verb. Mirrors the `config/loader.ts` pattern.
+ * one closure.
  */
-export const decodeBeforeDispatchRpcResult = Schema.decodeUnknown(
-  BeforeDispatchRpcResultSchema,
+export const decodeTaskAuthorizeDispatchRpcResult = Schema.decodeUnknown(
+  TaskAuthorizeDispatchRpcResultSchema,
 );
-export const decodeBeforeMessageDeliveryRpcResult =
-  Schema.decodeUnknown(HookResultSchema);
-export const decodeVoidRpcResult = Schema.decodeUnknown(VoidHookSchema);
 
-export type BeforeMessageDeliveryHook = (
-  ctx: BeforeMessageDeliveryContext,
-) => HookResult | Promise<HookResult>;
-
-export type BeforeDispatchHook = (
-  ctx: BeforeDispatchContext,
+export type TaskAuthorizeDispatchHook = (
+  ctx: TaskAuthorizeDispatchContext,
 ) => DispatchAdmissionResult | Promise<DispatchAdmissionResult>;
 
-export interface OnCloseContext {
-  taskId: string;
-  appId: string;
-  conversations: Record<string, string>;
-  closedBy: { agentId: string; ownerId: string };
-  signal: AbortSignal;
-}
-
-export type OnCloseHook = (ctx: OnCloseContext) => void | Promise<void>;
-
-export interface OnSessionActiveContext {
-  taskId: string;
-  appId: string;
-  conversations: Record<string, string>;
-  admittedAgentIds: string[];
-  signal: AbortSignal;
-}
-
-export type OnSessionActiveHook = (
-  ctx: OnSessionActiveContext,
-) => void | Promise<void>;
-
 export interface AppHooks {
-  beforeMessageDelivery?: BeforeMessageDeliveryHook;
-  beforeDispatch?: BeforeDispatchHook;
-  onClose?: OnCloseHook;
-  onSessionActive?: OnSessionActiveHook;
+  taskAuthorizeDispatch?: TaskAuthorizeDispatchHook;
 }
-
-// `AppRegistrationSource` and the `EffectXxxHook` aliases that early
-// drafts of B.3 exported here are intentionally absent. The architect
-// plan §3.4 names the discriminated-union type, but B.3's implementation
-// keeps the in-process / remote split as two private Maps inside
-// AppHost (the `hooks` Map and the `remoteRegistrations` Map) — there
-// is no consumer for the union outside that boundary, and an exported
-// public type without a consumer is debt. Phase 9's TM-topology rework
-// will own any new hook aliases the rebuilt dispatch path needs.

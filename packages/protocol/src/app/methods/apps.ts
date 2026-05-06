@@ -8,7 +8,7 @@ import {
 import { AppManifestSchema } from "../../schema/apps.js";
 import { PartSchema } from "../../schema/messages.js";
 import { LogicalClockSchema } from "../../schema/logical-clock.js";
-import { DateTimeString, stringEnum } from "../../helpers.js";
+import { DateTimeString } from "../../helpers.js";
 import { defineRpc } from "../../rpc.js";
 
 export const AppsRegister = defineRpc({
@@ -28,9 +28,17 @@ export const AppsRegister = defineRpc({
 });
 
 /**
- * Verdict from a `before_dispatch` admission handler. Discriminated by
- * `decision`: `grant` (allow; optional lease for held delivery), `deny`
- * (reject), `hold` (defer behind a lease the app will release later).
+ * Verdict from a `task/authorizeDispatch` admission round-trip.
+ * Discriminated by `decision`: `grant` (allow; optional lease for held
+ * delivery), `deny` (reject), `hold` (defer behind a lease the TM will
+ * release later).
+ *
+ * Phase 9b consumer-migration (sub-issue #460): the verdict shape stays
+ * frozen across the rename `apps/onBeforeDispatch → task/authorizeDispatch`
+ * because werewolf actively uses each variant for game-rule scheduling.
+ * Pre-rename, this schema lived alongside the deleted `before_dispatch`
+ * server-side framing; post-rename it is the receive-side TM-as-endpoint
+ * gate.
  */
 export const DispatchAdmissionDecisionSchema = Type.Union([
   Type.Object(
@@ -106,17 +114,23 @@ export const AppsAuthorizeDispatch = defineRpc({
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Admission + lifecycle RPC verbs.
+// task/authorizeDispatch — receive-side admission round-trip.
 //
-// All four appCallback verbs are AWAITABLE — `onSessionActive` / `onClose`
-// reply with an empty object so AppHost can `Deferred.await` and apply the
-// manifest hook timeout. They are NOT fire-and-forget. (Phase 7 cutover
-// removed the trigger paths; Phase 9 wires equivalents via TM topology.)
+// Phase 9b consumer-migration (sub-issue #460, plan §2.4 + §2.4.a):
+// renamed from the deleted `apps/onBeforeDispatch`. The wire RPC is still
+// server-initiated awaitable — server asks the recipient's TM whether to
+// admit the inbound message — but the framing drops the "before_dispatch"
+// hook vocabulary in favour of the TM-as-endpoint topology. Verdict shape
+// (`DispatchAdmissionDecisionSchema`) is preserved so werewolf's dispatch
+// state machine continues to work without arena-side changes (Phase 11
+// absorbs arena's submodule cutover).
 //
-// Verdict shapes mirror `packages/server/src/app/hooks.ts` verbatim — the
-// `DispatchAdmissionDecisionSchema` constant defined above (and reused here) is the
-// same union, and `HookResultSchema` matches `HookResult` field-for-field.
-// Adding a new verdict tag is a protocol change; do it in the spec, not here.
+// The other three pre-rename appCallback verbs (`apps/onBeforeMessageDelivery`,
+// `apps/onSessionActive`, `apps/onClose`) are deleted in Phase 9b (plan
+// §2.4): the TM's main message handler IS the gate now, and lifecycle
+// notifications (`task/admissionComplete`, `task/closed`) replace the
+// awaitable lifecycle hooks. The shared `appCallbackRpcMethods` group
+// retires; `taskCallbackRpcMethods` houses the renamed verb.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const HookSenderSchema = Type.Object(
@@ -127,42 +141,27 @@ const HookSenderSchema = Type.Object(
   { additionalProperties: false },
 );
 
-const HookFeedbackSchema = Type.Object(
+/**
+ * Lifecycle-agent schema reused by notifications carrying actor identity
+ * (`task/closed`'s `closedBy` field). Phase 9b consumer-migration
+ * (sub-issue #460): the lifecycle hook RPCs that originally introduced
+ * this shape (`apps/onClose`'s context) retired; the notification frame
+ * still carries the same shape, so the export survives.
+ */
+export const LifecycleAgentSchema = Type.Object(
   {
-    type: stringEnum(["error", "warning", "info"]),
-    content: Type.Record(Type.String(), Type.Unknown()),
-    retry: Type.Optional(Type.Boolean()),
+    agentId: AgentId,
+    ownerId: Type.String(),
   },
   { additionalProperties: false },
 );
 
 /**
- * Verdict from a `before_message_delivery` admission handler. `block: true`
- * drops the message; `block: false` allows. Optional `patch.parts` mutates
- * the recipient view; optional `feedback` emits an observability hook.
+ * Context passed to a `task/authorizeDispatch` admission round-trip.
+ * Mirrors the server-side `TaskAuthorizeDispatchContext` minus runtime-only
+ * fields (`signal`).
  */
-export const HookResultSchema = Type.Object(
-  {
-    block: Type.Boolean(),
-    reason: Type.Optional(Type.String()),
-    patch: Type.Optional(
-      Type.Object(
-        { parts: Type.Array(PartSchema, { minItems: 1, maxItems: 10 }) },
-        { additionalProperties: false },
-      ),
-    ),
-    feedback: Type.Optional(HookFeedbackSchema),
-  },
-  { additionalProperties: false },
-);
-
-export type HookResult = Static<typeof HookResultSchema>;
-
-/**
- * Context passed to a `before_dispatch` admission handler. Mirrors the
- * server-side `BeforeDispatchContext` minus runtime-only fields (`signal`).
- */
-export const BeforeDispatchContextSchema = Type.Object(
+export const TaskAuthorizeDispatchContextSchema = Type.Object(
   {
     taskId: TaskId,
     appId: Type.String(),
@@ -204,96 +203,15 @@ export const BeforeDispatchContextSchema = Type.Object(
   { additionalProperties: false },
 );
 
-export type BeforeDispatchContext = Static<typeof BeforeDispatchContextSchema>;
-
-/**
- * Context passed to a `before_message_delivery` admission handler.
- */
-export const BeforeMessageDeliveryContextSchema = Type.Object(
-  {
-    taskId: TaskId,
-    appId: Type.String(),
-    conversationId: ConversationId,
-    sender: HookSenderSchema,
-    message: Type.Object(
-      {
-        parts: Type.Array(PartSchema, { minItems: 1, maxItems: 10 }),
-        replyToId: Type.Optional(MessageId),
-        dispatchLeaseId: Type.Optional(Type.String()),
-      },
-      { additionalProperties: false },
-    ),
-  },
-  { additionalProperties: false },
-);
-
-export type BeforeMessageDeliveryContext = Static<
-  typeof BeforeMessageDeliveryContextSchema
+export type TaskAuthorizeDispatchContext = Static<
+  typeof TaskAuthorizeDispatchContextSchema
 >;
 
-export const LifecycleAgentSchema = Type.Object(
-  {
-    agentId: AgentId,
-    ownerId: Type.String(),
-  },
-  { additionalProperties: false },
-);
-
-/** Context passed to an `on_close` lifecycle handler. */
-export const OnCloseContextSchema = Type.Object(
-  {
-    taskId: TaskId,
-    appId: Type.String(),
-    conversations: Type.Record(Type.String(), Type.String()),
-    closedBy: LifecycleAgentSchema,
-  },
-  { additionalProperties: false },
-);
-
-export type OnCloseContext = Static<typeof OnCloseContextSchema>;
-
-/** Context passed to an `on_session_active` lifecycle handler. */
-export const OnSessionActiveContextSchema = Type.Object(
-  {
-    taskId: TaskId,
-    appId: Type.String(),
-    conversations: Type.Record(Type.String(), Type.String()),
-    admittedAgentIds: Type.Array(AgentId),
-  },
-  { additionalProperties: false },
-);
-
-export type OnSessionActiveContext = Static<
-  typeof OnSessionActiveContextSchema
->;
-
-/** Empty result envelope for awaitable-void appCallback hooks. The reply still
- *  round-trips so AppHost can `Deferred.await` and apply manifest timeout. */
-const VoidHookResultSchema = Type.Object({}, { additionalProperties: false });
-
-export const AppsOnBeforeDispatch = defineRpc({
-  name: "apps/onBeforeDispatch",
-  params: BeforeDispatchContextSchema,
+export const TaskAuthorizeDispatch = defineRpc({
+  name: "task/authorizeDispatch",
+  params: TaskAuthorizeDispatchContextSchema,
   result: Type.Object(
     { admission: DispatchAdmissionDecisionSchema },
     { additionalProperties: false },
   ),
-});
-
-export const AppsOnBeforeMessageDelivery = defineRpc({
-  name: "apps/onBeforeMessageDelivery",
-  params: BeforeMessageDeliveryContextSchema,
-  result: HookResultSchema,
-});
-
-export const AppsOnSessionActive = defineRpc({
-  name: "apps/onSessionActive",
-  params: OnSessionActiveContextSchema,
-  result: VoidHookResultSchema,
-});
-
-export const AppsOnClose = defineRpc({
-  name: "apps/onClose",
-  params: OnCloseContextSchema,
-  result: VoidHookResultSchema,
 });

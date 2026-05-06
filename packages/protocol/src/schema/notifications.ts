@@ -138,9 +138,10 @@ export const TaskClosedNotificationSchema = Type.Object(
   {
     taskId: TaskId,
     conversations: Type.Record(Type.String(), ConversationId),
-    // `closedBy` reuses the hook-context shape so the closer payload
-    // stays in lockstep across the wire (this notification + the
-    // surviving `apps/onClose` hook context).
+    // `closedBy` reuses {@link LifecycleAgentSchema} so the closer
+    // payload stays a single shape on the wire. Phase 9b retired the
+    // `apps/onClose` hook context that previously co-owned the schema;
+    // the schema is now uniquely owned by this notification.
     closedBy: LifecycleAgentSchema,
   },
   { additionalProperties: false },

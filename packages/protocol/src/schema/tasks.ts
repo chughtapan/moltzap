@@ -18,7 +18,11 @@ export const TaskSchema = Type.Object(
     appId: Type.Union([Type.String(), Type.Null()]),
     initiatorAgentId: AgentId,
     status: TaskStatusEnum,
-    tmEndpointAddress: Type.Union([Type.String(), Type.Null()]),
+    // Phase 9b consumer-migration (sub-issue #460 round 3 R12): NOT NULL
+    // by construction. `tasks/create` (R13) requires `tmEndpointAddress`
+    // at insert time; the schema-level constraint at
+    // `tasks.tm_endpoint_address` makes the null state unrepresentable.
+    tmEndpointAddress: Type.String({ minLength: 1 }),
     startedAt: Type.Union([DateTimeString, Type.Null()]),
     endedAt: Type.Union([DateTimeString, Type.Null()]),
     createdAt: DateTimeString,

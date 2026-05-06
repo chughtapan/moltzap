@@ -1,19 +1,13 @@
 import {
   agentId,
-  AppsOnBeforeDispatch,
-  AppsOnBeforeMessageDelivery,
-  AppsOnClose,
-  AppsOnSessionActive,
+  TaskAuthorizeDispatch,
   conversationId,
   jsonRpcStringId,
   messageId,
   taskId as makeTaskId,
   type Static,
 } from "@moltzap/protocol";
-import {
-  LIFECYCLE_CONVERSATION_SENTINEL,
-  type PartitionableRequest,
-} from "../app-callback-partition-key.js";
+import { type PartitionableRequest } from "../app-callback-partition-key.js";
 
 export const SESSION_A = makeTaskId("11111111-1111-4111-8111-111111111111");
 export const SESSION_B = makeTaskId("22222222-2222-4222-8222-222222222222");
@@ -29,10 +23,19 @@ export const conversationIdForIndex = (index: number) =>
     `33333333-3333-4333-8333-${index.toString().padStart(UUID_SUFFIX_WIDTH, "0")}`,
   );
 
-export function beforeDispatchParams(
+/**
+ * Phase 9b consumer-migration (sub-issue #460): the client-test fixtures
+ * for the deleted appCallback verbs (`apps/onBeforeMessageDelivery`,
+ * `apps/onSessionActive`, `apps/onClose`) retired. Only
+ * `task/authorizeDispatch` (renamed from `apps/onBeforeDispatch`) remains;
+ * its fixture keeps the same shape — the verdict union, the recipient
+ * envelope, the params layout — because werewolf's dispatch state
+ * machine consumes it unchanged.
+ */
+export function authorizeDispatchParams(
   taskId = SESSION_A,
   conv = CONV_X,
-): Static<typeof AppsOnBeforeDispatch.paramsSchema> {
+): Static<typeof TaskAuthorizeDispatch.paramsSchema> {
   return {
     taskId,
     appId: "test-app",
@@ -47,103 +50,16 @@ export function beforeDispatchParams(
   };
 }
 
-export function beforeDispatch(
+export function authorizeDispatch(
   id: string,
   taskId = SESSION_A,
   conv = CONV_X,
 ): PartitionableRequest {
-  const params = beforeDispatchParams(taskId, conv);
+  const params = authorizeDispatchParams(taskId, conv);
   return {
     id: jsonRpcStringId(id),
-    definition: AppsOnBeforeDispatch,
+    definition: TaskAuthorizeDispatch,
     params,
     partition: { taskId, conversationId: conv },
   };
 }
-
-export function beforeMessageDeliveryParams(
-  taskId = SESSION_A,
-  conv = CONV_X,
-): Static<typeof AppsOnBeforeMessageDelivery.paramsSchema> {
-  return {
-    taskId,
-    appId: "test-app",
-    conversationId: conv,
-    sender: { agentId: AGENT_A, ownerId: "owner-a" },
-    message: { parts: [{ type: "text", text: "hello" }] },
-  };
-}
-
-export function beforeMessageDelivery(
-  id: string,
-  taskId = SESSION_A,
-  conv = CONV_X,
-): PartitionableRequest {
-  const params = beforeMessageDeliveryParams(taskId, conv);
-  return {
-    id: jsonRpcStringId(id),
-    definition: AppsOnBeforeMessageDelivery,
-    params,
-    partition: { taskId, conversationId: conv },
-  };
-}
-
-export function onCloseParams(
-  taskId = SESSION_A,
-): Static<typeof AppsOnClose.paramsSchema> {
-  return {
-    taskId,
-    appId: "test-app",
-    conversations: { main: CONV_X },
-    closedBy: { agentId: AGENT_A, ownerId: "owner-a" },
-  };
-}
-
-export function onClose(id: string, taskId = SESSION_A): PartitionableRequest {
-  return {
-    id: jsonRpcStringId(id),
-    definition: AppsOnClose,
-    params: onCloseParams(taskId),
-    partition: {
-      taskId,
-      conversationId: LIFECYCLE_CONVERSATION_SENTINEL,
-    },
-  };
-}
-
-export function onSessionActiveParams(
-  taskId = SESSION_A,
-): Static<typeof AppsOnSessionActive.paramsSchema> {
-  return {
-    taskId,
-    appId: "test-app",
-    conversations: { main: CONV_X },
-    admittedAgentIds: [AGENT_A],
-  };
-}
-
-export function onSessionActive(
-  id: string,
-  taskId = SESSION_A,
-): PartitionableRequest {
-  return {
-    id: jsonRpcStringId(id),
-    definition: AppsOnSessionActive,
-    params: onSessionActiveParams(taskId),
-    partition: {
-      taskId,
-      conversationId: LIFECYCLE_CONVERSATION_SENTINEL,
-    },
-  };
-}
-
-export const lifecycleRequests = [
-  {
-    definition: AppsOnClose,
-    request: (id: string, taskId = SESSION_A) => onClose(id, taskId),
-  },
-  {
-    definition: AppsOnSessionActive,
-    request: (id: string, taskId = SESSION_A) => onSessionActive(id, taskId),
-  },
-] as const;

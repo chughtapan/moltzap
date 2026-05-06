@@ -1,19 +1,21 @@
 /**
- * Unit tests for the appCallback (server→client) RPC test surface on `TestClient`:
+ * Unit tests for the task-callback (server→client) RPC test surface on `TestClient`:
  *
  *   - `handleServerRpc(method, handler)` — registers a handler for a
  *     server-initiated request method.
  *   - `awaitServerRequest(method, predicate?, timeoutMs?)` — observes the
  *     inbound request payload (independent from handler dispatch).
  *
- * Implementation lives in `../test-client.ts`. Architect plan §3.6
- * (chughtapan/moltzap#286 comment-4356088436) covers acceptance for B.7.
+ * Phase 9b consumer-migration (sub-issue #460): the legacy `apps/onClose`,
+ * `apps/onSessionActive`, `apps/onBeforeMessageDelivery`, `apps/onBeforeDispatch`
+ * verbs retired. Only `task/authorizeDispatch` survives; every scenario
+ * uses it as the canonical server→client awaitable RPC.
  *
  * Pattern: spin up an in-process `@effect/platform-node` WebSocket server
- * that scripts the appCallback traffic the test wants. `autoConnect: false` skips
- * the auth/connect handshake — these tests exercise the appCallback machinery
- * directly without leaning on registered server-core verbs (which don't
- * exist yet in Phase 1.0; B.2 lands the first ones).
+ * that scripts the task-callback traffic the test wants. `autoConnect: false`
+ * skips the auth/connect handshake — these tests exercise the
+ * task-callback machinery directly without leaning on registered
+ * server-core verbs.
  */
 import { describe, it, expect } from "vitest";
 import { Cause, Deferred, Effect, Exit, Ref, Scope } from "effect";
@@ -25,30 +27,39 @@ import type { RequestFrame, ResponseFrame } from "../../schema/frames.js";
 import { requestFrame } from "../../helpers.js";
 import { jsonRpcStringId } from "../../schema/json-rpc.js";
 import { validators } from "../../validators.js";
-import type { AnyAppCallbackRpcDefinition } from "../../rpc-registry.js";
+import type { AnyTaskCallbackRpcDefinition } from "../../rpc-registry.js";
 import type { ParamsOf } from "../../rpc.js";
 
-import { AppsOnClose, AppsOnSessionActive } from "../../app/methods/apps.js";
-import { agentId, taskId as makeTaskId } from "../../schema/primitives.js";
+import { TaskAuthorizeDispatch } from "../../app/methods/apps.js";
+import {
+  agentId,
+  conversationId,
+  messageId,
+  taskId as makeTaskId,
+} from "../../schema/primitives.js";
 
 const TASK_ID = makeTaskId("550e8400-e29b-41d4-a716-446655440000");
 const APP_ID = "test-app";
-const AGENT_ID = agentId("550e8400-e29b-41d4-a716-446655440001");
-const LIFECYCLE_AGENT = { agentId: AGENT_ID, ownerId: "owner-1" };
-const CONVERSATIONS = {};
+const CONVERSATION_ID = conversationId("550e8400-e29b-41d4-a716-446655440001");
+const AGENT_ID = agentId("550e8400-e29b-41d4-a716-446655440002");
+const MESSAGE_ID = messageId("550e8400-e29b-41d4-a716-446655440003");
+const HOOK_AGENT = { agentId: AGENT_ID, ownerId: "owner-1" } as const;
 
-const onCloseParams = (taskId = TASK_ID) => ({
+const authorizeDispatchParams = (taskId = TASK_ID) => ({
   taskId,
   appId: APP_ID,
-  conversations: CONVERSATIONS,
-  closedBy: LIFECYCLE_AGENT,
+  conversationId: CONVERSATION_ID,
+  recipient: HOOK_AGENT,
+  message: {
+    id: MESSAGE_ID,
+    senderAgentId: AGENT_ID,
+    parts: [{ type: "text" as const, text: "hi" }],
+  },
+  attempt: 0,
 });
 
-const onSessionActiveParams = () => ({
-  taskId: TASK_ID,
-  appId: APP_ID,
-  conversations: CONVERSATIONS,
-  admittedAgentIds: [AGENT_ID],
+const grantResult = (): { admission: { decision: "grant" } } => ({
+  admission: { decision: "grant" },
 });
 
 interface ScriptedServerHandle {
@@ -57,8 +68,8 @@ interface ScriptedServerHandle {
   readonly send: (frame: unknown) => Effect.Effect<void>;
   /**
    * Resolve once the client opens the WS. Useful so a test can sequence
-   * "send appCallback" after the socket has come up but before any other
-   * traffic.
+   * "send task-callback" after the socket has come up but before any
+   * other traffic.
    */
   readonly connected: Effect.Effect<void>;
   /** All raw frames the server has received, in order. */
@@ -69,10 +80,10 @@ interface ScriptedServerHandle {
  * Bind a tiny WS server on `127.0.0.1:0` whose only job is to:
  *  - accept ONE inbound socket;
  *  - record every received frame on `received`;
- *  - expose `send` so the test scripts appCallback traffic.
+ *  - expose `send` so the test scripts task-callback traffic.
  *
- * The server is owned by the surrounding `Scope`; closing the scope shuts
- * it down. There is no auth/connect auto-reply — tests construct
+ * The server is owned by the surrounding `Scope`; closing the scope
+ * shuts it down. There is no auth/connect auto-reply — tests construct
  * TestClient with `autoConnect: false`.
  */
 const makeScriptedServer: Effect.Effect<
@@ -178,7 +189,7 @@ const findResponse = (
   return undefined;
 };
 
-const appCallbackRequest = <D extends AnyAppCallbackRpcDefinition>(
+const appCallbackRequest = <D extends AnyTaskCallbackRpcDefinition>(
   id: string,
   definition: D,
   params: ParamsOf<D>,
@@ -221,20 +232,24 @@ const waitForResponse = (
   });
 
 describe("TestClient — handleServerRpc", () => {
-  it("dispatches an inbound appCallback request to the registered handler and writes the response back", async () => {
+  it("dispatches an inbound task-callback request to the registered handler and writes the response back", async () => {
     await withClient((client, server) =>
       Effect.gen(function* () {
-        yield* client.handleServerRpc(AppsOnClose, (params) =>
+        yield* client.handleServerRpc(TaskAuthorizeDispatch, (params) =>
           Effect.sync(() => {
             expect(params.taskId).toBe(TASK_ID);
-            return {};
+            return grantResult();
           }),
         );
         yield* server.send(
-          appCallbackRequest("srv-1", AppsOnClose, onCloseParams()),
+          appCallbackRequest(
+            "srv-1",
+            TaskAuthorizeDispatch,
+            authorizeDispatchParams(),
+          ),
         );
         const reply = yield* waitForResponse(server, "srv-1");
-        expect(expectResponseResult(reply)).toEqual({});
+        expect(expectResponseResult(reply)).toEqual(grantResult());
       }),
     );
   });
@@ -242,10 +257,10 @@ describe("TestClient — handleServerRpc", () => {
   it("encodes a typed RpcResponseError from the handler as a `response` frame with `error`", async () => {
     await withClient((client, server) =>
       Effect.gen(function* () {
-        yield* client.handleServerRpc(AppsOnClose, () =>
+        yield* client.handleServerRpc(TaskAuthorizeDispatch, () =>
           Effect.fail(
             new RpcResponseError({
-              method: AppsOnClose.name,
+              method: TaskAuthorizeDispatch.name,
               requestId: "srv-2",
               code: -32099,
               message: "domain-rejected",
@@ -254,7 +269,11 @@ describe("TestClient — handleServerRpc", () => {
           ),
         );
         yield* server.send(
-          appCallbackRequest("srv-2", AppsOnClose, onCloseParams()),
+          appCallbackRequest(
+            "srv-2",
+            TaskAuthorizeDispatch,
+            authorizeDispatchParams(),
+          ),
         );
         const reply = yield* waitForResponse(server, "srv-2");
         const error = expectResponseError(reply);
@@ -271,14 +290,14 @@ describe("TestClient — handleServerRpc", () => {
         yield* server.send(
           appCallbackRequest(
             "srv-3",
-            AppsOnSessionActive,
-            onSessionActiveParams(),
+            TaskAuthorizeDispatch,
+            authorizeDispatchParams(),
           ),
         );
         const reply = yield* waitForResponse(server, "srv-3");
         const error = expectResponseError(reply);
         expect(error.code).toBe(-32601);
-        expect(error.message).toContain(AppsOnSessionActive.name);
+        expect(error.message).toContain(TaskAuthorizeDispatch.name);
       }),
     );
   });
@@ -291,13 +310,21 @@ describe("TestClient — handleServerRpc", () => {
         // `MoltZapWsClient.handleServerRpc`, which raises
         // `DuplicateServerRpcHandlerError`. Tests routinely swap handler
         // bodies mid-scenario.
-        yield* client.handleServerRpc(AppsOnClose, () => Effect.succeed({}));
-        yield* client.handleServerRpc(AppsOnClose, () => Effect.succeed({}));
+        yield* client.handleServerRpc(TaskAuthorizeDispatch, () =>
+          Effect.succeed(grantResult()),
+        );
+        yield* client.handleServerRpc(TaskAuthorizeDispatch, () =>
+          Effect.succeed(grantResult()),
+        );
         yield* server.send(
-          appCallbackRequest("srv-4", AppsOnClose, onCloseParams()),
+          appCallbackRequest(
+            "srv-4",
+            TaskAuthorizeDispatch,
+            authorizeDispatchParams(),
+          ),
         );
         const reply = yield* waitForResponse(server, "srv-4");
-        expect(expectResponseResult(reply)).toEqual({});
+        expect(expectResponseResult(reply)).toEqual(grantResult());
       }),
     );
   });
@@ -307,30 +334,34 @@ describe("TestClient — awaitServerRequest", () => {
   it("resolves with the inbound request params and runs the handler in parallel", async () => {
     await withClient((client, server) =>
       Effect.gen(function* () {
-        yield* client.handleServerRpc(AppsOnClose, (params) =>
+        yield* client.handleServerRpc(TaskAuthorizeDispatch, (params) =>
           Effect.sync(() => {
             expect(params.taskId).toBe(TASK_ID);
-            return {};
+            return grantResult();
           }),
         );
         // Set up the awaiter BEFORE sending the request — the awaiter
         // notification fires from `notifyAwaiters` during `handleInbound`,
         // which runs synchronously per inbound frame.
         const awaitFiber = yield* Effect.fork(
-          client.awaitServerRequest(AppsOnClose),
+          client.awaitServerRequest(TaskAuthorizeDispatch),
         );
         // Tiny yield so the awaiter has a chance to enrol.
         yield* Effect.sleep("10 millis");
         yield* server.send(
-          appCallbackRequest("srv-5", AppsOnClose, onCloseParams()),
+          appCallbackRequest(
+            "srv-5",
+            TaskAuthorizeDispatch,
+            authorizeDispatchParams(),
+          ),
         );
 
         const observed = yield* awaitFiber;
-        expect(observed).toEqual(onCloseParams());
+        expect(observed).toEqual(authorizeDispatchParams());
 
         // Handler still ran — server saw the response.
         const reply = yield* waitForResponse(server, "srv-5");
-        expect(expectResponseResult(reply)).toEqual({});
+        expect(expectResponseResult(reply)).toEqual(grantResult());
       }),
     );
   });
@@ -338,30 +369,35 @@ describe("TestClient — awaitServerRequest", () => {
   it("predicate selects the FIRST matching request and skips earlier non-matches", async () => {
     await withClient((client, server) =>
       Effect.gen(function* () {
-        yield* client.handleServerRpc(AppsOnClose, () => Effect.succeed({}));
-        // Predicate matches taskId === "WANTED".
+        yield* client.handleServerRpc(TaskAuthorizeDispatch, () =>
+          Effect.succeed(grantResult()),
+        );
+        const wantedTaskId = makeTaskId("550e8400-e29b-41d4-a716-446655440099");
+        // Predicate matches taskId === wantedTaskId.
         const awaitFiber = yield* Effect.fork(
           client.awaitServerRequest(
-            AppsOnClose,
-            (p) => p.taskId === "550e8400-e29b-41d4-a716-446655440099",
+            TaskAuthorizeDispatch,
+            (p) => p.taskId === wantedTaskId,
           ),
         );
         yield* Effect.sleep("10 millis");
         // Send a non-matching request first.
         yield* server.send(
-          appCallbackRequest("srv-skip", AppsOnClose, {
-            ...onCloseParams("550e8400-e29b-41d4-a716-446655440098"),
+          appCallbackRequest("srv-skip", TaskAuthorizeDispatch, {
+            ...authorizeDispatchParams(
+              makeTaskId("550e8400-e29b-41d4-a716-446655440098"),
+            ),
           }),
         );
         // Then the wanted one.
         yield* server.send(
-          appCallbackRequest("srv-want", AppsOnClose, {
-            ...onCloseParams("550e8400-e29b-41d4-a716-446655440099"),
+          appCallbackRequest("srv-want", TaskAuthorizeDispatch, {
+            ...authorizeDispatchParams(wantedTaskId),
           }),
         );
 
         const observed = yield* awaitFiber;
-        expect(observed.taskId).toBe("550e8400-e29b-41d4-a716-446655440099");
+        expect(observed.taskId).toBe(wantedTaskId);
       }),
     );
   });
@@ -369,10 +405,10 @@ describe("TestClient — awaitServerRequest", () => {
   it("times out with a typed Error after caller-supplied timeoutMs", async () => {
     const exit = await withClient((client) =>
       Effect.gen(function* () {
-        // Caller-controlled timeout. No appCallback request is ever sent — the
-        // awaiter must terminate by the timeout, not hang.
+        // Caller-controlled timeout. No task-callback request is ever
+        // sent — the awaiter must terminate by the timeout, not hang.
         return yield* Effect.exit(
-          client.awaitServerRequest(AppsOnClose, undefined, 50),
+          client.awaitServerRequest(TaskAuthorizeDispatch, undefined, 50),
         );
       }),
     );
@@ -382,7 +418,7 @@ describe("TestClient — awaitServerRequest", () => {
       expect(opt._tag).toBe("Some");
       if (opt._tag === "Some") {
         expect(opt.value).toBeInstanceOf(Error);
-        expect(opt.value.message).toMatch(/Timeout.*apps\/onClose/);
+        expect(opt.value.message).toMatch(/Timeout.*task\/authorizeDispatch/);
       }
     }
   });
@@ -395,12 +431,14 @@ describe("TestClient — awaitServerRequest", () => {
         // this as the supported pattern: "Effect.timeout at call site,
         // not schema cap."
         return yield* Effect.exit(
-          client.awaitServerRequest(AppsOnClose, undefined, 60_000).pipe(
-            Effect.timeoutFail({
-              duration: "30 millis",
-              onTimeout: () => new Error("call-site-timeout"),
-            }),
-          ),
+          client
+            .awaitServerRequest(TaskAuthorizeDispatch, undefined, 60_000)
+            .pipe(
+              Effect.timeoutFail({
+                duration: "30 millis",
+                onTimeout: () => new Error("call-site-timeout"),
+              }),
+            ),
         );
       }),
     );

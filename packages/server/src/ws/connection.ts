@@ -12,7 +12,7 @@ import {
   isJsonRpcStringId,
   jsonRpcStringId,
   requestFrame,
-  type AnyAppCallbackRpcDefinition,
+  type AnyTaskCallbackRpcDefinition,
   type JsonRpcMethod,
   type JsonRpcStringId,
   type ParamsOf,
@@ -25,6 +25,16 @@ import type { AuthenticatedContext } from "../rpc/context.js";
  * Tagged error channel for `sendRpcToClient`. Every public failure mode is
  * a discriminated tag — callers that ignore the channel's totality cannot
  * compile.
+ *
+ * Phase 9b consumer-migration (sub-issue #460) renamed the protocol-side
+ * `appCallbackRpcGroup` to `taskCallbackRpcGroup` after collapsing
+ * the appCallback verb set to a single member (`task/authorizeDispatch`).
+ * The server-internal `AppDisconnected` / `AppCallbackRpc*` error tags
+ * keep the legacy name on purpose: they describe the generic
+ * server→client awaitable-RPC pattern (the *transport*), not the
+ * protocol group identity. Renaming them would churn every call site
+ * for no semantic gain. Phase 11 (arena cutover) is the natural seam
+ * if the rename is ever justified.
  */
 export class AppDisconnected extends Data.TaggedError("AppDisconnected")<{
   readonly connectionId: string;
@@ -204,11 +214,13 @@ function nextAppCallbackRequestId(
  *
  * Caller controls timeout via `Effect.timeout` at the call site — there
  * is NO schema-level cap. Result decoding from `unknown` to a typed
- * verdict is the caller's responsibility (Phase 1.1 / B.2 narrows this
- * signature generically against `AppCallbackRpcMap` and folds decoding inside
- * the function).
+ * verdict happens inside this function: every call passes a typed
+ * `AnyTaskCallbackRpcDefinition` whose `validateResult` predicate
+ * narrows the response (Phase 9b consumer-migration; the legacy
+ * `AppCallbackRpcMap` indirection retired alongside the appCallback
+ * group rename).
  */
-export function sendRpcToClient<D extends AnyAppCallbackRpcDefinition>(
+export function sendRpcToClient<D extends AnyTaskCallbackRpcDefinition>(
   connection: MoltZapConnection,
   definition: D,
   params: ParamsOf<D>,

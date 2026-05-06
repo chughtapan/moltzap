@@ -1,13 +1,10 @@
 import { Effect } from "effect";
 import {
   validators,
-  type AnyAppCallbackRpcDefinition,
+  type AnyTaskCallbackRpcDefinition,
   type AnyNotificationDefinition,
-  AppsOnBeforeDispatch,
-  AppsOnBeforeMessageDelivery,
-  AppsOnClose,
-  AppsOnSessionActive,
-  appCallbackRpcGroup,
+  TaskAuthorizeDispatch,
+  taskCallbackRpcGroup,
   decodeRpcRequest,
   isDecodedRpcRequest,
   isJsonRpcStringId,
@@ -22,10 +19,7 @@ import {
   type UnknownDecodedNotification,
 } from "@moltzap/protocol";
 import { MalformedFrameError } from "./errors.js";
-import {
-  LIFECYCLE_CONVERSATION_SENTINEL,
-  type AppCallbackPartitionRoute,
-} from "../internal/app-callback-partition-key.js";
+import { type AppCallbackPartitionRoute } from "../internal/app-callback-partition-key.js";
 
 export type {
   DecodedNotification,
@@ -43,12 +37,17 @@ export interface DecodedResponse {
 }
 
 /**
- * Decoded server-initiated (appCallback) request frame. The client routes these to
- * its per-method handler registry; the server is the originator and awaits
- * a matching JSON-RPC response with the same id.
+ * Decoded server-initiated (taskCallback) request frame. The client
+ * routes these to its per-method handler registry; the server is the
+ * originator and awaits a matching JSON-RPC response with the same id.
+ *
+ * Phase 9b consumer-migration (sub-issue #460): the legacy "appCallback"
+ * group retired (3 deletions + the rename of `apps/onBeforeDispatch` →
+ * `task/authorizeDispatch`). The dispatch shape and routing remain
+ * unchanged; only the group name moved.
  */
 export type DecodedServerRequest<
-  D extends AnyAppCallbackRpcDefinition = AnyAppCallbackRpcDefinition,
+  D extends AnyTaskCallbackRpcDefinition = AnyTaskCallbackRpcDefinition,
 > = DecodedRpcRequest<D> & {
   readonly _tag: "ServerRequest";
   readonly partition: AppCallbackPartitionRoute;
@@ -79,7 +78,7 @@ const toDecodedFrame = (
   }
 
   if (validators.requestFrame(parsed)) {
-    return decodeRpcRequest(appCallbackRpcGroup, parsed).pipe(
+    return decodeRpcRequest(taskCallbackRpcGroup, parsed).pipe(
       Effect.mapError((cause) => new MalformedFrameError({ raw, cause })),
       Effect.flatMap((request) =>
         appCallbackPartitionRoute(request).pipe(
@@ -128,35 +127,18 @@ const toDecodedNotification = (
   return Effect.succeed(parsed as UnknownDecodedNotification);
 };
 
-const lifecycleRoute = (taskId: string): AppCallbackPartitionRoute => ({
-  taskId,
-  conversationId: LIFECYCLE_CONVERSATION_SENTINEL,
-});
-
 const appCallbackPartitionRoute = (
-  request: DecodedRpcRequest<AnyAppCallbackRpcDefinition>,
+  request: DecodedRpcRequest<AnyTaskCallbackRpcDefinition>,
 ): Effect.Effect<AppCallbackPartitionRoute, MalformedFrameError> => {
-  if (isDecodedRpcRequest(AppsOnBeforeDispatch, request)) {
+  if (isDecodedRpcRequest(TaskAuthorizeDispatch, request)) {
     return Effect.succeed({
       taskId: request.params.taskId,
       conversationId: request.params.conversationId,
     });
-  }
-  if (isDecodedRpcRequest(AppsOnBeforeMessageDelivery, request)) {
-    return Effect.succeed({
-      taskId: request.params.taskId,
-      conversationId: request.params.conversationId,
-    });
-  }
-  if (isDecodedRpcRequest(AppsOnSessionActive, request)) {
-    return Effect.succeed(lifecycleRoute(request.params.taskId));
-  }
-  if (isDecodedRpcRequest(AppsOnClose, request)) {
-    return Effect.succeed(lifecycleRoute(request.params.taskId));
   }
   return Effect.fail(
     new MalformedFrameError({
-      raw: "unroutable app-callback request descriptor",
+      raw: "unroutable task-callback request descriptor",
     }),
   );
 };

@@ -118,6 +118,15 @@ export class ConversationService {
     name: string | undefined,
     agentIds: string[],
     creatorAgentId: string,
+    /**
+     * Phase 9b consumer-migration (sub-issue #460 round 3 R12): the
+     * `conversations.task_id` column is NOT NULL. Every caller now
+     * supplies the task at insert time. Wire `conversations/create`
+     * pre-mints a default-TM-bound task; `tasks/createConversation`
+     * passes the existing task id; `messages/send`'s auto-DM path
+     * does the same. The pre-R12 post-insert UPDATE pattern retired.
+     */
+    taskId: string,
   ): Effect.Effect<Conversation, RpcFailure> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
@@ -201,6 +210,7 @@ export class ConversationService {
                   type,
                   name: name ?? null,
                   created_by_id: creatorAgentId,
+                  task_id: taskId,
                 })
                 .returningAll(),
             );
@@ -258,13 +268,19 @@ export class ConversationService {
   }
 
   /**
-   * Resolve an `agent:<name>` DM target and ensure a conversation exists.
-   * Used by `messages/send` when the caller supplies `to: "agent:<name>"`
-   * instead of a known conversationId.
+   * Resolve an `agent:<name>` DM target and ensure a conversation
+   * exists. Used by `messages/send` when the caller supplies
+   * `to: "agent:<name>"` instead of a known conversationId.
+   *
+   * Phase 9b consumer-migration (sub-issue #460 round 3 R12 + R14):
+   * `taskId` is required because the conversation's `task_id` column
+   * is NOT NULL. Caller is `messages.handlers.ts` which pre-creates a
+   * default-DM-TM-bound task before calling.
    */
   createDmByAgentName(
     agentName: string,
     creatorAgentId: string,
+    taskId: string,
   ): Effect.Effect<Conversation, RpcFailure> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
@@ -283,6 +299,7 @@ export class ConversationService {
           undefined,
           [target.value.id],
           creatorAgentId,
+          taskId,
         );
       }),
     );

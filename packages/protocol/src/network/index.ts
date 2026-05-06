@@ -4,4 +4,3 @@
 export * from "./actor-model.js";
 export * from "./methods/auth.js";
 export * from "./methods/system.js";
-export * from "./methods/endpoints.js";

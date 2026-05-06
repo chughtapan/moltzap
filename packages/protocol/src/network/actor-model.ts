@@ -41,9 +41,14 @@ export const agentId = (value: string): AgentId => AgentIdBrand(value);
  * A reachable address in the actor-model network.
  *
  * Stable across reconnects for registered task-manager endpoints (durable in
- * the `tasks.tm_endpoint_address` column). Volatile per-WS-connection for
- * agent endpoints, where the resolver holds a
- * `HashMap<AgentId, Set<EndpointAddress>>` multimap keyed by agent.
+ * the `tasks.tm_endpoint_address` column).
+ *
+ * Phase 9b consumer-migration (sub-issue #460 amendment): `EndpointAddress`
+ * is durable-only. Per-connection routing uses `ConnectionId` directly
+ * inside `AgentEndpointResolver`'s reverse index — the `agent-conn` kind
+ * that previously wrapped `connId` as an `EndpointAddress` was internal
+ * leakage (never appeared on the wire, never appeared in any DB column,
+ * never accepted from any client) and has been removed.
  */
 export type EndpointAddress = BrandedString<"EndpointAddress">;
 
@@ -51,29 +56,17 @@ export type EndpointAddress = BrandedString<"EndpointAddress">;
  * Endpoint kinds that may appear at the address prefix. Extending this list
  * is the single edit point for new endpoint kinds.
  *
- * Phase 9 (plan §2.4.a + Phase 8 codex deferral): `agent` carries the
- * durable agent-id form `tm:agent:<agentId>` minted by
+ * Phase 9b consumer-migration (sub-issue #460 amendment): the
+ * `agent-conn` kind retired. The volatile per-WebSocket-connection
+ * lookup primitive lives entirely inside `AgentEndpointResolver` keyed
+ * by `ConnectionId`; nothing on the wire serializes it. `agent` carries
+ * the durable agent-id form `tm:agent:<agentId>` minted by
  * {@link makeEndpointAddress} for task-manager registration (column
- * `tasks.tm_endpoint_address`). `agent-conn` carries the volatile
- * per-WebSocket-connection form `tm:agent-conn:<connId>` used by
- * `AgentEndpointResolver` to address one specific connection of an
- * authenticated agent. `app` is reserved for app-TM registrations the
- * Phase-9 topology dispatches via in-process loopback or real WS.
- *
- * The split exists because routing semantics differ — `agent` resolves
- * to "any connection of agentId" via the resolver's forward map, while
- * `agent-conn` resolves to exactly one connection via the reverse
- * index. Without distinct kinds, durable TM-routed `network.send`
- * collapses into the per-connection reverse lookup and silently fails
- * with `RecipientNotResolved` for any address whose tail is an agent id
- * rather than a connection id.
- *
- * Order matters: the longer prefix `agent-conn:` MUST appear before
- * `agent:` in the loops below so `startsWith("agent:")` does not
- * pre-empt the `agent-conn` match. The const tuple's declaration order
- * is the sole source of truth for that ordering.
+ * `tasks.tm_endpoint_address`). `app` is reserved for app-TM
+ * registrations the Phase-9 topology dispatches via in-process loopback
+ * or real WS.
  */
-export const ENDPOINT_ADDRESS_KINDS = ["agent-conn", "agent", "app"] as const;
+export const ENDPOINT_ADDRESS_KINDS = ["agent", "app"] as const;
 export type EndpointAddressKind = (typeof ENDPOINT_ADDRESS_KINDS)[number];
 
 /**
@@ -91,8 +84,6 @@ export const isEndpointAddress = (value: unknown): value is EndpointAddress => {
   if (typeof value !== "string") return false;
   if (!value.startsWith(ENDPOINT_ADDRESS_PREFIX)) return false;
   const rest = value.slice(ENDPOINT_ADDRESS_PREFIX.length);
-  // Walk in declaration order so `agent-conn:` is tried before `agent:`.
-  // See ENDPOINT_ADDRESS_KINDS doc for the longest-prefix invariant.
   for (const kind of ENDPOINT_ADDRESS_KINDS) {
     const kindPrefix = `${kind}:`;
     if (rest.startsWith(kindPrefix)) {
@@ -135,10 +126,6 @@ export const endpointAddressKind = (
 ): EndpointAddressKind => {
   const raw = address as string;
   const rest = raw.slice(ENDPOINT_ADDRESS_PREFIX.length);
-  // Walk in declaration order — `agent-conn:` must precede `agent:` so
-  // the longer prefix wins (a `tm:agent-conn:<uuid>` value would also
-  // satisfy `startsWith("agent:")` if `agent` came first, which would
-  // mis-classify the kind).
   for (const kind of ENDPOINT_ADDRESS_KINDS) {
     if (rest.startsWith(`${kind}:`)) return kind;
   }
@@ -168,13 +155,14 @@ export const makeEndpointAddress = (
  *
  * Disambiguation: this is the legacy registration-tag union used by
  * {@link EndpointRegistration}, NOT the address-prefix-driven
- * {@link EndpointAddressKind}. `EndpointAddressKind` (`"agent-conn"`,
- * `"agent"`, `"app"`) parses the wire-format `tm:<kind>:<uuid>` string;
- * `EndpointKind` here labels a registration record's discriminator.
+ * {@link EndpointAddressKind}. `EndpointAddressKind` (`"agent"`, `"app"`)
+ * parses the wire-format `tm:<kind>:<uuid>` string; `EndpointKind` here
+ * labels a registration record's discriminator.
  *
  * - `"agent"` — a registered agent-identity endpoint. The resolver
- *   multimap keys by `AgentId`; the matching wire address kinds are
- *   `agent-conn` (volatile per-WS) and `agent` (durable per-agent).
+ *   multimap keys by `AgentId`; the matching wire address kind is
+ *   `agent` (durable per-agent). Per-connection routing is internal to
+ *   the resolver and uses `ConnectionId` directly.
  * - `"taskManager"` — a registered TM endpoint, durable in the `tasks`
  *   row. Persists across the TM's reconnect window.
  *

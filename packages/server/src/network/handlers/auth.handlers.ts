@@ -14,7 +14,7 @@ import type { HelloOk, AgentCard } from "@moltzap/protocol";
 import type { ConnectionManager } from "../../ws/connection.js";
 import type { Db } from "../../db/client.js";
 import type { AgentEndpointResolver } from "../agent-endpoint-resolver.js";
-import { agentConnectionEndpointAddress } from "../agent-endpoint-resolver.js";
+import { connectionId as brandConnectionId } from "../agent-endpoint-resolver.js";
 import {
   PROTOCOL_VERSION,
   Connect,
@@ -62,11 +62,14 @@ export function createCoreAuthHandlers(deps: {
   presenceService: PresenceService;
   connections: ConnectionManager;
   /**
-   * Slice G1 multimap of `AgentId → Set<EndpointAddress>`. Populated on
+   * Slice G1 multimap of `AgentId → HashSet<ConnectionId>`. Populated on
    * successful `auth/connect` (this handler), cleared on socket close
    * (the WS finalizer in `app/server.ts`). The new `network.send`
    * outbound primitive routes through this resolver — see
-   * `network/network-send.ts` and plan §2.10/§2.11.
+   * `network/network-send.ts` and plan §2.10/§2.11. Phase 9b consumer-
+   * migration (sub-issue #460 amendment) collapsed the volatile
+   * `agent-conn` `EndpointAddress` wrapping into raw `ConnectionId`
+   * lookups; resolver mutators consume `ConnectionId` directly.
    */
   agentEndpointResolver: AgentEndpointResolver;
   db: Db;
@@ -165,8 +168,7 @@ export function createCoreAuthHandlers(deps: {
             if (deps.connections.get(connId)) {
               yield* deps.agentEndpointResolver.add(
                 auth.agentId,
-                agentConnectionEndpointAddress(connId),
-                connId,
+                brandConnectionId(connId),
               );
             }
 

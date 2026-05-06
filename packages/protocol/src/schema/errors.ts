@@ -24,7 +24,12 @@ export const ErrorCodes = {
   MaxParticipants: -32017,
   AgentNoOwner: -32018,
   HookBlocked: -32019,
-  SessionClosed: -32020,
+  // Phase 9b consumer-migration (sub-issue #460): `SessionClosed` retired
+  // alongside `apps/createSession` in Phase 7. The slot is repurposed as
+  // `TaskClosed` with the same code so existing client error-mapping code
+  // does not need to renumber. Phase 11 (arena cutover) is the natural
+  // seam if a wire-level deletion is ever justified.
+  TaskClosed: -32020,
   SessionNotFound: -32021,
   ConversationArchived: -32022,
 } as const;
