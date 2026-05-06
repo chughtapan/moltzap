@@ -136,4 +136,66 @@ describe("PresenceService", () => {
       "c-w2",
     ]);
   });
+
+  it("subscribe replaces the prior set — connId removed from agents not in the new set (#487)", () => {
+    const r = recordingSink();
+    const service = new PresenceService(r.sink);
+
+    service.subscribe("c-watcher", ["agent-a", "agent-b"]);
+    service.subscribe("c-watcher", ["agent-b", "agent-c"]);
+
+    expect([...service.getSubscribers("agent-a")]).toEqual([]);
+    expect([...service.getSubscribers("agent-b")]).toEqual(["c-watcher"]);
+    expect([...service.getSubscribers("agent-c")]).toEqual(["c-watcher"]);
+  });
+
+  it("subscribe replace-semantics does not disturb other connections' subscriptions (#487)", () => {
+    const r = recordingSink();
+    const service = new PresenceService(r.sink);
+
+    service.subscribe("c-w1", ["agent-a", "agent-b"]);
+    service.subscribe("c-w2", ["agent-a", "agent-b"]);
+    service.subscribe("c-w1", ["agent-b"]);
+
+    expect([...service.getSubscribers("agent-a")]).toEqual(["c-w2"]);
+    expect([...service.getSubscribers("agent-b")].sort()).toEqual([
+      "c-w1",
+      "c-w2",
+    ]);
+  });
+
+  it("subscribe([]) unsubscribes the connection from all agents (#487)", () => {
+    const r = recordingSink();
+    const service = new PresenceService(r.sink);
+
+    service.subscribe("c-watcher", ["agent-a", "agent-b", "agent-c"]);
+    service.subscribe("c-watcher", []);
+
+    expect([...service.getSubscribers("agent-a")]).toEqual([]);
+    expect([...service.getSubscribers("agent-b")]).toEqual([]);
+    expect([...service.getSubscribers("agent-c")]).toEqual([]);
+  });
+
+  it("subscribe is idempotent when the set is unchanged (#487)", () => {
+    const r = recordingSink();
+    const service = new PresenceService(r.sink);
+
+    service.subscribe("c-watcher", ["agent-a", "agent-b"]);
+    service.subscribe("c-watcher", ["agent-b", "agent-a"]);
+
+    expect([...service.getSubscribers("agent-a")]).toEqual(["c-watcher"]);
+    expect([...service.getSubscribers("agent-b")]).toEqual(["c-watcher"]);
+  });
+
+  it("subscribe after subscribe([]) re-establishes subscriptions cleanly (#487)", () => {
+    const r = recordingSink();
+    const service = new PresenceService(r.sink);
+
+    service.subscribe("c-watcher", ["agent-a"]);
+    service.subscribe("c-watcher", []);
+    service.subscribe("c-watcher", ["agent-b"]);
+
+    expect([...service.getSubscribers("agent-a")]).toEqual([]);
+    expect([...service.getSubscribers("agent-b")]).toEqual(["c-watcher"]);
+  });
 });
