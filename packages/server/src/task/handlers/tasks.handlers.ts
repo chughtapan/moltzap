@@ -12,12 +12,47 @@ import {
   TasksRemoveParticipant,
   TasksStoreMessage,
   agentId as brandAgentId,
+  type TmType,
 } from "@moltzap/protocol";
-import { endpointAddress as brandEndpointAddress } from "@moltzap/protocol/network";
+import { type EndpointAddress } from "@moltzap/protocol/network";
+import {
+  DEFAULT_DM_TM_ADDRESS,
+  DEFAULT_GROUP_TM_ADDRESS,
+} from "../../network/app-tm-registry.js";
+import { endpointAddressForAgent } from "../../services/task.service.js";
 import { defineTaskMethod } from "../../rpc/define-layered-method.js";
 import type { RpcMethodRegistry } from "../../rpc/context.js";
 import type { TaskService } from "../../services/task.service.js";
-import { invalidParams } from "../../runtime/index.js";
+import type { AgentId } from "../../app/types.js";
+
+/**
+ * Phase 9b consumer-migration (sub-issue #460 round 4 R16, codex
+ * HIGH-A): server-derived TM endpoint address. Pre-R16 the wire body
+ * accepted a caller-supplied `tmEndpointAddress: string`, letting an
+ * authenticated agent A bind a fresh task to a stranger B's TM and
+ * dispatch messages to B's WS without B's consent. R16 replaces the
+ * caller-supplied field with a `tmType` kind marker; the server
+ * resolves the address from the kind + the authenticated caller, so
+ * "self" always means the caller and the default kinds resolve to the
+ * in-process default-TM constants.
+ */
+function deriveTmEndpointAddress(
+  tmType: TmType,
+  callerAgentId: AgentId,
+): EndpointAddress {
+  switch (tmType) {
+    case "self":
+      return endpointAddressForAgent(callerAgentId);
+    case "default-dm":
+      return DEFAULT_DM_TM_ADDRESS;
+    case "default-group":
+      return DEFAULT_GROUP_TM_ADDRESS;
+    default: {
+      const _absurd: never = tmType;
+      return _absurd;
+    }
+  }
+}
 
 export function createTaskHandlers(deps: {
   taskService: TaskService;
@@ -28,19 +63,18 @@ export function createTaskHandlers(deps: {
     defineTaskMethod(TasksCreate, {
       handler: (params, ctx) =>
         Effect.gen(function* () {
-          // Phase 9b consumer-migration (sub-issue #460 round 3 R13):
-          // brand the wire-string `tmEndpointAddress` at the boundary
-          // so the service receives a typed `EndpointAddress`. The
-          // brand predicate (`tm:<kind>:<uuid>`) is the same one
-          // `network.send` uses; a malformed input fails as
-          // `InvalidParams` here rather than at the SQL boundary.
-          const tmEndpointAddress = yield* Effect.try({
-            try: () => brandEndpointAddress(params.tmEndpointAddress),
-            catch: () =>
-              invalidParams(
-                "tmEndpointAddress must match `tm:<agent|app>:<uuid>`",
-              ),
-          });
+          // Phase 9b consumer-migration (sub-issue #460 round 4 R16,
+          // codex HIGH-A): the wire body carries `tmType` (a kind
+          // marker), not a raw address. The handler derives the
+          // `tmEndpointAddress` from the kind + the authenticated
+          // caller. Pre-R16 a caller could pass `tm:agent:<stranger>`
+          // and bind the task to the stranger's TM — fixed at the
+          // wire boundary by removing the ability to name an
+          // arbitrary address.
+          const tmEndpointAddress = deriveTmEndpointAddress(
+            params.tmType,
+            ctx.agentId,
+          );
           const task = yield* taskService.create(ctx.agentId, {
             appId: params.appId,
             invitedAgentIds: params.invitedAgentIds,

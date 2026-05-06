@@ -151,6 +151,12 @@ CREATE TABLE tasks (
   -- two-step (`tasks/create` then `endpoints/registerTaskManager`)
   -- collapsed to one transaction; `endpoints/{,un}registerTaskManager`
   -- wire RPCs retired with the schema constraint.
+  --
+  -- Round 4 R18 (codex HIGH-C): the schema is greenfield. Pre-prod
+  -- deployments rebuild the DB on every deploy — there is no in-place
+  -- upgrade path for the NOT NULL flip and no migration script
+  -- accompanies it. Future production cutover (Phase 11+) needs an
+  -- explicit migration framework before this column can be backfilled.
   tm_endpoint_address TEXT NOT NULL,
   started_at TIMESTAMPTZ,
   ended_at TIMESTAMPTZ,
@@ -173,6 +179,9 @@ CREATE INDEX idx_task_participants_agent ON task_participants(agent_id);
 -- transaction as the conversation insert; the pre-R12 path that
 -- created task-less conversations retired alongside the broadcast
 -- fallback in `MessageService.send`.
+--
+-- Round 4 R18 (codex HIGH-C): greenfield schema. See the comment at
+-- `tasks.tm_endpoint_address` above — pre-prod rebuilds, no migration.
 ALTER TABLE conversations
   ADD COLUMN task_id UUID NOT NULL REFERENCES tasks(id);
 CREATE INDEX idx_conversations_task ON conversations(task_id);

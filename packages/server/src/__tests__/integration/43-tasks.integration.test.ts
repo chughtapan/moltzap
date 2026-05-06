@@ -110,31 +110,36 @@ function setupAliceAndBob(): Effect.Effect<
 }
 
 /**
- * Phase 9b consumer-migration (sub-issue #460 round 3 R13): atomic
- * `tasks/create` requires `tmEndpointAddress`. Custom-TM callers
- * (werewolf, this test) pass `tm:agent:<callerAgentId>` so the TM IS
- * the caller (matching the address `endpoints/registerTaskManager`
- * used to derive). The deleted `endpoints/*` wire RPCs no longer
- * appear in this suite.
+ * Phase 9b consumer-migration (sub-issue #460 round 4 R16, codex
+ * HIGH-A): the wire body carries `tmType` (a kind marker), not a raw
+ * address. Custom-TM callers pass `tmType: "self"` so the server
+ * derives `tm:agent:<callerAgentId>` from the authenticated caller —
+ * the pre-R16 hole where caller A could pass
+ * `tmEndpointAddress: "tm:agent:<B>"` is closed at the wire boundary.
+ * The server-derived address is what `endpoints/registerTaskManager`
+ * used to mint pre-R13.
  */
-function selfTmAddress(agentId: string): string {
+function expectSelfTmAddress(agentId: string): string {
   return `tm:agent:${agentId}`;
 }
 
-describe("tasks/* RPC end-to-end (Phase 6 + Phase 9b round 3)", () => {
+describe("tasks/* RPC end-to-end (Phase 6 + Phase 9b round 4)", () => {
   it.live(
-    "tasks/create returns a waiting task with the caller as initiator and the requested TM bound",
+    "tasks/create returns a waiting task with the caller as initiator and the server-derived self TM bound",
     () =>
       Effect.gen(function* () {
         const { aliceClient, aliceAgentId } = yield* setupAliceAndBob();
         const result = yield* aliceClient.sendRpc(TasksCreate, {
-          tmEndpointAddress: selfTmAddress(aliceAgentId),
+          tmType: "self",
         });
         expect(result.task.status).toBe("waiting");
         expect(result.task.initiatorAgentId).toBe(aliceAgentId);
-        // Phase 9b round 3 R12: NOT NULL by construction; the address
-        // matches the request.
-        expect(result.task.tmEndpointAddress).toBe(selfTmAddress(aliceAgentId));
+        // Phase 9b round 4 R16: server derives the address from
+        // ctx.agentId; matches the address the deleted
+        // `endpoints/registerTaskManager` used to derive.
+        expect(result.task.tmEndpointAddress).toBe(
+          expectSelfTmAddress(aliceAgentId),
+        );
       }),
   );
 
@@ -142,10 +147,9 @@ describe("tasks/* RPC end-to-end (Phase 6 + Phase 9b round 3)", () => {
     "tasks/get rejects callers who are neither initiator nor participant",
     () =>
       Effect.gen(function* () {
-        const { aliceClient, aliceAgentId, bobClient } =
-          yield* setupAliceAndBob();
+        const { aliceClient, bobClient } = yield* setupAliceAndBob();
         const created = yield* aliceClient.sendRpc(TasksCreate, {
-          tmEndpointAddress: selfTmAddress(aliceAgentId),
+          tmType: "self",
         });
         const result = yield* Effect.either(
           bobClient.sendRpc(TasksGet, { taskId: created.task.id }),
@@ -158,10 +162,10 @@ describe("tasks/* RPC end-to-end (Phase 6 + Phase 9b round 3)", () => {
     "TM authority: only the registered TM may close, addParticipant, removeParticipant",
     () =>
       Effect.gen(function* () {
-        const { aliceClient, aliceAgentId, bobClient, bobAgentId } =
+        const { aliceClient, bobClient, bobAgentId } =
           yield* setupAliceAndBob();
         const created = yield* aliceClient.sendRpc(TasksCreate, {
-          tmEndpointAddress: selfTmAddress(aliceAgentId),
+          tmType: "self",
         });
 
         // Bob (not the TM) cannot mutate.
@@ -207,13 +211,12 @@ describe("tasks/* RPC end-to-end (Phase 6 + Phase 9b round 3)", () => {
 
   it.live("tasks/list scopes results to caller-as-participant", () =>
     Effect.gen(function* () {
-      const { aliceClient, aliceAgentId, bobClient, bobAgentId } =
-        yield* setupAliceAndBob();
+      const { aliceClient, bobClient } = yield* setupAliceAndBob();
       const aliceTask = yield* aliceClient.sendRpc(TasksCreate, {
-        tmEndpointAddress: selfTmAddress(aliceAgentId),
+        tmType: "self",
       });
       yield* bobClient.sendRpc(TasksCreate, {
-        tmEndpointAddress: selfTmAddress(bobAgentId),
+        tmType: "self",
       });
 
       const aliceList = yield* aliceClient.sendRpc(TasksList, {});
@@ -223,21 +226,28 @@ describe("tasks/* RPC end-to-end (Phase 6 + Phase 9b round 3)", () => {
   );
 
   it.live(
-    "tasks/create rejects malformed tmEndpointAddress at the boundary",
+    "tasks/create cannot bind a stranger's TM (R16 codex HIGH-A guard)",
     () =>
-      // Phase 9b round 3 R13: the handler brand-decodes
-      // `tmEndpointAddress` via `endpointAddress(...)`; non-`tm:` shapes
-      // fail with `invalidParams`. Pins the schema-level minLength + the
-      // brand predicate together so a future tweak that loosens either
-      // doesn't silently let `tm://foreign/addr` through.
+      // Pre-R16 this scenario was the bug: caller A invokes
+      // `tasks/create({ tmEndpointAddress: "tm:agent:<B>" })` and the
+      // server happily wrote it. With `tmType` the wire body has no
+      // path for caller-supplied addresses; `"self"` always derives
+      // `tm:agent:<callerAgentId>`, never a stranger's id.
       Effect.gen(function* () {
-        const { aliceClient } = yield* setupAliceAndBob();
-        const denied = yield* Effect.either(
-          aliceClient.sendRpc(TasksCreate, {
-            tmEndpointAddress: "tm://foreign/addr",
-          }),
+        const { aliceClient, aliceAgentId, bobAgentId } =
+          yield* setupAliceAndBob();
+        const result = yield* aliceClient.sendRpc(TasksCreate, {
+          tmType: "self",
+        });
+        // The persisted address belongs to the caller, regardless of
+        // what bobAgentId looks like — there is no longer a wire
+        // affordance to name another agent.
+        expect(result.task.tmEndpointAddress).toBe(
+          expectSelfTmAddress(aliceAgentId),
         );
-        expect(Either.isLeft(denied)).toBe(true);
+        expect(result.task.tmEndpointAddress).not.toBe(
+          expectSelfTmAddress(bobAgentId),
+        );
       }),
   );
 });
