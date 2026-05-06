@@ -17,6 +17,10 @@ const EMPTY_SUBSCRIBERS: ReadonlySet<string> = new Set();
 export class PresenceService {
   private statuses = new Map<string, PresenceStatus>();
   private subscribers = new Map<string, Set<string>>();
+  // Per-connection record of which agentIds the connection is subscribed
+  // to. Tracked so `subscribe()` can replace the prior subscription set
+  // atomically without scanning every agent's subscriber set.
+  private connSubscriptions = new Map<string, Set<string>>();
 
   constructor(private readonly eventSink: PresenceEventSink) {}
 
@@ -49,14 +53,44 @@ export class PresenceService {
     }));
   }
 
+  /**
+   * Replace the connection's subscriber set with `agentIds`.
+   *
+   * Replace-semantics: after this call, `connId` appears in the subscriber
+   * set for EXACTLY the agents in `agentIds`, and ONLY those. Any agent
+   * `connId` was previously subscribed to but absent from `agentIds` has
+   * `connId` removed from its subscriber set. Pass an empty array to
+   * unsubscribe from all (functionally an unsubscribe-all). Long-running
+   * clients that re-evaluate their watch set per iteration can call this
+   * idempotently without leaking fan-out across the union of past sets.
+   */
   subscribe(connId: string, agentIds: ReadonlyArray<string>): void {
-    for (const agentId of agentIds) {
+    const next = new Set(agentIds);
+    const prev = this.connSubscriptions.get(connId);
+
+    // Remove connId from agents the connection no longer watches.
+    if (prev) {
+      for (const agentId of prev) {
+        if (!next.has(agentId)) {
+          this.subscribers.get(agentId)?.delete(connId);
+        }
+      }
+    }
+
+    // Add connId to agents in the new set (idempotent if already present).
+    for (const agentId of next) {
       let subs = this.subscribers.get(agentId);
       if (!subs) {
         subs = new Set();
         this.subscribers.set(agentId, subs);
       }
       subs.add(connId);
+    }
+
+    if (next.size === 0) {
+      this.connSubscriptions.delete(connId);
+    } else {
+      this.connSubscriptions.set(connId, next);
     }
   }
 
@@ -68,6 +102,7 @@ export class PresenceService {
     for (const subs of this.subscribers.values()) {
       subs.delete(connId);
     }
+    this.connSubscriptions.delete(connId);
   }
 
   private transition(
