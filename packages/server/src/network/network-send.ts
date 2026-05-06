@@ -125,7 +125,6 @@ export class NetworkSendService {
    * - `excludeConnectionId` — skip the named connection. The
    *   `messages/send` author uses this to avoid echoing the RPC reply
    *   back as a notification.
-   * - `excludeAgentId` — skip every connection of one agent.
    *
    * `delivered` lists agents whose at-least-one connection was
    * scheduled to receive a write — drives the offline-recipient set
@@ -138,16 +137,13 @@ export class NetworkSendService {
     opts?: {
       readonly forConversation?: string;
       readonly excludeConnectionId?: string;
-      readonly excludeAgentId?: AgentId;
     },
   ): Effect.Effect<{ readonly delivered: readonly AgentId[] }, never, never> {
     return Effect.gen(this, function* () {
       const forConversation = opts?.forConversation;
       const excludeConnectionId = opts?.excludeConnectionId;
-      const excludeAgentId = opts?.excludeAgentId;
       const delivered: AgentId[] = [];
       for (const target of agentIds) {
-        if (excludeAgentId !== undefined && target === excludeAgentId) continue;
         const connIds = yield* this.resolver.resolveAll(target);
         let agentReached = false;
         for (const cid of HashSet.values(connIds)) {
