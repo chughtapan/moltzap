@@ -21,11 +21,6 @@ import { Cause, Effect, Exit } from "effect";
 import { ErrorCodes } from "@moltzap/protocol";
 import { RpcFailure } from "../runtime/index.js";
 import type { Kysely } from "kysely";
-import { KyselyPGlite } from "kysely-pglite";
-import { readFileSync } from "node:fs";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-import { makeEffectKysely } from "../db/effect-kysely-toolkit.js";
 import type { Database } from "../db/database.js";
 import { AuthService } from "./auth.service.js";
 import { ConversationService } from "./conversation.service.js";
@@ -38,31 +33,19 @@ import {
 import { HashMap, Ref } from "effect";
 import type { AuthenticatedContext } from "../rpc/context.js";
 import type { AgentId } from "../app/types.js";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const schema = readFileSync(
-  join(__dirname, "..", "app", "core-schema.sql"),
-  "utf-8",
-);
-const dbHookTimeoutMs = 30_000;
+import {
+  makePgliteHarness,
+  PGLITE_HOOK_TIMEOUT_MS,
+  type PgliteHarness,
+} from "../test-utils/index.js";
 
 // Track the PGlite client between tests so we can reset state cleanly.
+let harness: PgliteHarness | undefined;
 let db: Kysely<Database>;
-let pglite: {
-  exec: (sql: string) => Promise<unknown>;
-  close: () => Promise<void>;
-};
 
 async function freshDb(): Promise<void> {
-  const kpg = await KyselyPGlite.create();
-  // kysely-pglite returns a typed client that exposes a wider interface than
-  // the handful of methods (exec/close) these tests need.
-  pglite = {
-    exec: (sql) => kpg.client.exec(sql),
-    close: () => kpg.client.close(),
-  };
-  db = makeEffectKysely<Database>({ dialect: kpg.dialect });
-  await pglite.exec(schema);
+  harness = await makePgliteHarness();
+  db = harness.db;
 }
 
 const noopWrite: MoltZapConnection["write"] = () => Effect.void;
@@ -181,9 +164,9 @@ function expectRpcFailure<A>(exit: Exit.Exit<A, RpcFailure>): RpcFailure {
 }
 
 describe("ConversationService.create auto-subscribes participants", () => {
-  beforeEach(freshDb, dbHookTimeoutMs);
+  beforeEach(freshDb, PGLITE_HOOK_TIMEOUT_MS);
   afterEach(async () => {
-    await pglite?.close();
+    await harness?.close();
   });
 
   it("subscribes creator + every participant agent's open connections", async () => {
@@ -259,9 +242,9 @@ describe("ConversationService.create auto-subscribes participants", () => {
 });
 
 describe("ConversationService.addParticipant auto-subscribes the new member", () => {
-  beforeEach(freshDb, dbHookTimeoutMs);
+  beforeEach(freshDb, PGLITE_HOOK_TIMEOUT_MS);
   afterEach(async () => {
-    await pglite?.close();
+    await harness?.close();
   });
 
   it("subscribes the new participant's open sockets to the existing conversation", async () => {
@@ -327,9 +310,9 @@ describe("ConversationService.addParticipant auto-subscribes the new member", ()
  * so the agent ended up with a "live" DM id it could never write to.
  */
 describe("ConversationService.create — archived DM lookup (issue #372)", () => {
-  beforeEach(freshDb, dbHookTimeoutMs);
+  beforeEach(freshDb, PGLITE_HOOK_TIMEOUT_MS);
   afterEach(async () => {
-    await pglite?.close();
+    await harness?.close();
   });
 
   it("does not reuse an archived DM — creates a fresh conversation instead", async () => {
@@ -388,9 +371,9 @@ describe("ConversationService.create — archived DM lookup (issue #372)", () =>
  * service boundary.
  */
 describe("ConversationService.create enforces contact policy on DMs", () => {
-  beforeEach(freshDb, dbHookTimeoutMs);
+  beforeEach(freshDb, PGLITE_HOOK_TIMEOUT_MS);
   afterEach(async () => {
-    await pglite?.close();
+    await harness?.close();
   });
 
   it("denies DM creation when owners are not in contact (NotInContacts)", async () => {
@@ -601,9 +584,9 @@ describe("ConversationService.create enforces contact policy on DMs", () => {
  * edge.
  */
 describe("ConversationService.create enforces contact policy on groups", () => {
-  beforeEach(freshDb, dbHookTimeoutMs);
+  beforeEach(freshDb, PGLITE_HOOK_TIMEOUT_MS);
   afterEach(async () => {
-    await pglite?.close();
+    await harness?.close();
   });
 
   it("denies group creation when ANY (creator, member) edge fails", async () => {
@@ -750,9 +733,9 @@ describe("ConversationService.create enforces contact policy on groups", () => {
  * — every (requester, member) edge must be allowed.
  */
 describe("ConversationService.addParticipant enforces contact policy", () => {
-  beforeEach(freshDb, dbHookTimeoutMs);
+  beforeEach(freshDb, PGLITE_HOOK_TIMEOUT_MS);
   afterEach(async () => {
-    await pglite?.close();
+    await harness?.close();
   });
 
   it("denies adding a participant when (requester, target) edge is denied", async () => {
@@ -906,9 +889,9 @@ describe("ConversationService.addParticipant enforces contact policy", () => {
  * fails loudly.
  */
 describe("ConversationService.addParticipant rejects DM conversations", () => {
-  beforeEach(freshDb, dbHookTimeoutMs);
+  beforeEach(freshDb, PGLITE_HOOK_TIMEOUT_MS);
   afterEach(async () => {
-    await pglite?.close();
+    await harness?.close();
   });
 
   it("rejects addParticipant on a DM with InvalidParams; participants table unchanged", async () => {

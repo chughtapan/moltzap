@@ -23,6 +23,26 @@ export type UpsertAgentResult =
   | { agentId: AgentId; apiKey: string; rotated: boolean }
   | { _tag: typeof REGISTRATION_CONFLICT };
 
+/**
+ * Tags for `claimAgent`'s discriminated union. Error tags double as the
+ * wire-level `code` on the HTTP response so callers (and test
+ * assertions) reference one constant rather than maintaining parallel
+ * string namespaces.
+ */
+export const CLAIM_SUCCESS = "CLAIM_SUCCESS" as const;
+export const CLAIM_NOT_FOUND = "CLAIM_NOT_FOUND" as const;
+export const CLAIM_OWNER_MISMATCH = "CLAIM_OWNER_MISMATCH" as const;
+
+export type ClaimAgentResult =
+  | {
+      _tag: typeof CLAIM_SUCCESS;
+      agentId: AgentId;
+      ownerUserId: string;
+      alreadyClaimed: boolean;
+    }
+  | { _tag: typeof CLAIM_NOT_FOUND }
+  | { _tag: typeof CLAIM_OWNER_MISMATCH };
+
 export class AuthService {
   constructor(private db: Db) {}
 
@@ -33,10 +53,14 @@ export class AuthService {
      * validate the value upstream — this argument is treated as trusted.
      */
     ownerUserId?: string,
-  ): Effect.Effect<{ agentId: AgentId; apiKey: string }, never> {
+  ): Effect.Effect<
+    { agentId: AgentId; apiKey: string; claimToken: string },
+    never
+  > {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         const { apiKey, keyId, secretHash } = generateApiKey();
+        const claimToken = generateClaimToken();
 
         const result = yield* takeFirstOrFail(
           this.db
@@ -46,7 +70,7 @@ export class AuthService {
               description: params.description ?? null,
               api_key_id: keyId,
               api_key_secret_hash: secretHash,
-              claim_token: generateClaimToken(),
+              claim_token: claimToken,
               status: "active",
               owner_user_id: ownerUserId ?? null,
             })
@@ -60,7 +84,11 @@ export class AuthService {
           Effect.annotateLogs({ agentId, name: params.name }),
         );
 
-        return { agentId, apiKey };
+        // claimToken matches the `Register.result` protocol schema; it
+        // is the credential the `auth/claim` route accepts to bind
+        // `owner_user_id` (#486). Pre-#486 it had no consumer, so the
+        // implementation diverged from the schema by omitting it.
+        return { agentId, apiKey, claimToken };
       }),
     );
   }
@@ -131,6 +159,84 @@ export class AuthService {
         );
 
         return { agentId, apiKey, rotated };
+      }),
+    );
+  }
+
+  /**
+   * Bind an unclaimed agent to `ownerUserId`. The `claimToken` originates
+   * from a prior `auth/register` call and is the authentication for this
+   * mutation — only the holder of the token can claim. Idempotent: a
+   * repeat claim with the same `(claimToken, ownerUserId)` succeeds and
+   * returns the existing binding. A repeat claim with a different
+   * `ownerUserId` is rejected with `CLAIM_OWNER_MISMATCH` so the
+   * impersonation footgun (#486) cannot be reopened post-claim.
+   *
+   * Atomicity: the WHERE on `owner_user_id IS NULL` lets concurrent
+   * claims race safely — only one transaction's UPDATE binds the row;
+   * the other observes 0 affected rows and falls through to the SELECT
+   * branch where it can either succeed (idempotent re-claim by same
+   * owner) or be rejected as a conflict. Postgres row-locking
+   * serializes the writers; readers see committed state.
+   */
+  claimAgent(params: {
+    readonly claimToken: string;
+    readonly ownerUserId: string;
+  }): Effect.Effect<ClaimAgentResult, never> {
+    const { claimToken, ownerUserId } = params;
+    return catchSqlErrorAsDefect(
+      Effect.gen(this, function* () {
+        // First-claim path: bind owner_user_id only if currently NULL.
+        // RETURNING `id` so we can distinguish "row updated" from "no
+        // matching row" without a second SELECT round-trip on the happy
+        // path.
+        const updateRowOpt = yield* takeFirstOption(
+          this.db
+            .updateTable("agents")
+            .set({ owner_user_id: ownerUserId })
+            .where("claim_token", "=", claimToken)
+            .where("owner_user_id", "is", null)
+            .returning(["id"]),
+        );
+
+        if (Option.isSome(updateRowOpt)) {
+          const agentId = AgentId(updateRowOpt.value.id);
+          yield* Effect.logInfo("Agent claimed").pipe(
+            Effect.annotateLogs({ agentId, ownerUserId }),
+          );
+          return {
+            _tag: CLAIM_SUCCESS,
+            agentId,
+            ownerUserId,
+            alreadyClaimed: false,
+          } as const;
+        }
+
+        // No row updated: either the token is unknown (not-found) or the
+        // row is already claimed. Fall through to a SELECT to
+        // disambiguate.
+        const selectRowOpt = yield* takeFirstOption(
+          this.db
+            .selectFrom("agents")
+            .select(["id", "owner_user_id"])
+            .where("claim_token", "=", claimToken),
+        );
+
+        if (Option.isNone(selectRowOpt)) {
+          return { _tag: CLAIM_NOT_FOUND } as const;
+        }
+
+        const row = selectRowOpt.value;
+        if (row.owner_user_id === ownerUserId) {
+          // Idempotent re-claim by the same owner.
+          return {
+            _tag: CLAIM_SUCCESS,
+            agentId: AgentId(row.id),
+            ownerUserId,
+            alreadyClaimed: true,
+          } as const;
+        }
+        return { _tag: CLAIM_OWNER_MISMATCH } as const;
       }),
     );
   }

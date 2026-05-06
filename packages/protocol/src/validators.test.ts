@@ -4,6 +4,7 @@ import { validators } from "./validators.js";
 describe("validators", () => {
   it("has a validator for every RPC method", () => {
     expect(validators.registerParams).toBeDefined();
+    expect(validators.claimParams).toBeDefined();
     expect(validators.connectParams).toBeDefined();
     expect(validators.messagesSendParams).toBeDefined();
     expect(validators.contactsAddParams).toBeDefined();

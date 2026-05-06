@@ -2,41 +2,24 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Cause, Effect, Exit } from "effect";
 import { ErrorCodes, userId } from "@moltzap/protocol";
 import type { Kysely } from "kysely";
-import { KyselyPGlite } from "kysely-pglite";
-import { readFileSync } from "node:fs";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-import { makeEffectKysely } from "../db/effect-kysely-toolkit.js";
 import type { Database } from "../db/database.js";
 import { ContactsService } from "./contact.service.js";
 import { RpcFailure } from "../runtime/index.js";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const schema = readFileSync(
-  join(__dirname, "..", "app", "core-schema.sql"),
-  "utf-8",
-);
-const DB_HOOK_TIMEOUT_MS = 30_000;
+import {
+  makePgliteHarness,
+  PGLITE_HOOK_TIMEOUT_MS,
+  type PgliteHarness,
+} from "../test-utils/index.js";
 
 const ALICE = userId("00000000-0000-4000-8000-00000000a11c");
 const BOB = userId("00000000-0000-4000-8000-00000000b0b0");
 const CAROL = userId("00000000-0000-4000-8000-00000000ca20");
 
+// Compatibility alias so the body of the suite (which references
+// `db: Kysely<Database>` directly) keeps reading naturally after the
+// freshDb-to-harness migration.
+let harness: PgliteHarness;
 let db: Kysely<Database>;
-let pglite: {
-  exec: (sql: string) => Promise<unknown>;
-  close: () => Promise<void>;
-};
-
-async function freshDb(): Promise<void> {
-  const kpg = await KyselyPGlite.create();
-  pglite = {
-    exec: (sql) => kpg.client.exec(sql),
-    close: () => kpg.client.close(),
-  };
-  db = makeEffectKysely<Database>({ dialect: kpg.dialect });
-  await pglite.exec(schema);
-}
 
 function rpcFailureCode(exit: Exit.Exit<unknown, RpcFailure>): number | null {
   if (Exit.isSuccess(exit)) return null;
@@ -47,12 +30,13 @@ function rpcFailureCode(exit: Exit.Exit<unknown, RpcFailure>): number | null {
 
 describe("ContactsService", () => {
   beforeEach(async () => {
-    await freshDb();
-  }, DB_HOOK_TIMEOUT_MS);
+    harness = await makePgliteHarness();
+    db = harness.db;
+  }, PGLITE_HOOK_TIMEOUT_MS);
 
   afterEach(async () => {
-    await pglite.close();
-  }, DB_HOOK_TIMEOUT_MS);
+    await harness.close();
+  }, PGLITE_HOOK_TIMEOUT_MS);
 
   describe("add", () => {
     it("creates a pending contact", async () => {
