@@ -130,7 +130,6 @@ export {
   type EffectKysely,
 } from "./db/effect-kysely-toolkit.js";
 export { ConnectionManager } from "./ws/connection.js";
-export { Broadcaster } from "./ws/broadcaster.js";
 export { EnvelopeEncryption } from "./crypto/envelope.js";
 export { seedInitialKek } from "./crypto/key-rotation.js";
 export {

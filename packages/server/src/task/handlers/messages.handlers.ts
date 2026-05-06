@@ -81,12 +81,6 @@ export function createMessageHandlers(deps: {
             }
 
             const connId = yield* ConnIdTag;
-            // Phase 9b consumer-migration (sub-issue #460): the
-            // `dispatchLeaseId` field retired with the
-            // `apps/onBeforeMessageDelivery` hook deletion. The protocol
-            // schema keeps the optional field (Phase 11 arena cutover
-            // retires it on the wire); the server handler stops
-            // propagating it.
             const message = yield* deps.messageService.send(
               conversationId,
               params.parts,

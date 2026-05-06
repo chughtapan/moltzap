@@ -175,8 +175,8 @@ export function createCoreApp(config: CoreConfig): CoreApp {
 
   const {
     connections,
-    broadcaster,
     agentEndpointResolver,
+    networkSendService,
     authService,
     conversationService,
     contactService,
@@ -205,7 +205,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     ...createConversationHandlers({
       conversationService,
       taskService,
-      broadcaster,
+      networkSendService,
       connections,
     }),
     ...createMessageHandlers({
@@ -223,7 +223,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     ...createContactHandlers({
       contactService,
       authService,
-      broadcaster,
+      networkSendService,
     }),
     ...createTaskHandlers({
       taskService,
@@ -715,8 +715,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     onDisconnection(hook: DisconnectionHook) {
       disconnectionHooks.push(hook);
     },
-    broadcaster,
-    networkSendService: services.networkSendService,
+    networkSendService,
     traceCapture,
     connections,
     registerApp(manifest) {

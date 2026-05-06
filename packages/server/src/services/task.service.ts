@@ -443,22 +443,18 @@ export class TaskService {
         [...input.parts],
         input.senderAgentId,
         input.replyToId,
-        // No `excludeConnectionId` — the TM is the storeMessage caller
-        // but its connection is not the original sender's, so the
-        // broadcaster fans out normally.
+        // No connection-exclude — the TM is a participant and observes
+        // the message via the broadcast path.
         undefined,
-        // Bypass TM routing: this insert IS the TM acting on a message
-        // it already admitted. Without the flag, MessageService.send
-        // would re-emit a `messages/received` frame to the TM's own
-        // socket via `network.send` — a self-loop on every TM-authored
-        // store. Phase 9b codex HIGH-1.
+        // Bypass TM routing — this insert IS the TM acting on an
+        // already-admitted message; firing `network.send` back to the
+        // TM's own socket would self-loop.
         true,
       );
-      // Issue #465: the post-insert UPDATE retired now that
-      // `MessageService.send` stamps `task_id` from `conv.task_id` at
-      // insert time. The TM-authored path inherits the stamp because
-      // `requireConversationInTask` above already proved the
-      // conversation belongs to this task (`conv.task_id === id`).
+      // The post-insert UPDATE retired — `MessageService.send` stamps
+      // `task_id` from `conv.task_id` at insert time, and
+      // `requireConversationInTask` above already proved
+      // `conv.task_id === id`.
       return message;
     });
   }

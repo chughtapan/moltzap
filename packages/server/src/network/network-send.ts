@@ -2,48 +2,28 @@
  * `network.send(to: EndpointAddress, payload: OpaquePayload)
  *   → Effect<DeliveryAck, DeliveryError, never>`
  *
- * The outbound-routing primitive introduced in Slice G1 and extended in
- * Phase 9 (Slice C) with durable-agent + app-TM routing. Coexists with
- * the legacy {@link Broadcaster} until {@link Broadcaster} deletion in
- * Phase 10 (Slice G2).
+ * Outbound-routing primitive. Two collaborators: the
+ * {@link AgentEndpointResolver} for the durable `agent` lookup and the
+ * {@link ConnectionManager} for the writable socket; a Tag at
+ * `app/layers.ts` provides this composition.
  *
- * Plan: `docs/plans/layered-network-refactor-2026-05.md` §1.3 in-process
- * loopback policy, §2.4.a `messages/send` TM routing, §2.10 (Slice G1),
- * §2.11 (resolver constraint). Issue #426 acceptance + #427 acceptance
- * (Phase 8 codex deferral on namespace split). Phase 9b consumer-migration
- * (sub-issue #460 amendment) collapsed the `agent-conn` kind into a pure
- * `ConnectionId` lookup inside the resolver; this dispatch only carries
- * the durable-only `EndpointAddressKind` 2-tuple (`agent | app`).
+ * Endpoint kinds dispatched here (the brand at
+ * `packages/protocol/src/network/actor-model.ts` encodes the kind in
+ * the address prefix; the switch is exhaustive over
+ * {@link EndpointAddressKind}):
  *
- * Why a tagged service rather than a free function. The send path needs
- * exactly two collaborators — the {@link AgentEndpointResolver} for the
- * durable `agent` lookup, and the {@link ConnectionManager} for the
- * writable socket. The dual-DI requirement asks for a Tag the rest of the
- * server's `Layer` graph can provide. A class with a single method
- * composed from both collaborators is the smallest shape that satisfies
- * both.
+ * - `tm:agent:<agentId>` — durable per-agent address used by
+ *   `tasks.tm_endpoint_address` and for any consumer addressing an
+ *   agent by identity. Resolves via the resolver's forward map and
+ *   writes to one of the agent's live connections;
+ *   {@link RecipientNotResolved} when no socket holds the address.
+ * - `tm:app:<id>` — app-TM registrations dispatched through the
+ *   in-process {@link AppTmRegistry} (default DM / group TMs and any
+ *   future custom in-process TMs register handlers at boot);
+ *   {@link RecipientNotResolved} when no handler is registered.
  *
- * Endpoint kind handling (post Phase 9b agent-conn collapse):
- * - `tm:agent:<agentId>` — durable agent-id form, used for task-manager
- *   registration in `tasks.tm_endpoint_address` and for any consumer
- *   addressing an agent by identity. Resolves via the resolver's forward
- *   map (`resolveAll`) and writes to one of the agent's live connections.
- *   {@link RecipientNotResolved} when the agent has no live connection.
- *   Plan §1.3 in-process loopback policy: the same code path always runs,
- *   even when the durable address resolves to a connection in the same
- *   process.
- * - `tm:app:<id>` — app-TM registrations. Phase 9b consumer-migration
- *   (sub-issue #460 round 3 R14): dispatches through the in-process
- *   {@link AppTmRegistry}; default DM / group TMs and any future custom
- *   in-process TMs register handlers at boot, and `network.send` runs
- *   the handler on the server's Effect runtime. Plan §1.3 in-process
- *   loopback policy. {@link RecipientNotResolved} when no handler is
- *   registered.
- *
- * The brand at `packages/protocol/src/network/actor-model.ts` already
- * encodes the kind in the prefix. The send path parses the prefix once
- * and switches; the switch is exhaustive over `EndpointAddressKind`
- * (Phase 6 R3 pattern; `Match.exhaustive` over the 2-kind union).
+ * Same code path runs whether the resolved connection lives in this
+ * process or another (plan §1.3 in-process loopback policy).
  */
 import { Brand, Data, Effect, HashSet, Match } from "effect";
 import {
@@ -57,21 +37,14 @@ import type * as Socket from "@effect/platform/Socket";
 import { ConnectionManager } from "../ws/connection.js";
 import { AgentEndpointResolver } from "./agent-endpoint-resolver.js";
 import type { AppTmRegistry } from "./app-tm-registry.js";
+import { logger } from "../logger.js";
 
 /**
- * Branded raw-string payload. Opaque to the network: `network.send`
- * does not parse, transform, or validate the payload — it writes the
- * exact bytes to the recipient socket.
- *
- * Why opaque. The send primitive sits below the typed-RPC layer (which
- * encodes/decodes JSON-RPC frames). Callers serialize a frame to a string
- * (or any wire-encodable bytes-as-string) before crossing the boundary.
- * The brand prevents an unwitting caller from passing an arbitrary
- * `string` (e.g., a plain message body) where a wire frame is expected.
- *
- * Construction site: {@link opaquePayload}. The brand is nominal — there
- * is no shape predicate — because the only invariant `network.send` cares
- * about is "the caller intends this to be a wire-ready payload."
+ * Branded raw-string payload. The send primitive writes the exact
+ * bytes to the recipient socket — no parse, no transform, no validate.
+ * The nominal brand prevents an unwitting caller from passing an
+ * arbitrary `string` where a wire-ready frame is expected; construct
+ * via {@link opaquePayload}.
  */
 export type OpaquePayload = string & Brand.Brand<"OpaquePayload">;
 const OpaquePayloadBrand = Brand.nominal<OpaquePayload>();
@@ -84,52 +57,29 @@ export const opaquePayload = (raw: string): OpaquePayload =>
 // Result + error channel
 // ---------------------------------------------------------------------------
 
-/**
- * Acknowledges a successful write to the underlying socket.
- *
- * Carries the recipient address; no count field — Slice G1 only routes
- * single-recipient agent addresses, so a count would always be 1. When
- * Slice G2 (Phase 10) introduces multi-recipient sends, the right shape
- * is a list of delivered addresses, not a counter — added then with the
- * concrete need.
- */
+/** Successful single-recipient write. The fan-out variant
+ * {@link NetworkSendService.broadcast} returns the delivered agent ids
+ * in its success channel and absorbs `DeliveryError` cases. */
 export class DeliveryAck extends Data.TaggedClass("DeliveryAck")<{
   readonly to: EndpointAddress;
 }> {}
 
-/**
- * The recipient address has no live connection. Typical cause: the
- * recipient socket closed between resolver lookup and the `send` call.
- * Caller-recoverable — the right response is usually to drop or queue,
- * not retry.
- */
+/** Recipient address has no live connection. Caller-recoverable —
+ * usually drop or queue rather than retry. */
 export class RecipientNotResolved extends Data.TaggedError(
   "RecipientNotResolved",
 )<{
   readonly to: EndpointAddress;
 }> {}
 
-/**
- * The underlying socket write failed. Wraps the inner
- * {@link Socket.SocketError} so the caller can distinguish a write
- * failure from a resolution failure without re-running the lookup.
- *
- * Per the Phase 1B platform decision, the wire is `@effect/platform`
- * Socket; the cause type comes from there.
- */
+/** Socket write failed. The inner {@link Socket.SocketError} cause is
+ * preserved so the caller distinguishes a write failure from a
+ * resolution failure without re-running the lookup. */
 export class WriteFailed extends Data.TaggedError("WriteFailed")<{
   readonly to: EndpointAddress;
   readonly cause: Socket.SocketError;
 }> {}
 
-/**
- * Discriminated union of every failure mode `network.send` can produce.
- * Exhaustive at the call site via `_tag` matching (Phase 6 R3 pattern).
- *
- * Phase 9b consumer-migration (sub-issue #460 round 3 R14): the
- * `EndpointKindNotImplemented` tag retired alongside the `app`-kind
- * default — both `agent` and `app` now have concrete dispatch paths.
- */
 export type DeliveryError = RecipientNotResolved | WriteFailed;
 
 // ---------------------------------------------------------------------------
@@ -147,16 +97,8 @@ export class NetworkSendService {
     private readonly appTmRegistry: AppTmRegistry,
   ) {}
 
-  /**
-   * Route `payload` to the connection bound to `to`. Resolves the address
-   * kind once, dispatches per kind, and returns a {@link DeliveryAck} on
-   * success or a {@link DeliveryError} member on failure.
-   *
-   * The Effect's R parameter is `never`: the service holds its
-   * collaborators directly, so callers do not have to provide a
-   * {@link AgentEndpointResolver} / {@link ConnectionManager} via Context
-   * to invoke `send`.
-   */
+  /** Route `payload` to the connection bound to `to`. Dispatches by
+   * address kind. */
   send(
     to: EndpointAddress,
     payload: OpaquePayload,
@@ -170,20 +112,76 @@ export class NetworkSendService {
   }
 
   /**
-   * App-TM dispatch. `tm:app:<id>` addresses route through the in-
-   * process {@link AppTmRegistry}. Phase 9b consumer-migration
-   * (sub-issue #460 round 3 R14): default DM / group TMs and any
-   * future custom in-process TMs register handlers at boot;
-   * `network.send` looks them up here and runs the handler on the
-   * server's Effect runtime — no WebSocket round-trip, plan §1.3
-   * in-process loopback policy.
+   * Fan out `payload` across every live connection of every agent in
+   * `agentIds`. Per-CONNECTION (multi-tab agents receive one frame per
+   * live connection); writes are forked so a hung recipient does not
+   * extend the caller's RPC latency.
    *
-   * Failure cases:
-   * - no handler registered → {@link RecipientNotResolved}, matching
-   *   the agent-kind "no live connection" semantics.
-   * - handler errors are absorbed by the handler's `never` failure
-   *   channel (handlers must log + drop); they do not surface here.
+   * Filter options:
+   * - `forConversation` — apply the per-connection subscription gate
+   *   (`conn.conversationIds.has(...)`) and mute gate
+   *   (`!conn.mutedConversations.has(...)`); absent, every connection
+   *   of every listed agent receives.
+   * - `excludeConnectionId` — skip the named connection. The
+   *   `messages/send` author uses this to avoid echoing the RPC reply
+   *   back as a notification.
+   *
+   * `delivered` lists agents whose at-least-one connection was
+   * scheduled to receive a write — drives the offline-recipient set
+   * for `MessageService.send`'s delivery-webhook + trace-capture
+   * branches.
    */
+  broadcast(
+    agentIds: readonly AgentId[],
+    payload: OpaquePayload,
+    opts?: {
+      readonly forConversation?: string;
+      readonly excludeConnectionId?: string;
+    },
+  ): Effect.Effect<{ readonly delivered: readonly AgentId[] }, never, never> {
+    return Effect.gen(this, function* () {
+      const forConversation = opts?.forConversation;
+      const excludeConnectionId = opts?.excludeConnectionId;
+      const delivered: AgentId[] = [];
+      for (const target of agentIds) {
+        const connIds = yield* this.resolver.resolveAll(target);
+        let agentReached = false;
+        for (const cid of HashSet.values(connIds)) {
+          if (excludeConnectionId !== undefined && cid === excludeConnectionId)
+            continue;
+          const conn = this.connections.get(cid);
+          if (conn === undefined) continue;
+          if (conn.auth === null) continue;
+          if (forConversation !== undefined) {
+            if (!conn.conversationIds.has(forConversation)) continue;
+            if (conn.mutedConversations.has(forConversation)) continue;
+          }
+          // Fork-and-forget so a hung recipient does not block siblings
+          // or extend the caller's RPC latency.
+          Effect.runFork(
+            conn.write(payload).pipe(
+              Effect.catchAll((cause) =>
+                Effect.sync(() => {
+                  logger.warn(
+                    { connId: cid, cause: String(cause), forConversation },
+                    "broadcast: socket write failed",
+                  );
+                }),
+              ),
+            ),
+          );
+          agentReached = true;
+        }
+        if (agentReached) delivered.push(target);
+      }
+      return { delivered };
+    });
+  }
+
+  /** App-TM dispatch (`tm:app:<id>`) — routes through the in-process
+   * {@link AppTmRegistry}; no WebSocket round-trip.
+   * {@link RecipientNotResolved} when no handler is registered.
+   * Handler errors are absorbed inside the handler's `never` channel. */
   private sendToAppTm(
     to: EndpointAddress,
     payload: OpaquePayload,
@@ -198,29 +196,12 @@ export class NetworkSendService {
     });
   }
 
-  /**
-   * Durable-agent delivery. Phase 9 (plan §2.4.a): the
-   * `tm:agent:<agentId>` form is what task-manager registration writes
-   * into `tasks.tm_endpoint_address`. The address survives reconnects;
-   * resolution happens at send time via the resolver's forward map
-   * (`resolveAll`).
-   *
-   * Routing semantics:
-   * - The resolver's forward set carries the agent's live `ConnectionId`s
-   *   (one per WS connection of that agent). `sendToDurableAgent` picks
-   *   one and writes to it. The arbitrary choice mirrors
-   *   `Broadcaster.sendToAgent` today (also picks one live connection
-   *   from the per-agent list); plan §2.4.a does not pin a per-connection
-   *   policy.
-   * - `RecipientNotResolved` when the agent has no live connection —
-   *   the durable address persists in the column but no socket holds
-   *   it right now. Caller-recoverable; the right response is usually
-   *   to drop or queue, not retry.
-   *
-   * Plan §1.3 in-process loopback policy: the same code path runs
-   * regardless of whether the resolved connection is in this process.
-   * No short-circuit, no separate fast-path. One code path.
-   */
+  /** Durable-agent delivery (`tm:agent:<agentId>`). Picks one live
+   * connection of the agent and writes; iterates the resolver set so a
+   * stale entry does not poison the send when a sibling connection is
+   * still live. {@link RecipientNotResolved} folds "no resolver
+   * entry" and "every resolved connection has gone away" — callers
+   * can't act on the distinction without poking internal state. */
   private sendToDurableAgent(
     to: EndpointAddress,
     payload: OpaquePayload,
@@ -228,12 +209,6 @@ export class NetworkSendService {
     return Effect.gen(this, function* () {
       const agentIdValue = parseAgentIdFromDurableAddress(to);
       const conns = yield* this.resolver.resolveAll(agentIdValue);
-      // Pick-one fan-out: TM is one logical entity per agent;
-      // multi-connection devices receive the same TM-routed dispatch
-      // only once. Confirmed via #459 review thread. Iterate
-      // candidates so a stale resolver entry whose connection vanished
-      // does not poison the send when a sibling connection of the
-      // same agent is still live.
       for (const candidate of HashSet.values(conns)) {
         const conn = this.connections.get(candidate);
         if (conn === undefined) continue;
@@ -242,27 +217,13 @@ export class NetworkSendService {
           .pipe(Effect.mapError((cause) => new WriteFailed({ to, cause })));
         return new DeliveryAck({ to });
       }
-      // Resolver miss OR every resolved connection has gone away. Both
-      // shapes mean "no live recipient right now" — folded into one
-      // branch because callers cannot tell them apart without poking
-      // internal state.
       return yield* Effect.fail(new RecipientNotResolved({ to }));
     });
   }
 }
 
-/**
- * Strip the `tm:agent:` prefix from an EndpointAddress whose kind has
- * already been confirmed to be `agent` (durable form). The brand
- * predicate at the protocol layer rejects non-UUID inputs, so the only
- * branch that fires here is the well-formed durable address — the
- * {@link EndpointAddress} brand on the input already enforces shape.
- */
 const DURABLE_AGENT_PREFIX = "tm:agent:";
 
 function parseAgentIdFromDurableAddress(address: EndpointAddress): AgentId {
-  // EndpointAddress is a branded string. Drop the brand structurally
-  // via String(...) so the slice operates on a plain string.
-  const raw = String(address);
-  return makeAgentId(raw.slice(DURABLE_AGENT_PREFIX.length));
+  return makeAgentId(String(address).slice(DURABLE_AGENT_PREFIX.length));
 }
