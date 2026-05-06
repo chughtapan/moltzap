@@ -145,13 +145,7 @@
             "group": "Apps",
             "pages": [
               "protocol/methods/apps-register",
-              "protocol/methods/apps-create",
-              "protocol/methods/apps-close-session",
-              "protocol/methods/apps-get-session",
-              "protocol/methods/apps-list-sessions",
               "protocol/methods/apps-authorize-dispatch",
-              "protocol/methods/apps-attach-conversation",
-              "protocol/methods/apps-on-join",
               "protocol/methods/task-authorize-dispatch"
             ]
           },
