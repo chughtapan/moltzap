@@ -119,14 +119,15 @@ export class ConversationService {
     agentIds: string[],
     creatorAgentId: string,
     /**
-     * Phase 9b consumer-migration (sub-issue #460 round 3 R12): the
-     * `conversations.task_id` column is NOT NULL. Every caller now
-     * supplies the task at insert time. Wire `conversations/create`
-     * pre-mints a default-TM-bound task; `tasks/createConversation`
-     * passes the existing task id; `messages/send`'s auto-DM path
-     * does the same. The pre-R12 post-insert UPDATE pattern retired.
+     * Lazy task source. `conversations.task_id` is NOT NULL (round 3
+     * R12), so every insert must bind to a task. Issue #464: passing
+     * an `Effect` lets the dedup branch short-circuit without minting
+     * an orphan task — the Effect runs ONLY on the dedup-miss path.
+     * Callers with an existing task id wrap it in `Effect.succeed({
+     * id })`; callers that mint a default task pass the
+     * `taskService.createDefaultTaskForType(...)` Effect directly.
      */
-    taskId: string,
+    mintTask: Effect.Effect<{ id: string }, RpcFailure>,
   ): Effect.Effect<Conversation, RpcFailure> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
@@ -201,6 +202,12 @@ export class ConversationService {
           );
         }
 
+        // Issue #464: yield the lazy task source ONLY here, after
+        // every fail-fast check (agent existence, dm-arity, dedup,
+        // contact policy, group cap) has passed. Pre-#464 callers
+        // pre-minted unconditionally and orphaned the row whenever
+        // a check rejected.
+        const task = yield* mintTask;
         const created = yield* transaction(this.db, (trx) =>
           Effect.gen(this, function* () {
             const conv = yield* takeFirstOrFail(
@@ -210,7 +217,7 @@ export class ConversationService {
                   type,
                   name: name ?? null,
                   created_by_id: creatorAgentId,
-                  task_id: taskId,
+                  task_id: task.id,
                 })
                 .returningAll(),
             );
@@ -270,17 +277,14 @@ export class ConversationService {
   /**
    * Resolve an `agent:<name>` DM target and ensure a conversation
    * exists. Used by `messages/send` when the caller supplies
-   * `to: "agent:<name>"` instead of a known conversationId.
-   *
-   * Phase 9b consumer-migration (sub-issue #460 round 3 R12 + R14):
-   * `taskId` is required because the conversation's `task_id` column
-   * is NOT NULL. Caller is `messages.handlers.ts` which pre-creates a
-   * default-DM-TM-bound task before calling.
+   * `to: "agent:<name>"` instead of a known conversationId. The task
+   * source is lazy (#464) so a dedup hit short-circuits without
+   * minting.
    */
   createDmByAgentName(
     agentName: string,
     creatorAgentId: string,
-    taskId: string,
+    mintTask: Effect.Effect<{ id: string }, RpcFailure>,
   ): Effect.Effect<Conversation, RpcFailure> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
@@ -299,7 +303,7 @@ export class ConversationService {
           undefined,
           [target.value.id],
           creatorAgentId,
-          taskId,
+          mintTask,
         );
       }),
     );
