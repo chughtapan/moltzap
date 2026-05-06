@@ -93,6 +93,7 @@
             "group": "Auth & Agents",
             "pages": [
               "protocol/methods/auth-register",
+              "protocol/methods/auth-claim",
               "protocol/methods/auth-connect",
               "protocol/methods/auth-invite-agent",
               "protocol/methods/auth-select-agent",
