@@ -25,10 +25,17 @@ import {
   type NotificationParamsOf,
   type TSchema,
 } from "@moltzap/protocol";
-import { agentId as makeAgentId } from "@moltzap/protocol/network";
+import {
+  agentId as makeAgentId,
+  type AgentId,
+} from "@moltzap/protocol/network";
+import type { Static } from "@moltzap/protocol";
+import type { ConversationId as ConversationIdSchema } from "@moltzap/protocol/schemas/primitives";
 import { Effect } from "effect";
 import { defineTaskMethod } from "../../rpc/define-layered-method.js";
 import { ConnIdTag } from "../../app/layers.js";
+
+type ConversationId = Static<typeof ConversationIdSchema>;
 
 export function createConversationHandlers(deps: {
   conversationService: ConversationService;
@@ -39,22 +46,20 @@ export function createConversationHandlers(deps: {
   const broadcastToConversation = <
     D extends NotificationDefinition<string, TSchema>,
   >(
-    conversationId: string,
+    conversationId: ConversationId,
     definition: D,
     params: NotificationParamsOf<D>,
   ): Effect.Effect<void, never> =>
     Effect.gen(function* () {
       const participants = yield* deps.conversationService
         .getParticipantAgentIds(conversationId)
-        .pipe(Effect.orElseSucceed(() => [] as readonly string[]));
+        .pipe(Effect.orElseSucceed(() => [] as readonly AgentId[]));
       if (participants.length === 0) return;
       const frame = notificationFrame(definition, params);
       const payload = opaquePayload(JSON.stringify(frame));
-      yield* deps.networkSendService.broadcast(
-        participants.map((id) => makeAgentId(id)),
-        payload,
-        { forConversation: conversationId },
-      );
+      yield* deps.networkSendService.broadcast(participants, payload, {
+        forConversation: conversationId,
+      });
     });
 
   return [

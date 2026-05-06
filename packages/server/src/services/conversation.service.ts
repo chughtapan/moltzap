@@ -5,6 +5,7 @@ import type {
   ConversationParticipant,
   ConversationSummary,
 } from "@moltzap/protocol";
+import type { AgentId } from "../app/types.js";
 import { Effect, Option } from "effect";
 import {
   RpcFailure,
@@ -774,7 +775,7 @@ export class ConversationService {
 
   getParticipantAgentIds(
     conversationId: string,
-  ): Effect.Effect<string[], RpcFailure> {
+  ): Effect.Effect<readonly AgentId[], RpcFailure> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         const rows = yield* this.db
@@ -782,7 +783,7 @@ export class ConversationService {
           .select("agent_id")
           .where("conversation_id", "=", conversationId);
 
-        return rows.map((r) => r.agent_id);
+        return rows.map((r) => protocolAgentId(r.agent_id));
       }),
     );
   }

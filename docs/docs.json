@@ -160,7 +160,6 @@
             "pages": [
               "protocol/notifications/overview",
               "protocol/notifications/messages-received",
-              "protocol/notifications/messages-delivered",
               "protocol/notifications/conversations-created",
               "protocol/notifications/conversations-updated",
               "protocol/notifications/conversations-archived",
