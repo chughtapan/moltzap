@@ -405,18 +405,15 @@ export class TaskService {
   ): Effect.Effect<Conversation, RpcFailure> {
     return Effect.gen(this, function* () {
       yield* this.requireTmAuthority(id, caller);
-      // Phase 9b consumer-migration (sub-issue #460 round 3 R12):
-      // `conversations.task_id` is NOT NULL. Pass the task id at
-      // insert time inside ConversationService.create's transaction
-      // so the row exists with `task_id` set from the start. The
-      // pre-R12 post-insert UPDATE pattern retired alongside the
-      // nullable column.
+      // The task id is fixed (this is a TM acting on its own task),
+      // so wrap it in `Effect.succeed` for the lazy-`mintTask`
+      // contract `ConversationService.create` expects.
       const conversation = yield* this.conversations.create(
         input.type,
         input.name,
         [...input.participantAgentIds],
         caller,
-        id,
+        Effect.succeed({ id }),
       );
       return conversation;
     });
@@ -457,15 +454,11 @@ export class TaskService {
         // store. Phase 9b codex HIGH-1.
         true,
       );
-      // Stamp the message's task_id so cross-task queries (Phase 6
-      // `tasks/getMessages`, future TM-routed reads) can scope by the
-      // denormalized FK without joining through `conversations`.
-      yield* catchSqlErrorAsDefect(
-        this.db
-          .updateTable("messages")
-          .set({ task_id: id })
-          .where("id", "=", message.id),
-      );
+      // Issue #465: the post-insert UPDATE retired now that
+      // `MessageService.send` stamps `task_id` from `conv.task_id` at
+      // insert time. The TM-authored path inherits the stamp because
+      // `requireConversationInTask` above already proved the
+      // conversation belongs to this task (`conv.task_id === id`).
       return message;
     });
   }

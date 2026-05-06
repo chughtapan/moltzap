@@ -42,22 +42,13 @@ export function createMessageHandlers(deps: {
 
             if (!conversationId && params.to) {
               const agentName = yield* parseTo(params.to);
-              // Phase 9b consumer-migration (sub-issue #460 round 3
-              // R14): every conversation belongs to a task; the
-              // auto-DM path mints a default-DM-TM-bound task before
-              // calling `createDmByAgentName`. If the DM already
-              // exists the dedup branch returns the existing
-              // conversation and the freshly-minted task is orphaned
-              // — pre-prod harmless.
-              const task = yield* deps.taskService.createDefaultTaskForType(
-                "dm",
-                ctx.agentId,
-              );
+              // Issue #464: lazy `mintTask` so dedup hits don't
+              // orphan a default-DM task.
               const conversation =
                 yield* deps.conversationService.createDmByAgentName(
                   agentName,
                   ctx.agentId,
-                  task.id,
+                  deps.taskService.createDefaultTaskForType("dm", ctx.agentId),
                 );
               conversationId = conversation.id;
             }

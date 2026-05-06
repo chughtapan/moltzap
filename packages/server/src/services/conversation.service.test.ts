@@ -134,7 +134,13 @@ async function createConv(
 ) {
   const taskId = await seedTask(initiator);
   return Effect.runPromise(
-    service.create(type, name, participants, initiator, taskId),
+    service.create(
+      type,
+      name,
+      participants,
+      initiator,
+      Effect.succeed({ id: taskId }),
+    ),
   );
 }
 
@@ -148,7 +154,13 @@ async function createConvExit(
 ) {
   const taskId = await seedTask(initiator);
   return Effect.runPromiseExit(
-    service.create(type, name, participants, initiator, taskId),
+    service.create(
+      type,
+      name,
+      participants,
+      initiator,
+      Effect.succeed({ id: taskId }),
+    ),
   );
 }
 
@@ -570,7 +582,11 @@ describe("ConversationService.create enforces contact policy on DMs", () => {
 
     const dmTaskId = await seedTask(alice);
     const exit = await Effect.runPromiseExit(
-      service.createDmByAgentName("bob", alice, dmTaskId),
+      service.createDmByAgentName(
+        "bob",
+        alice,
+        Effect.succeed({ id: dmTaskId }),
+      ),
     );
     const failure = expectRpcFailure(exit);
     expect(failure.code).toBe(ErrorCodes.NotInContacts);

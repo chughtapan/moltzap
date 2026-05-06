@@ -18,10 +18,10 @@ export const TaskSchema = Type.Object(
     appId: Type.Union([Type.String(), Type.Null()]),
     initiatorAgentId: AgentId,
     status: TaskStatusEnum,
-    // Phase 9b consumer-migration (sub-issue #460 round 3 R12): NOT NULL
-    // by construction. `tasks/create` (R13) requires `tmEndpointAddress`
-    // at insert time; the schema-level constraint at
-    // `tasks.tm_endpoint_address` makes the null state unrepresentable.
+    // The persisted task output exposes `tmEndpointAddress` (a branded
+    // `EndpointAddress` string). The public `tasks/create` request does
+    // NOT take an address directly; it takes a `tmType` enum and the
+    // server derives the address (Phase 9b R16, PR #461).
     tmEndpointAddress: Type.String({ minLength: 1 }),
     startedAt: Type.Union([DateTimeString, Type.Null()]),
     endedAt: Type.Union([DateTimeString, Type.Null()]),

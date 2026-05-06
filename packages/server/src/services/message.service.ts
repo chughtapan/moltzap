@@ -271,6 +271,11 @@ export class MessageService {
                 parts_tag: tag,
                 dek_version: dekVersion,
                 kek_version: kekVersion,
+                // Issue #465: stamp at insert time so cross-task
+                // queries can filter by `task_id` without joining
+                // through `conversations`. Replaces the post-insert
+                // UPDATE that `tasks/storeMessage` used to issue.
+                task_id: conv.task_id,
                 // Persist the server-minted ISO timestamp so every
                 // downstream view (mapped Message, broadcaster frame,
                 // TM frame dispatched after the insert) agrees on

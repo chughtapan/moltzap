@@ -37,24 +37,16 @@ export function createConversationHandlers(deps: {
       handler: (params, ctx) =>
         Effect.gen(function* () {
           const agentIds = params.participants.map((p) => p.id);
-          // Phase 9b consumer-migration (sub-issue #460 round 3 R14):
-          // every conversation belongs to a task; non-app conversations
-          // bind to the default DM / group TM at creation. A failed
-          // existing-DM dedup inside `ConversationService.create`
-          // returns the existing conversation; the freshly-minted
-          // default task is then orphaned. Pre-prod the orphan is
-          // harmless; future arena cutover wraps both inserts in one
-          // transaction if it matters.
-          const task = yield* deps.taskService.createDefaultTaskForType(
-            params.type,
-            ctx.agentId,
-          );
+          // Issue #464: pass the task source as a lazy Effect so
+          // `ConversationService.create` only mints when its DM dedup
+          // misses; pre-fix every duplicate-DM call orphaned the
+          // pre-minted task.
           const conversation = yield* deps.conversationService.create(
             params.type,
             params.name,
             agentIds,
             ctx.agentId,
-            task.id,
+            deps.taskService.createDefaultTaskForType(params.type, ctx.agentId),
           );
 
           // ConversationService.create subscribes every participant's open
