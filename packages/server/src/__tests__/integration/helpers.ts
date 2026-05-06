@@ -21,6 +21,7 @@ import {
   trackClient,
   registerAgent,
   connectTestClient,
+  postJson,
   type ServerTestClient,
 } from "../../test-utils/helpers.js";
 import type { Database } from "../../db/database.js";
@@ -32,6 +33,7 @@ import { inject } from "vitest";
 export type { ConnectedAgent } from "../../test-utils/helpers.js";
 export {
   connectTestClient,
+  postJson,
   registerAgent,
   registerAndConnect,
   registerOnly,

@@ -11,6 +11,7 @@ import {
   resetTestDb,
   getKyselyDb,
   getTestCoreApp,
+  postJson,
   trackClient,
   connectTestClient,
   registerAgent,
@@ -59,18 +60,8 @@ interface AdminRegisterResponse {
   apiKey: string;
 }
 
-async function postAdmin(
-  body: Record<string, unknown>,
-): Promise<{ status: number; json: unknown }> {
-  const res = await fetch(`${baseUrl}/api/v1/admin/register-agent`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  // The endpoint always returns JSON (success or error envelopes).
-  const json: unknown = await res.json();
-  return { status: res.status, json };
-}
+const postAdmin = (body: Record<string, unknown>) =>
+  postJson(baseUrl, "/api/v1/admin/register-agent", body);
 
 /** Effect-lifted POST to the admin route with `inviteCode` pre-applied. */
 function adminRegister(

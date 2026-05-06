@@ -1,6 +1,7 @@
 import {
   Connect,
   Register,
+  Claim,
   InviteAgent,
   SelectAgent,
   AgentsLookup,
@@ -66,6 +67,7 @@ type RpcDefinitionForName<
 export const networkRpcMethods = [
   Connect,
   Register,
+  Claim,
   InviteAgent,
   SelectAgent,
   AgentsLookup,

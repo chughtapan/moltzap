@@ -89,6 +89,52 @@ export const Register = defineRpc({
   ),
 });
 
+/**
+ * Programmatic claim path. Pairs with `auth/register` to give automated
+ * callers (provisioning scripts, app-server self-mints, BYOA harnesses) a
+ * two-step flow that does not require knowing or sharing the agent
+ * `apiKey`: register → take the returned `claimToken` → claim with the
+ * intended `ownerUserId`.
+ *
+ * Authorization:
+ *   - Gated by the same `REGISTRATION_SECRET` as `auth/register`. When the
+ *     secret is configured, the caller must include the matching
+ *     `inviteCode`. The secret authorizes "claim-on-behalf-of," not
+ *     "register-with-impersonation" — much smaller blast radius than the
+ *     pre-#486 admin path that took a caller-supplied `ownerUserId` at
+ *     insert time.
+ *
+ * Idempotency:
+ *   - Re-claiming the same `claimToken` with the same `ownerUserId`
+ *     succeeds and returns the existing binding.
+ *   - Re-claiming with a different `ownerUserId` is rejected (Forbidden).
+ *   - A non-matching `claimToken` is rejected (Unauthorized) — the server
+ *     does not distinguish between "never issued" and "expired" to avoid
+ *     leaking which tokens the database has seen.
+ *
+ * Phase 12 (sub-issue #452) renames `auth/register → agents/register`;
+ * `auth/claim → agents/claim` is absorbed into that namespace shuffle for
+ * free and is not pre-applied here.
+ */
+export const Claim = defineRpc({
+  name: "auth/claim",
+  params: Type.Object(
+    {
+      claimToken: Type.String({ minLength: 1 }),
+      ownerUserId: Type.String({ format: "uuid" }),
+      inviteCode: Type.Optional(Type.String({ minLength: 1 })),
+    },
+    { additionalProperties: false },
+  ),
+  result: Type.Object(
+    {
+      agentId: AgentId,
+      ownerUserId: Type.String({ format: "uuid" }),
+    },
+    { additionalProperties: false },
+  ),
+});
+
 export const InviteAgent = defineRpc({
   name: "auth/invite-agent",
   params: Type.Object(

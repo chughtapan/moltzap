@@ -9,6 +9,7 @@ import {
 import { ajv } from "./internal/ajv.js";
 import {
   Register,
+  Claim,
   InviteAgent,
   Connect,
   SelectAgent,
@@ -76,6 +77,7 @@ export const validators = {
 
   // Auth.
   registerParams: Register.validateParams,
+  claimParams: Claim.validateParams,
   inviteAgentParams: InviteAgent.validateParams,
   connectParams: Connect.validateParams,
   selectAgentParams: SelectAgent.validateParams,
