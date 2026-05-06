@@ -12,7 +12,7 @@
  * (`beforeEach(async () => ...)`) consume Promises directly; an Effect
  * would force every caller to wrap with `Effect.runPromise`.
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { KyselyPGlite } from "kysely-pglite";
@@ -23,11 +23,26 @@ import type { Database } from "../db/database.js";
 /** Suggested timeout for pglite-backed beforeEach/afterEach hooks. */
 export const PGLITE_HOOK_TIMEOUT_MS = 30_000;
 
+// __dirname resolves at runtime: points to `src/test-utils/` for source
+// callers (vitest in-place TypeScript), `dist/test-utils/` for compiled
+// callers. The SQL file lives only under `src/app/`, so the compiled
+// (dist) caller has to walk up through `dist/` and back down through
+// `src/`. Mirrors the dual-path probe in `test-utils/server.ts` (the
+// other consumer of this same SQL file). The eager top-level
+// readFileSync the freshDb() copies used to do would crash on import
+// from a dist context — the client integration suite transitively
+// pulls in `test-utils/index.ts` from `@moltzap/server-core/test-utils`
+// without ever calling `makePgliteHarness`. Defer the read.
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const SCHEMA_SQL = readFileSync(
-  join(__dirname, "..", "app", "core-schema.sql"),
-  "utf-8",
-);
+let cachedSchemaSql: string | null = null;
+function loadSchemaSql(): string {
+  if (cachedSchemaSql !== null) return cachedSchemaSql;
+  const srcPath = join(__dirname, "..", "app", "core-schema.sql");
+  const distPath = join(__dirname, "..", "..", "src", "app", "core-schema.sql");
+  const schemaPath = existsSync(srcPath) ? srcPath : distPath;
+  cachedSchemaSql = readFileSync(schemaPath, "utf-8");
+  return cachedSchemaSql;
+}
 
 export interface PgliteHarness {
   /** Effect-Kysely-wrapped client. Yieldable as Effect via the toolkit. */
@@ -49,6 +64,6 @@ Promise<PgliteHarness> {
   const exec = (sql: string) => kpg.client.exec(sql);
   const close = () => kpg.client.close();
   const db = makeEffectKysely<Database>({ dialect: kpg.dialect });
-  await exec(SCHEMA_SQL);
+  await exec(loadSchemaSql());
   return { db, exec, close };
 }
