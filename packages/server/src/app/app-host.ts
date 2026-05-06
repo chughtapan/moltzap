@@ -1,6 +1,5 @@
 import type { Kysely } from "kysely";
 import type { Database } from "../db/database.js";
-import type { Broadcaster } from "../ws/broadcaster.js";
 import { sendRpcToClient } from "../ws/connection.js";
 import type { ConnectionManager, MoltZapConnection } from "../ws/connection.js";
 import type { UserService } from "../services/user.service.js";
@@ -74,20 +73,10 @@ export class AppHost {
    * is the explicit promotion path.
    */
   private remoteRegistrations = new Map<string, { connectionId: string }>();
-  /**
-   * Phase 9b consumer-migration (sub-issue #460): the
-   * `conversationToSession` / `sessionToConversations` maps are
-   * orphaned dead state — Phase 7 cleanup deleted the `apps/createSession`
-   * flow that used to populate them. `runAuthorizeDispatch` still reads
-   * `conversationToSession` and short-circuits to `{ decision: "grant" }`
-   * when empty (which it always is post Phase 7). Phase 11 (arena
-   * cutover) is the natural seam to either wire a TM-registered
-   * conversation index back in or delete the maps + the
-   * `apps/authorizeDispatch` admission handler entirely. Kept here as
-   * scaffolding rather than removed in this PR because the rename
-   * `apps/onBeforeDispatch → task/authorizeDispatch` is the in-scope
-   * change; the surrounding admission flow is not.
-   */
+  /** Currently orphaned — `apps/createSession` (which used to populate
+   * these maps) is gone. `runAuthorizeDispatch` short-circuits to
+   * `grant` when the map is empty. Kept as scaffolding for the future
+   * TM-registered conversation index. */
   private conversationToSession = new Map<
     string,
     { id: string; appId: string }
@@ -96,7 +85,6 @@ export class AppHost {
 
   constructor(
     private db: Kysely<Database>,
-    private broadcaster: Broadcaster,
     private connections: ConnectionManager,
     /** null → no user validation (admit all owners). */
     private userService: UserService | null,
@@ -110,34 +98,15 @@ export class AppHost {
   /**
    * Register an app whose `task/authorizeDispatch` admission round-trips
    * run in a remote process (typically a WebSocket client speaking the
-   * `task/authorizeDispatch` protocol). The verb is dispatched via
-   * {@link sendRpcToClient}; verdicts decode through the schemas defined
-   * in `hooks.ts` and feed the same fail-closed envelope as in-process
-   * hooks.
+   * `task/authorizeDispatch` protocol). The verb dispatches via
+   * {@link sendRpcToClient}; verdicts decode through the schemas in
+   * `hooks.ts` and feed the same fail-closed envelope as in-process hooks.
    *
-   * Phase 9b consumer-migration (sub-issue #460, plan §2.4): the legacy
-   * `apps/onBeforeDispatch` rename to `task/authorizeDispatch` keeps this
-   * registration shape stable; the three deleted appCallback verbs
-   * (`onBeforeMessageDelivery`, `onSessionActive`, `onClose`) no longer
-   * carry through this path — TM-as-endpoint topology and the
-   * `task/admissionComplete` / `task/closed` notifications absorb them.
-   *
-   * Promotion: a remote registration takes precedence over any prior
-   * in-process hook registrations for the same `appId`. The
-   * {@link AppRegistrationSource} discrimination is internal — call sites
-   * (`runAuthorizeDispatch`) consume one uniform `Effect<Verdict, never>`
-   * regardless of source per architect plan §3.4 ("No branching at the
-   * call site between in-process and remote").
-   *
-   * Disconnect handling: when `connectionId` later goes away, every
-   * pending Deferred for that connection's task-callback RPCs fails with
-   * `AppDisconnected` via the connection's Scope finalizer. The dispatch
-   * envelope catches `AppDisconnected` (and every other
-   * `AppCallbackRpcError` variant) and synthesizes a fail-closed verdict.
-   * Callers do not need to call {@link unregisterRemoteApp} on disconnect;
-   * the registration keeps pointing at the dead connection id and
-   * dispatches keep fail-closed until the app re-registers (typically
-   * via `apps/register` after reconnecting).
+   * Remote registration takes precedence over any prior in-process
+   * registration for the same `appId`. Disconnect: every pending
+   * Deferred fails with `AppDisconnected` via the connection's Scope
+   * finalizer; the registration keeps pointing at the dead id and
+   * dispatches stay fail-closed until the app re-registers.
    */
   registerRemoteApp(manifest: AppManifest, connectionId: string): void {
     this.manifests.set(manifest.appId, manifest);

@@ -248,14 +248,14 @@ export class ConversationService {
         );
 
         // Subscribe creator + participants' open sockets to the new
-        // conversation. Without this, `Broadcaster.broadcastToConversation`
-        // would skip those sockets (it only delivers to connections whose
-        // `conversationIds` set contains the id) and participants would
-        // silently miss every event on this conversation — most notably the
-        // `messages/received` events that make up the actual content.
-        // Subscribing at the service layer means every caller (RPC handler,
-        // downstream app using the service directly) benefits; pre-helper,
-        // every consumer had to reimplement this loop and some forgot.
+        // conversation. Without this, `network.broadcast({ forConversation })`
+        // would skip those sockets (it gates on the per-connection
+        // `conversationIds` set) and participants would silently miss every
+        // event on this conversation — most notably the `messages/received`
+        // events that make up the actual content. Subscribing at the service
+        // layer means every caller (RPC handler, downstream app using the
+        // service directly) benefits; pre-helper, every consumer had to
+        // reimplement this loop and some forgot.
         this.connections.subscribeAgentsToConversation(
           [creatorAgentId, ...agentIds],
           created.id,
@@ -686,10 +686,10 @@ export class ConversationService {
         );
 
         // Subscribe the new participant's open sockets to the conversation.
-        // Symmetric with `create`: without this, the broadcaster skips the
-        // agent's connections and every event on the conversation silently
-        // fails to deliver. The idempotent helper means re-adding an already-
-        // subscribed connection is a no-op.
+        // Symmetric with `create`: without this, the conversation broadcast
+        // path skips the agent's connections and every event on the
+        // conversation silently fails to deliver. The idempotent helper
+        // means re-adding an already-subscribed connection is a no-op.
         this.connections.subscribeAgentsToConversation(
           [agentId],
           conversationId,

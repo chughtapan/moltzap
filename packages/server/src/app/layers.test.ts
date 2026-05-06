@@ -6,7 +6,6 @@ import type { Db } from "../db/client.js";
 import type { Database } from "../db/database.js";
 import { NoopTraceCaptureLive } from "../runtime-surface/trace-capture.js";
 import { LoggerLive, getLogger } from "../logger.js";
-import { Broadcaster } from "../ws/broadcaster.js";
 import { ConnectionManager } from "../ws/connection.js";
 import { AgentEndpointResolver } from "../network/agent-endpoint-resolver.js";
 import { NetworkSendService } from "../network/network-send.js";
@@ -66,7 +65,6 @@ it.effect("ServicesLive resolves every service via resolveServices", () =>
     // of the expected class — a `Layer.mergeAll` wiring bug would either
     // fail to compile the graph or produce `undefined` at a tag.
     expect(services.connections).toBeInstanceOf(ConnectionManager);
-    expect(services.broadcaster).toBeInstanceOf(Broadcaster);
     expect(services.agentEndpointResolver).toBeInstanceOf(
       AgentEndpointResolver,
     );

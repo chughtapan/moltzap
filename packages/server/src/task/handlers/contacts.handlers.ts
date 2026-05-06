@@ -13,10 +13,12 @@ import {
   type Static,
   type TSchema,
 } from "@moltzap/protocol";
+import { agentId as makeAgentId } from "@moltzap/protocol/network";
 import { UserId } from "@moltzap/protocol/schemas/primitives";
 import type { ContactsService } from "../../services/contact.service.js";
 import type { AuthService } from "../../services/auth.service.js";
-import type { Broadcaster } from "../../ws/broadcaster.js";
+import type { NetworkSendService } from "../../network/network-send.js";
+import { opaquePayload } from "../../network/network-send.js";
 import type {
   AuthenticatedContext,
   RpcMethodRegistry,
@@ -31,9 +33,9 @@ const ERR_NEED_OWNER = "Contacts require a claimed agent owner";
 export function createContactHandlers(deps: {
   contactService: ContactsService;
   authService: AuthService;
-  broadcaster: Broadcaster;
+  networkSendService: NetworkSendService;
 }): RpcMethodRegistry {
-  const { contactService, authService, broadcaster } = deps;
+  const { contactService, authService, networkSendService } = deps;
 
   const fanOut = <D extends NotificationDefinition<string, TSchema>>(
     target: BrandedUserId,
@@ -42,10 +44,13 @@ export function createContactHandlers(deps: {
   ): Effect.Effect<void, never> =>
     Effect.gen(function* () {
       const agentIds = yield* authService.agentsForOwner(target);
+      if (agentIds.length === 0) return;
       const frame = notificationFrame(definition, params);
-      for (const agentId of agentIds) {
-        broadcaster.sendToAgent(agentId, frame);
-      }
+      const payload = opaquePayload(JSON.stringify(frame));
+      yield* networkSendService.broadcast(
+        agentIds.map((id) => makeAgentId(id)),
+        payload,
+      );
     });
 
   const requireOwner = (
