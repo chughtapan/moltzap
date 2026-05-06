@@ -214,14 +214,15 @@ describe("AgentEndpointResolver — Phase 8 codex deferrals", () => {
     expect(HashSet.size(Effect.runSync(resolver.resolveAll(ALICE)))).toBe(0);
   });
 
-  it("idempotent remove on never-added pairs (defensive precondition for close-during-auth in auth handler; full race test in Phase 9b)", () => {
+  it("idempotent remove on never-added pairs (defensive precondition for close-during-auth in auth handler; full race test in Phase 9b's 40-task-manager-routing.integration.test.ts)", () => {
     // Resolver-contract guard: the auth handler's transactional flow
     // skips `add` when `connections.get(connId)` returns undefined at
     // re-check time (close-during-auth). The WS scope's onExit
     // finalizer cannot tell whether `add` fired, and it does not need
     // to — `remove` on a never-added pair is documented idempotent.
     // This test verifies that resolver precondition; the full auth-
-    // handler race test (real WS close timing) lives in Phase 9b.
+    // handler race test (real WS close timing) lives in Phase 9b's
+    // packages/server/src/__tests__/integration/40-task-manager-routing.integration.test.ts.
     const resolver = makeResolver();
 
     // The handler set conn.auth but the connection closed before the

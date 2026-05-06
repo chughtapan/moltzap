@@ -13,7 +13,6 @@ import {
   type Static,
   type TSchema,
 } from "@moltzap/protocol";
-import { agentId as makeAgentId } from "@moltzap/protocol/network";
 import { UserId } from "@moltzap/protocol/schemas/primitives";
 import type { ContactsService } from "../../services/contact.service.js";
 import type { AuthService } from "../../services/auth.service.js";
@@ -47,10 +46,7 @@ export function createContactHandlers(deps: {
       if (agentIds.length === 0) return;
       const frame = notificationFrame(definition, params);
       const payload = opaquePayload(JSON.stringify(frame));
-      yield* networkSendService.broadcast(
-        agentIds.map((id) => makeAgentId(id)),
-        payload,
-      );
+      yield* networkSendService.broadcast(agentIds, payload);
     });
 
   const requireOwner = (
