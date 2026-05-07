@@ -71,8 +71,35 @@ export const Register = defineRpc({
   ),
 });
 
-/** Bind ownerUserId to a registered agent via claimToken. Idempotent on
- * (token, owner); rejects different owner. Same inviteCode gate as Register. */
+/**
+ * Programmatic claim path. Pairs with `agents/register` to give automated
+ * callers (provisioning scripts, app-server self-mints, BYOA harnesses) a
+ * two-step flow that does not require knowing or sharing the agent
+ * `apiKey`: register → take the returned `claimToken` → claim with the
+ * intended `ownerUserId`.
+ *
+ * Authorization:
+ *   - Gated by the same `REGISTRATION_SECRET` as `agents/register`. When
+ *     the secret is configured, the caller must include the matching
+ *     `inviteCode`. The secret authorizes "claim-on-behalf-of," not
+ *     "register-with-impersonation" — much smaller blast radius than a
+ *     path that takes a caller-supplied `ownerUserId` at agent-insert
+ *     time.
+ *
+ * Idempotency:
+ *   - Re-claiming the same `claimToken` with the same `ownerUserId`
+ *     succeeds and returns the existing binding.
+ *   - Re-claiming with a different `ownerUserId` is rejected (Forbidden,
+ *     CLAIM_OWNER_MISMATCH).
+ *   - A non-matching `claimToken` is rejected (Unauthorized,
+ *     CLAIM_NOT_FOUND). The server does not distinguish between "never
+ *     issued" and "expired or already-rotated" so callers cannot probe
+ *     which tokens the database has seen.
+ *
+ * Recommended order: `agents/register → agents/claim → network/connect`
+ * (the apiKey from register opens the WebSocket; owner-gated RPCs
+ * unblock once claim has bound `ownerUserId`).
+ */
 export const Claim = defineRpc({
   name: "agents/claim",
   params: Type.Object(
