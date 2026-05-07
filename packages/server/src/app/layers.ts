@@ -33,7 +33,7 @@ import {
   type DeliveryWebhookConfig,
 } from "../services/message.service.js";
 import { TaskService } from "../services/task.service.js";
-import type { UserService } from "../services/user.service.js";
+import type { SessionValidator } from "../services/session-validator.js";
 import { AppHost } from "./app-host.js";
 import type { EnvelopeEncryption } from "../crypto/envelope.js";
 import type { WebhookClient } from "../adapters/webhook.js";
@@ -70,7 +70,7 @@ export class ConnectionManagerTag extends Context.Tag(
 )<ConnectionManagerTag, ConnectionManager>() {}
 
 /** `AgentId → HashSet<ConnectionId>` multimap maintained by the
- * `auth/connect` success path and the WS disconnect finalizer. Read by
+ * `network/connect` success path and the WS disconnect finalizer. Read by
  * {@link NetworkSendServiceTag} for O(1) outbound routing. */
 export class AgentEndpointResolverTag extends Context.Tag(
   "moltzap/AgentEndpointResolver",
@@ -128,17 +128,16 @@ export class TaskServiceTag extends Context.Tag("moltzap/TaskService")<
   TaskService
 >() {}
 
-/** Optional user validator. `null` means no validation — admit all owners. */
-export class UserServiceTag extends Context.Tag("moltzap/UserService")<
-  UserServiceTag,
-  UserService | null
->() {}
+/** Optional bearer-token session validator. `null` → bearer auth disabled. */
+export class SessionValidatorTag extends Context.Tag(
+  "moltzap/SessionValidator",
+)<SessionValidatorTag, SessionValidator | null>() {}
 
 /**
  * Shared outbound HTTP client used by {@link MessageService.deliveryWebhook}
- * for the fire-and-forget post-delivery push and by user-side adapters
- * (`WebhookContactService`, `WebhookUserService`). Separate Tag so connection
- * pooling / semaphore sharing is controlled in one place.
+ * for the fire-and-forget post-delivery push and by `WebhookSessionValidator`.
+ * Separate Tag so connection pooling / semaphore sharing is controlled in
+ * one place.
  */
 export class WebhookClientTag extends Context.Tag("moltzap/WebhookClient")<
   WebhookClientTag,
@@ -268,8 +267,7 @@ export const AppHostLive = Layer.effect(
   Effect.gen(function* () {
     const db = yield* DbTag;
     const connections = yield* ConnectionManagerTag;
-    const userService = yield* UserServiceTag;
-    return new AppHost(db, connections, userService);
+    return new AppHost(db, connections);
   }),
 );
 

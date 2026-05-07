@@ -85,7 +85,7 @@ async onMessage(evt, ws) {
   await Effect.runPromise(
     moltzapService.sendRpc("messages/send", {
       conversationId: conn.agentId, // or a dedicated relay conversation
-      parts: [{ type: "text", body: text }],
+      parts: [{ type: "text", text }],
     }),
   );
 }

@@ -26,6 +26,7 @@ import {
   isIdempotent,
   authorizationOutcome,
 } from "../models/index.js";
+import { agentId } from "../branded-ids.js";
 import { deliveryInvariantFor, allToxicTags } from "../toxics/index.js";
 import {
   allRpcMethods,
@@ -33,14 +34,13 @@ import {
   arbitraryAnyCall,
 } from "../arbitraries/index.js";
 
-import { Connect } from "../../network/methods/auth.js";
-import { ConversationsList } from "../../task/methods/conversations.js";
-import { jsonRpcMethod, jsonRpcStringId, requestFrame } from "../../index.js";
-import { brandNotificationFrame } from "../../schema/internal-frames.js";
+import { Connect } from "../../network/methods.js";
+import { ConversationsList } from "../../task/methods.js";
+import { jsonRpcMethod, requestFrame } from "../../transport/wire.js";
 
 describe("codec", () => {
   it("round-trips a valid request frame", async () => {
-    const frame: AnyFrame = requestFrame(jsonRpcStringId("req-1"), Connect, {
+    const frame: AnyFrame = requestFrame("req-1", Connect, {
       agentKey: "k",
       agentId: "a",
       minProtocol: "0.1.0",
@@ -67,7 +67,7 @@ describe("codec", () => {
   });
 
   it("malformFrame never throws for any kind + seed", () => {
-    const base: AnyFrame = requestFrame(jsonRpcStringId("r"), Connect, {
+    const base: AnyFrame = requestFrame("r", Connect, {
       agentKey: "k",
       minProtocol: "0.1.0",
       maxProtocol: "0.1.0",
@@ -91,11 +91,11 @@ describe("captures", () => {
     const result = await Effect.runPromise(
       Effect.gen(function* () {
         const buf = yield* makeCaptureBuffer({ capacity: 8 });
-        const frame: AnyFrame = brandNotificationFrame({
+        const frame: AnyFrame = {
           jsonrpc: "2.0",
           method: jsonRpcMethod("testing/ping"),
           params: null,
-        });
+        } as NotificationFrame;
         yield* recordFrame(buf, "inbound", encodeFrame(frame), frame);
         const snap = yield* buf.snapshot;
         return snap;
@@ -110,11 +110,11 @@ describe("captures", () => {
       Effect.gen(function* () {
         const a = yield* makeCaptureBuffer({ capacity: 4 });
         const b = yield* makeCaptureBuffer({ capacity: 4 });
-        const frame: AnyFrame = brandNotificationFrame({
+        const frame: AnyFrame = {
           jsonrpc: "2.0",
           method: jsonRpcMethod("testing/ping"),
           params: null,
-        });
+        } as NotificationFrame;
         yield* recordFrame(a, "inbound", "{}", frame);
         yield* recordFrame(b, "inbound", "{}", frame);
         const merged = yield* mergeCaptures([a, b]);
@@ -127,7 +127,7 @@ describe("captures", () => {
 });
 
 describe("reference model", () => {
-  it("applyCall is total for every RpcMethodName", () => {
+  it("applyCall is total for every wire method", () => {
     for (const method of allRpcMethods) {
       const [sampled] = fc.sample(arbitraryCallFor(method), 1);
       if (sampled === undefined) continue;
@@ -149,7 +149,11 @@ describe("reference model", () => {
       seed: 1,
     });
     if (call === undefined) throw new Error("sample failed");
-    const verdict = authorizationOutcome(initialReferenceState, call, "nobody");
+    const verdict = authorizationOutcome(
+      initialReferenceState,
+      call,
+      agentId("00000000-0000-4000-8000-000000000000"),
+    );
     expect(verdict).toBe("deny-unauthenticated");
   });
 });

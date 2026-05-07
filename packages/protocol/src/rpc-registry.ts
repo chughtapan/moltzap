@@ -1,180 +1,211 @@
+import { Effect } from "effect";
 import {
-  Connect,
-  Register,
-  Claim,
-  InviteAgent,
-  SelectAgent,
-  AgentsLookup,
-  AgentsLookupByName,
-  AgentsList,
-} from "./network/methods/auth.js";
+  identityRpcMethods,
+  identityNotifications,
+  NotInContactsError,
+} from "./identity/methods.js";
+import { networkRpcMethods, networkNotifications } from "./network/methods.js";
 import {
-  ConversationsCreate,
-  ConversationsList,
-  ConversationsGet,
-  ConversationsUpdate,
-  ConversationsMute,
-  ConversationsUnmute,
-  ConversationsAddParticipant,
-  ConversationsRemoveParticipant,
-  ConversationsLeave,
-  ConversationsArchive,
-  ConversationsUnarchive,
-} from "./task/methods/conversations.js";
-import { MessagesSend, MessagesList } from "./task/methods/messages.js";
+  taskRpcMethods,
+  taskNotifications,
+  TaskClosedError,
+  ConversationArchivedError,
+  ConversationFullError,
+  HookBlockedError,
+} from "./task/methods.js";
 import {
-  ContactsList,
-  ContactsAdd,
-  ContactsAccept,
-  ContactsById,
-} from "./task/methods/contacts.js";
-import { InvitesCreateAgent } from "./task/methods/invites.js";
-import { PresenceUpdate, PresenceSubscribe } from "./task/methods/presence.js";
+  appRpcMethods,
+  taskCallbackMethods,
+  appNotifications,
+} from "./app/methods.js";
+import type { RpcDefinition } from "./transport/method.js";
 import {
-  TasksCreate,
-  TasksGet,
-  TasksList,
-  TasksClose,
-  TasksCreateConversation,
-  TasksCloseConversation,
-  TasksAddParticipant,
-  TasksRemoveParticipant,
-  TasksStoreMessage,
-  TasksGetMessages,
-  TasksGetMessagesSince,
-} from "./task/methods/tasks.js";
+  decodeFrame,
+  type JsonRpcId,
+  type ResponseFrame,
+} from "./transport/wire.js";
 import {
-  AppsAuthorizeDispatch,
-  TaskAuthorizeDispatch,
-} from "./app/methods/apps.js";
-import { SystemPing } from "./network/methods/system.js";
-import type { RpcDefinition, ParamsOf, ResultOf } from "./rpc.js";
-import type { JsonRpcMethod } from "./schema/json-rpc.js";
-import { defineRpcGroup } from "./rpc-groups.js";
+  decodeNotification,
+  decodeRpcRequest,
+  type DecodedNotification,
+  type DecodedRpcRequest,
+} from "./transport/rpc-groups.js";
+import {
+  MalformedFrameError,
+  UnauthorizedError,
+  ForbiddenError,
+  NotFoundError,
+  ConflictError,
+  InvalidParamsError,
+} from "./transport/wire-errors.js";
 
-type RpcDefinitionForName<
-  Methods extends ReadonlyArray<RpcDefinition<string, any, any>>,
-  Name extends JsonRpcMethod,
-> = Extract<
-  Methods[number],
-  RpcDefinition<
-    Name extends JsonRpcMethod<infer RawName> ? RawName : never,
-    any,
-    any
-  >
->;
+export { taskCallbackMethods };
 
-export const networkRpcMethods = [
-  Connect,
-  Register,
-  Claim,
-  InviteAgent,
-  SelectAgent,
-  AgentsLookup,
-  AgentsLookupByName,
-  AgentsList,
-  SystemPing,
-] as const;
-
-export const taskRpcMethods = [
-  ConversationsCreate,
-  ConversationsList,
-  ConversationsGet,
-  ConversationsUpdate,
-  ConversationsMute,
-  ConversationsUnmute,
-  ConversationsAddParticipant,
-  ConversationsRemoveParticipant,
-  ConversationsLeave,
-  ConversationsArchive,
-  ConversationsUnarchive,
-  MessagesSend,
-  MessagesList,
-  ContactsList,
-  ContactsAdd,
-  ContactsAccept,
-  ContactsById,
-  InvitesCreateAgent,
-  PresenceUpdate,
-  PresenceSubscribe,
-  TasksCreate,
-  TasksGet,
-  TasksList,
-  TasksClose,
-  TasksCreateConversation,
-  TasksCloseConversation,
-  TasksAddParticipant,
-  TasksRemoveParticipant,
-  TasksStoreMessage,
-  TasksGetMessages,
-  TasksGetMessagesSince,
-] as const;
-
-export const appRpcMethods = [AppsAuthorizeDispatch] as const;
+/** Closed union of every wire-registered tagged-error class instance.
+ * Drives `RpcCallError` so consumers can `Effect.catchTag(...)` against
+ * concrete tags (e.g. "Forbidden", "NotInContacts"). Mirrors the static
+ * registry built by `registerErrorClass` — keep in sync if a new class
+ * lands. */
+export type RegisteredTaggedError =
+  | UnauthorizedError
+  | ForbiddenError
+  | NotFoundError
+  | ConflictError
+  | InvalidParamsError
+  | NotInContactsError
+  | TaskClosedError
+  | ConversationArchivedError
+  | ConversationFullError
+  | HookBlockedError;
 
 export const rpcMethods = [
+  ...identityRpcMethods,
   ...networkRpcMethods,
   ...taskRpcMethods,
   ...appRpcMethods,
 ] as const;
 
-export const networkRpcGroup = defineRpcGroup("network", networkRpcMethods);
-export const taskRpcGroup = defineRpcGroup("task", taskRpcMethods);
-export const appRpcGroup = defineRpcGroup("app", appRpcMethods);
-
-export type RpcMethodName = (typeof rpcMethods)[number]["name"];
-
-export type RpcDefinitionFor<Name extends RpcMethodName> = RpcDefinitionForName<
-  typeof rpcMethods,
-  Name
->;
-
-export type RpcParams<Name extends RpcMethodName> = ParamsOf<
-  RpcDefinitionFor<Name>
->;
-export type RpcResult<Name extends RpcMethodName> = ResultOf<
-  RpcDefinitionFor<Name>
->;
-
-export type NetworkRpcMethodName = (typeof networkRpcMethods)[number]["name"];
-export type TaskRpcMethodName = (typeof taskRpcMethods)[number]["name"];
-export type AppRpcMethodName = (typeof appRpcMethods)[number]["name"];
+export const notificationDefinitions = [
+  ...networkNotifications,
+  ...identityNotifications,
+  ...taskNotifications,
+  ...appNotifications,
+] as const;
 
 export type AnyRpcDefinition = (typeof rpcMethods)[number] &
   RpcDefinition<string, any, any>;
 
-/**
- * Server-initiated awaitable RPCs the WS client must handle. Phase 9b
- * consumer-migration (sub-issue #460): the legacy `appCallbackRpcMethods`
- * group retired with the deletion of `apps/onBeforeMessageDelivery`,
- * `apps/onSessionActive`, `apps/onClose` and the rename of
- * `apps/onBeforeDispatch` → `task/authorizeDispatch` (plan §2.4).
- *
- * `taskCallbackRpcMethods` is the surviving server→client awaitable
- * surface. Single member today (the receive-side TM admission round-trip);
- * post-Phase-11 arena migration the group may grow with additional
- * task-layer awaitable verbs.
- */
-export const taskCallbackRpcMethods = [
-  TaskAuthorizeDispatch,
-] as const satisfies ReadonlyArray<RpcDefinition<string, any, any>>;
+export type AnyTaskCallbackRpcDefinition = (typeof taskCallbackMethods)[number];
 
-export const taskCallbackRpcGroup = defineRpcGroup(
-  "taskCallback",
-  taskCallbackRpcMethods,
-);
+export type AnyNotificationDefinition =
+  (typeof notificationDefinitions)[number];
 
-export type TaskCallbackRpcMethodName =
-  (typeof taskCallbackRpcMethods)[number]["name"];
+/** Discriminated success arm of a decoded JSON-RPC response. */
+export type DecodedResponseSuccess = {
+  readonly _tag: "ResponseSuccess";
+  readonly id: JsonRpcId;
+  readonly result: unknown;
+};
 
-export type AnyTaskCallbackRpcDefinition =
-  (typeof taskCallbackRpcMethods)[number];
+/** Discriminated error arm of a decoded JSON-RPC response — wire-frame
+ * decoder discriminator, not an Effect tagged error (the wire `error`
+ * sub-object carries `code`/`message`/`data`, no Effect machinery). */
+// eslint-disable-next-line agent-code-guard/manual-tagged-error -- frame-decoder discriminator, not a Data.TaggedError
+export type DecodedResponseError = {
+  readonly _tag: "ResponseError";
+  readonly id: JsonRpcId;
+  readonly error: Extract<ResponseFrame, { error: unknown }>["error"];
+};
 
-export type TaskCallbackRpcDefinitionFor<
-  Name extends TaskCallbackRpcMethodName,
-> = RpcDefinitionForName<typeof taskCallbackRpcMethods, Name>;
+/** Decoded shape of a frame inbound to the client (from server):
+ * a response (success XOR error), a server-initiated task-callback
+ * request, or a notification. */
+export type DecodedServerInbound =
+  | DecodedResponseSuccess
+  | DecodedResponseError
+  | ({
+      readonly _tag: "ServerRequest";
+    } & DecodedRpcRequest<AnyTaskCallbackRpcDefinition>)
+  | ({
+      readonly _tag: "Notification";
+    } & DecodedNotification<AnyNotificationDefinition>);
 
-export type TaskCallbackRpcParams<Name extends TaskCallbackRpcMethodName> =
-  ParamsOf<TaskCallbackRpcDefinitionFor<Name>>;
-export type TaskCallbackRpcResult<Name extends TaskCallbackRpcMethodName> =
-  ResultOf<TaskCallbackRpcDefinitionFor<Name>>;
+/** Decoded shape of a frame inbound to the server (from client):
+ * a client RPC request, a response (success XOR error) to a
+ * server-initiated callback, or a notification. */
+export type DecodedClientInbound =
+  | ({ readonly _tag: "ClientRequest" } & DecodedRpcRequest<AnyRpcDefinition>)
+  | DecodedResponseSuccess
+  | DecodedResponseError
+  | ({
+      readonly _tag: "Notification";
+    } & DecodedNotification<AnyNotificationDefinition>);
+
+function decodeResponseFrame(
+  frame: ResponseFrame,
+  raw: string,
+): Effect.Effect<
+  DecodedResponseSuccess | DecodedResponseError,
+  MalformedFrameError
+> {
+  if (frame.id === null) {
+    return Effect.fail(new MalformedFrameError({ raw }));
+  }
+  if ("error" in frame && frame.error !== undefined) {
+    return Effect.succeed({
+      _tag: "ResponseError",
+      id: frame.id,
+      error: frame.error,
+    });
+  }
+  if ("result" in frame) {
+    return Effect.succeed({
+      _tag: "ResponseSuccess",
+      id: frame.id,
+      result: frame.result,
+    });
+  }
+  return Effect.fail(new MalformedFrameError({ raw }));
+}
+
+/** Typed entry point for client-inbound frames. Fails closed with
+ * `MalformedFrameError` on any wire-level mismatch. */
+export function decodeServerInbound(
+  parsed: unknown,
+): Effect.Effect<DecodedServerInbound, MalformedFrameError> {
+  const raw = typeof parsed === "string" ? parsed : safeStringify(parsed);
+  const wrap = (cause: unknown) => new MalformedFrameError({ raw, cause });
+  return decodeFrame(parsed).pipe(
+    Effect.mapError(wrap),
+    Effect.flatMap(
+      (decoded): Effect.Effect<DecodedServerInbound, MalformedFrameError> => {
+        if (decoded._tag === "Response")
+          return decodeResponseFrame(decoded.frame, raw);
+        if (decoded._tag === "Request")
+          return decodeRpcRequest(taskCallbackMethods, decoded.frame).pipe(
+            Effect.mapError(wrap),
+            Effect.map((req) => ({ ...req, _tag: "ServerRequest" as const })),
+          );
+        return decodeNotification(notificationDefinitions, decoded.frame).pipe(
+          Effect.mapError(wrap),
+          Effect.map((n) => ({ ...n, _tag: "Notification" as const })),
+        );
+      },
+    ),
+  );
+}
+
+/** Typed entry point for server-inbound frames. Fails closed with
+ * `MalformedFrameError` on any wire-level mismatch. */
+export function decodeClientInbound(
+  parsed: unknown,
+): Effect.Effect<DecodedClientInbound, MalformedFrameError> {
+  const raw = typeof parsed === "string" ? parsed : safeStringify(parsed);
+  const wrap = (cause: unknown) => new MalformedFrameError({ raw, cause });
+  return decodeFrame(parsed).pipe(
+    Effect.mapError(wrap),
+    Effect.flatMap(
+      (decoded): Effect.Effect<DecodedClientInbound, MalformedFrameError> => {
+        if (decoded._tag === "Response")
+          return decodeResponseFrame(decoded.frame, raw);
+        if (decoded._tag === "Request")
+          return decodeRpcRequest(rpcMethods, decoded.frame).pipe(
+            Effect.mapError(wrap),
+            Effect.map((req) => ({ ...req, _tag: "ClientRequest" as const })),
+          );
+        return decodeNotification(notificationDefinitions, decoded.frame).pipe(
+          Effect.mapError(wrap),
+          Effect.map((n) => ({ ...n, _tag: "Notification" as const })),
+        );
+      },
+    ),
+  );
+}
+
+function safeStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value);
+  } catch (error) {
+    return `[unstringifiable: ${String(error)}] ${String(value)}`;
+  }
+}

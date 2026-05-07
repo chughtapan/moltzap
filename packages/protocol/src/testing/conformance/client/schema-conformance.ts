@@ -21,7 +21,7 @@
  */
 import { Effect } from "effect";
 import { Value } from "@sinclair/typebox/value";
-import { NotificationFrameSchema } from "../../../schema/frames.js";
+import { NotificationFrameSchema } from "../../../transport/wire.js";
 import { arbitraryNotificationFrame } from "../../arbitraries/frames.js";
 import * as fc from "fast-check";
 import type { ClientConformanceRunContext } from "./runner.js";

@@ -3,21 +3,18 @@ import {
   endpointAddress as brandEndpointAddress,
   makeEndpointAddress,
   type EndpointAddress,
-  type AgentId as ActorAgentId,
 } from "@moltzap/protocol/network";
 import { defaultTmAddressForType } from "../network/app-tm-registry.js";
-import {
-  agentId as makeAgentId,
-  taskId as makeTaskId,
-  type Static,
-  type Conversation,
-  type Message,
-  type Part,
-  type Task,
-  type TaskParticipant,
-  type TaskStatus,
+import type {
+  Conversation,
+  Message,
+  Part,
+  Task,
+  TaskParticipant,
+  TaskStatus,
 } from "@moltzap/protocol";
-import { TaskId, AgentId } from "@moltzap/protocol/schemas/primitives";
+import type { AgentId } from "@moltzap/protocol/identity";
+import type { TaskId, ConversationId, MessageId } from "@moltzap/protocol/task";
 import type { Db } from "../db/client.js";
 import {
   catchSqlErrorAsDefect,
@@ -25,12 +22,18 @@ import {
   takeFirstOrFail,
   transaction,
 } from "../db/effect-kysely-toolkit.js";
-import { forbidden, notFound, type RpcFailure } from "../runtime/index.js";
-import type { ConversationService } from "./conversation.service.js";
-import type { MessageService } from "./message.service.js";
+import { ForbiddenError, NotFoundError } from "@moltzap/protocol";
+import type {
+  ConversationService,
+  ConversationServiceError,
+} from "./conversation.service.js";
+import type { MessageService, MessageServiceError } from "./message.service.js";
 
-type BrandedTaskId = Static<typeof TaskId>;
-type BrandedAgentId = Static<typeof AgentId>;
+type TaskServiceError =
+  | ForbiddenError
+  | NotFoundError
+  | ConversationServiceError
+  | MessageServiceError;
 
 const ERR_NOT_FOUND = "Task not found";
 const ERR_NOT_TM = "Caller is not the registered task manager for this task";
@@ -47,9 +50,9 @@ const DEFAULT_TASK_LIST_LIMIT = 50;
 const DEFAULT_TASK_MESSAGES_LIMIT = 50;
 
 interface TaskRow {
-  readonly id: string;
+  readonly id: TaskId;
   readonly app_id: string | null;
-  readonly initiator_agent_id: string;
+  readonly initiator_agent_id: AgentId;
   readonly status: TaskStatus;
   // Phase 9b consumer-migration (sub-issue #460 round 3 R12): NOT NULL.
   readonly tm_endpoint_address: string;
@@ -67,17 +70,15 @@ interface TaskRow {
  * — `tm:agent:<agentId>` is the only `EndpointAddress` shape that
  * appears on the wire today.
  */
-export function endpointAddressForAgent(
-  agent: ActorAgentId | BrandedAgentId,
-): EndpointAddress {
+export function endpointAddressForAgent(agent: AgentId): EndpointAddress {
   return makeEndpointAddress("agent", agent);
 }
 
 function rowToTask(row: TaskRow): Task {
   return {
-    id: makeTaskId(row.id),
+    id: row.id,
     appId: row.app_id,
-    initiatorAgentId: makeAgentId(row.initiator_agent_id),
+    initiatorAgentId: row.initiator_agent_id,
     status: row.status,
     tmEndpointAddress: row.tm_endpoint_address,
     startedAt: row.started_at ? row.started_at.toISOString() : null,
@@ -87,20 +88,20 @@ function rowToTask(row: TaskRow): Task {
 }
 
 function rowToParticipant(row: {
-  readonly task_id: string;
-  readonly agent_id: string;
+  readonly task_id: TaskId;
+  readonly agent_id: AgentId;
   readonly admitted_at: Date | null;
 }): TaskParticipant {
   return {
-    taskId: makeTaskId(row.task_id),
-    agentId: makeAgentId(row.agent_id),
+    taskId: row.task_id,
+    agentId: row.agent_id,
     admittedAt: row.admitted_at ? row.admitted_at.toISOString() : null,
   };
 }
 
 export interface TaskCreateInput {
   readonly appId?: string;
-  readonly invitedAgentIds?: readonly BrandedAgentId[];
+  readonly invitedAgentIds?: readonly AgentId[];
   /**
    * Phase 9b consumer-migration (sub-issue #460 round 3 R13): atomic
    * task creation. Replaces the pre-R13 two-step (`tasks/create` then
@@ -123,12 +124,12 @@ export interface TaskListInput {
 }
 
 export interface TaskMessagesInput {
-  readonly conversationId: string;
+  readonly conversationId: ConversationId;
   readonly limit?: number;
 }
 
 export interface TaskMessagesSinceInput {
-  readonly conversationId: string;
+  readonly conversationId: ConversationId;
   readonly sinceSeq: string;
   readonly limit?: number;
 }
@@ -136,14 +137,14 @@ export interface TaskMessagesSinceInput {
 export interface CreateConversationInput {
   readonly type: "dm" | "group";
   readonly name?: string;
-  readonly participantAgentIds: readonly BrandedAgentId[];
+  readonly participantAgentIds: readonly AgentId[];
 }
 
 export interface StoreMessageInput {
-  readonly conversationId: string;
-  readonly senderAgentId: BrandedAgentId;
+  readonly conversationId: ConversationId;
+  readonly senderAgentId: AgentId;
   readonly parts: readonly Part[];
-  readonly replyToId?: string;
+  readonly replyToId?: MessageId;
 }
 
 export class TaskService {
@@ -154,9 +155,9 @@ export class TaskService {
   ) {}
 
   create(
-    initiator: BrandedAgentId,
+    initiator: AgentId,
     input: TaskCreateInput,
-  ): Effect.Effect<Task, RpcFailure> {
+  ): Effect.Effect<Task, TaskServiceError> {
     return catchSqlErrorAsDefect(
       transaction(this.db, (trx) =>
         Effect.gen(function* () {
@@ -194,11 +195,11 @@ export class TaskService {
   }
 
   get(
-    id: BrandedTaskId,
-    caller: BrandedAgentId,
+    id: TaskId,
+    caller: AgentId,
   ): Effect.Effect<
     { task: Task; participants: TaskParticipant[] },
-    RpcFailure
+    TaskServiceError
   > {
     return Effect.gen(this, function* () {
       const task = yield* this.requireReadAccess(id, caller);
@@ -216,7 +217,7 @@ export class TaskService {
   }
 
   list(
-    caller: BrandedAgentId,
+    caller: AgentId,
     input: TaskListInput,
   ): Effect.Effect<readonly Task[], never> {
     const limit = input.limit ?? DEFAULT_TASK_LIST_LIMIT;
@@ -245,10 +246,7 @@ export class TaskService {
     );
   }
 
-  close(
-    id: BrandedTaskId,
-    caller: BrandedAgentId,
-  ): Effect.Effect<Task, RpcFailure> {
+  close(id: TaskId, caller: AgentId): Effect.Effect<Task, TaskServiceError> {
     return Effect.gen(this, function* () {
       yield* this.requireTmAuthority(id, caller);
       const row = yield* catchSqlErrorAsDefect(
@@ -278,9 +276,9 @@ export class TaskService {
    */
   createDefaultTaskForType(
     type: "dm" | "group",
-    initiator: BrandedAgentId,
-    invitedAgentIds: readonly BrandedAgentId[] = [],
-  ): Effect.Effect<Task, RpcFailure> {
+    initiator: AgentId,
+    invitedAgentIds: readonly AgentId[] = [],
+  ): Effect.Effect<Task, TaskServiceError> {
     // Importing the constants lazily here would create a cycle —
     // `app-tm-registry` is a network-layer module, `task.service` is
     // service-layer. Module-load-time import via the top of file is
@@ -302,9 +300,9 @@ export class TaskService {
   // `task.tmEndpointAddress` is now non-null by construction. The
   // pre-R12 null branch retired alongside `endpoints/unregisterTaskManager`.
   requireTmAuthority(
-    id: BrandedTaskId,
-    caller: BrandedAgentId,
-  ): Effect.Effect<Task, RpcFailure> {
+    id: TaskId,
+    caller: AgentId,
+  ): Effect.Effect<Task, TaskServiceError> {
     return Effect.gen(this, function* () {
       const task = yield* this.fetchTask(id);
       switch (task.status) {
@@ -313,26 +311,28 @@ export class TaskService {
           break;
         case "closed":
         case "failed":
-          return yield* Effect.fail(forbidden(ERR_TASK_NOT_OPEN));
+          return yield* Effect.fail(
+            new ForbiddenError({ message: ERR_TASK_NOT_OPEN }),
+          );
         default:
           return absurdTaskStatus(task.status);
       }
       const recorded = yield* Effect.try({
         try: () => brandEndpointAddress(task.tmEndpointAddress),
-        catch: () => forbidden(ERR_NOT_TM),
+        catch: () => new ForbiddenError({ message: ERR_NOT_TM }),
       });
       const expected = endpointAddressForAgent(caller);
       if (recorded !== expected) {
-        return yield* Effect.fail(forbidden(ERR_NOT_TM));
+        return yield* Effect.fail(new ForbiddenError({ message: ERR_NOT_TM }));
       }
       return task;
     });
   }
 
   requireReadAccess(
-    id: BrandedTaskId,
-    caller: BrandedAgentId,
-  ): Effect.Effect<Task, RpcFailure> {
+    id: TaskId,
+    caller: AgentId,
+  ): Effect.Effect<Task, TaskServiceError> {
     return Effect.gen(this, function* () {
       const task = yield* this.fetchTask(id);
       if (task.initiatorAgentId === caller) return task;
@@ -348,17 +348,19 @@ export class TaskService {
         ),
       );
       if (Option.isNone(participant)) {
-        return yield* Effect.fail(forbidden(ERR_NOT_PARTICIPANT));
+        return yield* Effect.fail(
+          new ForbiddenError({ message: ERR_NOT_PARTICIPANT }),
+        );
       }
       return task;
     });
   }
 
   addParticipant(
-    id: BrandedTaskId,
-    caller: BrandedAgentId,
-    target: BrandedAgentId,
-  ): Effect.Effect<TaskParticipant, RpcFailure> {
+    id: TaskId,
+    caller: AgentId,
+    target: AgentId,
+  ): Effect.Effect<TaskParticipant, TaskServiceError> {
     return Effect.gen(this, function* () {
       yield* this.requireTmAuthority(id, caller);
       const row = yield* catchSqlErrorAsDefect(
@@ -383,10 +385,10 @@ export class TaskService {
   }
 
   removeParticipant(
-    id: BrandedTaskId,
-    caller: BrandedAgentId,
-    target: BrandedAgentId,
-  ): Effect.Effect<void, RpcFailure> {
+    id: TaskId,
+    caller: AgentId,
+    target: AgentId,
+  ): Effect.Effect<void, TaskServiceError> {
     return Effect.gen(this, function* () {
       yield* this.requireTmAuthority(id, caller);
       yield* catchSqlErrorAsDefect(
@@ -399,10 +401,10 @@ export class TaskService {
   }
 
   createConversation(
-    id: BrandedTaskId,
-    caller: BrandedAgentId,
+    id: TaskId,
+    caller: AgentId,
     input: CreateConversationInput,
-  ): Effect.Effect<Conversation, RpcFailure> {
+  ): Effect.Effect<Conversation, TaskServiceError> {
     return Effect.gen(this, function* () {
       yield* this.requireTmAuthority(id, caller);
       // The task id is fixed (this is a TM acting on its own task),
@@ -420,10 +422,10 @@ export class TaskService {
   }
 
   closeConversation(
-    id: BrandedTaskId,
-    caller: BrandedAgentId,
-    conversationId: string,
-  ): Effect.Effect<void, RpcFailure> {
+    id: TaskId,
+    caller: AgentId,
+    conversationId: ConversationId,
+  ): Effect.Effect<void, TaskServiceError> {
     return Effect.gen(this, function* () {
       yield* this.requireTmAuthority(id, caller);
       yield* this.archiveConversationInTask(id, conversationId);
@@ -431,10 +433,10 @@ export class TaskService {
   }
 
   storeMessage(
-    id: BrandedTaskId,
-    caller: BrandedAgentId,
+    id: TaskId,
+    caller: AgentId,
     input: StoreMessageInput,
-  ): Effect.Effect<Message, RpcFailure> {
+  ): Effect.Effect<Message, TaskServiceError> {
     return Effect.gen(this, function* () {
       yield* this.requireTmAuthority(id, caller);
       yield* this.requireConversationInTask(id, input.conversationId);
@@ -460,10 +462,13 @@ export class TaskService {
   }
 
   getMessages(
-    id: BrandedTaskId,
-    caller: BrandedAgentId,
+    id: TaskId,
+    caller: AgentId,
     input: TaskMessagesInput,
-  ): Effect.Effect<{ messages: Message[]; hasMore: boolean }, RpcFailure> {
+  ): Effect.Effect<
+    { messages: Message[]; hasMore: boolean },
+    TaskServiceError
+  > {
     return Effect.gen(this, function* () {
       yield* this.requireReadAccess(id, caller);
       yield* this.requireConversationInTask(id, input.conversationId);
@@ -474,10 +479,13 @@ export class TaskService {
   }
 
   getMessagesSince(
-    id: BrandedTaskId,
-    caller: BrandedAgentId,
+    id: TaskId,
+    caller: AgentId,
     input: TaskMessagesSinceInput,
-  ): Effect.Effect<{ messages: Message[]; hasMore: boolean }, RpcFailure> {
+  ): Effect.Effect<
+    { messages: Message[]; hasMore: boolean },
+    TaskServiceError
+  > {
     return Effect.gen(this, function* () {
       yield* this.requireReadAccess(id, caller);
       yield* this.requireConversationInTask(id, input.conversationId);
@@ -488,14 +496,16 @@ export class TaskService {
     });
   }
 
-  private fetchTask(id: BrandedTaskId): Effect.Effect<Task, RpcFailure> {
+  private fetchTask(id: TaskId): Effect.Effect<Task, TaskServiceError> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         const opt = yield* takeFirstOption(
           this.db.selectFrom("tasks").selectAll().where("id", "=", id),
         );
         if (Option.isNone(opt)) {
-          return yield* Effect.fail(notFound(ERR_NOT_FOUND));
+          return yield* Effect.fail(
+            new NotFoundError({ message: ERR_NOT_FOUND }),
+          );
         }
         return rowToTask(opt.value as TaskRow);
       }),
@@ -503,9 +513,9 @@ export class TaskService {
   }
 
   private requireConversationInTask(
-    id: BrandedTaskId,
-    conversationId: string,
-  ): Effect.Effect<void, RpcFailure> {
+    id: TaskId,
+    conversationId: ConversationId,
+  ): Effect.Effect<void, TaskServiceError> {
     return Effect.gen(this, function* () {
       const linkedOpt = yield* catchSqlErrorAsDefect(
         takeFirstOption(
@@ -516,18 +526,22 @@ export class TaskService {
         ),
       );
       if (Option.isNone(linkedOpt)) {
-        return yield* Effect.fail(notFound("Conversation not found"));
+        return yield* Effect.fail(
+          new NotFoundError({ message: "Conversation not found" }),
+        );
       }
       if (linkedOpt.value.task_id !== id) {
-        return yield* Effect.fail(forbidden(ERR_CONV_NOT_IN_TASK));
+        return yield* Effect.fail(
+          new ForbiddenError({ message: ERR_CONV_NOT_IN_TASK }),
+        );
       }
     });
   }
 
   private archiveConversationInTask(
-    id: BrandedTaskId,
-    conversationId: string,
-  ): Effect.Effect<void, RpcFailure> {
+    id: TaskId,
+    conversationId: ConversationId,
+  ): Effect.Effect<void, TaskServiceError> {
     return Effect.gen(this, function* () {
       const updated = yield* catchSqlErrorAsDefect(
         this.db

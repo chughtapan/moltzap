@@ -9,7 +9,7 @@
  * so the server's `Deferred.await` resolves deterministically (no hangs).
  */
 import { Data } from "effect";
-import type { JsonRpcStringId } from "@moltzap/protocol";
+import type { JsonRpcId } from "@moltzap/protocol";
 
 /**
  * The active-partition count has reached `maxPartitions` (soft cap, default
@@ -27,7 +27,7 @@ export class PartitionLimitError extends Data.TaggedError(
   readonly key: string;
   readonly activePartitions: number;
   readonly maxPartitions: number;
-  readonly requestId: JsonRpcStringId;
+  readonly requestId: JsonRpcId;
 }> {}
 
 /**
@@ -45,7 +45,7 @@ export class PartitionQueueFullError extends Data.TaggedError(
 )<{
   readonly key: string;
   readonly capacity: number;
-  readonly requestId: JsonRpcStringId;
+  readonly requestId: JsonRpcId;
 }> {}
 
 /**

@@ -1,5 +1,5 @@
 /**
- * Per-`RpcMethodName` arbitrary and the `allRpcMethods` walker.
+ * Per-method arbitrary and the `allRpcMethods` walker.
  *
  * Tier A's A5 (RpcMap coverage) and Tier B's B1 (model equivalence) both
  * iterate every method name. Centralizing the iterator here keeps the
@@ -7,15 +7,12 @@
  */
 import * as fc from "fast-check";
 import { Data } from "effect";
-import {
-  rpcMethods,
-  type RpcDefinitionFor,
-  type RpcMethodName,
-  type RpcParams,
-} from "../../rpc-registry.js";
+import { rpcMethods, type AnyRpcDefinition } from "../../rpc-registry.js";
 import { applyCall } from "../models/dispatch.js";
 import { initialReferenceState } from "../models/state.js";
 import { arbitraryForParams } from "./from-typebox.js";
+
+type MethodName = (typeof rpcMethods)[number]["name"];
 
 class RpcArbitraryInvariantError extends Data.TaggedError(
   "RpcArbitraryInvariantError",
@@ -27,29 +24,31 @@ class RpcArbitraryInvariantError extends Data.TaggedError(
  * A single drawn RPC invocation: the method name carries through to the
  * reference model so it can pick the matching reducer.
  */
-export interface ArbitraryRpcCall<M extends RpcMethodName = RpcMethodName> {
-  readonly definition: RpcDefinitionFor<M>;
-  readonly method: M;
-  readonly params: RpcParams<M>;
+export interface ArbitraryRpcCall {
+  readonly definition: AnyRpcDefinition;
+  readonly method: MethodName;
+  readonly params: unknown;
 }
 
 /**
- * Ordered list of every `RpcMethodName`. Exposed so properties can assert
- * "every method exercised at least once" without going through `RpcMap`
- * directly.
+ * Ordered list of every wire method name. Exposed so properties can
+ * assert "every method exercised at least once" without going through
+ * `RpcMap` directly.
  */
-export const allRpcMethods: ReadonlyArray<RpcMethodName> = rpcMethods.map(
+export const allRpcMethods: ReadonlyArray<MethodName> = rpcMethods.map(
   (m) => m.name,
 );
 
 // Precomputed lookup from wire name → manifest, so `arbitraryCallFor` is O(1).
-const methodByName = new Map(rpcMethods.map((m) => [m.name, m]));
+const methodByName = new Map<MethodName, AnyRpcDefinition>(
+  rpcMethods.map((m) => [m.name, m as AnyRpcDefinition]),
+);
 
 /** Arbitrary of a valid params tree for a single, fixed RPC. */
-export function arbitraryCallFor<M extends RpcMethodName>(
-  method: M,
-): fc.Arbitrary<ArbitraryRpcCall<M>> {
-  const def = methodByName.get(method) as RpcDefinitionFor<M> | undefined;
+export function arbitraryCallFor(
+  method: MethodName,
+): fc.Arbitrary<ArbitraryRpcCall> {
+  const def = methodByName.get(method);
   if (def === undefined) {
     throw new RpcArbitraryInvariantError({
       message: `arbitraryCallFor: unknown method ${String(method)}`,
@@ -60,7 +59,7 @@ export function arbitraryCallFor<M extends RpcMethodName>(
       ({
         definition: def,
         method,
-        params: params as RpcParams<M>,
+        params,
       }) as const,
   );
 }
@@ -79,7 +78,7 @@ export function arbitraryAnyCall(): fc.Arbitrary<ArbitraryRpcCall> {
 }
 
 /**
- * The set of `RpcMethodName`s the reference model predicts `_tag: "ok"`
+ * The set of method names the reference model predicts `_tag: "ok"`
  * for on `initialReferenceState` — derived mechanically at module load
  * by probing `applyCall` with a single drawn params value per method.
  *
@@ -95,11 +94,11 @@ export function arbitraryAnyCall(): fc.Arbitrary<ArbitraryRpcCall> {
  * first non-confident draw and the derivation must widen from the
  * single-probe form to an `fc.sample`-based invariant check.
  */
-export const confidentOracleMethods: ReadonlyArray<RpcMethodName> = (() => {
+export const confidentOracleMethods: ReadonlyArray<MethodName> = (() => {
   // `models/dispatch.ts` imports `ArbitraryRpcCall` as a type-only
   // reference, so the values imported above (`applyCall`,
   // `initialReferenceState`) are safe to call at module load.
-  const kept: RpcMethodName[] = [];
+  const kept: MethodName[] = [];
   for (const method of allRpcMethods) {
     const [sample] = fc.sample(arbitraryCallFor(method), 1);
     if (sample === undefined) continue;

@@ -1,6 +1,7 @@
 import { Data, Effect } from "effect";
 import type { NotificationFrame } from "@moltzap/protocol";
 import {
+  agentId,
   makeCloseableTestClient,
   registerTestAgent,
   type CloseableTestClient,
@@ -8,7 +9,7 @@ import {
 } from "@moltzap/protocol/testing";
 import { getBaseUrl, getWsUrl } from "./index.js";
 
-import { agentId, ConversationsCreate } from "@moltzap/protocol";
+import { ConversationsCreate } from "@moltzap/protocol";
 
 export interface ServerTestClient
   extends Omit<CloseableTestClient, "close" | "drainNotifications"> {

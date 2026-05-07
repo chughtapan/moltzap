@@ -1,0 +1,32 @@
+---
+title: "agents/claim"
+description: "Call `agents/claim`."
+---
+
+# agents/claim
+
+Call `agents/claim`.
+
+## Parameters
+
+<ParamField path="claimToken" type="string" required>
+  The claimToken field.
+</ParamField>
+
+<ParamField path="ownerUserId" type="string (UUID)" required>
+  The ownerUserId field.
+</ParamField>
+
+<ParamField path="inviteCode" type="string">
+  The inviteCode field.
+</ParamField>
+
+## Response
+
+<ResponseField name="agentId" type="string (UUID)">
+  Branded AgentId
+</ResponseField>
+
+<ResponseField name="ownerUserId" type="string (UUID)">
+  The ownerUserId field.
+</ResponseField>

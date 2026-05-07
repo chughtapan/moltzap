@@ -10,8 +10,13 @@
  * no network, no clocks — all actions are total functions.
  */
 import { Brand } from "effect";
-import type { Agent, Conversation, Message } from "../../types.js";
-import type { NotificationFrame } from "../../schema/frames.js";
+import type { Agent, AgentId } from "../../identity/methods.js";
+import type {
+  Conversation,
+  ConversationId,
+  Message,
+} from "../../task/methods.js";
+import type { NotificationFrame } from "../../transport/wire.js";
 
 /** Monotonic logical clock — the model does not read wall time. */
 export type LogicalTick = number & Brand.Brand<"LogicalTick">;
@@ -26,17 +31,20 @@ export function mkTick(n: number): LogicalTick {
 export interface ReferenceState {
   readonly tick: LogicalTick;
   /** Registered agents, keyed by `agentId`. */
-  readonly agents: ReadonlyMap<string, Agent>;
+  readonly agents: ReadonlyMap<AgentId, Agent>;
   /** Conversations, keyed by `conversationId`. */
-  readonly conversations: ReadonlyMap<string, Conversation>;
+  readonly conversations: ReadonlyMap<ConversationId, Conversation>;
   /** Messages per conversation, append-only, ordered. */
-  readonly messages: ReadonlyMap<string, ReadonlyArray<Message>>;
+  readonly messages: ReadonlyMap<ConversationId, ReadonlyArray<Message>>;
   /** Per-agent outbox of events the model predicts the server will emit. */
-  readonly pendingEvents: ReadonlyMap<string, ReadonlyArray<NotificationFrame>>;
+  readonly pendingEvents: ReadonlyMap<
+    AgentId,
+    ReadonlyArray<NotificationFrame>
+  >;
   /** Authorization table — (agentId, conversationId) → role. */
   readonly authz: ReadonlyMap<
-    string,
-    ReadonlyMap<string, "owner" | "participant" | "denied">
+    AgentId,
+    ReadonlyMap<ConversationId, "owner" | "participant" | "denied">
   >;
   /** Request-ids the model has observed, for uniqueness assertions (B4). */
   readonly seenRequestIds: ReadonlySet<string>;

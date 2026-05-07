@@ -45,7 +45,7 @@ import {
 } from "./coverage-policy.js";
 import { conformanceArtifactDirFromEnv } from "./env.js";
 
-import { TasksClose, TasksCreate } from "../../task/methods/tasks.js";
+import { TasksClose, TasksCreate } from "../../task/methods.js";
 
 const JSON_INDENT_SPACES = 2;
 const TOXIPROXY_NOT_PROVISIONED = "Toxiproxy client not provisioned";

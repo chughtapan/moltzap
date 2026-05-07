@@ -1,10 +1,7 @@
 import { Args, Command, Options } from "@effect/cli";
 import { Effect } from "effect";
-import {
-  contactId as toContactId,
-  userId,
-  type Contact,
-} from "@moltzap/protocol";
+import { type Contact } from "@moltzap/protocol";
+import type { ContactId, UserId } from "@moltzap/protocol/identity";
 import { request } from "../socket-client.js";
 
 import { ContactsAccept, ContactsAdd, ContactsList } from "@moltzap/protocol";
@@ -56,7 +53,7 @@ const userIdArg = Args.text({ name: "userId" }).pipe(
 const addContact = Command.make("add", { userId: userIdArg }, ({ userId: u }) =>
   wrap(
     request(ContactsAdd, {
-      contactUserId: userId(u),
+      contactUserId: u as UserId,
     }) as Effect.Effect<{ contact: Contact }, Error>,
     (r) => {
       console.log(`Contact added (id: ${r.contact.id})`);
@@ -74,7 +71,7 @@ const acceptContact = Command.make(
   ({ contactId }) =>
     wrap(
       request(ContactsAccept, {
-        contactId: toContactId(contactId),
+        contactId: contactId as ContactId,
       }) as Effect.Effect<{ contact: Contact }, Error>,
       (r) => {
         console.log(`Contact accepted: ${r.contact.id}`);

@@ -1,13 +1,9 @@
 import { Data } from "effect";
-import type { TaskCallbackRpcMethodName } from "@moltzap/protocol";
 
-/** Inbound frame failed to parse as JSON or did not match the expected shape. */
-export class MalformedFrameError extends Data.TaggedError(
-  "MalformedFrameError",
-)<{
-  readonly raw: string;
-  readonly cause?: unknown;
-}> {}
+// `MalformedFrameError` is now protocol-side (`@moltzap/protocol`); both
+// client and server share the same class. Re-exported here for the
+// existing client-package import surface.
+export { MalformedFrameError } from "@moltzap/protocol";
 
 /** A name→agent lookup returned no results. */
 export class AgentNotFoundError extends Data.TaggedError("AgentNotFoundError")<{
@@ -26,7 +22,7 @@ export class AgentNotFoundError extends Data.TaggedError("AgentNotFoundError")<{
 export class DuplicateServerRpcHandlerError extends Data.TaggedError(
   "DuplicateServerRpcHandlerError",
 )<{
-  readonly method: TaskCallbackRpcMethodName;
+  readonly method: string;
 }> {
   override get message(): string {
     return `Server RPC handler already registered for method: ${this.method}`;

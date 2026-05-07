@@ -26,8 +26,13 @@
  * server-side adversity module's degradation contract.
  */
 import { Clock, Effect } from "effect";
-import { MessageReceivedNotificationDefinition } from "../../../schema/notifications.js";
-import { brandNotificationFrame } from "../../../schema/internal-frames.js";
+import { notificationFrame } from "../../../transport/wire.js";
+import { MessageReceivedNotificationDefinition } from "../../../task/methods.js";
+import {
+  agentId,
+  conversationId as toConversationId,
+  messageId,
+} from "../../branded-ids.js";
 import type { ClientConformanceRunContext } from "./runner.js";
 import { PropertyUnavailable, registerProperty } from "../registry.js";
 import {
@@ -37,7 +42,7 @@ import {
   subscribeAll,
 } from "./_fixtures.js";
 
-import { AgentsList } from "../../../network/methods/auth.js";
+import { AgentsList } from "../../../identity/methods.js";
 
 const CATEGORY = "adversity" as const;
 const PROPERTY_BUDGET_MS = 10_000;
@@ -80,31 +85,41 @@ export function registerLatencyResilienceClient(
           PROPERTY_LATENCY_RESILIENCE_CLIENT,
         );
         yield* subscribeAll(fx.handle);
-        // Vehicle: known notification method; params intentionally non-
-        // conformant. Decoder stays payload-opaque (#200 §5 C3) so the
-        // adversity probe is independent of params shape.
-        const base = brandNotificationFrame({
-          jsonrpc: "2.0",
-          method: MessageReceivedNotificationDefinition.name,
-          params: {},
-        });
+        // Phase-12 (#222) typed inbound decoder validates per-method
+        // paramsSchema, so the vehicle frame must be schema-conformant
+        // for `messages/received`. Per-slot unique `messageId` keeps wire
+        // bytes distinct so `lookupTagForRawBytes` doesn't collapse the
+        // N emissions onto a single registry key.
         const N = 3;
-        const campaign = yield* fx.window.freshEmissionTag;
+        const senderId = agentId(fx.handle.agentId);
+        const convId = toConversationId("00000000-0000-4000-8000-1a7e9c1ea7e9");
+        const tags: string[] = [];
         for (let i = 0; i < N; i++) {
+          const base = notificationFrame(
+            MessageReceivedNotificationDefinition,
+            {
+              message: {
+                id: messageId(`00000000-0000-4000-8000-${latencySlot(i)}`),
+                conversationId: convId,
+                senderId,
+                parts: [{ type: "text", text: `latency-${i}` }],
+                createdAt: new Date(0).toISOString(),
+              },
+            },
+          );
+          const tag = yield* fx.window.freshEmissionTag;
+          tags.push(tag);
           yield* fx.window.emitTaggedNotification({
             connection: fx.connection,
-            base: {
-              ...base,
-              params: { positionIndex: i },
-            },
-            emissionTag: campaign,
+            base,
+            emissionTag: tag,
           });
         }
-        const observed = yield* collectTagged(
-          fx.handle,
-          (t) => t === campaign,
-          { expected: N, budgetMs: PROPERTY_BUDGET_MS },
-        );
+        const tagSet = new Set(tags);
+        const observed = yield* collectTagged(fx.handle, (t) => tagSet.has(t), {
+          expected: N,
+          budgetMs: PROPERTY_BUDGET_MS,
+        });
         if (observed.length !== N) {
           return yield* Effect.fail(
             invariant(
@@ -117,6 +132,12 @@ export function registerLatencyResilienceClient(
       }),
     ),
   );
+}
+
+const LATENCY_SLOT_PAD = 12;
+const LATENCY_SLOT_RADIX = 16;
+function latencySlot(i: number): string {
+  return i.toString(LATENCY_SLOT_RADIX).padStart(LATENCY_SLOT_PAD, "0");
 }
 
 /**

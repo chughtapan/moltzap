@@ -15,7 +15,7 @@
 import { Context, Effect, Ref, type Scope } from "effect";
 import * as NodeSocketServer from "@effect/platform-node/NodeSocketServer";
 import * as Socket from "@effect/platform/Socket";
-import type { NotificationFrame, ResponseFrame } from "../schema/frames.js";
+import type { NotificationFrame, ResponseFrame } from "../transport/wire.js";
 import {
   makeCaptureBuffer,
   mergeCaptures,

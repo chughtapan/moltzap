@@ -22,7 +22,7 @@ function makeAppHost(): { host: AppHost } {
   );
   // No DB methods are exercised by pure registration tests.
   const db = makeFakeService<Kysely<Database>>({} as Partial<Kysely<Database>>);
-  const host = new AppHost(db, connections, null);
+  const host = new AppHost(db, connections);
   return { host };
 }
 

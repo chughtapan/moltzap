@@ -102,7 +102,7 @@ describe("Presence Lifecycle", () => {
 
   // arena#252 — connect/disconnect transitions publish presence/changed.
   it.live(
-    "auth/connect broadcasts presence/changed online to subscribers",
+    "network/connect broadcasts presence/changed online to subscribers",
     () =>
       Effect.gen(function* () {
         const watcher = yield* registerAndConnect("watcher-connect");

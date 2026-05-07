@@ -17,32 +17,26 @@ import {
   Exit,
   Layer,
   ManagedRuntime,
+  Match,
   Scope,
 } from "effect";
 
 import { logger, LoggerLive } from "../logger.js";
 import { NoopTraceCaptureLive } from "../runtime-surface/trace-capture.js";
-import { createRpcRouter } from "../rpc/router.js";
 import type {
   AuthenticatedContext,
+  DispatchContext,
   RpcMethodRegistry,
-  RpcResolveError,
 } from "../rpc/context.js";
+import type { JsonRpcId, RequestFrame, ResponseFrame } from "@moltzap/protocol";
 import {
-  RpcMethodNotFoundError,
-  makeRpcMethodBoundaryService,
-} from "../rpc/context.js";
-import type { RequestFrame, ResponseFrame } from "@moltzap/protocol";
-import {
-  ErrorCodes,
-  jsonRpcIdFromWire,
-  responseFrame,
-  validators,
+  JSON_RPC_RESERVED_CODES,
+  UnauthorizedError,
+  decodeClientInbound,
+  encodeErrorResponse,
+  makeJsonRpcServer,
 } from "@moltzap/protocol";
-import {
-  acquireAppCallbackConnectionState,
-  completeAppCallbackResponse,
-} from "../ws/connection.js";
+import { acquireConnectionRpcClient } from "../ws/connection.js";
 import { EnvelopeEncryption } from "../crypto/envelope.js";
 import {
   CLAIM_NOT_FOUND,
@@ -52,7 +46,7 @@ import {
 
 // Handlers
 import { createCoreAuthHandlers } from "../network/handlers/auth.handlers.js";
-import { createSystemHandlers } from "../network/handlers/system.handlers.js";
+import { createPingHandlers } from "../network/handlers/ping.handlers.js";
 import { connectionId as brandConnectionId } from "../network/agent-endpoint-resolver.js";
 import { createConversationHandlers } from "../task/handlers/conversations.handlers.js";
 import { createMessageHandlers } from "../task/handlers/messages.handlers.js";
@@ -74,12 +68,12 @@ import {
   DeliveryWebhookTag,
   EncryptionTag,
   ServicesLive,
-  UserServiceTag,
+  SessionValidatorTag,
   WebhookClientTag,
   resolveServices,
 } from "./layers.js";
 
-import { Connect } from "@moltzap/protocol";
+import { Claim, Connect, Register } from "@moltzap/protocol";
 
 /** Grace period after closing all WebSockets so in-flight sends can flush. */
 const SHUTDOWN_DRAIN_MS = 500;
@@ -224,7 +218,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
   const BaseLive = Layer.mergeAll(
     Layer.succeed(DbTag, db),
     Layer.succeed(EncryptionTag, envelope),
-    Layer.succeed(UserServiceTag, config.userService ?? null),
+    Layer.succeed(SessionValidatorTag, config.sessionValidator ?? null),
     Layer.succeed(WebhookClientTag, webhookClient),
     Layer.succeed(DeliveryWebhookTag, config.deliveryWebhook ?? null),
     config.traceCaptureLayer ?? NoopTraceCaptureLive,
@@ -269,7 +263,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
       connections,
       agentEndpointResolver,
       db,
-      userService: config.userService ?? null,
+      sessionValidator: config.sessionValidator ?? null,
     }),
     ...createConversationHandlers({
       conversationService,
@@ -297,11 +291,10 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     ...createTaskHandlers({
       taskService,
     }),
-    ...createSystemHandlers(),
+    ...createPingHandlers(),
   ];
 
-  const dispatch = createRpcRouter();
-  const rpcMethodBoundary = makeRpcMethodBoundaryService(methods);
+  const jsonRpcServer = makeJsonRpcServer<DispatchContext>(methods, logger);
 
   // ── HTTP routes via @effect/platform HttpRouter ──────────────────────
 
@@ -321,7 +314,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
       const request = yield* HttpServerRequest.HttpServerRequest;
       const decoded = yield* readValidatedBody(
         request,
-        validators.registerParams,
+        Register.validateParams,
       );
       if (decoded._tag === "Response") return decoded.response;
       const body = decoded.body;
@@ -362,119 +355,8 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     }),
   );
 
-  // Secret-gated admin registration. Accepts `ownerUserId` so the caller
-  // can pre-claim the agent at insert time, skipping the post-register
-  // `UPDATE agents SET owner_user_id = ...` two-step. The route is mounted
-  // only when `config.registrationSecret` is set (see the `httpApp` pipe
-  // below) — there's no anonymous admin flow.
-  //
-  // The recommended path for app-spawned agents is `auth/register` →
-  // `auth/claim` (programmatic): the secret authorizes "claim-on-behalf-of,"
-  // not "register-with-impersonation." See sub-issue #486 — this admin
-  // route remains for system mints (e.g., system agents bound to
-  // `SYSTEM_USER_ID`) where the caller is authoritative for the agent's
-  // identity at insert time.
-  const registrationSecret = config.registrationSecret;
-  const adminRegisterAgentRoute = HttpRouter.post(
-    "/api/v1/admin/register-agent",
-    Effect.gen(function* () {
-      // Defense-in-depth: the route is conditionally mounted, but if a
-      // future caller wires this route without the secret, fail closed.
-      if (!registrationSecret) {
-        return HttpServerResponse.unsafeJson(
-          { error: "Admin registration unavailable" },
-          { status: 404 },
-        );
-      }
-
-      const request = yield* HttpServerRequest.HttpServerRequest;
-      const body = yield* request.json.pipe(
-        Effect.catchAll(() => Effect.succeed(INVALID_JSON_BODY)),
-      );
-      if (body === INVALID_JSON_BODY) {
-        return HttpServerResponse.unsafeJson(
-          { error: ERROR_INVALID_JSON },
-          { status: HTTP_BAD_REQUEST },
-        );
-      }
-
-      if (!isStringKeyedRecord(body)) {
-        return HttpServerResponse.unsafeJson(
-          { error: ERROR_INVALID_PARAMETERS },
-          { status: HTTP_BAD_REQUEST },
-        );
-      }
-
-      // `validators.registerParams` is built from the protocol Register
-      // schema with `additionalProperties: false`. Strip ownerUserId
-      // before validating the rest of the body against that strict schema.
-      const fullBody = body;
-      const ownerUserIdRaw = fullBody["ownerUserId"];
-      const { ownerUserId, ...registerBody } = fullBody;
-      void ownerUserId;
-
-      if (!validators.registerParams(registerBody)) {
-        return HttpServerResponse.unsafeJson(
-          { error: ERROR_INVALID_PARAMETERS },
-          { status: HTTP_BAD_REQUEST },
-        );
-      }
-
-      const denial = checkInviteCode(
-        (registerBody as { inviteCode?: string }).inviteCode,
-        registrationSecret,
-      );
-      if (denial) return denial;
-
-      let resolvedOwnerUserId: string | undefined;
-      if (ownerUserIdRaw !== undefined) {
-        if (
-          typeof ownerUserIdRaw !== "string" ||
-          !UUID_RE.test(ownerUserIdRaw)
-        ) {
-          return HttpServerResponse.unsafeJson(
-            { error: "ownerUserId must be a UUID" },
-            { status: HTTP_BAD_REQUEST },
-          );
-        }
-        resolvedOwnerUserId = ownerUserIdRaw;
-      }
-
-      const exit = yield* Effect.exit(
-        authService.upsertAgent(
-          registerBody as Parameters<typeof authService.upsertAgent>[0],
-          // Explicit body owner wins; dev-mode auto-owner is the fallback.
-          resolvedOwnerUserId ?? config.devModeUserId,
-        ),
-      );
-      if (Exit.isFailure(exit)) {
-        logger.error(
-          { cause: Cause.pretty(exit.cause) },
-          "Admin upsert failed",
-        );
-        return HttpServerResponse.unsafeJson(
-          { error: "Registration failed" },
-          { status: 500 },
-        );
-      }
-      const result = exit.value;
-      if ("_tag" in result) {
-        return HttpServerResponse.unsafeJson(
-          { error: "Registration conflict", code: "REGISTRATION_CONFLICT" },
-          { status: 409 },
-        );
-      }
-      // 200 = rotated existing row, 201 = newly inserted. The status code
-      // is the on-the-wire `rotated` signal; body shape stays unchanged.
-      return HttpServerResponse.unsafeJson(
-        { agentId: result.agentId, apiKey: result.apiKey },
-        { status: result.rotated ? HTTP_OK : HTTP_CREATED },
-      );
-    }),
-  );
-
   // Programmatic claim path (sub-issue #486). The protocol-layer
-  // `Claim` schema (packages/protocol/src/network/methods/auth.ts)
+  // `Claim` schema (packages/protocol/src/identity/methods.ts)
   // documents the wire contract — semantics, idempotency, and the
   // `claimToken`-as-credential model. This route is the HTTP surface;
   // the secret-holder model and admin-vs-claim trade-off live in the
@@ -483,7 +365,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     "/api/v1/auth/claim",
     Effect.gen(function* () {
       const request = yield* HttpServerRequest.HttpServerRequest;
-      const decoded = yield* readValidatedBody(request, validators.claimParams);
+      const decoded = yield* readValidatedBody(request, Claim.validateParams);
       if (decoded._tag === "Response") return decoded.response;
       const body = decoded.body;
 
@@ -539,6 +421,112 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     }),
   );
 
+  // Secret-gated admin registration. Accepts `ownerUserId` so the caller
+  // can pre-claim the agent at insert time, skipping the post-register
+  // `UPDATE agents SET owner_user_id = ...` two-step. The route is mounted
+  // only when `config.registrationSecret` is set (see the `httpApp` pipe
+  // below) — there's no anonymous admin flow.
+  const registrationSecret = config.registrationSecret;
+  const adminRegisterAgentRoute = HttpRouter.post(
+    "/api/v1/admin/register-agent",
+    Effect.gen(function* () {
+      // Defense-in-depth: the route is conditionally mounted, but if a
+      // future caller wires this route without the secret, fail closed.
+      if (!registrationSecret) {
+        return HttpServerResponse.unsafeJson(
+          { error: "Admin registration unavailable" },
+          { status: 404 },
+        );
+      }
+
+      const request = yield* HttpServerRequest.HttpServerRequest;
+      const body = yield* request.json.pipe(
+        Effect.catchAll(() => Effect.succeed(INVALID_JSON_BODY)),
+      );
+      if (body === INVALID_JSON_BODY) {
+        return HttpServerResponse.unsafeJson(
+          { error: ERROR_INVALID_JSON },
+          { status: HTTP_BAD_REQUEST },
+        );
+      }
+
+      if (!isStringKeyedRecord(body)) {
+        return HttpServerResponse.unsafeJson(
+          { error: ERROR_INVALID_PARAMETERS },
+          { status: HTTP_BAD_REQUEST },
+        );
+      }
+
+      // `Register.validateParams` is built from the protocol Register
+      // schema with `additionalProperties: false`. Strip ownerUserId
+      // before validating the rest of the body against that strict schema.
+      const fullBody = body;
+      const ownerUserIdRaw = fullBody["ownerUserId"];
+      const { ownerUserId, ...registerBody } = fullBody;
+      void ownerUserId;
+
+      if (!Register.validateParams(registerBody)) {
+        return HttpServerResponse.unsafeJson(
+          { error: ERROR_INVALID_PARAMETERS },
+          { status: HTTP_BAD_REQUEST },
+        );
+      }
+
+      const inviteCode = (registerBody as { inviteCode?: string }).inviteCode;
+      if (!inviteCode || !safeEqual(inviteCode, registrationSecret)) {
+        return HttpServerResponse.unsafeJson(
+          { error: "Invalid or missing invite code" },
+          { status: 403 },
+        );
+      }
+
+      let resolvedOwnerUserId: string | undefined;
+      if (ownerUserIdRaw !== undefined) {
+        if (
+          typeof ownerUserIdRaw !== "string" ||
+          !UUID_RE.test(ownerUserIdRaw)
+        ) {
+          return HttpServerResponse.unsafeJson(
+            { error: "ownerUserId must be a UUID" },
+            { status: HTTP_BAD_REQUEST },
+          );
+        }
+        resolvedOwnerUserId = ownerUserIdRaw;
+      }
+
+      const exit = yield* Effect.exit(
+        authService.upsertAgent(
+          registerBody as Parameters<typeof authService.upsertAgent>[0],
+          // Explicit body owner wins; dev-mode auto-owner is the fallback.
+          resolvedOwnerUserId ?? config.devModeUserId,
+        ),
+      );
+      if (Exit.isFailure(exit)) {
+        logger.error(
+          { cause: Cause.pretty(exit.cause) },
+          "Admin upsert failed",
+        );
+        return HttpServerResponse.unsafeJson(
+          { error: "Registration failed" },
+          { status: 500 },
+        );
+      }
+      const result = exit.value;
+      if ("_tag" in result) {
+        return HttpServerResponse.unsafeJson(
+          { error: "Registration conflict", code: "REGISTRATION_CONFLICT" },
+          { status: 409 },
+        );
+      }
+      // 200 = rotated existing row, 201 = newly inserted. The status code
+      // is the on-the-wire `rotated` signal; body shape stays unchanged.
+      return HttpServerResponse.unsafeJson(
+        { agentId: result.agentId, apiKey: result.apiKey },
+        { status: result.rotated ? HTTP_OK : HTTP_CREATED },
+      );
+    }),
+  );
+
   const allowedOriginsPredicate = (origin: string): boolean => {
     if (config.corsOrigins.includes("*")) return true;
     if (config.corsOrigins.includes(origin)) return true;
@@ -546,7 +534,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     return false;
   };
 
-  /** Handle a freshly-upgraded socket: auth/connect → RPC dispatch → close.
+  /** Handle a freshly-upgraded socket: network/connect → RPC dispatch → close.
    * Lives inside the per-request fiber; returning exits the connection. */
   const handleSocket = (
     socket: Socket.Socket,
@@ -569,12 +557,11 @@ export function createCoreApp(config: CoreConfig): CoreApp {
             ),
           );
 
-        // Acquire per-connection appCallback state and bind the disconnect-finalizer
-        // to this socket's scope. The finalizer fails every still-pending
-        // appCallback Deferred with `AppDisconnected` when the socket closes —
-        // before, during, or after a typical connection lifecycle.
-        const appCallbackState =
-          yield* acquireAppCallbackConnectionState(connId);
+        // Allocate this connection's `JsonRpcClient` (originator side of
+        // the server→client appCallback channel). Scope-bound: the
+        // finalizer fails every still-pending Deferred with
+        // `NotConnectedError` when the socket closes.
+        const jsonRpcClient = yield* acquireConnectionRpcClient(connId, write);
 
         connections.add({
           id: connId,
@@ -586,136 +573,133 @@ export function createCoreApp(config: CoreConfig): CoreApp {
           lastPong: Date.now(),
           conversationIds: new Set(),
           mutedConversations: new Set(),
-          appCallbackPending: appCallbackState.appCallbackPending,
-          appCallbackRequestCounter: appCallbackState.appCallbackRequestCounter,
+          jsonRpcClient,
         });
         logger.info({ connId }, "WebSocket connected");
 
-        const handleFrame = (raw: string) =>
+        const sendInvalidRequest = (id: JsonRpcId | null) =>
+          sendFrame(
+            encodeErrorResponse(id, {
+              code: JSON_RPC_RESERVED_CODES.InvalidRequest,
+              message: "Invalid request frame",
+            }),
+          );
+
+        const handleParseFailure = (err: unknown) => {
+          const n = ++malformedFrameCount;
+          if (n === 1 || n % MALFORMED_LOG_EVERY === 0) {
+            logger.warn(
+              { err, connId, count: n },
+              "Failed to parse WebSocket frame",
+            );
+          }
+          return sendFrame(
+            encodeErrorResponse(null, {
+              code: JSON_RPC_RESERVED_CODES.ParseError,
+              message: ERROR_INVALID_JSON,
+            }),
+          );
+        };
+
+        const handleResponseFrame = (frame: ResponseFrame) =>
           Effect.gen(function* () {
             const conn = connections.get(connId);
             if (!conn) return;
+            const matched = yield* conn.jsonRpcClient.resolve(frame);
+            if (!matched) {
+              logger.warn(
+                { connId, id: frame.id },
+                "no pending appCallback request matched inbound response",
+              );
+            }
+          });
+
+        const fireConnectionHooks = Effect.gen(function* () {
+          const authCtx = connections.get(connId)?.auth;
+          if (!authCtx) return;
+          const { agentId, ownerUserId } = authCtx;
+          const agentRow = yield* Effect.tryPromise(() =>
+            db
+              .selectFrom("agents")
+              .select("name")
+              .where("id", "=", agentId)
+              .executeTakeFirst(),
+          ).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+          const agentName = agentRow?.name ?? agentId;
+          for (const hook of connectionHooks) {
+            yield* runUserHook(
+              hook,
+              { agentId, agentName, ownerUserId, connId },
+              "Connection hook",
+              { agentId, connId },
+            );
+          }
+        });
+
+        const handleRequestFrame = (frame: RequestFrame) =>
+          Effect.gen(function* () {
+            const conn = connections.get(connId);
+            if (!conn) return;
+            const isConnect = frame.method === Connect.name;
+            if (!isConnect && !conn.auth) {
+              yield* sendFrame(
+                encodeErrorResponse(frame.id, {
+                  code: UnauthorizedError.code,
+                  message: "Not authenticated. Send network/connect first.",
+                }),
+              );
+              return;
+            }
+            const auth = conn.auth ?? ({} as AuthenticatedContext);
+            const response = yield* jsonRpcServer.handle(frame, {
+              auth,
+              connId,
+            });
+            yield* sendFrame(response);
+            if (isConnect) yield* fireConnectionHooks;
+          });
+
+        const handleFrame = (raw: string) =>
+          Effect.gen(function* () {
+            if (!connections.get(connId)) return;
 
             let parsed: unknown;
             try {
               parsed = JSON.parse(raw);
             } catch (err) {
-              const n = ++malformedFrameCount;
-              if (n === 1 || n % MALFORMED_LOG_EVERY === 0) {
-                logger.warn(
-                  { err, connId, count: n },
-                  "Failed to parse WebSocket frame",
-                );
-              }
-              yield* sendFrame(
-                responseFrame(null, {
-                  error: {
-                    code: ErrorCodes.ParseError,
-                    message: ERROR_INVALID_JSON,
-                  },
-                }),
-              );
+              yield* handleParseFailure(err);
               return;
             }
 
-            // Responses complete app-callback RPCs that this server initiated.
-            // Requests enter the app RPC router below. JSON-RPC frame shape is
-            // the only discriminator; there is no direction field on the wire.
-            if (validators.responseFrame(parsed)) {
-              const inboundResponse = parsed as ResponseFrame;
-              const completed = yield* completeAppCallbackResponse(
-                conn,
-                inboundResponse,
-              );
-              if (completed._tag === "None") {
-                logger.warn(
-                  { connId, id: inboundResponse.id },
-                  "no pending appCallback request matched inbound response",
-                );
-              }
-              return;
-            }
-
-            if (!validators.requestFrame(parsed)) {
-              const id = isStringKeyedRecord(parsed)
-                ? jsonRpcIdFromWire(parsed["id"])
-                : null;
-              yield* sendFrame(
-                responseFrame(id, {
-                  error: {
-                    code: ErrorCodes.InvalidRequest,
-                    message: "Invalid request frame",
-                  },
-                }),
-              );
-              return;
-            }
-
-            const frame = parsed as RequestFrame;
-            yield* rpcMethodBoundary.resolve(frame).pipe(
-              Effect.matchEffect({
-                onFailure: (error) => sendFrame(rpcResolveErrorResponse(error)),
-                onSuccess: (request) =>
-                  Effect.gen(function* () {
-                    const isConnectRequest = request.definition === Connect;
-                    if (!isConnectRequest && !conn.auth) {
-                      yield* sendFrame(
-                        responseFrame(frame.id, {
-                          error: {
-                            code: ErrorCodes.Unauthorized,
-                            message:
-                              "Not authenticated. Send auth/connect first.",
-                          },
-                        }),
-                      );
-                      return;
-                    }
-
-                    const ctx = conn.auth ?? ({} as AuthenticatedContext);
-                    const response = yield* Effect.tryPromise({
-                      try: () => dispatch(request, ctx, connId),
-                      catch: (err) => err,
-                    }).pipe(
-                      Effect.catchAll((err) =>
-                        Effect.sync(() => {
-                          logger.error({ err, connId }, "RPC dispatch failed");
-                          return responseFrame(frame.id, {
-                            error: {
-                              code: ErrorCodes.InternalError,
-                              message: "Internal error",
-                            },
-                          });
-                        }),
-                      ),
-                    );
-                    yield* sendFrame(response);
-
-                    // Fire connection hooks after a successful auth/connect —
-                    // auth was populated by the dispatch handler if the
-                    // credentials were valid.
-                    if (isConnectRequest) {
-                      const authCtx = connections.get(connId)?.auth;
-                      if (!authCtx) return;
-                      const { agentId, ownerUserId } = authCtx;
-                      const agentRow = yield* Effect.tryPromise(() =>
-                        db
-                          .selectFrom("agents")
-                          .select("name")
-                          .where("id", "=", agentId)
-                          .executeTakeFirst(),
-                      ).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
-                      const agentName = agentRow?.name ?? agentId;
-                      for (const hook of connectionHooks) {
-                        yield* runUserHook(
-                          hook,
-                          { agentId, agentName, ownerUserId, connId },
-                          "Connection hook",
-                          { agentId, connId },
-                        );
-                      }
-                    }
-                  }),
-              }),
+            yield* decodeClientInbound(parsed).pipe(
+              Effect.flatMap((decoded) =>
+                Match.value(decoded).pipe(
+                  Match.tag("ResponseSuccess", ({ id, result }) =>
+                    handleResponseFrame({
+                      jsonrpc: "2.0",
+                      id,
+                      result,
+                    } as ResponseFrame),
+                  ),
+                  Match.tag("ResponseError", ({ id, error }) =>
+                    handleResponseFrame({
+                      jsonrpc: "2.0",
+                      id,
+                      error,
+                    } as ResponseFrame),
+                  ),
+                  Match.tag("Notification", () => sendInvalidRequest(null)),
+                  Match.tag("ClientRequest", ({ definition, params, id }) =>
+                    handleRequestFrame(
+                      definition.encodeRequest(id, params) as RequestFrame,
+                    ),
+                  ),
+                  Match.exhaustive,
+                ),
+              ),
+              Effect.catchTag("MalformedFrameError", () =>
+                sendInvalidRequest(null),
+              ),
             );
           });
 
@@ -751,7 +735,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
               }
               // Slice G1 (plan §2.11): remove the connection's endpoint
               // address from the resolver. Skipped for never-authed
-              // connections — `auth/connect` is the single registration
+              // connections — `network/connect` is the single registration
               // site, so an unauthed disconnect has nothing to clean up
               // and would not have an `agentId` to address the entry by.
               if (authCtx) {
@@ -904,21 +888,4 @@ export function createCoreApp(config: CoreConfig): CoreApp {
       );
     },
   };
-}
-
-function rpcResolveErrorResponse(error: RpcResolveError): ResponseFrame {
-  if (error instanceof RpcMethodNotFoundError) {
-    return responseFrame(error.frame.id, {
-      error: {
-        code: ErrorCodes.MethodNotFound,
-        message: `Unknown method: ${error.frame.method}`,
-      },
-    });
-  }
-  return responseFrame(error.frame.id, {
-    error: {
-      code: ErrorCodes.InvalidParams,
-      message: "Invalid parameters",
-    },
-  });
 }

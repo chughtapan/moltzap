@@ -208,7 +208,7 @@ export const transaction = <A, DB>(
  * treated as defects at the wire edge (→ `InternalError`). The Effect
  * bridge surfaces them as typed errors in the error channel. Applying
  * this at service boundaries preserves the existing semantics while
- * keeping public error channels as `RpcFailure` only.
+ * keeping public error channels as tagged-error classes only.
  */
 export const catchSqlErrorAsDefect = <A, E, R>(
   effect: Effect.Effect<A, E, R>,

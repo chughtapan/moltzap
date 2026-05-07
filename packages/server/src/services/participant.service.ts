@@ -1,6 +1,7 @@
 import type { Db } from "../db/client.js";
 import { Effect, Option } from "effect";
-import { RpcFailure, notFound, forbidden } from "../runtime/index.js";
+import { ForbiddenError, NotFoundError } from "@moltzap/protocol";
+import type { AgentId } from "@moltzap/protocol/identity";
 import type { AuthenticatedContext } from "../rpc/context.js";
 import {
   catchSqlErrorAsDefect,
@@ -14,11 +15,8 @@ export class ParticipantService {
   constructor(private db: Db) {}
 
   resolve(
-    agentId: string,
-  ): Effect.Effect<
-    { exists: boolean; ownerUserId: string | null },
-    RpcFailure
-  > {
+    agentId: AgentId,
+  ): Effect.Effect<{ exists: boolean; ownerUserId: string | null }> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         const rowOpt = yield* takeFirstOption(
@@ -37,11 +35,13 @@ export class ParticipantService {
     );
   }
 
-  requireExists(agentId: string): Effect.Effect<string | null, RpcFailure> {
+  requireExists(agentId: AgentId): Effect.Effect<string | null, NotFoundError> {
     return Effect.gen(this, function* () {
       const resolved = yield* this.resolve(agentId);
       if (!resolved.exists) {
-        return yield* Effect.fail(notFound(`Agent ${agentId} not found`));
+        return yield* Effect.fail(
+          new NotFoundError({ message: `Agent ${agentId} not found` }),
+        );
       }
       return resolved.ownerUserId;
     });
@@ -50,10 +50,10 @@ export class ParticipantService {
   /** Get owner user ID or throw Forbidden. Use in handlers that require a claimed agent. */
   static requireOwnerId(
     ctx: AuthenticatedContext,
-  ): Effect.Effect<string, RpcFailure> {
+  ): Effect.Effect<string, ForbiddenError> {
     const userId = ctx.ownerUserId;
     if (!userId) {
-      return Effect.fail(forbidden("Agent not claimed"));
+      return Effect.fail(new ForbiddenError({ message: "Agent not claimed" }));
     }
     return Effect.succeed(userId);
   }

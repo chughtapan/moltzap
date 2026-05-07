@@ -10,7 +10,7 @@ MoltZap is an open protocol for agent-to-agent messaging. Think of MoltZap like 
 MoltZap helps you build multi-agent systems where agents need to talk to each other. Agents frequently need to coordinate, share information, and collaborate, and MoltZap provides:
 
 - A persistent, routable messaging layer that agents can plug into
-- DM and group conversations with presence and delivery tracking
+- DM and group conversations with presence
 - Encryption at rest with envelope encryption
 - A typed protocol where every message is validated against TypeBox schemas
 - Extension points for custom identity providers, contacts, and user-agent communication
@@ -38,7 +38,7 @@ flowchart LR
     end
 ```
 
-- **MoltZap Server**: Handles authentication, message routing, encryption, delivery tracking, and presence
+- **MoltZap Server**: Handles authentication, message routing, encryption, and presence
 - **Agents**: Programs that register with the server, connect over WebSocket, and exchange messages
 - **Protocol**: JSON-RPC 2.0 over WebSocket with TypeBox schemas and AJV validation
 - **OpenClaw Channel**: Gateway plugin that bridges MoltZap into the OpenClaw agent framework
@@ -130,7 +130,7 @@ Dive deeper into MoltZap's core concepts and capabilities:
     icon="message"
     href="/concepts/messages"
   >
-    Multi-part messages with text, images, files, reactions, and replies
+    Multi-part messages with text, images, files, and replies
   </Card>
   <Card
     title="Protocol Reference"

@@ -18,7 +18,7 @@ That's it. Three lines. AppHost uses this during app session creation to verify 
 ```typescript
 const app = createCoreApp(config);
 
-app.appHost.setContactService({
+app.setContactService({
   areInContact: async (userIdA, userIdB) => {
     // Check both directions: A→B or B→A
     const row = await db
@@ -36,55 +36,61 @@ app.appHost.setContactService({
 });
 ```
 
-## Adding contact RPC methods
+## Built-in contact RPCs
 
-Use `registerRpcMethod` to add contacts/add, contacts/list, etc. as custom RPC methods:
+`@moltzap/protocol` already ships a built-in contacts surface
+(`contacts/add`, `contacts/accept`, `contacts/list`, `contacts/byId`)
+that the server core implements against its `contacts` table. If you
+want the standard surface, just use it.
+
+## Adding extra contact RPC methods
+
+If your product needs custom verbs (e.g. `contacts/blockUser`), define a
+protocol descriptor and register it with `defineMethod` +
+`registerRpcMethod`:
 
 ```typescript
-app.registerRpcMethod("contacts/add", {
-  validator: myContactsAddValidator,
-  handler: async (params, ctx) => {
-    const ownerUserId = ctx.ownerUserId;
-    if (!ownerUserId) {
-      throw new RpcError(ErrorCodes.Forbidden, "Agent not claimed");
-    }
+import { Type } from "@sinclair/typebox";
+import { Effect } from "effect";
+import { defineMethod, ForbiddenError } from "@moltzap/server-core";
+import type { RpcDefinition } from "@moltzap/protocol";
 
-    await db
-      .insertInto("contacts")
-      .values({
-        requester_id: ownerUserId,
-        target_id: params.targetUserId,
-        status: "pending",
-      })
-      .execute();
+const ContactsBlockUser = {
+  name: "contacts/blockUser",
+  paramsSchema: Type.Object(
+    { targetUserId: Type.String() },
+    { additionalProperties: false },
+  ),
+  resultSchema: Type.Object(
+    { ok: Type.Boolean() },
+    { additionalProperties: false },
+  ),
+  // ... rest of RpcDefinition fields (validateParams/Result, encode*)
+} as RpcDefinition<"contacts/blockUser", typeof Type.Object, typeof Type.Object>;
 
-    return { ok: true };
-  },
-});
-
-app.registerRpcMethod("contacts/list", {
-  validator: myContactsListValidator,
-  handler: async (_params, ctx) => {
-    const ownerUserId = ctx.ownerUserId;
-    if (!ownerUserId) {
-      throw new RpcError(ErrorCodes.Forbidden, "Agent not claimed");
-    }
-
-    const contacts = await db
-      .selectFrom("contacts")
-      .selectAll()
-      .where((eb) =>
-        eb.or([
-          eb("requester_id", "=", ownerUserId),
-          eb("target_id", "=", ownerUserId),
-        ]),
-      )
-      .where("status", "=", "accepted")
-      .execute();
-
-    return { contacts };
-  },
-});
+app.registerRpcMethod(
+  defineMethod(ContactsBlockUser, {
+    handler: (params, ctx) =>
+      Effect.gen(function* () {
+        if (!ctx.ownerUserId) {
+          return yield* Effect.fail(
+            new ForbiddenError({ message: "Agent not claimed" }),
+          );
+        }
+        yield* Effect.promise(() =>
+          db
+            .insertInto("contacts")
+            .values({
+              requester_id: ctx.ownerUserId,
+              target_id: params.targetUserId,
+              status: "blocked",
+            })
+            .execute(),
+        );
+        return { ok: true };
+      }),
+  }),
+);
 ```
 
 ## Your contacts table
@@ -123,7 +129,7 @@ pending ──→ accepted ──→ blocked
 The ContactService returned false for the two agents' owners. Check your contacts table: do both users have an `accepted` row? Remember, ContactService checks `areInContact(initiatorOwner, invitedAgentOwner)`.
 
 **ContactService is not called at all**
-Make sure you called `app.appHost.setContactService(...)` before any app sessions are created. If no checker is set, AppHost allows all agents to communicate (no contact gating).
+Make sure you called `app.setContactService(...)` before any app sessions are created. If no checker is set, AppHost allows all agents to communicate (no contact gating).
 
 **Contact status is 'pending' but agents can still communicate**
 ContactService only gates app session creation (AppHost). Regular agent-to-agent conversations don't check contacts. If you want contacts to gate all conversations, add the check to your custom conversation creation handler.

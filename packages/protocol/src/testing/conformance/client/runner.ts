@@ -28,10 +28,8 @@ import {
 import type {
   NotificationFrame,
   ResponseFrame,
-} from "../../../schema/frames.js";
-import { responseFrame } from "../../../helpers.js";
-import { brandNotificationFrame } from "../../../schema/internal-frames.js";
-import { isJsonRpcStringId } from "../../../schema/json-rpc.js";
+} from "../../../transport/wire.js";
+import { responseFrame } from "../../../transport/wire.js";
 import { isRequestFrame } from "../../codec.js";
 import {
   makeTestServer,
@@ -51,7 +49,7 @@ import { conformanceNumRunsFromEnv } from "../env.js";
 import type { ConformanceArtifact } from "../runner.js";
 import { PROTOCOL_VERSION } from "../../../version.js";
 
-import { Connect } from "../../../network/methods/auth.js";
+import { Connect } from "../../../network/methods.js";
 
 const DEFAULT_ACCEPT_TIMEOUT_MS = 5_000;
 const RANDOM_TAG_RADIX = 36;
@@ -161,18 +159,18 @@ export interface ObservedNotification {
 
 /**
  * Real client's RPC caller. Takes the raw JSON-RPC method + params;
- * returns the decoded response or a typed error. Contract: the real
- * client itself generates request IDs — the property does not mint
- * them — and records the outbound ID via `outboundIdFeed` so the
- * property can assert ID-set equality (B4, O7 idempotence).
+ * returns the decoded response or a typed error. Contract: the real client
+ * itself generates request IDs — the property does not mint them and does
+ * not see them. Tests that need to verify id-correlation (B4) discriminate
+ * via the `result` content of the response: spurious responses carry a
+ * marker payload that the matching response does not, so a correctly
+ * correlating client returns the matching payload.
  */
 export interface RealClientRpcCaller {
   readonly call: (
     method: string,
     params: unknown,
   ) => Effect.Effect<ResponseFrame | NotificationFrame, RealClientRpcError>;
-  /** Stream of outbound request IDs the real client has minted. */
-  readonly outboundIdFeed: Effect.Effect<ReadonlyArray<string>>;
 }
 
 /**
@@ -372,33 +370,62 @@ export function acquireClientRunContext(
 }
 
 /**
- * Default tagged-notification emission: stamp the notification payload with the
- * caller's `emissionTag` under the reserved `__emissionTag` key, then
- * forward to the connection's real `emitNotification`. Returns the tag so the
- * caller can filter subscriber observations by the same string.
- *
- * `NotificationFrame.params` is `Type.Optional(Type.Unknown())`; injecting an
- * object field is schema-valid. The real clients under test are
- * payload-opaque (C3 predicate), so the extra field round-trips cleanly.
+ * Default tagged-notification emission: forward the notification through the
+ * connection's real `emitNotification` and record the caller's `emissionTag`
+ * keyed by the frame's stable wire content. Per-method `paramsSchema` is
+ * `additionalProperties: false` post-Phase-12 (#222), so an injected
+ * `__emissionTag` field would fail validation and the real client would drop
+ * the frame. Instead we register the (rawBytes → tag) mapping in
+ * `recordTagForEmittedFrame` and let `filterTagged` look up the tag from
+ * the observed `rawBytes` rather than reading a payload-injected key.
  */
 function emitTaggedNotificationDefault(
   connection: TestServerConnection,
   base: NotificationFrame,
   emissionTag: string,
 ): Effect.Effect<string> {
-  const baseParams = isStringKeyedRecord(base.params) ? base.params : {};
-  const tagged: NotificationFrame = brandNotificationFrame({
-    ...base,
-    params: { ...baseParams, __emissionTag: emissionTag },
+  return Effect.gen(function* () {
+    const raw = JSON.stringify(base);
+    yield* recordTagForEmittedFrame(raw, emissionTag);
+    yield* connection
+      .emitNotification(base)
+      .pipe(Effect.orElseSucceed(() => undefined));
+    return emissionTag;
   });
-  return connection.emitNotification(tagged).pipe(
-    Effect.orElseSucceed(() => undefined),
-    Effect.as(emissionTag),
-  );
 }
 
-function isStringKeyedRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+const emittedFrameTags = new Map<string, string>();
+
+function recordTagForEmittedFrame(
+  raw: string,
+  emissionTag: string,
+): Effect.Effect<void> {
+  return Effect.sync(() => {
+    emittedFrameTags.set(raw, emissionTag);
+  });
+}
+
+/**
+ * Synchronous tag-record entry point. Exposed so divergence-proof
+ * harnesses (and any other test scaffold that wraps notification
+ * emission outside `emitTaggedNotificationDefault`) share the same
+ * registry as the real adapter.
+ */
+export function registerEmittedFrameTag(raw: string, tag: string): void {
+  emittedFrameTags.set(raw, tag);
+}
+
+/**
+ * Look up the tag the runner stamped on the wire-frame whose serialized
+ * bytes match `rawBytes`. Returns `null` when the bytes were not produced
+ * by `emitTaggedNotificationDefault` (handshake-noise frames, server-side
+ * pings, etc.).
+ *
+ * Exported for `_fixtures.ts`'s `filterTagged` helper.
+ */
+export function lookupTagForRawBytes(rawBytes: Uint8Array): string | null {
+  const raw = new TextDecoder().decode(rawBytes);
+  return emittedFrameTags.get(raw) ?? null;
 }
 
 function emitTaggedResponseDefault(
@@ -409,7 +436,7 @@ function emitTaggedResponseDefault(
   // Response frames don't carry a free-form `params` field; responses are
   // correlated by `id` instead — the response's `id` IS its emission tag
   // from the property's perspective (see B1 / B4 / D5 predicates).
-  const tag = isJsonRpcStringId(base.id) ? base.id : _emissionTag;
+  const tag = typeof base.id === "string" ? base.id : _emissionTag;
   return connection.emitResponse(base).pipe(
     Effect.orElseSucceed(() => undefined),
     Effect.as(tag),
@@ -443,9 +470,9 @@ export function makeClientHandshakeWindow(
 /**
  * Auto-handshake responder. Spawned as a background fiber by property
  * bodies; watches a TestServer connection's inbound capture buffer for
- * `auth/connect` RPC requests and responds with a minimal valid
+ * `network/connect` RPC requests and responds with a minimal valid
  * `HelloOkSchema`. Required because `MoltZapWsClient.connect()` blocks
- * on the auth/connect response before `ready` resolves.
+ * on the network/connect response before `ready` resolves.
  *
  * Exposed as a helper so each property body can choose whether to run
  * the auto-responder or assert directly against the raw inbound stream
@@ -471,8 +498,6 @@ export function runAutoHandshakeResponder(
             const helloOk = {
               protocolVersion: PROTOCOL_VERSION,
               agentId,
-              conversations: [],
-              unreadCounts: {},
               policy: {
                 maxMessageBytes: 65536,
                 maxPartsPerMessage: 32,

@@ -1,14 +1,9 @@
-import { Effect } from "effect";
+import { Effect, Exit } from "effect";
 import { describe, expect, it } from "vitest";
-import {
-  MessageReceivedNotificationDefinition,
-  TaskClosedNotificationDefinition,
-  agentId,
-  conversationId,
-  messageId,
-  notificationFrame,
-} from "@moltzap/protocol";
-import { decodeFrames, type RawDecodedNotification } from "./frame.js";
+import { MessageReceivedNotificationDefinition } from "@moltzap/protocol";
+import { agentId, conversationId, messageId } from "@moltzap/protocol/testing";
+import { decodeFrames } from "./frame.js";
+import { MalformedFrameError } from "./errors.js";
 
 const TEST_MESSAGE = {
   id: messageId("11111111-1111-4111-8111-111111111111"),
@@ -22,7 +17,7 @@ describe("decodeFrames", () => {
   it("decodes padded chunks that contain both a notification and a response", async () => {
     const raw =
       JSON.stringify(
-        notificationFrame(MessageReceivedNotificationDefinition, {
+        MessageReceivedNotificationDefinition.encode({
           message: TEST_MESSAGE,
         }),
       ) +
@@ -42,20 +37,18 @@ describe("decodeFrames", () => {
       params: { message: TEST_MESSAGE },
     });
     expect(decoded[1]).toMatchObject({
-      _tag: "Response",
+      _tag: "ResponseSuccess",
       id: "rpc-7",
       result: { ok: true },
     });
   });
 
-  // R2 regression: drift detection lives at the typed-handler boundary,
-  // not the wire decoder. The wire decoder is payload-opaque (conformance
-  // §5 C3 / E2 require it) but attaches the protocol definition to every
-  // known-method notification, so subscribers can validate via
-  // `definition.validateParams` and reject stale shapes — e.g. a
-  // pre-Phase-7 `task/closed` carrying `sessionId` instead of
-  // `{taskId, conversations, closedBy: {agentId, ownerId}}`.
-  it("attaches definition for known methods so subscribers can reject stale `task/closed` payload", async () => {
+  // S9 fail-close: stale shapes are rejected at the wire boundary.
+  // Pre-Phase-7 `task/closed` carrying `sessionId` instead of
+  // `{taskId, conversations, closedBy: {agentId, ownerId}}` decodes to
+  // `MalformedFrameError`; subscribers no longer need to defend
+  // against drift downstream because the decoder fails closed.
+  it("fail-closes stale `task/closed` payload at the wire boundary", async () => {
     const stale = JSON.stringify({
       jsonrpc: "2.0",
       method: "task/closed",
@@ -65,36 +58,22 @@ describe("decodeFrames", () => {
       },
     });
 
-    const decoded = await Effect.runPromise(decodeFrames(stale));
-    expect(decoded).toHaveLength(1);
-    const notification = decoded[0] as RawDecodedNotification<
-      typeof TaskClosedNotificationDefinition
-    >;
-    expect(notification._tag).toBe("Notification");
-    expect(notification.method).toBe(TaskClosedNotificationDefinition.name);
+    const exit = await Effect.runPromiseExit(decodeFrames(stale));
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      const error = exit.cause._tag === "Fail" ? exit.cause.error : null;
+      expect(error).toBeInstanceOf(MalformedFrameError);
+    }
+  });
 
-    // R14: assert the decoder ATTACHES the live definition by reference
-    // identity (not via the global registry roundtrip — that would pass
-    // even if the decoder dropped the attachment).
-    expect(notification.definition).toBe(TaskClosedNotificationDefinition);
-
-    // The attached definition rejects the stale payload — subscribers /
-    // typed handlers can detect drift even though the decoder itself
-    // stays opaque.
-    expect(notification.definition.validateParams(notification.params)).toBe(
-      false,
-    );
-
-    // And the live shape passes — proves the validator is not vacuously false.
-    expect(
-      notification.definition.validateParams({
-        taskId: "11111111-1111-4111-8111-111111111111",
-        conversations: { main: "22222222-2222-4222-8222-222222222222" },
-        closedBy: {
-          agentId: "33333333-3333-4333-8333-333333333333",
-          ownerId: "owner-1",
-        },
-      }),
-    ).toBe(true);
+  // S9 also rejects unknown notification methods at the wire boundary.
+  it("fail-closes unknown notification method", async () => {
+    const stranger = JSON.stringify({
+      jsonrpc: "2.0",
+      method: "some/unregistered-method",
+      params: {},
+    });
+    const exit = await Effect.runPromiseExit(decodeFrames(stranger));
+    expect(Exit.isFailure(exit)).toBe(true);
   });
 });

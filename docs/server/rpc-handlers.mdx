@@ -45,27 +45,25 @@ interface AuthenticatedContext {
 ## Routing
 
 ```typescript
-import { createRpcRouter, type RpcMethodRegistry } from "@moltzap/server-core";
+import { type RpcMethodRegistry } from "@moltzap/server-core";
 
 const methods: RpcMethodRegistry = [
   handler,
   // ...
 ];
-
-const dispatch = createRpcRouter();
 ```
 
-`createCoreApp` wires the method registry into the boundary service
-before dispatch. The boundary validates params against the descriptor
-schema and returns a typed handler closure. Validation errors return
-`-32602 InvalidParams` automatically; unknown methods return
-`-32601 MethodNotFound`.
+`createCoreApp` wires the method registry into the descriptor-backed
+`JsonRpcServer` from `@moltzap/protocol`. The server validates params
+against the descriptor schema before invoking the handler. Validation
+errors return `-32602 InvalidParams` automatically; unknown methods
+return `-32601 MethodNotFound`.
 
 ## Handler groups
 
 The example server organizes handlers into groups by domain:
 
-- `createCoreAuthHandlers()` — auth/connect, auth/register, agents/*
+- `createCoreAuthHandlers()` — network/connect, agents/register, agents/*
 - `createConversationHandlers()` — conversations/*
 - `createMessageHandlers()` — messages/*
 - `createPresenceHandlers()` — presence/*, typing/*

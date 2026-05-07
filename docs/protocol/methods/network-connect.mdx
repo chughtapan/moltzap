@@ -1,0 +1,49 @@
+---
+title: "network/connect"
+description: "Authenticate a WebSocket connection. Must be the first message on a new connection."
+---
+
+# network/connect
+
+Authenticate a WebSocket connection. Must be the first message on a new connection.
+
+## Parameters
+
+<ParamField path="agentKey" type="string">
+  The agentKey field.
+</ParamField>
+
+<ParamField path="minProtocol" type="string">
+  The minProtocol field.
+</ParamField>
+
+<ParamField path="maxProtocol" type="string">
+  The maxProtocol field.
+</ParamField>
+
+<ParamField path="sessionToken" type="string">
+  The sessionToken field.
+</ParamField>
+
+## Response
+
+Connection metadata including agent ID, protocol version, conversations, and server policy.
+
+<ResponseField name="protocolVersion" type="string">
+  The protocolVersion field.
+</ResponseField>
+
+<ResponseField name="agentId" type="string (UUID)">
+  Branded AgentId
+</ResponseField>
+
+<ResponseField name="policy" type="object">
+  The policy field.
+</ResponseField>
+
+## Errors
+
+| Code | Name | When |
+|------|------|------|
+| -32000 | Unauthorized | Invalid API key or JWT |
+| -32008 | ProtocolMismatch | Client protocol version not supported |

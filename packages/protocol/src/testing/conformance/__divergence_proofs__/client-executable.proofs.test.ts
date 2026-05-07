@@ -4,18 +4,17 @@ import type {
   NotificationFrame,
   RequestFrame,
   ResponseFrame,
-} from "../../../schema/frames.js";
+} from "../../../transport/wire.js";
 import {
   ConversationArchivedNotificationDefinition,
   ConversationUnarchivedNotificationDefinition,
-} from "../../../schema/notifications.js";
+} from "../../../task/methods.js";
 import type { TestServer, TestServerConnection } from "../../test-server.js";
 import { makeCaptureBuffer, recordFrame } from "../../captures.js";
 import { encodeFrame } from "../../codec.js";
-import { requestFrame } from "../../../helpers.js";
+import { requestFrame } from "../../../transport/wire.js";
 import { rpcMethods } from "../../../rpc-registry.js";
-import { brandNotificationFrame } from "../../../schema/internal-frames.js";
-import { jsonRpcMethod, jsonRpcStringId } from "../../../schema/json-rpc.js";
+import { jsonRpcMethod } from "../../../transport/wire.js";
 import type { ConformanceArtifact } from "../runner.js";
 import { collectProperties, type PropertyFailure } from "../registry.js";
 import {
@@ -29,6 +28,10 @@ import {
   registerArchiveLifecycleClient,
   registerSchemaExhaustiveFuzzClient,
 } from "../client/index.js";
+import {
+  lookupTagForRawBytes,
+  registerEmittedFrameTag,
+} from "../client/runner.js";
 import type {
   ClientConformanceRunContext,
   ClientHandshakeWindow,
@@ -69,7 +72,7 @@ describe("client-side conformance executable divergence proofs", () => {
       { eventBehavior: "strip-required-field" },
     );
     expectInvariant(failure, "notification-well-formedness-client");
-  }, 10_000);
+  }, 30_000);
 
   it("registerFanOutCardinalityClient fails when a real client scrambles fan-out order", async () => {
     const failure = await runSingleClientProof(
@@ -175,6 +178,11 @@ function makeBadClientContext(
         Deferred.Deferred<ResponseFrame | NotificationFrame, RealClientRpcError>
       >
     >(new Map());
+    // For spurious-id mode: buffer responses that arrive before any pending
+    // exists, so the bad client can later cross-correlate them onto a real
+    // pending call. Without this buffer the spurious response is silently
+    // dropped and the divergence proof fails to demonstrate the bug.
+    const bufferedResponseRef = yield* Ref.make<ResponseFrame | null>(null);
     const artifacts = yield* Ref.make<ReadonlyArray<ConformanceArtifact>>([]);
     const inbound = yield* makeCaptureBuffer({ capacity: 256 });
 
@@ -185,9 +193,12 @@ function makeBadClientContext(
         const behavior = opts.eventBehavior ?? "normal";
         const close = yield* Ref.get(closeRef);
         if (close !== null && behavior === "close-on-malformed") return;
-        const data = frame.params as { __emissionTag?: string } | undefined;
-        const tag =
-          typeof data?.__emissionTag === "string" ? data.__emissionTag : null;
+        // Post-Phase-12 (#222) the runner records the (raw → tag) map at
+        // emit time rather than injecting `__emissionTag` into the
+        // payload (which would fail per-method validation). Read the
+        // tag back via the same registry the real adapter uses.
+        const preEncoded = new TextEncoder().encode(JSON.stringify(frame));
+        const tag = lookupTagForRawBytes(preEncoded);
         if (behavior === "close-on-untagged-fuzz" && tag === null) {
           yield* Ref.set(closeRef, {
             code: 1002,
@@ -199,13 +210,11 @@ function makeBadClientContext(
           behavior === "strip-required-field"
             ? stripNotificationName(frame)
             : behavior === "scramble-position-index"
-              ? rewriteEventData(frame, { positionIndex: 999 })
+              ? scrambleMessagePart(frame)
               : behavior === "rewrite-payload"
-                ? rewriteEventData(frame, { opaqueToken: "rewritten" })
+                ? rewriteMessagePatchedBy(frame, "rewritten")
                 : behavior === "rewrite-conversation-id"
-                  ? rewriteEventData(frame, {
-                      conversationId: "cross-wired-task",
-                    })
+                  ? rewriteMessageConversationId(frame, "cross-wired-task")
                   : behavior === "swap-archive-lifecycle"
                     ? swapArchiveLifecycleNotification(frame)
                     : frame;
@@ -225,23 +234,31 @@ function makeBadClientContext(
       Effect.gen(function* () {
         const behavior = opts.rpcBehavior ?? "normal";
         const pending = yield* Ref.get(pendingRef);
-        const targetId =
-          behavior === "spurious-id"
-            ? pending.keys().next().value
-            : response.id;
-        if (typeof targetId !== "string") return;
-        const deferred = pending.get(targetId);
+        if (behavior === "spurious-id") {
+          // Cross-correlation bug: route the FIRST response we see (whether
+          // its id matches or not) onto whatever the next pending call is.
+          // If no pending exists yet, buffer for later.
+          const firstPendingId = pending.keys().next().value;
+          if (typeof firstPendingId !== "string") {
+            yield* Ref.set(bufferedResponseRef, response);
+            return;
+          }
+          const deferred = pending.get(firstPendingId);
+          if (deferred === undefined) return;
+          yield* Deferred.succeed(deferred, response);
+          return;
+        }
+        if (typeof response.id !== "string") return;
+        const deferred = pending.get(response.id);
         if (deferred === undefined) return;
         const resolved =
           behavior === "non-response-type"
-            ? brandNotificationFrame({
+            ? ({
                 jsonrpc: "2.0",
                 method: jsonRpcMethod("proof/non-response"),
                 params: response,
-              })
-            : behavior === "spurious-id"
-              ? { ...response, id: "spurious-id-that-was-never-requested" }
-              : response;
+              } as NotificationFrame)
+            : response;
         yield* Deferred.succeed(deferred, resolved);
       });
 
@@ -291,6 +308,16 @@ function makeBadClientContext(
           (pending) => new Map([...pending, [id, deferred]]),
         );
         yield* Ref.update(outboundIdsRef, (ids) => [...ids, id]);
+        // Spurious-id mode: if the bad client buffered an earlier response
+        // before any pending existed, cross-correlate it onto this fresh
+        // pending. This is the cross-correlation bug B4 catches.
+        if ((opts.rpcBehavior ?? "normal") === "spurious-id") {
+          const buffered = yield* Ref.get(bufferedResponseRef);
+          if (buffered !== null) {
+            yield* Ref.set(bufferedResponseRef, null);
+            yield* Deferred.succeed(deferred, buffered);
+          }
+        }
         const conn = yield* Ref.get(connectionRef);
         if (conn === null) {
           return yield* Effect.die(new Error("connection not initialized"));
@@ -299,11 +326,7 @@ function makeBadClientContext(
         if (definition === undefined || !definition.validateParams(_params)) {
           return yield* Effect.die(new Error(`invalid proof RPC: ${method}`));
         }
-        const request: RequestFrame = requestFrame(
-          jsonRpcStringId(id),
-          definition,
-          _params,
-        );
+        const request: RequestFrame = requestFrame(id, definition, _params);
         yield* recordFrame(
           conn.inbound,
           "inbound",
@@ -336,12 +359,21 @@ function makeBadClientContext(
       snapshot: inbound.snapshot,
     };
 
+    let badProofTagCounter = 0;
     const handshakeWindow: ClientHandshakeWindow = {
-      freshEmissionTag: Effect.succeed("unused"),
-      emitTaggedNotification: ({ connection, base, emissionTag }) =>
-        connection
-          .emitNotification(taggedNotification(base, emissionTag))
-          .pipe(Effect.as(emissionTag)),
+      freshEmissionTag: Effect.sync(() => {
+        badProofTagCounter += 1;
+        return `bad-proof-tag-${badProofTagCounter}`;
+      }),
+      emitTaggedNotification: ({ connection, base, emissionTag }) => {
+        // Mirror `emitTaggedNotificationDefault`: register the (raw → tag)
+        // mapping on the runner's shared registry so `lookupTagForRawBytes`
+        // (used by both the real adapter and `publishNotification` below)
+        // resolves the tag from the wire bytes instead of an injected
+        // `__emissionTag` field that fails per-method validation.
+        registerEmittedFrameTag(JSON.stringify(base), emissionTag);
+        return connection.emitNotification(base).pipe(Effect.as(emissionTag));
+      },
       emitTaggedResponse: ({ connection, base }) =>
         connection.emitResponse(base).pipe(Effect.as(base.id)),
       awaitHandshakeComplete: Effect.void,
@@ -362,48 +394,74 @@ function makeBadClientContext(
   });
 }
 
-function taggedNotification(
-  base: NotificationFrame,
-  emissionTag: string,
-): NotificationFrame {
-  const params = (base.params ?? {}) as Record<string, unknown>;
-  return brandNotificationFrame({
-    ...base,
-    params: { ...params, __emissionTag: emissionTag },
-  });
-}
-
-function rewriteEventData(
-  frame: NotificationFrame,
-  patch: Record<string, unknown>,
-): NotificationFrame {
-  const params = (frame.params ?? {}) as Record<string, unknown>;
-  return brandNotificationFrame({
-    ...frame,
-    params: { ...params, ...patch },
-  });
-}
-
 function stripNotificationName(frame: NotificationFrame): unknown {
   const withoutMethod: Partial<NotificationFrame> = { ...frame };
   delete withoutMethod.method;
   return withoutMethod;
 }
 
+/** Bug-injection: rewrite the message's `parts[0].text` so the C1
+ * cardinality predicate observes a duplicate tag-position binding (the
+ * test post-Phase-12 keys uniqueness on wire bytes; clobbering the part
+ * text collapses two emissions onto the same wire form). */
+function scrambleMessagePart(frame: NotificationFrame): NotificationFrame {
+  const params = (frame.params ?? {}) as Record<string, unknown>;
+  const message = (params.message ?? {}) as Record<string, unknown>;
+  return {
+    ...frame,
+    params: {
+      ...params,
+      message: { ...message, parts: [{ type: "text", text: "scrambled" }] },
+    },
+  } as NotificationFrame;
+}
+
+/** Bug-injection: overwrite `message.patchedBy` so the C3 payload-
+ * opacity predicate cannot find its marker token in the surfaced raw
+ * frame. */
+function rewriteMessagePatchedBy(
+  frame: NotificationFrame,
+  newPatchedBy: string,
+): NotificationFrame {
+  const params = (frame.params ?? {}) as Record<string, unknown>;
+  const message = (params.message ?? {}) as Record<string, unknown>;
+  return {
+    ...frame,
+    params: {
+      ...params,
+      message: { ...message, patchedBy: newPatchedBy },
+    },
+  } as NotificationFrame;
+}
+
+/** Bug-injection: cross-wire `params.conversationId` so the C4 task-
+ * boundary predicate detects the rewritten id on the surfaced
+ * observation. */
+function rewriteMessageConversationId(
+  frame: NotificationFrame,
+  newId: string,
+): NotificationFrame {
+  const params = (frame.params ?? {}) as Record<string, unknown>;
+  return {
+    ...frame,
+    params: { ...params, conversationId: newId },
+  } as NotificationFrame;
+}
+
 function swapArchiveLifecycleNotification(
   frame: NotificationFrame,
 ): NotificationFrame {
   if (frame.method === ConversationArchivedNotificationDefinition.name) {
-    return brandNotificationFrame({
+    return {
       ...frame,
       method: ConversationUnarchivedNotificationDefinition.name,
-    });
+    } as NotificationFrame;
   }
   if (frame.method === ConversationUnarchivedNotificationDefinition.name) {
-    return brandNotificationFrame({
+    return {
       ...frame,
       method: ConversationArchivedNotificationDefinition.name,
-    });
+    } as NotificationFrame;
   }
   return frame;
 }

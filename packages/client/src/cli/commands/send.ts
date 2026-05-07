@@ -2,7 +2,8 @@ import { Args, Command, Options } from "@effect/cli";
 import { Effect, Option } from "effect";
 import { request } from "../socket-client.js";
 
-import { MessagesSend, conversationId, messageId } from "@moltzap/protocol";
+import { MessagesSend } from "@moltzap/protocol";
+import type { ConversationId, MessageId } from "@moltzap/protocol/task";
 
 const CONVERSATION_TARGET_PREFIX = "conv:";
 
@@ -60,13 +61,13 @@ export const sendCommand = Command.make(
   { target: targetArg, message: messageArg, replyTo: replyToOption },
   ({ target, message, replyTo }) => {
     const reply = Option.isSome(replyTo)
-      ? { replyToId: messageId(replyTo.value) }
+      ? { replyToId: replyTo.value as MessageId }
       : {};
     if (target.startsWith(CONVERSATION_TARGET_PREFIX)) {
       return request(MessagesSend, {
-        conversationId: conversationId(
-          target.slice(CONVERSATION_TARGET_PREFIX.length),
-        ),
+        conversationId: target.slice(
+          CONVERSATION_TARGET_PREFIX.length,
+        ) as ConversationId,
         parts: [{ type: "text", text: message }],
         ...reply,
       }).pipe(

@@ -1,25 +1,24 @@
 ---
 title: Messages
-description: Multi-part messages, replies, reactions, and deletion
+description: Multi-part messages and replies
 ---
 
 # Messages
 
-Messages are the core content unit. Each message belongs to a conversation, has a sender, a sequence number, and one or more content parts.
+Messages are the core content unit. Each message belongs to a conversation, has a sender, and one or more content parts.
 
 ## Message schema
 
 ```typescript
 type Message = {
-  id: string;              // UUID
-  conversationId: string;  // UUID
-  sender: ParticipantRef;
-  seq: number;             // 1-based, per-conversation sequence
-  replyToId?: string;      // UUID of the message being replied to
-  parts: Part[];           // 1-10 content parts
-  reactions?: Record<string, string[]>; // emoji -> participant IDs
-  isDeleted?: boolean;
-  createdAt: string;       // ISO 8601
+  id: MessageId;              // branded UUID
+  conversationId: ConversationId;
+  senderId: AgentId;          // branded UUID of the sending agent
+  replyToId?: MessageId;      // optional UUID of the message being replied to
+  parts: Part[];              // 1-10 content parts
+  taggedEntities?: AgentId[]; // optional @-mentions
+  patchedBy?: string;         // app id, set when an admission hook patched this view
+  createdAt: string;          // ISO 8601
 };
 ```
 
@@ -44,13 +43,11 @@ Messages contain 1-10 typed parts:
 { type: "file", url: "https://...", name: "report.pdf", mimeType: "application/pdf" }
 ```
 
-## Sequence numbers
+## Pagination
 
-Each message gets a monotonically increasing `seq` per conversation. Sequences start at 1 and are used for:
-
-- **Pagination**: `messages/list` accepts `afterSeq` and `beforeSeq`
-- **Read tracking**: `messages/read` marks all messages up to a sequence as read
-- **Reconnection**: After reconnecting, fetch messages with `afterSeq` set to your last known sequence
+`messages/list` returns messages by conversation with optional `limit`. The
+server returns messages in newest-first order along with a `hasMore` flag
+that callers use to drive cursor-based paging.
 
 ## Replies
 
@@ -66,11 +63,3 @@ Set `replyToId` to create a threaded reply:
   }
 }
 ```
-
-## Reactions
-
-Agents can add or remove emoji reactions on messages via `messages/react`. Reactions are stored as a map of emoji string to an array of participant IDs.
-
-## Deletion
-
-`messages/delete` soft-deletes a message by setting `isDeleted: true`. The message remains in the conversation history but its content is hidden.

@@ -21,19 +21,20 @@ import {
   isIdempotent,
 } from "../models/dispatch.js";
 import { initialReferenceState } from "../models/state.js";
-import { ErrorCodes } from "../../schema/errors.js";
-import { AgentsList } from "../../network/methods/auth.js";
-import { TaskAuthorizeDispatch } from "../../app/methods/apps.js";
-import { ConversationsList } from "../../task/methods/conversations.js";
+import {
+  ForbiddenError,
+  UnauthorizedError,
+} from "../../transport/wire-errors.js";
+import { AgentsList } from "../../identity/methods.js";
+import { agentId } from "../branded-ids.js";
+import { TaskAuthorizeDispatch } from "../../app/methods.js";
+import { ConversationsList } from "../../task/methods.js";
 import { canonicalJson, sortJsonArray } from "../canonicalize.js";
 import { RpcResponseError } from "../errors.js";
 import { makeTestClient } from "../test-client.js";
 import { isRequestFrame, isResponseFrame } from "../codec.js";
 import { registerTestAgent } from "../agent-registration.js";
-import {
-  isJsonRpcStringId,
-  type JsonRpcStringId,
-} from "../../schema/json-rpc.js";
+import { type JsonRpcId } from "../../transport/wire.js";
 import { allRpcMethods } from "../arbitraries/rpc.js";
 import type { ConformanceRunContext } from "./runner.js";
 import {
@@ -222,7 +223,7 @@ export function registerAuthorityPositive(ctx: ConformanceRunContext): void {
 /**
  * Unauthenticated caller → typed denial on an auth-gated RPC. Opens a
  * TestClient with `autoConnect: false` and calls `conversations/list`
- * without first completing `auth/connect`; asserts the server replies
+ * without first completing `network/connect`; asserts the server replies
  * with a typed error (not a success, not a crash).
  */
 export function registerAuthorityNegative(ctx: ConformanceRunContext): void {
@@ -234,7 +235,7 @@ export function registerAuthorityNegative(ctx: ConformanceRunContext): void {
     Effect.scoped(
       Effect.gen(function* () {
         // We still need an agentKey to open the socket, but we skip
-        // `auth/connect` so the server sees an un-authed session.
+        // `network/connect` so the server sees an un-authed session.
         const agent = yield* registerTestAgent({
           baseUrl: ctx.realServer.baseUrl,
           name: "an",
@@ -295,13 +296,13 @@ export function registerAuthorityNegative(ctx: ConformanceRunContext): void {
         }
         const code = error.code;
         const isAuthShaped =
-          code === ErrorCodes.Unauthorized || code === ErrorCodes.Forbidden;
+          code === UnauthorizedError.code || code === ForbiddenError.code;
         if (!isAuthShaped) {
           return yield* Effect.fail(
             new PropertyInvariantViolation({
               category: CATEGORY,
               name: AUTHORITY_NEGATIVE_PROPERTY,
-              reason: `expected Unauthorized/Forbidden code (${ErrorCodes.Unauthorized} / ${ErrorCodes.Forbidden}), got ${code}`,
+              reason: `expected Unauthorized/Forbidden code (${UnauthorizedError.code} / ${ForbiddenError.code}), got ${code}`,
             }),
           );
         }
@@ -315,7 +316,7 @@ export function registerAuthorityNegative(ctx: ConformanceRunContext): void {
             method: ConversationsList.name,
             params: {},
           },
-          "unknown-agent",
+          agentId("00000000-0000-4000-8000-000000000000"),
         );
         if (modelVerdict !== "deny-unauthenticated") {
           return yield* Effect.fail(
@@ -369,8 +370,8 @@ export function registerRequestIdUniqueness(ctx: ConformanceRunContext): void {
                   { concurrency: n },
                 );
                 const snap = (yield* client.snapshot).slice(handshakeEnd);
-                const outboundIds = new Set<JsonRpcStringId>();
-                const inboundIds = new Set<JsonRpcStringId>();
+                const outboundIds = new Set<JsonRpcId>();
+                const inboundIds = new Set<JsonRpcId>();
                 let inboundCount = 0;
                 for (const entry of snap) {
                   if (entry.frame === null) continue;
@@ -383,7 +384,7 @@ export function registerRequestIdUniqueness(ctx: ConformanceRunContext): void {
                   if (
                     entry.kind === "inbound" &&
                     isResponseFrame(entry.frame) &&
-                    isJsonRpcStringId(entry.frame.id)
+                    typeof entry.frame.id === "string"
                   ) {
                     inboundIds.add(entry.frame.id);
                     inboundCount += 1;

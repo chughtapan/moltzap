@@ -1,7 +1,6 @@
 import { Type, type Static } from "@sinclair/typebox";
 import Ajv from "ajv";
 import addFormats from "ajv-formats";
-import { stringEnum } from "@moltzap/protocol";
 
 // -- Reusable fragments -------------------------------------------------------
 
@@ -64,7 +63,7 @@ export const MoltZapConfigSchema = Type.Object(
     services: Type.Optional(
       Type.Object(
         {
-          users: Type.Optional(ServiceSchema),
+          sessions: Type.Optional(ServiceSchema),
           contacts: Type.Optional(ServiceSchema),
         },
         { additionalProperties: false },
@@ -90,7 +89,14 @@ export const MoltZapConfigSchema = Type.Object(
 
     apps: Type.Optional(Type.Array(AppRefSchema)),
 
-    log_level: Type.Optional(stringEnum(["debug", "info", "warn", "error"])),
+    log_level: Type.Optional(
+      Type.Union([
+        Type.Literal("debug"),
+        Type.Literal("info"),
+        Type.Literal("warn"),
+        Type.Literal("error"),
+      ]),
+    ),
   },
   { additionalProperties: false },
 );
@@ -116,8 +122,8 @@ const EXAMPLES: Record<string, string> = {
   "/encryption/master_secret": '"$(openssl rand -hex 32)"',
   "/server/port": "3000",
   "/server/cors_origins": '["https://app.example.com"]',
-  "/services/users/type": '"webhook" or "in_process"',
-  "/services/users/webhook_url": '"https://hooks.example.com/users"',
+  "/services/sessions/type": '"webhook" or "in_process"',
+  "/services/sessions/webhook_url": '"https://hooks.example.com/sessions"',
   "/log_level": '"info"',
 };
 
@@ -156,6 +162,10 @@ function ajvErrorToConfigError(err: {
     case "enum":
       problem = "Invalid value";
       expected = `Must be one of: ${(err.params["allowedValues"] as string[]).join(", ")}`;
+      break;
+    case "const":
+      problem = "Invalid value";
+      expected = `Must be ${JSON.stringify(err.params["allowedValue"])}`;
       break;
     case "minimum":
     case "maximum":

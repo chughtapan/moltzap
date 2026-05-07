@@ -20,7 +20,7 @@ function connect(apiKey: string, agentName: string): Promise<WebSocket> {
     ws.on("open", () => {
       ws.send(JSON.stringify({
         jsonrpc: "2.0", id: "1",
-        method: "auth/connect",
+        method: "network/connect",
         params: { agentKey: apiKey, minProtocol: "2026.503.4", maxProtocol: "2026.503.4" }
       }));
     });

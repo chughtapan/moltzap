@@ -8,6 +8,27 @@
  * `package.json` edits in the stub PR).
  */
 
+// Brand-decoders for test fixtures. Production code does not validate IDs
+// at the caller.
+export {
+  userId,
+  agentId,
+  contactId,
+  conversationId,
+  messageId,
+  taskId,
+} from "./branded-ids.js";
+
+// Wire-frame validators + protocol literal exposed only for test use.
+export {
+  validateRequestFrame,
+  validateResponseFrame,
+  JSON_RPC_VERSION,
+} from "../transport/wire.js";
+export type { JsonRpcMethod } from "../transport/wire.js";
+export { wireErrorFromInstance } from "../transport/json-rpc-server.js";
+export { TaskFailedNotificationDefinition } from "../task/methods.js";
+
 // Primitives.
 export {
   type CloseableTestClient,

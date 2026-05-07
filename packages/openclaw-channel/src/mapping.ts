@@ -1,4 +1,4 @@
-import { Effect, Option } from "effect";
+import { Data, Effect, Option } from "effect";
 import type {
   AnyNotificationDefinition,
   DecodedNotification,
@@ -12,29 +12,43 @@ import {
   ConversationUpdatedNotificationDefinition,
   MessageReceivedNotificationDefinition,
   PresenceChangedNotificationDefinition,
-  decodeNotification,
-  isDecodedNotification,
-  notificationGroup,
+  decodeServerInbound,
 } from "@moltzap/protocol";
 
 type AnyDecodedNotification = DecodedNotification<AnyNotificationDefinition>;
+
+class NotANotificationFrameError extends Data.TaggedError(
+  "NotANotificationFrameError",
+)<{ readonly tag: string }> {}
 
 function decodedNotification(
   frame: NotificationFrame,
 ): Option.Option<AnyDecodedNotification> {
   return Effect.runSync(
-    decodeNotification(notificationGroup, frame).pipe(Effect.option),
+    decodeServerInbound(frame).pipe(
+      Effect.flatMap((decoded) =>
+        decoded._tag === "Notification"
+          ? Effect.succeed(decoded as AnyDecodedNotification)
+          : Effect.fail(new NotANotificationFrameError({ tag: decoded._tag })),
+      ),
+      Effect.option,
+    ),
   );
 }
+
+/** Discriminate a decoded notification by descriptor identity. Cheaper
+ * than a structural check; the descriptor is the unique nominal token. */
+const isFor = <D extends AnyNotificationDefinition>(
+  notification: AnyDecodedNotification,
+  definition: D,
+): notification is DecodedNotification<D> =>
+  notification.definition === definition;
 
 export function isMessageNotification(frame: NotificationFrame): boolean {
   return Option.match(decodedNotification(frame), {
     onNone: () => false,
     onSome: (notification) =>
-      isDecodedNotification(
-        MessageReceivedNotificationDefinition,
-        notification,
-      ),
+      isFor(notification, MessageReceivedNotificationDefinition),
   });
 }
 
@@ -42,7 +56,7 @@ export function extractMessage(frame: NotificationFrame): Message | null {
   return Option.match(decodedNotification(frame), {
     onNone: () => null,
     onSome: (notification) =>
-      isDecodedNotification(MessageReceivedNotificationDefinition, notification)
+      isFor(notification, MessageReceivedNotificationDefinition)
         ? notification.params.message
         : null,
   });
@@ -56,10 +70,7 @@ export function extractConversationCreated(frame: NotificationFrame): {
   return Option.match(decodedNotification(frame), {
     onNone: () => null,
     onSome: (notification) =>
-      isDecodedNotification(
-        ConversationCreatedNotificationDefinition,
-        notification,
-      )
+      isFor(notification, ConversationCreatedNotificationDefinition)
         ? { conversation: notification.params.conversation }
         : null,
   });
@@ -71,10 +82,7 @@ export function extractConversationUpdated(frame: NotificationFrame): {
   return Option.match(decodedNotification(frame), {
     onNone: () => null,
     onSome: (notification) =>
-      isDecodedNotification(
-        ConversationUpdatedNotificationDefinition,
-        notification,
-      )
+      isFor(notification, ConversationUpdatedNotificationDefinition)
         ? { conversation: notification.params.conversation }
         : null,
   });
@@ -89,7 +97,7 @@ export function extractContactRequest(frame: NotificationFrame): {
   return Option.match(decodedNotification(frame), {
     onNone: () => null,
     onSome: (notification) =>
-      isDecodedNotification(ContactRequestNotificationDefinition, notification)
+      isFor(notification, ContactRequestNotificationDefinition)
         ? { contact: notification.params.contact }
         : null,
   });
@@ -104,7 +112,7 @@ export function extractContactAccepted(frame: NotificationFrame): {
   return Option.match(decodedNotification(frame), {
     onNone: () => null,
     onSome: (notification) =>
-      isDecodedNotification(ContactAcceptedNotificationDefinition, notification)
+      isFor(notification, ContactAcceptedNotificationDefinition)
         ? { contact: notification.params.contact }
         : null,
   });
@@ -117,7 +125,7 @@ export function extractPresenceChanged(frame: NotificationFrame): {
   return Option.match(decodedNotification(frame), {
     onNone: () => null,
     onSome: (notification) =>
-      isDecodedNotification(PresenceChangedNotificationDefinition, notification)
+      isFor(notification, PresenceChangedNotificationDefinition)
         ? {
             agentId: notification.params.agentId,
             status: notification.params.status,

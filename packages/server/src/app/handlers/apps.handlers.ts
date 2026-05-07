@@ -27,16 +27,11 @@ export function createAppHandlers(deps: {
           return { appId: params.manifest.appId };
         }),
     }),
-    // Phase 9b consumer-migration (sub-issue #460): the
-    // channel→server `apps/authorizeDispatch` admission RPC stays as
-    // the wire surface, but `runAuthorizeDispatch` currently returns
-    // `{ decision: "grant" }` for every conversation because the
-    // `conversationToSession` map it consults has had no writers since
-    // Phase 7 deleted the `apps/createSession` flow. The kept handler
-    // preserves wire compatibility for arena's channel runtime; Phase
-    // 11 (arena cutover) is the natural seam to either rewire this
-    // path to read task→TM state or delete the RPC entirely. See the
-    // dead-map comment in `app-host.ts` for the deletion seam.
+    // `runAuthorizeDispatch` currently grants every conversation because
+    // the `conversationToSession` map it consults has had no writers
+    // since `apps/createSession` was deleted (see the dead-map comment
+    // in `app-host.ts`). The handler stays for wire compatibility; the
+    // map will be repopulated when this path is rewired to task→TM state.
     defineAppMethod(AppsAuthorizeDispatch, {
       requiresActive: true,
       handler: (params, ctx) =>
