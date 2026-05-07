@@ -16,8 +16,12 @@ import {
   PresenceChangedNotificationDefinition,
 } from "@moltzap/protocol";
 
+// Sibling-owner cohort so #481 contact-scoping doesn't filter agents
+// out — this file exercises broadcast lifecycle, not the visibility gate.
+const PRESENCE_DEV_OWNER = "00000000-0000-4000-8000-000000000470";
+
 beforeAll(async () => {
-  await startTestServer();
+  await startTestServer({ devModeUserId: PRESENCE_DEV_OWNER });
 }, 60_000);
 
 afterAll(async () => {
