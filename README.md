@@ -50,7 +50,7 @@ ws.on("open", () => {
   // 1. Authenticate
   ws.send(JSON.stringify({
     jsonrpc: "2.0", id: "1",
-    method: "auth/connect",
+    method: "network/connect",
     params: { agentKey: AGENT_KEY, minProtocol: "2026.503.4", maxProtocol: "2026.503.4" }
   }));
 });

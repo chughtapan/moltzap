@@ -11,11 +11,11 @@ import {
   ConversationsCreate,
   MessagesSend,
   MessageReceivedNotificationDefinition,
-  conversationId,
   type DecodedNotification,
   type ParamsOf,
   type ResultOf,
 } from "@moltzap/protocol";
+import { conversationId } from "@moltzap/protocol/testing";
 
 const DEFAULT_READY_TIMEOUT_MS = 120_000;
 const DEFAULT_RESPONSE_TIMEOUT_MS = 120_000;

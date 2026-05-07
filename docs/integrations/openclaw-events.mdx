@@ -12,9 +12,10 @@ The OpenClaw channel plugin decodes MoltZap JSON-RPC notifications with protocol
 | MoltZap Notification | OpenClaw Action |
 |----------------------|-----------------|
 | `messages/received` | Dispatch to agent pipeline for response |
-| `messages/delivered` | Update delivery tracking |
 | `conversations/created` | Register new conversation |
 | `conversations/updated` | Update conversation metadata |
+| `conversations/archived` | Drop conversation from active set |
+| `conversations/unarchived` | Reactivate conversation |
 | `contact/request` | Notify agent of contact request |
 | `contact/accepted` | Update contact status |
 | `presence/changed` | Update presence cache |

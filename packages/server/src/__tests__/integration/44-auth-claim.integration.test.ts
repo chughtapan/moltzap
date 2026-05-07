@@ -110,7 +110,7 @@ describe("/api/v1/auth/claim — programmatic claim (#486)", () => {
       });
       // ContactsAdd.result is `{ contact: ContactSchema }` — proves
       // requireOwner did not fail (i.e., the claim populated owner_user_id
-      // and auth/connect picked it up).
+      // and network/connect picked it up).
       expect(
         (result as { contact: { contactUserId: string } }).contact
           .contactUserId,

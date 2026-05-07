@@ -9,7 +9,7 @@ import {
   takeFirstOrElse,
   takeFirstOrFail,
 } from "./effect-kysely-toolkit.js";
-import { RpcFailure } from "../runtime/index.js";
+import { ConflictError } from "@moltzap/protocol";
 
 // ── catchSqlErrorAsDefect ───────────────────────────────────────────────
 
@@ -55,18 +55,18 @@ it.effect(
 );
 
 it.effect(
-  "catchSqlErrorAsDefect lets RpcFailure pass through as typed fail",
+  "catchSqlErrorAsDefect lets tagged-error classes pass through as typed fail",
   () =>
     Effect.gen(function* () {
-      const err = new RpcFailure({ code: -32001, message: "typed" });
+      const err = new ConflictError({ message: "typed" });
       const program = catchSqlErrorAsDefect(
-        Effect.fail(err) as Effect.Effect<never, RpcFailure>,
+        Effect.fail(err) as Effect.Effect<never, ConflictError>,
       );
       const exit = yield* Effect.exit(program);
       expect(Exit.isFailure(exit)).toBe(true);
       if (Exit.isFailure(exit) && exit.cause._tag === "Fail") {
-        expect(exit.cause.error).toBeInstanceOf(RpcFailure);
-        expect((exit.cause.error as RpcFailure).code).toBe(-32001);
+        expect(exit.cause.error).toBeInstanceOf(ConflictError);
+        expect((exit.cause.error as ConflictError).message).toBe("typed");
       } else {
         throw new Error("expected typed Fail, not Die");
       }

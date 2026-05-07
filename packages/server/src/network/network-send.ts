@@ -27,27 +27,17 @@
  */
 import { Brand, Data, Effect, HashSet, Match } from "effect";
 import {
-  agentId as makeAgentId,
   endpointAddressKind,
-  type AgentId,
   type EndpointAddress,
   type EndpointAddressKind,
 } from "@moltzap/protocol/network";
-import type { Static } from "@moltzap/protocol";
-import type { ConversationId as ConversationIdSchema } from "@moltzap/protocol/schemas/primitives";
+import type { AgentId } from "@moltzap/protocol/identity";
+import type { ConversationId } from "@moltzap/protocol/task";
 import type * as Socket from "@effect/platform/Socket";
 import { ConnectionManager } from "../ws/connection.js";
 import { AgentEndpointResolver } from "./agent-endpoint-resolver.js";
 import type { AppTmRegistry } from "./app-tm-registry.js";
 import { logger } from "../logger.js";
-
-/**
- * `ConversationId` is intentionally NOT re-exported from the
- * `@moltzap/protocol` flat barrel (the actor-model brand types own
- * those identifiers). The schema lives at `schemas/primitives` and we
- * lift it to a static type via TypeBox's `Static`.
- */
-type ConversationId = Static<typeof ConversationIdSchema>;
 
 /**
  * Branded raw-string payload. The send primitive writes the exact
@@ -235,5 +225,5 @@ export class NetworkSendService {
 const DURABLE_AGENT_PREFIX = "tm:agent:";
 
 function parseAgentIdFromDurableAddress(address: EndpointAddress): AgentId {
-  return makeAgentId(String(address).slice(DURABLE_AGENT_PREFIX.length));
+  return String(address).slice(DURABLE_AGENT_PREFIX.length) as AgentId;
 }

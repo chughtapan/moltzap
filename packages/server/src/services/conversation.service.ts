@@ -5,21 +5,17 @@ import type {
   ConversationParticipant,
   ConversationSummary,
 } from "@moltzap/protocol";
-import type { AgentId } from "../app/types.js";
+import type { AgentId } from "@moltzap/protocol/identity";
+import type { ConversationId, MessageId, TaskId } from "@moltzap/protocol/task";
 import { Effect, Option } from "effect";
+import { InvalidParamsError } from "../runtime/index.js";
 import {
-  RpcFailure,
-  notFound,
-  forbidden,
-  conflict,
-  invalidParams,
-  notInContacts,
-} from "../runtime/index.js";
-import {
-  ErrorCodes,
-  agentId as protocolAgentId,
-  conversationId as protocolConversationId,
-  messageId as protocolMessageId,
+  ConflictError,
+  ConversationArchivedError,
+  ConversationFullError,
+  ForbiddenError,
+  NotFoundError,
+  NotInContactsError,
 } from "@moltzap/protocol";
 import { ParticipantService } from "./participant.service.js";
 import type { ConnectionManager } from "../ws/connection.js";
@@ -31,6 +27,15 @@ import {
   takeFirstOrFail,
   transaction,
 } from "../db/effect-kysely-toolkit.js";
+
+export type ConversationServiceError =
+  | ConflictError
+  | ConversationArchivedError
+  | ConversationFullError
+  | ForbiddenError
+  | InvalidParamsError
+  | NotFoundError
+  | NotInContactsError;
 
 const MAX_GROUP_PARTICIPANTS = 256;
 const PREVIEW_CACHE_MAX = 2000;
@@ -60,7 +65,7 @@ export type ContactPolicyCheck = (
 export type ContactPolicyResolver = () => ContactPolicyCheck | null;
 
 interface ListRow {
-  id: string;
+  id: ConversationId;
   type: ConversationType;
   name: string | null;
   updated_at: Date;
@@ -70,24 +75,25 @@ interface ListRow {
 }
 
 interface ConversationColumns {
-  id: string;
+  id: ConversationId;
   type: ConversationType;
   name: string | null;
-  created_by_id: string;
+  created_by_id: AgentId;
   created_at: Date;
   updated_at: Date;
 }
 
 export class ConversationService {
   /** In-memory cache for last message previews — avoids decrypting on every list() call */
-  private previewCache = new Map<string, string>();
+  private previewCache = new Map<ConversationId, string>();
 
   constructor(
     private db: Db,
     private participants: ParticipantService,
     private connections: ConnectionManager,
-    private isAttachedToActiveSession: (convId: string) => boolean = () =>
-      false,
+    private isAttachedToActiveSession: (
+      convId: ConversationId,
+    ) => boolean = () => false,
     /**
      * Lazy lookup for the active contact policy. Returns `null` when no
      * policy is wired (default for unit tests + dev mode), in which case
@@ -102,7 +108,10 @@ export class ConversationService {
   ) {}
 
   /** Write-through: called from MessageService.send() with plaintext parts before encryption */
-  updatePreviewCache(conversationId: string, firstPartText: string): void {
+  updatePreviewCache(
+    conversationId: ConversationId,
+    firstPartText: string,
+  ): void {
     this.previewCache.delete(conversationId);
     this.previewCache.set(
       conversationId,
@@ -114,11 +123,11 @@ export class ConversationService {
     }
   }
 
-  create(
+  create<TaskMintError = never>(
     type: "dm" | "group",
     name: string | undefined,
-    agentIds: string[],
-    creatorAgentId: string,
+    agentIds: AgentId[],
+    creatorAgentId: AgentId,
     /**
      * Lazy task source. `conversations.task_id` is NOT NULL (round 3
      * R12), so every insert must bind to a task. Issue #464: passing
@@ -128,8 +137,8 @@ export class ConversationService {
      * id })`; callers that mint a default task pass the
      * `taskService.createDefaultTaskForType(...)` Effect directly.
      */
-    mintTask: Effect.Effect<{ id: string }, RpcFailure>,
-  ): Effect.Effect<Conversation, RpcFailure> {
+    mintTask: Effect.Effect<{ id: TaskId }, TaskMintError>,
+  ): Effect.Effect<Conversation, ConversationServiceError | TaskMintError> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         // Owner-id is read in the same query as the existence check so the
@@ -141,13 +150,15 @@ export class ConversationService {
                 .select(["id", "owner_user_id"])
                 .where("id", "in", agentIds)
             : [];
-        const ownerByAgentId = new Map<string, string | null>();
+        const ownerByAgentId = new Map<AgentId, string | null>();
         for (const row of agentRows) {
           ownerByAgentId.set(row.id, row.owner_user_id);
         }
         for (const agentId of agentIds) {
           if (!ownerByAgentId.has(agentId)) {
-            return yield* Effect.fail(notFound(`Agent ${agentId} not found`));
+            return yield* Effect.fail(
+              new NotFoundError({ message: `Agent ${agentId} not found` }),
+            );
           }
         }
 
@@ -155,7 +166,9 @@ export class ConversationService {
         if (type === "dm") {
           if (agentIds.length !== 1) {
             return yield* Effect.fail(
-              invalidParams("DM requires exactly one other participant"),
+              new InvalidParamsError({
+                message: "DM requires exactly one other participant",
+              }),
             );
           }
 
@@ -196,8 +209,7 @@ export class ConversationService {
 
         if (type === "group" && agentIds.length + 1 > MAX_GROUP_PARTICIPANTS) {
           return yield* Effect.fail(
-            new RpcFailure({
-              code: ErrorCodes.ConversationFull,
+            new ConversationFullError({
               message: `Group cannot exceed ${MAX_GROUP_PARTICIPANTS} participants`,
             }),
           );
@@ -282,11 +294,11 @@ export class ConversationService {
    * source is lazy (#464) so a dedup hit short-circuits without
    * minting.
    */
-  createDmByAgentName(
+  createDmByAgentName<TaskMintError = never>(
     agentName: string,
-    creatorAgentId: string,
-    mintTask: Effect.Effect<{ id: string }, RpcFailure>,
-  ): Effect.Effect<Conversation, RpcFailure> {
+    creatorAgentId: AgentId,
+    mintTask: Effect.Effect<{ id: TaskId }, TaskMintError>,
+  ): Effect.Effect<Conversation, ConversationServiceError | TaskMintError> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         const target = yield* takeFirstOption(
@@ -297,7 +309,9 @@ export class ConversationService {
             .where("status", "=", "active"),
         );
         if (Option.isNone(target)) {
-          return yield* Effect.fail(notFound(`Agent '${agentName}' not found`));
+          return yield* Effect.fail(
+            new NotFoundError({ message: `Agent '${agentName}' not found` }),
+          );
         }
         return yield* this.create(
           "dm",
@@ -311,13 +325,13 @@ export class ConversationService {
   }
 
   list(
-    agentId: string,
+    agentId: AgentId,
     limit = DEFAULT_CONVERSATION_LIST_LIMIT,
     cursor?: string,
     archived: "exclude" | "include" | "only" = "exclude",
   ): Effect.Effect<
     { conversations: ConversationSummary[]; cursor?: string },
-    RpcFailure
+    InvalidParamsError
   > {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
@@ -326,7 +340,9 @@ export class ConversationService {
           const parsed = new Date(cursor);
           if (isNaN(parsed.getTime()) || parsed.toISOString() !== cursor) {
             return yield* Effect.fail(
-              invalidParams("Cursor must be an ISO-8601 timestamp"),
+              new InvalidParamsError({
+                message: "Cursor must be an ISO-8601 timestamp",
+              }),
             );
           }
           cursorParam = cursor;
@@ -371,7 +387,7 @@ export class ConversationService {
           const convId = row.id;
           const cachedPreview = this.previewCache.get(convId);
           return {
-            id: protocolConversationId(convId),
+            id: convId,
             type: row.type,
             name: row.name ?? undefined,
             lastMessagePreview: cachedPreview,
@@ -391,8 +407,8 @@ export class ConversationService {
             .where("conversation_id", "in", convIds);
 
           const partsByConv = new Map<
-            string,
-            Array<{ type: "agent"; id: string }>
+            ConversationId,
+            Array<{ type: "agent"; id: AgentId }>
           >();
           for (const row of partRows) {
             const convId = row.conversation_id;
@@ -418,14 +434,14 @@ export class ConversationService {
   }
 
   get(
-    conversationId: string,
-    requesterAgentId: string,
+    conversationId: ConversationId,
+    requesterAgentId: AgentId,
   ): Effect.Effect<
     {
       conversation: Conversation;
       participants: ConversationParticipant[];
     },
-    RpcFailure
+    ConversationServiceError
   > {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
@@ -439,7 +455,9 @@ export class ConversationService {
         );
 
         if (Option.isNone(convOpt)) {
-          return yield* Effect.fail(notFound(MSG_CONVERSATION_NOT_FOUND));
+          return yield* Effect.fail(
+            new NotFoundError({ message: MSG_CONVERSATION_NOT_FOUND }),
+          );
         }
         const conv = convOpt.value;
 
@@ -467,10 +485,10 @@ export class ConversationService {
   }
 
   update(
-    conversationId: string,
+    conversationId: ConversationId,
     name: string | undefined,
-    requesterAgentId: string,
-  ): Effect.Effect<Conversation, RpcFailure> {
+    requesterAgentId: AgentId,
+  ): Effect.Effect<Conversation, ConversationServiceError> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         yield* this.requireRole(conversationId, requesterAgentId, [
@@ -487,7 +505,9 @@ export class ConversationService {
         );
 
         if (Option.isNone(rowOpt)) {
-          return yield* Effect.fail(notFound(MSG_CONVERSATION_NOT_FOUND));
+          return yield* Effect.fail(
+            new NotFoundError({ message: MSG_CONVERSATION_NOT_FOUND }),
+          );
         }
 
         return this.mapConversation(rowOpt.value);
@@ -496,18 +516,19 @@ export class ConversationService {
   }
 
   archive(
-    conversationId: string,
-    agentId: string,
-  ): Effect.Effect<{ archivedAt: string }, RpcFailure> {
+    conversationId: ConversationId,
+    agentId: AgentId,
+  ): Effect.Effect<{ archivedAt: string }, ConversationServiceError> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         yield* this.requireRole(conversationId, agentId, ["owner", "admin"]);
 
         if (this.isAttachedToActiveSession(conversationId)) {
           return yield* Effect.fail(
-            conflict(
-              "Conversation is part of an active app session; close the session to archive",
-            ),
+            new ConflictError({
+              message:
+                "Conversation is part of an active app session; close the session to archive",
+            }),
           );
         }
 
@@ -532,7 +553,9 @@ export class ConversationService {
             .where("id", "=", conversationId),
         );
         if (Option.isNone(currentOpt) || !currentOpt.value.archived_at) {
-          return yield* Effect.fail(notFound(MSG_CONVERSATION_NOT_FOUND));
+          return yield* Effect.fail(
+            new NotFoundError({ message: MSG_CONVERSATION_NOT_FOUND }),
+          );
         }
         return { archivedAt: currentOpt.value.archived_at.toISOString() };
       }),
@@ -540,9 +563,9 @@ export class ConversationService {
   }
 
   unarchive(
-    conversationId: string,
-    agentId: string,
-  ): Effect.Effect<void, RpcFailure> {
+    conversationId: ConversationId,
+    agentId: AgentId,
+  ): Effect.Effect<void, ConversationServiceError> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         yield* this.requireRole(conversationId, agentId, ["owner", "admin"]);
@@ -557,9 +580,9 @@ export class ConversationService {
   }
 
   leave(
-    conversationId: string,
-    agentId: string,
-  ): Effect.Effect<void, RpcFailure> {
+    conversationId: ConversationId,
+    agentId: AgentId,
+  ): Effect.Effect<void, ConversationServiceError> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         const convOpt = yield* takeFirstOption(
@@ -570,10 +593,14 @@ export class ConversationService {
         );
 
         if (Option.isNone(convOpt)) {
-          return yield* Effect.fail(notFound(MSG_CONVERSATION_NOT_FOUND));
+          return yield* Effect.fail(
+            new NotFoundError({ message: MSG_CONVERSATION_NOT_FOUND }),
+          );
         }
         if (convOpt.value.type === "dm") {
-          return yield* Effect.fail(invalidParams("Cannot leave a DM"));
+          return yield* Effect.fail(
+            new InvalidParamsError({ message: "Cannot leave a DM" }),
+          );
         }
 
         const deleted = yield* this.db
@@ -583,17 +610,19 @@ export class ConversationService {
           .returning("conversation_id");
 
         if (deleted.length === 0) {
-          return yield* Effect.fail(notFound(MSG_NOT_A_PARTICIPANT));
+          return yield* Effect.fail(
+            new NotFoundError({ message: MSG_NOT_A_PARTICIPANT }),
+          );
         }
       }),
     );
   }
 
   addParticipant(
-    conversationId: string,
-    agentId: string,
-    requesterAgentId: string,
-  ): Effect.Effect<ConversationParticipant, RpcFailure> {
+    conversationId: ConversationId,
+    agentId: AgentId,
+    requesterAgentId: AgentId,
+  ): Effect.Effect<ConversationParticipant, ConversationServiceError> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         yield* this.requireRole(conversationId, requesterAgentId, [
@@ -615,11 +644,15 @@ export class ConversationService {
             .where("id", "=", conversationId),
         );
         if (Option.isNone(convOpt)) {
-          return yield* Effect.fail(notFound(MSG_CONVERSATION_NOT_FOUND));
+          return yield* Effect.fail(
+            new NotFoundError({ message: MSG_CONVERSATION_NOT_FOUND }),
+          );
         }
         if (convOpt.value.type === "dm") {
           return yield* Effect.fail(
-            invalidParams("Cannot add participants to a DM conversation"),
+            new InvalidParamsError({
+              message: "Cannot add participants to a DM conversation",
+            }),
           );
         }
 
@@ -639,7 +672,9 @@ export class ConversationService {
             yield* this.participants.resolve(requesterAgentId);
           if (!requesterResolved.exists) {
             return yield* Effect.fail(
-              notFound(`Agent ${requesterAgentId} not found`),
+              new NotFoundError({
+                message: `Agent ${requesterAgentId} not found`,
+              }),
             );
           }
           yield* this.checkContactEdge(
@@ -662,8 +697,7 @@ export class ConversationService {
 
         if (countRow.count >= MAX_GROUP_PARTICIPANTS) {
           return yield* Effect.fail(
-            new RpcFailure({
-              code: ErrorCodes.ConversationFull,
+            new ConversationFullError({
               message: `Group cannot exceed ${MAX_GROUP_PARTICIPANTS} participants`,
             }),
           );
@@ -702,10 +736,10 @@ export class ConversationService {
   }
 
   removeParticipant(
-    conversationId: string,
-    agentId: string,
-    requesterAgentId: string,
-  ): Effect.Effect<void, RpcFailure> {
+    conversationId: ConversationId,
+    agentId: AgentId,
+    requesterAgentId: AgentId,
+  ): Effect.Effect<void, ConversationServiceError> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         yield* this.requireRole(conversationId, requesterAgentId, [
@@ -722,7 +756,9 @@ export class ConversationService {
 
         if (deleted.length === 0) {
           return yield* Effect.fail(
-            notFound("Participant not found or cannot be removed"),
+            new NotFoundError({
+              message: "Participant not found or cannot be removed",
+            }),
           );
         }
       }),
@@ -732,10 +768,10 @@ export class ConversationService {
   // PGlite's Kysely dialect returns numUpdatedRows: 0n on UPDATE even when rows match.
   // Use .returning().execute() and check rows.length instead.
   mute(
-    conversationId: string,
-    agentId: string,
+    conversationId: ConversationId,
+    agentId: AgentId,
     until?: string,
-  ): Effect.Effect<void, RpcFailure> {
+  ): Effect.Effect<void, ConversationServiceError> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         const mutedUntil = until ?? "9999-12-31T23:59:59+00:00";
@@ -747,16 +783,18 @@ export class ConversationService {
           .returning("conversation_id");
 
         if (rows.length === 0) {
-          return yield* Effect.fail(notFound(MSG_NOT_A_PARTICIPANT));
+          return yield* Effect.fail(
+            new NotFoundError({ message: MSG_NOT_A_PARTICIPANT }),
+          );
         }
       }),
     );
   }
 
   unmute(
-    conversationId: string,
-    agentId: string,
-  ): Effect.Effect<void, RpcFailure> {
+    conversationId: ConversationId,
+    agentId: AgentId,
+  ): Effect.Effect<void, ConversationServiceError> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         const rows = yield* this.db
@@ -767,15 +805,17 @@ export class ConversationService {
           .returning("conversation_id");
 
         if (rows.length === 0) {
-          return yield* Effect.fail(notFound(MSG_NOT_A_PARTICIPANT));
+          return yield* Effect.fail(
+            new NotFoundError({ message: MSG_NOT_A_PARTICIPANT }),
+          );
         }
       }),
     );
   }
 
   getParticipantAgentIds(
-    conversationId: string,
-  ): Effect.Effect<readonly AgentId[], RpcFailure> {
+    conversationId: ConversationId,
+  ): Effect.Effect<readonly AgentId[]> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         const rows = yield* this.db
@@ -783,12 +823,12 @@ export class ConversationService {
           .select("agent_id")
           .where("conversation_id", "=", conversationId);
 
-        return rows.map((r) => protocolAgentId(r.agent_id));
+        return rows.map((r) => r.agent_id);
       }),
     );
   }
 
-  getConversationIds(agentId: string): Effect.Effect<string[], RpcFailure> {
+  getConversationIds(agentId: AgentId): Effect.Effect<ConversationId[]> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         const rows = yield* this.db
@@ -802,9 +842,9 @@ export class ConversationService {
   }
 
   requireParticipant(
-    conversationId: string,
-    agentId: string,
-  ): Effect.Effect<void, RpcFailure> {
+    conversationId: ConversationId,
+    agentId: AgentId,
+  ): Effect.Effect<void, ForbiddenError> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         const rowOpt = yield* takeFirstOption(
@@ -817,7 +857,9 @@ export class ConversationService {
 
         if (Option.isNone(rowOpt)) {
           return yield* Effect.fail(
-            forbidden("Not a participant in this conversation"),
+            new ForbiddenError({
+              message: "Not a participant in this conversation",
+            }),
           );
         }
       }),
@@ -825,10 +867,10 @@ export class ConversationService {
   }
 
   private requireRole(
-    conversationId: string,
-    agentId: string,
+    conversationId: ConversationId,
+    agentId: AgentId,
     allowedRoles: string[],
-  ): Effect.Effect<void, RpcFailure> {
+  ): Effect.Effect<void, ForbiddenError> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         const rowOpt = yield* takeFirstOption(
@@ -840,10 +882,14 @@ export class ConversationService {
         );
 
         if (Option.isNone(rowOpt)) {
-          return yield* Effect.fail(forbidden(MSG_NOT_A_PARTICIPANT));
+          return yield* Effect.fail(
+            new ForbiddenError({ message: MSG_NOT_A_PARTICIPANT }),
+          );
         }
         if (!allowedRoles.includes(rowOpt.value.role)) {
-          return yield* Effect.fail(forbidden("Insufficient permissions"));
+          return yield* Effect.fail(
+            new ForbiddenError({ message: "Insufficient permissions" }),
+          );
         }
       }),
     );
@@ -864,12 +910,12 @@ export class ConversationService {
    * decision back to a contact-service response without re-running.
    */
   private requireCreatorContactsAll(
-    creatorAgentId: string,
-    targetAgentIds: ReadonlyArray<string>,
-    ownerByAgentId: ReadonlyMap<string, string | null>,
+    creatorAgentId: AgentId,
+    targetAgentIds: ReadonlyArray<AgentId>,
+    ownerByAgentId: ReadonlyMap<AgentId, string | null>,
     policy: ContactPolicyCheck,
     pathLabel: "dm" | "group",
-  ): Effect.Effect<void, RpcFailure> {
+  ): Effect.Effect<void, ConversationServiceError> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         const creatorOpt = yield* takeFirstOption(
@@ -880,7 +926,7 @@ export class ConversationService {
         );
         if (Option.isNone(creatorOpt)) {
           return yield* Effect.fail(
-            notFound(`Agent ${creatorAgentId} not found`),
+            new NotFoundError({ message: `Agent ${creatorAgentId} not found` }),
           );
         }
         const creatorOwner = creatorOpt.value.owner_user_id;
@@ -893,7 +939,9 @@ export class ConversationService {
           // would silently downgrade an invariant break to a denial.
           if (!ownerByAgentId.has(targetAgentId)) {
             return yield* Effect.fail(
-              notFound(`Agent ${targetAgentId} not found`),
+              new NotFoundError({
+                message: `Agent ${targetAgentId} not found`,
+              }),
             );
           }
           const targetOwner = ownerByAgentId.get(targetAgentId) ?? null;
@@ -918,19 +966,19 @@ export class ConversationService {
    * for "communication not permitted".
    */
   private checkContactEdge(
-    requesterAgentId: string,
+    requesterAgentId: AgentId,
     requesterOwnerUserId: string | null,
-    targetAgentId: string,
+    targetAgentId: AgentId,
     targetOwnerUserId: string | null,
     policy: ContactPolicyCheck,
     pathLabel: "dm" | "group" | "addParticipant",
-  ): Effect.Effect<void, RpcFailure> {
+  ): Effect.Effect<void, ConversationServiceError> {
     return Effect.gen(this, function* () {
       if (!requesterOwnerUserId || !targetOwnerUserId) {
         return yield* Effect.fail(
-          notInContacts(
-            `Contact policy (${pathLabel}) requires both agents to have an owner`,
-          ),
+          new NotInContactsError({
+            message: `Contact policy (${pathLabel}) requires both agents to have an owner`,
+          }),
         );
       }
       const allowed = yield* policy(requesterOwnerUserId, targetOwnerUserId);
@@ -945,18 +993,18 @@ export class ConversationService {
           }),
         );
         return yield* Effect.fail(
-          notInContacts(
-            `Contact policy (${pathLabel}) does not allow this edge`,
-          ),
+          new NotInContactsError({
+            message: `Contact policy (${pathLabel}) does not allow this edge`,
+          }),
         );
       }
     });
   }
 
   private findExistingDm(
-    agentIdA: string,
-    agentIdB: string,
-  ): Effect.Effect<Conversation | null, RpcFailure> {
+    agentIdA: AgentId,
+    agentIdB: AgentId,
+  ): Effect.Effect<Conversation | null, ConversationServiceError> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         const rows = yield* rawQuery(
@@ -987,38 +1035,36 @@ export class ConversationService {
 
   private mapConversation(row: ConversationColumns): Conversation {
     return {
-      id: protocolConversationId(row.id),
+      id: row.id,
       type: row.type,
       name: row.name ?? undefined,
-      createdBy: protocolAgentId(row.created_by_id),
+      createdBy: row.created_by_id,
       createdAt: row.created_at.toISOString(),
       updatedAt: row.updated_at.toISOString(),
     };
   }
 
   private mapParticipant(row: {
-    conversation_id: string;
-    agent_id: string;
+    conversation_id: ConversationId;
+    agent_id: AgentId;
     role: ParticipantRole;
     joined_at: Date;
     last_read_seq: string;
     muted_until: Date | null;
     agent_name?: string | null;
     agent_display_name?: string | null;
-    last_read_message_id?: string | null;
+    last_read_message_id?: MessageId | null;
   }): ConversationParticipant {
     return {
-      conversationId: protocolConversationId(row.conversation_id),
+      conversationId: row.conversation_id,
       participant: {
         type: "agent" as const,
-        id: protocolAgentId(row.agent_id),
+        id: row.agent_id,
       },
       role: row.role,
       joinedAt: row.joined_at.toISOString(),
       lastReadMessageId:
-        row.last_read_message_id == null
-          ? undefined
-          : protocolMessageId(row.last_read_message_id),
+        row.last_read_message_id == null ? undefined : row.last_read_message_id,
       mutedUntil: row.muted_until ? row.muted_until.toISOString() : undefined,
       agentName: row.agent_name ?? undefined,
       agentDisplayName: row.agent_display_name ?? undefined,

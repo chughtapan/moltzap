@@ -69,7 +69,7 @@ import {
   Schedule,
   Scope,
 } from "effect";
-import type { JsonRpcStringId } from "@moltzap/protocol";
+import type { JsonRpcId } from "@moltzap/protocol";
 import {
   PartitionLimitError,
   type OfferRejected,
@@ -383,7 +383,7 @@ export function makePartitionedDispatcher(
  */
 function getOrCreatePartitionWorker(params: {
   readonly key: PartitionKey;
-  readonly requestId: JsonRpcStringId;
+  readonly requestId: JsonRpcId;
   readonly state: DispatcherInternalState;
 }): Effect.Effect<PartitionWorker, PartitionLimitError> {
   return Effect.gen(function* () {

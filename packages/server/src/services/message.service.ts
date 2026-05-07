@@ -1,12 +1,14 @@
 import type { Db } from "../db/client.js";
 import type { Message, Part, TaskStatus } from "@moltzap/protocol";
+import type { AgentId } from "@moltzap/protocol/identity";
+import type { ConversationId, MessageId } from "@moltzap/protocol/task";
 import {
-  ErrorCodes,
+  ConversationArchivedError,
+  ForbiddenError,
+  HookBlockedError,
   MessageReceivedNotificationDefinition,
-  agentId as protocolAgentId,
-  conversationId as protocolConversationId,
-  messageId as protocolMessageId,
-  notificationFrame,
+  NotFoundError,
+  TaskClosedError,
 } from "@moltzap/protocol";
 import {
   isEndpointAddress,
@@ -14,7 +16,13 @@ import {
 } from "@moltzap/protocol/network";
 import { Duration, Effect, Fiber, Option, Schedule, Schema } from "effect";
 import { SqlError } from "@effect/sql/SqlError";
-import { RpcFailure, notFound, internalError } from "../runtime/index.js";
+
+export type MessageServiceError =
+  | ConversationArchivedError
+  | ForbiddenError
+  | HookBlockedError
+  | NotFoundError
+  | TaskClosedError;
 import { nextSnowflakeId } from "../db/snowflake.js";
 import type { ConversationService } from "./conversation.service.js";
 import type { NetworkSendService } from "../network/network-send.js";
@@ -133,17 +141,17 @@ export class MessageService {
   }
 
   send(
-    conversationId: string,
+    conversationId: ConversationId,
     inputParts: Part[],
-    senderAgentId: string,
-    replyToId?: string,
+    senderAgentId: AgentId,
+    replyToId?: MessageId,
     /** Sender's WS connection — skipped by the broadcast fan-out so
      * the RPC reply is not echoed back as a notification. */
     excludeConnectionId?: string,
     /** Skip the TM-routing branch. `tasks/storeMessage` sets this to
      * avoid a self-loop when the TM persists a message it admitted. */
     bypassTmRouting = false,
-  ): Effect.Effect<Message, RpcFailure> {
+  ): Effect.Effect<Message, MessageServiceError> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         const parts = inputParts;
@@ -168,12 +176,7 @@ export class MessageService {
             .where("c.id", "=", conversationId),
         );
         if (conv.archived_at) {
-          return yield* Effect.fail(
-            new RpcFailure({
-              code: ErrorCodes.ConversationArchived,
-              message: "Conversation is archived",
-            }),
-          );
+          return yield* Effect.fail(new ConversationArchivedError({}));
         }
 
         if (replyToId) {
@@ -185,7 +188,9 @@ export class MessageService {
               .where("conversation_id", "=", conversationId),
           );
           if (Option.isNone(replyExistsOpt)) {
-            return yield* Effect.fail(notFound("Reply target not found"));
+            return yield* Effect.fail(
+              new NotFoundError({ message: "Reply target not found" }),
+            );
           }
         }
 
@@ -193,8 +198,7 @@ export class MessageService {
         // short-circuits without a partial write.
         if (!bypassTmRouting && !taskStatusAcceptsMessages(conv.task_status)) {
           return yield* Effect.fail(
-            new RpcFailure({
-              code: ErrorCodes.TaskClosed,
+            new TaskClosedError({
               message: `Task is ${conv.task_status}`,
               data: {
                 reason: "TaskClosed",
@@ -210,7 +214,7 @@ export class MessageService {
         // `seq` is a server-internal monotonic ordering token, not
         // part of the wire `Message` shape.
         const seq = nextSnowflakeId();
-        const messageIdValue = crypto.randomUUID();
+        const messageIdValue = crypto.randomUUID() as MessageId;
         const createdAtIso = new Date().toISOString();
 
         const { encrypted, iv, tag, dekVersion, kekVersion } =
@@ -262,13 +266,12 @@ export class MessageService {
           const tmAddr = yield* decodeTmEndpointAddress(
             conv.tm_endpoint_address,
           );
-          const tmFrame = notificationFrame(
-            MessageReceivedNotificationDefinition,
-            { message },
-          );
+          const tmFrame = MessageReceivedNotificationDefinition.encode({
+            message,
+          });
           yield* this.networkSendService
             .send(tmAddr, opaquePayload(JSON.stringify(tmFrame)))
-            .pipe(Effect.mapError(deliveryErrorToRpcFailure));
+            .pipe(Effect.mapError(deliveryErrorToHookBlocked));
         }
 
         const firstTextPart = parts.find((p) => p.type === "text");
@@ -284,7 +287,7 @@ export class MessageService {
         const participants =
           yield* this.conversations.getParticipantAgentIds(conversationId);
 
-        const event = notificationFrame(MessageReceivedNotificationDefinition, {
+        const event = MessageReceivedNotificationDefinition.encode({
           message,
         });
         const eventPayload = opaquePayload(JSON.stringify(event));
@@ -292,7 +295,7 @@ export class MessageService {
           participants,
           eventPayload,
           {
-            forConversation: protocolConversationId(conversationId),
+            forConversation: conversationId,
             excludeConnectionId,
           },
         );
@@ -343,9 +346,9 @@ export class MessageService {
   }
 
   private spawnDeliveryWebhook(body: {
-    conversationId: string;
-    messageId: string;
-    offlineRecipientAgentIds: string[];
+    conversationId: ConversationId;
+    messageId: MessageId;
+    offlineRecipientAgentIds: AgentId[];
   }): void {
     const fibers = this.deliveryWebhookFibers;
     const fiber = Effect.runFork(
@@ -358,9 +361,9 @@ export class MessageService {
   }
 
   private fireDeliveryWebhook(body: {
-    conversationId: string;
-    messageId: string;
-    offlineRecipientAgentIds: string[];
+    conversationId: ConversationId;
+    messageId: MessageId;
+    offlineRecipientAgentIds: AgentId[];
   }): Effect.Effect<void, never> {
     const cfg = this.deliveryWebhook;
     const client = this.webhookClient;
@@ -409,13 +412,13 @@ export class MessageService {
   }
 
   list(
-    conversationId: string,
-    requesterAgentId: string,
+    conversationId: ConversationId,
+    requesterAgentId: AgentId,
     options: {
       limit?: number;
       sinceSeq?: string;
     } = {},
-  ): Effect.Effect<{ messages: Message[]; hasMore: boolean }, RpcFailure> {
+  ): Effect.Effect<{ messages: Message[]; hasMore: boolean }, ForbiddenError> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         yield* this.conversations.requireParticipant(
@@ -457,7 +460,7 @@ export class MessageService {
   }
 
   private encryptParts(
-    conversationId: string,
+    conversationId: ConversationId,
     parts: Part[],
   ): Effect.Effect<
     {
@@ -467,7 +470,7 @@ export class MessageService {
       dekVersion: number;
       kekVersion: number;
     },
-    RpcFailure
+    never
   > {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
@@ -519,9 +522,7 @@ export class MessageService {
           );
 
           if (Option.isNone(kekRowOpt)) {
-            return yield* Effect.fail(
-              internalError("No encryption key configured"),
-            );
+            return yield* Effect.die("No encryption key configured");
           }
           const kekRow = kekRowOpt.value;
           const kek = this.encryption.decryptKek(
@@ -598,12 +599,9 @@ export class MessageService {
   }
 
   private getTraceMessageMetadata(
-    conversationId: string,
-    senderAgentId: string,
-  ): Effect.Effect<
-    { channelKey: string; senderDisplayName: string },
-    RpcFailure
-  > {
+    conversationId: ConversationId,
+    senderAgentId: AgentId,
+  ): Effect.Effect<{ channelKey: string; senderDisplayName: string }, never> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         // No per-task conversation key in the tasks/* layer; the raw
@@ -632,7 +630,7 @@ export class MessageService {
   private decryptPartsWithCache(
     row: MessageRow,
     dekCache: Map<number, Buffer>,
-  ): Effect.Effect<Part[], RpcFailure> {
+  ): Effect.Effect<Part[]> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         const dekVersion = row.dek_version;
@@ -659,9 +657,7 @@ export class MessageService {
           );
 
           if (Option.isNone(keyRowOpt)) {
-            return yield* Effect.fail(
-              internalError("Decryption key not found"),
-            );
+            return yield* Effect.die("Decryption key not found");
           }
 
           const kek = this.encryption.decryptKek(
@@ -685,13 +681,10 @@ export class MessageService {
 
   private mapMessage(row: MessageRow, parts: Part[]): Message {
     return {
-      id: protocolMessageId(row.id),
-      conversationId: protocolConversationId(row.conversation_id),
-      senderId: protocolAgentId(row.sender_id),
-      replyToId:
-        row.reply_to_id === null
-          ? undefined
-          : protocolMessageId(row.reply_to_id),
+      id: row.id,
+      conversationId: row.conversation_id,
+      senderId: row.sender_id,
+      replyToId: row.reply_to_id === null ? undefined : row.reply_to_id,
       parts,
       createdAt: row.created_at.toISOString(),
     };
@@ -721,38 +714,25 @@ function taskStatusAcceptsMessages(status: TaskStatus): boolean {
   }
 }
 
-/**
- * Decode the raw `tasks.tm_endpoint_address` column into a branded
- * `EndpointAddress`. A malformed non-null row is data corruption and
- * fails closed via `RpcFailure(InternalError)` rather than silently
- * mis-routing.
- */
-function decodeTmEndpointAddress(
-  raw: string,
-): Effect.Effect<EndpointAddress, RpcFailure> {
+/** Decode raw `tasks.tm_endpoint_address`. A malformed non-null row is
+ * data corruption and dies as a defect rather than silently mis-routing. */
+function decodeTmEndpointAddress(raw: string): Effect.Effect<EndpointAddress> {
   if (isEndpointAddress(raw)) return Effect.succeed(raw);
-  return Effect.fail(
-    internalError(`Malformed tm_endpoint_address in tasks row: ${raw}`),
-  );
+  return Effect.die(`Malformed tm_endpoint_address in tasks row: ${raw}`);
 }
 
-/**
- * Translate a `network.send` `DeliveryError` into a `messages/send`
- * `RpcFailure`. Both error tags map to `HookBlocked` — caller-recoverable;
- * TM is offline or its socket failed.
- */
-function deliveryErrorToRpcFailure(
+/** Translate a `network.send` `DeliveryError` into `HookBlockedError`.
+ * Both tags signal a caller-recoverable TM-offline / socket-fail. */
+function deliveryErrorToHookBlocked(
   err: RecipientNotResolved | WriteFailed,
-): RpcFailure {
+): HookBlockedError {
   if (err instanceof RecipientNotResolved) {
-    return new RpcFailure({
-      code: ErrorCodes.HookBlocked,
+    return new HookBlockedError({
       message: "Task manager is not reachable",
       data: { reason: "RecipientNotResolved", to: String(err.to) },
     });
   }
-  return new RpcFailure({
-    code: ErrorCodes.HookBlocked,
+  return new HookBlockedError({
     message: "Task manager dispatch failed",
     data: {
       reason: "WriteFailed",

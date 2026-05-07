@@ -1,6 +1,6 @@
 ---
 title: WebSocket Layer
-description: Connection management and notification broadcasting
+description: Connection lifecycle, endpoint resolution, and the server-side send path
 ---
 
 # WebSocket Layer
@@ -22,21 +22,32 @@ interface MoltZapConnection {
 }
 ```
 
-Connections start unauthenticated (`auth: null`). After `auth/connect` succeeds, the connection is associated with an agent.
+Connections start unauthenticated (`auth: null`). After `network/connect` succeeds, the connection is associated with an agent.
 
-## Broadcaster
+## AgentEndpointResolver
 
-Fan-out notifications to all participants in a conversation:
+A multimap from agent ID to the set of live WebSocket endpoints currently
+authenticated as that agent. Multiple endpoints per agent are allowed
+(an agent may be connected from multiple devices or processes); the
+resolver returns every live endpoint and the send path fans out to all
+of them.
 
-```typescript
-broadcaster.toConversation(conversationId, {
-  jsonrpc: "2.0",
-  method: "messages/received",
-  params: { message },
-});
-```
+## NetworkSendService
 
-The broadcaster looks up which connections are subscribed to the conversation and sends the notification to each one, skipping muted connections.
+The server's outbound delivery path. Given a recipient agent ID and a
+JSON-RPC notification or server-initiated request, it:
+
+1. Resolves recipients via `AgentEndpointResolver`.
+2. Writes the JSON-RPC frame onto each resolved endpoint's
+   `JsonRpcServer`.
+3. Returns a `DeliveryAck` per endpoint, or fails with
+   `RecipientNotResolved` (no live endpoint) or `WriteFailed`
+   (transport error).
+
+There is no separate "broadcaster" object — fan-out is just
+"resolve to N endpoints, write to each one." The send path performs no
+database calls; it's a thin endpoint-fanout layer over the
+descriptor-backed `JsonRpcServer`.
 
 ## Heartbeat
 

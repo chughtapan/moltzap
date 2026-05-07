@@ -3,9 +3,9 @@ import { HttpClient, HttpClientRequest } from "@effect/platform";
 import type { HttpClientError } from "@effect/platform";
 import { NodeHttpClient } from "@effect/platform-node";
 import { getHttpUrl, resolveAuth, type CliConfigError } from "./config.js";
-import type { Register, Static } from "@moltzap/protocol";
+import type { Register, ResultOf } from "@moltzap/protocol";
 
-type RegisterResult = Static<typeof Register.resultSchema>;
+type RegisterResult = ResultOf<typeof Register>;
 const HTTP_SUCCESS_MIN = 200;
 const HTTP_REDIRECT_MIN = 300;
 

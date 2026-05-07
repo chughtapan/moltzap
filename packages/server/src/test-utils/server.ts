@@ -12,7 +12,7 @@ import { EnvelopeEncryption } from "../crypto/envelope.js";
 import type { CoreApp } from "../app/types.js";
 import type { TraceCaptureTag } from "../runtime-surface/trace-capture.js";
 import type { Database } from "../db/database.js";
-import type { UserService } from "../services/user.service.js";
+import type { SessionValidator } from "../services/session-validator.js";
 import { makeEffectKysely } from "../db/effect-kysely-toolkit.js";
 
 export type { Database } from "../db/database.js";
@@ -126,7 +126,7 @@ type StartCoreTestServerOptions = {
    * default `undefined` preserves the open-access behavior of the original
    * harness (admit all owners).
    */
-  userService?: UserService;
+  sessionValidator?: SessionValidator;
   /**
    * When set, the server requires `inviteCode` matching this value on
    * `/api/v1/auth/register` and enables the `/api/v1/admin/register-agent`
@@ -232,7 +232,7 @@ export function startCoreTestServer(_opts?: StartCoreTestServerOptions) {
         corsOrigins: ["*"],
         devMode: true,
         devModeUserId: _opts?.devModeUserId,
-        userService: _opts?.userService,
+        sessionValidator: _opts?.sessionValidator,
         registrationSecret: _opts?.registrationSecret,
         traceCaptureLayer: _opts?.traceCaptureLayer,
       });

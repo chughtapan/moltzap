@@ -34,7 +34,7 @@ import {
   NotificationFrameSchema,
   ResponseFrameSchema,
   type ResponseFrame,
-} from "../../schema/frames.js";
+} from "../../transport/wire.js";
 import { makeTestClient } from "../test-client.js";
 import { registerTestAgent } from "../agent-registration.js";
 import type { ConformanceRunContext } from "./runner.js";
@@ -44,9 +44,10 @@ import {
   registerProperty,
 } from "./registry.js";
 
-import { AgentsList, Connect } from "../../network/methods/auth.js";
-import { ContactsList } from "../../task/methods/contacts.js";
-import { ConversationsList } from "../../task/methods/conversations.js";
+import { AgentsList } from "../../identity/methods.js";
+import { Connect } from "../../network/methods.js";
+import { ContactsList } from "../../identity/methods.js";
+import { ConversationsList } from "../../task/methods.js";
 
 const CATEGORY = "schema-conformance" as const;
 const DEFAULT_MALFORMED_RESPONSE_RUNS = 3;
@@ -316,7 +317,7 @@ export function registerMalformedFrameHandling(
 }
 
 /**
- * A representative sample of `RpcMethodName` reaches the real server.
+ * A representative sample of method names reaches the real server.
  * Full-set coverage is exercised by `schema-exhaustive-fuzz` in
  * `boundary.ts`; this property asserts the wire path is alive for a
  * small stratified sample — cheap to re-run, catches regressions that
@@ -333,7 +334,7 @@ export function registerRpcMapCoverage(ctx: ConformanceRunContext): void {
     ctx,
     CATEGORY,
     "rpc-map-coverage",
-    "a representative sample of RpcMethodName reaches a real-server response",
+    "a representative sample of method names reaches a real-server response",
     Effect.gen(function* () {
       void allRpcMethods; // kept for future expansion to full-set coverage
       for (const method of COVERAGE_SAMPLE) {

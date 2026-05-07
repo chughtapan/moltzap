@@ -22,7 +22,7 @@ import {
   DeliveryWebhookTag,
   EncryptionTag,
   ServicesLive,
-  UserServiceTag,
+  SessionValidatorTag,
   WebhookClientTag,
   resolveServices,
 } from "./layers.js";
@@ -39,7 +39,7 @@ const fakeDb = {} as Kysely<Database> as Db;
 const BaseLive = Layer.mergeAll(
   Layer.succeed(DbTag, fakeDb),
   Layer.succeed(EncryptionTag, null),
-  Layer.succeed(UserServiceTag, null),
+  Layer.succeed(SessionValidatorTag, null),
   Layer.succeed(WebhookClientTag, new WebhookClient()),
   Layer.succeed(DeliveryWebhookTag, null),
   NoopTraceCaptureLive,

@@ -5,7 +5,7 @@
  *   - `yield* ctx.realClientFactory()` — produce a real MoltZap client
  *   - `yield* awaitConnection(ctx.testServer)` — TestServer accepts the WS
  *   - `yield* runAutoHandshakeResponder(connection, ...)` — respond to
- *     auth/connect so the real client's `ready` Effect resolves
+ *     network/connect so the real client's `ready` Effect resolves
  *   - `yield* window.awaitHandshakeComplete` — wait for ready to settle
  *
  * Centralizing the prologue + teardown here keeps each property body
@@ -16,11 +16,14 @@
  * throws. Errors are mapped into `PropertyFailure` tags before surfacing.
  */
 import { Effect, Scope } from "effect";
-import type { NotificationFrame } from "../../../schema/frames.js";
-import { validators } from "../../../validators.js";
+import {
+  validateNotificationFrame,
+  type NotificationFrame,
+} from "../../../transport/wire.js";
 import type { TestServerConnection } from "../../test-server.js";
 import {
   awaitConnection,
+  lookupTagForRawBytes,
   makeClientHandshakeWindow,
   runAutoHandshakeResponder,
   type ClientConformanceRunContext,
@@ -121,15 +124,24 @@ function filterTagged(
   snap: ReadonlyArray<{
     readonly decoded: unknown;
     readonly rawBytes: Uint8Array;
+    readonly emissionTag?: string | null;
   }>,
   predicate: (tag: string) => boolean,
 ): ReadonlyArray<TaggedObservation> {
   const out: TaggedObservation[] = [];
   for (const o of snap) {
-    if (!validators.notificationFrame(o.decoded)) continue;
+    if (!validateNotificationFrame(o.decoded)) continue;
     const params = notificationParamsRecord(o.decoded.params);
-    const tag = params.__emissionTag;
-    if (typeof tag === "string" && predicate(tag)) {
+    // Real adapters set `emissionTag: null` and we look up the tag by
+    // wire-bytes match against the runner's emit registry. Divergence-
+    // proof fakes preset `emissionTag` directly on the synthesized
+    // observation so a harness that rewrites the wire frame still
+    // surfaces the original tag for the property's predicate.
+    const tag =
+      typeof o.emissionTag === "string"
+        ? o.emissionTag
+        : lookupTagForRawBytes(o.rawBytes);
+    if (tag !== null && predicate(tag)) {
       out.push({
         tag,
         raw: o.rawBytes,

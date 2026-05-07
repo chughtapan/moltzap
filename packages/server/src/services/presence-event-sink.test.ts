@@ -1,19 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { Effect, HashMap, Ref } from "effect";
+import { Effect } from "effect";
 
 import { PresenceChangedNotificationDefinition } from "@moltzap/protocol";
+import { agentId as makeAgentId } from "@moltzap/protocol/testing";
 
-import {
-  ConnectionManager,
-  type MoltZapConnection,
-  type AppCallbackPendingMap,
-} from "../ws/connection.js";
+import { ConnectionManager, type MoltZapConnection } from "../ws/connection.js";
+import { unusedJsonRpcClient } from "../ws/connection.test-utils.js";
 import {
   createConnectionFanOutPresenceEventSink,
   type PresencePublishInput,
 } from "./presence-event-sink.js";
 
-const AGENT_A_UUID = "00000000-0000-4000-8000-00000000a9e7";
+const AGENT_A_UUID = makeAgentId("00000000-0000-4000-8000-00000000a9e7");
 
 interface Capture {
   conn: MoltZapConnection;
@@ -33,8 +31,7 @@ function makeConn(connId: string): Capture {
     lastPong: Date.now(),
     conversationIds: new Set<string>(),
     mutedConversations: new Set<string>(),
-    appCallbackPending: Ref.unsafeMake<AppCallbackPendingMap>(HashMap.empty()),
-    appCallbackRequestCounter: Ref.unsafeMake(0),
+    jsonRpcClient: unusedJsonRpcClient(),
   };
   return { conn, writes };
 }
@@ -58,7 +55,7 @@ async function flushFibers(): Promise<void> {
 }
 
 function publishInput(opts: {
-  agentId: string;
+  agentId: PresencePublishInput["agentId"];
   status: PresencePublishInput["status"];
   subscriberConnIds: Iterable<string>;
   excludeConnId?: string;

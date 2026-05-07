@@ -4,7 +4,8 @@
 export { createCoreApp } from "./app/server.js";
 export type { CoreConfig, CoreApp } from "./app/types.js";
 
-export { AgentId, UserId, ConversationId, AppId } from "./app/types.js";
+export type { AgentId, UserId, ConversationId } from "./app/types.js";
+export { AppId } from "./app/types.js";
 
 // AppHost
 export { AppHost } from "./app/app-host.js";
@@ -12,7 +13,7 @@ export type { ContactService } from "./app/app-host.js";
 
 // Handler factories — for downstream consumers composing their own RPC router
 export { createCoreAuthHandlers } from "./network/handlers/auth.handlers.js";
-export { createSystemHandlers } from "./network/handlers/system.handlers.js";
+export { createPingHandlers } from "./network/handlers/ping.handlers.js";
 export { createConversationHandlers } from "./task/handlers/conversations.handlers.js";
 export { createMessageHandlers } from "./task/handlers/messages.handlers.js";
 export { createPresenceHandlers } from "./task/handlers/presence.handlers.js";
@@ -21,11 +22,8 @@ export { createAppHandlers } from "./app/handlers/apps.handlers.js";
 export { ConnIdTag } from "./app/layers.js";
 
 // Service adapters
-export type { UserService } from "./services/user.service.js";
-export {
-  InProcessUserService,
-  WebhookUserService,
-} from "./services/user.service.js";
+export type { SessionValidator } from "./services/session-validator.js";
+export { WebhookSessionValidator } from "./services/session-validator.js";
 export {
   WebhookClient,
   WebhookHttpError,
@@ -100,20 +98,9 @@ export {
 } from "./services/presence-event-sink.js";
 
 // Infrastructure
-export { createRpcRouter } from "./rpc/router.js";
 export {
-  RpcFailure,
   InvalidParamsError,
-  ForbiddenError,
   validateParams,
-  notFound,
-  forbidden,
-  unauthorized,
-  invalidParams,
-  conflict,
-  internalError,
-  blocked,
-  rateLimited,
   coalesce,
   drainCoalesceMap,
   type Validator,
@@ -157,7 +144,8 @@ export type { Db } from "./db/client.js";
 // Types
 export type {
   AuthenticatedContext,
-  RpcMethodDef,
+  DispatchContext,
+  RpcMethodBinding,
   RpcMethodRegistry,
 } from "./rpc/context.js";
 export type { MoltZapConnection } from "./ws/connection.js";

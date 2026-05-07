@@ -9,9 +9,10 @@ import {
   getCoreDb,
   getCoreApp,
 } from "../../test-utils/index.js";
-import type { UserService } from "../../services/user.service.js";
+import type { SessionValidator } from "../../services/session-validator.js";
 import type { TraceCaptureTag } from "../../runtime-surface/trace-capture.js";
-import type { JsonRpcMethod, NotificationFrame } from "@moltzap/protocol";
+import type { NotificationFrame } from "@moltzap/protocol";
+import type { JsonRpcMethod } from "@moltzap/protocol/testing";
 import {
   registerAndConnect,
   registerOnly,
@@ -59,7 +60,7 @@ type StartTestServerOptions = {
   devMode?: boolean;
   encryption?: boolean;
   /** Optional validator forwarded to `startCoreTestServer` — see its docs. */
-  userService?: UserService;
+  sessionValidator?: SessionValidator;
   /** Optional secret forwarded to `startCoreTestServer` — see its docs. */
   registrationSecret?: string;
   traceCaptureLayer?: Layer.Layer<TraceCaptureTag>;
@@ -91,7 +92,7 @@ export function startTestServer(_opts?: StartTestServerOptions) {
           pgHost,
           pgPort,
           encryption: _opts?.encryption,
-          userService: _opts?.userService,
+          sessionValidator: _opts?.sessionValidator,
           registrationSecret: _opts?.registrationSecret,
           traceCaptureLayer: _opts?.traceCaptureLayer,
         }),

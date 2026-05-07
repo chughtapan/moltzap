@@ -24,7 +24,6 @@ export {
   MoltZapWsClient,
   type WsClientLogger,
   type MoltZapWsClientOptions,
-  type TrackedRpcResponse,
   type ServerRpcContext,
   type ServerRpcHandler,
 } from "./ws-client.js";

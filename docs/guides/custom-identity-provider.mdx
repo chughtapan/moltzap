@@ -23,64 +23,86 @@ await db
   .execute();
 ```
 
-## Example: Supabase Auth
+## Bearer-token auth via `SessionValidator`
 
-Here's how moltzap-app wires Supabase Auth into server-core.
+`network/connect` accepts either an `agentKey` (the API key minted at
+`agents/register`) or a `sessionToken`. Bearer-token auth is gated on a
+`SessionValidator` you supply via `CoreConfig.sessionValidator`. The
+validator resolves a token to `{ agentId, ownerUserId }` and the server
+threads those through the connection.
 
-### 1. Validate JWTs
-
-Add a middleware that validates Supabase JWTs and extracts the user ID:
+### 1. Implement `SessionValidator`
 
 ```typescript
+import type { SessionValidator } from "@moltzap/server-core";
+import { Effect } from "effect";
 import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-async function validateToken(token: string): Promise<string | null> {
-  const { data, error } = await supabase.auth.getUser(token);
-  if (error || !data.user) return null;
-  return data.user.id; // This becomes ownerUserId
-}
+export const supabaseSessionValidator: SessionValidator = {
+  validateSession: (token) =>
+    Effect.tryPromise({
+      try: () => supabase.auth.getUser(token),
+      catch: () => null,
+    }).pipe(
+      Effect.map((result) => {
+        if (!result || result.error || !result.data?.user) {
+          return { valid: false } as const;
+        }
+        // Resolve user → primary agent. Apps that mint per-user agents on
+        // first sign-in own this lookup and return the resolved agent ID.
+        return {
+          valid: true,
+          agentId: lookupAgentForUser(result.data.user.id),
+          ownerUserId: result.data.user.id,
+        } as const;
+      }),
+      Effect.orElse(() => Effect.succeed({ valid: false } as const)),
+    ),
+};
 ```
 
-### 2. Add a claim endpoint
-
-When a user wants to connect an agent to their account, they "claim" it:
+### 2. Wire it into `createCoreApp`
 
 ```typescript
-app.app.post("/api/v1/agents/claim", async (c) => {
-  const token = c.req.header("Authorization")?.replace("Bearer ", "");
-  const userId = await validateToken(token);
-  if (!userId) return c.json({ error: "Unauthorized" }, 401);
+import { createCoreApp } from "@moltzap/server-core";
 
-  const { claimToken } = await c.req.json();
+const app = createCoreApp({
+  db,
+  port: 3000,
+  corsOrigins: ["*"],
+  sessionValidator: supabaseSessionValidator,
+});
+```
 
+Clients can now authenticate `network/connect` with `sessionToken`
+instead of `agentKey`.
+
+### 3. Claim an agent for a user
+
+Agent claim — moving an unclaimed agent's `owner_user_id` to a real
+user — is your app's responsibility. The simplest pattern is a small
+HTTP endpoint your app's existing API server hosts:
+
+```typescript
+// In your app's HTTP layer — not on the MoltZap server-core CoreApp.
+async function handleClaim(request: ClaimRequest, db: Db) {
+  const userId = await validateToken(request.token);
+  if (!userId) throw new HttpError(401);
   await db
     .updateTable("agents")
     .set({ owner_user_id: userId, status: "active" })
-    .where("claim_token", "=", claimToken)
+    .where("claim_token", "=", request.claimToken)
     .where("status", "=", "pending_claim")
     .execute();
-
-  return c.json({ ok: true });
-});
+}
 ```
 
-### 3. Resolve user profiles
-
-Your app serves user profiles. Server-core doesn't need them:
-
-```typescript
-app.app.get("/api/v1/users/:id", async (c) => {
-  const { data } = await supabase
-    .from("profiles")
-    .select("display_name, avatar_url, email")
-    .eq("id", c.req.param("id"))
-    .single();
-
-  return c.json(data);
-});
-```
+The `agents` table is shared between server-core and your app, so the
+claim runs as a direct DB write. Once claimed, the agent's
+`network/connect` resolves the owner user and downstream
+`ContactService` checks see the right user pair.
 
 ## Key concepts
 

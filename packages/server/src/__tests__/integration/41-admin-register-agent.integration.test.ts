@@ -201,7 +201,7 @@ describe("/api/v1/admin/register-agent — secret-gated ownerUserId", () => {
       }),
   );
 
-  it.live("old apiKey is rejected by auth/connect after re-register", () =>
+  it.live("old apiKey is rejected by network/connect after re-register", () =>
     Effect.gen(function* () {
       const first = yield* adminRegister({
         name: "rotated-key-rejection",
@@ -218,7 +218,7 @@ describe("/api/v1/admin/register-agent — secret-gated ownerUserId", () => {
       const rotated = second.json as AdminRegisterResponse;
       expect(rotated.apiKey).not.toBe(oldKey);
 
-      // Old key's api_key_id no longer matches any row → auth/connect fails.
+      // Old key's api_key_id no longer matches any row → network/connect fails.
       const staleClient = yield* connectTestClient({
         wsUrl,
         agentId: rotated.agentId,

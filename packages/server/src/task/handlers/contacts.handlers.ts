@@ -6,14 +6,11 @@ import {
   ContactsById,
   ContactRequestNotificationDefinition,
   ContactAcceptedNotificationDefinition,
-  notificationFrame,
-  userId as brandUserId,
+  UnauthorizedError,
   type NotificationDefinition,
   type NotificationParamsOf,
-  type Static,
-  type TSchema,
 } from "@moltzap/protocol";
-import { UserId } from "@moltzap/protocol/schemas/primitives";
+import type { UserId } from "@moltzap/protocol/identity";
 import type { ContactsService } from "../../services/contact.service.js";
 import type { AuthService } from "../../services/auth.service.js";
 import type { NetworkSendService } from "../../network/network-send.js";
@@ -22,10 +19,7 @@ import type {
   AuthenticatedContext,
   RpcMethodRegistry,
 } from "../../rpc/context.js";
-import { unauthorized, type RpcFailure } from "../../runtime/index.js";
 import { defineTaskMethod } from "../../rpc/define-layered-method.js";
-
-type BrandedUserId = Static<typeof UserId>;
 
 const ERR_NEED_OWNER = "Contacts require a claimed agent owner";
 
@@ -36,25 +30,25 @@ export function createContactHandlers(deps: {
 }): RpcMethodRegistry {
   const { contactService, authService, networkSendService } = deps;
 
-  const fanOut = <D extends NotificationDefinition<string, TSchema>>(
-    target: BrandedUserId,
+  const fanOut = <D extends NotificationDefinition<string, any>>(
+    target: UserId,
     definition: D,
     params: NotificationParamsOf<D>,
   ): Effect.Effect<void, never> =>
     Effect.gen(function* () {
       const agentIds = yield* authService.agentsForOwner(target);
       if (agentIds.length === 0) return;
-      const frame = notificationFrame(definition, params);
+      const frame = definition.encode(params);
       const payload = opaquePayload(JSON.stringify(frame));
       yield* networkSendService.broadcast(agentIds, payload);
     });
 
   const requireOwner = (
     ctx: AuthenticatedContext,
-  ): Effect.Effect<BrandedUserId, RpcFailure> =>
+  ): Effect.Effect<UserId, UnauthorizedError> =>
     ctx.ownerUserId === null
-      ? Effect.fail(unauthorized(ERR_NEED_OWNER))
-      : Effect.succeed(brandUserId(ctx.ownerUserId));
+      ? Effect.fail(new UnauthorizedError({ message: ERR_NEED_OWNER }))
+      : Effect.succeed(ctx.ownerUserId);
 
   return [
     defineTaskMethod(ContactsList, {

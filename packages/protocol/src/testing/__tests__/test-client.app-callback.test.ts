@@ -13,7 +13,7 @@
  *
  * Pattern: spin up an in-process `@effect/platform-node` WebSocket server
  * that scripts the task-callback traffic the test wants. `autoConnect: false`
- * skips the auth/connect handshake — these tests exercise the
+ * skips the network/connect handshake — these tests exercise the
  * task-callback machinery directly without leaning on registered
  * server-core verbs.
  */
@@ -23,20 +23,18 @@ import * as NodeSocketServer from "@effect/platform-node/NodeSocketServer";
 import * as Socket from "@effect/platform/Socket";
 import { makeTestClient, type TestClient } from "../test-client.js";
 import { RpcResponseError } from "../errors.js";
-import type { RequestFrame, ResponseFrame } from "../../schema/frames.js";
-import { requestFrame } from "../../helpers.js";
-import { jsonRpcStringId } from "../../schema/json-rpc.js";
-import { validators } from "../../validators.js";
+import type { RequestFrame, ResponseFrame } from "../../transport/wire.js";
+import { requestFrame, validateResponseFrame } from "../../transport/wire.js";
 import type { AnyTaskCallbackRpcDefinition } from "../../rpc-registry.js";
-import type { ParamsOf } from "../../rpc.js";
+import type { ParamsOf } from "../../transport/method.js";
 
-import { TaskAuthorizeDispatch } from "../../app/methods/apps.js";
+import { TaskAuthorizeDispatch } from "../../app/methods.js";
 import {
   agentId,
   conversationId,
   messageId,
   taskId as makeTaskId,
-} from "../../schema/primitives.js";
+} from "../branded-ids.js";
 
 const TASK_ID = makeTaskId("550e8400-e29b-41d4-a716-446655440000");
 const APP_ID = "test-app";
@@ -83,7 +81,7 @@ interface ScriptedServerHandle {
  *  - expose `send` so the test scripts task-callback traffic.
  *
  * The server is owned by the surrounding `Scope`; closing the scope
- * shuts it down. There is no auth/connect auto-reply — tests construct
+ * shuts it down. There is no network/connect auto-reply — tests construct
  * TestClient with `autoConnect: false`.
  */
 const makeScriptedServer: Effect.Effect<
@@ -179,7 +177,7 @@ const findResponse = (
       continue;
     }
     if (
-      validators.responseFrame(parsed) &&
+      validateResponseFrame(parsed) &&
       typeof parsed.id === "string" &&
       parsed.id === id
     ) {
@@ -193,7 +191,7 @@ const appCallbackRequest = <D extends AnyTaskCallbackRpcDefinition>(
   id: string,
   definition: D,
   params: ParamsOf<D>,
-): RequestFrame => requestFrame(jsonRpcStringId(id), definition, params);
+): RequestFrame => requestFrame(id, definition, params);
 
 function expectResponseResult(reply: ResponseFrame): unknown {
   expect("result" in reply).toBe(true);

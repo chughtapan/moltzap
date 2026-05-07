@@ -24,14 +24,15 @@
  * unregistered-handler branches.
  */
 import { describe, expect, it } from "vitest";
-import { Cause, Effect, Exit, HashMap, Option, Ref } from "effect";
+import { Cause, Effect, Exit, Option } from "effect";
 import * as Socket from "@effect/platform/Socket";
 import {
-  agentId,
   endpointAddress,
   makeEndpointAddress,
 } from "@moltzap/protocol/network";
+import { agentId } from "@moltzap/protocol/testing";
 import { ConnectionManager } from "../ws/connection.js";
+import { unusedJsonRpcClient } from "../ws/connection.test-utils.js";
 import {
   AgentEndpointResolver,
   connectionId,
@@ -84,18 +85,7 @@ function fakeConnection(
     lastPong: 0,
     conversationIds: new Set<string>(),
     mutedConversations: new Set<string>(),
-    appCallbackPending: Effect.runSync(
-      Ref.make(
-        HashMap.empty<
-          import("@moltzap/protocol").JsonRpcStringId,
-          {
-            readonly method: import("@moltzap/protocol").JsonRpcMethod;
-            readonly deferred: never;
-          }
-        >() as import("../ws/connection.js").AppCallbackPendingMap,
-      ),
-    ),
-    appCallbackRequestCounter: Effect.runSync(Ref.make(0)),
+    jsonRpcClient: unusedJsonRpcClient(),
   };
 }
 

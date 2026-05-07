@@ -7,7 +7,7 @@
  * Issue #426 acceptance.
  *
  * Coverage:
- *   - `auth/connect` populates the resolver: `network.send` to the
+ *   - `network/connect` populates the resolver: `network.send` to the
  *     freshly-connected agent's address returns {@link DeliveryAck} and
  *     the recipient client decodes the typed notification on the wire.
  *   - Disconnect drains the resolver: `network.send` to the same address
@@ -34,11 +34,8 @@ import {
   registerAndConnect,
 } from "./helpers.js";
 import { getBaseUrl } from "../../test-utils/index.js";
-import {
-  notificationFrame,
-  PresenceChangedNotificationDefinition,
-  agentId as protocolAgentId,
-} from "@moltzap/protocol";
+import { PresenceChangedNotificationDefinition } from "@moltzap/protocol";
+import { agentId as protocolAgentId } from "@moltzap/protocol/testing";
 import { makeEndpointAddress } from "@moltzap/protocol/network";
 import {
   opaquePayload,
@@ -89,7 +86,7 @@ describe("AgentEndpointResolver + network.send lifecycle (Phase 8 G1)", () => {
         // Asserts end-to-end wire delivery, not just the server-side write
         // ack — `waitForNotification` only fires after the frame decodes
         // through the validation pipeline at the client edge.
-        const frame = notificationFrame(PresenceChangedNotificationDefinition, {
+        const frame = PresenceChangedNotificationDefinition.encode({
           agentId: protocolAgentId(alice.agentId),
           status: "online",
         });
@@ -159,7 +156,7 @@ describe("AgentEndpointResolver + network.send lifecycle (Phase 8 G1)", () => {
         // at least one connection is live; both connections register
         // under the same agent in the resolver's forward map.
         const address = makeEndpointAddress("agent", aId);
-        const frame = notificationFrame(PresenceChangedNotificationDefinition, {
+        const frame = PresenceChangedNotificationDefinition.encode({
           agentId: protocolAgentId(aId),
           status: "online",
         });

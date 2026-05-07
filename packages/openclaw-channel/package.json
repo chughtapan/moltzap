@@ -44,7 +44,6 @@
     "@types/pg": "^8.11.0",
     "openai": "^6.26.0",
     "pg": "^8.13.0",
-    "testcontainers": "^10.18.0",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
   },

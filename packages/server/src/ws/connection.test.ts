@@ -1,12 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { Effect, HashMap, Ref } from "effect";
+import { Effect } from "effect";
 import type { AuthenticatedContext } from "../rpc/context.js";
 import type { AgentId } from "../app/types.js";
-import {
-  ConnectionManager,
-  type MoltZapConnection,
-  type AppCallbackPendingMap,
-} from "./connection.js";
+import { ConnectionManager, type MoltZapConnection } from "./connection.js";
+import { unusedJsonRpcClient } from "./connection.test-utils.js";
 
 /**
  * Pure-unit coverage for ConnectionManager.subscribeAgentsToConversation.
@@ -36,8 +33,7 @@ function makeConn(id: string, agentId: string | null): MoltZapConnection {
     lastPong: Date.now(),
     conversationIds: new Set<string>(),
     mutedConversations: new Set<string>(),
-    appCallbackPending: Ref.unsafeMake<AppCallbackPendingMap>(HashMap.empty()),
-    appCallbackRequestCounter: Ref.unsafeMake(0),
+    jsonRpcClient: unusedJsonRpcClient(),
   };
 }
 

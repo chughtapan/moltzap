@@ -13,7 +13,7 @@ import {
   AppsRegister,
   ConversationsCreate,
   MessagesSend,
-  SystemPing,
+  NetworkPing,
 } from "@moltzap/protocol";
 
 beforeAll(async () => {
@@ -28,13 +28,13 @@ beforeEach(async () => {
   await resetTestDb();
 });
 
-describe("Scenario 34: apps/register + system/ping RPCs", () => {
-  describe(SystemPing.name, () => {
+describe("Scenario 34: apps/register + network/ping RPCs", () => {
+  describe(NetworkPing.name, () => {
     it.live("returns an ISO8601 ts string", () =>
       Effect.gen(function* () {
         const agent = yield* registerAndConnect("alice");
 
-        const result = (yield* agent.client.sendRpc(SystemPing, {})) as {
+        const result = (yield* agent.client.sendRpc(NetworkPing, {})) as {
           ts: string;
         };
 

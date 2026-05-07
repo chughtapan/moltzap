@@ -116,7 +116,7 @@ export interface MoltZapAppConfig {
   database?: { url?: string; data_dir?: string };
   encryption?: { master_secret: string };
   services?: {
-    users?: ServiceConfig;
+    sessions?: ServiceConfig;
     contacts?: ServiceConfig;
   };
   registration?: { secret?: string };

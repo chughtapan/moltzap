@@ -7,15 +7,16 @@ import {
   ConversationUpdatedNotificationDefinition,
   MessageReceivedNotificationDefinition,
   PresenceChangedNotificationDefinition,
+  type AnyNotificationDefinition,
+  type NotificationParamsOf,
+} from "@moltzap/protocol";
+import {
   agentId,
   contactId,
   conversationId,
   messageId,
-  notificationFrame,
   userId,
-  type AnyNotificationDefinition,
-  type NotificationParamsOf,
-} from "@moltzap/protocol";
+} from "@moltzap/protocol/testing";
 import {
   isMessageNotification,
   extractMessage,
@@ -46,7 +47,7 @@ function makeNotificationFrame<D extends AnyNotificationDefinition>(
   definition: D,
   params: NotificationParamsOf<D>,
 ): NotificationFrame {
-  return notificationFrame(definition, params);
+  return definition.encode(params);
 }
 
 const MESSAGE_RECEIVED_FRAME = () =>

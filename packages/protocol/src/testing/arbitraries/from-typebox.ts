@@ -1,7 +1,7 @@
 /**
  * TypeBox → fast-check arbitrary derivation.
  *
- * The reference model covers every `RpcMethodName` in `RpcMap` (AC4 / Tier
+ * The reference model covers every wire method name in `RpcMap` (AC4 / Tier
  * B); properties therefore need a principled generator for each method's
  * params. Instead of handwriting an `Arbitrary<T>` per RPC, we derive it
  * from the schema already living at `paramsSchema`.
@@ -40,6 +40,8 @@ type TBNode = TSchema & {
   readonly const?: unknown;
   readonly minLength?: number;
   readonly maxLength?: number;
+  readonly minItems?: number;
+  readonly maxItems?: number;
   readonly minimum?: number;
   readonly maximum?: number;
   readonly format?: string;
@@ -97,12 +99,22 @@ function walk(node: TBNode): fc.Arbitrary<unknown> {
   switch (node.type) {
     case "object":
       return objectArbitrary(node);
-    case "array":
+    case "array": {
+      const minItems = node.minItems ?? 0;
+      const maxItems = Math.max(
+        minItems,
+        node.maxItems ?? DEFAULT_ARRAY_MAX_LENGTH,
+      );
       return node.items
         ? fc.array(walk(node.items as TBNode), {
-            maxLength: DEFAULT_ARRAY_MAX_LENGTH,
+            minLength: minItems,
+            maxLength: maxItems,
           })
-        : fc.array(fc.anything(), { maxLength: DEFAULT_ARRAY_MAX_LENGTH });
+        : fc.array(fc.anything(), {
+            minLength: minItems,
+            maxLength: maxItems,
+          });
+    }
     case "string":
       return stringArbitrary(node);
     case "integer":
@@ -135,6 +147,9 @@ function stringArbitrary(node: TBNode): fc.Arbitrary<string> {
     const min = Date.UTC(DEFAULT_DATE_MIN_YEAR, 0, 1);
     const max = Date.UTC(DEFAULT_DATE_MAX_YEAR, 0, 1);
     return fc.integer({ min, max }).map((ms) => new Date(ms).toISOString());
+  }
+  if (node.format === "uri") {
+    return fc.webUrl();
   }
   return fc.string({
     minLength: node.minLength ?? 0,

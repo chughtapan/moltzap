@@ -8,13 +8,14 @@ import { Effect, Option, Stream, Duration, type Scope } from "effect";
 import type { Static } from "@sinclair/typebox";
 
 import { PROTOCOL_VERSION } from "../../version.js";
+import { PresenceChangedNotificationDefinition } from "../../network/methods.js";
+import { notificationDefinitions } from "../../rpc-registry.js";
 import {
-  PresenceChangedNotificationDefinition,
-  notificationGroup,
-} from "../../schema/notifications.js";
-import { decodeNotification, isDecodedNotification } from "../../rpc-groups.js";
-import { PresenceSubscribe } from "../../task/methods/presence.js";
-import { AgentId } from "../../schema/primitives.js";
+  decodeNotification,
+  isDecodedNotification,
+} from "../../transport/rpc-groups.js";
+import { PresenceSubscribe } from "../../network/methods.js";
+import { AgentId } from "../../identity/methods.js";
 import {
   makeCloseableTestClient,
   makeTestClient,
@@ -26,7 +27,7 @@ import { isNotificationFrame } from "../codec.js";
 import type { ConformanceRunContext } from "./runner.js";
 import { PropertyInvariantViolation, registerProperty } from "./registry.js";
 
-import { Connect } from "../../network/methods/auth.js";
+import { Connect } from "../../network/methods.js";
 
 const CATEGORY = "presence" as const;
 const DEFAULT_TIMEOUT_MS = 5000;
@@ -192,7 +193,7 @@ function presenceStatusesFor(
       const frame = s.frame;
       if (frame === null || !isNotificationFrame(frame)) continue;
       const notification = yield* decodeNotification(
-        notificationGroup,
+        notificationDefinitions,
         frame,
       ).pipe(Effect.option);
       const presenceNotification = Option.filter(notification, (decoded) =>
@@ -222,7 +223,7 @@ export function registerConnectBroadcast(ctx: ConformanceRunContext): void {
     ctx,
     CATEGORY,
     NAME,
-    "auth/connect after subscribe ⇒ subscriber receives presence/changed { online }",
+    "network/connect after subscribe ⇒ subscriber receives presence/changed { online }",
     Effect.scoped(
       Effect.gen(function* () {
         const sub = yield* acquireClient(ctx, NAME, "p1-sub");
@@ -245,7 +246,7 @@ export function registerDisconnectBroadcast(ctx: ConformanceRunContext): void {
     ctx,
     CATEGORY,
     NAME,
-    "ws-close after auth/connect ⇒ subscriber receives presence/changed { offline } strictly after { online }",
+    "ws-close after network/connect ⇒ subscriber receives presence/changed { offline } strictly after { online }",
     Effect.scoped(
       Effect.gen(function* () {
         const sub = yield* acquireClient(ctx, NAME, "p2-sub");
@@ -277,7 +278,7 @@ export function registerDisconnectBroadcast(ctx: ConformanceRunContext): void {
  * Sequential reconnect only. The wait for `offline` between client #1
  * close and client #2 connect is the in-band fence proving the server's
  * onExit reached `setOffline` before the new handshake. Concurrent
- * reconnect (new auth/connect races old onExit) is OOS — see OQ6.
+ * reconnect (new network/connect races old onExit) is OOS — see OQ6.
  */
 export function registerReconnectStorm(ctx: ConformanceRunContext): void {
   const NAME = "reconnect-storm";
@@ -332,7 +333,7 @@ export function registerReconnectStorm(ctx: ConformanceRunContext): void {
 }
 
 /**
- * Re-sending auth/connect on an already-authenticated WS short-circuits
+ * Re-sending network/connect on an already-authenticated WS short-circuits
  * to buildHelloOk (`auth.handlers.ts:71`) which calls setOnline again.
  * The idempotency guard MUST suppress the redundant broadcast.
  */
@@ -344,7 +345,7 @@ export function registerSameStateNoDoubleFire(
     ctx,
     CATEGORY,
     NAME,
-    "redundant setOnline (auth/connect on already-authenticated WS) does NOT double-fire presence/changed",
+    "redundant setOnline (network/connect on already-authenticated WS) does NOT double-fire presence/changed",
     Effect.scoped(
       Effect.gen(function* () {
         const sub = yield* acquireClient(ctx, NAME, "p4-sub");
@@ -370,7 +371,7 @@ export function registerSameStateNoDoubleFire(
           })
           .pipe(
             Effect.mapError((e) =>
-              violation(NAME, `auth/connect re-send failed: ${String(e)}`),
+              violation(NAME, `network/connect re-send failed: ${String(e)}`),
             ),
           );
 
@@ -398,7 +399,7 @@ export function registerMultiSubscriberFanOut(
     ctx,
     CATEGORY,
     NAME,
-    "auth/connect with N subscribers ⇒ exactly N presence/changed { online } events (one per subscriber)",
+    "network/connect with N subscribers ⇒ exactly N presence/changed { online } events (one per subscriber)",
     Effect.scoped(
       Effect.gen(function* () {
         const s1 = yield* acquireClient(ctx, NAME, "p5-s1");

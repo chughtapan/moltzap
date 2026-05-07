@@ -16,8 +16,8 @@ import {
   type RequestFrame,
   type ResponseFrame,
   type NotificationFrame,
-} from "../schema/frames.js";
-import { isJsonRpcStringId, type JsonRpcStringId } from "../schema/json-rpc.js";
+} from "../transport/wire.js";
+import { type JsonRpcId } from "../transport/wire.js";
 import { FrameSchemaError } from "./errors.js";
 
 const BIT_FLIP_VARIANTS = 8;
@@ -33,7 +33,7 @@ const LCG_MODULUS = 0x100000000;
  */
 export type AnyFrame = RequestFrame | ResponseFrame | NotificationFrame;
 export type CorrelatedResponseFrame = ResponseFrame & {
-  readonly id: JsonRpcStringId;
+  readonly id: JsonRpcId;
 };
 
 export function isRequestFrame(frame: AnyFrame): frame is RequestFrame {
@@ -47,7 +47,7 @@ export function isResponseFrame(frame: AnyFrame): frame is ResponseFrame {
 export function isCorrelatedResponseFrame(
   frame: AnyFrame,
 ): frame is CorrelatedResponseFrame {
-  return isResponseFrame(frame) && isJsonRpcStringId(frame.id);
+  return isResponseFrame(frame) && typeof frame.id === "string";
 }
 
 export function isNotificationFrame(

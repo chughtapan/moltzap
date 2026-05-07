@@ -7,18 +7,15 @@
  */
 import * as fc from "fast-check";
 import {
+  JSON_RPC_VERSION,
   RequestFrameSchema,
   ResponseFrameSchema,
-  NotificationFrameSchema,
+  jsonRpcMethod,
   type RequestFrame,
   type ResponseFrame,
   type NotificationFrame,
-} from "../../schema/frames.js";
-import {
-  brandNotificationFrame,
-  brandRequestFrame,
-  brandResponseFrame,
-} from "../../schema/internal-frames.js";
+} from "../../transport/wire.js";
+import { notificationDefinitions } from "../../rpc-registry.js";
 import type { MalformedFrameKind, AnyFrame } from "../codec.js";
 import { arbitraryFromSchema } from "./from-typebox.js";
 
@@ -34,16 +31,31 @@ const malformedKinds = [
 ] as const satisfies readonly MalformedFrameKind[];
 
 export function arbitraryRequestFrame(): fc.Arbitrary<RequestFrame> {
-  return arbitraryFromSchema(RequestFrameSchema).map(brandRequestFrame);
+  return arbitraryFromSchema(RequestFrameSchema) as fc.Arbitrary<RequestFrame>;
 }
 
 export function arbitraryResponseFrame(): fc.Arbitrary<ResponseFrame> {
-  return arbitraryFromSchema(ResponseFrameSchema).map(brandResponseFrame);
+  return arbitraryFromSchema(
+    ResponseFrameSchema,
+  ) as fc.Arbitrary<ResponseFrame>;
 }
 
 export function arbitraryNotificationFrame(): fc.Arbitrary<NotificationFrame> {
-  return arbitraryFromSchema(NotificationFrameSchema).map(
-    brandNotificationFrame,
+  // Post-Phase-12 (#222) the typed inbound decoder rejects notifications
+  // whose method is not in `notificationDefinitions`. Frames generated
+  // here drive real-client conformance properties, so the method must be
+  // a registered notification name and the params must validate against
+  // that descriptor's schema.
+  const definitionArb = fc.constantFrom(...notificationDefinitions);
+  return definitionArb.chain((def) =>
+    arbitraryFromSchema(def.paramsSchema).map(
+      (params) =>
+        ({
+          jsonrpc: JSON_RPC_VERSION,
+          method: jsonRpcMethod(def.name),
+          params,
+        }) as NotificationFrame,
+    ),
   );
 }
 

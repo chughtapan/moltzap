@@ -11,21 +11,26 @@
  * Tests run against `MoltZapConnection` directly (no testcontainers, no
  * real WS) so they stay pure-Effect — `TestClock`-drivable, no real
  * sleeps. The connection's `write` records outbound frames; the test
- * synthesizes inbound responses by calling `completeAppCallbackResponse`
+ * synthesizes inbound responses by calling `conn.jsonRpcClient.resolve`
  * (the same path the server's read fiber uses).
  */
 import { describe, expect, it } from "vitest";
 import { Effect, Exit, Fiber, Ref, Scope } from "effect";
 import type { Kysely } from "kysely";
 import {
-  responseFrame,
-  validators,
+  TaskAuthorizeDispatch,
   type AppManifest,
-  type JsonRpcStringId,
+  type JsonRpcId,
 } from "@moltzap/protocol";
 import {
-  acquireAppCallbackConnectionState,
-  completeAppCallbackResponse,
+  agentId,
+  conversationId,
+  messageId,
+  taskId as makeTaskId,
+  validateRequestFrame,
+} from "@moltzap/protocol/testing";
+import {
+  acquireConnectionRpcClient,
   ConnectionManager,
   type MoltZapConnection,
 } from "../ws/connection.js";
@@ -49,17 +54,18 @@ interface FakeConn {
  * Build a real {@link MoltZapConnection} whose `write` records outbound
  * frames into a Ref. Caller can `JSON.parse` the captured frame to get
  * the request id, then synthesize a matching response via
- * `completeAppCallbackResponse`. The Scope finalizer wires `AppDisconnected` —
- * close the surrounding scope to drive the disconnect path.
+ * `conn.jsonRpcClient.resolve`. The JsonRpcClient's Scope finalizer
+ * fails every still-pending call with `NotConnectedError` when the
+ * surrounding scope closes — close to drive the disconnect path.
  */
 const makeFakeConnection = (
   connId: string,
 ): Effect.Effect<FakeConn, never, Scope.Scope> =>
   Effect.gen(function* () {
     const outbound = yield* Ref.make<ReadonlyArray<string>>([]);
-    const state = yield* acquireAppCallbackConnectionState(connId);
     const write: MoltZapConnection["write"] = (raw) =>
       Ref.update(outbound, (xs) => [...xs, raw]);
+    const jsonRpcClient = yield* acquireConnectionRpcClient(connId, write);
     const conn: MoltZapConnection = {
       id: connId,
       write,
@@ -68,8 +74,7 @@ const makeFakeConnection = (
       lastPong: Date.now(),
       conversationIds: new Set<string>(),
       mutedConversations: new Set<string>(),
-      appCallbackPending: state.appCallbackPending,
-      appCallbackRequestCounter: state.appCallbackRequestCounter,
+      jsonRpcClient,
     };
     return { conn, outbound };
   });
@@ -82,7 +87,7 @@ interface AppHostFixture {
 function makeAppHostFixture(): AppHostFixture {
   const connections = new ConnectionManager();
   const db = makeFakeService<Kysely<Database>>({} as Partial<Kysely<Database>>);
-  const host = new AppHost(db, connections, null);
+  const host = new AppHost(db, connections);
   return { host, connections };
 }
 
@@ -95,14 +100,16 @@ const baseManifest = (appId: string, hookTimeoutMs?: number): AppManifest => ({
     : undefined,
 });
 
-const FIXTURE_CONVERSATION_ID = "00000000-0000-4000-8000-000000000c01";
-const FIXTURE_AGENT_RECIPIENT = "00000000-0000-4000-8000-000000000a01";
-const FIXTURE_AGENT_SENDER = "00000000-0000-4000-8000-000000000a02";
-const FIXTURE_MESSAGE_ID = "00000000-0000-4000-8000-000000000201";
+const FIXTURE_CONVERSATION_ID = conversationId(
+  "00000000-0000-4000-8000-000000000c01",
+);
+const FIXTURE_AGENT_RECIPIENT = agentId("00000000-0000-4000-8000-000000000a01");
+const FIXTURE_AGENT_SENDER = agentId("00000000-0000-4000-8000-000000000a02");
+const FIXTURE_MESSAGE_ID = messageId("00000000-0000-4000-8000-000000000201");
 
 const baseAuthorizeDispatchCtx = (
   appId: string,
-  taskId: string,
+  taskId: ReturnType<typeof makeTaskId>,
 ): TaskAuthorizeDispatchContext => ({
   conversationId: FIXTURE_CONVERSATION_ID,
   recipient: { agentId: FIXTURE_AGENT_RECIPIENT, ownerId: "owner-r" },
@@ -116,14 +123,14 @@ const baseAuthorizeDispatchCtx = (
 /** Decode the most recently captured outbound frame from a fake connection. */
 function captureLatestRequestId(
   outbound: Ref.Ref<ReadonlyArray<string>>,
-): Effect.Effect<JsonRpcStringId, Error> {
+): Effect.Effect<JsonRpcId, Error> {
   return Effect.gen(function* () {
     const xs = yield* Ref.get(outbound);
     if (xs.length === 0) {
       return yield* Effect.fail(new Error("no outbound frame yet"));
     }
     const parsed: unknown = JSON.parse(xs[xs.length - 1]!);
-    if (!validators.requestFrame(parsed)) {
+    if (!validateRequestFrame(parsed)) {
       return yield* Effect.fail(new Error("expected JSON-RPC request frame"));
     }
     return parsed.id;
@@ -228,7 +235,7 @@ describe("AppHost remote dispatch — task/authorizeDispatch", () => {
           "app-r",
           baseAuthorizeDispatchCtx(
             "app-r",
-            "00000000-0000-4000-8000-000000ce5510",
+            makeTaskId("00000000-0000-4000-8000-000000ce5510"),
           ),
         ),
       );
@@ -236,12 +243,9 @@ describe("AppHost remote dispatch — task/authorizeDispatch", () => {
         Effect.retry({ times: 50, schedule: undefined }),
       );
 
-      yield* completeAppCallbackResponse(
-        conn,
-        responseFrame(id, {
-          result: {
-            admission: { decision: "grant", leaseId: "lease-1" },
-          },
+      yield* conn.jsonRpcClient.resolve(
+        TaskAuthorizeDispatch.encodeResponse(id, {
+          admission: { decision: "grant", leaseId: "lease-1" },
         }),
       );
 
@@ -272,19 +276,16 @@ describe("AppHost remote dispatch — task/authorizeDispatch", () => {
           "app-r",
           baseAuthorizeDispatchCtx(
             "app-r",
-            "00000000-0000-4000-8000-000000ce55d0",
+            makeTaskId("00000000-0000-4000-8000-000000ce55d0"),
           ),
         ),
       );
       const id = yield* captureLatestRequestId(outbound).pipe(
         Effect.retry({ times: 50, schedule: undefined }),
       );
-      yield* completeAppCallbackResponse(
-        conn,
-        responseFrame(id, {
-          result: {
-            admission: { decision: "deny", reason: "policy/x" },
-          },
+      yield* conn.jsonRpcClient.resolve(
+        TaskAuthorizeDispatch.encodeResponse(id, {
+          admission: { decision: "deny", reason: "policy/x" },
         }),
       );
       const verdict = yield* Fiber.join(fiber);
@@ -309,7 +310,7 @@ describe("AppHost remote dispatch — task/authorizeDispatch", () => {
         "app-r",
         baseAuthorizeDispatchCtx(
           "app-r",
-          "00000000-0000-4000-8000-000000ce5573",
+          makeTaskId("00000000-0000-4000-8000-000000ce5573"),
         ),
       );
     });
@@ -338,14 +339,14 @@ describe("AppHost remote dispatch — task/authorizeDispatch", () => {
           "app-r",
           baseAuthorizeDispatchCtx(
             "app-r",
-            "00000000-0000-4000-8000-000000ce5570",
+            makeTaskId("00000000-0000-4000-8000-000000ce5570"),
           ),
         ),
       );
       // Tear down the connection scope before any response arrives.
-      // The Scope finalizer fails the pending Deferred with
-      // `AppDisconnected`; the dispatch envelope catches it and returns
-      // fail-closed deny.
+      // The JsonRpcClient's Scope finalizer fails the pending Deferred
+      // with `NotConnectedError`; the dispatch envelope catches it and
+      // returns fail-closed deny.
       yield* Effect.yieldNow();
       yield* Scope.close(scope, Exit.void);
       const verdict = yield* Fiber.join(fiber);
@@ -376,7 +377,7 @@ describe("AppHost remote dispatch — task/authorizeDispatch", () => {
           "app-r",
           baseAuthorizeDispatchCtx(
             "app-r",
-            "00000000-0000-4000-8000-000000ce55de",
+            makeTaskId("00000000-0000-4000-8000-000000ce55de"),
           ),
         ),
       );
@@ -384,9 +385,8 @@ describe("AppHost remote dispatch — task/authorizeDispatch", () => {
         Effect.retry({ times: 50, schedule: undefined }),
       );
       // Reply with a payload that does not match the envelope schema.
-      yield* completeAppCallbackResponse(
-        conn,
-        responseFrame(id, { result: { wrongShape: "nope" } }),
+      yield* conn.jsonRpcClient.resolve(
+        TaskAuthorizeDispatch.encodeResponse(id, { wrongShape: "nope" }),
       );
       const verdict = yield* Fiber.join(fiber);
       yield* Scope.close(scope, Exit.void);

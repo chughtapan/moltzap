@@ -4,49 +4,43 @@
  * request, caller timeout — exercise the contract that AppHost (B.3)
  * relies on.
  *
- * Phase 9b consumer-migration (sub-issue #460): the legacy appCallback
- * verbs (`apps/onBeforeDispatch`, `onBeforeMessageDelivery`,
- * `onSessionActive`, `onClose`) retired. Only `task/authorizeDispatch`
- * remains as the canonical server→client awaitable RPC; every test
- * scenario uses it as the wire-mechanics example.
+ * Phase 12 S8a: server-side encapsulation. The Refs that previously
+ * lived on `MoltZapConnection` (`appCallbackPending`,
+ * `appCallbackRequestCounter`) are gone; their work is done inside the
+ * connection's `JsonRpcClient`. Tests verify cleanup invariants through
+ * observable behavior (exit shape, late-response `resolve` returning
+ * `false`) rather than by reading the pending map's size.
  *
  * The tests run against `MoltZapConnection` directly: no testcontainers,
  * no real WebSocket. The connection's `write` is a mock that records
  * outbound frames, and inbound responses are injected by calling
- * `completeAppCallbackResponse` directly. This keeps the round-trip a pure-Effect
- * test of the protocol primitive — wire integration is covered by B.9.
+ * `conn.jsonRpcClient.resolve` directly. This keeps the round-trip a
+ * pure-Effect test of the protocol primitive — wire integration is
+ * covered by B.9.
  */
 import { describe, expect, it } from "vitest";
-import {
-  Cause,
-  Duration,
-  Effect,
-  Exit,
-  Fiber,
-  HashMap,
-  Ref,
-  Scope,
-} from "effect";
+import { Cause, Duration, Effect, Exit, Fiber, Ref, Scope } from "effect";
 import * as Socket from "@effect/platform/Socket";
 import {
-  AppDisconnected,
-  AppCallbackRpcResponseError,
-  acquireAppCallbackConnectionState,
-  completeAppCallbackResponse,
+  acquireConnectionRpcClient,
   sendRpcToClient,
   type MoltZapConnection,
 } from "./connection.js";
 
 import {
+  NotConnectedError,
+  RpcServerError,
   TaskAuthorizeDispatch,
+  encodeErrorResponse,
+  type RequestFrame,
+} from "@moltzap/protocol";
+import {
   agentId,
   conversationId,
   messageId,
-  responseFrame,
   taskId as makeTaskId,
-  validators,
-  type RequestFrame,
-} from "@moltzap/protocol";
+  validateRequestFrame,
+} from "@moltzap/protocol/testing";
 
 const noopShutdown: MoltZapConnection["shutdown"] = Effect.void;
 const TASK_ID = makeTaskId("11111111-1111-4111-8111-111111111111");
@@ -77,9 +71,9 @@ interface FakeConnSetup {
 /**
  * Build a `MoltZapConnection` whose `write` records outbound frames into
  * a Ref. Caller can inspect the captured frame, then synthesize the
- * matching inbound response via `completeAppCallbackResponse`.
+ * matching inbound response via `conn.jsonRpcClient.resolve`.
  *
- * `acquireAppCallbackConnectionState` registers the disconnect-finalizer on the
+ * `acquireConnectionRpcClient` registers the disconnect-finalizer on the
  * surrounding scope; tests close the scope to drive the failure path.
  */
 const makeFakeConnection = (
@@ -87,9 +81,9 @@ const makeFakeConnection = (
 ): Effect.Effect<FakeConnSetup, never, Scope.Scope> =>
   Effect.gen(function* () {
     const outbound = yield* Ref.make<ReadonlyArray<string>>([]);
-    const state = yield* acquireAppCallbackConnectionState(connId);
     const write: MoltZapConnection["write"] = (raw) =>
       Ref.update(outbound, (xs) => [...xs, raw]);
+    const jsonRpcClient = yield* acquireConnectionRpcClient(connId, write);
     const conn: MoltZapConnection = {
       id: connId,
       write,
@@ -98,19 +92,33 @@ const makeFakeConnection = (
       lastPong: Date.now(),
       conversationIds: new Set<string>(),
       mutedConversations: new Set<string>(),
-      appCallbackPending: state.appCallbackPending,
-      appCallbackRequestCounter: state.appCallbackRequestCounter,
+      jsonRpcClient,
     };
     return { conn, outbound };
   });
 
 function parseRequestFrame(raw: string): RequestFrame {
   const parsed: unknown = JSON.parse(raw);
-  if (!validators.requestFrame(parsed)) {
+  if (!validateRequestFrame(parsed)) {
     throw new Error("expected JSON-RPC request frame");
   }
   return parsed;
 }
+
+/** Poll the outbound Ref until it has at least `n` frames and return them. */
+const waitForOutbound = (
+  outbound: Ref.Ref<ReadonlyArray<string>>,
+  n: number,
+): Effect.Effect<ReadonlyArray<string>> =>
+  Ref.get(outbound).pipe(
+    Effect.flatMap((xs) =>
+      xs.length >= n
+        ? Effect.succeed(xs)
+        : Effect.fail(new Error(`only ${xs.length} of ${n} frames written`)),
+    ),
+    Effect.retry({ times: 50, schedule: undefined }),
+    Effect.orDie,
+  );
 
 describe("sendRpcToClient — happy-path round-trip", () => {
   it("encodes a task-callback request, awaits the matching response, and returns the result", async () => {
@@ -121,9 +129,9 @@ describe("sendRpcToClient — happy-path round-trip", () => {
         scope,
       );
 
-      // Fork the request — `sendRpcToClient` parks on a Deferred until
-      // `completeAppCallbackResponse` settles it. Forking lets the test thread
-      // synthesize the matching response.
+      // Fork the request — sendRpcToClient parks on a Deferred until the
+      // matching response is `resolve`d. Forking lets the test thread
+      // synthesize the response.
       const params = authorizeDispatchParams(
         "happy",
         makeTaskId("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
@@ -132,19 +140,8 @@ describe("sendRpcToClient — happy-path round-trip", () => {
         sendRpcToClient(conn, TaskAuthorizeDispatch, params),
       );
 
-      // Wait for the outbound frame to land in the Ref. `Effect.repeat`
-      // with a tiny delay polls until the request frame appears — no
-      // hand-rolled setTimeout retry loop.
-      const captured = yield* Ref.get(outbound).pipe(
-        Effect.flatMap((xs) =>
-          xs.length > 0
-            ? Effect.succeed(xs[0]!)
-            : Effect.fail(new Error("no frame yet")),
-        ),
-        Effect.retry({ times: 50, schedule: undefined }),
-      );
-
-      const frame = parseRequestFrame(captured);
+      const written = yield* waitForOutbound(outbound, 1);
+      const frame = parseRequestFrame(written[0]!);
       expect(frame.method).toBe(TaskAuthorizeDispatch.name);
       expect(frame.params).toEqual(params);
       // `srv-<connId>-<seq>` namespace prefix keeps server-minted ids
@@ -152,19 +149,16 @@ describe("sendRpcToClient — happy-path round-trip", () => {
       expect(frame.id.startsWith("srv-conn-happy-")).toBe(true);
 
       // Synthesize the matching response and route it through the
-      // server's inbound completion path. This is exactly what the real
-      // server's `handleFrame` does when a response frame arrives.
-      const completed = yield* completeAppCallbackResponse(
-        conn,
-        responseFrame(frame.id, {
-          result: { admission: { decision: "grant" } },
+      // server's inbound completion path.
+      const matched = yield* conn.jsonRpcClient.resolve(
+        TaskAuthorizeDispatch.encodeResponse(frame.id, {
+          admission: { decision: "grant" },
         }),
       );
-      expect(completed._tag).toBe("Some");
+      expect(matched).toBe(true);
 
       const exit = yield* Fiber.join(fiber).pipe(Effect.exit);
       yield* Scope.close(scope, Exit.void);
-
       return exit;
     });
 
@@ -175,7 +169,7 @@ describe("sendRpcToClient — happy-path round-trip", () => {
     }
   });
 
-  it("propagates a typed error response as AppCallbackRpcResponseError", async () => {
+  it("propagates a typed error response as RpcServerError", async () => {
     const program = Effect.gen(function* () {
       const scope = yield* Scope.make();
       const { conn, outbound } = yield* Scope.extend(
@@ -191,20 +185,13 @@ describe("sendRpcToClient — happy-path round-trip", () => {
         ),
       );
 
-      const captured = yield* Ref.get(outbound).pipe(
-        Effect.flatMap((xs) =>
-          xs.length > 0
-            ? Effect.succeed(xs[0]!)
-            : Effect.fail(new Error("no frame yet")),
-        ),
-        Effect.retry({ times: 50, schedule: undefined }),
-      );
-      const { id } = parseRequestFrame(captured);
+      const written = yield* waitForOutbound(outbound, 1);
+      const { id } = parseRequestFrame(written[0]!);
 
-      yield* completeAppCallbackResponse(
-        conn,
-        responseFrame(id, {
-          error: { code: -32000, message: "task-already-closed" },
+      yield* conn.jsonRpcClient.resolve(
+        encodeErrorResponse(id, {
+          code: -32999,
+          message: "task-already-closed",
         }),
       );
 
@@ -219,27 +206,26 @@ describe("sendRpcToClient — happy-path round-trip", () => {
       const err = Cause.failureOption(exit.cause);
       expect(err._tag).toBe("Some");
       if (err._tag === "Some") {
-        expect(err.value).toBeInstanceOf(AppCallbackRpcResponseError);
-        const e = err.value as AppCallbackRpcResponseError;
-        expect(e.code).toBe(-32000);
+        expect(err.value).toBeInstanceOf(RpcServerError);
+        const e = err.value as RpcServerError;
+        expect(e.code).toBe(-32999);
         expect(e.message).toBe("task-already-closed");
-        expect(e.method).toBe(TaskAuthorizeDispatch.name);
       }
     }
   });
 });
 
 describe("sendRpcToClient — disconnect mid-request", () => {
-  it("fails every pending Deferred with AppDisconnected when the connection scope closes", async () => {
+  it("fails every pending Deferred with NotConnectedError when the connection scope closes", async () => {
     const program = Effect.gen(function* () {
       const scope = yield* Scope.make();
-      const { conn } = yield* Scope.extend(
+      const { conn, outbound } = yield* Scope.extend(
         makeFakeConnection("conn-drop"),
         scope,
       );
 
       // Two concurrent in-flight task-callback requests. Both must observe
-      // `AppDisconnected` when the scope closes.
+      // `NotConnectedError` when the scope closes.
       const fiberA = yield* Effect.fork(
         sendRpcToClient(
           conn,
@@ -255,23 +241,12 @@ describe("sendRpcToClient — disconnect mid-request", () => {
         ),
       );
 
-      // Wait until both requests have registered their pending entries
-      // (i.e., both writes have completed). Polling on the pending map
-      // size is the deterministic synchronization point — there is no
-      // setTimeout in the production code so there's nothing to "wait
-      // out."
-      yield* Ref.get(conn.appCallbackPending).pipe(
-        Effect.flatMap((m) =>
-          HashMap.size(m) === 2
-            ? Effect.succeed(undefined)
-            : Effect.fail(new Error("not registered yet")),
-        ),
-        Effect.retry({ times: 50, schedule: undefined }),
-      );
+      // Both writes have landed in the outbound Ref → both calls have
+      // registered their pending entries inside the JsonRpcClient.
+      yield* waitForOutbound(outbound, 2);
 
-      // Close the scope — the finalizer registered by
-      // `acquireAppCallbackConnectionState` walks the pending map and fails
-      // every Deferred with AppDisconnected.
+      // Close the scope — the JsonRpcClient's Scope finalizer drains
+      // every pending Deferred with `NotConnectedError`.
       yield* Scope.close(scope, Exit.void);
 
       const exitA = yield* Fiber.join(fiberA).pipe(Effect.exit);
@@ -287,10 +262,7 @@ describe("sendRpcToClient — disconnect mid-request", () => {
         const err = Cause.failureOption(exit.cause);
         expect(err._tag).toBe("Some");
         if (err._tag === "Some") {
-          expect(err.value).toBeInstanceOf(AppDisconnected);
-          const e = err.value as AppDisconnected;
-          expect(e.method).toBe(TaskAuthorizeDispatch.name);
-          expect(e.connectionId).toBe("conn-drop");
+          expect(err.value).toBeInstanceOf(NotConnectedError);
         }
       }
     };
@@ -298,29 +270,30 @@ describe("sendRpcToClient — disconnect mid-request", () => {
     assertDisconnected(exitB);
   });
 
-  it("propagates a write-time SocketError as AppCallbackRpcSocketError without leaking pending entries", async () => {
+  it("propagates a write-time SocketError as NotConnectedError", async () => {
     // Construct a connection whose `write` always fails — proves the
-    // pending-map cleanup branch when the write race short-circuits.
+    // pending cleanup branch when the write race short-circuits.
     const program = Effect.gen(function* () {
       const scope = yield* Scope.make();
-      const state = yield* Scope.extend(
-        acquireAppCallbackConnectionState("conn-writefail"),
-        scope,
-      );
       const failingSocket = new Socket.SocketGenericError({
         reason: "Write",
         cause: new Error("simulated"),
       });
+      const failingWrite: MoltZapConnection["write"] = () =>
+        Effect.fail(failingSocket);
+      const jsonRpcClient = yield* Scope.extend(
+        acquireConnectionRpcClient("conn-writefail", failingWrite),
+        scope,
+      );
       const conn: MoltZapConnection = {
         id: "conn-writefail",
-        write: () => Effect.fail(failingSocket),
+        write: failingWrite,
         shutdown: noopShutdown,
         auth: null,
         lastPong: Date.now(),
         conversationIds: new Set<string>(),
         mutedConversations: new Set<string>(),
-        appCallbackPending: state.appCallbackPending,
-        appCallbackRequestCounter: state.appCallbackRequestCounter,
+        jsonRpcClient,
       };
 
       const exit = yield* sendRpcToClient(
@@ -328,21 +301,17 @@ describe("sendRpcToClient — disconnect mid-request", () => {
         TaskAuthorizeDispatch,
         authorizeDispatchParams("writefail"),
       ).pipe(Effect.exit);
-      const pendingSize = HashMap.size(yield* Ref.get(conn.appCallbackPending));
       yield* Scope.close(scope, Exit.void);
-      return { exit, pendingSize };
+      return exit;
     });
 
-    const { exit, pendingSize } = await Effect.runPromise(program);
-    // Pending entry MUST be removed on socket failure or future
-    // disconnect would re-fail an already-failed Deferred.
-    expect(pendingSize).toBe(0);
+    const exit = await Effect.runPromise(program);
     expect(Exit.isFailure(exit)).toBe(true);
     if (Exit.isFailure(exit)) {
       const err = Cause.failureOption(exit.cause);
       expect(err._tag).toBe("Some");
       if (err._tag === "Some") {
-        expect(err.value._tag).toBe("AppCallbackRpcSocketError");
+        expect(err.value).toBeInstanceOf(NotConnectedError);
       }
     }
   });
@@ -388,9 +357,8 @@ describe("sendRpcToClient — caller timeout", () => {
       expect(err._tag).toBe("Some");
       if (err._tag === "Some") {
         // `Effect.timeout`'s default failure is `TimeoutException`. The
-        // primitive's typed `AppCallbackRpcError` channel does NOT include
-        // timeout — it's the caller's responsibility, exactly per the
-        // architect plan.
+        // primitive's error channel does not include timeouts —
+        // those are the caller's responsibility.
         expect(err.value._tag).toBe("TimeoutException");
       }
     }
@@ -398,60 +366,11 @@ describe("sendRpcToClient — caller timeout", () => {
     expect(elapsed).toBeLessThan(2000);
   });
 
-  it("interrupt cleans up the pending entry: the primitive owns cancellation cleanup", async () => {
-    // Issue #310 contract: `sendRpcToClient` wraps the pending insert/
-    // remove in `Effect.acquireUseRelease`, so the entry is removed on
-    // interrupt before the inner exit unwinds. No need for the caller
-    // to wait for scope close; no orphan accretion across long-lived
-    // connections under timeout-driven interruption.
-    const program = Effect.gen(function* () {
-      const scope = yield* Scope.make();
-      const { conn } = yield* Scope.extend(
-        makeFakeConnection("conn-cancel"),
-        scope,
-      );
-
-      const fiber = yield* Effect.fork(
-        sendRpcToClient(
-          conn,
-          TaskAuthorizeDispatch,
-          authorizeDispatchParams("cancel"),
-        ),
-      );
-      yield* Ref.get(conn.appCallbackPending).pipe(
-        Effect.flatMap((m) =>
-          HashMap.size(m) === 1
-            ? Effect.succeed(undefined)
-            : Effect.fail(new Error("not registered yet")),
-        ),
-        Effect.retry({ times: 50, schedule: undefined }),
-      );
-      yield* Fiber.interrupt(fiber);
-      const sizeAfterInterrupt = HashMap.size(
-        yield* Ref.get(conn.appCallbackPending),
-      );
-      yield* Scope.close(scope, Exit.void);
-      const sizeAfterScope = HashMap.size(
-        yield* Ref.get(conn.appCallbackPending),
-      );
-      return { sizeAfterInterrupt, sizeAfterScope };
-    });
-
-    const { sizeAfterInterrupt, sizeAfterScope } =
-      await Effect.runPromise(program);
-    // Interrupt fires the `acquireUseRelease` release, which removes
-    // the entry. Scope close is a clean no-op for this entry.
-    expect(sizeAfterInterrupt).toBe(0);
-    expect(sizeAfterScope).toBe(0);
-  });
-
-  it("late response after interrupt is silently dropped (Option.none from completeAppCallbackResponse)", async () => {
-    // Issue #310 contract test (a): after caller interrupt, the pending
-    // entry is gone, so an inbound response frame for that request id
-    // finds nothing in the map. `completeAppCallbackResponse` returns
-    // `Option.none()` and the inbound router treats it as a stale
-    // reply. Proves the "freed Deferred re-resolve" hole is
-    // structurally closed.
+  it("late response after interrupt: resolve returns false, no Deferred re-resolve", async () => {
+    // Issue #310 contract: after caller interrupt, the pending entry is
+    // gone. An inbound response frame for that request id finds nothing
+    // and `jsonRpcClient.resolve` returns `false`. Proves the
+    // "freed Deferred re-resolve" hole is structurally closed.
     const program = Effect.gen(function* () {
       const scope = yield* Scope.make();
       const { conn, outbound } = yield* Scope.extend(
@@ -470,59 +389,36 @@ describe("sendRpcToClient — caller timeout", () => {
         ),
       );
 
-      // Wait for the entry to be registered + the frame to be written.
-      yield* Ref.get(conn.appCallbackPending).pipe(
-        Effect.flatMap((m) =>
-          HashMap.size(m) === 1
-            ? Effect.succeed(undefined)
-            : Effect.fail(new Error("not registered yet")),
-        ),
-        Effect.retry({ times: 50, schedule: undefined }),
-      );
-      const captured = yield* Ref.get(outbound).pipe(
-        Effect.flatMap((xs) =>
-          xs.length > 0
-            ? Effect.succeed(xs[0]!)
-            : Effect.fail(new Error("no frame yet")),
-        ),
-        Effect.retry({ times: 50, schedule: undefined }),
-      );
-      const { id: requestId } = parseRequestFrame(captured);
+      const written = yield* waitForOutbound(outbound, 1);
+      const { id: requestId } = parseRequestFrame(written[0]!);
 
       yield* Fiber.interrupt(fiber);
-      const sizeAfterInterrupt = HashMap.size(
-        yield* Ref.get(conn.appCallbackPending),
-      );
 
       // Inbound response arrives AFTER the caller was interrupted. The
-      // entry is already gone; this must return `Option.none()` and
-      // not throw, panic, or settle anything.
-      const completed = yield* completeAppCallbackResponse(
-        conn,
-        responseFrame(requestId, {
-          result: { admission: { decision: "grant" } },
+      // entry is already gone; `resolve` returns `false` and does not
+      // throw, panic, or settle anything.
+      const matched = yield* conn.jsonRpcClient.resolve(
+        TaskAuthorizeDispatch.encodeResponse(requestId, {
+          admission: { decision: "grant" },
         }),
       );
 
       yield* Scope.close(scope, Exit.void);
-      return { sizeAfterInterrupt, completed };
+      return matched;
     });
 
-    const { sizeAfterInterrupt, completed } = await Effect.runPromise(program);
-    expect(sizeAfterInterrupt).toBe(0);
-    expect(completed._tag).toBe("None");
+    const matched = await Effect.runPromise(program);
+    expect(matched).toBe(false);
   });
 
-  it("scope close after interrupt is a clean no-op (no double-fail, no panic)", async () => {
-    // Issue #310 contract test (b): the disconnect-finalizer + the
-    // `acquireUseRelease` release converge through the same atomic
-    // `Ref.update`. Interrupt removes the entry; scope close then sees
-    // an empty map and the finalizer is a no-op. Verifies no second
-    // `Deferred.fail` lands on the (interrupted, never settled)
+  it("scope close after interrupt is a clean no-op", async () => {
+    // Issue #310 contract: interrupt removes the entry; subsequent scope
+    // close finalizer sees an empty map and is a no-op. Verifies no
+    // second `Deferred.fail` lands on the (interrupted, never settled)
     // Deferred.
     const program = Effect.gen(function* () {
       const scope = yield* Scope.make();
-      const { conn } = yield* Scope.extend(
+      const { conn, outbound } = yield* Scope.extend(
         makeFakeConnection("conn-int-then-close"),
         scope,
       );
@@ -534,37 +430,16 @@ describe("sendRpcToClient — caller timeout", () => {
           authorizeDispatchParams("int"),
         ),
       );
-      yield* Ref.get(conn.appCallbackPending).pipe(
-        Effect.flatMap((m) =>
-          HashMap.size(m) === 1
-            ? Effect.succeed(undefined)
-            : Effect.fail(new Error("not registered yet")),
-        ),
-        Effect.retry({ times: 50, schedule: undefined }),
-      );
+      yield* waitForOutbound(outbound, 1);
 
       yield* Fiber.interrupt(fiber);
-      const sizeAfterInterrupt = HashMap.size(
-        yield* Ref.get(conn.appCallbackPending),
-      );
-
-      // Scope close runs the disconnect finalizer on an empty map.
-      // Should not throw, should not log, should not affect the
-      // already-interrupted fiber's exit.
       const closeExit = yield* Scope.close(scope, Exit.void).pipe(Effect.exit);
-
       const fiberExit = yield* Fiber.await(fiber);
-      const sizeAfterScope = HashMap.size(
-        yield* Ref.get(conn.appCallbackPending),
-      );
 
-      return { sizeAfterInterrupt, sizeAfterScope, closeExit, fiberExit };
+      return { closeExit, fiberExit };
     });
 
-    const { sizeAfterInterrupt, sizeAfterScope, closeExit, fiberExit } =
-      await Effect.runPromise(program);
-    expect(sizeAfterInterrupt).toBe(0);
-    expect(sizeAfterScope).toBe(0);
+    const { closeExit, fiberExit } = await Effect.runPromise(program);
     // Scope close itself is a clean success.
     expect(Exit.isSuccess(closeExit)).toBe(true);
     // Interrupted fiber stays interrupted; the late finalizer didn't
@@ -572,14 +447,13 @@ describe("sendRpcToClient — caller timeout", () => {
     expect(Exit.isInterrupted(fiberExit)).toBe(true);
   });
 
-  it("Effect.timeout firing removes the pending entry (B.3 callsite shape)", async () => {
-    // Issue #310 contract test (c): the canonical B.3 callsite is
+  it("Effect.timeout firing surfaces TimeoutException; subsequent late response is dropped", async () => {
+    // Issue #310 contract: the canonical B.3 callsite is
     // `wrapHookEffectWithEnvelope` wrapping `sendRpcToClient` with
-    // `Effect.timeout`. `Effect.timeout` works by interrupting the
-    // inner fiber on fire. With the new contract, that interrupt fires
-    // the release, and the pending entry is removed *before* the
-    // timeout exit unwinds. No orphan accretion across N-hooks/sec on
-    // a long-lived connection.
+    // `Effect.timeout`. `Effect.timeout` interrupts the inner fiber,
+    // which fires the JsonRpcClient's onExit cleanup. A subsequent
+    // late inbound response for the timed-out id finds nothing in the
+    // pending map.
     const program = Effect.gen(function* () {
       const scope = yield* Scope.make();
       const { conn, outbound } = yield* Scope.extend(
@@ -599,18 +473,22 @@ describe("sendRpcToClient — caller timeout", () => {
       // Frame was written before timeout fired (proves the primitive
       // started its work).
       const written = yield* Ref.get(outbound);
-      const sizeAfterTimeout = HashMap.size(
-        yield* Ref.get(conn.appCallbackPending),
+      const { id: requestId } = parseRequestFrame(written[0]!);
+
+      // Late response after timeout: `resolve` finds nothing.
+      const matched = yield* conn.jsonRpcClient.resolve(
+        TaskAuthorizeDispatch.encodeResponse(requestId, {
+          admission: { decision: "grant" },
+        }),
       );
 
       yield* Scope.close(scope, Exit.void);
-      return { exit, writtenLen: written.length, sizeAfterTimeout };
+      return { exit, writtenLen: written.length, matched };
     });
 
-    const { exit, writtenLen, sizeAfterTimeout } =
-      await Effect.runPromise(program);
+    const { exit, writtenLen, matched } = await Effect.runPromise(program);
     expect(writtenLen).toBe(1);
-    expect(sizeAfterTimeout).toBe(0);
+    expect(matched).toBe(false);
     expect(Exit.isFailure(exit)).toBe(true);
     if (Exit.isFailure(exit)) {
       const err = Cause.failureOption(exit.cause);
@@ -621,13 +499,3 @@ describe("sendRpcToClient — caller timeout", () => {
     }
   });
 });
-
-// Compile-time guard: if a new tagged variant lands in `AppCallbackRpcError`
-// without a matching test branch above, this assignment stops compiling.
-type _ExhaustiveAppCallbackTags =
-  | "AppDisconnected"
-  | "AppCallbackRpcResponseError"
-  | "AppCallbackRpcDecodeError"
-  | "AppCallbackRpcSocketError";
-const _exhaustive: _ExhaustiveAppCallbackTags = "AppDisconnected";
-void _exhaustive;
