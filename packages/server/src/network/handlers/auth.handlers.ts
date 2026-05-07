@@ -30,6 +30,7 @@ import {
   catchSqlErrorAsDefect,
   takeFirstOption,
 } from "../../db/effect-kysely-toolkit.js";
+import { visibleAgentIds } from "../../services/agent-visibility.js";
 
 function toAgentCard(row: {
   id: AgentId;
@@ -213,32 +214,27 @@ export function createCoreAuthHandlers(deps: {
     }),
     defineNetworkMethod(AgentsList, {
       requiresActive: true,
+      // Contact-scoped per #481.
       handler: (_params, ctx) =>
         catchSqlErrorAsDefect(
           Effect.gen(function* () {
+            const ids = yield* visibleAgentIds({
+              db: deps.db,
+              callerAgentId: ctx.agentId,
+              callerOwnerUserId: ctx.ownerUserId,
+            });
+            if (ids.length === 0) return { agents: {} };
             const rows = yield* deps.db
-              .selectFrom("conversation_participants as cp")
-              .innerJoin("agents as a", "a.id", "cp.agent_id")
+              .selectFrom("agents")
               .select([
-                "a.id",
-                "a.name",
-                "a.display_name",
-                "a.description",
-                "a.status",
-                "a.owner_user_id",
+                "id",
+                "name",
+                "display_name",
+                "description",
+                "status",
+                "owner_user_id",
               ])
-              .where("cp.agent_id", "!=", ctx.agentId)
-              .where((eb) =>
-                eb.exists(
-                  eb
-                    .selectFrom("conversation_participants as cp2")
-                    .select("cp2.conversation_id")
-                    .whereRef("cp2.conversation_id", "=", "cp.conversation_id")
-                    .where("cp2.agent_id", "=", ctx.agentId),
-                ),
-              )
-              .distinct();
-
+              .where("id", "in", ids as ServerAgentId[]);
             const agents: Record<string, AgentCard> = {};
             for (const row of rows) {
               agents[row.id] = toAgentCard(row);
