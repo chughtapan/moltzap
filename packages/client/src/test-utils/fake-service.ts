@@ -24,13 +24,10 @@ import type {
   ParamsOf,
   ResultOf,
   RpcDefinition,
-  TSchema,
 } from "@moltzap/protocol";
 import {
-  decodeRpcResult,
-  decodeNotification,
-  ErrorCodes,
-  notificationGroup,
+  decodeServerInbound,
+  JSON_RPC_RESERVED_CODES,
   RpcServerError,
 } from "@moltzap/protocol";
 import { Effect, HashMap, Option, Ref } from "effect";
@@ -67,7 +64,7 @@ export class FakeMoltZapService extends MoltZapService {
   /**
    * Register a canned response, typed against the real RPC descriptor.
    */
-  setResponse<D extends RpcDefinition<string, TSchema, TSchema>>(
+  setResponse<D extends RpcDefinition<string, any, any>>(
     definition: D,
     result: ResultOf<D>,
   ): void {
@@ -77,13 +74,13 @@ export class FakeMoltZapService extends MoltZapService {
   /**
    * Remove a previously-registered response.
    */
-  deleteResponse<D extends RpcDefinition<string, TSchema, TSchema>>(
+  deleteResponse<D extends RpcDefinition<string, any, any>>(
     definition: D,
   ): void {
     this.responses.delete(definition.name);
   }
 
-  override sendRpc<D extends RpcDefinition<string, TSchema, TSchema>>(
+  override sendRpc<D extends RpcDefinition<string, any, any>>(
     definition: D,
     params: ParamsOf<D>,
     opts?: RpcCallOptions,
@@ -97,22 +94,21 @@ export class FakeMoltZapService extends MoltZapService {
       if (responder !== undefined) {
         return responder(params).pipe(
           Effect.flatMap((result) =>
-            decodeRpcResult(definition, result).pipe(
-              Effect.mapError(
-                () =>
+            definition.validateResult(result)
+              ? Effect.succeed(result as ResultOf<D>)
+              : Effect.fail(
                   new RpcServerError({
-                    code: ErrorCodes.InternalError,
+                    code: JSON_RPC_RESERVED_CODES.InternalError,
                     message: `FakeMoltZapService: invalid result for ${method}`,
                     data: result,
                   }),
-              ),
-            ),
+                ),
           ),
         );
       }
       return Effect.fail(
         new RpcServerError({
-          code: ErrorCodes.MethodNotFound,
+          code: JSON_RPC_RESERVED_CODES.MethodNotFound,
           message: `FakeMoltZapService: no canned response for ${method}`,
         }),
       );
@@ -140,19 +136,26 @@ export class FakeMoltZapService extends MoltZapService {
 
   /** Deliver a protocol notification through the real service handler. */
   emitEvent(event: NotificationFrame): void {
-    const notification = Effect.runSync(
-      decodeNotification(notificationGroup, event).pipe(
+    const decoded = Effect.runSync(
+      decodeServerInbound(event).pipe(
         Effect.mapError(
           () =>
             new RpcServerError({
-              code: ErrorCodes.InvalidParams,
+              code: JSON_RPC_RESERVED_CODES.InvalidParams,
               message: `FakeMoltZapService: invalid notification ${event.method}`,
               data: event.params,
             }),
         ),
       ),
     );
-    this.emitNotification(notification);
+    if (decoded._tag !== "Notification") {
+      throw new RpcServerError({
+        code: JSON_RPC_RESERVED_CODES.InvalidParams,
+        message: `FakeMoltZapService: emitEvent expects a notification frame, got ${decoded._tag}`,
+        data: event,
+      });
+    }
+    this.emitNotification(decoded);
   }
 
   emitNotification(

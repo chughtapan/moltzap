@@ -29,7 +29,7 @@
  *
  * Auth-lifecycle (per §2.11):
  * - Socket connect: NOT yet added to the resolver (no `agentId` known).
- * - `auth/connect` success: {@link add} writes the entry atomically.
+ * - `network/connect` success: {@link add} writes the entry atomically.
  * - Disconnect: {@link remove} removes the entry whether the connection
  *   was authed or not (idempotent on never-authed connections).
  *
@@ -39,7 +39,7 @@
  *   handles `tm:app:` separately (Phase 9 territory).
  */
 import { Effect, HashMap, HashSet, Option, Ref, type Brand } from "effect";
-import type { AgentId } from "@moltzap/protocol/network";
+import type { AgentId } from "@moltzap/protocol/identity";
 
 /**
  * Branded type alias for a WebSocket connection id. Resolver internals
@@ -83,7 +83,7 @@ const emptyState: ResolverState = {
  *
  * All mutators run inside a single {@link Ref.update} so the forward and
  * reverse views never disagree, even under concurrent {@link add} /
- * {@link remove} calls from independent `auth/connect` and disconnect
+ * {@link remove} calls from independent `network/connect` and disconnect
  * fibers.
  */
 export class AgentEndpointResolver {

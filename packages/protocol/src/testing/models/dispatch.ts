@@ -1,5 +1,5 @@
 /**
- * Reference-model dispatch: one reducer keyed by `RpcMethodName`.
+ * Reference-model dispatch: one reducer keyed by wire method name.
  *
  * The union `RpcModelResult` mirrors every observable shape Tier B must
  * compare against the real server — success, typed error (authz, schema),
@@ -10,34 +10,37 @@
  * `method`) so the TS compiler flags an unhandled method name if
  * `rpcMethods` grows without the model being updated.
  */
-import type { RpcMethodName, RpcResult } from "../../rpc-registry.js";
-import type { NotificationFrame } from "../../schema/frames.js";
-import { ErrorCodes } from "../../schema/errors.js";
+import { rpcMethods } from "../../rpc-registry.js";
+import type { NotificationFrame } from "../../transport/wire.js";
+import { JSON_RPC_RESERVED_CODES } from "../../transport/wire-errors.js";
 import type { ArbitraryRpcCall } from "../arbitraries/rpc.js";
 import { mkTick, type ReferenceState } from "./state.js";
+
+type MethodName = (typeof rpcMethods)[number]["name"];
 
 import {
   AgentsList,
   AgentsLookup,
   AgentsLookupByName,
-  Connect,
+  type AgentId,
   InviteAgent,
   Register,
-  SelectAgent,
-} from "../../network/methods/auth.js";
-import { AppsAuthorizeDispatch } from "../../app/methods/apps.js";
+} from "../../identity/methods.js";
+import { Connect } from "../../network/methods.js";
+import { AppsAuthorizeDispatch } from "../../app/methods.js";
 import {
+  type ConversationId,
   TasksClose,
   TasksCreate,
   TasksGet,
   TasksList,
-} from "../../task/methods/tasks.js";
+} from "../../task/methods.js";
 import {
   ContactsAccept,
   ContactsAdd,
   ContactsById,
   ContactsList,
-} from "../../task/methods/contacts.js";
+} from "../../identity/methods.js";
 import {
   ConversationsAddParticipant,
   ConversationsArchive,
@@ -50,14 +53,11 @@ import {
   ConversationsUnarchive,
   ConversationsUnmute,
   ConversationsUpdate,
-} from "../../task/methods/conversations.js";
-import { InvitesCreateAgent } from "../../task/methods/invites.js";
-import { MessagesList, MessagesSend } from "../../task/methods/messages.js";
-import {
-  PresenceSubscribe,
-  PresenceUpdate,
-} from "../../task/methods/presence.js";
-import { SystemPing } from "../../network/methods/system.js";
+} from "../../task/methods.js";
+import { InvitesCreateAgent } from "../../identity/methods.js";
+import { MessagesList, MessagesSend } from "../../task/methods.js";
+import { PresenceSubscribe, PresenceUpdate } from "../../network/methods.js";
+import { NetworkPing } from "../../network/methods.js";
 
 /**
  * Observable outcome of one RPC against the model, in the same shape the
@@ -65,10 +65,10 @@ import { SystemPing } from "../../network/methods/system.js";
  * `deepEqual(serverResponse, modelResponse)` modulo opaque fields (IDs,
  * tokens — extracted to a named canonicalizer in the implementer step).
  */
-export type RpcModelResult<M extends RpcMethodName = RpcMethodName> =
+export type RpcModelResult =
   | {
       readonly _tag: "ok";
-      readonly result: RpcResult<M>;
+      readonly result: unknown;
       readonly events: ReadonlyArray<NotificationFrame>;
     }
   | {
@@ -78,15 +78,12 @@ export type RpcModelResult<M extends RpcMethodName = RpcMethodName> =
       readonly events: ReadonlyArray<NotificationFrame>;
     };
 
-// `ErrorCodes` is re-used from `../../schema/errors.ts` so the model and
-// the server share one source of truth for code values.
-
 /**
  * Methods whose contract says replay is a no-op — server must return the
  * same result (same events) for identical params. B5 cross-checks this
  * against the real server.
  */
-const IDEMPOTENT_METHODS: ReadonlySet<RpcMethodName> = new Set([
+const IDEMPOTENT_METHODS: ReadonlySet<string> = new Set<string>([
   AgentsLookup.name,
   AgentsLookupByName.name,
   AgentsList.name,
@@ -97,9 +94,9 @@ const IDEMPOTENT_METHODS: ReadonlySet<RpcMethodName> = new Set([
   PresenceSubscribe.name,
   TasksList.name,
   TasksGet.name,
-] satisfies readonly RpcMethodName[]);
+]);
 
-export function isIdempotent(method: RpcMethodName): boolean {
+export function isIdempotent(method: string): boolean {
   return IDEMPOTENT_METHODS.has(method);
 }
 
@@ -116,7 +113,7 @@ export function isIdempotent(method: RpcMethodName): boolean {
 export function authorizationOutcome(
   state: ReferenceState,
   call: ArbitraryRpcCall,
-  agentId: string,
+  agentId: AgentId,
 ): "allow" | "deny-unauthenticated" | "deny-forbidden" {
   // `connect` + `register` establish identity; pre-identity they are always allowed.
   if (call.method === Connect.name || call.method === Register.name)
@@ -135,7 +132,7 @@ export function authorizationOutcome(
 
 function hasConversationIdString(
   value: unknown,
-): value is { readonly conversationId: string } {
+): value is { readonly conversationId: ConversationId } {
   return (
     value !== null &&
     typeof value === "object" &&
@@ -144,7 +141,7 @@ function hasConversationIdString(
   );
 }
 
-function extractConversationId(params: unknown): string | null {
+function extractConversationId(params: unknown): ConversationId | null {
   return hasConversationIdString(params) ? params.conversationId : null;
 }
 
@@ -153,17 +150,17 @@ function extractConversationId(params: unknown): string | null {
  * observable outcome. No I/O. No clocks. No exceptions — every failure
  * flows through `_tag: "error"`.
  *
- * Exhaustiveness: the `switch` has a branch for every `RpcMethodName` in
+ * Exhaustiveness: the `switch` has a branch for every method name in
  * `rpcMethods`. A missing branch becomes a compile error at `absurd`.
  * Behaviour is intentionally conservative — the model predicts the
  * server's *observable* outcome (success vs typed error), not its full
  * result shape. Tier B canonicalizers downgrade server responses to the
  * same projection before comparing.
  */
-export function applyCall<M extends RpcMethodName>(
+export function applyCall(
   state: ReferenceState,
-  call: ArbitraryRpcCall<M>,
-): { readonly next: ReferenceState; readonly outcome: RpcModelResult<M> } {
+  call: ArbitraryRpcCall,
+): { readonly next: ReferenceState; readonly outcome: RpcModelResult } {
   const nextTick = mkTick(state.tick + 1);
   const baseNext: ReferenceState = { ...state, tick: nextTick };
 
@@ -187,25 +184,23 @@ export function applyCall<M extends RpcMethodName>(
   // list methods with fully-optional params are the honest `"ok"` set;
   // every other method returns `"error"` (the model is admitting it
   // doesn't know the state-dependent outcome).
-  const allowNoEvents = (): RpcModelResult<M> => ({
+  const allowNoEvents = (): RpcModelResult => ({
     _tag: "ok",
-    result: {} as RpcResult<M>,
+    result: {},
     events: [],
   });
-  const uncertainError = (): RpcModelResult<M> => ({
+  const uncertainError = (): RpcModelResult => ({
     _tag: "error",
     code: -32603,
     message: "model-uncertain: requires state or specific params",
     events: [],
   });
 
-  const m: RpcMethodName = call.method;
+  const m: MethodName = call.method;
   switch (m) {
-    // Auth — model isn't sure what auth shape the caller has.
     case Connect.name:
     case Register.name:
     case InviteAgent.name:
-    case SelectAgent.name:
       return { next: baseNext, outcome: uncertainError() };
 
     // Agents list-shaped — honest "ok" for a fresh authenticated agent.
@@ -213,7 +208,7 @@ export function applyCall<M extends RpcMethodName>(
       return { next: baseNext, outcome: allowNoEvents() };
 
     // System — pure ping returns a timestamp; honest "ok" for any caller.
-    case SystemPing.name:
+    case NetworkPing.name:
       return { next: baseNext, outcome: allowNoEvents() };
 
     // Agents lookup-shaped — need a target; uncertain.
@@ -281,14 +276,14 @@ export function applyCall<M extends RpcMethodName>(
       return { next: baseNext, outcome: uncertainError() };
 
     default: {
-      // Exhaustiveness check — any new RpcMethodName breaks the build here
+      // Exhaustiveness check — any new wire method name breaks the build here
       // until a branch is added.
       const _exhaustive = m as never;
       return {
         next: baseNext,
         outcome: {
           _tag: "error",
-          code: ErrorCodes.InternalError,
+          code: JSON_RPC_RESERVED_CODES.InternalError,
           message: `model: unhandled method ${String(_exhaustive)}`,
           events: [],
         },

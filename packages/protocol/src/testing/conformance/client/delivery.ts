@@ -19,27 +19,23 @@
  * and drops fail symmetrically.
  */
 import { Effect } from "effect";
-import * as fc from "fast-check";
-import { notificationFrame } from "../../../helpers.js";
+import { notificationFrame } from "../../../transport/wire.js";
 import {
   ConversationArchivedNotificationDefinition,
   ConversationUnarchivedNotificationDefinition,
-  MessageReceivedNotificationDefinition,
-} from "../../../schema/notifications.js";
+} from "../../../task/methods.js";
+import { MessageReceivedNotificationDefinition } from "../../../task/methods.js";
 import {
   agentId,
   conversationId as toConversationId,
-} from "../../../schema/primitives.js";
-import type { NotificationFrame } from "../../../schema/frames.js";
-import { brandNotificationFrame } from "../../../schema/internal-frames.js";
-import { arbitraryNotificationFrame } from "../../arbitraries/frames.js";
+  messageId,
+} from "../../branded-ids.js";
 import type { ClientConformanceRunContext } from "./runner.js";
 import { registerProperty } from "../registry.js";
 import {
   acquireFixture,
   collectTagged,
   invariant,
-  notificationParamsRecord,
   subscribeAll,
 } from "./_fixtures.js";
 
@@ -83,38 +79,44 @@ export function registerFanOutCardinalityClient(
           PROPERTY_FAN_OUT_CARDINALITY_CLIENT,
         );
         yield* subscribeAll(fx.handle);
-        const base = fc.sample(arbitraryNotificationFrame(), {
-          numRuns: 1,
-          seed: ctx.seed,
-        })[0];
-        if (base === undefined) {
-          return yield* Effect.fail(
-            invariant(
-              CATEGORY,
-              PROPERTY_FAN_OUT_CARDINALITY_CLIENT,
-              "sample failed",
-            ),
-          );
-        }
         const N = 5;
-        const campaign = yield* fx.window.freshEmissionTag;
-        const baseParams = notificationParamsRecord(base.params);
+        const tags: string[] = [];
+        const expectedSlotTexts: string[] = [];
+        const senderId = agentId(fx.handle.agentId);
         for (let i = 0; i < N; i++) {
-          const positional: NotificationFrame = brandNotificationFrame({
-            ...base,
-            params: { ...baseParams, positionIndex: i },
-          });
+          // Mint a per-iteration distinct `messages/received` frame so
+          // `lookupTagForRawBytes`'s wire-bytes key is unique per
+          // emission (the C1 cardinality predicate must distinguish N
+          // frames, not collapse them via duplicate raw bytes).
+          const slotText = `position-${i}`;
+          expectedSlotTexts.push(slotText);
+          const positional = notificationFrame(
+            MessageReceivedNotificationDefinition,
+            {
+              message: {
+                id: messageId(`00000000-0000-4000-8000-${fanOutSlot(i)}`),
+                conversationId: toConversationId(
+                  "00000000-0000-4000-8000-fa0c0a0fa0c0",
+                ),
+                senderId,
+                parts: [{ type: "text", text: slotText }],
+                createdAt: new Date(0).toISOString(),
+              },
+            },
+          );
+          const tag = yield* fx.window.freshEmissionTag;
+          tags.push(tag);
           yield* fx.window.emitTaggedNotification({
             connection: fx.connection,
             base: positional,
-            emissionTag: campaign,
+            emissionTag: tag,
           });
         }
-        const observed = yield* collectTagged(
-          fx.handle,
-          (t) => t === campaign,
-          { expected: N, budgetMs: PROPERTY_BUDGET_MS },
-        );
+        const tagSet = new Set(tags);
+        const observed = yield* collectTagged(fx.handle, (t) => tagSet.has(t), {
+          expected: N,
+          budgetMs: PROPERTY_BUDGET_MS,
+        });
         if (observed.length !== N) {
           return yield* Effect.fail(
             invariant(
@@ -124,15 +126,26 @@ export function registerFanOutCardinalityClient(
             ),
           );
         }
-        const indices = observed.map((o) => o.params.positionIndex);
-        // Strict ordering check against `[0..N)`.
+        // Strict ordering: observed tags arrive in emission order, and the
+        // surfaced wire content carries the per-slot text byte-for-byte
+        // (a re-serializing client that scrambles part bodies fails here).
         for (let i = 0; i < N; i++) {
-          if (indices[i] !== i) {
+          if (observed[i]!.tag !== tags[i]) {
             return yield* Effect.fail(
               invariant(
                 CATEGORY,
                 PROPERTY_FAN_OUT_CARDINALITY_CLIENT,
-                `order mismatch at slot ${i}: got ${String(indices[i])}`,
+                `order mismatch at slot ${i}: expected ${tags[i]}, got ${observed[i]!.tag}`,
+              ),
+            );
+          }
+          const surfacedStr = new TextDecoder().decode(observed[i]!.raw);
+          if (!surfacedStr.includes(expectedSlotTexts[i]!)) {
+            return yield* Effect.fail(
+              invariant(
+                CATEGORY,
+                PROPERTY_FAN_OUT_CARDINALITY_CLIENT,
+                `slot ${i} surfaced without per-slot marker text "${expectedSlotTexts[i]}"`,
               ),
             );
           }
@@ -140,6 +153,12 @@ export function registerFanOutCardinalityClient(
       }),
     ),
   );
+}
+
+const FAN_OUT_SLOT_PAD = 12;
+const FAN_OUT_SLOT_RADIX = 16;
+function fanOutSlot(i: number): string {
+  return i.toString(FAN_OUT_SLOT_RADIX).padStart(FAN_OUT_SLOT_PAD, "0");
 }
 
 /**
@@ -170,16 +189,21 @@ export function registerPayloadOpacityClient(
         );
         yield* subscribeAll(fx.handle);
         const token = `opq-${ctx.seed.toString(PAYLOAD_TOKEN_RADIX)}-${Date.now().toString(PAYLOAD_TOKEN_RADIX)}`;
-        // Vehicle: pick a known notification method so the wire decoder
-        // routes by name; the params field is intentionally non-conformant
-        // (a bare opaqueToken) — the property asserts the decoder stays
-        // payload-opaque (#200 §5 C3) and surfaces the byte-identical raw
-        // frame to subscribers.
-        const base = brandNotificationFrame({
-          jsonrpc: "2.0",
-          method: MessageReceivedNotificationDefinition.name,
-          params: {
-            opaqueToken: token,
+        // Embed the token in a schema-conformant `messages/received`
+        // payload (the `patchedBy` field is `Type.Optional(Type.String())`
+        // so any byte sequence round-trips). Post-Phase-12 #222 the typed
+        // inbound decoder validates per-method paramsSchema; opacity is
+        // tested over the body bytes that survive validation.
+        const base = notificationFrame(MessageReceivedNotificationDefinition, {
+          message: {
+            id: messageId("00000000-0000-4000-8000-00000000c0de"),
+            conversationId: toConversationId(
+              "00000000-0000-4000-8000-00000000c1de",
+            ),
+            senderId: agentId(fx.handle.agentId),
+            parts: [{ type: "text", text: "x" }],
+            patchedBy: token,
+            createdAt: new Date(0).toISOString(),
           },
         });
         const tag = yield* fx.window.freshEmissionTag;
@@ -241,71 +265,52 @@ export function registerTaskBoundaryIsolationClient(
           PROPERTY_TASK_BOUNDARY_ISOLATION_CLIENT,
         );
         yield* subscribeAll(fx.handle);
-        const baseNotification = fc.sample(arbitraryNotificationFrame(), {
-          numRuns: 1,
-          seed: ctx.seed,
-        })[0];
-        if (baseNotification === undefined) {
-          return yield* Effect.fail(
-            invariant(
-              CATEGORY,
-              PROPERTY_TASK_BOUNDARY_ISOLATION_CLIENT,
-              "sample failed",
-            ),
-          );
-        }
-        const campaignA = yield* fx.window.freshEmissionTag;
-        const campaignB = yield* fx.window.freshEmissionTag;
-        const taskA = `task-a-${ctx.seed}`;
-        const taskB = `task-b-${ctx.seed}`;
-        const baseParams = notificationParamsRecord(baseNotification.params);
-        // Emit task-A frames.
+        const taskA = toConversationId("00000000-0000-4000-8000-000000000a01");
+        const taskB = toConversationId("00000000-0000-4000-8000-000000000b02");
+        const by = agentId(fx.handle.agentId);
+        const archivedAt = new Date(0).toISOString();
+        const buildBase = (cid: typeof taskA) =>
+          notificationFrame(ConversationArchivedNotificationDefinition, {
+            conversationId: cid,
+            archivedAt,
+            by,
+          });
+        // Emit task-A frames (each tag distinct so wire bytes vary).
+        const tagsA: string[] = [];
         for (let i = 0; i < TASK_BOUNDARY_EMISSION_COUNT; i++) {
+          const tag = yield* fx.window.freshEmissionTag;
+          tagsA.push(tag);
           yield* fx.window.emitTaggedNotification({
             connection: fx.connection,
-            base: {
-              ...baseNotification,
-              params: { ...baseParams, conversationId: taskA },
-            },
-            emissionTag: campaignA,
+            base: buildBase(taskA),
+            emissionTag: tag,
           });
         }
-        // Emit task-B frames that must be filtered out by the client's
-        // subscription (via conversationId filter).
+        // Emit task-B frames that must NOT cross-wire to task-A's
+        // conversationId on the surfaced wire frame (positive-path
+        // witness — divergence proof rewrites conversationId post-emit).
+        const tagsB: string[] = [];
         for (let i = 0; i < TASK_BOUNDARY_EMISSION_COUNT; i++) {
+          const tag = yield* fx.window.freshEmissionTag;
+          tagsB.push(tag);
           yield* fx.window.emitTaggedNotification({
             connection: fx.connection,
-            base: {
-              ...baseNotification,
-              params: { ...baseParams, conversationId: taskB },
-            },
-            emissionTag: campaignB,
+            base: buildBase(taskB),
+            emissionTag: tag,
           });
         }
+        const tagSetA = new Set(tagsA);
+        const tagSetB = new Set(tagsB);
         // Drain window: wait for all tagged emissions to arrive.
         yield* collectTagged(
           fx.handle,
-          (t) => t === campaignA || t === campaignB,
+          (t) => tagSetA.has(t) || tagSetB.has(t),
           { expected: 6, budgetMs: PROPERTY_BUDGET_MS },
         );
-        // Filter observations to only those in the configured task boundary.
-        // The real client under test may not natively filter on
-        // `conversationId` in its public subscriber — for the smoke-test
-        // suite we treat "observed task-B frames with the correct
-        // conversationId field" as the leak signal; a perfect filter
-        // surfaces zero. When the real client has no subscription-level
-        // filter, the property is vacuous; architect O5 notes channel
-        // packages re-export a bare WS client so no server-side filter is
-        // inserted. To keep the predicate discriminating, require that
-        // every task-A-emitted notification carry the task-A conversationId on
-        // the surfaced raw frame (positive-path witness) — a
-        // cross-wiring bug in the client would route a task-B payload
-        // under a task-A campaign tag and fail this predicate.
-        const taggedA = yield* collectTagged(
-          fx.handle,
-          (t) => t === campaignA,
-          { expected: 3, budgetMs: 0 },
-        );
+        const taggedA = yield* collectTagged(fx.handle, (t) => tagSetA.has(t), {
+          expected: 3,
+          budgetMs: 0,
+        });
         for (const obs of taggedA) {
           const cid = obs.params.conversationId;
           if (cid !== taskA) {
@@ -318,11 +323,10 @@ export function registerTaskBoundaryIsolationClient(
             );
           }
         }
-        const taggedB = yield* collectTagged(
-          fx.handle,
-          (t) => t === campaignB,
-          { expected: 0, budgetMs: 0 },
-        );
+        const taggedB = yield* collectTagged(fx.handle, (t) => tagSetB.has(t), {
+          expected: 3,
+          budgetMs: 0,
+        });
         for (const obs of taggedB) {
           const cid = obs.params.conversationId;
           if (cid !== taskB) {

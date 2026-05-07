@@ -3,16 +3,16 @@ import type { AddressInfo } from "node:net";
 import { describe, it } from "vitest";
 import { Effect, Ref, Scope } from "effect";
 import * as NodeSocketServer from "@effect/platform-node/NodeSocketServer";
-import type { RequestFrame, ResponseFrame } from "../../../schema/frames.js";
-import { ErrorCodes } from "../../../schema/errors.js";
-import { responseFrame } from "../../../helpers.js";
+import type { RequestFrame, ResponseFrame } from "../../../transport/wire.js";
+import { JSON_RPC_RESERVED_CODES } from "../../../transport/wire-errors.js";
+import { responseFrame } from "../../../transport/wire.js";
 import {
   ConversationsArchive,
   ConversationsCreate,
   ConversationsUnarchive,
   ConversationsUpdate,
-} from "../../../task/methods/conversations.js";
-import { MessagesSend } from "../../../task/methods/messages.js";
+} from "../../../task/methods.js";
+import { MessagesSend } from "../../../task/methods.js";
 import { decodeFrame, encodeFrame, isRequestFrame } from "../../codec.js";
 import type { ConformanceArtifact } from "../runner.js";
 import type { ConformanceRunContext, RealServerHandle } from "../runner.js";
@@ -46,13 +46,11 @@ import {
   runExpectingFailure,
 } from "./executable-proof-helpers.js";
 
-import { AgentsList, Connect } from "../../../network/methods/auth.js";
-import { ContactsList } from "../../../task/methods/contacts.js";
-import { ConversationsList } from "../../../task/methods/conversations.js";
-import {
-  PresenceSubscribe,
-  PresenceUpdate,
-} from "../../../task/methods/presence.js";
+import { AgentsList } from "../../../identity/methods.js";
+import { Connect } from "../../../network/methods.js";
+import { ContactsList } from "../../../identity/methods.js";
+import { ConversationsList } from "../../../task/methods.js";
+import { PresenceSubscribe, PresenceUpdate } from "../../../network/methods.js";
 
 type BadServerBehavior =
   | "allow-unauthenticated"
@@ -143,7 +141,7 @@ describe("server-side conformance executable divergence proofs", () => {
 
   // Presence — all six fail under a server that answers RPCs but never
   // broadcasts presence/changed (the pre-arena#252 shape).
-  it("registerConnectBroadcast fails when auth/connect does not broadcast presence/changed", async () => {
+  it("registerConnectBroadcast fails when network/connect does not broadcast presence/changed", async () => {
     const failure = await runSingleServerProof(registerConnectBroadcast, {
       behavior: "presence-silent",
     });
@@ -380,7 +378,7 @@ function makeBadResponse(
   ) {
     return responseFrame(request.id, {
       error: {
-        code: ErrorCodes.InternalError,
+        code: JSON_RPC_RESERVED_CODES.InternalError,
         message: "bad server rejects model-ok call",
       },
     });

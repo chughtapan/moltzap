@@ -18,7 +18,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { Effect, HashSet } from "effect";
-import { agentId } from "@moltzap/protocol/network";
+import { agentId } from "@moltzap/protocol/testing";
 import {
   AgentEndpointResolver,
   connectionId,

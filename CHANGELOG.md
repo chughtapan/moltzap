@@ -7,6 +7,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Phase 12 — `@moltzap/protocol` finalization
+
+- **BREAKING (Phase 12 — protocol surface):** Root facade reduced to
+  152 lines / 114 named exports. The protocol package now exposes
+  exactly the public surface and nothing more.
+- **BREAKING:** `WIRE_CODES` and `ErrorCodes` aggregates deleted.
+  Tagged-error classes carry their own `static readonly code` and
+  `static readonly message` and self-register via `registerErrorClass`.
+  `JSON_RPC_RESERVED_CODES` covers the five JSON-RPC 2.0 reserved
+  codes only.
+- **BREAKING:** Phantom-carrier `Params` / `Result` runtime properties
+  on each definition dropped. Type-only accessors `ParamsOf<D>` /
+  `ResultOf<D>` / `NotificationParamsOf<D>` remain the canonical type
+  accessors (unchanged from prior phases).
+- **BREAKING:** `Static` / `TSchema` re-exports dropped — consumers
+  import directly from `@sinclair/typebox` (protocol no longer
+  re-exports the dependency).
+- **BREAKING:** Decode helpers `decodeRpcParams`, `decodeRpcResult`,
+  `decodeRpcCall`, `decodeRpcRequest`, `decodeNotification`,
+  `decodeFrame` deleted. Use `decodeServerInbound(json)` (client-side)
+  and `decodeClientInbound(json)` (server-side) — single-call typed
+  entry points returning a discriminated union over decoded payloads.
+- **BREAKING:** `requestFrame` / `responseFrame` / `notificationFrame`
+  free functions deleted. Use the per-definition methods:
+  `Method.encodeRequest(id, params)`,
+  `Method.encodeResponse(id, result)`, `Notification.encode(params)`,
+  and `encodeErrorResponse(id, error)` for method-agnostic error
+  responses.
+- **BREAKING:** `isDecodedRpcRequest` / `isDecodedNotification` /
+  `isDecodedNotificationInGroup` / `bindNotificationHandler` /
+  `defineEffectNotificationHandlers` deleted. Notifications are decoded
+  through `decodeServerInbound` / `decodeClientInbound` and dispatched
+  by the `_tag` discriminant.
+- **BREAKING:** `defineRpc` / `defineNotification` authoring
+  primitives are no longer exported from the package root. Only
+  protocol's own `methods.ts` files use them. Consumers register
+  handlers against existing definitions via the new `handler(def, fn)`
+  factory.
+- **Added:** `handler<Ctx>(definition, fn)` factory replaces direct
+  `RpcHandler` literal construction. `RpcHandler<Ctx>` is now
+  de-generified — no per-method `D` parameter.
+- **Added:** `MalformedFrameError` (transport) and
+  `encodeErrorResponse(id, error)` (method-agnostic error encoder).
+- **Restructured:** `packages/protocol/src/` now has `transport/`,
+  `identity/`, `network/`, `task/`, `app/`, `testing/` subdirectories.
+  Notifications are co-located with their methods in each layer's
+  `methods.ts`. The flat `schema/` and `handlers/` directories are
+  gone. Branded ID test-fixture constructors moved from
+  `test-fixtures/branded-ids.ts` to `testing/branded-ids.ts`.
+- **Removed:** `~119` dead symbols including most `Agent*Schema` /
+  `Conversation*Schema` types, task lifecycle notifications
+  (`TaskReady` / `TaskClosed` / `TaskAdmissionComplete` exports), the
+  `App*Notification` family, and the deleted error classes `Blocked`,
+  `IdentityRejected`, `AgentNoOwner`, `AgentNotFound`,
+  `MaxParticipants`, `AppNotFound`, `RateLimited`, `ProtocolMismatch`.
+  `InviteAgent` (`agents/invite`) and `InvitesCreateAgent`
+  (`invites/createAgent`) are unaffected and remain exported.
+- **Tooling:** `scripts/generate-json-schema.ts` deleted (referenced
+  non-existent paths). `pnpm generate-schema` script removed.
+  `scripts/generate-protocol-docs.ts` updated to reference the current
+  registry exports and rerun cleanly.
+
 ### Added
 
 - App-callback awaitable RPC channel over standard JSON-RPC request and

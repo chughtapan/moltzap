@@ -1,18 +1,6 @@
-import {
-  agentId,
-  conversationId,
-  messageId,
-  type Static,
-} from "@moltzap/protocol";
-import {
-  AgentId as AgentIdSchema,
-  ConversationId as ConversationIdSchema,
-  MessageId as MessageIdSchema,
-} from "@moltzap/protocol/schemas/primitives";
-
-type AgentId = Static<typeof AgentIdSchema>;
-type ConversationId = Static<typeof ConversationIdSchema>;
-type MessageId = Static<typeof MessageIdSchema>;
+import type { AgentId } from "@moltzap/protocol/identity";
+import type { ConversationId, MessageId } from "@moltzap/protocol/task";
+import { agentId, conversationId, messageId } from "@moltzap/protocol/testing";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

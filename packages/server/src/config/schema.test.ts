@@ -29,7 +29,7 @@ describe("validateConfig", () => {
       ...MINIMAL_CONFIG,
       server: { port: 3000, cors_origins: ["https://app.example.com"] },
       services: {
-        users: { type: "in_process" },
+        sessions: { type: "in_process" },
         contacts: {
           type: "webhook",
           webhook_url: "https://hooks.example.com/contacts",
@@ -111,7 +111,7 @@ describe("validateConfig", () => {
   it("validates service type enum", () => {
     const result = validateConfig({
       ...MINIMAL_CONFIG,
-      services: { users: { type: "grpc" } },
+      services: { sessions: { type: "grpc" } },
     });
     expect(result.ok).toBe(false);
   });
@@ -119,7 +119,7 @@ describe("validateConfig", () => {
   it("validates webhook_url format", () => {
     const result = validateConfig({
       ...MINIMAL_CONFIG,
-      services: { users: { type: "webhook", webhook_url: "not-a-url" } },
+      services: { sessions: { type: "webhook", webhook_url: "not-a-url" } },
     });
     expect(result.ok).toBe(false);
   });
@@ -145,7 +145,7 @@ describe("validateConfig", () => {
   it("deduplicates errors from union schemas", () => {
     const result = validateConfig({
       ...MINIMAL_CONFIG,
-      services: { users: { type: "webhook" } },
+      services: { sessions: { type: "webhook" } },
     });
     expect(result.ok).toBe(false);
     if (!result.ok) {

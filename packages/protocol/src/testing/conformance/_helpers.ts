@@ -5,7 +5,7 @@
  */
 import { Effect, Either } from "effect";
 import type { TSchema } from "@sinclair/typebox";
-import type { RpcDefinition } from "../../rpc.js";
+import type { RpcDefinition } from "../../transport/method.js";
 import type { TestClient } from "../test-client.js";
 import type {
   FrameSchemaError,

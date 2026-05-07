@@ -1,6 +1,7 @@
 import { Args, Command, Options } from "@effect/cli";
 import { Data, Effect, Option } from "effect";
-import { conversationId, type ConversationSummary } from "@moltzap/protocol";
+import { type ConversationSummary } from "@moltzap/protocol";
+import type { ConversationId } from "@moltzap/protocol/task";
 import {
   LocalServiceCommands,
   request,
@@ -135,7 +136,7 @@ const leaveConversation = Command.make(
   ({ conversationId: rawConversationId }) =>
     wrap(
       request(ConversationsLeave, {
-        conversationId: conversationId(rawConversationId),
+        conversationId: rawConversationId as ConversationId,
       }),
       () => {
         console.log(`Left conversation ${rawConversationId}.`);
@@ -153,14 +154,14 @@ const muteConversation = Command.make(
   { conversationId: conversationIdArg, until: untilOption },
   ({ conversationId: rawConversationId, until }) => {
     const params: {
-      readonly conversationId: ReturnType<typeof conversationId>;
+      readonly conversationId: ConversationId;
       readonly until?: string;
     } = Option.isSome(until)
       ? {
-          conversationId: conversationId(rawConversationId),
+          conversationId: rawConversationId as ConversationId,
           until: until.value,
         }
-      : { conversationId: conversationId(rawConversationId) };
+      : { conversationId: rawConversationId as ConversationId };
     return wrap(request(ConversationsMute, params), () => {
       console.log(
         Option.isSome(until)
@@ -177,7 +178,7 @@ const unmuteConversation = Command.make(
   ({ conversationId: rawConversationId }) =>
     wrap(
       request(ConversationsUnmute, {
-        conversationId: conversationId(rawConversationId),
+        conversationId: rawConversationId as ConversationId,
       }),
       () => {
         console.log(`Conversation ${rawConversationId} unmuted.`);
@@ -195,7 +196,7 @@ const updateConversation = Command.make(
   ({ conversationId: rawConversationId, name }) =>
     wrap(
       request(ConversationsUpdate, {
-        conversationId: conversationId(rawConversationId),
+        conversationId: rawConversationId as ConversationId,
         name,
       }),
       () => {
@@ -211,7 +212,7 @@ const addParticipantCommand = Command.make(
     Effect.gen(function* () {
       const ref = yield* resolveParticipant(participant);
       yield* request(ConversationsAddParticipant, {
-        conversationId: conversationId(rawConversationId),
+        conversationId: rawConversationId as ConversationId,
         participant: ref,
       });
       console.log(`Added ${participant} to ${rawConversationId}.`);
@@ -232,7 +233,7 @@ const removeParticipantCommand = Command.make(
     Effect.gen(function* () {
       const ref = yield* resolveParticipant(participant);
       yield* request(ConversationsRemoveParticipant, {
-        conversationId: conversationId(rawConversationId),
+        conversationId: rawConversationId as ConversationId,
         participant: ref,
       });
       console.log(`Removed ${participant} from ${rawConversationId}.`);
@@ -390,7 +391,7 @@ export const conversationsGetHandler = (args: {
 }): Effect.Effect<void, ConversationsCommandError, Transport> =>
   Effect.gen(function* () {
     const result = yield* transportRpc(ConversationsGet, {
-      conversationId: conversationId(args.conversationId),
+      conversationId: args.conversationId as ConversationId,
     });
     yield* Effect.sync(() => {
       console.log(JSON.stringify(result, null, JSON_INDENT_SPACES));
@@ -403,7 +404,7 @@ export const conversationsArchiveHandler = (args: {
 }): Effect.Effect<void, ConversationsCommandError, Transport> =>
   Effect.gen(function* () {
     yield* transportRpc(ConversationsArchive, {
-      conversationId: conversationId(args.conversationId),
+      conversationId: args.conversationId as ConversationId,
     });
     yield* Effect.sync(() => {
       console.log(`archived: ${args.conversationId}`);
@@ -416,7 +417,7 @@ export const conversationsUnarchiveHandler = (args: {
 }): Effect.Effect<void, ConversationsCommandError, Transport> =>
   Effect.gen(function* () {
     yield* transportRpc(ConversationsUnarchive, {
-      conversationId: conversationId(args.conversationId),
+      conversationId: args.conversationId as ConversationId,
     });
     yield* Effect.sync(() => {
       console.log(`unarchived: ${args.conversationId}`);

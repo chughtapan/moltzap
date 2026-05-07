@@ -1,32 +1,28 @@
 import { Effect } from "effect";
 import type { Db } from "../db/client.js";
-import {
-  notFound,
-  forbidden,
-  conflict,
-  type RpcFailure,
-} from "../runtime/index.js";
 import { catchSqlErrorAsDefect } from "../db/effect-kysely-toolkit.js";
 import type { ContactRow } from "../db/database.js";
 import {
-  contactId,
-  userId,
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
   type Contact,
-  type Static,
 } from "@moltzap/protocol";
-import { ContactId, UserId } from "@moltzap/protocol/schemas/primitives";
+import type { ContactId, UserId } from "@moltzap/protocol/identity";
 
-type BrandedContactId = Static<typeof ContactId>;
-type BrandedUserId = Static<typeof UserId>;
+export type ContactsServiceError =
+  | ConflictError
+  | ForbiddenError
+  | NotFoundError;
 
 export interface ContactCreateInput {
-  readonly contactUserId: BrandedUserId;
+  readonly contactUserId: UserId;
   readonly relationship?: string;
 }
 
 export interface ContactAcceptResult {
   readonly contact: Contact;
-  readonly requesterUserId: BrandedUserId;
+  readonly requesterUserId: UserId;
   readonly transitioned: boolean;
 }
 
@@ -38,7 +34,7 @@ const ERR_NOT_RECIPIENT = "Only the recipient can accept the contact request";
 export class ContactsService {
   constructor(private readonly db: Db) {}
 
-  list(owner: BrandedUserId): Effect.Effect<ReadonlyArray<Contact>, never> {
+  list(owner: UserId): Effect.Effect<ReadonlyArray<Contact>, never> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         const rows = yield* this.db
@@ -51,11 +47,11 @@ export class ContactsService {
   }
 
   add(
-    owner: BrandedUserId,
+    owner: UserId,
     input: ContactCreateInput,
-  ): Effect.Effect<Contact, RpcFailure> {
+  ): Effect.Effect<Contact, ContactsServiceError> {
     if (input.contactUserId === owner) {
-      return Effect.fail(forbidden(ERR_SELF_ADD));
+      return Effect.fail(new ForbiddenError({ message: ERR_SELF_ADD }));
     }
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
@@ -72,7 +68,9 @@ export class ContactsService {
           )
           .returningAll();
         if (inserted.length === 0) {
-          return yield* Effect.fail(conflict(ERR_DUPLICATE));
+          return yield* Effect.fail(
+            new ConflictError({ message: ERR_DUPLICATE }),
+          );
         }
         return rowToContact(inserted[0]!);
       }),
@@ -80,9 +78,9 @@ export class ContactsService {
   }
 
   accept(
-    owner: BrandedUserId,
-    id: BrandedContactId,
-  ): Effect.Effect<ContactAcceptResult, RpcFailure> {
+    owner: UserId,
+    id: ContactId,
+  ): Effect.Effect<ContactAcceptResult, ContactsServiceError> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         const updated = yield* this.db
@@ -99,15 +97,19 @@ export class ContactsService {
             .selectAll()
             .where("id", "=", id);
           if (existing.length === 0) {
-            return yield* Effect.fail(notFound(ERR_NOT_FOUND));
+            return yield* Effect.fail(
+              new NotFoundError({ message: ERR_NOT_FOUND }),
+            );
           }
           const row = existing[0]!;
           if (row.contact_user_id !== owner) {
-            return yield* Effect.fail(forbidden(ERR_NOT_RECIPIENT));
+            return yield* Effect.fail(
+              new ForbiddenError({ message: ERR_NOT_RECIPIENT }),
+            );
           }
           return {
             contact: rowToContact(row),
-            requesterUserId: userId(row.owner_user_id),
+            requesterUserId: row.owner_user_id,
             transitioned: false,
           };
         }
@@ -128,7 +130,7 @@ export class ContactsService {
           );
         return {
           contact: rowToContact(row),
-          requesterUserId: userId(row.owner_user_id),
+          requesterUserId: row.owner_user_id,
           transitioned: true,
         };
       }),
@@ -136,9 +138,9 @@ export class ContactsService {
   }
 
   byId(
-    owner: BrandedUserId,
-    id: BrandedContactId,
-  ): Effect.Effect<Contact, RpcFailure> {
+    owner: UserId,
+    id: ContactId,
+  ): Effect.Effect<Contact, ContactsServiceError> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         const rows = yield* this.db
@@ -147,7 +149,9 @@ export class ContactsService {
           .where("id", "=", id)
           .where("owner_user_id", "=", owner);
         if (rows.length === 0) {
-          return yield* Effect.fail(notFound(ERR_NOT_FOUND));
+          return yield* Effect.fail(
+            new NotFoundError({ message: ERR_NOT_FOUND }),
+          );
         }
         return rowToContact(rows[0]!);
       }),
@@ -157,8 +161,8 @@ export class ContactsService {
 
 function rowToContact(row: ContactRow): Contact {
   return {
-    id: contactId(row.id),
-    contactUserId: userId(row.contact_user_id),
+    id: row.id,
+    contactUserId: row.contact_user_id,
     ...(row.relationship !== null ? { relationship: row.relationship } : {}),
   };
 }

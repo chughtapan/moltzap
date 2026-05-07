@@ -1,3 +1,4 @@
+import type { AgentId } from "@moltzap/protocol/identity";
 import type {
   PresenceEventSink,
   PresenceStatus,
@@ -44,9 +45,9 @@ export class PresenceService {
     return this.statuses.get(agentId) ?? "offline";
   }
 
-  getMany<AgentIdValue extends string>(
-    agentIds: ReadonlyArray<AgentIdValue>,
-  ): Array<{ agentId: AgentIdValue; status: PresenceStatus }> {
+  getMany<A extends string>(
+    agentIds: ReadonlyArray<A>,
+  ): Array<{ agentId: A; status: PresenceStatus }> {
     return agentIds.map((agentId) => ({
       agentId,
       status: this.get(agentId),
@@ -117,7 +118,7 @@ export class PresenceService {
     // (deferred sinks, tests that capture inputs for later assertion).
     // Live registry mutations must not alter past inputs.
     this.eventSink.publish({
-      agentId,
+      agentId: agentId as AgentId,
       status: next,
       subscriberConnIds: new Set(this.getSubscribers(agentId)),
       excludeConnId,

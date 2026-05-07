@@ -1,6 +1,18 @@
-// Network-layer protocol surface: identity / transport substrate.
-// Wire frames, auth, agents, system, endpoint registration. Brand types
-// from `./actor-model.ts`.
-export * from "./actor-model.js";
-export * from "./methods/auth.js";
-export * from "./methods/system.js";
+export {
+  Connect,
+  NetworkPing,
+  PresenceUpdate,
+  PresenceSubscribe,
+  PresenceChangedNotificationDefinition,
+} from "./methods.js";
+
+export type { HelloOk } from "./methods.js";
+
+export {
+  isEndpointAddress,
+  endpointAddress,
+  endpointAddressKind,
+  makeEndpointAddress,
+} from "./actor-model.js";
+
+export type { EndpointAddress, EndpointAddressKind } from "./actor-model.js";

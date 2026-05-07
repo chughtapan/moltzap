@@ -23,7 +23,8 @@ import {
   type TransportError,
 } from "../transport.js";
 
-import { MessagesList, conversationId } from "@moltzap/protocol";
+import { MessagesList } from "@moltzap/protocol";
+import type { ConversationId } from "@moltzap/protocol/task";
 
 // ─── Errors ────────────────────────────────────────────────────────────────
 
@@ -63,9 +64,9 @@ export const messagesListHandler = (
   Effect.gen(function* () {
     const params =
       args.limit === undefined
-        ? { conversationId: conversationId(args.conversationId) }
+        ? { conversationId: args.conversationId as ConversationId }
         : {
-            conversationId: conversationId(args.conversationId),
+            conversationId: args.conversationId as ConversationId,
             limit: args.limit,
           };
     const result = yield* rpc(MessagesList, params);

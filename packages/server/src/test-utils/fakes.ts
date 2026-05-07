@@ -12,7 +12,7 @@
  *
  * Two modes:
  *   (1) Typed plain-object fakes — for services that are passed around as
- *       instances (e.g. `new WebhookUserService(client, ...)`). Use
+ *       instances (e.g. `new WebhookSessionValidator(client, ...)`). Use
  *       `makeFakeService<T>()` or the service-specific helpers below.
  *   (2) Layer-based fakes — for services accessed via `Context.Tag`. These
  *       slot into an Effect program via `Layer.provide(program, fakeLayer)`.
@@ -91,7 +91,7 @@ export const makeFakeService = <S extends object>(impl: Partial<S>): S =>
  *   const client = makeFakeWebhookClient({
  *     call: () => Effect.succeed({ valid: true }),
  *   });
- *   const svc = new WebhookUserService(client, "url", 5000, logger);
+ *   const svc = new WebhookSessionValidator(client, "url", 5000, logger);
  */
 export const makeFakeWebhookClient = (
   impl: Pick<WebhookClient, "call">,

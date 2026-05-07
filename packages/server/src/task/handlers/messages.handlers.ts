@@ -3,13 +3,9 @@ import type { ConversationService } from "../../services/conversation.service.js
 import type { TaskService } from "../../services/task.service.js";
 import type { RpcMethodRegistry } from "../../rpc/context.js";
 import { defineTaskMethod } from "../../rpc/define-layered-method.js";
-import {
-  MessagesSend,
-  MessagesList,
-  conversationId as makeConversationId,
-} from "@moltzap/protocol";
+import { MessagesSend, MessagesList, NotFoundError } from "@moltzap/protocol";
 import { Effect, Option } from "effect";
-import { RpcFailure, invalidParams, notFound } from "../../runtime/index.js";
+import { InvalidParamsError } from "../../runtime/index.js";
 import { ConnIdTag } from "../../app/layers.js";
 import type { Db } from "../../db/client.js";
 import {
@@ -18,10 +14,14 @@ import {
 } from "../../db/effect-kysely-toolkit.js";
 
 /** Parse "agent:<name>" target format, returning the agent name. */
-export function parseTo(to: string): Effect.Effect<string, RpcFailure> {
+export function parseTo(to: string): Effect.Effect<string, InvalidParamsError> {
   const match = to.match(/^agent:(.+)$/);
   if (!match) {
-    return Effect.fail(invalidParams("Invalid 'to' format — use agent:<name>"));
+    return Effect.fail(
+      new InvalidParamsError({
+        message: "Invalid 'to' format — use agent:<name>",
+      }),
+    );
   }
   return Effect.succeed(match[1]!);
 }
@@ -62,21 +62,20 @@ export function createMessageHandlers(deps: {
               );
               if (Option.isNone(parentOpt)) {
                 return yield* Effect.fail(
-                  notFound(
-                    `Cannot resolve replyToId ${params.replyToId}: message not found`,
-                  ),
+                  new NotFoundError({
+                    message: `Cannot resolve replyToId ${params.replyToId}: message not found`,
+                  }),
                 );
               }
-              conversationId = makeConversationId(
-                parentOpt.value.conversation_id,
-              );
+              conversationId = parentOpt.value.conversation_id;
             }
 
             if (!conversationId) {
               return yield* Effect.fail(
-                invalidParams(
-                  "Either conversationId, to, or replyToId is required",
-                ),
+                new InvalidParamsError({
+                  message:
+                    "Either conversationId, to, or replyToId is required",
+                }),
               );
             }
 

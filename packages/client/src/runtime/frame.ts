@@ -1,139 +1,82 @@
 import { Effect } from "effect";
 import {
-  validators,
+  decodeServerInbound,
+  MalformedFrameError,
+  TaskAuthorizeDispatch,
   type AnyTaskCallbackRpcDefinition,
   type AnyNotificationDefinition,
-  TaskAuthorizeDispatch,
-  taskCallbackRpcGroup,
-  decodeRpcRequest,
-  isDecodedRpcRequest,
-  isJsonRpcStringId,
-  notificationGroup,
   type DecodedNotification,
-  type DecodedNotificationFrame,
-  type DecodedRpcRequest,
-  type JsonRpcStringId,
-  type NotificationFrame,
-  type RawDecodedNotification,
-  type ResponseFrame,
-  type UnknownDecodedNotification,
+  type DecodedResponseSuccess,
+  type DecodedResponseError,
+  type DecodedServerInbound,
+  type JsonRpcId,
+  type ParamsOf,
 } from "@moltzap/protocol";
-import { MalformedFrameError } from "./errors.js";
 import { type AppCallbackPartitionRoute } from "../internal/app-callback-partition-key.js";
 
-export type {
-  DecodedNotification,
-  DecodedNotificationFrame,
-  RawDecodedNotification,
-  UnknownDecodedNotification,
-};
+export type { DecodedNotification };
 
-/** Decoded response frame — narrowed from the protocol's `ResponseFrame`. */
-export interface DecodedResponse {
-  readonly _tag: "Response";
-  readonly id: JsonRpcStringId;
-  readonly result?: unknown;
-  readonly error?: Extract<ResponseFrame, { error: unknown }>["error"];
-}
+/** Decoded response frame — XOR success | error, mirrors the protocol-level
+ * discriminated arms. */
+export type DecodedResponse = DecodedResponseSuccess | DecodedResponseError;
 
 /**
  * Decoded server-initiated (taskCallback) request frame. The client
  * routes these to its per-method handler registry; the server is the
  * originator and awaits a matching JSON-RPC response with the same id.
  *
- * Phase 9b consumer-migration (sub-issue #460): the legacy "appCallback"
- * group retired (3 deletions + the rename of `apps/onBeforeDispatch` →
- * `task/authorizeDispatch`). The dispatch shape and routing remain
- * unchanged; only the group name moved.
+ * Carries the partition route alongside the protocol-level decoded request.
  */
 export type DecodedServerRequest<
   D extends AnyTaskCallbackRpcDefinition = AnyTaskCallbackRpcDefinition,
-> = DecodedRpcRequest<D> & {
+> = {
   readonly _tag: "ServerRequest";
+  readonly id: JsonRpcId;
+  readonly definition: D;
+  readonly params: ParamsOf<D>;
   readonly partition: AppCallbackPartitionRoute;
 };
 
 export type DecodedFrame =
   | DecodedResponse
-  | DecodedNotificationFrame
+  | DecodedNotification<AnyNotificationDefinition>
   | DecodedServerRequest;
 
 const isFramePadding = (char: string): boolean =>
   char === "\u0000" || char === "\ufeff" || /\s/u.test(char);
 
-const toDecodedFrame = (
-  parsed: unknown,
+const liftServerInbound = (
+  decoded: DecodedServerInbound,
+  raw: string,
 ): Effect.Effect<DecodedFrame, MalformedFrameError> => {
-  const raw = JSON.stringify(parsed);
-  if (validators.responseFrame(parsed)) {
-    if (!isJsonRpcStringId(parsed.id)) {
-      return Effect.fail(new MalformedFrameError({ raw }));
-    }
-    return Effect.succeed({
-      _tag: "Response" as const,
-      id: parsed.id,
-      result: "result" in parsed ? parsed.result : undefined,
-      error: "error" in parsed ? parsed.error : undefined,
-    });
-  }
-
-  if (validators.requestFrame(parsed)) {
-    return decodeRpcRequest(taskCallbackRpcGroup, parsed).pipe(
-      Effect.mapError((cause) => new MalformedFrameError({ raw, cause })),
-      Effect.flatMap((request) =>
-        appCallbackPartitionRoute(request).pipe(
-          Effect.map((partition) => ({
-            _tag: "ServerRequest" as const,
-            ...request,
-            partition,
-          })),
-        ),
-      ),
-    );
-  }
-
-  if (validators.notificationFrame(parsed)) {
-    return toDecodedNotification(parsed);
-  }
-
-  return Effect.fail(new MalformedFrameError({ raw }));
-};
-
-const toDecodedNotification = (
-  parsed: NotificationFrame,
-): Effect.Effect<DecodedNotificationFrame> => {
-  // Opacity contract (`delivery/payload-opacity-client`,
-  // `boundary/schema-exhaustive-fuzz-client`): no payload validation
-  // here. `_tag` and `definition` attach non-enumerably so the
-  // decoded value still satisfies `validators.notificationFrame`'s
-  // strict `additionalProperties: false`. Unknown methods (no
-  // descriptor) emit `UnknownDecodedNotification`; production typed
-  // handlers exclude that branch via the `definition` discriminator.
-  const definition: AnyNotificationDefinition | undefined =
-    notificationGroup.byName.get(parsed.method);
-  Object.defineProperty(parsed, "_tag", {
-    value: "Notification",
-    enumerable: false,
-  });
-  if (definition !== undefined) {
-    Object.defineProperty(parsed, "definition", {
-      value: definition,
-      enumerable: false,
-    });
-    return Effect.succeed(
-      parsed as RawDecodedNotification<AnyNotificationDefinition>,
-    );
-  }
-  return Effect.succeed(parsed as UnknownDecodedNotification);
+  if (decoded._tag === "ResponseSuccess") return Effect.succeed(decoded);
+  if (decoded._tag === "ResponseError") return Effect.succeed(decoded);
+  if (decoded._tag === "Notification") return Effect.succeed(decoded);
+  return appCallbackPartitionRoute(decoded.definition, decoded.params).pipe(
+    Effect.map(
+      (partition): DecodedServerRequest => ({
+        _tag: "ServerRequest",
+        id: decoded.id,
+        definition: decoded.definition,
+        params: decoded.params,
+        partition,
+      }),
+    ),
+    Effect.mapError((cause) => new MalformedFrameError({ raw, cause })),
+  );
 };
 
 const appCallbackPartitionRoute = (
-  request: DecodedRpcRequest<AnyTaskCallbackRpcDefinition>,
+  definition: AnyTaskCallbackRpcDefinition,
+  params: unknown,
 ): Effect.Effect<AppCallbackPartitionRoute, MalformedFrameError> => {
-  if (isDecodedRpcRequest(TaskAuthorizeDispatch, request)) {
+  if (
+    definition === TaskAuthorizeDispatch &&
+    TaskAuthorizeDispatch.validateParams(params)
+  ) {
     return Effect.succeed({
-      taskId: request.params.taskId,
-      conversationId: request.params.conversationId,
+      taskId: params.taskId,
+      conversationId: params.conversationId,
     });
   }
   return Effect.fail(
@@ -240,9 +183,12 @@ export const decodeFrames = (
         );
       }
 
-      const decoded = yield* toDecodedFrame(parsed).pipe(
-        Effect.mapError(
-          (cause) => new MalformedFrameError({ raw: frameText, cause }),
+      const decoded = yield* decodeServerInbound(parsed).pipe(
+        Effect.flatMap((d) => liftServerInbound(d, frameText)),
+        Effect.mapError((cause) =>
+          cause instanceof MalformedFrameError
+            ? cause
+            : new MalformedFrameError({ raw: frameText, cause }),
         ),
       );
       decodedFrames.push(decoded);

@@ -15,11 +15,11 @@
  * `onDisconnect`): no private reads, no monkey-patching
  * (Invariant I9 from spec #200).
  *
- * Spec #222 atomic migration:
- *   - `outboundIdsRef` is populated from `sendRpcTracked.id` — the real
- *     `rpc-N` identity, not a `local-${random}` mirror (B4).
- *   - `responseFrame(...)` constructs the JSON-RPC response envelope
- *     instead of hand-writing wire fields.
+ * Phase 12 encapsulation: request ids are wire metadata, not part of the
+ * test-protocol surface. The adapter calls `ws.sendRpc(...)` (no id leak)
+ * and synthesizes a wire-shaped `ResponseFrame` with `id: null` for the
+ * conformance contract. Tests that need to verify id-correlation (B4)
+ * discriminate via `result` payload content instead of reading ids back.
  *   - `closeRef` is populated from `CloseInfo.{code, reason}` passed
  *     into `onDisconnect`, not the hardcoded `{1000, "disconnect"}`
  *     (V7).
@@ -28,10 +28,10 @@
  */
 import { Data, Effect, Either, Ref, Scope } from "effect";
 import {
-  jsonRpcStringId,
   rpcMethods,
-  responseFrame,
+  type AnyRpcDefinition,
   type NotificationFrame,
+  type ParamsOf,
   type ResponseFrame,
 } from "@moltzap/protocol";
 import type {
@@ -155,7 +155,6 @@ export function createMoltZapRealClientFactory(
       const notificationsRef = yield* Ref.make<
         ReadonlyArray<ObservedNotification>
       >([]);
-      const outboundIdsRef = yield* Ref.make<ReadonlyArray<string>>([]);
       const closeRef = yield* Ref.make<RealClientCloseEvent | null>(null);
 
       const ws = new MoltZapWsClient({
@@ -191,17 +190,19 @@ export function createMoltZapRealClientFactory(
       const captureAll = yield* ws
         .subscribe({}, (frame: NotificationFrame) =>
           Effect.sync(() => {
-            const encoded = new TextEncoder().encode(JSON.stringify(frame));
-            const params = frame.params as
-              | { __emissionTag?: string }
-              | undefined;
-            const tag =
-              typeof params?.__emissionTag === "string"
-                ? params.__emissionTag
-                : null;
+            // Strip `definition` (added by `decodeNotification` post-Phase-12)
+            // before re-encoding so `rawBytes` matches the wire form the
+            // TestServer originally emitted. Conformance correlation in
+            // `lookupTagForRawBytes` keys on the wire form.
+            const wireFrame: NotificationFrame = {
+              jsonrpc: frame.jsonrpc,
+              method: frame.method,
+              ...(frame.params !== undefined ? { params: frame.params } : {}),
+            };
+            const encoded = new TextEncoder().encode(JSON.stringify(wireFrame));
             const obs: ObservedNotification = {
-              emissionTag: tag,
-              decoded: frame,
+              emissionTag: null,
+              decoded: wireFrame,
               rawBytes: encoded,
               observedAtMs: Date.now(),
             };
@@ -287,7 +288,12 @@ export function createMoltZapRealClientFactory(
         params: unknown,
       ) =>
         Effect.gen(function* () {
-          const definition = rpcMethods.find((def) => def.name === method);
+          // The conformance suite passes string method names; resolve to
+          // the protocol descriptor by name. Per-def `validateParams` is
+          // checked inside `ws.sendRpc` via wire validation.
+          const definition = rpcMethods.find(
+            (d): d is AnyRpcDefinition => d.name === method,
+          );
           if (definition === undefined || !definition.validateParams(params)) {
             return yield* Effect.fail(
               new RealClientRpcFailure({
@@ -298,26 +304,13 @@ export function createMoltZapRealClientFactory(
               }) as RealClientRpcError,
             );
           }
-          // B4: `sendRpcTracked` returns the real outbound id. The adapter
-          // records it and builds the JSON-RPC response through the shared
-          // helper — no mirror id, no hand-written frame.
-          const tracked = yield* ws
-            .sendRpcTracked(definition, params)
+          const result = yield* ws
+            .sendRpc(definition, params as ParamsOf<typeof definition>)
             .pipe(Effect.mapError((cause) => rpcError(cause, method)));
-          // Record the real id (Invariant 3 from spec #222: same id
-          // minted at the `rpc-${++counter}` site, surfaced as-is).
-          yield* Ref.update(outboundIdsRef, (xs) => [...xs, tracked.id]);
-          const frame: ResponseFrame = responseFrame(
-            jsonRpcStringId(tracked.id),
-            { result: tracked.result },
-          );
-          return frame;
+          return definition.encodeResponse(null, result) as ResponseFrame;
         });
 
-      const rpcCaller: RealClientRpcCaller = {
-        call,
-        outboundIdFeed: Ref.get(outboundIdsRef),
-      };
+      const rpcCaller: RealClientRpcCaller = { call };
 
       const closeSignal: Effect.Effect<RealClientCloseEvent> = Effect.gen(
         function* () {

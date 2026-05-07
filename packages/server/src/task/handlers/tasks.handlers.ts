@@ -11,7 +11,6 @@ import {
   TasksList,
   TasksRemoveParticipant,
   TasksStoreMessage,
-  agentId as brandAgentId,
   type TmType,
 } from "@moltzap/protocol";
 import { type EndpointAddress } from "@moltzap/protocol/network";
@@ -117,8 +116,8 @@ export function createTaskHandlers(deps: {
             {
               type: params.type,
               name: params.name,
-              participantAgentIds: params.participants.map((p) =>
-                brandAgentId(p.id),
+              participantAgentIds: params.participants.map(
+                (p) => p.id as AgentId,
               ),
             },
           );

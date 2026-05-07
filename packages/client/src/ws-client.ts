@@ -19,30 +19,21 @@ import {
 import {
   PROTOCOL_VERSION,
   Connect,
-  decodeRpcResult,
-  jsonRpcStringId,
+  encodeErrorResponse,
   NotConnectedError,
-  requestFrame,
-  responseFrame,
   RpcServerError,
   RpcTimeoutError,
   type AnyTaskCallbackRpcDefinition,
   type AnyNotificationDefinition,
-  type JsonRpcStringId,
+  type JsonRpcId,
   type ParamsOf,
   type RequestFrame,
   type ResponseFrame,
   type ResultOf,
   type RpcDefinition,
-  type TSchema,
-  type Static,
 } from "@moltzap/protocol";
 import { DuplicateServerRpcHandlerError } from "./runtime/errors.js";
-import {
-  decodeFrames,
-  type DecodedNotification,
-  type RawDecodedNotification,
-} from "./runtime/frame.js";
+import { decodeFrames, type DecodedNotification } from "./runtime/frame.js";
 import {
   makeSubscriberRegistry,
   type NotificationSubscription,
@@ -109,7 +100,7 @@ const UTF8_DECODER = new TextDecoder("utf-8");
 const makeNotConnectedError = (): NotConnectedError =>
   new NotConnectedError({ message: MSG_NOT_CONNECTED });
 
-type ConnectResult = Static<typeof Connect.resultSchema>;
+type ConnectResult = ResultOf<typeof Connect>;
 
 /** Tagged error type for any pending-RPC Deferred. */
 type PendingError = RpcServerError | NotConnectedError | RpcTimeoutError;
@@ -164,7 +155,7 @@ interface ConnState {
  * cycle.
  */
 interface DecodedServerRequest {
-  readonly id: JsonRpcStringId;
+  readonly id: JsonRpcId;
   readonly definition: AnyTaskCallbackRpcDefinition;
   readonly params: unknown;
 }
@@ -189,13 +180,13 @@ export type AppCallbackDispatcherConfig = Partial<PartitionedDispatcherConfig>;
  * generic InternalError reply.
  *
  * The `unknown`/`unknown` parameter and result types narrow generically
- * against `taskCallbackRpcMethods` at each `handleServerRpc(definition,
+ * against `taskCallbackMethods` at each `handleServerRpc(definition,
  * handler)` call site via the `AnyTaskCallbackRpcDefinition` union. Phase
  * 9b consumer-migration retired the legacy `AppCallbackRpcMap` indirection
  * alongside the appCallback group collapse to a single member.
  */
 export interface ServerRpcContext {
-  readonly requestId: JsonRpcStringId;
+  readonly requestId: JsonRpcId;
   readonly definition: AnyTaskCallbackRpcDefinition;
   readonly traceparent?: string;
 }
@@ -203,9 +194,9 @@ export interface ServerRpcContext {
 export type ServerRpcHandler<
   D extends AnyTaskCallbackRpcDefinition = AnyTaskCallbackRpcDefinition,
 > = (
-  params: Static<D["paramsSchema"]>,
+  params: ParamsOf<D>,
   ctx: ServerRpcContext & { readonly definition: D },
-) => Effect.Effect<Static<D["resultSchema"]>, RpcServerError>;
+) => Effect.Effect<ResultOf<D>, RpcServerError>;
 
 type ErasedServerRpcHandler = (
   params: unknown,
@@ -215,77 +206,21 @@ type ErasedServerRpcHandler = (
 interface NotificationWaiter {
   readonly definition: AnyNotificationDefinition;
   readonly complete: (
-    notification: AnyRawDecodedNotification,
+    notification: DecodedNotification<AnyNotificationDefinition>,
   ) => Effect.Effect<void>;
   readonly fail: (error: Error) => Effect.Effect<void>;
 }
 
-/**
- * Pre-validation alias used internally by buffer/waiter machinery —
- * the decoder is payload-opaque so frames carry `params: unknown`
- * until a typed bridge runs `validateNotificationParams`.
- */
-type AnyRawDecodedNotification =
-  RawDecodedNotification<AnyNotificationDefinition>;
+/** Notifications are pre-validated by the wire decoder
+ * (`decodeNotification` in `@moltzap/protocol`) — fail-close on unknown
+ * methods or bad params. Buffer + waiters hold the validated shape
+ * directly; no separate Raw|Unknown lift remains. */
 
-function notificationMatches<D extends AnyNotificationDefinition>(
+function acceptTypedNotification<D extends AnyNotificationDefinition>(
   definition: D,
-  notification: AnyRawDecodedNotification,
-): notification is RawDecodedNotification<D> {
-  return notification.definition === definition;
-}
-
-/**
- * Validate `notification.params` against the schema attached by the
- * decoder. Type predicate: a `true` result lifts the input from the
- * raw (`params: unknown`) shape to the validated
- * `DecodedNotification<…>` shape — the compiler-enforced lift the
- * inbound bridges rely on. Logs a structured drift warning and
- * returns `false` on failure. Every typed dispatcher MUST route
- * through this guard before invoking handlers, because the wire
- * decoder is payload-opaque (required for the
- * `delivery/payload-opacity-client` and
- * `boundary/schema-exhaustive-fuzz-client` conformance properties).
- *
- * The signature is non-generic over a single descriptor: the input
- * accepts the broad `AnyRawDecodedNotification` union (distributed
- * over all known descriptors), and the predicate narrows to the
- * matching distributed validated union. Per-descriptor narrowing is
- * the job of the caller's enclosing `is`-predicate
- * (e.g. `acceptTypedNotification<D>`); this helper just gates "params
- * conform to the attached schema." Current call sites:
- * `acceptTypedNotification` below (typed-promise resolver) and
- * `service.ts:handleNotification` (subscriber-fanout dispatch into
- * the typed handler bucket).
- */
-export function validateNotificationParams(
-  notification: AnyRawDecodedNotification,
-  logger: WsClientLogger | undefined,
-): notification is DecodedNotification<AnyNotificationDefinition> {
-  if (notification.definition.validateParams(notification.params)) return true;
-  logger?.warn(
-    `Notification ${notification.definition.name} dropped: params failed schema validation (drift signal)`,
-    notification.params,
-  );
-  return false;
-}
-
-/**
- * Typed bridge for `waitForNotification`: matches the notification's
- * descriptor against `definition` and then validates its params via
- * `validateNotificationParams`. A frame whose method matches `definition`
- * but whose params fail validation is logged and skipped — the typed
- * promise never resolves with a malformed payload typed as if it were
- * valid. "Skip on non-match" semantics for the bucketed waiter map are
- * preserved; the validation guard is the lift from raw to validated.
- */
-export function acceptTypedNotification<D extends AnyNotificationDefinition>(
-  definition: D,
-  notification: AnyRawDecodedNotification,
-  logger: WsClientLogger | undefined,
+  notification: DecodedNotification<AnyNotificationDefinition>,
 ): notification is DecodedNotification<D> {
-  if (!notificationMatches(definition, notification)) return false;
-  return validateNotificationParams(notification, logger);
+  return notification.definition === definition;
 }
 
 /** Drop `waiter` from its notification-definition bucket, pruning an empty bucket. */
@@ -341,17 +276,7 @@ export interface MoltZapWsClientOptions {
 }
 
 /**
- * Return shape of `MoltZapWsClient.sendRpcTracked`. Surfaces the outbound
- * request `id` alongside the typed result without leaking the JSON-RPC wire
- * object onto the caller surface.
- */
-export interface TrackedRpcResponse<R> {
-  readonly id: JsonRpcStringId;
-  readonly result: R;
-}
-
-/**
- * WebSocket lifecycle: open → auth/connect → active. On disconnect,
+ * WebSocket lifecycle: open → network/connect → active. On disconnect,
  * exponential backoff (1s base, 30s cap, jittered) retries the handshake via
  * `Effect.sleep` + `Schedule` so TestClock can drive it. Public API is
  * Effect-based — consumers run the returned Effects themselves (typically at
@@ -364,12 +289,12 @@ export interface TrackedRpcResponse<R> {
  */
 export class MoltZapWsClient {
   private readonly pendingRef: Ref.Ref<
-    HashMap.HashMap<JsonRpcStringId, Deferred.Deferred<unknown, PendingError>>
+    HashMap.HashMap<JsonRpcId, Deferred.Deferred<unknown, PendingError>>
   >;
   private readonly stateRef: Ref.Ref<Option.Option<ConnState>>;
   private readonly malformedRef: Ref.Ref<number>;
   private readonly notificationsBufferRef: Ref.Ref<
-    ReadonlyArray<AnyRawDecodedNotification>
+    ReadonlyArray<DecodedNotification<AnyNotificationDefinition>>
   >;
   /**
    * Waiters keyed by notification descriptor identity. Each bucket is a FIFO
@@ -412,10 +337,7 @@ export class MoltZapWsClient {
     this.runtime = ManagedRuntime.make(NodeSocket.layerWebSocketConstructor);
     this.pendingRef = this.runtime.runSync(
       Ref.make<
-        HashMap.HashMap<
-          JsonRpcStringId,
-          Deferred.Deferred<unknown, PendingError>
-        >
+        HashMap.HashMap<JsonRpcId, Deferred.Deferred<unknown, PendingError>>
       >(HashMap.empty()),
     );
     this.stateRef = this.runtime.runSync(
@@ -423,7 +345,9 @@ export class MoltZapWsClient {
     );
     this.malformedRef = this.runtime.runSync(Ref.make(0));
     this.notificationsBufferRef = this.runtime.runSync(
-      Ref.make<ReadonlyArray<AnyRawDecodedNotification>>([]),
+      Ref.make<ReadonlyArray<DecodedNotification<AnyNotificationDefinition>>>(
+        [],
+      ),
     );
     this.notificationWaitersRef = this.runtime.runSync(
       Ref.make<
@@ -485,7 +409,7 @@ export class MoltZapWsClient {
     return this._helloOk;
   }
 
-  /** Open the socket, perform auth/connect, resolve with HelloOk. Fails
+  /** Open the socket, perform network/connect, resolve with HelloOk. Fails
    * immediately on pre-open close or error. */
   connect(): Effect.Effect<
     ConnectResult,
@@ -513,7 +437,7 @@ export class MoltZapWsClient {
    * Descriptor-backed RPC call. Callers pass the protocol descriptor, and the
    * client extracts the wire method only inside the encoder path.
    */
-  sendRpc<D extends RpcDefinition<string, TSchema, TSchema>>(
+  sendRpc<D extends RpcDefinition<string, any, any>>(
     definition: D,
     params: ParamsOf<D>,
     opts?: RpcCallOptions,
@@ -530,39 +454,6 @@ export class MoltZapWsClient {
                 code: JSON_RPC_INTERNAL_ERROR_CODE,
                 message: `Invalid result for method: ${definition.name}`,
                 data: result,
-              }),
-            ),
-      ),
-    );
-  }
-
-  /**
-   * Send an RPC and surface the outbound request id alongside the
-   * response envelope `type` and `result`. Spec #222 §5.1–5.2:
-   * un-vacuates B4 (request-id tracking) and V5 (response-type
-   * exposure). Mirrors `sendRpc`'s descriptor-backed call shape.
-   *
-   * Invariant 3 (spec #222 §4): the returned `id` is the same identity
-   * minted inside the existing `rpc-${++counter}` site — no parallel
-   * counter, no mirror. The single-id pre-condition is what makes B4 a
-   * real check rather than a tautology.
-   */
-  sendRpcTracked<D extends RpcDefinition<string, TSchema, TSchema>>(
-    definition: D,
-    params: ParamsOf<D>,
-  ): Effect.Effect<
-    TrackedRpcResponse<ResultOf<D>>,
-    NotConnectedError | RpcTimeoutError | RpcServerError
-  > {
-    return this.sendRpcTrackedEffect(definition, params).pipe(
-      Effect.flatMap((tracked) =>
-        definition.validateResult(tracked.result)
-          ? Effect.succeed({ id: tracked.id, result: tracked.result })
-          : Effect.fail(
-              new RpcServerError({
-                code: JSON_RPC_INTERNAL_ERROR_CODE,
-                message: `Invalid result for method: ${definition.name}`,
-                data: tracked.result,
               }),
             ),
       ),
@@ -653,12 +544,11 @@ export class MoltZapWsClient {
     timeoutMs = EVENT_WAIT_TIMEOUT_MS,
   ): Effect.Effect<DecodedNotification<D>, Error> {
     return Effect.gen(this, function* () {
-      const logger = this.options.logger;
       const buffered = yield* Ref.modify(
         this.notificationsBufferRef,
         (frames) => {
           for (const [idx, frame] of frames.entries()) {
-            if (!acceptTypedNotification(definition, frame, logger)) continue;
+            if (!acceptTypedNotification(definition, frame)) continue;
             const next = [...frames.slice(0, idx), ...frames.slice(idx + 1)];
             return [frame, next];
           }
@@ -671,7 +561,7 @@ export class MoltZapWsClient {
       const waiter: NotificationWaiter = {
         definition,
         complete: (notification) =>
-          acceptTypedNotification(definition, notification, logger)
+          acceptTypedNotification(definition, notification)
             ? Deferred.succeed(deferred, notification).pipe(Effect.asVoid)
             : Effect.void,
         fail: (error) => Deferred.fail(deferred, error).pipe(Effect.asVoid),
@@ -706,7 +596,7 @@ export class MoltZapWsClient {
   /** Return all buffered notifications and clear the buffer. Synchronous.
    * Frames are pre-validation (`params: unknown`) — buffer holds the
    * raw shape produced by the wire decoder. */
-  drainNotifications(): AnyRawDecodedNotification[] {
+  drainNotifications(): DecodedNotification<AnyNotificationDefinition>[] {
     const snapshot = this.runtime.runSync(Ref.get(this.notificationsBufferRef));
     this.runtime.runSync(Ref.set(this.notificationsBufferRef, []));
     return [...snapshot];
@@ -777,7 +667,7 @@ export class MoltZapWsClient {
 
       const write = yield* Scope.extend(socket.writer, scope);
 
-      // Settled first by whichever fires: the auth/connect response, or
+      // Settled first by whichever fires: the network/connect response, or
       // reader-fiber exit on any close/error before handshake.
       const handshakeSettled = yield* Deferred.make<
         ConnectResult,
@@ -878,7 +768,7 @@ export class MoltZapWsClient {
       // `_helloOk` behind a caller that believed connect() succeeded.
       const readerFiber = this.runtime.runFork(readerEffect);
 
-      // Publish state BEFORE auth/connect: the write goes through
+      // Publish state BEFORE network/connect: the write goes through
       // `sendRpcEffect`, which reads `stateRef`.
       yield* Ref.set(
         this.stateRef,
@@ -898,9 +788,9 @@ export class MoltZapWsClient {
         maxProtocol: PROTOCOL_VERSION,
       });
 
-      // Race the auth/connect response against the handshakeSettled deferred
+      // Race the network/connect response against the handshakeSettled deferred
       // `raceFirst` (not `race`) — `race` waits for the loser when the
-      // winner fails, so a typed auth/connect error would hang behind the
+      // winner fails, so a typed network/connect error would hang behind the
       // still-pending handshake-watchdog Deferred.
       const result = yield* Effect.raceFirst(
         authEffect,
@@ -917,22 +807,12 @@ export class MoltZapWsClient {
     });
   }
 
-  /**
-   * Tracked variant of `sendRpcEffect`. Reuses the same Deferred /
-   * pendingRef plumbing — the only difference is the resolved value:
-   * `{id, result}` instead of bare `result`. This
-   * keeps Invariant 3 (single id source) trivially: we mint `id` once
-   * inside this body, register the Deferred under that id, and return
-   * the same id to the caller alongside the result.
-   */
-  private sendRpcTrackedEffect<
-    D extends RpcDefinition<string, TSchema, TSchema>,
-  >(
+  private sendRpcEffect<D extends RpcDefinition<string, any, any>>(
     definition: D,
     params: ParamsOf<D>,
     opts?: RpcCallOptions,
   ): Effect.Effect<
-    TrackedRpcResponse<ResultOf<D>>,
+    ResultOf<D>,
     NotConnectedError | RpcTimeoutError | RpcServerError
   > {
     return Effect.gen(this, function* () {
@@ -942,22 +822,18 @@ export class MoltZapWsClient {
         return yield* Effect.fail(makeNotConnectedError());
       }
 
-      const id = jsonRpcStringId(`rpc-${++this.requestCounter}`);
-      const frame: RequestFrame = requestFrame(id, definition, params);
+      const frame: RequestFrame = definition.encodeRequest(
+        `rpc-${++this.requestCounter}`,
+        params,
+      );
+      const id = frame.id;
 
-      // Register the Deferred BEFORE writing. `write` yields to the
-      // scheduler; the reader could interleave, see a close, and
-      // `failAllPending` before we register — leaving us to await a
+      // Register the Deferred BEFORE writing — write yields, reader could
+      // close + failAllPending before we register, leaving us awaiting a
       // never-resolved Deferred.
       const deferred = yield* Deferred.make<unknown, PendingError>();
       yield* Ref.update(this.pendingRef, (m) => HashMap.set(m, id, deferred));
 
-      // `socket.writer` gates on an internal Latch that `runRaw` only
-      // opens after the WebSocket hits OPEN. If the socket never
-      // opens, `runRaw`'s `ensuring` closes the latch and `write`
-      // blocks indefinitely — so we race the write against the
-      // pending Deferred (which the reader fails on close),
-      // short-circuiting the dead write.
       const writeAttempt = Effect.either(
         state.value.write(JSON.stringify(frame)),
       );
@@ -992,40 +868,17 @@ export class MoltZapWsClient {
         ),
       );
 
-      const decodedResult = yield* decodeRpcResult(definition, result).pipe(
-        Effect.mapError(
-          () =>
-            new RpcServerError({
-              code: JSON_RPC_INTERNAL_ERROR_CODE,
-              message: `Invalid result for method: ${definition.name}`,
-              data: result,
-            }),
-        ),
-      );
-
-      return { id, result: decodedResult };
+      if (!definition.validateResult(result)) {
+        return yield* Effect.fail(
+          new RpcServerError({
+            code: JSON_RPC_INTERNAL_ERROR_CODE,
+            message: `Invalid result for method: ${definition.name}`,
+            data: result,
+          }),
+        );
+      }
+      return result as ResultOf<D>;
     });
-  }
-
-  /**
-   * Bare-result RPC — projects the tracked RPC envelope onto its
-   * `result` field, discarding the `{id, type}` observability surface.
-   * The write / race / timeout plumbing lives in `sendRpcTrackedEffect`
-   * so there is one shared site for Invariant 3 (single id source),
-   * Invariant 5 (typed error channel), and the `socket.writer` latch
-   * race described below.
-   */
-  private sendRpcEffect<D extends RpcDefinition<string, TSchema, TSchema>>(
-    definition: D,
-    params: ParamsOf<D>,
-    opts?: RpcCallOptions,
-  ): Effect.Effect<
-    ResultOf<D>,
-    NotConnectedError | RpcTimeoutError | RpcServerError
-  > {
-    return this.sendRpcTrackedEffect(definition, params, opts).pipe(
-      Effect.map((tracked) => tracked.result),
-    );
   }
 
   /**
@@ -1039,7 +892,7 @@ export class MoltZapWsClient {
    */
   private writeOfferRejection(
     err: OfferRejected,
-    requestId: JsonRpcStringId,
+    requestId: JsonRpcId,
     write: ConnState["write"],
   ): Effect.Effect<void, never> {
     const reply = this.offerRejectedResponse(err, requestId);
@@ -1057,22 +910,18 @@ export class MoltZapWsClient {
 
   private offerRejectedResponse(
     err: OfferRejected,
-    requestId: JsonRpcStringId,
+    requestId: JsonRpcId,
   ): ResponseFrame {
     if (err instanceof PartitionLimitError) {
-      return responseFrame(requestId, {
-        error: {
-          code: -32000,
-          message: `Server busy: partition limit reached (${err.activePartitions}/${err.maxPartitions})`,
-        },
+      return encodeErrorResponse(requestId, {
+        code: -32000,
+        message: `Server busy: partition limit reached (${err.activePartitions}/${err.maxPartitions})`,
       });
     }
     if (err instanceof PartitionQueueFullError) {
-      return responseFrame(requestId, {
-        error: {
-          code: -32000,
-          message: `Server busy: partition queue full (capacity=${err.capacity})`,
-        },
+      return encodeErrorResponse(requestId, {
+        code: -32000,
+        message: `Server busy: partition queue full (capacity=${err.capacity})`,
       });
     }
     const _exhaustive: never = err;
@@ -1104,11 +953,9 @@ export class MoltZapWsClient {
       const buildReply =
         lookup._tag === "None"
           ? Effect.succeed(
-              responseFrame(request.id, {
-                error: {
-                  code: -32601,
-                  message: "No handler registered for app callback descriptor",
-                },
+              encodeErrorResponse(request.id, {
+                code: -32601,
+                message: "No handler registered for app callback descriptor",
               }) satisfies ResponseFrame,
             )
           : lookup
@@ -1119,16 +966,15 @@ export class MoltZapWsClient {
               .pipe(
                 Effect.match({
                   onSuccess: (result) =>
-                    responseFrame(request.id, {
+                    request.definition.encodeResponse(
+                      request.id,
                       result,
-                    }) satisfies ResponseFrame,
+                    ) satisfies ResponseFrame,
                   onFailure: (err) =>
-                    responseFrame(request.id, {
-                      error: {
-                        code: err.code,
-                        message: err.message,
-                        ...(err.data !== undefined ? { data: err.data } : {}),
-                      },
+                    encodeErrorResponse(request.id, {
+                      code: err.code,
+                      message: err.message,
+                      ...(err.data !== undefined ? { data: err.data } : {}),
                     }) satisfies ResponseFrame,
                 }),
                 Effect.catchAllCause((cause) =>
@@ -1137,8 +983,9 @@ export class MoltZapWsClient {
                       "appCallback handler defected",
                       Cause.pretty(cause),
                     );
-                    return responseFrame(request.id, {
-                      error: { code: -32603, message: "Internal error" },
+                    return encodeErrorResponse(request.id, {
+                      code: -32603,
+                      message: "Internal error",
                     }) satisfies ResponseFrame;
                   }),
                 ),
@@ -1175,8 +1022,11 @@ export class MoltZapWsClient {
       if (decodedFrames === null) return;
 
       for (const decoded of decodedFrames) {
-        if (decoded._tag === "Response") {
-          const { id, result, error } = decoded;
+        if (
+          decoded._tag === "ResponseSuccess" ||
+          decoded._tag === "ResponseError"
+        ) {
+          const id = decoded.id;
           const pending = yield* Ref.modify(this.pendingRef, (m) => {
             const entry = HashMap.get(m, id);
             return entry._tag === "Some"
@@ -1185,7 +1035,8 @@ export class MoltZapWsClient {
           });
           if (pending === null) continue;
 
-          if (error) {
+          if (decoded._tag === "ResponseError") {
+            const { error } = decoded;
             yield* Deferred.fail(
               pending,
               new RpcServerError({
@@ -1198,7 +1049,7 @@ export class MoltZapWsClient {
               }),
             );
           } else {
-            yield* Deferred.succeed(pending, result);
+            yield* Deferred.succeed(pending, decoded.result);
           }
           continue;
         }
@@ -1244,16 +1095,11 @@ export class MoltZapWsClient {
         }
 
         if (decoded._tag === "Notification") {
-          // Spec #222 §5.3: subscribers see the full Raw|Unknown union
-          // (conformance fuzz exercises both); waiters require a known
-          // descriptor to key the bucket map.
           yield* this.subscribers.dispatch(decoded);
-          if (decoded.definition === undefined) continue;
-          const knownDecoded: AnyRawDecodedNotification = decoded;
           const delivered = yield* Ref.modify(
             this.notificationWaitersRef,
             (m) => {
-              const bucket = HashMap.get(m, knownDecoded.definition);
+              const bucket = HashMap.get(m, decoded.definition);
               if (bucket._tag === "None" || bucket.value.length === 0) {
                 return [null as NotificationWaiter | null, m];
               }
@@ -1262,18 +1108,18 @@ export class MoltZapWsClient {
               const rest = arr.slice(0, -1);
               const nextMap =
                 rest.length === 0
-                  ? HashMap.remove(m, knownDecoded.definition)
-                  : HashMap.set(m, knownDecoded.definition, rest);
+                  ? HashMap.remove(m, decoded.definition)
+                  : HashMap.set(m, decoded.definition, rest);
               return [chosen, nextMap];
             },
           );
           if (delivered !== null) {
-            yield* delivered.complete(knownDecoded);
+            yield* delivered.complete(decoded);
             continue;
           }
 
           yield* Ref.update(this.notificationsBufferRef, (xs) => {
-            const appended = [...xs, knownDecoded];
+            const appended = [...xs, decoded];
             return appended.length > MAX_EVENT_BUFFER
               ? appended.slice(-MAX_EVENT_BUFFER)
               : appended;
@@ -1305,10 +1151,7 @@ export class MoltZapWsClient {
     return Effect.gen(this, function* () {
       const pending = yield* Ref.getAndSet(
         this.pendingRef,
-        HashMap.empty<
-          JsonRpcStringId,
-          Deferred.Deferred<unknown, PendingError>
-        >(),
+        HashMap.empty<JsonRpcId, Deferred.Deferred<unknown, PendingError>>(),
       );
       for (const [, d] of HashMap.entries(pending)) {
         yield* Deferred.fail(d, new NotConnectedError({ message })).pipe(

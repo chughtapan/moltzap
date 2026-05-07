@@ -18,42 +18,56 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Cause, Effect, Exit } from "effect";
-import { ErrorCodes } from "@moltzap/protocol";
-import { RpcFailure } from "../runtime/index.js";
+import { JSON_RPC_RESERVED_CODES, NotInContactsError } from "@moltzap/protocol";
+import { wireErrorFromInstance } from "@moltzap/protocol/testing";
 import type { Kysely } from "kysely";
+import { KyselyPGlite } from "kysely-pglite";
+import { readFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { makeEffectKysely } from "../db/effect-kysely-toolkit.js";
 import type { Database } from "../db/database.js";
 import { AuthService } from "./auth.service.js";
 import { ConversationService } from "./conversation.service.js";
 import { ParticipantService } from "./participant.service.js";
-import {
-  ConnectionManager,
-  type MoltZapConnection,
-  type AppCallbackPendingMap,
-} from "../ws/connection.js";
-import { HashMap, Ref } from "effect";
+import { ConnectionManager, type MoltZapConnection } from "../ws/connection.js";
+import { unusedJsonRpcClient } from "../ws/connection.test-utils.js";
 import type { AuthenticatedContext } from "../rpc/context.js";
-import type { AgentId } from "../app/types.js";
-import {
-  makePgliteHarness,
-  PGLITE_HOOK_TIMEOUT_MS,
-  type PgliteHarness,
-} from "../test-utils/index.js";
+import type { AgentId, ConversationId } from "../app/types.js";
+import type { TaskId } from "@moltzap/protocol/task";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const schema = readFileSync(
+  join(__dirname, "..", "app", "core-schema.sql"),
+  "utf-8",
+);
+const dbHookTimeoutMs = 30_000;
 
 // Track the PGlite client between tests so we can reset state cleanly.
-let harness: PgliteHarness | undefined;
 let db: Kysely<Database>;
+let pglite: {
+  exec: (sql: string) => Promise<unknown>;
+  close: () => Promise<void>;
+};
 
 async function freshDb(): Promise<void> {
-  harness = await makePgliteHarness();
-  db = harness.db;
+  const kpg = await KyselyPGlite.create();
+  // kysely-pglite returns a typed client that exposes a wider interface than
+  // the handful of methods (exec/close) these tests need.
+  pglite = {
+    exec: (sql) => kpg.client.exec(sql),
+    close: () => kpg.client.close(),
+  };
+  db = makeEffectKysely<Database>({ dialect: kpg.dialect });
+  await pglite.exec(schema);
 }
 
 const noopWrite: MoltZapConnection["write"] = () => Effect.void;
 const noopShutdown: MoltZapConnection["shutdown"] = Effect.void;
 
-function makeConn(connId: string, agentId: string): MoltZapConnection {
+function makeConn(connId: string, agentId: AgentId): MoltZapConnection {
   const auth: AuthenticatedContext = {
-    agentId: agentId as AgentId,
+    agentId,
     agentStatus: "active",
     ownerUserId: null,
   };
@@ -65,8 +79,7 @@ function makeConn(connId: string, agentId: string): MoltZapConnection {
     lastPong: Date.now(),
     conversationIds: new Set<string>(),
     mutedConversations: new Set<string>(),
-    appCallbackPending: Ref.unsafeMake<AppCallbackPendingMap>(HashMap.empty()),
-    appCallbackRequestCounter: Ref.unsafeMake(0),
+    jsonRpcClient: unusedJsonRpcClient(),
   };
 }
 
@@ -74,7 +87,7 @@ async function seedAgent(
   authService: AuthService,
   name: string,
   ownerUserId?: string,
-): Promise<string> {
+): Promise<AgentId> {
   const { agentId } = await Effect.runPromise(
     authService.registerAgent({ name }, ownerUserId),
   );
@@ -89,7 +102,7 @@ async function seedAgent(
  * mint a fresh task per call via this helper — the TM is the
  * initiator (matches `tasks/create` from a custom-TM caller).
  */
-async function seedTask(initiator: string): Promise<string> {
+async function seedTask(initiator: AgentId): Promise<TaskId> {
   const row = await db
     .insertInto("tasks")
     .values({
@@ -112,8 +125,8 @@ async function createConv(
   service: ConversationService,
   type: "dm" | "group",
   name: string | undefined,
-  participants: string[],
-  initiator: string,
+  participants: AgentId[],
+  initiator: AgentId,
 ) {
   const taskId = await seedTask(initiator);
   return Effect.runPromise(
@@ -132,8 +145,8 @@ async function createConvExit(
   service: ConversationService,
   type: "dm" | "group",
   name: string | undefined,
-  participants: string[],
-  initiator: string,
+  participants: AgentId[],
+  initiator: AgentId,
 ) {
   const taskId = await seedTask(initiator);
   return Effect.runPromiseExit(
@@ -147,11 +160,17 @@ async function createConvExit(
   );
 }
 
-/** Extract the underlying RpcFailure so tests can assert on wire-level codes. */
-function expectRpcFailure<A>(exit: Exit.Exit<A, RpcFailure>): RpcFailure {
+/** Extract the wire metadata (code, message, data) of any tagged-error
+ * class raised by the service. */
+interface WireFailure {
+  readonly code: number;
+  readonly message: string;
+  readonly data?: unknown;
+}
+function expectRpcFailure<A>(exit: Exit.Exit<A, unknown>): WireFailure {
   if (Exit.isSuccess(exit)) {
     throw new Error(
-      `Expected RpcFailure, got success: ${JSON.stringify(exit.value)}`,
+      `Expected tagged failure, got success: ${JSON.stringify(exit.value)}`,
     );
   }
   const failure = Cause.failureOption(exit.cause);
@@ -160,13 +179,19 @@ function expectRpcFailure<A>(exit: Exit.Exit<A, RpcFailure>): RpcFailure {
       `Expected tagged failure, got: ${Cause.pretty(exit.cause)}`,
     );
   }
-  return failure.value;
+  const wire = wireErrorFromInstance(failure.value);
+  if (wire === null) {
+    throw new Error(
+      `Expected wire-error class, got: ${JSON.stringify(failure.value)}`,
+    );
+  }
+  return wire;
 }
 
 describe("ConversationService.create auto-subscribes participants", () => {
-  beforeEach(freshDb, PGLITE_HOOK_TIMEOUT_MS);
+  beforeEach(freshDb, dbHookTimeoutMs);
   afterEach(async () => {
-    await harness?.close();
+    await pglite?.close();
   });
 
   it("subscribes creator + every participant agent's open connections", async () => {
@@ -242,9 +267,9 @@ describe("ConversationService.create auto-subscribes participants", () => {
 });
 
 describe("ConversationService.addParticipant auto-subscribes the new member", () => {
-  beforeEach(freshDb, PGLITE_HOOK_TIMEOUT_MS);
+  beforeEach(freshDb, dbHookTimeoutMs);
   afterEach(async () => {
-    await harness?.close();
+    await pglite?.close();
   });
 
   it("subscribes the new participant's open sockets to the existing conversation", async () => {
@@ -310,9 +335,9 @@ describe("ConversationService.addParticipant auto-subscribes the new member", ()
  * so the agent ended up with a "live" DM id it could never write to.
  */
 describe("ConversationService.create — archived DM lookup (issue #372)", () => {
-  beforeEach(freshDb, PGLITE_HOOK_TIMEOUT_MS);
+  beforeEach(freshDb, dbHookTimeoutMs);
   afterEach(async () => {
-    await harness?.close();
+    await pglite?.close();
   });
 
   it("does not reuse an archived DM — creates a fresh conversation instead", async () => {
@@ -371,9 +396,9 @@ describe("ConversationService.create — archived DM lookup (issue #372)", () =>
  * service boundary.
  */
 describe("ConversationService.create enforces contact policy on DMs", () => {
-  beforeEach(freshDb, PGLITE_HOOK_TIMEOUT_MS);
+  beforeEach(freshDb, dbHookTimeoutMs);
   afterEach(async () => {
-    await harness?.close();
+    await pglite?.close();
   });
 
   it("denies DM creation when owners are not in contact (NotInContacts)", async () => {
@@ -409,7 +434,7 @@ describe("ConversationService.create enforces contact policy on DMs", () => {
     const exit = await createConvExit(service, "dm", undefined, [bob], alice);
     const failure = expectRpcFailure(exit);
 
-    expect(failure.code).toBe(ErrorCodes.NotInContacts);
+    expect(failure.code).toBe(NotInContactsError.code);
     expect(failure.message).toMatch(/contact policy/i);
     expect(calls).toEqual([
       [
@@ -481,7 +506,7 @@ describe("ConversationService.create enforces contact policy on DMs", () => {
 
     const exit = await createConvExit(service, "dm", undefined, [bob], alice);
     const failure = expectRpcFailure(exit);
-    expect(failure.code).toBe(ErrorCodes.NotInContacts);
+    expect(failure.code).toBe(NotInContactsError.code);
   });
 
   it("permits DMs when no policy is configured (default behavior preserved)", async () => {
@@ -572,7 +597,7 @@ describe("ConversationService.create enforces contact policy on DMs", () => {
       ),
     );
     const failure = expectRpcFailure(exit);
-    expect(failure.code).toBe(ErrorCodes.NotInContacts);
+    expect(failure.code).toBe(NotInContactsError.code);
   });
 });
 
@@ -584,9 +609,9 @@ describe("ConversationService.create enforces contact policy on DMs", () => {
  * edge.
  */
 describe("ConversationService.create enforces contact policy on groups", () => {
-  beforeEach(freshDb, PGLITE_HOOK_TIMEOUT_MS);
+  beforeEach(freshDb, dbHookTimeoutMs);
   afterEach(async () => {
-    await harness?.close();
+    await pglite?.close();
   });
 
   it("denies group creation when ANY (creator, member) edge fails", async () => {
@@ -633,7 +658,7 @@ describe("ConversationService.create enforces contact policy on groups", () => {
       alice,
     );
     const failure = expectRpcFailure(exit);
-    expect(failure.code).toBe(ErrorCodes.NotInContacts);
+    expect(failure.code).toBe(NotInContactsError.code);
     // Policy was checked for both edges before the carol denial fired
     // (fail-fast on the first deny; bob's edge ran first).
     expect(calls).toEqual([
@@ -722,7 +747,7 @@ describe("ConversationService.create enforces contact policy on groups", () => {
       alice,
     );
     const failure = expectRpcFailure(exit);
-    expect(failure.code).toBe(ErrorCodes.NotInContacts);
+    expect(failure.code).toBe(NotInContactsError.code);
   });
 });
 
@@ -733,9 +758,9 @@ describe("ConversationService.create enforces contact policy on groups", () => {
  * — every (requester, member) edge must be allowed.
  */
 describe("ConversationService.addParticipant enforces contact policy", () => {
-  beforeEach(freshDb, PGLITE_HOOK_TIMEOUT_MS);
+  beforeEach(freshDb, dbHookTimeoutMs);
   afterEach(async () => {
-    await harness?.close();
+    await pglite?.close();
   });
 
   it("denies adding a participant when (requester, target) edge is denied", async () => {
@@ -781,7 +806,7 @@ describe("ConversationService.addParticipant enforces contact policy", () => {
       service.addParticipant(conv.id, carol, alice),
     );
     const failure = expectRpcFailure(exit);
-    expect(failure.code).toBe(ErrorCodes.NotInContacts);
+    expect(failure.code).toBe(NotInContactsError.code);
   });
 
   it("permits addParticipant when policy allows the edge", async () => {
@@ -856,7 +881,7 @@ describe("ConversationService.addParticipant enforces contact policy", () => {
       service.addParticipant(conv.id, carol, alice),
     );
     const failure = expectRpcFailure(exit);
-    expect(failure.code).toBe(ErrorCodes.NotInContacts);
+    expect(failure.code).toBe(NotInContactsError.code);
   });
 
   it("permits addParticipant when no policy is configured", async () => {
@@ -889,9 +914,9 @@ describe("ConversationService.addParticipant enforces contact policy", () => {
  * fails loudly.
  */
 describe("ConversationService.addParticipant rejects DM conversations", () => {
-  beforeEach(freshDb, PGLITE_HOOK_TIMEOUT_MS);
+  beforeEach(freshDb, dbHookTimeoutMs);
   afterEach(async () => {
-    await harness?.close();
+    await pglite?.close();
   });
 
   it("rejects addParticipant on a DM with InvalidParams; participants table unchanged", async () => {
@@ -937,7 +962,7 @@ describe("ConversationService.addParticipant rejects DM conversations", () => {
       service.addParticipant(dm.id, carol, alice),
     );
     const failure = expectRpcFailure(exit);
-    expect(failure.code).toBe(ErrorCodes.InvalidParams);
+    expect(failure.code).toBe(JSON_RPC_RESERVED_CODES.InvalidParams);
     expect(failure.message).toMatch(/dm/i);
 
     // Belt-and-suspenders: the database row is unchanged. Only Alice +

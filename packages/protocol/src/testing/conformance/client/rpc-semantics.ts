@@ -14,17 +14,13 @@
  * asserts set equality — no typed-error involvement.
  */
 import { Effect } from "effect";
-import { responseFrame } from "../../../helpers.js";
-import {
-  isJsonRpcStringId,
-  jsonRpcStringId,
-} from "../../../schema/json-rpc.js";
+import { responseFrame } from "../../../transport/wire.js";
 import type { ClientConformanceRunContext } from "./runner.js";
 import { registerProperty } from "../registry.js";
 import { acquireFixture, invariant } from "./_fixtures.js";
 import { isRequestFrame } from "../../codec.js";
 
-import { AgentsList } from "../../../network/methods/auth.js";
+import { AgentsList } from "../../../identity/methods.js";
 
 const CATEGORY = "rpc-semantics" as const;
 const CALL_BUDGET_MS = 5_000;
@@ -121,17 +117,9 @@ export function registerModelEquivalenceClient(
 }
 
 /**
- * B4 client half — TestServer emits a response carrying an id the
- * client never sent (spurious); the client must not resolve any
- * pending call with it. Then emit a response with a *valid* outstanding
- * id; the matching call resolves exactly once.
- *
- * Predicate (conjunction):
- *   - spurious response does not resolve any pending call
- *   - matching response resolves the outstanding call
- *
- * Discriminates: a client that resolves pending call P with any
- * response frame regardless of id mis-routes.
+ * B4 client half — TestServer emits a spurious response with marker payload
+ * `{ __spurious: true }`, then a matching-id response with `{ agents: {} }`.
+ * A correctly correlating client returns the matching payload.
  */
 export function registerRequestIdUniquenessClient(
   ctx: ClientConformanceRunContext,
@@ -148,16 +136,12 @@ export function registerRequestIdUniquenessClient(
           CATEGORY,
           PROPERTY_REQUEST_ID_UNIQUENESS_CLIENT,
         );
-        // Emit a spurious response with an id the client never sent.
         const spuriousId = "spurious-id-that-was-never-requested";
         yield* fx.connection
           .emitResponse(
-            responseFrame(jsonRpcStringId(spuriousId), {
-              result: { agents: {} },
-            }),
+            responseFrame(spuriousId, { result: { __spurious: true } }),
           )
           .pipe(Effect.orElseSucceed(() => undefined));
-        // Fork a responder that correctly routes the matching response.
         yield* Effect.forkScoped(
           Effect.gen(function* () {
             let responded = false;
@@ -173,9 +157,7 @@ export function registerRequestIdUniquenessClient(
                 ) {
                   yield* fx.connection
                     .emitResponse(
-                      responseFrame(entry.frame.id, {
-                        result: { agents: {} },
-                      }),
+                      responseFrame(entry.frame.id, { result: { agents: {} } }),
                     )
                     .pipe(Effect.orElseSucceed(() => undefined));
                   responded = true;
@@ -185,8 +167,7 @@ export function registerRequestIdUniquenessClient(
             }
           }),
         );
-        // Issue the RPC: must resolve via the matching id, not the spurious one.
-        const result = yield* fx.handle.call.call(AgentsList.name, {}).pipe(
+        const frame = yield* fx.handle.call.call(AgentsList.name, {}).pipe(
           Effect.timeoutFail({
             duration: `${CALL_BUDGET_MS} millis`,
             onTimeout: () =>
@@ -206,28 +187,20 @@ export function registerRequestIdUniquenessClient(
               : e,
           ),
         );
-        if ("id" in result && isJsonRpcStringId(result.id)) {
-          // Inspect: the resolved id must appear in the outboundIdFeed —
-          // any resolution via the spurious id is a cross-wiring bug.
-          const outbound = yield* fx.handle.call.outboundIdFeed;
-          if (!outbound.includes(result.id)) {
-            return yield* Effect.fail(
-              invariant(
-                CATEGORY,
-                PROPERTY_REQUEST_ID_UNIQUENESS_CLIENT,
-                `resolved id ${result.id} absent from outboundIdFeed (cross-wire)`,
-              ),
-            );
-          }
-          if (result.id === spuriousId) {
-            return yield* Effect.fail(
-              invariant(
-                CATEGORY,
-                PROPERTY_REQUEST_ID_UNIQUENESS_CLIENT,
-                "pending call resolved via spurious id",
-              ),
-            );
-          }
+        if (
+          "result" in frame &&
+          frame.result !== null &&
+          typeof frame.result === "object" &&
+          "__spurious" in frame.result &&
+          (frame.result as { __spurious: unknown }).__spurious === true
+        ) {
+          return yield* Effect.fail(
+            invariant(
+              CATEGORY,
+              PROPERTY_REQUEST_ID_UNIQUENESS_CLIENT,
+              "pending call resolved via spurious response (cross-wire correlation bug)",
+            ),
+          );
         }
       }),
     ),

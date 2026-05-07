@@ -6,17 +6,14 @@ import {
   AgentsLookup,
   AgentsLookupByName,
   type HelloOk,
-  agentId as toAgentId,
   AppsAuthorizeDispatch,
-  bindNotificationHandler,
   ConversationsCreate,
   ConversationsGet,
   type ConversationCreatedNotification,
   type ConversationUpdatedNotification,
-  conversationId as toConversationId,
-  type DecodedNotificationFrame,
-  defineEffectNotificationHandlers,
-  defineNotificationGroup,
+  type AnyNotificationDefinition,
+  type AnyRpcDefinition,
+  type DecodedNotification,
   type Message,
   type MessageReceivedNotification,
   type Part,
@@ -27,20 +24,19 @@ import {
   ConversationUpdatedNotificationDefinition,
   ConversationArchivedNotificationDefinition,
   ConversationUnarchivedNotificationDefinition,
-  ErrorCodes,
-  isDecodedNotificationInGroup,
-  messageId as toMessageId,
+  ConversationArchivedError,
   MessagesList,
   MessagesSend,
   NotConnectedError,
   rpcMethods,
   RpcServerError,
   RpcTimeoutError,
-  type RpcDefinition,
   type ParamsOf,
   type ResultOf,
-  type TSchema,
+  type RpcDefinition,
 } from "@moltzap/protocol";
+import type { AgentId } from "@moltzap/protocol/identity";
+import type { ConversationId, MessageId } from "@moltzap/protocol/task";
 import {
   Config,
   ConfigProvider,
@@ -53,7 +49,6 @@ import {
 } from "effect";
 import {
   MoltZapWsClient,
-  validateNotificationParams,
   type RpcCallOptions,
   type WsClientLogger,
 } from "./ws-client.js";
@@ -191,14 +186,14 @@ interface ServiceHandlerPayloads {
   readonly message: Message;
   /**
    * The "raw notification" surface receives the wire decoder's
-   * `DecodedNotificationFrame` union — known methods carry the
+   * `DecodedNotification<AnyNotificationDefinition>` union — known methods carry the
    * descriptor and a raw `params: unknown` payload (validation hasn't
    * happened yet); unknown methods carry no descriptor at all.
    * Subscribers that want validated payloads register specific typed
    * `on(...)` handlers (e.g. `conversationArchived`) which run behind
    * the typed-bridge lift in `handleNotification`.
    */
-  readonly rawNotification: DecodedNotificationFrame;
+  readonly rawNotification: DecodedNotification<AnyNotificationDefinition>;
   readonly disconnect: void;
   readonly reconnect: HelloOk;
   readonly conversationArchived: ConversationArchivedNotification;
@@ -233,19 +228,6 @@ const renderPart: (p: Part) => string = Match.type<Part>().pipe(
  * display windows — `conversations get` shows at most a few hundred.
  */
 const MAX_MESSAGES_PER_CONV = 1000;
-
-const serviceNotificationDefinitions = [
-  MessageReceivedNotificationDefinition,
-  ConversationCreatedNotificationDefinition,
-  ConversationUpdatedNotificationDefinition,
-  ConversationArchivedNotificationDefinition,
-  ConversationUnarchivedNotificationDefinition,
-] as const;
-
-const serviceNotificationGroup = defineNotificationGroup(
-  "clientService",
-  serviceNotificationDefinitions,
-);
 
 /**
  * Invoke every handler with `arg`, isolating throws so one bad handler
@@ -316,7 +298,6 @@ export class MoltZapService {
     conversationArchived: [],
     conversationUnarchived: [],
   };
-  private readonly notificationHandlers = this.createNotificationHandlers();
 
   private _ownAgentId: string | undefined;
 
@@ -347,7 +328,6 @@ export class MoltZapService {
         },
         onReconnect: (helloOk) => {
           this._connected = true;
-          this.populateFromHello(helloOk);
           fanout(this.handlers.reconnect, helloOk, this.opts.logger);
         },
       });
@@ -363,7 +343,6 @@ export class MoltZapService {
       const helloOk = yield* this.client.connect();
       this._connected = true;
       this._ownAgentId = helloOk.agentId;
-      this.populateFromHello(helloOk);
       return helloOk;
     });
   }
@@ -581,7 +560,9 @@ export class MoltZapService {
           return this.handleHistoryRequest(params);
 
         default: {
-          const definition = rpcMethods.find((def) => def.name === method);
+          const definition = rpcMethods.find(
+            (d): d is AnyRpcDefinition => d.name === method,
+          );
           if (definition === undefined || !definition.validateParams(params)) {
             return Effect.fail(
               new ServiceInputError({
@@ -589,7 +570,10 @@ export class MoltZapService {
               }),
             );
           }
-          return this.sendRpc(definition, params);
+          return this.sendRpc(
+            definition,
+            params as ParamsOf<typeof definition>,
+          );
         }
       }
     });
@@ -615,7 +599,7 @@ export class MoltZapService {
       const limit = (params.limit as number) ?? DEFAULT_HISTORY_LIMIT;
       const sessionKey = params.sessionKey as string | undefined;
       const result = yield* this.sendRpc(MessagesList, {
-        conversationId: toConversationId(convId),
+        conversationId: convId as ConversationId,
         limit,
       });
 
@@ -643,7 +627,7 @@ export class MoltZapService {
           : Effect.void;
 
       const metaEff = this.sendRpc(ConversationsGet, {
-        conversationId: toConversationId(convId),
+        conversationId: convId as ConversationId,
       }).pipe(
         Effect.map((res) => res.conversation),
         Effect.catchAll(() => Effect.succeed(undefined)),
@@ -795,16 +779,16 @@ export class MoltZapService {
     if (this.isConversationArchived(convId)) {
       return Effect.fail(
         new RpcServerError({
-          code: ErrorCodes.ConversationArchived,
+          code: ConversationArchivedError.code,
           message: "Conversation is archived",
         }),
       );
     }
     return Effect.asVoid(
       this.sendRpc(MessagesSend, {
-        conversationId: toConversationId(convId),
+        conversationId: convId as ConversationId,
         parts: [{ type: "text", text }],
-        ...(opts?.replyTo ? { replyToId: toMessageId(opts.replyTo) } : {}),
+        ...(opts?.replyTo ? { replyToId: opts.replyTo as MessageId } : {}),
         ...(opts?.dispatchLeaseId
           ? { dispatchLeaseId: opts.dispatchLeaseId }
           : {}),
@@ -818,17 +802,17 @@ export class MoltZapService {
     return this.sendRpc(
       AppsAuthorizeDispatch,
       {
-        conversationId: toConversationId(request.conversationId),
-        messageId: toMessageId(request.message.id),
-        senderAgentId: toAgentId(request.senderAgentId),
+        conversationId: request.conversationId as ConversationId,
+        messageId: request.message.id as MessageId,
+        senderAgentId: request.senderAgentId as AgentId,
         parts: [...request.message.parts],
         receivedAt: request.receivedAt,
         clock: request.clock,
         pending: request.pending.map((pending) => ({
           ...pending,
-          messageId: toMessageId(pending.messageId),
-          conversationId: toConversationId(pending.conversationId),
-          senderAgentId: toAgentId(pending.senderAgentId),
+          messageId: pending.messageId as MessageId,
+          conversationId: pending.conversationId as ConversationId,
+          senderAgentId: pending.senderAgentId as AgentId,
           ...(pending.parts !== undefined ? { parts: [...pending.parts] } : {}),
         })),
         attempt: request.attempt,
@@ -888,7 +872,7 @@ export class MoltZapService {
         }
         const createResult = yield* this.sendRpc(ConversationsCreate, {
           type: "dm",
-          participants: [{ type: "agent", id: toAgentId(agent.id) }],
+          participants: [{ type: "agent", id: agent.id as AgentId }],
         });
         conversationId = createResult.conversation.id;
         const newId = conversationId;
@@ -1107,7 +1091,7 @@ export class MoltZapService {
 
   // --- RPC passthrough ---
 
-  sendRpc<D extends RpcDefinition<string, TSchema, TSchema>>(
+  sendRpc<D extends RpcDefinition<string, any, any>>(
     definition: D,
     params: ParamsOf<D>,
     opts?: RpcCallOptions,
@@ -1132,7 +1116,7 @@ export class MoltZapService {
     conversationId: string,
   ): Effect.Effect<void, never> {
     return this.sendRpc(ConversationsGet, {
-      conversationId: toConversationId(conversationId),
+      conversationId: conversationId as ConversationId,
     }).pipe(
       Effect.tap((res) => {
         const meta: ConversationMeta = {
@@ -1158,29 +1142,9 @@ export class MoltZapService {
     );
   }
 
-  private populateFromHello(hello: HelloOk): void {
-    if (!hello.conversations) return;
-    const incoming = hello.conversations;
-    Effect.runSync(
-      Ref.update(this.conversationsRef, (m) => {
-        let next = m;
-        for (const conv of incoming) {
-          this.archivedConversationIds.delete(conv.id);
-          next = HashMap.set(next, conv.id, {
-            id: conv.id,
-            type: conv.type,
-            participants: (conv.participants ?? []).map(
-              (p) => `${p.type}:${p.id}`,
-            ),
-            ...(conv.name !== undefined ? { name: conv.name } : {}),
-          });
-        }
-        return next;
-      }),
-    );
-  }
-
-  protected handleNotification(notification: DecodedNotificationFrame): void {
+  protected handleNotification(
+    notification: DecodedNotification<AnyNotificationDefinition>,
+  ): void {
     const params: Record<string, unknown> = isPlainRecord(notification.params)
       ? notification.params
       : {};
@@ -1207,59 +1171,45 @@ export class MoltZapService {
 
     fanout(this.handlers.rawNotification, notification, this.opts.logger);
 
-    // Subscriber-fanout dispatch is the second inbound typed bridge
-    // (sibling of `acceptTypedNotification`'s waitForNotification path).
-    // Validate `params` against the attached schema before invoking the
-    // typed handler — otherwise a stale wire shape would reach a handler
-    // typed for the current shape.
-    if (
-      isDecodedNotificationInGroup(serviceNotificationGroup, notification) &&
-      validateNotificationParams(notification, this.opts.logger)
-    ) {
-      Effect.runSync(this.notificationHandlers.dispatch(notification));
+    // Direct descriptor-keyed dispatch. Each branch narrows on the
+    // descriptor identity carried by the decoded notification — same
+    // payload-validation guarantee as before, without the extra
+    // group-decoder indirection (params were validated upstream by
+    // `decodeServerInbound` / `decodeFrames`).
+    switch (notification.definition) {
+      case MessageReceivedNotificationDefinition:
+        this.handleMessageReceivedNotification(
+          notification.params as MessageReceivedNotification,
+        );
+        return;
+      case ConversationCreatedNotificationDefinition:
+        this.handleConversationCreatedNotification(
+          notification.params as ConversationCreatedNotification,
+        );
+        return;
+      case ConversationUpdatedNotificationDefinition:
+        this.handleConversationUpdatedNotification(
+          notification.params as ConversationUpdatedNotification,
+        );
+        return;
+      case ConversationArchivedNotificationDefinition: {
+        const params = notification.params as ConversationArchivedNotification;
+        this.markConversationArchived(params.conversationId);
+        fanout(this.handlers.conversationArchived, params, this.opts.logger);
+        return;
+      }
+      case ConversationUnarchivedNotificationDefinition: {
+        const params =
+          notification.params as ConversationUnarchivedNotification;
+        this.archivedConversationIds.delete(params.conversationId);
+        fanout(this.handlers.conversationUnarchived, params, this.opts.logger);
+        return;
+      }
+      default:
+        // Other notification descriptors flow through `rawNotification`
+        // fanout above; the service has no typed bridge for them.
+        return;
     }
-  }
-
-  private createNotificationHandlers() {
-    return defineEffectNotificationHandlers(serviceNotificationGroup, [
-      bindNotificationHandler(MessageReceivedNotificationDefinition, (params) =>
-        Effect.sync(() => this.handleMessageReceivedNotification(params)),
-      ),
-      bindNotificationHandler(
-        ConversationCreatedNotificationDefinition,
-        (params) =>
-          Effect.sync(() => this.handleConversationCreatedNotification(params)),
-      ),
-      bindNotificationHandler(
-        ConversationUpdatedNotificationDefinition,
-        (params) =>
-          Effect.sync(() => this.handleConversationUpdatedNotification(params)),
-      ),
-      bindNotificationHandler(
-        ConversationArchivedNotificationDefinition,
-        (params) =>
-          Effect.sync(() => {
-            this.markConversationArchived(params.conversationId);
-            fanout(
-              this.handlers.conversationArchived,
-              params,
-              this.opts.logger,
-            );
-          }),
-      ),
-      bindNotificationHandler(
-        ConversationUnarchivedNotificationDefinition,
-        (params) =>
-          Effect.sync(() => {
-            this.archivedConversationIds.delete(params.conversationId);
-            fanout(
-              this.handlers.conversationUnarchived,
-              params,
-              this.opts.logger,
-            );
-          }),
-      ),
-    ]);
   }
 
   private handleMessageReceivedNotification(

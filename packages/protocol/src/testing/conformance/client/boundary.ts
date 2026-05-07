@@ -9,8 +9,8 @@
  */
 import { Effect } from "effect";
 import * as fc from "fast-check";
-import { MessageReceivedNotificationDefinition } from "../../../schema/notifications.js";
-import { brandNotificationFrame } from "../../../schema/internal-frames.js";
+import type { NotificationFrame } from "../../../transport/wire.js";
+import { MessageReceivedNotificationDefinition } from "../../../task/methods.js";
 import { arbitraryNotificationFrame } from "../../arbitraries/frames.js";
 import type { ClientConformanceRunContext } from "./runner.js";
 import { registerProperty } from "../registry.js";
@@ -84,11 +84,11 @@ export function registerSchemaExhaustiveFuzzClient(
         // liveness probe is independent of params shape.
         yield* fx.window.emitTaggedNotification({
           connection: fx.connection,
-          base: brandNotificationFrame({
+          base: {
             jsonrpc: "2.0",
             method: MessageReceivedNotificationDefinition.name,
             params: {},
-          }),
+          } as NotificationFrame,
           emissionTag: tag,
         });
         const observed = yield* collectTagged(fx.handle, (t) => t === tag, {

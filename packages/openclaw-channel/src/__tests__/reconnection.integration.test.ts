@@ -14,7 +14,6 @@ import {
   type ParamsOf,
   type ResultOf,
   type RpcDefinition,
-  type TSchema,
 } from "@moltzap/protocol";
 
 /** The MoltZapWsClient API is Effect-native. These helpers run the Effects
@@ -22,7 +21,7 @@ import {
 const connectWs = (c: MoltZapWsClient) => Effect.runPromise(c.connect());
 const disconnectWs = (c: MoltZapWsClient) => Effect.runSync(c.disconnect());
 const closeWs = (c: MoltZapWsClient) => Effect.runSync(c.close());
-const rpcWs = <D extends RpcDefinition<string, TSchema, TSchema>>(
+const rpcWs = <D extends RpcDefinition<string, any, any>>(
   c: MoltZapWsClient,
   definition: D,
   params: ParamsOf<D>,

@@ -9,33 +9,14 @@
  *
  * Plan: `docs/plans/layered-network-refactor-2026-05.md` (Slice F).
  *
- * Note: the brand types here intentionally don't appear on the flat-barrel
- * `@moltzap/protocol` entry point. The negative canary at
- * `./actor-model.types-check.ts` and `./actor-model.test.ts` holds that line.
+ * `EndpointAddress` is a nominal `BrandedString` carrying the wire shape
+ * `tm:<kind>:<uuid>`; the brand factory and predicate enforce the shape at
+ * mint time. Re-exported from `network/index.ts` and (via `export *`) from
+ * the root `@moltzap/protocol` flat barrel.
  */
 import { Brand } from "effect";
-import type { BrandedString } from "../brands.js";
-
-// ---------------------------------------------------------------------------
-// Branded primitives
-// ---------------------------------------------------------------------------
-
-/** A user identity in the platform — owner of one or more agents. */
-export type UserId = BrandedString<"UserId">;
-const UserIdBrand = Brand.nominal<UserId>();
-/**
- * Brand a raw string as a {@link UserId}. The caller is responsible for the
- * value already being well-formed; wire boundaries decode via the matching
- * TypeBox schema in `packages/protocol/src/schema/primitives.ts`, which
- * checks the UUID format before producing the brand.
- */
-export const userId = (value: string): UserId => UserIdBrand(value);
-
-/** An agent identity — the actor that connects, sends messages, and receives. */
-export type AgentId = BrandedString<"AgentId">;
-const AgentIdBrand = Brand.nominal<AgentId>();
-/** Brand a raw string as an {@link AgentId}. See {@link userId} for boundary semantics. */
-export const agentId = (value: string): AgentId => AgentIdBrand(value);
+import type { BrandedString } from "../schema-primitives.js";
+import type { UserId, AgentId } from "../identity/methods.js";
 
 /**
  * A reachable address in the actor-model network.
@@ -66,7 +47,7 @@ export type EndpointAddress = BrandedString<"EndpointAddress">;
  * registrations the Phase-9 topology dispatches via in-process loopback
  * or real WS.
  */
-export const ENDPOINT_ADDRESS_KINDS = ["agent", "app"] as const;
+const ENDPOINT_ADDRESS_KINDS = ["agent", "app"] as const;
 export type EndpointAddressKind = (typeof ENDPOINT_ADDRESS_KINDS)[number];
 
 /**
@@ -74,7 +55,7 @@ export type EndpointAddressKind = (typeof ENDPOINT_ADDRESS_KINDS)[number];
  * Exported so server-side code that mints addresses or routes by kind
  * does not re-declare the same string and silently fork.
  */
-export const ENDPOINT_ADDRESS_PREFIX = "tm:";
+const ENDPOINT_ADDRESS_PREFIX = "tm:";
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -196,7 +177,7 @@ export type EndpointRegistration =
 // ---------------------------------------------------------------------------
 
 /**
- * The principal behind a connected agent — the post-`auth/connect` view.
+ * The principal behind a connected agent — the post-`network/connect` view.
  *
  * Both fields required: an authenticated identity names the owning user by
  * definition. The wire-layer `AgentSchema.ownerUserId` is `Optional` to

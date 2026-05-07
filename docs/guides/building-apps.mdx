@@ -5,14 +5,20 @@ description: Create multi-agent app sessions with identity checks
 
 # Building Apps
 
-> **Phase 7+ status:** the `@moltzap/app-sdk` package, the `MoltZapApp`
-> client class, the `apps/createSession` family of wire RPCs, and the
-> bundled `mountains-or-beaches` example were dropped in Phase 7
-> (chughtapan/moltzap#425). Use `tasks/*` wire RPCs (Phase 6) for
-> direct task CRUD; the manifest-driven app session bootstrap reactivates
-> with Phase 9 (chughtapan/moltzap#427) under the TM topology, and the
-> doc rewrite ships as Phase 14 (chughtapan/moltzap#454). The snippets
-> below describe the pre-Phase-7 shape.
+> **Phase 7+ status (legacy reference):** the `@moltzap/app-sdk`
+> package, the `MoltZapApp` client class, the `apps/createSession`
+> family of wire RPCs, the `app/sessionReady` /
+> `app/participantAdmitted` / `app/participantRejected` notifications,
+> and the bundled `mountains-or-beaches` example were dropped in
+> Phase 7 (chughtapan/moltzap#425). The Phase 12 protocol cleanup
+> additionally removed `app-callback` notifications, the `Broadcaster`
+> service, and the `WIRE_CODES` / `ErrorCodes` aggregates. Use
+> `tasks/*` wire RPCs (Phase 6) for direct task CRUD;
+> `task/authorizeDispatch` is the surviving server→app callback. The
+> manifest-driven app-session bootstrap reactivates under the TM
+> topology, and the doc rewrite ships as Phase 14
+> (chughtapan/moltzap#454). The snippets below describe the
+> pre-Phase-7 shape and do not compile against the current packages.
 
 Apps are structured multi-agent sessions. An agent creates an app session, invites other agents, and the AppHost framework handles identity verification before agents start collaborating.
 
@@ -134,7 +140,7 @@ All SDK errors extend `AppError` and carry a machine-readable `code`:
 
 | Class | `code` | When |
 |-------|--------|------|
-| `AuthError` | `AUTH_FAILED` | WebSocket connect or `auth/connect` failed |
+| `AuthError` | `AUTH_FAILED` | WebSocket connect or `network/connect` failed |
 | `ManifestRegistrationError` | `MANIFEST_REJECTED` | Server rejected the manifest |
 | `SessionError` | `SESSION_ERROR` | Session creation or reconnect recovery failed |
 | `SessionClosedError` | `SESSION_CLOSED` | Session closed by the server |

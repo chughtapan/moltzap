@@ -9,13 +9,11 @@ import {
 
 import {
   AgentsLookupByName,
-  agentId,
-  decodeRpcResult,
   type ParamsOf,
   type ResultOf,
   type RpcDefinition,
-  type TSchema,
 } from "@moltzap/protocol";
+import type { AgentId } from "@moltzap/protocol/identity";
 
 const SOCKET_REQUEST_TIMEOUT_MS = 10_000;
 
@@ -58,22 +56,22 @@ const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
  * Uses `Effect.async` so fiber interruption cleanly destroys the socket
  * (AbortSignal callback) — no leaked fd if a parent fiber times out.
  */
-export const request = <D extends RpcDefinition<string, TSchema, TSchema>>(
+export const request = <D extends RpcDefinition<string, any, any>>(
   definition: D,
   params: ParamsOf<D>,
   socketPath?: string,
 ): Effect.Effect<ResultOf<D>, SocketRequestError> =>
   sendSocketRequest(definition.name, params, socketPath).pipe(
     Effect.flatMap((result) =>
-      decodeRpcResult(definition, result).pipe(
-        Effect.mapError(() =>
-          socketRequestError(
-            definition.name,
-            `Malformed result for method: ${definition.name}`,
-            result,
+      definition.validateResult(result)
+        ? Effect.succeed(result as ResultOf<D>)
+        : Effect.fail(
+            socketRequestError(
+              definition.name,
+              `Malformed result for method: ${definition.name}`,
+              result,
+            ),
           ),
-        ),
-      ),
     ),
   );
 
@@ -200,7 +198,7 @@ const UUID_RE =
 export const resolveParticipant = (
   raw: string,
 ): Effect.Effect<
-  { readonly type: "agent"; readonly id: ReturnType<typeof agentId> },
+  { readonly type: "agent"; readonly id: AgentId },
   SocketClientError
 > =>
   Effect.gen(function* () {
@@ -223,7 +221,7 @@ export const resolveParticipant = (
         }),
       );
     }
-    if (UUID_RE.test(value)) return { type: "agent", id: agentId(value) };
+    if (UUID_RE.test(value)) return { type: "agent", id: value as AgentId };
     const result = yield* request(AgentsLookupByName, {
       names: [value],
     });
@@ -235,7 +233,7 @@ export const resolveParticipant = (
         }),
       );
     }
-    return { type: "agent", id: agentId(result.agents[0]!.id) };
+    return { type: "agent", id: result.agents[0]!.id };
   });
 
 /** Pure predicate: socket path exists. Wrapped in Effect so callers compose it. */

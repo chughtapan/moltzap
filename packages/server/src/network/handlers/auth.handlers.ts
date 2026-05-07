@@ -1,7 +1,7 @@
 import type { AuthService } from "../../services/auth.service.js";
 import type { ConversationService } from "../../services/conversation.service.js";
 import type { PresenceService } from "../../services/presence.service.js";
-import type { UserService } from "../../services/user.service.js";
+import type { SessionValidator } from "../../services/session-validator.js";
 import { defineNetworkMethod } from "../../rpc/define-layered-method.js";
 import { sql } from "kysely";
 import { Effect, Option } from "effect";
@@ -21,38 +21,31 @@ import {
   AgentsLookup,
   AgentsLookupByName,
   AgentsList,
-  agentId as protocolAgentId,
-  userId as protocolUserId,
+  UnauthorizedError,
 } from "@moltzap/protocol";
-import {
-  AgentId as ServerAgentId,
-  UserId as ServerUserId,
-} from "../../app/types.js";
-import type { RpcFailure } from "../../runtime/index.js";
-import { unauthorized } from "../../runtime/index.js";
+import type { AgentId, UserId } from "@moltzap/protocol/identity";
+import type { AgentId as ServerAgentId } from "../../app/types.js";
+import { InvalidParamsError } from "../../runtime/index.js";
 import {
   catchSqlErrorAsDefect,
   takeFirstOption,
 } from "../../db/effect-kysely-toolkit.js";
 
 function toAgentCard(row: {
-  id: string;
+  id: AgentId;
   name: string;
   display_name: string | null;
   description: string | null;
   status: string;
-  owner_user_id: string | null;
+  owner_user_id: UserId | null;
 }): AgentCard {
   return {
-    id: protocolAgentId(row.id),
+    id: row.id,
     name: row.name,
     displayName: row.display_name ?? undefined,
     description: row.description ?? undefined,
     status: row.status as AgentCard["status"],
-    ownerUserId:
-      row.owner_user_id === null
-        ? undefined
-        : protocolUserId(row.owner_user_id),
+    ownerUserId: row.owner_user_id === null ? undefined : row.owner_user_id,
   };
 }
 
@@ -63,7 +56,7 @@ export function createCoreAuthHandlers(deps: {
   connections: ConnectionManager;
   /**
    * Slice G1 multimap of `AgentId → HashSet<ConnectionId>`. Populated on
-   * successful `auth/connect` (this handler), cleared on socket close
+   * successful `network/connect` (this handler), cleared on socket close
    * (the WS finalizer in `app/server.ts`). The new `network.send`
    * outbound primitive routes through this resolver — see
    * `network/network-send.ts` and plan §2.10/§2.11. Phase 9b consumer-
@@ -73,9 +66,9 @@ export function createCoreAuthHandlers(deps: {
    */
   agentEndpointResolver: AgentEndpointResolver;
   db: Db;
-  /** Optional app-minted session resolver. When null, auth/connect rejects
-   * `sessionToken` requests with Unauthorized. */
-  userService: UserService | null;
+  /** Optional bearer-token session validator. When null, `network/connect`
+   * rejects `sessionToken` requests with Unauthorized. */
+  sessionValidator: SessionValidator | null;
 }): RpcMethodRegistry {
   return [
     defineNetworkMethod(Connect, {
@@ -85,7 +78,9 @@ export function createCoreAuthHandlers(deps: {
             const connId = yield* ConnIdTag;
             const conn = deps.connections.get(connId);
             if (!conn) {
-              return yield* Effect.fail(unauthorized("Connection not found"));
+              return yield* Effect.fail(
+                new UnauthorizedError({ message: "Connection not found" }),
+              );
             }
 
             // If already authenticated, just return the hello payload
@@ -97,7 +92,7 @@ export function createCoreAuthHandlers(deps: {
               "sessionToken" in params
                 ? yield* authenticateSession(
                     params.sessionToken,
-                    deps.userService,
+                    deps.sessionValidator,
                     deps.db,
                   )
                 : yield* authenticateAgentKey(
@@ -191,7 +186,7 @@ export function createCoreAuthHandlers(deps: {
                 "status",
                 "owner_user_id",
               ])
-              .where("id", "in", params.agentIds);
+              .where("id", "in", params.agentIds as ServerAgentId[]);
             return { agents: rows.map(toAgentCard) };
           }),
         ),
@@ -259,11 +254,13 @@ export function createCoreAuthHandlers(deps: {
 function authenticateAgentKey(
   agentKey: string,
   authService: AuthService,
-): Effect.Effect<AuthenticatedContext, RpcFailure> {
+): Effect.Effect<AuthenticatedContext, UnauthorizedError> {
   return Effect.gen(function* () {
     const agent = yield* authService.authenticateAgent(agentKey);
     if (!agent) {
-      return yield* Effect.fail(unauthorized("Authentication failed"));
+      return yield* Effect.fail(
+        new UnauthorizedError({ message: "Authentication failed" }),
+      );
     }
     return {
       agentId: agent.agentId,
@@ -275,33 +272,34 @@ function authenticateAgentKey(
 
 /**
  * App-minted bearer-token path. Resolves the session via
- * `UserService.validateSession`, then looks up the agent status so
+ * `SessionValidator.validateSession`, then looks up the agent status so
  * `requiresActive` gating still works for the bearer path.
  */
 function authenticateSession(
   token: string,
-  userService: UserService | null,
+  sessionValidator: SessionValidator | null,
   db: Db,
-): Effect.Effect<AuthenticatedContext, RpcFailure> {
+): Effect.Effect<AuthenticatedContext, UnauthorizedError> {
   return catchSqlErrorAsDefect(
     Effect.gen(function* () {
-      if (!userService?.validateSession) {
+      if (!sessionValidator) {
         return yield* Effect.fail(
-          unauthorized("Session tokens not supported by this server"),
+          new UnauthorizedError({
+            message: "Session tokens not supported by this server",
+          }),
         );
       }
-      const result = yield* userService.validateSession(token);
+      const result = yield* sessionValidator.validateSession(token);
       if (!result.valid) {
-        return yield* Effect.fail(unauthorized("Authentication failed"));
+        return yield* Effect.fail(
+          new UnauthorizedError({ message: "Authentication failed" }),
+        );
       }
       if (result.agentStatus !== undefined) {
         return {
-          agentId: ServerAgentId(result.agentId),
+          agentId: result.agentId,
           agentStatus: result.agentStatus,
-          ownerUserId:
-            result.ownerUserId === null
-              ? null
-              : ServerUserId(result.ownerUserId),
+          ownerUserId: result.ownerUserId,
         };
       }
       const rowOpt = yield* takeFirstOption(
@@ -311,13 +309,14 @@ function authenticateSession(
           .where("id", "=", result.agentId),
       );
       if (Option.isNone(rowOpt)) {
-        return yield* Effect.fail(unauthorized("Authentication failed"));
+        return yield* Effect.fail(
+          new UnauthorizedError({ message: "Authentication failed" }),
+        );
       }
       return {
-        agentId: ServerAgentId(result.agentId),
+        agentId: result.agentId,
         agentStatus: rowOpt.value.status,
-        ownerUserId:
-          result.ownerUserId === null ? null : ServerUserId(result.ownerUserId),
+        ownerUserId: result.ownerUserId,
       };
     }),
   );
@@ -326,27 +325,14 @@ function authenticateSession(
 function buildHelloOk(
   ctx: AuthenticatedContext,
   deps: {
-    conversationService: ConversationService;
     presenceService: PresenceService;
   },
-): Effect.Effect<HelloOk, RpcFailure> {
+): Effect.Effect<HelloOk, UnauthorizedError | InvalidParamsError> {
   return Effect.gen(function* () {
-    const { conversations } = yield* deps.conversationService.list(ctx.agentId);
-
-    const unreadCounts: Record<string, number> = {};
-    for (const conv of conversations) {
-      if (conv.unreadCount > 0) {
-        unreadCounts[conv.id] = conv.unreadCount;
-      }
-    }
-
     deps.presenceService.setOnline(ctx.agentId);
-
     return {
       protocolVersion: PROTOCOL_VERSION,
       agentId: ctx.agentId,
-      conversations,
-      unreadCounts,
       policy: {
         maxMessageBytes: 65536,
         maxPartsPerMessage: 10,

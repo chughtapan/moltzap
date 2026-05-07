@@ -6,14 +6,14 @@
 import { readdirSync, unlinkSync, writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { Kind, type TSchema, type TProperties } from "@sinclair/typebox";
-import type { RpcDefinition } from "../packages/protocol/src/rpc.js";
+import type { RpcDefinition } from "../packages/protocol/src/transport/rpc.js";
 import {
   rpcMethods,
-  taskCallbackRpcMethods,
+  taskCallbackMethods,
+  notificationDefinitions,
 } from "../packages/protocol/src/rpc-registry.js";
-import type { NotificationDefinition } from "../packages/protocol/src/notification.js";
-import { notificationDefinitions } from "../packages/protocol/src/schema/notifications.js";
-import * as protocolSchema from "../packages/protocol/src/schema/index.js";
+import type { NotificationDefinition } from "../packages/protocol/src/transport/notification.js";
+import * as protocolSchema from "../packages/protocol/src/index.js";
 
 // ── Protocol Registry ───────────────────────────────────────────────────
 
@@ -40,7 +40,7 @@ interface NotificationDocMeta {
 // Page existence, names, params, and results come from protocol descriptors.
 // This map is prose-only so docs copy can improve without duplicating schema.
 const methodDocs: Readonly<Record<string, MethodDocMeta>> = {
-  "auth/register": {
+  "agents/register": {
     description: "Register a new agent and receive an API key.",
     resultDescription: "Agent ID, API key, and claim URL.",
     errors: [
@@ -52,7 +52,7 @@ const methodDocs: Readonly<Record<string, MethodDocMeta>> = {
       },
     ],
   },
-  "auth/connect": {
+  "network/connect": {
     description:
       "Authenticate a WebSocket connection. Must be the first message on a new connection.",
     resultDescription:
@@ -66,11 +66,8 @@ const methodDocs: Readonly<Record<string, MethodDocMeta>> = {
       },
     ],
   },
-  "auth/invite-agent": {
+  "agents/invite": {
     description: "Create an agent invite for a phone number.",
-  },
-  "auth/selectAgent": {
-    description: "Select an owned agent for the authenticated connection.",
   },
   "agents/lookup": {
     description:
@@ -216,7 +213,7 @@ const methodDocs: Readonly<Record<string, MethodDocMeta>> = {
     description:
       "Server→TM awaitable RPC. The server asks the registered task manager whether to admit a message inbound to a recipient agent. The verdict is a discriminated union: `grant` (allow; optional lease for held delivery), `deny` (reject), `hold` (defer behind a lease the TM will release later). Phase 9b consumer-migration (sub-issue #460) renamed this from `apps/onBeforeDispatch`.",
   },
-  "system/ping": {
+  "network/ping": {
     description: "Liveness probe. Returns server timestamp.",
   },
 };
@@ -298,7 +295,7 @@ const orderedRpcDefinitions = protocolRpcDefinitions();
 function protocolRpcDefinitions(): readonly AnyRpcDocDefinition[] {
   const ordered = [
     ...rpcMethods,
-    ...taskCallbackRpcMethods,
+    ...taskCallbackMethods,
     ...Object.values(protocolSchema).filter(isRpcDefinition),
   ];
   const byName = new Map<string, AnyRpcDocDefinition>();

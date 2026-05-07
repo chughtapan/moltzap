@@ -23,7 +23,7 @@ import {
   registerAndConnect,
 } from "./helpers.js";
 import { getWsUrl } from "../../test-utils/index.js";
-import { ErrorCodes } from "@moltzap/protocol";
+import { JSON_RPC_RESERVED_CODES } from "@moltzap/protocol";
 
 beforeAll(async () => {
   await startTestServer();
@@ -103,7 +103,7 @@ describe("Scenario 22: malformed-frame flood does not crash the server", () => {
         // least most came back" instead of an exact count.
         const parseErrors = responses.filter((r) => {
           const f = r as { error?: { code?: number } };
-          return f.error?.code === ErrorCodes.ParseError;
+          return f.error?.code === JSON_RPC_RESERVED_CODES.ParseError;
         });
         expect(parseErrors.length).toBeGreaterThanOrEqual(95);
 
@@ -123,7 +123,7 @@ describe("Scenario 22: malformed-frame flood does not crash the server", () => {
 
         const parseErrors = responses.filter((r) => {
           const f = r as { error?: { code?: number } };
-          return f.error?.code === ErrorCodes.ParseError;
+          return f.error?.code === JSON_RPC_RESERVED_CODES.ParseError;
         });
         expect(parseErrors.length).toBeGreaterThanOrEqual(1);
         const first = parseErrors[0] as {

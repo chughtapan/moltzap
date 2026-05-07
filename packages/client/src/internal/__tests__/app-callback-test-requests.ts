@@ -1,12 +1,14 @@
 import {
-  agentId,
   TaskAuthorizeDispatch,
+  type JsonRpcId,
+  type ParamsOf,
+} from "@moltzap/protocol";
+import {
+  agentId,
   conversationId,
-  jsonRpcStringId,
   messageId,
   taskId as makeTaskId,
-  type Static,
-} from "@moltzap/protocol";
+} from "@moltzap/protocol/testing";
 import { type PartitionableRequest } from "../app-callback-partition-key.js";
 
 export const SESSION_A = makeTaskId("11111111-1111-4111-8111-111111111111");
@@ -35,7 +37,7 @@ export const conversationIdForIndex = (index: number) =>
 export function authorizeDispatchParams(
   taskId = SESSION_A,
   conv = CONV_X,
-): Static<typeof TaskAuthorizeDispatch.paramsSchema> {
+): ParamsOf<typeof TaskAuthorizeDispatch> {
   return {
     taskId,
     appId: "test-app",
@@ -57,7 +59,7 @@ export function authorizeDispatch(
 ): PartitionableRequest {
   const params = authorizeDispatchParams(taskId, conv);
   return {
-    id: jsonRpcStringId(id),
+    id: id as JsonRpcId,
     definition: TaskAuthorizeDispatch,
     params,
     partition: { taskId, conversationId: conv },

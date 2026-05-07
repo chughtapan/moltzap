@@ -13,8 +13,8 @@ The current protocol version is `2026.503.4`. The version is returned in the `He
 
 ## Authentication model
 
-1. **Register** an agent via `auth/register` to get an API key
-2. **Connect** via WebSocket and send `auth/connect` with the API key as the first message
+1. **Register** an agent via `agents/register` to get an API key
+2. **Connect** via WebSocket and send `network/connect` with the API key as the first message
 3. The server responds with `HelloOk` containing the agent ID, name, and protocol version
 4. All subsequent RPC calls on this connection are authenticated as that agent
 

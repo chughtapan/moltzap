@@ -31,21 +31,25 @@ import type {
   AnyTaskCallbackRpcDefinition,
   AnyRpcDefinition,
 } from "../rpc-registry.js";
-import { taskCallbackRpcGroup } from "../rpc-registry.js";
-import { decodeRpcResult, type ParamsOf, type ResultOf } from "../rpc.js";
+import { taskCallbackMethods } from "../rpc-registry.js";
+import {
+  decodeRpcResult,
+  type ParamsOf,
+  type ResultOf,
+} from "../transport/method.js";
 import {
   decodeNotification,
   decodeRpcRequest,
   isDecodedNotification,
   type DecodedNotification,
-} from "../rpc-groups.js";
-import type { ResponseFrame } from "../schema/frames.js";
-import { requestFrame, responseFrame } from "../helpers.js";
-import { type JsonRpcStringId, jsonRpcStringId } from "../schema/json-rpc.js";
-import type { AnyNotificationDefinition } from "../schema/notifications.js";
-import { notificationGroup } from "../schema/notifications.js";
+} from "../transport/rpc-groups.js";
+import type { ResponseFrame } from "../transport/wire.js";
+import { requestFrame, responseFrame } from "../transport/wire.js";
+import type { JsonRpcId } from "../transport/wire.js";
+import type { AnyNotificationDefinition } from "../rpc-registry.js";
+import { notificationDefinitions } from "../rpc-registry.js";
 import type { Static } from "@sinclair/typebox";
-import { AgentId } from "../schema/primitives.js";
+import { AgentId } from "../identity/methods.js";
 import { PROTOCOL_VERSION } from "../version.js";
 import {
   makeCaptureBuffer,
@@ -72,7 +76,7 @@ import {
   TransportIoError,
 } from "./errors.js";
 
-import { Connect } from "../network/methods/auth.js";
+import { Connect } from "../network/methods.js";
 
 /**
  * Options for connecting a TestClient. `serverUrl` is the `ws://…` URL of
@@ -87,7 +91,7 @@ export interface TestClientConfig {
   /** Soft cap on captured frames before the ring buffer drops oldest. */
   readonly captureCapacity: number;
   /**
-   * When `true`, send the `auth/connect` handshake automatically after the
+   * When `true`, send the `network/connect` handshake automatically after the
    * WS upgrade. Defaults to `true`.
    */
   readonly autoConnect?: boolean;
@@ -216,7 +220,7 @@ export type ServerRpcParams<D extends ServerRpcDefinition> = ParamsOf<D>;
 export type ServerRpcResult<D extends ServerRpcDefinition> = ResultOf<D>;
 
 export interface ServerRpcContext {
-  readonly requestId: JsonRpcStringId;
+  readonly requestId: JsonRpcId;
   readonly definition: ServerRpcDefinition;
 }
 
@@ -230,7 +234,7 @@ export const TestClient = Context.GenericTag<TestClient>(
 );
 
 type PendingMap = Map<
-  JsonRpcStringId,
+  JsonRpcId,
   Deferred.Deferred<ResponseFrame, RpcResponseError | TransportClosedError>
 >;
 
@@ -403,7 +407,7 @@ export function makeTestClient(
           // that matches, then run the registered handler (if any) and
           // write the response back. Both legs are independent — the
           // observer fires regardless of whether a handler is registered.
-          yield* decodeRpcRequest(taskCallbackRpcGroup, frame).pipe(
+          yield* decodeRpcRequest(taskCallbackMethods, frame).pipe(
             Effect.matchEffect({
               onFailure: () =>
                 writeReply(
@@ -429,7 +433,7 @@ export function makeTestClient(
           return;
         }
         if (isNotificationFrame(frame)) {
-          yield* decodeNotification(notificationGroup, frame).pipe(
+          yield* decodeNotification(notificationDefinitions, frame).pipe(
             Effect.matchEffect({
               onFailure: () => Effect.void,
               onSuccess: (notification) =>
@@ -454,7 +458,7 @@ export function makeTestClient(
     };
 
     const dispatchHandler = (
-      requestId: JsonRpcStringId,
+      requestId: JsonRpcId,
       definition: ServerRpcDefinition,
       params: unknown,
     ): Effect.Effect<void> =>
@@ -561,9 +565,9 @@ export function makeTestClient(
     const sendRpc: TestClient["sendRpc"] = (definition, params, opts) =>
       Effect.gen(function* () {
         const method = definition.name;
-        const id = jsonRpcStringId(nextRequestId());
         const timeoutMs = opts?.timeoutMs ?? config.defaultTimeoutMs;
-        const request = requestFrame(id, definition, params);
+        const request = requestFrame(nextRequestId(), definition, params);
+        const id = request.id;
         const raw = encodeFrame(request);
         const deferred = yield* Deferred.make<
           ResponseFrame,
@@ -668,12 +672,12 @@ export function makeTestClient(
      */
     const sendMalformed: TestClient["sendMalformed"] = (opts) =>
       Effect.gen(function* () {
-        const id = jsonRpcStringId(nextRequestId());
         const baseFrame = requestFrame(
-          id,
+          nextRequestId(),
           opts.baseDefinition,
           opts.baseParams,
         );
+        const id = baseFrame.id;
         const raw = malformFrame(baseFrame, opts.kind, opts.seed);
         const deferred = yield* Deferred.make<
           ResponseFrame,
@@ -816,7 +820,7 @@ export function makeTestClient(
       awaitServerRequest,
     };
 
-    // Auto-connect handshake (auth/connect). Matches packages/client's
+    // Auto-connect handshake (network/connect). Matches packages/client's
     // real shape — `agentKey` + `minProtocol` + `maxProtocol`. Tolerant
     // of typed rejections so properties that explicitly drive
     // unauthenticated traffic (e.g., authority-negative) can skip

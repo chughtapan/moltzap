@@ -1,0 +1,122 @@
+/* eslint-disable @typescript-eslint/no-magic-numbers --
+ * Numeric error codes ARE the constant declarations here; per-class
+ * codes deliberately replace the central WIRE_CODES table (Phase 1.5).
+ */
+import { Data } from "effect";
+
+/** JSON-RPC 2.0 reserved codes. Emitted by JsonRpcServer; never raised by handlers. */
+export const JSON_RPC_RESERVED_CODES = {
+  ParseError: -32700,
+  InvalidRequest: -32600,
+  MethodNotFound: -32601,
+  InvalidParams: -32602,
+  InternalError: -32603,
+} as const;
+
+/** A `Data.TaggedError`-derived class with static wire metadata
+ * (`code` + `message`). JsonRpcServer reads `err.constructor.code` to encode;
+ * JsonRpcClient looks up by code via `errorClassFor` for inbound decode. */
+export type RpcErrorClass = (new (
+  ...args: never[]
+) => {
+  readonly _tag: string;
+}) & {
+  readonly code: number;
+  readonly message: string;
+};
+
+const codeToClass = new Map<number, RpcErrorClass>();
+const registeredClasses = new Set<RpcErrorClass>();
+
+class DuplicateErrorCodeError extends Error {
+  override readonly name = "DuplicateErrorCodeError";
+}
+
+/** Throws at module-load time on duplicate code registration. */
+export function registerErrorClass(cls: RpcErrorClass): void {
+  const existing = codeToClass.get(cls.code);
+  if (existing !== undefined && existing !== cls) {
+    throw new DuplicateErrorCodeError(
+      `Duplicate wire error code ${cls.code}: ${cls.name} conflicts with ${existing.name}`,
+    );
+  }
+  codeToClass.set(cls.code, cls);
+  registeredClasses.add(cls);
+}
+
+/** Returns the registered class for a wire code, or `undefined`. */
+export function errorClassFor(code: number): RpcErrorClass | undefined {
+  return codeToClass.get(code);
+}
+
+/** Returns true iff `value`'s constructor is in the registered class set. */
+export function isRegisteredErrorInstance(value: object): boolean {
+  return registeredClasses.has(value.constructor as RpcErrorClass);
+}
+
+/** Optional per-instance overrides for tagged-error classes. The static
+ * `message` on the class is the default; instances may carry a more
+ * specific message and/or supplemental `data` payload that JsonRpcServer
+ * forwards to the wire response. */
+export interface RpcErrorPayload {
+  readonly message?: string;
+  readonly data?: unknown;
+}
+
+// Transport-layer cross-cutting tagged errors. Domain errors live in their
+// owning layer's `errors.ts`.
+
+export class UnauthorizedError extends Data.TaggedError(
+  "Unauthorized",
+)<RpcErrorPayload> {
+  static readonly code = -32000;
+  static readonly message = "Not authenticated. Send network/connect first.";
+}
+registerErrorClass(UnauthorizedError);
+
+/** Authenticated but not authorized for this resource. */
+export class ForbiddenError extends Data.TaggedError(
+  "Forbidden",
+)<RpcErrorPayload> {
+  static readonly code = -32001;
+  static readonly message = "Forbidden";
+}
+registerErrorClass(ForbiddenError);
+
+/** Resource not found (cross-cutting variant; domain-specific NotFound errors live with their domain). */
+export class NotFoundError extends Data.TaggedError(
+  "NotFound",
+)<RpcErrorPayload> {
+  static readonly code = -32002;
+  static readonly message = "Not found";
+}
+registerErrorClass(NotFoundError);
+
+/** Conflict on a resource (cross-cutting; e.g., duplicate registration). */
+export class ConflictError extends Data.TaggedError(
+  "Conflict",
+)<RpcErrorPayload> {
+  static readonly code = -32003;
+  static readonly message = "Conflict";
+}
+registerErrorClass(ConflictError);
+
+/** Boundary validation error — JSON-RPC reserved code -32602. Raised by
+ * protocol- and server-layer handlers when params fail schema validation;
+ * registered with the wire-error registry so handler-raised instances map
+ * to a `-32602 InvalidParams` wire response via `wireErrorFromInstance`. */
+export class InvalidParamsError extends Data.TaggedError("InvalidParamsError")<{
+  readonly message: string;
+}> {
+  static readonly code = JSON_RPC_RESERVED_CODES.InvalidParams;
+  static readonly message = "Invalid params";
+}
+registerErrorClass(InvalidParamsError);
+
+/** Inbound frame failed to parse as JSON or did not match the expected shape. */
+export class MalformedFrameError extends Data.TaggedError(
+  "MalformedFrameError",
+)<{
+  readonly raw: string;
+  readonly cause?: unknown;
+}> {}

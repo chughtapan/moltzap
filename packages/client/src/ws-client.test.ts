@@ -35,30 +35,31 @@ import {
   RPC_TIMEOUT_MS,
   type CloseInfo,
 } from "./ws-client.js";
-import { RpcServerError, RpcTimeoutError } from "@moltzap/protocol";
+import {
+  RpcServerError,
+  RpcTimeoutError,
+  type ParamsOf,
+} from "@moltzap/protocol";
 
 import {
   TaskAuthorizeDispatch,
   Connect,
   ConversationsList,
-  JSON_RPC_VERSION,
   MessagesSend,
   MessageReceivedNotificationDefinition,
   PROTOCOL_VERSION,
-  agentId,
-  conversationId,
-  jsonRpcStringId,
-  messageId,
-  notificationFrame,
-  requestFrame,
-  responseFrame,
-  validators,
   type NotificationFrame,
-  type ParamsOf,
   type RequestFrame,
   type RpcDefinition,
-  type TSchema,
 } from "@moltzap/protocol";
+import {
+  agentId,
+  conversationId,
+  messageId,
+  JSON_RPC_VERSION,
+  validateRequestFrame,
+  validateResponseFrame,
+} from "@moltzap/protocol/testing";
 import {
   authorizeDispatchParams,
   SESSION_A,
@@ -89,8 +90,6 @@ const TEST_POLICY = {
 const helloOk = (agentId = TEST_AGENT_ID) => ({
   protocolVersion: PROTOCOL_VERSION,
   agentId,
-  conversations: [],
-  unreadCounts: {},
   policy: TEST_POLICY,
 });
 const TEST_MESSAGE = {
@@ -101,7 +100,7 @@ const TEST_MESSAGE = {
   createdAt: "2026-05-03T00:00:00.000Z",
 };
 const messageReceivedFrame = () =>
-  notificationFrame(MessageReceivedNotificationDefinition, {
+  MessageReceivedNotificationDefinition.encode({
     message: TEST_MESSAGE,
   });
 
@@ -231,9 +230,9 @@ function makeLogger(): {
 // ── Client adapter helpers ─────────────────────────────────────────────
 
 /**
- * Build a client, connect against the given URL, complete the auth/connect
+ * Build a client, connect against the given URL, complete the network/connect
  * handshake, and return the live client. The server handler auto-responds
- * to `auth/connect` with a canned HelloOk; subsequent frames route through
+ * to `network/connect` with a canned HelloOk; subsequent frames route through
  * the outer `handler`.
  */
 interface ClientHarness {
@@ -255,7 +254,7 @@ const connectP = (client: MoltZapWsClient): Promise<unknown> =>
     ),
   );
 
-const sendRpcP = <D extends RpcDefinition<string, TSchema, TSchema>>(
+const sendRpcP = <D extends RpcDefinition<string, any, any>>(
   client: MoltZapWsClient,
   definition: D,
   params: ParamsOf<D>,
@@ -273,7 +272,7 @@ const closeClient = (client: MoltZapWsClient): Effect.Effect<void, never> =>
   client.close();
 
 /**
- * Start a server whose handler auto-responds to `auth/connect` and forwards
+ * Start a server whose handler auto-responds to `network/connect` and forwards
  * everything else to the test's `handler`. Useful for tests that only care
  * about post-handshake behaviour.
  */
@@ -287,17 +286,13 @@ const startHandshakingServer = (
   startTestServer((conn, raw) =>
     Effect.gen(function* () {
       const parsed: unknown = JSON.parse(raw);
-      if (!validators.requestFrame(parsed)) {
+      if (!validateRequestFrame(parsed)) {
         return yield* Effect.die("expected JSON-RPC request frame");
       }
       const frame = parsed;
       if (frame.method === Connect.name) {
         yield* conn.send(
-          JSON.stringify(
-            responseFrame(frame.id, {
-              result: helloOk(),
-            }),
-          ),
+          JSON.stringify(Connect.encodeResponse(frame.id, helloOk())),
         );
         return;
       }
@@ -392,7 +387,7 @@ describe("§5.1 connect() does not hang on pre-open failure", () => {
     await withTestServer(
       Effect.gen(function* () {
         // Handler closes on the very first inbound frame — i.e. before the
-        // client sees any auth/connect response.
+        // client sees any network/connect response.
         const server = yield* startTestServer((conn) =>
           conn.close(1000).pipe(Effect.ignore),
         );
@@ -431,7 +426,7 @@ describe("§5.1 connect() does not hang on pre-open failure", () => {
     await Effect.runPromise(client.close());
   }, 20_000);
 
-  it("resolves with HelloOk on the happy open → auth/connect path", async () => {
+  it("resolves with HelloOk on the happy open → network/connect path", async () => {
     await withTestServer(
       Effect.gen(function* () {
         const server = yield* startHandshakingServer(() => Effect.void);
@@ -455,7 +450,7 @@ describe("§5.2 pending RPCs fail on disconnect", () => {
   it("rejects pending sendRpc calls when disconnect() is called", async () => {
     await withTestServer(
       Effect.gen(function* () {
-        // Handler responds to auth/connect but drops everything else, so the
+        // Handler responds to network/connect but drops everything else, so the
         // RPC stays pending until we trigger disconnect.
         const server = yield* startHandshakingServer(() => Effect.void);
         const client = makeClient(server.url);
@@ -503,7 +498,7 @@ describe("§5.3 sendRpc does NOT retry on timeout (TestClock)", () => {
     "fails with RpcTimeoutError after virtual 30s, no retry frame",
     () =>
       Effect.gen(function* () {
-        // Server answers auth/connect, then silently drops messages/send.
+        // Server answers network/connect, then silently drops messages/send.
         const server = yield* startHandshakingServer(() => Effect.void);
         const client = makeClient(server.url);
 
@@ -594,7 +589,7 @@ describe("reconnect backoff", () => {
         const server = yield* startTestServer((conn, raw) =>
           Effect.gen(function* () {
             const parsed: unknown = JSON.parse(raw);
-            if (!validators.requestFrame(parsed)) {
+            if (!validateRequestFrame(parsed)) {
               return yield* Effect.die("expected JSON-RPC request frame");
             }
             const frame = parsed;
@@ -602,9 +597,7 @@ describe("reconnect backoff", () => {
               authResponsesSent++;
               yield* conn.send(
                 JSON.stringify(
-                  responseFrame(frame.id, {
-                    result: helloOk(RECONNECT_AGENT_ID),
-                  }),
+                  Connect.encodeResponse(frame.id, helloOk(RECONNECT_AGENT_ID)),
                 ),
               );
             }
@@ -673,8 +666,8 @@ describe("§5.4 malformed frames are logged but do not affect pending RPCs", () 
             // Real well-formed response.
             yield* conn.send(
               JSON.stringify(
-                responseFrame(frame.id, {
-                  result: { conversations: [] },
+                ConversationsList.encodeResponse(frame.id, {
+                  conversations: [],
                 }),
               ),
             );
@@ -707,8 +700,8 @@ describe("§5.4 malformed frames are logged but do not affect pending RPCs", () 
               JSON.stringify(messageReceivedFrame()) +
                 "\u0000" +
                 JSON.stringify(
-                  responseFrame(frame.id, {
-                    result: { conversations: [] },
+                  ConversationsList.encodeResponse(frame.id, {
+                    conversations: [],
                   }),
                 ),
             );
@@ -910,9 +903,7 @@ describe("sendRpc(RpcDefinition, params) — typed manifest overload", () => {
             captured.current = frame;
             yield* conn.send(
               JSON.stringify(
-                responseFrame(frame.id, {
-                  result: { agents: [] },
-                }),
+                AgentsLookupByName.encodeResponse(frame.id, { agents: [] }),
               ),
             );
           }),
@@ -1070,34 +1061,29 @@ describe("Phase 1.0 (B.1) — handleServerRpc round-trip", () => {
     await withTestServer(
       Effect.gen(function* () {
         // Server: auto-handshake; immediately AFTER replying to
-        // auth/connect, send an appCallback request to the client; capture every
+        // network/connect, send an appCallback request to the client; capture every
         // subsequent inbound frame the client writes back. We're testing
         // the client's dispatcher fiber + handler registry + response
         // encoding.
         const server = yield* startTestServer((conn, raw) =>
           Effect.gen(function* () {
             const parsed: unknown = JSON.parse(raw);
-            if (!validators.requestFrame(parsed)) {
+            if (!validateRequestFrame(parsed)) {
               return yield* Effect.die("expected JSON-RPC request frame");
             }
             const frame = parsed;
             if (frame.method === Connect.name) {
               yield* conn.send(
-                JSON.stringify(
-                  responseFrame(frame.id, {
-                    result: helloOk(),
-                  }),
-                ),
+                JSON.stringify(Connect.encodeResponse(frame.id, helloOk())),
               );
               // Fire the appCallback request straight after auth response. The
               // client's dispatcher fiber was forked into the connect
-              // scope BEFORE auth/connect was sent, so the inbound queue
+              // scope BEFORE network/connect was sent, so the inbound queue
               // is live the moment we land here.
               yield* conn.send(
                 JSON.stringify(
-                  requestFrame(
-                    jsonRpcStringId("srv-test-1"),
-                    TaskAuthorizeDispatch,
+                  TaskAuthorizeDispatch.encodeRequest(
+                    "srv-test-1",
                     authorizeDispatchParams(SESSION_A),
                   ),
                 ),
@@ -1118,7 +1104,7 @@ describe("Phase 1.0 (B.1) — handleServerRpc round-trip", () => {
 
         // Wait for the response frame the dispatcher writes back. The
         // server records every inbound frame in `received` — the appCallback
-        // response should appear after the client's auth/connect.
+        // response should appear after the client's network/connect.
         const responseRaw = yield* Effect.promise(() =>
           waitFor(
             () =>
@@ -1126,8 +1112,7 @@ describe("Phase 1.0 (B.1) — handleServerRpc round-trip", () => {
                 try {
                   const parsed: unknown = JSON.parse(r);
                   return (
-                    validators.responseFrame(parsed) &&
-                    parsed.id === "srv-test-1"
+                    validateResponseFrame(parsed) && parsed.id === "srv-test-1"
                   );
                 } catch {
                   return false;
@@ -1142,8 +1127,7 @@ describe("Phase 1.0 (B.1) — handleServerRpc round-trip", () => {
                 try {
                   const parsed: unknown = JSON.parse(r);
                   return (
-                    validators.responseFrame(parsed) &&
-                    parsed.id === "srv-test-1"
+                    validateResponseFrame(parsed) && parsed.id === "srv-test-1"
                   );
                 } catch {
                   return false;
@@ -1154,8 +1138,8 @@ describe("Phase 1.0 (B.1) — handleServerRpc round-trip", () => {
         );
 
         const parsedResponse: unknown = JSON.parse(responseRaw!);
-        expect(validators.responseFrame(parsedResponse)).toBe(true);
-        if (!validators.responseFrame(parsedResponse)) return;
+        expect(validateResponseFrame(parsedResponse)).toBe(true);
+        if (!validateResponseFrame(parsedResponse)) return;
         expect(parsedResponse.id).toBe("srv-test-1");
         expect("result" in parsedResponse).toBe(true);
         if (!("result" in parsedResponse)) return;
@@ -1177,23 +1161,18 @@ describe("Phase 1.0 (B.1) — handleServerRpc round-trip", () => {
         const server = yield* startTestServer((conn, raw) =>
           Effect.gen(function* () {
             const parsed: unknown = JSON.parse(raw);
-            if (!validators.requestFrame(parsed)) {
+            if (!validateRequestFrame(parsed)) {
               return yield* Effect.die("expected JSON-RPC request frame");
             }
             const frame = parsed;
             if (frame.method === Connect.name) {
               yield* conn.send(
-                JSON.stringify(
-                  responseFrame(frame.id, {
-                    result: helloOk(),
-                  }),
-                ),
+                JSON.stringify(Connect.encodeResponse(frame.id, helloOk())),
               );
               yield* conn.send(
                 JSON.stringify(
-                  requestFrame(
-                    jsonRpcStringId("srv-err-1"),
-                    TaskAuthorizeDispatch,
+                  TaskAuthorizeDispatch.encodeRequest(
+                    "srv-err-1",
                     authorizeDispatchParams(SESSION_B),
                   ),
                 ),
@@ -1220,7 +1199,7 @@ describe("Phase 1.0 (B.1) — handleServerRpc round-trip", () => {
                 try {
                   const parsed: unknown = JSON.parse(r);
                   return (
-                    validators.responseFrame(parsed) &&
+                    validateResponseFrame(parsed) &&
                     parsed.id === "srv-err-1" &&
                     "error" in parsed
                   );
@@ -1235,16 +1214,14 @@ describe("Phase 1.0 (B.1) — handleServerRpc round-trip", () => {
         const found = server.connections[0]!.received.find((r) => {
           try {
             const parsed: unknown = JSON.parse(r);
-            return (
-              validators.responseFrame(parsed) && parsed.id === "srv-err-1"
-            );
+            return validateResponseFrame(parsed) && parsed.id === "srv-err-1";
           } catch {
             return false;
           }
         });
         const parsed: unknown = JSON.parse(found!);
-        expect(validators.responseFrame(parsed)).toBe(true);
-        if (!validators.responseFrame(parsed)) return;
+        expect(validateResponseFrame(parsed)).toBe(true);
+        if (!validateResponseFrame(parsed)) return;
         expect("error" in parsed).toBe(true);
         if (!("error" in parsed)) return;
         expect(parsed.error.code).toBe(-32099);

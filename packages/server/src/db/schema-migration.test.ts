@@ -1,23 +1,39 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Kysely } from "kysely";
+import { KyselyPGlite } from "kysely-pglite";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { agentId, conversationId, taskId } from "@moltzap/protocol/testing";
+import { makeEffectKysely } from "./effect-kysely-toolkit.js";
 import type { Database } from "./database.js";
-import {
-  makePgliteHarness,
-  PGLITE_HOOK_TIMEOUT_MS,
-  type PgliteHarness,
-} from "../test-utils/index.js";
 
-const AGENT_ID = "00000000-0000-4000-8000-0000000a9e47";
-const TASK_ID = "00000000-0000-4000-8000-0000000fa5c0";
-const CONV_ID = "00000000-0000-4000-8000-0000000c01f5";
-const ORPHAN_TASK_ID = "00000000-0000-4000-8000-0000000d3ad0";
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const schema = readFileSync(
+  join(__dirname, "..", "app", "core-schema.sql"),
+  "utf-8",
+);
+const DB_HOOK_TIMEOUT_MS = 30_000;
 
-let harness: PgliteHarness;
+const AGENT_ID = agentId("00000000-0000-4000-8000-0000000a9e47");
+const TASK_ID = taskId("00000000-0000-4000-8000-0000000fa5c0");
+const CONV_ID = conversationId("00000000-0000-4000-8000-0000000c01f5");
+const ORPHAN_TASK_ID = taskId("00000000-0000-4000-8000-0000000d3ad0");
+
 let db: Kysely<Database>;
+let pglite: {
+  exec: (sql: string) => Promise<unknown>;
+  close: () => Promise<void>;
+};
 
 async function freshDb(): Promise<void> {
-  harness = await makePgliteHarness();
-  db = harness.db;
+  const kpg = await KyselyPGlite.create();
+  pglite = {
+    exec: (sql) => kpg.client.exec(sql),
+    close: () => kpg.client.close(),
+  };
+  db = makeEffectKysely<Database>({ dialect: kpg.dialect });
+  await pglite.exec(schema);
   await db
     .insertInto("encryption_keys")
     .values({ version: 1, encrypted_key: "test-kek" })
@@ -38,11 +54,11 @@ async function freshDb(): Promise<void> {
 describe("tasks schema (core-schema.sql)", () => {
   beforeEach(async () => {
     await freshDb();
-  }, PGLITE_HOOK_TIMEOUT_MS);
+  }, DB_HOOK_TIMEOUT_MS);
 
   afterEach(async () => {
-    await harness.close();
-  }, PGLITE_HOOK_TIMEOUT_MS);
+    await pglite.close();
+  }, DB_HOOK_TIMEOUT_MS);
 
   it("creates a task with default status='waiting' and a NOT NULL tm_endpoint_address", async () => {
     // Phase 9b consumer-migration (sub-issue #460 round 3 R12):
@@ -77,7 +93,7 @@ describe("tasks schema (core-schema.sql)", () => {
     // NOT NULL constraint rejects it at the SQL boundary, so no caller
     // can sneak past the atomic `tasks/create` requirement.
     await expect(
-      harness.exec(
+      pglite.exec(
         `INSERT INTO tasks (initiator_agent_id) VALUES ('${AGENT_ID}')`,
       ),
     ).rejects.toThrow(/null|violates|tm_endpoint_address/i);
@@ -150,7 +166,7 @@ describe("tasks schema (core-schema.sql)", () => {
     // makes that two-step unnecessary, and the schema constraint
     // forbids any caller from minting a task-less conversation.
     await expect(
-      harness.exec(
+      pglite.exec(
         `INSERT INTO conversations (id, type, created_by_id) VALUES ('${CONV_ID}', 'dm', '${AGENT_ID}')`,
       ),
     ).rejects.toThrow(/null|violates|task_id/i);
@@ -184,7 +200,7 @@ describe("tasks schema (core-schema.sql)", () => {
     "message_delivery",
   ])("table %s is gone", async (tableName) => {
     await expect(
-      harness.exec(`SELECT 1 FROM ${tableName} LIMIT 1`),
+      pglite.exec(`SELECT 1 FROM ${tableName} LIMIT 1`),
     ).rejects.toThrow(/does not exist/i);
   });
 
@@ -195,15 +211,15 @@ describe("tasks schema (core-schema.sql)", () => {
       // CREATE TYPE on an existing name errors "already exists";
       // the assertion proves the type is absent from the freshly-applied
       // schema.
-      await harness.exec(`CREATE TYPE ${typeName} AS ENUM ('probe')`);
-      await harness.exec(`DROP TYPE ${typeName}`);
+      await pglite.exec(`CREATE TYPE ${typeName} AS ENUM ('probe')`);
+      await pglite.exec(`DROP TYPE ${typeName}`);
     },
   );
 
   it("tasks + task_participants survive (positive control)", async () => {
     // SELECT against the surviving tables succeeds — proves the cutover
     // didn't accidentally drop too much.
-    await harness.exec("SELECT 1 FROM tasks LIMIT 1");
-    await harness.exec("SELECT 1 FROM task_participants LIMIT 1");
+    await pglite.exec("SELECT 1 FROM tasks LIMIT 1");
+    await pglite.exec("SELECT 1 FROM task_participants LIMIT 1");
   });
 });

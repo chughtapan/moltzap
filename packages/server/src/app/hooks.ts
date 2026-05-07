@@ -1,8 +1,7 @@
-import type { LogicalClock, Part, Static } from "@moltzap/protocol";
-import { MessageId } from "@moltzap/protocol/schemas/primitives";
+import type { LogicalClock, Part } from "@moltzap/protocol";
+import type { AgentId } from "@moltzap/protocol/identity";
+import type { ConversationId, MessageId, TaskId } from "@moltzap/protocol/task";
 import { Schema } from "effect";
-
-type MessageIdValue = Static<typeof MessageId>;
 
 /**
  * Phase 9b consumer-migration (sub-issue #460, plan §2.4): the legacy
@@ -17,18 +16,18 @@ type MessageIdValue = Static<typeof MessageId>;
  * `TaskAuthorizeDispatchContext` and `TaskAuthorizeDispatchHook`.
  */
 export interface TaskAuthorizeDispatchContext {
-  conversationId: string;
-  recipient: { agentId: string; ownerId: string };
-  message: { id: string; senderAgentId: string; parts?: Part[] };
-  taskId: string;
+  conversationId: ConversationId;
+  recipient: { agentId: AgentId; ownerId: string };
+  message: { id: MessageId; senderAgentId: AgentId; parts?: Part[] };
+  taskId: TaskId;
   appId: string;
   attempt: number;
   receivedAt?: string;
   clock?: LogicalClock;
   pending?: ReadonlyArray<{
-    messageId: string;
-    conversationId: string;
-    senderAgentId: string;
+    messageId: MessageId;
+    conversationId: ConversationId;
+    senderAgentId: AgentId;
     createdAt: string;
     receivedAt: string;
     clock?: LogicalClock;
@@ -42,7 +41,7 @@ export type DispatchAdmissionResult =
       decision: "grant";
       leaseId?: string;
       leaseTimeoutMs?: number;
-      dispatchMessageId?: MessageIdValue;
+      dispatchMessageId?: MessageId;
     }
   | { decision: "deny"; reason?: string }
   | { decision: "hold"; reason?: string };
