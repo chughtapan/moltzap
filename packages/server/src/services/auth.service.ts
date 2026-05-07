@@ -1,10 +1,10 @@
 import { Effect, Option } from "effect";
 import { sql } from "kysely";
 import type { Db } from "../db/client.js";
-import type { Register, Static } from "@moltzap/protocol";
-import { AgentId, UserId } from "../app/types.js";
+import type { ParamsOf, Register } from "@moltzap/protocol";
+import type { AgentId, UserId } from "../app/types.js";
 
-type RegisterParams = Static<typeof Register.paramsSchema>;
+type RegisterParams = ParamsOf<typeof Register>;
 import {
   generateApiKey,
   generateClaimToken,
@@ -78,7 +78,7 @@ export class AuthService {
           "Failed to insert agent",
         );
 
-        const agentId = AgentId(result.id);
+        const agentId = result.id;
 
         yield* Effect.logInfo("Agent registered").pipe(
           Effect.annotateLogs({ agentId, name: params.name }),
@@ -151,7 +151,7 @@ export class AuthService {
         }
 
         const { id, inserted } = rowOpt.value;
-        const agentId = AgentId(id);
+        const agentId = id;
         const rotated = !inserted;
 
         yield* Effect.logInfo("Agent upserted").pipe(
@@ -200,7 +200,7 @@ export class AuthService {
         );
 
         if (Option.isSome(updateRowOpt)) {
-          const agentId = AgentId(updateRowOpt.value.id);
+          const agentId = updateRowOpt.value.id;
           yield* Effect.logInfo("Agent claimed").pipe(
             Effect.annotateLogs({ agentId, ownerUserId }),
           );
@@ -231,7 +231,7 @@ export class AuthService {
           // Idempotent re-claim by the same owner.
           return {
             _tag: CLAIM_SUCCESS,
-            agentId: AgentId(row.id),
+            agentId: row.id,
             ownerUserId,
             alreadyClaimed: true,
           } as const;
@@ -251,7 +251,7 @@ export class AuthService {
           .select(["id"])
           .where("owner_user_id", "=", ownerUserId)
           .where("status", "=", "active");
-        return rows.map((r) => AgentId(r.id));
+        return rows.map((r) => r.id);
       }),
     );
   }
@@ -282,10 +282,9 @@ export class AuthService {
         if (hashSecret(parsed.secret) !== row.api_key_secret_hash) return null;
 
         return {
-          agentId: AgentId(row.id),
+          agentId: row.id,
           status: row.status,
-          ownerUserId:
-            row.owner_user_id === null ? null : UserId(row.owner_user_id),
+          ownerUserId: row.owner_user_id,
         };
       }),
     );

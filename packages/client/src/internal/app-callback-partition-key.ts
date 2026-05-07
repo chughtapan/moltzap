@@ -16,7 +16,7 @@ import { Brand, Data } from "effect";
 import {
   type AnyTaskCallbackRpcDefinition,
   type DecodedRpcRequest,
-  type JsonRpcStringId,
+  type JsonRpcId,
 } from "@moltzap/protocol";
 
 /**
@@ -66,7 +66,7 @@ export interface AppCallbackPartitionRoute {
  */
 export type PartitionableRequest =
   DecodedRpcRequest<AnyTaskCallbackRpcDefinition> & {
-    readonly id: JsonRpcStringId;
+    readonly id: JsonRpcId;
     readonly partition: AppCallbackPartitionRoute;
   };
 

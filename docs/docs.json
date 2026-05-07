@@ -25,7 +25,6 @@
               "concepts/messages",
               "concepts/contacts",
               "concepts/presence",
-              "concepts/delivery",
               "concepts/encryption"
             ]
           },
@@ -56,15 +55,10 @@
               "guides/group-conversations",
               "guides/presence-typing",
               "guides/building-apps",
-              "guides/app-hooks-rpc",
               "guides/custom-identity-provider",
               "guides/custom-contacts",
               "guides/user-agent-communication"
             ]
-          },
-          {
-            "group": "Migration",
-            "pages": ["migration/webhook-to-rpc"]
           },
           {
             "group": "Development",
@@ -90,13 +84,18 @@
             ]
           },
           {
-            "group": "Auth & Agents",
+            "group": "Network",
             "pages": [
-              "protocol/methods/auth-register",
-              "protocol/methods/auth-claim",
-              "protocol/methods/auth-connect",
-              "protocol/methods/auth-invite-agent",
-              "protocol/methods/auth-select-agent",
+              "protocol/methods/network-connect",
+              "protocol/methods/network-ping"
+            ]
+          },
+          {
+            "group": "Agents",
+            "pages": [
+              "protocol/methods/agents-register",
+              "protocol/methods/agents-claim",
+              "protocol/methods/agents-invite",
               "protocol/methods/agents-lookup",
               "protocol/methods/agents-lookup-by-name",
               "protocol/methods/agents-list"
@@ -151,9 +150,19 @@
             ]
           },
           {
-            "group": "System",
+            "group": "Tasks",
             "pages": [
-              "protocol/methods/system-ping"
+              "protocol/methods/tasks-create",
+              "protocol/methods/tasks-get",
+              "protocol/methods/tasks-list",
+              "protocol/methods/tasks-close",
+              "protocol/methods/tasks-add-participant",
+              "protocol/methods/tasks-remove-participant",
+              "protocol/methods/tasks-create-conversation",
+              "protocol/methods/tasks-close-conversation",
+              "protocol/methods/tasks-store-message",
+              "protocol/methods/tasks-get-messages",
+              "protocol/methods/tasks-get-messages-since"
             ]
           },
           {
@@ -168,12 +177,7 @@
               "protocol/notifications/contact-request",
               "protocol/notifications/contact-accepted",
               "protocol/notifications/presence-changed",
-              "protocol/notifications/app-participant-admitted",
-              "protocol/notifications/app-participant-rejected",
-              "protocol/notifications/app-session-ready",
-              "protocol/notifications/app-session-failed",
-              "protocol/notifications/app-session-closed",
-              "protocol/notifications/app-hook-timeout"
+              "protocol/notifications/task-failed"
             ]
           }
         ]

@@ -14,7 +14,7 @@ import { seedInitialKek } from "./crypto/key-rotation.js";
 import { EnvelopeEncryption } from "./crypto/envelope.js";
 import { makeEffectKysely } from "./db/effect-kysely-toolkit.js";
 import { WebhookClient, WebhookContactService } from "./adapters/webhook.js";
-import { WebhookUserService } from "./services/user.service.js";
+import { WebhookSessionValidator } from "./services/session-validator.js";
 import { logger } from "./logger.js";
 import type { CoreApp, CoreConfig } from "./app/types.js";
 import type { Database } from "./db/database.js";
@@ -271,20 +271,15 @@ function startServerEffect(
       runtimeConfig.server.encryption.masterSecret,
     ).pipe(Effect.provide(NodeFileSystem.layer));
 
-    // Build CoreConfig
-    // Wire webhook services. UserService is part of CoreConfig (injected into
-    // AppHost via Layer) because the admission path needs it at construction
-    // time; the contacts service can be bound imperatively after
-    // createCoreApp since it gates per-request behavior.
     const webhookClient = new WebhookClient();
 
-    const userServiceCfg = appConfig.services?.users;
-    const userService =
-      userServiceCfg?.type === "webhook" && userServiceCfg.webhook_url
-        ? new WebhookUserService(
+    const sessionValidatorCfg = appConfig.services?.sessions;
+    const sessionValidator =
+      sessionValidatorCfg?.type === "webhook" && sessionValidatorCfg.webhook_url
+        ? new WebhookSessionValidator(
             webhookClient,
-            userServiceCfg.webhook_url,
-            userServiceCfg.timeout_ms ?? DEFAULT_WEBHOOK_TIMEOUT_MS,
+            sessionValidatorCfg.webhook_url,
+            sessionValidatorCfg.timeout_ms ?? DEFAULT_WEBHOOK_TIMEOUT_MS,
             log,
           )
         : undefined;
@@ -313,7 +308,7 @@ function startServerEffect(
       registrationSecret: appConfig.registration?.secret,
       devMode: runtimeConfig.server.devMode,
       devModeUserId,
-      userService,
+      sessionValidator,
       webhookClient,
     };
 

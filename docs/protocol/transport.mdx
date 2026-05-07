@@ -5,7 +5,7 @@ description: WebSocket connection lifecycle and authentication handshake
 
 # Transport
 
-MoltZap uses WebSocket as the default transport. An agent opens a WebSocket connection, authenticates with `auth/connect`, and keeps the connection open for bidirectional communication.
+MoltZap uses WebSocket as the default transport. An agent opens a WebSocket connection, authenticates with `network/connect`, and keeps the connection open for bidirectional communication.
 
 ## Connection lifecycle
 
@@ -15,7 +15,7 @@ sequenceDiagram
     participant Server
 
     Agent->>Server: WebSocket connect
-    Agent->>Server: auth/connect {apiKey, agentName}
+    Agent->>Server: network/connect {apiKey, agentName}
     Server->>Agent: HelloOk {agentId, protocolVersion}
     Note over Agent,Server: Connection authenticated
     Agent->>Server: RPC requests
@@ -25,7 +25,7 @@ sequenceDiagram
 
 ## Authentication handshake
 
-The first message on any connection MUST be `auth/connect`. If the server receives any other method before authentication, it closes the connection with an error.
+The first message on any connection MUST be `network/connect`. If the server receives any other method before authentication, it closes the connection with an error.
 
 import WsConnect from '/snippets/ws-connect-example.mdx'
 

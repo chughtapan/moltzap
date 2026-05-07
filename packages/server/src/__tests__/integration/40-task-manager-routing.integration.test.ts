@@ -51,18 +51,19 @@ import { it } from "@effect/vitest";
 import { Effect, Either } from "effect";
 import {
   ConversationsCreate,
-  ErrorCodes,
+  HookBlockedError,
   MessageReceivedNotificationDefinition,
   MessagesSend,
+  TaskClosedError,
   TasksAddParticipant,
   TasksClose,
   TasksCreate,
   TasksCreateConversation,
   TasksStoreMessage,
-  agentId as protocolAgentId,
   type Message,
   type Task,
 } from "@moltzap/protocol";
+import { agentId as protocolAgentId } from "@moltzap/protocol/testing";
 import {
   startTestServer,
   stopTestServer,
@@ -231,7 +232,7 @@ describe("Phase 9b — messages/send → TM routing via network.send", () => {
         expect(Either.isLeft(outcome)).toBe(true);
         if (Either.isLeft(outcome)) {
           const err = outcome.left as { code?: number; message?: string };
-          expect(err.code).toBe(ErrorCodes.HookBlocked);
+          expect(err.code).toBe(HookBlockedError.code);
           expect(err.message).toMatch(/Task manager/i);
         }
       }),
@@ -272,7 +273,7 @@ describe("Phase 9b — messages/send → TM routing via network.send", () => {
             message?: string;
             data?: { reason?: string; status?: string };
           };
-          expect(err.code).toBe(ErrorCodes.TaskClosed);
+          expect(err.code).toBe(TaskClosedError.code);
           expect(err.data?.reason).toBe("TaskClosed");
           expect(err.data?.status).toBe("closed");
         }

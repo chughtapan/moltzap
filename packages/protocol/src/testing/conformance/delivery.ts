@@ -11,27 +11,25 @@
 import * as fc from "fast-check";
 import type { Static } from "@sinclair/typebox";
 import { Effect, Either, type Scope } from "effect";
-import { ErrorCodes } from "../../schema/errors.js";
 import {
+  ConversationArchivedError,
   ConversationArchivedNotificationDefinition,
   ConversationCreatedNotificationDefinition,
   ConversationUnarchivedNotificationDefinition,
   ConversationUpdatedNotificationDefinition,
-  MessageReceivedNotificationDefinition,
-} from "../../schema/notifications.js";
-import { TasksCreate, TasksClose } from "../../task/methods/tasks.js";
+} from "../../task/methods.js";
+import { MessageReceivedNotificationDefinition } from "../../task/methods.js";
+import { TasksCreate, TasksClose } from "../../task/methods.js";
 import {
   ConversationsArchive,
   ConversationsCreate,
   ConversationsUnarchive,
   ConversationsUpdate,
-} from "../../task/methods/conversations.js";
-import { MessagesSend } from "../../task/methods/messages.js";
-import {
-  AgentId,
-  ConversationId,
-  conversationId as makeConversationId,
-} from "../../schema/primitives.js";
+} from "../../task/methods.js";
+import { MessagesSend } from "../../task/methods.js";
+import { AgentId } from "../../identity/methods.js";
+import { ConversationId } from "../../task/methods.js";
+import { conversationId as makeConversationId } from "../branded-ids.js";
 import { RpcResponseError } from "../errors.js";
 import { isNotificationFrame } from "../codec.js";
 import { makeTestClient, type TestClient } from "../test-client.js";
@@ -323,7 +321,7 @@ function assertConversationRejectsMessages(
       onLeft: (error) => {
         if (
           error instanceof RpcResponseError &&
-          error.code === ErrorCodes.ConversationArchived
+          error.code === ConversationArchivedError.code
         ) {
           return null;
         }

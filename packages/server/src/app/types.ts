@@ -1,21 +1,12 @@
 import type { Kysely } from "kysely";
 import { Brand, type Layer } from "effect";
 import type { RpcMethodBinding } from "../rpc/context.js";
-import {
-  agentId as makeAgentId,
-  conversationId as makeConversationId,
-  userId as makeUserId,
-  type AppManifest,
-  type Static,
-} from "@moltzap/protocol";
-import {
-  AgentId as AgentIdSchema,
-  ConversationId as ConversationIdSchema,
-  UserId as UserIdSchema,
-} from "@moltzap/protocol/schemas/primitives";
+import type { AppManifest } from "@moltzap/protocol";
+import type { AgentId, UserId } from "@moltzap/protocol/identity";
+import type { ConversationId } from "@moltzap/protocol/task";
 import type { Database } from "../db/database.js";
 import type { ContactService } from "./app-host.js";
-import type { UserService } from "../services/user.service.js";
+import type { SessionValidator } from "../services/session-validator.js";
 import type { WebhookClient } from "../adapters/webhook.js";
 import type { ConnectionManager } from "../ws/connection.js";
 import type { NetworkSendService } from "../network/network-send.js";
@@ -25,14 +16,7 @@ import type {
   TraceCaptureTag,
 } from "../runtime-surface/trace-capture.js";
 
-export type UserId = Static<typeof UserIdSchema>;
-export const UserId = makeUserId;
-
-export type AgentId = Static<typeof AgentIdSchema>;
-export const AgentId = makeAgentId;
-
-export type ConversationId = Static<typeof ConversationIdSchema>;
-export const ConversationId = makeConversationId;
+export type { UserId, AgentId, ConversationId };
 
 export type AppId = string & Brand.Brand<"AppId">;
 export const AppId = Brand.nominal<AppId>();
@@ -54,10 +38,11 @@ export interface CoreConfig {
    */
   devModeUserId?: string;
   /**
-   * Optional webhook-backed user validator. When unset the server skips
-   * user validation during app session admission (admits all users).
+   * Optional bearer-token session validator (called from `network/connect`
+   * when the caller authenticates with a `sessionToken`). Unset → bearer-
+   * token auth is unsupported; only `agentKey` auth works.
    */
-  userService?: UserService;
+  sessionValidator?: SessionValidator;
   /**
    * Shared outbound HTTP client used for `MessageService.deliveryWebhook`
    * fanout and user-side adapters (contact/user services). If unset,
@@ -93,7 +78,7 @@ export interface CoreConfig {
 export type ConnectionHook = (params: {
   agentId: string;
   agentName: string;
-  /** Owner user ID resolved at auth/connect time. Null for unclaimed agents. */
+  /** Owner user ID resolved at network/connect time. Null for unclaimed agents. */
   ownerUserId: string | null;
   connId: string;
 }) => PromiseLike<void> | void;

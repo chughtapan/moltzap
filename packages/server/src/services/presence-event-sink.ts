@@ -1,17 +1,14 @@
 import { Effect } from "effect";
 
-import {
-  PresenceChangedNotificationDefinition,
-  agentId,
-  notificationFrame,
-} from "@moltzap/protocol";
+import { PresenceChangedNotificationDefinition } from "@moltzap/protocol";
+import type { AgentId } from "@moltzap/protocol/identity";
 
 import type { ConnectionManager } from "../ws/connection.js";
 
 export type PresenceStatus = "online" | "offline" | "away";
 
 export interface PresencePublishInput {
-  readonly agentId: string;
+  readonly agentId: AgentId;
   readonly status: PresenceStatus;
   readonly subscriberConnIds: ReadonlySet<string>;
   readonly excludeConnId?: string;
@@ -33,8 +30,8 @@ export function createConnectionFanOutPresenceEventSink(deps: {
     publish(input) {
       if (input.subscriberConnIds.size === 0) return;
       const raw = JSON.stringify(
-        notificationFrame(PresenceChangedNotificationDefinition, {
-          agentId: agentId(input.agentId),
+        PresenceChangedNotificationDefinition.encode({
+          agentId: input.agentId,
           status: input.status,
         }),
       );

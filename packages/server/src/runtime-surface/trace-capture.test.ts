@@ -1,7 +1,7 @@
 import { it } from "@effect/vitest";
 import { Context, Effect, Layer } from "effect";
 import { expect } from "vitest";
-import { agentId, conversationId, messageId } from "@moltzap/protocol";
+import { agentId, conversationId, messageId } from "@moltzap/protocol/testing";
 
 import {
   InMemoryTraceCaptureLive,

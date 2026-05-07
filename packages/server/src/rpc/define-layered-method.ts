@@ -1,11 +1,11 @@
 import { Effect } from "effect";
-import type { RpcDefinition, Static, TSchema } from "@moltzap/protocol";
+import type { Static, TSchema } from "@sinclair/typebox";
+import type { RpcDefinition } from "@moltzap/protocol";
 import {
   defineMethod,
   type AuthenticatedContext,
   type RpcMethodBinding,
 } from "./context.js";
-import type { RpcFailure } from "../runtime/index.js";
 import type { ConnIdTag } from "../app/layers.js";
 import {
   AppLayerScope,
@@ -17,11 +17,11 @@ type NetworkR = ConnIdTag | NetworkLayerScope;
 type TaskR = NetworkR | TaskLayerScope;
 type AppR = TaskR | AppLayerScope;
 
-interface MethodDef<P extends TSchema, R extends TSchema, Required> {
+interface MethodDef<P extends TSchema, R extends TSchema, Required, E> {
   readonly handler: (
     params: Static<P>,
     ctx: AuthenticatedContext,
-  ) => Effect.Effect<Static<R>, RpcFailure, Required>;
+  ) => Effect.Effect<Static<R>, E, Required>;
   readonly requiresActive?: boolean;
 }
 
@@ -29,10 +29,11 @@ export function defineNetworkMethod<
   Name extends string,
   P extends TSchema,
   R extends TSchema,
+  E = never,
 >(
   definition: RpcDefinition<Name, P, R>,
-  def: MethodDef<P, R, NetworkR>,
-): RpcMethodBinding<RpcDefinition<Name, P, R>> {
+  def: MethodDef<P, R, NetworkR, E>,
+): RpcMethodBinding {
   return defineMethod(definition, {
     handler: (params, ctx) =>
       def
@@ -46,10 +47,11 @@ export function defineTaskMethod<
   Name extends string,
   P extends TSchema,
   R extends TSchema,
+  E = never,
 >(
   definition: RpcDefinition<Name, P, R>,
-  def: MethodDef<P, R, TaskR>,
-): RpcMethodBinding<RpcDefinition<Name, P, R>> {
+  def: MethodDef<P, R, TaskR, E>,
+): RpcMethodBinding {
   return defineMethod(definition, {
     handler: (params, ctx) =>
       def
@@ -66,10 +68,11 @@ export function defineAppMethod<
   Name extends string,
   P extends TSchema,
   R extends TSchema,
+  E = never,
 >(
   definition: RpcDefinition<Name, P, R>,
-  def: MethodDef<P, R, AppR>,
-): RpcMethodBinding<RpcDefinition<Name, P, R>> {
+  def: MethodDef<P, R, AppR, E>,
+): RpcMethodBinding {
   return defineMethod(definition, {
     handler: (params, ctx) =>
       def

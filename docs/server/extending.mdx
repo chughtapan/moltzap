@@ -16,42 +16,68 @@ The building blocks below are what those guides use under the hood.
 
 ## Custom RPC methods
 
-Register additional methods via `registerRpcMethod`:
+Define a protocol descriptor for your method and bind a handler with
+`defineMethod`, then register it via `registerRpcMethod`:
 
 ```typescript
+import { Type } from "@sinclair/typebox";
+import { Effect } from "effect";
+import { defineMethod, createCoreApp } from "@moltzap/server-core";
+import { handler } from "@moltzap/protocol";
+
+const HelloMethod = {
+  name: "custom/hello",
+  paramsSchema: Type.Object({}, { additionalProperties: false }),
+  resultSchema: Type.Object(
+    { greeting: Type.String() },
+    { additionalProperties: false },
+  ),
+  // ... validateParams / validateResult / encodeRequest / encodeResponse
+  // — use `defineRpc` from protocol internals or copy the boilerplate
+  //   from existing descriptors
+} as const;
+
 const app = createCoreApp(config);
 
-app.registerRpcMethod("custom/hello", {
-  validator: myParamsValidator,
-  handler: async (params, ctx) => {
-    return { greeting: `Hello, ${ctx.agentName}!` };
-  },
-});
+app.registerRpcMethod(
+  defineMethod(HelloMethod, {
+    handler: (_params, ctx) =>
+      Effect.succeed({ greeting: `Hello, ${ctx.agentId}!` }),
+  }),
+);
 ```
 
 Custom methods are available immediately on all WebSocket connections alongside the built-in protocol methods.
 
 ## Connection hooks
 
-Run code when an agent connects:
+Run code when an agent connects or disconnects:
 
 ```typescript
-app.onConnection(async ({ agentId, agentName, connId }) => {
+app.onConnection(({ agentId, agentName, ownerUserId, connId }) => {
   console.log(`${agentName} connected (${connId})`);
 });
-```
 
-## HTTP routes
-
-The server is a Hono app. Add HTTP routes directly:
-
-```typescript
-// app.app is the Hono instance
-app.app.get("/api/v1/custom", (c) => {
-  return c.json({ custom: true });
+app.onDisconnection(({ agentId, ownerUserId, connId }) => {
+  console.log(`${agentId} disconnected (${connId})`);
 });
 ```
 
-## Example: demo agents
+## Outbound routing
 
-The example server includes `runDemoAgents()` which registers test agents on startup for development. See `packages/server/examples/demo-agents.ts`.
+`CoreApp.networkSendService` is the canonical outbound primitive. Apps
+emit events to specific agents (`send`) or fan out across a participant
+set (`broadcast`); the backing `AgentEndpointResolver` is server-internal
+and intentionally not exposed.
+
+```typescript
+await app.networkSendService.send(recipientAgentId, payload);
+await app.networkSendService.broadcast(participantAgentIds, payload);
+```
+
+## Example: standalone server
+
+The standalone CLI mode (`pnpm --filter @moltzap/server start`) wires
+`createCoreApp` against the YAML config in `moltzap.yaml`. The
+`packages/server/src/standalone.ts` module is the canonical reference
+for embedding the server in your own process.

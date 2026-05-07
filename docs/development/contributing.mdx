@@ -51,7 +51,7 @@ pnpm check       # lint + format check
 
 ## Documentation
 
-The docs site at `docs/` is built with [Mintlify](https://mintlify.com). Protocol reference pages (under `docs/protocol/methods/` and `docs/protocol/notifications/`) are **auto-generated** from the TypeBox schemas and descriptors in `packages/protocol/src/schema/`.
+The docs site at `docs/` is built with [Mintlify](https://mintlify.com). Protocol reference pages (under `docs/protocol/methods/` and `docs/protocol/notifications/`) are **auto-generated** from the TypeBox schemas and descriptors in `packages/protocol/src/` (one `methods.ts` per layer: `identity/`, `network/`, `task/`, `app/`).
 
 ### Updating protocol docs after schema changes
 

@@ -17,20 +17,18 @@
 import { describe, expect, it, vi } from "vitest";
 import { Effect, Ref } from "effect";
 import {
-  TaskFailedNotificationDefinition,
   ConversationArchivedNotificationDefinition,
+  type AnyNotificationDefinition,
+  type NotificationParamsOf,
+} from "@moltzap/protocol";
+import {
   agentId,
   conversationId,
-  notificationFrame as makeNotificationFrame,
   taskId,
-  type NotificationParamsOf,
-  type AnyNotificationDefinition,
-} from "@moltzap/protocol";
+  TaskFailedNotificationDefinition,
+} from "@moltzap/protocol/testing";
 import { makeSubscriberRegistry, matchesFilter } from "./subscribers.js";
-import type {
-  DecodedNotificationFrame,
-  RawDecodedNotification,
-} from "./frame.js";
+import type { DecodedNotification } from "./frame.js";
 
 const TASK_ID = taskId("11111111-1111-4111-8111-111111111111");
 const CONV_1 = conversationId("22222222-2222-4222-8222-222222222222");
@@ -51,29 +49,22 @@ const filterableNotification = (
 const decodedNotification = <D extends AnyNotificationDefinition>(
   definition: D,
   params: NotificationParamsOf<D>,
-): RawDecodedNotification<D> => {
-  // Construct a RawDecodedNotification<D> directly from the typed
+): DecodedNotification<D> => {
+  // Construct a DecodedNotification<D> directly from the typed
   // descriptor + params — bypassing the wire decoder is intentional
   // for test fixtures so the result type stays narrow to D rather than
-  // collapsing to the group's union. Subscribers receive the
-  // pre-validation `RawDecodedNotification<D>` shape (params: unknown);
-  // payload-typed fixtures are still safe to construct because
-  // `NotificationParamsOf<D>` assigns to `unknown`.
-  const frame = makeNotificationFrame(definition, params);
-  const decoded: Record<string, unknown> = {
-    ...frame,
+  // collapsing to the group's union.
+  const frame = definition.encode(params);
+  return {
+    _tag: "Notification" as const,
+    jsonrpc: frame.jsonrpc,
     definition,
     method: definition.name,
     params,
-  };
-  Object.defineProperty(decoded, "_tag", {
-    value: "Notification",
-    enumerable: false,
-  });
-  return decoded as RawDecodedNotification<D>;
+  } as DecodedNotification<D>;
 };
 
-const taskFailedNotification = (): RawDecodedNotification<
+const taskFailedNotification = (): DecodedNotification<
   typeof TaskFailedNotificationDefinition
 > =>
   decodedNotification(TaskFailedNotificationDefinition, {
@@ -82,7 +73,7 @@ const taskFailedNotification = (): RawDecodedNotification<
 
 const conversationArchivedNotification = (
   conv: typeof CONV_1,
-): RawDecodedNotification<typeof ConversationArchivedNotificationDefinition> =>
+): DecodedNotification<typeof ConversationArchivedNotificationDefinition> =>
   decodedNotification(ConversationArchivedNotificationDefinition, {
     conversationId: conv,
     archivedAt: "2026-05-03T00:00:00Z",
@@ -210,8 +201,8 @@ describe("SubscriberRegistry", () => {
     const registry = await Effect.runPromise(
       makeSubscriberRegistry(noopLogger),
     );
-    const seenByConv1: DecodedNotificationFrame[] = [];
-    const seenByConv2: DecodedNotificationFrame[] = [];
+    const seenByConv1: DecodedNotification<AnyNotificationDefinition>[] = [];
+    const seenByConv2: DecodedNotification<AnyNotificationDefinition>[] = [];
     await Effect.runPromise(
       registry.register({ conversationId: CONV_1 }, (frame) =>
         Effect.sync(() => void seenByConv1.push(frame)),

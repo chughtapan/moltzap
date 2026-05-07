@@ -10,17 +10,12 @@
 
 import { Brand, type Effect } from "effect";
 import type { EnrichedInboundMessage, WsClientLogger } from "@moltzap/client";
-import {
-  agentId,
-  conversationId,
-  messageId,
-  type Static,
-} from "@moltzap/protocol";
-import {
-  AgentId as AgentIdSchema,
-  ConversationId as ConversationIdSchema,
-  MessageId as MessageIdSchema,
-} from "@moltzap/protocol/schemas/primitives";
+import { agentId, conversationId, messageId } from "@moltzap/protocol/testing";
+import type { AgentId as ProtocolAgentId } from "@moltzap/protocol/identity";
+import type {
+  ConversationId as ProtocolConversationId,
+  MessageId as ProtocolMessageId,
+} from "@moltzap/protocol/task";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { AllowlistError, PushError } from "./errors.js";
 
@@ -29,21 +24,21 @@ import type { AllowlistError, PushError } from "./errors.js";
  * wire, rendered to Claude Code as the contract-meta key `chat_id`.
  * Principle 1: preventing accidental confusion with `MessageId` at call sites.
  */
-export type ConversationId = Static<typeof ConversationIdSchema>;
+export type ConversationId = ProtocolConversationId;
 export const ConversationId = conversationId;
 
 /**
  * Branded message id — corresponds to MoltZap's `id`, rendered as
  * contract-meta `message_id`.
  */
-export type MessageId = Static<typeof MessageIdSchema>;
+export type MessageId = ProtocolMessageId;
 export const MessageId = messageId;
 
 /**
  * Branded user id — corresponds to MoltZap's `sender.id`, rendered as
  * contract-meta `user`.
  */
-export type UserId = Static<typeof AgentIdSchema>;
+export type UserId = ProtocolAgentId;
 export const UserId = agentId;
 
 /**

@@ -20,9 +20,9 @@ import {
 } from "./registry.js";
 import { leftOrNull, sendUntypedRpc } from "./_helpers.js";
 
-import { AgentsList } from "../../network/methods/auth.js";
-import { AppsRegister, TaskAuthorizeDispatch } from "../../app/methods/apps.js";
-import { TasksCreate } from "../../task/methods/tasks.js";
+import { AgentsList } from "../../identity/methods.js";
+import { AppsRegister, TaskAuthorizeDispatch } from "../../app/methods.js";
+import { TasksCreate } from "../../task/methods.js";
 
 const CATEGORY = "boundary" as const;
 const DEFAULT_TIMEOUT_MS = 3000;
@@ -33,13 +33,13 @@ const FUZZ_CAPTURE_CAPACITY_PER_METHOD = 4;
 const DATE_ID_RADIX = 36;
 
 /**
- * Schema-exhaustive fuzz — for every `RpcMethodName`, draws arbitrary
+ * Schema-exhaustive fuzz — for every wire method, draws arbitrary
  * valid params, sends through a real TestClient, and asserts the server
  * survives. Reuses a single TestClient across the whole iteration so
  * the suite doesn't open 40+ sockets in serial; each method runs behind
  * the same post-call liveness probe.
  *
- * Iterates every `RpcMethodName`. Failure on any single method halts
+ * Iterates every wire method. Failure on any single method halts
  * the property with a `PropertyInvariantViolation` naming the offender,
  * so artifacts are actionable.
  */
@@ -48,7 +48,7 @@ export function registerSchemaExhaustiveFuzz(ctx: ConformanceRunContext): void {
     ctx,
     CATEGORY,
     SCHEMA_EXHAUSTIVE_FUZZ_PROPERTY,
-    "every RpcMethodName drawn → server survives & stays responsive",
+    "every wire method drawn → server survives & stays responsive",
     Effect.scoped(
       Effect.gen(function* () {
         const agent = yield* registerTestAgent({

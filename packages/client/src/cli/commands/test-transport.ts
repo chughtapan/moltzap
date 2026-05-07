@@ -1,11 +1,10 @@
 import { Effect } from "effect";
 import {
-  decodeRpcResult,
-  ErrorCodes,
+  JSON_RPC_RESERVED_CODES,
+  UnauthorizedError,
   type ParamsOf,
   type ResultOf,
   type RpcDefinition,
-  type TSchema,
 } from "@moltzap/protocol";
 import {
   TransportRpcError,
@@ -27,7 +26,7 @@ export const makeFakeTransport = (
   const calls: TestTransportCall[] = [];
   const transport: TransportSurface = {
     kind: "test",
-    rpc: <D extends RpcDefinition<string, TSchema, TSchema>>(
+    rpc: <D extends RpcDefinition<string, any, any>>(
       definition: D,
       params: ParamsOf<D>,
     ): Effect.Effect<ResultOf<D>, TransportError> => {
@@ -38,22 +37,22 @@ export const makeFakeTransport = (
         return Effect.fail(
           new TransportRpcError({
             method: definition.name,
-            code: ErrorCodes.Unauthorized,
+            code: UnauthorizedError.code,
             message: out.message,
           }),
         );
       }
-      return decodeRpcResult(definition, out).pipe(
-        Effect.mapError(
-          () =>
-            new TransportRpcError({
-              method: definition.name,
-              code: ErrorCodes.InternalError,
-              message: `Invalid fake response for ${definition.name}`,
-              data: out,
-            }),
-        ),
-      );
+      if (!definition.validateResult(out)) {
+        return Effect.fail(
+          new TransportRpcError({
+            method: definition.name,
+            code: JSON_RPC_RESERVED_CODES.InternalError,
+            message: `Invalid fake response for ${definition.name}`,
+            data: out,
+          }),
+        );
+      }
+      return Effect.succeed(out as ResultOf<D>);
     },
   };
   return { calls, transport };

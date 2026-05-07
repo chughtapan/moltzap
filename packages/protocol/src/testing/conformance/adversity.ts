@@ -35,12 +35,10 @@ import {
   registerProperty,
 } from "./registry.js";
 
-import {
-  ConversationsCreate,
-  ConversationsList,
-} from "../../task/methods/conversations.js";
-import { MessagesSend } from "../../task/methods/messages.js";
-import { ConversationId, conversationId } from "../../schema/primitives.js";
+import { ConversationsCreate, ConversationsList } from "../../task/methods.js";
+import { MessagesSend } from "../../task/methods.js";
+import { ConversationId } from "../../task/methods.js";
+import { conversationId } from "../branded-ids.js";
 
 const CATEGORY = "adversity" as const;
 const DEFAULT_CAPTURE_CAPACITY = 128;

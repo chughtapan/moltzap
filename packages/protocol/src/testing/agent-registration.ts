@@ -13,7 +13,8 @@
  */
 import type { Static } from "@sinclair/typebox";
 import { Data, Effect } from "effect";
-import { AgentId, agentId } from "../schema/primitives.js";
+import { AgentId } from "../identity/methods.js";
+import { agentId } from "./branded-ids.js";
 
 const UNIQUE_SUFFIX_RADIX = 36;
 const UNIQUE_SUFFIX_START = 2;
@@ -39,7 +40,7 @@ export class AgentRegistrationError extends Data.TaggedError(
 
 /**
  * Register an agent against the real server's HTTP endpoint. The
- * returned `apiKey` is the `agentKey` TestClient sends in `auth/connect`.
+ * returned `apiKey` is the `agentKey` TestClient sends in `network/connect`.
  *
  * Every call uses a unique suffix so replays don't collide on the
  * server's "duplicate name" check; seeded replays pass a stable

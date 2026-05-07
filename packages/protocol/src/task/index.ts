@@ -1,8 +1,56 @@
-// Task-layer protocol surface: storage / CRUD layer.
-// Conversations, messages, contacts, invites, presence, tasks.
-export * from "./methods/conversations.js";
-export * from "./methods/messages.js";
-export * from "./methods/contacts.js";
-export * from "./methods/invites.js";
-export * from "./methods/presence.js";
-export * from "./methods/tasks.js";
+export type { ConversationId, MessageId, TaskId } from "./methods.js";
+
+export {
+  TaskClosedError,
+  ConversationArchivedError,
+  ConversationFullError,
+  HookBlockedError,
+  ConversationsCreate,
+  ConversationsList,
+  ConversationsGet,
+  ConversationsUpdate,
+  ConversationsMute,
+  ConversationsUnmute,
+  ConversationsAddParticipant,
+  ConversationsRemoveParticipant,
+  ConversationsLeave,
+  ConversationsArchive,
+  ConversationsUnarchive,
+  MessagesSend,
+  MessagesList,
+  TasksCreate,
+  TasksGet,
+  TasksList,
+  TasksClose,
+  TasksCreateConversation,
+  TasksCloseConversation,
+  TasksAddParticipant,
+  TasksRemoveParticipant,
+  TasksStoreMessage,
+  TasksGetMessages,
+  TasksGetMessagesSince,
+  ConversationCreatedNotificationDefinition,
+  ConversationUpdatedNotificationDefinition,
+  ConversationArchivedNotificationDefinition,
+  ConversationUnarchivedNotificationDefinition,
+  MessageReceivedNotificationDefinition,
+  TaskFailedNotificationDefinition,
+} from "./methods.js";
+
+export type {
+  LogicalClock,
+  Part,
+  Message,
+  Conversation,
+  ConversationParticipant,
+  ConversationSummary,
+  TaskStatus,
+  Task,
+  TaskParticipant,
+  TmType,
+  ConversationCreatedNotification,
+  ConversationUpdatedNotification,
+  ConversationArchivedNotification,
+  ConversationUnarchivedNotification,
+  MessageReceivedNotification,
+} from "./methods.js";

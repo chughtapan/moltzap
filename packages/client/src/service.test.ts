@@ -6,13 +6,12 @@ import type { Message } from "@moltzap/protocol";
 import {
   AppsAuthorizeDispatch,
   ConversationsGet,
-  ErrorCodes,
+  ConversationArchivedError,
   ConversationArchivedNotificationDefinition,
   ConversationCreatedNotificationDefinition,
   ConversationUnarchivedNotificationDefinition,
   MessageReceivedNotificationDefinition,
   MessagesSend,
-  notificationFrame,
 } from "@moltzap/protocol";
 import { sanitizeForSystemReminder } from "./service.js";
 import { FakeMoltZapService } from "./test-utils/fake-service.js";
@@ -40,9 +39,9 @@ describe("MoltZapService.sendToAgent", () => {
 
   beforeEach(() => {
     service = new FakeMoltZapService();
-    // `setResponse` is typed: the wire name must be a `RpcMethodName` literal
-    // and the value must match `RpcResult<M>`. Both guard against the
-    // contract-drift bug (A7) that motivated this fake.
+    // `setResponse` is typed: the descriptor narrows the response value
+    // to the matching `ResultOf<D>`. Guards against the contract-drift
+    // bug (A7) that motivated this fake.
     service.setResponse(AgentsLookupByName, {
       agents: [
         {
@@ -712,7 +711,7 @@ describe("MoltZapService conversation archive lifecycle", () => {
     });
 
     service.emitEvent(
-      notificationFrame(ConversationCreatedNotificationDefinition, {
+      ConversationCreatedNotificationDefinition.encode({
         conversation: {
           id: CONVERSATION_ARCHIVED_ID,
           type: "group",
@@ -739,14 +738,11 @@ describe("MoltZapService conversation archive lifecycle", () => {
     service.on("conversationArchived", (data) => archivedEvents.push(data));
     service.on("conversationUnarchived", (data) => unarchivedEvents.push(data));
 
-    const archivedEvent = notificationFrame(
-      ConversationArchivedNotificationDefinition,
-      {
-        conversationId: CONVERSATION_ARCHIVED_ID,
-        archivedAt: "2026-05-01T00:01:00.000Z",
-        by: AGENT_GM_ID,
-      },
-    );
+    const archivedEvent = ConversationArchivedNotificationDefinition.encode({
+      conversationId: CONVERSATION_ARCHIVED_ID,
+      archivedAt: "2026-05-01T00:01:00.000Z",
+      by: AGENT_GM_ID,
+    });
     service.emitEvent(archivedEvent);
 
     expect(service.isConversationArchived(CONVERSATION_ARCHIVED_ID)).toBe(true);
@@ -762,7 +758,7 @@ describe("MoltZapService conversation archive lifecycle", () => {
     expect(Either.isLeft(lateSend)).toBe(true);
     if (Either.isLeft(lateSend)) {
       expect(lateSend.left).toMatchObject({
-        code: ErrorCodes.ConversationArchived,
+        code: ConversationArchivedError.code,
         message: "Conversation is archived",
       });
     }
@@ -770,8 +766,7 @@ describe("MoltZapService conversation archive lifecycle", () => {
       [],
     );
 
-    const unarchivedEvent = notificationFrame(
-      ConversationUnarchivedNotificationDefinition,
+    const unarchivedEvent = ConversationUnarchivedNotificationDefinition.encode(
       {
         conversationId: CONVERSATION_ARCHIVED_ID,
         by: AGENT_GM_ID,
@@ -910,7 +905,7 @@ describe("MoltZapService.fanout — message handlers", () => {
       parts: [{ type: "text", text: "hi" }],
       createdAt: "2026-04-16T00:00:00.000Z",
     });
-    const event = notificationFrame(MessageReceivedNotificationDefinition, {
+    const event = MessageReceivedNotificationDefinition.encode({
       message: msg,
     });
 

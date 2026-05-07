@@ -1,9 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Cause, Effect, Exit } from "effect";
-import { ErrorCodes, agentId, taskId as makeTaskId } from "@moltzap/protocol";
+import { ForbiddenError, NotFoundError } from "@moltzap/protocol";
+import {
+  agentId,
+  taskId as makeTaskId,
+  wireErrorFromInstance,
+} from "@moltzap/protocol/testing";
 import type { Kysely } from "kysely";
 import type { Database } from "../db/database.js";
-import { RpcFailure } from "../runtime/index.js";
 import { TaskService, endpointAddressForAgent } from "./task.service.js";
 import type { ConversationService } from "./conversation.service.js";
 import type { MessageService } from "./message.service.js";
@@ -64,11 +68,11 @@ async function freshDb(): Promise<void> {
     .execute();
 }
 
-function rpcFailureCode(exit: Exit.Exit<unknown, RpcFailure>): number | null {
+function rpcFailureCode(exit: Exit.Exit<unknown, unknown>): number | null {
   if (Exit.isSuccess(exit)) return null;
   const failure = Cause.failureOption(exit.cause);
   if (failure._tag === "None") return null;
-  return failure.value.code;
+  return wireErrorFromInstance(failure.value)?.code ?? null;
 }
 
 describe("TaskService", () => {
@@ -136,7 +140,7 @@ describe("TaskService", () => {
       const svc = new TaskService(db, STUB_CONV, STUB_MSG);
       const task = await Effect.runPromise(svc.create(ALICE, aliceAsTm()));
       const exit = await Effect.runPromise(Effect.exit(svc.get(task.id, BOB)));
-      expect(rpcFailureCode(exit)).toBe(ErrorCodes.Forbidden);
+      expect(rpcFailureCode(exit)).toBe(ForbiddenError.code);
     });
 
     it("404s on get of unknown taskId", async () => {
@@ -146,7 +150,7 @@ describe("TaskService", () => {
           svc.get(makeTaskId("00000000-0000-4000-8000-deadbeefcafe"), ALICE),
         ),
       );
-      expect(rpcFailureCode(exit)).toBe(ErrorCodes.NotFound);
+      expect(rpcFailureCode(exit)).toBe(NotFoundError.code);
     });
   });
 
@@ -182,7 +186,7 @@ describe("TaskService", () => {
       const exit = await Effect.runPromise(
         Effect.exit(svc.close(task.id, BOB)),
       );
-      expect(rpcFailureCode(exit)).toBe(ErrorCodes.Forbidden);
+      expect(rpcFailureCode(exit)).toBe(ForbiddenError.code);
     });
 
     it("close: registered TM transitions task to closed", async () => {
@@ -201,7 +205,7 @@ describe("TaskService", () => {
       const denied = await Effect.runPromise(
         Effect.exit(svc.addParticipant(task.id, BOB, CAROL)),
       );
-      expect(rpcFailureCode(denied)).toBe(ErrorCodes.Forbidden);
+      expect(rpcFailureCode(denied)).toBe(ForbiddenError.code);
 
       const participant = await Effect.runPromise(
         svc.addParticipant(task.id, ALICE, CAROL),
@@ -219,7 +223,7 @@ describe("TaskService", () => {
       const denied = await Effect.runPromise(
         Effect.exit(svc.removeParticipant(task.id, CAROL, BOB)),
       );
-      expect(rpcFailureCode(denied)).toBe(ErrorCodes.Forbidden);
+      expect(rpcFailureCode(denied)).toBe(ForbiddenError.code);
 
       await Effect.runPromise(svc.removeParticipant(task.id, ALICE, BOB));
       const view = await Effect.runPromise(svc.get(task.id, ALICE));
@@ -236,12 +240,12 @@ describe("TaskService", () => {
       const addExit = await Effect.runPromise(
         Effect.exit(svc.addParticipant(task.id, ALICE, BOB)),
       );
-      expect(rpcFailureCode(addExit)).toBe(ErrorCodes.Forbidden);
+      expect(rpcFailureCode(addExit)).toBe(ForbiddenError.code);
 
       const closeExit = await Effect.runPromise(
         Effect.exit(svc.close(task.id, ALICE)),
       );
-      expect(rpcFailureCode(closeExit)).toBe(ErrorCodes.Forbidden);
+      expect(rpcFailureCode(closeExit)).toBe(ForbiddenError.code);
     });
   });
 
@@ -252,7 +256,7 @@ describe("TaskService", () => {
         svc.create(ALICE, { ...aliceAsTm(), invitedAgentIds: [BOB] }),
       );
       const exit = await Effect.runPromise(Effect.exit(svc.get(task.id, BOB)));
-      expect(rpcFailureCode(exit)).toBe(ErrorCodes.Forbidden);
+      expect(rpcFailureCode(exit)).toBe(ForbiddenError.code);
     });
   });
 
@@ -275,7 +279,7 @@ describe("TaskService", () => {
       const exit = await Effect.runPromise(
         Effect.exit(svc.requireTmAuthority(task.id, ALICE)),
       );
-      expect(rpcFailureCode(exit)).toBe(ErrorCodes.Forbidden);
+      expect(rpcFailureCode(exit)).toBe(ForbiddenError.code);
     });
 
     it("rejects when persisted address is empty", async () => {
@@ -289,7 +293,7 @@ describe("TaskService", () => {
       const exit = await Effect.runPromise(
         Effect.exit(svc.requireTmAuthority(task.id, ALICE)),
       );
-      expect(rpcFailureCode(exit)).toBe(ErrorCodes.Forbidden);
+      expect(rpcFailureCode(exit)).toBe(ForbiddenError.code);
     });
   });
 });

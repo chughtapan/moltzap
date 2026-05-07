@@ -2,7 +2,6 @@ import type { Kysely } from "kysely";
 import type { Database } from "../db/database.js";
 import { sendRpcToClient } from "../ws/connection.js";
 import type { ConnectionManager, MoltZapConnection } from "../ws/connection.js";
-import type { UserService } from "../services/user.service.js";
 import { logger } from "../logger.js";
 import type {
   AnyTaskCallbackRpcDefinition,
@@ -12,13 +11,9 @@ import type {
   Part,
   ResultOf,
 } from "@moltzap/protocol";
-import {
-  TaskAuthorizeDispatch,
-  agentId as protocolAgentId,
-  conversationId as protocolConversationId,
-  messageId as protocolMessageId,
-  taskId as protocolTaskId,
-} from "@moltzap/protocol";
+import { TaskAuthorizeDispatch } from "@moltzap/protocol";
+import type { AgentId } from "@moltzap/protocol/identity";
+import type { ConversationId, MessageId, TaskId } from "@moltzap/protocol/task";
 import {
   type AppHooks,
   type DispatchAdmissionResult,
@@ -26,7 +21,6 @@ import {
   type TaskAuthorizeDispatchHook,
 } from "./hooks.js";
 import { Data, Effect, Option } from "effect";
-import { RpcFailure } from "../runtime/index.js";
 import {
   catchSqlErrorAsDefect,
   takeFirstOption,
@@ -64,7 +58,7 @@ export class AppHost {
    * app's hook RPCs. Looked up at dispatch time (not registration time)
    * so the connection can be closed and re-resolved without re-registering
    * the app — the Scope finalizer on the old connection drains its
-   * pending Deferreds with `AppDisconnected`, which the dispatch envelope
+   * pending Deferreds with `NotConnectedError`, which the dispatch envelope
    * maps to fail-closed verdicts.
    *
    * Disjoint with `hooks` per-app: a given `appId` is either in-process
@@ -78,16 +72,14 @@ export class AppHost {
    * `grant` when the map is empty. Kept as scaffolding for the future
    * TM-registered conversation index. */
   private conversationToSession = new Map<
-    string,
-    { id: string; appId: string }
+    ConversationId,
+    { id: TaskId; appId: string }
   >();
-  private sessionToConversations = new Map<string, Set<string>>();
+  private sessionToConversations = new Map<string, Set<ConversationId>>();
 
   constructor(
     private db: Kysely<Database>,
     private connections: ConnectionManager,
-    /** null → no user validation (admit all owners). */
-    private userService: UserService | null,
   ) {}
 
   registerApp(manifest: AppManifest): void {
@@ -104,7 +96,7 @@ export class AppHost {
    *
    * Remote registration takes precedence over any prior in-process
    * registration for the same `appId`. Disconnect: every pending
-   * Deferred fails with `AppDisconnected` via the connection's Scope
+   * Deferred fails with `NotConnectedError` via the connection's Scope
    * finalizer; the registration keeps pointing at the dead id and
    * dispatches stay fail-closed until the app re-registers.
    */
@@ -139,7 +131,7 @@ export class AppHost {
     return this.manifests.get(appId);
   }
 
-  isAttachedToActiveSession(conversationId: string): boolean {
+  isAttachedToActiveSession(conversationId: ConversationId): boolean {
     return this.conversationToSession.has(conversationId);
   }
 
@@ -168,26 +160,26 @@ export class AppHost {
   }
 
   runAuthorizeDispatch(
-    conversationId: string,
-    recipientAgentId: string,
+    conversationId: ConversationId,
+    recipientAgentId: AgentId,
     params: {
-      messageId: string;
-      senderAgentId: string;
+      messageId: MessageId;
+      senderAgentId: AgentId;
       parts?: Part[];
       attempt?: number;
       receivedAt?: string;
       clock?: LogicalClock;
       pending?: ReadonlyArray<{
-        messageId: string;
-        conversationId: string;
-        senderAgentId: string;
+        messageId: MessageId;
+        conversationId: ConversationId;
+        senderAgentId: AgentId;
         createdAt: string;
         receivedAt: string;
         clock?: LogicalClock;
         parts?: Part[];
       }>;
     },
-  ): Effect.Effect<DispatchAdmissionResult, RpcFailure> {
+  ): Effect.Effect<DispatchAdmissionResult> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         const session = this.conversationToSession.get(conversationId);
@@ -276,7 +268,7 @@ export class AppHost {
   // Per architect plan §3.4: every hook returns `Effect<Verdict, never>`
   // regardless of source. The branching between in-process and remote is
   // INSIDE the dispatch helpers; call sites observe one type. Failure
-  // modes (timeout, throw, RPC error, AppDisconnected, decode failure)
+  // modes (timeout, throw, RPC error, NotConnectedError, decode failure)
   // collapse into fail-closed verdicts (`deny`).
   //
   // Multi-app composition (architect plan §3.4: "Effect.forEach in
@@ -307,16 +299,13 @@ export class AppHost {
   ): ParamsOf<typeof TaskAuthorizeDispatch> {
     const wire = this.contextForWire(ctx);
     return {
-      taskId: protocolTaskId(wire.taskId),
+      taskId: wire.taskId,
       appId: wire.appId,
-      conversationId: protocolConversationId(wire.conversationId),
-      recipient: {
-        ...wire.recipient,
-        agentId: protocolAgentId(wire.recipient.agentId),
-      },
+      conversationId: wire.conversationId,
+      recipient: wire.recipient,
       message: {
-        id: protocolMessageId(wire.message.id),
-        senderAgentId: protocolAgentId(wire.message.senderAgentId),
+        id: wire.message.id,
+        senderAgentId: wire.message.senderAgentId,
         ...(wire.message.parts !== undefined
           ? { parts: wire.message.parts }
           : {}),
@@ -327,9 +316,9 @@ export class AppHost {
       ...(wire.pending !== undefined
         ? {
             pending: wire.pending.map((pending) => ({
-              messageId: protocolMessageId(pending.messageId),
-              conversationId: protocolConversationId(pending.conversationId),
-              senderAgentId: protocolAgentId(pending.senderAgentId),
+              messageId: pending.messageId,
+              conversationId: pending.conversationId,
+              senderAgentId: pending.senderAgentId,
               createdAt: pending.createdAt,
               receivedAt: pending.receivedAt,
               ...(pending.clock !== undefined ? { clock: pending.clock } : {}),
@@ -372,7 +361,7 @@ export class AppHost {
   /**
    * Dispatch a server-initiated RPC to a remote app's connection and
    * decode the verdict. Returns the typed verdict in the success channel;
-   * any failure (`AppDisconnected`, RPC response error, socket error,
+   * any failure (`NotConnectedError`, RPC response error, socket error,
    * schema decode failure, missing connection) lands in the failure
    * channel for the dispatch envelope to map to fail-closed.
    *
@@ -393,7 +382,7 @@ export class AppHost {
       );
       if (!conn) {
         // Stale registration: the remote app's connection has already
-        // gone away. Treat identically to mid-flight `AppDisconnected`
+        // gone away. Treat identically to mid-flight `NotConnectedError`
         // so the dispatch envelope folds it into fail-closed.
         return yield* Effect.fail(
           new RemoteHookError({
@@ -427,7 +416,7 @@ export class AppHost {
    *   - success → returns the verdict as-is.
    *   - `TimeoutException` (from `Effect.timeout`) → logs a warning via
    *     `Effect.logWarning`, returns the timeout verdict from `onTimeout`.
-   *   - any other error (handler throw, RPC error, `AppDisconnected`,
+   *   - any other error (handler throw, RPC error, `NotConnectedError`,
    *     schema decode failure) → logs an error, returns the error
    *     verdict from `onError`.
    *

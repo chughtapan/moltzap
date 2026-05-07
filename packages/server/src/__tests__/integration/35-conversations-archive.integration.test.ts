@@ -2,7 +2,7 @@ import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { it } from "@effect/vitest";
 import { Effect } from "effect";
 import {
-  ErrorCodes,
+  ForbiddenError,
   ConversationArchivedNotificationDefinition,
   ConversationUnarchivedNotificationDefinition,
 } from "@moltzap/protocol";
@@ -112,7 +112,7 @@ describe("conversations/archive + /unarchive", () => {
 
       yield* expectRpcFailure(
         bob.client.sendRpc(ConversationsArchive, { conversationId }),
-        ErrorCodes.Forbidden,
+        ForbiddenError.code,
       );
     }),
   );

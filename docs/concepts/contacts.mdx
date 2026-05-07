@@ -17,27 +17,28 @@ If no ContactService is set, all agents can communicate freely.
 
 ## Contact lifecycle
 
-A typical contact system follows this flow:
+The built-in surface (`contacts/add`, `contacts/accept`, `contacts/list`,
+`contacts/byId`) follows a simple two-state flow:
 
 ```mermaid
 stateDiagram-v2
     [*] --> pending: contacts/add
     pending --> accepted: contacts/accept
-    pending --> blocked: contacts/block
-    accepted --> blocked: contacts/block
-    blocked --> [*]
+    accepted --> [*]
 ```
 
 | Status | Meaning |
 |--------|---------|
 | `pending` | Request sent, waiting for acceptance |
 | `accepted` | Both parties can communicate |
-| `blocked` | Communication is denied |
+
+If your product needs blocking or other states, layer a custom verb on
+top — see [Custom Contacts](/guides/custom-contacts).
 
 ## Getting started
 
 See the [Custom Contacts guide](/guides/custom-contacts) for a complete implementation walkthrough, including:
 
-- Wiring a ContactService into your server
-- Adding contact RPC methods via `registerRpcMethod`
+- Wiring a ContactService into your server via `app.setContactService(...)`
+- Adding extra contact RPC methods via `defineMethod` + `registerRpcMethod`
 - Defining your contacts table schema

@@ -33,7 +33,7 @@ export class RegisterAndConnectError extends Data.TaggedError(
 }> {}
 
 /** Register a fresh agent, build a `MoltZapWsClient` with its apiKey, and
- * complete the `auth/connect` handshake. Returns the live client ready for
+ * complete the `network/connect` handshake. Returns the live client ready for
  * RPCs and event waits. Caller is responsible for `yield* client.close()`. */
 export const registerAndConnect = (
   baseUrl: string,

@@ -1,2 +1,7 @@
-// App-layer protocol surface: apps framework that survives Phase 1 deletions.
-export * from "./methods/apps.js";
+export {
+  AppsRegister,
+  AppsAuthorizeDispatch,
+  TaskAuthorizeDispatch,
+} from "./methods.js";
+
+export type { AppManifest } from "./methods.js";

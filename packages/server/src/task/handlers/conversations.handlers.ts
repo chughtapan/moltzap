@@ -20,22 +20,14 @@ import {
   ConversationCreatedNotificationDefinition,
   ConversationUnarchivedNotificationDefinition,
   ConversationUpdatedNotificationDefinition,
-  notificationFrame,
   type NotificationDefinition,
   type NotificationParamsOf,
-  type TSchema,
 } from "@moltzap/protocol";
-import {
-  agentId as makeAgentId,
-  type AgentId,
-} from "@moltzap/protocol/network";
-import type { Static } from "@moltzap/protocol";
-import type { ConversationId as ConversationIdSchema } from "@moltzap/protocol/schemas/primitives";
+import type { AgentId } from "@moltzap/protocol/identity";
+import type { ConversationId } from "@moltzap/protocol/task";
 import { Effect } from "effect";
 import { defineTaskMethod } from "../../rpc/define-layered-method.js";
 import { ConnIdTag } from "../../app/layers.js";
-
-type ConversationId = Static<typeof ConversationIdSchema>;
 
 export function createConversationHandlers(deps: {
   conversationService: ConversationService;
@@ -44,7 +36,7 @@ export function createConversationHandlers(deps: {
   connections: ConnectionManager;
 }): RpcMethodRegistry {
   const broadcastToConversation = <
-    D extends NotificationDefinition<string, TSchema>,
+    D extends NotificationDefinition<string, any>,
   >(
     conversationId: ConversationId,
     definition: D,
@@ -55,7 +47,7 @@ export function createConversationHandlers(deps: {
         .getParticipantAgentIds(conversationId)
         .pipe(Effect.orElseSucceed(() => [] as readonly AgentId[]));
       if (participants.length === 0) return;
-      const frame = notificationFrame(definition, params);
+      const frame = definition.encode(params);
       const payload = opaquePayload(JSON.stringify(frame));
       yield* deps.networkSendService.broadcast(participants, payload, {
         forConversation: conversationId,
@@ -67,7 +59,7 @@ export function createConversationHandlers(deps: {
       requiresActive: true,
       handler: (params, ctx) =>
         Effect.gen(function* () {
-          const agentIds = params.participants.map((p) => p.id);
+          const agentIds = params.participants.map((p) => p.id as AgentId);
           // Pass the task source as a lazy Effect so
           // `ConversationService.create` only mints when its DM dedup
           // misses; pre-fix every duplicate-DM call orphaned a task.
@@ -82,15 +74,11 @@ export function createConversationHandlers(deps: {
           // `ConversationService.create` subscribes every participant's
           // open sockets to the new conversation; this handler fans the
           // ConversationCreated event so clients update their lists.
-          const createdFrame = notificationFrame(
-            ConversationCreatedNotificationDefinition,
+          const createdFrame = ConversationCreatedNotificationDefinition.encode(
             { conversation },
           );
           const createdPayload = opaquePayload(JSON.stringify(createdFrame));
-          yield* deps.networkSendService.broadcast(
-            params.participants.map((p) => makeAgentId(p.id)),
-            createdPayload,
-          );
+          yield* deps.networkSendService.broadcast(agentIds, createdPayload);
 
           return { conversation };
         }),
@@ -222,14 +210,13 @@ export function createConversationHandlers(deps: {
       requiresActive: true,
       handler: (params, ctx) =>
         Effect.gen(function* () {
+          const targetAgentId = params.participant.id as AgentId;
           const participant = yield* deps.conversationService.addParticipant(
             params.conversationId,
-            params.participant.id,
+            targetAgentId,
             ctx.agentId,
           );
-          for (const conn of deps.connections.getByAgent(
-            params.participant.id,
-          )) {
+          for (const conn of deps.connections.getByAgent(targetAgentId)) {
             conn.conversationIds.add(params.conversationId);
           }
           return { participant };
@@ -242,7 +229,7 @@ export function createConversationHandlers(deps: {
         Effect.gen(function* () {
           yield* deps.conversationService.removeParticipant(
             params.conversationId,
-            params.participant.id,
+            params.participant.id as AgentId,
             ctx.agentId,
           );
           return {};

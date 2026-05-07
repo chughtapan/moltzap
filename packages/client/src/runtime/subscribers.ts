@@ -30,7 +30,10 @@
  * `register`, `dispatch`, and `closeAll` are `Effect<T, never>`.
  */
 import { Brand, Effect, Ref } from "effect";
-import type { DecodedNotificationFrame } from "./frame.js";
+import type {
+  AnyNotificationDefinition,
+  DecodedNotification,
+} from "@moltzap/protocol";
 
 interface FilterableNotificationFrame {
   readonly method: string;
@@ -87,13 +90,10 @@ export interface NotificationSubscription {
  * dispatch fiber. Must not throw — throws are caught by the registry,
  * logged via the injected logger, and swallowed.
  *
- * The frame type is the pre-validation
- * `DecodedNotificationFrame` union (known method with raw `params:
- * unknown`, or unknown method with no descriptor). Subscribers run
- * BEFORE the typed-bridge lift in `validateNotificationParams`, so
- * `params` is genuinely opaque here — handlers that need a typed
- * payload must validate themselves (`frame.definition?.validateParams`)
- * or live behind the typed-handler bridge in `service.handleNotification`.
+ * The frame is a known-descriptor `DecodedNotification` (post-S9
+ * fail-close: malformed / unknown-method frames are rejected before
+ * dispatch). Handlers receive validated `params` typed as
+ * `NotificationParamsOf<D>` for the matching definition.
  *
  * Returning an `Effect` (not a plain `void`) lets handlers compose with
  * Effect-native downstream code without an extra runSync shim. The
@@ -103,7 +103,7 @@ export interface NotificationSubscription {
  * subscription B across frames.
  */
 export type SubscriberHandler = (
-  frame: DecodedNotificationFrame,
+  frame: DecodedNotification<AnyNotificationDefinition>,
 ) => Effect.Effect<void, never>;
 
 /**
@@ -132,7 +132,7 @@ export interface SubscriberRegistry {
    * live-subscription list at the start of dispatch so
    * unsubscribe-during-dispatch observes next-frame semantics (OQ-3 A).
    *
-   * Frames are pre-validation (`DecodedNotificationFrame` union) — the
+   * Frames are pre-validation (`DecodedNotification<AnyNotificationDefinition>` union) — the
    * type-system contract that subscribers see RAW frames, not the lifted
    * `DecodedNotification<D>` shape that typed handlers see.
    *
@@ -141,7 +141,7 @@ export interface SubscriberRegistry {
    * reorder frame N relative to frame N+1.
    */
   readonly dispatch: (
-    frame: DecodedNotificationFrame,
+    frame: DecodedNotification<AnyNotificationDefinition>,
   ) => Effect.Effect<void, never>;
 
   /**

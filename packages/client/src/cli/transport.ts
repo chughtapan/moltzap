@@ -29,12 +29,7 @@ import {
   parseProfileName,
   resolveProfileAuth,
 } from "./profile.js";
-import type {
-  ParamsOf,
-  ResultOf,
-  RpcDefinition,
-  TSchema,
-} from "@moltzap/protocol";
+import type { ParamsOf, ResultOf, RpcDefinition } from "@moltzap/protocol";
 
 // ─── Errors ────────────────────────────────────────────────────────────────
 
@@ -108,7 +103,7 @@ export type TransportKind = "daemon" | "direct" | "test";
  */
 export interface Transport {
   readonly kind: TransportKind;
-  readonly rpc: <D extends RpcDefinition<string, TSchema, TSchema>>(
+  readonly rpc: <D extends RpcDefinition<string, any, any>>(
     definition: D,
     params: ParamsOf<D>,
   ) => Effect.Effect<ResultOf<D>, TransportError>;
@@ -239,7 +234,7 @@ const tagDaemonError = (method: string, err: Error): TransportError => {
 
 const makeDaemonTransport = (socketPath: string): Transport => ({
   kind: "daemon",
-  rpc: <D extends RpcDefinition<string, TSchema, TSchema>>(
+  rpc: <D extends RpcDefinition<string, any, any>>(
     definition: D,
     params: ParamsOf<D>,
   ) =>
@@ -335,7 +330,7 @@ const makeDirectTransport = (
 
     return {
       kind: "direct" as const,
-      rpc: <D extends RpcDefinition<string, TSchema, TSchema>>(
+      rpc: <D extends RpcDefinition<string, any, any>>(
         definition: D,
         params: ParamsOf<D>,
       ): Effect.Effect<ResultOf<D>, TransportError> =>
@@ -413,7 +408,7 @@ export const makeTransportLayer = (
  * Every new subcommand routes through this helper; raw `socket-client.request`
  * imports in new commands are a lint-level violation (see design doc §3).
  */
-export const rpc = <D extends RpcDefinition<string, TSchema, TSchema>>(
+export const rpc = <D extends RpcDefinition<string, any, any>>(
   definition: D,
   params: ParamsOf<D>,
 ): Effect.Effect<ResultOf<D>, TransportError, Transport> =>

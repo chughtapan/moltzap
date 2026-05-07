@@ -1,6 +1,5 @@
 import { Effect } from "effect";
-import { Type } from "@sinclair/typebox";
-import { defineRpc } from "@moltzap/protocol";
+import { AgentsLookup } from "@moltzap/protocol";
 import {
   defineAppMethod,
   defineNetworkMethod,
@@ -17,74 +16,68 @@ import {
   ConversationServiceTag,
 } from "../app/layers.js";
 
-const Probe = defineRpc({
-  name: "_probe" as const,
-  params: Type.Object({}, { additionalProperties: false }),
-  result: Type.Object({}, { additionalProperties: false }),
-});
-
-const empty = () => Effect.succeed({});
+const empty = () => Effect.succeed({ agents: [] });
 
 const yieldsTaskScope = () =>
   Effect.gen(function* () {
     yield* TaskLayerScope;
-    return {};
+    return { agents: [] };
   });
 const yieldsAppScope = () =>
   Effect.gen(function* () {
     yield* AppLayerScope;
-    return {};
+    return { agents: [] };
   });
 const yieldsNetworkScope = () =>
   Effect.gen(function* () {
     yield* NetworkLayerScope;
     yield* TaskLayerScope;
-    return {};
+    return { agents: [] };
   });
 const yieldsAllScopes = () =>
   Effect.gen(function* () {
     yield* NetworkLayerScope;
     yield* TaskLayerScope;
     yield* AppLayerScope;
-    return {};
+    return { agents: [] };
   });
 const yieldsConversationService = () =>
   Effect.gen(function* () {
     yield* ConversationServiceTag;
-    return {};
+    return { agents: [] };
   });
 const yieldsContactsService = () =>
   Effect.gen(function* () {
     yield* ContactsServiceTag;
-    return {};
+    return { agents: [] };
   });
 const yieldsAppHost = () =>
   Effect.gen(function* () {
     yield* AppHostTag;
-    return {};
+    return { agents: [] };
   });
 
-defineNetworkMethod(Probe, { handler: empty });
-defineTaskMethod(Probe, { handler: yieldsNetworkScope });
-defineAppMethod(Probe, { handler: yieldsAllScopes });
+defineNetworkMethod(AgentsLookup, { handler: empty });
+defineTaskMethod(AgentsLookup, { handler: yieldsNetworkScope });
+defineAppMethod(AgentsLookup, { handler: yieldsAllScopes });
 
 // @ts-expect-error - network handler may not require TaskLayerScope
-defineNetworkMethod(Probe, { handler: yieldsTaskScope });
+defineNetworkMethod(AgentsLookup, { handler: yieldsTaskScope });
 
 // @ts-expect-error - network handler may not require AppLayerScope
-defineNetworkMethod(Probe, { handler: yieldsAppScope });
+defineNetworkMethod(AgentsLookup, { handler: yieldsAppScope });
 
 // @ts-expect-error - network handler may not yield from a task-layer service
-defineNetworkMethod(Probe, { handler: yieldsConversationService });
+defineNetworkMethod(AgentsLookup, { handler: yieldsConversationService });
 
 // @ts-expect-error - network handler may not yield from contacts (task-layer)
-defineNetworkMethod(Probe, { handler: yieldsContactsService });
+defineNetworkMethod(AgentsLookup, { handler: yieldsContactsService });
 
 // @ts-expect-error - network handler may not yield from app-layer service
-defineNetworkMethod(Probe, { handler: yieldsAppHost });
+defineNetworkMethod(AgentsLookup, { handler: yieldsAppHost });
 
 // @ts-expect-error - task handler may not require AppLayerScope
-defineTaskMethod(Probe, { handler: yieldsAppScope });
+defineTaskMethod(AgentsLookup, { handler: yieldsAppScope });
 
 // @ts-expect-error - task handler may not yield from app-layer service
-defineTaskMethod(Probe, { handler: yieldsAppHost });
+defineTaskMethod(AgentsLookup, { handler: yieldsAppHost });

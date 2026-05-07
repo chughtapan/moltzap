@@ -11,7 +11,8 @@ import { Effect, Either } from "effect";
 import {
   ConversationsArchive,
   ConversationsCreate,
-  ErrorCodes,
+  ConversationsList,
+  ConversationArchivedError,
   MessageReceivedNotificationDefinition,
 } from "@moltzap/protocol";
 import {
@@ -109,7 +110,7 @@ describe("Connection & Core API", () => {
   );
 
   it.live(
-    "getConversation() is populated after connect with existing conversations",
+    "conversations/list returns existing conversations after connect",
     () =>
       Effect.gen(function* () {
         const regA = yield* registerAgent("agent-a");
@@ -122,9 +123,19 @@ describe("Connection & Core API", () => {
           participants: [{ type: "agent", id: regB.agentId }],
         })) as { conversation: { id: string } };
 
-        // Now connect agent-b as MoltZapService — should see the conversation in HelloOk
+        // Phase 12: HelloOk no longer carries task-layer state (no eager
+        // conversations payload). The service cache populates from
+        // notifications going forward; existing conversations are fetched
+        // explicitly via `conversations/list`.
         const service = yield* connectService(regB.apiKey);
-        const found = service.getConversation(conv.conversation.id);
+        expect(service.getConversation(conv.conversation.id)).toBeUndefined();
+
+        const list = (yield* service.sendRpc(ConversationsList, {})) as {
+          conversations: Array<{ id: string; type: string }>;
+        };
+        const found = list.conversations.find(
+          (c) => c.id === conv.conversation.id,
+        );
         expect(found).toBeDefined();
         expect(found!.type).toBe("dm");
 
@@ -306,7 +317,7 @@ describe("Connection & Core API", () => {
         expect(Either.isLeft(lateSend)).toBe(true);
         if (Either.isLeft(lateSend)) {
           expect(lateSend.left).toMatchObject({
-            code: ErrorCodes.ConversationArchived,
+            code: ConversationArchivedError.code,
             message: "Conversation is archived",
           });
         }
