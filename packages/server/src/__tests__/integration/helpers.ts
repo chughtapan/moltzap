@@ -63,6 +63,14 @@ type StartTestServerOptions = {
   sessionValidator?: SessionValidator;
   /** Optional secret forwarded to `startCoreTestServer` — see its docs. */
   registrationSecret?: string;
+  /**
+   * Optional dev-mode owner id. When set, every agent registered via the
+   * public `/api/v1/auth/register` endpoint is implicitly owned by this
+   * UserId. Tests that exercise contact-scoped surface (#481) on a
+   * single-owner cohort use this to avoid an admin-register dance just to
+   * bind owners.
+   */
+  devModeUserId?: string;
   traceCaptureLayer?: Layer.Layer<TraceCaptureTag>;
 };
 
@@ -94,6 +102,7 @@ export function startTestServer(_opts?: StartTestServerOptions) {
           encryption: _opts?.encryption,
           sessionValidator: _opts?.sessionValidator,
           registrationSecret: _opts?.registrationSecret,
+          devModeUserId: _opts?.devModeUserId,
           traceCaptureLayer: _opts?.traceCaptureLayer,
         }),
       catch: (cause) =>
