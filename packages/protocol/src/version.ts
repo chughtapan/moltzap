@@ -1,2 +1,2 @@
 // Auto-bumped by publish workflow
-export const PROTOCOL_VERSION = "2026.506.3";
+export const PROTOCOL_VERSION = "2026.507.0";
