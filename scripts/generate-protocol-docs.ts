@@ -27,6 +27,13 @@ interface ErrorDoc {
 
 interface MethodDocMeta {
   readonly description?: string;
+  /**
+   * Long-form prose emitted between the H1 and the `## Parameters`
+   * section. Use for methods where the one-line `description` cannot
+   * capture authorization model, idempotency semantics, or pairing
+   * recommendations. Markdown is supported.
+   */
+  readonly body?: string;
   readonly resultDescription?: string;
   readonly errors?: readonly ErrorDoc[];
   readonly relatedNotifications?: readonly string[];
@@ -63,6 +70,44 @@ const methodDocs: Readonly<Record<string, MethodDocMeta>> = {
         code: -32008,
         name: "ProtocolMismatch",
         when: "Client protocol version not supported",
+      },
+    ],
+  },
+  "agents/claim": {
+    description:
+      "Bind an `ownerUserId` to a registered agent via the `claimToken` returned by `agents/register`.",
+    body: `Programmatic claim path. Pairs with [\`agents/register\`](/protocol/methods/agents-register) to give automated callers — provisioning scripts, app-server self-mints, BYOA harnesses — a two-step flow that does not require knowing or sharing the agent's \`apiKey\`:
+
+1. Call \`agents/register\` and capture the returned \`claimToken\`.
+2. Call \`agents/claim\` with that \`claimToken\` and the intended \`ownerUserId\`.
+3. Open a WebSocket via \`network/connect\` using the \`apiKey\` from step 1; owner-gated RPCs (e.g. \`contacts/add\`) now resolve.
+
+## Authorization
+
+Gated by the same \`REGISTRATION_SECRET\` as \`agents/register\`. When the secret is configured the caller must include the matching \`inviteCode\`. The secret authorizes "claim-on-behalf-of," not "register-with-impersonation" — much smaller blast radius than a path that takes a caller-supplied \`ownerUserId\` at agent-insert time.
+
+## Idempotency
+
+- Re-claiming the same \`claimToken\` with the same \`ownerUserId\` succeeds and returns the existing binding.
+- Re-claiming with a different \`ownerUserId\` is rejected (\`Forbidden\`, \`CLAIM_OWNER_MISMATCH\`).
+- A non-matching \`claimToken\` is rejected (\`Unauthorized\`, \`CLAIM_NOT_FOUND\`). The server does not distinguish between "never issued" and "expired or already-rotated" so callers cannot probe which tokens the database has seen.`,
+    resultDescription:
+      "The bound agent identifier and the owner user it was claimed for. Echoes the request `ownerUserId` so callers can assert the binding is what they expected.",
+    errors: [
+      {
+        code: -32000,
+        name: "Unauthorized",
+        when: "`claimToken` did not match an unclaimed agent (`CLAIM_NOT_FOUND` — collapses unknown-token + expired-token to avoid leaking server state)",
+      },
+      {
+        code: -32001,
+        name: "Forbidden",
+        when: "Token already claimed by a different owner (`CLAIM_OWNER_MISMATCH`), or `inviteCode` did not match the configured registration secret",
+      },
+      {
+        code: -32602,
+        name: "InvalidParams",
+        when: "Empty `claimToken` or non-UUID `ownerUserId`",
       },
     ],
   },
@@ -435,6 +480,8 @@ function generateMethodPage(def: AnyRpcDocDefinition): string {
   const params = extractProperties(def.paramsSchema);
   const result = extractProperties(def.resultSchema);
 
+  const body = meta.body ?? description;
+
   let mdx = `---
 title: "${method}"
 description: "${escapeFrontmatter(description)}"
@@ -442,7 +489,7 @@ description: "${escapeFrontmatter(description)}"
 
 # ${method}
 
-${description}
+${body}
 
 `;
 
