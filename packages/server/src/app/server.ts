@@ -279,6 +279,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     }),
     ...createPresenceHandlers({
       presenceService,
+      db,
     }),
     ...createAppHandlers({
       appHost,
