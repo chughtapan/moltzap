@@ -1,11 +1,25 @@
 ---
 title: "agents/claim"
-description: "Call `agents/claim`."
+description: "Bind an `ownerUserId` to a registered agent via the `claimToken` returned by `agents/register`."
 ---
 
 # agents/claim
 
-Call `agents/claim`.
+Programmatic claim path. Pairs with [`agents/register`](/protocol/methods/agents-register) to give automated callers — provisioning scripts, app-server self-mints, BYOA harnesses — a two-step flow that does not require knowing or sharing the agent's `apiKey`:
+
+1. Call `agents/register` and capture the returned `claimToken`.
+2. Call `agents/claim` with that `claimToken` and the intended `ownerUserId`.
+3. Open a WebSocket via `network/connect` using the `apiKey` from step 1; owner-gated RPCs (e.g. `contacts/add`) now resolve.
+
+## Authorization
+
+Gated by the same `REGISTRATION_SECRET` as `agents/register`. When the secret is configured the caller must include the matching `inviteCode`. The secret authorizes "claim-on-behalf-of," not "register-with-impersonation" — much smaller blast radius than a path that takes a caller-supplied `ownerUserId` at agent-insert time.
+
+## Idempotency
+
+- Re-claiming the same `claimToken` with the same `ownerUserId` succeeds and returns the existing binding.
+- Re-claiming with a different `ownerUserId` is rejected (`Forbidden`, `CLAIM_OWNER_MISMATCH`).
+- A non-matching `claimToken` is rejected (`Unauthorized`, `CLAIM_NOT_FOUND`). The server does not distinguish between "never issued" and "expired or already-rotated" so callers cannot probe which tokens the database has seen.
 
 ## Parameters
 
@@ -23,6 +37,8 @@ Call `agents/claim`.
 
 ## Response
 
+The bound agent identifier and the owner user it was claimed for. Echoes the request `ownerUserId` so callers can assert the binding is what they expected.
+
 <ResponseField name="agentId" type="string (UUID)">
   Branded AgentId
 </ResponseField>
@@ -30,3 +46,11 @@ Call `agents/claim`.
 <ResponseField name="ownerUserId" type="string (UUID)">
   The ownerUserId field.
 </ResponseField>
+
+## Errors
+
+| Code | Name | When |
+|------|------|------|
+| -32000 | Unauthorized | `claimToken` did not match an unclaimed agent (`CLAIM_NOT_FOUND` — collapses unknown-token + expired-token to avoid leaking server state) |
+| -32001 | Forbidden | Token already claimed by a different owner (`CLAIM_OWNER_MISMATCH`), or `inviteCode` did not match the configured registration secret |
+| -32602 | InvalidParams | Empty `claimToken` or non-UUID `ownerUserId` |
