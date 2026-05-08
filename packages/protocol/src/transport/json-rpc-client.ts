@@ -90,8 +90,12 @@ export const makeJsonRpcClient = (config: {
                 // in `RegisteredTaggedError`. The type system can't see
                 // through the open-ended `new (...) => { _tag: string }`
                 // factory shape, so the cast bridges the static factory
-                // to the closed runtime union.
-                (new cls() as RegisteredTaggedError);
+                // to the closed runtime union. The `data` argument is
+                // forwarded so any payload set by the server reaches the
+                // typed instance rather than being dropped (#511).
+                (new cls({
+                  data: frame.error.data,
+                } as never) as RegisteredTaggedError);
           yield* Deferred.fail(deferred, failureValue).pipe(Effect.ignore);
           return true;
         }
