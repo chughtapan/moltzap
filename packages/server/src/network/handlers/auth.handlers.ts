@@ -174,20 +174,17 @@ export function createCoreAuthHandlers(deps: {
     }),
 
     defineNetworkMethod(AgentsLookup, {
-      // Contact-scoped per #481/#506: out-of-scope IDs (non-self, non-sibling,
-      // non-accepted-contact owners) silently drop from the result. Without
-      // this filter any caller could dereference any agent's `AgentCard`
-      // (including `ownerUserId`) by guessing or harvesting an `AgentId`.
-      handler: (params, ctx) =>
+      // NOT contact-scoped. Per architect #481: "those are dereference-by-known-key,
+      // so the privacy concern is at the enumeration verb, not the lookup verb."
+      // The client uses this RPC to resolve peer `AgentCard`s for UI rendering of
+      // conversation messages (see `service.resolveAgentName` and the bulk-history
+      // lookup in `packages/client/src/service.ts`); contact-scoping it would render
+      // conversation peers as UUIDs whenever the caller has not explicitly added
+      // them as a contact. The dictionary-attack defense lives on the
+      // `agents/lookupByName` verb below, where it actually applies.
+      handler: (params) =>
         catchSqlErrorAsDefect(
           Effect.gen(function* () {
-            const visibleIds = yield* visibleAgentIds({
-              db: deps.db,
-              callerAgentId: ctx.agentId,
-              callerOwnerUserId: ctx.ownerUserId,
-              restrictTo: params.agentIds as ServerAgentId[],
-            });
-            if (visibleIds.length === 0) return { agents: [] };
             const rows = yield* deps.db
               .selectFrom("agents")
               .select([
@@ -198,7 +195,7 @@ export function createCoreAuthHandlers(deps: {
                 "status",
                 "owner_user_id",
               ])
-              .where("id", "in", visibleIds as ServerAgentId[]);
+              .where("id", "in", params.agentIds as ServerAgentId[]);
             return { agents: rows.map(toAgentCard) };
           }),
         ),
