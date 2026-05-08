@@ -3,7 +3,6 @@ import {
   decodeServerInbound,
   DispatchAuthorize,
   MalformedFrameError,
-  TaskAuthorizeDispatch,
   type AnyTaskCallbackRpcDefinition,
   type AnyNotificationDefinition,
   type DecodedNotification,
@@ -13,7 +12,6 @@ import {
   type JsonRpcId,
   type ParamsOf,
 } from "@moltzap/protocol";
-import { type AppCallbackPartitionRoute } from "../internal/app-callback-partition-key.js";
 
 export type { DecodedNotification };
 
@@ -26,15 +24,13 @@ export type DecodedResponse = DecodedResponseSuccess | DecodedResponseError;
  * routes these to its per-method handler registry; the server is the
  * originator and awaits a matching JSON-RPC response with the same id.
  *
- * Carries the partition route alongside the protocol-level decoded request.
- *
  * The `D extends AnyTaskCallbackRpcDefinition ? ... : never` distribution
- * is load-bearing: when the union widens (e.g. adding `DispatchAuthorize`
- * alongside `TaskAuthorizeDispatch` per #529), the per-arm pairing of
- * `{definition, params}` must stay distinct so downstream consumers
- * (the partition dispatcher's `PartitionableRequest`) see a discriminated
- * union, not the merged `{TaskAuthorize | DispatchAuthorize, params: A | B}`
- * shape that conflates incompatible param schemas.
+ * is load-bearing: when the union widens (e.g. a future task-callback
+ * descriptor lands alongside `DispatchAuthorize`), the per-arm pairing
+ * of `{definition, params}` must stay distinct so downstream consumers
+ * see a discriminated union, not a merged
+ * `{Definition, params: ParamsA | ParamsB}` shape that conflates
+ * incompatible param schemas.
  */
 export type DecodedServerRequest<
   D extends AnyTaskCallbackRpcDefinition = AnyTaskCallbackRpcDefinition,
@@ -44,7 +40,6 @@ export type DecodedServerRequest<
       readonly id: JsonRpcId;
       readonly definition: D;
       readonly params: ParamsOf<D>;
-      readonly partition: AppCallbackPartitionRoute;
     }
   : never;
 
@@ -67,38 +62,17 @@ const liftServerInbound = (
 };
 
 /**
- * Per-descriptor projection of the partition route + construction of a
+ * Per-descriptor lift of an app-callback request to a typed
  * `DecodedServerRequest`. Each branch is guarded by the descriptor's
  * `validateParams` predicate so `decoded.definition` + `decoded.params`
  * narrow together, preserving the per-arm pairing required by the
- * distributive `DecodedServerRequest<D>` type. Adding a new app-callback
- * descriptor (e.g. when the cutover PR retires the legacy entry) means
- * adding a single branch here.
+ * distributive `DecodedServerRequest<D>` type. Adding a new
+ * task-callback descriptor adds one branch here.
  */
 const liftAppCallbackRequest = (
   decoded: Extract<DecodedServerInbound, { readonly _tag: "ServerRequest" }>,
   raw: string,
 ): Effect.Effect<DecodedFrame, MalformedFrameError> => {
-  if (
-    decoded.definition === TaskAuthorizeDispatch &&
-    TaskAuthorizeDispatch.validateParams(decoded.params)
-  ) {
-    return Effect.succeed<DecodedServerRequest<typeof TaskAuthorizeDispatch>>({
-      _tag: "ServerRequest",
-      id: decoded.id,
-      definition: TaskAuthorizeDispatch,
-      params: decoded.params,
-      partition: {
-        taskId: decoded.params.taskId,
-        conversationId: decoded.params.conversationId,
-      },
-    });
-  }
-  // #529 additive: `dispatch/authorize` is the new S→C verdict-request
-  // surface; the partition route projection is identical to the legacy
-  // `task/authorizeDispatch` (same `(taskId, conversationId)` fields
-  // at the same param paths). Cutover PR deletes the legacy branch
-  // above when the legacy descriptor is removed.
   if (
     decoded.definition === DispatchAuthorize &&
     DispatchAuthorize.validateParams(decoded.params)
@@ -108,10 +82,6 @@ const liftAppCallbackRequest = (
       id: decoded.id,
       definition: DispatchAuthorize,
       params: decoded.params,
-      partition: {
-        taskId: decoded.params.taskId,
-        conversationId: decoded.params.conversationId,
-      },
     });
   }
   return Effect.fail(

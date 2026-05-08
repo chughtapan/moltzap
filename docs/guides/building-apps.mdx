@@ -14,7 +14,8 @@ description: Create multi-agent app sessions with identity checks
 > additionally removed `app-callback` notifications, the `Broadcaster`
 > service, and the `WIRE_CODES` / `ErrorCodes` aggregates. Use
 > `tasks/*` wire RPCs (Phase 6) for direct task CRUD;
-> `task/authorizeDispatch` is the surviving server→app callback. The
+> `dispatch/authorize` is the surviving server→app callback (registered
+> via the `dispatch_authorize` manifest hook key). The
 > manifest-driven app-session bootstrap reactivates under the TM
 > topology, and the doc rewrite ships as Phase 14
 > (chughtapan/moltzap#454). The snippets below describe the

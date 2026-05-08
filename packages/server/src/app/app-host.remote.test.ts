@@ -1,12 +1,7 @@
 /**
- * Phase 1.2 (B.3) gating tests for the AppHost remote-app routing
- * surface (architect plan §3.4). Phase 9b consumer-migration (sub-issue
- * #460): the legacy `apps/onBeforeDispatch` retired in favour of the
- * renamed `task/authorizeDispatch`; the lifecycle and message-delivery
- * appCallback verbs (`onBeforeMessageDelivery`, `onSessionActive`,
- * `onClose`) deleted entirely. The dispatch helpers and registration
- * paths exercised here narrow to the single surviving server→client
- * round-trip.
+ * Gating tests for the AppHost remote-app routing surface (architect
+ * plan §3.4). The dispatch helpers and registration paths exercised
+ * here cover the single `dispatch/authorize` server→client round-trip.
  *
  * Tests run against `MoltZapConnection` directly (no testcontainers, no
  * real WS) so they stay pure-Effect — `TestClock`-drivable, no real
@@ -18,7 +13,7 @@ import { describe, expect, it } from "vitest";
 import { Effect, Exit, Fiber, Ref, Scope } from "effect";
 import type { Kysely } from "kysely";
 import {
-  TaskAuthorizeDispatch,
+  DispatchAuthorize,
   type AppManifest,
   type JsonRpcId,
 } from "@moltzap/protocol";
@@ -96,7 +91,7 @@ const baseManifest = (appId: string, hookTimeoutMs?: number): AppManifest => ({
   name: `Test App ${appId}`,
   conversations: [],
   hooks: hookTimeoutMs
-    ? { task_authorize_dispatch: { timeout_ms: hookTimeoutMs } }
+    ? { dispatch_authorize: { timeout_ms: hookTimeoutMs } }
     : undefined,
 });
 
@@ -162,7 +157,7 @@ const remoteRegistrations = (host: AppHost): RemoteRegistrations =>
   privateField<RemoteRegistrations>(host, "remoteRegistrations");
 
 const dispatchAuthorizeDispatch = (host: AppHost): AuthorizeDispatchDispatch =>
-  bindPrivateMethod(host, "dispatchAuthorizeDispatchHook");
+  bindPrivateMethod(host, "dispatchAuthorizeHook");
 
 // ─────────────────────────────────────────────────────────────────────
 // Registration surface
@@ -213,10 +208,10 @@ describe("AppHost.unregisterRemoteApp", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// task/authorizeDispatch — remote round-trip + fail-closed paths
+// dispatch/authorize — remote round-trip + fail-closed paths
 // ─────────────────────────────────────────────────────────────────────
 
-describe("AppHost remote dispatch — task/authorizeDispatch", () => {
+describe("AppHost remote dispatch — dispatch/authorize", () => {
   it("happy: remote replies with grant verdict; envelope passes through", async () => {
     const program = Effect.gen(function* () {
       const scope = yield* Scope.make();
@@ -244,7 +239,7 @@ describe("AppHost remote dispatch — task/authorizeDispatch", () => {
       );
 
       yield* conn.jsonRpcClient.resolve(
-        TaskAuthorizeDispatch.encodeResponse(id, {
+        DispatchAuthorize.encodeResponse(id, {
           admission: { decision: "grant", leaseId: "lease-1" },
         }),
       );
@@ -284,7 +279,7 @@ describe("AppHost remote dispatch — task/authorizeDispatch", () => {
         Effect.retry({ times: 50, schedule: undefined }),
       );
       yield* conn.jsonRpcClient.resolve(
-        TaskAuthorizeDispatch.encodeResponse(id, {
+        DispatchAuthorize.encodeResponse(id, {
           admission: { decision: "deny", reason: "policy/x" },
         }),
       );
@@ -317,7 +312,7 @@ describe("AppHost remote dispatch — task/authorizeDispatch", () => {
     const result = await Effect.runPromise(program);
     expect(result).toEqual({
       decision: "deny",
-      reason: "task/authorizeDispatch error",
+      reason: "dispatch/authorize error",
     });
   });
 
@@ -355,7 +350,7 @@ describe("AppHost remote dispatch — task/authorizeDispatch", () => {
     const result = await Effect.runPromise(program);
     expect(result).toEqual({
       decision: "deny",
-      reason: "task/authorizeDispatch error",
+      reason: "dispatch/authorize error",
     });
   });
 
@@ -386,7 +381,7 @@ describe("AppHost remote dispatch — task/authorizeDispatch", () => {
       );
       // Reply with a payload that does not match the envelope schema.
       yield* conn.jsonRpcClient.resolve(
-        TaskAuthorizeDispatch.encodeResponse(id, { wrongShape: "nope" }),
+        DispatchAuthorize.encodeResponse(id, { wrongShape: "nope" }),
       );
       const verdict = yield* Fiber.join(fiber);
       yield* Scope.close(scope, Exit.void);
@@ -395,7 +390,7 @@ describe("AppHost remote dispatch — task/authorizeDispatch", () => {
     const result = await Effect.runPromise(program);
     expect(result).toEqual({
       decision: "deny",
-      reason: "task/authorizeDispatch error",
+      reason: "dispatch/authorize error",
     });
   });
 });

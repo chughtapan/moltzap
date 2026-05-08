@@ -36,7 +36,7 @@ describe("decodeAppManifest", () => {
         { key: "town_square", name: "Town Square", participantFilter: "all" },
       ],
       hooks: {
-        task_authorize_dispatch: { timeout_ms: 5000 },
+        dispatch_authorize: { timeout_ms: 5000 },
       },
     };
     const result = decodeAppManifest(

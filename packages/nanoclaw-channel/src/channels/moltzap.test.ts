@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { Effect } from "effect";
+import { RpcServerError } from "@moltzap/protocol";
 import { MoltZapChannelCore } from "@moltzap/client";
 import {
   createFakeChannelService,
@@ -123,8 +124,22 @@ describe("MoltZapChannel (nanoclaw adapter)", () => {
         participants: [],
       });
       harness.fake.state.setAgentName("agent-alice", "Alice");
-      harness.fake.service.authorizeDispatch = () =>
-        Effect.succeed({ _tag: "grant" as const, leaseId: "lease-nano" });
+      harness.fake.service.requestDispatch = (_params) =>
+        Effect.sync(() => {
+          // Synthetic ack + release for the test. The release is
+          // dispatched on the next microtask so channel-core's
+          // Deferred parking path is exercised.
+          const leaseId = "lease-nano";
+          const dispatchId = "dispatch-nano";
+          queueMicrotask(() => {
+            harness.fake.emit.dispatchRelease({
+              dispatchId,
+              leaseId,
+              verdict: { decision: "grant", leaseId },
+            });
+          });
+          return { leaseId, dispatchId };
+        });
 
       const conv42 = testConversationId("conv-42");
       harness.fake.emit.message(
@@ -146,6 +161,70 @@ describe("MoltZapChannel (nanoclaw adapter)", () => {
       await expect(
         harness.channel.sendMessage("tg:1234", "nope"),
       ).rejects.toThrow(/does not own jid/);
+    });
+
+    // Cutover #533 — single-use lease semantics. The first
+    // sendMessage consumes the lease via core.sendReply; a second
+    // sendMessage for the same JID re-uses the same lease entry, the
+    // server rejects it as CONSUMED, and the adapter projects the
+    // typed `RpcServerError(data.reason="LeaseInvalid")` onto
+    // `MoltZapChannelError({reason: "lease already consumed"})`.
+    it("rejects a second sendMessage for the same dispatch with 'lease already consumed'", async () => {
+      harness.fake.state.setConversation("conv-43", {
+        type: "dm",
+        participants: [],
+      });
+      harness.fake.state.setAgentName("agent-alice", "Alice");
+      harness.fake.service.requestDispatch = (_params) =>
+        Effect.sync(() => {
+          const leaseId = "lease-nano-2";
+          const dispatchId = "dispatch-nano-2";
+          queueMicrotask(() => {
+            harness.fake.emit.dispatchRelease({
+              dispatchId,
+              leaseId,
+              verdict: { decision: "grant", leaseId },
+            });
+          });
+          return { leaseId, dispatchId };
+        });
+
+      // Override the fake's `service.send` so the SECOND call (with
+      // the same dispatchLeaseId) fails with the typed wire error.
+      let sendCount = 0;
+      harness.fake.service.send = (_convId, _text, opts) =>
+        Effect.suspend(() => {
+          sendCount += 1;
+          if (sendCount > 1) {
+            return Effect.fail(
+              new RpcServerError({
+                code: -32007,
+                message: `lease ${opts?.dispatchLeaseId ?? "(none)"} not claimable: state=CONSUMED`,
+                data: {
+                  reason: "LeaseInvalid",
+                  state: "CONSUMED",
+                  expected: ["GRANTED"],
+                  leaseId: opts?.dispatchLeaseId,
+                },
+              }),
+            );
+          }
+          return Effect.void;
+        });
+
+      const conv43 = testConversationId("conv-43");
+      harness.fake.emit.message(
+        buildMessage({ id: "msg-lease-2", conversationId: "conv-43" }),
+      );
+      await flushDispatchChain();
+
+      // First send succeeds.
+      await harness.channel.sendMessage(`mz:${conv43}`, "first reply");
+      // Second send rejects with the typed error.
+      await expect(
+        harness.channel.sendMessage(`mz:${conv43}`, "second reply"),
+      ).rejects.toThrow(/lease already consumed/);
+      expect(sendCount).toBe(2);
     });
   });
 

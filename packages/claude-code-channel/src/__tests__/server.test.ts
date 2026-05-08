@@ -23,7 +23,11 @@ import {
 import { createRoutingState } from "../routing.js";
 import type { ClaudeChannelNotification } from "../types.js";
 import { ConversationId, MessageId, UserId } from "../types.js";
-import { SendFailed, type ReplyError } from "../errors.js";
+import {
+  LeaseAlreadyConsumed,
+  SendFailed,
+  type ReplyError,
+} from "../errors.js";
 
 const CONVERSATION_1 = "00000000-0000-4000-8000-0000000000a1";
 const CONVERSATION_2 = "00000000-0000-4000-8000-0000000000a2";
@@ -438,6 +442,39 @@ describe("reply tool routing (spec OQ5)", () => {
       expect(result.isError).toBe(true);
       const content = Array.isArray(result.content) ? result.content : [];
       expect(JSON.stringify(content)).toMatch(/ws dropped/);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  // Cutover #533 single-use lease: a multi-turn agent that calls
+  // `reply` twice in one dispatch sees the second call's lease in
+  // CONSUMED state. The entry-mapper projects the
+  // `RpcServerError(data.reason="LeaseInvalid")` onto
+  // `LeaseAlreadyConsumed`; server.ts surfaces the typed error as
+  // `toolErrorResult("LeaseAlreadyConsumed: ...")` instead of the
+  // generic `send failed: ...` projection.
+  it("surfaces ReplyError.LeaseAlreadyConsumed as a structured tool error", async () => {
+    const { client, routing, cleanup } = await setup({
+      onSendReply: () =>
+        Effect.fail<ReplyError>(
+          new LeaseAlreadyConsumed({ leaseId: "lease-cc-test" }),
+        ),
+    });
+    try {
+      routing.recordInbound(
+        MessageId(MESSAGE_X),
+        ConversationId(CONVERSATION_X),
+      );
+      const result = await client.callTool({
+        name: "reply",
+        arguments: { text: "second reply attempt" },
+      });
+      expect(result.isError).toBe(true);
+      const content = Array.isArray(result.content) ? result.content : [];
+      const serialized = JSON.stringify(content);
+      expect(serialized).toMatch(/LeaseAlreadyConsumed/);
+      expect(serialized).toMatch(/lease-cc-test/);
     } finally {
       await cleanup();
     }

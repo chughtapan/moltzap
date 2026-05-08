@@ -27,7 +27,7 @@ import {
 } from "../../transport/wire-errors.js";
 import { AgentsList } from "../../identity/methods.js";
 import { agentId } from "../branded-ids.js";
-import { TaskAuthorizeDispatch } from "../../app/methods.js";
+import { DispatchAuthorize } from "../../app/methods.js";
 import { ConversationsList } from "../../task/methods.js";
 import { canonicalJson, sortJsonArray } from "../canonicalize.js";
 import { RpcResponseError } from "../errors.js";
@@ -516,7 +516,7 @@ export function registerCallerControlledAppCallbackTimeout(
         const upperBoundMs = timeoutMs * TIMEOUT_UPPER_MULTIPLIER;
         const before = Date.now();
         const outcome = yield* client
-          .awaitServerRequest(TaskAuthorizeDispatch, undefined, timeoutMs)
+          .awaitServerRequest(DispatchAuthorize, undefined, timeoutMs)
           .pipe(Effect.either);
         const elapsed = Date.now() - before;
         const timeoutError = yield* Either.match(outcome, {

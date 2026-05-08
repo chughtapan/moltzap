@@ -7,12 +7,14 @@ import type {
   ChannelService,
   CrossConversationEntry,
   CrossConvMessage,
+  DispatchReleaseFrame,
 } from "../index.js";
 
 type MessageHandler = (msg: Message) => void;
 type VoidHandler = () => void;
 type ConversationArchivedHandler = (data: { conversationId: string }) => void;
 type ConversationUnarchivedHandler = (data: { conversationId: string }) => void;
+type DispatchReleaseHandler = (frame: DispatchReleaseFrame) => void;
 
 interface FixtureConversationMeta {
   type: string;
@@ -38,6 +40,7 @@ export interface ChannelServiceEmit {
   reconnect(): void;
   conversationArchived(data: { conversationId: string }): void;
   conversationUnarchived(data: { conversationId: string }): void;
+  dispatchRelease(frame: DispatchReleaseFrame): void;
 }
 
 export interface ChannelServiceState {
@@ -78,6 +81,7 @@ export function createFakeChannelService(
   const reconnectHandlers: VoidHandler[] = [];
   const conversationArchivedHandlers: ConversationArchivedHandler[] = [];
   const conversationUnarchivedHandlers: ConversationUnarchivedHandler[] = [];
+  const dispatchReleaseHandlers: DispatchReleaseHandler[] = [];
 
   const conversations = new Map<string, FixtureConversationMeta>();
   const agentNames = new Map<string, string>();
@@ -108,12 +112,14 @@ export function createFakeChannelService(
         | "disconnect"
         | "reconnect"
         | "conversationArchived"
-        | "conversationUnarchived",
+        | "conversationUnarchived"
+        | "dispatchRelease",
       handler:
         | MessageHandler
         | VoidHandler
         | ConversationArchivedHandler
-        | ConversationUnarchivedHandler,
+        | ConversationUnarchivedHandler
+        | DispatchReleaseHandler,
     ): void {
       if (event === "message") {
         messageHandlers.push(handler as MessageHandler);
@@ -129,6 +135,8 @@ export function createFakeChannelService(
         conversationUnarchivedHandlers.push(
           handler as ConversationUnarchivedHandler,
         );
+      } else if (event === "dispatchRelease") {
+        dispatchReleaseHandlers.push(handler as DispatchReleaseHandler);
       }
     },
 
@@ -224,6 +232,9 @@ export function createFakeChannelService(
       const conversationId = conversationKey(data.conversationId);
       archivedConversationIds.delete(conversationId);
       for (const h of conversationUnarchivedHandlers) h({ conversationId });
+    },
+    dispatchRelease(frame) {
+      for (const h of dispatchReleaseHandlers) h(frame);
     },
   };
 

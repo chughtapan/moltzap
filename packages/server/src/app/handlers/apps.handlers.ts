@@ -2,7 +2,6 @@ import type { AppHost } from "../app-host.js";
 import type { RpcMethodRegistry } from "../../rpc/context.js";
 import {
   AppsRegister,
-  AppsAuthorizeDispatch,
   DispatchRequest,
   DispatchesGet,
   ForbiddenError,
@@ -17,16 +16,14 @@ export function createAppHandlers(deps: {
 }): RpcMethodRegistry {
   return [
     defineAppMethod(AppsRegister, {
-      // A client-originated `apps/register` call means the connected
-      // client wants to serve the app's task-callback RPC
-      // (`task/authorizeDispatch` post Phase 9b). We record the calling
-      // connection id so AppHost dispatches future verbs via
-      // `sendRpcToClient` against this socket. If the client hasn't
-      // installed `client.handleServerRpc(...)` handlers, the verb
-      // fails-closed (deny) — same posture as a crashed in-process
+      // A client-originated `apps/register` call records the calling
+      // connection id so AppHost dispatches future `dispatch/authorize`
+      // verbs via `sendRpcToClient` against this socket. If the client
+      // hasn't installed `client.handleServerRpc(...)` handlers, the
+      // verb fails-closed (deny) — same posture as a crashed in-process
       // handler. Server-side in-process registration continues to use
-      // `coreApp.registerApp(manifest)` directly (e.g.
-      // standalone.ts:447); that path bypasses this RPC entirely.
+      // `coreApp.registerApp(manifest)` directly; that path bypasses
+      // this RPC entirely.
       handler: (params) =>
         Effect.gen(function* () {
           const connId = yield* ConnIdTag;
@@ -34,34 +31,9 @@ export function createAppHandlers(deps: {
           return { appId: params.manifest.appId };
         }),
     }),
-    // `runAuthorizeDispatch` currently grants every conversation because
-    // the `conversationToSession` map it consults has had no writers
-    // since `apps/createSession` was deleted (see the dead-map comment
-    // in `app-host.ts`). The handler stays for wire compatibility; the
-    // map will be repopulated when this path is rewired to task→TM state.
-    defineAppMethod(AppsAuthorizeDispatch, {
-      requiresActive: true,
-      handler: (params, ctx) =>
-        Effect.gen(function* () {
-          const admission = yield* deps.appHost.runAuthorizeDispatch(
-            params.conversationId,
-            ctx.agentId,
-            {
-              messageId: params.messageId,
-              senderAgentId: params.senderAgentId,
-              parts: params.parts,
-              receivedAt: params.receivedAt,
-              clock: params.clock,
-              pending: params.pending,
-              attempt: params.attempt,
-            },
-          );
-          return { admission };
-        }),
-    }),
-    // #529 reshape additive — `dispatch/request`. Returns ack
-    // immediately; forks moderator round-trip; recipient observes
-    // verdict via `dispatch/release` notification.
+    // `dispatch/request` — returns ack immediately, forks the moderator
+    // round-trip, recipient observes the verdict via `dispatch/release`
+    // notification.
     defineAppMethod(DispatchRequest, {
       requiresActive: true,
       handler: (params, ctx) =>
@@ -82,7 +54,7 @@ export function createAppHandlers(deps: {
           return minted;
         }),
     }),
-    // #529 reshape additive — `dispatches/get`. Scope-enforced: the
+    // `dispatches/get` — moderator-only read. Scope-enforced: the
     // calling connection MUST be the lease's `moderatorConnectionId`
     // (binding tuple recorded at `mint`). Otherwise typed
     // `ForbiddenError`.

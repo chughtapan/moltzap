@@ -33,7 +33,7 @@ Manages conversation lifecycle: create DMs and groups, add/remove participants, 
 
 ## TaskService
 
-Owns task records, the conversation-to-task linkage, and the admission flow that drives `task/authorizeDispatch` callbacks into the registered task manager.
+Owns task records, the conversation-to-task linkage, and the admission flow. Recipients call `dispatch/request`; the server forks a `dispatch/authorize` callback into the registered task manager and emits the verdict to the recipient via `dispatch/release`.
 
 ## PresenceService
 

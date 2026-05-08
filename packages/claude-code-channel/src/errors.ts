@@ -67,11 +67,33 @@ export class FilesUnsupported extends Data.TaggedError("FilesUnsupported")<{
   readonly fileCount: number;
 }> {}
 
+/**
+ * The lease attached to the in-flight dispatch was already consumed
+ * (single-use semantics — cutover #533). Surfaced when a multi-turn
+ * agent calls the `reply` MCP tool a second time within the same
+ * dispatch context. The first call's `core.sendReply` succeeded; the
+ * second sees `LeaseInvalidError(state=CONSUMED)` from the server,
+ * which the entry mapper turns into this typed error before the
+ * existing `mapError` collapses other failures into `SendFailed`.
+ *
+ * Caller surface: `server.ts` projects this onto a
+ * `toolErrorResult("LeaseAlreadyConsumed: ...")`. Multi-turn
+ * redesign of the tool's lease handling is a known follow-up
+ * (architect plan §9 risk #3); this PR ships only the graceful
+ * error path.
+ */
+export class LeaseAlreadyConsumed extends Data.TaggedError(
+  "LeaseAlreadyConsumed",
+)<{
+  readonly leaseId: string;
+}> {}
+
 export type ReplyError =
   | NoActiveConversation
   | ReplyToUnknown
   | SendFailed
-  | FilesUnsupported;
+  | FilesUnsupported
+  | LeaseAlreadyConsumed;
 
 export class ContentEmpty extends Data.TaggedError("ContentEmpty") {}
 

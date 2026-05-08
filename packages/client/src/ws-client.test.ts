@@ -42,7 +42,7 @@ import {
 } from "@moltzap/protocol";
 
 import {
-  TaskAuthorizeDispatch,
+  DispatchAuthorize,
   Connect,
   ConversationsList,
   MessagesSend,
@@ -60,11 +60,32 @@ import {
   validateRequestFrame,
   validateResponseFrame,
 } from "@moltzap/protocol/testing";
-import {
-  authorizeDispatchParams,
-  SESSION_A,
-  SESSION_B,
-} from "./internal/__tests__/app-callback-test-requests.js";
+
+// Test fixtures for dispatch/authorize round-trip tests below. The
+// previous partitioned-dispatcher harness provided these via
+// `app-callback-test-requests.ts`; that file was deleted in the
+// cutover. The simpler global-queue topology only needs valid
+// `dispatch/authorize` params shaped to the descriptor.
+const DISPATCH_TASK_A_UUID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const DISPATCH_TASK_B_UUID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const DISPATCH_CONV_UUID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+const DISPATCH_RECIPIENT_UUID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+const DISPATCH_SENDER_UUID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+const DISPATCH_MESSAGE_UUID = "11111111-1111-4111-8111-111111111111";
+const SESSION_A = DISPATCH_TASK_A_UUID;
+const SESSION_B = DISPATCH_TASK_B_UUID;
+const dispatchRequestParams = (taskId: string) => ({
+  taskId,
+  appId: "app-test",
+  conversationId: DISPATCH_CONV_UUID,
+  recipient: { agentId: DISPATCH_RECIPIENT_UUID, ownerId: "owner-test" },
+  message: {
+    id: DISPATCH_MESSAGE_UUID,
+    senderAgentId: DISPATCH_SENDER_UUID,
+    parts: [{ type: "text" as const, text: "hello" }],
+  },
+  attempt: 0,
+});
 
 // ── Test server helpers ────────────────────────────────────────────────
 
@@ -1082,9 +1103,9 @@ describe("Phase 1.0 (B.1) — handleServerRpc round-trip", () => {
               // is live the moment we land here.
               yield* conn.send(
                 JSON.stringify(
-                  TaskAuthorizeDispatch.encodeRequest(
+                  DispatchAuthorize.encodeRequest(
                     "srv-test-1",
-                    authorizeDispatchParams(SESSION_A),
+                    dispatchRequestParams(SESSION_A),
                   ),
                 ),
               );
@@ -1093,12 +1114,16 @@ describe("Phase 1.0 (B.1) — handleServerRpc round-trip", () => {
         );
         const client = makeClient(server.url);
         // Register a handler BEFORE connect so the dispatcher fiber sees
-        // it on the very first inbound task-callback request.
-        yield* client.handleServerRpc(TaskAuthorizeDispatch, (params) =>
-          Effect.succeed({
-            admission: { decision: "grant" as const },
-            saw: params.taskId,
-          } as { admission: { decision: "grant" }; saw: string }),
+        // it on the very first inbound task-callback request. The
+        // handler captures the `taskId` it was invoked with so the
+        // assertion below can verify the request reached the right
+        // descriptor's handler.
+        let observedTaskId: string | null = null;
+        yield* client.handleServerRpc(DispatchAuthorize, (params) =>
+          Effect.sync(() => {
+            observedTaskId = params.taskId;
+            return { admission: { decision: "grant" as const } };
+          }),
         );
         yield* Effect.promise(() => connectP(client));
 
@@ -1145,10 +1170,9 @@ describe("Phase 1.0 (B.1) — handleServerRpc round-trip", () => {
         if (!("result" in parsedResponse)) return;
         const result = parsedResponse.result as {
           admission: { decision: string };
-          saw: string;
         };
         expect(result.admission.decision).toBe("grant");
-        expect(result.saw).toBe(SESSION_A);
+        expect(observedTaskId).toBe(SESSION_A);
 
         yield* closeClient(client);
       }),
@@ -1171,9 +1195,9 @@ describe("Phase 1.0 (B.1) — handleServerRpc round-trip", () => {
               );
               yield* conn.send(
                 JSON.stringify(
-                  TaskAuthorizeDispatch.encodeRequest(
+                  DispatchAuthorize.encodeRequest(
                     "srv-err-1",
-                    authorizeDispatchParams(SESSION_B),
+                    dispatchRequestParams(SESSION_B),
                   ),
                 ),
               );
@@ -1181,7 +1205,7 @@ describe("Phase 1.0 (B.1) — handleServerRpc round-trip", () => {
           }),
         );
         const client = makeClient(server.url);
-        yield* client.handleServerRpc(TaskAuthorizeDispatch, () =>
+        yield* client.handleServerRpc(DispatchAuthorize, () =>
           Effect.fail(
             new RpcServerError({
               code: -32099,
@@ -1239,13 +1263,13 @@ describe("Phase 1.0 (B.1) — handleServerRpc round-trip", () => {
       agentKey: "test",
     });
     const first = await Effect.runPromiseExit(
-      client.handleServerRpc(TaskAuthorizeDispatch, () =>
+      client.handleServerRpc(DispatchAuthorize, () =>
         Effect.succeed({ admission: { decision: "grant" as const } }),
       ),
     );
     expect(Exit.isSuccess(first)).toBe(true);
     const second = await Effect.runPromiseExit(
-      client.handleServerRpc(TaskAuthorizeDispatch, () =>
+      client.handleServerRpc(DispatchAuthorize, () =>
         Effect.succeed({ admission: { decision: "grant" as const } }),
       ),
     );
