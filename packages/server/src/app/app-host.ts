@@ -13,7 +13,7 @@ import type {
 } from "@moltzap/protocol";
 import { TaskAuthorizeDispatch } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { ConversationId, MessageId, TaskId } from "@moltzap/protocol/task";
+import type { ConversationId, MessageId } from "@moltzap/protocol/task";
 import {
   type AppHooks,
   type DispatchAdmissionResult,
@@ -25,6 +25,7 @@ import {
   catchSqlErrorAsDefect,
   takeFirstOption,
 } from "../db/effect-kysely-toolkit.js";
+import { lookupAppForConversation } from "./conversation-app-lookup.js";
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -67,15 +68,6 @@ export class AppHost {
    * is the explicit promotion path.
    */
   private remoteRegistrations = new Map<string, { connectionId: string }>();
-  /** Currently orphaned — `apps/createSession` (which used to populate
-   * these maps) is gone. `runAuthorizeDispatch` short-circuits to
-   * `grant` when the map is empty. Kept as scaffolding for the future
-   * TM-registered conversation index. */
-  private conversationToSession = new Map<
-    ConversationId,
-    { id: TaskId; appId: string }
-  >();
-  private sessionToConversations = new Map<string, Set<ConversationId>>();
 
   constructor(
     private db: Kysely<Database>,
@@ -131,10 +123,6 @@ export class AppHost {
     return this.manifests.get(appId);
   }
 
-  isAttachedToActiveSession(conversationId: ConversationId): boolean {
-    return this.conversationToSession.has(conversationId);
-  }
-
   setContactService(checker: ContactService): void {
     this.contactService = checker;
   }
@@ -182,75 +170,75 @@ export class AppHost {
   ): Effect.Effect<DispatchAdmissionResult> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
-        const session = this.conversationToSession.get(conversationId);
-        if (!session) {
-          const conversationOpt = yield* takeFirstOption(
-            this.db
-              .selectFrom("conversations")
-              .select("archived_at")
-              .where("id", "=", conversationId),
-          );
-          const conversation = Option.getOrNull(conversationOpt);
-          if (conversation?.archived_at) {
+        const lookup = yield* lookupAppForConversation(this.db, conversationId);
+        switch (lookup._tag) {
+          case "ConversationArchived":
             return {
               decision: "deny" as const,
               reason: "conversation_archived",
             };
+          case "ConversationNotFound":
+          case "NoAppSession":
+            return { decision: "grant" as const };
+          case "AppBound": {
+            const isRemote = this.remoteRegistrations.has(lookup.appId);
+            const appHooks = this.hooks.get(lookup.appId);
+            if (!isRemote && !appHooks?.taskAuthorizeDispatch) {
+              return { decision: "grant" as const };
+            }
+
+            const agentOpt = yield* takeFirstOption(
+              this.db
+                .selectFrom("agents")
+                .select("owner_user_id")
+                .where("id", "=", recipientAgentId),
+            );
+            const agent = Option.getOrNull(agentOpt);
+
+            // ctx without `signal` — the in-process dispatch helper attaches
+            // the AbortController-bound signal at call time. Remote dispatch
+            // strips signal-shaped fields via `contextForWire` before encode.
+            const ctx: TaskAuthorizeDispatchContext = {
+              conversationId,
+              recipient: {
+                agentId: recipientAgentId,
+                ownerId: agent?.owner_user_id ?? "",
+              },
+              message: {
+                id: params.messageId,
+                senderAgentId: params.senderAgentId,
+                parts: params.parts,
+              },
+              taskId: lookup.taskId,
+              appId: lookup.appId,
+              attempt: params.attempt ?? 0,
+              receivedAt: params.receivedAt,
+              clock: params.clock,
+              pending: params.pending,
+              // Placeholder; the in-process dispatch helper overrides with
+              // its own AbortController-tied signal. Remote dispatch elides.
+              signal: new AbortController().signal,
+            };
+
+            // Uniform Effect dispatch — in-process / remote choice is INSIDE
+            // the helper. Per architect plan §3.4: "No branching at the call
+            // site between in-process and remote." Composition uses the
+            // forEach-with-deny-short-circuit combinator (degenerate to N=1
+            // today; forward-compatible for multi-app sessions).
+            return yield* this.dispatchAcrossAppsWithDenyShortCircuit<DispatchAdmissionResult>(
+              [lookup.appId],
+              (v) => v.decision === "deny",
+              { decision: "grant" as const },
+              (appId) => this.dispatchAuthorizeDispatchHook(appId, ctx),
+            );
           }
-          return { decision: "grant" as const };
+          default: {
+            // Exhaustiveness gate: a future tag added to ConversationAppLookup
+            // forces an update here at compile time (Principle 4).
+            const _absurd: never = lookup;
+            return _absurd;
+          }
         }
-
-        const isRemote = this.remoteRegistrations.has(session.appId);
-        const appHooks = this.hooks.get(session.appId);
-
-        if (!isRemote && !appHooks?.taskAuthorizeDispatch) {
-          return { decision: "grant" as const };
-        }
-
-        const agentOpt = yield* takeFirstOption(
-          this.db
-            .selectFrom("agents")
-            .select("owner_user_id")
-            .where("id", "=", recipientAgentId),
-        );
-        const agent = Option.getOrNull(agentOpt);
-
-        // ctx without `signal` — the in-process dispatch helper attaches
-        // the AbortController-bound signal at call time. Remote dispatch
-        // strips signal-shaped fields via `contextForWire` before encode.
-        const ctx: TaskAuthorizeDispatchContext = {
-          conversationId,
-          recipient: {
-            agentId: recipientAgentId,
-            ownerId: agent?.owner_user_id ?? "",
-          },
-          message: {
-            id: params.messageId,
-            senderAgentId: params.senderAgentId,
-            parts: params.parts,
-          },
-          taskId: session.id,
-          appId: session.appId,
-          attempt: params.attempt ?? 0,
-          receivedAt: params.receivedAt,
-          clock: params.clock,
-          pending: params.pending,
-          // Placeholder; the in-process dispatch helper overrides with
-          // its own AbortController-tied signal. Remote dispatch elides.
-          signal: new AbortController().signal,
-        };
-
-        // Uniform Effect dispatch — in-process / remote choice is INSIDE
-        // the helper. Per architect plan §3.4: "No branching at the call
-        // site between in-process and remote." Composition uses the
-        // forEach-with-deny-short-circuit combinator (degenerate to N=1
-        // today; forward-compatible for multi-app sessions).
-        return yield* this.dispatchAcrossAppsWithDenyShortCircuit<DispatchAdmissionResult>(
-          [session.appId],
-          (v) => v.decision === "deny",
-          { decision: "grant" as const },
-          (appId) => this.dispatchAuthorizeDispatchHook(appId, ctx),
-        );
       }),
     );
   }
@@ -259,8 +247,6 @@ export class AppHost {
   destroy(): void {
     this.hooks.clear();
     this.remoteRegistrations.clear();
-    this.conversationToSession.clear();
-    this.sessionToConversations.clear();
   }
 
   // ── Uniform hook dispatch (in-process + remote) ────────────────────
