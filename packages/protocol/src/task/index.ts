@@ -33,6 +33,8 @@ export {
   ConversationUpdatedNotificationDefinition,
   ConversationArchivedNotificationDefinition,
   ConversationUnarchivedNotificationDefinition,
+  ParticipantsAddedNotificationDefinition,
+  ParticipantsRemovedNotificationDefinition,
   MessageReceivedNotificationDefinition,
   TaskFailedNotificationDefinition,
 } from "./methods.js";
@@ -52,5 +54,7 @@ export type {
   ConversationUpdatedNotification,
   ConversationArchivedNotification,
   ConversationUnarchivedNotification,
+  ParticipantsAddedNotification,
+  ParticipantsRemovedNotification,
   MessageReceivedNotification,
 } from "./methods.js";
