@@ -251,6 +251,13 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     traceCapture,
   } = services;
 
+  // #529 reshape additive — wire ConversationService into AppHost so
+  // the forked moderator round-trip's deny arm can call
+  // `removeParticipant` (architect §3 + epic decision #8). Inverted vs
+  // the layer order (ConversationService depends on AppHost) so we
+  // need post-construction wiring rather than a constructor arg.
+  appHost.setConversationService(conversationService);
+
   // Connection hooks
   const connectionHooks: ConnectionHook[] = [];
   const disconnectionHooks: DisconnectionHook[] = [];
@@ -747,6 +754,12 @@ export function createCoreApp(config: CoreConfig): CoreApp {
                   brandConnectionId(connId),
                 );
               }
+              // #529 reshape: drain leases bound to this recipient
+              // connection. PENDING → ABANDONED + GRANTED/HOLD →
+              // EXPIRED-on-disconnect; CLAIMED is a load-bearing no-op
+              // (rule 2 — in-flight `messages/send` owns the lease via
+              // acquireUseRelease). Errors are absorbed inside `abandon`.
+              yield* leaseRegistry.abandon(connId);
               presenceService.removeConnection(connId);
               connections.remove(connId);
               if (Exit.isFailure(exit)) {
