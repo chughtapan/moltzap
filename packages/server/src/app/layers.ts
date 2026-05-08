@@ -231,7 +231,6 @@ export const ConversationServiceLive = Layer.effect(
       db,
       participants,
       connections,
-      (convId) => appHost.isAttachedToActiveSession(convId),
       // Lazy: AppHost.contactService is wired post-construction in
       // standalone.ts (`app.setContactService(...)`) AFTER this Layer has
       // already produced its ConversationService instance, so capturing

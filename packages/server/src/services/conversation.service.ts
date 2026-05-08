@@ -10,7 +10,6 @@ import type { ConversationId, MessageId, TaskId } from "@moltzap/protocol/task";
 import { Effect, Option } from "effect";
 import { InvalidParamsError } from "../runtime/index.js";
 import {
-  ConflictError,
   ConversationArchivedError,
   ConversationFullError,
   ForbiddenError,
@@ -29,7 +28,6 @@ import {
 } from "../db/effect-kysely-toolkit.js";
 
 export type ConversationServiceError =
-  | ConflictError
   | ConversationArchivedError
   | ConversationFullError
   | ForbiddenError
@@ -91,9 +89,6 @@ export class ConversationService {
     private db: Db,
     private participants: ParticipantService,
     private connections: ConnectionManager,
-    private isAttachedToActiveSession: (
-      convId: ConversationId,
-    ) => boolean = () => false,
     /**
      * Lazy lookup for the active contact policy. Returns `null` when no
      * policy is wired (default for unit tests + dev mode), in which case
@@ -522,15 +517,6 @@ export class ConversationService {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         yield* this.requireRole(conversationId, agentId, ["owner", "admin"]);
-
-        if (this.isAttachedToActiveSession(conversationId)) {
-          return yield* Effect.fail(
-            new ConflictError({
-              message:
-                "Conversation is part of an active app session; close the session to archive",
-            }),
-          );
-        }
 
         const updatedOpt = yield* takeFirstOption(
           this.db
