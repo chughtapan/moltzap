@@ -315,12 +315,6 @@ export interface DispatchTestDriverConfig {
   readonly taskAppId?: string | null;
   readonly moderatorTimeoutMs?: number;
   readonly leaseTimeoutMs?: number;
-  /**
-   * Conversation participants beyond the moderator + first recipient.
-   * Used by `addRecipient` to pre-allocate so the second recipient can
-   * join without `conversations/addParticipant` round-trips.
-   */
-  readonly extraRecipientCount?: number;
 }
 
 const CATEGORY = "dispatch-admission" as const;
