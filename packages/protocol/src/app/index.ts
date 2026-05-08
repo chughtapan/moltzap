@@ -1,6 +1,7 @@
 export {
   AppsRegister,
   AppsAuthorizeDispatch,
+  AppManifestSchema,
   TaskAuthorizeDispatch,
 } from "./methods.js";
 
