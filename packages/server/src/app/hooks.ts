@@ -4,16 +4,12 @@ import type { ConversationId, MessageId, TaskId } from "@moltzap/protocol/task";
 import { Schema } from "effect";
 
 /**
- * Phase 9b consumer-migration (sub-issue #460, plan §2.4): the legacy
- * server-side hook surface (`BeforeMessageDeliveryContext`,
- * `OnCloseContext`, `OnSessionActiveContext`, plus the matching `Hook`
- * type aliases) was deleted with the wire RPCs `apps/onBeforeMessageDelivery`,
- * `apps/onSessionActive`, `apps/onClose`. Only `task/authorizeDispatch`
- * (renamed from `apps/onBeforeDispatch`) survives.
- *
- * The `BeforeDispatch*` names retire alongside the wire rename — the
- * surviving server-side context type and hook alias are
- * `TaskAuthorizeDispatchContext` and `TaskAuthorizeDispatchHook`.
+ * Server-side dispatch admission hook surface. The single hook
+ * (`taskAuthorizeDispatch`) services the `dispatch/authorize` S→C RPC;
+ * its context shape mirrors the wire `DispatchAuthorizeContextSchema`.
+ * The legacy server-side names (`TaskAuthorizeDispatchContext` /
+ * `TaskAuthorizeDispatchHook`) are retained for stability of in-tree
+ * server consumers (in-process moderator registrations).
  */
 export interface TaskAuthorizeDispatchContext {
   conversationId: ConversationId;
@@ -64,23 +60,20 @@ export const DispatchAdmissionResultSchema = Schema.Union(
 ) as Schema.Schema<DispatchAdmissionResult, unknown>;
 
 /**
- * Wire-envelope schema for `task/authorizeDispatch`. The reply arrives as
+ * Wire-envelope schema for `dispatch/authorize`. The reply arrives as
  * `{ admission: ... }`, not the bare verdict. Decoding at the RPC edge
  * keeps AppHost's business logic typed (Principle 2: schemas at
  * boundaries, types inside).
  */
-export const TaskAuthorizeDispatchRpcResultSchema = Schema.Struct({
+export const DispatchAuthorizeRpcResultSchema = Schema.Struct({
   admission: DispatchAdmissionResultSchema,
 }) as Schema.Schema<{ admission: DispatchAdmissionResult }, unknown>;
 
 /**
- * Module-level precompiled decoder. `Schema.decodeUnknown(schema)`
- * produces a fresh closure each call; lifting the decoder here means
- * the per-dispatch hot path (`runRemoteHookEffect` → `decode`) reuses
- * one closure.
+ * Module-level precompiled decoder.
  */
-export const decodeTaskAuthorizeDispatchRpcResult = Schema.decodeUnknown(
-  TaskAuthorizeDispatchRpcResultSchema,
+export const decodeDispatchAuthorizeRpcResult = Schema.decodeUnknown(
+  DispatchAuthorizeRpcResultSchema,
 );
 
 export type TaskAuthorizeDispatchHook = (

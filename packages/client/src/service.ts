@@ -6,7 +6,6 @@ import {
   AgentsLookup,
   AgentsLookupByName,
   type HelloOk,
-  AppsAuthorizeDispatch,
   ConversationsCreate,
   ConversationsGet,
   type ConversationCreatedNotification,
@@ -14,6 +13,12 @@ import {
   type AnyNotificationDefinition,
   type AnyRpcDefinition,
   type DecodedNotification,
+  DispatchRequest,
+  DispatchRelease,
+  DispatchesConsumed,
+  DispatchesExpired,
+  DispatchesGet,
+  type DispatchId,
   type Message,
   type MessageReceivedNotification,
   type Part,
@@ -31,6 +36,7 @@ import {
   rpcMethods,
   RpcServerError,
   RpcTimeoutError,
+  type NotificationParamsOf,
   type ParamsOf,
   type ResultOf,
   type RpcDefinition,
@@ -55,10 +61,6 @@ import {
 import { AgentNotFoundError } from "./runtime/errors.js";
 import { getOr, snapshot } from "./runtime/refs.js";
 import { LocalServiceCommands } from "./runtime/local-service-commands.js";
-import type {
-  DispatchAdmissionDecision,
-  DispatchAdmissionRequest,
-} from "./channel-core.js";
 
 const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -198,11 +200,12 @@ interface ServiceHandlerPayloads {
   readonly reconnect: HelloOk;
   readonly conversationArchived: ConversationArchivedNotification;
   readonly conversationUnarchived: ConversationUnarchivedNotification;
+  readonly dispatchRelease: NotificationParamsOf<typeof DispatchRelease>;
+  readonly dispatchesConsumed: NotificationParamsOf<typeof DispatchesConsumed>;
+  readonly dispatchesExpired: NotificationParamsOf<typeof DispatchesExpired>;
 }
 
 type ServiceHandlerName = keyof ServiceHandlerPayloads;
-
-const DISPATCH_AUTHORIZATION_RPC_TIMEOUT_MS = 900_000;
 
 /** Full message from another conversation, used by peekFullMessages(). */
 export interface CrossConvMessage {
@@ -297,6 +300,9 @@ export class MoltZapService {
     reconnect: [],
     conversationArchived: [],
     conversationUnarchived: [],
+    dispatchRelease: [],
+    dispatchesConsumed: [],
+    dispatchesExpired: [],
   };
 
   private _ownAgentId: string | undefined;
@@ -796,62 +802,26 @@ export class MoltZapService {
     );
   }
 
-  authorizeDispatch(
-    request: DispatchAdmissionRequest,
-  ): Effect.Effect<DispatchAdmissionDecision, ServiceRpcError> {
-    return this.sendRpc(
-      AppsAuthorizeDispatch,
-      {
-        conversationId: request.conversationId as ConversationId,
-        messageId: request.message.id as MessageId,
-        senderAgentId: request.senderAgentId as AgentId,
-        parts: [...request.message.parts],
-        receivedAt: request.receivedAt,
-        clock: request.clock,
-        pending: request.pending.map((pending) => ({
-          ...pending,
-          messageId: pending.messageId as MessageId,
-          conversationId: pending.conversationId as ConversationId,
-          senderAgentId: pending.senderAgentId as AgentId,
-          ...(pending.parts !== undefined ? { parts: [...pending.parts] } : {}),
-        })),
-        attempt: request.attempt,
-      },
-      { timeoutMs: DISPATCH_AUTHORIZATION_RPC_TIMEOUT_MS },
-    ).pipe(
-      Effect.map((result) => {
-        const { admission } = result;
-        switch (admission.decision) {
-          case "grant":
-            return {
-              _tag: "grant",
-              ...(admission.leaseId !== undefined
-                ? { leaseId: admission.leaseId }
-                : {}),
-              ...(admission.leaseTimeoutMs !== undefined
-                ? { leaseTimeoutMs: admission.leaseTimeoutMs }
-                : {}),
-              ...(admission.dispatchMessageId
-                ? { dispatchMessageId: admission.dispatchMessageId }
-                : {}),
-            };
-          case "deny":
-            return {
-              _tag: "deny",
-              ...(admission.reason !== undefined
-                ? { reason: admission.reason }
-                : {}),
-            };
-          case "hold":
-            return {
-              _tag: "hold",
-              ...(admission.reason !== undefined
-                ? { reason: admission.reason }
-                : {}),
-            };
-        }
-      }),
-    );
+  /**
+   * Issue `dispatch/request`. The server returns the ack
+   * `{leaseId, dispatchId}` immediately; the recipient observes the
+   * verdict asynchronously via the `dispatchRelease` event.
+   */
+  requestDispatch(
+    params: ParamsOf<typeof DispatchRequest>,
+  ): Effect.Effect<ResultOf<typeof DispatchRequest>, ServiceRpcError> {
+    return this.sendRpc(DispatchRequest, params);
+  }
+
+  /**
+   * Issue `dispatches/get`. Moderator-only — calls from non-moderator
+   * connections fail with a typed wire error. The server enforces the
+   * binding tuple recorded at lease-mint time.
+   */
+  dispatchesGet(params: {
+    readonly dispatchId: DispatchId;
+  }): Effect.Effect<ResultOf<typeof DispatchesGet>, ServiceRpcError> {
+    return this.sendRpc(DispatchesGet, params);
   }
 
   sendToAgent(
@@ -1205,6 +1175,29 @@ export class MoltZapService {
         fanout(this.handlers.conversationUnarchived, params, this.opts.logger);
         return;
       }
+      case DispatchRelease:
+        fanout(
+          this.handlers.dispatchRelease,
+          notification.params as NotificationParamsOf<typeof DispatchRelease>,
+          this.opts.logger,
+        );
+        return;
+      case DispatchesConsumed:
+        fanout(
+          this.handlers.dispatchesConsumed,
+          notification.params as NotificationParamsOf<
+            typeof DispatchesConsumed
+          >,
+          this.opts.logger,
+        );
+        return;
+      case DispatchesExpired:
+        fanout(
+          this.handlers.dispatchesExpired,
+          notification.params as NotificationParamsOf<typeof DispatchesExpired>,
+          this.opts.logger,
+        );
+        return;
       default:
         // Other notification descriptors flow through `rawNotification`
         // fanout above; the service has no typed bridge for them.

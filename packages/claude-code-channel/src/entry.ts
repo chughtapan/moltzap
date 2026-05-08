@@ -20,12 +20,14 @@ import { bootChannelMcpServer, type ServerHandle } from "./server.js";
 import type { BootOptions, Handle } from "./types.js";
 import {
   AgentKeyInvalid,
+  LeaseAlreadyConsumed,
   McpTransportFailed,
   SendFailed,
   ServiceConnectFailed,
   type BootError,
   type ReplyError,
 } from "./errors.js";
+import { RpcServerError } from "@moltzap/protocol";
 import { stringifyCause } from "./utils.js";
 
 export type BootResult =
@@ -84,13 +86,43 @@ function bootClaudeCodeChannelEffect(
     const core = new MoltZapChannelCore({ service, logger });
     const routing = createRoutingState();
 
+    const projectLeaseInvalid = (
+      err: RpcServerError,
+    ): LeaseAlreadyConsumed | RpcServerError => {
+      const data = err.data;
+      if (
+        typeof data === "object" &&
+        data !== null &&
+        (data as { reason?: unknown }).reason === "LeaseInvalid"
+      ) {
+        const dataLeaseId = (data as { leaseId?: unknown }).leaseId;
+        return new LeaseAlreadyConsumed({
+          leaseId: typeof dataLeaseId === "string" ? dataLeaseId : "(unknown)",
+        });
+      }
+      return err;
+    };
     const sendReply = (conversationId: string, text: string) =>
       core.sendReply(conversationId, text).pipe(
+        // Cutover #533 single-use lease semantics: the server returns
+        // a typed `RpcServerError` whose `data.reason === "LeaseInvalid"`
+        // when the recipient tries to consume an already-consumed
+        // lease (multi-turn agent calls reply twice in one dispatch).
+        // Project that path onto `LeaseAlreadyConsumed` BEFORE the
+        // generic `mapError` collapses everything else into
+        // `SendFailed`. Server.ts surfaces the typed error as
+        // `toolErrorResult("LeaseAlreadyConsumed: ...")`.
+        Effect.catchTag("RpcServerError", (err) => {
+          const projected = projectLeaseInvalid(err);
+          return Effect.fail(projected);
+        }),
         Effect.mapError(
           (cause): ReplyError =>
-            new SendFailed({
-              cause: stringifyCause(cause),
-            }),
+            cause instanceof LeaseAlreadyConsumed
+              ? cause
+              : new SendFailed({
+                  cause: stringifyCause(cause),
+                }),
         ),
       );
 

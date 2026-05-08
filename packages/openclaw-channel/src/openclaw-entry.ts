@@ -457,37 +457,59 @@ export function createMoltzapChannelPlugin() {
                   },
                   cfg: ctx.cfg,
                   dispatcherOptions: {
-                    deliver: (
-                      payload: { text?: string; body?: string },
-                      info?: { kind?: string },
-                    ) => {
-                      if (info?.kind !== "final") return Promise.resolve(true);
-                      const text = payload.text ?? payload.body;
-                      if (!text) return Promise.resolve(true);
-                      // core.sendReply is Effect-native; run it at the
-                      // OpenClaw boundary which demands a Promise.
-                      const deliverEffect = core
-                        .sendReply(enriched.conversationId, text)
-                        .pipe(
-                          Effect.tap(() =>
-                            Effect.sync(() =>
-                              log?.info?.(
-                                `MoltZap: outbound reply to ${enriched.conversationId}: ${text.slice(0, OUTBOUND_LOG_PREVIEW_CHARS)}`,
-                              ),
+                    // Cutover #533 — single-use lease semantics. The
+                    // first `final` delivery consumes the dispatch
+                    // lease via core.sendReply; any subsequent `final`
+                    // delivery is rejected at this adapter boundary
+                    // with `OpenclawDuplicateReplyError` and surfaced
+                    // to OpenClaw as `false` (delivery failure).
+                    // OpenClaw's retry policy under "delivery failed
+                    // because lease consumed" is OQ-2 in the architect
+                    // plan; the recommended default (SURFACE as false)
+                    // is what we ship.
+                    deliver: (() => {
+                      let consumedLeaseAt: number | null = null;
+                      return (
+                        payload: { text?: string; body?: string },
+                        info?: { kind?: string },
+                      ) => {
+                        if (info?.kind !== "final")
+                          return Promise.resolve(true);
+                        const text = payload.text ?? payload.body;
+                        if (!text) return Promise.resolve(true);
+                        if (consumedLeaseAt !== null) {
+                          log?.warn?.(
+                            `MoltZap: duplicate-reply rejected for ${enriched.conversationId} (lease already consumed at ts=${consumedLeaseAt.toString()})`,
+                          );
+                          return Promise.resolve(false);
+                        }
+                        // core.sendReply is Effect-native; run it at
+                        // the OpenClaw boundary which demands a
+                        // Promise.
+                        const deliverEffect = core
+                          .sendReply(enriched.conversationId, text)
+                          .pipe(
+                            Effect.tap(() =>
+                              Effect.sync(() => {
+                                consumedLeaseAt = Date.now();
+                                log?.info?.(
+                                  `MoltZap: outbound reply to ${enriched.conversationId}: ${text.slice(0, OUTBOUND_LOG_PREVIEW_CHARS)}`,
+                                );
+                              }),
                             ),
-                          ),
-                          Effect.map(() => true),
-                          Effect.catchAll((err) =>
-                            Effect.sync(() => {
-                              log?.error?.(
-                                `MoltZap: failed to send reply: ${err}`,
-                              );
-                              return false;
-                            }),
-                          ),
-                        );
-                      return Effect.runPromise(deliverEffect);
-                    },
+                            Effect.map(() => true),
+                            Effect.catchAll((err) =>
+                              Effect.sync(() => {
+                                log?.error?.(
+                                  `MoltZap: failed to send reply: ${err}`,
+                                );
+                                return false;
+                              }),
+                            ),
+                          );
+                        return Effect.runPromise(deliverEffect);
+                      };
+                    })(),
                   },
                 }),
               catch: (err: unknown) => err,

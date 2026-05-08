@@ -12,6 +12,7 @@ import {
   HashMap,
   ManagedRuntime,
   Option,
+  Queue,
   Ref,
   Schedule,
   Scope,
@@ -42,16 +43,6 @@ import {
   type SubscriptionFilter,
 } from "./runtime/subscribers.js";
 import { extractCloseInfo, type CloseInfo } from "./runtime/close-info.js";
-import {
-  makePartitionedDispatcher,
-  type PartitionedDispatcher,
-  type PartitionedDispatcherConfig,
-} from "./internal/app-callback-partitioned-dispatcher.js";
-import {
-  PartitionLimitError,
-  PartitionQueueFullError,
-  type OfferRejected,
-} from "./internal/app-callback-dispatcher-errors.js";
 
 // Re-export `CloseInfo` so consumers can import it from
 // `@moltzap/client` alongside `MoltZapWsClient` itself; the type lives
@@ -92,6 +83,19 @@ const MALFORMED_LOG_EVERY = 50;
  */
 const MAX_EVENT_BUFFER = 1000;
 
+/**
+ * Capacity of the per-connection task-callback executor queue. Sized at
+ * 8192 to preserve the pre-cutover burst envelope (256 partitions × 32
+ * per-partition queue depth = 8192). Sized once at queue construction;
+ * the queue is bounded so the WS reader exerts back-pressure on a slow
+ * handler instead of leaking memory.
+ *
+ * Per architect plan #533 §"Revisions r1 correction 3": this matches
+ * today's burst envelope under the partition-replaced single-drain
+ * topology.
+ */
+const TASK_CALLBACK_QUEUE_CAPACITY = 8192;
+
 const MSG_NOT_CONNECTED = "WebSocket not connected";
 const MSG_RPC_ERROR_FALLBACK = "RPC error";
 
@@ -115,14 +119,15 @@ class ReconnectAttemptFailedError extends Data.TaggedError(
  * Per-connection runtime state. `None` = not connected → `sendRpc` fails fast
  * with `NotConnectedError`.
  *
- * Spec #356: the single `Stream.runForEach`-driven `appCallbackInboundQueue` is
- * replaced by a `PartitionedDispatcher` keyed on
- * `(taskId, conversationId, hookKind)`. Each tuple owns one bounded
- * queue + one drain fiber; cross-tuple offers run concurrently. Held
- * here alongside its own `dispatcherScope` (NOT bound to the socket
- * scope) so `runSync(client.close())` can `runFork(Scope.close(…))`
- * without yielding through the runtime — the load-bearing regression
- * gate at `ws-client.test.ts:1233-1259`.
+ * Cutover (#533): the partitioned dispatcher is replaced by a single
+ * bounded global queue + single drain fiber. The queue holds decoded
+ * server-initiated requests; the drain fiber runs handlers serially.
+ * Capacity = `TASK_CALLBACK_QUEUE_CAPACITY` (8192, preserves the
+ * pre-cutover 256×32 burst envelope). Held here alongside its own
+ * `dispatcherScope` (NOT bound to the socket scope) so
+ * `runSync(client.close())` can `runFork(Scope.close(…))` without
+ * yielding through the runtime — the load-bearing regression gate at
+ * `ws-client.test.ts:1233-1259`.
  */
 interface ConnState {
   readonly write: (
@@ -134,43 +139,31 @@ interface ConnState {
    * pre-open close and fail fast instead of waiting the RPC timeout. */
   readonly handshakeSettled: Deferred.Deferred<ConnectResult, PendingError>;
   /**
-   * Per-connection partitioned appCallback dispatcher. Routes inbound appCallback
-   * requests by `(taskId, conversationId, hookKind)`; replaces the
-   * pre-#356 single drain fiber.
+   * Per-connection task-callback executor queue. Bounded; the WS reader
+   * non-blockingly offers decoded requests, the drain fiber runs
+   * handlers one at a time. Replaces the pre-cutover partitioned
+   * dispatcher with the simpler single-queue topology.
    */
-  readonly dispatcher: PartitionedDispatcher;
+  readonly taskCallbackQueue: Queue.Queue<DecodedServerRequest>;
   /**
-   * Closeable Scope owning every per-partition worker + the idle
-   * reaper. Off-Scope from the socket so `runSync(client.close())`
-   * can `runFork(Scope.close(dispatcherScope, Exit.void))` without
-   * yielding.
+   * Closeable Scope owning the drain fiber. Off-Scope from the socket
+   * so `runSync(client.close())` can `runFork(Scope.close(...))`
+   * without yielding.
    */
   readonly dispatcherScope: Scope.CloseableScope;
 }
 
 /**
- * Internal type for a decoded inbound appCallback request handed off to the
- * dispatcher. Mirrors `DecodedServerRequest` from `runtime/frame.ts`
- * but lives here so the dispatcher does not need a `runtime/` import
- * cycle.
+ * Internal type for a decoded inbound task-callback request handed off
+ * to the global queue. Mirrors `DecodedServerRequest` from
+ * `runtime/frame.ts` but lives here so the queue does not need a
+ * `runtime/` import cycle.
  */
 interface DecodedServerRequest {
   readonly id: JsonRpcId;
   readonly definition: AnyTaskCallbackRpcDefinition;
   readonly params: unknown;
 }
-
-/**
- * appCallback dispatcher knobs exposed on `MoltZapWsClientOptions`. All optional;
- * defaults from `DEFAULT_PARTITIONED_DISPATCHER_CONFIG`.
- *
- * Spec #356 OQ-3 (`idlePartitionTtlMs`) ships at the architect's
- * recommended default of 60_000 ms. Per OQ-5, 256 active partitions
- * comfortably absorbs current arena workloads (≤15 keys per session
- * at peak), so the cap doubles as a per-tenant DoS guard, not a
- * cardinality lever.
- */
-export type AppCallbackDispatcherConfig = Partial<PartitionedDispatcherConfig>;
 
 /**
  * Handler signature for `handleServerRpc`. The handler returns an
@@ -268,11 +261,6 @@ export interface MoltZapWsClientOptions {
   onDisconnect?: (close: CloseInfo) => void;
   onReconnect?: (helloOk: ConnectResult) => void;
   logger?: WsClientLogger;
-  /**
-   * Spec #356 — partitioned appCallback dispatcher knobs. Optional; omitted
-   * fields fall back to `DEFAULT_PARTITIONED_DISPATCHER_CONFIG`.
-   */
-  appCallbackDispatcher?: AppCallbackDispatcherConfig;
 }
 
 /**
@@ -516,12 +504,12 @@ export class MoltZapWsClient {
         } else {
           this.runtime.runFork(Scope.close(state.value.scope, Exit.void));
         }
-        // The partitioned dispatcher's Scope is NOT bound to the
-        // socket Scope (see ConnState doc): tear it down via runFork
-        // so this Effect remains sync-runnable for callers using
+        // The dispatcher Scope is NOT bound to the socket Scope (see
+        // ConnState doc): tear it down via runFork so this Effect
+        // remains sync-runnable for callers using
         // `runSync(client.close())`. Closing the dispatcher Scope
-        // cascades to every per-partition worker (queue.shutdown +
-        // fiber interrupt via finalizers) and the idle reaper.
+        // interrupts the drain fiber via Scope finalizers; the
+        // bounded queue is then garbage-collected.
         this.runtime.runFork(
           Scope.close(state.value.dispatcherScope, Exit.void),
         );
@@ -622,11 +610,11 @@ export class MoltZapWsClient {
     this.runtime.runFork(Fiber.interrupt(state.value.readerFiber));
     // Close the per-connection scope as a belt-and-braces guarantee.
     this.runtime.runFork(Scope.close(state.value.scope, Exit.void));
-    // Tear down the partitioned dispatcher (off-scope, see ConnState
-    // doc). runFork so disconnectSync stays synchronous for callers
-    // using `runSync(client.disconnect())`. Closing the dispatcher
-    // Scope cascades to every per-partition worker fiber + idle
-    // reaper via Scope finalizers.
+    // Tear down the task-callback dispatcher Scope (off-scope, see
+    // ConnState doc). runFork so disconnectSync stays synchronous for
+    // callers using `runSync(client.disconnect())`. Closing the
+    // dispatcher Scope interrupts the drain fiber via Scope
+    // finalizers.
     this.runtime.runFork(Scope.close(state.value.dispatcherScope, Exit.void));
   }
 
@@ -674,39 +662,38 @@ export class MoltZapWsClient {
         PendingError
       >();
 
-      // Spec #356 — partitioned task-callback dispatcher. Replaces
-      // the pre-#356 single `Stream.runForEach`-driven inbound queue
-      // with a partition router keyed on `(taskId, conversationId,
-      // descriptor)`. Each tuple owns one bounded queue + one drain
-      // fiber; cross-tuple offers run on independent fibers, so a
-      // parked task-callback request cannot block the sibling tuple
-      // whose response would resolve the parking Deferred (arena#248
-      // deadlock — fixed structurally, not by timeout). Phase 9b
-      // collapsed the appCallback group to one descriptor
-      // (`task/authorizeDispatch`); the partitioning still applies
-      // because conversations and tasks fan out independently per
-      // descriptor.
+      // Cutover (#533) — single bounded global queue + single drain
+      // fiber replaces the pre-cutover partitioned dispatcher. The
+      // queue capacity (`TASK_CALLBACK_QUEUE_CAPACITY` = 8192)
+      // preserves today's 256×32 burst envelope. The drain fiber
+      // takes one request at a time and runs the registered handler
+      // serially; the only remaining task-callback descriptor today
+      // is `dispatch/authorize`, which the recipient may not handle
+      // concurrently with itself.
       //
       // Dispatcher Scope is allocated independently of the per-connect
-      // socket Scope (`scope` above). Closing it cascades to every
-      // per-partition worker via Scope finalizers; teardown from
-      // `close()` / `disconnectSync()` is `runFork(Scope.close(…))`,
-      // mirroring the reader-fiber ownership pattern (off-Scope so
+      // socket Scope (`scope` above). Closing it interrupts the drain
+      // fiber via Scope finalizers; teardown from `close()` /
+      // `disconnectSync()` is `runFork(Scope.close(...))`, mirroring
+      // the reader-fiber ownership pattern (off-Scope so
       // `runSync(client.close())` doesn't yield through the runtime
       // — load-bearing regression gate at
       // `ws-client.test.ts:1233-1259`).
       const dispatcherScope = yield* Scope.make();
-      const dispatcher = yield* makePartitionedDispatcher({
-        handle: (req) =>
-          this.dispatchInboundServerRequest(req as DecodedServerRequest, write),
-        scope: dispatcherScope,
-        ...(this.options.appCallbackDispatcher !== undefined
-          ? { config: this.options.appCallbackDispatcher }
-          : {}),
-        ...(this.options.logger !== undefined
-          ? { logger: this.options.logger }
-          : {}),
-      });
+      const taskCallbackQueue = yield* Queue.bounded<DecodedServerRequest>(
+        TASK_CALLBACK_QUEUE_CAPACITY,
+      );
+      // Drain fiber: serialize handler execution. Forked into the
+      // off-Scope `dispatcherScope` so it is interrupted exactly when
+      // the dispatcher Scope closes, not when the socket Scope closes.
+      const drainEffect = Effect.forever(
+        Queue.take(taskCallbackQueue).pipe(
+          Effect.flatMap((req) =>
+            this.dispatchInboundServerRequest(req, write),
+          ),
+        ),
+      );
+      yield* Effect.forkIn(drainEffect, dispatcherScope);
 
       // Use `onExit` (not `tapErrorCause`) so the clean-close path also
       // triggers pending-drain. `@effect/platform/Socket` treats code 1000
@@ -736,13 +723,14 @@ export class MoltZapWsClient {
               // Awaiting `Fiber.interrupt` would block this branch on a
               // slow appCallback handler still draining (codex P2).
               yield* Ref.set(this.stateRef, Option.none());
-              // Tear down the partitioned dispatcher on socket-level
-              // close (e.g. server-initiated). `close()` /
-              // `disconnectSync()` already handle their own teardown for
-              // client-initiated paths; this branch covers the case
-              // where the server closes us. Forked so a slow handler
-              // does not delay the rest of the disconnect path.
-              // Idempotent with the explicit teardown in close().
+              // Tear down the task-callback dispatcher Scope on
+              // socket-level close (e.g. server-initiated). `close()`
+              // / `disconnectSync()` already handle their own
+              // teardown for client-initiated paths; this branch
+              // covers the case where the server closes us. Forked
+              // so a slow handler does not delay the rest of the
+              // disconnect path. Idempotent with the explicit
+              // teardown in close().
               this.runtime.runFork(Scope.close(dispatcherScope, Exit.void));
               // Spec #222 §5.4 (V7): project the reader-fiber exit onto
               // a typed `CloseInfo` and pass it to `onDisconnect`. Pure
@@ -777,7 +765,7 @@ export class MoltZapWsClient {
           readerFiber,
           scope,
           handshakeSettled,
-          dispatcher,
+          taskCallbackQueue,
           dispatcherScope,
         }),
       );
@@ -882,50 +870,29 @@ export class MoltZapWsClient {
   }
 
   /**
-   * Translate a typed `OfferRejected` failure from the partitioned
-   * dispatcher into a wire-level error response. Spec #356 §5: each
-   * tag maps to a JSON-RPC error code so the server's
-   * `Deferred.await` settles deterministically rather than hanging.
-   *
-   * Exhaustive over `OfferRejected`'s discriminated union: adding a
-   * new tag fails the compile here.
+   * Write a "queue-full" error response back to the server when the
+   * task-callback executor queue is saturated. Bounded-queue offer
+   * returns `false` rather than blocking; we surface that to the
+   * server's `Deferred.await` so it settles deterministically.
    */
-  private writeOfferRejection(
-    err: OfferRejected,
+  private writeQueueFullRejection(
     requestId: JsonRpcId,
     write: ConnState["write"],
   ): Effect.Effect<void, never> {
-    const reply = this.offerRejectedResponse(err, requestId);
+    const reply: ResponseFrame = encodeErrorResponse(requestId, {
+      code: -32000,
+      message: `Server busy: task-callback executor queue full (capacity=${TASK_CALLBACK_QUEUE_CAPACITY})`,
+    });
     return write(JSON.stringify(reply)).pipe(
       Effect.catchAll((werr) =>
         Effect.sync(() =>
           this.options.logger?.warn(
-            "appCallback offer-rejection write failed",
+            "task-callback queue-full rejection write failed",
             werr,
           ),
         ),
       ),
     );
-  }
-
-  private offerRejectedResponse(
-    err: OfferRejected,
-    requestId: JsonRpcId,
-  ): ResponseFrame {
-    if (err instanceof PartitionLimitError) {
-      return encodeErrorResponse(requestId, {
-        code: -32000,
-        message: `Server busy: partition limit reached (${err.activePartitions}/${err.maxPartitions})`,
-      });
-    }
-    if (err instanceof PartitionQueueFullError) {
-      return encodeErrorResponse(requestId, {
-        code: -32000,
-        message: `Server busy: partition queue full (capacity=${err.capacity})`,
-      });
-    }
-    const _exhaustive: never = err;
-    return _exhaustive;
   }
 
   /**
@@ -1055,41 +1022,25 @@ export class MoltZapWsClient {
         }
 
         if (decoded._tag === "ServerRequest") {
-          // appCallback request — hand off to the partitioned dispatcher
-          // (spec #356). The dispatcher routes by
-          // `(taskId, conversationId, hookKind)`; the matching
-          // per-tuple worker fiber drains and runs
-          // `dispatchInboundServerRequest`, which writes the reply
-          // back. Cross-tuple offers run concurrently — the arena#248
-          // deadlock between parked `apps/onBeforeDispatch` and
-          // sibling `apps/onBeforeMessageDelivery` cannot recur.
-          //
-          // `dispatcher.offer` is non-blocking: every failure mode is
-          // tagged in `OfferRejected` and translated below to a wire
-          // error response so the server's `Deferred.await` always
-          // settles (no hangs on partition-full requests).
+          // Task-callback request — non-blocking offer to the global
+          // bounded queue (cutover #533). The drain fiber serializes
+          // handler execution. If the queue is saturated, surface a
+          // typed wire-level error so the server's `Deferred.await`
+          // settles deterministically rather than hanging.
           const state = yield* Ref.get(this.stateRef);
           if (Option.isNone(state)) {
             // Reader fiber observed a frame without a corresponding
-            // ConnState — the only path that reaches here is a frame
-            // arriving between scope-close finalization and reader-exit
-            // observation. Drop silently: the dispatcher is already
-            // gone too.
+            // ConnState — only path here is a frame arriving between
+            // scope-close finalization and reader-exit observation.
+            // Drop silently: the queue + drain fiber are already gone.
             continue;
           }
-          const offered = yield* Effect.either(
-            state.value.dispatcher.offer(decoded),
+          const offered = yield* Queue.offer(
+            state.value.taskCallbackQueue,
+            decoded,
           );
-          const offerFailure = Either.match(offered, {
-            onLeft: (err) => err,
-            onRight: () => null,
-          });
-          if (offerFailure !== null) {
-            yield* this.writeOfferRejection(
-              offerFailure,
-              decoded.id,
-              state.value.write,
-            );
+          if (!offered) {
+            yield* this.writeQueueFullRejection(decoded.id, state.value.write);
           }
           continue;
         }

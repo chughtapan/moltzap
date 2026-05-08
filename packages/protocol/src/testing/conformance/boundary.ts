@@ -21,7 +21,7 @@ import {
 import { leftOrNull, sendUntypedRpc } from "./_helpers.js";
 
 import { AgentsList } from "../../identity/methods.js";
-import { AppsRegister, TaskAuthorizeDispatch } from "../../app/methods.js";
+import { AppsRegister, DispatchAuthorize } from "../../app/methods.js";
 import { TasksCreate } from "../../task/methods.js";
 
 const CATEGORY = "boundary" as const;
@@ -221,7 +221,7 @@ export function registerAppDisconnectFailPolicy(
               { key: "main", name: "Main", participantFilter: "all" },
             ],
             hooks: {
-              task_authorize_dispatch: { timeout_ms: 5000 },
+              dispatch_authorize: { timeout_ms: 5000 },
             },
           },
         }).pipe(Effect.either);
@@ -239,15 +239,10 @@ export function registerAppDisconnectFailPolicy(
 
         // Step 4: register an admission handler that NEVER replies, so
         // the server-side Deferred is parked. The sever in step 6 is the
-        // event the property exercises. Phase 9b consumer-migration
-        // (sub-issue #460): the legacy `apps/onBeforeDispatch` /
-        // `apps/onBeforeMessageDelivery` verbs retired; only the
-        // renamed `task/authorizeDispatch` round-trip remains, so a
-        // single `handleServerRpc` registration covers the property.
-        yield* appClient.handleServerRpc(
-          TaskAuthorizeDispatch,
-          () => Effect.never,
-        );
+        // event the property exercises. Single `handleServerRpc`
+        // registration covers the property — only `dispatch/authorize`
+        // is left in the task-callback group.
+        yield* appClient.handleServerRpc(DispatchAuthorize, () => Effect.never);
 
         // Step 5: register a sender agent and attempt to create an app
         // session that this agent initiates. apps/create requires the
