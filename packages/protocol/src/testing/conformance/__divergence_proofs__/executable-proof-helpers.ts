@@ -1,6 +1,7 @@
 import { Cause, Chunk, Effect, Option } from "effect";
 import {
   PropertyAssertionFailure,
+  PropertyDeferred,
   PropertyInvariantViolation,
   PropertyUnavailable,
   type PropertyFailure,
@@ -14,6 +15,7 @@ class ProofExpectationError extends Error {
 function describeFailure(failure: PropertyFailure): string {
   if (failure instanceof PropertyUnavailable) return failure.reason;
   if (failure instanceof PropertyInvariantViolation) return failure.reason;
+  if (failure instanceof PropertyDeferred) return failure.followUp;
   return String(failure.cause);
 }
 
@@ -66,6 +68,41 @@ export function expectAssertionFailure(
   if (failure.name !== propertyName) {
     throw new ProofExpectationError(
       `expected ${propertyName}, got ${failure.name}`,
+    );
+  }
+}
+
+/**
+ * Assert the registrar emits a typed `PropertyDeferred` whose `followUp`
+ * mentions `expectedReasonSubstring`. Used by registrars whose property
+ * body is a documented tombstone pending a future infrastructure landing
+ * (e.g. cross-impl `dispatch/request` driver in TestServer, #529 row 13).
+ *
+ * The proof is meaningful: it confirms the registrar (a) is wired into
+ * the suite, (b) emits a typed failure (not a silent pass, not an
+ * untyped defect), (c) cites the expected follow-up. When the
+ * infrastructure lands, registrar bodies become real assertions and
+ * these proofs flip to `expectInvariant` / `expectAssertionFailure`
+ * against a known-bad implementation, mirroring the existing pattern.
+ */
+export function expectDeferred(
+  failure: PropertyFailure,
+  propertyName: string,
+  expectedReasonSubstring: string,
+): void {
+  if (!(failure instanceof PropertyDeferred)) {
+    throw new ProofExpectationError(
+      `expected deferred failure, got ${failure._tag}: ${describeFailure(failure)}`,
+    );
+  }
+  if (failure.name !== propertyName) {
+    throw new ProofExpectationError(
+      `expected ${propertyName}, got ${failure.name}`,
+    );
+  }
+  if (!failure.followUp.includes(expectedReasonSubstring)) {
+    throw new ProofExpectationError(
+      `expected followUp to include "${expectedReasonSubstring}", got "${failure.followUp}"`,
     );
   }
 }
