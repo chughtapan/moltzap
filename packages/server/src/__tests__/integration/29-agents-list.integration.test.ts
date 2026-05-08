@@ -274,7 +274,7 @@ describe(`${AgentsList.name} — contact-scoped per #481`, () => {
   );
 });
 
-describe(AgentsLookup.name, () => {
+describe(`${AgentsLookup.name} — contact-scoped per #481/#506`, () => {
   it.live("returns agent cards by ID", () =>
     Effect.gen(function* () {
       const alice = yield* registerAndConnectOwned({
@@ -322,9 +322,101 @@ describe(AgentsLookup.name, () => {
       expect(result.agents[0]!.description).toBe("Has a description");
     }),
   );
+
+  it.live(
+    "drops cross-owner IDs when the caller is not in contact with the owner",
+    () =>
+      Effect.gen(function* () {
+        const alice = yield* registerAndConnectOwned({
+          name: "alice-lookup-iso",
+          ownerUserId: ALICE_USER_ID,
+        });
+        const carol = yield* registerAndConnectOwned({
+          name: "carol-lookup-iso",
+          ownerUserId: CAROL_USER_ID,
+        });
+
+        const result = (yield* alice.client.sendRpc(AgentsLookup, {
+          agentIds: [carol.agentId],
+        })) as AgentsArrayResult;
+        expect(result.agents).toHaveLength(0);
+      }),
+  );
+
+  it.live(
+    "returns sibling-owner and accepted-contact-owner cards; drops non-contacts in same call",
+    () =>
+      Effect.gen(function* () {
+        const alice1 = yield* registerAndConnectOwned({
+          name: "alice-lookup-sib1",
+          ownerUserId: ALICE_USER_ID,
+        });
+        const alice2 = yield* registerAndConnectOwned({
+          name: "alice-lookup-sib2",
+          ownerUserId: ALICE_USER_ID,
+        });
+        const bob = yield* registerAndConnectOwned({
+          name: "bob-lookup",
+          ownerUserId: BOB_USER_ID,
+        });
+        const carol = yield* registerAndConnectOwned({
+          name: "carol-lookup",
+          ownerUserId: CAROL_USER_ID,
+        });
+
+        const added = yield* alice1.client.sendRpc(ContactsAdd, {
+          contactUserId: BOB_USER_ID,
+        });
+        yield* bob.client.sendRpc(ContactsAccept, {
+          contactId: added.contact.id,
+        });
+
+        const result = (yield* alice1.client.sendRpc(AgentsLookup, {
+          agentIds: [
+            alice1.agentId,
+            alice2.agentId,
+            bob.agentId,
+            carol.agentId,
+          ],
+        })) as AgentsArrayResult;
+        const ids = new Set(result.agents.map((a) => a.id));
+        expect(ids.has(alice1.agentId)).toBe(true);
+        expect(ids.has(alice2.agentId)).toBe(true);
+        expect(ids.has(bob.agentId)).toBe(true);
+        expect(ids.has(carol.agentId)).toBe(false);
+      }),
+  );
+
+  it.live(
+    "pending-status contact does NOT yet expose the requester's agent card to the recipient",
+    () =>
+      Effect.gen(function* () {
+        const alice = yield* registerAndConnectOwned({
+          name: "alice-lookup-pending",
+          ownerUserId: ALICE_USER_ID,
+        });
+        const bob = yield* registerAndConnectOwned({
+          name: "bob-lookup-pending",
+          ownerUserId: BOB_USER_ID,
+        });
+
+        yield* alice.client.sendRpc(ContactsAdd, {
+          contactUserId: BOB_USER_ID,
+        });
+
+        const aliceLookup = (yield* alice.client.sendRpc(AgentsLookup, {
+          agentIds: [bob.agentId],
+        })) as AgentsArrayResult;
+        const bobLookup = (yield* bob.client.sendRpc(AgentsLookup, {
+          agentIds: [alice.agentId],
+        })) as AgentsArrayResult;
+        expect(aliceLookup.agents).toHaveLength(0);
+        expect(bobLookup.agents).toHaveLength(0);
+      }),
+  );
 });
 
-describe(AgentsLookupByName.name, () => {
+describe(`${AgentsLookupByName.name} — contact-scoped per #481/#506`, () => {
   it.live("returns agent cards by name", () =>
     Effect.gen(function* () {
       const alice = yield* registerAndConnectOwned({
@@ -374,10 +466,18 @@ describe(AgentsLookupByName.name, () => {
           .execute(),
       );
 
+      // Bob is in contact with Alice, but Alice is suspended — should drop.
       const bob = yield* registerAndConnectOwned({
         name: "bob-active",
         ownerUserId: BOB_USER_ID,
       });
+      const added = yield* bob.client.sendRpc(ContactsAdd, {
+        contactUserId: ALICE_USER_ID,
+      });
+      yield* alice.client.sendRpc(ContactsAccept, {
+        contactId: added.contact.id,
+      });
+
       const result = (yield* bob.client.sendRpc(AgentsLookupByName, {
         names: [aliceRow.name],
       })) as AgentsArrayResult;
@@ -399,5 +499,71 @@ describe(AgentsLookupByName.name, () => {
 
       expect(result.agents).toHaveLength(0);
     }),
+  );
+
+  it.live(
+    "drops a cross-owner name match when the caller is not in contact with the owner",
+    () =>
+      Effect.gen(function* () {
+        const alice = yield* registerAndConnectOwned({
+          name: "alice-lbyn-iso",
+          ownerUserId: ALICE_USER_ID,
+        });
+        const carol = yield* registerAndConnectOwned({
+          name: "carol-lbyn-iso",
+          ownerUserId: CAROL_USER_ID,
+        });
+
+        const db = getKyselyDb();
+        const carolRow = yield* Effect.tryPromise(() =>
+          db
+            .selectFrom("agents")
+            .select("name")
+            .where("id", "=", carol.agentId)
+            .executeTakeFirstOrThrow(),
+        );
+
+        const result = (yield* alice.client.sendRpc(AgentsLookupByName, {
+          names: [carolRow.name],
+        })) as AgentsArrayResult;
+        expect(result.agents).toHaveLength(0);
+      }),
+  );
+
+  it.live(
+    "returns the card when the name belongs to an accepted-contact-owned agent",
+    () =>
+      Effect.gen(function* () {
+        const alice = yield* registerAndConnectOwned({
+          name: "alice-lbyn-c",
+          ownerUserId: ALICE_USER_ID,
+        });
+        const bob = yield* registerAndConnectOwned({
+          name: "bob-lbyn-c",
+          ownerUserId: BOB_USER_ID,
+        });
+
+        const added = yield* alice.client.sendRpc(ContactsAdd, {
+          contactUserId: BOB_USER_ID,
+        });
+        yield* bob.client.sendRpc(ContactsAccept, {
+          contactId: added.contact.id,
+        });
+
+        const db = getKyselyDb();
+        const bobRow = yield* Effect.tryPromise(() =>
+          db
+            .selectFrom("agents")
+            .select("name")
+            .where("id", "=", bob.agentId)
+            .executeTakeFirstOrThrow(),
+        );
+
+        const result = (yield* alice.client.sendRpc(AgentsLookupByName, {
+          names: [bobRow.name],
+        })) as AgentsArrayResult;
+        expect(result.agents).toHaveLength(1);
+        expect(result.agents[0]!.id).toBe(bob.agentId);
+      }),
   );
 });

@@ -174,9 +174,20 @@ export function createCoreAuthHandlers(deps: {
     }),
 
     defineNetworkMethod(AgentsLookup, {
-      handler: (params) =>
+      // Contact-scoped per #481/#506: out-of-scope IDs (non-self, non-sibling,
+      // non-accepted-contact owners) silently drop from the result. Without
+      // this filter any caller could dereference any agent's `AgentCard`
+      // (including `ownerUserId`) by guessing or harvesting an `AgentId`.
+      handler: (params, ctx) =>
         catchSqlErrorAsDefect(
           Effect.gen(function* () {
+            const visibleIds = yield* visibleAgentIds({
+              db: deps.db,
+              callerAgentId: ctx.agentId,
+              callerOwnerUserId: ctx.ownerUserId,
+              restrictTo: params.agentIds as ServerAgentId[],
+            });
+            if (visibleIds.length === 0) return { agents: [] };
             const rows = yield* deps.db
               .selectFrom("agents")
               .select([
@@ -187,16 +198,20 @@ export function createCoreAuthHandlers(deps: {
                 "status",
                 "owner_user_id",
               ])
-              .where("id", "in", params.agentIds as ServerAgentId[]);
+              .where("id", "in", visibleIds as ServerAgentId[]);
             return { agents: rows.map(toAgentCard) };
           }),
         ),
     }),
     defineNetworkMethod(AgentsLookupByName, {
-      handler: (params) =>
+      // Contact-scoped per #481/#506. Names are 1-32 chars and human-chosen,
+      // so a dictionary attack on the unfiltered RPC was tractable. The
+      // `active` status filter is preserved (existing semantics); the
+      // contact-graph filter is then layered on top of the name match.
+      handler: (params, ctx) =>
         catchSqlErrorAsDefect(
           Effect.gen(function* () {
-            const rows = yield* deps.db
+            const matches = yield* deps.db
               .selectFrom("agents")
               .select([
                 "id",
@@ -208,7 +223,19 @@ export function createCoreAuthHandlers(deps: {
               ])
               .where("name", "in", params.names)
               .where("status", "=", "active");
-            return { agents: rows.map(toAgentCard) };
+            if (matches.length === 0) return { agents: [] };
+            const visibleIds = yield* visibleAgentIds({
+              db: deps.db,
+              callerAgentId: ctx.agentId,
+              callerOwnerUserId: ctx.ownerUserId,
+              restrictTo: matches.map((r) => r.id),
+            });
+            const visibleSet = new Set<ServerAgentId>(visibleIds);
+            return {
+              agents: matches
+                .filter((r) => visibleSet.has(r.id))
+                .map(toAgentCard),
+            };
           }),
         ),
     }),
