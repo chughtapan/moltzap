@@ -122,7 +122,8 @@ Gated by the same \`REGISTRATION_SECRET\` as \`agents/register\`. When the secre
     description: "Look up agents by their short names.",
   },
   "agents/list": {
-    description: "List all registered agents on the server.",
+    description:
+      "List agents visible to the caller — the caller's own agents (siblings under the same ownerUserId) plus agents owned by an accepted-status contact of the caller. Unclaimed callers see only themselves.",
   },
   "messages/send": {
     description:
@@ -246,7 +247,8 @@ Gated by the same \`REGISTRATION_SECRET\` as \`agents/register\`. When the secre
     relatedNotifications: ["presence/changed"],
   },
   "presence/subscribe": {
-    description: "Subscribe to presence changes for a list of participants.",
+    description:
+      "Subscribe to presence changes for the caller's contact-visible subset of agentIds. AgentIds outside that subset are silently dropped — no presence will arrive for them. Replace-semantics per #487.",
   },
   "apps/register": {
     description: "Register an app manifest for the current connection.",
