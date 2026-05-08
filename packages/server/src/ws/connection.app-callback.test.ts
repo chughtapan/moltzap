@@ -30,7 +30,7 @@ import {
 import {
   NotConnectedError,
   RpcServerError,
-  TaskAuthorizeDispatch,
+  DispatchAuthorize,
   encodeErrorResponse,
   type RequestFrame,
 } from "@moltzap/protocol";
@@ -137,12 +137,12 @@ describe("sendRpcToClient — happy-path round-trip", () => {
         makeTaskId("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
       );
       const fiber = yield* Effect.fork(
-        sendRpcToClient(conn, TaskAuthorizeDispatch, params),
+        sendRpcToClient(conn, DispatchAuthorize, params),
       );
 
       const written = yield* waitForOutbound(outbound, 1);
       const frame = parseRequestFrame(written[0]!);
-      expect(frame.method).toBe(TaskAuthorizeDispatch.name);
+      expect(frame.method).toBe(DispatchAuthorize.name);
       expect(frame.params).toEqual(params);
       // `srv-<connId>-<seq>` namespace prefix keeps server-minted ids
       // disjoint from client-minted request ids.
@@ -151,7 +151,7 @@ describe("sendRpcToClient — happy-path round-trip", () => {
       // Synthesize the matching response and route it through the
       // server's inbound completion path.
       const matched = yield* conn.jsonRpcClient.resolve(
-        TaskAuthorizeDispatch.encodeResponse(frame.id, {
+        DispatchAuthorize.encodeResponse(frame.id, {
           admission: { decision: "grant" },
         }),
       );
@@ -180,7 +180,7 @@ describe("sendRpcToClient — happy-path round-trip", () => {
       const fiber = yield* Effect.fork(
         sendRpcToClient(
           conn,
-          TaskAuthorizeDispatch,
+          DispatchAuthorize,
           authorizeDispatchParams("err"),
         ),
       );
@@ -227,18 +227,10 @@ describe("sendRpcToClient — disconnect mid-request", () => {
       // Two concurrent in-flight task-callback requests. Both must observe
       // `NotConnectedError` when the scope closes.
       const fiberA = yield* Effect.fork(
-        sendRpcToClient(
-          conn,
-          TaskAuthorizeDispatch,
-          authorizeDispatchParams("A"),
-        ),
+        sendRpcToClient(conn, DispatchAuthorize, authorizeDispatchParams("A")),
       );
       const fiberB = yield* Effect.fork(
-        sendRpcToClient(
-          conn,
-          TaskAuthorizeDispatch,
-          authorizeDispatchParams("B"),
-        ),
+        sendRpcToClient(conn, DispatchAuthorize, authorizeDispatchParams("B")),
       );
 
       // Both writes have landed in the outbound Ref → both calls have
@@ -298,7 +290,7 @@ describe("sendRpcToClient — disconnect mid-request", () => {
 
       const exit = yield* sendRpcToClient(
         conn,
-        TaskAuthorizeDispatch,
+        DispatchAuthorize,
         authorizeDispatchParams("writefail"),
       ).pipe(Effect.exit);
       yield* Scope.close(scope, Exit.void);
@@ -333,7 +325,7 @@ describe("sendRpcToClient — caller timeout", () => {
       const start = Date.now();
       const exit = yield* sendRpcToClient(
         conn,
-        TaskAuthorizeDispatch,
+        DispatchAuthorize,
         authorizeDispatchParams(
           "timeout",
           makeTaskId("cccccccc-cccc-4ccc-8ccc-cccccccccccc"),
@@ -381,7 +373,7 @@ describe("sendRpcToClient — caller timeout", () => {
       const fiber = yield* Effect.fork(
         sendRpcToClient(
           conn,
-          TaskAuthorizeDispatch,
+          DispatchAuthorize,
           authorizeDispatchParams(
             "late",
             makeTaskId("dddddddd-dddd-4ddd-8ddd-dddddddddddd"),
@@ -398,7 +390,7 @@ describe("sendRpcToClient — caller timeout", () => {
       // entry is already gone; `resolve` returns `false` and does not
       // throw, panic, or settle anything.
       const matched = yield* conn.jsonRpcClient.resolve(
-        TaskAuthorizeDispatch.encodeResponse(requestId, {
+        DispatchAuthorize.encodeResponse(requestId, {
           admission: { decision: "grant" },
         }),
       );
@@ -426,7 +418,7 @@ describe("sendRpcToClient — caller timeout", () => {
       const fiber = yield* Effect.fork(
         sendRpcToClient(
           conn,
-          TaskAuthorizeDispatch,
+          DispatchAuthorize,
           authorizeDispatchParams("int"),
         ),
       );
@@ -463,7 +455,7 @@ describe("sendRpcToClient — caller timeout", () => {
 
       const exit = yield* sendRpcToClient(
         conn,
-        TaskAuthorizeDispatch,
+        DispatchAuthorize,
         authorizeDispatchParams(
           "drain",
           makeTaskId("cccccccc-cccc-4ccc-8ccc-cccccccccccc"),
@@ -477,7 +469,7 @@ describe("sendRpcToClient — caller timeout", () => {
 
       // Late response after timeout: `resolve` finds nothing.
       const matched = yield* conn.jsonRpcClient.resolve(
-        TaskAuthorizeDispatch.encodeResponse(requestId, {
+        DispatchAuthorize.encodeResponse(requestId, {
           admission: { decision: "grant" },
         }),
       );

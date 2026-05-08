@@ -13,7 +13,7 @@ import type {
   Part,
   ResultOf,
 } from "@moltzap/protocol";
-import { DispatchAuthorize, TaskAuthorizeDispatch } from "@moltzap/protocol";
+import { DispatchAuthorize } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId, MessageId } from "@moltzap/protocol/task";
 import {
@@ -166,11 +166,11 @@ export class AppHost {
   }
 
   /**
-   * Register an app whose `task/authorizeDispatch` admission round-trips
-   * run in a remote process (typically a WebSocket client speaking the
-   * `task/authorizeDispatch` protocol). The verb dispatches via
-   * {@link sendRpcToClient}; verdicts decode through the schemas in
-   * `hooks.ts` and feed the same fail-closed envelope as in-process hooks.
+   * Register an app whose `dispatch/authorize` admission round-trips run
+   * in a remote process (typically a WebSocket client). The verb
+   * dispatches via {@link sendRpcToClient}; verdicts decode through the
+   * schemas in `hooks.ts` and feed the same fail-closed envelope as
+   * in-process hooks.
    *
    * Remote registration takes precedence over any prior in-process
    * registration for the same `appId`. Disconnect: every pending
@@ -233,115 +233,8 @@ export class AppHost {
     this.hooks.set(appId, existing);
   }
 
-  runAuthorizeDispatch(
-    conversationId: ConversationId,
-    recipientAgentId: AgentId,
-    params: {
-      messageId: MessageId;
-      senderAgentId: AgentId;
-      parts?: Part[];
-      attempt?: number;
-      receivedAt?: string;
-      clock?: LogicalClock;
-      pending?: ReadonlyArray<{
-        messageId: MessageId;
-        conversationId: ConversationId;
-        senderAgentId: AgentId;
-        createdAt: string;
-        receivedAt: string;
-        clock?: LogicalClock;
-        parts?: Part[];
-      }>;
-    },
-  ): Effect.Effect<DispatchAdmissionResult> {
-    return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
-        const lookup = yield* lookupAppForConversation(this.db, conversationId);
-        switch (lookup._tag) {
-          case "ConversationArchived":
-            return {
-              decision: "deny" as const,
-              reason: "conversation_archived",
-            };
-          case "ConversationNotFound":
-          case "NoAppSession":
-            return { decision: "grant" as const };
-          case "AppBound": {
-            const isRemote = this.remoteRegistrations.has(lookup.appId);
-            const appHooks = this.hooks.get(lookup.appId);
-            if (!isRemote && !appHooks?.taskAuthorizeDispatch) {
-              // Prereq 2 (#525 §4e): app-bound conversation with no
-              // moderator hook registered. Fail-soft via synthesized
-              // hold — the recipient's parking machinery catches the
-              // held head and retries on the next inbound message.
-              // When the moderator reconnects (`apps/register`), the
-              // next retry gets a real verdict. The pre-fix
-              // `decision: "grant"` mass-evicted app-bound recipients
-              // whenever a moderator restarted.
-              return {
-                decision: "hold" as const,
-                reason: "moderator_unavailable",
-              };
-            }
-
-            const agentOpt = yield* takeFirstOption(
-              this.db
-                .selectFrom("agents")
-                .select("owner_user_id")
-                .where("id", "=", recipientAgentId),
-            );
-            const agent = Option.getOrNull(agentOpt);
-
-            // ctx without `signal` — the in-process dispatch helper attaches
-            // the AbortController-bound signal at call time. Remote dispatch
-            // strips signal-shaped fields via `contextForWire` before encode.
-            const ctx: TaskAuthorizeDispatchContext = {
-              conversationId,
-              recipient: {
-                agentId: recipientAgentId,
-                ownerId: agent?.owner_user_id ?? "",
-              },
-              message: {
-                id: params.messageId,
-                senderAgentId: params.senderAgentId,
-                parts: params.parts,
-              },
-              taskId: lookup.taskId,
-              appId: lookup.appId,
-              attempt: params.attempt ?? 0,
-              receivedAt: params.receivedAt,
-              clock: params.clock,
-              pending: params.pending,
-              // Placeholder; the in-process dispatch helper overrides with
-              // its own AbortController-tied signal. Remote dispatch elides.
-              signal: new AbortController().signal,
-            };
-
-            // Uniform Effect dispatch — in-process / remote choice is INSIDE
-            // the helper. Per architect plan §3.4: "No branching at the call
-            // site between in-process and remote." Composition uses the
-            // forEach-with-deny-short-circuit combinator (degenerate to N=1
-            // today; forward-compatible for multi-app sessions).
-            return yield* this.dispatchAcrossAppsWithDenyShortCircuit<DispatchAdmissionResult>(
-              [lookup.appId],
-              (v) => v.decision === "deny",
-              { decision: "grant" as const },
-              (appId) => this.dispatchAuthorizeDispatchHook(appId, ctx),
-            );
-          }
-          default: {
-            // Exhaustiveness gate: a future tag added to ConversationAppLookup
-            // forces an update here at compile time (Principle 4).
-            const _absurd: never = lookup;
-            return _absurd;
-          }
-        }
-      }),
-    );
-  }
-
   /**
-   * #529 reshape additive — mint a lease for an admission request, return
+   * Mint a lease for an admission request, return
    * the ack synchronously, fork the moderator round-trip in the
    * background. The forked fiber resolves the lease via the registry,
    * which fires `dispatch/release` to the recipient.
@@ -567,22 +460,9 @@ export class AppHost {
               signal: new AbortController().signal,
             };
 
-            // Manifest dual-mode: prefer the new key when both are present.
-            // Manifest dual-mode (architect plan §4.3 + risk #8): prefer
-            // `dispatch_authorize` over `task_authorize_dispatch` when
-            // both are present; fall through to the new key when neither
-            // is declared (default-to-new). The cutover PR drops the
-            // legacy key entirely.
-            const manifest = this.manifests.get(lookup.appId);
-            const hasNewKey = manifest?.hooks?.dispatch_authorize !== undefined;
-            const hasLegacyKey =
-              manifest?.hooks?.task_authorize_dispatch !== undefined;
-            const useNewKey = hasNewKey || !hasLegacyKey;
-
-            const verdict = yield* this.dispatchAuthorizeDispatchHookViaKey(
+            const verdict = yield* this.dispatchAuthorizeHook(
               lookup.appId,
               ctx,
-              useNewKey,
             );
 
             // Map admission decision → registry verdict.
@@ -661,14 +541,15 @@ export class AppHost {
   }
 
   /**
-   * Dual-mode dispatcher: `useNewKey=true` emits `dispatch/authorize`
-   * S→C; otherwise emits legacy `task/authorizeDispatch`. Both arms
-   * reuse `wrapHookEffectWithEnvelope` for fail-closed semantics.
+   * Dispatch a `dispatch/authorize` hook. In-process / remote choice is
+   * made INSIDE the helper; callers see one signature and one return
+   * type. Returns `{ decision: "grant" }` when no hook is registered.
+   * Fail-closed on timeout / handler error / RPC failure per architect
+   * plan §3.4.
    */
-  private dispatchAuthorizeDispatchHookViaKey(
+  private dispatchAuthorizeHook(
     appId: string,
     ctx: TaskAuthorizeDispatchContext,
-    useNewKey: boolean,
   ): Effect.Effect<DispatchAdmissionResult, never> {
     const remote = this.remoteRegistrations.get(appId);
     const inProcess = this.hooks.get(appId)?.taskAuthorizeDispatch;
@@ -676,21 +557,15 @@ export class AppHost {
       return Effect.succeed({ decision: "grant" as const });
     }
     const manifest = this.manifests.get(appId);
-    const timeoutMs = useNewKey
-      ? (manifest?.hooks?.dispatch_authorize?.timeout_ms ??
-        DEFAULT_APP_HOOK_TIMEOUT_MS)
-      : (manifest?.hooks?.task_authorize_dispatch?.timeout_ms ??
-        DEFAULT_APP_HOOK_TIMEOUT_MS);
+    const timeoutMs =
+      manifest?.hooks?.dispatch_authorize?.timeout_ms ??
+      DEFAULT_APP_HOOK_TIMEOUT_MS;
     const taskId = ctx.taskId;
-    const definition = useNewKey ? DispatchAuthorize : TaskAuthorizeDispatch;
-    const methodName = useNewKey
-      ? "dispatch/authorize"
-      : "task/authorizeDispatch";
 
     const raw: Effect.Effect<DispatchAdmissionResult, Error> = remote
       ? this.runRemoteHookEffect({
           appId,
-          definition,
+          definition: DispatchAuthorize,
           connectionId: remote.connectionId,
           params: this.authorizeDispatchParamsForWire(ctx),
         }).pipe(Effect.map((envelope) => envelope.admission))
@@ -702,9 +577,9 @@ export class AppHost {
     return this.wrapHookEffectWithEnvelope<DispatchAdmissionResult>({
       raw,
       timeoutMs,
-      timeoutLogMessage: `${methodName} timed out`,
+      timeoutLogMessage: "dispatch/authorize timed out",
       timeoutLogContext: { taskId, appId, timeoutMs },
-      errorLogMessage: `${methodName} error`,
+      errorLogMessage: "dispatch/authorize error",
       errorLogContext: { taskId, appId },
       onTimeout: () => ({
         decision: "deny" as const,
@@ -712,7 +587,7 @@ export class AppHost {
       }),
       onError: () => ({
         decision: "deny" as const,
-        reason: `${methodName} error`,
+        reason: "dispatch/authorize error",
       }),
     });
   }
@@ -756,7 +631,7 @@ export class AppHost {
 
   private authorizeDispatchParamsForWire(
     ctx: TaskAuthorizeDispatchContext,
-  ): ParamsOf<typeof TaskAuthorizeDispatch> {
+  ): ParamsOf<typeof DispatchAuthorize> {
     const wire = this.contextForWire(ctx);
     return {
       taskId: wire.taskId,
@@ -917,85 +792,5 @@ export class AppHost {
         }),
       ),
     );
-  }
-
-  /**
-   * Uniform `task/authorizeDispatch` dispatch — the in-process / remote
-   * choice is made HERE; callers see one signature and one return type.
-   * Returns `{ decision: "grant" }` when no hook is registered.
-   * Fail-closed on timeout / handler error / RPC failure per architect
-   * plan §3.4.
-   */
-  private dispatchAuthorizeDispatchHook(
-    appId: string,
-    ctx: TaskAuthorizeDispatchContext,
-  ): Effect.Effect<DispatchAdmissionResult, never> {
-    const remote = this.remoteRegistrations.get(appId);
-    const inProcess = this.hooks.get(appId)?.taskAuthorizeDispatch;
-    if (!remote && !inProcess) {
-      return Effect.succeed({ decision: "grant" as const });
-    }
-    const manifest = this.manifests.get(appId);
-    const timeoutMs =
-      manifest?.hooks?.task_authorize_dispatch?.timeout_ms ??
-      DEFAULT_APP_HOOK_TIMEOUT_MS;
-    const taskId = ctx.taskId;
-
-    const raw: Effect.Effect<DispatchAdmissionResult, Error> = remote
-      ? this.runRemoteHookEffect({
-          appId,
-          definition: TaskAuthorizeDispatch,
-          connectionId: remote.connectionId,
-          params: this.authorizeDispatchParamsForWire(ctx),
-        }).pipe(Effect.map((envelope) => envelope.admission))
-      : this.runInProcessHookEffect<
-          TaskAuthorizeDispatchContext,
-          DispatchAdmissionResult
-        >((ctxWithSignal) => inProcess!(ctxWithSignal), ctx);
-
-    return this.wrapHookEffectWithEnvelope<DispatchAdmissionResult>({
-      raw,
-      timeoutMs,
-      timeoutLogMessage: "task/authorizeDispatch timed out",
-      timeoutLogContext: { taskId, appId, timeoutMs },
-      errorLogMessage: "task/authorizeDispatch error",
-      errorLogContext: { taskId, appId },
-      onTimeout: () => ({
-        decision: "deny" as const,
-        reason: "task/authorizeDispatch timed out",
-      }),
-      onError: () => ({
-        decision: "deny" as const,
-        reason: "task/authorizeDispatch error",
-      }),
-    });
-  }
-
-  /**
-   * Compose admission verdicts across multiple registered apps for the
-   * same hook in registration order, short-circuiting on the first
-   * `deny` / `block`. Architect plan §3.4 names `Effect.forEach` as the
-   * combinator; we use the equivalent sequential `Effect.gen` reduce so
-   * the deny-as-short-circuit semantic reads at the call site without
-   * needing a `catchTag` round-trip through a synthetic failure channel.
-   *
-   * Today every session is bound to a single appId so this is invoked
-   * with a len-1 array; the helper exists so multi-app sessions slot in
-   * without a call-site rewrite.
-   */
-  private dispatchAcrossAppsWithDenyShortCircuit<Verdict>(
-    appIds: readonly string[],
-    isShortCircuit: (v: Verdict) => boolean,
-    defaultVerdict: Verdict,
-    perApp: (appId: string) => Effect.Effect<Verdict, never>,
-  ): Effect.Effect<Verdict, never> {
-    return Effect.gen(function* () {
-      let verdict: Verdict = defaultVerdict;
-      for (const appId of appIds) {
-        verdict = yield* perApp(appId);
-        if (isShortCircuit(verdict)) return verdict;
-      }
-      return verdict;
-    });
   }
 }

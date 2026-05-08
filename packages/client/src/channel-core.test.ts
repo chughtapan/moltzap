@@ -5,8 +5,12 @@ import type { Message } from "@moltzap/protocol";
 import {
   MoltZapChannelCore,
   type ChannelService,
+  type DispatchAdmissionDecision,
+  type DispatchAdmissionRequest,
+  type DispatchReleaseFrame,
   type EnrichedInboundMessage,
   type CrossConversationEntry,
+  type ServiceRpcError,
 } from "./index.js";
 import {
   createFakeChannelService,
@@ -18,6 +22,109 @@ import {
   type FakeChannelService,
 } from "./test-utils/index.js";
 import { RpcServerError } from "@moltzap/protocol";
+
+/**
+ * Legacy-shaped admission request the existing test bodies pass into
+ * `decide`. The real `requestDispatch` wire-params surface is
+ * narrower (no `Message`); channel-core builds the wire params at
+ * the call site. Tests still want to assert on `request.message.id`
+ * etc., so the helper rebuilds a synthetic admission request from
+ * the wire params for the test body's convenience.
+ */
+type LegacyAdmissionRequest = DispatchAdmissionRequest;
+
+/**
+ * Install a mock `requestDispatch` on the fake service that mints a
+ * monotonic lease id, emits the resolved verdict via the
+ * `dispatchRelease` event synchronously after the ack, and returns
+ * the ack to channel-core. The verdict comes from `decide(request)`,
+ * which mirrors the legacy `authorizeDispatch(request)` shape so
+ * existing test bodies port mechanically. When `decide` returns an
+ * Effect, the failure channel propagates to channel-core's admission
+ * fail-closed path.
+ */
+function installAdmission(
+  fake: FakeChannelService,
+  decide: (
+    request: LegacyAdmissionRequest,
+  ) => Effect.Effect<DispatchAdmissionDecision, ServiceRpcError>,
+): void {
+  let counter = 0;
+  fake.service.requestDispatch = (params) =>
+    Effect.flatMap(
+      decide({
+        message: {
+          id: params.messageId as Message["id"],
+          conversationId: params.conversationId as Message["conversationId"],
+          senderId: params.senderAgentId as Message["senderId"],
+          parts: (params.parts as Message["parts"] | undefined) ?? [],
+          createdAt: params.receivedAt ?? "1970-01-01T00:00:00.000Z",
+        } as Message,
+        conversationId: params.conversationId,
+        senderAgentId: params.senderAgentId,
+        attempt: params.attempt ?? 0,
+        receivedAt: params.receivedAt ?? "1970-01-01T00:00:00.000Z",
+        clock: params.clock as LegacyAdmissionRequest["clock"],
+        pending: (params.pending ?? []) as LegacyAdmissionRequest["pending"],
+      }),
+      (decision) =>
+        Effect.sync(() => {
+          const leaseId =
+            decision._tag === "grant" && decision.leaseId
+              ? decision.leaseId
+              : `lease-mock-${(++counter).toString()}`;
+          const dispatchId = `dispatch-mock-${counter.toString()}`;
+          // Fire the verdict via the dispatchRelease event AFTER the
+          // ack returns. Channel-core's `awaitDispatchRelease` registers
+          // a parking Deferred after consuming the ring buffer, so the
+          // ack-then-release ordering is exercised here. Some tests
+          // explicitly drive release-then-ack via `fake.emit.dispatchRelease`
+          // before invoking the inbound message; both paths must work.
+          const verdict: DispatchReleaseFrame["verdict"] =
+            decision._tag === "grant"
+              ? {
+                  decision: "grant",
+                  ...(decision.leaseId !== undefined
+                    ? { leaseId: decision.leaseId }
+                    : {}),
+                  ...(decision.leaseTimeoutMs !== undefined
+                    ? { leaseTimeoutMs: decision.leaseTimeoutMs }
+                    : {}),
+                  ...(decision.dispatchMessageId !== undefined
+                    ? { dispatchMessageId: decision.dispatchMessageId }
+                    : {}),
+                }
+              : decision._tag === "deny"
+                ? {
+                    decision: "deny",
+                    ...(decision.reason !== undefined
+                      ? { reason: decision.reason }
+                      : {}),
+                  }
+                : {
+                    decision: "hold",
+                    ...(decision.reason !== undefined
+                      ? { reason: decision.reason }
+                      : {}),
+                  };
+          // Schedule the release on the next microtask so the ack
+          // returns first; channel-core then registers the Deferred,
+          // and the release settles it.
+          queueMicrotask(() => {
+            fake.emit.dispatchRelease({
+              dispatchId,
+              leaseId,
+              verdict,
+              ...(decision._tag === "grant" &&
+              decision.leaseTimeoutMs !== undefined
+                ? { leaseTimeoutMs: decision.leaseTimeoutMs }
+                : {}),
+            });
+          });
+          return { leaseId, dispatchId };
+        }),
+    );
+}
 
 const agent = testAgentId;
 const conversation = testConversationId;
@@ -321,14 +428,15 @@ describe("MoltZapChannelCore", () => {
       fake.state.setConversation("conv-1", { type: "dm", participants: [] });
       fake.state.setAgentName("agent-alice", "Alice");
       const requests: Array<{ messageId: string; attempt: number }> = [];
-      fake.service.authorizeDispatch = (request) =>
+      installAdmission(fake, (request) =>
         Effect.sync(() => {
           requests.push({
             messageId: request.message.id,
             attempt: request.attempt,
           });
           return { _tag: "grant" as const, leaseId: "lease-1" };
-        });
+        }),
+      );
 
       fake.emit.message(buildMessage({ id: "msg-1" }));
       await flushDispatchChain();
@@ -340,12 +448,13 @@ describe("MoltZapChannelCore", () => {
     it("reports a per-conversation observed logical clock to admission", async () => {
       const { fake } = customSetup();
       const clocks: unknown[] = [];
-      fake.service.authorizeDispatch = (request) =>
+      installAdmission(fake, (request) =>
         Effect.sync(() => {
           clocks.push(request.clock);
           expect(request.pending[0]?.clock).toEqual(request.clock);
           return { _tag: "grant" as const };
-        });
+        }),
+      );
 
       fake.emit.message(
         buildMessage({
@@ -382,8 +491,9 @@ describe("MoltZapChannelCore", () => {
       const fake = createFakeChannelService({ ownAgentId: "agent-self" });
       fake.state.setConversation("conv-1", { type: "dm", participants: [] });
       fake.state.setAgentName("agent-alice", "Alice");
-      fake.service.authorizeDispatch = () =>
-        Effect.succeed({ _tag: "grant" as const, leaseId: "lease-active" });
+      installAdmission(fake, () =>
+        Effect.succeed({ _tag: "grant" as const, leaseId: "lease-active" }),
+      );
       const core = new MoltZapChannelCore({ service: fake.service });
       core.onInbound((msg) => core.sendReply(msg.conversationId, "reply"));
 
@@ -403,8 +513,9 @@ describe("MoltZapChannelCore", () => {
       const fake = createFakeChannelService({ ownAgentId: "agent-self" });
       fake.state.setConversation("conv-1", { type: "dm", participants: [] });
       fake.state.setAgentName("agent-alice", "Alice");
-      fake.service.authorizeDispatch = () =>
-        Effect.succeed({ _tag: "grant" as const, leaseId: "lease-visible" });
+      installAdmission(fake, () =>
+        Effect.succeed({ _tag: "grant" as const, leaseId: "lease-visible" }),
+      );
       const core = new MoltZapChannelCore({ service: fake.service });
       const leases: Array<string | undefined> = [];
       core.onInbound((msg) =>
@@ -423,13 +534,24 @@ describe("MoltZapChannelCore", () => {
       const { fake, received } = customSetup();
       fake.state.setConversation("conv-1", { type: "dm", participants: [] });
       fake.state.setAgentName("agent-alice", "Alice");
+      // Counter lives on the service object so the test asserts the
+      // channel-core admission call site invokes `requestDispatch` with
+      // the service as `this` (a `.bind(undefined)` would crash).
       const boundService = fake.service as ChannelService & {
         admissionCalls: number;
       };
       boundService.admissionCalls = 0;
-      boundService.authorizeDispatch = function () {
-        this.admissionCalls += 1;
-        return Effect.succeed({ _tag: "grant" as const });
+      // Replace the install-helper-installed `requestDispatch` with a
+      // method-form binding that increments via `this.admissionCalls`.
+      // Channel-core MUST call `service.requestDispatch(...)` (not
+      // `requestDispatch.call(undefined, ...)`); a missing receiver
+      // makes `this.admissionCalls += 1` throw on null `this`.
+      installAdmission(fake, () => Effect.succeed({ _tag: "grant" as const }));
+      const installed = fake.service.requestDispatch!;
+      fake.service.requestDispatch = function (request) {
+        (this as ChannelService & { admissionCalls: number }).admissionCalls +=
+          1;
+        return installed(request);
       };
 
       fake.emit.message(buildMessage({ id: "msg-bound-admission" }));
@@ -443,11 +565,12 @@ describe("MoltZapChannelCore", () => {
 
     it("drops denied inbound dispatch work without calling the handler", async () => {
       const { fake, received, infoSpy } = customSetup();
-      fake.service.authorizeDispatch = () =>
+      installAdmission(fake, () =>
         Effect.succeed({
           _tag: "deny" as const,
           reason: "not this slot",
-        });
+        }),
+      );
 
       fake.emit.message(buildMessage({ id: "msg-denied" }));
       await flushDispatchChain();
@@ -470,14 +593,15 @@ describe("MoltZapChannelCore", () => {
       fake.state.setAgentName("agent-bob", "Bob");
       const pendingSnapshots: Array<ReadonlyArray<string>> = [];
       let calls = 0;
-      fake.service.authorizeDispatch = (request) =>
+      installAdmission(fake, (request) =>
         Effect.sync(() => {
           calls += 1;
           pendingSnapshots.push(request.pending.map((m) => m.messageId));
           return calls === 1
             ? { _tag: "hold" as const, reason: "not_yet" }
             : { _tag: "grant" as const, leaseId: "lease-after-hold" };
-        });
+        }),
+      );
 
       fake.emit.message(
         buildMessage({
@@ -541,7 +665,7 @@ describe("MoltZapChannelCore", () => {
         pending: ReadonlyArray<string>;
       }> = [];
 
-      fake.service.authorizeDispatch = (request) =>
+      installAdmission(fake, (request) =>
         Effect.sync(() => {
           requests.push({
             messageId: request.message.id,
@@ -552,7 +676,8 @@ describe("MoltZapChannelCore", () => {
             return { _tag: "hold" as const, reason: "town_square_night" };
           }
           return { _tag: "grant" as const, leaseId: "lease-den" };
-        });
+        }),
+      );
 
       fake.emit.message(
         buildMessage({
@@ -599,11 +724,12 @@ describe("MoltZapChannelCore", () => {
       fake.state.setConversation("conv-1", { type: "group", participants: [] });
       fake.state.setAgentName("agent-alice", "Alice");
       let calls = 0;
-      fake.service.authorizeDispatch = () =>
+      installAdmission(fake, () =>
         Effect.sync(() => {
           calls += 1;
           return { _tag: "hold" as const, reason: "waiting" };
-        });
+        }),
+      );
 
       fake.emit.message(buildMessage({ id: "msg-held" }));
       await flushDispatchChain();
@@ -636,14 +762,15 @@ describe("MoltZapChannelCore", () => {
       fake.state.setAgentName("agent-bob", "Bob");
       const pendingSnapshots: Array<ReadonlyArray<{ messageId: string }>> = [];
       let grant!: () => void;
-      fake.service.authorizeDispatch = (request) =>
+      installAdmission(fake, (request) =>
         Effect.gen(function* () {
           pendingSnapshots.push(request.pending);
           yield* Effect.async<void>((resume) => {
             grant = () => resume(Effect.void);
           });
           return { _tag: "grant" as const, leaseId: "lease-next" };
-        });
+        }),
+      );
 
       fake.emit.message(
         buildMessage({
@@ -686,7 +813,7 @@ describe("MoltZapChannelCore", () => {
       fake.state.setAgentName("agent-alice", "Alice");
       fake.state.setAgentName("agent-gm", "GM");
       let grant!: () => void;
-      fake.service.authorizeDispatch = () =>
+      installAdmission(fake, () =>
         Effect.gen(function* () {
           yield* Effect.async<void>((resume) => {
             grant = () => resume(Effect.void);
@@ -696,7 +823,8 @@ describe("MoltZapChannelCore", () => {
             leaseId: "lease-marker",
             dispatchMessageId: message("msg-marker"),
           };
-        });
+        }),
+      );
 
       fake.emit.message(
         buildMessage({
@@ -755,13 +883,14 @@ describe("MoltZapChannelCore", () => {
           received.push(m);
         }),
       );
-      fake.service.authorizeDispatch = () =>
+      installAdmission(fake, () =>
         Effect.fail(
           new RpcServerError({
             code: -32603,
             message: "admission service unavailable",
           }),
-        );
+        ),
+      );
 
       fake.emit.message(buildMessage({ id: "msg-fail-closed" }));
       await flushDispatchChain();
@@ -793,7 +922,7 @@ describe("MoltZapChannelCore", () => {
           received.push(m);
         }),
       );
-      fake.service.authorizeDispatch = () => Effect.never;
+      installAdmission(fake, () => Effect.never);
 
       fake.emit.message(buildMessage({ id: "msg-timeout-closed" }));
 
@@ -820,12 +949,13 @@ describe("MoltZapChannelCore", () => {
       const errorSpy = vi.fn();
       fake.state.setConversation("conv-1", { type: "dm", participants: [] });
       fake.state.setAgentName("agent-alice", "Alice");
-      fake.service.authorizeDispatch = (request) =>
+      installAdmission(fake, (request) =>
         Effect.succeed({
           _tag: "grant" as const,
           leaseId: `lease-${request.message.id}`,
           leaseTimeoutMs: request.message.id === message("msg-stuck") ? 1 : 50,
-        });
+        }),
+      );
       const core = new MoltZapChannelCore({
         service: fake.service,
         logger: { info: () => {}, warn: warnSpy, error: errorSpy },

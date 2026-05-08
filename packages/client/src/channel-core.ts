@@ -2,7 +2,7 @@
  * Shared message-enrichment helper for MoltZap channel adapters.
  */
 
-import { Cause, Chunk, Duration, Effect, Fiber, Queue } from "effect";
+import { Cause, Chunk, Deferred, Duration, Effect, Fiber, Queue } from "effect";
 import type { LogicalClock, Message } from "@moltzap/protocol";
 import type {
   CrossConversationEntry,
@@ -85,6 +85,28 @@ export type DispatchAdmissionDecision =
   | { _tag: "deny"; reason?: string }
   | { _tag: "hold"; reason?: string };
 
+/**
+ * Server → recipient `dispatch/release` notification payload (the
+ * verdict). Mirrors `NotificationParamsOf<typeof DispatchRelease>` from
+ * the protocol, kept structurally typed here so this module does not
+ * need a direct protocol descriptor import (the channel core stays
+ * descriptor-free; the wire shape is asserted by the service module).
+ */
+export interface DispatchReleaseFrame {
+  readonly dispatchId: string;
+  readonly leaseId: string;
+  readonly verdict:
+    | {
+        readonly decision: "grant";
+        readonly leaseId?: string;
+        readonly leaseTimeoutMs?: number;
+        readonly dispatchMessageId?: string;
+      }
+    | { readonly decision: "deny"; readonly reason?: string }
+    | { readonly decision: "hold"; readonly reason?: string };
+  readonly leaseTimeoutMs?: number;
+}
+
 /** The subset of MoltZapService that MoltZapChannelCore needs. */
 export interface ChannelService {
   readonly ownAgentId: string | undefined;
@@ -98,6 +120,10 @@ export interface ChannelService {
   on(
     event: "conversationUnarchived",
     handler: (data: { conversationId: string }) => void,
+  ): void;
+  on(
+    event: "dispatchRelease",
+    handler: (frame: DispatchReleaseFrame) => void,
   ): void;
   connect(): Effect.Effect<unknown, ServiceRpcError>;
   close(): void;
@@ -120,9 +146,32 @@ export interface ChannelService {
     messages: CrossConvMessage[];
     commit: () => void;
   };
-  authorizeDispatch?(
-    request: DispatchAdmissionRequest,
-  ): Effect.Effect<DispatchAdmissionDecision, ServiceRpcError>;
+  /**
+   * Issue `dispatch/request` and receive the immediate
+   * `{leaseId, dispatchId}` ack. The verdict arrives asynchronously
+   * via the `dispatchRelease` event.
+   *
+   * The argument shape mirrors `ParamsOf<DispatchRequest>` from the
+   * protocol (the channel core does not depend on the protocol
+   * descriptor, hence the structural shape duplicated here).
+   *
+   * Optional: when undefined (e.g. unauthenticated test fakes), the
+   * channel core falls back to default-grant — every inbound message
+   * dispatches without admission.
+   */
+  requestDispatch?(params: {
+    readonly conversationId: string;
+    readonly messageId: string;
+    readonly senderAgentId: string;
+    readonly parts?: ReadonlyArray<unknown>;
+    readonly receivedAt?: string;
+    readonly pending?: ReadonlyArray<unknown>;
+    readonly clock?: LogicalClock;
+    readonly attempt?: number;
+  }): Effect.Effect<
+    { readonly leaseId: string; readonly dispatchId: string },
+    ServiceRpcError
+  >;
 }
 
 export interface ChannelCoreOptions {
@@ -147,8 +196,16 @@ const noopLogger = {
   error: () => {},
 };
 
-const DEFAULT_DISPATCH_ADMISSION_TIMEOUT_MS = 900_000;
+const DEFAULT_DISPATCH_ADMISSION_TIMEOUT_MS = 30_000;
 const DEFAULT_DISPATCH_LEASE_TIMEOUT_MS = 90_000;
+const DISPATCH_RELEASE_RING_CAPACITY = 256;
+const DISPATCH_RELEASE_RING_SOFT_TTL_MS = 30_000;
+
+interface PendingReleaseEntry {
+  readonly verdict: DispatchReleaseFrame["verdict"];
+  readonly leaseTimeoutMs: number | undefined;
+  readonly receivedAtMs: number;
+}
 
 class DispatchLeaseExpired extends Error {
   constructor(
@@ -205,7 +262,36 @@ export class MoltZapChannelCore {
   private readonly dispatchAdmissionTimeoutMs: number;
   private connected = false;
   private inboundHandler: InboundHandler<unknown> | null = null;
-  private activeDispatchLeaseId: string | undefined;
+  /**
+   * Lease id scoped to the in-flight `dispatchInboundEffect` call
+   * (set immediately around the user-handler invocation). Replaces
+   * the legacy `activeDispatchLeaseId` field whose semantics were
+   * unchanged but whose name leaked an admission-flow detail. The
+   * field remains a single mutable cell because the consumer fiber
+   * processes inbound work strictly serially (one queue, one fiber);
+   * concurrent dispatches do not exist on this code path.
+   */
+  private leaseIdInFlight: string | undefined;
+  /**
+   * Per-lease parking Deferreds for dispatches awaiting their
+   * `dispatchRelease` verdict. Settled by the `dispatchRelease` event
+   * handler when a matching frame arrives.
+   */
+  private readonly pendingDispatchesByLease = new Map<
+    string,
+    Deferred.Deferred<DispatchReleaseFrame, never>
+  >();
+  /**
+   * Ring buffer of `dispatchRelease` frames that arrived before the
+   * recipient registered its parking Deferred (release-then-ack
+   * race). Bounded LRU via Map insertion-order iteration; soft-TTL
+   * eviction at `DISPATCH_RELEASE_RING_SOFT_TTL_MS` so a release
+   * without a matching ack does not leak memory.
+   */
+  private readonly pendingReleasesByLease = new Map<
+    string,
+    PendingReleaseEntry
+  >();
   private readonly closedConversationIds = new Set<string>();
   private readonly logicalClocks = new Map<
     string,
@@ -292,6 +378,73 @@ export class MoltZapChannelCore {
     this.service.on("conversationUnarchived", ({ conversationId }) => {
       this.closedConversationIds.delete(conversationId);
     });
+
+    this.service.on("dispatchRelease", (frame) => {
+      this.recordDispatchRelease(frame);
+    });
+  }
+
+  /**
+   * Record an incoming `dispatchRelease` frame. If a matching
+   * parking Deferred is registered, settle it inline; otherwise
+   * insert into the ring buffer for the future ack-side `consume`.
+   * Soft-TTL evicts buffered entries whose age exceeds
+   * `DISPATCH_RELEASE_RING_SOFT_TTL_MS`; the hard-cap at
+   * `DISPATCH_RELEASE_RING_CAPACITY` evicts the oldest entry once
+   * exceeded. Both eviction paths warn-log so operators can spot
+   * release-without-ack adversarial patterns.
+   */
+  private recordDispatchRelease(frame: DispatchReleaseFrame): void {
+    const parked = this.pendingDispatchesByLease.get(frame.leaseId);
+    if (parked) {
+      this.pendingDispatchesByLease.delete(frame.leaseId);
+      // `Deferred.unsafeDone` is the sync settler — `succeed` returns an
+      // Effect that the caller would have to runFork. The Deferred has
+      // `never` in the failure channel, so unsafeDone with Exit.succeed
+      // is total.
+      Effect.runSync(Deferred.succeed(parked, frame));
+      return;
+    }
+    const nowMs = Date.now();
+    this.evictDispatchReleaseRing(nowMs);
+    this.pendingReleasesByLease.set(frame.leaseId, {
+      verdict: frame.verdict,
+      leaseTimeoutMs: frame.leaseTimeoutMs,
+      receivedAtMs: nowMs,
+    });
+    while (this.pendingReleasesByLease.size > DISPATCH_RELEASE_RING_CAPACITY) {
+      const oldest = this.pendingReleasesByLease.keys().next().value;
+      if (oldest === undefined) break;
+      this.pendingReleasesByLease.delete(oldest);
+      this.logger.warn(
+        { leaseId: oldest },
+        "MoltZapChannelCore: dispatchRelease ring buffer evicted oldest entry (capacity reached)",
+      );
+    }
+  }
+
+  private evictDispatchReleaseRing(nowMs: number): void {
+    for (const [leaseId, entry] of this.pendingReleasesByLease) {
+      if (nowMs - entry.receivedAtMs <= DISPATCH_RELEASE_RING_SOFT_TTL_MS) {
+        // Map iteration is insertion-order; once one entry is fresh
+        // every subsequent entry is fresher. Stop here.
+        return;
+      }
+      this.pendingReleasesByLease.delete(leaseId);
+      this.logger.warn(
+        { leaseId, ageMs: nowMs - entry.receivedAtMs },
+        "MoltZapChannelCore: dispatchRelease ring buffer evicted stale entry (soft TTL)",
+      );
+    }
+  }
+
+  private consumeDispatchRelease(
+    leaseId: string,
+  ): PendingReleaseEntry | undefined {
+    const entry = this.pendingReleasesByLease.get(leaseId);
+    if (entry === undefined) return undefined;
+    this.pendingReleasesByLease.delete(leaseId);
+    return entry;
   }
 
   /** Replaces any previous handler. */
@@ -362,7 +515,7 @@ export class MoltZapChannelCore {
       );
     }
     return this.service.send(conversationId, text, {
-      dispatchLeaseId: opts?.dispatchLeaseId ?? this.activeDispatchLeaseId,
+      dispatchLeaseId: opts?.dispatchLeaseId ?? this.leaseIdInFlight,
     });
   }
 
@@ -436,47 +589,57 @@ export class MoltZapChannelCore {
     this.parkedByConversation.set(conversationId, parked);
   }
 
+  /**
+   * Issue `dispatch/request` against the service, await the lease's
+   * `dispatchRelease` verdict, and return the channel-core
+   * `DispatchAdmissionDecision`. Absorbs the ack/release race via
+   * `pendingDispatchesByLease` (Deferred) plus
+   * `pendingReleasesByLease` (LRU ring buffer):
+   *   - if release arrives first, the `recordDispatchRelease` event
+   *     handler buffers it; this method consumes the buffered entry
+   *     after the ack returns.
+   *   - if ack arrives first, this method registers a Deferred that
+   *     `recordDispatchRelease` settles when the release frame
+   *     arrives.
+   *
+   * When the service has no `requestDispatch` (test fakes that don't
+   * exercise admission), default-grant.
+   *
+   * On request error or release wait timeout, fail-closed with a
+   * synthetic deny verdict. The lease (if minted server-side) ages
+   * out via the post-grant TTL or LeaseRegistry's
+   * abandon-on-disconnect path; nothing here re-issues.
+   */
   private dispatchAdmission(
     work: InboundDispatchWork,
   ): Effect.Effect<DispatchAdmissionDecision, ServiceRpcError> {
-    if (!this.service.authorizeDispatch) {
+    if (!this.service.requestDispatch) {
       return Effect.succeed({ _tag: "grant" });
     }
     return Effect.suspend(() =>
-      this.service.authorizeDispatch!({
-        message: work.message,
+      this.service.requestDispatch!({
         conversationId: work.message.conversationId,
+        messageId: work.message.id,
         senderAgentId: work.message.senderId,
+        parts: work.message.parts,
         attempt: work.attempt,
         receivedAt: new Date(work.receivedAtMs).toISOString(),
         clock: work.clock,
         pending: this.pendingDispatchSnapshot(work),
       }),
     ).pipe(
-      Effect.tap((decision) =>
-        Effect.sync(() => {
-          if (decision._tag === "grant") {
-            this.logger.info(
-              {
-                messageId: work.message.id,
-                conversationId: work.message.conversationId,
-                attempt: work.attempt,
-                leaseId: decision.leaseId,
-                leaseTimeoutMs: decision.leaseTimeoutMs,
-                dispatchMessageId: decision.dispatchMessageId,
-              },
-              "MoltZapChannelCore: dispatch admission granted",
-            );
-          }
-        }),
-      ),
+      // Total deadline for the admission round-trip (ack + release).
+      // Hangs in the underlying RPC fall through to the fail-closed
+      // branch below; the request itself does not race the ack/release
+      // timeouts independently.
       Effect.timeoutFail({
         duration: Duration.millis(this.dispatchAdmissionTimeoutMs),
         onTimeout: () =>
           new Error(
-            `dispatch admission timed out after ${this.dispatchAdmissionTimeoutMs}ms`,
+            `dispatch request timed out after ${this.dispatchAdmissionTimeoutMs}ms`,
           ),
       }),
+      Effect.flatMap(({ leaseId }) => this.awaitDispatchRelease(work, leaseId)),
       Effect.catchAll((err) =>
         Effect.sync(() => {
           this.logger.warn(
@@ -495,6 +658,92 @@ export class MoltZapChannelCore {
         }),
       ),
     );
+  }
+
+  /**
+   * Wait for the verdict on `leaseId`. Consumes any buffered
+   * `dispatchRelease` first; otherwise registers a parking Deferred
+   * and bounded-waits for the `recordDispatchRelease` event handler
+   * to settle it. The wait timeout matches today's
+   * `dispatchAdmissionTimeoutMs` (default 30 s).
+   */
+  private awaitDispatchRelease(
+    work: InboundDispatchWork,
+    leaseId: string,
+  ): Effect.Effect<DispatchAdmissionDecision, never> {
+    return Effect.gen(this, function* () {
+      const buffered = this.consumeDispatchRelease(leaseId);
+      if (buffered) {
+        return this.projectVerdict(work, leaseId, buffered.verdict);
+      }
+      const deferred = yield* Deferred.make<DispatchReleaseFrame, never>();
+      this.pendingDispatchesByLease.set(leaseId, deferred);
+      const settled = yield* Deferred.await(deferred).pipe(
+        Effect.timeoutOption(Duration.millis(this.dispatchAdmissionTimeoutMs)),
+        Effect.tap(() =>
+          Effect.sync(() => {
+            this.pendingDispatchesByLease.delete(leaseId);
+          }),
+        ),
+      );
+      if (settled._tag === "None") {
+        this.logger.warn(
+          {
+            messageId: work.message.id,
+            conversationId: work.message.conversationId,
+            leaseId,
+            timeoutMs: this.dispatchAdmissionTimeoutMs,
+          },
+          "MoltZapChannelCore: dispatchRelease wait timed out — fail-closed deny",
+        );
+        return {
+          _tag: "deny" as const,
+          reason: "dispatch release wait timed out",
+        };
+      }
+      return this.projectVerdict(work, leaseId, settled.value.verdict);
+    });
+  }
+
+  private projectVerdict(
+    work: InboundDispatchWork,
+    leaseId: string,
+    verdict: DispatchReleaseFrame["verdict"],
+  ): DispatchAdmissionDecision {
+    if (verdict.decision === "grant") {
+      this.logger.info(
+        {
+          messageId: work.message.id,
+          conversationId: work.message.conversationId,
+          attempt: work.attempt,
+          leaseId,
+          leaseTimeoutMs: verdict.leaseTimeoutMs,
+          dispatchMessageId: verdict.dispatchMessageId,
+        },
+        "MoltZapChannelCore: dispatch admission granted",
+      );
+      const grant: DispatchAdmissionDecision = {
+        _tag: "grant",
+        leaseId: verdict.leaseId ?? leaseId,
+        ...(verdict.leaseTimeoutMs !== undefined
+          ? { leaseTimeoutMs: verdict.leaseTimeoutMs }
+          : {}),
+        ...(verdict.dispatchMessageId
+          ? { dispatchMessageId: verdict.dispatchMessageId }
+          : {}),
+      };
+      return grant;
+    }
+    if (verdict.decision === "deny") {
+      return {
+        _tag: "deny",
+        ...(verdict.reason !== undefined ? { reason: verdict.reason } : {}),
+      };
+    }
+    return {
+      _tag: "hold",
+      ...(verdict.reason !== undefined ? { reason: verdict.reason } : {}),
+    };
   }
 
   private dispatchInboundWork(
@@ -517,7 +766,7 @@ export class MoltZapChannelCore {
       }
       const decision = yield* this.dispatchAdmission(current);
       if (decision._tag === "grant") {
-        const messages = this.service.authorizeDispatch
+        const messages = this.service.requestDispatch
           ? yield* this.takeCoalescedConversationMessages(
               current,
               decision.dispatchMessageId,
@@ -553,14 +802,14 @@ export class MoltZapChannelCore {
         );
         const dispatch = Effect.acquireUseRelease(
           Effect.sync(() => {
-            const previous = this.activeDispatchLeaseId;
-            this.activeDispatchLeaseId = decision.leaseId;
+            const previous = this.leaseIdInFlight;
+            this.leaseIdInFlight = decision.leaseId;
             return previous;
           }),
           () => this.dispatchInboundEffect(messages),
           (previous) =>
             Effect.sync(() => {
-              this.activeDispatchLeaseId = previous;
+              this.leaseIdInFlight = previous;
             }),
         );
         const timeoutMs = decision.leaseId
@@ -833,8 +1082,8 @@ export class MoltZapChannelCore {
       const { enriched, commitContext } =
         yield* MoltZapChannelCore.enrichMessage(this.service, messages);
       const leased =
-        this.activeDispatchLeaseId !== undefined
-          ? { ...enriched, dispatchLeaseId: this.activeDispatchLeaseId }
+        this.leaseIdInFlight !== undefined
+          ? { ...enriched, dispatchLeaseId: this.leaseIdInFlight }
           : enriched;
       // The handler is user code returning an Effect — yield it directly so
       // its typed error channel propagates to the consumer fiber, which logs

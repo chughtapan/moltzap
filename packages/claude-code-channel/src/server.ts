@@ -35,6 +35,7 @@ import type { ClaudeChannelNotification, MessageId } from "./types.js";
 import { MessageId as makeMessageId } from "./types.js";
 import {
   EmitFailed,
+  LeaseAlreadyConsumed,
   SendFailed,
   type PushError,
   type ReplyError,
@@ -363,12 +364,23 @@ function bootChannelMcpServerEffect(
                   deps.sendReply(resolution.conversationId, decoded.value.text),
                 );
                 const sendFailure = Either.match(sendResult, {
-                  onLeft: (error) =>
-                    toolErrorResult(
+                  onLeft: (error) => {
+                    if (error instanceof LeaseAlreadyConsumed) {
+                      // Cutover #533: surface the single-use lease
+                      // contract verbatim. Multi-turn agents that call
+                      // `reply` more than once in one dispatch see this
+                      // as a structured tool-error rather than a silent
+                      // send failure.
+                      return toolErrorResult(
+                        `LeaseAlreadyConsumed: dispatch lease ${error.leaseId} was already consumed by an earlier reply in this dispatch turn.`,
+                      );
+                    }
+                    return toolErrorResult(
                       error instanceof SendFailed
                         ? `send failed: ${error.cause}`
                         : `reply error: ${error.name}`,
-                    ),
+                    );
+                  },
                   onRight: () => null,
                 });
                 if (sendFailure !== null) return sendFailure;

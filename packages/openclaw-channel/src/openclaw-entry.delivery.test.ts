@@ -177,6 +177,42 @@ describe("Flow 6: Outbound delivery — deliver callback + sendText", () => {
     expect(result).toBe(true);
   });
 
+  // Cutover #533 — single-use lease semantics. The first `final`
+  // delivery consumes the lease via core.sendReply; a SECOND `final`
+  // delivery for the same dispatch is rejected at the adapter
+  // boundary (no second `core.sendReply` is issued, OpenClaw sees a
+  // delivery failure surfaced as `false`).
+  it("deliver callback rejects a second `final` delivery for the same dispatch", async () => {
+    capturedOnMessage!(makeMessage());
+
+    await vi.waitFor(() => {
+      expect(mockDispatch).toHaveBeenCalledOnce();
+    });
+
+    const dispatchArgs = mockDispatch.mock.calls[0]![0] as {
+      dispatcherOptions: {
+        deliver: (payload: unknown, info?: unknown) => Promise<boolean>;
+      };
+    };
+
+    const sendBefore = mockSend.mock.calls.length;
+    const first = await dispatchArgs.dispatcherOptions.deliver(
+      { text: "first reply" },
+      { kind: "final" },
+    );
+    expect(first).toBe(true);
+    const sendAfterFirst = mockSend.mock.calls.length;
+    expect(sendAfterFirst).toBe(sendBefore + 1);
+
+    const second = await dispatchArgs.dispatcherOptions.deliver(
+      { text: "second reply" },
+      { kind: "final" },
+    );
+    expect(second).toBe(false);
+    // Second delivery does NOT issue a second `service.send`.
+    expect(mockSend.mock.calls.length).toBe(sendAfterFirst);
+  });
+
   it("deliver callback returns true for non-final replies too", async () => {
     capturedOnMessage!(makeMessage());
 

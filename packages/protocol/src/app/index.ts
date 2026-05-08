@@ -1,9 +1,7 @@
 export {
   AppsRegister,
-  AppsAuthorizeDispatch,
   AppManifestSchema,
-  TaskAuthorizeDispatch,
-  // dispatch/* reshape additive descriptors (#529)
+  // dispatch/* admission descriptors
   DispatchId,
   LeaseId,
   DispatchRequest,
