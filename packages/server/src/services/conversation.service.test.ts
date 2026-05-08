@@ -33,7 +33,7 @@ import { ParticipantService } from "./participant.service.js";
 import { ConnectionManager, type MoltZapConnection } from "../ws/connection.js";
 import { unusedJsonRpcClient } from "../ws/connection.test-utils.js";
 import type { AuthenticatedContext } from "../rpc/context.js";
-import type { AgentId, ConversationId } from "../app/types.js";
+import type { AgentId } from "../app/types.js";
 import type { TaskId } from "@moltzap/protocol/task";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -415,7 +415,6 @@ describe("ConversationService.create enforces contact policy on DMs", () => {
       db,
       participants,
       connections,
-      undefined,
       () => policy,
     );
     const authService = new AuthService(db);
@@ -453,7 +452,6 @@ describe("ConversationService.create enforces contact policy on DMs", () => {
       db,
       participants,
       connections,
-      undefined,
       () => policy,
     );
     const authService = new AuthService(db);
@@ -489,7 +487,6 @@ describe("ConversationService.create enforces contact policy on DMs", () => {
       db,
       participants,
       connections,
-      undefined,
       () => policy,
     );
     const authService = new AuthService(db);
@@ -536,7 +533,6 @@ describe("ConversationService.create enforces contact policy on DMs", () => {
       db,
       participants,
       connections,
-      undefined,
       () => policy,
     );
     const authService = new AuthService(db);
@@ -576,7 +572,6 @@ describe("ConversationService.create enforces contact policy on DMs", () => {
       db,
       participants,
       connections,
-      undefined,
       () => policy,
     );
     const authService = new AuthService(db);
@@ -629,7 +624,6 @@ describe("ConversationService.create enforces contact policy on groups", () => {
       db,
       participants,
       connections,
-      undefined,
       () => policy,
     );
     const authService = new AuthService(db);
@@ -681,7 +675,6 @@ describe("ConversationService.create enforces contact policy on groups", () => {
       db,
       participants,
       connections,
-      undefined,
       () => policy,
     );
     const authService = new AuthService(db);
@@ -721,7 +714,6 @@ describe("ConversationService.create enforces contact policy on groups", () => {
       db,
       participants,
       connections,
-      undefined,
       () => policy,
     );
     const authService = new AuthService(db);
@@ -777,7 +769,6 @@ describe("ConversationService.addParticipant enforces contact policy", () => {
       db,
       participants,
       connections,
-      undefined,
       () => policy,
     );
     const authService = new AuthService(db);
@@ -817,7 +808,6 @@ describe("ConversationService.addParticipant enforces contact policy", () => {
       db,
       participants,
       connections,
-      undefined,
       () => policy,
     );
     const authService = new AuthService(db);
@@ -857,7 +847,6 @@ describe("ConversationService.addParticipant enforces contact policy", () => {
       db,
       participants,
       connections,
-      undefined,
       () => policy,
     );
     const authService = new AuthService(db);
@@ -931,7 +920,6 @@ describe("ConversationService.addParticipant rejects DM conversations", () => {
       db,
       participants,
       connections,
-      undefined,
       () => policy,
     );
     const authService = new AuthService(db);
