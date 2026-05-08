@@ -101,14 +101,16 @@ export function createAppHandlers(deps: {
             .read({ _tag: "dispatchId", value: params.dispatchId })
             .pipe(
               Effect.mapError(
-                () => new ForbiddenError({ message: "lease not found" }),
+                () =>
+                  new ForbiddenError({
+                    message: "dispatches/get not authorized for this lease",
+                  }),
               ),
             );
           if (record.binding.moderatorConnectionId !== connId) {
             return yield* Effect.fail(
               new ForbiddenError({
-                message:
-                  "dispatches/get is moderator-scoped; calling connection is not the bound moderator",
+                message: "dispatches/get not authorized for this lease",
               }),
             );
           }
