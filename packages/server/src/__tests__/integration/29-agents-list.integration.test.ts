@@ -274,7 +274,7 @@ describe(`${AgentsList.name} — contact-scoped per #481`, () => {
   );
 });
 
-describe(`${AgentsLookup.name} — contact-scoped per #481/#506`, () => {
+describe(`${AgentsLookup.name} — NOT contact-scoped per #481`, () => {
   it.live("returns agent cards by ID", () =>
     Effect.gen(function* () {
       const alice = yield* registerAndConnectOwned({
@@ -323,96 +323,27 @@ describe(`${AgentsLookup.name} — contact-scoped per #481/#506`, () => {
     }),
   );
 
-  it.live(
-    "drops cross-owner IDs when the caller is not in contact with the owner",
-    () =>
-      Effect.gen(function* () {
-        const alice = yield* registerAndConnectOwned({
-          name: "alice-lookup-iso",
-          ownerUserId: ALICE_USER_ID,
-        });
-        const carol = yield* registerAndConnectOwned({
-          name: "carol-lookup-iso",
-          ownerUserId: CAROL_USER_ID,
-        });
+  // Per architect #481: dereference-by-known-key. The client uses this RPC to
+  // resolve peer `AgentCard`s for UI rendering of conversation messages
+  // (`packages/client/src/service.ts:resolveAgentName` and the bulk-history
+  // lookup); contact-scoping it would render conversation peers as UUIDs.
+  it.live("returns cross-owner cards regardless of contact relationship", () =>
+    Effect.gen(function* () {
+      const alice = yield* registerAndConnectOwned({
+        name: "alice-lookup-xowner",
+        ownerUserId: ALICE_USER_ID,
+      });
+      const carol = yield* registerAndConnectOwned({
+        name: "carol-lookup-xowner",
+        ownerUserId: CAROL_USER_ID,
+      });
 
-        const result = (yield* alice.client.sendRpc(AgentsLookup, {
-          agentIds: [carol.agentId],
-        })) as AgentsArrayResult;
-        expect(result.agents).toHaveLength(0);
-      }),
-  );
-
-  it.live(
-    "returns sibling-owner and accepted-contact-owner cards; drops non-contacts in same call",
-    () =>
-      Effect.gen(function* () {
-        const alice1 = yield* registerAndConnectOwned({
-          name: "alice-lookup-sib1",
-          ownerUserId: ALICE_USER_ID,
-        });
-        const alice2 = yield* registerAndConnectOwned({
-          name: "alice-lookup-sib2",
-          ownerUserId: ALICE_USER_ID,
-        });
-        const bob = yield* registerAndConnectOwned({
-          name: "bob-lookup",
-          ownerUserId: BOB_USER_ID,
-        });
-        const carol = yield* registerAndConnectOwned({
-          name: "carol-lookup",
-          ownerUserId: CAROL_USER_ID,
-        });
-
-        const added = yield* alice1.client.sendRpc(ContactsAdd, {
-          contactUserId: BOB_USER_ID,
-        });
-        yield* bob.client.sendRpc(ContactsAccept, {
-          contactId: added.contact.id,
-        });
-
-        const result = (yield* alice1.client.sendRpc(AgentsLookup, {
-          agentIds: [
-            alice1.agentId,
-            alice2.agentId,
-            bob.agentId,
-            carol.agentId,
-          ],
-        })) as AgentsArrayResult;
-        const ids = new Set(result.agents.map((a) => a.id));
-        expect(ids.has(alice1.agentId)).toBe(true);
-        expect(ids.has(alice2.agentId)).toBe(true);
-        expect(ids.has(bob.agentId)).toBe(true);
-        expect(ids.has(carol.agentId)).toBe(false);
-      }),
-  );
-
-  it.live(
-    "pending-status contact does NOT yet expose the requester's agent card to the recipient",
-    () =>
-      Effect.gen(function* () {
-        const alice = yield* registerAndConnectOwned({
-          name: "alice-lookup-pending",
-          ownerUserId: ALICE_USER_ID,
-        });
-        const bob = yield* registerAndConnectOwned({
-          name: "bob-lookup-pending",
-          ownerUserId: BOB_USER_ID,
-        });
-
-        yield* alice.client.sendRpc(ContactsAdd, {
-          contactUserId: BOB_USER_ID,
-        });
-
-        const aliceLookup = (yield* alice.client.sendRpc(AgentsLookup, {
-          agentIds: [bob.agentId],
-        })) as AgentsArrayResult;
-        const bobLookup = (yield* bob.client.sendRpc(AgentsLookup, {
-          agentIds: [alice.agentId],
-        })) as AgentsArrayResult;
-        expect(aliceLookup.agents).toHaveLength(0);
-        expect(bobLookup.agents).toHaveLength(0);
-      }),
+      const result = (yield* alice.client.sendRpc(AgentsLookup, {
+        agentIds: [carol.agentId],
+      })) as AgentsArrayResult;
+      expect(result.agents).toHaveLength(1);
+      expect(result.agents[0]!.id).toBe(carol.agentId);
+    }),
   );
 });
 
