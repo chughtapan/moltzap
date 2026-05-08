@@ -33,6 +33,12 @@ const AppManifestConversationSchema = Type.Object(
  * Per-hook configuration entry. Both `task_authorize_dispatch` (legacy)
  * and `dispatch_authorize` (#529 additive) accept the same shape — only
  * `timeout_ms` is configurable. The cutover PR deletes the legacy key.
+ *
+ * Manifest dual-mode precedence: when a manifest declares BOTH
+ * `task_authorize_dispatch` AND `dispatch_authorize`, the server prefers
+ * `dispatch_authorize` and emits the new `dispatch/authorize` S→C RPC
+ * (architect plan §4.3 + risk #8). The cutover PR removes the legacy key
+ * outright, eliminating the ambiguity.
  */
 const HookEntrySchema = Type.Object(
   {

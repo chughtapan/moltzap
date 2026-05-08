@@ -6,12 +6,14 @@ import { logger } from "../logger.js";
 import type {
   AnyTaskCallbackRpcDefinition,
   AppManifest,
+  DispatchId,
+  LeaseId,
   LogicalClock,
   ParamsOf,
   Part,
   ResultOf,
 } from "@moltzap/protocol";
-import { TaskAuthorizeDispatch } from "@moltzap/protocol";
+import { DispatchAuthorize, TaskAuthorizeDispatch } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId, MessageId } from "@moltzap/protocol/task";
 import {
@@ -26,6 +28,7 @@ import {
   takeFirstOption,
 } from "../db/effect-kysely-toolkit.js";
 import { lookupAppForConversation } from "./conversation-app-lookup.js";
+import type { LeaseRegistry } from "./lease-registry.js";
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -69,10 +72,29 @@ export class AppHost {
    */
   private remoteRegistrations = new Map<string, { connectionId: string }>();
 
+  /**
+   * Optional lease registry for the #529 reshape additive surface.
+   * Set post-construction by the layer wiring (see {@link setLeaseRegistry}).
+   * The legacy `apps/authorizeDispatch` flow does NOT need it; only
+   * `enqueueDispatchRequest` consumes it. Kept optional so existing tests
+   * that construct AppHost directly without a registry still work.
+   */
+  private leaseRegistry: LeaseRegistry | null = null;
+
   constructor(
     private db: Kysely<Database>,
     private connections: ConnectionManager,
   ) {}
+
+  /** Wire the lease registry post-construction. */
+  setLeaseRegistry(registry: LeaseRegistry): void {
+    this.leaseRegistry = registry;
+  }
+
+  /** Test-only / handler-side accessor. */
+  getLeaseRegistry(): LeaseRegistry | null {
+    return this.leaseRegistry;
+  }
 
   registerApp(manifest: AppManifest): void {
     this.manifests.set(manifest.appId, manifest);
@@ -252,6 +274,333 @@ export class AppHost {
         }
       }),
     );
+  }
+
+  /**
+   * #529 reshape additive — mint a lease for an admission request, return
+   * the ack synchronously, fork the moderator round-trip in the
+   * background. The forked fiber resolves the lease via the registry,
+   * which fires `dispatch/release` to the recipient.
+   *
+   * Inputs:
+   * - `recipientConnectionId` — the calling client's WS connection.
+   * - `senderAgentId` etc — same shape as `runAuthorizeDispatch`.
+   *
+   * Side-effects via the registry:
+   *  - `NoAppSession` / `ConversationNotFound`: synthesize `grant`,
+   *    resolve immediately. Recipient sees `dispatch/release{grant}`
+   *    after the ack lands.
+   *  - `ConversationArchived`: synthesize `deny{conversation_archived}`.
+   *  - `AppBound` with no hook: synthesize `hold{moderator_unavailable}`
+   *    (load-bearing — does NOT call `removeParticipant` per risk #5).
+   *  - `AppBound` with hook: forked round-trip; verdict-deny + timeout-
+   *    deny call `resolve(deny)` and the caller is responsible for
+   *    `removeParticipant` via the standard verdict-deny path. (Hook
+   *    surface here only manages the lease; participant removal stays in
+   *    the existing legacy flow until cutover.)
+   *
+   * Returns immediately with `{leaseId, dispatchId}` (or fails closed
+   * via `LeaseRegistry not wired` defect if the registry hasn't been
+   * configured — caller should always wire it via {@link setLeaseRegistry}).
+   */
+  enqueueDispatchRequest(args: {
+    conversationId: ConversationId;
+    recipientAgentId: AgentId;
+    recipientConnectionId: string;
+    messageId: MessageId;
+    senderAgentId: AgentId;
+    parts?: Part[];
+    attempt?: number;
+    receivedAt?: string;
+    clock?: LogicalClock;
+    pending?: ReadonlyArray<{
+      messageId: MessageId;
+      conversationId: ConversationId;
+      senderAgentId: AgentId;
+      createdAt: string;
+      receivedAt: string;
+      clock?: LogicalClock;
+      parts?: Part[];
+    }>;
+  }): Effect.Effect<
+    { leaseId: LeaseId; dispatchId: DispatchId },
+    never,
+    never
+  > {
+    const registry = this.leaseRegistry;
+    if (!registry) {
+      return Effect.dieMessage(
+        "AppHost.enqueueDispatchRequest: LeaseRegistry not wired (call setLeaseRegistry post-construction)",
+      );
+    }
+    return catchSqlErrorAsDefect(
+      Effect.gen(this, function* () {
+        const lookup = yield* lookupAppForConversation(
+          this.db,
+          args.conversationId,
+        );
+
+        // Resolve appId + tmEndpointAddress from the join. For
+        // NoAppSession / NotFound we still need a tmEndpointAddress to
+        // record in the binding tuple (the moderator-connection field
+        // doubles as a "no moderator" sentinel via empty string).
+        let appId = "";
+        let taskId: import("@moltzap/protocol/task").TaskId =
+          "" as import("@moltzap/protocol/task").TaskId;
+        let tmEndpointAddress = "";
+        let moderatorConnectionId = "";
+
+        if (lookup._tag === "AppBound") {
+          appId = lookup.appId;
+          taskId = lookup.taskId;
+          // Look up tm_endpoint_address from tasks for binding-tuple audit.
+          const taskRow = yield* takeFirstOption(
+            this.db
+              .selectFrom("tasks")
+              .select(["tm_endpoint_address"])
+              .where("id", "=", lookup.taskId),
+          );
+          tmEndpointAddress = Option.match(taskRow, {
+            onNone: () => "",
+            onSome: (r) => r.tm_endpoint_address,
+          });
+          // Moderator connection = the connection that ran apps/register
+          // for this app. May be empty if the moderator is offline.
+          const remote = this.remoteRegistrations.get(lookup.appId);
+          moderatorConnectionId = remote?.connectionId ?? "";
+        }
+
+        const minted = yield* registry.mint({
+          recipientAgentId: args.recipientAgentId,
+          recipientConnectionId: args.recipientConnectionId,
+          moderatorConnectionId,
+          taskId,
+          conversationId: args.conversationId,
+          tmEndpointAddress,
+          appId,
+        });
+
+        // Fork the moderator round-trip. The forked Effect resolves the
+        // lease — the recipient observes the verdict via
+        // `dispatch/release` notification.
+        yield* Effect.forkDaemon(
+          this.runForkedDispatchRoundTrip(registry, minted.leaseId, lookup, {
+            conversationId: args.conversationId,
+            recipientAgentId: args.recipientAgentId,
+            messageId: args.messageId,
+            senderAgentId: args.senderAgentId,
+            parts: args.parts,
+            attempt: args.attempt,
+            receivedAt: args.receivedAt,
+            clock: args.clock,
+            pending: args.pending,
+          }),
+        );
+
+        return minted;
+      }),
+    );
+  }
+
+  /**
+   * Forked moderator round-trip that resolves the lease. Invoked off the
+   * critical path of `enqueueDispatchRequest` so the ack returns before
+   * any moderator latency. Errors (timeout, throw, RPC failure, decode
+   * error) collapse into typed-deny verdicts via the existing envelope
+   * (`wrapHookEffectWithEnvelope`).
+   */
+  private runForkedDispatchRoundTrip(
+    registry: LeaseRegistry,
+    leaseId: LeaseId,
+    lookup: import("./conversation-app-lookup.js").ConversationAppLookup,
+    params: {
+      conversationId: ConversationId;
+      recipientAgentId: AgentId;
+      messageId: MessageId;
+      senderAgentId: AgentId;
+      parts?: Part[];
+      attempt?: number;
+      receivedAt?: string;
+      clock?: LogicalClock;
+      pending?: ReadonlyArray<{
+        messageId: MessageId;
+        conversationId: ConversationId;
+        senderAgentId: AgentId;
+        createdAt: string;
+        receivedAt: string;
+        clock?: LogicalClock;
+        parts?: Part[];
+      }>;
+    },
+  ): Effect.Effect<void, never, never> {
+    return catchSqlErrorAsDefect(
+      Effect.gen(this, function* () {
+        switch (lookup._tag) {
+          case "ConversationArchived":
+            yield* registry
+              .resolve(leaseId, {
+                _tag: "deny",
+                reason: "conversation_archived",
+              })
+              .pipe(Effect.catchAll(() => Effect.void));
+            return;
+          case "ConversationNotFound":
+          case "NoAppSession":
+            yield* registry
+              .resolve(leaseId, { _tag: "grant" })
+              .pipe(Effect.catchAll(() => Effect.void));
+            return;
+          case "AppBound": {
+            const isRemote = this.remoteRegistrations.has(lookup.appId);
+            const appHooks = this.hooks.get(lookup.appId);
+            if (!isRemote && !appHooks?.taskAuthorizeDispatch) {
+              // Risk #5: synthesized hold (NOT verdict-deny).
+              yield* registry
+                .resolve(leaseId, {
+                  _tag: "hold",
+                  reason: "moderator_unavailable",
+                })
+                .pipe(Effect.catchAll(() => Effect.void));
+              return;
+            }
+
+            const agentOpt = yield* takeFirstOption(
+              this.db
+                .selectFrom("agents")
+                .select("owner_user_id")
+                .where("id", "=", params.recipientAgentId),
+            );
+            const agent = Option.getOrNull(agentOpt);
+
+            const ctx: TaskAuthorizeDispatchContext = {
+              conversationId: params.conversationId,
+              recipient: {
+                agentId: params.recipientAgentId,
+                ownerId: agent?.owner_user_id ?? "",
+              },
+              message: {
+                id: params.messageId,
+                senderAgentId: params.senderAgentId,
+                parts: params.parts,
+              },
+              taskId: lookup.taskId,
+              appId: lookup.appId,
+              attempt: params.attempt ?? 0,
+              receivedAt: params.receivedAt,
+              clock: params.clock,
+              pending: params.pending,
+              signal: new AbortController().signal,
+            };
+
+            // Manifest dual-mode: prefer the new key when both are present.
+            // Manifest dual-mode (architect plan §4.3 + risk #8): prefer
+            // `dispatch_authorize` over `task_authorize_dispatch` when
+            // both are present; fall through to the new key when neither
+            // is declared (default-to-new). The cutover PR drops the
+            // legacy key entirely.
+            const manifest = this.manifests.get(lookup.appId);
+            const hasNewKey = manifest?.hooks?.dispatch_authorize !== undefined;
+            const hasLegacyKey =
+              manifest?.hooks?.task_authorize_dispatch !== undefined;
+            const useNewKey = hasNewKey || !hasLegacyKey;
+
+            const verdict = yield* this.dispatchAuthorizeDispatchHookViaKey(
+              lookup.appId,
+              ctx,
+              useNewKey,
+            );
+
+            // Map admission decision → registry verdict.
+            const registryVerdict =
+              verdict.decision === "grant"
+                ? {
+                    _tag: "grant" as const,
+                    ...(verdict.leaseTimeoutMs !== undefined
+                      ? { leaseTimeoutMs: verdict.leaseTimeoutMs }
+                      : {}),
+                  }
+                : verdict.decision === "deny"
+                  ? {
+                      _tag: "deny" as const,
+                      ...(verdict.reason !== undefined
+                        ? { reason: verdict.reason }
+                        : {}),
+                    }
+                  : {
+                      _tag: "hold" as const,
+                      ...(verdict.reason !== undefined
+                        ? { reason: verdict.reason }
+                        : {}),
+                    };
+            yield* registry
+              .resolve(leaseId, registryVerdict)
+              .pipe(Effect.catchAll(() => Effect.void));
+            return;
+          }
+          default: {
+            const _absurd: never = lookup;
+            return _absurd;
+          }
+        }
+      }),
+    );
+  }
+
+  /**
+   * Dual-mode dispatcher: `useNewKey=true` emits `dispatch/authorize`
+   * S→C; otherwise emits legacy `task/authorizeDispatch`. Both arms
+   * reuse `wrapHookEffectWithEnvelope` for fail-closed semantics.
+   */
+  private dispatchAuthorizeDispatchHookViaKey(
+    appId: string,
+    ctx: TaskAuthorizeDispatchContext,
+    useNewKey: boolean,
+  ): Effect.Effect<DispatchAdmissionResult, never> {
+    const remote = this.remoteRegistrations.get(appId);
+    const inProcess = this.hooks.get(appId)?.taskAuthorizeDispatch;
+    if (!remote && !inProcess) {
+      return Effect.succeed({ decision: "grant" as const });
+    }
+    const manifest = this.manifests.get(appId);
+    const timeoutMs = useNewKey
+      ? (manifest?.hooks?.dispatch_authorize?.timeout_ms ??
+        DEFAULT_APP_HOOK_TIMEOUT_MS)
+      : (manifest?.hooks?.task_authorize_dispatch?.timeout_ms ??
+        DEFAULT_APP_HOOK_TIMEOUT_MS);
+    const taskId = ctx.taskId;
+    const definition = useNewKey ? DispatchAuthorize : TaskAuthorizeDispatch;
+    const methodName = useNewKey
+      ? "dispatch/authorize"
+      : "task/authorizeDispatch";
+
+    const raw: Effect.Effect<DispatchAdmissionResult, Error> = remote
+      ? this.runRemoteHookEffect({
+          appId,
+          definition,
+          connectionId: remote.connectionId,
+          params: this.authorizeDispatchParamsForWire(ctx),
+        }).pipe(Effect.map((envelope) => envelope.admission))
+      : this.runInProcessHookEffect<
+          TaskAuthorizeDispatchContext,
+          DispatchAdmissionResult
+        >((ctxWithSignal) => inProcess!(ctxWithSignal), ctx);
+
+    return this.wrapHookEffectWithEnvelope<DispatchAdmissionResult>({
+      raw,
+      timeoutMs,
+      timeoutLogMessage: `${methodName} timed out`,
+      timeoutLogContext: { taskId, appId, timeoutMs },
+      errorLogMessage: `${methodName} error`,
+      errorLogContext: { taskId, appId },
+      onTimeout: () => ({
+        decision: "deny" as const,
+        reason: "timeout",
+      }),
+      onError: () => ({
+        decision: "deny" as const,
+        reason: `${methodName} error`,
+      }),
+    });
   }
 
   /** Clear in-memory state. Called on shutdown. */

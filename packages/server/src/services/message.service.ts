@@ -1,7 +1,33 @@
 import type { Db } from "../db/client.js";
 import type { Message, Part, TaskStatus } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { ConversationId, MessageId } from "@moltzap/protocol/task";
+import type { ConversationId, MessageId, TaskId } from "@moltzap/protocol/task";
+
+/**
+ * #529 reshape additive — carrier returned by `sendInsert`, consumed by
+ * `sendCommit`. Lets the messages handler drive the durable insert and
+ * the post-insert routing/broadcast as separate Effects so the lease-
+ * registry `Effect.acquireUseRelease` boundary lines up between
+ * `claim` (acquire), `sendInsert + sendCommit` (use), and
+ * `finalize | rollback` (release).
+ *
+ * Architect plan §3 carrier shape: the carrier intentionally avoids
+ * pre-computing post-insert metadata (participants, trace) — those
+ * stay inside `sendCommit` to keep the carrier small and to mirror
+ * the behavior of the pre-split `send`.
+ */
+export interface SendInsertResult {
+  readonly message: Message;
+  readonly parts: ReadonlyArray<Part>;
+  readonly conv: {
+    readonly archived_at: Date | null;
+    readonly task_id: TaskId;
+    readonly tm_endpoint_address: string;
+    readonly task_status: string;
+  };
+  readonly excludeConnectionId: string | undefined;
+  readonly bypassTmRouting: boolean;
+}
 import {
   ConversationArchivedError,
   ForbiddenError,
@@ -140,18 +166,23 @@ export class MessageService {
     return pending.length > 0 ? Fiber.interruptAll(pending) : Effect.void;
   }
 
-  send(
+  /**
+   * #529 reshape additive — the durable insert subset of `send`.
+   * Returns a `SendInsertResult` carrier that {@link sendCommit}
+   * consumes for the routing/broadcast/trace tail. `send` composes both
+   * for backward compatibility with all existing callers.
+   *
+   * Architect plan §3 carrier shape: `{ message, parts, conv,
+   * excludeConnectionId, bypassTmRouting }`.
+   */
+  sendInsert(
     conversationId: ConversationId,
     inputParts: Part[],
     senderAgentId: AgentId,
     replyToId?: MessageId,
-    /** Sender's WS connection — skipped by the broadcast fan-out so
-     * the RPC reply is not echoed back as a notification. */
     excludeConnectionId?: string,
-    /** Skip the TM-routing branch. `tasks/storeMessage` sets this to
-     * avoid a self-loop when the TM persists a message it admitted. */
     bypassTmRouting = false,
-  ): Effect.Effect<Message, MessageServiceError> {
+  ): Effect.Effect<SendInsertResult, MessageServiceError> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
         const parts = inputParts;
@@ -160,9 +191,6 @@ export class MessageService {
           senderAgentId,
         );
 
-        // INNER JOIN is structurally total: `conversations.task_id` is
-        // NOT NULL with a FK to `tasks(id)`, and `requireParticipant`
-        // above proves the conversation exists.
         const conv = yield* takeFirstOrFail(
           this.db
             .selectFrom("conversations as c")
@@ -194,8 +222,6 @@ export class MessageService {
           }
         }
 
-        // Closed-task gate runs BEFORE the DB insert so a closed task
-        // short-circuits without a partial write.
         if (!bypassTmRouting && !taskStatusAcceptsMessages(conv.task_status)) {
           return yield* Effect.fail(
             new TaskClosedError({
@@ -209,10 +235,6 @@ export class MessageService {
           );
         }
 
-        // Mint the message id here so the eventual DB row + the TM
-        // frame (dispatched after the insert lands) agree on `id`.
-        // `seq` is a server-internal monotonic ordering token, not
-        // part of the wire `Message` shape.
         const seq = nextSnowflakeId();
         const messageIdValue = crypto.randomUUID() as MessageId;
         const createdAtIso = new Date().toISOString();
@@ -220,14 +242,6 @@ export class MessageService {
         const { encrypted, iv, tag, dekVersion, kekVersion } =
           yield* this.encryptParts(conversationId, parts);
 
-        // Drop to the native promise API for bytea inserts; see the
-        // header of effect-kysely-toolkit.ts for why the Proxy path
-        // infinite-recurses on Buffer columns. `tryPromise` (not
-        // `promise`) keeps driver errors (unique-violation, connection
-        // drops, etc.) in the typed SqlError channel so
-        // `catchSqlErrorAsDefect` narrows them into defects the RPC
-        // router surfaces as InternalError rather than swallowing them
-        // as unreachable.
         const row = yield* Effect.tryPromise({
           try: () =>
             this.db
@@ -243,12 +257,7 @@ export class MessageService {
                 parts_tag: tag,
                 dek_version: dekVersion,
                 kek_version: kekVersion,
-                // Stamp `task_id` at insert time so cross-task queries
-                // filter without joining through `conversations`.
                 task_id: conv.task_id,
-                // Persist the server-minted ISO timestamp so the
-                // mapped Message and the dispatched TM frame agree on
-                // `createdAt`; Postgres' `now()` would drift.
                 created_at: new Date(createdAtIso),
               })
               .returningAll()
@@ -259,9 +268,37 @@ export class MessageService {
 
         const message = this.mapMessage(row, parts);
 
-        // Fire the TM-routed frame only AFTER the DB insert lands so
-        // the TM never observes a `messageId` the server didn't
-        // commit.
+        return {
+          message,
+          parts,
+          conv: {
+            archived_at: conv.archived_at,
+            task_id: conv.task_id,
+            tm_endpoint_address: conv.tm_endpoint_address,
+            task_status: conv.task_status,
+          },
+          excludeConnectionId,
+          bypassTmRouting,
+        };
+      }),
+    );
+  }
+
+  /**
+   * #529 reshape additive — TM routing + broadcast + trace + delivery
+   * webhook tail. Sequencing preserves the pre-split order (architect
+   * plan §9 risk #9): TM route → preview → fan-out → trace → webhook.
+   */
+  sendCommit(
+    carrier: SendInsertResult,
+    conversationId: ConversationId,
+    senderAgentId: AgentId,
+  ): Effect.Effect<Message, MessageServiceError> {
+    return catchSqlErrorAsDefect(
+      Effect.gen(this, function* () {
+        const { message, parts, conv, excludeConnectionId, bypassTmRouting } =
+          carrier;
+
         if (!bypassTmRouting) {
           const tmAddr = yield* decodeTmEndpointAddress(
             conv.tm_endpoint_address,
@@ -275,8 +312,6 @@ export class MessageService {
         }
 
         const firstTextPart = parts.find((p) => p.type === "text");
-
-        // Write-through to preview cache (plaintext available before encryption)
         if (firstTextPart && firstTextPart.type === "text") {
           this.conversations.updatePreviewCache(
             conversationId,
@@ -318,10 +353,6 @@ export class MessageService {
           });
         }
 
-        // Fire delivery webhook to the offline recipients on a detached daemon
-        // fiber so the `send` RPC returns immediately. `delivered` is the
-        // presence signal — every participant not in that set is treated
-        // as offline for the webhook fanout.
         if (this.deliveryWebhook && this.webhookClient) {
           const deliveredSet = new Set(delivered);
           const offlineRecipientAgentIds = participants.filter(
@@ -343,6 +374,31 @@ export class MessageService {
         return message;
       }),
     );
+  }
+
+  send(
+    conversationId: ConversationId,
+    inputParts: Part[],
+    senderAgentId: AgentId,
+    replyToId?: MessageId,
+    /** Sender's WS connection — skipped by the broadcast fan-out so
+     * the RPC reply is not echoed back as a notification. */
+    excludeConnectionId?: string,
+    /** Skip the TM-routing branch. `tasks/storeMessage` sets this to
+     * avoid a self-loop when the TM persists a message it admitted. */
+    bypassTmRouting = false,
+  ): Effect.Effect<Message, MessageServiceError> {
+    return Effect.gen(this, function* () {
+      const carrier = yield* this.sendInsert(
+        conversationId,
+        inputParts,
+        senderAgentId,
+        replyToId,
+        excludeConnectionId,
+        bypassTmRouting,
+      );
+      return yield* this.sendCommit(carrier, conversationId, senderAgentId);
+    });
   }
 
   private spawnDeliveryWebhook(body: {

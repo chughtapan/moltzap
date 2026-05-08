@@ -247,6 +247,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     messageService,
     taskService,
     appHost,
+    leaseRegistry,
     traceCapture,
   } = services;
 
@@ -276,6 +277,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
       conversationService,
       taskService,
       db,
+      leaseRegistry,
     }),
     ...createPresenceHandlers({
       presenceService,
@@ -843,6 +845,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     networkSendService,
     traceCapture,
     connections,
+    leaseRegistry,
     registerApp(manifest) {
       appHost.registerApp(manifest);
     },
