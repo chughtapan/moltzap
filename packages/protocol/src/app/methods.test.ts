@@ -17,7 +17,7 @@
 import { describe, it, expect } from "vitest";
 import Ajv from "ajv";
 import addFormats from "ajv-formats";
-import { TaskAuthorizeDispatch } from "./methods.js";
+import { DispatchAuthorize, TaskAuthorizeDispatch } from "./methods.js";
 import { taskCallbackMethods } from "../rpc-registry.js";
 
 const ajv = addFormats(new Ajv({ strict: true, allErrors: true }));
@@ -37,9 +37,15 @@ const HOOK_AGENT = { agentId: AGENT_ID, ownerId: "owner-1" };
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("admission RPC registration", () => {
-  it("registers the surviving admission verb under taskCallback", () => {
+  it("registers both admission verbs under taskCallback (additive #529)", () => {
+    // Reshape additive PR (#529) ships `dispatch/authorize` alongside
+    // legacy `task/authorizeDispatch`. The cutover PR (row 13) deletes
+    // the legacy entry.
     const taskCallbackNames = taskCallbackMethods.map((m) => m.name);
-    expect(taskCallbackNames).toEqual([TaskAuthorizeDispatch.name]);
+    expect(taskCallbackNames).toEqual([
+      TaskAuthorizeDispatch.name,
+      DispatchAuthorize.name,
+    ]);
   });
 });
 
