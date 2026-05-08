@@ -46,6 +46,31 @@ const TTL_OBSERVATION_BUFFER_MS = 1_500;
 const ABANDON_OBSERVATION_BUFFER_MS = 1_000;
 const NEGATIVE_OBSERVABILITY_WINDOW_MS = 750;
 const FORBIDDEN_ERROR_CODE = -32001;
+// Buffer added to ABANDON_OBSERVATION_BUFFER_MS when polling for the
+// finalizer-driven ABANDONED transition: the finalizer runs on a
+// fiber-scoped scope-close, so the poll bound must outlast both the
+// observation window and the connection-close round-trip.
+const ABANDON_POLL_EXTRA_MS = 2_000;
+// Window for waiting on a synthesized timeout `dispatch/release`. Must
+// be greater than `TINY_MODERATOR_TIMEOUT_MS` (the server-side
+// moderator-response TTL) by enough margin to absorb scheduling jitter
+// in CI.
+const TIMEOUT_RELEASE_WAIT_MS = 3_000;
+// Tight window asserting that NO second `dispatch/release` arrives for
+// a single lease. Short enough to keep property runtime bounded; long
+// enough to catch a duplicate emit race.
+const NO_SECOND_RELEASE_WINDOW_MS = 250;
+// Wall-clock bound for "second ack does not block on first" assertions:
+// must be much less than the held HOLD_MS so we detect server-side
+// serialization without false-positives under CI scheduling jitter.
+const FAST_ACK_THRESHOLD_MS = 1_000;
+// Margin shaved off `HOLD_MS` when waiting for the FAST release: must be
+// long enough to outlive scheduling jitter, short enough to fail before
+// the slow release completes.
+const HOLD_RELEASE_MARGIN_MS = 500;
+// Margin added to `HOLD_MS` when draining the slow release: covers
+// fan-out latency and finalizer scheduling.
+const HOLD_DRAIN_BUFFER_MS = 2_000;
 
 function violation(name: string, reason: string): PropertyInvariantViolation {
   return new PropertyInvariantViolation({ category: CATEGORY, name, reason });
@@ -171,7 +196,7 @@ export function registerDispatchRequestRecipientDisconnectAbandons(
           // moderator.dispatches/get. The driver's poll bound covers
           // the finalizer race window.
           yield* driver.assertLeaseState(ack.dispatchId, "ABANDONED", {
-            timeoutMs: ABANDON_OBSERVATION_BUFFER_MS + 2_000,
+            timeoutMs: ABANDON_OBSERVATION_BUFFER_MS + ABANDON_POLL_EXTRA_MS,
           });
         }),
       // Wide moderator timeout so the silence path holds the round-
@@ -273,7 +298,7 @@ export function registerDispatchAuthorizeTimeoutSynthesizesDeny(
           // `dispatch/release{deny, reason="timeout"}`.
           const release = yield* driver.recipient.waitForRelease(
             undefined,
-            3_000,
+            TIMEOUT_RELEASE_WAIT_MS,
           );
           const params = release.params as ReleaseFrameView;
           if (params.verdict.decision !== "deny") {
@@ -339,7 +364,10 @@ export function registerDispatchReleaseFiresAfterResolve(
             // Assert exactly one release: collect a second within a
             // tight window and assert no further frame arrived.
             const followup = yield* Effect.exit(
-              driver.recipient.waitForRelease(undefined, 250),
+              driver.recipient.waitForRelease(
+                undefined,
+                NO_SECOND_RELEASE_WINDOW_MS,
+              ),
             );
             if (followup._tag === "Success") {
               return yield* Effect.fail(
@@ -403,7 +431,7 @@ export function registerDispatchReleaseSkippedOnAbandoned(
           // dispatches/* notifications fire only on the moderator's
           // connection (see lease-registry.ts:516 emit fan-out).
           yield* driver.assertLeaseState(ack.dispatchId, "ABANDONED", {
-            timeoutMs: ABANDON_OBSERVATION_BUFFER_MS + 2_000,
+            timeoutMs: ABANDON_OBSERVATION_BUFFER_MS + ABANDON_POLL_EXTRA_MS,
           });
           // Confirm the moderator did NOT see a `dispatches/expired`
           // (no release fan-out path for ABANDONED) within a short
@@ -895,12 +923,13 @@ export function registerSlowFirstDoesNotDelaySecondAck(
             senderAgentId: driver.moderator.agentId,
           });
           const elapsed = Date.now() - tStart;
-          // Both acks under 1 s — must be much less than HOLD_MS.
-          if (elapsed > 1_000) {
+          // Both acks under FAST_ACK_THRESHOLD_MS — must be much less
+          // than HOLD_MS.
+          if (elapsed > FAST_ACK_THRESHOLD_MS) {
             return yield* Effect.fail(
               violation(
                 NAME,
-                `second ack arrived after ${elapsed}ms (>1s); server-side serialization detected`,
+                `second ack arrived after ${elapsed}ms (>${FAST_ACK_THRESHOLD_MS}ms); server-side serialization detected`,
               ),
             );
           }
@@ -969,7 +998,7 @@ export function registerReleaseForOneLeaseDoesNotWaitOnAnother(
           const second = yield* driver.recipient.waitForRelease(
             (frame) =>
               (frame.params as LeaseIdOnlyView).leaseId === ack2.leaseId,
-            HOLD_MS - 500,
+            HOLD_MS - HOLD_RELEASE_MARGIN_MS,
           );
           const params2 = second.params as LeaseIdOnlyView;
           if (params2.leaseId !== ack2.leaseId) {
@@ -982,7 +1011,7 @@ export function registerReleaseForOneLeaseDoesNotWaitOnAnother(
           yield* driver.recipient.waitForRelease(
             (frame) =>
               (frame.params as LeaseIdOnlyView).leaseId === ack1.leaseId,
-            HOLD_MS + 2_000,
+            HOLD_MS + HOLD_DRAIN_BUFFER_MS,
           );
         }),
       { moderatorTimeoutMs: 15_000 },

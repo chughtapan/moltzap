@@ -678,9 +678,13 @@ export class MoltZapChannelCore {
       }
       const deferred = yield* Deferred.make<DispatchReleaseFrame, never>();
       this.pendingDispatchesByLease.set(leaseId, deferred);
+      // `ensuring` (not `tap`) guarantees the entry is removed even on
+      // interrupt — without it, a fiber interruption (consumer fiber
+      // teardown on `disconnect`) would orphan the Deferred + leak the
+      // lease entry until process exit.
       const settled = yield* Deferred.await(deferred).pipe(
         Effect.timeoutOption(Duration.millis(this.dispatchAdmissionTimeoutMs)),
-        Effect.tap(() =>
+        Effect.ensuring(
           Effect.sync(() => {
             this.pendingDispatchesByLease.delete(leaseId);
           }),

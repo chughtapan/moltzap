@@ -2,7 +2,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Effect, Either } from "effect";
-import type { Message, ParamsOf, ResultOf } from "@moltzap/protocol";
+import type { Message, ResultOf } from "@moltzap/protocol";
 import {
   ConversationsGet,
   ConversationArchivedError,
@@ -32,7 +32,6 @@ const AGENT_SELF_ID = testAgentId("agent-self");
 const AGENT_GM_ID = testAgentId("agent-gm");
 const CONVERSATION_ALICE_ID = testConversationId("conv-alice");
 const CONVERSATION_ARCHIVED_ID = testConversationId("conv-archived");
-const DISPATCH_MESSAGE_ID = testMessageId("msg-dispatch");
 
 describe("MoltZapService.sendToAgent", () => {
   let service: FakeMoltZapService;

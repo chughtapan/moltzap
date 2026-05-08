@@ -160,9 +160,11 @@ export class MoltZapChannel implements Channel {
         }
         const leaseId = this.dispatchLeasesByJid.get(jid);
         yield* this.core
-          .sendReply(conversationIdFromJid(jid), text, {
-            ...(leaseId !== undefined ? { dispatchLeaseId: leaseId } : {}),
-          })
+          .sendReply(
+            conversationIdFromJid(jid),
+            text,
+            leaseId !== undefined ? { dispatchLeaseId: leaseId } : {},
+          )
           .pipe(
             Effect.mapError(
               (err: ServiceRpcError): ServiceRpcError | MoltZapChannelError => {
