@@ -37,7 +37,6 @@ export class ConversationFullError extends Data.TaggedError(
 registerErrorClass(ConversationFullError);
 
 export const ConversationTypeEnum = stringEnum(["dm", "group"]);
-export const ParticipantRoleEnum = stringEnum(["owner", "admin", "member"]);
 
 export const AgentParticipantRefSchema = Type.Object(
   {
@@ -72,7 +71,6 @@ export const ConversationParticipantSchema = Type.Object(
   {
     conversationId: ConversationId,
     participant: AgentParticipantRefSchema,
-    role: ParticipantRoleEnum,
     joinedAt: DateTimeString,
     lastReadMessageId: Type.Optional(MessageId),
     mutedUntil: Type.Optional(DateTimeString),
@@ -269,6 +267,38 @@ const ConversationUnarchivedNotificationSchema = Type.Object(
   { additionalProperties: false },
 );
 
+// Server fan-out when a participant is added (today: `conversations/
+// addParticipant` user RPC). Broadcast targets: post-insert participants
+// list of the conversation. The added agent's connections are subscribed
+// to the conversation in the same operation so the broadcast reaches
+// them through the standard `forConversation` gate.
+const ParticipantsAddedNotificationSchema = Type.Object(
+  {
+    conversationId: ConversationId,
+    agentId: AgentId,
+    addedBy: AgentId,
+    addedAt: DateTimeString,
+  },
+  { additionalProperties: false },
+);
+
+// Server fan-out when a participant is removed (today: `conversations/
+// removeParticipant` user RPC; future: lease-registry DENY paths).
+// Broadcast targets: pre-delete participants list (so the just-removed
+// agent receives the notification) WITHOUT the per-conversation
+// subscription gate — the removed agent's `conn.conversationIds` is
+// cleared in the same operation, so the gate would suppress the event
+// for that very recipient.
+const ParticipantsRemovedNotificationSchema = Type.Object(
+  {
+    conversationId: ConversationId,
+    agentId: AgentId,
+    removedBy: AgentId,
+    removedAt: DateTimeString,
+  },
+  { additionalProperties: false },
+);
+
 export type ConversationCreatedNotification = Static<
   typeof ConversationCreatedNotificationSchema
 >;
@@ -280,6 +310,12 @@ export type ConversationArchivedNotification = Static<
 >;
 export type ConversationUnarchivedNotification = Static<
   typeof ConversationUnarchivedNotificationSchema
+>;
+export type ParticipantsAddedNotification = Static<
+  typeof ParticipantsAddedNotificationSchema
+>;
+export type ParticipantsRemovedNotification = Static<
+  typeof ParticipantsRemovedNotificationSchema
 >;
 
 export const ConversationCreatedNotificationDefinition = defineNotification({
@@ -300,4 +336,14 @@ export const ConversationArchivedNotificationDefinition = defineNotification({
 export const ConversationUnarchivedNotificationDefinition = defineNotification({
   name: "conversations/unarchived",
   params: ConversationUnarchivedNotificationSchema,
+});
+
+export const ParticipantsAddedNotificationDefinition = defineNotification({
+  name: "participants/added",
+  params: ParticipantsAddedNotificationSchema,
+});
+
+export const ParticipantsRemovedNotificationDefinition = defineNotification({
+  name: "participants/removed",
+  params: ParticipantsRemovedNotificationSchema,
 });

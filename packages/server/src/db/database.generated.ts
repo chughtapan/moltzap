@@ -24,8 +24,6 @@ export type Int8 = ColumnType<
   bigint | number | string
 >;
 
-export type ParticipantRole = "admin" | "member" | "owner";
-
 export type TaskStatus = "active" | "closed" | "failed" | "waiting";
 
 export type Timestamp = ColumnType<Date, Date | string, Date | string>;
@@ -68,7 +66,6 @@ export interface ConversationParticipants {
   joined_at: Generated<Timestamp>;
   last_read_seq: Generated<Int8>;
   muted_until: Timestamp | null;
-  role: Generated<ParticipantRole>;
 }
 
 export interface Conversations {

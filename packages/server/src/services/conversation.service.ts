@@ -1,5 +1,5 @@
 import type { Db } from "../db/client.js";
-import type { ConversationType, ParticipantRole } from "../db/database.js";
+import type { ConversationType } from "../db/database.js";
 import type {
   Conversation,
   ConversationParticipant,
@@ -15,9 +15,12 @@ import {
   ForbiddenError,
   NotFoundError,
   NotInContactsError,
+  ParticipantsAddedNotificationDefinition,
+  ParticipantsRemovedNotificationDefinition,
 } from "@moltzap/protocol";
 import { ParticipantService } from "./participant.service.js";
 import type { ConnectionManager } from "../ws/connection.js";
+import { opaquePayload } from "../network/network-send.js";
 import { sql } from "kysely";
 import {
   catchSqlErrorAsDefect,
@@ -26,6 +29,7 @@ import {
   takeFirstOrFail,
   transaction,
 } from "../db/effect-kysely-toolkit.js";
+import { requireConversationAdminAuthority } from "./conversation-admin-authority.js";
 
 export type ConversationServiceError =
   | ConversationArchivedError
@@ -232,21 +236,19 @@ export class ConversationService {
 
             const conversationId = conv.id;
 
-            // Add creator as owner
+            // Add creator
             yield* trx.insertInto("conversation_participants").values({
               conversation_id: conversationId,
               agent_id: creatorAgentId,
-              role: "owner",
             });
 
-            // Add other participants as members
+            // Add other participants
             for (const agentId of agentIds) {
               yield* trx
                 .insertInto("conversation_participants")
                 .values({
                   conversation_id: conversationId,
                   agent_id: agentId,
-                  role: "member",
                 })
                 .onConflict((oc) => oc.doNothing());
             }
@@ -462,7 +464,6 @@ export class ConversationService {
           .select([
             "cp.conversation_id",
             "cp.agent_id",
-            "cp.role",
             "cp.joined_at",
             "cp.last_read_seq",
             "cp.muted_until",
@@ -486,10 +487,11 @@ export class ConversationService {
   ): Effect.Effect<Conversation, ConversationServiceError> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
-        yield* this.requireRole(conversationId, requesterAgentId, [
-          "owner",
-          "admin",
-        ]);
+        yield* requireConversationAdminAuthority(
+          this.db,
+          conversationId,
+          requesterAgentId,
+        );
 
         const rowOpt = yield* takeFirstOption(
           this.db
@@ -516,7 +518,11 @@ export class ConversationService {
   ): Effect.Effect<{ archivedAt: string }, ConversationServiceError> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
-        yield* this.requireRole(conversationId, agentId, ["owner", "admin"]);
+        yield* requireConversationAdminAuthority(
+          this.db,
+          conversationId,
+          agentId,
+        );
 
         const updatedOpt = yield* takeFirstOption(
           this.db
@@ -554,7 +560,11 @@ export class ConversationService {
   ): Effect.Effect<void, ConversationServiceError> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
-        yield* this.requireRole(conversationId, agentId, ["owner", "admin"]);
+        yield* requireConversationAdminAuthority(
+          this.db,
+          conversationId,
+          agentId,
+        );
 
         yield* this.db
           .updateTable("conversations")
@@ -611,10 +621,11 @@ export class ConversationService {
   ): Effect.Effect<ConversationParticipant, ConversationServiceError> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
-        yield* this.requireRole(conversationId, requesterAgentId, [
-          "owner",
-          "admin",
-        ]);
+        yield* requireConversationAdminAuthority(
+          this.db,
+          conversationId,
+          requesterAgentId,
+        );
 
         // DMs are immutable two-party records by protocol invariant.
         // Allowing addParticipant on a type='dm' row would silently turn it
@@ -689,22 +700,35 @@ export class ConversationService {
           );
         }
 
-        const row = yield* takeFirstOrFail(
+        // Insert the row idempotently. With the `role` column dropped
+        // there's no longer a no-op `doUpdateSet({ role: <self> })`
+        // arm to coax the returning-all clause into surfacing the
+        // existing row on conflict; fall back to SELECT after the
+        // insert so the caller-visible mapping still reflects the
+        // already-existing participant when re-adding.
+        const insertedOpt = yield* takeFirstOption(
           this.db
             .insertInto("conversation_participants")
             .values({
               conversation_id: conversationId,
               agent_id: agentId,
-              role: "member",
             })
             .onConflict((oc) =>
-              oc
-                .columns(["conversation_id", "agent_id"])
-                .doUpdateSet({ role: sql`conversation_participants.role` }),
+              oc.columns(["conversation_id", "agent_id"]).doNothing(),
             )
             .returningAll(),
-          "insert did not return row",
         );
+        const row = Option.isSome(insertedOpt)
+          ? insertedOpt.value
+          : yield* takeFirstOrFail(
+              this.db
+                .selectFrom("conversation_participants")
+                .selectAll()
+                .where("conversation_id", "=", conversationId)
+                .where("agent_id", "=", agentId),
+              "participant row vanished after onConflict",
+            );
+        const wasAlreadyMember = Option.isNone(insertedOpt);
 
         // Subscribe the new participant's open sockets to the conversation.
         // Symmetric with `create`: without this, the conversation broadcast
@@ -715,6 +739,28 @@ export class ConversationService {
           [agentId],
           conversationId,
         );
+
+        // Fan out `participants/added` to every post-insert participant
+        // (the just-added agent included — its connections were just
+        // subscribed above). Sourced at the service layer so future
+        // non-RPC writers (e.g. lease-registry admit) share one fan-out
+        // site. No `forConversation` gate: redundant after the
+        // subscribeAgentsToConversation call above, and skipping the
+        // gate keeps membership-state notifications independent of the
+        // mute filter. Skip the broadcast on the idempotent re-add path
+        // so callers don't receive a phantom "participants/added"
+        // notification for an existing member.
+        if (!wasAlreadyMember) {
+          const participants =
+            yield* this.getParticipantAgentIds(conversationId);
+          yield* this.broadcastParticipantsAdded(
+            conversationId,
+            participants,
+            agentId,
+            requesterAgentId,
+            row.joined_at,
+          );
+        }
 
         return this.mapParticipant(row);
       }),
@@ -728,24 +774,53 @@ export class ConversationService {
   ): Effect.Effect<void, ConversationServiceError> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
-        yield* this.requireRole(conversationId, requesterAgentId, [
-          "owner",
-          "admin",
-        ]);
+        yield* requireConversationAdminAuthority(
+          this.db,
+          conversationId,
+          requesterAgentId,
+        );
+
+        // Snapshot BEFORE delete so the about-to-be-removed agent stays
+        // in the fan-out target list. The membership row is still live
+        // at this point so the snapshot includes them.
+        const participantsSnapshot =
+          yield* this.getParticipantAgentIds(conversationId);
 
         const deleted = yield* this.db
           .deleteFrom("conversation_participants")
           .where("conversation_id", "=", conversationId)
           .where("agent_id", "=", agentId)
-          .where("role", "=", "member")
           .returning("conversation_id");
 
         if (deleted.length === 0) {
           return yield* Effect.fail(
             new NotFoundError({
-              message: "Participant not found or cannot be removed",
+              message: "Participant not found",
             }),
           );
+        }
+
+        // Broadcast BEFORE clearing the removed agent's per-connection
+        // subscription set so the broadcast walk reaches its still-
+        // subscribed sockets. No `forConversation` gate: the same
+        // ordering reason (the conversationIds set is about to be
+        // cleared) plus membership-state notifications stay
+        // independent of the mute filter.
+        const removedAt = new Date();
+        yield* this.broadcastParticipantsRemoved(
+          conversationId,
+          participantsSnapshot,
+          agentId,
+          requesterAgentId,
+          removedAt,
+        );
+
+        // Cleanup AFTER broadcast: drop the conversation from each of
+        // the removed agent's open sockets so future conversation
+        // broadcasts (`messages/received`, `conversations/archived`,
+        // etc.) skip them via the `forConversation` gate.
+        for (const conn of this.connections.getByAgent(agentId)) {
+          conn.conversationIds.delete(conversationId);
         }
       }),
     );
@@ -852,33 +927,87 @@ export class ConversationService {
     );
   }
 
-  private requireRole(
+  /**
+   * Direct connection-level fan-out for `participants/added`. Mirrors
+   * `subscribeAgentsToConversation`'s pattern of iterating the
+   * already-injected ConnectionManager rather than routing through
+   * `NetworkSendService.broadcast`: the architect plan (#525 §2.2)
+   * keeps this service's constructor at four parameters, and the
+   * fan-out for membership-state notifications doesn't need
+   * NetworkSendService's endpoint-resolution machinery — every
+   * conversation participant is by construction an `AgentId` whose
+   * deliveries route over WS connections this manager already owns.
+   */
+  private broadcastParticipantsAdded(
     conversationId: ConversationId,
-    agentId: AgentId,
-    allowedRoles: string[],
-  ): Effect.Effect<void, ForbiddenError> {
-    return catchSqlErrorAsDefect(
-      Effect.gen(this, function* () {
-        const rowOpt = yield* takeFirstOption(
-          this.db
-            .selectFrom("conversation_participants")
-            .select("role")
-            .where("conversation_id", "=", conversationId)
-            .where("agent_id", "=", agentId),
-        );
+    targetAgentIds: readonly AgentId[],
+    addedAgentId: AgentId,
+    addedBy: AgentId,
+    addedAt: Date,
+  ): Effect.Effect<void> {
+    return Effect.sync(() => {
+      const frame = ParticipantsAddedNotificationDefinition.encode({
+        conversationId,
+        agentId: addedAgentId,
+        addedBy,
+        addedAt: addedAt.toISOString(),
+      });
+      const payload = opaquePayload(JSON.stringify(frame));
+      this.fanOutToAgents(targetAgentIds, payload);
+    });
+  }
 
-        if (Option.isNone(rowOpt)) {
-          return yield* Effect.fail(
-            new ForbiddenError({ message: MSG_NOT_A_PARTICIPANT }),
-          );
-        }
-        if (!allowedRoles.includes(rowOpt.value.role)) {
-          return yield* Effect.fail(
-            new ForbiddenError({ message: "Insufficient permissions" }),
-          );
-        }
-      }),
-    );
+  /**
+   * Direct connection-level fan-out for `participants/removed`. See
+   * {@link broadcastParticipantsAdded} for the rationale on bypassing
+   * NetworkSendService.
+   */
+  private broadcastParticipantsRemoved(
+    conversationId: ConversationId,
+    targetAgentIds: readonly AgentId[],
+    removedAgentId: AgentId,
+    removedBy: AgentId,
+    removedAt: Date,
+  ): Effect.Effect<void> {
+    return Effect.sync(() => {
+      const frame = ParticipantsRemovedNotificationDefinition.encode({
+        conversationId,
+        agentId: removedAgentId,
+        removedBy,
+        removedAt: removedAt.toISOString(),
+      });
+      const payload = opaquePayload(JSON.stringify(frame));
+      this.fanOutToAgents(targetAgentIds, payload);
+    });
+  }
+
+  /**
+   * Iterate every connection of every named agent and write the payload
+   * fork-and-forget. Mirrors `NetworkSendService.broadcast`'s socket
+   * write loop without the endpoint-resolution layer. No
+   * `forConversation` gate by design — see the broadcast helpers above.
+   */
+  private fanOutToAgents(
+    agentIds: readonly AgentId[],
+    payload: ReturnType<typeof opaquePayload>,
+  ): void {
+    for (const agentId of agentIds) {
+      for (const conn of this.connections.getByAgent(agentId)) {
+        if (conn.auth === null) continue;
+        const connId = conn.id;
+        Effect.runFork(
+          conn
+            .write(payload)
+            .pipe(
+              Effect.catchAll((cause) =>
+                Effect.logWarning(
+                  "participants notification: socket write failed",
+                ).pipe(Effect.annotateLogs({ connId, cause: String(cause) })),
+              ),
+            ),
+        );
+      }
+    }
   }
 
   /**
@@ -1033,7 +1162,6 @@ export class ConversationService {
   private mapParticipant(row: {
     conversation_id: ConversationId;
     agent_id: AgentId;
-    role: ParticipantRole;
     joined_at: Date;
     last_read_seq: string;
     muted_until: Date | null;
@@ -1047,7 +1175,6 @@ export class ConversationService {
         type: "agent" as const,
         id: row.agent_id,
       },
-      role: row.role,
       joinedAt: row.joined_at.toISOString(),
       lastReadMessageId:
         row.last_read_message_id == null ? undefined : row.last_read_message_id,

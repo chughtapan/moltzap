@@ -90,11 +90,10 @@ describe("Scenario 4: Group Chat", () => {
       const result = (yield* alice.client.sendRpc(ConversationsAddParticipant, {
         conversationId: conv.conversation.id,
         participant: { type: "agent", id: bob.agentId },
-      })) as { participant: { conversationId: string; role: string } };
+      })) as { participant: { conversationId: string } };
 
       expect(result.participant).toBeDefined();
       expect(result.participant.conversationId).toBe(conv.conversation.id);
-      expect(result.participant.role).toBe("member");
 
       yield* alice.client.close();
       yield* bob.client.close();

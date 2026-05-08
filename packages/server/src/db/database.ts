@@ -22,7 +22,6 @@ export type {
   ContactStatus,
   ConversationType,
   EncryptionKeyStatus,
-  ParticipantRole,
   TaskStatus,
 } from "./database.generated.js";
 

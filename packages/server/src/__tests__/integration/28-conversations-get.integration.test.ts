@@ -48,7 +48,6 @@ describe("Scenario 28: conversations/get with UUID columns", () => {
         conversation: { id: string; type: string; name: string | null };
         participants: Array<{
           participant: { type: string; id: string };
-          role: string;
         }>;
       };
 
@@ -83,7 +82,6 @@ describe("Scenario 28: conversations/get with UUID columns", () => {
         conversation: { id: string; type: string; name: string };
         participants: Array<{
           participant: { type: string; id: string };
-          role: string;
           agentName?: string;
         }>;
       };

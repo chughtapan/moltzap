@@ -18,6 +18,8 @@ import {
   ConversationUpdatedNotificationDefinition,
   ConversationArchivedNotificationDefinition,
   ConversationUnarchivedNotificationDefinition,
+  ParticipantsAddedNotificationDefinition,
+  ParticipantsRemovedNotificationDefinition,
 } from "./conversations.js";
 import {
   MessagesSend,
@@ -71,6 +73,8 @@ export const taskNotifications = [
   ConversationUpdatedNotificationDefinition,
   ConversationArchivedNotificationDefinition,
   ConversationUnarchivedNotificationDefinition,
+  ParticipantsAddedNotificationDefinition,
+  ParticipantsRemovedNotificationDefinition,
   MessageReceivedNotificationDefinition,
   TaskFailedNotificationDefinition,
 ] as const;

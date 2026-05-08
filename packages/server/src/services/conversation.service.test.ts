@@ -18,8 +18,15 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Cause, Effect, Exit } from "effect";
-import { JSON_RPC_RESERVED_CODES, NotInContactsError } from "@moltzap/protocol";
-import { wireErrorFromInstance } from "@moltzap/protocol/testing";
+import {
+  ForbiddenError,
+  JSON_RPC_RESERVED_CODES,
+  NotInContactsError,
+} from "@moltzap/protocol";
+import {
+  conversationId as makeConversationId,
+  wireErrorFromInstance,
+} from "@moltzap/protocol/testing";
 import type { Kysely } from "kysely";
 import { KyselyPGlite } from "kysely-pglite";
 import { readFileSync } from "node:fs";
@@ -963,5 +970,227 @@ describe("ConversationService.addParticipant rejects DM conversations", () => {
     );
     const agentIds = rows.map((r) => r.agent_id).sort();
     expect(agentIds).toEqual([alice, bob].sort());
+  });
+});
+
+/**
+ * Prereq 2 (#525): authority gate moved from
+ * `conversation_participants.role` to a hybrid creator-or-TM helper
+ * (`requireConversationAdminAuthority`). These tests pin the new
+ * shape: creator can update/archive/unarchive/add/remove on default
+ * (non-app-bound) conversations; non-creator with the same membership
+ * row is rejected; missing conversation collapses to ForbiddenError
+ * (matching the pre-helper wire-error code on missing rows).
+ */
+describe("ConversationService admin authority (creator gate)", () => {
+  beforeEach(freshDb, dbHookTimeoutMs);
+  afterEach(async () => {
+    await pglite?.close();
+  });
+
+  it("creator can update; non-creator member is denied", async () => {
+    const connections = new ConnectionManager();
+    const participants = new ParticipantService(db);
+    const service = new ConversationService(db, participants, connections);
+    const authService = new AuthService(db);
+
+    const alice = await seedAgent(authService, "alice");
+    const bob = await seedAgent(authService, "bob");
+    const conv = await createConv(service, "group", "team", [bob], alice);
+
+    await Effect.runPromise(service.update(conv.id, "renamed", alice));
+
+    const exit = await Effect.runPromiseExit(
+      service.update(conv.id, "by-bob", bob),
+    );
+    const failure = expectRpcFailure(exit);
+    expect(failure.code).toBe(ForbiddenError.code);
+  });
+
+  it("creator can archive + unarchive; non-creator member is denied", async () => {
+    const connections = new ConnectionManager();
+    const participants = new ParticipantService(db);
+    const service = new ConversationService(db, participants, connections);
+    const authService = new AuthService(db);
+
+    const alice = await seedAgent(authService, "alice");
+    const bob = await seedAgent(authService, "bob");
+    const conv = await createConv(service, "group", "team", [bob], alice);
+
+    await Effect.runPromise(service.archive(conv.id, alice));
+    await Effect.runPromise(service.unarchive(conv.id, alice));
+
+    const denyArchive = await Effect.runPromiseExit(
+      service.archive(conv.id, bob),
+    );
+    expect(expectRpcFailure(denyArchive).code).toBe(ForbiddenError.code);
+
+    const denyUnarchive = await Effect.runPromiseExit(
+      service.unarchive(conv.id, bob),
+    );
+    expect(expectRpcFailure(denyUnarchive).code).toBe(ForbiddenError.code);
+  });
+
+  it("creator can remove a participant; non-creator is denied", async () => {
+    const connections = new ConnectionManager();
+    const participants = new ParticipantService(db);
+    const service = new ConversationService(db, participants, connections);
+    const authService = new AuthService(db);
+
+    const alice = await seedAgent(authService, "alice");
+    const bob = await seedAgent(authService, "bob");
+    const carol = await seedAgent(authService, "carol");
+    const conv = await createConv(
+      service,
+      "group",
+      "team",
+      [bob, carol],
+      alice,
+    );
+
+    const denyByBob = await Effect.runPromiseExit(
+      service.removeParticipant(conv.id, carol, bob),
+    );
+    expect(expectRpcFailure(denyByBob).code).toBe(ForbiddenError.code);
+
+    await Effect.runPromise(service.removeParticipant(conv.id, carol, alice));
+
+    const rows = await Effect.runPromise(
+      db
+        .selectFrom("conversation_participants")
+        .select("agent_id")
+        .where("conversation_id", "=", conv.id),
+    );
+    expect(rows.map((r) => r.agent_id).sort()).toEqual([alice, bob].sort());
+  });
+
+  it("missing conversation collapses to ForbiddenError (not NotFoundError)", async () => {
+    const connections = new ConnectionManager();
+    const participants = new ParticipantService(db);
+    const service = new ConversationService(db, participants, connections);
+    const authService = new AuthService(db);
+    const alice = await seedAgent(authService, "alice");
+
+    const fakeConvId = makeConversationId(
+      "00000000-0000-4000-8000-00000000dead",
+    );
+
+    const exit = await Effect.runPromiseExit(
+      service.update(fakeConvId, "x", alice),
+    );
+    expect(expectRpcFailure(exit).code).toBe(ForbiddenError.code);
+  });
+});
+
+/**
+ * Prereq 2 (#525) §4b/§4c: addParticipant/removeParticipant fan out
+ * `participants/added` and `participants/removed` notifications and
+ * (on remove) clear the removed agent's per-connection conversation
+ * subscription set.
+ */
+describe("ConversationService participant fan-out", () => {
+  beforeEach(freshDb, dbHookTimeoutMs);
+  afterEach(async () => {
+    await pglite?.close();
+  });
+
+  function recordingConn(
+    connId: string,
+    agentId: AgentId,
+    sink: string[],
+  ): MoltZapConnection {
+    const auth: AuthenticatedContext = {
+      agentId,
+      agentStatus: "active",
+      ownerUserId: null,
+    };
+    return {
+      id: connId,
+      write: (raw) => Effect.sync(() => void sink.push(raw)),
+      shutdown: noopShutdown,
+      auth,
+      lastPong: Date.now(),
+      conversationIds: new Set<string>(),
+      mutedConversations: new Set<string>(),
+      jsonRpcClient: unusedJsonRpcClient(),
+    };
+  }
+
+  it("addParticipant fires participants/added to every post-insert participant", async () => {
+    const connections = new ConnectionManager();
+    const participants = new ParticipantService(db);
+    const service = new ConversationService(db, participants, connections);
+    const authService = new AuthService(db);
+
+    const alice = await seedAgent(authService, "alice");
+    const bob = await seedAgent(authService, "bob");
+    const carol = await seedAgent(authService, "carol");
+
+    const aliceSink: string[] = [];
+    const bobSink: string[] = [];
+    const carolSink: string[] = [];
+    connections.add(recordingConn("c-alice", alice, aliceSink));
+    connections.add(recordingConn("c-bob", bob, bobSink));
+
+    const conv = await createConv(service, "group", "team", [bob], alice);
+    aliceSink.length = 0;
+    bobSink.length = 0;
+    connections.add(recordingConn("c-carol", carol, carolSink));
+
+    await Effect.runPromise(service.addParticipant(conv.id, carol, alice));
+    // Yield to the runFork-scheduled writes.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const expectedFragment = '"method":"participants/added"';
+    expect(aliceSink.some((f) => f.includes(expectedFragment))).toBe(true);
+    expect(bobSink.some((f) => f.includes(expectedFragment))).toBe(true);
+    expect(carolSink.some((f) => f.includes(expectedFragment))).toBe(true);
+  });
+
+  it("removeParticipant fires participants/removed to the snapshot list AND clears the removed agent's conn.conversationIds", async () => {
+    const connections = new ConnectionManager();
+    const participants = new ParticipantService(db);
+    const service = new ConversationService(db, participants, connections);
+    const authService = new AuthService(db);
+
+    const alice = await seedAgent(authService, "alice");
+    const bob = await seedAgent(authService, "bob");
+    const carol = await seedAgent(authService, "carol");
+
+    const aliceSink: string[] = [];
+    const bobSink: string[] = [];
+    const carolSink: string[] = [];
+    const aliceConn = recordingConn("c-alice", alice, aliceSink);
+    const bobConn = recordingConn("c-bob", bob, bobSink);
+    const carolConn = recordingConn("c-carol", carol, carolSink);
+    connections.add(aliceConn);
+    connections.add(bobConn);
+    connections.add(carolConn);
+
+    const conv = await createConv(
+      service,
+      "group",
+      "team",
+      [bob, carol],
+      alice,
+    );
+    expect(carolConn.conversationIds.has(conv.id)).toBe(true);
+
+    aliceSink.length = 0;
+    bobSink.length = 0;
+    carolSink.length = 0;
+
+    await Effect.runPromise(service.removeParticipant(conv.id, carol, alice));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const expectedFragment = '"method":"participants/removed"';
+    expect(aliceSink.some((f) => f.includes(expectedFragment))).toBe(true);
+    expect(bobSink.some((f) => f.includes(expectedFragment))).toBe(true);
+    // Removed agent receives the notification too — broadcast happens
+    // BEFORE the conn.conversationIds cleanup.
+    expect(carolSink.some((f) => f.includes(expectedFragment))).toBe(true);
+    // Cleanup: the removed agent's connection no longer holds the
+    // conversation in its subscription set.
+    expect(carolConn.conversationIds.has(conv.id)).toBe(false);
   });
 });
