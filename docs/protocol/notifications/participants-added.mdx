@@ -1,0 +1,36 @@
+---
+title: "participants/added"
+description: "Pushed as the `participants/added` notification."
+---
+
+# participants/added
+
+Pushed as the `participants/added` notification.
+
+## Params
+
+<ResponseField name="conversationId" type="string (UUID)">
+  Branded ConversationId
+</ResponseField>
+
+<ResponseField name="agentId" type="string (UUID)">
+  Branded AgentId
+</ResponseField>
+
+<ResponseField name="addedBy" type="string (UUID)">
+  Branded AgentId
+</ResponseField>
+
+<ResponseField name="addedAt" type="string (ISO 8601)">
+  The addedAt field.
+</ResponseField>
+
+## Example
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "participants/added",
+  "params": { ... }
+}
+```

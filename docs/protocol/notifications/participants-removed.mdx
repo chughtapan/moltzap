@@ -1,0 +1,36 @@
+---
+title: "participants/removed"
+description: "Pushed as the `participants/removed` notification."
+---
+
+# participants/removed
+
+Pushed as the `participants/removed` notification.
+
+## Params
+
+<ResponseField name="conversationId" type="string (UUID)">
+  Branded ConversationId
+</ResponseField>
+
+<ResponseField name="agentId" type="string (UUID)">
+  Branded AgentId
+</ResponseField>
+
+<ResponseField name="removedBy" type="string (UUID)">
+  Branded AgentId
+</ResponseField>
+
+<ResponseField name="removedAt" type="string (ISO 8601)">
+  The removedAt field.
+</ResponseField>
+
+## Example
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "participants/removed",
+  "params": { ... }
+}
+```

@@ -1,9 +1,14 @@
 import type { Kysely } from "kysely";
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/task";
-import type { ForbiddenError } from "@moltzap/protocol";
+import { ForbiddenError } from "@moltzap/protocol";
 import type { Database } from "../db/database.js";
+import {
+  catchSqlErrorAsDefect,
+  takeFirstOption,
+} from "../db/effect-kysely-toolkit.js";
+import { endpointAddressForAgent } from "./task.service.js";
 
 /**
  * Authority gate for conversation-level admin operations
@@ -23,32 +28,6 @@ import type { Database } from "../db/database.js";
  *   task's TM is the authority. Pass iff
  *   `endpointAddressForAgent(callerAgentId) === task.tm_endpoint_address`.
  *
- * The `app_id` discriminator (rather than endpoint-address pattern
- * matching) is chosen because `app_id` is the canonical "is this
- * app-bound?" signal already in the schema. Pure TM-of-parent-task
- * would brick admin operations for ordinary creators of default DMs
- * and groups whose `tm_endpoint_address` is one of the literal
- * default-TM UUIDs (`tm:app:<defaultDmTm | defaultGroupTm>` from
- * `network/app-tm-registry.ts`), not any caller's
- * `tm:agent:<callerAgentId>`.
- *
- * SQL shape (single round-trip, mirrors `lookupAppForConversation` at
- * `packages/server/src/app/conversation-app-lookup.ts`):
- *
- * ```
- * SELECT conversations.created_by_id,
- *        tasks.app_id,
- *        tasks.tm_endpoint_address
- * FROM   conversations
- * INNER JOIN tasks ON tasks.id = conversations.task_id
- * WHERE  conversations.id = ?
- * LIMIT  1
- * ```
- *
- * `INNER JOIN` is correct: `conversations.task_id` is `NOT NULL` with
- * an FK to `tasks.id` (post Phase 9b R12), so every conversation joins
- * exactly one task row.
- *
  * Error channel: `ForbiddenError` only.
  *
  * - Conversation row missing → `ForbiddenError` (NOT `NotFoundError`).
@@ -59,22 +38,43 @@ import type { Database } from "../db/database.js";
  *   `"Insufficient permissions"` (preserves the pre-helper wording).
  *
  * SQL execution failures surface as defects via `catchSqlErrorAsDefect`
- * at the call site — the existing convention for service-layer DB
- * reads in this package, mirrored from `requireRole` and
- * `requireParticipant`.
- *
- * Implementation lives downstream (`implement-senior` for prereq 2).
- * The body is `Effect.dieMessage("not implemented")` per the
- * `/safer:architect` Iron rule — the function signature IS the
- * interface and any sketch becomes a ghost implementation downstream
- * copies instead of thinks.
+ * — the existing convention for service-layer DB reads in this package,
+ * mirrored from `requireRole` and `requireParticipant`.
  */
 export function requireConversationAdminAuthority(
   db: Kysely<Database>,
   conversationId: ConversationId,
   callerAgentId: AgentId,
 ): Effect.Effect<void, ForbiddenError, never> {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const _stub = { db, conversationId, callerAgentId };
-  return Effect.dieMessage("not implemented");
+  return catchSqlErrorAsDefect(
+    Effect.gen(function* () {
+      const rowOpt = yield* takeFirstOption(
+        db
+          .selectFrom("conversations")
+          .innerJoin("tasks", "tasks.id", "conversations.task_id")
+          .select([
+            "conversations.created_by_id",
+            "tasks.app_id",
+            "tasks.tm_endpoint_address",
+          ])
+          .where("conversations.id", "=", conversationId)
+          .limit(1),
+      );
+      if (Option.isNone(rowOpt)) {
+        return yield* Effect.fail(
+          new ForbiddenError({ message: "Insufficient permissions" }),
+        );
+      }
+      const row = rowOpt.value;
+      const isAuthorized =
+        row.app_id === null
+          ? row.created_by_id === callerAgentId
+          : row.tm_endpoint_address === endpointAddressForAgent(callerAgentId);
+      if (!isAuthorized) {
+        return yield* Effect.fail(
+          new ForbiddenError({ message: "Insufficient permissions" }),
+        );
+      }
+    }),
+  );
 }

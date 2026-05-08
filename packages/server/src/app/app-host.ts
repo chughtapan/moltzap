@@ -184,7 +184,18 @@ export class AppHost {
             const isRemote = this.remoteRegistrations.has(lookup.appId);
             const appHooks = this.hooks.get(lookup.appId);
             if (!isRemote && !appHooks?.taskAuthorizeDispatch) {
-              return { decision: "grant" as const };
+              // Prereq 2 (#525 §4e): app-bound conversation with no
+              // moderator hook registered. Fail-soft via synthesized
+              // hold — the recipient's parking machinery catches the
+              // held head and retries on the next inbound message.
+              // When the moderator reconnects (`apps/register`), the
+              // next retry gets a real verdict. The pre-fix
+              // `decision: "grant"` mass-evicted app-bound recipients
+              // whenever a moderator restarted.
+              return {
+                decision: "hold" as const,
+                reason: "moderator_unavailable",
+              };
             }
 
             const agentOpt = yield* takeFirstOption(
