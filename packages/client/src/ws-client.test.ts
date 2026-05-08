@@ -74,7 +74,7 @@ const DISPATCH_SENDER_UUID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
 const DISPATCH_MESSAGE_UUID = "11111111-1111-4111-8111-111111111111";
 const SESSION_A = DISPATCH_TASK_A_UUID;
 const SESSION_B = DISPATCH_TASK_B_UUID;
-const authorizeDispatchParams = (taskId: string) => ({
+const dispatchRequestParams = (taskId: string) => ({
   taskId,
   appId: "app-test",
   conversationId: DISPATCH_CONV_UUID,
@@ -1105,7 +1105,7 @@ describe("Phase 1.0 (B.1) — handleServerRpc round-trip", () => {
                 JSON.stringify(
                   DispatchAuthorize.encodeRequest(
                     "srv-test-1",
-                    authorizeDispatchParams(SESSION_A),
+                    dispatchRequestParams(SESSION_A),
                   ),
                 ),
               );
@@ -1197,7 +1197,7 @@ describe("Phase 1.0 (B.1) — handleServerRpc round-trip", () => {
                 JSON.stringify(
                   DispatchAuthorize.encodeRequest(
                     "srv-err-1",
-                    authorizeDispatchParams(SESSION_B),
+                    dispatchRequestParams(SESSION_B),
                   ),
                 ),
               );
