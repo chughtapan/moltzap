@@ -8,6 +8,9 @@ import { Kysely, PostgresDialect, sql } from "kysely";
 import { Data, Effect, Either } from "effect";
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
+import Ajv from "ajv";
+import addFormats from "ajv-formats";
+import { AppManifestSchema, type AppManifest } from "@moltzap/protocol";
 import type { MoltZapAppConfig as MoltZapConfig } from "./config/effect-config.js";
 import { createCoreApp } from "./app/server.js";
 import { seedInitialKek } from "./crypto/key-rotation.js";
@@ -43,6 +46,17 @@ export class SchemaFileNotFound extends Data.TaggedError("SchemaFileNotFound")<{
   readonly message: string;
 }> {}
 
+/**
+ * Decode failure for an on-disk app manifest. `kind` discriminates JSON
+ * parse failures from schema-validation failures so callers can log the
+ * specific edge that fired without re-inspecting the cause.
+ */
+export class InvalidAppManifest extends Data.TaggedError("InvalidAppManifest")<{
+  readonly kind: "parse" | "schema";
+  readonly path: string;
+  readonly errors: readonly string[];
+}> {}
+
 type StandaloneServerError =
   | RuntimeConfigSurfaceError
   | RuntimeObservabilityError
@@ -58,6 +72,56 @@ const operationFailed = (
     message: cause instanceof Error ? cause.message : String(cause),
     operation,
   });
+
+// ── App-manifest boundary validation ───────────────────────────────
+//
+// Principle 2: data crossing a boundary (JSON file on disk) is decoded
+// against `AppManifestSchema` before it reaches `app.registerApp(...)`.
+// Without this, a malformed-but-JSON-parseable manifest (missing
+// `appId`, wrong `participantFilter`, retired hook key, etc.) would
+// flow as `any` into `AppHost` and only surface deep inside RPC
+// handlers. Compile once at module scope; AJV validators are
+// thread-safe and cheap to reuse.
+const ajv = addFormats(new Ajv({ strict: true, allErrors: true }));
+const validateAppManifest = ajv.compile(AppManifestSchema);
+
+/**
+ * Parse and validate a JSON manifest blob. Returns `Right(AppManifest)`
+ * on success, `Left(InvalidAppManifest)` on either JSON-parse failure
+ * (`kind: "parse"`) or schema-validation failure (`kind: "schema"`).
+ * Never throws. Exported for test access only.
+ */
+// eslint-disable-next-line agent-code-guard/manual-result -- Returns Effect's Either<A, E>; the rule's name-pattern heuristic mis-fires on Either.left/Either.right MemberExpressions inside the body. Same false-positive class as openclaw-entry.ts:185.
+export function decodeAppManifest(
+  json: string,
+  path: string,
+): Either.Either<AppManifest, InvalidAppManifest> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch (cause) {
+    return Either.left(
+      new InvalidAppManifest({
+        kind: "parse",
+        path,
+        errors: [cause instanceof Error ? cause.message : String(cause)],
+      }),
+    );
+  }
+  if (!validateAppManifest(parsed)) {
+    const errors = (validateAppManifest.errors ?? []).map(
+      (e) => `${e.instancePath || "/"} ${e.message ?? "validation failed"}`,
+    );
+    return Either.left(
+      new InvalidAppManifest({
+        kind: "schema",
+        path,
+        errors: errors.length > 0 ? errors : ["unknown validation failure"],
+      }),
+    );
+  }
+  return Either.right(parsed as AppManifest);
+}
 
 // ── Database factory ────────────────────────────────────────────────
 
@@ -360,19 +424,27 @@ function startServerEffect(
                 }),
               onRight: (json) =>
                 Effect.sync(() => {
-                  try {
-                    const manifest = JSON.parse(json);
-                    app.registerApp(manifest);
-                    log.info(
-                      { appId: manifest.appId, path: appRef.manifest },
-                      "App manifest registered",
-                    );
-                  } catch (err) {
-                    log.error(
-                      { err, path: appRef.manifest },
-                      "Failed to load app manifest",
-                    );
-                  }
+                  Either.match(decodeAppManifest(json, appRef.manifest), {
+                    onLeft: (err) => {
+                      log.error(
+                        {
+                          path: err.path,
+                          kind: err.kind,
+                          errors: err.errors,
+                        },
+                        err.kind === "parse"
+                          ? "App manifest JSON parse failed; skipping registration"
+                          : "App manifest failed schema validation; skipping registration",
+                      );
+                    },
+                    onRight: (manifest) => {
+                      app.registerApp(manifest);
+                      log.info(
+                        { appId: manifest.appId, path: appRef.manifest },
+                        "App manifest registered",
+                      );
+                    },
+                  });
                 }),
             }),
           ),
