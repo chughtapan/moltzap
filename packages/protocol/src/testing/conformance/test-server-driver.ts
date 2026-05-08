@@ -83,7 +83,6 @@ export type LeaseState =
  */
 export interface RecipientHandle {
   readonly agentId: AgentId;
-  readonly connectionId: string;
 
   /**
    * Issue `dispatch/request` for the given inbound. Returns the ack
@@ -145,7 +144,6 @@ export interface RecipientHandle {
  */
 export interface ModeratorHandle {
   readonly agentId: AgentId;
-  readonly connectionId: string;
   readonly appId: string;
 
   /**
