@@ -174,6 +174,14 @@ export function createCoreAuthHandlers(deps: {
     }),
 
     defineNetworkMethod(AgentsLookup, {
+      // NOT contact-scoped. Per architect #481: "those are dereference-by-known-key,
+      // so the privacy concern is at the enumeration verb, not the lookup verb."
+      // The client uses this RPC to resolve peer `AgentCard`s for UI rendering of
+      // conversation messages (see `service.resolveAgentName` and the bulk-history
+      // lookup in `packages/client/src/service.ts`); contact-scoping it would render
+      // conversation peers as UUIDs whenever the caller has not explicitly added
+      // them as a contact. The dictionary-attack defense lives on the
+      // `agents/lookupByName` verb below, where it actually applies.
       handler: (params) =>
         catchSqlErrorAsDefect(
           Effect.gen(function* () {
@@ -193,10 +201,14 @@ export function createCoreAuthHandlers(deps: {
         ),
     }),
     defineNetworkMethod(AgentsLookupByName, {
-      handler: (params) =>
+      // Contact-scoped per #481/#506. Names are 1-32 chars and human-chosen,
+      // so a dictionary attack on the unfiltered RPC was tractable. The
+      // `active` status filter is preserved (existing semantics); the
+      // contact-graph filter is then layered on top of the name match.
+      handler: (params, ctx) =>
         catchSqlErrorAsDefect(
           Effect.gen(function* () {
-            const rows = yield* deps.db
+            const matches = yield* deps.db
               .selectFrom("agents")
               .select([
                 "id",
@@ -208,7 +220,19 @@ export function createCoreAuthHandlers(deps: {
               ])
               .where("name", "in", params.names)
               .where("status", "=", "active");
-            return { agents: rows.map(toAgentCard) };
+            if (matches.length === 0) return { agents: [] };
+            const visibleIds = yield* visibleAgentIds({
+              db: deps.db,
+              callerAgentId: ctx.agentId,
+              callerOwnerUserId: ctx.ownerUserId,
+              restrictTo: matches.map((r) => r.id),
+            });
+            const visibleSet = new Set<ServerAgentId>(visibleIds);
+            return {
+              agents: matches
+                .filter((r) => visibleSet.has(r.id))
+                .map(toAgentCard),
+            };
           }),
         ),
     }),
