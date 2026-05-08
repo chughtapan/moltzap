@@ -35,8 +35,16 @@ import {
 import { TaskService } from "../services/task.service.js";
 import type { SessionValidator } from "../services/session-validator.js";
 import { AppHost } from "./app-host.js";
+import { makeLeaseRegistry, type LeaseRegistry } from "./lease-registry.js";
 import type { EnvelopeEncryption } from "../crypto/envelope.js";
 import type { WebhookClient } from "../adapters/webhook.js";
+
+/** Default retention window for terminal lease records: 5 minutes. */
+const LEASE_RETENTION_MINUTES = 5;
+const SECONDS_PER_MINUTE = 60;
+const MS_PER_SECOND = 1000;
+const DEFAULT_LEASE_RETENTION_MS =
+  LEASE_RETENTION_MINUTES * SECONDS_PER_MINUTE * MS_PER_SECOND;
 
 // ── Tags ──────────────────────────────────────────────────────────────────
 // One Context.Tag per injectable. The type parameter on the tag class is the
@@ -116,6 +124,17 @@ export class PresenceServiceTag extends Context.Tag("moltzap/PresenceService")<
 export class AppHostTag extends Context.Tag("moltzap/AppHost")<
   AppHostTag,
   AppHost
+>() {}
+
+/**
+ * `LeaseRegistry` for the #529 reshape additive `dispatch/*` admission
+ * surface. In-process state (`Ref<Map<LeaseId, LeaseEntry>>` + per-lease
+ * TTL fibers); no DB. Constructed once per server lifetime via
+ * {@link LeaseRegistryLive}.
+ */
+export class LeaseRegistryTag extends Context.Tag("moltzap/LeaseRegistry")<
+  LeaseRegistryTag,
+  LeaseRegistry
 >() {}
 
 export class MessageServiceTag extends Context.Tag("moltzap/MessageService")<
@@ -261,12 +280,26 @@ export const PresenceServiceLive = Layer.effect(
   }),
 );
 
+export const LeaseRegistryLive = Layer.effect(
+  LeaseRegistryTag,
+  Effect.gen(function* () {
+    const connections = yield* ConnectionManagerTag;
+    return yield* makeLeaseRegistry({
+      connections,
+      leaseRetentionMs: DEFAULT_LEASE_RETENTION_MS,
+    });
+  }),
+);
+
 export const AppHostLive = Layer.effect(
   AppHostTag,
   Effect.gen(function* () {
     const db = yield* DbTag;
     const connections = yield* ConnectionManagerTag;
-    return new AppHost(db, connections);
+    const leaseRegistry = yield* LeaseRegistryTag;
+    const host = new AppHost(db, connections);
+    host.setLeaseRegistry(leaseRegistry);
+    return host;
   }),
 );
 
@@ -331,8 +364,16 @@ const Tier2 = Layer.provideMerge(
  * surface. */
 const Tier2NetworkSend = Layer.provideMerge(NetworkSendServiceLive, Tier2);
 
+/** Tier 2.6 — LeaseRegistryLive consumes ConnectionManager from Tier 1
+ * (#529 reshape additive). Sits below AppHost so the registry is wired
+ * into AppHost at construction. */
+const Tier2LeaseRegistry = Layer.provideMerge(
+  LeaseRegistryLive,
+  Tier2NetworkSend,
+);
+
 /** Tier 3 — AppHost holds db + connections + optional user validator. */
-const Tier3 = Layer.provideMerge(AppHostLive, Tier2NetworkSend);
+const Tier3 = Layer.provideMerge(AppHostLive, Tier2LeaseRegistry);
 
 /** Tier 4 — ConversationService needs AppHost for the session-attach check. */
 const Tier4 = Layer.provideMerge(ConversationServiceLive, Tier3);
@@ -374,6 +415,7 @@ export interface ResolvedServices {
   readonly contactService: ContactsService;
   readonly presenceService: PresenceService;
   readonly appHost: AppHost;
+  readonly leaseRegistry: LeaseRegistry;
   readonly messageService: MessageService;
   readonly taskService: TaskService;
   readonly encryption: EnvelopeEncryption | null;
@@ -399,6 +441,7 @@ export const resolveServices = Effect.all({
   contactService: ContactsServiceTag,
   presenceService: PresenceServiceTag,
   appHost: AppHostTag,
+  leaseRegistry: LeaseRegistryTag,
   messageService: MessageServiceTag,
   taskService: TaskServiceTag,
   traceCapture: TraceCaptureTag,

@@ -1,0 +1,52 @@
+---
+title: "dispatch/authorize"
+description: "Call `dispatch/authorize`."
+---
+
+# dispatch/authorize
+
+Call `dispatch/authorize`.
+
+## Parameters
+
+<ParamField path="taskId" type="string (UUID)" required>
+  Branded TaskId
+</ParamField>
+
+<ParamField path="appId" type="string" required>
+  The appId field.
+</ParamField>
+
+<ParamField path="conversationId" type="string (UUID)" required>
+  Branded ConversationId
+</ParamField>
+
+<ParamField path="recipient" type="object" required>
+  The recipient field.
+</ParamField>
+
+<ParamField path="message" type="object" required>
+  The message field.
+</ParamField>
+
+<ParamField path="attempt" type="integer" required>
+  The attempt field.
+</ParamField>
+
+<ParamField path="receivedAt" type="string (ISO 8601)">
+  The receivedAt field.
+</ParamField>
+
+<ParamField path="clock" type="object">
+  The clock field.
+</ParamField>
+
+<ParamField path="pending" type="array">
+  The pending field.
+</ParamField>
+
+## Response
+
+<ResponseField name="admission" type="union">
+  The admission field.
+</ResponseField>

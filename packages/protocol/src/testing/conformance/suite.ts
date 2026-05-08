@@ -38,6 +38,7 @@ import * as delivery from "./delivery.js";
 import * as adversity from "./adversity.js";
 import * as boundary from "./boundary.js";
 import * as presence from "./presence.js";
+import * as dispatchAdmission from "./dispatch-admission.js";
 import type { RealServerAcquireError, ToxicControlError } from "../errors.js";
 import {
   isAllowedCoverageGap,
@@ -136,6 +137,24 @@ export function registerAllProperties(ctx: ConformanceRunContext): void {
   presence.registerSameStateNoDoubleFire(ctx);
   presence.registerMultiSubscriberFanOut(ctx);
   presence.registerSubscribeAfterConnect(ctx);
+
+  // #529 reshape additive — dispatch admission (12 new + 3 rewriting
+  // dispatcher-concurrency P1-P3, closing #358).
+  dispatchAdmission.registerDispatchRequestAckMintsLease(ctx);
+  dispatchAdmission.registerDispatchRequestRecipientDisconnectAbandons(ctx);
+  dispatchAdmission.registerDispatchAuthorizeVerdictResolves(ctx);
+  dispatchAdmission.registerDispatchAuthorizeTimeoutSynthesizesDeny(ctx);
+  dispatchAdmission.registerDispatchReleaseFiresAfterResolve(ctx);
+  dispatchAdmission.registerDispatchReleaseSkippedOnAbandoned(ctx);
+  dispatchAdmission.registerDispatchesConsumedFiresOnFirstSend(ctx);
+  dispatchAdmission.registerDispatchesConsumedSuppressedOnSecondSend(ctx);
+  dispatchAdmission.registerDispatchesExpiredFiresOnTtl(ctx);
+  dispatchAdmission.registerDispatchesExpiredSuppressedOnConsumeBeforeTtl(ctx);
+  dispatchAdmission.registerDispatchesGetModeratorSeesRecord(ctx);
+  dispatchAdmission.registerDispatchesGetNonModeratorRejected(ctx);
+  dispatchAdmission.registerSameConversationDispatchesConcurrent(ctx);
+  dispatchAdmission.registerSlowFirstDoesNotDelaySecondAck(ctx);
+  dispatchAdmission.registerReleaseForOneLeaseDoesNotWaitOnAnother(ctx);
 }
 
 /**
@@ -314,6 +333,32 @@ function allowedServerCoverageGaps(
       id: "rpc-semantics/spurious-app-callback-frame-handling",
       reasonIncludes: "B.9",
     },
+    // #529 reshape additive — dispatch admission cross-impl execution
+    // requires the conformance TestServer to drive both ends of the
+    // dispatch round-trip (recipient + moderator clients). Server-side
+    // coverage lives in dispatch-flow.integration.test.ts; cross-impl
+    // wiring lands with the row 13 cutover follow-up.
+    ...[
+      "dispatch-admission/dispatch-request-ack-mints-lease",
+      "dispatch-admission/dispatch-request-recipient-disconnect-abandons-lease",
+      "dispatch-admission/dispatch-authorize-verdict-resolves-lease",
+      "dispatch-admission/dispatch-authorize-timeout-synthesizes-deny",
+      "dispatch-admission/dispatch-release-fires-after-resolve",
+      "dispatch-admission/dispatch-release-skipped-on-abandoned",
+      "dispatch-admission/dispatches-consumed-fires-on-first-send",
+      "dispatch-admission/dispatches-consumed-suppressed-on-second-send",
+      "dispatch-admission/dispatches-expired-fires-on-ttl",
+      "dispatch-admission/dispatches-expired-suppressed-on-consume-before-ttl",
+      "dispatch-admission/dispatches-get-moderator-sees-record",
+      "dispatch-admission/dispatches-get-non-moderator-rejected",
+      "dispatch-admission/same-conversation-dispatches-reach-moderator-concurrently",
+      "dispatch-admission/slow-first-moderator-call-does-not-delay-second-ack",
+      "dispatch-admission/release-for-one-lease-does-not-wait-on-another",
+    ].map<AllowedCoverageGap>((id) => ({
+      kind: "deferred",
+      id,
+      reasonIncludes: "cross-impl `dispatch/request` driver in TestServer",
+    })),
   ];
   if (toxiproxyUrl === null) {
     gaps.push(
