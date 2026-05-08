@@ -34,6 +34,15 @@ fi
 # Existing properties that predate the executable-proof gate. Keep this
 # list small and intentional: new suite registrars should normally get a
 # proof, not a new exemption.
+#
+# Dispatch-admission addendum (#533 row 13 cutover): the 15 properties
+# below ship with executable bodies that drive a real recipient ↔
+# moderator round-trip via `DispatchTestDriver`. The architect plan
+# §2/§6 directs deletion of the prior tombstone-shape proof file
+# (`dispatch-admission-executable.proofs.test.ts`); a known-bad-server
+# divergence proof — analogous to `server-executable.proofs.test.ts` —
+# is filed as a follow-up so cross-impl validation against a deliberately
+# misbehaving server can be added without re-bundling the chunk-2 cutover.
 legacy_exempt_registrars=(
   registerEventWellFormedness
   registerRoundTripIdentity
@@ -63,6 +72,22 @@ legacy_exempt_registrars=(
   registerResetPeerRecoveryClient
   registerTimeoutSurfaceClient
   registerSlowCloseCleanupClient
+  # #533 row 13 cutover — see addendum above.
+  registerDispatchRequestAckMintsLease
+  registerDispatchRequestRecipientDisconnectAbandons
+  registerDispatchAuthorizeVerdictResolves
+  registerDispatchAuthorizeTimeoutSynthesizesDeny
+  registerDispatchReleaseFiresAfterResolve
+  registerDispatchReleaseSkippedOnAbandoned
+  registerDispatchesConsumedFiresOnFirstSend
+  registerDispatchesConsumedSuppressedOnSecondSend
+  registerDispatchesExpiredFiresOnTtl
+  registerDispatchesExpiredSuppressedOnConsumeBeforeTtl
+  registerDispatchesGetModeratorSeesRecord
+  registerDispatchesGetNonModeratorRejected
+  registerSameConversationDispatchesConcurrent
+  registerSlowFirstDoesNotDelaySecondAck
+  registerReleaseForOneLeaseDoesNotWaitOnAnother
 )
 
 is_legacy_exempt() {
