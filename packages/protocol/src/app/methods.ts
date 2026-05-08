@@ -1,16 +1,9 @@
 // App-layer manifest. File outline:
 //   1. App manifest schema (AppManifestSchema, AppManifest)
-//   2. apps/* RPCs (AppsRegister, AppsAuthorizeDispatch [legacy])
-//   3. task callback descriptor (TaskAuthorizeDispatch [legacy])
-//   4. dispatch/* reshape additive descriptors (#529)
-//   5. dispatches/* moderator-observability descriptors (#529)
-//   6. Aggregator arrays
-//
-// Architect note (#529): the `apps/authorizeDispatch` (C→S) and
-// `task/authorizeDispatch` (S→C) descriptors STAY in this PR. The
-// reshape additive PR ships the new `dispatch/{request,authorize,
-// release}` and `dispatches/{consumed,expired,get}` surfaces side-by-
-// side; the cutover PR (row 13) deletes the legacy pair.
+//   2. apps/* RPCs (AppsRegister)
+//   3. dispatch/* admission descriptors
+//   4. dispatches/* moderator-observability descriptors
+//   5. Aggregator arrays
 import { Type, type Static } from "@sinclair/typebox";
 import { AgentId, AgentOwnershipSchema } from "../identity/methods.js";
 import { ConversationId, MessageId, TaskId } from "../task/methods.js";
@@ -30,15 +23,8 @@ const AppManifestConversationSchema = Type.Object(
 );
 
 /**
- * Per-hook configuration entry. Both `task_authorize_dispatch` (legacy)
- * and `dispatch_authorize` (#529 additive) accept the same shape — only
- * `timeout_ms` is configurable. The cutover PR deletes the legacy key.
- *
- * Manifest dual-mode precedence: when a manifest declares BOTH
- * `task_authorize_dispatch` AND `dispatch_authorize`, the server prefers
- * `dispatch_authorize` and emits the new `dispatch/authorize` S→C RPC
- * (architect plan §4.3 + risk #8). The cutover PR removes the legacy key
- * outright, eliminating the ambiguity.
+ * Per-hook configuration entry. `dispatch_authorize` accepts the
+ * shape — only `timeout_ms` is configurable.
  */
 const HookEntrySchema = Type.Object(
   {
@@ -48,13 +34,9 @@ const HookEntrySchema = Type.Object(
 );
 
 /**
- * Manifest hook map. Dual-mode during the additive reshape PR (#529):
- * a moderator declares EITHER `task_authorize_dispatch` (routes via
- * legacy `task/authorizeDispatch` S→C RPC) OR `dispatch_authorize`
- * (routes via new `dispatch/authorize` S→C RPC). The server picks the
- * route by which key is present. The cutover PR removes the legacy
- * key; manifests carrying both during the transition prefer the new
- * key (architect §3.6, #529 acceptance §5).
+ * Manifest hook map. The single hook key `dispatch_authorize` selects
+ * the moderator round-trip target for admission verdicts; the server
+ * emits the matching `dispatch/authorize` S→C RPC.
  */
 export const AppManifestSchema = Type.Object(
   {
@@ -73,7 +55,6 @@ export const AppManifestSchema = Type.Object(
     hooks: Type.Optional(
       Type.Object(
         {
-          task_authorize_dispatch: Type.Optional(HookEntrySchema),
           dispatch_authorize: Type.Optional(HookEntrySchema),
         },
         { additionalProperties: false },
@@ -142,28 +123,7 @@ const PendingMessageArraySchema = Type.Array(PendingMessageSchema, {
   maxItems: 100,
 });
 
-export const AppsAuthorizeDispatch = defineRpc({
-  name: "apps/authorizeDispatch",
-  params: Type.Object(
-    {
-      conversationId: ConversationId,
-      messageId: MessageId,
-      senderAgentId: AgentId,
-      parts: Type.Optional(MessagePartsSchema),
-      receivedAt: Type.Optional(DateTimeString),
-      pending: Type.Optional(PendingMessageArraySchema),
-      clock: Type.Optional(LogicalClockSchema),
-      attempt: Type.Optional(Type.Integer({ minimum: 0 })),
-    },
-    { additionalProperties: false },
-  ),
-  result: Type.Object(
-    { admission: DispatchAdmissionDecisionSchema },
-    { additionalProperties: false },
-  ),
-});
-
-const TaskAuthorizeDispatchContextSchema = Type.Object(
+const DispatchAuthorizeContextSchema = Type.Object(
   {
     taskId: TaskId,
     appId: Type.String(),
@@ -185,18 +145,9 @@ const TaskAuthorizeDispatchContextSchema = Type.Object(
   { additionalProperties: false },
 );
 
-export const TaskAuthorizeDispatch = defineRpc({
-  name: "task/authorizeDispatch",
-  params: TaskAuthorizeDispatchContextSchema,
-  result: Type.Object(
-    { admission: DispatchAdmissionDecisionSchema },
-    { additionalProperties: false },
-  ),
-});
-
-// ── dispatch/* reshape additive descriptors (#529) ──────────────────
+// ── dispatch/* admission descriptors ────────────────────────────────
 //
-// The new admission surface decouples the recipient's `dispatch/request`
+// The admission surface decouples the recipient's `dispatch/request`
 // from moderator latency: the server mints a lease, acks immediately,
 // forks the moderator round-trip, and emits `dispatch/release` as a
 // notification when the verdict is in (or synthesized for default-grant
@@ -204,11 +155,7 @@ export const TaskAuthorizeDispatch = defineRpc({
 //
 // Naming and shape constraints come from the parent plan's Final
 // Decisions §1-§12 (see `/home/tapanc/.claude/plans/okay-now-look-that-
-// swirling-snail.md`). All descriptors below are wire stubs — the
-// implement-staff PR fills in registration into `appRpcMethods` /
-// `taskCallbackMethods` / `appNotifications`, plus the AJV-backed
-// validators (handled by `defineRpc` / `defineNotification` at module
-// load).
+// swirling-snail.md`).
 
 /**
  * Branded lease identifier minted by `LeaseRegistry.mint`. UUIDv4 with
@@ -229,15 +176,13 @@ export const DispatchId = brandedId("DispatchId");
 export type DispatchId = Static<typeof DispatchId>;
 
 /**
- * Recipient → server admission request. Replaces the synchronous-
- * verdict shape of legacy `apps/authorizeDispatch` with an immediate
- * ack carrying `{leaseId, dispatchId}` and an out-of-band
- * `dispatch/release` notification carrying the verdict.
+ * Recipient → server admission request. The server returns an
+ * immediate ack carrying `{leaseId, dispatchId}` and emits an out-of-
+ * band `dispatch/release` notification carrying the verdict.
  *
  * Wire ordering: the ack and `dispatch/release` may race — the
- * recipient absorbs the race via a client-side ring buffer added in
- * the cutover PR (#529 §6). This additive PR ships the server-side
- * surface only; clients still call legacy `apps/authorizeDispatch`.
+ * recipient absorbs the race via a client-side ring buffer + per-
+ * lease `Deferred` (see `packages/client/src/channel-core.ts`).
  */
 export const DispatchRequest = defineRpc({
   name: "dispatch/request",
@@ -261,17 +206,15 @@ export const DispatchRequest = defineRpc({
 });
 
 /**
- * Server → moderator request asking for the admission verdict.
- * Successor of legacy `task/authorizeDispatch` (S→C). Carried inside
- * the forked moderator round-trip; failure / timeout in the round-trip
- * synthesizes a fail-closed `deny` verdict at `LeaseRegistry.resolve`.
- * Manifests opt in by declaring `hooks.dispatch_authorize` (additive
- * PR accepts this key alongside legacy `task_authorize_dispatch`; the
- * cutover PR drops the legacy key).
+ * Server → moderator request asking for the admission verdict. Carried
+ * inside the forked moderator round-trip; failure / timeout in the
+ * round-trip synthesizes a fail-closed `deny` verdict at
+ * `LeaseRegistry.resolve`. Manifests opt in by declaring
+ * `hooks.dispatch_authorize`.
  */
 export const DispatchAuthorize = defineRpc({
   name: "dispatch/authorize",
-  params: TaskAuthorizeDispatchContextSchema,
+  params: DispatchAuthorizeContextSchema,
   result: Type.Object(
     { admission: DispatchAdmissionDecisionSchema },
     { additionalProperties: false },
@@ -406,22 +349,14 @@ export const DispatchesGet = defineRpc({
 });
 
 // ── Aggregators ─────────────────────────────────────────────────────
-//
-// During the additive PR every legacy descriptor stays registered
-// alongside the new descriptors. The cutover PR (row 13) drops the
-// legacy entries from these arrays.
 
 export const appRpcMethods = [
   AppsRegister,
-  AppsAuthorizeDispatch,
   DispatchRequest,
   DispatchesGet,
 ] as const;
 
-export const taskCallbackMethods = [
-  TaskAuthorizeDispatch,
-  DispatchAuthorize,
-] as const;
+export const taskCallbackMethods = [DispatchAuthorize] as const;
 
 export const appNotifications = [
   DispatchRelease,

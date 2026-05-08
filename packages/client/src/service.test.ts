@@ -2,14 +2,14 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Effect, Either } from "effect";
-import type { Message } from "@moltzap/protocol";
+import type { Message, ResultOf } from "@moltzap/protocol";
 import {
-  AppsAuthorizeDispatch,
   ConversationsGet,
   ConversationArchivedError,
   ConversationArchivedNotificationDefinition,
   ConversationCreatedNotificationDefinition,
   ConversationUnarchivedNotificationDefinition,
+  DispatchRequest,
   MessageReceivedNotificationDefinition,
   MessagesSend,
 } from "@moltzap/protocol";
@@ -32,7 +32,6 @@ const AGENT_SELF_ID = testAgentId("agent-self");
 const AGENT_GM_ID = testAgentId("agent-gm");
 const CONVERSATION_ALICE_ID = testConversationId("conv-alice");
 const CONVERSATION_ARCHIVED_ID = testConversationId("conv-archived");
-const DISPATCH_MESSAGE_ID = testMessageId("msg-dispatch");
 
 describe("MoltZapService.sendToAgent", () => {
   let service: FakeMoltZapService;
@@ -226,20 +225,31 @@ describe("sanitizeForSystemReminder", () => {
   });
 });
 
-describe("MoltZapService.authorizeDispatch", () => {
-  it("uses the long app-dispatch RPC timeout instead of the generic RPC timeout", async () => {
+describe("MoltZapService.requestDispatch", () => {
+  it("issues dispatch/request and returns the {leaseId, dispatchId} ack", async () => {
+    // Branded ids must be valid UUIDs (the protocol's `format: "uuid"`
+    // ajv-validates them). The `testAgentId`/`testConversationId`/
+    // `testMessageId` helpers project test labels to UUIDv4s; reuse
+    // them for branded ids whose brand-name matches the schema's
+    // brand-name. The fake's response validator uses the same ajv
+    // pipeline as the real wire; structural-typed UUIDs satisfy
+    // both `LeaseId`/`DispatchId` brands at runtime.
     const service = new FakeMoltZapService();
-    service.setResponse(AppsAuthorizeDispatch, {
-      admission: {
-        decision: "grant",
-        leaseId: "lease-1",
-        leaseTimeoutMs: 90_000,
-      },
+    type DispatchRequestResult = ResultOf<typeof DispatchRequest>;
+    // prettier-ignore
+    const leaseUuid = testAgentId("lease-1") as unknown as DispatchRequestResult["leaseId"]; // #ignore-sloppy-code[as-unknown-as]: branded UUID handoff for fake-service response
+    // prettier-ignore
+    const dispatchUuid = testAgentId("dispatch-1") as unknown as DispatchRequestResult["dispatchId"]; // #ignore-sloppy-code[as-unknown-as]: branded UUID handoff for fake-service response
+    const requestMessageId = testMessageId("msg-dispatch-req");
+    service.setResponse(DispatchRequest, {
+      leaseId: leaseUuid,
+      dispatchId: dispatchUuid,
     });
 
     const result = await run(
-      service.authorizeDispatch({
+      service.requestDispatch({
         conversationId: CONVERSATION_ALICE_ID,
+        messageId: requestMessageId,
         senderAgentId: AGENT_GM_ID,
         attempt: 0,
         receivedAt: "2026-04-29T22:00:00.000Z",
@@ -249,26 +259,19 @@ describe("MoltZapService.authorizeDispatch", () => {
           vector: { [AGENT_GM_ID]: 1 },
         },
         pending: [],
-        message: buildMessage({
-          id: DISPATCH_MESSAGE_ID,
-          conversationId: CONVERSATION_ALICE_ID,
-          senderId: AGENT_GM_ID,
-          parts: [{ type: "text", text: "Time to vote!" }],
-          createdAt: "2026-04-29T22:00:00.000Z",
-        }),
+        parts: [{ type: "text", text: "Time to vote!" }],
       }),
     );
 
-    expect(result).toEqual({
-      _tag: "grant",
-      leaseId: "lease-1",
-      leaseTimeoutMs: 90_000,
-    });
+    expect(result.leaseId).toBe(leaseUuid);
+    expect(result.dispatchId).toBe(dispatchUuid);
     expect(service.calls).toHaveLength(1);
+    // No custom timeout override — uses the default RPC timeout
+    // (cutover: the legacy 900 s authorizeDispatch override is gone).
     expect(service.calls[0]).toMatchObject({
-      method: AppsAuthorizeDispatch.name,
-      opts: { timeoutMs: 900_000 },
+      method: DispatchRequest.name,
     });
+    expect(service.calls[0]?.opts).toBeUndefined();
   });
 });
 

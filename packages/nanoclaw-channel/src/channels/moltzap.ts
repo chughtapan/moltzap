@@ -1,4 +1,5 @@
 import { Config, ConfigProvider, Data, Effect, Option } from "effect";
+import { RpcServerError } from "@moltzap/protocol";
 import {
   MoltZapChannelCore,
   MoltZapService,
@@ -6,6 +7,7 @@ import {
   type CrossConvMessage,
   type EnrichedConversationMeta,
   type EnrichedInboundMessage,
+  type ServiceRpcError,
   type WsClientLogger,
 } from "@moltzap/client";
 
@@ -130,6 +132,22 @@ export class MoltZapChannel implements Channel {
     );
   }
 
+  /**
+   * Outbound reply path. Cutover #533 — single-use lease semantics:
+   * the FIRST send consumes the lease via `core.sendReply`. Any
+   * subsequent send for the same JID within the same dispatch finds
+   * the entry STILL in the map (we no longer delete it eagerly) AND
+   * the lease in `CONSUMED` state server-side; the typed
+   * `RpcServerError(data.reason="LeaseInvalid")` propagates as
+   * `MoltZapChannelError({reason: "lease already consumed"})` to
+   * nanoclaw.
+   *
+   * Pre-cutover behaviour deleted the entry after the first send,
+   * which on a second send would silently fall back to an unleased
+   * `core.sendReply` — server side accepts it (no lease binding) but
+   * the moderator has no observability of the second message. The
+   * post-cutover surface is uniform.
+   */
   sendMessage(jid: string, text: string) {
     return Effect.runPromise(
       Effect.gen(this, function* () {
@@ -140,10 +158,33 @@ export class MoltZapChannel implements Channel {
             }),
           );
         }
-        yield* this.core.sendReply(conversationIdFromJid(jid), text, {
-          dispatchLeaseId: this.dispatchLeasesByJid.get(jid),
-        });
-        this.dispatchLeasesByJid.delete(jid);
+        const leaseId = this.dispatchLeasesByJid.get(jid);
+        yield* this.core
+          .sendReply(
+            conversationIdFromJid(jid),
+            text,
+            leaseId !== undefined ? { dispatchLeaseId: leaseId } : {},
+          )
+          .pipe(
+            Effect.mapError(
+              (err: ServiceRpcError): ServiceRpcError | MoltZapChannelError => {
+                if (
+                  err instanceof RpcServerError &&
+                  typeof err.data === "object" &&
+                  err.data !== null &&
+                  (err.data as { reason?: unknown }).reason === "LeaseInvalid"
+                ) {
+                  return new MoltZapChannelError({
+                    reason: "lease already consumed",
+                  });
+                }
+                return err;
+              },
+            ),
+          );
+        // Keep the lease entry: a second sendMessage for the same
+        // JID re-uses the consumed lease and triggers the server's
+        // CONSUMED rejection (single-use semantics).
       }),
     );
   }

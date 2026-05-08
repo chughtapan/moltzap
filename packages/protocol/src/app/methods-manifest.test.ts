@@ -1,17 +1,17 @@
 import { describe, it, expect } from "vitest";
 import Ajv from "ajv";
 import addFormats from "ajv-formats";
-import { AppManifestSchema, AppsAuthorizeDispatch } from "./methods.js";
+import {
+  AppManifestSchema,
+  DispatchAuthorize,
+  DispatchRequest,
+} from "./methods.js";
 
 const ajv = addFormats(new Ajv({ strict: true, allErrors: true }));
 
 const validateManifest = ajv.compile(AppManifestSchema);
-const validateAuthorizeDispatchResult = ajv.compile(
-  AppsAuthorizeDispatch.resultSchema,
-);
-const validateAuthorizeDispatchParams = ajv.compile(
-  AppsAuthorizeDispatch.paramsSchema,
-);
+const validateAuthorizeResult = ajv.compile(DispatchAuthorize.resultSchema);
+const validateRequestParams = ajv.compile(DispatchRequest.paramsSchema);
 
 describe("AppManifestSchema", () => {
   it("accepts a valid manifest", () => {
@@ -62,11 +62,6 @@ describe("AppManifestSchema", () => {
     expect(validateManifest(manifest)).toBe(false);
   });
 
-  // The `permissions` field was deleted in Phase 1B alongside the entire
-  // permissions surface (RPCs, server class, DB table). The schema is
-  // `additionalProperties: false`, so a manifest carrying a stale
-  // permissions block must reject — proves the field is gone, not silently
-  // accepted via a missed schema edit.
   it("rejects retired permissions field", () => {
     const manifest = {
       appId: "test",
@@ -85,32 +80,26 @@ describe("AppManifestSchema", () => {
     expect(validateManifest(manifest)).toBe(false);
   });
 
-  it("accepts manifest with task_authorize_dispatch timeout", () => {
-    // Phase 9b consumer-migration (sub-issue #460): the legacy
-    // `before_message_delivery` / `on_close` / `on_session_active` hook
-    // keys retired with their wire RPCs; only `task_authorize_dispatch`
-    // (renamed from `before_dispatch`) remains.
+  it("accepts manifest with dispatch_authorize timeout", () => {
     const manifest = {
       appId: "werewolf",
       name: "Werewolf",
       hooks: {
-        task_authorize_dispatch: { timeout_ms: 3000 },
+        dispatch_authorize: { timeout_ms: 3000 },
       },
     };
     expect(validateManifest(manifest)).toBe(true);
   });
 
   it("accepts hook timeouts above 30s (no upper cap)", () => {
-    // Werewolf Phase 2 declares `task_authorize_dispatch: 900_000ms`
-    // (15 min) for the player-input waiter pattern. The schema-level
-    // 30s `maximum` was removed in B.4 follow-up (#324) per architect
-    // plan §8.1; AppHost enforces the declared timeout via
-    // `Effect.timeout(manifestMs)`.
+    // Werewolf Phase 2 declares `dispatch_authorize: 900_000ms` (15 min)
+    // for the player-input waiter pattern; AppHost enforces the declared
+    // timeout via `Effect.timeout(manifestMs)`.
     const manifest = {
       appId: "werewolf",
       name: "Werewolf",
       hooks: {
-        task_authorize_dispatch: { timeout_ms: 900_000 },
+        dispatch_authorize: { timeout_ms: 900_000 },
       },
     };
     expect(validateManifest(manifest)).toBe(true);
@@ -121,7 +110,7 @@ describe("AppManifestSchema", () => {
       appId: "werewolf",
       name: "Werewolf",
       hooks: {
-        task_authorize_dispatch: { timeout_ms: 0 },
+        dispatch_authorize: { timeout_ms: 0 },
       },
     };
     expect(validateManifest(manifest)).toBe(false);
@@ -132,21 +121,19 @@ describe("AppManifestSchema", () => {
       appId: "test",
       name: "Test",
       hooks: {
-        task_authorize_dispatch: { unexpected: "value" },
+        dispatch_authorize: { unexpected: "value" },
       },
     };
     expect(validateManifest(manifest)).toBe(false);
   });
 
-  it("rejects retired hook keys (`before_dispatch`, `before_message_delivery`, `on_close`, `on_session_active`)", () => {
-    // Phase 9b consumer-migration regression guard: these four keys
-    // were the legacy appCallback group; retired by sub-issue #460.
-    // The schema's `additionalProperties: false` enforces the deletion.
+  it("rejects retired hook keys", () => {
     for (const key of [
       "before_dispatch",
       "before_message_delivery",
       "on_close",
       "on_session_active",
+      "task_authorize_dispatch",
     ] as const) {
       const manifest = {
         appId: "test",
@@ -158,10 +145,10 @@ describe("AppManifestSchema", () => {
   });
 });
 
-describe("AppsAuthorizeDispatch", () => {
+describe("DispatchAuthorize verdict union", () => {
   it("rejects retry/defer admission results", () => {
     expect(
-      validateAuthorizeDispatchResult({
+      validateAuthorizeResult({
         admission: {
           decision: "defer",
           retryAfterMs: 100,
@@ -173,7 +160,7 @@ describe("AppsAuthorizeDispatch", () => {
 
   it("accepts grant, hold, and deny admission results", () => {
     expect(
-      validateAuthorizeDispatchResult({
+      validateAuthorizeResult({
         admission: {
           decision: "grant",
           leaseId: "lease-1",
@@ -183,20 +170,22 @@ describe("AppsAuthorizeDispatch", () => {
       }),
     ).toBe(true);
     expect(
-      validateAuthorizeDispatchResult({
+      validateAuthorizeResult({
         admission: { decision: "deny", reason: "phase closed" },
       }),
     ).toBe(true);
     expect(
-      validateAuthorizeDispatchResult({
+      validateAuthorizeResult({
         admission: { decision: "hold", reason: "waiting for turn" },
       }),
     ).toBe(true);
   });
+});
 
-  it("accepts pending message parts in authorization params", () => {
+describe("DispatchRequest params", () => {
+  it("accepts pending message parts", () => {
     expect(
-      validateAuthorizeDispatchParams({
+      validateRequestParams({
         conversationId: "550e8400-e29b-41d4-a716-446655440002",
         messageId: "550e8400-e29b-41d4-a716-446655440003",
         senderAgentId: "550e8400-e29b-41d4-a716-446655440004",

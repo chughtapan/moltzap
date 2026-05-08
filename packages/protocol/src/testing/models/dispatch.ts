@@ -27,7 +27,11 @@ import {
   Register,
 } from "../../identity/methods.js";
 import { Connect } from "../../network/methods.js";
-import { AppsAuthorizeDispatch } from "../../app/methods.js";
+import {
+  AppsRegister,
+  DispatchRequest,
+  DispatchesGet,
+} from "../../app/methods.js";
 import {
   type ConversationId,
   TasksClose,
@@ -263,9 +267,12 @@ export function applyCall(
     case PresenceSubscribe.name:
       return { next: baseNext, outcome: uncertainError() };
 
-    // Apps — only `apps/authorizeDispatch` survived Phase 7. Requires
-    // app/user context the fresh agent doesn't have.
-    case AppsAuthorizeDispatch.name:
+    // Apps — admission + observability surfaces require app/user context
+    // the fresh fuzz agent doesn't have. Outcome is uncertain across
+    // draws (the registry may be unwired in some envs).
+    case AppsRegister.name:
+    case DispatchRequest.name:
+    case DispatchesGet.name:
       return { next: baseNext, outcome: uncertainError() };
 
     // Tasks — require task/participant context. Uncertain across draws.

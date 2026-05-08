@@ -15,10 +15,14 @@ export {
   type ChannelCoreOptions,
   type ChannelService,
   type ContextBlocks,
+  type DispatchAdmissionDecision,
+  type DispatchAdmissionRequest,
+  type DispatchReleaseFrame,
   type EnrichedConversationMeta,
   type EnrichedInboundMessage,
   type EnrichedSender,
   type InboundHandler,
+  type PendingDispatchMessage,
 } from "./channel-core.js";
 export {
   MoltZapWsClient,
