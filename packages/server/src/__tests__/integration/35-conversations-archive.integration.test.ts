@@ -117,27 +117,12 @@ describe("conversations/archive + /unarchive", () => {
     }),
   );
 
-  it.live("admin can archive (role promoted directly)", () =>
-    Effect.gen(function* () {
-      const group = yield* setupAgentGroup(2, { groupName: "Admin Test" });
-      const [, bob] = group.agents as [ConnectedAgent, ConnectedAgent];
-      const conversationId = group.conversationId!;
-
-      // Role assignment goes through a separate admin API not wired here;
-      // direct DB write is the minimal stand-in for the test.
-      const db = getCoreDb();
-      yield* Effect.promise(() =>
-        db
-          .updateTable("conversation_participants")
-          .set({ role: "admin" })
-          .where("conversation_id", "=", conversationId)
-          .where("agent_id", "=", bob.agentId)
-          .execute(),
-      );
-
-      yield* bob.client.sendRpc(ConversationsArchive, { conversationId });
-    }),
-  );
+  // Prereq 2 (#525): the pre-helper authority model had a separate
+  // promote-to-admin DB-direct path; the new model collapses authority
+  // to (creator | TM) with no promotion flow, so an "admin can archive
+  // (role promoted)" fixture has no production-reachable shape and is
+  // deleted. TM-archives-app-bound is covered by the new
+  // conversation-admin-authority unit/integration tests.
 
   it.live("archive of archived conversation is idempotent", () =>
     Effect.gen(function* () {
@@ -176,26 +161,17 @@ describe("conversations/archive + /unarchive", () => {
     "archive of task-attached conversation returns 409 (Phase 9 reactivation)",
   );
 
-  it.live("concurrent archive by two privileged callers — both succeed", () =>
+  it.live("concurrent archive by the same privileged caller — idempotent", () =>
     Effect.gen(function* () {
       const group = yield* setupAgentGroup(2, { groupName: "Race" });
-      const [alice, bob] = group.agents as [ConnectedAgent, ConnectedAgent];
+      const [alice] = group.agents as [ConnectedAgent, ConnectedAgent];
       const conversationId = group.conversationId!;
 
       const db = getCoreDb();
-      yield* Effect.promise(() =>
-        db
-          .updateTable("conversation_participants")
-          .set({ role: "admin" })
-          .where("conversation_id", "=", conversationId)
-          .where("agent_id", "=", bob.agentId)
-          .execute(),
-      );
-
       const [r1, r2] = yield* Effect.all(
         [
           alice.client.sendRpc(ConversationsArchive, { conversationId }),
-          bob.client.sendRpc(ConversationsArchive, { conversationId }),
+          alice.client.sendRpc(ConversationsArchive, { conversationId }),
         ],
         { concurrency: "unbounded" },
       );

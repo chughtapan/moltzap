@@ -2,6 +2,7 @@ import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { it } from "@effect/vitest";
 import { Effect, Either } from "effect";
 import {
+  InvalidParamsError,
   TasksAddParticipant,
   TasksClose,
   TasksCreate,
@@ -223,6 +224,74 @@ describe("tasks/* RPC end-to-end (Phase 6 + Phase 9b round 4)", () => {
       expect(aliceList.tasks.map((t) => t.id)).toContain(aliceTask.task.id);
       expect(aliceList.tasks).toHaveLength(1);
     }),
+  );
+
+  // Prereq 2 (#525 §7) follow-up (#528): app-bound tasks must carry
+  // their own moderator (the TM IS the app), so pairing an `appId`
+  // with a `default-*` TM kind is rejected at the wire boundary with
+  // `InvalidParamsError`. Implementation:
+  // `task/handlers/tasks.handlers.ts:71-83`.
+  it.live(
+    "tasks/create rejects appId + default-dm with InvalidParamsError",
+    () =>
+      Effect.gen(function* () {
+        const { aliceClient } = yield* setupAliceAndBob();
+        const outcome = yield* Effect.either(
+          aliceClient.sendRpc(TasksCreate, {
+            appId: "some-app",
+            tmType: "default-dm",
+          }),
+        );
+        expect(Either.isLeft(outcome)).toBe(true);
+        if (Either.isLeft(outcome)) {
+          const err = outcome.left as { code?: number; message?: string };
+          expect(err.code).toBe(InvalidParamsError.code);
+          expect(err.message).toMatch(
+            /app-bound tasks cannot use a default TM/i,
+          );
+        }
+      }),
+  );
+
+  it.live(
+    "tasks/create rejects appId + default-group with InvalidParamsError",
+    () =>
+      Effect.gen(function* () {
+        const { aliceClient } = yield* setupAliceAndBob();
+        const outcome = yield* Effect.either(
+          aliceClient.sendRpc(TasksCreate, {
+            appId: "some-app",
+            tmType: "default-group",
+          }),
+        );
+        expect(Either.isLeft(outcome)).toBe(true);
+        if (Either.isLeft(outcome)) {
+          const err = outcome.left as { code?: number; message?: string };
+          expect(err.code).toBe(InvalidParamsError.code);
+          expect(err.message).toMatch(
+            /app-bound tasks cannot use a default TM/i,
+          );
+        }
+      }),
+  );
+
+  // Positive control for the §7 rejection arm: `appId` paired with a
+  // non-default TM kind (`self`) is the legitimate app-bound shape and
+  // must succeed.
+  it.live(
+    "tasks/create accepts appId + tmType: self (positive control for §7 rejection arm)",
+    () =>
+      Effect.gen(function* () {
+        const { aliceClient, aliceAgentId } = yield* setupAliceAndBob();
+        const result = yield* aliceClient.sendRpc(TasksCreate, {
+          appId: "some-app",
+          tmType: "self",
+        });
+        expect(result.task.appId).toBe("some-app");
+        expect(result.task.tmEndpointAddress).toBe(
+          expectSelfTmAddress(aliceAgentId),
+        );
+      }),
   );
 
   it.live(

@@ -174,4 +174,40 @@ describe("apps/authorizeDispatch — task→app routing via DB lookup", () => {
       }),
     20_000,
   );
+
+  it.live(
+    "AppBound + no hook → hold with reason 'moderator_unavailable' (prereq 2 fail-soft)",
+    () =>
+      Effect.gen(function* () {
+        const { alice, bob } = yield* setupAgentPair();
+        // Create a task bound to an unknown app id (no hook registered
+        // and no remote registration) — prereq 2 (#525 §4e) replaces
+        // the default-grant fall-through with a synthesized hold so a
+        // restarted moderator does not mass-evict app-bound recipients.
+        const unknownAppId = "no-hook-app";
+        const task = yield* alice.client.sendRpc(TasksCreate, {
+          appId: unknownAppId,
+          tmType: "self",
+        });
+        const conv = yield* alice.client.sendRpc(TasksCreateConversation, {
+          taskId: task.task.id,
+          type: "dm",
+          participants: [{ type: "agent", id: bob.agentId }],
+        });
+
+        const result = yield* bob.client.sendRpc(AppsAuthorizeDispatch, {
+          conversationId: conv.conversation.id,
+          messageId: makeProbeMessageId(),
+          senderAgentId: protocolAgentId(alice.agentId),
+          parts: [{ type: "text", text: "probe" }],
+        });
+        expect(result.admission.decision).toBe("hold");
+        if (result.admission.decision === "hold") {
+          expect(result.admission.reason).toBe("moderator_unavailable");
+        }
+        // The known TEST_APP_ID hook stays untouched.
+        expect(hookConsultations).toBe(0);
+      }),
+    20_000,
+  );
 });

@@ -216,9 +216,10 @@ export function createConversationHandlers(deps: {
             targetAgentId,
             ctx.agentId,
           );
-          for (const conn of deps.connections.getByAgent(targetAgentId)) {
-            conn.conversationIds.add(params.conversationId);
-          }
+          // Per architect plan §2 module 7: the redundant
+          // `getByAgent(...)` subscription loop dropped — the service
+          // already calls `subscribeAgentsToConversation` in
+          // `addParticipant`, so the handler-side loop was dead.
           return { participant };
         }),
     }),

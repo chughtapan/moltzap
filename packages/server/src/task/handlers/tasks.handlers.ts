@@ -13,6 +13,7 @@ import {
   TasksStoreMessage,
   type TmType,
 } from "@moltzap/protocol";
+import { InvalidParamsError } from "../../runtime/index.js";
 import { type EndpointAddress } from "@moltzap/protocol/network";
 import {
   DEFAULT_DM_TM_ADDRESS,
@@ -62,6 +63,23 @@ export function createTaskHandlers(deps: {
     defineTaskMethod(TasksCreate, {
       handler: (params, ctx) =>
         Effect.gen(function* () {
+          // Prereq 2 (#525 §4d): app-bound tasks always carry their
+          // own moderator (the TM IS the app), so pairing an `appId`
+          // with a `default-*` TM kind is a nonsense shape. Reject at
+          // the wire boundary with `InvalidParamsError` instead of
+          // letting it through and silently routing dispatch to one
+          // of the in-process default-TM constants.
+          if (
+            params.appId !== undefined &&
+            (params.tmType === "default-dm" ||
+              params.tmType === "default-group")
+          ) {
+            return yield* Effect.fail(
+              new InvalidParamsError({
+                message: "app-bound tasks cannot use a default TM",
+              }),
+            );
+          }
           // Phase 9b consumer-migration (sub-issue #460 round 4 R16,
           // codex HIGH-A): the wire body carries `tmType` (a kind
           // marker), not a raw address. The handler derives the
