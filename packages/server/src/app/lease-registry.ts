@@ -311,6 +311,51 @@ export interface LeaseRegistry {
   ): Effect.Effect<void, LeaseInvalidError | LeaseNotFoundError, never>;
 
   /**
+   * Connection-close cleanup. Called from the WS disconnect-hook chain
+   * with the closing connection id. Iterates leases bound to that
+   * recipientConnectionId and applies the architect §3 transitions:
+   *
+   * - **PENDING → ABANDONED**: cancels the forked moderator round-trip
+   *   (its `resolve` call against the now-ABANDONED lease will return
+   *   `LeaseInvalidError(state=ABANDONED, expected=PENDING)`, which the
+   *   forked fiber catches and discards). No `dispatch/release`
+   *   notification fires (the recipient is gone). Architect §3 + §8 #15.
+   *
+   * - **GRANTED → EXPIRED-on-disconnect**: terminal state; emits
+   *   `dispatches/expired` to the moderator. Cancels the post-grant TTL
+   *   fiber. The recipient won't observe; the moderator's view stays
+   *   consistent. Architect §3.
+   *
+   * - **CLAIMED → no-op (load-bearing rule 2)**: a CLAIMED lease has an
+   *   in-flight `messages/send` owning it via `Effect.acquireUseRelease`.
+   *   Disconnecting mid-insert MUST NOT roll back the lease — the
+   *   release-arm of the acquireUseRelease is responsible. Otherwise a
+   *   committed durable row could be retried into a duplicate.
+   *
+   * - **HOLD / DENIED / EXPIRED / ABANDONED / CONSUMED**: no-op (already
+   *   terminal-or-near-terminal; no recipient-binding work to do).
+   *
+   * Errors are absorbed: connection-close cleanup is fire-and-forget;
+   * any per-lease transition failure is logged-and-dropped (the
+   * disconnect path must complete even if a single lease's state is
+   * unexpected). Public error channel is `never`.
+   */
+  abandon(connId: string): Effect.Effect<void, never, never>;
+
+  /**
+   * Internal — record the forked moderator round-trip fiber so
+   * {@link abandon} can interrupt it on recipient disconnect. The
+   * caller forks the round-trip immediately after `mint`; the registry
+   * interrupts the fiber when the binding's recipient connection
+   * closes (PENDING → ABANDONED transition). No-op if the lease is no
+   * longer in PENDING when the fiber is attached. Idempotent.
+   */
+  attachRoundTripFiber(
+    leaseId: LeaseId,
+    fiber: Fiber.RuntimeFiber<unknown, unknown>,
+  ): Effect.Effect<void, never, never>;
+
+  /**
    * Internal-but-exported emission helper. Single point of truth for
    * `dispatch/release` notifications: `resolve` calls this; nothing
    * else does. The `mint` path for default-grant calls `resolve`
@@ -351,6 +396,15 @@ export interface LeaseRegistryDeps {
 interface LeaseEntry {
   readonly record: LeaseRecord;
   readonly ttlFiber: Fiber.RuntimeFiber<unknown, unknown> | null;
+  /**
+   * Forked moderator round-trip fiber. Attached by
+   * {@link LeaseRegistry.attachRoundTripFiber} immediately after the
+   * caller forks. Interrupted on PENDING → ABANDONED so the in-flight
+   * dispatch/authorize hook is cancelled rather than leaking until
+   * timeout. Null after the fiber completes naturally (resolve fired)
+   * or the lease left PENDING.
+   */
+  readonly roundTripFiber: Fiber.RuntimeFiber<unknown, unknown> | null;
 }
 
 /**
@@ -545,7 +599,16 @@ export function makeLeaseRegistry(
       leaseId: LeaseId,
       dispatchId: DispatchId,
     ): Effect.Effect<void, never, never> =>
-      Effect.fork(
+      // `forkDaemon` (not `fork`) — retention sweeps must outlive the
+      // calling Effect's Scope. The Effect.fork variant ties the child
+      // fiber to the parent's `Scope`, which on the connection-close
+      // path is short-lived (the WS handler's onExit). A scope-bound
+      // 5-minute sleep blocked the test runtime's afterAll teardown
+      // because the parent scope kept the child alive past the
+      // server's appScope close. Daemon fibers are killed only when
+      // the runtime itself disposes — exactly the lifetime we want
+      // for retention.
+      Effect.forkDaemon(
         Effect.sleep(`${deps.leaseRetentionMs} millis`).pipe(
           Effect.flatMap(() => removeEntry(leaseId, dispatchId)),
         ),
@@ -575,7 +638,11 @@ export function makeLeaseRegistry(
             state: "EXPIRED",
             expiredAt,
           };
-          yield* replaceEntry(leaseId, { record: nextRecord, ttlFiber: null });
+          yield* replaceEntry(leaseId, {
+            record: nextRecord,
+            ttlFiber: null,
+            roundTripFiber: null,
+          });
           yield* emitDispatchesExpired(nextRecord, expiredAt);
           yield* scheduleRetention(leaseId, nextRecord.dispatchId);
         }),
@@ -610,7 +677,11 @@ export function makeLeaseRegistry(
           };
           yield* Ref.update(entriesRef, (m) => {
             const out = new Map(m);
-            out.set(leaseId, { record, ttlFiber: null });
+            out.set(leaseId, {
+              record,
+              ttlFiber: null,
+              roundTripFiber: null,
+            });
             return out;
           });
           yield* Ref.update(dispatchIndexRef, (m) => {
@@ -666,7 +737,14 @@ export function makeLeaseRegistry(
           ) {
             ttlFiber = yield* scheduleTtl(leaseId, leaseTimeoutMs);
           }
-          yield* replaceEntry(leaseId, { record: nextRecord, ttlFiber });
+          // Resolve clears the round-trip-fiber slot — the forked fiber
+          // is the one calling resolve, so by definition it has finished
+          // its hook call by the time we reach this point.
+          yield* replaceEntry(leaseId, {
+            record: nextRecord,
+            ttlFiber,
+            roundTripFiber: null,
+          });
           yield* emitDispatchRelease(nextRecord, verdict);
           // Terminal: schedule retention sweep so the record ages out.
           if (nextState === "DENIED") {
@@ -705,6 +783,7 @@ export function makeLeaseRegistry(
           yield* replaceEntry(leaseId, {
             record: claimedRecord,
             ttlFiber: null,
+            roundTripFiber: null,
           });
 
           const claim: Claim = {
@@ -743,6 +822,7 @@ export function makeLeaseRegistry(
                 yield* replaceEntry(leaseId, {
                   record: consumedRecord,
                   ttlFiber: null,
+                  roundTripFiber: null,
                 });
                 yield* emitDispatchesConsumed(
                   consumedRecord,
@@ -786,6 +866,7 @@ export function makeLeaseRegistry(
               yield* replaceEntry(leaseId, {
                 record: rolledBack,
                 ttlFiber: newFiber,
+                roundTripFiber: null,
               });
             }),
           };
@@ -864,6 +945,93 @@ export function makeLeaseRegistry(
           const entry = entries.get(leaseId);
           if (!entry) return; // logged-and-dropped; no-throw contract
           yield* emitDispatchRelease(entry.record, verdict);
+        }),
+
+      attachRoundTripFiber: (leaseId, fiber) =>
+        Effect.gen(function* () {
+          const entries = yield* Ref.get(entriesRef);
+          const entry = entries.get(leaseId);
+          if (!entry) return;
+          // Only meaningful while the lease is still PENDING. After
+          // resolve fires, the slot is cleared and `abandon` no-ops.
+          if (entry.record.state !== "PENDING") return;
+          yield* replaceEntry(leaseId, { ...entry, roundTripFiber: fiber });
+        }),
+
+      abandon: (connId) =>
+        Effect.gen(function* () {
+          const entries = yield* Ref.get(entriesRef);
+          // Snapshot the leases bound to this connection. We mutate
+          // `entriesRef` per-lease below, but the snapshot is the work
+          // list — leases minted after this call are unrelated.
+          const targets: Array<{
+            readonly leaseId: LeaseId;
+            readonly entry: LeaseEntry;
+          }> = [];
+          for (const [leaseId, entry] of entries) {
+            if (entry.record.binding.recipientConnectionId === connId) {
+              targets.push({ leaseId, entry });
+            }
+          }
+          for (const { leaseId, entry } of targets) {
+            const state = entry.record.state;
+            if (state === "PENDING") {
+              // PENDING → ABANDONED. Cancel the forked moderator round-
+              // trip; do NOT emit `dispatch/release` (recipient is gone).
+              // `Fiber.interruptFork` does not await the interrupt —
+              // critical for the disconnect path because the round-trip
+              // fiber may be awaiting a never-resolving in-process hook
+              // promise; awaiting interrupt would block the disconnect
+              // finalizer.
+              const abandonedRecord: LeaseRecord = {
+                ...entry.record,
+                state: "ABANDONED",
+                resolvedAt: new Date().toISOString(),
+              };
+              yield* replaceEntry(leaseId, {
+                record: abandonedRecord,
+                ttlFiber: null,
+                roundTripFiber: null,
+              });
+              if (entry.roundTripFiber) {
+                yield* Fiber.interruptFork(entry.roundTripFiber);
+              }
+              yield* scheduleRetention(leaseId, abandonedRecord.dispatchId);
+              continue;
+            }
+            if (state === "GRANTED" || state === "HOLD") {
+              // GRANTED/HOLD → EXPIRED-on-disconnect (terminal).
+              // Cancel the post-grant TTL fiber; emit `dispatches/expired`
+              // to the moderator (the recipient is gone, so the lease
+              // cannot be consumed; observability is moderator-only).
+              if (entry.ttlFiber) {
+                yield* Fiber.interruptFork(entry.ttlFiber);
+              }
+              const expiredAt = new Date().toISOString();
+              const expiredRecord: LeaseRecord = {
+                ...entry.record,
+                state: "EXPIRED",
+                expiredAt,
+              };
+              yield* replaceEntry(leaseId, {
+                record: expiredRecord,
+                ttlFiber: null,
+                roundTripFiber: null,
+              });
+              yield* emitDispatchesExpired(expiredRecord, expiredAt);
+              yield* scheduleRetention(leaseId, expiredRecord.dispatchId);
+              continue;
+            }
+            // CLAIMED is the load-bearing no-op (rule 2): an in-flight
+            // `messages/send` owns the lease via Effect.acquireUseRelease;
+            // the release-arm of the wrapper is responsible for finalize
+            // or rollback. Disconnecting mid-insert here MUST NOT roll
+            // back a committed durable row.
+            //
+            // CONSUMED / DENIED / EXPIRED / ABANDONED are
+            // terminal-or-near-terminal; nothing to do. Their retention
+            // sweep was already scheduled at the resolving transition.
+          }
         }),
     };
 

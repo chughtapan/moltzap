@@ -34,10 +34,50 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+/**
+ * For app-bound conversations whose TM IS the moderator agent (the
+ * common case per architect plan §3 + prereq 2 §3 — the
+ * `requireConversationAdminAuthority` gate accepts only this shape for
+ * `app_id IS NOT NULL`), `tasks.tm_endpoint_address` is the wire
+ * address `tm:agent:<moderatorAgentId>`. Recover the agentId so the
+ * deny arm of the forked round-trip can call `removeParticipant`
+ * with the correct requester (epic decision #8).
+ *
+ * Returns `null` if the address shape doesn't match the expected
+ * agent-kind prefix — caller falls back to no-op (the architect-level
+ * authority chain is the source of truth; if the shape is unexpected,
+ * we'd rather skip removeParticipant than mis-evict the recipient).
+ */
+function parseModeratorAgentIdFromTm(raw: string): AgentId | null {
+  // Wire shape: "tm:agent:<uuid>". App-kind addresses ("tm:app:<uuid>")
+  // are not moderator-IS-agent and shouldn't drive removeParticipant
+  // — those are TM-as-app routing and the authority chain on
+  // conversations.task.app_id != null requires moderator IS agent.
+  const prefix = "tm:agent:";
+  if (!raw.startsWith(prefix)) return null;
+  const rest = raw.slice(prefix.length);
+  if (rest.length === 0) return null;
+  return rest as AgentId;
+}
+
 const DEFAULT_APP_HOOK_TIMEOUT_MS = 5000;
 
 export interface ContactService {
   areInContact(userIdA: string, userIdB: string): Effect.Effect<boolean, never>;
+}
+
+/**
+ * Structural slice of {@link ConversationService} that AppHost depends
+ * on for the #529 reshape deny arm. Defined locally rather than
+ * importing the concrete service to avoid a circular import — the
+ * layer order has ConversationService depending on AppHost.
+ */
+interface ConversationServiceForRemove {
+  removeParticipant(
+    conversationId: ConversationId,
+    agentId: AgentId,
+    requesterAgentId: AgentId,
+  ): Effect.Effect<void, unknown>;
 }
 
 class RemoteHookError extends Data.TaggedError("RemoteHookError")<{
@@ -81,6 +121,19 @@ export class AppHost {
    */
   private leaseRegistry: LeaseRegistry | null = null;
 
+  /**
+   * Optional conversation service for the #529 reshape additive deny
+   * arm. Wired post-construction by the server layer (see
+   * {@link setConversationService}). Used by the forked moderator
+   * round-trip to call `removeParticipant` on verdict-deny / synthesized
+   * timeout-deny — the architect §3 state-machine rule "On `deny`
+   * verdict, registry calls `conversationService.removeParticipant(...)`"
+   * (epic decision #8). Synthesized infra-hold (no hook registered)
+   * does NOT call removeParticipant — that is the prereq-2 hold case
+   * (architect risk #5; epic decision #10).
+   */
+  private conversationService: ConversationServiceForRemove | null = null;
+
   constructor(
     private db: Kysely<Database>,
     private connections: ConnectionManager,
@@ -89,6 +142,17 @@ export class AppHost {
   /** Wire the lease registry post-construction. */
   setLeaseRegistry(registry: LeaseRegistry): void {
     this.leaseRegistry = registry;
+  }
+
+  /**
+   * Wire the conversation service post-construction. The server layer
+   * sets this after both AppHost and ConversationService have been
+   * constructed (the layer order has ConversationService depending on
+   * AppHost, so the inverse cannot be a constructor arg without
+   * breaking the cycle).
+   */
+  setConversationService(svc: ConversationServiceForRemove): void {
+    this.conversationService = svc;
   }
 
   /** Test-only / handler-side accessor. */
@@ -382,8 +446,11 @@ export class AppHost {
 
         // Fork the moderator round-trip. The forked Effect resolves the
         // lease — the recipient observes the verdict via
-        // `dispatch/release` notification.
-        yield* Effect.forkDaemon(
+        // `dispatch/release` notification. Track the fiber in the
+        // registry so PENDING → ABANDONED on recipient disconnect can
+        // interrupt the in-flight hook call (architect §3 state-
+        // machine row "PENDING + recipient connection close").
+        const roundTripFiber = yield* Effect.forkDaemon(
           this.runForkedDispatchRoundTrip(registry, minted.leaseId, lookup, {
             conversationId: args.conversationId,
             recipientAgentId: args.recipientAgentId,
@@ -394,8 +461,10 @@ export class AppHost {
             receivedAt: args.receivedAt,
             clock: args.clock,
             pending: args.pending,
+            tmEndpointAddress,
           }),
         );
+        yield* registry.attachRoundTripFiber(minted.leaseId, roundTripFiber);
 
         return minted;
       }),
@@ -431,6 +500,12 @@ export class AppHost {
         clock?: LogicalClock;
         parts?: Part[];
       }>;
+      /**
+       * Captured at mint time from `tasks.tm_endpoint_address`. Used in
+       * the deny arm to derive the moderator's agentId for
+       * `removeParticipant` (architect §3 + epic decision #8).
+       */
+      tmEndpointAddress: string;
     },
   ): Effect.Effect<void, never, never> {
     return catchSqlErrorAsDefect(
@@ -535,6 +610,45 @@ export class AppHost {
             yield* registry
               .resolve(leaseId, registryVerdict)
               .pipe(Effect.catchAll(() => Effect.void));
+            // Architect §3 + epic decision #8: verdict-deny removes the
+            // recipient from THE conversation. Synthesized timeout-deny
+            // (wrapHookEffectWithEnvelope onTimeout) is verdict-deny —
+            // architect risk #3 names it explicitly. Synthesized infra-
+            // hold (handled in the "no hook registered" branch above)
+            // does NOT call removeParticipant — that is risk #5
+            // (moderator unavailable shouldn't mass-evict).
+            //
+            // Authority: requireConversationAdminAuthority (prereq 2)
+            // for app-bound conversations gates on
+            // `task.tm_endpoint_address === endpointAddressForAgent(caller)`.
+            // For app-bound + moderator-IS-TM, the task's address is
+            // `tm:agent:<moderatorAgentId>` — we parse the agentId out
+            // and pass it as the requester. The check passes naturally.
+            if (verdict.decision === "deny") {
+              const svc = this.conversationService;
+              const moderatorAgentId = parseModeratorAgentIdFromTm(
+                params.tmEndpointAddress,
+              );
+              if (svc !== null && moderatorAgentId !== null) {
+                yield* svc
+                  .removeParticipant(
+                    params.conversationId,
+                    params.recipientAgentId,
+                    moderatorAgentId,
+                  )
+                  .pipe(
+                    Effect.catchAll((cause) =>
+                      Effect.logWarning("deny → removeParticipant failed").pipe(
+                        Effect.annotateLogs({
+                          conversationId: params.conversationId,
+                          recipientAgentId: params.recipientAgentId,
+                          cause: String(cause),
+                        }),
+                      ),
+                    ),
+                  );
+              }
+            }
             return;
           }
           default: {

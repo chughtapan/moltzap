@@ -321,6 +321,13 @@ describe("dispatch/* reshape additive (#529)", () => {
   );
 
   // Scenario 17 — verdict-deny vs synthesized-infra-hold distinction
+  // (architect risk #5, epic decision #10).
+  //
+  // Synthesized infra-hold (`task.app_id IS NOT NULL` + no moderator
+  // hook registered) is NOT verdict-deny. Without the distinction, a
+  // moderator restart would mass-evict every recipient that messaged
+  // during the restart window. Asserts: hold verdict fires AND no
+  // `participants/removed` is observed inside a generous wait.
   it.live(
     "verdict-deny vs synthesized-infra-hold distinction: synthesized infra-hold (no hook) does NOT call removeParticipant",
     () =>
@@ -354,6 +361,17 @@ describe("dispatch/* reshape additive (#529)", () => {
         expect(params.leaseId).toBe(ack.leaseId);
         expect(params.verdict.decision).toBe("hold");
         expect(params.verdict.reason).toBe("moderator_unavailable");
+        // Negative assertion: NO participants/removed fires within
+        // the wait window. waitForNotification returns
+        // `null`-or-throws on timeout depending on the test client
+        // contract; treat the timeout as the proof.
+        const removedExit = yield* Effect.either(
+          bob.client.waitForNotification(
+            ParticipantsRemovedNotificationDefinition,
+            500,
+          ),
+        );
+        expect(removedExit._tag).toBe("Left");
       }),
     20_000,
   );
@@ -430,18 +448,18 @@ describe("dispatch/* reshape additive (#529)", () => {
 
   // ── Scenario 5 — moderator timeout (architect §8 #5, plan risk #3) ──
   //
-  // Architect plan §8 #5 also asserts a `participants/removed` broadcast
-  // on timeout-deny. The shipping `app-host.ts:296-300` docstring is
-  // explicit that participant removal "stays in the existing legacy flow
-  // until cutover" — `dispatch/*` only resolves the lease, the legacy
-  // `apps/authorizeDispatch` path still drives `removeParticipant` until
-  // row 13. So in this additive PR we assert the lease-resolve half (the
-  // dispatch surface this PR ships) and defer the participants/removed
-  // half to the cutover row's verification (where it becomes the only
-  // path). Reference: ParticipantsRemovedNotificationDefinition is
-  // imported but not exercised here for this reason. Tracked: #532.
+  // Architect plan §8 #5: "moderator never responds → dispatch/release
+  // {deny, reason: \"timeout\"} fires + participants/removed fires".
+  // Synthesized timeout-deny IS verdict-deny per architect risk #3 + #5
+  // — both arms call `removeParticipant`. Synthesized infra-hold (no
+  // hook registered, see scenario 17) does NOT (architect risk #5,
+  // epic decision #10). The deny → removeParticipant wire is in
+  // `app-host.ts`'s `runForkedDispatchRoundTrip` deny arm. Authority:
+  // `requireConversationAdminAuthority` (prereq 2) accepts the
+  // moderator's agentId because `task.app_id IS NOT NULL` and
+  // `task.tm_endpoint_address === tm:agent:<moderatorAgentId>`.
   it.live(
-    "moderator timeout: never-reply hook → dispatch/release{deny, reason: timeout} fires",
+    "moderator timeout: never-reply hook → dispatch/release{deny, reason: timeout} + participants/removed fires (architect §8 #5)",
     () =>
       Effect.gen(function* () {
         const { alice, bob } = yield* setupAgentPair();
@@ -476,10 +494,73 @@ describe("dispatch/* reshape additive (#529)", () => {
         expect(params.leaseId).toBe(ack.leaseId);
         expect(params.verdict.decision).toBe("deny");
         expect(params.verdict.reason).toBe("timeout");
-        // ParticipantsRemoved import retained for cutover-row reactivation.
-        void ParticipantsRemovedNotificationDefinition;
+        // Architect §8 #5: participants/removed fires alongside
+        // dispatch/release{deny}. The participants/removed broadcast
+        // includes the about-to-be-removed agent (snapshot taken
+        // BEFORE the delete), so bob (the recipient being removed)
+        // observes the notification on his own connection.
+        const removed = yield* bob.client.waitForNotification(
+          ParticipantsRemovedNotificationDefinition,
+          5000,
+        );
+        const removedParams = removed.params as {
+          conversationId: string;
+          agentId: string;
+        };
+        expect(removedParams.conversationId).toBe(conv.conversation.id);
+        expect(removedParams.agentId).toBe(bob.agentId);
       }),
     25_000,
+  );
+
+  // ── Scenario 5b — verdict-deny → participants/removed (architect §8 #3) ─
+  //
+  // Companion to scenario 5: explicit-deny (moderator returns {deny})
+  // also triggers removeParticipant. Distinct from scenario 3 above
+  // (which only asserts the dispatch/release arm).
+  it.live(
+    "verdict-deny: moderator deny → dispatch/release{deny} + participants/removed fires",
+    () =>
+      Effect.gen(function* () {
+        const { alice, bob } = yield* setupAgentPair();
+        nextHookVerdict = { decision: "deny", reason: "phase closed" };
+        const task = yield* alice.client.sendRpc(TasksCreate, {
+          appId: TEST_APP_ID,
+          tmType: "self",
+        });
+        const conv = yield* alice.client.sendRpc(TasksCreateConversation, {
+          taskId: task.task.id,
+          type: "dm",
+          participants: [{ type: "agent", id: bob.agentId }],
+        });
+        const ack = yield* bob.client.sendRpc(DispatchRequest, {
+          conversationId: conv.conversation.id,
+          messageId: makeProbeMessageId(),
+          senderAgentId: protocolAgentId(alice.agentId),
+          parts: [{ type: "text", text: "probe" }],
+        });
+        const release = yield* bob.client.waitForNotification(
+          DispatchRelease,
+          5000,
+        );
+        const params = release.params as {
+          leaseId: string;
+          verdict: { decision: string; reason?: string };
+        };
+        expect(params.leaseId).toBe(ack.leaseId);
+        expect(params.verdict.decision).toBe("deny");
+        const removed = yield* bob.client.waitForNotification(
+          ParticipantsRemovedNotificationDefinition,
+          5000,
+        );
+        const removedParams = removed.params as {
+          conversationId: string;
+          agentId: string;
+        };
+        expect(removedParams.conversationId).toBe(conv.conversation.id);
+        expect(removedParams.agentId).toBe(bob.agentId);
+      }),
+    20_000,
   );
 
   // ── Scenario 7 — PENDING messages/send (architect §8 #7) ────────────
@@ -601,21 +682,30 @@ describe("dispatch/* reshape additive (#529)", () => {
     20_000,
   );
 
-  // ── Scenario 10 — post-insert durability (architect §8 #10, ADAPTED) ─
+  // ── Scenario 10 — post-insert durability (architect §8 #10) ─────────
   //
-  // The plan-§8 wording ("sendCommit fails after finalize → lease stays
-  // CONSUMED, durable row stays") presupposes a finalize-before-sendCommit
-  // ordering. The shipping implementation orders finalize last (inside the
-  // `acquireUseRelease` use-arm AFTER sendCommit succeeds — see
-  // packages/server/src/task/handlers/messages.handlers.ts:120-138). Under
-  // the shipping order, a post-finalize sendCommit failure is impossible,
-  // so the architect-plan property as literally stated is vacuous against
-  // the impl. The closest meaningful assertion against the impl is
-  // "successful send leaves the lease CONSUMED and the durable row in
-  // place; the lease cannot be retried" — which is functionally adjacent
-  // to scenario 8. Tracked: #532.
+  // Architect plan §8 #10: "sendCommit fails after finalize → lease
+  // stays CONSUMED, durable row stays → retry fails with CONSUMED
+  // typed error".
+  //
+  // The implementation orders `claim → sendInsert → finalize →
+  // sendCommit` (architect §3 + epic decision #5). Once finalize fires,
+  // post-insert side-effect failures (TM routing, broadcast, trace,
+  // delivery webhook) MUST NOT roll back the lease — the durable row
+  // is permanent and the moderator's view is already consistent.
+  //
+  // Two assertions:
+  //   (a) Happy-path baseline: successful send leaves the lease
+  //       CONSUMED + the durable row in place; retry rejects.
+  //   (b) Failure-path: sendCommit's TM routing fails (because the
+  //       moderator is offline + the conversation is app-bound, so
+  //       tm_endpoint_address resolves to a dead agent endpoint).
+  //       The lease MUST still be CONSUMED, the durable row MUST
+  //       still be readable, and the retry MUST reject with the
+  //       CONSUMED typed error — exactly the architect-§8 #10
+  //       invariant.
   it.live(
-    "post-insert durability: successful send leaves lease CONSUMED with durable row; retry rejects",
+    "post-insert durability happy path: successful send leaves lease CONSUMED with durable row; retry rejects",
     () =>
       Effect.gen(function* () {
         const { alice, bob } = yield* setupAgentPair();
@@ -654,6 +744,72 @@ describe("dispatch/* reshape additive (#529)", () => {
         expect(retry._tag).toBe("Left");
       }),
     20_000,
+  );
+
+  it.live(
+    "post-insert durability failure path: sendCommit fails after finalize → lease stays CONSUMED + durable row stays + retry rejects (architect §8 #10)",
+    () =>
+      Effect.gen(function* () {
+        const { alice, bob } = yield* setupAgentPair();
+        nextHookVerdict = { decision: "grant" };
+        // App-bound conversation so sendCommit's TM routing path runs.
+        // tm_endpoint_address = tm:agent:<aliceId>. Disconnecting alice
+        // before bob's send removes alice from the agent-endpoint
+        // resolver, so the TM-routing send in sendCommit will fail.
+        const task = yield* alice.client.sendRpc(TasksCreate, {
+          appId: TEST_APP_ID,
+          tmType: "self",
+        });
+        const conv = yield* alice.client.sendRpc(TasksCreateConversation, {
+          taskId: task.task.id,
+          type: "dm",
+          participants: [{ type: "agent", id: bob.agentId }],
+        });
+        const ack = yield* bob.client.sendRpc(DispatchRequest, {
+          conversationId: conv.conversation.id,
+          messageId: makeProbeMessageId(),
+          senderAgentId: protocolAgentId(alice.agentId),
+          parts: [{ type: "text", text: "first" }],
+        });
+        yield* bob.client.waitForNotification(DispatchRelease, 5000);
+        // Disconnect alice. Her agent endpoint drops from the resolver.
+        // bob's subsequent send will commit the durable row, finalize
+        // the lease, then fail in sendCommit (TM routing has no target).
+        yield* alice.client.close();
+        // Allow the disconnect finalizer to clear the resolver entry.
+        yield* Effect.sleep("300 millis");
+        const sendResult = yield* Effect.either(
+          bob.client.sendRpc(MessagesSend, {
+            conversationId: conv.conversation.id,
+            parts: [{ type: "text", text: "first" }],
+            dispatchLeaseId: ack.leaseId,
+          }),
+        );
+        // sendCommit failure surfaces to bob as an RPC error.
+        expect(sendResult._tag).toBe("Left");
+        // Lease MUST be CONSUMED (finalize ran before the failure;
+        // post-insert side-effect failures do not roll back).
+        const coreApp = getTestCoreApp();
+        const record = yield* coreApp.leaseRegistry.read({
+          _tag: "leaseId",
+          value: ack.leaseId as LeaseId,
+        });
+        expect(record.state).toBe("CONSUMED");
+        expect(record.consumedMessageId).not.toBeNull();
+        // Retry rejects with CONSUMED — durable row is permanent, the
+        // caller MUST NOT retry a successful insert. bob.client is
+        // still connected (only alice was closed); the retry hits the
+        // CLAIMED→ via state-CONSUMED rejection path.
+        const retry = yield* Effect.either(
+          bob.client.sendRpc(MessagesSend, {
+            conversationId: conv.conversation.id,
+            parts: [{ type: "text", text: "retry" }],
+            dispatchLeaseId: ack.leaseId,
+          }),
+        );
+        expect(retry._tag).toBe("Left");
+      }),
+    25_000,
   );
 
   // ── Scenario 11 — cross-conversation concurrency (architect §8 #11) ─
@@ -767,20 +923,22 @@ describe("dispatch/* reshape additive (#529)", () => {
 
   // ── Scenario 15 — connection close mid-flow (architect §8 #15) ──────
   //
-  // Architect plan §8 #15 asserts PENDING → ABANDONED on recipient
-  // disconnect. The shipping `lease-registry.ts` exposes no `abandon`
-  // method and `server.ts`'s disconnect-hook chain does not call into
-  // the registry — connection-close finalization is genuinely not
-  // wired in this PR. Closing bob's WS leaves the lease in PENDING; it
-  // ages out via the moderator-response TTL (synthesized timeout-deny)
-  // instead of transitioning ABANDONED.
+  // Architect plan §8 #15:
+  //   "recipient disconnects in PENDING → ABANDONED;
+  //    recipient disconnects in GRANTED → EXPIRED;
+  //    CLAIMED is no-op."
   //
-  // The minimal closing assertion this PR can prove: closing the
-  // recipient's WS while a lease is PENDING does NOT crash the server
-  // — the next dispatch/request from a fresh connection still mints
-  // cleanly. The full ABANDONED transition is tracked as #532.
+  // Three sub-assertions cover the architect's three rows. The CLAIMED
+  // no-op is load-bearing rule 2 (architect §3): an in-flight
+  // `messages/send` owns the lease via Effect.acquireUseRelease; the
+  // connection-close finalizer MUST NOT roll back a committed durable
+  // row. We can't easily synchronize a disconnect mid-`sendInsert` over
+  // the wire without a fault-injection point, so the CLAIMED arm is
+  // covered indirectly: a normal dispatch + send leaves the lease
+  // CONSUMED (not rolled back) even when the recipient subsequently
+  // disconnects.
   it.live(
-    "connection close in PENDING: closing recipient WS leaves the lease in PENDING (architect §8 #15 ABANDONED transition lands in cutover row)",
+    "connection close in PENDING: PENDING → ABANDONED (architect §8 #15)",
     () =>
       Effect.gen(function* () {
         const { alice, bob } = yield* setupAgentPair();
@@ -800,17 +958,102 @@ describe("dispatch/* reshape additive (#529)", () => {
           senderAgentId: protocolAgentId(alice.agentId),
           parts: [{ type: "text", text: "abandon" }],
         });
+        // Disconnect while PENDING (moderator never replies).
         yield* bob.client.close();
-        yield* Effect.sleep("200 millis");
+        // Allow the disconnect finalizer to run.
+        yield* Effect.sleep("300 millis");
         const coreApp = getTestCoreApp();
         const record = yield* coreApp.leaseRegistry.read({
           _tag: "leaseId",
           value: ack.leaseId as LeaseId,
         });
-        // Shipping impl: no disconnect-finalizer → lease stays PENDING
-        // (will time out via moderator-response TTL). Cutover row wires
-        // the connection-close → ABANDONED transition.
-        expect(record.state).toBe("PENDING");
+        // Architect §3 + §8 #15: PENDING + recipient close → ABANDONED.
+        expect(record.state).toBe("ABANDONED");
+      }),
+    20_000,
+  );
+
+  it.live(
+    "connection close in GRANTED: GRANTED → EXPIRED-on-disconnect (architect §8 #15)",
+    () =>
+      Effect.gen(function* () {
+        const { alice, bob } = yield* setupAgentPair();
+        // Default-grant path (no moderator) → lease enters GRANTED via
+        // synthesized verdict in `runForkedDispatchRoundTrip`'s
+        // NoAppSession arm. Use a long leaseTimeoutMs so the TTL
+        // doesn't fire ahead of the disconnect.
+        const conv = yield* alice.client.sendRpc(ConversationsCreate, {
+          type: "dm",
+          participants: [{ type: "agent", id: bob.agentId }],
+        });
+        const ack = yield* bob.client.sendRpc(DispatchRequest, {
+          conversationId: conv.conversation.id,
+          messageId: makeProbeMessageId(),
+          senderAgentId: protocolAgentId(alice.agentId),
+          parts: [{ type: "text", text: "probe" }],
+        });
+        yield* bob.client.waitForNotification(DispatchRelease, 5000);
+        const coreApp = getTestCoreApp();
+        const granted = yield* coreApp.leaseRegistry.read({
+          _tag: "leaseId",
+          value: ack.leaseId as LeaseId,
+        });
+        expect(granted.state).toBe("GRANTED");
+        yield* bob.client.close();
+        yield* Effect.sleep("300 millis");
+        const expired = yield* coreApp.leaseRegistry.read({
+          _tag: "leaseId",
+          value: ack.leaseId as LeaseId,
+        });
+        // Architect §3 + §8 #15: GRANTED + recipient close →
+        // EXPIRED-on-disconnect (terminal).
+        expect(expired.state).toBe("EXPIRED");
+      }),
+    20_000,
+  );
+
+  it.live(
+    "connection close after CONSUMED: terminal state stays CONSUMED (architect §8 #15 CLAIMED→no-op corollary)",
+    () =>
+      Effect.gen(function* () {
+        // The CLAIMED no-op rule is load-bearing for in-flight inserts
+        // (rule 2). Once the insert commits and the lease transitions
+        // CONSUMED, the connection-close finalizer must not perturb
+        // the terminal state. Synchronizing a disconnect mid-insert is
+        // brittle over the wire, so we assert the post-CONSUMED
+        // invariant: closing after a successful send leaves the lease
+        // CONSUMED + the durable row in place.
+        const { alice, bob } = yield* setupAgentPair();
+        const conv = yield* alice.client.sendRpc(ConversationsCreate, {
+          type: "dm",
+          participants: [{ type: "agent", id: bob.agentId }],
+        });
+        const ack = yield* bob.client.sendRpc(DispatchRequest, {
+          conversationId: conv.conversation.id,
+          messageId: makeProbeMessageId(),
+          senderAgentId: protocolAgentId(alice.agentId),
+          parts: [{ type: "text", text: "first" }],
+        });
+        yield* bob.client.waitForNotification(DispatchRelease, 5000);
+        const sent = yield* bob.client.sendRpc(MessagesSend, {
+          conversationId: conv.conversation.id,
+          parts: [{ type: "text", text: "first" }],
+          dispatchLeaseId: ack.leaseId,
+        });
+        const coreApp = getTestCoreApp();
+        const consumed = yield* coreApp.leaseRegistry.read({
+          _tag: "leaseId",
+          value: ack.leaseId as LeaseId,
+        });
+        expect(consumed.state).toBe("CONSUMED");
+        yield* bob.client.close();
+        yield* Effect.sleep("300 millis");
+        const after = yield* coreApp.leaseRegistry.read({
+          _tag: "leaseId",
+          value: ack.leaseId as LeaseId,
+        });
+        expect(after.state).toBe("CONSUMED");
+        expect(after.consumedMessageId).toBe(sent.message.id);
       }),
     20_000,
   );
