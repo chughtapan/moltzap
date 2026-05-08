@@ -504,16 +504,16 @@ function fixture_n(requested: number): number {
  * **basic-delivery-landing** — the weaker invariant that N messages
  * sent to a live conversation land in every currently-subscribed
  * participant's capture buffer. The full offline-replay assertion is
- * tracked as a follow-up under epic #186. If/when the server
- * implements C2 replay, flip this body back to the reconnect form
- * from the git history and remove the #186 pointer.
+ * not tracked: epic #186 (which named C2 replay as a follow-up) was
+ * closed as won't-do. If C2 replay is reintroduced, restore the
+ * reconnect-form body from git history.
  */
 export function registerStoreAndReplay(ctx: ConformanceRunContext): void {
   registerProperty(
     ctx,
     CATEGORY,
     STORE_AND_REPLAY_PROPERTY,
-    "every messages/send lands in a live participant's capture buffer (basic-delivery-landing; #186 tracks C2 offline-replay)",
+    "every messages/send lands in a live participant's capture buffer (basic-delivery-landing; offline-replay not tracked, #186 closed)",
     Effect.scoped(
       Effect.gen(function* () {
         const fixture = yield* acquireConversation(ctx, 1, "sr").pipe(

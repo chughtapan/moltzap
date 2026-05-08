@@ -122,7 +122,6 @@ export function registerAllProperties(ctx: ConformanceRunContext): void {
   delivery.registerArchiveLifecycle(ctx);
 
   adversity.registerLatencyResilience(ctx);
-  adversity.registerBackpressure(ctx); // tombstoned — #186
   adversity.registerSlicerFraming(ctx);
   adversity.registerResetPeerRecovery(ctx);
   adversity.registerTimeoutSurface(ctx);
@@ -286,11 +285,6 @@ function allowedServerCoverageGaps(
   toxiproxyUrl: string | null,
 ): ReadonlyArray<AllowedCoverageGap> {
   const gaps: AllowedCoverageGap[] = [
-    {
-      kind: "deferred",
-      id: "adversity/backpressure",
-      reasonIncludes: "issues/186",
-    },
     {
       kind: "unavailable",
       id: "adversity/reset-peer-recovery",

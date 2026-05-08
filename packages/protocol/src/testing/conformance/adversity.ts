@@ -29,7 +29,6 @@ import { isNotificationFrame } from "../codec.js";
 import { TransportClosedError } from "../errors.js";
 import type { ConformanceRunContext } from "./runner.js";
 import {
-  PropertyDeferred,
   PropertyInvariantViolation,
   PropertyUnavailable,
   registerProperty,
@@ -265,23 +264,6 @@ export function registerLatencyResilience(ctx: ConformanceRunContext): void {
         }
       }),
   });
-}
-
-/** Backpressure — DEFERRED to epic #186. */
-export function registerBackpressure(ctx: ConformanceRunContext): void {
-  registerProperty(
-    ctx,
-    CATEGORY,
-    "backpressure",
-    "backpressure property deferred to #186 — BackpressurePolicy not extant",
-    Effect.fail(
-      new PropertyDeferred({
-        category: CATEGORY,
-        name: "backpressure",
-        followUp: "https://github.com/chughtapan/moltzap/issues/186",
-      }),
-    ),
-  );
 }
 
 /**

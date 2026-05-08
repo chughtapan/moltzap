@@ -58,7 +58,6 @@ legacy_exempt_registrars=(
   registerHookGatedDelivery
   registerMultiAppFifoShortCircuit
   registerLatencyResilience
-  registerBackpressure
   registerSlicerFraming
   registerResetPeerRecovery
   registerTimeoutSurface
