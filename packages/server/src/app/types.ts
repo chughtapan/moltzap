@@ -11,6 +11,7 @@ import type { WebhookClient } from "../adapters/webhook.js";
 import type { ConnectionManager } from "../ws/connection.js";
 import type { NetworkSendService } from "../network/network-send.js";
 import type { TaskAuthorizeDispatchHook } from "./hooks.js";
+import type { LeaseRegistry } from "./lease-registry.js";
 import type {
   TraceCapture,
   TraceCaptureTag,
@@ -142,5 +143,12 @@ export interface CoreApp {
     appId: string,
     handler: TaskAuthorizeDispatchHook,
   ) => void;
+  /**
+   * #529 reshape additive — server-local lease registry for the
+   * `dispatch/{request, authorize, release}` admission surface.
+   * Stable identity across the server lifetime. Tests + advanced
+   * consumers can read lease state directly via this handle.
+   */
+  readonly leaseRegistry: LeaseRegistry;
   close: () => PromiseLike<void>;
 }

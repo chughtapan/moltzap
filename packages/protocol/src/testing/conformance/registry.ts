@@ -34,7 +34,8 @@ export type PropertyCategory =
   | "delivery"
   | "adversity"
   | "boundary"
-  | "presence";
+  | "presence"
+  | "dispatch-admission";
 
 /** Fast-check / runtime assertion failed for a specific property. */
 export class PropertyAssertionFailure extends Data.TaggedError(
