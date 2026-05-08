@@ -124,7 +124,7 @@ describe("MoltZapChannel (nanoclaw adapter)", () => {
         participants: [],
       });
       harness.fake.state.setAgentName("agent-alice", "Alice");
-      harness.fake.service.requestDispatch = (params) =>
+      harness.fake.service.requestDispatch = (_params) =>
         Effect.sync(() => {
           // Synthetic ack + release for the test. The release is
           // dispatched on the next microtask so channel-core's
@@ -175,7 +175,7 @@ describe("MoltZapChannel (nanoclaw adapter)", () => {
         participants: [],
       });
       harness.fake.state.setAgentName("agent-alice", "Alice");
-      harness.fake.service.requestDispatch = (params) =>
+      harness.fake.service.requestDispatch = (_params) =>
         Effect.sync(() => {
           const leaseId = "lease-nano-2";
           const dispatchId = "dispatch-nano-2";

@@ -121,7 +121,7 @@ export interface CoreApp {
   readonly connections: ConnectionManager;
   registerApp: (manifest: AppManifest) => void;
   /**
-   * Register an app whose `task/authorizeDispatch` admission round-trips
+   * Register an app whose `dispatch/authorize` admission round-trips
    * run in a remote process over WebSocket. The verb routes to
    * `connectionId` via the server-initiated awaitable RPC primitive;
    * verdicts decode at the WS edge into the same typed shapes as

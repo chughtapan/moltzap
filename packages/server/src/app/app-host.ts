@@ -113,11 +113,11 @@ export class AppHost {
   private remoteRegistrations = new Map<string, { connectionId: string }>();
 
   /**
-   * Optional lease registry for the #529 reshape additive surface.
+   * Optional lease registry for the #529 reshape surface.
    * Set post-construction by the layer wiring (see {@link setLeaseRegistry}).
-   * The legacy `apps/authorizeDispatch` flow does NOT need it; only
-   * `enqueueDispatchRequest` consumes it. Kept optional so existing tests
-   * that construct AppHost directly without a registry still work.
+   * Consumed exclusively by `enqueueDispatchRequest`. Kept optional so
+   * existing tests that construct AppHost directly without a registry
+   * still work.
    */
   private leaseRegistry: LeaseRegistry | null = null;
 
@@ -755,7 +755,7 @@ export class AppHost {
    *     schema decode failure) → logs an error, returns the error
    *     verdict from `onError`.
    *
-   * For `task/authorizeDispatch` `onTimeout` / `onError` synthesize a
+   * For `dispatch/authorize` `onTimeout` / `onError` synthesize a
    * fail-closed `deny` verdict. The error-channel narrowing to `never` is
    * the contract that lets call sites compose hooks via `Effect.forEach`
    * with no handler-error visibility.

@@ -331,6 +331,22 @@ const ASSERT_LEASE_STATE_POLL_MS = 25;
 const DEFAULT_MODERATOR_TIMEOUT_MS = 5_000;
 const DEFAULT_WAIT_FOR_RELEASE_MS = 5_000;
 const DEFAULT_OBSERVABILITY_TIMEOUT_MS = 5_000;
+// Property name for `PropertyInvariantViolation` emitted from setup
+// failures (HTTP register, WS connect, fixtures bootstrap). Treated as
+// a single category so consumers can grep one tag.
+const SETUP_FAILURE_PROPERTY = "driver-acquire";
+// Truncation bound for unwrapped Effect cause messages embedded in
+// violation reasons. Long enough to identify the failure mode; short
+// enough to avoid swamping property reports.
+const ERROR_CAUSE_TRUNCATE_LEN = 200;
+// `Math.random().toString(36)` returns "0." + base-36 digits; slicing
+// at index 2 drops the "0." prefix. The 6-char suffix is enough
+// to disambiguate per-property instances within a single conformance
+// run.
+const RANDOM_SUFFIX_BASE = 36;
+const RANDOM_SUFFIX_PREFIX_LEN = 2;
+const RANDOM_SUFFIX_LEN = 6;
+const RANDOM_SUFFIX_END = RANDOM_SUFFIX_PREFIX_LEN + RANDOM_SUFFIX_LEN;
 
 function violation(name: string, reason: string): PropertyInvariantViolation {
   return new PropertyInvariantViolation({ category: CATEGORY, name, reason });
@@ -436,7 +452,7 @@ function acquireAgent(
   return registerTestAgent({ baseUrl: ctx.realServer.baseUrl, name }).pipe(
     Effect.mapError((e) =>
       violation(
-        "driver-acquire",
+        SETUP_FAILURE_PROPERTY,
         `registerTestAgent(${name}) failed: status=${String(e.status)} body=${e.body}`,
       ),
     ),
@@ -456,7 +472,7 @@ function acquireSharedClient(
   }).pipe(
     Effect.mapError((e) =>
       violation(
-        "driver-acquire",
+        SETUP_FAILURE_PROPERTY,
         `makeTestClient(${agent.name}) failed: ${unwrapError(e)}`,
       ),
     ),
@@ -481,7 +497,7 @@ function acquireCloseableClient(
     }).pipe(
       Effect.mapError((e) =>
         violation(
-          "driver-acquire",
+          SETUP_FAILURE_PROPERTY,
           `makeCloseableTestClient(${agent.name}) failed: ${unwrapError(e)}`,
         ),
       ),
@@ -578,7 +594,7 @@ function buildRecipientHandle(
         return yield* Effect.fail(
           violation(
             "recipient.sendWithLease",
-            `messages/send failed without RpcResponseError: ${String(exit.cause).slice(0, 200)}`,
+            `messages/send failed without RpcResponseError: ${String(exit.cause).slice(0, ERROR_CAUSE_TRUNCATE_LEN)}`,
           ),
         );
       }
@@ -843,7 +859,7 @@ export function makeDispatchTestDriver(
         .pipe(
           Effect.mapError((e) =>
             violation(
-              "driver-acquire",
+              SETUP_FAILURE_PROPERTY,
               `apps/register failed: ${unwrapError(e)}`,
             ),
           ),
@@ -860,7 +876,10 @@ export function makeDispatchTestDriver(
       .sendRpc(TasksCreate, taskParams)
       .pipe(
         Effect.mapError((e) =>
-          violation("driver-acquire", `tasks/create failed: ${unwrapError(e)}`),
+          violation(
+            SETUP_FAILURE_PROPERTY,
+            `tasks/create failed: ${unwrapError(e)}`,
+          ),
         ),
       );
     const task = (taskResult as { task: { id: Static<typeof TaskId> } }).task;
@@ -879,7 +898,7 @@ export function makeDispatchTestDriver(
       .pipe(
         Effect.mapError((e) =>
           violation(
-            "driver-acquire",
+            SETUP_FAILURE_PROPERTY,
             `tasks/createConversation failed: ${unwrapError(e)}`,
           ),
         ),
@@ -970,7 +989,7 @@ export function makeDispatchTestDriver(
             return yield* Effect.fail(
               violation(
                 "driver.getLeaseFromNonModerator",
-                `dispatches/get failed without RpcResponseError: ${String(exit.cause).slice(0, 200)}`,
+                `dispatches/get failed without RpcResponseError: ${String(exit.cause).slice(0, ERROR_CAUSE_TRUNCATE_LEN)}`,
               ),
             );
           }
@@ -996,7 +1015,7 @@ export function makeDispatchTestDriver(
             last = exit.value.state;
             if (last === expected) return;
           } else {
-            lastError = String(exit.cause).slice(0, 200);
+            lastError = String(exit.cause).slice(0, ERROR_CAUSE_TRUNCATE_LEN);
           }
           yield* Effect.sleep(Duration.millis(ASSERT_LEASE_STATE_POLL_MS));
         }
@@ -1028,7 +1047,9 @@ function cryptoRandomShort(): string {
   // Avoid pulling node:crypto into the protocol's testing surface; the
   // 6-char suffix is enough to disambiguate per-property instances
   // within one conformance run.
-  return Math.random().toString(36).slice(2, 8);
+  return Math.random()
+    .toString(RANDOM_SUFFIX_BASE)
+    .slice(RANDOM_SUFFIX_PREFIX_LEN, RANDOM_SUFFIX_END);
 }
 
 // ── Re-export wire types for property authors ─────────────────────────

@@ -39,10 +39,10 @@ fi
 # below ship with executable bodies that drive a real recipient ↔
 # moderator round-trip via `DispatchTestDriver`. The architect plan
 # §2/§6 directs deletion of the prior tombstone-shape proof file
-# (`dispatch-admission-executable.proofs.test.ts`); a known-bad-server
-# divergence proof — analogous to `server-executable.proofs.test.ts` —
-# is filed as a follow-up so cross-impl validation against a deliberately
-# misbehaving server can be added without re-bundling the chunk-2 cutover.
+# (`dispatch-admission-executable.proofs.test.ts`); known-bad-server
+# divergence proofs — analogous to `server-executable.proofs.test.ts` —
+# are tracked in chughtapan/moltzap#535. Remove these 15 entries when
+# that issue lands.
 legacy_exempt_registrars=(
   registerEventWellFormedness
   registerRoundTripIdentity
