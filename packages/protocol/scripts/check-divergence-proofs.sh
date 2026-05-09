@@ -12,11 +12,26 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROTOCOL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PROOFS_DIR="$PROTOCOL_DIR/src/testing/conformance/__divergence_proofs__"
-SERVER_SUITE="$PROTOCOL_DIR/src/testing/conformance/suite.ts"
+# Phase 1A reorg: server-side registrars are enumerated via the per-layer
+# `index.ts` barrels (each `register*` lives in its own file and is
+# re-imported by the layer index). Pre-reorg this script grepped
+# `conformance/suite.ts` for `register*(ctx);` calls; that file is gone.
+SERVER_LAYER_DIR="$PROTOCOL_DIR/src/testing/conformance"
+SERVER_LAYERS=(transport identity network task app)
 CLIENT_SUITE="$PROTOCOL_DIR/src/testing/conformance/client/suite.ts"
 
 if [ ! -d "$PROOFS_DIR" ]; then
   echo "ERROR: $PROOFS_DIR not found" >&2
+  exit 2
+fi
+for layer in "${SERVER_LAYERS[@]}"; do
+  if [ ! -f "$SERVER_LAYER_DIR/$layer/index.ts" ]; then
+    echo "ERROR: server layer barrel $SERVER_LAYER_DIR/$layer/index.ts not found" >&2
+    exit 2
+  fi
+done
+if [ ! -f "$CLIENT_SUITE" ]; then
+  echo "ERROR: $CLIENT_SUITE not found" >&2
   exit 2
 fi
 
@@ -101,7 +116,9 @@ is_legacy_exempt() {
   return 1
 }
 
-extract_suite_registrars() {
+extract_client_suite_registrars() {
+  # Pre-Phase-1A shape: client/suite.ts lists `registerXxxClient(ctx);`
+  # call sites. Phase 1A leaves the client suite untouched.
   local suite_file="$1"
   grep -Eo 'register[A-Za-z0-9_]+\(ctx\);' "$suite_file" \
     | sed 's/(ctx);//' \
@@ -109,12 +126,29 @@ extract_suite_registrars() {
     | sort -u
 }
 
+extract_layer_registrars() {
+  # Phase 1A shape: each `<layer>/index.ts` barrel imports every property
+  # registrar by name (`import { registerXxx } from "./xxx.js";`). Grep
+  # those import lines to enumerate the layer's registrars without
+  # parsing the per-property files individually.
+  local layer_index="$1"
+  grep -Eo '^import \{ register[A-Za-z0-9_]+ \} from' "$layer_index" \
+    | sed -E 's/^import \{ (register[A-Za-z0-9_]+) \} from$/\1/' \
+    | sort -u
+}
+
 mapfile -t suite_registrars < <(
   {
-    extract_suite_registrars "$SERVER_SUITE"
-    extract_suite_registrars "$CLIENT_SUITE"
+    for layer in "${SERVER_LAYERS[@]}"; do
+      extract_layer_registrars "$SERVER_LAYER_DIR/$layer/index.ts"
+    done
+    extract_client_suite_registrars "$CLIENT_SUITE"
   } | sort -u
 )
+if [ "${#suite_registrars[@]}" -eq 0 ]; then
+  echo "Divergence-proof gate: FAIL — no suite registrars discovered (extractor regression)" >&2
+  exit 1
+fi
 
 missing=()
 for registrar in "${suite_registrars[@]}"; do
