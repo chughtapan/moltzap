@@ -16,7 +16,7 @@
  * inlines `FrameSchemaError` (currently in `testing/errors.ts`).
  */
 
-import { type Data } from "effect";
+import { Data } from "effect";
 
 // Public exports (preserved verbatim from `testing/codec.ts`; the barrel
 // at `testing/index.ts` re-exports these names unchanged).
@@ -50,12 +50,11 @@ export function malformFrame(): never {
 // `FrameSchemaError` migrates here from `testing/errors.ts`. Co-locating
 // keeps the schema-check failure mode adjacent to the only callers that
 // raise it (decodeFrame).
-export declare class FrameSchemaError extends (class {} as new (
-  args: never,
-) => Data.Case) {
-  readonly _tag: "TestingFrameSchemaError";
+export class FrameSchemaError extends Data.TaggedError(
+  "TestingFrameSchemaError",
+)<{
   readonly direction: "outbound" | "inbound";
   readonly expected: "request" | "response" | "event";
   readonly raw: string;
   readonly reason: string;
-}
+}> {}
