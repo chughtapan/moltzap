@@ -649,6 +649,23 @@ export class AppHost {
    *     defaultWhenAbsent: () => TResult;
    *   }): Effect.Effect<TResult, never>;
    *
+   * Resolution path for `runMessageAuthorize` (C5 design pin —
+   * documents how local/remote/default split lines up with the
+   * address-keyed registry):
+   *
+   *   1. `messageAuthorizeHooks.get(tmEndpointAddress)` returns a hook
+   *      → call in-process (default-DM/group + any custom in-process
+   *      app TM register here at boot or `apps/register`).
+   *   2. Else, derive `appId` from the address (today: parse
+   *      `tm:app:<appId>` shape) and check `remoteRegistrations.has
+   *      (appId)`. If present → send `messages/authorize` S→C RPC
+   *      over that connection via `runRemoteHookEffect`. The remote
+   *      path mirrors the existing dispatch/authorize remote path
+   *      (`:707@adc2e18`); the only difference is the RPC definition
+   *      passed in (`MessagesAuthorize` vs `DispatchAuthorize`).
+   *   3. Else, return the synthetic default: `Forward { recipients:
+   *      participants \ sender }` (preserves today's broadcast).
+   *
    * The runner reuses `wrapHookEffectWithEnvelope` (`:763@adc2e18`)
    * for the timeout + fail-closed wrapper; supplies in-process or
    * remote dispatch via `runInProcessHookEffect` /
