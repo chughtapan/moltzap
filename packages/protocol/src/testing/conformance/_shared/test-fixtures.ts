@@ -22,7 +22,7 @@
  * conformance/_shared/ paths.
  */
 
-import { type Data, type Effect } from "effect";
+import { Data, type Effect } from "effect";
 
 // Public exports (union of `testing/branded-ids.ts` + `testing/agent-registration.ts`;
 // the barrel at `testing/index.ts` re-exports these names unchanged).
@@ -56,15 +56,14 @@ export interface TestAgent {
   readonly claimToken?: string;
 }
 
-export declare class AgentRegistrationError extends (class {} as new (
-  args: never,
-) => Data.Case) {
-  readonly _tag: "TestingAgentRegistrationError";
+export class AgentRegistrationError extends Data.TaggedError(
+  "TestingAgentRegistrationError",
+)<{
   readonly baseUrl: string;
   readonly agentName: string;
   readonly status: number;
   readonly body: string;
-}
+}> {}
 
 export function registerTestAgent(): Effect.Effect<
   TestAgent,
