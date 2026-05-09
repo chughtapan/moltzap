@@ -38,6 +38,7 @@ import {
 import { registerAuthorityPositive } from "../identity/authority-positive.js";
 import { registerAuthorityNegative } from "../identity/authority-negative.js";
 import { registerIdempotence } from "../app/idempotence.js";
+import { registerSpuriousAppCallbackFrameHandling } from "../app/spurious-app-callback-frame.js";
 import { registerModelEquivalence } from "../task/model-equivalence.js";
 import { registerRequestIdUniqueness } from "../transport/request-id-uniqueness.js";
 import { registerRequestWellFormedness } from "../transport/request-well-formedness.js";
@@ -65,7 +66,8 @@ type BadServerBehavior =
   | "conversation-missing-created-event"
   | "archive-missing-event"
   | "presence-silent"
-  | "presence-stale-snapshot";
+  | "presence-stale-snapshot"
+  | "silence-after-non-request";
 
 describe("server-side conformance executable divergence proofs", () => {
   it("registerAuthorityNegative fails when pre-handshake RPCs return success", async () => {
@@ -102,6 +104,14 @@ describe("server-side conformance executable divergence proofs", () => {
     });
     expectInvariant(failure, "idempotence");
   });
+
+  it("registerSpuriousAppCallbackFrameHandling fails when the server stops responding after a spurious frame", async () => {
+    const failure = await runSingleServerProof(
+      registerSpuriousAppCallbackFrameHandling,
+      { behavior: "silence-after-non-request" },
+    );
+    expectInvariant(failure, "spurious-app-callback-frame-handling");
+  }, 10_000);
 
   it("registerRequestWellFormedness fails when sampled calls receive no reply", async () => {
     const failure = await runSingleServerProof(registerRequestWellFormedness, {
@@ -302,6 +312,10 @@ function makeBadWebSocketServer(
 ): Effect.Effect<{ readonly wsUrl: string }, never, Scope.Scope> {
   return Effect.gen(function* () {
     const requestCounter = yield* Ref.make(0);
+    // Tracks whether `silence-after-non-request` has been triggered.
+    // Per-server state is sufficient: each divergence-proof run drives a
+    // single client.
+    const silencedRef = yield* Ref.make(false);
     const server = yield* NodeSocketServer.makeWebSocket({
       port: 0,
       host: "127.0.0.1",
@@ -323,7 +337,20 @@ function makeBadWebSocketServer(
                 );
                 if (decoded._tag === "Left") return;
                 const frame = decoded.right;
-                if (!isRequestFrame(frame)) return;
+                if (!isRequestFrame(frame)) {
+                  if (behavior === "silence-after-non-request") {
+                    yield* Ref.set(silencedRef, true);
+                  }
+                  return;
+                }
+                if (
+                  behavior === "silence-after-non-request" &&
+                  (yield* Ref.get(silencedRef))
+                ) {
+                  // Spurious frame already arrived; the bad server stops
+                  // replying so the property's liveness probe times out.
+                  return;
+                }
                 const ordinal = yield* Ref.updateAndGet(
                   requestCounter,
                   (n) => n + 1,

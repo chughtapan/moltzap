@@ -128,6 +128,18 @@ export interface TestClient {
     TransportClosedError | TransportIoError | FrameSchemaError
   >;
 
+  /**
+   * Wire-level injection seam for properties that need to send a frame
+   * the typed `sendRpc` / `sendMalformed` paths cannot produce — e.g. a
+   * JSON-RPC response frame whose `id` matches no pending request the
+   * server tracks (the `spurious-app-callback-frame-handling` property).
+   * The frame is JSON-stringified and written verbatim; no `pending`
+   * registration, no schema-encoding, no decoded capture.
+   */
+  readonly sendRawFrame: (
+    frame: unknown,
+  ) => Effect.Effect<void, TransportClosedError | TransportIoError>;
+
   readonly notifications: Stream.Stream<
     DecodedNotification<AnyNotificationDefinition>,
     TransportClosedError
@@ -716,6 +728,9 @@ export function makeTestClient(
         return outcome;
       });
 
+    const sendRawFrame: TestClient["sendRawFrame"] = (frame) =>
+      writeFrame(JSON.stringify(frame));
+
     // Notification stream — repeatedly drain `notificationQueue`, ending when the WS closes.
     const notifications: Stream.Stream<
       DecodedNotification<AnyNotificationDefinition>,
@@ -811,6 +826,7 @@ export function makeTestClient(
     const client: TestClient = {
       sendRpc,
       sendMalformed,
+      sendRawFrame,
       notifications,
       captures,
       snapshot: captures.snapshot,
