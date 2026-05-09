@@ -25,6 +25,12 @@ export {
   type PendingDispatchMessage,
 } from "./channel-core.js";
 export {
+  createChannelCancelRegistry,
+  type ChannelCancelHandle,
+  type ChannelCancelReason,
+  type ChannelCancelRegistry,
+} from "./channel-cancel.js";
+export {
   MoltZapWsClient,
   type WsClientLogger,
   type MoltZapWsClientOptions,

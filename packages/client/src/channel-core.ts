@@ -498,6 +498,21 @@ export class MoltZapChannelCore {
     return this.connected;
   }
 
+  /**
+   * Architect-281 §3 — exposes the per-conversation cancel registry so
+   * channel plugins (openclaw, nanoclaw, claude-code-channel) can
+   * register per-turn AbortControllers and have them aborted on
+   * `conversationArchived` / `disconnect` / `task-closed`.
+   *
+   * Body fills in: construct via `createChannelCancelRegistry()` once
+   * (lazy), wire `service.on("conversationArchived")` to call
+   * `cancelConversation({_tag: "archived"})`, wire `disconnect()` to
+   * call `cancelAll()`. The registry is total — never throws.
+   */
+  cancelRegistry(): import("./channel-cancel.js").ChannelCancelRegistry {
+    throw new Error("not implemented");
+  }
+
   sendReply(
     conversationId: string,
     text: string,
