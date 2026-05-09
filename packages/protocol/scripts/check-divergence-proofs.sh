@@ -59,13 +59,8 @@ fi
 # are tracked in chughtapan/moltzap#535. Remove these 15 entries when
 # that issue lands.
 legacy_exempt_registrars=(
-  registerEventWellFormedness
   registerRoundTripIdentity
   registerMalformedFrameHandling
-  registerS2cRequestRoundTripIdentity
-  registerS2cResponseValidation
-  registerS2cMalformedRequestHandling
-  registerDualDirectionIdCollision
   registerFanOutCardinality
   registerStoreAndReplay
   registerPayloadOpacity
