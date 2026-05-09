@@ -56,6 +56,27 @@ export function expectInvariant(
   }
 }
 
+/**
+ * Pin an invariant failure's `reason` to a specific arm. Used when the
+ * proof needs to prove the property caught a specific divergence (not
+ * any earlier fixture failure that happens to surface the same tag).
+ */
+export function expectViolationReasonIncludes(
+  failure: PropertyFailure,
+  expected: string,
+): void {
+  if (!(failure instanceof PropertyInvariantViolation)) {
+    throw new ProofExpectationError(
+      `expected invariant failure, got ${failure._tag}: ${describeFailure(failure)}`,
+    );
+  }
+  if (!failure.reason.includes(expected)) {
+    throw new ProofExpectationError(
+      `expected reason to include "${expected}", got "${failure.reason}"`,
+    );
+  }
+}
+
 export function expectAssertionFailure(
   failure: PropertyFailure,
   propertyName: string,

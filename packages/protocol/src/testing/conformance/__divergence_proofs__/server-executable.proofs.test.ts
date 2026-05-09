@@ -11,6 +11,10 @@ import {
   ConversationsCreate,
   ConversationsUnarchive,
   ConversationsUpdate,
+  TasksAddParticipant,
+  TasksClose,
+  TasksCreate,
+  TasksCreateConversation,
 } from "../../../task/methods.js";
 import { MessagesSend } from "../../../task/methods.js";
 import {
@@ -25,6 +29,7 @@ import type {
 } from "../_shared/runner.js";
 import { registerArchiveLifecycle } from "../task/archive-lifecycle.js";
 import { registerConversationLifecycle } from "../task/conversation-lifecycle.js";
+import { registerTaskCloseLifecycle } from "../task/task-close-lifecycle.js";
 import { registerConnectBroadcast } from "../network/presence-connect-broadcast.js";
 import { registerDisconnectBroadcast } from "../network/presence-disconnect-broadcast.js";
 import { registerMultiSubscriberFanOut } from "../network/presence-multi-subscriber-fan-out.js";
@@ -46,6 +51,7 @@ import { registerRpcMapCoverage } from "../transport/rpc-map-coverage.js";
 import {
   expectAssertionFailure,
   expectInvariant,
+  expectViolationReasonIncludes,
   runExpectingFailure,
 } from "./executable-proof-helpers.js";
 
@@ -67,7 +73,8 @@ type BadServerBehavior =
   | "archive-missing-event"
   | "presence-silent"
   | "presence-stale-snapshot"
-  | "silence-after-non-request";
+  | "silence-after-non-request"
+  | "task-close-noop";
 
 describe("server-side conformance executable divergence proofs", () => {
   it("registerAuthorityNegative fails when pre-handshake RPCs return success", async () => {
@@ -141,15 +148,20 @@ describe("server-side conformance executable divergence proofs", () => {
     expectInvariant(failure, "conversation-lifecycle");
   }, 10_000);
 
-  // Phase 7 cutover deleted the apps/createSession-driven bootstrap, so
-  // the registerTaskCloseLifecycle property short-circuits with
-  // PropertyDeferred in `delivery.ts:registerTaskCloseLifecycle` (no
-  // replacement path until Phase 9 wires task/closed emission via TM
-  // topology). Tombstoning the divergence proof until reactivated
-  // alongside that work (#318).
-  it.todo(
-    "registerTaskCloseLifecycle fails when close does not broadcast lifecycle (Phase 9 reactivation)",
-  );
+  it("registerTaskCloseLifecycle fails when post-close messages/send returns success", async () => {
+    const failure = await runSingleServerProof(registerTaskCloseLifecycle, {
+      behavior: "task-close-noop",
+    });
+    expectInvariant(failure, "task-close-lifecycle");
+    // Pin the divergence to the post-close arm. A bad server that fails
+    // earlier in the fixture path (tasks/create or tasks/close decode)
+    // would also surface as an invariant violation but would not prove
+    // the property catches the close-noop divergence specifically.
+    expectViolationReasonIncludes(
+      failure,
+      "messages/send succeeded after tasks/close",
+    );
+  }, 10_000);
 
   // Presence — all six fail under a server that answers RPCs but never
   // broadcasts presence/changed (the pre-arena#252 shape).
@@ -428,6 +440,9 @@ function makeBadResult(
   if (behavior === "conversation-missing-created-event") {
     return makeConversationLifecycleBadResult(request);
   }
+  if (behavior === "task-close-noop") {
+    return makeTaskCloseLifecycleBadResult(request);
+  }
   if (
     behavior === "presence-silent" ||
     behavior === "presence-stale-snapshot"
@@ -500,6 +515,92 @@ function makeConversationLifecycleBadResult(request: RequestFrame): unknown {
           typeof params.conversationId === "string"
             ? params.conversationId
             : "00000000-0000-4000-8000-000000000101",
+      },
+    };
+  }
+  return {};
+}
+
+/**
+ * Bad-server shape for the task-close-lifecycle proof: every RPC
+ * succeeds, including post-close `messages/send`. A real server fails
+ * post-close `messages/send` with `TaskClosedError`; this server
+ * unconditionally returns a success — the property must catch the
+ * divergence on the post-close arm.
+ */
+function makeTaskCloseLifecycleBadResult(request: RequestFrame): unknown {
+  const taskIdValue = "00000000-0000-4000-8000-000000000201";
+  const conversationIdValue = "00000000-0000-4000-8000-000000000202";
+  const initiatorAgentIdValue = "00000000-0000-4000-8000-000000000001";
+  const senderAgentIdValue = "00000000-0000-4000-8000-000000000002";
+  const messageIdValue = "00000000-0000-4000-8000-000000000203";
+  const timestamp = "2026-01-01T00:00:00.000Z";
+
+  if (request.method === TasksCreate.name) {
+    return {
+      task: {
+        id: taskIdValue,
+        appId: null,
+        initiatorAgentId: initiatorAgentIdValue,
+        status: "active",
+        tmEndpointAddress: `tm:agent:${initiatorAgentIdValue}`,
+        startedAt: timestamp,
+        endedAt: null,
+        createdAt: timestamp,
+      },
+    };
+  }
+  if (request.method === TasksAddParticipant.name) {
+    return {
+      participant: {
+        taskId: taskIdValue,
+        agentId: senderAgentIdValue,
+        admittedAt: timestamp,
+      },
+    };
+  }
+  if (request.method === TasksCreateConversation.name) {
+    return {
+      conversation: {
+        id: conversationIdValue,
+        type: "dm",
+        createdBy: initiatorAgentIdValue,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      },
+    };
+  }
+  if (request.method === TasksClose.name) {
+    return {
+      task: {
+        id: taskIdValue,
+        appId: null,
+        initiatorAgentId: initiatorAgentIdValue,
+        status: "closed",
+        tmEndpointAddress: `tm:agent:${initiatorAgentIdValue}`,
+        startedAt: timestamp,
+        endedAt: timestamp,
+        createdAt: timestamp,
+      },
+    };
+  }
+  if (request.method === MessagesSend.name) {
+    const params = request.params as {
+      conversationId?: unknown;
+      parts?: unknown;
+    };
+    return {
+      message: {
+        id: messageIdValue,
+        conversationId:
+          typeof params.conversationId === "string"
+            ? params.conversationId
+            : conversationIdValue,
+        senderId: senderAgentIdValue,
+        parts: Array.isArray(params.parts)
+          ? params.parts
+          : [{ type: "text", text: "noop" }],
+        createdAt: timestamp,
       },
     };
   }
