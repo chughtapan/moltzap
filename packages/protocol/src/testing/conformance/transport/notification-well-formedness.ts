@@ -14,7 +14,11 @@ import * as fc from "fast-check";
 import { Effect, Either } from "effect";
 import { Value } from "@sinclair/typebox/value";
 import { arbitraryNotificationFrame } from "../../arbitraries/frames.js";
-import { decodeFrame, encodeFrame, isNotificationFrame } from "../../codec.js";
+import {
+  decodeFrame,
+  encodeFrame,
+  isNotificationFrame,
+} from "../_shared/frame-mutator.js";
 import { NotificationFrameSchema } from "../../../transport/wire.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { assertProperty, registerProperty } from "../_shared/registry.js";

@@ -10,7 +10,7 @@
  * Toxiproxy (Tier D).
  */
 import { Effect, Ref, Stream, PubSub } from "effect";
-import type { AnyFrame, MalformedFrameKind } from "./codec.js";
+import type { AnyFrame, MalformedFrameKind } from "./frame-mutator.js";
 
 const CAPTURE_FANOUT_CONCURRENCY = 8;
 

@@ -2,7 +2,7 @@
 import * as fc from "fast-check";
 import { Effect, Either } from "effect";
 import { arbitraryMalformedFrame } from "../../arbitraries/frames.js";
-import { decodeFrame, encodeFrame } from "../../codec.js";
+import { decodeFrame, encodeFrame } from "../_shared/frame-mutator.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { assertProperty, registerProperty } from "../_shared/registry.js";
 

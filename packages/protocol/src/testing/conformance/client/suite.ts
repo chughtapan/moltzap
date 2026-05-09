@@ -35,10 +35,8 @@ import {
   type PropertyFailure,
   type RegisteredProperty,
 } from "../_shared/registry.js";
-import type {
-  RealServerAcquireError,
-  ToxicControlError,
-} from "../../errors.js";
+import type { RealServerAcquireError } from "../_shared/errors.js";
+import type { ToxicControlError } from "../../toxics/errors.js";
 import type { SuiteResult } from "../_shared/suite.js";
 import { conformanceArtifactDirFromEnv } from "../_shared/env.js";
 import {

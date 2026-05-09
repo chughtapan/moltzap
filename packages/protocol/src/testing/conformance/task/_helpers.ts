@@ -19,10 +19,13 @@ import {
   ConversationId,
 } from "../../../task/methods.js";
 import { AgentId } from "../../../identity/methods.js";
-import { conversationId as makeConversationId } from "../../branded-ids.js";
-import { RpcResponseError } from "../../errors.js";
-import { makeTestClient, type TestClient } from "../../test-client.js";
-import { registerTestAgent, type TestAgent } from "../../agent-registration.js";
+import { conversationId as makeConversationId } from "../_shared/test-fixtures.js";
+import { RpcResponseError } from "../_shared/errors.js";
+import {
+  makeTestClient,
+  type TestClient,
+} from "../_shared/driver/test-client.js";
+import { registerTestAgent, type TestAgent } from "../_shared/test-fixtures.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { PropertyInvariantViolation } from "../_shared/registry.js";
 import { requireRight } from "../_shared/_helpers.js";

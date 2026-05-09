@@ -6,10 +6,16 @@
  * discriminate on `_tag` so shrinks land on a named failure mode rather
  * than an anonymous `unknown`.
  *
- * Invariant I3 (schema is source of truth) lives here: frame-level
- * validation failures raise `FrameSchemaError` on both directions.
+ * Per the Phase 1B reorg, two error fragments live alongside the subsystem
+ * that owns them: `FrameSchemaError` co-locates with
+ * `./frame-mutator.js`, and `ToxicControlError` co-locates with
+ * `../../toxics/errors.js`. The `TestingError` discriminated union keeps
+ * exhaustiveness across all seven tags so property `match` calls stay
+ * compiler-checked.
  */
 import { Data } from "effect";
+import { FrameSchemaError } from "./frame-mutator.js";
+import { ToxicControlError } from "../../toxics/errors.js";
 
 /** Peer closed the underlying WS before a response arrived. */
 export class TransportClosedError extends Data.TaggedError(
@@ -26,16 +32,6 @@ export class TransportIoError extends Data.TaggedError(
 )<{
   readonly direction: "outbound" | "inbound";
   readonly cause: unknown;
-}> {}
-
-/** A frame read off the wire failed `Value.Check` against its schema. */
-export class FrameSchemaError extends Data.TaggedError(
-  "TestingFrameSchemaError",
-)<{
-  readonly direction: "outbound" | "inbound";
-  readonly expected: "request" | "response" | "event";
-  readonly raw: string;
-  readonly reason: string;
 }> {}
 
 /** Wall-clock deadline for a request-id expired before a response. */
@@ -56,15 +52,6 @@ export class RpcResponseError extends Data.TaggedError(
   readonly code: number;
   readonly message: string;
   readonly data?: unknown;
-}> {}
-
-/** Toxiproxy HTTP API returned a non-2xx, or the control endpoint is down. */
-export class ToxicControlError extends Data.TaggedError(
-  "TestingToxicControlError",
-)<{
-  readonly op: "create-proxy" | "delete-proxy" | "add-toxic" | "remove-toxic";
-  readonly status: number;
-  readonly body: string;
 }> {}
 
 /** Consumer-supplied `realServer()` factory threw or the handle was unusable. */

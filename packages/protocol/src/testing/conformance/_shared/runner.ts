@@ -17,7 +17,8 @@ import {
   makeToxiproxyClient,
   type ToxiproxyClient,
 } from "../../toxics/client.js";
-import { RealServerAcquireError, ToxicControlError } from "../../errors.js";
+import { RealServerAcquireError } from "./errors.js";
+import { ToxicControlError } from "../../toxics/errors.js";
 import { conformanceNumRunsFromEnv } from "./env.js";
 
 const REPLAY_SEED_MASK = 0x7fffffff;
