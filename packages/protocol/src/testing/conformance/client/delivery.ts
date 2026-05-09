@@ -31,7 +31,7 @@ import {
   messageId,
 } from "../../branded-ids.js";
 import type { ClientConformanceRunContext } from "./runner.js";
-import { registerProperty } from "../registry.js";
+import { registerProperty } from "../_shared/registry.js";
 import {
   acquireFixture,
   collectTagged,

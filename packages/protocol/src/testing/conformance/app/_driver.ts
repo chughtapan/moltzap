@@ -27,14 +27,14 @@
  * never re-construct them by hand.
  */
 import { Cause, Chunk, Duration, Effect, Exit, Scope } from "effect";
-import { RpcResponseError } from "../errors.js";
+import { RpcResponseError } from "../../errors.js";
 import type { Static } from "@sinclair/typebox";
-import type { ConformanceRunContext } from "./runner.js";
+import type { ConformanceRunContext } from "../_shared/runner.js";
 import {
   PropertyInvariantViolation,
   type PropertyFailure,
-} from "./registry.js";
-import type { AgentId } from "../../identity/agents.js";
+} from "../_shared/registry.js";
+import type { AgentId } from "../../../identity/agents.js";
 import {
   type ConversationId,
   type MessageId,
@@ -42,8 +42,8 @@ import {
   TasksCreateConversation,
   ConversationsAddParticipant,
   MessagesSend,
-} from "../../task/methods.js";
-import type { TaskId } from "../../task/tasks.js";
+} from "../../../task/methods.js";
+import type { TaskId } from "../../../task/tasks.js";
 import {
   AppsRegister,
   DispatchAuthorize,
@@ -55,15 +55,15 @@ import {
   type AppManifest,
   type DispatchId,
   type LeaseId,
-} from "../../app/index.js";
-import type { DecodedNotification } from "../../transport/rpc-groups.js";
-import { registerTestAgent, type TestAgent } from "../agent-registration.js";
+} from "../../../app/index.js";
+import type { DecodedNotification } from "../../../transport/rpc-groups.js";
+import { registerTestAgent, type TestAgent } from "../../agent-registration.js";
 import {
   makeCloseableTestClient,
   makeTestClient,
   type CloseableTestClient,
   type TestClient,
-} from "../test-client.js";
+} from "../../test-client.js";
 
 // ── Verdict + state aliases (cross-impl driver re-exports) ────────────
 
@@ -1052,4 +1052,4 @@ export type {
   DispatchRelease,
   DispatchesConsumed,
   DispatchesExpired,
-} from "../../app/index.js";
+} from "../../../app/index.js";

@@ -45,8 +45,8 @@ import {
   TransportIoError,
   type ToxicControlError,
 } from "../../errors.js";
-import { conformanceNumRunsFromEnv } from "../env.js";
-import type { ConformanceArtifact } from "../runner.js";
+import { conformanceNumRunsFromEnv } from "../_shared/env.js";
+import type { ConformanceArtifact } from "../_shared/runner.js";
 import { PROTOCOL_VERSION } from "../../../version.js";
 
 import { Connect } from "../../../network/methods.js";

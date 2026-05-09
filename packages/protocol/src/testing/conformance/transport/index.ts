@@ -7,30 +7,63 @@
  * Each `register*` lives in its own file. This barrel re-exports them
  * by name AND aggregates them into `TRANSPORT_PROPERTIES` for the
  * `_shared/suite.ts` aggregator.
- *
- * Phase 1A interface stub. Implementer (sub-issue #546) carves the
- * per-property files out of the legacy monoliths
- * (`adversity.ts`, `schema-conformance.ts`, `rpc-semantics.ts`,
- * `boundary.ts`) and wires the named exports below.
  */
-// During Phase 1A interface-stub phase the runner still lives at the
-// legacy `conformance/runner.ts` location. Implementer (sub-issue #546)
-// rewrites this import to `../_shared/runner.js` after moving the file.
-import type { ConformanceRunContext } from "../runner.js";
+import type { ConformanceRunContext } from "../_shared/runner.js";
+
+import { registerRequestWellFormedness } from "./request-well-formedness.js";
+import { registerNotificationWellFormedness } from "./notification-well-formedness.js";
+import { registerRoundTripIdentity } from "./round-trip-identity.js";
+import { registerMalformedFrameHandling } from "./malformed-frame-handling.js";
+import { registerRpcMapCoverage } from "./rpc-map-coverage.js";
+import { registerRequestIdUniqueness } from "./request-id-uniqueness.js";
+import { registerCallerControlledAppCallbackTimeout } from "./caller-controlled-app-callback-timeout.js";
+import { registerLatencyResilience } from "./adversity-latency-resilience.js";
+import { registerBackpressure } from "./adversity-backpressure.js";
+import { registerSlicerFraming } from "./adversity-slicer-framing.js";
+import { registerResetPeerRecovery } from "./adversity-reset-peer-recovery.js";
+import { registerTimeoutSurface } from "./adversity-timeout-surface.js";
+import { registerSlowCloseCleanup } from "./adversity-slow-close-cleanup.js";
+import { registerSchemaExhaustiveFuzz } from "./schema-exhaustive-fuzz.js";
+
+export {
+  registerRequestWellFormedness,
+  registerNotificationWellFormedness,
+  registerRoundTripIdentity,
+  registerMalformedFrameHandling,
+  registerRpcMapCoverage,
+  registerRequestIdUniqueness,
+  registerCallerControlledAppCallbackTimeout,
+  registerLatencyResilience,
+  registerBackpressure,
+  registerSlicerFraming,
+  registerResetPeerRecovery,
+  registerTimeoutSurface,
+  registerSlowCloseCleanup,
+  registerSchemaExhaustiveFuzz,
+};
 
 /**
  * All transport-layer property registrars, in the order
  * `_shared/suite.ts` invokes them. Order matches the legacy
- * `registerAllProperties` walk for byte-equivalent baseline output.
+ * `registerAllProperties` walk for byte-equivalent baseline output:
+ * schema-conformance subset (5) → rpc-semantics subset (2) →
+ * adversity (6) → boundary subset (1).
  */
 export const TRANSPORT_PROPERTIES: ReadonlyArray<
   (ctx: ConformanceRunContext) => void
-> = [];
-
-// Implementer wires the per-property re-exports here, e.g.:
-//
-//   export { registerRequestWellFormedness } from "./request-well-formedness.js";
-//   export { registerNotificationWellFormedness } from "./notification-well-formedness.js";
-//   ...
-//
-// And populates TRANSPORT_PROPERTIES with the same set of registrars.
+> = [
+  registerRequestWellFormedness,
+  registerNotificationWellFormedness,
+  registerRoundTripIdentity,
+  registerMalformedFrameHandling,
+  registerRpcMapCoverage,
+  registerRequestIdUniqueness,
+  registerCallerControlledAppCallbackTimeout,
+  registerLatencyResilience,
+  registerBackpressure,
+  registerSlicerFraming,
+  registerResetPeerRecovery,
+  registerTimeoutSurface,
+  registerSlowCloseCleanup,
+  registerSchemaExhaustiveFuzz,
+];

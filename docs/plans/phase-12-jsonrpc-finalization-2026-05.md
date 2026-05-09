@@ -619,7 +619,7 @@ Match.tag("Request", ({ frame }) =>
 - `openclaw-channel/mapping.ts`
 - `protocol/rpc-registry.ts` (forwarder export)
 - `protocol/testing/test-client.ts`
-- `protocol/testing/conformance/presence.ts`
+- `protocol/testing/conformance/network/_helpers.ts` (post Phase 1A reorg; was `presence.ts`)
 
 These migrate to a thin `decodeNotificationByName(method, params): Effect<DecodedNotification<D>, ...>` helper exported from `method.ts`. Same fail-close semantics as JsonRpcClient's `handleNotification` — unknown method → `Effect.fail(UnknownNotificationMethodError)`.
 

@@ -8,19 +8,36 @@
  * Each `register*` lives in its own file. This barrel re-exports them
  * by name AND aggregates them into `NETWORK_PROPERTIES` for the
  * `_shared/suite.ts` aggregator.
- *
- * Phase 1A interface stub. Implementer (sub-issue #546) carves the
- * per-property files out of `presence.ts`.
  */
-// During Phase 1A interface-stub phase the runner still lives at the
-// legacy `conformance/runner.ts` location. Implementer (sub-issue #546)
-// rewrites this import to `../_shared/runner.js` after moving the file.
-import type { ConformanceRunContext } from "../runner.js";
+import type { ConformanceRunContext } from "../_shared/runner.js";
+
+import { registerConnectBroadcast } from "./presence-connect-broadcast.js";
+import { registerDisconnectBroadcast } from "./presence-disconnect-broadcast.js";
+import { registerReconnectStorm } from "./presence-reconnect-storm.js";
+import { registerSameStateNoDoubleFire } from "./presence-same-state-no-double-fire.js";
+import { registerMultiSubscriberFanOut } from "./presence-multi-subscriber-fan-out.js";
+import { registerSubscribeAfterConnect } from "./presence-subscribe-after-connect.js";
+
+export {
+  registerConnectBroadcast,
+  registerDisconnectBroadcast,
+  registerReconnectStorm,
+  registerSameStateNoDoubleFire,
+  registerMultiSubscriberFanOut,
+  registerSubscribeAfterConnect,
+};
 
 /**
- * All network-layer property registrars, in the order
- * `_shared/suite.ts` invokes them.
+ * All network-layer property registrars in legacy walk order
+ * (mirroring legacy `presence.ts` registration sequence).
  */
 export const NETWORK_PROPERTIES: ReadonlyArray<
   (ctx: ConformanceRunContext) => void
-> = [];
+> = [
+  registerConnectBroadcast,
+  registerDisconnectBroadcast,
+  registerReconnectStorm,
+  registerSameStateNoDoubleFire,
+  registerMultiSubscriberFanOut,
+  registerSubscribeAfterConnect,
+];

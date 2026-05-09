@@ -34,17 +34,17 @@ import {
   collectProperties,
   type PropertyFailure,
   type RegisteredProperty,
-} from "../registry.js";
+} from "../_shared/registry.js";
 import type {
   RealServerAcquireError,
   ToxicControlError,
 } from "../../errors.js";
-import type { SuiteResult } from "../suite.js";
-import { conformanceArtifactDirFromEnv } from "../env.js";
+import type { SuiteResult } from "../_shared/suite.js";
+import { conformanceArtifactDirFromEnv } from "../_shared/env.js";
 import {
   isAllowedCoverageGap,
   type AllowedCoverageGap,
-} from "../coverage-policy.js";
+} from "../_shared/coverage-policy.js";
 import {
   registerNotificationWellFormednessClient,
   registerMalformedFrameHandlingClient,
