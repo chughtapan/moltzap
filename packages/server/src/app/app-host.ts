@@ -624,9 +624,8 @@ export class AppHost {
   runMessageAuthorize(
     ctx: MessageAuthorizeContext,
   ): Effect.Effect<MessageAuthorizeResult, never> {
-    const _ctx = ctx;
     return Effect.dieMessage(
-      "AppHost.runMessageAuthorize: not implemented (#560 architect stub)",
+      `AppHost.runMessageAuthorize: not implemented (#560 architect stub) for appId=${ctx.appId}`,
     );
   }
 
