@@ -149,7 +149,16 @@ export type MessageAuthorizeHook = (
   ctx: MessageAuthorizeContext,
 ) => MessageAuthorizeResult | Promise<MessageAuthorizeResult>;
 
+/**
+ * `AppHooks` continues to key per-appId — `taskAuthorizeDispatch`
+ * runs against the recipient's bound app, found via
+ * `lookupAppForConversation`. `messageAuthorize` does NOT live here:
+ * its lookup key is the TASK's `tm_endpoint_address`, not the bound
+ * app. Default DM and default-group conversations have no bound app
+ * but DO have a `tm_endpoint_address` (`DEFAULT_DM_TM_ADDRESS` /
+ * `DEFAULT_GROUP_TM_ADDRESS` per `app-tm-registry.ts:30,38@adc2e18`),
+ * so an address-keyed registry is the right shape.
+ */
 export interface AppHooks {
   taskAuthorizeDispatch?: TaskAuthorizeDispatchHook;
-  messageAuthorize?: MessageAuthorizeHook;
 }

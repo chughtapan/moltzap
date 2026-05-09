@@ -1,7 +1,12 @@
 import type { Db } from "../../db/client.js";
 import type { Message, Part, TaskStatus } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { ConversationId, MessageId, TaskId } from "@moltzap/protocol/task";
+import type {
+  ConversationId,
+  MessageId,
+  TaskId,
+  TmDecision,
+} from "@moltzap/protocol/task";
 
 /**
  * #529 reshape additive — carrier returned by `sendInsert`, consumed by
@@ -178,6 +183,35 @@ export class MessageService {
    * Architect plan §3 carrier shape: `{ message, parts, conv,
    * excludeConnectionId, bypassTmRouting }`.
    */
+  /**
+   * #560: CAS-guarded UPDATE of `messages.tm_decision` after the
+   * `messages/authorize` gate resolves. Caller-side state machine:
+   * row is inserted with `{tag: "pending"}` in {@link sendInsert};
+   * THIS method transitions to `{tag: "forward", recipients}` or
+   * `{tag: "block", reason}` exactly once.
+   *
+   * The CAS guard restricts the UPDATE to rows currently in the
+   * `pending` tag. Two concurrent transitions (real verdict racing a
+   * timeout-synthesized fallback) cannot both succeed: whichever
+   * commits first wins, the loser sees `committed: false` and
+   * skips the dependent broadcast. Architect plan §9 risk R11
+   * names this race and the mitigation.
+   *
+   * Kysely query builder per memory `feedback_no_raw_sql`; the
+   * implementer uses Kysely's `.returning()` for the rowcount-equiv
+   * to compute `committed`.
+   *
+   * Stub: `implement-*` fills in the body.
+   */
+  recordTmDecision(
+    messageId: MessageId,
+    verdict: TmDecision,
+  ): Effect.Effect<{ committed: boolean }, never> {
+    return Effect.dieMessage(
+      `MessageService.recordTmDecision: not implemented (#560 architect stub) for ${messageId} tag=${verdict.tag}`,
+    );
+  }
+
   sendInsert(
     conversationId: ConversationId,
     inputParts: Part[],

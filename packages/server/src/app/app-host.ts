@@ -23,10 +23,12 @@ import {
   type AppHooks,
   type DispatchAdmissionResult,
   type MessageAuthorizeContext,
+  type MessageAuthorizeHook,
   type MessageAuthorizeResult,
   type TaskAuthorizeDispatchContext,
   type TaskAuthorizeDispatchHook,
 } from "./hooks.js";
+import type { EndpointAddress } from "@moltzap/protocol/network";
 import { Data, Effect, Option } from "effect";
 import {
   catchSqlErrorAsDefect,
@@ -101,6 +103,24 @@ export class AppHost {
   private manifests = new Map<string, AppManifest>();
   private contactService: ContactService | null = null;
   private hooks = new Map<string, AppHooks>();
+
+  /**
+   * #560: send-side fan-out hooks keyed by `EndpointAddress`. The
+   * lookup key for `messages/authorize` is the parent task's
+   * `tm_endpoint_address` (always populated post-#461 R12), NOT an
+   * appId. Default-DM and default-group register at boot under
+   * `DEFAULT_DM_TM_ADDRESS` / `DEFAULT_GROUP_TM_ADDRESS`; app TMs
+   * register under their `tm:app:<uuid>` address; future custom TMs
+   * (e.g., `tm:agent:<id>`) register under that.
+   *
+   * No sentinel constants needed — the existing address shapes IS
+   * the key. See R8 (ghost-service hazard) for why this stays
+   * separate from the `AppTmRegistry` opaque-payload registry.
+   */
+  private messageAuthorizeHooks = new Map<
+    EndpointAddress,
+    MessageAuthorizeHook
+  >();
   /**
    * Remote-app routing table. An entry exists iff `registerRemoteApp` was
    * called for `appId`; the value records which WS connection serves the
@@ -598,12 +618,27 @@ export class AppHost {
   }
 
   /**
+   * #560: Register an in-process `messageAuthorize` handler keyed by
+   * `EndpointAddress`. Default-DM and default-group register at boot
+   * (in `app-tm-registry.ts` or wherever default TMs bootstrap);
+   * apps that hold their own `tm:app:<uuid>` address register at
+   * `apps/register` time. Idempotent — repeat calls overwrite the
+   * existing entry for that address.
+   */
+  registerMessageAuthorize(
+    address: EndpointAddress,
+    hook: MessageAuthorizeHook,
+  ): void {
+    this.messageAuthorizeHooks.set(address, hook);
+  }
+
+  /**
    * Resolve the per-message fan-out verdict for a `messages/send`
    * (#560). Mirror of `dispatchAuthorizeHook` for the send-side gate:
-   * looks up the app bound to `ctx.conversationId`, dispatches either
-   * the in-process `messageAuthorize` callback or the remote
-   * `messages/authorize` S→C RPC, applies the uniform timeout +
-   * fail-closed envelope, and returns a verdict the
+   * looks up the registered handler by `tmEndpointAddress`,
+   * dispatches either the in-process `MessageAuthorizeHook` or the
+   * remote `messages/authorize` S→C RPC, applies the uniform timeout
+   * + fail-closed envelope, and returns a verdict the
    * `MessageService.sendCommit` caller can switch on.
    *
    * Fail-closed posture (mirrors `runAuthorizeDispatch` per #461 r3
@@ -612,20 +647,23 @@ export class AppHost {
    * `"messages/authorize timeout"` / `"messages/authorize error"`,
    * matching `dispatch/authorize`'s wording where the cause is known).
    *
-   * Default policy when no hook is registered: `Forward { recipients:
-   * participants \ sender }`. The default-DM and default-group TMs
-   * register an in-process `messageAuthorize` handler that returns
-   * exactly this — preserves today's broadcast behavior with zero wire
-   * chatter.
+   * Default policy when no hook is registered for the address:
+   * `Forward { recipients: participants \ sender }`. Default-DM and
+   * default-group's in-process registrations return exactly this —
+   * preserves today's broadcast behavior with zero wire chatter.
    *
    * Stub: `implement-*` fills in the body. Body shape is paste-and-
    * modify from `dispatchAuthorizeHook` (architect §2 risk R1).
+   *
+   * The address-keyed map (`messageAuthorizeHooks`) is the C2 design
+   * pin: a single registry, single lookup, no `null` app_id branching.
    */
   runMessageAuthorize(
+    tmEndpointAddress: EndpointAddress,
     ctx: MessageAuthorizeContext,
   ): Effect.Effect<MessageAuthorizeResult, never> {
     return Effect.dieMessage(
-      `AppHost.runMessageAuthorize: not implemented (#560 architect stub) for appId=${ctx.appId}`,
+      `AppHost.runMessageAuthorize: not implemented (#560 architect stub) for ${tmEndpointAddress} appId=${ctx.appId}`,
     );
   }
 
@@ -633,6 +671,7 @@ export class AppHost {
   destroy(): void {
     this.hooks.clear();
     this.remoteRegistrations.clear();
+    this.messageAuthorizeHooks.clear();
   }
 
   // ── Uniform hook dispatch (in-process + remote) ────────────────────
