@@ -61,6 +61,58 @@ export const MessageSchema = Type.Object(
 
 export type Message = Static<typeof MessageSchema>;
 
+// ── tm_decision (#560) ──────────────────────────────────────────────
+//
+// Per-message TM fan-out verdict. Lives on `messages.tm_decision`
+// jsonb column server-side. Wire exposure is TM-caller-only:
+//
+// - `MessageSchema` (above) stays the canonical shape for non-TM
+//   callers — sender, recipient, any other agent. It does NOT carry
+//   `tm_decision`. Recipients see only `forward` rows where they
+//   appear in `recipients` (filter applied server-side); they have
+//   no need to inspect the verdict.
+// - `MessageWithTmDecisionSchema` (below) extends `MessageSchema`
+//   with the verdict. The TM caller for a task sees this shape.
+//
+// Architect plan §3 picks two-schema (this file) over runtime-strip
+// (single optional field) to keep TS strict at non-TM read sites:
+// non-TM consumers literally cannot reference `tmDecision` because
+// the field is not in their type. See #560 architect comment §3
+// + risk R8 for the alternative.
+
+export const TmDecisionSchema = Type.Union([
+  Type.Object(
+    { tag: Type.Literal("pending") },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      tag: Type.Literal("forward"),
+      recipients: Type.Array(AgentId),
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      tag: Type.Literal("block"),
+      reason: Type.Optional(Type.String()),
+    },
+    { additionalProperties: false },
+  ),
+]);
+
+export type TmDecision = Static<typeof TmDecisionSchema>;
+
+export const MessageWithTmDecisionSchema = Type.Composite([
+  MessageSchema,
+  Type.Object(
+    { tmDecision: TmDecisionSchema },
+    { additionalProperties: false },
+  ),
+]);
+
+export type MessageWithTmDecision = Static<typeof MessageWithTmDecisionSchema>;
+
 export const MessagesSend = defineRpc({
   name: "messages/send",
   params: Type.Object(

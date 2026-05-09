@@ -24,6 +24,13 @@ export type Int8 = ColumnType<
   bigint | number | string
 >;
 
+/**
+ * jsonb column type. Server code decodes the column into the typed
+ * union (e.g. `TmDecision`) at the boundary; the generated type stays
+ * `unknown` so a Principle-2 schema decode happens at every read site.
+ */
+export type Json = ColumnType<unknown, unknown, unknown>;
+
 export type TaskStatus = "active" | "closed" | "failed" | "waiting";
 
 export type Timestamp = ColumnType<Date, Date | string, Date | string>;
@@ -101,6 +108,14 @@ export interface Messages {
   sender_id: string;
   seq: Int8;
   task_id: string | null;
+  /**
+   * #560: TM fan-out verdict, written by `MessageService.sendInsert`
+   * as `{tag: "pending"}` and updated by `recordTmDecision` to
+   * `{tag: "forward", recipients: [...]}` or `{tag: "block",
+   * reason: "..."}`. Decoded via `TmDecisionSchema` at every read
+   * site (Principle 2: schemas at boundaries).
+   */
+  tm_decision: Generated<Json>;
 }
 
 export interface TaskParticipants {

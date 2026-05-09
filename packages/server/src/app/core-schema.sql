@@ -187,3 +187,16 @@ CREATE INDEX idx_conversations_task ON conversations(task_id);
 ALTER TABLE messages
   ADD COLUMN task_id UUID REFERENCES tasks(id);
 CREATE INDEX idx_messages_task_seq ON messages(task_id, seq);
+
+-- #560: per-message TM fan-out verdict. Insert-then-gate ordering
+-- (#560 §7) — the message is durably inserted first with verdict
+-- `{tag: "pending"}`, then the TM round-trip resolves to `{tag:
+-- "forward", recipients: [...]}` or `{tag: "block", reason: "..."}`.
+-- `getMessages` visibility is per-caller (architect plan §3 + §8):
+-- TM sees all rows, sender sees own rows regardless of tag, recipient
+-- sees only `forward` rows where they appear in `recipients`.
+-- Greenfield schema follows the project's existing pattern (no
+-- migration runner; column lands in `core-schema.sql` directly).
+ALTER TABLE messages
+  ADD COLUMN tm_decision JSONB NOT NULL DEFAULT '{"tag":"pending"}'::jsonb;
+CREATE INDEX idx_messages_tm_decision_tag ON messages ((tm_decision->>'tag'));
