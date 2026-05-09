@@ -97,10 +97,8 @@ export const endpointAddress = (value: string): EndpointAddress =>
  * lockstep — the {@link ENDPOINT_ADDRESS_KINDS}-driven loop owns the
  * exhaustiveness story.
  *
- * The trailing `return ENDPOINT_ADDRESS_KINDS[0]` is unreachable for any
- * well-formed branded value (the brand guarantees at least one match)
- * but appears for the type checker — `for...of` does not narrow to a
- * non-empty result. The brand's own tests cover the malformed case.
+ * The post-loop path is unreachable for any well-formed branded value;
+ * it throws rather than silently returning a default (Principle 4).
  */
 export const endpointAddressKind = (
   address: EndpointAddress,
@@ -110,7 +108,7 @@ export const endpointAddressKind = (
   for (const kind of ENDPOINT_ADDRESS_KINDS) {
     if (rest.startsWith(`${kind}:`)) return kind;
   }
-  return ENDPOINT_ADDRESS_KINDS[0];
+  return absurd(raw as never);
 };
 
 /**
@@ -189,3 +187,13 @@ export type AuthenticatedIdentity = {
   readonly agentId: AgentId;
   readonly userId: UserId;
 };
+
+// ---------------------------------------------------------------------------
+// Exhaustiveness helpers (Principle 4)
+// ---------------------------------------------------------------------------
+
+/** Exhaustiveness sentinel — throws at runtime if a branch believed
+ *  unreachable is ever reached (e.g. a branded-value invariant breaks). */
+function absurd(x: never): never {
+  throw new Error(`unreachable: ${JSON.stringify(x)}`);
+}
