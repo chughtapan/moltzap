@@ -633,12 +633,40 @@ export class AppHost {
   }
 
   /**
+   * #560 v4 — generic hook runner shared by every authorization hook
+   * registry. Encapsulates the lookup + in-process-vs-remote branch +
+   * fail-closed envelope. Specific runners (`runMessageAuthorize`,
+   * future `runAuthorizeDispatch` refactor) become thin wrappers that
+   * supply the registry and the synthetic fallback verdict.
+   *
+   *   private runHook<TKey, TContext, TResult>(opts: {
+   *     registry: Map<TKey, Hook<TContext, TResult>>;
+   *     key: TKey;
+   *     ctx: TContext;
+   *     manifestTimeoutMs: number;
+   *     onTimeout: () => TResult;
+   *     onError: () => TResult;
+   *     defaultWhenAbsent: () => TResult;
+   *   }): Effect.Effect<TResult, never>;
+   *
+   * The runner reuses `wrapHookEffectWithEnvelope` (`:763@adc2e18`)
+   * for the timeout + fail-closed wrapper; supplies in-process or
+   * remote dispatch via `runInProcessHookEffect` /
+   * `runRemoteHookEffect`. Refactoring the existing
+   * `dispatchAuthorizeHook` (`:550@adc2e18`) onto this shape is OUT
+   * of scope for this PR (architect §5 NOT-in-scope; tracked as a
+   * follow-up). The new `runMessageAuthorize` below is the FIRST
+   * caller of the unified shape; the existing dispatch path keeps its
+   * current implementation until the follow-up lands.
+   *
+   * Stub: `implement-*` fills in the body. Body shape: lookup, branch
+   * on `remoteRegistrations.has(...)`, run, envelope, return.
+   *
    * Resolve the per-message fan-out verdict for a `messages/send`
-   * (#560). Mirror of `dispatchAuthorizeHook` for the send-side gate:
-   * looks up the registered handler by `tmEndpointAddress`,
+   * (#560). Looks up the registered handler by `tmEndpointAddress`,
    * dispatches either the in-process `MessageAuthorizeHook` or the
-   * remote `messages/authorize` S→C RPC, applies the uniform timeout
-   * + fail-closed envelope, and returns a verdict the
+   * remote `messages/authorize` S→C RPC, applies the uniform fail-
+   * closed envelope, and returns a verdict the
    * `MessageService.sendCommit` caller can switch on.
    *
    * Fail-closed posture (mirrors `runAuthorizeDispatch` per #461 r3
@@ -652,11 +680,10 @@ export class AppHost {
    * default-group's in-process registrations return exactly this —
    * preserves today's broadcast behavior with zero wire chatter.
    *
-   * Stub: `implement-*` fills in the body. Body shape is paste-and-
-   * modify from `dispatchAuthorizeHook` (architect §2 risk R1).
-   *
    * The address-keyed map (`messageAuthorizeHooks`) is the C2 design
-   * pin: a single registry, single lookup, no `null` app_id branching.
+   * pin: separate registry from the appId-keyed `hooks`, identical
+   * shape (`Map<TKey, Hook<TContext, TResult>>`). The hook-shape
+   * unification is the v4 design pin (architect risk R13).
    */
   runMessageAuthorize(
     tmEndpointAddress: EndpointAddress,
