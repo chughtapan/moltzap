@@ -46,8 +46,13 @@ RpcMethodBinding.handle  (call site: jsonRpcServer.handle(frame, ctx))
 
 The wrapper-provided tags are no-ops for handlers that don't yield them; `Effect.provideService(Tag, value)` is `Exclude<R, Tag>` in the type system, so providing a tag the body never reads costs nothing.
 
-## Type-alias scaffold (added in Phase 2A r2 architect plan)
+## Type-alias scaffold (Phase 2A r2)
 
-The Tag hierarchy in `layer-tags.ts` is a stub at the architect stage. The wrapper signatures in `context.ts` and `define-layered-method.ts` widen with `Reqs` generics that default to the layer's full allowlist; this preserves source-compatibility with the pre-2A.0 factory-deps handler shape while opening the door for the migrated `yield* XServiceTag` shape.
+Three pieces, all already on this branch as of `architect/phase-2a-r2-server-reshape`:
 
-The implementation work to (a) migrate every handler off factories, (b) move `RpcHandler<Ctx>.handle` past the R=never assumption, and (c) thread `FullLive` into the dispatch runtime is part of the Phase 2A single-PR landing.
+1. **Tag hierarchy** in `layer-tags.ts`. Every Tag yielded by a post-DI-migration handler is placed at the lowest layer that yields it. See plan §3 "Handler audit matrix" for the per-handler audit.
+2. **Wrapper signatures** in `context.ts` and `define-layered-method.ts` widen with `Reqs` generics. `Reqs extends NetworkTags = NetworkTags` (and parallel for Task/App) — defaulted to the upper bound so pre-migration handlers (R=never) still compile, constrained so a migrated handler that yields a higher-tier Tag is rejected at the call site.
+3. **Protocol-side widening** in `@moltzap/protocol/transport/json-rpc-server.ts`: `RpcHandler<Ctx, R = never>` and `JsonRpcServer<Ctx, R = never>` carry the R-channel structurally. Removes the architect-stage cast that v3 carried at `defineMethod`'s `handler()` call.
+4. **Dispatch runtime** in `app/server.ts`: `ManagedRuntime.make(Layer.mergeAll(NodeHttpServer.layerContext, FullLive))` — the request-fiber runtime carries every service Tag in `AppTags`, so handler-body yields resolve at request time.
+
+The implementation work to migrate every handler off factories is part of the Phase 2A single-PR landing (commit 3 in §6 of the plan). The migration removes `createXHandlers({deps})` factories in favor of top-level `xHandlers: RpcMethodRegistry` whose binding bodies `yield* XServiceTag` — the type-system hierarchy is already in place to enforce layer placement structurally.
