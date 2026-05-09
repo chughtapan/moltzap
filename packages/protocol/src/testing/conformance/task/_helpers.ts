@@ -16,10 +16,18 @@ import {
   ConversationsUnarchive,
   ConversationsUpdate,
   MessagesSend,
+  TasksAddParticipant,
+  TasksClose,
+  TasksCreate,
+  TasksCreateConversation,
   ConversationId,
+  TaskId,
 } from "../../../task/methods.js";
 import { AgentId } from "../../../identity/methods.js";
-import { conversationId as makeConversationId } from "../_shared/test-fixtures.js";
+import {
+  conversationId as makeConversationId,
+  taskId as makeTaskId,
+} from "../_shared/test-fixtures.js";
 import { RpcResponseError } from "../_shared/errors.js";
 import {
   makeTestClient,
@@ -38,6 +46,7 @@ const MAX_N = 4;
 
 export type AgentIdValue = Static<typeof AgentId>;
 export type ConversationIdValue = Static<typeof ConversationId>;
+export type TaskIdValue = Static<typeof TaskId>;
 
 export interface ConversationFixture {
   readonly owner: { agent: TestAgent; client: TestClient };
@@ -45,6 +54,23 @@ export interface ConversationFixture {
     agent: TestAgent;
     client: TestClient;
   }>;
+  readonly conversationId: ConversationIdValue;
+}
+
+/**
+ * Owner-as-TM fixture. Mirrors the integration-test
+ * `setupTaskBoundConversation` shape: owner calls `tasks/create` with
+ * `tmType: "self"`, admits the participant via
+ * `tasks/addParticipant`, and creates a DM via
+ * `tasks/createConversation`. The owner is the registered TM for the
+ * task (`tm:agent:<owner>`), so subsequent owner-issued
+ * `tasks/close` is authorized; the participant becomes the message
+ * sender.
+ */
+export interface TaskBoundConversationFixture {
+  readonly owner: { agent: TestAgent; client: TestClient };
+  readonly sender: { agent: TestAgent; client: TestClient };
+  readonly taskId: TaskIdValue;
   readonly conversationId: ConversationIdValue;
 }
 
@@ -418,6 +444,81 @@ export function acquireConversation(
       owner,
       participants,
       conversationId: makeConversationId(conversationId),
+    };
+  });
+}
+
+export function closeTask(actor: ConversationActor, taskIdValue: TaskIdValue) {
+  return actor.client.sendRpc(TasksClose, { taskId: taskIdValue });
+}
+
+/**
+ * Acquire a task whose TM is the owner (`tmType: "self"`), with one
+ * admitted sender participant and a DM conversation containing the
+ * sender. Mirrors the integration-test `setupTaskBoundConversation`
+ * shape so conformance can exercise the same `tasks/close` →
+ * `messages/send` rejection path the real server enforces.
+ */
+export function acquireTaskBoundConversation(
+  ctx: ConformanceRunContext,
+  namePrefix: string,
+): Effect.Effect<TaskBoundConversationFixture, string, Scope.Scope> {
+  return Effect.gen(function* () {
+    const [owner, sender] = yield* Effect.all(
+      [
+        acquireClient(ctx, `${namePrefix}-tm`),
+        acquireClient(ctx, `${namePrefix}-sender`),
+      ],
+      { concurrency: 2 },
+    );
+
+    const taskResult = yield* owner.client
+      .sendRpc(TasksCreate, { tmType: "self" as const })
+      .pipe(Effect.either);
+    const taskCreated = (yield* requireRight(
+      taskResult,
+      (error) => `tasks/create failed: ${error._tag}`,
+    )) as { task?: { id?: string } };
+    const rawTaskId = taskCreated.task?.id;
+    if (typeof rawTaskId !== "string" || rawTaskId.length === 0) {
+      return yield* Effect.fail(`tasks/create returned no task.id`);
+    }
+    const taskIdValue = makeTaskId(rawTaskId);
+
+    const addResult = yield* owner.client
+      .sendRpc(TasksAddParticipant, {
+        taskId: taskIdValue,
+        agentId: sender.agent.agentId,
+      })
+      .pipe(Effect.either);
+    yield* requireRight(
+      addResult,
+      (error) => `tasks/addParticipant failed: ${error._tag}`,
+    );
+
+    const convResult = yield* owner.client
+      .sendRpc(TasksCreateConversation, {
+        taskId: taskIdValue,
+        type: "dm" as const,
+        participants: [{ type: "agent" as const, id: sender.agent.agentId }],
+      })
+      .pipe(Effect.either);
+    const convCreated = (yield* requireRight(
+      convResult,
+      (error) => `tasks/createConversation failed: ${error._tag}`,
+    )) as { conversation?: { id?: string } };
+    const rawConvId = convCreated.conversation?.id;
+    if (typeof rawConvId !== "string" || rawConvId.length === 0) {
+      return yield* Effect.fail(
+        `tasks/createConversation returned no conversation.id`,
+      );
+    }
+
+    return {
+      owner,
+      sender,
+      taskId: taskIdValue,
+      conversationId: makeConversationId(rawConvId),
     };
   });
 }
