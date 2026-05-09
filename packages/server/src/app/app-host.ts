@@ -22,6 +22,8 @@ import type { ConversationId, MessageId } from "@moltzap/protocol/task";
 import {
   type AppHooks,
   type DispatchAdmissionResult,
+  type MessageAuthorizeContext,
+  type MessageAuthorizeResult,
   type TaskAuthorizeDispatchContext,
   type TaskAuthorizeDispatchHook,
 } from "./hooks.js";
@@ -593,6 +595,39 @@ export class AppHost {
         reason: "dispatch/authorize error",
       }),
     });
+  }
+
+  /**
+   * Resolve the per-message fan-out verdict for a `messages/send`
+   * (#560). Mirror of `dispatchAuthorizeHook` for the send-side gate:
+   * looks up the app bound to `ctx.conversationId`, dispatches either
+   * the in-process `messageAuthorize` callback or the remote
+   * `messages/authorize` S→C RPC, applies the uniform timeout +
+   * fail-closed envelope, and returns a verdict the
+   * `MessageService.sendCommit` caller can switch on.
+   *
+   * Fail-closed posture (mirrors `runAuthorizeDispatch` per #461 r3
+   * R3/R4): timeout / RPC error / handler throw / decode failure all
+   * synthesize `Block { reason: "tm_unreachable" }` (or
+   * `"messages/authorize timeout"` / `"messages/authorize error"`,
+   * matching `dispatch/authorize`'s wording where the cause is known).
+   *
+   * Default policy when no hook is registered: `Forward { recipients:
+   * participants \ sender }`. The default-DM and default-group TMs
+   * register an in-process `messageAuthorize` handler that returns
+   * exactly this — preserves today's broadcast behavior with zero wire
+   * chatter.
+   *
+   * Stub: `implement-*` fills in the body. Body shape is paste-and-
+   * modify from `dispatchAuthorizeHook` (architect §2 risk R1).
+   */
+  runMessageAuthorize(
+    ctx: MessageAuthorizeContext,
+  ): Effect.Effect<MessageAuthorizeResult, never> {
+    const _ctx = ctx;
+    return Effect.dieMessage(
+      "AppHost.runMessageAuthorize: not implemented (#560 architect stub)",
+    );
   }
 
   /** Clear in-memory state. Called on shutdown. */
