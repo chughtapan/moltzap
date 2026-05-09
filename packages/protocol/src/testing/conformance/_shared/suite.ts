@@ -275,14 +275,6 @@ function allowedServerCoverageGaps(
       id: "boundary/app-disconnect-fail-policy",
       reasonIncludes: TasksCreate.name,
     },
-    // Spurious appCallback frame handling needs a wire-level injection seam
-    // TestClient does not expose; tombstoned where the server-side
-    // fault-injection path is reachable.
-    {
-      kind: "deferred",
-      id: "rpc-semantics/spurious-app-callback-frame-handling",
-      reasonIncludes: "B.9",
-    },
   ];
   if (toxiproxyUrl === null) {
     gaps.push(
