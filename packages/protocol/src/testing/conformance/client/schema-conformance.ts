@@ -25,7 +25,7 @@ import { NotificationFrameSchema } from "../../../transport/wire.js";
 import { arbitraryNotificationFrame } from "../../arbitraries/frames.js";
 import * as fc from "fast-check";
 import type { ClientConformanceRunContext } from "./runner.js";
-import { registerProperty } from "../registry.js";
+import { registerProperty } from "../_shared/registry.js";
 import {
   acquireFixture,
   collectTagged,

@@ -13,8 +13,11 @@
  *   - tear everything down in reverse order.
  */
 import { Config, ConfigProvider, Effect, Ref, Scope } from "effect";
-import { makeToxiproxyClient, type ToxiproxyClient } from "../toxics/client.js";
-import { RealServerAcquireError, ToxicControlError } from "../errors.js";
+import {
+  makeToxiproxyClient,
+  type ToxiproxyClient,
+} from "../../toxics/client.js";
+import { RealServerAcquireError, ToxicControlError } from "../../errors.js";
 import { conformanceNumRunsFromEnv } from "./env.js";
 
 const REPLAY_SEED_MASK = 0x7fffffff;

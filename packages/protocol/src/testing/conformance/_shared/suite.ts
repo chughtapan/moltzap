@@ -32,21 +32,22 @@ import {
   type PropertyFailure,
   type RegisteredProperty,
 } from "./registry.js";
-import * as schemaConformance from "./schema-conformance.js";
-import * as rpcSemantics from "./rpc-semantics.js";
-import * as delivery from "./delivery.js";
-import * as adversity from "./adversity.js";
-import * as boundary from "./boundary.js";
-import * as presence from "./presence.js";
-import * as dispatchAdmission from "./dispatch-admission.js";
-import type { RealServerAcquireError, ToxicControlError } from "../errors.js";
+import { TRANSPORT_PROPERTIES } from "../transport/index.js";
+import { IDENTITY_PROPERTIES } from "../identity/index.js";
+import { NETWORK_PROPERTIES } from "../network/index.js";
+import { TASK_PROPERTIES } from "../task/index.js";
+import { APP_PROPERTIES } from "../app/index.js";
+import type {
+  RealServerAcquireError,
+  ToxicControlError,
+} from "../../errors.js";
 import {
   isAllowedCoverageGap,
   type AllowedCoverageGap,
 } from "./coverage-policy.js";
 import { conformanceArtifactDirFromEnv } from "./env.js";
 
-import { TasksClose, TasksCreate } from "../../task/methods.js";
+import { TasksClose, TasksCreate } from "../../../task/methods.js";
 
 const JSON_INDENT_SPACES = 2;
 const TOXIPROXY_NOT_PROVISIONED = "Toxiproxy client not provisioned";
@@ -92,69 +93,20 @@ export interface SuiteResult {
 
 /**
  * Register every property against `ctx`. Consumers that want a narrower
- * run build a `ConformanceRunContext` directly and call only the modules
- * they need; `runConformanceSuite` uses this helper to register the full
- * set.
+ * run build a `ConformanceRunContext` directly and call only the layer
+ * subset they need; `runConformanceSuite` uses this helper to register
+ * the full set across all layers.
  */
 export function registerAllProperties(ctx: ConformanceRunContext): void {
-  schemaConformance.registerRequestWellFormedness(ctx);
-  schemaConformance.registerNotificationWellFormedness(ctx);
-  schemaConformance.registerRoundTripIdentity(ctx);
-  schemaConformance.registerMalformedFrameHandling(ctx);
-  schemaConformance.registerRpcMapCoverage(ctx);
-
-  rpcSemantics.registerModelEquivalence(ctx);
-  rpcSemantics.registerAuthorityPositive(ctx);
-  rpcSemantics.registerAuthorityNegative(ctx);
-  rpcSemantics.registerRequestIdUniqueness(ctx);
-  rpcSemantics.registerIdempotence(ctx);
-  rpcSemantics.registerSpuriousAppCallbackFrameHandling(ctx);
-  rpcSemantics.registerCallerControlledAppCallbackTimeout(ctx);
-
-  delivery.registerFanOutCardinality(ctx);
-  delivery.registerStoreAndReplay(ctx);
-  delivery.registerPayloadOpacity(ctx);
-  delivery.registerTaskBoundaryIsolation(ctx);
-  delivery.registerHookGatedDelivery(ctx);
-  delivery.registerMultiAppFifoShortCircuit(ctx);
-  delivery.registerConversationLifecycle(ctx);
-  delivery.registerTaskCloseLifecycle(ctx);
-  delivery.registerArchiveLifecycle(ctx);
-
-  adversity.registerLatencyResilience(ctx);
-  adversity.registerBackpressure(ctx); // tombstoned — #186
-  adversity.registerSlicerFraming(ctx);
-  adversity.registerResetPeerRecovery(ctx);
-  adversity.registerTimeoutSurface(ctx);
-  adversity.registerSlowCloseCleanup(ctx);
-
-  boundary.registerSchemaExhaustiveFuzz(ctx);
-  boundary.registerAppDisconnectFailPolicy(ctx);
-
-  presence.registerConnectBroadcast(ctx);
-  presence.registerDisconnectBroadcast(ctx);
-  presence.registerReconnectStorm(ctx);
-  presence.registerSameStateNoDoubleFire(ctx);
-  presence.registerMultiSubscriberFanOut(ctx);
-  presence.registerSubscribeAfterConnect(ctx);
-
-  // #529 reshape additive — dispatch admission (12 new + 3 rewriting
-  // dispatcher-concurrency P1-P3, closing #358).
-  dispatchAdmission.registerDispatchRequestAckMintsLease(ctx);
-  dispatchAdmission.registerDispatchRequestRecipientDisconnectAbandons(ctx);
-  dispatchAdmission.registerDispatchAuthorizeVerdictResolves(ctx);
-  dispatchAdmission.registerDispatchAuthorizeTimeoutSynthesizesDeny(ctx);
-  dispatchAdmission.registerDispatchReleaseFiresAfterResolve(ctx);
-  dispatchAdmission.registerDispatchReleaseSkippedOnAbandoned(ctx);
-  dispatchAdmission.registerDispatchesConsumedFiresOnFirstSend(ctx);
-  dispatchAdmission.registerDispatchesConsumedSuppressedOnSecondSend(ctx);
-  dispatchAdmission.registerDispatchesExpiredFiresOnTtl(ctx);
-  dispatchAdmission.registerDispatchesExpiredSuppressedOnConsumeBeforeTtl(ctx);
-  dispatchAdmission.registerDispatchesGetModeratorSeesRecord(ctx);
-  dispatchAdmission.registerDispatchesGetNonModeratorRejected(ctx);
-  dispatchAdmission.registerSameConversationDispatchesConcurrent(ctx);
-  dispatchAdmission.registerSlowFirstDoesNotDelaySecondAck(ctx);
-  dispatchAdmission.registerReleaseForOneLeaseDoesNotWaitOnAnother(ctx);
+  for (const fn of [
+    ...TRANSPORT_PROPERTIES,
+    ...IDENTITY_PROPERTIES,
+    ...NETWORK_PROPERTIES,
+    ...TASK_PROPERTIES,
+    ...APP_PROPERTIES,
+  ]) {
+    fn(ctx);
+  }
 }
 
 /**
@@ -300,11 +252,11 @@ function allowedServerCoverageGaps(
     // close lifecycle, and app-disconnect fail-policy properties all
     // gate on the session-bootstrap path that Phase 7 cutover removed.
     // They short-circuit to PropertyDeferred citing TasksCreate as the
-    // gating dependency until Phase 9 wires the TM-topology equivalent
-    // (#318). Both PropertyUnavailable and PropertyDeferred outcomes
-    // are accepted (the boundary fixture acquires more state than the
-    // delivery fixtures and therefore can self-report Unavailable
-    // earlier in its setup).
+    // gating dependency until the TM-topology equivalent lands. Both
+    // PropertyUnavailable and PropertyDeferred outcomes are accepted
+    // (the boundary fixture acquires more state than the delivery
+    // fixtures and therefore can self-report Unavailable earlier in
+    // its setup).
     {
       kind: "deferred",
       id: "delivery/hook-gated-delivery",
@@ -326,19 +278,13 @@ function allowedServerCoverageGaps(
       reasonIncludes: TasksCreate.name,
     },
     // Spurious appCallback frame handling needs a wire-level injection seam
-    // TestClient does not expose; tombstoned to Phase 9 (#318) where the
-    // server-side fault-injection path is reachable.
+    // TestClient does not expose; tombstoned where the server-side
+    // fault-injection path is reachable.
     {
       kind: "deferred",
       id: "rpc-semantics/spurious-app-callback-frame-handling",
       reasonIncludes: "B.9",
     },
-    // #533 row 13 cutover: the 15 dispatch-admission properties are now
-    // executable via the cross-impl `DispatchTestDriver`; their previous
-    // PropertyDeferred tombstones here are removed. See
-    // `packages/protocol/src/testing/conformance/test-server-driver.ts`
-    // for the driver and `dispatch-admission.ts` for the property
-    // bodies.
   ];
   if (toxiproxyUrl === null) {
     gaps.push(

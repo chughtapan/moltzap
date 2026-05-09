@@ -62,7 +62,8 @@ export type ToxicTag = (typeof allToxicTags)[number];
 /**
  * Every delivery-layer property one toxic is expected to re-exercise.
  * Keyed by the property's semantic name (matches the register-function
- * names in `conformance/delivery.ts`).
+ * names in `conformance/task/{fan-out-cardinality,store-and-replay,
+ * payload-opacity,task-boundary-isolation}.ts`).
  */
 export type DeliveryInvariantName =
   | "fan-out-cardinality"
