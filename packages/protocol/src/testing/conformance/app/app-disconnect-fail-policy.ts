@@ -29,8 +29,8 @@
 import { Effect, Exit, Scope } from "effect";
 import { AppsRegister, DispatchAuthorize } from "../../../app/methods.js";
 import { TasksCreate } from "../../../task/methods.js";
-import { makeTestClient } from "../../test-client.js";
-import { registerTestAgent } from "../../agent-registration.js";
+import { makeTestClient } from "../_shared/driver/test-client.js";
+import { registerTestAgent } from "../_shared/test-fixtures.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { PropertyUnavailable, registerProperty } from "../_shared/registry.js";
 import { leftOrNull, sendUntypedRpc } from "../_shared/_helpers.js";

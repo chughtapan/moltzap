@@ -9,8 +9,11 @@ import type { Static } from "@sinclair/typebox";
 import { Effect, type Scope } from "effect";
 import type { Proxy } from "../../toxics/client.js";
 import type { ToxicProfile } from "../../toxics/profile.js";
-import { makeTestClient, type TestClient } from "../../test-client.js";
-import { registerTestAgent, type TestAgent } from "../../agent-registration.js";
+import {
+  makeTestClient,
+  type TestClient,
+} from "../_shared/driver/test-client.js";
+import { registerTestAgent, type TestAgent } from "../_shared/test-fixtures.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import {
   PropertyInvariantViolation,
@@ -18,7 +21,7 @@ import {
   registerProperty,
 } from "../_shared/registry.js";
 import { ConversationsCreate, ConversationId } from "../../../task/methods.js";
-import { conversationId } from "../../branded-ids.js";
+import { conversationId } from "../_shared/test-fixtures.js";
 
 export const ADVERSITY_CATEGORY = "adversity" as const;
 export const DEFAULT_CAPTURE_CAPACITY = 128;

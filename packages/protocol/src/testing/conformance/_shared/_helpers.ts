@@ -6,14 +6,14 @@
 import { Effect, Either } from "effect";
 import type { TSchema } from "@sinclair/typebox";
 import type { RpcDefinition } from "../../../transport/method.js";
-import type { TestClient } from "../../test-client.js";
+import type { TestClient } from "./driver/test-client.js";
+import type { FrameSchemaError } from "./frame-mutator.js";
 import type {
-  FrameSchemaError,
   RpcResponseError,
   RpcTimeoutError,
   TransportClosedError,
   TransportIoError,
-} from "../../errors.js";
+} from "./errors.js";
 
 /**
  * Send an RPC whose descriptor is not in the typed `rpcMethods` registry

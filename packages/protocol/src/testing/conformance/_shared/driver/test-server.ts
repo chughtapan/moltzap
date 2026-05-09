@@ -15,7 +15,10 @@
 import { Context, Effect, Ref, type Scope } from "effect";
 import * as NodeSocketServer from "@effect/platform-node/NodeSocketServer";
 import * as Socket from "@effect/platform/Socket";
-import type { NotificationFrame, ResponseFrame } from "../transport/wire.js";
+import type {
+  NotificationFrame,
+  ResponseFrame,
+} from "../../../../transport/wire.js";
 import {
   makeCaptureBuffer,
   mergeCaptures,
@@ -23,19 +26,16 @@ import {
   recordMalformed,
   type CapturedFrame,
   type CaptureBuffer,
-} from "./captures.js";
+} from "../captures.js";
 import {
   decodeFrame,
   encodeFrame,
   malformFrame,
   type AnyFrame,
   type MalformedFrameKind,
-} from "./codec.js";
-import {
   FrameSchemaError,
-  TransportClosedError,
-  TransportIoError,
-} from "./errors.js";
+} from "../frame-mutator.js";
+import { TransportClosedError, TransportIoError } from "../errors.js";
 
 export interface TestServerConfig {
   /** If 0, bind to an ephemeral port. */

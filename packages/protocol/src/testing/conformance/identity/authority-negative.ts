@@ -12,10 +12,10 @@ import {
 import { ConversationsList } from "../../../task/methods.js";
 import { authorizationOutcome } from "../../models/dispatch.js";
 import { initialReferenceState } from "../../models/state.js";
-import { agentId } from "../../branded-ids.js";
-import { RpcResponseError } from "../../errors.js";
-import { makeTestClient } from "../../test-client.js";
-import { registerTestAgent } from "../../agent-registration.js";
+import { agentId } from "../_shared/test-fixtures.js";
+import { RpcResponseError } from "../_shared/errors.js";
+import { makeTestClient } from "../_shared/driver/test-client.js";
+import { registerTestAgent } from "../_shared/test-fixtures.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import {
   PropertyInvariantViolation,

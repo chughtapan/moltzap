@@ -20,7 +20,7 @@ import {
   validateNotificationFrame,
   type NotificationFrame,
 } from "../../../transport/wire.js";
-import type { TestServerConnection } from "../../test-server.js";
+import type { TestServerConnection } from "../_shared/driver/test-server.js";
 import {
   awaitConnection,
   lookupTagForRawBytes,

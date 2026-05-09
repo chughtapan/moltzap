@@ -24,7 +24,7 @@
  */
 import { Effect } from "effect";
 import { MessagesSend } from "../../../task/methods.js";
-import { isNotificationFrame } from "../../codec.js";
+import { isNotificationFrame } from "../_shared/frame-mutator.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import {
   PropertyInvariantViolation,

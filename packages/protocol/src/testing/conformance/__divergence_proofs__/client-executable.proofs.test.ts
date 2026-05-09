@@ -9,9 +9,12 @@ import {
   ConversationArchivedNotificationDefinition,
   ConversationUnarchivedNotificationDefinition,
 } from "../../../task/methods.js";
-import type { TestServer, TestServerConnection } from "../../test-server.js";
-import { makeCaptureBuffer, recordFrame } from "../../captures.js";
-import { encodeFrame } from "../../codec.js";
+import type {
+  TestServer,
+  TestServerConnection,
+} from "../_shared/driver/test-server.js";
+import { makeCaptureBuffer, recordFrame } from "../_shared/captures.js";
+import { encodeFrame } from "../_shared/frame-mutator.js";
 import { requestFrame } from "../../../transport/wire.js";
 import { rpcMethods } from "../../../rpc-registry.js";
 import { jsonRpcMethod } from "../../../transport/wire.js";

@@ -2,7 +2,7 @@
 import * as fc from "fast-check";
 import { Effect } from "effect";
 import { MessagesSend } from "../../../task/methods.js";
-import { isNotificationFrame } from "../../codec.js";
+import { isNotificationFrame } from "../_shared/frame-mutator.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { assertProperty, registerProperty } from "../_shared/registry.js";
 import {
