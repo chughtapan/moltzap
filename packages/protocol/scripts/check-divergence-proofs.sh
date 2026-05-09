@@ -73,7 +73,6 @@ legacy_exempt_registrars=(
   registerResetPeerRecovery
   registerTimeoutSurface
   registerSlowCloseCleanup
-  registerSpuriousAppCallbackFrameHandling
   registerCallerControlledAppCallbackTimeout
   registerSchemaExhaustiveFuzz
   registerAppDisconnectFailPolicy
