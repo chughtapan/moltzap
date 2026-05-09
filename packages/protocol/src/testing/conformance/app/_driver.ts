@@ -27,7 +27,7 @@
  * never re-construct them by hand.
  */
 import { Cause, Chunk, Duration, Effect, Exit, Scope } from "effect";
-import { RpcResponseError } from "../../errors.js";
+import { RpcResponseError } from "../_shared/errors.js";
 import type { Static } from "@sinclair/typebox";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import {
@@ -57,13 +57,13 @@ import {
   type LeaseId,
 } from "../../../app/index.js";
 import type { DecodedNotification } from "../../../transport/rpc-groups.js";
-import { registerTestAgent, type TestAgent } from "../../agent-registration.js";
+import { registerTestAgent, type TestAgent } from "../_shared/test-fixtures.js";
 import {
   makeCloseableTestClient,
   makeTestClient,
   type CloseableTestClient,
   type TestClient,
-} from "../../test-client.js";
+} from "../_shared/driver/test-client.js";
 
 // ── Verdict + state aliases (cross-impl driver re-exports) ────────────
 

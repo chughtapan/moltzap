@@ -18,15 +18,19 @@ import {
   isRequestFrame,
   isNotificationFrame,
   type AnyFrame,
-} from "../codec.js";
-import { makeCaptureBuffer, recordFrame, mergeCaptures } from "../captures.js";
+} from "../conformance/_shared/frame-mutator.js";
+import {
+  makeCaptureBuffer,
+  recordFrame,
+  mergeCaptures,
+} from "../conformance/_shared/captures.js";
 import {
   initialReferenceState,
   applyCall,
   isIdempotent,
   authorizationOutcome,
 } from "../models/index.js";
-import { agentId } from "../branded-ids.js";
+import { agentId } from "../conformance/_shared/test-fixtures.js";
 import { deliveryInvariantFor, allToxicTags } from "../toxics/index.js";
 import {
   allRpcMethods,

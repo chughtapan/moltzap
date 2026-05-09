@@ -30,34 +30,34 @@ import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import type {
   AnyTaskCallbackRpcDefinition,
   AnyRpcDefinition,
-} from "../rpc-registry.js";
-import { taskCallbackMethods } from "../rpc-registry.js";
+} from "../../../../rpc-registry.js";
+import { taskCallbackMethods } from "../../../../rpc-registry.js";
 import {
   decodeRpcResult,
   type ParamsOf,
   type ResultOf,
-} from "../transport/method.js";
+} from "../../../../transport/method.js";
 import {
   decodeNotification,
   decodeRpcRequest,
   isDecodedNotification,
   type DecodedNotification,
-} from "../transport/rpc-groups.js";
-import type { ResponseFrame } from "../transport/wire.js";
-import { requestFrame, responseFrame } from "../transport/wire.js";
-import type { JsonRpcId } from "../transport/wire.js";
-import type { AnyNotificationDefinition } from "../rpc-registry.js";
-import { notificationDefinitions } from "../rpc-registry.js";
+} from "../../../../transport/rpc-groups.js";
+import type { ResponseFrame } from "../../../../transport/wire.js";
+import { requestFrame, responseFrame } from "../../../../transport/wire.js";
+import type { JsonRpcId } from "../../../../transport/wire.js";
+import type { AnyNotificationDefinition } from "../../../../rpc-registry.js";
+import { notificationDefinitions } from "../../../../rpc-registry.js";
 import type { Static } from "@sinclair/typebox";
-import { AgentId } from "../identity/methods.js";
-import { PROTOCOL_VERSION } from "../version.js";
+import { AgentId } from "../../../../identity/methods.js";
+import { PROTOCOL_VERSION } from "../../../../version.js";
 import {
   makeCaptureBuffer,
   recordFrame,
   recordMalformed,
   type CapturedFrame,
   type CaptureBuffer,
-} from "./captures.js";
+} from "../captures.js";
 import {
   decodeFrame,
   encodeFrame,
@@ -67,16 +67,16 @@ import {
   isResponseFrame,
   malformFrame,
   type MalformedFrameKind,
-} from "./codec.js";
-import {
   FrameSchemaError,
+} from "../frame-mutator.js";
+import {
   RpcResponseError,
   RpcTimeoutError,
   TransportClosedError,
   TransportIoError,
-} from "./errors.js";
+} from "../errors.js";
 
-import { Connect } from "../network/methods.js";
+import { Connect } from "../../../../network/methods.js";
 
 /**
  * Options for connecting a TestClient. `serverUrl` is the `ws://…` URL of

@@ -10,7 +10,7 @@
  * Satisfies Goal 5 + AC8. Consumed by the Tier D runner.
  */
 import { Effect, Scope } from "effect";
-import { ToxicControlError } from "../errors.js";
+import { ToxicControlError } from "./errors.js";
 import type { ToxicProfile } from "./profile.js";
 
 const HTTP_SUCCESS_MIN = 200;

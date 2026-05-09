@@ -17,7 +17,7 @@ export {
   conversationId,
   messageId,
   taskId,
-} from "./branded-ids.js";
+} from "./conformance/_shared/test-fixtures.js";
 
 // Wire-frame validators + protocol literal exposed only for test use.
 export {
@@ -36,13 +36,13 @@ export {
   type TestClientConfig,
   makeCloseableTestClient,
   makeTestClient,
-} from "./test-client.js";
+} from "./conformance/_shared/driver/index.js";
 export {
   type TestServer,
   type TestServerConfig,
   type TestServerConnection,
   makeTestServer,
-} from "./test-server.js";
+} from "./conformance/_shared/driver/index.js";
 
 // Capture + codec primitives.
 export {
@@ -53,33 +53,33 @@ export {
   mergeCaptures,
   recordFrame,
   recordMalformed,
-} from "./captures.js";
+} from "./conformance/_shared/captures.js";
 export {
   type AnyFrame,
   type MalformedFrameKind,
   encodeFrame,
   decodeFrame,
   malformFrame,
-} from "./codec.js";
+} from "./conformance/_shared/frame-mutator.js";
 
 // Errors.
 export {
   type TestingError,
   TransportClosedError,
   TransportIoError,
-  FrameSchemaError,
   RpcTimeoutError,
   RpcResponseError,
-  ToxicControlError,
   RealServerAcquireError,
-} from "./errors.js";
+} from "./conformance/_shared/errors.js";
+export { FrameSchemaError } from "./conformance/_shared/frame-mutator.js";
+export { ToxicControlError } from "./toxics/errors.js";
 
 // Test-agent registration helper.
 export {
   type TestAgent,
   AgentRegistrationError,
   registerTestAgent,
-} from "./agent-registration.js";
+} from "./conformance/_shared/test-fixtures.js";
 
 // Arbitraries, models, toxics — namespaced to keep names scoped.
 export * as arbitraries from "./arbitraries/index.js";

@@ -14,7 +14,7 @@ import {
 } from "../_shared/registry.js";
 import { makeDispatchTestDriver, type DispatchTestDriver } from "./_driver.js";
 import type { MessageId } from "../../../task/methods.js";
-import { messageId as makeMessageId } from "../../branded-ids.js";
+import { messageId as makeMessageId } from "../_shared/test-fixtures.js";
 
 export const DISPATCH_ADMISSION_CATEGORY = "dispatch-admission" as const;
 

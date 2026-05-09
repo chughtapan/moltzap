@@ -13,3 +13,4 @@ export {
   type ToxicHandle,
   makeToxiproxyClient,
 } from "./client.js";
+export { ToxicControlError } from "./errors.js";

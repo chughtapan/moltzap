@@ -1,13 +1,18 @@
 /**
- * Frame codec for the testing primitives.
+ * Frame mutator — malformed-frame fuzz injector for adversity properties.
  *
- * Satisfies §5.A1/A2/A3/A4 and Invariant I3: every frame crossing a
- * primitive is `Value.Check`-validated before it is surfaced to property
- * code. Malformed-frame arbitraries are generated *here* so Tier A can
- * inject bit-flips, truncations, and oversized frames without leaking the
- * malformation strategy into the primitives.
+ * Phase 1B re-architect: replaces `testing/codec.ts`. The pre-reorg name
+ * `codec` was a misnomer — `transport/wire.ts` is the real wire codec; this
+ * file is the test-time mutator that takes a valid frame, applies one of six
+ * deterministic mutations (`MalformedFrameKind`), and emits the malformed
+ * bytes for adversity properties to inject.
+ *
+ * `FrameSchemaError` co-locates here because schema-check failures are
+ * codec-local: every call site that raises it (`decodeFrame` plus the
+ * wire-driver's frame-receive path) sees the schema check fail at this
+ * layer, so the typed channel stays adjacent to the producers.
  */
-import { Effect } from "effect";
+import { Data, Effect } from "effect";
 import { Value } from "@sinclair/typebox/value";
 import {
   RequestFrameSchema,
@@ -16,15 +21,24 @@ import {
   type RequestFrame,
   type ResponseFrame,
   type NotificationFrame,
-} from "../transport/wire.js";
-import { type JsonRpcId } from "../transport/wire.js";
-import { FrameSchemaError } from "./errors.js";
+} from "../../../transport/wire.js";
+import { type JsonRpcId } from "../../../transport/wire.js";
 
 const BIT_FLIP_VARIANTS = 8;
 const OVERSIZED_PADDING_BYTES = 65_536;
 const LCG_MULTIPLIER = 1_664_525;
 const LCG_INCREMENT = 1_013_904_223;
 const LCG_MODULUS = 0x100000000;
+
+/** A frame read off the wire failed `Value.Check` against its schema. */
+export class FrameSchemaError extends Data.TaggedError(
+  "TestingFrameSchemaError",
+)<{
+  readonly direction: "outbound" | "inbound";
+  readonly expected: "request" | "response" | "event";
+  readonly raw: string;
+  readonly reason: string;
+}> {}
 
 /**
  * Valid JSON-RPC frame objects exposed on the wire. Requests carry
