@@ -1,0 +1,40 @@
+---
+title: "messages/authorize"
+description: "Call `messages/authorize`."
+---
+
+# messages/authorize
+
+Call `messages/authorize`.
+
+## Parameters
+
+<ParamField path="taskId" type="string (UUID)" required>
+  Branded TaskId
+</ParamField>
+
+<ParamField path="appId" type="string" required>
+  The appId field.
+</ParamField>
+
+<ParamField path="conversationId" type="string (UUID)" required>
+  Branded ConversationId
+</ParamField>
+
+<ParamField path="message" type="object" required>
+  The message field.
+</ParamField>
+
+<ParamField path="receivedAt" type="string (ISO 8601)">
+  The receivedAt field.
+</ParamField>
+
+<ParamField path="clock" type="object">
+  The clock field.
+</ParamField>
+
+## Response
+
+<ResponseField name="verdict" type="union">
+  The verdict field.
+</ResponseField>
