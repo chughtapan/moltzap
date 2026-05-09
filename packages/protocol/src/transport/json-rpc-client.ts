@@ -84,18 +84,14 @@ export const makeJsonRpcClient = (config: {
                   message: frame.error.message,
                   data: frame.error.data,
                 })
-              : // The wire-error registry stores the class factory keyed
-                // by code; the constructor produces a concrete tagged-error
-                // instance whose runtime tag matches one of the union arms
-                // in `RegisteredTaggedError`. The type system can't see
-                // through the open-ended `new (...) => { _tag: string }`
-                // factory shape, so the cast bridges the static factory
-                // to the closed runtime union. The `data` argument is
-                // forwarded so any payload set by the server reaches the
-                // typed instance rather than being dropped (#511).
-                (new cls({
-                  data: frame.error.data,
-                } as never) as RegisteredTaggedError);
+              : // `cls` accepts `RpcErrorPayload` by construction (every
+                // registered class extends `Data.TaggedError(<tag>)<RpcErrorPayload>`).
+                // The cast to `RegisteredTaggedError` bridges the registry's
+                // open factory shape (`{ _tag: string }`) to the closed
+                // runtime union; the runtime invariant — every registered
+                // class is a union arm — is asserted at registration, not
+                // at decode.
+                (new cls({ data: frame.error.data }) as RegisteredTaggedError);
           yield* Deferred.fail(deferred, failureValue).pipe(Effect.ignore);
           return true;
         }
