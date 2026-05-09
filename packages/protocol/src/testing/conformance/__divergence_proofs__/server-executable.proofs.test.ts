@@ -13,7 +13,11 @@ import {
   ConversationsUpdate,
 } from "../../../task/methods.js";
 import { MessagesSend } from "../../../task/methods.js";
-import { decodeFrame, encodeFrame, isRequestFrame } from "../../codec.js";
+import {
+  decodeFrame,
+  encodeFrame,
+  isRequestFrame,
+} from "../_shared/frame-mutator.js";
 import type { ConformanceArtifact } from "../_shared/runner.js";
 import type {
   ConformanceRunContext,

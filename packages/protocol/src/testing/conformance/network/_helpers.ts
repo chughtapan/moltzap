@@ -20,9 +20,9 @@ import {
   makeTestClient,
   type CloseableTestClient,
   type TestClient,
-} from "../../test-client.js";
-import { registerTestAgent, type TestAgent } from "../../agent-registration.js";
-import { isNotificationFrame } from "../../codec.js";
+} from "../_shared/driver/test-client.js";
+import { registerTestAgent, type TestAgent } from "../_shared/test-fixtures.js";
+import { isNotificationFrame } from "../_shared/frame-mutator.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { PropertyInvariantViolation } from "../_shared/registry.js";
 

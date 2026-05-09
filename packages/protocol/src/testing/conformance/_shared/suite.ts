@@ -37,10 +37,8 @@ import { IDENTITY_PROPERTIES } from "../identity/index.js";
 import { NETWORK_PROPERTIES } from "../network/index.js";
 import { TASK_PROPERTIES } from "../task/index.js";
 import { APP_PROPERTIES } from "../app/index.js";
-import type {
-  RealServerAcquireError,
-  ToxicControlError,
-} from "../../errors.js";
+import type { RealServerAcquireError } from "./errors.js";
+import type { ToxicControlError } from "../../toxics/errors.js";
 import {
   isAllowedCoverageGap,
   type AllowedCoverageGap,

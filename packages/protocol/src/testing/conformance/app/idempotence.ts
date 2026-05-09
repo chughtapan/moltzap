@@ -14,9 +14,9 @@ import { Effect, Either } from "effect";
 import { AgentsList } from "../../../identity/methods.js";
 import { ConversationsList } from "../../../task/methods.js";
 import { isIdempotent } from "../../models/dispatch.js";
-import { canonicalJson, sortJsonArray } from "../../canonicalize.js";
-import { makeTestClient } from "../../test-client.js";
-import { registerTestAgent } from "../../agent-registration.js";
+import { canonicalJson, sortJsonArray } from "../_shared/canonicalize.js";
+import { makeTestClient } from "../_shared/driver/test-client.js";
+import { registerTestAgent } from "../_shared/test-fixtures.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import {
   PropertyInvariantViolation,

@@ -29,7 +29,7 @@ import {
   agentId,
   conversationId as toConversationId,
   messageId,
-} from "../../branded-ids.js";
+} from "../_shared/test-fixtures.js";
 import type { ClientConformanceRunContext } from "./runner.js";
 import { registerProperty } from "../_shared/registry.js";
 import {

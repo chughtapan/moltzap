@@ -30,21 +30,18 @@ import type {
   ResponseFrame,
 } from "../../../transport/wire.js";
 import { responseFrame } from "../../../transport/wire.js";
-import { isRequestFrame } from "../../codec.js";
+import { isRequestFrame } from "../_shared/frame-mutator.js";
 import {
   makeTestServer,
   type TestServer,
   type TestServerConnection,
-} from "../../test-server.js";
+} from "../_shared/driver/test-server.js";
 import {
   makeToxiproxyClient,
   type ToxiproxyClient,
 } from "../../toxics/client.js";
-import {
-  RealServerAcquireError,
-  TransportIoError,
-  type ToxicControlError,
-} from "../../errors.js";
+import { RealServerAcquireError, TransportIoError } from "../_shared/errors.js";
+import type { ToxicControlError } from "../../toxics/errors.js";
 import { conformanceNumRunsFromEnv } from "../_shared/env.js";
 import type { ConformanceArtifact } from "../_shared/runner.js";
 import { PROTOCOL_VERSION } from "../../../version.js";

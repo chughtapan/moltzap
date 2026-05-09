@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import * as flatBarrel from "../index.js";
-import { agentId, userId } from "../testing/branded-ids.js";
+import { agentId, userId } from "../testing/index.js";
 import {
   endpointAddress,
   endpointAddressKind,

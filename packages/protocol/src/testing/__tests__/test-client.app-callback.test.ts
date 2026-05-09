@@ -19,8 +19,11 @@ import { describe, it, expect } from "vitest";
 import { Cause, Deferred, Effect, Exit, Ref, Scope } from "effect";
 import * as NodeSocketServer from "@effect/platform-node/NodeSocketServer";
 import * as Socket from "@effect/platform/Socket";
-import { makeTestClient, type TestClient } from "../test-client.js";
-import { RpcResponseError } from "../errors.js";
+import {
+  makeTestClient,
+  type TestClient,
+} from "../conformance/_shared/driver/test-client.js";
+import { RpcResponseError } from "../conformance/_shared/errors.js";
 import type { RequestFrame, ResponseFrame } from "../../transport/wire.js";
 import { requestFrame, validateResponseFrame } from "../../transport/wire.js";
 import type { AnyTaskCallbackRpcDefinition } from "../../rpc-registry.js";
@@ -32,7 +35,7 @@ import {
   conversationId,
   messageId,
   taskId as makeTaskId,
-} from "../branded-ids.js";
+} from "../conformance/_shared/test-fixtures.js";
 
 const TASK_ID = makeTaskId("550e8400-e29b-41d4-a716-446655440000");
 const APP_ID = "test-app";

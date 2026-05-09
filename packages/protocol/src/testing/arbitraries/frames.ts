@@ -16,7 +16,10 @@ import {
   type NotificationFrame,
 } from "../../transport/wire.js";
 import { notificationDefinitions } from "../../rpc-registry.js";
-import type { MalformedFrameKind, AnyFrame } from "../codec.js";
+import type {
+  MalformedFrameKind,
+  AnyFrame,
+} from "../conformance/_shared/frame-mutator.js";
 import { arbitraryFromSchema } from "./from-typebox.js";
 
 const FRAME_SEED_MAX = 2_147_483_647;
