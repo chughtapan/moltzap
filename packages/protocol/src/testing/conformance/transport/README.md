@@ -21,7 +21,6 @@ Carved from legacy monoliths in Phase 1A:
 | `request-id-uniqueness.ts` | `rpc-semantics.ts` |
 | `caller-controlled-app-callback-timeout.ts` | `rpc-semantics.ts` |
 | `adversity-latency-resilience.ts` | `adversity.ts` |
-| `adversity-backpressure.ts` | `adversity.ts` (tombstoned, #186) |
 | `adversity-slicer-framing.ts` | `adversity.ts` |
 | `adversity-reset-peer-recovery.ts` | `adversity.ts` |
 | `adversity-timeout-surface.ts` | `adversity.ts` |
