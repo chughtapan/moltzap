@@ -26,6 +26,30 @@
     "./test-utils": {
       "import": "./dist/test-utils/index.js",
       "types": "./dist/test-utils/index.d.ts"
+    },
+    "./transport": {
+      "import": "./dist/transport/index.js",
+      "types": "./dist/transport/index.d.ts"
+    },
+    "./identity": {
+      "import": "./dist/identity/index.js",
+      "types": "./dist/identity/index.d.ts"
+    },
+    "./network": {
+      "import": "./dist/network/index.js",
+      "types": "./dist/network/index.d.ts"
+    },
+    "./task": {
+      "import": "./dist/task/index.js",
+      "types": "./dist/task/index.d.ts"
+    },
+    "./app": {
+      "import": "./dist/app/index.js",
+      "types": "./dist/app/index.d.ts"
+    },
+    "./_infra": {
+      "import": "./dist/_infra/index.js",
+      "types": "./dist/_infra/index.d.ts"
     }
   },
   "scripts": {
