@@ -45,7 +45,7 @@ import {
 } from "./coverage-policy.js";
 import { conformanceArtifactDirFromEnv } from "./env.js";
 
-import { TasksClose, TasksCreate } from "../../../task/methods.js";
+import { TasksCreate } from "../../../task/methods.js";
 
 const JSON_INDENT_SPACES = 2;
 const TOXIPROXY_NOT_PROVISIONED = "Toxiproxy client not provisioned";
@@ -241,15 +241,14 @@ function allowedServerCoverageGaps(
       id: "adversity/reset-peer-recovery",
       reasonIncludes: "reset_peer toxic did not close",
     },
-    // Hook-gated delivery, multi-app FIFO short-circuit, app-session
-    // close lifecycle, and app-disconnect fail-policy properties all
-    // gate on the session-bootstrap path that Phase 7 cutover removed.
-    // They short-circuit to PropertyDeferred citing TasksCreate as the
-    // gating dependency until the TM-topology equivalent lands. Both
-    // PropertyUnavailable and PropertyDeferred outcomes are accepted
-    // (the boundary fixture acquires more state than the delivery
-    // fixtures and therefore can self-report Unavailable earlier in
-    // its setup).
+    // Hook-gated delivery, multi-app FIFO short-circuit, and
+    // app-disconnect fail-policy properties gate on hook-routing
+    // surface that the layered refactor reshaped. They short-circuit
+    // to PropertyDeferred citing TasksCreate as the gating dependency
+    // until #560 lands `runMessageAuthorize`. Both PropertyUnavailable
+    // and PropertyDeferred outcomes are accepted (the boundary fixture
+    // acquires more state than the delivery fixtures and therefore can
+    // self-report Unavailable earlier in its setup).
     {
       kind: "deferred",
       id: "delivery/hook-gated-delivery",
@@ -259,11 +258,6 @@ function allowedServerCoverageGaps(
       kind: "deferred",
       id: "delivery/multi-app-fifo-short-circuit",
       reasonIncludes: TasksCreate.name,
-    },
-    {
-      kind: "deferred",
-      id: "delivery/task-close-lifecycle",
-      reasonIncludes: TasksClose.name,
     },
     {
       kind: "unavailable",
