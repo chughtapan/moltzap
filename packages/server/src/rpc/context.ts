@@ -9,6 +9,7 @@ import {
 } from "@moltzap/protocol";
 import { ConnIdTag } from "../app/layers.js";
 import type { AgentId, UserId } from "../app/types.js";
+import type { AppTags } from "./layer-tags.js";
 
 export interface AuthenticatedContext {
   agentId: AgentId;
@@ -24,8 +25,18 @@ export interface DispatchContext {
 
 /** RPC binding stored in the registry. Each binding carries a method
  * definition and a `JsonRpcServer`-compatible handler that already
- * provides the layer scopes + ConnIdTag service. */
-export type RpcMethodBinding = RpcHandler<DispatchContext>;
+ * provides the layer scopes + ConnIdTag service.
+ *
+ * `R` is the union of handler-body Tag requirements AFTER the
+ * `defineMethod` wrapper resolves `ConnIdTag` (provided per request
+ * from `DispatchContext.connId`). The remaining tags are the service
+ * Tags that the dispatcher's `FullLive` Layer provides at request
+ * time. We use `Exclude<AppTags, ConnIdTag>` so the dispatcher's
+ * `Effect.provide(FullLive)` resolves R structurally to `never`. */
+export type RpcMethodBinding = RpcHandler<
+  DispatchContext,
+  Exclude<AppTags, ConnIdTag>
+>;
 
 export type RpcMethodRegistry = RpcMethodBinding[];
 
@@ -50,7 +61,7 @@ export function defineMethod<
   P extends TSchema,
   R extends TSchema,
   E = never,
-  Reqs = ConnIdTag,
+  Reqs extends AppTags = ConnIdTag,
 >(
   definition: RpcDefinition<Name, P, R>,
   def: {
@@ -62,7 +73,14 @@ export function defineMethod<
   },
 ): RpcMethodBinding {
   const requiresActive = def.requiresActive ?? false;
-  return handler(definition, (params, ctx) =>
+  // Explicit type args so TS infers R from the inner Effect's R-channel
+  // rather than defaulting to `never`. `handler<D, Ctx, R>` from
+  // `@moltzap/protocol` carries R through to the binding.
+  return handler<
+    RpcDefinition<Name, P, R>,
+    DispatchContext,
+    Exclude<Reqs, ConnIdTag>
+  >(definition, (params, ctx) =>
     Effect.gen(function* () {
       if (requiresActive && ctx.auth.agentStatus !== "active") {
         return yield* Effect.fail(
@@ -75,22 +93,14 @@ export function defineMethod<
       // reduces to that, but TypeScript doesn't auto-simplify across
       // the generic boundary, so the cast bridges the equality.
       //
-      // Architect-stage R-channel cast (Phase 2A r2 plan §3). `Reqs` is a
-      // widened generic so handler bodies can `yield* XServiceTag` after
-      // the Phase 2A.0 DI migration. At runtime, the dispatcher's
-      // `ManagedRuntime` carries `FullLive` (`packages/server/src/app/server.ts`),
-      // so the remaining R-channel resolves before this binding's `handle`
-      // runs. The Phase 2A.0 implementer threads R through `RpcHandler<Ctx>`
-      // and `handler()` from `@moltzap/protocol` structurally and removes
-      // this cast.
-      const inner = def
+      // R-channel: `def.handler` returns `Effect<Static<R>, E, Reqs>`.
+      // `Effect.provideService(ConnIdTag, ctx.connId)` removes ConnIdTag
+      // if present. The remaining R rides through `handler()` (widened
+      // in `@moltzap/protocol` to `RpcHandler<Ctx, R>`) and is resolved
+      // by the dispatcher's `ManagedRuntime` at request time. No cast.
+      const result = yield* def
         .handler(params, ctx.auth)
-        .pipe(Effect.provideService(ConnIdTag, ctx.connId)) as Effect.Effect<
-        Static<R>,
-        E,
-        never
-      >;
-      const result = yield* inner;
+        .pipe(Effect.provideService(ConnIdTag, ctx.connId));
       return result as ResultOf<RpcDefinition<Name, P, R>>;
     }),
   );
