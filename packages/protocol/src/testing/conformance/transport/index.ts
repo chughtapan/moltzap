@@ -18,7 +18,6 @@ import { registerRpcMapCoverage } from "./rpc-map-coverage.js";
 import { registerRequestIdUniqueness } from "./request-id-uniqueness.js";
 import { registerCallerControlledAppCallbackTimeout } from "./caller-controlled-app-callback-timeout.js";
 import { registerLatencyResilience } from "./adversity-latency-resilience.js";
-import { registerBackpressure } from "./adversity-backpressure.js";
 import { registerSlicerFraming } from "./adversity-slicer-framing.js";
 import { registerResetPeerRecovery } from "./adversity-reset-peer-recovery.js";
 import { registerTimeoutSurface } from "./adversity-timeout-surface.js";
@@ -34,7 +33,6 @@ export {
   registerRequestIdUniqueness,
   registerCallerControlledAppCallbackTimeout,
   registerLatencyResilience,
-  registerBackpressure,
   registerSlicerFraming,
   registerResetPeerRecovery,
   registerTimeoutSurface,
@@ -47,7 +45,7 @@ export {
  * `_shared/suite.ts` invokes them. Order matches the legacy
  * `registerAllProperties` walk for byte-equivalent baseline output:
  * schema-conformance subset (5) → rpc-semantics subset (2) →
- * adversity (6) → boundary subset (1).
+ * adversity (5) → boundary subset (1).
  */
 export const TRANSPORT_PROPERTIES: ReadonlyArray<
   (ctx: ConformanceRunContext) => void
@@ -60,7 +58,6 @@ export const TRANSPORT_PROPERTIES: ReadonlyArray<
   registerRequestIdUniqueness,
   registerCallerControlledAppCallbackTimeout,
   registerLatencyResilience,
-  registerBackpressure,
   registerSlicerFraming,
   registerResetPeerRecovery,
   registerTimeoutSurface,

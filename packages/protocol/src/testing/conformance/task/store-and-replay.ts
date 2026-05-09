@@ -18,9 +18,9 @@
  * **basic-delivery-landing** — the weaker invariant that N messages
  * sent to a live conversation land in every currently-subscribed
  * participant's capture buffer. The full offline-replay assertion is
- * tracked as a follow-up under epic #186. If/when the server
- * implements C2 replay, flip this body back to the reconnect form
- * from the git history and remove the #186 pointer.
+ * deferred pending server-side C2 replay implementation; when it
+ * lands, flip this body back to the reconnect form from the git
+ * history.
  */
 import { Effect } from "effect";
 import { MessagesSend } from "../../../task/methods.js";
@@ -39,7 +39,7 @@ export function registerStoreAndReplay(ctx: ConformanceRunContext): void {
     ctx,
     DELIVERY_CATEGORY,
     PROPERTY,
-    "every messages/send lands in a live participant's capture buffer (basic-delivery-landing; #186 tracks C2 offline-replay)",
+    "every messages/send lands in a live participant's capture buffer (basic-delivery-landing; C2 offline-replay deferred)",
     Effect.scoped(
       Effect.gen(function* () {
         const fixture = yield* acquireConversation(ctx, 1, "sr").pipe(

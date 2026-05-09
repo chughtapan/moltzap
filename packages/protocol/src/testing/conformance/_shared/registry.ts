@@ -55,7 +55,7 @@ export class PropertyUnavailable extends Data.TaggedError(
   readonly reason: string;
 }> {}
 
-/** Property is a tombstone for deferred work (e.g. #186 backpressure). */
+/** Property is a tombstone for deferred work (e.g. C2 offline-replay). */
 export class PropertyDeferred extends Data.TaggedError(
   "ConformancePropertyDeferred",
 )<{
