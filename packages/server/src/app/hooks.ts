@@ -4,6 +4,29 @@ import type { ConversationId, MessageId, TaskId } from "@moltzap/protocol/task";
 import { Schema } from "effect";
 
 /**
+ * Generic hook shape — single source of truth for the abstraction
+ * shared by every server-side authorization hook. Specific hooks are
+ * instantiations of this alias; registries that hold them stay
+ * shape-aligned even when their key types differ.
+ *
+ * Today's instantiations (#560 v4 unification):
+ *
+ *   type TaskAuthorizeDispatchHook = Hook<TaskAuthorizeDispatchContext,
+ *                                         DispatchAdmissionResult>;
+ *   type MessageAuthorizeHook      = Hook<MessageAuthorizeContext,
+ *                                         MessageAuthorizeResult>;
+ *
+ * The user-facing callback returns sync-or-Promise (matches existing
+ * SDK ergonomics); the AppHost runner wraps the call into Effect and
+ * applies the uniform fail-closed envelope. Future hooks land as
+ * additional instantiations — adding a bespoke hook shape is a
+ * doctrine violation (architect risk R13).
+ */
+export type Hook<TContext, TResult> = (
+  ctx: TContext,
+) => TResult | Promise<TResult>;
+
+/**
  * Server-side dispatch admission hook surface. The single hook
  * (`taskAuthorizeDispatch`) services the `dispatch/authorize` S→C RPC;
  * its context shape mirrors the wire `DispatchAuthorizeContextSchema`.
@@ -76,9 +99,10 @@ export const decodeDispatchAuthorizeRpcResult = Schema.decodeUnknown(
   DispatchAuthorizeRpcResultSchema,
 );
 
-export type TaskAuthorizeDispatchHook = (
-  ctx: TaskAuthorizeDispatchContext,
-) => DispatchAdmissionResult | Promise<DispatchAdmissionResult>;
+export type TaskAuthorizeDispatchHook = Hook<
+  TaskAuthorizeDispatchContext,
+  DispatchAdmissionResult
+>;
 
 /**
  * Server-side message-fan-out authorization hook surface (#560). The
@@ -145,9 +169,10 @@ export const decodeMessageAuthorizeRpcResult = Schema.decodeUnknown(
   MessageAuthorizeRpcResultSchema,
 );
 
-export type MessageAuthorizeHook = (
-  ctx: MessageAuthorizeContext,
-) => MessageAuthorizeResult | Promise<MessageAuthorizeResult>;
+export type MessageAuthorizeHook = Hook<
+  MessageAuthorizeContext,
+  MessageAuthorizeResult
+>;
 
 /**
  * `AppHooks` continues to key per-appId — `taskAuthorizeDispatch`
