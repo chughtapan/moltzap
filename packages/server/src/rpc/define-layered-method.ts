@@ -6,16 +6,12 @@ import {
   type AuthenticatedContext,
   type RpcMethodBinding,
 } from "./context.js";
-import type { ConnIdTag } from "../app/layers.js";
 import {
   AppLayerScope,
   NetworkLayerScope,
   TaskLayerScope,
 } from "./layer-scopes.js";
-
-type NetworkR = ConnIdTag | NetworkLayerScope;
-type TaskR = NetworkR | TaskLayerScope;
-type AppR = TaskR | AppLayerScope;
+import type { AppTags, NetworkTags, TaskTags } from "./layer-tags.js";
 
 interface MethodDef<P extends TSchema, R extends TSchema, Required, E> {
   readonly handler: (
@@ -25,14 +21,33 @@ interface MethodDef<P extends TSchema, R extends TSchema, Required, E> {
   readonly requiresActive?: boolean;
 }
 
+/**
+ * Network-layer RPC method binding. Handler `R`-channel is
+ * `Reqs extends NetworkTags`; the wrapper provides `NetworkLayerScope`
+ * structurally and the dispatcher's `ManagedRuntime` provides every
+ * service Tag at request time.
+ *
+ * `Reqs` defaults to `NetworkTags` so a handler that yields no service
+ * Tag (the pre-2A.0 factory shape) infers `Reqs = never` via R-channel
+ * covariance and compiles unchanged. A handler that yields a Tag from a
+ * higher layer (e.g. `MessageServiceTag`, which is `TaskTags` only)
+ * fails the constraint at the call site.
+ *
+ * **Type-alias hierarchy.** See `./layer-tags.ts` for the full
+ * allowlist. Adding a new service Tag is a TWO-step edit per the
+ * maintenance contract: update `layer-tags.ts` AND
+ * `architectureOptions.layers` in the root `eslint.config.js` so the
+ * structural lint and the type system agree.
+ */
 export function defineNetworkMethod<
   Name extends string,
   P extends TSchema,
   R extends TSchema,
   E = never,
+  Reqs extends NetworkTags = NetworkTags,
 >(
   definition: RpcDefinition<Name, P, R>,
-  def: MethodDef<P, R, NetworkR, E>,
+  def: MethodDef<P, R, Reqs | NetworkLayerScope, E>,
 ): RpcMethodBinding {
   return defineMethod(definition, {
     handler: (params, ctx) =>
@@ -43,14 +58,22 @@ export function defineNetworkMethod<
   });
 }
 
+/**
+ * Task-layer RPC method binding. Handler `R`-channel is
+ * `Reqs extends TaskTags`; provides `NetworkLayerScope` and
+ * `TaskLayerScope` structurally.
+ *
+ * See `defineNetworkMethod` for the maintenance contract.
+ */
 export function defineTaskMethod<
   Name extends string,
   P extends TSchema,
   R extends TSchema,
   E = never,
+  Reqs extends TaskTags = TaskTags,
 >(
   definition: RpcDefinition<Name, P, R>,
-  def: MethodDef<P, R, TaskR, E>,
+  def: MethodDef<P, R, Reqs | NetworkLayerScope | TaskLayerScope, E>,
 ): RpcMethodBinding {
   return defineMethod(definition, {
     handler: (params, ctx) =>
@@ -64,14 +87,27 @@ export function defineTaskMethod<
   });
 }
 
+/**
+ * App-layer RPC method binding. Handler `R`-channel is
+ * `Reqs extends AppTags`; provides all three layer scopes
+ * structurally.
+ *
+ * See `defineNetworkMethod` for the maintenance contract.
+ */
 export function defineAppMethod<
   Name extends string,
   P extends TSchema,
   R extends TSchema,
   E = never,
+  Reqs extends AppTags = AppTags,
 >(
   definition: RpcDefinition<Name, P, R>,
-  def: MethodDef<P, R, AppR, E>,
+  def: MethodDef<
+    P,
+    R,
+    Reqs | NetworkLayerScope | TaskLayerScope | AppLayerScope,
+    E
+  >,
 ): RpcMethodBinding {
   return defineMethod(definition, {
     handler: (params, ctx) =>
