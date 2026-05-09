@@ -403,6 +403,27 @@ export function createCoreApp(config: CoreConfig): CoreApp {
       const result = exit.value;
       switch (result._tag) {
         case CLAIM_SUCCESS:
+          // Refresh `conn.auth.ownerUserId` on every live connection of
+          // the just-claimed agent so subsequent owner-gated RPCs on
+          // the existing socket no longer see the stale `null` snapshot
+          // captured at `network/connect` time (#495). Per-request
+          // dispatch reads `conn.auth` fresh (server.ts handleRequestFrame
+          // ~L663), so replacing the whole snapshot is sufficient — no
+          // restart, no reconnect.
+          //
+          // Idempotent re-claim (same owner) intentionally still writes:
+          // refreshing to the same value is a no-op, and the unconditional
+          // write defends against any future code path that could leave a
+          // connection stale. AgentId is the natural key — the resolver
+          // uses the same one.
+          for (const conn of connections.getByAgent(result.agentId)) {
+            if (conn.auth === null) continue;
+            conn.auth = {
+              ...conn.auth,
+              ownerUserId:
+                result.ownerUserId as AuthenticatedContext["ownerUserId"],
+            };
+          }
           // 201 = first claim, 200 = idempotent re-claim by same owner.
           return HttpServerResponse.unsafeJson(
             { agentId: result.agentId, ownerUserId: result.ownerUserId },

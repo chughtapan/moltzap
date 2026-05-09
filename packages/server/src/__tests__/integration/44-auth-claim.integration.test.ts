@@ -265,4 +265,80 @@ describe("/api/v1/auth/claim — programmatic claim (#486)", () => {
       expect(Exit.isFailure(exit)).toBe(true);
     }),
   );
+
+  // #495 regression: pre-existing connection's `conn.auth.ownerUserId`
+  // must refresh after an out-of-band `auth/claim` succeeds. Pre-fix the
+  // claim DB-mutation atomic-updated `agents.owner_user_id` but the
+  // existing socket's snapshot stayed `null`, so the recommended-order
+  // test above (`register → claim → connect`) passed while the
+  // connect-then-claim flow silently failed with `ERR_NEED_OWNER` until
+  // disconnect+reconnect. The HTTP claim route now patches every live
+  // connection of the just-claimed agent (`server.ts` claimRoute on
+  // CLAIM_SUCCESS), so subsequent owner-gated RPCs on the original
+  // socket succeed.
+  it.live(
+    "connect → out-of-band claim → contacts/add on original connection succeeds (#495)",
+    () =>
+      Effect.gen(function* () {
+        const idx = ++counter;
+        const aliceReg = yield* registerAgent(
+          baseUrl,
+          `alice-conn-claim-${idx}`,
+          { inviteCode: REGISTRATION_SECRET },
+        );
+        const bobReg = yield* registerAgent(baseUrl, `bob-conn-claim-${idx}`, {
+          inviteCode: REGISTRATION_SECRET,
+        });
+
+        // Bob is claimed up-front so the `contactUserId` on the
+        // contacts/add call below resolves to a real owner. Alice is
+        // intentionally NOT yet claimed — we connect first, claim
+        // second, to exercise the bug.
+        yield* Effect.tryPromise(() =>
+          postClaim({
+            claimToken: bobReg.claimToken,
+            ownerUserId: BOB_USER_ID,
+            inviteCode: REGISTRATION_SECRET,
+          }),
+        );
+
+        // Step 1: alice connects with apiKey BEFORE claiming. At this
+        // point `conn.auth.ownerUserId === null`.
+        const aliceClient = yield* connectTestClient({
+          wsUrl,
+          agentId: aliceReg.agentId,
+          apiKey: aliceReg.apiKey,
+        });
+        trackClient(aliceClient);
+
+        // Sanity: contacts/add fails right now because alice is unclaimed.
+        const preClaimExit = yield* Effect.exit(
+          aliceClient.sendRpc(ContactsAdd, { contactUserId: BOB_USER_ID }),
+        );
+        expect(Exit.isFailure(preClaimExit)).toBe(true);
+
+        // Step 2: out-of-band claim via HTTP (separate connection — the
+        // claim route is HTTP, not over the WS).
+        const aliceClaim = yield* Effect.tryPromise(() =>
+          postClaim({
+            claimToken: aliceReg.claimToken,
+            ownerUserId: ALICE_USER_ID,
+            inviteCode: REGISTRATION_SECRET,
+          }),
+        );
+        expect(aliceClaim.status).toBe(201);
+
+        // Step 3: subsequent contacts/add on the ORIGINAL connection
+        // must now succeed. This is the regression: pre-fix it failed
+        // with ERR_NEED_OWNER because conn.auth.ownerUserId was still
+        // null.
+        const result = yield* aliceClient.sendRpc(ContactsAdd, {
+          contactUserId: BOB_USER_ID,
+        });
+        expect(
+          (result as { contact: { contactUserId: string } }).contact
+            .contactUserId,
+        ).toBe(BOB_USER_ID);
+      }),
+  );
 });
