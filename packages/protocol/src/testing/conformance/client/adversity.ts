@@ -8,8 +8,6 @@
  *   D5 — adversity-timeout
  *   D6 — adversity-slow-close
  *
- * D2 (backpressure) tombstoned to #186 (same as server side).
- *
  * Typed-error precision (O6 resolution):
  *   - D5: spec names `RpcTimeoutError`. Predicate asserts
  *     `documentedErrorTag === "RpcTimeoutError"`.

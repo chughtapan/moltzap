@@ -26,7 +26,7 @@
  * method param filters (e.g. `conversations/list` confident only
  * when cursor is undefined/valid) or fixing server-side parsers that
  * error on pathological schema-valid params (e.g. `cursor: " "` →
- * SqlError on pglite cursor parsing). Tracked under #186.
+ * SqlError on pglite cursor parsing).
  *
  * numRuns floor: `max(10, 2K)` = 10 today.
  */
