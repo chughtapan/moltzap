@@ -28,6 +28,8 @@ import type {
   DispatchContext,
   RpcMethodRegistry,
 } from "../rpc/context.js";
+import type { AppTags } from "../rpc/layer-tags.js";
+import type { ConnIdTag } from "./layers.js";
 import type { JsonRpcId, RequestFrame, ResponseFrame } from "@moltzap/protocol";
 import {
   JSON_RPC_RESERVED_CODES,
@@ -304,7 +306,10 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     ...createPingHandlers(),
   ];
 
-  const jsonRpcServer = makeJsonRpcServer<DispatchContext>(methods, logger);
+  const jsonRpcServer = makeJsonRpcServer<
+    DispatchContext,
+    Exclude<AppTags, ConnIdTag>
+  >(methods, logger);
 
   // ── HTTP routes via @effect/platform HttpRouter ──────────────────────
 
@@ -548,7 +553,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
    * Lives inside the per-request fiber; returning exits the connection. */
   const handleSocket = (
     socket: Socket.Socket,
-  ): Effect.Effect<void, Socket.SocketError> =>
+  ): Effect.Effect<void, Socket.SocketError, Exclude<AppTags, ConnIdTag>> =>
     Effect.scoped(
       Effect.gen(function* () {
         const connId = crypto.randomUUID();
@@ -661,6 +666,11 @@ export function createCoreApp(config: CoreConfig): CoreApp {
               return;
             }
             const auth = conn.auth ?? ({} as AuthenticatedContext);
+            // Phase 2A r2 §3: dispatcher's `handle` carries
+            // `Exclude<AppTags, ConnIdTag>` in its R-channel (handlers
+            // may yield service Tags after the DI migration). The
+            // dispatch fiber's runtime (built below from `FullLive`)
+            // resolves R structurally; no per-frame `Effect.provide`.
             const response = yield* jsonRpcServer.handle(frame, {
               auth,
               connId,
@@ -821,8 +831,16 @@ export function createCoreApp(config: CoreConfig): CoreApp {
   // Server lifecycle: `NodeHttpServer.make` acquires an http.Server inside a
   // Scope we own (`appScope`); closing the scope on shutdown tears down the
   // listener, the wired upgrade handler, and any per-connection fibers.
+  //
+  // Phase 2A r2 §3: the dispatch fibers run with `FullLive` in scope so
+  // RPC handler bodies that `yield* XServiceTag` resolve via the
+  // managed runtime rather than via per-frame `Effect.provide`. The
+  // `BaseLive`-wired services (Db, Encryption, SessionValidator,
+  // WebhookClient, DeliveryWebhook, TraceCapture, Logger) come along
+  // for free since `FullLive = Layer.provideMerge(ServicesLive,
+  // BaseLive)`.
   const runtime = ManagedRuntime.make(
-    Layer.mergeAll(NodeHttpServer.layerContext, LoggerLive),
+    Layer.mergeAll(NodeHttpServer.layerContext, FullLive),
   );
   const appScope = Effect.runSync(Scope.make());
 
