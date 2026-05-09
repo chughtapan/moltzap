@@ -105,7 +105,9 @@ database:
     expect(err.message).toContain("Cannot read config file");
   });
 
-  it("fails with validation ConfigLoadError carrying a ConfigError tree", async () => {
+  it("fails with validation ConfigLoadError for a schema violation (port out of range)", async () => {
+    // TypeBox catches port: -1 before Effect Config runs; configError is not
+    // set for TypeBox failures. The test asserts the error kind and path.
     vi.mocked(readFileSync).mockReturnValue(`
 server:
   port: -1
@@ -114,7 +116,7 @@ server:
     const exit = await Effect.runPromiseExit(loadConfigFromFile("test.yaml"));
     const err = expectConfigLoadError(exit);
     expect(err.kind).toBe("validation");
-    expect(err.configError).toBeDefined();
+    expect(err.message).toContain("/server/port");
   });
 
   it("defaults to MOLTZAP_CONFIG env var when no path given", async () => {
@@ -185,6 +187,28 @@ server:
 
     const config = await Effect.runPromise(loadConfigFromFile("test.yaml"));
     expect(config.server?.cors_origins).toEqual(["https://app.example.com"]);
+  });
+
+  it("rejects a non-boolean string for dev_mode.enabled", async () => {
+    vi.mocked(readFileSync).mockReturnValue(`
+dev_mode:
+  enabled: "not-a-boolean"
+`);
+
+    const exit = await Effect.runPromiseExit(loadConfigFromFile("test.yaml"));
+    const err = expectConfigLoadError(exit);
+    expect(err.kind).toBe("validation");
+    expect(err.message).toContain("/dev_mode/enabled");
+  });
+
+  it("accepts a native boolean true for dev_mode.enabled", async () => {
+    vi.mocked(readFileSync).mockReturnValue(`
+dev_mode:
+  enabled: true
+`);
+
+    const config = await Effect.runPromise(loadConfigFromFile("test.yaml"));
+    expect(config.dev_mode?.enabled).toBe(true);
   });
 
   // Top-level YAML trust boundary: previously an unchecked `as unknown` cast

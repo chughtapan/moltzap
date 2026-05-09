@@ -21,6 +21,7 @@ import {
 } from "effect";
 import type { ConfigError } from "effect/ConfigError";
 import { MoltZapConfig, type MoltZapAppConfig } from "./effect-config.js";
+import { validateConfig, formatConfigErrors } from "./schema.js";
 
 /**
  * Top-level YAML document shape. `ConfigProvider.fromJson` silently
@@ -173,6 +174,20 @@ export const loadConfigFromFile = (
     });
 
     const interp = yield* interpolateEnvVars(decoded, configPath, processEnv);
+
+    // TypeBox validation runs before Effect Config to catch type mismatches
+    // (e.g. a string where a boolean is required) with clear field-level
+    // messages. Effect Config coerces some primitives; TypeBox does not.
+    const schemaResult = validateConfig(interp);
+    if (!schemaResult.ok) {
+      return yield* Effect.fail(
+        new ConfigLoadError({
+          kind: "validation",
+          path: configPath,
+          message: `Invalid config in "${configPath}":\n${formatConfigErrors(schemaResult.errors)}`,
+        }),
+      );
+    }
 
     // `fromJson` walks the nested object and produces flat paths that
     // `Config.all(...)` / `Config.nested(...)` / `Config.array(...)` consume.
