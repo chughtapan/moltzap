@@ -4,7 +4,7 @@
  * `@pure-codec` — does NOT drive a real server or real client. Spec A2's
  * "accepted by a real client" assertion requires a TestServer + real
  * client driver; that property lives in the consumer package (e.g.,
- * `packages/client` or `moltzap-arena`) and is tracked under #186.
+ * `packages/client` or `moltzap-arena`).
  *
  * Tightened per architect §4.4: predicate demands `Right` AND schema
  * check of the specific notification variant — the previous `Right || Left`

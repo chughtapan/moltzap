@@ -237,11 +237,6 @@ function allowedServerCoverageGaps(
 ): ReadonlyArray<AllowedCoverageGap> {
   const gaps: AllowedCoverageGap[] = [
     {
-      kind: "deferred",
-      id: "adversity/backpressure",
-      reasonIncludes: "issues/186",
-    },
-    {
       kind: "unavailable",
       id: "adversity/reset-peer-recovery",
       reasonIncludes: "reset_peer toxic did not close",

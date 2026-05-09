@@ -228,7 +228,7 @@ export function applyCall(
     // model would be dishonest claiming `ok` across all draws. Move
     // to `uncertainError`; K=1 today (agents/list only). Widening
     // K requires either per-method param filters at the arbitrary
-    // layer OR a server-side cursor-parse fix; tracked under #186.
+    // layer OR a server-side cursor-parse fix.
     case ConversationsList.name:
       return { next: baseNext, outcome: uncertainError() };
 
