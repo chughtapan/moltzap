@@ -13,7 +13,7 @@ import type { NotificationFrame } from "../../../transport/wire.js";
 import { MessageReceivedNotificationDefinition } from "../../../task/methods.js";
 import { arbitraryNotificationFrame } from "../../arbitraries/frames.js";
 import type { ClientConformanceRunContext } from "./runner.js";
-import { registerProperty } from "../registry.js";
+import { registerProperty } from "../_shared/registry.js";
 import {
   acquireFixture,
   collectTagged,

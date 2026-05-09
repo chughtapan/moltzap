@@ -9,19 +9,42 @@
  * Each `register*` lives in its own file. This barrel re-exports them
  * by name AND aggregates them into `TASK_PROPERTIES` for the
  * `_shared/suite.ts` aggregator.
- *
- * Phase 1A interface stub. Implementer (sub-issue #546) carves the
- * per-property files out of `delivery.ts` and `rpc-semantics.ts`.
  */
-// During Phase 1A interface-stub phase the runner still lives at the
-// legacy `conformance/runner.ts` location. Implementer (sub-issue #546)
-// rewrites this import to `../_shared/runner.js` after moving the file.
-import type { ConformanceRunContext } from "../runner.js";
+import type { ConformanceRunContext } from "../_shared/runner.js";
+
+import { registerFanOutCardinality } from "./fan-out-cardinality.js";
+import { registerStoreAndReplay } from "./store-and-replay.js";
+import { registerPayloadOpacity } from "./payload-opacity.js";
+import { registerTaskBoundaryIsolation } from "./task-boundary-isolation.js";
+import { registerConversationLifecycle } from "./conversation-lifecycle.js";
+import { registerTaskCloseLifecycle } from "./task-close-lifecycle.js";
+import { registerArchiveLifecycle } from "./archive-lifecycle.js";
+import { registerModelEquivalence } from "./model-equivalence.js";
+
+export {
+  registerFanOutCardinality,
+  registerStoreAndReplay,
+  registerPayloadOpacity,
+  registerTaskBoundaryIsolation,
+  registerConversationLifecycle,
+  registerTaskCloseLifecycle,
+  registerArchiveLifecycle,
+  registerModelEquivalence,
+};
 
 /**
- * All task-layer property registrars, in the order
- * `_shared/suite.ts` invokes them.
+ * All task-layer property registrars, ordered per architect plan §2
+ * (delivery subset first, then `model-equivalence` from rpc-semantics).
  */
 export const TASK_PROPERTIES: ReadonlyArray<
   (ctx: ConformanceRunContext) => void
-> = [];
+> = [
+  registerFanOutCardinality,
+  registerStoreAndReplay,
+  registerPayloadOpacity,
+  registerTaskBoundaryIsolation,
+  registerConversationLifecycle,
+  registerTaskCloseLifecycle,
+  registerArchiveLifecycle,
+  registerModelEquivalence,
+];

@@ -14,32 +14,30 @@ import {
 } from "../../../task/methods.js";
 import { MessagesSend } from "../../../task/methods.js";
 import { decodeFrame, encodeFrame, isRequestFrame } from "../../codec.js";
-import type { ConformanceArtifact } from "../runner.js";
-import type { ConformanceRunContext, RealServerHandle } from "../runner.js";
+import type { ConformanceArtifact } from "../_shared/runner.js";
+import type {
+  ConformanceRunContext,
+  RealServerHandle,
+} from "../_shared/runner.js";
+import { registerArchiveLifecycle } from "../task/archive-lifecycle.js";
+import { registerConversationLifecycle } from "../task/conversation-lifecycle.js";
+import { registerConnectBroadcast } from "../network/presence-connect-broadcast.js";
+import { registerDisconnectBroadcast } from "../network/presence-disconnect-broadcast.js";
+import { registerMultiSubscriberFanOut } from "../network/presence-multi-subscriber-fan-out.js";
+import { registerReconnectStorm } from "../network/presence-reconnect-storm.js";
+import { registerSameStateNoDoubleFire } from "../network/presence-same-state-no-double-fire.js";
+import { registerSubscribeAfterConnect } from "../network/presence-subscribe-after-connect.js";
 import {
-  registerArchiveLifecycle,
-  registerConversationLifecycle,
-} from "../delivery.js";
-import {
-  registerConnectBroadcast,
-  registerDisconnectBroadcast,
-  registerMultiSubscriberFanOut,
-  registerReconnectStorm,
-  registerSameStateNoDoubleFire,
-  registerSubscribeAfterConnect,
-} from "../presence.js";
-import { collectProperties, type PropertyFailure } from "../registry.js";
-import {
-  registerAuthorityPositive,
-  registerAuthorityNegative,
-  registerIdempotence,
-  registerModelEquivalence,
-  registerRequestIdUniqueness,
-} from "../rpc-semantics.js";
-import {
-  registerRequestWellFormedness,
-  registerRpcMapCoverage,
-} from "../schema-conformance.js";
+  collectProperties,
+  type PropertyFailure,
+} from "../_shared/registry.js";
+import { registerAuthorityPositive } from "../identity/authority-positive.js";
+import { registerAuthorityNegative } from "../identity/authority-negative.js";
+import { registerIdempotence } from "../app/idempotence.js";
+import { registerModelEquivalence } from "../task/model-equivalence.js";
+import { registerRequestIdUniqueness } from "../transport/request-id-uniqueness.js";
+import { registerRequestWellFormedness } from "../transport/request-well-formedness.js";
+import { registerRpcMapCoverage } from "../transport/rpc-map-coverage.js";
 import {
   expectAssertionFailure,
   expectInvariant,

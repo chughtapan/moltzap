@@ -1,21 +1,35 @@
 /**
- * Conformance _shared/ — category-agnostic infrastructure that every
- * layer's properties depend on.
- *
- * Contents (carved out of legacy `conformance/` root in Phase 1A
- * implementation):
- *   - registry.ts        — property registry + tagged failure ADTs
- *   - runner.ts          — `acquireRunContext`, `RealServerHandle`
- *   - env.ts             — `conformanceArtifactDirFromEnv`
- *   - _helpers.ts        — `sendUntypedRpc`, `requireRight`
- *   - coverage-policy.ts — `isAllowedCoverageGap`, `AllowedCoverageGap`
- *   - suite.ts           — `runConformanceSuite`, `runAllProperties`,
- *                          `registerAllProperties` (gathers from
- *                          `<layer>/index.ts` arrays)
- *
- * Phase 1A interface stub. Implementer (sub-issue #546) `git mv`s the
- * existing files in here verbatim and updates internal import paths
- * (`./runner.js` → still `./runner.js` since they stay sibling under
- * `_shared/`).
+ * `_shared/` barrel — re-exports the cross-layer infrastructure
+ * (`registry`, `runner`, `env`, `_helpers`, `coverage-policy`,
+ * `suite`). Layer files import from the named files directly; this
+ * barrel exists so the conformance root re-export can spread the
+ * public surface from one place.
  */
-export {};
+export {
+  type ConformanceArtifact,
+  type ConformanceRunContext,
+  type ConformanceRunOptions,
+  type RealServerHandle,
+  acquireRunContext,
+  runConformance,
+} from "./runner.js";
+export {
+  type PropertyCategory,
+  type PropertyFailure,
+  type PropertyRun,
+  type RegisteredProperty,
+  PropertyAssertionFailure,
+  PropertyDeferred,
+  PropertyInvariantViolation,
+  PropertyUnavailable,
+  assertProperty,
+  collectProperties,
+  registerProperty,
+} from "./registry.js";
+export {
+  type ConformanceSuiteOptions,
+  type SuiteResult,
+  registerAllProperties,
+  runAllProperties,
+  runConformanceSuite,
+} from "./suite.js";
