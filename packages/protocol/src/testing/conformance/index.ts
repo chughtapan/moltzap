@@ -5,7 +5,7 @@ export {
   type RealServerHandle,
   acquireRunContext,
   runConformance,
-} from "./runner.js";
+} from "./_shared/runner.js";
 export {
   type PropertyCategory,
   type PropertyFailure,
@@ -18,17 +18,16 @@ export {
   assertProperty,
   collectProperties,
   registerProperty,
-} from "./registry.js";
-export * as schemaConformance from "./schema-conformance.js";
-export * as rpcSemantics from "./rpc-semantics.js";
-export * as delivery from "./delivery.js";
-export * as adversity from "./adversity.js";
-export * as boundary from "./boundary.js";
-export * as presence from "./presence.js";
+} from "./_shared/registry.js";
+export * as transport from "./transport/index.js";
+export * as identity from "./identity/index.js";
+export * as network from "./network/index.js";
+export * as task from "./task/index.js";
+export * as app from "./app/index.js";
 export {
   type ConformanceSuiteOptions,
   type SuiteResult,
   registerAllProperties,
   runAllProperties,
   runConformanceSuite,
-} from "./suite.js";
+} from "./_shared/suite.js";

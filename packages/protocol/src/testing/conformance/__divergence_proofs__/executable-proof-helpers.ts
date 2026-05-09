@@ -6,7 +6,7 @@ import {
   PropertyUnavailable,
   type PropertyFailure,
   type RegisteredProperty,
-} from "../registry.js";
+} from "../_shared/registry.js";
 
 class ProofExpectationError extends Error {
   override readonly name = "ProofExpectationError";

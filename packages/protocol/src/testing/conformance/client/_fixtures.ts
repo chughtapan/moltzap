@@ -34,7 +34,7 @@ import {
   PropertyUnavailable,
   PropertyInvariantViolation,
   type PropertyCategory,
-} from "../registry.js";
+} from "../_shared/registry.js";
 
 /**
  * Fixture returned to every property body after the prologue runs.

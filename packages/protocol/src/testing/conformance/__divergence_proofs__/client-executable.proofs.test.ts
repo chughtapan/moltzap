@@ -15,8 +15,11 @@ import { encodeFrame } from "../../codec.js";
 import { requestFrame } from "../../../transport/wire.js";
 import { rpcMethods } from "../../../rpc-registry.js";
 import { jsonRpcMethod } from "../../../transport/wire.js";
-import type { ConformanceArtifact } from "../runner.js";
-import { collectProperties, type PropertyFailure } from "../registry.js";
+import type { ConformanceArtifact } from "../_shared/runner.js";
+import {
+  collectProperties,
+  type PropertyFailure,
+} from "../_shared/registry.js";
 import {
   registerNotificationWellFormednessClient,
   registerMalformedFrameHandlingClient,
