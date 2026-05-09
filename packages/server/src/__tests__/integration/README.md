@@ -17,8 +17,9 @@ __tests__/integration/
                         # monolith
 ```
 
-`helpers.ts` stays at this directory's root. After Phase 2B lands, every
-test file under a layer subdir imports it via `../helpers.js`.
+`helpers.ts` lives at this directory's root. Tests under a layer subdir
+import it via `../helpers.js`; tests under `app/dispatch-flow/` import
+via `../../helpers.js`.
 
 ## Naming
 
@@ -31,22 +32,15 @@ The vitest discovery glob `src/__tests__/integration/**/*.test.ts`
 `*.integration.test.ts` to `*.test.ts` does not break discovery because
 `.integration.test.ts` already matched the glob.
 
-## Phase 2B sequencing
-
-This README and the empty layer subdirs land first (architect stub
-branch). The implement-* PR fills each subdir via `git mv`, splits
-`dispatch-flow.integration.test.ts` into the six bucket files under
-`app/dispatch-flow/`, and updates relative imports (`./helpers.js` →
-`../helpers.js`; `../../test-utils/` → `../../../test-utils/`).
-
 ## Dispatch-flow split rationale
 
-`dispatch-flow.integration.test.ts` (1197 LOC, 23 `it.live` scenarios)
-shares one server fixture across all scenarios. Splitting one-file-per
-scenario would multiply server startup cost 23×. Six group-bucketed files
-preserve fixture sharing within each bucket while restoring per-bucket
-parallelism to vitest's `fileParallelism: true` runner. Each bucket reuses
-the same `beforeAll`/`afterAll` shape and gets its own
-`describe("dispatch/* — <bucket>", …)` wrapper.
+The original `dispatch-flow.integration.test.ts` (1197 LOC, 23 `it.live`
+scenarios) shared one server fixture across all scenarios. Splitting
+one-file-per scenario would multiply server startup cost 23×. Six
+group-bucketed files under `app/dispatch-flow/` preserve fixture sharing
+within each bucket while restoring per-bucket parallelism to vitest's
+`fileParallelism: true` runner. Each bucket file owns its own copy of
+the imports + module state + `beforeAll`/`afterAll`/`beforeEach` triad
+and gets its own `describe("dispatch/* — <bucket>", …)` wrapper.
 
-Buckets are documented in the architect plan on issue #543.
+Buckets are documented in the Phase 2B architect plan on issue #543.

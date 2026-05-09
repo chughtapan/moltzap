@@ -1,0 +1,192 @@
+import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { it } from "@effect/vitest";
+import { Effect } from "effect";
+import {
+  ForbiddenError,
+  ConversationArchivedNotificationDefinition,
+  ConversationUnarchivedNotificationDefinition,
+} from "@moltzap/protocol";
+import {
+  startTestServer,
+  stopTestServer,
+  resetTestDb,
+  setupAgentGroup,
+} from "../helpers.js";
+import type { ConnectedAgent } from "../helpers.js";
+import { getCoreDb, expectRpcFailure } from "../../../test-utils/index.js";
+
+import {
+  ConversationsArchive,
+  ConversationsList,
+  ConversationsUnarchive,
+} from "@moltzap/protocol";
+
+beforeAll(async () => {
+  await startTestServer();
+}, 60_000);
+
+afterAll(async () => {
+  await stopTestServer();
+});
+
+beforeEach(async () => {
+  await resetTestDb();
+});
+
+describe("conversations/archive + /unarchive", () => {
+  it.live("owner archives and unarchives; broadcasts events", () =>
+    Effect.gen(function* () {
+      const group = yield* setupAgentGroup(3, { groupName: "Archive Target" });
+      const [alice, bob, eve] = group.agents as [
+        ConnectedAgent,
+        ConnectedAgent,
+        ConnectedAgent,
+      ];
+      const conversationId = group.conversationId!;
+
+      yield* alice.client.sendRpc(ConversationsArchive, {
+        conversationId,
+      });
+
+      const bobArchived = yield* bob.client.waitForNotification(
+        ConversationArchivedNotificationDefinition,
+      );
+      const eveArchived = yield* eve.client.waitForNotification(
+        ConversationArchivedNotificationDefinition,
+      );
+      const bobData = bobArchived.params as {
+        conversationId: string;
+        archivedAt: string;
+        by: string;
+      };
+      expect(bobData.conversationId).toBe(conversationId);
+      expect(bobData.by).toBe(alice.agentId);
+      expect(typeof bobData.archivedAt).toBe("string");
+      expect((eveArchived.params as { by: string }).by).toBe(alice.agentId);
+
+      const listDefault = (yield* bob.client.sendRpc(
+        ConversationsList,
+        {},
+      )) as { conversations: Array<{ id: string }> };
+      expect(
+        listDefault.conversations.find((c) => c.id === conversationId),
+      ).toBeUndefined();
+
+      const listInclude = (yield* bob.client.sendRpc(ConversationsList, {
+        archived: "include",
+      })) as { conversations: Array<{ id: string }> };
+      expect(
+        listInclude.conversations.find((c) => c.id === conversationId),
+      ).toBeDefined();
+
+      const listOnly = (yield* bob.client.sendRpc(ConversationsList, {
+        archived: "only",
+      })) as { conversations: Array<{ id: string }> };
+      expect(listOnly.conversations.length).toBe(1);
+      expect(listOnly.conversations[0]!.id).toBe(conversationId);
+
+      yield* alice.client.sendRpc(ConversationsUnarchive, {
+        conversationId,
+      });
+      const bobUnarchived = yield* bob.client.waitForNotification(
+        ConversationUnarchivedNotificationDefinition,
+      );
+      expect(
+        (bobUnarchived.params as { conversationId: string }).conversationId,
+      ).toBe(conversationId);
+
+      const listAfter = (yield* bob.client.sendRpc(ConversationsList, {})) as {
+        conversations: Array<{ id: string }>;
+      };
+      expect(
+        listAfter.conversations.find((c) => c.id === conversationId),
+      ).toBeDefined();
+    }),
+  );
+
+  it.live("non-owner/admin member gets 403 on archive", () =>
+    Effect.gen(function* () {
+      const group = yield* setupAgentGroup(2, { groupName: "Perm Test" });
+      const [, bob] = group.agents as [ConnectedAgent, ConnectedAgent];
+      const conversationId = group.conversationId!;
+
+      yield* expectRpcFailure(
+        bob.client.sendRpc(ConversationsArchive, { conversationId }),
+        ForbiddenError.code,
+      );
+    }),
+  );
+
+  // Prereq 2 (#525): the pre-helper authority model had a separate
+  // promote-to-admin DB-direct path; the new model collapses authority
+  // to (creator | TM) with no promotion flow, so an "admin can archive
+  // (role promoted)" fixture has no production-reachable shape and is
+  // deleted. TM-archives-app-bound is covered by the new
+  // conversation-admin-authority unit/integration tests.
+
+  it.live("archive of archived conversation is idempotent", () =>
+    Effect.gen(function* () {
+      const group = yield* setupAgentGroup(2, { groupName: "Idempotent" });
+      const [alice] = group.agents as [ConnectedAgent, ConnectedAgent];
+      const conversationId = group.conversationId!;
+
+      yield* alice.client.sendRpc(ConversationsArchive, {
+        conversationId,
+      });
+      yield* alice.client.sendRpc(ConversationsArchive, {
+        conversationId,
+      });
+    }),
+  );
+
+  it.live("unarchive of active conversation is idempotent", () =>
+    Effect.gen(function* () {
+      const group = yield* setupAgentGroup(2, { groupName: "Unarchive Idem" });
+      const [alice] = group.agents as [ConnectedAgent, ConnectedAgent];
+      const conversationId = group.conversationId!;
+
+      yield* alice.client.sendRpc(ConversationsUnarchive, {
+        conversationId,
+      });
+    }),
+  );
+
+  // Phase 7 cutover removed `apps/create`'s session-bootstrap path that
+  // attached manifest conversations under the legacy `app_sessions` ⇄
+  // `app_session_conversations` join. The "archive returns 409 for a
+  // session-attached conversation" assertion has no production trigger
+  // until Phase 9 wires the equivalent invariant on `tasks`/TM topology.
+  // Tombstoned via it.todo so the suite reports the gap.
+  it.todo(
+    "archive of task-attached conversation returns 409 (Phase 9 reactivation)",
+  );
+
+  it.live("concurrent archive by the same privileged caller — idempotent", () =>
+    Effect.gen(function* () {
+      const group = yield* setupAgentGroup(2, { groupName: "Race" });
+      const [alice] = group.agents as [ConnectedAgent, ConnectedAgent];
+      const conversationId = group.conversationId!;
+
+      const db = getCoreDb();
+      const [r1, r2] = yield* Effect.all(
+        [
+          alice.client.sendRpc(ConversationsArchive, { conversationId }),
+          alice.client.sendRpc(ConversationsArchive, { conversationId }),
+        ],
+        { concurrency: "unbounded" },
+      );
+
+      expect(r1).toEqual({});
+      expect(r2).toEqual({});
+
+      const row = yield* Effect.promise(() =>
+        db
+          .selectFrom("conversations")
+          .select("archived_at")
+          .where("id", "=", conversationId)
+          .executeTakeFirst(),
+      );
+      expect(row?.archived_at).not.toBeNull();
+    }),
+  );
+});
