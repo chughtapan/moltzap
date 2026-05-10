@@ -46,14 +46,14 @@ pnpm --filter @moltzap/server-core exec vitest run \
 
 pnpm --filter @moltzap/server-core exec vitest run \
   --config vitest.integration.config.ts \
-  src/__tests__/integration/36-trace-capture.integration.test.ts
+  src/__tests__/integration/task/trace-capture.test.ts
 
 pnpm --filter @moltzap/server-core build
 ```
 
 The integration proof for server-owned trace capture is:
 
-- `packages/server/src/__tests__/integration/36-trace-capture.integration.test.ts`
+- `packages/server/src/__tests__/integration/task/trace-capture.test.ts`
 
 ## cc-judge
 
