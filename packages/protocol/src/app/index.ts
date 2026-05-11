@@ -10,6 +10,8 @@ export {
   DispatchesConsumed,
   DispatchesExpired,
   DispatchesGet,
+  // #560 send-side fan-out gate
+  MessagesAuthorize,
 } from "./methods.js";
 
 export type { AppManifest } from "./methods.js";

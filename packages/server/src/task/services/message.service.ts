@@ -1,7 +1,13 @@
 import type { Db } from "../../db/client.js";
 import type { Message, Part, TaskStatus } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { ConversationId, MessageId, TaskId } from "@moltzap/protocol/task";
+import type {
+  ConversationId,
+  MessageId,
+  TaskId,
+  TmDecision,
+} from "@moltzap/protocol/task";
+import type { AppHost } from "../../app/app-host.js";
 
 /**
  * #529 reshape additive — carrier returned by `sendInsert`, consumed by
@@ -117,6 +123,15 @@ export interface MessageServiceDeps {
   readonly deliveryWebhook: DeliveryWebhookConfig | null;
   readonly webhookClient: WebhookClient | null;
   readonly traceCapture: TraceCapture | null;
+  /**
+   * #560: AppHost owns the `messages/authorize` registry and runner.
+   * Optional only because legacy unit-test stubs construct
+   * MessageService without AppHost; production wiring (layers.ts)
+   * always provides one. Calls on `null` short-circuit to the
+   * synthetic Forward-all-participants default, matching the
+   * pre-#560 broadcast.
+   */
+  readonly appHost: AppHost | null;
 }
 
 /**
@@ -152,6 +167,7 @@ export class MessageService {
   private readonly deliveryWebhook: DeliveryWebhookConfig | null;
   private readonly webhookClient: WebhookClient | null;
   private readonly traceCapture: TraceCapture | null;
+  private readonly appHost: AppHost | null;
 
   constructor(deps: MessageServiceDeps) {
     this.db = deps.db;
@@ -161,6 +177,7 @@ export class MessageService {
     this.deliveryWebhook = deps.deliveryWebhook;
     this.webhookClient = deps.webhookClient;
     this.traceCapture = deps.traceCapture;
+    this.appHost = deps.appHost;
   }
 
   close(): Effect.Effect<void, never> {
@@ -178,6 +195,60 @@ export class MessageService {
    * Architect plan §3 carrier shape: `{ message, parts, conv,
    * excludeConnectionId, bypassTmRouting }`.
    */
+  /**
+   * #560: CAS-guarded UPDATE of `messages.tm_decision` after the
+   * `messages/authorize` gate resolves. Caller-side state machine:
+   * row is inserted with `{tag: "pending"}` in {@link sendInsert};
+   * THIS method transitions to `{tag: "forward", recipients}` or
+   * `{tag: "block", reason}` exactly once.
+   *
+   * The CAS guard restricts the UPDATE to rows currently in the
+   * `pending` tag. Two concurrent transitions (real verdict racing a
+   * timeout-synthesized fallback) cannot both succeed: whichever
+   * commits first wins, the loser sees `committed: false` and
+   * skips the dependent broadcast. Architect plan §9 risk R11
+   * names this race and the mitigation.
+   *
+   * Kysely query builder per memory `feedback_no_raw_sql`; the
+   * implementer uses Kysely's `.returning()` for the rowcount-equiv
+   * to compute `committed`.
+   *
+   * Stub: `implement-*` fills in the body.
+   */
+  recordTmDecision(
+    messageId: MessageId,
+    verdict: TmDecision,
+  ): Effect.Effect<{ committed: boolean }, never> {
+    return catchSqlErrorAsDefect(
+      Effect.gen(this, function* () {
+        // Kysely query-builder UPDATE with CAS predicate. Postgres sees:
+        //   UPDATE messages
+        //   SET tm_decision = $1
+        //   WHERE id = $2
+        //     AND tm_decision @> '{"tag":"pending"}'
+        //   RETURNING id
+        // Containment (`@>`) is parameter-safe (Postgres binds the JSON
+        // value as a query parameter); the project's no-raw-SQL rule
+        // is honoured. The row-count semantic is rowCount=1 iff the
+        // row was still pending at UPDATE time; concurrent transitions
+        // see committed=false and skip the dependent broadcast.
+        const result = yield* Effect.tryPromise({
+          try: () =>
+            this.db
+              .updateTable("messages")
+              .set({ tm_decision: verdict })
+              .where("id", "=", messageId)
+              .where("tm_decision", "@>", JSON.stringify({ tag: "pending" }))
+              .returning("id")
+              .execute(),
+          catch: (cause) =>
+            new SqlError({ cause, message: "recordTmDecision UPDATE failed" }),
+        });
+        return { committed: result.length === 1 };
+      }),
+    );
+  }
+
   sendInsert(
     conversationId: ConversationId,
     inputParts: Part[],
@@ -290,7 +361,21 @@ export class MessageService {
   /**
    * #529 reshape additive — TM routing + broadcast + trace + delivery
    * webhook tail. Sequencing preserves the pre-split order (architect
-   * plan §9 risk #9): TM route → preview → fan-out → trace → webhook.
+   * plan §9 risk #9): TM route -> preview -> fan-out -> trace -> webhook.
+   *
+   * #560 cutover — the unconditional broadcast is replaced by the
+   * `messages/authorize` gate:
+   *   1. Resolve TM verdict via `appHost.runMessageAuthorize`.
+   *   2. CAS-guarded `recordTmDecision` writes the verdict to
+   *      `messages.tm_decision`; loser of the race no-ops.
+   *   3. (winner only) On Block, fail closed with `HookBlockedError`.
+   *      On Forward, broadcast to `verdict.recipients` (not all
+   *      participants).
+   *
+   * `bypassTmRouting=true` (TM-authored insert via `tasks/storeMessage`)
+   * skips the gate: the TM has already admitted the message; the
+   * server records a synthetic `Forward { participants \ sender }`
+   * verdict and broadcasts as usual.
    */
   sendCommit(
     carrier: SendInsertResult,
@@ -302,6 +387,12 @@ export class MessageService {
         const { message, parts, conv, excludeConnectionId, bypassTmRouting } =
           carrier;
 
+        // Pre-#560 TM-routing notification: still fires for app-bound
+        // TMs over the actor-model `network.send` transport so existing
+        // liveness contracts (`tm:agent:<id>` offline -> HookBlocked)
+        // hold while the messages/authorize gate fills the policy role.
+        // Default-DM/group's AppTmRegistry handler is a no-op observer;
+        // app-TMs and custom-TM agents observe the inbound frame here.
         if (!bypassTmRouting) {
           const tmAddr = yield* decodeTmEndpointAddress(
             conv.tm_endpoint_address,
@@ -324,20 +415,85 @@ export class MessageService {
 
         const participants =
           yield* this.conversations.getParticipantAgentIds(conversationId);
+        const defaultRecipients = participants.filter(
+          (id) => id !== senderAgentId,
+        );
+
+        // Resolve the per-message fan-out verdict.
+        // bypassTmRouting=true: TM-authored insert, gate skipped, default
+        //   Forward to all-participants-minus-sender.
+        // bypassTmRouting=false: run messages/authorize through AppHost.
+        //   When the AppHost handle is null (legacy stub paths), fall
+        //   back to the default Forward shape.
+        const verdict: TmDecision = bypassTmRouting
+          ? {
+              tag: "forward",
+              recipients: defaultRecipients,
+            }
+          : yield* this.resolveSendVerdict(
+              message.id,
+              conv.tm_endpoint_address,
+              conversationId,
+              senderAgentId,
+              parts,
+              conv.task_id,
+            );
+
+        // CAS-guarded UPDATE: only one of {real verdict, timeout
+        // synthesized Block} can commit. Loser no-ops and follows
+        // the winner's verdict for the outbound RPC reply.
+        const { committed } = yield* this.recordTmDecision(message.id, verdict);
+
+        // Race-loser path: re-read the row to see what the winner
+        // committed, then mirror that outcome. The window is tiny;
+        // this branch fires only on overlapping timeout +
+        // real-verdict races.
+        const effectiveVerdict: TmDecision = committed
+          ? verdict
+          : yield* this.readTmDecision(message.id);
+
+        if (effectiveVerdict.tag === "block") {
+          // No broadcast. Sender receives RpcFailure(HookBlocked).
+          // Recipients never observe a `messages/received` frame.
+          return yield* Effect.fail(
+            new HookBlockedError({
+              message: "Message blocked by task manager",
+              data: {
+                reason: effectiveVerdict.reason ?? "blocked",
+                messageId: message.id,
+              },
+            }),
+          );
+        }
+
+        // Forward path: broadcast to verdict.recipients (subset of
+        // participants the TM authorized).
+        const recipientList: readonly AgentId[] =
+          effectiveVerdict.tag === "forward"
+            ? (effectiveVerdict.recipients as readonly AgentId[])
+            : [];
 
         const event = MessageReceivedNotificationDefinition.encode({
           message,
         });
         const eventPayload = opaquePayload(JSON.stringify(event));
+
+        // Include the sender so the sender's own connections (other
+        // tabs / processes) see the echo; the existing
+        // `excludeConnectionId` flag still elides the sending socket.
+        const broadcastAudience: readonly AgentId[] = Array.from(
+          new Set([...recipientList, senderAgentId]),
+        ) as AgentId[];
         const broadcastResult = yield* this.networkSendService.broadcast(
-          participants,
+          broadcastAudience,
           eventPayload,
           {
             forConversation: conversationId,
             excludeConnectionId,
           },
         );
-        const delivered: readonly string[] = broadcastResult.delivered;
+        const delivered: readonly AgentId[] =
+          broadcastResult.delivered as readonly AgentId[];
 
         if (this.traceCapture) {
           const traceMetadata = yield* this.getTraceMessageMetadata(
@@ -349,18 +505,16 @@ export class MessageService {
             message,
             channelKey: traceMetadata.channelKey,
             senderDisplayName: traceMetadata.senderDisplayName,
-            recipientAgentIds: participants.filter(
-              (id) => id !== senderAgentId,
-            ),
+            recipientAgentIds: recipientList,
             deliveredAgentIds: delivered,
           });
         }
 
         if (this.deliveryWebhook && this.webhookClient) {
           const deliveredSet = new Set(delivered);
-          const offlineRecipientAgentIds = participants.filter(
+          const offlineRecipientAgentIds = recipientList.filter(
             (id) => id !== senderAgentId && !deliveredSet.has(id),
-          );
+          ) as AgentId[];
           if (offlineRecipientAgentIds.length > 0) {
             this.spawnDeliveryWebhook({
               conversationId,
@@ -375,6 +529,99 @@ export class MessageService {
         );
 
         return message;
+      }),
+    );
+  }
+
+  /**
+   * Run the `messages/authorize` gate via AppHost and translate the
+   * verdict into the `TmDecision` shape persisted on
+   * `messages.tm_decision`. AppHost fails closed (`Block { reason:
+   * "tm_unreachable" }`) on timeout / handler error / RPC failure;
+   * this method never errors.
+   */
+  private resolveSendVerdict(
+    messageId: MessageId,
+    tmEndpointAddressRaw: string,
+    conversationId: ConversationId,
+    senderAgentId: AgentId,
+    parts: ReadonlyArray<Part>,
+    taskId: TaskId,
+  ): Effect.Effect<TmDecision, never> {
+    const host = this.appHost;
+    if (!host) {
+      // Legacy / unit-test path with no AppHost wired. Fall back to
+      // the synthetic Forward-all-participants verdict.
+      return catchSqlErrorAsDefect(
+        Effect.gen(this, function* () {
+          const participants =
+            yield* this.conversations.getParticipantAgentIds(conversationId);
+          return {
+            tag: "forward" as const,
+            recipients: participants.filter((id) => id !== senderAgentId),
+          };
+        }),
+      );
+    }
+    return Effect.gen(this, function* () {
+      const tmAddr = yield* decodeTmEndpointAddress(tmEndpointAddressRaw);
+      const result = yield* host.runMessageAuthorize(tmAddr, {
+        conversationId,
+        message: {
+          id: messageId,
+          senderAgentId,
+          parts: [...parts],
+        },
+        taskId,
+        // appId carried for observability + future TM routing. App-
+        // bound tasks fill this; default-DM/group leaves it empty.
+        appId: "",
+        signal: new AbortController().signal,
+      });
+      switch (result.decision) {
+        case "Forward":
+          return {
+            tag: "forward" as const,
+            recipients: [...result.recipients],
+          };
+        case "Block":
+          return {
+            tag: "block" as const,
+            ...(result.reason !== undefined ? { reason: result.reason } : {}),
+          };
+        default: {
+          const _absurd: never = result;
+          return _absurd;
+        }
+      }
+    });
+  }
+
+  /**
+   * Race-loser path: re-read `tm_decision` after CAS UPDATE fails
+   * (committed=false). The winner has already committed; this returns
+   * the current persisted state so the loser mirrors the winner's
+   * outcome on the wire.
+   */
+  private readTmDecision(
+    messageId: MessageId,
+  ): Effect.Effect<TmDecision, never> {
+    return catchSqlErrorAsDefect(
+      Effect.gen(this, function* () {
+        const rowOpt = yield* takeFirstOption(
+          this.db
+            .selectFrom("messages")
+            .select("tm_decision")
+            .where("id", "=", messageId),
+        );
+        if (Option.isNone(rowOpt)) {
+          // Shouldn't happen — the row is durably inserted before
+          // sendCommit. Treat as Block for fail-closed posture.
+          return { tag: "block" as const, reason: "row_missing" };
+        }
+        // tm_decision is `Generated<Json>` (ColumnType<unknown,...>);
+        // Principle 2: decode at the boundary.
+        return yield* decodeTmDecision(rowOpt.value.tm_decision);
       }),
     );
   }
@@ -490,6 +737,23 @@ export class MessageService {
           MAX_MESSAGE_HISTORY_LIMIT,
         );
 
+        // #560 per-caller visibility filter:
+        //   - TM caller (app-bound tasks only, app_id IS NOT NULL,
+        //     caller's endpoint address == task.tm_endpoint_address):
+        //     sees every row (pending/forward/block).
+        //   - Non-TM caller: sees own outbound rows AND `forward` rows
+        //     whose `recipients` contain the caller. `pending` is
+        //     hidden from non-senders, `block` from non-senders.
+        //
+        // Default-DM/group tasks (app_id IS NULL) have no external TM
+        // caller — `isTmCaller` returns false; all callers go through
+        // the non-TM path (memory feedback_predicate_tautology_lesson:
+        // the asymmetry is intentional, not a missing case).
+        const isTmCaller = yield* this.isTmForAppBoundTask(
+          conversationId,
+          requesterAgentId,
+        );
+
         let qb = this.db
           .selectFrom("messages")
           .selectAll()
@@ -498,6 +762,27 @@ export class MessageService {
         if (options.sinceSeq !== undefined) {
           qb = qb.where("seq", ">", options.sinceSeq);
         }
+
+        if (!isTmCaller) {
+          // Postgres `tm_decision @> $1` JSONB containment — parameter-
+          // safe (no SQL string interpolation per memory
+          // `feedback_no_raw_sql`). Two `@>` predicates AND-ed: the
+          // verdict has tag=forward AND recipients contains caller.
+          qb = qb.where((eb) =>
+            eb.or([
+              eb("sender_id", "=", requesterAgentId),
+              eb.and([
+                eb("tm_decision", "@>", JSON.stringify({ tag: "forward" })),
+                eb(
+                  "tm_decision",
+                  "@>",
+                  JSON.stringify({ recipients: [requesterAgentId] }),
+                ),
+              ]),
+            ]),
+          );
+        }
+
         const rows = yield* qb.orderBy("seq", "desc").limit(limit + 1);
 
         const hasMore = rows.length > limit;
@@ -514,6 +799,42 @@ export class MessageService {
         messages.reverse();
 
         return { messages, hasMore };
+      }),
+    );
+  }
+
+  /**
+   * #560 visibility helper: true iff the caller IS the registered TM
+   * for an app-bound task. The shape of the check (mirrors
+   * `requireConversationAdminAuthority`'s second branch):
+   *
+   *   task.app_id IS NOT NULL
+   *   AND task.tm_endpoint_address === `tm:agent:<callerAgentId>`
+   *
+   * For default-DM/group tasks (app_id IS NULL) returns false — there
+   * is no external caller to authenticate; the default-DM/group
+   * messageAuthorize hook fires server-internally. The asymmetry is
+   * intentional per architect plan §1 + R10.
+   */
+  private isTmForAppBoundTask(
+    conversationId: ConversationId,
+    callerAgentId: AgentId,
+  ): Effect.Effect<boolean, never> {
+    return catchSqlErrorAsDefect(
+      Effect.gen(this, function* () {
+        const rowOpt = yield* takeFirstOption(
+          this.db
+            .selectFrom("conversations as c")
+            .innerJoin("tasks as t", "t.id", "c.task_id")
+            .select(["t.app_id", "t.tm_endpoint_address"])
+            .where("c.id", "=", conversationId),
+        );
+        if (Option.isNone(rowOpt)) return false;
+        const row = rowOpt.value;
+        if (row.app_id === null) return false;
+        // The canonical wire shape is "tm:agent:<agentId>"; compare
+        // direct-string-equality.
+        return row.tm_endpoint_address === `tm:agent:${callerAgentId}`;
       }),
     );
   }
@@ -799,4 +1120,40 @@ function deliveryErrorToHookBlocked(
       cause: String(err.cause),
     },
   });
+}
+
+/**
+ * Decode the raw `tm_decision` JSONB column (type `unknown` per the
+ * boundary `Json` alias) into a typed `TmDecision`. The runtime check
+ * is shape-only (the wire/DB schema is the canonical decoder; here we
+ * narrow without importing the schema decoder to avoid a circular
+ * dependency on `@moltzap/protocol`'s schema layer at MessageService).
+ *
+ * Malformed JSON (the column is NOT NULL with a `pending` default; a
+ * corrupted value indicates external tampering) dies as a defect.
+ */
+function decodeTmDecision(raw: unknown): Effect.Effect<TmDecision> {
+  if (raw && typeof raw === "object" && "tag" in raw) {
+    const tag = (raw as { tag: unknown }).tag;
+    if (tag === "pending") return Effect.succeed({ tag: "pending" });
+    if (tag === "forward") {
+      const recipients = (raw as { recipients?: unknown }).recipients;
+      if (Array.isArray(recipients)) {
+        return Effect.succeed({
+          tag: "forward",
+          recipients: recipients.filter(
+            (a): a is AgentId => typeof a === "string",
+          ),
+        });
+      }
+    }
+    if (tag === "block") {
+      const reason = (raw as { reason?: unknown }).reason;
+      return Effect.succeed({
+        tag: "block",
+        ...(typeof reason === "string" ? { reason } : {}),
+      });
+    }
+  }
+  return Effect.die(`malformed tm_decision: ${JSON.stringify(raw)}`);
 }

@@ -34,9 +34,23 @@ const HookEntrySchema = Type.Object(
 );
 
 /**
- * Manifest hook map. The single hook key `dispatch_authorize` selects
- * the moderator round-trip target for admission verdicts; the server
- * emits the matching `dispatch/authorize` S→C RPC.
+ * Manifest hook map. Two hook keys:
+ *
+ * - `dispatch_authorize` (receive-side) — selects the moderator round-
+ *   trip target for per-recipient admission verdicts; emits the
+ *   matching `dispatch/authorize` S→C RPC.
+ * - `message_authorize` (send-side) — selects the TM round-trip target
+ *   for per-message fan-out verdicts; emits the matching
+ *   `messages/authorize` S→C RPC. Restores the send-side gate that
+ *   Phase 9b (#461) deleted by removing `apps/onBeforeMessageDelivery`
+ *   without an equivalent on the new wire surface. Verdict is the
+ *   minimum-viable subset of #142's 5-arm `TaskManagerAction`:
+ *   `Forward { recipients } | Block { reason }`.
+ *
+ * Both hook keys are optional. Default policy when `message_authorize`
+ * is absent: `Forward { participants \ sender }`. Default policy when
+ * `dispatch_authorize` is absent: `grant`. See #560 for the send-side
+ * design and #538/#536 for the receive-side history.
  */
 export const AppManifestSchema = Type.Object(
   {
@@ -56,6 +70,7 @@ export const AppManifestSchema = Type.Object(
       Type.Object(
         {
           dispatch_authorize: Type.Optional(HookEntrySchema),
+          message_authorize: Type.Optional(HookEntrySchema),
         },
         { additionalProperties: false },
       ),
@@ -348,6 +363,80 @@ export const DispatchesGet = defineRpc({
   ),
 });
 
+// ── messages/authorize (send-side fan-out gate) ─────────────────────
+//
+// #560: restore the send-side authority gate that Phase 9b (#461)
+// deleted. The TM declares per-message fan-out policy as a verdict;
+// the server enforces it via the existing `NetworkSendService.broad-
+// cast` machinery. Verdict shape is the 2-arm subset of #142:
+// `Forward { recipients } | Block { reason }`. The remaining arms
+// (`Modify | Close | AttachConversation`) defer to follow-ups; the
+// 2-arm shape is forward-extensible.
+//
+// Symmetric to `dispatch/authorize`: same context shape (`taskId`,
+// `appId`, `conversationId`, `message`, `receivedAt`, `clock`), same
+// fail-closed timeout posture (timeout / RPC error → synthesize Block
+// with reason `tm_unreachable`), different verdict union.
+
+const MessagesAuthorizeContextSchema = Type.Object(
+  {
+    taskId: TaskId,
+    appId: Type.String(),
+    conversationId: ConversationId,
+    message: Type.Object(
+      {
+        id: MessageId,
+        senderAgentId: AgentId,
+        parts: Type.Optional(MessagePartsSchema),
+      },
+      { additionalProperties: false },
+    ),
+    receivedAt: Type.Optional(DateTimeString),
+    clock: Type.Optional(LogicalClockSchema),
+  },
+  { additionalProperties: false },
+);
+
+const MessagesAuthorizeVerdictSchema = Type.Union([
+  Type.Object(
+    {
+      decision: Type.Literal("Forward"),
+      recipients: Type.Array(AgentId),
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      decision: Type.Literal("Block"),
+      reason: Type.Optional(Type.String()),
+    },
+    { additionalProperties: false },
+  ),
+]);
+
+/**
+ * Server → TM round-trip asking for the per-message fan-out verdict.
+ * Triggered from `MessageService.sendCommit` after the durable insert
+ * lands and before the broadcast. Manifests opt in by declaring
+ * `hooks.message_authorize`. Failure / timeout in the round-trip
+ * synthesizes a fail-closed `Block { reason: "tm_unreachable" }`
+ * verdict at the AppHost envelope (mirrors `runAuthorizeDispatch`'s
+ * `wrapHookEffectWithEnvelope` posture).
+ *
+ * `Forward { recipients }` MUST be a subset of the conversation's
+ * participants; the server does not re-fan to non-participants.
+ * `Forward { recipients: [] }` is legal — message lands in the
+ * sender's transcript but is delivered to no one else.
+ */
+export const MessagesAuthorize = defineRpc({
+  name: "messages/authorize",
+  params: MessagesAuthorizeContextSchema,
+  result: Type.Object(
+    { verdict: MessagesAuthorizeVerdictSchema },
+    { additionalProperties: false },
+  ),
+});
+
 // ── Aggregators ─────────────────────────────────────────────────────
 
 export const appRpcMethods = [
@@ -356,7 +445,10 @@ export const appRpcMethods = [
   DispatchesGet,
 ] as const;
 
-export const taskCallbackMethods = [DispatchAuthorize] as const;
+export const taskCallbackMethods = [
+  DispatchAuthorize,
+  MessagesAuthorize,
+] as const;
 
 export const appNotifications = [
   DispatchRelease,
