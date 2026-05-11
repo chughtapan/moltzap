@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Kysely } from "kysely";
 import type { Database } from "../db/database.js";
-import type { ConnectionManager } from "../ws/connection.js";
+import type { ConnectionManager } from "../transport/connection.js";
 import { makeFakeService } from "../test-utils/fakes.js";
 import { AppHost } from "./app-host.js";
 

@@ -1,12 +1,12 @@
-import type { Db } from "../db/client.js";
+import type { Db } from "../../db/client.js";
 import { Effect, Option } from "effect";
 import { ForbiddenError, NotFoundError } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { AuthenticatedContext } from "../rpc/context.js";
+import type { AuthenticatedContext } from "../../transport/context.js";
 import {
   catchSqlErrorAsDefect,
   takeFirstOption,
-} from "../db/effect-kysely-toolkit.js";
+} from "../../db/effect-kysely-toolkit.js";
 
 /**
  * Shared utility for resolving and validating agent references.

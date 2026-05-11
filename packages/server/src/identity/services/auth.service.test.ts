@@ -4,7 +4,7 @@ import {
   makePgliteHarness,
   PGLITE_HOOK_TIMEOUT_MS,
   type PgliteHarness,
-} from "../test-utils/index.js";
+} from "../../test-utils/index.js";
 import {
   AuthService,
   CLAIM_NOT_FOUND,

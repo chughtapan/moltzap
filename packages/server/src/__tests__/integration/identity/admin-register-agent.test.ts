@@ -4,7 +4,7 @@ import { Effect } from "effect";
 import type { Kysely } from "kysely";
 import { PROTOCOL_VERSION, type AppManifest } from "@moltzap/protocol";
 import type { Database } from "../../../db/database.js";
-import { parseApiKey } from "../../../auth/agent-auth.js";
+import { parseApiKey } from "../../../identity/services/agent-auth.js";
 import {
   startTestServer,
   stopTestServer,

@@ -13,6 +13,30 @@ export const workspaceSourceAliases: Alias[] = [
     find: /^@moltzap\/server-core\/test-utils$/,
     replacement: fromRoot("packages/server/src/test-utils/index.ts"),
   },
+  // Phase 2A r2 — subpath exports for protocol-aligned layers. The matcher
+  // order matters: more-specific subpath matchers (`/transport`, `/identity`,
+  // `/network`, `/task`, `/app`) must precede the bare `@moltzap/server-core`
+  // entry.
+  {
+    find: /^@moltzap\/server-core\/transport$/,
+    replacement: fromRoot("packages/server/src/transport/index.ts"),
+  },
+  {
+    find: /^@moltzap\/server-core\/identity$/,
+    replacement: fromRoot("packages/server/src/identity/index.ts"),
+  },
+  {
+    find: /^@moltzap\/server-core\/network$/,
+    replacement: fromRoot("packages/server/src/network/index.ts"),
+  },
+  {
+    find: /^@moltzap\/server-core\/task$/,
+    replacement: fromRoot("packages/server/src/task/index.ts"),
+  },
+  {
+    find: /^@moltzap\/server-core\/app$/,
+    replacement: fromRoot("packages/server/src/app/index.ts"),
+  },
   {
     find: /^@moltzap\/server-core$/,
     replacement: fromRoot("packages/server/src/index.ts"),

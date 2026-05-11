@@ -9,7 +9,7 @@ import {
   getCoreDb,
   getCoreApp,
 } from "../../test-utils/index.js";
-import type { SessionValidator } from "../../services/session-validator.js";
+import type { SessionValidator } from "../../identity/services/session-validator.js";
 import type { TraceCaptureTag } from "../../runtime-surface/trace-capture.js";
 import type { NotificationFrame } from "@moltzap/protocol";
 import type { JsonRpcMethod } from "@moltzap/protocol/testing";

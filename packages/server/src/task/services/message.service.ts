@@ -1,4 +1,4 @@
-import type { Db } from "../db/client.js";
+import type { Db } from "../../db/client.js";
 import type { Message, Part, TaskStatus } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId, MessageId, TaskId } from "@moltzap/protocol/task";
@@ -49,33 +49,36 @@ export type MessageServiceError =
   | HookBlockedError
   | NotFoundError
   | TaskClosedError;
-import { nextSnowflakeId } from "../db/snowflake.js";
+import { nextSnowflakeId } from "../../db/snowflake.js";
 import type { ConversationService } from "./conversation.service.js";
-import type { NetworkSendService } from "../network/network-send.js";
+import type { NetworkSendService } from "../../network/network-send.js";
 import {
   opaquePayload,
   RecipientNotResolved,
   WriteFailed,
-} from "../network/network-send.js";
-import { type WebhookClient, signWebhookPayload } from "../adapters/webhook.js";
+} from "../../network/network-send.js";
+import {
+  type WebhookClient,
+  signWebhookPayload,
+} from "../../adapters/webhook.js";
 import {
   type EnvelopeEncryption,
   generateDek,
   wrapKey,
   unwrapKey,
-} from "../crypto/envelope.js";
+} from "../../crypto/envelope.js";
 import {
   serializePayload,
   deserializePayload,
-} from "../crypto/serialization.js";
+} from "../../crypto/serialization.js";
 import { sql } from "kysely";
-import type { MessageRow } from "../db/database.js";
-import type { TraceCapture } from "../runtime-surface/trace-capture.js";
+import type { MessageRow } from "../../db/database.js";
+import type { TraceCapture } from "../../runtime-surface/trace-capture.js";
 import {
   catchSqlErrorAsDefect,
   takeFirstOption,
   takeFirstOrFail,
-} from "../db/effect-kysely-toolkit.js";
+} from "../../db/effect-kysely-toolkit.js";
 
 /** pg returns bytea as Buffer, PGlite returns Uint8Array. Normalize so .toString("utf-8") works. */
 function toBuf(v: Buffer | Uint8Array): Buffer {

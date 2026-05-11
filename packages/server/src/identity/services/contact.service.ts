@@ -1,7 +1,7 @@
 import { Effect } from "effect";
-import type { Db } from "../db/client.js";
-import { catchSqlErrorAsDefect } from "../db/effect-kysely-toolkit.js";
-import type { ContactRow } from "../db/database.js";
+import type { Db } from "../../db/client.js";
+import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
+import type { ContactRow } from "../../db/database.js";
 import {
   ConflictError,
   ForbiddenError,

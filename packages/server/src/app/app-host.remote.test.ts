@@ -28,7 +28,7 @@ import {
   acquireConnectionRpcClient,
   ConnectionManager,
   type MoltZapConnection,
-} from "../ws/connection.js";
+} from "../transport/connection.js";
 import type { Database } from "../db/database.js";
 import { makeFakeService } from "../test-utils/fakes.js";
 import { AppHost } from "./app-host.js";

@@ -1,7 +1,10 @@
 import type { Kysely } from "kysely";
 import type { Database } from "../db/database.js";
-import { sendRpcToClient } from "../ws/connection.js";
-import type { ConnectionManager, MoltZapConnection } from "../ws/connection.js";
+import { sendRpcToClient } from "../transport/connection.js";
+import type {
+  ConnectionManager,
+  MoltZapConnection,
+} from "../transport/connection.js";
 import { logger } from "../logger.js";
 import type {
   AnyTaskCallbackRpcDefinition,

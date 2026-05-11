@@ -3,11 +3,11 @@ import { Effect, Option } from "effect";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/task";
 import { ForbiddenError } from "@moltzap/protocol";
-import type { Database } from "../db/database.js";
+import type { Database } from "../../db/database.js";
 import {
   catchSqlErrorAsDefect,
   takeFirstOption,
-} from "../db/effect-kysely-toolkit.js";
+} from "../../db/effect-kysely-toolkit.js";
 import { endpointAddressForAgent } from "./task.service.js";
 
 /**

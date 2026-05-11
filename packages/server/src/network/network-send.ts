@@ -34,7 +34,7 @@ import {
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/task";
 import type * as Socket from "@effect/platform/Socket";
-import { ConnectionManager } from "../ws/connection.js";
+import { ConnectionManager } from "../transport/connection.js";
 import { AgentEndpointResolver } from "./agent-endpoint-resolver.js";
 import type { AppTmRegistry } from "./app-tm-registry.js";
 import { logger } from "../logger.js";

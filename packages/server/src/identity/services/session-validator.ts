@@ -1,7 +1,7 @@
 import { Cause, Effect, Schema } from "effect";
-import type { WebhookClient } from "../adapters/webhook.js";
-import type { Logger } from "../logger.js";
-import type { AgentId, UserId } from "../app/types.js";
+import type { WebhookClient } from "../../adapters/webhook.js";
+import type { Logger } from "../../logger.js";
+import type { AgentId, UserId } from "../../app/types.js";
 
 const SessionValidateResponse = Schema.Union(
   Schema.Struct({
