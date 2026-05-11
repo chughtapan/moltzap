@@ -9,6 +9,11 @@ export type {
   NotificationFrame,
 } from "./wire.js";
 
+// Wire frame schemas (TypeBox) — exported so testing/conformance can
+// validate frames against the canonical shape via @moltzap/protocol/transport
+// rather than reaching into wire.js by relative path.
+export { ResponseFrameSchema, NotificationFrameSchema } from "./wire.js";
+
 // RPC + notification descriptor types. Decoders are protocol-internal;
 // consumers go through `decodeServerInbound` / `decodeClientInbound`
 // (rpc-registry.ts) or per-def `validateParams`.

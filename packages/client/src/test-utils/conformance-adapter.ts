@@ -45,8 +45,8 @@ import type {
   RealClientSubscription,
   ObservedNotification,
 } from "@moltzap/protocol/testing";
-import { MoltZapWsClient, type CloseInfo } from "../ws-client.js";
-import type { SubscriptionFilter } from "../runtime/subscribers.js";
+import { MoltZapWsClient, type CloseInfo } from "@moltzap/client";
+import type { SubscriptionFilter } from "@moltzap/client/runtime";
 import {
   NotConnectedError,
   RpcServerError,

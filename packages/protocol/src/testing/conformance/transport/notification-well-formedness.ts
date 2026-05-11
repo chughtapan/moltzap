@@ -19,7 +19,7 @@ import {
   encodeFrame,
   isNotificationFrame,
 } from "../_shared/frame-mutator.js";
-import { NotificationFrameSchema } from "../../../transport/wire.js";
+import { NotificationFrameSchema } from "@moltzap/protocol/transport";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { assertProperty, registerProperty } from "../_shared/registry.js";
 

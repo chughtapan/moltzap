@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import type { Static } from "@sinclair/typebox";
-import type { LeaseId } from "../../../app/index.js";
+import type { LeaseId } from "@moltzap/protocol/app";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { registerProperty } from "../_shared/registry.js";
 import {

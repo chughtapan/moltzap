@@ -22,8 +22,8 @@ import {
   TasksCreateConversation,
   ConversationId,
   TaskId,
-} from "../../../task/methods.js";
-import { AgentId } from "../../../identity/methods.js";
+} from "@moltzap/protocol/task";
+import { AgentId } from "@moltzap/protocol/identity";
 import {
   conversationId as makeConversationId,
   taskId as makeTaskId,

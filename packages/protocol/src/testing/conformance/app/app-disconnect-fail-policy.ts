@@ -27,8 +27,8 @@
  * baseline (architect §7).
  */
 import { Effect, Exit, Scope } from "effect";
-import { AppsRegister, DispatchAuthorize } from "../../../app/methods.js";
-import { TasksCreate } from "../../../task/methods.js";
+import { AppsRegister, DispatchAuthorize } from "@moltzap/protocol/app";
+import { TasksCreate } from "@moltzap/protocol/task";
 import { makeTestClient } from "../_shared/driver/test-client.js";
 import { registerTestAgent } from "../_shared/test-fixtures.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";

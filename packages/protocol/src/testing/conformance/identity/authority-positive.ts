@@ -5,7 +5,7 @@
  * newly-registered agent), asserts a Right outcome.
  */
 import { Effect } from "effect";
-import { ConversationsList } from "../../../task/methods.js";
+import { ConversationsList } from "@moltzap/protocol/task";
 import { makeTestClient } from "../_shared/driver/test-client.js";
 import { registerTestAgent } from "../_shared/test-fixtures.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";

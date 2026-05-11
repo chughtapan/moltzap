@@ -1,6 +1,6 @@
 /** Task-boundary isolation — conversation A's events don't leak into B. */
 import { Effect } from "effect";
-import { MessagesSend } from "../../../task/methods.js";
+import { MessagesSend } from "@moltzap/protocol/task";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import {
   PropertyInvariantViolation,

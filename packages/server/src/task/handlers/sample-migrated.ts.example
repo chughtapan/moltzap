@@ -1,0 +1,149 @@
+// ─────────────────────────────────────────────────────────────────────────
+// Phase 2A.0 — DI migration example.
+//
+// This file is a NON-COMPILED reference for the implement-staff dispatcher.
+// It shows the pre/post shape of `messages.handlers.ts` under the migration.
+// `.example` extension keeps tsc / vitest from picking it up.
+// Delete this file after 2A.0 lands.
+// ─────────────────────────────────────────────────────────────────────────
+
+// ── BEFORE (today, src/task/handlers/messages.handlers.ts) ────────────────
+//
+// import type { MessageService } from "../../services/message.service.js";
+// import type { ConversationService } from "../../services/conversation.service.js";
+// import type { TaskService } from "../../services/task.service.js";
+// import type { Db } from "../../db/client.js";
+// import type { LeaseRegistry } from "../../app/lease-registry.js";
+// import { defineTaskMethod } from "../../rpc/define-layered-method.js";
+//
+// export function createMessageHandlers(deps: {
+//   messageService: MessageService;
+//   conversationService: ConversationService;
+//   taskService: TaskService;
+//   db: Db;
+//   leaseRegistry?: LeaseRegistry;
+// }): RpcMethodRegistry {
+//   return [
+//     defineTaskMethod(MessagesSend, {
+//       requiresActive: true,
+//       handler: (params, ctx) =>
+//         Effect.gen(function* () {
+//           // Reads via deps.*
+//           const conv = yield* deps.conversationService.createDmByAgentName(...);
+//           const message = yield* deps.messageService.send(...);
+//           return { message };
+//         }),
+//     }),
+//     defineTaskMethod(MessagesList, { ... }),
+//   ];
+// }
+//
+// Boot site (app/server.ts):
+//   const methods = [
+//     ...createMessageHandlers({ messageService, conversationService, ... }),
+//     ...
+//   ];
+//
+// Test site (presence.handlers.test.ts):
+//   const handlers = createMessageHandlers({ messageService, conversationService, ... });
+//   const binding = handlers.find(h => h.definition.name === "messages/send");
+//   const result = await Effect.runPromise(
+//     binding.handle(params, ctx).pipe(Effect.provideService(ConnIdTag, "test")),
+//   );
+
+// ── AFTER (post-2A.0) ─────────────────────────────────────────────────────
+//
+// import { defineTaskMethod } from "../../transport/define-layered-method.js";
+// import {
+//   MessageServiceTag,
+//   ConversationServiceTag,
+//   TaskServiceTag,
+//   DbTag,
+//   LeaseRegistryTag,
+// } from "../../app/layers.js";
+//
+// /**
+//  * `messages/*` handler bindings. No `deps` argument; service access is
+//  * via `yield* XServiceTag`. The dispatcher's `ManagedRuntime` carries
+//  * `ServicesLive`, so every Tag this body pulls is resolved at request
+//  * time.
+//  *
+//  * Returned shape: a plain `RpcMethodRegistry` (array of bindings). The
+//  * `Effect`s INSIDE each binding's `handler` carry the Tag dependencies
+//  * in their `R` channel; that R is provided by the runtime, not by this
+//  * function.
+//  */
+// export const messageHandlers: RpcMethodRegistry = [
+//   defineTaskMethod(MessagesSend, {
+//     requiresActive: true,
+//     handler: (params, ctx) =>
+//       Effect.gen(function* () {
+//         const messages = yield* MessageServiceTag;
+//         const conversations = yield* ConversationServiceTag;
+//         const tasks = yield* TaskServiceTag;
+//         const db = yield* DbTag;
+//         const leaseRegistry = yield* LeaseRegistryTag;
+//
+//         // ... rest of body unchanged; replace `deps.messageService` with
+//         //     `messages`, `deps.db` with `db`, etc.
+//         const message = yield* messages.send(...);
+//         return { message };
+//       }),
+//   }),
+//   defineTaskMethod(MessagesList, {
+//     requiresActive: true,
+//     handler: (params, ctx) =>
+//       Effect.gen(function* () {
+//         const messages = yield* MessageServiceTag;
+//         return yield* messages.list(params.conversationId, ctx.agentId, {
+//           limit: params.limit,
+//         });
+//       }),
+//   }),
+// ];
+//
+// Boot site (app/server.ts) — no per-handler factory call:
+//   const methods: RpcMethodRegistry = [
+//     ...identityHandlers,
+//     ...conversationHandlers,
+//     ...messageHandlers,
+//     ...presenceHandlers,
+//     ...appHandlers,
+//     ...contactHandlers,
+//     ...taskHandlers,
+//     ...pingHandlers,
+//   ];
+//
+// The dispatcher's runtime is built ONCE with `ServicesLive` in scope:
+//   const runtime = ManagedRuntime.make(
+//     Layer.mergeAll(NodeHttpServer.layerContext, LoggerLive, FullLive),
+//   );
+//   // Per-request: ConnIdTag is added by `defineMethod` from `ctx.connId`.
+//
+// Test site — fakes shift from constructor injection to Layer overrides:
+//   const TestServices = ServicesLive.pipe(
+//     Layer.provide(fakeMessageServiceLayer({ send: () => Effect.succeed(...) })),
+//     Layer.provide(fakeConversationServiceLayer({ ... })),
+//   );
+//   const binding = messageHandlers.find(h => h.definition.name === "messages/send");
+//   const result = await Effect.runPromise(
+//     binding.handle(params, ctx).pipe(
+//       Effect.provideService(ConnIdTag, "test-conn-1"),
+//       Effect.provide(TestServices),
+//     ),
+//   );
+
+// ── Why the Tag-based shape is right ──────────────────────────────────────
+//
+// 1. The Tags + Layers (`app/layers.ts`) already exist. Handlers are the
+//    only consumer that still uses the legacy factory shape. 2A.0 finishes
+//    a half-done migration.
+// 2. After 2A.2 reshape, layer-scope enforcement (`NetworkLayerScope`,
+//    `TaskLayerScope`, `AppLayerScope` on `defineXMethod`) ONLY enforces
+//    the boundary if the handler bodies use Tags. Factory-deps bypass the
+//    scope check by carrying services through closure capture.
+// 3. `Layer.succeed` at test sites composes; `createX({fake})` does not.
+//    Boundary-test ergonomics improve when fakes are layer-shaped (they
+//    already are in `test-utils/fakes.ts`).
+// 4. Boot becomes one runtime composition, not a hand-walked factory chain.
+//    Adding a handler stops requiring an edit to `app/server.ts`.
