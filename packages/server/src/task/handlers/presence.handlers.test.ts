@@ -9,7 +9,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Cause, Effect, Exit } from "effect";
+import { Cause, Effect, Exit, Layer } from "effect";
 import { NotInContactsError } from "@moltzap/protocol";
 import { wireErrorFromInstance } from "@moltzap/protocol/testing";
 import type { Kysely } from "kysely";
@@ -24,8 +24,8 @@ import type { UserId } from "@moltzap/protocol/identity";
 import type { AgentId } from "../../app/types.js";
 import { PresenceService } from "../../services/presence.service.js";
 import type { PresenceEventSink } from "../../services/presence-event-sink.js";
-import { ConnIdTag } from "../../app/layers.js";
-import { createPresenceHandlers } from "./presence.handlers.js";
+import { ConnIdTag, DbTag, PresenceServiceTag } from "../../app/layers.js";
+import { presenceHandlers } from "./presence.handlers.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const schema = readFileSync(
@@ -76,12 +76,11 @@ function runSubscribe(opts: {
   callerOwnerUserId: UserId | null;
   requestedIds: AgentId[];
 }) {
-  const handlers = createPresenceHandlers({
-    presenceService: new PresenceService(noopSink),
-    db,
-  });
-  // Find the PresenceSubscribe binding (second entry in the registry).
-  const binding = handlers.find(
+  // Phase 2A r2 DI migration: handlers are top-level registries that pull
+  // their service Tags from Context. Tests provide a service `Layer` rather
+  // than constructing the handler via a factory; the binding body sees a
+  // real DB + real PresenceService via the Layer-merge below.
+  const binding = presenceHandlers.find(
     (h) => h.definition.name === "presence/subscribe",
   );
   if (!binding) throw new Error("presence/subscribe handler not found");
@@ -95,14 +94,23 @@ function runSubscribe(opts: {
     connId: "test-conn-1",
   };
 
+  const TestServices = Layer.mergeAll(
+    Layer.succeed(DbTag, db),
+    Layer.succeed(PresenceServiceTag, new PresenceService(noopSink)),
+  );
+
   return Effect.runPromise(
     Effect.exit(
       (
         binding.handle({ agentIds: opts.requestedIds }, ctx) as Effect.Effect<
           unknown,
-          unknown
+          unknown,
+          DbTag | PresenceServiceTag
         >
-      ).pipe(Effect.provideService(ConnIdTag, "test-conn-1")),
+      ).pipe(
+        Effect.provideService(ConnIdTag, "test-conn-1"),
+        Effect.provide(TestServices),
+      ),
     ),
   );
 }

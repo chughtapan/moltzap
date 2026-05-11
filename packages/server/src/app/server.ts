@@ -47,15 +47,16 @@ import {
 } from "../services/auth.service.js";
 
 // Handlers
-import { createCoreAuthHandlers } from "../network/handlers/auth.handlers.js";
-import { createPingHandlers } from "../network/handlers/ping.handlers.js";
+import { agentsLookupHandlers } from "../identity/handlers/agents-lookup.handlers.js";
+import { pingHandlers } from "../network/handlers/ping.handlers.js";
 import { connectionId as brandConnectionId } from "../network/agent-endpoint-resolver.js";
-import { createConversationHandlers } from "../task/handlers/conversations.handlers.js";
-import { createMessageHandlers } from "../task/handlers/messages.handlers.js";
-import { createPresenceHandlers } from "../task/handlers/presence.handlers.js";
-import { createContactHandlers } from "../task/handlers/contacts.handlers.js";
-import { createTaskHandlers } from "../task/handlers/tasks.handlers.js";
-import { createAppHandlers } from "./handlers/apps.handlers.js";
+import { connectHandlers } from "../task/handlers/connect.handlers.js";
+import { conversationHandlers } from "../task/handlers/conversations.handlers.js";
+import { messageHandlers } from "../task/handlers/messages.handlers.js";
+import { presenceHandlers } from "../task/handlers/presence.handlers.js";
+import { contactHandlers } from "../task/handlers/contacts.handlers.js";
+import { taskHandlers } from "../task/handlers/tasks.handlers.js";
+import { appHandlers } from "./handlers/apps.handlers.js";
 
 import { WebhookClient } from "../adapters/webhook.js";
 
@@ -66,6 +67,8 @@ import type {
   DisconnectionHook,
 } from "./types.js";
 import {
+  AppHostTag,
+  ConversationServiceTag,
   DbTag,
   DeliveryWebhookTag,
   EncryptionTag,
@@ -232,78 +235,76 @@ export function createCoreApp(config: CoreConfig): CoreApp {
   // provideMerge (vs provide): BaseLive satisfies ServicesLive's Db/Logger/
   // Encryption requirements AND exposes them downstream, so resolveServices
   // can also pull db/logger/encryption from Context without a separate Layer.
-  const FullLive = Layer.provideMerge(ServicesLive, BaseLive);
+  const ServicesWithBase = Layer.provideMerge(ServicesLive, BaseLive);
 
-  const services = Effect.runSync(
-    resolveServices.pipe(Effect.provide(FullLive)),
+  // Post-construction wiring: #529 reshape additive wired
+  // ConversationService into AppHost so the forked moderator round-trip's
+  // deny arm can call `removeParticipant` (architect §3 + epic decision #8).
+  // The dependency direction is inverted vs Layer order (ConversationService
+  // depends on AppHost), so a post-construction setter is required.
+  //
+  // `Layer.effectDiscard` sequences the setter call inside the same effectful
+  // layer composition as service construction — both AppHost and
+  // ConversationService are already built by `ServicesWithBase` when this
+  // Layer's Effect runs.
+  const WireConvIntoAppHost = Layer.effectDiscard(
+    Effect.gen(function* () {
+      const appHost = yield* AppHostTag;
+      const conversation = yield* ConversationServiceTag;
+      appHost.setConversationService(conversation);
+    }),
   );
+
+  // FullLive is the composition root: services + the post-construction
+  // wiring step. `provideMerge` (vs `provide`): `ServicesWithBase`
+  // satisfies `WireConvIntoAppHost`'s `AppHostTag | ConversationServiceTag`
+  // inputs AND keeps every service Tag exposed downstream, so the dispatch
+  // runtime resolves R for handler-body `yield* XServiceTag` reads.
+  const FullLive = Layer.provideMerge(WireConvIntoAppHost, ServicesWithBase);
+
+  // Single `ManagedRuntime` carrying every service Tag. Dispatch fibers
+  // (RPC handlers, HTTP routes, WS finalizers) resolve their R-channel
+  // structurally via this runtime — no per-frame `Effect.provide`.
+  //
+  // Service references are extracted once via `resolveServices` for the
+  // non-Effect call sites (HTTP routes' synchronous code, the close()
+  // teardown sequence, `coreApp.networkSendService` export). Pulling from
+  // the runtime guarantees a single instance of each service across the
+  // dispatch path and the non-RPC paths.
+  const dispatchRuntime = ManagedRuntime.make(
+    Layer.mergeAll(NodeHttpServer.layerContext, FullLive),
+  );
+  const services = dispatchRuntime.runSync(resolveServices);
 
   const {
     connections,
     agentEndpointResolver,
     networkSendService,
     authService,
-    conversationService,
-    contactService,
     presenceService,
     messageService,
-    taskService,
     appHost,
     leaseRegistry,
     traceCapture,
   } = services;
-
-  // #529 reshape additive — wire ConversationService into AppHost so
-  // the forked moderator round-trip's deny arm can call
-  // `removeParticipant` (architect §3 + epic decision #8). Inverted vs
-  // the layer order (ConversationService depends on AppHost) so we
-  // need post-construction wiring rather than a constructor arg.
-  appHost.setConversationService(conversationService);
 
   // Connection hooks
   const connectionHooks: ConnectionHook[] = [];
   const disconnectionHooks: DisconnectionHook[] = [];
 
   // Descriptor-backed RPC method registry — core handlers + extension methods.
+  // Each registry is a top-level const whose `defineXMethod` bindings pull
+  // their service Tags from Context at request time.
   const methods: RpcMethodRegistry = [
-    ...createCoreAuthHandlers({
-      authService,
-      conversationService,
-      presenceService,
-      connections,
-      agentEndpointResolver,
-      db,
-      sessionValidator: config.sessionValidator ?? null,
-    }),
-    ...createConversationHandlers({
-      conversationService,
-      taskService,
-      networkSendService,
-      connections,
-    }),
-    ...createMessageHandlers({
-      messageService,
-      conversationService,
-      taskService,
-      db,
-      leaseRegistry,
-    }),
-    ...createPresenceHandlers({
-      presenceService,
-      db,
-    }),
-    ...createAppHandlers({
-      appHost,
-    }),
-    ...createContactHandlers({
-      contactService,
-      authService,
-      networkSendService,
-    }),
-    ...createTaskHandlers({
-      taskService,
-    }),
-    ...createPingHandlers(),
+    ...connectHandlers,
+    ...agentsLookupHandlers,
+    ...conversationHandlers,
+    ...messageHandlers,
+    ...presenceHandlers,
+    ...appHandlers,
+    ...contactHandlers,
+    ...taskHandlers,
+    ...pingHandlers,
   ];
 
   const jsonRpcServer = makeJsonRpcServer<
@@ -858,11 +859,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
   // managed runtime rather than via per-frame `Effect.provide`. The
   // `BaseLive`-wired services (Db, Encryption, SessionValidator,
   // WebhookClient, DeliveryWebhook, TraceCapture, Logger) come along
-  // for free since `FullLive = Layer.provideMerge(ServicesLive,
-  // BaseLive)`.
-  const runtime = ManagedRuntime.make(
-    Layer.mergeAll(NodeHttpServer.layerContext, FullLive),
-  );
+  // for free since `FullLive` composes `ServicesLive` over `BaseLive`.
   const appScope = Effect.runSync(Scope.make());
 
   let actualPort = config.port;
@@ -877,7 +874,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     logger.info({ port: actualPort }, "MoltZap core server listening");
   }).pipe(Scope.extend(appScope));
 
-  runtime.runPromise(startup).catch((err) => {
+  dispatchRuntime.runPromise(startup).catch((err) => {
     logger.error({ err }, "Server startup failed");
   });
 
@@ -930,7 +927,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
           // Closing appScope tears down the http.Server + upgrade wiring.
           yield* Scope.close(appScope, Exit.void);
           yield* Effect.tryPromise({
-            try: () => runtime.dispose(),
+            try: () => dispatchRuntime.dispose(),
             catch: (cause) => new ServerCloseError({ cause }),
           });
           const dbCleanup = config.dbCleanup;

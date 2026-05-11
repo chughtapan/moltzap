@@ -11,14 +11,18 @@ export { AppId } from "./app/types.js";
 export { AppHost } from "./app/app-host.js";
 export type { ContactService } from "./app/app-host.js";
 
-// Handler factories — for downstream consumers composing their own RPC router
-export { createCoreAuthHandlers } from "./network/handlers/auth.handlers.js";
-export { createPingHandlers } from "./network/handlers/ping.handlers.js";
-export { createConversationHandlers } from "./task/handlers/conversations.handlers.js";
-export { createMessageHandlers } from "./task/handlers/messages.handlers.js";
-export { createPresenceHandlers } from "./task/handlers/presence.handlers.js";
-export { createContactHandlers } from "./task/handlers/contacts.handlers.js";
-export { createAppHandlers } from "./app/handlers/apps.handlers.js";
+// Handler registries — for downstream consumers composing their own RPC router.
+// Each export is a top-level `RpcMethodRegistry` const whose binding bodies
+// pull service Tags via `yield*`. Compose with `Effect.provide(FullLive)` at
+// boot to wire the service graph.
+export { connectHandlers } from "./task/handlers/connect.handlers.js";
+export { agentsLookupHandlers } from "./identity/handlers/agents-lookup.handlers.js";
+export { pingHandlers } from "./network/handlers/ping.handlers.js";
+export { conversationHandlers } from "./task/handlers/conversations.handlers.js";
+export { messageHandlers } from "./task/handlers/messages.handlers.js";
+export { presenceHandlers } from "./task/handlers/presence.handlers.js";
+export { contactHandlers } from "./task/handlers/contacts.handlers.js";
+export { appHandlers } from "./app/handlers/apps.handlers.js";
 export { ConnIdTag } from "./app/layers.js";
 
 // Service adapters
