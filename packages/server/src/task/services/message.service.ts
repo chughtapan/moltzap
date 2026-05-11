@@ -58,7 +58,11 @@ export type MessageServiceError =
 import { nextSnowflakeId } from "../../db/snowflake.js";
 import type { ConversationService } from "./conversation.service.js";
 import type { NetworkSendService } from "../../network/network-send.js";
-import { opaquePayload } from "../../network/network-send.js";
+import {
+  opaquePayload,
+  RecipientNotResolved,
+  WriteFailed,
+} from "../../network/network-send.js";
 import {
   type WebhookClient,
   signWebhookPayload,
@@ -382,6 +386,24 @@ export class MessageService {
       Effect.gen(this, function* () {
         const { message, parts, conv, excludeConnectionId, bypassTmRouting } =
           carrier;
+
+        // Pre-#560 TM-routing notification: still fires for app-bound
+        // TMs over the actor-model `network.send` transport so existing
+        // liveness contracts (`tm:agent:<id>` offline -> HookBlocked)
+        // hold while the messages/authorize gate fills the policy role.
+        // Default-DM/group's AppTmRegistry handler is a no-op observer;
+        // app-TMs and custom-TM agents observe the inbound frame here.
+        if (!bypassTmRouting) {
+          const tmAddr = yield* decodeTmEndpointAddress(
+            conv.tm_endpoint_address,
+          );
+          const tmFrame = MessageReceivedNotificationDefinition.encode({
+            message,
+          });
+          yield* this.networkSendService
+            .send(tmAddr, opaquePayload(JSON.stringify(tmFrame)))
+            .pipe(Effect.mapError(deliveryErrorToHookBlocked));
+        }
 
         const firstTextPart = parts.find((p) => p.type === "text");
         if (firstTextPart && firstTextPart.type === "text") {
@@ -1079,13 +1101,26 @@ function decodeTmEndpointAddress(raw: string): Effect.Effect<EndpointAddress> {
   return Effect.die(`Malformed tm_endpoint_address in tasks row: ${raw}`);
 }
 
-// `deliveryErrorToHookBlocked` (the pre-#560 mapping from
-// `network.send → tm` delivery errors to `HookBlockedError`) is gone:
-// the TM-observer notification fired before broadcast is replaced by
-// the `messages/authorize` round-trip, whose envelope synthesizes
-// `Block { reason: "tm_unreachable" }` directly when the TM is
-// unreachable. `network.send` to the TM no longer fires from
-// MessageService.
+/** Translate a `network.send` `DeliveryError` into `HookBlockedError`.
+ * Both tags signal a caller-recoverable TM-offline / socket-fail. */
+function deliveryErrorToHookBlocked(
+  err: RecipientNotResolved | WriteFailed,
+): HookBlockedError {
+  if (err instanceof RecipientNotResolved) {
+    return new HookBlockedError({
+      message: "Task manager is not reachable",
+      data: { reason: "RecipientNotResolved", to: String(err.to) },
+    });
+  }
+  return new HookBlockedError({
+    message: "Task manager dispatch failed",
+    data: {
+      reason: "WriteFailed",
+      to: String(err.to),
+      cause: String(err.cause),
+    },
+  });
+}
 
 /**
  * Decode the raw `tm_decision` JSONB column (type `unknown` per the
