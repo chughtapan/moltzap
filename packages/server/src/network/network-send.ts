@@ -32,7 +32,7 @@ import {
   type EndpointAddressKind,
 } from "@moltzap/protocol/network";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { ConversationId } from "@moltzap/protocol/task";
+import type { ConversationId, MessageId } from "@moltzap/protocol/task";
 import type * as Socket from "@effect/platform/Socket";
 import { ConnectionManager } from "../transport/connection.js";
 import { AgentEndpointResolver } from "./agent-endpoint-resolver.js";
@@ -137,11 +137,24 @@ export class NetworkSendService {
     opts?: {
       readonly forConversation?: ConversationId;
       readonly excludeConnectionId?: string;
+      /**
+       * #463 v3 — context tag threaded through to the structured log
+       * emitted inside the per-connection `WriteFailed` catchAll. The
+       * caller (`MessageService.sendCommit`) supplies the message id
+       * so operators can correlate a `broadcast.write_failed` log line
+       * with the durable row (which is unaffected — preflight already
+       * proved the recipient was reachable before INSERT; this branch
+       * fires only on a TOCTOU disconnect mid-frame). Plain log
+       * annotation, no DB column; #463 v3 dropped the v2 column +
+       * CAS scaffolding.
+       */
+      readonly messageId?: MessageId;
     },
   ): Effect.Effect<{ readonly delivered: readonly AgentId[] }, never, never> {
     return Effect.gen(this, function* () {
       const forConversation = opts?.forConversation;
       const excludeConnectionId = opts?.excludeConnectionId;
+      const messageId = opts?.messageId;
       const delivered: AgentId[] = [];
       for (const target of agentIds) {
         const connIds = yield* this.resolver.resolveAll(target);
@@ -162,8 +175,22 @@ export class NetworkSendService {
             conn.write(payload).pipe(
               Effect.catchAll((cause) =>
                 Effect.sync(() => {
+                  // #463 v3 — single structured log site for the
+                  // post-INSERT WriteFailed residual. Reason tag is
+                  // stable so operators can grep
+                  // `broadcast.write_failed`; messageId + conversationId
+                  // bind the line to the durable row (still present and
+                  // recoverable via `messages/list`).
                   logger.warn(
-                    { connId: cid, cause: String(cause), forConversation },
+                    {
+                      event: "broadcast.write_failed",
+                      reason: "WriteFailed",
+                      connId: cid,
+                      agentId: target,
+                      conversationId: forConversation,
+                      messageId,
+                      cause: String(cause),
+                    },
                     "broadcast: socket write failed",
                   );
                 }),
