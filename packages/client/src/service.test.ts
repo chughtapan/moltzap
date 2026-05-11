@@ -11,6 +11,7 @@ import {
   ConversationUnarchivedNotificationDefinition,
   DispatchRequest,
   MessageReceivedNotificationDefinition,
+  MessagesList,
   MessagesSend,
 } from "@moltzap/protocol";
 import { sanitizeForSystemReminder } from "./service.js";
@@ -1027,5 +1028,84 @@ describe("MoltZapService — inbound messageId dedup", () => {
     seen.length = 0;
     emitMessage(service, "pre-close-msg", CONV_A);
     expect(seen).toHaveLength(1);
+  });
+});
+
+describe("MoltZapService — messages/list poll dedup", () => {
+  const CONV_A = testConversationId("poll-conv-a");
+  const SENDER = testAgentId("poll-sender");
+
+  function pollResult(ids: ReadonlyArray<string>) {
+    return {
+      messages: ids.map((id) =>
+        buildMessage({ id, conversationId: CONV_A, senderId: SENDER }),
+      ),
+      hasMore: false,
+    };
+  }
+
+  it("drops a messageId already surfaced via the live notification path", async () => {
+    const service = new FakeMoltZapService();
+    // The server's reply replays a message the client already saw via
+    // the live `messages/received` channel (the original duplicate-
+    // broadcast risk arch-463 v3 calls out).
+    service.setResponse(MessagesList, pollResult(["dup-a", "dup-b"]));
+
+    const seenLive: Message[] = [];
+    service.on("message", (m) => seenLive.push(m));
+    service.emitEvent(
+      MessageReceivedNotificationDefinition.encode({
+        message: buildMessage({
+          id: "dup-a",
+          conversationId: CONV_A,
+          senderId: SENDER,
+        }),
+      }),
+    );
+    expect(seenLive).toHaveLength(1);
+
+    const result = await run(service.pollHistory({ conversationId: CONV_A }));
+    // `dup-a` is dropped (already in the seen-set); `dup-b` survives.
+    expect(result.messages.map((m) => m.id)).toEqual([testMessageId("dup-b")]);
+  });
+
+  it("dedups duplicates within a single poll response", async () => {
+    const service = new FakeMoltZapService();
+    service.setResponse(
+      MessagesList,
+      pollResult(["poll-x", "poll-x", "poll-y"]),
+    );
+
+    const result = await run(service.pollHistory({ conversationId: CONV_A }));
+    // The first `poll-x` records the id; the second hits the seen-set
+    // and is dropped. `poll-y` is distinct and survives.
+    expect(result.messages.map((m) => m.id)).toEqual([
+      testMessageId("poll-x"),
+      testMessageId("poll-y"),
+    ]);
+  });
+
+  it("records polled ids so a subsequent live notification is deduped", async () => {
+    const service = new FakeMoltZapService();
+    service.setResponse(MessagesList, pollResult(["poll-then-live"]));
+
+    const polled = await run(service.pollHistory({ conversationId: CONV_A }));
+    expect(polled.messages.map((m) => m.id)).toEqual([
+      testMessageId("poll-then-live"),
+    ]);
+
+    const seenLive: Message[] = [];
+    service.on("message", (m) => seenLive.push(m));
+    service.emitEvent(
+      MessageReceivedNotificationDefinition.encode({
+        message: buildMessage({
+          id: "poll-then-live",
+          conversationId: CONV_A,
+          senderId: SENDER,
+        }),
+      }),
+    );
+    // The live broadcast of an already-polled id must be suppressed.
+    expect(seenLive).toHaveLength(0);
   });
 });

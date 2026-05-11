@@ -42,6 +42,26 @@ export interface RecordedCall {
   opts?: RpcCallOptions;
 }
 
+/**
+ * Shape returned by the service's internal `messages/list` poll handler
+ * (`handleHistoryRequest`). Test code that exercises the poll-dedup
+ * path via `pollHistory` reads `messages.length` to assert dedup.
+ */
+export interface PollHistoryResult {
+  readonly messages: ReadonlyArray<{
+    readonly id: string;
+    readonly senderId: string;
+    readonly senderName: string;
+    readonly isOwn: boolean;
+    readonly text: string;
+    readonly createdAt: string;
+    readonly isNew: boolean;
+  }>;
+  readonly hasMore: boolean;
+  readonly conversationMeta: unknown;
+  readonly newCount: number;
+}
+
 export class FakeMoltZapService extends MoltZapService {
   calls: RecordedCall[] = [];
   private readonly responses = new Map<
@@ -162,6 +182,48 @@ export class FakeMoltZapService extends MoltZapService {
     notification: DecodedNotification<AnyNotificationDefinition>,
   ): void {
     this.handleNotification(notification);
+  }
+
+  /**
+   * Drive the `messages/list` poll path the way the unix socket does
+   * — including the post-`sendRpc` dedup filter the service applies
+   * before returning history to the caller. The caller registers a
+   * `MessagesList` response via `setResponse` and observes the
+   * returned `messages` array; duplicates that were already surfaced
+   * via the live `messages/received` path are dropped.
+   *
+   * Reaches into the parent via `Reflect.get` because
+   * `handleSocketRequestEffect` is `private`. The fake is the only
+   * legitimate caller — the test surface for the poll-path dedup
+   * invariant.
+   */
+  pollHistory(params: {
+    conversationId: string;
+    limit?: number;
+    sessionKey?: string;
+  }): Effect.Effect<PollHistoryResult, unknown> {
+    const handle = Reflect.get(this, "handleSocketRequestEffect") as
+      | undefined
+      | ((
+          method: string,
+          params: Record<string, unknown>,
+        ) => Effect.Effect<unknown, unknown>);
+    if (typeof handle !== "function") {
+      return Effect.fail(
+        new RpcServerError({
+          code: JSON_RPC_RESERVED_CODES.InternalError,
+          message:
+            "FakeMoltZapService.pollHistory: parent handleSocketRequestEffect missing",
+        }),
+      );
+    }
+    return handle.call(this, "history", {
+      conversationId: params.conversationId,
+      ...(params.limit !== undefined ? { limit: params.limit } : {}),
+      ...(params.sessionKey !== undefined
+        ? { sessionKey: params.sessionKey }
+        : {}),
+    }) as Effect.Effect<PollHistoryResult, unknown>;
   }
 
   /** Pin an agent name in the internal cache without an RPC round-trip. */

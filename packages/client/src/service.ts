@@ -302,8 +302,11 @@ export class MoltZapService {
    * Bounded at DEDUP_WINDOW_PER_CONV entries per conversation; oldest entry
    * is evicted when the window is full. Set#keys() preserves insertion
    * order in V8 / the spec, so eviction via `.next()` is O(1).
+   *
+   * Keyed and valued by their branded ids so the compiler rejects a
+   * `MessageId` accidentally used as a conversation key (or vice versa).
    */
-  private readonly seenMessageIds = new Map<string, Set<string>>();
+  private readonly seenMessageIds = new Map<ConversationId, Set<MessageId>>();
   private readonly handlers: {
     [K in ServiceHandlerName]: Array<
       NotificationHandler<ServiceHandlerPayloads[K]>
@@ -620,10 +623,21 @@ export class MoltZapService {
       const convId = params.conversationId;
       const limit = (params.limit as number) ?? DEFAULT_HISTORY_LIMIT;
       const sessionKey = params.sessionKey as string | undefined;
-      const result = yield* this.sendRpc(MessagesList, {
+      const rawResult = yield* this.sendRpc(MessagesList, {
         conversationId: convId as ConversationId,
         limit,
       });
+
+      // Apply the same dedup window as the live `messages/received`
+      // path. Server-side replay / late-arrival paths can surface a
+      // messageId the client already received via the live broadcast;
+      // the seen-set suppresses the duplicate. Each surviving id is
+      // recorded so a subsequent live notification of the same id is
+      // also suppressed.
+      const dedupedPollMessages = rawResult.messages.filter((m) =>
+        this.recordMessageIdIfNew(m.conversationId, m.id),
+      );
+      const result = { ...rawResult, messages: dedupedPollMessages };
 
       // Resolve agent names (batch) + fetch conversation metadata (concurrent)
       const knownNames = yield* Ref.get(this.agentNamesRef);
@@ -1221,27 +1235,45 @@ export class MoltZapService {
     }
   }
 
+  /**
+   * Record `messageId` in the per-conversation dedup window. Returns
+   * `true` when the id is new (caller proceeds), `false` when the id is
+   * a duplicate within the window (caller drops). On a new id, evicts
+   * the oldest entry if the window is full.
+   *
+   * Shared between the live `messages/received` notification path and
+   * the `messages/list` poll path so a message surfaced once via either
+   * route is suppressed if it arrives again via either route.
+   */
+  private recordMessageIdIfNew(
+    convId: ConversationId,
+    msgId: MessageId,
+  ): boolean {
+    let dedupSet = this.seenMessageIds.get(convId);
+    if (dedupSet === undefined) {
+      dedupSet = new Set<MessageId>();
+      this.seenMessageIds.set(convId, dedupSet);
+    }
+    if (dedupSet.has(msgId)) {
+      return false;
+    }
+    if (dedupSet.size >= DEDUP_WINDOW_PER_CONV) {
+      // size >= 1 guaranteed by the guard above; next().value is defined.
+      dedupSet.delete(dedupSet.keys().next().value as MessageId);
+    }
+    dedupSet.add(msgId);
+    return true;
+  }
+
   private handleMessageReceivedNotification(
     notification: MessageReceivedNotification,
   ): void {
     const msg = notification.message;
     const convId = msg.conversationId;
 
-    let dedupSet = this.seenMessageIds.get(convId);
-    if (dedupSet === undefined) {
-      dedupSet = new Set<string>();
-      this.seenMessageIds.set(convId, dedupSet);
-    }
-
-    if (dedupSet.has(msg.id)) {
+    if (!this.recordMessageIdIfNew(convId, msg.id)) {
       return;
     }
-
-    if (dedupSet.size >= DEDUP_WINDOW_PER_CONV) {
-      // size >= 1 guaranteed by the guard above; next().value is defined.
-      dedupSet.delete(dedupSet.keys().next().value as string);
-    }
-    dedupSet.add(msg.id);
 
     this.storeMessage(msg);
     // Name resolution is driven lazily by channel-core's serialized consumer
@@ -1289,7 +1321,7 @@ export class MoltZapService {
     );
   }
 
-  private markConversationArchived(conversationId: string): void {
+  private markConversationArchived(conversationId: ConversationId): void {
     this.seenMessageIds.delete(conversationId);
     this.archivedConversationIds.add(conversationId);
     Effect.runSync(
