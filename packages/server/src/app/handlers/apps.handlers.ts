@@ -1,4 +1,4 @@
-import type { RpcMethodRegistry } from "../../rpc/context.js";
+import type { RpcMethodRegistry } from "../../transport/context.js";
 import {
   AppsRegister,
   DispatchRequest,
@@ -7,7 +7,7 @@ import {
 } from "@moltzap/protocol";
 import { Effect } from "effect";
 import { AppHostTag, ConnIdTag } from "../layers.js";
-import { defineAppMethod } from "../../rpc/define-layered-method.js";
+import { defineAppMethod } from "../../transport/define-layered-method.js";
 import { leaseRecordToWire } from "../lease-registry.js";
 
 export const appHandlers: RpcMethodRegistry = [

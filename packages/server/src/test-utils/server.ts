@@ -12,7 +12,7 @@ import { EnvelopeEncryption } from "../crypto/envelope.js";
 import type { CoreApp } from "../app/types.js";
 import type { TraceCaptureTag } from "../runtime-surface/trace-capture.js";
 import type { Database } from "../db/database.js";
-import type { SessionValidator } from "../services/session-validator.js";
+import type { SessionValidator } from "../identity/services/session-validator.js";
 import { makeEffectKysely } from "../db/effect-kysely-toolkit.js";
 
 export type { Database } from "../db/database.js";

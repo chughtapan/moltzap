@@ -7,11 +7,11 @@ import {
 } from "@moltzap/protocol";
 import type { AgentId, UserId } from "@moltzap/protocol/identity";
 import type { AgentId as ServerAgentId } from "../../app/types.js";
-import type { RpcMethodRegistry } from "../../rpc/context.js";
-import { defineNetworkMethod } from "../../rpc/define-layered-method.js";
+import type { RpcMethodRegistry } from "../../transport/context.js";
+import { defineNetworkMethod } from "../../transport/define-layered-method.js";
 import { DbTag } from "../../app/layers.js";
 import { catchSqlErrorAsDefect } from "../../db/effect-kysely-toolkit.js";
-import { visibleAgentIds } from "../../services/agent-visibility.js";
+import { visibleAgentIds } from "../../identity/services/agent-visibility.js";
 
 function toAgentCard(row: {
   id: AgentId;

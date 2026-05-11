@@ -18,8 +18,8 @@
  * still has a single seam to extend.
  */
 import { Effect } from "effect";
-import { logger } from "../logger.js";
-import type { AppTmHandler } from "../network/app-tm-registry.js";
+import { logger } from "../../logger.js";
+import type { AppTmHandler } from "../../network/app-tm-registry.js";
 
 export type DefaultTmKind = "dm" | "group";
 

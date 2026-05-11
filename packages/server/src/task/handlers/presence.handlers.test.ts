@@ -22,8 +22,8 @@ import type { Database } from "../../db/database.js";
 import { userId } from "@moltzap/protocol/testing";
 import type { UserId } from "@moltzap/protocol/identity";
 import type { AgentId } from "../../app/types.js";
-import { PresenceService } from "../../services/presence.service.js";
-import type { PresenceEventSink } from "../../services/presence-event-sink.js";
+import { PresenceService } from "../../network/services/presence.service.js";
+import type { PresenceEventSink } from "../../network/services/presence-event-sink.js";
 import { ConnIdTag, DbTag, PresenceServiceTag } from "../../app/layers.js";
 import { presenceHandlers } from "./presence.handlers.js";
 

@@ -1,8 +1,8 @@
 /**
  * `transport/` — wire-level dispatch.
  *
- * Owns: WebSocket connection lifecycle (`ws/connection.ts`), JSON-RPC method
- * binding (`rpc/define-layered-method.ts`, `rpc/context.ts`, `rpc/layer-scopes.ts`),
+ * Owns: WebSocket connection lifecycle (`transport/connection.ts`), JSON-RPC method
+ * binding (`transport/define-layered-method.ts`, `transport/context.ts`, `transport/layer-scopes.ts`),
  * boundary-types check.
  *
  * Layer rules:

@@ -19,9 +19,9 @@ import {
   DEFAULT_DM_TM_ADDRESS,
   DEFAULT_GROUP_TM_ADDRESS,
 } from "../../network/app-tm-registry.js";
-import { endpointAddressForAgent } from "../../services/task.service.js";
-import { defineTaskMethod } from "../../rpc/define-layered-method.js";
-import type { RpcMethodRegistry } from "../../rpc/context.js";
+import { endpointAddressForAgent } from "../../task/services/task.service.js";
+import { defineTaskMethod } from "../../transport/define-layered-method.js";
+import type { RpcMethodRegistry } from "../../transport/context.js";
 import type { AgentId } from "../../app/types.js";
 import { TaskServiceTag } from "../../app/layers.js";
 

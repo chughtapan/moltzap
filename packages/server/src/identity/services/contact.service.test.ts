@@ -11,13 +11,13 @@ import { KyselyPGlite } from "kysely-pglite";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { makeEffectKysely } from "../db/effect-kysely-toolkit.js";
-import type { Database } from "../db/database.js";
+import { makeEffectKysely } from "../../db/effect-kysely-toolkit.js";
+import type { Database } from "../../db/database.js";
 import { ContactsService } from "./contact.service.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const schema = readFileSync(
-  join(__dirname, "..", "app", "core-schema.sql"),
+  join(__dirname, "..", "..", "app", "core-schema.sql"),
   "utf-8",
 );
 const DB_HOOK_TIMEOUT_MS = 30_000;

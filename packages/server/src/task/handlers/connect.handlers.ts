@@ -9,8 +9,8 @@ import {
 import type {
   AuthenticatedContext,
   RpcMethodRegistry,
-} from "../../rpc/context.js";
-import { defineTaskMethod } from "../../rpc/define-layered-method.js";
+} from "../../transport/context.js";
+import { defineTaskMethod } from "../../transport/define-layered-method.js";
 import {
   AgentEndpointResolverTag,
   AuthServiceTag,
@@ -22,9 +22,9 @@ import {
   SessionValidatorTag,
 } from "../../app/layers.js";
 import { connectionId as brandConnectionId } from "../../network/agent-endpoint-resolver.js";
-import type { AuthService } from "../../services/auth.service.js";
-import type { PresenceService } from "../../services/presence.service.js";
-import type { SessionValidator } from "../../services/session-validator.js";
+import type { AuthService } from "../../identity/services/auth.service.js";
+import type { PresenceService } from "../../network/services/presence.service.js";
+import type { SessionValidator } from "../../identity/services/session-validator.js";
 import type { Db } from "../../db/client.js";
 import { InvalidParamsError } from "../../runtime/index.js";
 import {

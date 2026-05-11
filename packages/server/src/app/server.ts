@@ -27,8 +27,8 @@ import type {
   AuthenticatedContext,
   DispatchContext,
   RpcMethodRegistry,
-} from "../rpc/context.js";
-import type { AppTags } from "../rpc/layer-tags.js";
+} from "../transport/context.js";
+import type { AppTags } from "../transport/layer-tags.js";
 import type { ConnIdTag } from "./layers.js";
 import type { JsonRpcId, RequestFrame, ResponseFrame } from "@moltzap/protocol";
 import {
@@ -38,13 +38,13 @@ import {
   encodeErrorResponse,
   makeJsonRpcServer,
 } from "@moltzap/protocol";
-import { acquireConnectionRpcClient } from "../ws/connection.js";
+import { acquireConnectionRpcClient } from "../transport/connection.js";
 import { EnvelopeEncryption } from "../crypto/envelope.js";
 import {
   CLAIM_NOT_FOUND,
   CLAIM_OWNER_MISMATCH,
   CLAIM_SUCCESS,
-} from "../services/auth.service.js";
+} from "../identity/services/auth.service.js";
 
 // Handlers
 import { agentsLookupHandlers } from "../identity/handlers/agents-lookup.handlers.js";
