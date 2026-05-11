@@ -4,8 +4,8 @@
  */
 import * as fc from "fast-check";
 import { Effect } from "effect";
-import { ConversationsList } from "../../../task/methods.js";
-import { type JsonRpcId } from "../../../transport/wire.js";
+import { ConversationsList } from "@moltzap/protocol/task";
+import { type JsonRpcId } from "@moltzap/protocol/transport";
 import { isRequestFrame, isResponseFrame } from "../_shared/frame-mutator.js";
 import { makeTestClient } from "../_shared/driver/test-client.js";
 import { registerTestAgent } from "../_shared/test-fixtures.js";

@@ -42,7 +42,7 @@ import {
   TasksCreateConversation,
   ConversationsAddParticipant,
   MessagesSend,
-} from "../../../task/methods.js";
+} from "@moltzap/protocol/task";
 import type { TaskId } from "../../../task/tasks.js";
 import {
   AppsRegister,

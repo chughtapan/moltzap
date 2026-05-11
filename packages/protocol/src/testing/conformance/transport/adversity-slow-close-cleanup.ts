@@ -5,7 +5,7 @@
  */
 import { Clock, Effect } from "effect";
 import { defaultToxicProfile } from "../../toxics/defaults.js";
-import { ConversationsList } from "../../../task/methods.js";
+import { ConversationsList } from "@moltzap/protocol/task";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import {
   acquireProxiedClient,

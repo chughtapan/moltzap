@@ -23,7 +23,7 @@
  * history.
  */
 import { Effect } from "effect";
-import { MessagesSend } from "../../../task/methods.js";
+import { MessagesSend } from "@moltzap/protocol/task";
 import { isNotificationFrame } from "../_shared/frame-mutator.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import {

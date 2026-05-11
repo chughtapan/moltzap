@@ -9,7 +9,7 @@ import {
   ForbiddenError,
   UnauthorizedError,
 } from "../../../transport/wire-errors.js";
-import { ConversationsList } from "../../../task/methods.js";
+import { ConversationsList } from "@moltzap/protocol/task";
 import { authorizationOutcome } from "../../models/dispatch.js";
 import { initialReferenceState } from "../../models/state.js";
 import { agentId } from "../_shared/test-fixtures.js";

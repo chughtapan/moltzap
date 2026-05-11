@@ -5,7 +5,7 @@
  */
 import { Effect } from "effect";
 import { PROTOCOL_VERSION } from "../../../version.js";
-import { Connect } from "../../../network/methods.js";
+import { Connect } from "@moltzap/protocol/network";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { registerProperty } from "../_shared/registry.js";
 import {

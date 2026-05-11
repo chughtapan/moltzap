@@ -12,7 +12,7 @@
 import * as fc from "fast-check";
 import { Effect } from "effect";
 import { allRpcMethods, arbitraryCallFor } from "../../arbitraries/rpc.js";
-import { AgentsList } from "../../../identity/methods.js";
+import { AgentsList } from "@moltzap/protocol/identity";
 import { makeTestClient } from "../_shared/driver/test-client.js";
 import { registerTestAgent } from "../_shared/test-fixtures.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
