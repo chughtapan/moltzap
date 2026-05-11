@@ -8,7 +8,7 @@ import {
   type ResultOf,
   type RpcCallError,
 } from "@moltzap/protocol";
-import type { AuthenticatedContext } from "../rpc/context.js";
+import type { AuthenticatedContext } from "../transport/context.js";
 
 export interface MoltZapConnection {
   id: string;

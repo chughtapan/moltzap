@@ -20,26 +20,36 @@ import {
 
 type AnyRpcDefinition = RpcDefinition<string, TSchema, TSchema>;
 
-export interface RpcHandler<Ctx = unknown> {
+/**
+ * `R` is the handler's Effect requirement environment — the union of
+ * service Tags the body pulls via `yield*`. Defaults to `never` so the
+ * existing `RpcHandler<Ctx>` shape continues to compile against
+ * pre-Phase-2A handlers (R=never). Phase 2A r2 §3 widens this so
+ * downstream handlers can carry service Tags structurally; the
+ * dispatcher's `ManagedRuntime` resolves R at request time.
+ */
+export interface RpcHandler<Ctx = unknown, R = never> {
   readonly definition: AnyRpcDefinition;
   readonly handle: (
     params: unknown,
     ctx: Ctx,
-  ) => Effect.Effect<unknown, unknown>;
+  ) => Effect.Effect<unknown, unknown, R>;
 }
 
-/** Build an `RpcHandler<Ctx>` with definition-typed params/result. The
- * cast erases to `unknown` for storage; `decodeRpcParams` produces a
- * `ParamsOf<D>`-shaped value at runtime, so the erasure is safe. */
-export const handler = <D extends AnyRpcDefinition, Ctx>(
+/** Build an `RpcHandler<Ctx, R>` with definition-typed params/result. The
+ * cast erases A and E to `unknown` for storage; `decodeRpcParams` produces
+ * a `ParamsOf<D>`-shaped value at runtime, so the erasure is safe. R is
+ * preserved through the storage type so the dispatcher's runtime can
+ * resolve it. */
+export const handler = <D extends AnyRpcDefinition, Ctx, R = never>(
   definition: D,
   handle: (
     params: ParamsOf<D>,
     ctx: Ctx,
-  ) => Effect.Effect<ResultOf<D>, unknown>,
-): RpcHandler<Ctx> => ({
+  ) => Effect.Effect<ResultOf<D>, unknown, R>,
+): RpcHandler<Ctx, R> => ({
   definition,
-  handle: handle as RpcHandler<Ctx>["handle"],
+  handle: handle as RpcHandler<Ctx, R>["handle"],
 });
 
 /** Pino-shaped logger; pass `null` for silent dispatch. */
@@ -50,19 +60,23 @@ export interface RpcLogger {
 }
 
 /** Responder side of a JSON-RPC connection. `handle` validates params,
- * dispatches the handler, and maps the Effect to a wire `ResponseFrame`. */
-export interface JsonRpcServer<Ctx = unknown> {
+ * dispatches the handler, and maps the Effect to a wire `ResponseFrame`.
+ *
+ * `R` carries the union of all bound handlers' service Tag requirements
+ * so the dispatch site (the WS frame loop) can resolve R via the
+ * server's `ManagedRuntime`. Defaults to `never` for back-compat. */
+export interface JsonRpcServer<Ctx = unknown, R = never> {
   readonly handle: (
     frame: RequestFrame,
     ctx: Ctx,
-  ) => Effect.Effect<ResponseFrame>;
+  ) => Effect.Effect<ResponseFrame, never, R>;
 }
 
-export const makeJsonRpcServer = <Ctx = unknown>(
-  handlers: ReadonlyArray<RpcHandler<Ctx>>,
+export const makeJsonRpcServer = <Ctx = unknown, R = never>(
+  handlers: ReadonlyArray<RpcHandler<Ctx, R>>,
   logger: RpcLogger | null = null,
-): JsonRpcServer<Ctx> => {
-  const handlerByMethod = new Map<JsonRpcMethod, RpcHandler<Ctx>>();
+): JsonRpcServer<Ctx, R> => {
+  const handlerByMethod = new Map<JsonRpcMethod, RpcHandler<Ctx, R>>();
   for (const h of handlers) {
     handlerByMethod.set(h.definition.name, h);
   }
@@ -70,7 +84,7 @@ export const makeJsonRpcServer = <Ctx = unknown>(
   const handle = (
     frame: RequestFrame,
     ctx: Ctx,
-  ): Effect.Effect<ResponseFrame> =>
+  ): Effect.Effect<ResponseFrame, never, R> =>
     Effect.gen(function* () {
       const handler = handlerByMethod.get(frame.method);
       if (handler === undefined) {

@@ -11,19 +11,23 @@ export { AppId } from "./app/types.js";
 export { AppHost } from "./app/app-host.js";
 export type { ContactService } from "./app/app-host.js";
 
-// Handler factories — for downstream consumers composing their own RPC router
-export { createCoreAuthHandlers } from "./network/handlers/auth.handlers.js";
-export { createPingHandlers } from "./network/handlers/ping.handlers.js";
-export { createConversationHandlers } from "./task/handlers/conversations.handlers.js";
-export { createMessageHandlers } from "./task/handlers/messages.handlers.js";
-export { createPresenceHandlers } from "./task/handlers/presence.handlers.js";
-export { createContactHandlers } from "./task/handlers/contacts.handlers.js";
-export { createAppHandlers } from "./app/handlers/apps.handlers.js";
+// Handler registries — for downstream consumers composing their own RPC router.
+// Each export is a top-level `RpcMethodRegistry` const whose binding bodies
+// pull service Tags via `yield*`. Compose with `Effect.provide(FullLive)` at
+// boot to wire the service graph.
+export { connectHandlers } from "./task/handlers/connect.handlers.js";
+export { agentsLookupHandlers } from "./identity/handlers/agents-lookup.handlers.js";
+export { pingHandlers } from "./network/handlers/ping.handlers.js";
+export { conversationHandlers } from "./task/handlers/conversations.handlers.js";
+export { messageHandlers } from "./task/handlers/messages.handlers.js";
+export { presenceHandlers } from "./task/handlers/presence.handlers.js";
+export { contactHandlers } from "./task/handlers/contacts.handlers.js";
+export { appHandlers } from "./app/handlers/apps.handlers.js";
 export { ConnIdTag } from "./app/layers.js";
 
 // Service adapters
-export type { SessionValidator } from "./services/session-validator.js";
-export { WebhookSessionValidator } from "./services/session-validator.js";
+export type { SessionValidator } from "./identity/services/session-validator.js";
+export { WebhookSessionValidator } from "./identity/services/session-validator.js";
 export {
   WebhookClient,
   WebhookHttpError,
@@ -85,17 +89,17 @@ export type {
 export { startServer } from "./standalone.js";
 
 // Services
-export { AuthService } from "./services/auth.service.js";
-export { ConversationService } from "./services/conversation.service.js";
-export { MessageService } from "./services/message.service.js";
-export { ParticipantService } from "./services/participant.service.js";
-export { PresenceService } from "./services/presence.service.js";
+export { AuthService } from "./identity/services/auth.service.js";
+export { ConversationService } from "./task/services/conversation.service.js";
+export { MessageService } from "./task/services/message.service.js";
+export { ParticipantService } from "./identity/services/participant.service.js";
+export { PresenceService } from "./network/services/presence.service.js";
 export {
   type PresenceEventSink,
   type PresencePublishInput,
   type PresenceStatus,
   createConnectionFanOutPresenceEventSink,
-} from "./services/presence-event-sink.js";
+} from "./network/services/presence-event-sink.js";
 
 // Infrastructure
 export {
@@ -116,7 +120,7 @@ export {
   rawQuery,
   type EffectKysely,
 } from "./db/effect-kysely-toolkit.js";
-export { ConnectionManager } from "./ws/connection.js";
+export { ConnectionManager } from "./transport/connection.js";
 export { EnvelopeEncryption } from "./crypto/envelope.js";
 export { seedInitialKek } from "./crypto/key-rotation.js";
 export {
@@ -126,7 +130,7 @@ export {
   generateClaimToken,
   generateInviteToken,
   isValidApiKeyFormat,
-} from "./auth/agent-auth.js";
+} from "./identity/services/agent-auth.js";
 export { logger } from "./logger.js";
 export type { Logger } from "./logger.js";
 export { nextSnowflakeId, snowflakeToTimestamp } from "./db/snowflake.js";
@@ -147,7 +151,7 @@ export type {
   DispatchContext,
   RpcMethodBinding,
   RpcMethodRegistry,
-} from "./rpc/context.js";
-export type { MoltZapConnection } from "./ws/connection.js";
+} from "./transport/context.js";
+export type { MoltZapConnection } from "./transport/connection.js";
 export type { TaskRow, TaskParticipantRow } from "./db/database.js";
-export { defineMethod } from "./rpc/context.js";
+export { defineMethod } from "./transport/context.js";

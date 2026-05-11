@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Effect } from "effect";
-import type { AuthenticatedContext } from "../rpc/context.js";
+import type { AuthenticatedContext } from "../transport/context.js";
 import type { AgentId } from "../app/types.js";
 import { ConnectionManager, type MoltZapConnection } from "./connection.js";
 import { unusedJsonRpcClient } from "./connection.test-utils.js";

@@ -1,14 +1,14 @@
 import type { Kysely } from "kysely";
 import { Brand, type Layer } from "effect";
-import type { RpcMethodBinding } from "../rpc/context.js";
+import type { RpcMethodBinding } from "../transport/context.js";
 import type { AppManifest } from "@moltzap/protocol";
 import type { AgentId, UserId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/task";
 import type { Database } from "../db/database.js";
 import type { ContactService } from "./app-host.js";
-import type { SessionValidator } from "../services/session-validator.js";
+import type { SessionValidator } from "../identity/services/session-validator.js";
 import type { WebhookClient } from "../adapters/webhook.js";
-import type { ConnectionManager } from "../ws/connection.js";
+import type { ConnectionManager } from "../transport/connection.js";
 import type { NetworkSendService } from "../network/network-send.js";
 import type { TaskAuthorizeDispatchHook } from "./hooks.js";
 import type { LeaseRegistry } from "./lease-registry.js";

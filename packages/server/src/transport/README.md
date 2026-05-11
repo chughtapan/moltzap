@@ -2,9 +2,10 @@
 
 Wire-level dispatch.
 
-- WS connection lifecycle.
-- JSON-RPC method binding (`defineMethod`, `defineNetworkMethod`, `defineTaskMethod`, `defineAppMethod`).
+- WS connection lifecycle (`connection.ts`).
+- JSON-RPC method binding (`context.ts`, `define-layered-method.ts`).
 - Per-request `DispatchContext` and the layer-scope tags that gate handler placement.
+- Per-layer Tag allowlist hierarchy (`layer-tags.ts`).
 
 ## Layer rules
 
@@ -15,10 +16,53 @@ Wire-level dispatch.
 
 Transport is the lowest protocol layer. It does not know about identity, conversations, presence, or app hosts. Handlers live in their layer's `handlers/` directory and are bound via `defineXMethod` from this layer.
 
-## Files (populated in 2A.2)
+## Files
 
-- `connection.ts` (from `ws/`)
-- `context.ts` (from `rpc/`)
-- `define-layered-method.ts` (from `rpc/`)
-- `layer-scopes.ts` (from `rpc/`)
-- `layer-boundary.types-check.ts` (from `rpc/`)
+- `connection.ts` — WS connection manager + per-connection RPC client.
+- `context.ts` — `defineMethod`, `RpcMethodBinding`, `AuthenticatedContext`, `DispatchContext`. The base wrapper; provides `ConnIdTag` from the per-request `DispatchContext`.
+- `define-layered-method.ts` — `defineNetworkMethod`, `defineTaskMethod`, `defineAppMethod`. Layer-specific wrappers that constrain handler R-channel to a per-layer Tag allowlist and provide the matching layer-scope service.
+- `layer-scopes.ts` — runtime `Context.Tag`s used as structural layer markers (`NetworkLayerScope`, `TaskLayerScope`, `AppLayerScope`).
+- `layer-tags.ts` — type-only allowlist hierarchy (`TransportTags`, `IdentityTags`, `NetworkTags`, `TaskTags`, `AppTags`).
+- `layer-boundary.types-check.ts` — compile-time test that exercises the constraint shape.
+
+## Maintenance contract
+
+Adding a new service `Context.Tag` is a TWO-step edit, both landing in the same PR:
+
+1. **Type-side:** add the Tag's symbol to the appropriate alias in `layer-tags.ts`.
+2. **Structural-side:** update the matching `architectureOptions.layers` rule in the root `eslint.config.js` so the directory-structure lint and the type-system constraint agree.
+
+Both sources of truth coexist by user authorization. Compatibility:
+
+| Forgot type-side | Forgot lint-side |
+|---|---|
+| `tsc` rejects handler that yields the new Tag if it's outside the layer's allowlist | `tsc` lets the cross-layer reach through; `eslint` flags the directory boundary at the next CI run |
+
+The two checks fire at different boundaries (yield-site vs import-site) and together produce a sound result. Drift between them is a code smell that PR review catches; codegen between them is rejected (user explicitly accepted the maintenance overhead in 2026-05-09 plan revision).
+
+## Dispatch model
+
+Per-request handler R-channel resolution:
+
+```
+RpcMethodBinding.handle  (call site: jsonRpcServer.handle(frame, ctx))
+        │
+        │ ConnIdTag      ── provided by defineMethod from ctx.connId
+        │ NetworkLayerScope, TaskLayerScope, AppLayerScope
+        │                ── provided by defineXMethod wrappers, structurally
+        │ MessageServiceTag, ConversationServiceTag, ...
+        │                ── provided by the dispatcher's ManagedRuntime
+        │                   (Layer.mergeAll(NodeHttpServer.layerContext, FullLive))
+        ▼
+   handler body
+```
+
+The wrapper-provided tags are no-ops for handlers that don't yield them; `Effect.provideService(Tag, value)` is `Exclude<R, Tag>` in the type system, so providing a tag the body never reads costs nothing.
+
+## Type-alias scaffold
+
+Three pieces:
+
+1. **Tag hierarchy** in `layer-tags.ts`. Every Tag yielded by a post-DI-migration handler is placed at the lowest layer that yields it.
+2. **Wrapper signatures** in `context.ts` and `define-layered-method.ts` widen with `Reqs` generics. `Reqs extends NetworkTags = NetworkTags` (and parallel for Task/App) — defaulted to the upper bound so handlers without per-Tag yields still compile; constrained so a handler that yields a higher-tier Tag is rejected at the call site.
+3. **Protocol-side widening** in `@moltzap/protocol/transport/json-rpc-server.ts`: `RpcHandler<Ctx, R = never>` and `JsonRpcServer<Ctx, R = never>` carry the R-channel structurally. The dispatcher's `ManagedRuntime` resolves R at request time.

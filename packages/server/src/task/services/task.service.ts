@@ -4,7 +4,7 @@ import {
   makeEndpointAddress,
   type EndpointAddress,
 } from "@moltzap/protocol/network";
-import { defaultTmAddressForType } from "../network/app-tm-registry.js";
+import { defaultTmAddressForType } from "../../network/app-tm-registry.js";
 import type {
   Conversation,
   Message,
@@ -15,13 +15,13 @@ import type {
 } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { TaskId, ConversationId, MessageId } from "@moltzap/protocol/task";
-import type { Db } from "../db/client.js";
+import type { Db } from "../../db/client.js";
 import {
   catchSqlErrorAsDefect,
   takeFirstOption,
   takeFirstOrFail,
   transaction,
-} from "../db/effect-kysely-toolkit.js";
+} from "../../db/effect-kysely-toolkit.js";
 import { ForbiddenError, NotFoundError } from "@moltzap/protocol";
 import type {
   ConversationService,

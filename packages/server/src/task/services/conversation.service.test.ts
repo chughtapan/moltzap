@@ -32,20 +32,23 @@ import { KyselyPGlite } from "kysely-pglite";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { makeEffectKysely } from "../db/effect-kysely-toolkit.js";
-import type { Database } from "../db/database.js";
-import { AuthService } from "./auth.service.js";
+import { makeEffectKysely } from "../../db/effect-kysely-toolkit.js";
+import type { Database } from "../../db/database.js";
+import { AuthService } from "../../identity/services/auth.service.js";
 import { ConversationService } from "./conversation.service.js";
-import { ParticipantService } from "./participant.service.js";
-import { ConnectionManager, type MoltZapConnection } from "../ws/connection.js";
-import { unusedJsonRpcClient } from "../ws/connection.test-utils.js";
-import type { AuthenticatedContext } from "../rpc/context.js";
-import type { AgentId } from "../app/types.js";
+import { ParticipantService } from "../../identity/services/participant.service.js";
+import {
+  ConnectionManager,
+  type MoltZapConnection,
+} from "../../transport/connection.js";
+import { unusedJsonRpcClient } from "../../transport/connection.test-utils.js";
+import type { AuthenticatedContext } from "../../transport/context.js";
+import type { AgentId } from "../../app/types.js";
 import type { TaskId } from "@moltzap/protocol/task";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const schema = readFileSync(
-  join(__dirname, "..", "app", "core-schema.sql"),
+  join(__dirname, "..", "..", "app", "core-schema.sql"),
   "utf-8",
 );
 const dbHookTimeoutMs = 30_000;

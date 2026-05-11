@@ -7,7 +7,7 @@ import {
   wireErrorFromInstance,
 } from "@moltzap/protocol/testing";
 import type { Kysely } from "kysely";
-import type { Database } from "../db/database.js";
+import type { Database } from "../../db/database.js";
 import { TaskService, endpointAddressForAgent } from "./task.service.js";
 import type { ConversationService } from "./conversation.service.js";
 import type { MessageService } from "./message.service.js";
@@ -15,7 +15,7 @@ import {
   makePgliteHarness,
   PGLITE_HOOK_TIMEOUT_MS,
   type PgliteHarness,
-} from "../test-utils/index.js";
+} from "../../test-utils/index.js";
 
 // Lifecycle + authority methods never invoke these deps; the conversation
 // + message paths are covered by `__tests__/integration/43-tasks.integration.test.ts`.

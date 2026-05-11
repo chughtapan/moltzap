@@ -19,11 +19,11 @@ import {
   DEFAULT_DM_TM_ADDRESS,
   DEFAULT_GROUP_TM_ADDRESS,
 } from "../../network/app-tm-registry.js";
-import { endpointAddressForAgent } from "../../services/task.service.js";
-import { defineTaskMethod } from "../../rpc/define-layered-method.js";
-import type { RpcMethodRegistry } from "../../rpc/context.js";
-import type { TaskService } from "../../services/task.service.js";
+import { endpointAddressForAgent } from "../../task/services/task.service.js";
+import { defineTaskMethod } from "../../transport/define-layered-method.js";
+import type { RpcMethodRegistry } from "../../transport/context.js";
 import type { AgentId } from "../../app/types.js";
+import { TaskServiceTag } from "../../app/layers.js";
 
 /**
  * Phase 9b consumer-migration (sub-issue #460 round 4 R16, codex
@@ -54,163 +54,166 @@ function deriveTmEndpointAddress(
   }
 }
 
-export function createTaskHandlers(deps: {
-  taskService: TaskService;
-}): RpcMethodRegistry {
-  const { taskService } = deps;
-
-  return [
-    defineTaskMethod(TasksCreate, {
-      handler: (params, ctx) =>
-        Effect.gen(function* () {
-          // Prereq 2 (#525 §4d): app-bound tasks always carry their
-          // own moderator (the TM IS the app), so pairing an `appId`
-          // with a `default-*` TM kind is a nonsense shape. Reject at
-          // the wire boundary with `InvalidParamsError` instead of
-          // letting it through and silently routing dispatch to one
-          // of the in-process default-TM constants.
-          if (
-            params.appId !== undefined &&
-            (params.tmType === "default-dm" ||
-              params.tmType === "default-group")
-          ) {
-            return yield* Effect.fail(
-              new InvalidParamsError({
-                message: "app-bound tasks cannot use a default TM",
-              }),
-            );
-          }
-          // Phase 9b consumer-migration (sub-issue #460 round 4 R16,
-          // codex HIGH-A): the wire body carries `tmType` (a kind
-          // marker), not a raw address. The handler derives the
-          // `tmEndpointAddress` from the kind + the authenticated
-          // caller. Pre-R16 a caller could pass `tm:agent:<stranger>`
-          // and bind the task to the stranger's TM — fixed at the
-          // wire boundary by removing the ability to name an
-          // arbitrary address.
-          const tmEndpointAddress = deriveTmEndpointAddress(
-            params.tmType,
-            ctx.agentId,
+export const taskHandlers: RpcMethodRegistry = [
+  defineTaskMethod(TasksCreate, {
+    handler: (params, ctx) =>
+      Effect.gen(function* () {
+        const taskService = yield* TaskServiceTag;
+        // Prereq 2 (#525 §4d): app-bound tasks always carry their
+        // own moderator (the TM IS the app), so pairing an `appId`
+        // with a `default-*` TM kind is a nonsense shape. Reject at
+        // the wire boundary with `InvalidParamsError` instead of
+        // letting it through and silently routing dispatch to one
+        // of the in-process default-TM constants.
+        if (
+          params.appId !== undefined &&
+          (params.tmType === "default-dm" || params.tmType === "default-group")
+        ) {
+          return yield* Effect.fail(
+            new InvalidParamsError({
+              message: "app-bound tasks cannot use a default TM",
+            }),
           );
-          const task = yield* taskService.create(ctx.agentId, {
-            appId: params.appId,
-            invitedAgentIds: params.invitedAgentIds,
-            tmEndpointAddress,
-          });
-          return { task };
-        }),
-    }),
+        }
+        const tmEndpointAddress = deriveTmEndpointAddress(
+          params.tmType,
+          ctx.agentId,
+        );
+        const task = yield* taskService.create(ctx.agentId, {
+          appId: params.appId,
+          invitedAgentIds: params.invitedAgentIds,
+          tmEndpointAddress,
+        });
+        return { task };
+      }),
+  }),
 
-    defineTaskMethod(TasksGet, {
-      handler: (params, ctx) => taskService.get(params.taskId, ctx.agentId),
-    }),
+  defineTaskMethod(TasksGet, {
+    handler: (params, ctx) =>
+      Effect.gen(function* () {
+        const taskService = yield* TaskServiceTag;
+        return yield* taskService.get(params.taskId, ctx.agentId);
+      }),
+  }),
 
-    defineTaskMethod(TasksList, {
-      handler: (params, ctx) =>
-        Effect.gen(function* () {
-          const tasks = yield* taskService.list(ctx.agentId, {
-            appId: params.appId,
-            status: params.status,
-            limit: params.limit,
-          });
-          return { tasks: [...tasks] };
-        }),
-    }),
+  defineTaskMethod(TasksList, {
+    handler: (params, ctx) =>
+      Effect.gen(function* () {
+        const taskService = yield* TaskServiceTag;
+        const tasks = yield* taskService.list(ctx.agentId, {
+          appId: params.appId,
+          status: params.status,
+          limit: params.limit,
+        });
+        return { tasks: [...tasks] };
+      }),
+  }),
 
-    defineTaskMethod(TasksClose, {
-      handler: (params, ctx) =>
-        Effect.gen(function* () {
-          const task = yield* taskService.close(params.taskId, ctx.agentId);
-          return { task };
-        }),
-    }),
+  defineTaskMethod(TasksClose, {
+    handler: (params, ctx) =>
+      Effect.gen(function* () {
+        const taskService = yield* TaskServiceTag;
+        const task = yield* taskService.close(params.taskId, ctx.agentId);
+        return { task };
+      }),
+  }),
 
-    defineTaskMethod(TasksCreateConversation, {
-      handler: (params, ctx) =>
-        Effect.gen(function* () {
-          const conversation = yield* taskService.createConversation(
-            params.taskId,
-            ctx.agentId,
-            {
-              type: params.type,
-              name: params.name,
-              participantAgentIds: params.participants.map(
-                (p) => p.id as AgentId,
-              ),
-            },
-          );
-          return { conversation };
-        }),
-    }),
+  defineTaskMethod(TasksCreateConversation, {
+    handler: (params, ctx) =>
+      Effect.gen(function* () {
+        const taskService = yield* TaskServiceTag;
+        const conversation = yield* taskService.createConversation(
+          params.taskId,
+          ctx.agentId,
+          {
+            type: params.type,
+            name: params.name,
+            participantAgentIds: params.participants.map(
+              (p) => p.id as AgentId,
+            ),
+          },
+        );
+        return { conversation };
+      }),
+  }),
 
-    defineTaskMethod(TasksCloseConversation, {
-      handler: (params, ctx) =>
-        Effect.gen(function* () {
-          yield* taskService.closeConversation(
-            params.taskId,
-            ctx.agentId,
-            params.conversationId,
-          );
-          return {};
-        }),
-    }),
+  defineTaskMethod(TasksCloseConversation, {
+    handler: (params, ctx) =>
+      Effect.gen(function* () {
+        const taskService = yield* TaskServiceTag;
+        yield* taskService.closeConversation(
+          params.taskId,
+          ctx.agentId,
+          params.conversationId,
+        );
+        return {};
+      }),
+  }),
 
-    defineTaskMethod(TasksAddParticipant, {
-      handler: (params, ctx) =>
-        Effect.gen(function* () {
-          const participant = yield* taskService.addParticipant(
-            params.taskId,
-            ctx.agentId,
-            params.agentId,
-          );
-          return { participant };
-        }),
-    }),
+  defineTaskMethod(TasksAddParticipant, {
+    handler: (params, ctx) =>
+      Effect.gen(function* () {
+        const taskService = yield* TaskServiceTag;
+        const participant = yield* taskService.addParticipant(
+          params.taskId,
+          ctx.agentId,
+          params.agentId,
+        );
+        return { participant };
+      }),
+  }),
 
-    defineTaskMethod(TasksRemoveParticipant, {
-      handler: (params, ctx) =>
-        Effect.gen(function* () {
-          yield* taskService.removeParticipant(
-            params.taskId,
-            ctx.agentId,
-            params.agentId,
-          );
-          return {};
-        }),
-    }),
+  defineTaskMethod(TasksRemoveParticipant, {
+    handler: (params, ctx) =>
+      Effect.gen(function* () {
+        const taskService = yield* TaskServiceTag;
+        yield* taskService.removeParticipant(
+          params.taskId,
+          ctx.agentId,
+          params.agentId,
+        );
+        return {};
+      }),
+  }),
 
-    defineTaskMethod(TasksStoreMessage, {
-      handler: (params, ctx) =>
-        Effect.gen(function* () {
-          const message = yield* taskService.storeMessage(
-            params.taskId,
-            ctx.agentId,
-            {
-              conversationId: params.conversationId,
-              senderAgentId: params.senderAgentId,
-              parts: params.parts,
-              replyToId: params.replyToId,
-            },
-          );
-          return { message };
-        }),
-    }),
+  defineTaskMethod(TasksStoreMessage, {
+    handler: (params, ctx) =>
+      Effect.gen(function* () {
+        const taskService = yield* TaskServiceTag;
+        const message = yield* taskService.storeMessage(
+          params.taskId,
+          ctx.agentId,
+          {
+            conversationId: params.conversationId,
+            senderAgentId: params.senderAgentId,
+            parts: params.parts,
+            replyToId: params.replyToId,
+          },
+        );
+        return { message };
+      }),
+  }),
 
-    defineTaskMethod(TasksGetMessages, {
-      handler: (params, ctx) =>
-        taskService.getMessages(params.taskId, ctx.agentId, {
+  defineTaskMethod(TasksGetMessages, {
+    handler: (params, ctx) =>
+      Effect.gen(function* () {
+        const taskService = yield* TaskServiceTag;
+        return yield* taskService.getMessages(params.taskId, ctx.agentId, {
           conversationId: params.conversationId,
           limit: params.limit,
-        }),
-    }),
+        });
+      }),
+  }),
 
-    defineTaskMethod(TasksGetMessagesSince, {
-      handler: (params, ctx) =>
-        taskService.getMessagesSince(params.taskId, ctx.agentId, {
+  defineTaskMethod(TasksGetMessagesSince, {
+    handler: (params, ctx) =>
+      Effect.gen(function* () {
+        const taskService = yield* TaskServiceTag;
+        return yield* taskService.getMessagesSince(params.taskId, ctx.agentId, {
           conversationId: params.conversationId,
           sinceSeq: params.sinceSeq,
           limit: params.limit,
-        }),
-    }),
-  ];
-}
+        });
+      }),
+  }),
+];

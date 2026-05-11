@@ -17,7 +17,7 @@ import { seedInitialKek } from "./crypto/key-rotation.js";
 import { EnvelopeEncryption } from "./crypto/envelope.js";
 import { makeEffectKysely } from "./db/effect-kysely-toolkit.js";
 import { WebhookClient, WebhookContactService } from "./adapters/webhook.js";
-import { WebhookSessionValidator } from "./services/session-validator.js";
+import { WebhookSessionValidator } from "./identity/services/session-validator.js";
 import { logger } from "./logger.js";
 import type { CoreApp, CoreConfig } from "./app/types.js";
 import type { Database } from "./db/database.js";

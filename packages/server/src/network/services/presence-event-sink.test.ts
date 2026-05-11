@@ -4,8 +4,11 @@ import { Effect } from "effect";
 import { PresenceChangedNotificationDefinition } from "@moltzap/protocol";
 import { agentId as makeAgentId } from "@moltzap/protocol/testing";
 
-import { ConnectionManager, type MoltZapConnection } from "../ws/connection.js";
-import { unusedJsonRpcClient } from "../ws/connection.test-utils.js";
+import {
+  ConnectionManager,
+  type MoltZapConnection,
+} from "../../transport/connection.js";
+import { unusedJsonRpcClient } from "../../transport/connection.test-utils.js";
 import {
   createConnectionFanOutPresenceEventSink,
   type PresencePublishInput,

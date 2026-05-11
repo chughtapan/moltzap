@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import { PresenceChangedNotificationDefinition } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
 
-import type { ConnectionManager } from "../ws/connection.js";
+import type { ConnectionManager } from "../../transport/connection.js";
 
 export type PresenceStatus = "online" | "offline" | "away";
 

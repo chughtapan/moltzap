@@ -61,9 +61,24 @@ return `-32601 MethodNotFound`.
 
 ## Handler groups
 
-The example server organizes handlers into groups by domain:
+The example server organizes handlers into groups by protocol layer.
+Each group is a top-level `RpcMethodRegistry` const whose bindings pull
+their service Tags via `yield* XServiceTag`. Compose with the dispatch
+runtime that carries `FullLive` to resolve service Tags at request time.
 
-- `createCoreAuthHandlers()` — network/connect, agents/register, agents/*
-- `createConversationHandlers()` — conversations/*
-- `createMessageHandlers()` — messages/*
-- `createPresenceHandlers()` — presence/*, typing/*
+- `connectHandlers` — `network/connect` (task-tier, cross-cutting auth +
+  presence + endpoint registration).
+- `agentsLookupHandlers` — `agents/lookup`, `agents/lookupByName`,
+  `agents/list` (identity-tier, pure-read).
+- `pingHandlers` — `network/ping`.
+- `conversationHandlers` — `conversations/*`.
+- `messageHandlers` — `messages/*`.
+- `presenceHandlers` — `presence/*`.
+- `contactHandlers` — `contacts/*`.
+- `taskHandlers` — `tasks/*`.
+- `appHandlers` — `apps/register`, `dispatch/request`, `dispatches/get`.
+
+Each binding is bound by the matching `defineXMethod` wrapper from
+`@moltzap/server-core/transport` (`defineNetworkMethod`,
+`defineTaskMethod`, `defineAppMethod`), which constrains the handler's
+R-channel to the per-layer Tag allowlist.

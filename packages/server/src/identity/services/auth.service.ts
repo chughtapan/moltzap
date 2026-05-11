@@ -1,8 +1,8 @@
 import { Effect, Option } from "effect";
 import { sql } from "kysely";
-import type { Db } from "../db/client.js";
+import type { Db } from "../../db/client.js";
 import type { ParamsOf, Register } from "@moltzap/protocol";
-import type { AgentId, UserId } from "../app/types.js";
+import type { AgentId, UserId } from "../../app/types.js";
 
 type RegisterParams = ParamsOf<typeof Register>;
 import {
@@ -10,12 +10,12 @@ import {
   generateClaimToken,
   parseApiKey,
   hashSecret,
-} from "../auth/agent-auth.js";
+} from "../../identity/services/agent-auth.js";
 import {
   catchSqlErrorAsDefect,
   takeFirstOption,
   takeFirstOrFail,
-} from "../db/effect-kysely-toolkit.js";
+} from "../../db/effect-kysely-toolkit.js";
 
 export const REGISTRATION_CONFLICT = "RegistrationConflict" as const;
 

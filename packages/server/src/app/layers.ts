@@ -13,7 +13,7 @@ import {
   TraceCaptureTag,
   type TraceCapture,
 } from "../runtime-surface/trace-capture.js";
-import { ConnectionManager } from "../ws/connection.js";
+import { ConnectionManager } from "../transport/connection.js";
 import { AgentEndpointResolver } from "../network/agent-endpoint-resolver.js";
 import {
   AppTmRegistry,
@@ -21,19 +21,19 @@ import {
   DEFAULT_GROUP_TM_ADDRESS,
 } from "../network/app-tm-registry.js";
 import { NetworkSendService } from "../network/network-send.js";
-import { makeDefaultTmHandler } from "../services/default-tm.js";
-import { AuthService } from "../services/auth.service.js";
-import { ParticipantService } from "../services/participant.service.js";
-import { ContactsService } from "../services/contact.service.js";
-import { ConversationService } from "../services/conversation.service.js";
-import { PresenceService } from "../services/presence.service.js";
-import { createConnectionFanOutPresenceEventSink } from "../services/presence-event-sink.js";
+import { makeDefaultTmHandler } from "../task/services/default-tm.js";
+import { AuthService } from "../identity/services/auth.service.js";
+import { ParticipantService } from "../identity/services/participant.service.js";
+import { ContactsService } from "../identity/services/contact.service.js";
+import { ConversationService } from "../task/services/conversation.service.js";
+import { PresenceService } from "../network/services/presence.service.js";
+import { createConnectionFanOutPresenceEventSink } from "../network/services/presence-event-sink.js";
 import {
   MessageService,
   type DeliveryWebhookConfig,
-} from "../services/message.service.js";
-import { TaskService } from "../services/task.service.js";
-import type { SessionValidator } from "../services/session-validator.js";
+} from "../task/services/message.service.js";
+import { TaskService } from "../task/services/task.service.js";
+import type { SessionValidator } from "../identity/services/session-validator.js";
 import { AppHost } from "./app-host.js";
 import { makeLeaseRegistry, type LeaseRegistry } from "./lease-registry.js";
 import type { EnvelopeEncryption } from "../crypto/envelope.js";

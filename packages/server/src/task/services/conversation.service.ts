@@ -1,5 +1,5 @@
-import type { Db } from "../db/client.js";
-import type { ConversationType } from "../db/database.js";
+import type { Db } from "../../db/client.js";
+import type { ConversationType } from "../../db/database.js";
 import type {
   Conversation,
   ConversationParticipant,
@@ -8,7 +8,7 @@ import type {
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId, MessageId, TaskId } from "@moltzap/protocol/task";
 import { Effect, Option } from "effect";
-import { InvalidParamsError } from "../runtime/index.js";
+import { InvalidParamsError } from "../../runtime/index.js";
 import {
   ConversationArchivedError,
   ConversationFullError,
@@ -18,9 +18,9 @@ import {
   ParticipantsAddedNotificationDefinition,
   ParticipantsRemovedNotificationDefinition,
 } from "@moltzap/protocol";
-import { ParticipantService } from "./participant.service.js";
-import type { ConnectionManager } from "../ws/connection.js";
-import { opaquePayload } from "../network/network-send.js";
+import { ParticipantService } from "../../identity/services/participant.service.js";
+import type { ConnectionManager } from "../../transport/connection.js";
+import { opaquePayload } from "../../network/network-send.js";
 import { sql } from "kysely";
 import {
   catchSqlErrorAsDefect,
@@ -28,7 +28,7 @@ import {
   takeFirstOption,
   takeFirstOrFail,
   transaction,
-} from "../db/effect-kysely-toolkit.js";
+} from "../../db/effect-kysely-toolkit.js";
 import { requireConversationAdminAuthority } from "./conversation-admin-authority.js";
 
 export type ConversationServiceError =
