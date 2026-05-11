@@ -57,9 +57,64 @@ IGNORE_PATTERNS=(
   '"(\.\./)+test-utils\.js"'
   '"(\.\./)+logger\.js"'
   '"(\.\./)+logger/'
+  # ── protocol same-package top-level files (NOT layers — siblings of  ─
+  #    src/index.ts. Plan v2 §5 #1 keeps same-folder siblings relative.   ─
+  '"(\.\./)+schema-primitives\.js"'
+  '"(\.\./)+rpc-registry\.js"'
+  '"(\.\./)+version\.js"'
+  '"(\.\./)+index\.js"'
+  # ── client same-package top-level files (auth, service, ws-client, ──  ─
+  #    etc.). cli/ and test-utils/ already covered by other patterns. ──  ─
+  '"\.\./auth\.js"'
+  '"\.\./service\.js"'
+  '"\.\./ws-client\.js"'
+  '"\.\./http-client\.js"'
+  '"\.\./profile\.js"'
+  '"\.\./channel-core\.js"'
+  '"\.\./config\.js"'
   # ── client/cli/ within-subtree (cli/ is one group; commands/ is child) ─
   '"\.\./socket-client\.js"'
   '"\.\./transport\.js"'
+  # ── channel packages: __tests__/ to package siblings (one logical  ──  ─
+  #    group per plan §5 #3). Same for nanoclaw channels/ subtree. ─────  ─
+  '"\.\./entry\.js"'
+  '"\.\./types\.js"'
+  '"\.\./server\.js"'
+  '"\.\./routing\.js"'
+  '"\.\./errors\.js"'
+  # ── protocol testing/_shared, testing/arbitraries, testing/models, ──  ─
+  #    testing/toxics — within-subtree references retained per §5. The   ─
+  #    only migrated testing tree is testing/conformance/<layer>/. ───── ─
+  '"(\.\./)+_shared/'
+  '"(\.\./)+arbitraries/'
+  '"(\.\./)+models/'
+  '"(\.\./)+toxics/'
+  '"(\.\./)+conformance/'
+  '"(\.\./)+errors\.js"'
+  '"(\.\./)+captures\.js"'
+  '"(\.\./)+frame-mutator\.js"'
+  '"(\.\./)+testing\.js"'
+  '"(\.\./)+test-fixtures\.js"'
+  '"(\.\./)+test-support\.js"'
+  '"(\.\./)+client/'
+  # ── openclaw-channel: __tests__/ to test-utils/ within same package ─  ─
+  '"\.\./test-utils/'
+  # ── protocol source-side same-package cross-LAYER: Phase 3 retains  ─  ─
+  #    these as relative due to tsx self-reference resolution failure  ─  ─
+  #    when scripts/generate-protocol-docs.ts loads source transitively. ─
+  #    Phase 4 (#545) eslint rule will exempt same-package cross-LAYER  ─  ─
+  #    or land a tsx workaround that re-enables source-side migration.  ─  ─
+  #    Same shape: `from "../<layer>/X.js"` where the file lives in      ─
+  #    packages/protocol/src/<other-layer>/. (Cross-PACKAGE cross-LAYER  ─
+  #    consumers use workspace-name; that path is still enforced.)      ─
+  '"\.\./(transport|identity|network|task|app)/(method|wire-errors|methods|agents|rpc-registry)\.js"'
+  # ── protocol-internal helpers explicitly NOT re-exported from the    ─
+  #    transport barrel (per transport/index.ts JSDoc): rpc-groups       ─
+  #    decode helpers + wire.js frame builders that are protocol-       ─
+  #    internal. Testing reaches them via relative path by design.      ─
+  '"(\.\./)+transport/rpc-groups\.js"'
+  '"(\.\./)+transport/wire\.js"'
+  '"(\.\./)+transport/json-rpc-server\.js"'
 )
 
 ALL_VIOLATIONS=$(grep -rEn 'from "\.\./' $TARGETS --include="*.ts" 2>/dev/null || true)
@@ -69,8 +124,33 @@ if [[ -z "$ALL_VIOLATIONS" ]]; then
   exit 0
 fi
 
-# Filter out ignore-list matches.
+# Source-path filters — files in these trees are explicitly retained-relative
+# per plan §5 (within-subtree, one logical group).
+SOURCE_PATH_IGNORES=(
+  # Protocol testing trees that stay relative (everything EXCEPT the per-
+  # layer conformance subdirs, which Phase 3 already migrated).
+  '^packages/protocol/src/testing/arbitraries/'
+  '^packages/protocol/src/testing/models/'
+  '^packages/protocol/src/testing/toxics/'
+  '^packages/protocol/src/testing/__tests__/'
+  '^packages/protocol/src/testing/index\.ts:'
+  '^packages/protocol/src/testing/conformance/_shared/'
+  '^packages/protocol/src/testing/conformance/__divergence_proofs__/'
+  '^packages/protocol/src/testing/conformance/client/'
+  # Protocol source same-package layer crossings — kept relative due to
+  # tsx self-reference bug. Already documented in IGNORE_PATTERNS but
+  # double-cover here via source path so e.g. `*.test.ts` files in the
+  # layer dir are also exempt.
+  '^packages/protocol/src/(transport|identity|network|task|app)/[^/]+\.test\.ts:'
+)
+
+# Filter out source-path ignored lines first.
 FILTERED="$ALL_VIOLATIONS"
+for pat in "${SOURCE_PATH_IGNORES[@]}"; do
+  FILTERED=$(echo "$FILTERED" | grep -vE "$pat" || true)
+done
+
+# Then filter out import-pattern matches.
 for pat in "${IGNORE_PATTERNS[@]}"; do
   FILTERED=$(echo "$FILTERED" | grep -vE "$pat" || true)
 done
