@@ -233,6 +233,14 @@ const renderPart: (p: Part) => string = Match.type<Part>().pipe(
 const MAX_MESSAGES_PER_CONV = 1000;
 
 /**
+ * Per-conversation dedup window. Inbound messageIds are tracked in a
+ * Set bounded to this size; once full, the insertion-ordered oldest
+ * entry is evicted to make room. 1000 × 36 bytes per UUID ≈ 36 KB per
+ * conversation — bounded and negligible for the expected conversation count.
+ */
+const DEDUP_WINDOW_PER_CONV = 1000;
+
+/**
  * Invoke every handler with `arg`, isolating throws so one bad handler
  * doesn't abort the remaining fanout. Logs via the optional client logger.
  */
@@ -289,6 +297,13 @@ export class MoltZapService {
     ),
   );
   private readonly archivedConversationIds = new Set<string>();
+  /**
+   * Insertion-ordered set of recently seen messageIds per conversation.
+   * Bounded at DEDUP_WINDOW_PER_CONV entries per conversation; oldest entry
+   * is evicted when the window is full. Set#keys() preserves insertion
+   * order in V8 / the spec, so eviction via `.next()` is O(1).
+   */
+  private readonly seenMessageIds = new Map<string, Set<string>>();
   private readonly handlers: {
     [K in ServiceHandlerName]: Array<
       NotificationHandler<ServiceHandlerPayloads[K]>
@@ -377,6 +392,7 @@ export class MoltZapService {
       ]),
     );
     this.archivedConversationIds.clear();
+    this.seenMessageIds.clear();
     // Handlers are preserved across close()/connect() cycles. MoltZapChannelCore
     // subscribes once in its constructor; clearing handlers here would silently
     // drop inbound/reconnect dispatch on any subsequent reconnect of the same
@@ -1209,6 +1225,24 @@ export class MoltZapService {
     notification: MessageReceivedNotification,
   ): void {
     const msg = notification.message;
+    const convId = msg.conversationId;
+
+    let dedupSet = this.seenMessageIds.get(convId);
+    if (dedupSet === undefined) {
+      dedupSet = new Set<string>();
+      this.seenMessageIds.set(convId, dedupSet);
+    }
+
+    if (dedupSet.has(msg.id)) {
+      return;
+    }
+
+    if (dedupSet.size >= DEDUP_WINDOW_PER_CONV) {
+      // size >= 1 guaranteed by the guard above; next().value is defined.
+      dedupSet.delete(dedupSet.keys().next().value as string);
+    }
+    dedupSet.add(msg.id);
+
     this.storeMessage(msg);
     // Name resolution is driven lazily by channel-core's serialized consumer
     // via resolveAgentName(), which populates agentNamesRef on first miss and
@@ -1256,6 +1290,7 @@ export class MoltZapService {
   }
 
   private markConversationArchived(conversationId: string): void {
+    this.seenMessageIds.delete(conversationId);
     this.archivedConversationIds.add(conversationId);
     Effect.runSync(
       Effect.all([
