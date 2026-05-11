@@ -46,7 +46,15 @@ import {
   isEndpointAddress,
   type EndpointAddress,
 } from "@moltzap/protocol/network";
-import { Duration, Effect, Fiber, Option, Schedule, Schema } from "effect";
+import {
+  Duration,
+  Effect,
+  Fiber,
+  HashSet,
+  Option,
+  Schedule,
+  Schema,
+} from "effect";
 import { SqlError } from "@effect/sql/SqlError";
 
 export type MessageServiceError =
@@ -63,6 +71,8 @@ import {
   RecipientNotResolved,
   WriteFailed,
 } from "../../network/network-send.js";
+import type { AgentEndpointResolver } from "../../network/agent-endpoint-resolver.js";
+import { makeEndpointAddress } from "@moltzap/protocol/network";
 import {
   type WebhookClient,
   signWebhookPayload,
@@ -119,6 +129,14 @@ export interface MessageServiceDeps {
   readonly db: Db;
   readonly conversations: ConversationService;
   readonly networkSend: NetworkSendService;
+  /**
+   * #463 v3: synchronous in-memory resolver used by {@link
+   * MessageService.preflightRecipients} to fail-close BEFORE the
+   * durable INSERT in `send()` when a recipient has no live socket.
+   * Same instance the `NetworkSendService` consumes — the resolver is
+   * a process-local `Ref`-backed multimap, so two views agree.
+   */
+  readonly resolver: AgentEndpointResolver;
   readonly encryption: EnvelopeEncryption | null;
   readonly deliveryWebhook: DeliveryWebhookConfig | null;
   readonly webhookClient: WebhookClient | null;
@@ -163,6 +181,7 @@ export class MessageService {
   private readonly db: Db;
   private readonly conversations: ConversationService;
   private readonly networkSendService: NetworkSendService;
+  private readonly resolver: AgentEndpointResolver;
   private readonly encryption: EnvelopeEncryption | null;
   private readonly deliveryWebhook: DeliveryWebhookConfig | null;
   private readonly webhookClient: WebhookClient | null;
@@ -173,6 +192,7 @@ export class MessageService {
     this.db = deps.db;
     this.conversations = deps.conversations;
     this.networkSendService = deps.networkSend;
+    this.resolver = deps.resolver;
     this.encryption = deps.encryption;
     this.deliveryWebhook = deps.deliveryWebhook;
     this.webhookClient = deps.webhookClient;
@@ -187,6 +207,62 @@ export class MessageService {
   }
 
   /**
+   * #463 v3 — synchronous resolver pre-check that runs BEFORE the
+   * durable INSERT in {@link send}. Resolves each conversation
+   * participant (excluding the sender) through {@link
+   * AgentEndpointResolver.resolveAll}; fails closed with {@link
+   * RecipientNotResolved} as soon as one required recipient has no
+   * live connection. On success returns the resolved recipient set so
+   * the caller does not have to re-walk the participant list.
+   *
+   * Architect plan §1 (v3): v2 attempted to catch broadcast-side
+   * failures POST-INSERT via a `broadcast_attempted_at` column + CAS.
+   * v3 simplifies: the only recoverable failure mode at fan-out time
+   * is {@link RecipientNotResolved} (synchronous lookup miss). Pulling
+   * that check PRE-INSERT shrinks the post-INSERT residual to {@link
+   * WriteFailed} (mid-frame WS errors — rare), which is observable
+   * via a structured log line and recoverable via the existing
+   * `messages/list` pull channel. No DB column, no CAS, no idempotency
+   * gate required.
+   *
+   * Architect plan §9 risk R1 (TOCTOU): a recipient may disconnect in
+   * the microsecond gap between this preflight and the {@link
+   * NetworkSendService.broadcast} fan-out; that is documented as the
+   * {@link WriteFailed} residual. Mitigation: recipient pulls via
+   * `messages/list` on reconnect; same recovery channel as before,
+   * just a narrower window.
+   *
+   * The error channel is {@link RecipientNotResolved}. The handler
+   * maps it to the RPC-visible `HookBlocked(RecipientNotResolved)`
+   * shape via the existing `deliveryErrorToHookBlocked` helper, so the
+   * wire surface is unchanged from the post-INSERT failure mode.
+   */
+  preflightRecipients(
+    conversationId: ConversationId,
+    senderAgentId: AgentId,
+  ): Effect.Effect<
+    { readonly recipients: ReadonlyArray<AgentId> },
+    RecipientNotResolved
+  > {
+    return Effect.gen(this, function* () {
+      const participants =
+        yield* this.conversations.getParticipantAgentIds(conversationId);
+      const recipients = participants.filter((id) => id !== senderAgentId);
+      for (const recipient of recipients) {
+        const conns = yield* this.resolver.resolveAll(recipient);
+        if (HashSet.size(conns) === 0) {
+          return yield* Effect.fail(
+            new RecipientNotResolved({
+              to: makeEndpointAddress("agent", recipient),
+            }),
+          );
+        }
+      }
+      return { recipients };
+    });
+  }
+
+  /**
    * #529 reshape additive — the durable insert subset of `send`.
    * Returns a `SendInsertResult` carrier that {@link sendCommit}
    * consumes for the routing/broadcast/trace tail. `send` composes both
@@ -194,6 +270,16 @@ export class MessageService {
    *
    * Architect plan §3 carrier shape: `{ message, parts, conv,
    * excludeConnectionId, bypassTmRouting }`.
+   *
+   * #463 v3 integration point: `send()` (the top-level composer) calls
+   * {@link preflightRecipients} BEFORE this method's INSERT runs.
+   * Fail-closed on {@link RecipientNotResolved} ensures the durable
+   * row is never written when the broadcast fan-out is provably unable
+   * to reach any recipient. `sendInsert` itself is unchanged — the
+   * preflight is a sibling concern composed at `send()`-level so the
+   * `tasks/storeMessage` re-entry path (which sets `bypassTmRouting`
+   * and may not have live recipients yet) opts out by not running
+   * preflight on that path.
    */
   /**
    * #560: CAS-guarded UPDATE of `messages.tm_decision` after the
@@ -376,6 +462,21 @@ export class MessageService {
    * skips the gate: the TM has already admitted the message; the
    * server records a synthetic `Forward { participants \ sender }`
    * verdict and broadcasts as usual.
+   *
+   * #463 v3 integration point: {@link preflightRecipients} runs in
+   * `send()` BEFORE the INSERT in {@link sendInsert}, so by the time
+   * `sendCommit` runs the participant set is provably resolvable. The
+   * residual failure mode here is {@link WriteFailed} from
+   * `networkSendService.broadcast` (mid-frame WS error after a
+   * recipient disconnected in the microsecond gap since preflight).
+   * Architect plan §2 names a structured log emission at the
+   * `network.send` failure site as the observability bit; v3 drops
+   * the column + CAS scaffolding (v2's `broadcast_attempted_at`) on
+   * the grounds that the residual is rare, recipient-side recovery
+   * via `messages/list` already exists, and the durable row is
+   * unchanged either way. The {@link NetworkSendService.broadcast}
+   * call below threads the `messageId` so the failure-site log line
+   * carries `{ messageId, conversationId, connId, reason: "WriteFailed" }`.
    */
   sendCommit(
     carrier: SendInsertResult,
@@ -490,6 +591,14 @@ export class MessageService {
           {
             forConversation: conversationId,
             excludeConnectionId,
+            // #463 v3 — context for the structured log emitted inside
+            // broadcast's per-connection WriteFailed catchAll. The
+            // failure site previously logged `{ connId, cause }` only;
+            // threading the messageId here lets operators correlate the
+            // log line with the durable row (which IS in the DB —
+            // preflight already proved the recipient was reachable, so
+            // this branch fires only on TOCTOU disconnects).
+            messageId: message.id,
           },
         );
         const delivered: readonly AgentId[] =
@@ -639,6 +748,17 @@ export class MessageService {
     bypassTmRouting = false,
   ): Effect.Effect<Message, MessageServiceError> {
     return Effect.gen(this, function* () {
+      // #463 v3 — fail-closed preflight BEFORE the durable INSERT so
+      // a message row is never written when broadcast fan-out is
+      // provably unable to reach any recipient. The `bypassTmRouting`
+      // branch (TM-authored insert via `tasks/storeMessage`) opts out:
+      // that path accepts that the durable row may exist without live
+      // recipients (recipient pulls via `messages/list` on reconnect).
+      if (!bypassTmRouting) {
+        yield* this.preflightRecipients(conversationId, senderAgentId).pipe(
+          Effect.mapError(deliveryErrorToHookBlocked),
+        );
+      }
       const carrier = yield* this.sendInsert(
         conversationId,
         inputParts,
