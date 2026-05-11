@@ -5,7 +5,7 @@ import { ContactsAdd } from "@moltzap/protocol";
 import {
   CLAIM_NOT_FOUND,
   CLAIM_OWNER_MISMATCH,
-} from "../../../services/auth.service.js";
+} from "../../../identity/services/auth.service.js";
 import {
   startTestServer,
   stopTestServer,
@@ -56,7 +56,7 @@ const postClaim = (body: Record<string, unknown>) =>
 
 describe("/api/v1/auth/claim — programmatic claim (#486)", () => {
   // The 3 happy/conflict/not-found service-level cases are covered by
-  // `services/auth.service.test.ts`. The integration tests below exercise
+  // `identity/services/auth.service.test.ts`. The integration tests below exercise
   // only what the unit tests can't: HTTP wire envelope (status codes,
   // claimUrl/claimToken from `auth/register`), inviteCode gating, and
   // the post-claim contacts/add round-trip that proves the whole

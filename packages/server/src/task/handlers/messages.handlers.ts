@@ -1,5 +1,5 @@
-import type { RpcMethodRegistry } from "../../rpc/context.js";
-import { defineTaskMethod } from "../../rpc/define-layered-method.js";
+import type { RpcMethodRegistry } from "../../transport/context.js";
+import { defineTaskMethod } from "../../transport/define-layered-method.js";
 import {
   MessagesSend,
   MessagesList,

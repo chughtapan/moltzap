@@ -11,13 +11,13 @@ import {
   type NotificationParamsOf,
 } from "@moltzap/protocol";
 import type { UserId } from "@moltzap/protocol/identity";
-import type { AuthService } from "../../services/auth.service.js";
+import type { AuthService } from "../../identity/services/auth.service.js";
 import { opaquePayload } from "../../network/network-send.js";
 import type {
   AuthenticatedContext,
   RpcMethodRegistry,
-} from "../../rpc/context.js";
-import { defineTaskMethod } from "../../rpc/define-layered-method.js";
+} from "../../transport/context.js";
+import { defineTaskMethod } from "../../transport/define-layered-method.js";
 import {
   AuthServiceTag,
   ContactsServiceTag,

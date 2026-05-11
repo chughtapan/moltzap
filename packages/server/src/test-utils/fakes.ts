@@ -22,12 +22,12 @@ import { Data, Layer, unsafeCoerce } from "effect";
 
 import type { WebhookClient } from "../adapters/webhook.js";
 import type { AppHost } from "../app/app-host.js";
-import type { AuthService } from "../services/auth.service.js";
-import type { ConversationService } from "../services/conversation.service.js";
-import type { MessageService } from "../services/message.service.js";
-import type { ParticipantService } from "../services/participant.service.js";
-import type { PresenceService } from "../services/presence.service.js";
-import type { ConnectionManager } from "../ws/connection.js";
+import type { AuthService } from "../identity/services/auth.service.js";
+import type { ConversationService } from "../task/services/conversation.service.js";
+import type { MessageService } from "../task/services/message.service.js";
+import type { ParticipantService } from "../identity/services/participant.service.js";
+import type { PresenceService } from "../network/services/presence.service.js";
+import type { ConnectionManager } from "../transport/connection.js";
 
 import {
   AppHostTag,

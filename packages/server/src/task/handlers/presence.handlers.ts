@@ -1,5 +1,5 @@
-import type { RpcMethodRegistry } from "../../rpc/context.js";
-import { defineTaskMethod } from "../../rpc/define-layered-method.js";
+import type { RpcMethodRegistry } from "../../transport/context.js";
+import { defineTaskMethod } from "../../transport/define-layered-method.js";
 import {
   PresenceUpdate,
   PresenceSubscribe,
@@ -8,7 +8,7 @@ import {
 import type { AgentId as ServerAgentId } from "../../app/types.js";
 import { Effect } from "effect";
 import { ConnIdTag, DbTag, PresenceServiceTag } from "../../app/layers.js";
-import { visibleAgentIds } from "../../services/agent-visibility.js";
+import { visibleAgentIds } from "../../identity/services/agent-visibility.js";
 
 export const presenceHandlers: RpcMethodRegistry = [
   defineTaskMethod(PresenceUpdate, {

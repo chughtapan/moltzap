@@ -1,4 +1,4 @@
-import type { RpcMethodRegistry } from "../../rpc/context.js";
+import type { RpcMethodRegistry } from "../../transport/context.js";
 import { opaquePayload } from "../../network/network-send.js";
 import {
   ConversationsCreate,
@@ -22,7 +22,7 @@ import {
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/task";
 import { Effect } from "effect";
-import { defineTaskMethod } from "../../rpc/define-layered-method.js";
+import { defineTaskMethod } from "../../transport/define-layered-method.js";
 import {
   ConnIdTag,
   ConnectionManagerTag,

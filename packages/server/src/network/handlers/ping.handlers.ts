@@ -1,7 +1,7 @@
-import type { RpcMethodRegistry } from "../../rpc/context.js";
+import type { RpcMethodRegistry } from "../../transport/context.js";
 import { NetworkPing } from "@moltzap/protocol";
 import { Effect } from "effect";
-import { defineNetworkMethod } from "../../rpc/define-layered-method.js";
+import { defineNetworkMethod } from "../../transport/define-layered-method.js";
 
 export const pingHandlers: RpcMethodRegistry = [
   defineNetworkMethod(NetworkPing, {
