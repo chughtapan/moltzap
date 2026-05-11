@@ -34,6 +34,8 @@ import {
   ContactsList,
   ConversationsList,
 } from "@moltzap/protocol";
+import { TaskClosedError } from "@moltzap/protocol/task";
+import { RpcServerError } from "@moltzap/protocol/transport";
 
 const DEFAULT_ACCOUNT_ID = "default";
 const CHANNEL_ID = "moltzap" as const;
@@ -498,6 +500,30 @@ export function createMoltzapChannelPlugin() {
                               }),
                             ),
                             Effect.map(() => true),
+                            Effect.catchTag(
+                              "RpcServerError",
+                              (err: RpcServerError) =>
+                                Effect.sync(() => {
+                                  if (err.code === TaskClosedError.code) {
+                                    // Task is closed — message is terminal.
+                                    // Signal consumed (true) so the caller
+                                    // does not retry delivery.
+                                    log?.warn?.(
+                                      {
+                                        conversationId: enriched.conversationId,
+                                        code: err.code,
+                                        msg: err.message,
+                                      },
+                                      "MoltZap: send rejected — task closed, dropping without retry",
+                                    );
+                                    return true;
+                                  }
+                                  log?.error?.(
+                                    `MoltZap: failed to send reply: ${err}`,
+                                  );
+                                  return false;
+                                }),
+                            ),
                             Effect.catchAll((err) =>
                               Effect.sync(() => {
                                 log?.error?.(
