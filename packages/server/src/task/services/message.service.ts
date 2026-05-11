@@ -85,6 +85,7 @@ import {
   takeFirstOption,
   takeFirstOrFail,
 } from "../../db/effect-kysely-toolkit.js";
+import { endpointAddressForAgent } from "./task.service.js";
 
 /** pg returns bytea as Buffer, PGlite returns Uint8Array. Normalize so .toString("utf-8") works. */
 function toBuf(v: Buffer | Uint8Array): Buffer {
@@ -832,9 +833,9 @@ export class MessageService {
         if (Option.isNone(rowOpt)) return false;
         const row = rowOpt.value;
         if (row.app_id === null) return false;
-        // The canonical wire shape is "tm:agent:<agentId>"; compare
-        // direct-string-equality.
-        return row.tm_endpoint_address === `tm:agent:${callerAgentId}`;
+        return (
+          row.tm_endpoint_address === endpointAddressForAgent(callerAgentId)
+        );
       }),
     );
   }
