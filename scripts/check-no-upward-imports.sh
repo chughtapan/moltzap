@@ -45,7 +45,7 @@ TARGETS=("${@:-packages/protocol/src packages/client/src packages/server/src \
 # Format: extended grep regex matching the FULL `from "..."` literal, anchored
 # inside the string. Matched imports are subtracted from the violation list.
 IGNORE_PATTERNS=(
-  # ── #542 §3: kernels stay relative within the package ─────────────────
+  # #542 §3 — kernels stay relative within the package.
   # `from "../db/X.js"`, `from "../../db/X.js"`, etc.
   '"(\.\./)+db/'
   '"(\.\./)+crypto/'
@@ -57,14 +57,16 @@ IGNORE_PATTERNS=(
   '"(\.\./)+test-utils\.js"'
   '"(\.\./)+logger\.js"'
   '"(\.\./)+logger/'
-  # ── protocol same-package top-level files (NOT layers — siblings of  ─
-  #    src/index.ts. Plan v2 §5 #1 keeps same-folder siblings relative.   ─
+
+  # Protocol same-package top-level files (NOT layers — siblings of
+  # src/index.ts). Plan v2 §5 #1 keeps same-folder siblings relative.
   '"(\.\./)+schema-primitives\.js"'
   '"(\.\./)+rpc-registry\.js"'
   '"(\.\./)+version\.js"'
   '"(\.\./)+index\.js"'
-  # ── client same-package top-level files (auth, service, ws-client, ──  ─
-  #    etc.). cli/ and test-utils/ already covered by other patterns. ──  ─
+
+  # Client same-package top-level files (auth, service, ws-client, etc.).
+  # cli/ and test-utils/ already covered by other patterns.
   '"\.\./auth\.js"'
   '"\.\./service\.js"'
   '"\.\./ws-client\.js"'
@@ -72,19 +74,21 @@ IGNORE_PATTERNS=(
   '"\.\./profile\.js"'
   '"\.\./channel-core\.js"'
   '"\.\./config\.js"'
-  # ── client/cli/ within-subtree (cli/ is one group; commands/ is child) ─
+
+  # client/cli/ within-subtree (cli/ is one group, commands/ its action layer).
   '"\.\./socket-client\.js"'
   '"\.\./transport\.js"'
-  # ── channel packages: __tests__/ to package siblings (one logical  ──  ─
-  #    group per plan §5 #3). Same for nanoclaw channels/ subtree. ─────  ─
+
+  # Channel packages: __tests__/ to package siblings (one logical group
+  # per plan §5 #3). Same for nanoclaw channels/ subtree.
   '"\.\./entry\.js"'
   '"\.\./types\.js"'
   '"\.\./server\.js"'
   '"\.\./routing\.js"'
   '"\.\./errors\.js"'
-  # ── protocol testing/_shared, testing/arbitraries, testing/models, ──  ─
-  #    testing/toxics — within-subtree references retained per §5. The   ─
-  #    only migrated testing tree is testing/conformance/<layer>/. ───── ─
+
+  # Protocol testing trees retained per §5 (within-subtree). The only
+  # migrated testing tree is testing/conformance/<layer>/.
   '"(\.\./)+_shared/'
   '"(\.\./)+arbitraries/'
   '"(\.\./)+models/'
@@ -97,21 +101,23 @@ IGNORE_PATTERNS=(
   '"(\.\./)+test-fixtures\.js"'
   '"(\.\./)+test-support\.js"'
   '"(\.\./)+client/'
-  # ── openclaw-channel: __tests__/ to test-utils/ within same package ─  ─
+
+  # openclaw-channel: __tests__/ to test-utils/ within same package.
   '"\.\./test-utils/'
-  # ── protocol source-side same-package cross-LAYER: Phase 3 retains  ─  ─
-  #    these as relative due to tsx self-reference resolution failure  ─  ─
-  #    when scripts/generate-protocol-docs.ts loads source transitively. ─
-  #    Phase 4 (#545) eslint rule will exempt same-package cross-LAYER  ─  ─
-  #    or land a tsx workaround that re-enables source-side migration.  ─  ─
-  #    Same shape: `from "../<layer>/X.js"` where the file lives in      ─
-  #    packages/protocol/src/<other-layer>/. (Cross-PACKAGE cross-LAYER  ─
-  #    consumers use workspace-name; that path is still enforced.)      ─
+
+  # Protocol source-side same-package cross-LAYER: Phase 3 retains these
+  # as relative due to tsx self-reference resolution failure when
+  # scripts/generate-protocol-docs.ts loads source transitively (file path
+  # `packages/protocol/src/<other-layer>/X.ts` importing `../<layer>/Y.js`).
+  # Phase 4 (#545) eslint rule will exempt same-package cross-LAYER or land
+  # a tsx workaround re-enabling source-side migration. Cross-PACKAGE
+  # cross-LAYER consumers use workspace-name; that path is still enforced.
   '"\.\./(transport|identity|network|task|app)/(method|wire-errors|methods|agents|rpc-registry)\.js"'
-  # ── protocol-internal helpers explicitly NOT re-exported from the    ─
-  #    transport barrel (per transport/index.ts JSDoc): rpc-groups       ─
-  #    decode helpers + wire.js frame builders that are protocol-       ─
-  #    internal. Testing reaches them via relative path by design.      ─
+
+  # Protocol-internal helpers explicitly NOT re-exported from the transport
+  # barrel (per transport/index.ts JSDoc): rpc-groups decode helpers, wire.js
+  # frame builders, json-rpc-server. Testing reaches them via relative path
+  # by design.
   '"(\.\./)+transport/rpc-groups\.js"'
   '"(\.\./)+transport/wire\.js"'
   '"(\.\./)+transport/json-rpc-server\.js"'
