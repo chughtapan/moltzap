@@ -1,6 +1,6 @@
 import { Data, Effect } from "effect";
-import { MoltZapWsClient } from "../ws-client.js";
-import { registerAgent, type RegisterAgentOptions } from "../auth.js";
+import { MoltZapWsClient } from "@moltzap/client";
+import { registerAgent, type RegisterAgentOptions } from "@moltzap/client";
 
 /** Back-compat re-exports. `registerAgent` and its types were promoted to
  * the `@moltzap/client` root; this surface stays so existing test imports
@@ -10,7 +10,7 @@ export {
   registerAgent,
   type RegisterAgentOptions,
   type RegisterResponse,
-} from "../auth.js";
+} from "@moltzap/client";
 
 /** Strip the `/ws` suffix that test harnesses tack onto the WebSocket URL —
  * `MoltZapWsClient` re-appends it internally. */

@@ -25,7 +25,7 @@ import {
   registerAgent as registerAgentHttp,
   stripWsPath,
 } from "@moltzap/client/test";
-import { MoltZapService } from "../service.js";
+import { MoltZapService } from "@moltzap/client";
 
 import { MessagesList, MessagesSend } from "@moltzap/protocol";
 

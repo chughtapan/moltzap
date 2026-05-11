@@ -30,6 +30,7 @@ export {
   type MoltZapWsClientOptions,
   type ServerRpcContext,
   type ServerRpcHandler,
+  type RpcCallOptions,
 } from "./ws-client.js";
 export type {
   SubscriptionFilter,

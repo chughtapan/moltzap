@@ -8,7 +8,7 @@ import type {
   CrossConversationEntry,
   CrossConvMessage,
   DispatchReleaseFrame,
-} from "../index.js";
+} from "@moltzap/client";
 
 type MessageHandler = (msg: Message) => void;
 type VoidHandler = () => void;

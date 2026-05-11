@@ -14,7 +14,7 @@
 import { describe, expect, it } from "vitest";
 import { Effect, Exit } from "effect";
 import { clientConformance } from "@moltzap/protocol/testing";
-import { createMoltZapRealClientFactory } from "../../test-utils/index.js";
+import { createMoltZapRealClientFactory } from "@moltzap/client/test-utils";
 
 const TOXIPROXY_URL = process.env.TOXIPROXY_URL ?? null;
 
