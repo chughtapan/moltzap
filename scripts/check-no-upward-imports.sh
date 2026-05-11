@@ -34,9 +34,19 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-TARGETS=("${@:-packages/protocol/src packages/client/src packages/server/src \
-  packages/claude-code-channel/src packages/openclaw-channel/src \
-  packages/nanoclaw-channel/src packages/runtimes/src}")
+if [[ $# -gt 0 ]]; then
+  TARGETS=("$@")
+else
+  TARGETS=(
+    packages/protocol/src
+    packages/client/src
+    packages/server/src
+    packages/claude-code-channel/src
+    packages/openclaw-channel/src
+    packages/nanoclaw-channel/src
+    packages/runtimes/src
+  )
+fi
 
 # Imports that are upward but stay inside the same logical group, OR are
 # same-package kernel imports per #542 plan-approved §3. Phase 3 §5
@@ -123,10 +133,10 @@ IGNORE_PATTERNS=(
   '"(\.\./)+transport/json-rpc-server\.js"'
 )
 
-ALL_VIOLATIONS=$(grep -rEn 'from "\.\./' $TARGETS --include="*.ts" 2>/dev/null || true)
+ALL_VIOLATIONS=$(grep -rEn 'from "\.\./' "${TARGETS[@]}" --include="*.ts" 2>/dev/null || true)
 
 if [[ -z "$ALL_VIOLATIONS" ]]; then
-  echo "PASS: 0 upward relative imports across $TARGETS"
+  echo "PASS: 0 upward relative imports across ${TARGETS[*]}"
   exit 0
 fi
 
