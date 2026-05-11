@@ -59,6 +59,8 @@ import {
   ConversationsGet,
   MessagesSend,
 } from "@moltzap/protocol";
+import { TaskClosedError } from "@moltzap/protocol/task";
+import { RpcServerError } from "@moltzap/protocol/transport";
 
 function makeMessage(overrides: Partial<Message> = {}): Message {
   return {
@@ -387,6 +389,71 @@ describe("Flow 6: Outbound delivery — deliver callback + sendText", () => {
 
     expect(result.ok).toBe(false);
     expect(result.error!.message).toBe("Server rejected");
+  });
+
+  it("deliver callback returns true when send fails with TaskClosedError (terminal-consumed, no retry)", async () => {
+    // TaskClosedError arrives as RpcServerError with code -32020.
+    // The deliver callback signals true so OpenClaw treats the message as
+    // consumed and does not retry.
+    mockSend.mockReturnValueOnce(
+      Effect.fail(
+        new RpcServerError({
+          code: TaskClosedError.code,
+          message: TaskClosedError.message,
+        }),
+      ),
+    );
+
+    capturedOnMessage!(makeMessage());
+
+    await vi.waitFor(() => {
+      expect(mockDispatch).toHaveBeenCalledOnce();
+    });
+
+    const dispatchArgs = mockDispatch.mock.calls[0]![0] as {
+      dispatcherOptions: {
+        deliver: (payload: unknown, info?: unknown) => Promise<boolean>;
+      };
+    };
+
+    const result = await dispatchArgs.dispatcherOptions.deliver(
+      { text: "reply text" },
+      { kind: "final" },
+    );
+
+    // Terminal-consumed: true signals no retry.
+    expect(result).toBe(true);
+  });
+
+  it("deliver callback returns false when send fails with a non-TaskClosed RpcServerError (retry-eligible)", async () => {
+    mockSend.mockReturnValueOnce(
+      Effect.fail(
+        new RpcServerError({
+          code: -32001,
+          message: "Internal server error",
+        }),
+      ),
+    );
+
+    capturedOnMessage!(makeMessage());
+
+    await vi.waitFor(() => {
+      expect(mockDispatch).toHaveBeenCalledOnce();
+    });
+
+    const dispatchArgs = mockDispatch.mock.calls[0]![0] as {
+      dispatcherOptions: {
+        deliver: (payload: unknown, info?: unknown) => Promise<boolean>;
+      };
+    };
+
+    const result = await dispatchArgs.dispatcherOptions.deliver(
+      { text: "reply text" },
+      { kind: "final" },
+    );
+
+    // Retry-eligible: false signals delivery failure.
+    expect(result).toBe(false);
   });
 
   it("stopAccount removes client from active pool", async () => {
