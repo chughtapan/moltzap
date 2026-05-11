@@ -14,7 +14,7 @@ import { arbitraryAnyCall } from "../../arbitraries/rpc.js";
 import {
   ResponseFrameSchema,
   type ResponseFrame,
-} from "../../../transport/wire.js";
+} from "@moltzap/protocol/transport";
 import { isRequestFrame, isResponseFrame } from "../_shared/frame-mutator.js";
 import { makeTestClient } from "../_shared/driver/test-client.js";
 import { registerTestAgent } from "../_shared/test-fixtures.js";

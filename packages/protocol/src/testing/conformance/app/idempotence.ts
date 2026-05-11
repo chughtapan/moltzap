@@ -11,8 +11,8 @@
  * — spec B5 says "identical results", not "identical outcome kinds".
  */
 import { Effect, Either } from "effect";
-import { AgentsList } from "../../../identity/methods.js";
-import { ConversationsList } from "../../../task/methods.js";
+import { AgentsList } from "@moltzap/protocol/identity";
+import { ConversationsList } from "@moltzap/protocol/task";
 import { isIdempotent } from "../../models/dispatch.js";
 import { canonicalJson, sortJsonArray } from "../_shared/canonicalize.js";
 import { makeTestClient } from "../_shared/driver/test-client.js";

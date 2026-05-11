@@ -7,14 +7,14 @@
 import { Effect, Option, Stream, Duration, type Scope } from "effect";
 import type { Static } from "@sinclair/typebox";
 
-import { PresenceChangedNotificationDefinition } from "../../../network/methods.js";
+import { PresenceChangedNotificationDefinition } from "@moltzap/protocol/network";
 import { notificationDefinitions } from "../../../rpc-registry.js";
 import {
   decodeNotification,
   isDecodedNotification,
 } from "../../../transport/rpc-groups.js";
-import { PresenceSubscribe } from "../../../network/methods.js";
-import { AgentId } from "../../../identity/methods.js";
+import { PresenceSubscribe } from "@moltzap/protocol/network";
+import { AgentId } from "@moltzap/protocol/identity";
 import {
   makeCloseableTestClient,
   makeTestClient,

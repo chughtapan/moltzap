@@ -31,8 +31,8 @@ import {
   RpcServerError,
 } from "@moltzap/protocol";
 import { Effect, HashMap, Option, Ref } from "effect";
-import { MoltZapService, type ServiceRpcError } from "../service.js";
-import type { RpcCallOptions } from "../ws-client.js";
+import { MoltZapService, type ServiceRpcError } from "@moltzap/client";
+import type { RpcCallOptions } from "@moltzap/client";
 import { testAgentId } from "./ids.js";
 
 /** A tracked `sendRpc` invocation. */

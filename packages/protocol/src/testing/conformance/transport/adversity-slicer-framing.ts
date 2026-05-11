@@ -6,7 +6,7 @@
 import { Effect } from "effect";
 import { defaultToxicProfile } from "../../toxics/defaults.js";
 import { isNotificationFrame } from "../_shared/frame-mutator.js";
-import { MessagesSend } from "../../../task/methods.js";
+import { MessagesSend } from "@moltzap/protocol/task";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import {
   acquireProxiedClient,

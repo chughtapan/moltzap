@@ -8,7 +8,7 @@
  * 1A's structural scope.
  */
 import { Effect } from "effect";
-import { TasksCreate } from "../../../task/methods.js";
+import { TasksCreate } from "@moltzap/protocol/task";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { PropertyDeferred, registerProperty } from "../_shared/registry.js";
 

@@ -26,6 +26,10 @@ export const workspaceSourceAliases: Alias[] = [
     replacement: fromRoot("packages/client/src/test/index.ts"),
   },
   {
+    find: /^@moltzap\/client\/runtime$/,
+    replacement: fromRoot("packages/client/src/runtime/index.ts"),
+  },
+  {
     find: /^@moltzap\/client$/,
     replacement: fromRoot("packages/client/src/index.ts"),
   },
@@ -36,6 +40,26 @@ export const workspaceSourceAliases: Alias[] = [
   {
     find: /^@moltzap\/protocol\/testing$/,
     replacement: fromRoot("packages/protocol/src/testing/index.ts"),
+  },
+  {
+    find: /^@moltzap\/protocol\/transport$/,
+    replacement: fromRoot("packages/protocol/src/transport/index.ts"),
+  },
+  {
+    find: /^@moltzap\/protocol\/identity$/,
+    replacement: fromRoot("packages/protocol/src/identity/index.ts"),
+  },
+  {
+    find: /^@moltzap\/protocol\/network$/,
+    replacement: fromRoot("packages/protocol/src/network/index.ts"),
+  },
+  {
+    find: /^@moltzap\/protocol\/task$/,
+    replacement: fromRoot("packages/protocol/src/task/index.ts"),
+  },
+  {
+    find: /^@moltzap\/protocol\/app$/,
+    replacement: fromRoot("packages/protocol/src/app/index.ts"),
   },
   {
     find: /^@moltzap\/protocol$/,

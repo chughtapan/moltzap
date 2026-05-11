@@ -16,9 +16,9 @@ import {
   PropertyInvariantViolation,
   registerProperty,
 } from "../_shared/registry.js";
-import { AgentsList, ContactsList } from "../../../identity/methods.js";
-import { Connect } from "../../../network/methods.js";
-import { ConversationsList } from "../../../task/methods.js";
+import { AgentsList, ContactsList } from "@moltzap/protocol/identity";
+import { Connect } from "@moltzap/protocol/network";
+import { ConversationsList } from "@moltzap/protocol/task";
 
 const CATEGORY = "schema-conformance" as const;
 const DEFAULT_TIMEOUT_MS = 3000;
