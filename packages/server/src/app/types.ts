@@ -10,7 +10,11 @@ import type { SessionValidator } from "../identity/services/session-validator.js
 import type { WebhookClient } from "../adapters/webhook.js";
 import type { ConnectionManager } from "../transport/connection.js";
 import type { NetworkSendService } from "../network/network-send.js";
-import type { TaskAuthorizeDispatchHook } from "./hooks.js";
+import type {
+  MessageAuthorizeHook,
+  TaskAuthorizeDispatchHook,
+} from "./hooks.js";
+import type { EndpointAddress } from "@moltzap/protocol/network";
 import type { LeaseRegistry } from "./lease-registry.js";
 import type {
   TraceCapture,
@@ -142,6 +146,16 @@ export interface CoreApp {
   onTaskAuthorizeDispatch: (
     appId: string,
     handler: TaskAuthorizeDispatchHook,
+  ) => void;
+  /**
+   * #560: register an in-process `messages/authorize` handler keyed by
+   * `EndpointAddress`. Default-DM and default-group register at boot
+   * to preserve today's broadcast; apps register their custom TM hook
+   * via this surface. Idempotent — repeat calls overwrite the entry.
+   */
+  registerMessageAuthorize: (
+    address: EndpointAddress,
+    handler: MessageAuthorizeHook,
   ) => void;
   /**
    * #529 reshape additive — server-local lease registry for the

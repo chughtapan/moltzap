@@ -28,7 +28,11 @@ import {
   type TaskAuthorizeDispatchContext,
   type TaskAuthorizeDispatchHook,
 } from "./hooks.js";
-import type { EndpointAddress } from "@moltzap/protocol/network";
+import { MessagesAuthorize } from "@moltzap/protocol";
+import {
+  endpointAddressKind,
+  type EndpointAddress,
+} from "@moltzap/protocol/network";
 import { Data, Effect, Option } from "effect";
 import {
   catchSqlErrorAsDefect,
@@ -68,6 +72,23 @@ function parseModeratorAgentIdFromTm(raw: string): AgentId | null {
 }
 
 const DEFAULT_APP_HOOK_TIMEOUT_MS = 5000;
+
+/**
+ * Derive an `appId` from an `EndpointAddress` for `remoteRegistrations`
+ * lookup (#560 C5 remote-path resolution). The mapping is well-defined
+ * only for the `tm:app:<appId>` shape — custom-TM `tm:agent:<id>`
+ * addresses do not carry an appId and short-circuit to null. Caller
+ * (`runMessageAuthorize`) falls through to the synthetic default
+ * verdict when both the in-process hook AND this lookup are absent.
+ */
+function appIdFromTmEndpointAddress(address: EndpointAddress): string | null {
+  if (endpointAddressKind(address) !== "app") return null;
+  const prefix = "tm:app:";
+  const raw = address as string;
+  if (!raw.startsWith(prefix)) return null;
+  const rest = raw.slice(prefix.length);
+  return rest.length === 0 ? null : rest;
+}
 
 export interface ContactService {
   areInContact(userIdA: string, userIdB: string): Effect.Effect<boolean, never>;
@@ -706,9 +727,103 @@ export class AppHost {
     tmEndpointAddress: EndpointAddress,
     ctx: MessageAuthorizeContext,
   ): Effect.Effect<MessageAuthorizeResult, never> {
-    return Effect.dieMessage(
-      `AppHost.runMessageAuthorize: not implemented (#560 architect stub) for ${tmEndpointAddress} appId=${ctx.appId}`,
-    );
+    const inProcess = this.messageAuthorizeHooks.get(tmEndpointAddress);
+    const remoteAppId = appIdFromTmEndpointAddress(tmEndpointAddress);
+    const remote =
+      remoteAppId !== null
+        ? this.remoteRegistrations.get(remoteAppId)
+        : undefined;
+
+    if (!inProcess && !remote) {
+      // C5 step 3: synthetic default. Forward to every conversation
+      // participant except the sender — preserves the pre-#560
+      // broadcast. The query reads `conversation_participants`
+      // directly because AppHost cannot circularly depend on
+      // ConversationService.
+      return catchSqlErrorAsDefect(
+        Effect.gen(this, function* () {
+          const rows = yield* this.db
+            .selectFrom("conversation_participants")
+            .select("agent_id")
+            .where("conversation_id", "=", ctx.conversationId);
+          const recipients = rows
+            .map((r) => r.agent_id as AgentId)
+            .filter((a) => a !== ctx.message.senderAgentId);
+          return {
+            decision: "Forward" as const,
+            recipients,
+          } satisfies MessageAuthorizeResult;
+        }),
+      );
+    }
+
+    const manifest =
+      remoteAppId !== null ? this.manifests.get(remoteAppId) : undefined;
+    const timeoutMs =
+      manifest?.hooks?.message_authorize?.timeout_ms ??
+      DEFAULT_APP_HOOK_TIMEOUT_MS;
+    const taskId = ctx.taskId;
+    const appId = ctx.appId;
+
+    const raw: Effect.Effect<MessageAuthorizeResult, Error> = remote
+      ? this.runRemoteHookEffect({
+          appId: remoteAppId ?? appId,
+          definition: MessagesAuthorize,
+          connectionId: remote.connectionId,
+          params: this.messageAuthorizeParamsForWire(ctx),
+        }).pipe(Effect.map((envelope) => envelope.verdict))
+      : this.runInProcessHookEffect<
+          MessageAuthorizeContext,
+          MessageAuthorizeResult
+        >((ctxWithSignal) => inProcess!(ctxWithSignal), ctx);
+
+    return this.wrapHookEffectWithEnvelope<MessageAuthorizeResult>({
+      raw,
+      timeoutMs,
+      timeoutLogMessage: "messages/authorize timed out",
+      timeoutLogContext: {
+        taskId,
+        appId,
+        tmEndpointAddress,
+        timeoutMs,
+      },
+      errorLogMessage: "messages/authorize error",
+      errorLogContext: { taskId, appId, tmEndpointAddress },
+      onTimeout: () => ({
+        decision: "Block" as const,
+        reason: "tm_unreachable",
+      }),
+      onError: () => ({
+        decision: "Block" as const,
+        reason: "tm_unreachable",
+      }),
+    });
+  }
+
+  /**
+   * Wire-shape params for `messages/authorize`. Mirrors
+   * {@link authorizeDispatchParamsForWire}: strip `signal`, then
+   * conditionally include optional fields so the TypeBox schema's
+   * `additionalProperties: false` doesn't reject `undefined`.
+   */
+  private messageAuthorizeParamsForWire(
+    ctx: MessageAuthorizeContext,
+  ): ParamsOf<typeof MessagesAuthorize> {
+    const wire = this.contextForWire(ctx);
+    return {
+      taskId: wire.taskId,
+      appId: wire.appId,
+      conversationId: wire.conversationId,
+      message: {
+        id: wire.message.id,
+        senderAgentId: wire.message.senderAgentId,
+        ...(wire.message.parts !== undefined
+          ? { parts: wire.message.parts }
+          : {}),
+      },
+      ...(wire.receivedAt !== undefined ? { receivedAt: wire.receivedAt } : {}),
+      ...(wire.clock !== undefined ? { clock: wire.clock } : {}),
+    };
   }
 
   /** Clear in-memory state. Called on shutdown. */
