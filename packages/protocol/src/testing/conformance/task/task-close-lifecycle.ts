@@ -14,7 +14,7 @@
  * spec-tier change, not implementer-tier.
  */
 import { Effect, Either } from "effect";
-import { TaskClosedError } from "../../../task/methods.js";
+import { TaskClosedError } from "@moltzap/protocol/task";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { registerProperty } from "../_shared/registry.js";
 import { requireRight } from "../_shared/_helpers.js";

@@ -1,7 +1,7 @@
 /** Payload opacity — sent text appears byte-for-byte in delivered events. */
 import * as fc from "fast-check";
 import { Effect } from "effect";
-import { MessagesSend } from "../../../task/methods.js";
+import { MessagesSend } from "@moltzap/protocol/task";
 import { isNotificationFrame } from "../_shared/frame-mutator.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { assertProperty, registerProperty } from "../_shared/registry.js";

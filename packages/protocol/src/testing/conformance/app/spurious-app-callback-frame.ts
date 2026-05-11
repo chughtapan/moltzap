@@ -13,7 +13,7 @@
  * surfaces the divergence as a typed liveness failure.
  */
 import { Effect, Either } from "effect";
-import { AgentsList } from "../../../identity/methods.js";
+import { AgentsList } from "@moltzap/protocol/identity";
 import { makeTestClient } from "../_shared/driver/test-client.js";
 import { registerTestAgent } from "../_shared/test-fixtures.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
