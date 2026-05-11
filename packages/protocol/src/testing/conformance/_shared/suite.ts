@@ -241,19 +241,14 @@ function allowedServerCoverageGaps(
       id: "adversity/reset-peer-recovery",
       reasonIncludes: "reset_peer toxic did not close",
     },
-    // Hook-gated delivery, multi-app FIFO short-circuit, and
-    // app-disconnect fail-policy properties gate on hook-routing
-    // surface that the layered refactor reshaped. They short-circuit
-    // to PropertyDeferred citing TasksCreate as the gating dependency
-    // until #560 lands `runMessageAuthorize`. Both PropertyUnavailable
-    // and PropertyDeferred outcomes are accepted (the boundary fixture
-    // acquires more state than the delivery fixtures and therefore can
-    // self-report Unavailable earlier in its setup).
-    {
-      kind: "deferred",
-      id: "delivery/hook-gated-delivery",
-      reasonIncludes: TasksCreate.name,
-    },
+    // multi-app FIFO short-circuit and app-disconnect fail-policy
+    // properties gate on hook-routing surface that the layered refactor
+    // reshaped. They short-circuit to PropertyDeferred / PropertyUnavailable
+    // citing TasksCreate as the gating dependency. Both outcomes are
+    // accepted (the boundary fixture acquires more state than the delivery
+    // fixtures and therefore can self-report Unavailable earlier in setup).
+    // delivery/hook-gated-delivery was unblocked by #560 and is now
+    // executable — its deferred gap entry is removed here.
     {
       kind: "deferred",
       id: "delivery/multi-app-fifo-short-circuit",
