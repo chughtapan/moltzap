@@ -10,7 +10,7 @@
 import { describe, it, expect } from "vitest";
 import Ajv from "ajv";
 import addFormats from "ajv-formats";
-import { DispatchAuthorize } from "./methods.js";
+import { DispatchAuthorize, MessagesAuthorize } from "./methods.js";
 import { taskCallbackMethods } from "../rpc-registry.js";
 
 const ajv = addFormats(new Ajv({ strict: true, allErrors: true }));
@@ -28,9 +28,12 @@ const HOOK_AGENT = { agentId: AGENT_ID, ownerId: "owner-1" };
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("admission RPC registration", () => {
-  it("registers dispatch/authorize as the sole task-callback descriptor", () => {
+  it("registers the task-callback descriptors (dispatch/authorize + messages/authorize)", () => {
     const taskCallbackNames = taskCallbackMethods.map((m) => m.name);
-    expect(taskCallbackNames).toEqual([DispatchAuthorize.name]);
+    expect(taskCallbackNames).toEqual([
+      DispatchAuthorize.name,
+      MessagesAuthorize.name,
+    ]);
   });
 });
 
