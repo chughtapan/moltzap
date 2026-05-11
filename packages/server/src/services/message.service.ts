@@ -167,6 +167,52 @@ export class MessageService {
   }
 
   /**
+   * #463 architect stub (v3) — synchronous resolver pre-check that runs
+   * BEFORE the durable {@link sendInsert} INSERT. Resolves each
+   * conversation participant through `AgentEndpointResolver`; fails
+   * closed with {@link RecipientNotResolved} if any required recipient
+   * has no live connection. On success, returns the resolved recipient
+   * set (excluding `senderAgentId`) so {@link sendCommit} can call
+   * {@link NetworkSendService.broadcast} without re-resolving.
+   *
+   * Architect plan §1 (v3): v2 attempted to catch broadcast-side
+   * failures POST-INSERT via a `broadcast_attempted_at` column + CAS.
+   * v3 simplifies: the only recoverable failure mode at fan-out time
+   * is {@link RecipientNotResolved} (synchronous lookup miss); pull
+   * that check PRE-INSERT and the post-INSERT residual is only
+   * {@link WriteFailed} (mid-frame WS errors — rare), which is
+   * observable via a structured log line and recoverable via the
+   * existing `messages/list` pull channel. No DB column, no CAS, no
+   * idempotency gate required.
+   *
+   * Architect plan §9 risk R1 (TOCTOU): a recipient may disconnect in
+   * the microsecond gap between this preflight and the broadcast
+   * fan-out; that is documented as the {@link WriteFailed} residual.
+   * Mitigation: recipient pulls via `messages/list` on reconnect; same
+   * recovery channel as before, just a narrower window.
+   *
+   * The error channel is {@link RecipientNotResolved}. The handler
+   * maps it to the RPC-visible `HookBlocked(RecipientNotResolved)`
+   * shape via the existing `deliveryErrorToHookBlocked` helper, so the
+   * wire surface is unchanged from the post-INSERT failure mode.
+   *
+   * Stub: `implement-junior` fills in the body using
+   * `AgentEndpointResolver.resolveAll` (existing in-memory
+   * `Map<AgentId, HashSet<connId>>`, O(1) per recipient).
+   */
+  preflightRecipients(
+    conversationId: ConversationId,
+    senderAgentId: AgentId,
+  ): Effect.Effect<
+    { readonly recipients: ReadonlyArray<AgentId> },
+    RecipientNotResolved
+  > {
+    return Effect.dieMessage(
+      `MessageService.preflightRecipients: not implemented (#463 architect stub v3) for conversation=${conversationId} sender=${senderAgentId}`,
+    );
+  }
+
+  /**
    * #529 reshape additive — the durable insert subset of `send`.
    * Returns a `SendInsertResult` carrier that {@link sendCommit}
    * consumes for the routing/broadcast/trace tail. `send` composes both
@@ -174,6 +220,16 @@ export class MessageService {
    *
    * Architect plan §3 carrier shape: `{ message, parts, conv,
    * excludeConnectionId, bypassTmRouting }`.
+   *
+   * #463 v3 integration point: `send()` (the top-level composer) calls
+   * {@link preflightRecipients} BEFORE this method's INSERT runs. Fail-
+   * closed on {@link RecipientNotResolved} ensures the durable row is
+   * never written when the broadcast fan-out is provably unable to
+   * reach any recipient. `sendInsert` itself is unchanged — the
+   * preflight is a sibling concern composed at `send()`-level so the
+   * `tasks/storeMessage` re-entry path (which sets `bypassTmRouting`
+   * and may not have live recipients yet) opts out by not running
+   * preflight on that path.
    */
   sendInsert(
     conversationId: ConversationId,
@@ -288,6 +344,19 @@ export class MessageService {
    * #529 reshape additive — TM routing + broadcast + trace + delivery
    * webhook tail. Sequencing preserves the pre-split order (architect
    * plan §9 risk #9): TM route → preview → fan-out → trace → webhook.
+   *
+   * #463 v3 integration point: {@link preflightRecipients} runs in
+   * `send()` BEFORE the INSERT in {@link sendInsert}, so by the time
+   * `sendCommit` runs the recipient set is provably resolvable. The
+   * residual failure mode here is {@link WriteFailed} from
+   * `networkSendService.broadcast` (mid-frame WS error after a
+   * recipient disconnected in the microsecond gap since preflight).
+   * Architect plan §2 names a structured log emission at the
+   * `network.send` failure site as the observability bit; v3 drops
+   * the column + CAS scaffolding (v2's `broadcast_attempted_at`) on
+   * the grounds that the residual is rare, recipient-side recovery
+   * via `messages/list` already exists, and the durable row is
+   * unchanged either way.
    */
   sendCommit(
     carrier: SendInsertResult,
