@@ -12,15 +12,29 @@
  *
  * Property: Block-prevents-delivery
  *   1. TM creates task bound to itself (`tmType: "self"`).
- *   2. TM creates a DM conversation with a separate recipient agent.
+ *   2. TM creates a GROUP conversation with sender and recipient as
+ *      participants.
  *   3. TM closes its WS connection (goes offline → TM address
  *      `tm:agent:<tmAgentId>` has no live socket).
- *   4. Sender (a third agent, participant in the conversation) calls
- *      `messages/send`.
- *   5. Assert: `messages/send` fails with `RpcFailure` code
- *      `HookBlockedError.code` (-32019).
+ *   4. Sender polls `messages/send` until the server-side
+ *      `AgentEndpointResolver` has drained the TM entry: each attempt
+ *      that succeeds means the TM is still live; the first
+ *      `HookBlocked(-32019)` failure means the resolver is drained.
+ *   5. Assert: the triggering send failed with `HookBlocked`.
  *   6. Assert: recipient's notification queue shows zero
  *      `messages/received` frames (delivery was prevented).
+ *
+ * The poll in step 4 replaces the previous wall-clock sleep
+ * (`CLOSE_DRAIN_MS`). A sleep is not synchronized with the server-side
+ * `AgentEndpointResolver` finalizer — CI showed 200 ms was insufficient,
+ * causing `messages/send` to succeed when the resolver still held the
+ * TM's entry. The poll exits on the first `HookBlocked` failure, which
+ * by construction proves the resolver has drained.
+ *
+ * Anti-tautology: the poll CAN time out (if the TM stays live), in
+ * which case the property fails with "resolver did not drain". The
+ * predicate is not vacuous — CI confirms it fires with the wrong outcome
+ * (success instead of HookBlocked) when the timing is insufficient.
  *
  * Phase-7-era arms dropped per #554:
  *   - `patch` arm (never in #560 design)
@@ -29,7 +43,7 @@
  * Property ID: `delivery/hook-gated-delivery` (architect §7 — registry
  * category derives from the call-site, not the file path).
  */
-import { Cause, Chunk, Effect, Exit, Scope } from "effect";
+import { Cause, Chunk, Effect, Exit } from "effect";
 import type { Static } from "@sinclair/typebox";
 import {
   TasksCreate,
@@ -58,13 +72,16 @@ const CATEGORY = "delivery" as const;
 const PROPERTY = "hook-gated-delivery";
 const DEFAULT_TIMEOUT_MS = 5_000;
 const DEFAULT_CAPTURE_CAPACITY = 64;
-// Grace period (ms) for the WS finalizer to drain the resolver after
-// close — mirrors the 100 ms used in the integration suite.
-const CLOSE_DRAIN_MS = 200;
-// Window to collect stray notifications after the blocked send. Any
-// messages/received frames that arrive within this window constitute
+// Maximum number of send attempts while polling for HookBlocked.
+const MAX_POLL_ATTEMPTS = 30;
+// Interval (ms) between retry attempts when the TM resolver has not
+// drained yet.
+const POLL_INTERVAL_MS = 100;
+// Window (ms) to collect stray notifications after the blocking send.
+// Any messages/received frames that arrive within this window constitute
 // a delivery-prevention violation.
 const DRAIN_WINDOW_MS = 300;
+
 function violation(reason: string): PropertyInvariantViolation {
   return new PropertyInvariantViolation({
     category: CATEGORY,
@@ -100,20 +117,16 @@ export function registerHookGatedDelivery(ctx: ConformanceRunContext): void {
         const senderAgent = yield* acquireAgent("hgd-sndr");
         const recipientAgent = yield* acquireAgent("hgd-rcpt");
 
-        // 2. TM opens a closeable WS client (closeable so step 5 can
-        //    sever the connection programmatically without waiting for
-        //    scope teardown).
-        const tmScope = yield* Scope.make();
-        const tmClient = yield* Scope.extend(
-          makeCloseableTestClient({
-            serverUrl: ctx.realServer.wsUrl,
-            agentKey: tmAgent.apiKey,
-            agentId: tmAgent.agentId,
-            defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
-            captureCapacity: DEFAULT_CAPTURE_CAPACITY,
-          }),
-          tmScope,
-        ).pipe(
+        // 2. TM opens a closeable WS client. The close method severs the
+        //    WS connection, draining the server-side resolver entry for
+        //    `tm:agent:<tmAgentId>`.
+        const tmClient = yield* makeCloseableTestClient({
+          serverUrl: ctx.realServer.wsUrl,
+          agentKey: tmAgent.apiKey,
+          agentId: tmAgent.agentId,
+          defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
+          captureCapacity: DEFAULT_CAPTURE_CAPACITY,
+        }).pipe(
           Effect.mapError((e) => violation(`TM client acquire: ${String(e)}`)),
         );
 
@@ -198,59 +211,75 @@ export function registerHookGatedDelivery(ctx: ConformanceRunContext): void {
           convResult as { conversation: { id: Static<typeof ConversationId> } }
         ).conversation.id;
 
-        // 8. TM disconnects — TM's WS close triggers resolver drain.
+        // 8. TM disconnects — closing the client's internal scope closes
+        //    the WS socket and triggers the server-side resolver drain.
         //    After the finalizer runs, `tm:agent:<tmAgentId>` has no
         //    live ConnectionId. network.send → RecipientNotResolved →
-        //    HookBlocked. Closing the inner scope is equivalent to
-        //    hard-close on the WS.
-        yield* Scope.close(tmScope, Exit.void);
-        // Brief grace period for the server-side finalizer to drain the
-        // resolver map before the sender fires messages/send.
-        yield* Effect.sleep(`${CLOSE_DRAIN_MS} millis`);
+        //    HookBlocked.
+        yield* tmClient.close;
 
-        // 9. Sender fires messages/send. The server resolves
-        //     conversationId → task.tm_endpoint_address = tm:agent:<tmId>
-        //     → resolver.resolveAll(tmId) → empty set (TM offline) →
-        //     RecipientNotResolved → HookBlocked.
-        const sendOutcome = yield* Effect.exit(
-          senderClient.sendRpc(MessagesSend, {
-            conversationId,
-            parts: [{ type: "text", text: "should be blocked" }],
-          }),
-        );
+        // 9. Poll until the server-side AgentEndpointResolver has drained
+        //    the TM entry. Each attempt that returns success means the
+        //    resolver still holds the TM's connection — drain the
+        //    recipient's queue (the message was delivered legitimately
+        //    during this pre-block window) and retry. The first
+        //    HookBlocked(-32019) failure is the synchronization barrier:
+        //    it proves the resolver is drained and network.send returned
+        //    RecipientNotResolved.
+        let hookBlockedSeen = false;
+        let attemptsLeft = MAX_POLL_ATTEMPTS;
+        while (attemptsLeft > 0) {
+          attemptsLeft -= 1;
+          const attempt = yield* Effect.exit(
+            senderClient.sendRpc(MessagesSend, {
+              conversationId,
+              parts: [{ type: "text", text: "should be blocked" }],
+            }),
+          );
 
-        if (Exit.isSuccess(sendOutcome)) {
+          if (Exit.isSuccess(attempt)) {
+            // TM resolver not yet drained — consume any pre-block
+            // delivery notifications and retry.
+            yield* recipientClient.drainNotifications;
+            yield* Effect.sleep(`${POLL_INTERVAL_MS} millis`);
+            continue;
+          }
+
+          const rpcFailures = Chunk.toReadonlyArray(
+            Cause.failures(attempt.cause),
+          );
+          const hookBlockedErr = rpcFailures.find(
+            (f): f is RpcResponseError =>
+              f instanceof RpcResponseError && f.code === HookBlockedError.code,
+          );
+          if (hookBlockedErr !== undefined) {
+            hookBlockedSeen = true;
+            break;
+          }
+
+          // Unexpected failure kind — the resolver drained but the error
+          // is not HookBlocked; surface the raw cause.
           return yield* Effect.fail(
             violation(
-              "messages/send succeeded despite TM being offline; " +
-                "expected RpcFailure(HookBlocked)",
+              `messages/send failed with unexpected error (not HookBlocked(${HookBlockedError.code})): ` +
+                `cause=${String(attempt.cause).slice(0, 300)}`,
             ),
           );
         }
 
-        // Extract the typed RpcResponseError from the exit cause and
-        // assert it carries HookBlocked's wire code. Using Cause.failures
-        // (same pattern as _driver.ts firstRpcResponseError) avoids
-        // stringly-typed cause inspection.
-        const rpcFailures = Chunk.toReadonlyArray(
-          Cause.failures(sendOutcome.cause),
-        );
-        const hookBlockedErr = rpcFailures.find(
-          (f): f is RpcResponseError =>
-            f instanceof RpcResponseError && f.code === HookBlockedError.code,
-        );
-        if (hookBlockedErr === undefined) {
+        if (!hookBlockedSeen) {
           return yield* Effect.fail(
             violation(
-              `messages/send failed but not with HookBlocked(${HookBlockedError.code}); ` +
-                `cause=${String(sendOutcome.cause).slice(0, 300)}`,
+              `server-side AgentEndpointResolver did not drain within ` +
+                `${MAX_POLL_ATTEMPTS} attempts (${MAX_POLL_ATTEMPTS * POLL_INTERVAL_MS} ms); ` +
+                `messages/send kept succeeding — TM resolver entry persisted`,
             ),
           );
         }
 
-        // 10. Assert recipient received nothing. Drain after a brief
-        //     window to collect any stray frames the server may have
-        //     emitted before the block took effect.
+        // 10. Assert recipient received nothing after the blocking send.
+        //     Drain after a brief window to collect any stray frames the
+        //     server may have emitted concurrently with the block.
         yield* Effect.sleep(`${DRAIN_WINDOW_MS} millis`);
         const strayFrames = yield* recipientClient.drainNotifications;
         const receivedCount = strayFrames.filter(
