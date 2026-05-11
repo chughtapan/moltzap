@@ -5,7 +5,7 @@
  * `dispatch-admission` properties (request / authorize / release /
  * dispatches-consumed / dispatches-expired / dispatches-get / slow-first
  * / same-conv-concurrent / release-for-one-lease) plus app-disconnect
- * fail-policy, hook-gated delivery (tombstoned), multi-app FIFO
+ * fail-policy, hook-gated delivery (executable since #560), multi-app FIFO
  * (tombstoned), spurious app-callback frame handling (tombstoned), and
  * idempotence.
  *
