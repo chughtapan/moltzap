@@ -6,11 +6,7 @@ export {
   type FakeChannelService,
 } from "./channel-service-fixture.js";
 
-export {
-  FakeMoltZapService,
-  type RecordedCall,
-  type PollHistoryResult,
-} from "./fake-service.js";
+export { FakeMoltZapService, type RecordedCall } from "./fake-service.js";
 
 export {
   createMoltZapRealClientFactory,

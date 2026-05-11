@@ -623,21 +623,10 @@ export class MoltZapService {
       const convId = params.conversationId;
       const limit = (params.limit as number) ?? DEFAULT_HISTORY_LIMIT;
       const sessionKey = params.sessionKey as string | undefined;
-      const rawResult = yield* this.sendRpc(MessagesList, {
+      const result = yield* this.sendRpc(MessagesList, {
         conversationId: convId as ConversationId,
         limit,
       });
-
-      // Apply the same dedup window as the live `messages/received`
-      // path. Server-side replay / late-arrival paths can surface a
-      // messageId the client already received via the live broadcast;
-      // the seen-set suppresses the duplicate. Each surviving id is
-      // recorded so a subsequent live notification of the same id is
-      // also suppressed.
-      const dedupedPollMessages = rawResult.messages.filter((m) =>
-        this.recordMessageIdIfNew(m.conversationId, m.id),
-      );
-      const result = { ...rawResult, messages: dedupedPollMessages };
 
       // Resolve agent names (batch) + fetch conversation metadata (concurrent)
       const knownNames = yield* Ref.get(this.agentNamesRef);
@@ -1241,9 +1230,11 @@ export class MoltZapService {
    * a duplicate within the window (caller drops). On a new id, evicts
    * the oldest entry if the window is full.
    *
-   * Shared between the live `messages/received` notification path and
-   * the `messages/list` poll path so a message surfaced once via either
-   * route is suppressed if it arrives again via either route.
+   * Bound to the live `messages/received` notification path: a single
+   * server-side broadcast that surfaces the same id twice (network
+   * replay, dual subscription) is suppressed to one
+   * `on("message", ...)` event. `messages/list` returns raw history
+   * unfiltered; consumers that combine both feeds dedup themselves.
    */
   private recordMessageIdIfNew(
     convId: ConversationId,
