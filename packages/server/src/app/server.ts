@@ -910,6 +910,9 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     onTaskAuthorizeDispatch(appId, handler) {
       appHost.onTaskAuthorizeDispatch(appId, handler);
     },
+    registerMessageAuthorize(address, handler) {
+      appHost.registerMessageAuthorize(address, handler);
+    },
     close() {
       return Effect.runPromise(
         Effect.gen(function* () {

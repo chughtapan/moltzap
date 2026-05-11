@@ -4,6 +4,29 @@ import type { ConversationId, MessageId, TaskId } from "@moltzap/protocol/task";
 import { Schema } from "effect";
 
 /**
+ * Generic hook shape — single source of truth for the abstraction
+ * shared by every server-side authorization hook. Specific hooks are
+ * instantiations of this alias; registries that hold them stay
+ * shape-aligned even when their key types differ.
+ *
+ * Today's instantiations (#560 v4 unification):
+ *
+ *   type TaskAuthorizeDispatchHook = Hook<TaskAuthorizeDispatchContext,
+ *                                         DispatchAdmissionResult>;
+ *   type MessageAuthorizeHook      = Hook<MessageAuthorizeContext,
+ *                                         MessageAuthorizeResult>;
+ *
+ * The user-facing callback returns sync-or-Promise (matches existing
+ * SDK ergonomics); the AppHost runner wraps the call into Effect and
+ * applies the uniform fail-closed envelope. Future hooks land as
+ * additional instantiations — adding a bespoke hook shape is a
+ * doctrine violation (architect risk R13).
+ */
+export type Hook<TContext, TResult> = (
+  ctx: TContext,
+) => TResult | Promise<TResult>;
+
+/**
  * Server-side dispatch admission hook surface. The single hook
  * (`taskAuthorizeDispatch`) services the `dispatch/authorize` S→C RPC;
  * its context shape mirrors the wire `DispatchAuthorizeContextSchema`.
@@ -76,10 +99,91 @@ export const decodeDispatchAuthorizeRpcResult = Schema.decodeUnknown(
   DispatchAuthorizeRpcResultSchema,
 );
 
-export type TaskAuthorizeDispatchHook = (
-  ctx: TaskAuthorizeDispatchContext,
-) => DispatchAdmissionResult | Promise<DispatchAdmissionResult>;
+export type TaskAuthorizeDispatchHook = Hook<
+  TaskAuthorizeDispatchContext,
+  DispatchAdmissionResult
+>;
 
+/**
+ * Server-side message-fan-out authorization hook surface (#560). The
+ * hook (`messageAuthorize`) services the `messages/authorize` S→C RPC;
+ * its context shape mirrors the wire `MessagesAuthorizeContextSchema`.
+ *
+ * This hook restores the send-side gate that Phase 9b (#461) deleted
+ * by removing `apps/onBeforeMessageDelivery` without an equivalent on
+ * the new wire surface. Verdict shape is the 2-arm subset of #142's
+ * 5-arm `TaskManagerAction`: `Forward { recipients } | Block { reason }`.
+ *
+ * Symmetric to `TaskAuthorizeDispatchHook`: same context fields
+ * (`taskId`, `appId`, `conversationId`, `message`, `receivedAt`,
+ * `clock`), same fail-closed posture, different verdict union.
+ */
+export interface MessageAuthorizeContext {
+  conversationId: ConversationId;
+  message: { id: MessageId; senderAgentId: AgentId; parts?: Part[] };
+  taskId: TaskId;
+  appId: string;
+  receivedAt?: string;
+  clock?: LogicalClock;
+  signal: AbortSignal;
+}
+
+/**
+ * 2-arm verdict the TM declares for fan-out. `Forward { recipients }`
+ * names the agents the server SHALL deliver to; `Block { reason }`
+ * suppresses fan-out and surfaces `RpcFailure(HookBlocked)` to the
+ * sender. `recipients` MUST be a subset of the conversation's
+ * participants; the server does not re-fan to non-participants.
+ * Empty `recipients` is legal — message lands in the sender's
+ * transcript but is delivered to no one else.
+ *
+ * The remaining `Modify | Close | AttachConversation` arms from
+ * #142's 5-arm spec are out of scope for #560; see the design doc
+ * §11 for rationale.
+ */
+export type MessageAuthorizeResult =
+  | { decision: "Forward"; recipients: ReadonlyArray<AgentId> }
+  | { decision: "Block"; reason?: string };
+
+export const MessageAuthorizeResultSchema = Schema.Union(
+  Schema.Struct({
+    decision: Schema.Literal("Forward"),
+    recipients: Schema.Array(Schema.String),
+  }),
+  Schema.Struct({
+    decision: Schema.Literal("Block"),
+    reason: Schema.optional(Schema.String),
+  }),
+) as Schema.Schema<MessageAuthorizeResult, unknown>;
+
+/**
+ * Wire-envelope schema for `messages/authorize`. The reply arrives as
+ * `{ verdict: ... }`, not the bare verdict. Decoding at the RPC edge
+ * keeps AppHost's business logic typed (Principle 2).
+ */
+export const MessageAuthorizeRpcResultSchema = Schema.Struct({
+  verdict: MessageAuthorizeResultSchema,
+}) as Schema.Schema<{ verdict: MessageAuthorizeResult }, unknown>;
+
+export const decodeMessageAuthorizeRpcResult = Schema.decodeUnknown(
+  MessageAuthorizeRpcResultSchema,
+);
+
+export type MessageAuthorizeHook = Hook<
+  MessageAuthorizeContext,
+  MessageAuthorizeResult
+>;
+
+/**
+ * `AppHooks` continues to key per-appId — `taskAuthorizeDispatch`
+ * runs against the recipient's bound app, found via
+ * `lookupAppForConversation`. `messageAuthorize` does NOT live here:
+ * its lookup key is the TASK's `tm_endpoint_address`, not the bound
+ * app. Default DM and default-group conversations have no bound app
+ * but DO have a `tm_endpoint_address` (`DEFAULT_DM_TM_ADDRESS` /
+ * `DEFAULT_GROUP_TM_ADDRESS` per `app-tm-registry.ts:30,38@adc2e18`),
+ * so an address-keyed registry is the right shape.
+ */
 export interface AppHooks {
   taskAuthorizeDispatch?: TaskAuthorizeDispatchHook;
 }

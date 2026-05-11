@@ -22,9 +22,17 @@ import type { ConversationId, MessageId } from "@moltzap/protocol/task";
 import {
   type AppHooks,
   type DispatchAdmissionResult,
+  type MessageAuthorizeContext,
+  type MessageAuthorizeHook,
+  type MessageAuthorizeResult,
   type TaskAuthorizeDispatchContext,
   type TaskAuthorizeDispatchHook,
 } from "./hooks.js";
+import { MessagesAuthorize } from "@moltzap/protocol";
+import {
+  endpointAddressKind,
+  type EndpointAddress,
+} from "@moltzap/protocol/network";
 import { Data, Effect, Option } from "effect";
 import {
   catchSqlErrorAsDefect,
@@ -65,6 +73,23 @@ function parseModeratorAgentIdFromTm(raw: string): AgentId | null {
 
 const DEFAULT_APP_HOOK_TIMEOUT_MS = 5000;
 
+/**
+ * Derive an `appId` from an `EndpointAddress` for `remoteRegistrations`
+ * lookup (#560 C5 remote-path resolution). The mapping is well-defined
+ * only for the `tm:app:<appId>` shape — custom-TM `tm:agent:<id>`
+ * addresses do not carry an appId and short-circuit to null. Caller
+ * (`runMessageAuthorize`) falls through to the synthetic default
+ * verdict when both the in-process hook AND this lookup are absent.
+ */
+function appIdFromTmEndpointAddress(address: EndpointAddress): string | null {
+  if (endpointAddressKind(address) !== "app") return null;
+  const prefix = "tm:app:";
+  const raw = address as string;
+  if (!raw.startsWith(prefix)) return null;
+  const rest = raw.slice(prefix.length);
+  return rest.length === 0 ? null : rest;
+}
+
 export interface ContactService {
   areInContact(userIdA: string, userIdB: string): Effect.Effect<boolean, never>;
 }
@@ -99,6 +124,24 @@ export class AppHost {
   private manifests = new Map<string, AppManifest>();
   private contactService: ContactService | null = null;
   private hooks = new Map<string, AppHooks>();
+
+  /**
+   * #560: send-side fan-out hooks keyed by `EndpointAddress`. The
+   * lookup key for `messages/authorize` is the parent task's
+   * `tm_endpoint_address` (always populated post-#461 R12), NOT an
+   * appId. Default-DM and default-group register at boot under
+   * `DEFAULT_DM_TM_ADDRESS` / `DEFAULT_GROUP_TM_ADDRESS`; app TMs
+   * register under their `tm:app:<uuid>` address; future custom TMs
+   * (e.g., `tm:agent:<id>`) register under that.
+   *
+   * No sentinel constants needed — the existing address shapes IS
+   * the key. See R8 (ghost-service hazard) for why this stays
+   * separate from the `AppTmRegistry` opaque-payload registry.
+   */
+  private messageAuthorizeHooks = new Map<
+    EndpointAddress,
+    MessageAuthorizeHook
+  >();
   /**
    * Remote-app routing table. An entry exists iff `registerRemoteApp` was
    * called for `appId`; the value records which WS connection serves the
@@ -595,10 +638,199 @@ export class AppHost {
     });
   }
 
+  /**
+   * #560: Register an in-process `messageAuthorize` handler keyed by
+   * `EndpointAddress`. Default-DM and default-group register at boot
+   * (in `app-tm-registry.ts` or wherever default TMs bootstrap);
+   * apps that hold their own `tm:app:<uuid>` address register at
+   * `apps/register` time. Idempotent — repeat calls overwrite the
+   * existing entry for that address.
+   */
+  registerMessageAuthorize(
+    address: EndpointAddress,
+    hook: MessageAuthorizeHook,
+  ): void {
+    this.messageAuthorizeHooks.set(address, hook);
+  }
+
+  /**
+   * #560 v4 — generic hook runner shared by every authorization hook
+   * registry. Encapsulates the lookup + in-process-vs-remote branch +
+   * fail-closed envelope. Specific runners (`runMessageAuthorize`,
+   * future `runAuthorizeDispatch` refactor) become thin wrappers that
+   * supply the registry and the synthetic fallback verdict.
+   *
+   *   private runHook<TKey, TContext, TResult>(opts: {
+   *     registry: Map<TKey, Hook<TContext, TResult>>;
+   *     key: TKey;
+   *     ctx: TContext;
+   *     manifestTimeoutMs: number;
+   *     onTimeout: () => TResult;
+   *     onError: () => TResult;
+   *     defaultWhenAbsent: () => TResult;
+   *   }): Effect.Effect<TResult, never>;
+   *
+   * Resolution path for `runMessageAuthorize` (C5 design pin —
+   * documents how local/remote/default split lines up with the
+   * address-keyed registry):
+   *
+   *   1. `messageAuthorizeHooks.get(tmEndpointAddress)` returns a hook
+   *      → call in-process (default-DM/group + any custom in-process
+   *      app TM register here at boot or `apps/register`).
+   *   2. Else, derive `appId` from the address (today: parse
+   *      `tm:app:<appId>` shape) and check `remoteRegistrations.has
+   *      (appId)`. If present → send `messages/authorize` S→C RPC
+   *      over that connection via `runRemoteHookEffect`. The remote
+   *      path mirrors the existing dispatch/authorize remote path
+   *      (`:707@adc2e18`); the only difference is the RPC definition
+   *      passed in (`MessagesAuthorize` vs `DispatchAuthorize`).
+   *   3. Else, return the synthetic default: `Forward { recipients:
+   *      participants \ sender }` (preserves today's broadcast).
+   *
+   * The runner reuses `wrapHookEffectWithEnvelope` (`:763@adc2e18`)
+   * for the timeout + fail-closed wrapper; supplies in-process or
+   * remote dispatch via `runInProcessHookEffect` /
+   * `runRemoteHookEffect`. Refactoring the existing
+   * `dispatchAuthorizeHook` (`:550@adc2e18`) onto this shape is OUT
+   * of scope for this PR (architect §5 NOT-in-scope; tracked as a
+   * follow-up). The new `runMessageAuthorize` below is the FIRST
+   * caller of the unified shape; the existing dispatch path keeps its
+   * current implementation until the follow-up lands.
+   *
+   * Stub: `implement-*` fills in the body. Body shape: lookup, branch
+   * on `remoteRegistrations.has(...)`, run, envelope, return.
+   *
+   * Resolve the per-message fan-out verdict for a `messages/send`
+   * (#560). Looks up the registered handler by `tmEndpointAddress`,
+   * dispatches either the in-process `MessageAuthorizeHook` or the
+   * remote `messages/authorize` S→C RPC, applies the uniform fail-
+   * closed envelope, and returns a verdict the
+   * `MessageService.sendCommit` caller can switch on.
+   *
+   * Fail-closed posture (mirrors `runAuthorizeDispatch` per #461 r3
+   * R3/R4): timeout / RPC error / handler throw / decode failure all
+   * synthesize `Block { reason: "tm_unreachable" }` (or
+   * `"messages/authorize timeout"` / `"messages/authorize error"`,
+   * matching `dispatch/authorize`'s wording where the cause is known).
+   *
+   * Default policy when no hook is registered for the address:
+   * `Forward { recipients: participants \ sender }`. Default-DM and
+   * default-group's in-process registrations return exactly this —
+   * preserves today's broadcast behavior with zero wire chatter.
+   *
+   * The address-keyed map (`messageAuthorizeHooks`) is the C2 design
+   * pin: separate registry from the appId-keyed `hooks`, identical
+   * shape (`Map<TKey, Hook<TContext, TResult>>`). The hook-shape
+   * unification is the v4 design pin (architect risk R13).
+   */
+  runMessageAuthorize(
+    tmEndpointAddress: EndpointAddress,
+    ctx: MessageAuthorizeContext,
+  ): Effect.Effect<MessageAuthorizeResult, never> {
+    const inProcess = this.messageAuthorizeHooks.get(tmEndpointAddress);
+    const remoteAppId = appIdFromTmEndpointAddress(tmEndpointAddress);
+    const remote =
+      remoteAppId !== null
+        ? this.remoteRegistrations.get(remoteAppId)
+        : undefined;
+
+    if (!inProcess && !remote) {
+      // C5 step 3: synthetic default. Forward to every conversation
+      // participant except the sender — preserves the pre-#560
+      // broadcast. The query reads `conversation_participants`
+      // directly because AppHost cannot circularly depend on
+      // ConversationService.
+      return catchSqlErrorAsDefect(
+        Effect.gen(this, function* () {
+          const rows = yield* this.db
+            .selectFrom("conversation_participants")
+            .select("agent_id")
+            .where("conversation_id", "=", ctx.conversationId);
+          const recipients = rows
+            .map((r) => r.agent_id as AgentId)
+            .filter((a) => a !== ctx.message.senderAgentId);
+          return {
+            decision: "Forward" as const,
+            recipients,
+          } satisfies MessageAuthorizeResult;
+        }),
+      );
+    }
+
+    const manifest =
+      remoteAppId !== null ? this.manifests.get(remoteAppId) : undefined;
+    const timeoutMs =
+      manifest?.hooks?.message_authorize?.timeout_ms ??
+      DEFAULT_APP_HOOK_TIMEOUT_MS;
+    const taskId = ctx.taskId;
+    const appId = ctx.appId;
+
+    const raw: Effect.Effect<MessageAuthorizeResult, Error> = remote
+      ? this.runRemoteHookEffect({
+          appId: remoteAppId ?? appId,
+          definition: MessagesAuthorize,
+          connectionId: remote.connectionId,
+          params: this.messageAuthorizeParamsForWire(ctx),
+        }).pipe(Effect.map((envelope) => envelope.verdict))
+      : this.runInProcessHookEffect<
+          MessageAuthorizeContext,
+          MessageAuthorizeResult
+        >((ctxWithSignal) => inProcess!(ctxWithSignal), ctx);
+
+    return this.wrapHookEffectWithEnvelope<MessageAuthorizeResult>({
+      raw,
+      timeoutMs,
+      timeoutLogMessage: "messages/authorize timed out",
+      timeoutLogContext: {
+        taskId,
+        appId,
+        tmEndpointAddress,
+        timeoutMs,
+      },
+      errorLogMessage: "messages/authorize error",
+      errorLogContext: { taskId, appId, tmEndpointAddress },
+      onTimeout: () => ({
+        decision: "Block" as const,
+        reason: "tm_unreachable",
+      }),
+      onError: () => ({
+        decision: "Block" as const,
+        reason: "tm_unreachable",
+      }),
+    });
+  }
+
+  /**
+   * Wire-shape params for `messages/authorize`. Mirrors
+   * {@link authorizeDispatchParamsForWire}: strip `signal`, then
+   * conditionally include optional fields so the TypeBox schema's
+   * `additionalProperties: false` doesn't reject `undefined`.
+   */
+  private messageAuthorizeParamsForWire(
+    ctx: MessageAuthorizeContext,
+  ): ParamsOf<typeof MessagesAuthorize> {
+    const wire = this.contextForWire(ctx);
+    return {
+      taskId: wire.taskId,
+      appId: wire.appId,
+      conversationId: wire.conversationId,
+      message: {
+        id: wire.message.id,
+        senderAgentId: wire.message.senderAgentId,
+        ...(wire.message.parts !== undefined
+          ? { parts: wire.message.parts }
+          : {}),
+      },
+      ...(wire.receivedAt !== undefined ? { receivedAt: wire.receivedAt } : {}),
+      ...(wire.clock !== undefined ? { clock: wire.clock } : {}),
+    };
+  }
+
   /** Clear in-memory state. Called on shutdown. */
   destroy(): void {
     this.hooks.clear();
     this.remoteRegistrations.clear();
+    this.messageAuthorizeHooks.clear();
   }
 
   // ── Uniform hook dispatch (in-process + remote) ────────────────────
