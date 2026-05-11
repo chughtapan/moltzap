@@ -364,6 +364,7 @@ export const MessageServiceLive = Layer.effect(
     const deliveryWebhook = yield* DeliveryWebhookTag;
     const webhookClient = yield* WebhookClientTag;
     const traceCapture = yield* TraceCaptureTag;
+    const appHost = yield* AppHostTag;
     return new MessageService({
       db,
       conversations,
@@ -372,6 +373,7 @@ export const MessageServiceLive = Layer.effect(
       deliveryWebhook,
       webhookClient,
       traceCapture,
+      appHost,
     });
   }),
 );
