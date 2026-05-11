@@ -39,6 +39,44 @@ import { makeLeaseRegistry, type LeaseRegistry } from "./lease-registry.js";
 import type { EnvelopeEncryption } from "../crypto/envelope.js";
 import type { WebhookClient } from "../adapters/webhook.js";
 
+import type { MessageAuthorizeHook } from "./hooks.js";
+import type { AgentId } from "@moltzap/protocol/identity";
+
+/**
+ * #560: default `messageAuthorize` hook used by default-DM and default-
+ * group TMs. Returns Forward { participants \ sender } — preserves the
+ * pre-#560 broadcast. Reads `conversation_participants` directly to
+ * avoid a circular import on ConversationService.
+ *
+ * The hook returns a Promise to match the `Hook<TContext, TResult>`
+ * sync-or-promise SDK ergonomic; internally builds the value via Effect
+ * + `Effect.runPromise` so the project's no-async/no-then guards stay
+ * honoured.
+ */
+function makeDefaultMessageAuthorizeHook(db: Db): MessageAuthorizeHook {
+  return (ctx) =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        const rows = yield* Effect.tryPromise({
+          try: () =>
+            db
+              .selectFrom("conversation_participants")
+              .select("agent_id")
+              .where("conversation_id", "=", ctx.conversationId)
+              .execute(),
+          catch: (cause) => cause,
+        });
+        const recipients = rows
+          .map((r) => r.agent_id as AgentId)
+          .filter((a) => a !== ctx.message.senderAgentId);
+        return {
+          decision: "Forward" as const,
+          recipients,
+        };
+      }),
+    );
+}
+
 /** Default retention window for terminal lease records: 5 minutes. */
 const LEASE_RETENTION_MINUTES = 5;
 const SECONDS_PER_MINUTE = 60;
@@ -299,6 +337,19 @@ export const AppHostLive = Layer.effect(
     const leaseRegistry = yield* LeaseRegistryTag;
     const host = new AppHost(db, connections);
     host.setLeaseRegistry(leaseRegistry);
+    // #560: register default-DM and default-group `messageAuthorize`
+    // hooks. Each returns Forward { recipients: participants \
+    // sender }, preserving today's broadcast for non-app
+    // conversations. AppHost reads `conversation_participants`
+    // directly so no ConversationService dependency.
+    host.registerMessageAuthorize(
+      DEFAULT_DM_TM_ADDRESS,
+      makeDefaultMessageAuthorizeHook(db),
+    );
+    host.registerMessageAuthorize(
+      DEFAULT_GROUP_TM_ADDRESS,
+      makeDefaultMessageAuthorizeHook(db),
+    );
     return host;
   }),
 );
