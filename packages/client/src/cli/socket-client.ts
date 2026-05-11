@@ -1,11 +1,11 @@
 import * as net from "node:net";
 import * as fs from "node:fs";
 import { Data, Effect } from "effect";
-import { MoltZapService } from "../service.js";
+import { MoltZapService } from "@moltzap/client";
 import {
   LocalServiceCommands,
   type LocalServiceCommand,
-} from "../runtime/local-service-commands.js";
+} from "@moltzap/client/runtime";
 
 import {
   AgentsLookupByName,
