@@ -82,3 +82,34 @@ that list.
 Test callers `Effect.match` against the tag; the architect's tier rule
 is that `awaitConnectionCleanup` returns its error channel typed, not
 thrown. No `Promise<void>` shorthand.
+
+### Interrupt-observable behavior
+
+The per-connection fiber may be interrupted (server shutdown,
+`Scope.close`, parent fiber cancellation). Effect's runtime guarantees
+the `onExit` finalizer still runs to completion; the latches still
+open. Awaiting tests therefore observe one of two documented outcomes:
+
+1. **Normal interrupt path** — finalizer completes, `publish` fires
+   for every step including `connection-removed`, and `awaitStep` /
+   `awaitConnectionCleanup` succeed normally. This is the only path
+   the migrated tests should rely on.
+2. **Interrupt during finalizer body** — if a cleanup step itself is
+   interrupted (e.g., a hook never returns and the surrounding scope
+   forces shutdown), the latch for the interrupted step never opens.
+   Awaiting tests observe `CleanupSignalTimeout` for that step. They
+   do NOT observe silent completion; the failure cause is preserved
+   through the tagged-error channel so a test author can distinguish
+   "finalizer hung" from "test asked too early."
+
+PR1's proof-of-life test must exercise both paths (normal completion
+and interrupt during finalizer) to validate that `Effect.Latch`
+semantics survive Effect's interrupt model.
+
+## Production type leak avoidance
+
+`CoreApp` exposes `cleanupSignals: CleanupSignalPublisher` — the
+write-only narrow surface. The test-utils boot path stores the full
+`CleanupSignalRegistry` on `CoreTestServer.cleanupSignals` so tests
+can call `awaitStep` / `awaitConnectionCleanup`. Production code path
+therefore never sees the `Subscriber` type at all.

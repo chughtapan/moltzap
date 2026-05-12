@@ -62,19 +62,16 @@ export type CleanupSignalError =
   | CleanupSignalNeverRegistered;
 
 /**
- * Process-local registry of per-connection cleanup latches. One
- * instance is constructed per server lifetime and stored on the
- * `CoreApp` test surface (alongside `connections`, `leaseRegistry`).
+ * Production-facing write-only surface. This is the type that appears
+ * on `CoreApp` so production code can call `publish(...)` from the
+ * `Effect.onExit` finalizer without pulling the test-only waiter
+ * methods into production type position.
  *
  * Implementation hint for implement-senior (not part of this file):
- * the registry holds a `Ref<HashMap<ConnId, HashMap<CleanupStep, Latch>>>`.
- * `publish` opens-or-creates-and-opens the latch. `await*` reads the
- * latch (creating if missing so a waiter racing the publisher does not
- * miss the open) and waits on it with a timeout. A retention sweep
- * drops `ConnId` entries N seconds after `connection-removed` fires so
- * the map does not grow unbounded under long-running test processes.
+ * the underlying registry holds a `Ref<HashMap<ConnId, HashMap<CleanupStep, Latch>>>`.
+ * `publish` opens-or-creates-and-opens the latch.
  */
-export interface CleanupSignalRegistry {
+export interface CleanupSignalPublisher {
   /**
    * Production-side publish. Called as a tail step inside the
    * per-connection `Effect.onExit` finalizer for each cleanup step.
@@ -83,7 +80,22 @@ export interface CleanupSignalRegistry {
    * destabilized by test plumbing.
    */
   publish(connId: string, step: CleanupStep): Effect.Effect<void, never, never>;
+}
 
+/**
+ * Test-only read surface. Lives in test-utils, exposed via the test
+ * boot path (`CoreTestServer.cleanupSignals`). Production code never
+ * sees this interface; the `CoreApp` field is narrowed to
+ * `CleanupSignalPublisher` so the test-utils `Subscriber` type does
+ * not leak into production type position.
+ *
+ * Implementation hint for implement-senior: `await*` reads the latch
+ * (creating if missing so a waiter racing the publisher does not miss
+ * the open) and waits on it with a timeout. A retention sweep drops
+ * `ConnId` entries N seconds after `connection-removed` fires so the
+ * map does not grow unbounded under long-running test processes.
+ */
+export interface CleanupSignalSubscriber {
   /**
    * Test-side waiter for one specific step. Returns when the
    * production publisher has fired that step for `connId`, or fails
@@ -111,6 +123,16 @@ export interface CleanupSignalRegistry {
     timeoutMs: number,
   ): Effect.Effect<void, CleanupSignalError, never>;
 }
+
+/**
+ * Combined publisher + subscriber. The concrete object returned by
+ * `makeCleanupSignalRegistry` implements both; the test boot path
+ * narrows it to `CleanupSignalPublisher` before exposing on `CoreApp`
+ * and keeps the full `CleanupSignalRegistry` on `CoreTestServer`.
+ */
+export interface CleanupSignalRegistry
+  extends CleanupSignalPublisher,
+    CleanupSignalSubscriber {}
 
 /**
  * Construct the registry. One per server lifetime.
