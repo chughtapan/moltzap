@@ -164,7 +164,7 @@ export const makeJsonRpcServer = <Ctx = unknown, R = never>(
           message: "Internal error",
         },
       });
-    });
+    }).pipe(Effect.withSpan("makeJsonRpcServer"));
 
   return { handle };
 };

@@ -433,7 +433,8 @@ export class MoltZapWsClient {
     ResultOf<D>,
     NotConnectedError | RpcTimeoutError | RpcServerError
   > {
-    return this.sendRpcEffect(definition, params, opts).pipe(
+    const timeoutMs = opts?.timeoutMs ?? RPC_TIMEOUT_MS;
+    return this.sendRpcEffect(definition, params, timeoutMs).pipe(
       Effect.flatMap((result) =>
         definition.validateResult(result)
           ? Effect.succeed(result)
@@ -798,7 +799,7 @@ export class MoltZapWsClient {
   private sendRpcEffect<D extends RpcDefinition<string, any, any>>(
     definition: D,
     params: ParamsOf<D>,
-    opts?: RpcCallOptions,
+    timeoutMs: number,
   ): Effect.Effect<
     ResultOf<D>,
     NotConnectedError | RpcTimeoutError | RpcServerError
@@ -843,7 +844,6 @@ export class MoltZapWsClient {
         return yield* Effect.fail(makeNotConnectedError());
       }
 
-      const timeoutMs = opts?.timeoutMs ?? RPC_TIMEOUT_MS;
       const result = yield* Deferred.await(deferred).pipe(
         Effect.timeoutFail({
           duration: `${timeoutMs} millis`,
@@ -1127,12 +1127,17 @@ export class MoltZapWsClient {
           }
         }),
       ),
-      // Collapse typed errors so `Schedule.exponential` can retry.
-      Effect.mapError(
-        () =>
-          new ReconnectAttemptFailedError({
-            reason: "reconnect attempt failed",
-          }),
+      Effect.either,
+      Effect.flatMap(
+        Either.match({
+          onLeft: () =>
+            Effect.fail(
+              new ReconnectAttemptFailedError({
+                reason: "reconnect attempt failed",
+              }),
+            ),
+          onRight: (value) => Effect.succeed(value),
+        }),
       ),
     );
 

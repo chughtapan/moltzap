@@ -16,10 +16,19 @@
  * named export of `config.ts`. The public interface defined below is the
  * contract impl-staff preserves regardless of layout.
  */
-import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { Brand, Config, ConfigProvider, Data, Effect, Option } from "effect";
+import { FileSystem } from "@effect/platform";
+import { NodeFileSystem } from "@effect/platform-node";
+import {
+  Brand,
+  Config,
+  ConfigProvider,
+  Data,
+  Effect,
+  Either,
+  Option,
+} from "effect";
 
 // ─── Branded names ─────────────────────────────────────────────────────────
 
@@ -28,7 +37,7 @@ import { Brand, Config, ConfigProvider, Data, Effect, Option } from "effect";
  * `commands/register.ts`: `/^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$/`.
  */
 export type ProfileName = string & Brand.Brand<"ProfileName">;
-export const ProfileName = Brand.nominal<ProfileName>();
+const ProfileNameBrand = Brand.nominal<ProfileName>();
 
 /** Sentinel used when the caller addresses the legacy top-level record. */
 export type DefaultProfileId = "default";
@@ -97,7 +106,7 @@ export class ProfileNotFoundError extends Data.TaggedError(
   readonly name: string;
 }> {}
 
-export class ProfileAlreadyExistsError extends Data.TaggedError(
+class ProfileAlreadyExistsError extends Data.TaggedError(
   "ProfileAlreadyExistsError",
 )<{
   readonly name: string;
@@ -147,7 +156,7 @@ export const parseProfileName = (
       }),
     );
   }
-  return Effect.succeed(ProfileName(raw));
+  return Effect.succeed(ProfileNameBrand(raw));
 };
 
 interface RawConfig {
@@ -185,21 +194,32 @@ const readRawConfig = (): Effect.Effect<
 > =>
   Effect.gen(function* () {
     const configPath = getConfigFilePathSync();
-    const text = yield* Effect.try({
-      try: () => fs.readFileSync(configPath, "utf-8"),
-      catch: (err) => err,
-    }).pipe(
-      Effect.catchAll((err) => {
-        const code = (err as NodeJS.ErrnoException).code;
-        return code === "ENOENT"
-          ? Effect.succeed(null)
-          : Effect.fail(
+    const text = yield* FileSystem.FileSystem.pipe(
+      Effect.flatMap((fileSystem) =>
+        fileSystem
+          .exists(configPath)
+          .pipe(
+            Effect.flatMap((exists) =>
+              exists
+                ? fileSystem.readFileString(configPath, "utf-8")
+                : Effect.succeed(null),
+            ),
+          ),
+      ),
+      Effect.provide(NodeFileSystem.layer),
+      Effect.either,
+      Effect.flatMap(
+        Either.match({
+          onLeft: (cause) =>
+            Effect.fail(
               new ProfileConfigReadError({
                 path: configPath,
-                cause: err,
+                cause,
               }),
-            );
-      }),
+            ),
+          onRight: (value) => Effect.succeed(value),
+        }),
+      ),
     );
     if (text === null) {
       return { raw: {}, existed: false };
@@ -256,13 +276,13 @@ export const loadLayeredConfig: Effect.Effect<
       if (!NAME_PATTERN.test(name)) continue; // tolerate malformed entries
       const record = decodeProfileRecord(value, serverUrl);
       if (record !== undefined) {
-        profiles.set(ProfileName(name), record);
+        profiles.set(ProfileNameBrand(name), record);
       }
     }
   }
 
   return { default: defaultRecord, profiles, serverUrl };
-});
+}).pipe(Effect.withSpan("loadLayeredConfig"));
 
 /**
  * Resolve the auth record for a given profile name.
@@ -294,7 +314,7 @@ export const resolveProfileAuth = (
       return yield* Effect.fail(new ProfileNotFoundError({ name }));
     }
     return found;
-  });
+  }).pipe(Effect.withSpan("resolveProfileAuth"));
 
 /**
  * Persist a new profile record under `profiles.<name>`, or replace the
@@ -335,21 +355,33 @@ export const writeProfile = (
 
     const configDir = getConfigDir();
     const configPath = getConfigFilePathSync();
-    yield* Effect.try({
-      try: () => {
-        fs.mkdirSync(configDir, { recursive: true });
-        fs.writeFileSync(
-          configPath,
-          JSON.stringify(next, null, JSON_INDENT_SPACES) + "\n",
-          {
-            mode: CONFIG_FILE_MODE,
-          },
-        );
-      },
-      catch: (err) =>
-        new ProfileConfigWriteError({ path: configPath, cause: err }),
-    });
-  });
+    yield* FileSystem.FileSystem.pipe(
+      Effect.flatMap((fileSystem) =>
+        fileSystem.makeDirectory(configDir, { recursive: true }).pipe(
+          Effect.zipRight(
+            fileSystem.writeFileString(
+              configPath,
+              JSON.stringify(next, null, JSON_INDENT_SPACES) + "\n",
+              {
+                mode: CONFIG_FILE_MODE,
+              },
+            ),
+          ),
+        ),
+      ),
+      Effect.provide(NodeFileSystem.layer),
+      Effect.either,
+      Effect.flatMap(
+        Either.match({
+          onLeft: (cause) =>
+            Effect.fail(
+              new ProfileConfigWriteError({ path: configPath, cause }),
+            ),
+          onRight: (value) => Effect.succeed(value),
+        }),
+      ),
+    );
+  }).pipe(Effect.withSpan("writeProfile"));
 
 /**
  * `--no-persist` contract for `moltzap register`. Revised Invariant §4.4
@@ -370,14 +402,3 @@ export const emitNoPersist = (
   record: ProfileRecord,
 ): Effect.Effect<{ readonly record: ProfileRecord }, never> =>
   Effect.succeed({ record });
-
-// ─── Test seam ─────────────────────────────────────────────────────────────
-
-/**
- * Absolute path to the config file. Overridable at test time via the
- * `MOLTZAP_CONFIG_HOME` env (tests set a tmp dir; production leaves unset).
- * Exported so assertions can diff the file after a command run.
- */
-export const getConfigFilePath: Effect.Effect<string, never> = Effect.sync(() =>
-  getConfigFilePathSync(),
-);

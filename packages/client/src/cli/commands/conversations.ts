@@ -346,11 +346,7 @@ const historySubcommand = Command.make(
   historyHandler,
 ).pipe(Command.withDescription("Show message history for a conversation"));
 
-// ─── ARCH sbd#185: new v2 subcommands (get / archive / unarchive) ──────────
-//
-// Stubs only — bodies are `throw new Error("not implemented")`. Full
-// signatures and traceability: https://github.com/chughtapan/safer-by-default/issues/177
-// (architect design doc rev 2).
+// ─── ARCH sbd#185: v2 subcommands (get / archive / unarchive) ──────────────
 
 import {
   rpc as transportRpc,
@@ -378,7 +374,7 @@ export type ConversationsCommandError =
   | ConversationsInputError;
 
 /** CLI-level input was rejected (architect stage: signature only). */
-export class ConversationsInputError extends Data.TaggedError(
+class ConversationsInputError extends Data.TaggedError(
   "ConversationsInputError",
 )<{
   readonly message: string;
@@ -396,7 +392,7 @@ export const conversationsGetHandler = (args: {
     yield* Effect.sync(() => {
       console.log(JSON.stringify(result, null, JSON_INDENT_SPACES));
     });
-  });
+  }).pipe(Effect.withSpan("conversationsGetHandler"));
 
 /** `moltzap conversations archive <id>` → conversations/archive; prints success marker. */
 export const conversationsArchiveHandler = (args: {
@@ -409,7 +405,7 @@ export const conversationsArchiveHandler = (args: {
     yield* Effect.sync(() => {
       console.log(`archived: ${args.conversationId}`);
     });
-  });
+  }).pipe(Effect.withSpan("conversationsArchiveHandler"));
 
 /** `moltzap conversations unarchive <id>` → conversations/unarchive; prints success marker. */
 export const conversationsUnarchiveHandler = (args: {
@@ -422,7 +418,7 @@ export const conversationsUnarchiveHandler = (args: {
     yield* Effect.sync(() => {
       console.log(`unarchived: ${args.conversationId}`);
     });
-  });
+  }).pipe(Effect.withSpan("conversationsUnarchiveHandler"));
 
 // ── Command.make wrappers for the three v2 handlers ───────────────────────
 const getConversationCommand = Command.make(

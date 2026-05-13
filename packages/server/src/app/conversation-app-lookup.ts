@@ -1,7 +1,6 @@
-import type { Kysely } from "kysely";
 import { Effect, Option } from "effect";
 import type { ConversationId, TaskId } from "@moltzap/protocol/task";
-import type { Database } from "../db/database.js";
+import type { Db } from "../db/client.js";
 import {
   catchSqlErrorAsDefect,
   takeFirstOption,
@@ -74,7 +73,7 @@ export type ConversationAppLookup =
  * server-internal fault, not a moderator verdict.
  */
 export function lookupAppForConversation(
-  db: Kysely<Database>,
+  db: Db,
   conversationId: ConversationId,
 ): Effect.Effect<ConversationAppLookup, never, never> {
   return catchSqlErrorAsDefect(
@@ -106,6 +105,6 @@ export function lookupAppForConversation(
         taskId: row.task_id,
         appId: row.app_id,
       } as const;
-    }),
+    }).pipe(Effect.withSpan("lookupAppForConversation")),
   );
 }

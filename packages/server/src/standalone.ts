@@ -1,16 +1,13 @@
 /** Standalone server — loads YAML config, boots PGlite or Postgres, starts the server. */
 
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
 import { join, dirname, resolve, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Kysely, PostgresDialect, sql } from "kysely";
+import { sql } from "./db/sql.js";
 import { Data, Effect, Either } from "effect";
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
-import Ajv from "ajv";
-import addFormats from "ajv-formats";
-import { AppManifestSchema, type AppManifest } from "@moltzap/protocol";
+import { validateAppManifest, type AppManifest } from "@moltzap/protocol";
 import type { MoltZapAppConfig as MoltZapConfig } from "./config/effect-config.js";
 import { createCoreApp } from "./app/server.js";
 import { seedInitialKek } from "./crypto/key-rotation.js";
@@ -21,8 +18,10 @@ import { WebhookSessionValidator } from "./identity/services/session-validator.j
 import { logger } from "./logger.js";
 import type { CoreApp, CoreConfig } from "./app/types.js";
 import type { Database } from "./db/database.js";
+import type { Db } from "./db/client.js";
+import { PostgresDialect } from "./db/postgres-dialect.js";
 import {
-  RuntimeConfigPath,
+  runtimeConfigPath,
   loadRuntimeProcessConfig,
   type RuntimeConfigSurfaceError,
 } from "./runtime-surface/config.js";
@@ -30,6 +29,7 @@ import {
   createRuntimeObservability,
   type RuntimeObservabilityError,
 } from "./runtime-surface/logging.js";
+import { currentArgv, isStandaloneDirectRun } from "./runtime/direct-run.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_WEBHOOK_TIMEOUT_MS = 10_000;
@@ -76,14 +76,12 @@ const operationFailed = (
 // ── App-manifest boundary validation ───────────────────────────────
 //
 // Principle 2: data crossing a boundary (JSON file on disk) is decoded
-// against `AppManifestSchema` before it reaches `app.registerApp(...)`.
+// against the protocol manifest validator before it reaches
+// `app.registerApp(...)`.
 // Without this, a malformed-but-JSON-parseable manifest (missing
 // `appId`, wrong `participantFilter`, retired hook key, etc.) would
 // flow as `any` into `AppHost` and only surface deep inside RPC
-// handlers. Compile once at module scope; AJV validators are
-// thread-safe and cheap to reuse.
-const ajv = addFormats(new Ajv({ strict: true, allErrors: true }));
-const validateAppManifest = ajv.compile(AppManifestSchema);
+// handlers.
 
 /**
  * Parse and validate a JSON manifest blob. Returns `Right(AppManifest)`
@@ -91,7 +89,6 @@ const validateAppManifest = ajv.compile(AppManifestSchema);
  * (`kind: "parse"`) or schema-validation failure (`kind: "schema"`).
  * Never throws. Exported for test access only.
  */
-// eslint-disable-next-line agent-code-guard/manual-result -- Returns Effect's Either<A, E>; the rule's name-pattern heuristic mis-fires on Either.left/Either.right MemberExpressions inside the body. Same false-positive class as openclaw-entry.ts:185.
 export function decodeAppManifest(
   json: string,
   path: string,
@@ -108,25 +105,23 @@ export function decodeAppManifest(
       }),
     );
   }
-  if (!validateAppManifest(parsed)) {
-    const errors = (validateAppManifest.errors ?? []).map(
-      (e) => `${e.instancePath || "/"} ${e.message ?? "validation failed"}`,
-    );
+  const validation = validateAppManifest(parsed);
+  if (validation._tag === "Invalid") {
     return Either.left(
       new InvalidAppManifest({
         kind: "schema",
         path,
-        errors: errors.length > 0 ? errors : ["unknown validation failure"],
+        errors: validation.errors,
       }),
     );
   }
-  return Either.right(parsed as AppManifest);
+  return Either.right(validation.manifest);
 }
 
 // ── Database factory ────────────────────────────────────────────────
 
 interface DbHandle {
-  db: Kysely<Database>;
+  db: Db;
   cleanup: () => Effect.Effect<void, StandaloneOperationFailed, never>;
   runMigrationSql: (
     sql: string,
@@ -220,21 +215,27 @@ function createPostgresDb(
 // ── Migration ───────────────────────────────────────────────────────
 
 function findSchemaFile(): Effect.Effect<string, SchemaFileNotFound, never> {
-  // Docker: copied to package root
-  const dockerPath = join(__dirname, "..", "core-schema.sql");
-  if (existsSync(dockerPath)) return Effect.succeed(dockerPath);
-  // Dev (tsx): running from src/, schema in src/app/
-  const devPath = join(__dirname, "app", "core-schema.sql");
-  if (existsSync(devPath)) return Effect.succeed(devPath);
-  // Compiled (node dist/): schema in ../src/app/
-  const distPath = join(__dirname, "..", "src", "app", "core-schema.sql");
-  if (existsSync(distPath)) return Effect.succeed(distPath);
-  return Effect.fail(
-    new SchemaFileNotFound({
-      message:
-        "Cannot find core-schema.sql. Ensure it exists at the package root or in src/app/.",
-    }),
-  );
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const exists = (candidate: string) =>
+      fs.exists(candidate).pipe(Effect.catchAll(() => Effect.succeed(false)));
+
+    // Docker: copied to package root
+    const dockerPath = join(__dirname, "..", "core-schema.sql");
+    if (yield* exists(dockerPath)) return dockerPath;
+    // Dev (tsx): running from src/, schema in src/app/
+    const devPath = join(__dirname, "app", "core-schema.sql");
+    if (yield* exists(devPath)) return devPath;
+    // Compiled (node dist/): schema in ../src/app/
+    const distPath = join(__dirname, "..", "src", "app", "core-schema.sql");
+    if (yield* exists(distPath)) return distPath;
+    return yield* Effect.fail(
+      new SchemaFileNotFound({
+        message:
+          "Cannot find core-schema.sql. Ensure it exists at the package root or in src/app/.",
+      }),
+    );
+  }).pipe(Effect.provide(NodeFileSystem.layer));
 }
 
 /**
@@ -296,6 +297,9 @@ function autoMigrateEffect(
 // ── Main ────────────────────────────────────────────────────────────
 
 export function startServer(configPath?: string) {
+  if (configPath === undefined) {
+    return Effect.runPromise(startServerEffect());
+  }
   return Effect.runPromise(startServerEffect(configPath));
 }
 
@@ -312,7 +316,7 @@ function startServerEffect(
     const runtimeConfig = yield* loadRuntimeProcessConfig(
       configPath === undefined
         ? {}
-        : { configPath: RuntimeConfigPath(configPath) },
+        : { configPath: runtimeConfigPath(configPath) },
     );
     const observability = yield* createRuntimeObservability(runtimeConfig);
     const log = observability.logger;
@@ -472,10 +476,7 @@ function startServerEffect(
 
 // Auto-start when run directly (e.g. `node dist/standalone.js`, `tsx src/standalone.ts`)
 // bin/moltzap-server calls startServer() explicitly via import.
-const isDirectRun =
-  process.argv[1]?.endsWith("standalone.js") ||
-  process.argv[1]?.endsWith("standalone.ts");
-if (isDirectRun) {
+if (isStandaloneDirectRun(currentArgv())) {
   startServer().catch((err) => {
     logger.error({ err }, "Server startup failed");
     process.exit(1);

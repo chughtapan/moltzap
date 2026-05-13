@@ -804,17 +804,20 @@ export class MoltZapChannelCore {
             "MoltZapChannelCore: inbound dispatch starting",
           ),
         );
-        const dispatch = Effect.acquireUseRelease(
-          Effect.sync(() => {
-            const previous = this.leaseIdInFlight;
-            this.leaseIdInFlight = decision.leaseId;
-            return previous;
-          }),
-          () => this.dispatchInboundEffect(messages),
-          (previous) =>
-            Effect.sync(() => {
-              this.leaseIdInFlight = previous;
-            }),
+        const dispatch = Effect.sync(() => {
+          const previous = this.leaseIdInFlight;
+          this.leaseIdInFlight = decision.leaseId;
+          return previous;
+        }).pipe(
+          Effect.flatMap((previous) =>
+            this.dispatchInboundEffect(messages).pipe(
+              Effect.ensuring(
+                Effect.sync(() => {
+                  this.leaseIdInFlight = previous;
+                }),
+              ),
+            ),
+          ),
         );
         const timeoutMs = decision.leaseId
           ? (decision.leaseTimeoutMs ?? DEFAULT_DISPATCH_LEASE_TIMEOUT_MS)

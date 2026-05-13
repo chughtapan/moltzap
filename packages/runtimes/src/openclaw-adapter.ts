@@ -1,6 +1,5 @@
 import { Data, Effect, pipe } from "effect";
 import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
-import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -19,6 +18,13 @@ import {
   resolveChannelDependency,
   seedWorkspaceFiles as seedSharedWorkspaceFiles,
 } from "./channel-plugin-install.js";
+import {
+  existsSync,
+  makeDirectorySync,
+  makeTempDirectorySync,
+  removeSync,
+  writeFileSync,
+} from "./node-fs.js";
 
 const OPENCLAW_TERM_WAIT_MS = 10_000;
 const OPENCLAW_KILL_WAIT_MS = 5_000;
@@ -81,7 +87,7 @@ export class OpenClawAdapter implements Runtime {
       yield* Effect.try({
         try: () => {
           const { deps } = this;
-          const stateDir = fs.mkdtempSync(
+          const stateDir = makeTempDirectorySync(
             path.join(os.tmpdir(), `openclaw-${input.agentName}-`),
           );
 
@@ -239,16 +245,17 @@ export class OpenClawAdapter implements Runtime {
         }
       }
 
-      yield* Effect.sync(() => {
-        try {
-          fs.rmSync(stateDir, { recursive: true, force: true });
-        } catch (removeErr) {
-          console.warn(
+      yield* Effect.try({
+        try: () => removeSync(stateDir, { recursive: true, force: true }),
+        catch: (cause) => cause,
+      }).pipe(
+        Effect.catchAll((cause) =>
+          Effect.logWarning(
             "failed to remove OpenClaw adapter state dir",
-            removeErr,
-          );
-        }
-      });
+            cause,
+          ),
+        ),
+      );
     });
   }
 
@@ -291,7 +298,9 @@ export class OpenClawAdapter implements Runtime {
     try {
       process.kill(-groupId, signal);
     } catch (killErr) {
-      console.warn("failed to signal OpenClaw process group", killErr);
+      process.stderr.write(
+        `failed to signal OpenClaw process group ${String(killErr)}\n`,
+      );
     }
   }
 }
@@ -332,7 +341,7 @@ function resolveWorkspaceOpenClawBin(
   repoRoot: string,
 ): string {
   const packageBin = path.join(packageRoot, "node_modules/.bin/openclaw");
-  if (fs.existsSync(packageBin)) {
+  if (existsSync(packageBin)) {
     return packageBin;
   }
   return path.join(repoRoot, "node_modules/.bin/openclaw");
@@ -494,9 +503,9 @@ function writeOpenClawConfig(opts: {
     },
   };
 
-  fs.mkdirSync(path.join(opts.stateDir, "workspace"), { recursive: true });
-  fs.mkdirSync(path.join(opts.stateDir, "logs"), { recursive: true });
-  fs.writeFileSync(
+  makeDirectorySync(path.join(opts.stateDir, "workspace"));
+  makeDirectorySync(path.join(opts.stateDir, "logs"));
+  writeFileSync(
     path.join(opts.stateDir, "openclaw.json"),
     JSON.stringify(config, null, JSON_INDENT_SPACES),
   );

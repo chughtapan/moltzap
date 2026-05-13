@@ -61,5 +61,5 @@ export const InMemoryTraceCaptureLive = Layer.effect(
         return Ref.set(ref, []);
       },
     } satisfies TraceCapture;
-  }),
+  }).pipe(Effect.withSpan("InMemoryTraceCaptureLive")),
 );

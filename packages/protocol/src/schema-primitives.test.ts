@@ -3,7 +3,13 @@ import Ajv from "ajv";
 import addFormats from "ajv-formats";
 import { FormatRegistry, Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
-import { stringEnum, brandedId, DateTimeString } from "./schema-primitives.js";
+import {
+  stringEnum,
+  brandedId,
+  dateTimeStringSchema,
+} from "./schema-primitives.js";
+
+const DateTimeString = dateTimeStringSchema();
 
 const ajv = addFormats(new Ajv({ strict: true }));
 

@@ -246,18 +246,24 @@ export function waitForLogMatch(
 
     const proc = spawn("docker", ["logs", "-f", containerId]);
 
-    const finish = (error?: Error) => {
+    const finish = () => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       proc.kill();
-      if (error) reject(error);
-      else resolve();
+    };
+    const finishSuccess = () => {
+      finish();
+      resolve();
+    };
+    const finishFailure = (error: Error) => {
+      finish();
+      reject(error);
     };
 
     const timer = setTimeout(() => {
       const missing = required.filter((p) => !matched.has(p));
-      finish(
+      finishFailure(
         new OpenClawContainerError(
           `waitForLogMatch timed out after ${timeoutMs}ms.\n` +
             `Matched: [${[...matched].join(", ")}]\n` +
@@ -278,7 +284,7 @@ export function waitForLogMatch(
             matched.add(pattern);
         }
         if (matched.size === required.length) {
-          finish();
+          finishSuccess();
           return;
         }
       }
@@ -289,7 +295,7 @@ export function waitForLogMatch(
     proc.stderr.on("data", processData);
 
     proc.on("error", (err) => {
-      finish(
+      finishFailure(
         new OpenClawContainerError(
           `docker logs process error: ${err.message}\nLogs:\n${getLogs(containerId)}`,
         ),
@@ -304,12 +310,12 @@ export function waitForLogMatch(
             if (buffer.includes(pattern)) matched.add(pattern);
           }
           if (matched.size === required.length) {
-            finish();
+            finishSuccess();
             return;
           }
         }
         const missing = required.filter((p) => !matched.has(p));
-        finish(
+        finishFailure(
           new OpenClawContainerError(
             `docker logs exited (code ${code}) before all patterns matched.\n` +
               `Matched: [${[...matched].join(", ")}]\n` +

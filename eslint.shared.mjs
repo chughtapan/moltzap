@@ -1,0 +1,132 @@
+import guard from "eslint-plugin-agent-code-guard";
+import tsParser from "@typescript-eslint/parser";
+import comments from "@eslint-community/eslint-plugin-eslint-comments";
+import tseslint from "@typescript-eslint/eslint-plugin";
+
+const tsLanguageOptions = {
+  parser: tsParser,
+  parserOptions: { ecmaVersion: 2022, sourceType: "module" },
+};
+
+const packageIgnores = {
+  ignores: ["**/dist/**", "**/node_modules/**", "**/*.d.ts"],
+};
+
+const architectureRuleNames = new Set(
+  Object.keys(guard.configs.architecture.rules),
+);
+
+const recommendedSourceRules = Object.fromEntries(
+  Object.entries(guard.configs.recommended.rules).filter(
+    ([ruleName]) => !architectureRuleNames.has(ruleName),
+  ),
+);
+
+const sourceRules = {
+  ...recommendedSourceRules,
+  "jsdoc/empty-tags": "off",
+  "jsdoc/escape-inline-tags": "off",
+  "jsdoc/match-description": "off",
+  "jsdoc/text-escaping": "off",
+  "jsdoc/valid-types": "off",
+  "sonarjs/cognitive-complexity": "off",
+  "sonarjs/hashing": "off",
+  "sonarjs/no-nested-functions": "off",
+  "sonarjs/no-nested-conditional": "off",
+  "sonarjs/no-os-command-from-path": "off",
+  "sonarjs/os-command": "off",
+  "sonarjs/redundant-type-aliases": "off",
+  "sonarjs/regex-complexity": "off",
+  "sonarjs/slow-regex": "off",
+  "sonarjs/use-type-alias": "off",
+  "sonarjs/void-use": "off",
+  "@typescript-eslint/no-magic-numbers": [
+    "warn",
+    {
+      ignore: [-1, 0, 1],
+      ignoreArrayIndexes: true,
+    },
+  ],
+  "@typescript-eslint/no-unused-vars": "error",
+  "sonarjs/no-duplicate-string": ["warn", { threshold: 4 }],
+};
+
+const testSupportRules = {
+  files: [
+    "src/**/*.test.ts",
+    "src/**/*.spec.ts",
+    "src/**/*.integration.test.ts",
+    "src/**/*.int.test.ts",
+    "src/__tests__/**/*.ts",
+    "src/**/__tests__/**/*.ts",
+    "src/testing/**/*.ts",
+    "src/test-utils/**/*.ts",
+  ],
+  rules: {
+    "@typescript-eslint/no-magic-numbers": "off",
+    "agent-code-guard/acquire-release-requires-scope": "off",
+    "agent-code-guard/no-console-in-effect": "off",
+    "agent-code-guard/no-effect-error-coalescing": "off",
+    "agent-code-guard/no-exported-brand-constructor": "off",
+    "agent-code-guard/no-promise-all-in-effect": "off",
+    "agent-code-guard/prefer-effect-platform": "off",
+    "agent-code-guard/require-span-on-exported-effect": "off",
+    "sonarjs/no-os-command-from-path": "off",
+    "sonarjs/os-command": "off",
+    "sonarjs/pseudo-random": "off",
+    "sonarjs/void-use": "off",
+  },
+};
+
+const eslintDisableCommentRules = {
+  files: ["**/*.ts"],
+  languageOptions: tsLanguageOptions,
+  plugins: { "eslint-comments": comments },
+  rules: {
+    "eslint-comments/require-description": ["error", { ignore: [] }],
+  },
+};
+
+const integrationTestRules = {
+  files: ["src/**/*.integration.test.ts"],
+  languageOptions: tsLanguageOptions,
+  plugins: guard.configs.integrationTests.plugins,
+  rules: guard.configs.integrationTests.rules,
+};
+
+export function packageEslintConfig() {
+  return [
+    packageIgnores,
+    {
+      files: ["src/**/*.ts"],
+      ignores: ["**/*.test.ts", "**/*.spec.ts"],
+      languageOptions: tsLanguageOptions,
+      plugins: {
+        ...guard.configs.recommended.plugins,
+        "@typescript-eslint": tseslint,
+      },
+      settings: guard.configs.recommended.settings,
+      rules: sourceRules,
+    },
+    integrationTestRules,
+    testSupportRules,
+    eslintDisableCommentRules,
+  ];
+}
+
+export function rootEslintConfig() {
+  return [
+    packageIgnores,
+    {
+      files: ["scripts/**/*.ts", "*.ts"],
+      languageOptions: tsLanguageOptions,
+      plugins: {
+        ...guard.configs.recommended.plugins,
+        "@typescript-eslint": tseslint,
+      },
+      settings: guard.configs.recommended.settings,
+      rules: sourceRules,
+    },
+    eslintDisableCommentRules,
+  ];
+}

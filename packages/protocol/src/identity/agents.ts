@@ -1,6 +1,13 @@
 import { Type, type Static } from "@sinclair/typebox";
-import { stringEnum, DateTimeString, brandedId } from "../schema-primitives.js";
+import {
+  stringEnum,
+  dateTimeStringSchema,
+  brandedId,
+} from "../schema-primitives.js";
 import { defineRpc } from "../transport/method.js";
+import { ajv } from "../transport/wire.js";
+
+const DateTimeString = dateTimeStringSchema();
 
 export const UserId = brandedId("UserId");
 export type UserId = Static<typeof UserId>;
@@ -16,7 +23,7 @@ const AgentMetadataSchema = Type.Object(
   { additionalProperties: false },
 );
 
-export const AgentSchema = Type.Object(
+const AgentSchema = Type.Object(
   {
     id: AgentId,
     ownerUserId: Type.Optional(UserId),
@@ -35,11 +42,11 @@ export const AgentSchema = Type.Object(
   { additionalProperties: false },
 );
 
-export const AgentCardSchema = Type.Omit(AgentSchema, ["createdAt"], {
+const AgentCardSchema = Type.Omit(AgentSchema, ["createdAt"], {
   additionalProperties: false,
 });
 
-export const AgentOwnershipSchema = Type.Object(
+const AgentOwnershipSchema = Type.Object(
   {
     agentId: AgentId,
     ownerId: Type.String(),
@@ -49,6 +56,17 @@ export const AgentOwnershipSchema = Type.Object(
 
 export type Agent = Static<typeof AgentSchema>;
 export type AgentCard = Static<typeof AgentCardSchema>;
+
+export const validateAgent = ajv.compile(AgentSchema) as (
+  value: unknown,
+) => value is Agent;
+export const validateAgentCard = ajv.compile(AgentCardSchema) as (
+  value: unknown,
+) => value is AgentCard;
+
+export function agentOwnershipSchema(): typeof AgentOwnershipSchema {
+  return AgentOwnershipSchema;
+}
 
 export const Register = defineRpc({
   name: "agents/register",

@@ -1,4 +1,4 @@
-import { Config, ConfigProvider, Data, Effect, Option } from "effect";
+import { Config, ConfigProvider, Data, Effect, Option, Redacted } from "effect";
 import { RpcServerError } from "@moltzap/protocol";
 import {
   MoltZapChannelCore,
@@ -44,7 +44,7 @@ function formatCrossConvNanoclaw(
 const MOLTZAP_JID_PREFIX = "mz:";
 const DEFAULT_SERVER_URL = "wss://api.moltzap.xyz";
 const MoltZapChannelEnv = Config.all({
-  apiKey: Config.option(Config.string("MOLTZAP_API_KEY")),
+  apiKey: Config.option(Config.redacted("MOLTZAP_API_KEY")),
   serverUrl: Config.string("MOLTZAP_SERVER_URL").pipe(
     Config.withDefault(DEFAULT_SERVER_URL),
   ),
@@ -76,7 +76,10 @@ function loadMoltZapChannelEnv(): {
     MoltZapChannelEnv.pipe(Effect.withConfigProvider(ConfigProvider.fromEnv())),
   );
   return {
-    apiKey: Option.getOrUndefined(env.apiKey),
+    apiKey: Option.match(env.apiKey, {
+      onNone: () => undefined,
+      onSome: Redacted.value,
+    }),
     serverUrl: env.serverUrl,
     evalMode: env.evalMode === "1",
   };

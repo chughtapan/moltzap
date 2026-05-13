@@ -15,9 +15,9 @@
 import { Data, Effect } from "effect";
 import { Value } from "@sinclair/typebox/value";
 import {
-  RequestFrameSchema,
-  ResponseFrameSchema,
-  NotificationFrameSchema,
+  requestFrameSchema,
+  responseFrameSchema,
+  notificationFrameSchema,
   type RequestFrame,
   type ResponseFrame,
   type NotificationFrame,
@@ -29,6 +29,9 @@ const OVERSIZED_PADDING_BYTES = 65_536;
 const LCG_MULTIPLIER = 1_664_525;
 const LCG_INCREMENT = 1_013_904_223;
 const LCG_MODULUS = 0x100000000;
+const RequestFrameSchema = requestFrameSchema();
+const ResponseFrameSchema = responseFrameSchema();
+const NotificationFrameSchema = notificationFrameSchema();
 
 /** A frame read off the wire failed `Value.Check` against its schema. */
 export class FrameSchemaError extends Data.TaggedError(

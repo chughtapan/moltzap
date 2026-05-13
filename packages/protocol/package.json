@@ -45,6 +45,8 @@
   },
   "scripts": {
     "build": "tsc",
+    "lint": "agent-code-guard-knip --treat-config-hints-as-errors && eslint src --cache --max-warnings=0",
+    "docs:generate": "tsx ../../scripts/generate-protocol-docs.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },

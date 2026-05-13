@@ -1,5 +1,4 @@
 import * as net from "node:net";
-import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import {
@@ -61,6 +60,15 @@ import {
 import { AgentNotFoundError } from "./runtime/errors.js";
 import { getOr, snapshot } from "./runtime/refs.js";
 import { LocalServiceCommands } from "./runtime/local-service-commands.js";
+import {
+  appendFileSync,
+  chmodSync,
+  makeDirectorySync,
+  readLinkSync,
+  symlinkSync,
+  unlinkSync,
+  type NodeFsError,
+} from "./runtime/node-fs-sync.js";
 
 const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -94,11 +102,11 @@ function appendClientEventTrace(record: Record<string, unknown>): void {
   const dir = getClientEventLogDir();
   if (!dir) return;
   try {
-    fs.mkdirSync(dir, { recursive: true });
+    makeDirectorySync(dir);
     const agentId =
       typeof record["agentId"] === "string" ? record["agentId"] : "unknown";
     const safeAgentId = /^[A-Za-z0-9_-]+$/.test(agentId) ? agentId : "unknown";
-    fs.appendFileSync(
+    appendFileSync(
       path.join(dir, `client-events-${safeAgentId}.jsonl`),
       JSON.stringify(record) + "\n",
     );
@@ -434,16 +442,16 @@ export class MoltZapService {
     const sockPath = this.socketPath;
     this.activeSocketPath = sockPath;
     try {
-      fs.unlinkSync(sockPath);
+      unlinkSync(sockPath);
     } catch (err) {
       // ENOENT is the normal case (no stale socket); log everything
       // else (permission denied, EACCES) so operators can diagnose.
-      const code = (err as NodeJS.ErrnoException).code;
+      const code = (err as NodeFsError).code;
       if (code !== "ENOENT") {
         this.opts.logger?.warn("unlink existing socket failed", err);
       }
     }
-    fs.mkdirSync(path.dirname(sockPath), { recursive: true });
+    makeDirectorySync(path.dirname(sockPath));
 
     this.socketServer = net.createServer((conn) => {
       let buffer = "";
@@ -465,7 +473,7 @@ export class MoltZapService {
       // impersonates this agent to the server, so other local users on the
       // host must not be able to connect.
       try {
-        fs.chmodSync(sockPath, SOCKET_FILE_MODE);
+        chmodSync(sockPath, SOCKET_FILE_MODE);
       } catch (err) {
         this.opts.logger?.warn("chmod 0600 on socket failed", err);
       }
@@ -473,14 +481,14 @@ export class MoltZapService {
 
     // Symlink default path to this instance for CLI discovery
     try {
-      fs.unlinkSync(MoltZapService.SOCKET_PATH);
+      unlinkSync(MoltZapService.SOCKET_PATH);
     } catch (err) {
       // Stale/missing default symlink is expected most of the time; log
       // at debug so real permission errors still surface.
       this.opts.logger?.info("unlink default socket symlink", err);
     }
     try {
-      fs.symlinkSync(sockPath, MoltZapService.SOCKET_PATH);
+      symlinkSync(sockPath, MoltZapService.SOCKET_PATH);
     } catch (err) {
       this.opts.logger?.warn("symlink default socket failed", err);
     }
@@ -492,14 +500,14 @@ export class MoltZapService {
     const sockPath = this.activeSocketPath ?? this.socketPath;
     this.activeSocketPath = null;
     try {
-      fs.unlinkSync(sockPath);
+      unlinkSync(sockPath);
     } catch (err) {
       this.opts.logger?.info("unlink socket path", err);
     }
     // Remove default symlink only if it points to this instance.
     try {
-      const target = fs.readlinkSync(MoltZapService.SOCKET_PATH);
-      if (target === sockPath) fs.unlinkSync(MoltZapService.SOCKET_PATH);
+      const target = readLinkSync(MoltZapService.SOCKET_PATH);
+      if (target === sockPath) unlinkSync(MoltZapService.SOCKET_PATH);
     } catch (err) {
       this.opts.logger?.info("cleanup default symlink", err);
     }
@@ -881,7 +889,11 @@ export class MoltZapService {
    * per viewing conversation and advanced after notification.
    */
   getContext(currentConvId: string, opts?: ContextOptions): string | null {
-    const { entries, commit } = this.peekContextEntries(currentConvId, opts);
+    const contextOptions = opts ?? {};
+    const { entries, commit } = this.peekContextEntries(
+      currentConvId,
+      contextOptions,
+    );
     if (entries.length === 0) return null;
     commit();
     return formatCrossConversationBlock(entries, {

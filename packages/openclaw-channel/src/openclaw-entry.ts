@@ -270,7 +270,10 @@ export function createMoltzapChannelPlugin() {
             name: a.displayName ?? a.name,
             kind: "user" as const,
           }));
-        }).pipe(Effect.catchAll(() => Effect.succeed([])));
+        }).pipe(
+          Effect.withSpan("createMoltzapChannelPlugin.listPeers"),
+          Effect.catchAll(() => Effect.succeed([])),
+        );
         return Effect.runPromise(effect);
       },
       listGroups(params: {
@@ -297,7 +300,10 @@ export function createMoltzapChannelPlugin() {
               name: c.name!,
               kind: "group" as const,
             }));
-        }).pipe(Effect.catchAll(() => Effect.succeed([])));
+        }).pipe(
+          Effect.withSpan("createMoltzapChannelPlugin.listGroups"),
+          Effect.catchAll(() => Effect.succeed([])),
+        );
         return Effect.runPromise(effect);
       },
     },
@@ -314,7 +320,8 @@ export function createMoltzapChannelPlugin() {
         cfg: OpenClawConfig,
         accountId?: string | null,
       ): MoltZapAccount {
-        return resolveAccount(cfg, accountId);
+        const resolvedAccountId = accountId ?? DEFAULT_ACCOUNT_ID;
+        return resolveAccount(cfg, resolvedAccountId);
       },
 
       isConfigured(account: MoltZapAccount): boolean {
@@ -555,7 +562,9 @@ export function createMoltzapChannelPlugin() {
                 `MoltZap: dispatch completed without final reply for ${enriched.conversationId}`,
               );
             }
-          }),
+          }).pipe(
+            Effect.withSpan("createMoltzapChannelPlugin.inboundDispatch"),
+          ),
         );
 
         // Forward non-message events for status/logging.
@@ -740,6 +749,7 @@ export function createMoltzapChannelPlugin() {
           }
           return { ok: true as const };
         }).pipe(
+          Effect.withSpan("createMoltzapChannelPlugin.sendText"),
           Effect.match({
             onSuccess: (ok) => ok,
             onFailure: (err) => ({

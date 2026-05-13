@@ -103,42 +103,41 @@ const levelToPino: Record<
  * call, matching the pre-migration `logger.info({...}, "msg")` shape so
  * operator tooling sees no format change.
  */
-export const effectLogger = EffectLogger.make(
-  ({ logLevel, message, annotations }) => {
-    const log = getLogger();
-    const mergedAnnotations: Record<string, unknown> = {};
-    // HashMap iteration yields [key, value] tuples.
-    for (const [k, v] of annotations) {
-      mergedAnnotations[k] = v;
-    }
-    const pinoMethod = levelToPino[logLevel._tag] ?? "info";
-    // Effect passes the message through unchanged (typically a string). Coerce
-    // defensively so Pino's msg field stays printable.
-    const msg =
-      typeof message === "string"
-        ? message
-        : Array.isArray(message) && message.length === 1
-          ? String(message[0])
-          : String(message);
-    // Pino can throw synchronously if its transport has closed (e.g. during
-    // shutdown, when pino-pretty's worker has disconnected). Swallow rather
-    // than letting the throw propagate as a defect through the Effect
-    // runtime — a log-write failure is never worth crashing the fiber for.
+const effectLogger = EffectLogger.make(({ logLevel, message, annotations }) => {
+  const log = getLogger();
+  const mergedAnnotations: Record<string, unknown> = {};
+  // HashMap iteration yields [key, value] tuples.
+  for (const [k, v] of annotations) {
+    mergedAnnotations[k] = v;
+  }
+  const pinoMethod = levelToPino[logLevel._tag] ?? "info";
+  // Effect passes the message through unchanged (typically a string). Coerce
+  // defensively so Pino's msg field stays printable.
+  const msg =
+    typeof message === "string"
+      ? message
+      : Array.isArray(message) && message.length === 1
+        ? String(message[0])
+        : String(message);
+  // Pino can throw synchronously if its transport has closed (e.g. during
+  // shutdown, when pino-pretty's worker has disconnected). Swallow rather
+  // than letting the throw propagate as a defect through the Effect
+  // runtime — a log-write failure is never worth crashing the fiber for.
+  try {
+    log[pinoMethod](mergedAnnotations, msg);
+  } catch (err) {
     try {
-      log[pinoMethod](mergedAnnotations, msg);
+      process.stderr.write(
+        `[logger-fallback] ${msg} (logger error: ${
+          err instanceof Error ? err.message : String(err)
+        })\n`,
+      );
     } catch (err) {
-      try {
-        process.stderr.write(
-          `[logger-fallback] ${msg} (logger error: ${
-            err instanceof Error ? err.message : String(err)
-          })\n`,
-        );
-      } catch (stderrErr) {
-        console.error("[logger-fallback] stderr write failed", stderrErr);
-      }
+      void err;
+      // Nothing left to report to.
     }
-  },
-);
+  }
+});
 
 /**
  * Provides `LoggerTag` (pino built from `Effect.Config`) AND replaces

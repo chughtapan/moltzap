@@ -27,8 +27,17 @@
  */
 import { Command } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
-import { Data, Effect, Exit, Fiber, Option, Scope, Stream, pipe } from "effect";
-import fs from "node:fs";
+import {
+  Data,
+  Effect,
+  Either,
+  Exit,
+  Fiber,
+  Option,
+  Scope,
+  Stream,
+  pipe,
+} from "effect";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -46,6 +55,7 @@ import {
   resolveChannelDependency,
   seedWorkspaceFiles,
 } from "./channel-plugin-install.js";
+import { existsSync, makeTempDirectorySync, removeSync } from "./node-fs.js";
 
 class WorkspaceRootNotFound extends Data.TaggedError("WorkspaceRootNotFound")<{
   readonly message: string;
@@ -211,7 +221,7 @@ export class ClaudeCodeAdapter implements Runtime {
 
     return Effect.gen(this, function* () {
       const stateDir = yield* tryStep(() =>
-        fs.mkdtempSync(
+        makeTempDirectorySync(
           path.join(os.tmpdir(), `claude-code-${input.agentName}-`),
         ),
       );
@@ -326,13 +336,19 @@ export class ClaudeCodeAdapter implements Runtime {
         }),
         logBuffer,
       }).pipe(
-        Effect.mapError(
-          (cause) =>
-            new SpawnFailed({
-              agentName: input.agentName,
-              cause,
-              message: `Failed to spawn agent "${input.agentName}": ${cause.message}`,
-            }),
+        Effect.either,
+        Effect.flatMap(
+          Either.match({
+            onLeft: (cause) =>
+              Effect.fail(
+                new SpawnFailed({
+                  agentName: input.agentName,
+                  cause,
+                  message: `Failed to spawn agent "${input.agentName}": ${cause.message}`,
+                }),
+              ),
+            onRight: (value) => Effect.succeed(value),
+          }),
         ),
       );
 
@@ -463,16 +479,17 @@ export class ClaudeCodeAdapter implements Runtime {
     this.state.tornDown = true;
     const { process: proc, stateDir } = this.state;
 
-    const removeStateDir = Effect.sync(() => {
-      try {
-        fs.rmSync(stateDir, { recursive: true, force: true });
-      } catch (removeErr) {
-        console.warn(
+    const removeStateDir = Effect.try({
+      try: () => removeSync(stateDir, { recursive: true, force: true }),
+      catch: (cause) => cause,
+    }).pipe(
+      Effect.catchAll((cause) =>
+        Effect.logWarning(
           "failed to remove claude-code adapter state dir",
-          removeErr,
-        );
-      }
-    });
+          cause,
+        ),
+      ),
+    );
 
     // SIGTERM with a timeout; escalate to SIGKILL if SIGTERM doesn't
     // reap. Closing `proc.scope` afterward runs Command.start's kill
@@ -556,7 +573,7 @@ function resolveWorkspaceClaudeBin(
   repoRoot: string,
 ): string {
   const packageBin = path.join(packageRoot, "node_modules/.bin/claude");
-  if (fs.existsSync(packageBin)) {
+  if (existsSync(packageBin)) {
     return packageBin;
   }
   return path.join(repoRoot, "node_modules/.bin/claude");

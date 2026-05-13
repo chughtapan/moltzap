@@ -25,7 +25,7 @@
  * Same code path runs whether the resolved connection lives in this
  * process or another (plan §1.3 in-process loopback policy).
  */
-import { Brand, Data, Effect, HashSet, Match } from "effect";
+import { Brand, Data, Effect, Either, HashSet, Match } from "effect";
 import {
   endpointAddressKind,
   type EndpointAddress,
@@ -239,9 +239,15 @@ export class NetworkSendService {
       for (const candidate of HashSet.values(conns)) {
         const conn = this.connections.get(candidate);
         if (conn === undefined) continue;
-        yield* conn
-          .write(payload)
-          .pipe(Effect.mapError((cause) => new WriteFailed({ to, cause })));
+        yield* conn.write(payload).pipe(
+          Effect.either,
+          Effect.flatMap(
+            Either.match({
+              onLeft: (cause) => Effect.fail(new WriteFailed({ to, cause })),
+              onRight: () => Effect.void,
+            }),
+          ),
+        );
         return new DeliveryAck({ to });
       }
       return yield* Effect.fail(new RecipientNotResolved({ to }));

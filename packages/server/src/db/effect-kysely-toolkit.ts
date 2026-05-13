@@ -26,7 +26,7 @@ import {
   type KyselyConfig,
   type RawBuilder,
   type Transaction,
-} from "kysely";
+} from "./kysely-vendor.js";
 
 // Pulls in `declare module "kysely"` augmentations so `yield* qb` type-checks.
 // TYPE-ONLY import: the runtime module installs a Proxy wrapper that re-wraps

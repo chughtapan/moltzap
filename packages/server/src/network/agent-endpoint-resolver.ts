@@ -87,7 +87,7 @@ const emptyState: ResolverState = {
  * fibers.
  */
 export class AgentEndpointResolver {
-  static make: Effect.Effect<AgentEndpointResolver> = Effect.map(
+  static readonly make: Effect.Effect<AgentEndpointResolver> = Effect.map(
     Ref.make<ResolverState>(emptyState),
     (state) => new AgentEndpointResolver(state),
   );

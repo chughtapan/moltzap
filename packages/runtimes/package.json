@@ -16,6 +16,7 @@
   },
   "scripts": {
     "build": "rm -rf dist.build tsconfig.build.tsbuildinfo && tsc --outDir dist.build --tsBuildInfoFile tsconfig.build.tsbuildinfo && rm -rf dist && mv dist.build dist && rm -f tsconfig.build.tsbuildinfo",
+    "lint": "agent-code-guard-knip --treat-config-hints-as-errors && eslint src --cache --max-warnings=0",
     "test": "vitest run --passWithNoTests",
     "test:integration": "vitest run --config vitest.integration.config.ts"
   },
@@ -29,7 +30,6 @@
   },
   "devDependencies": {
     "@anthropic-ai/claude-code": "^2.1.119",
-    "@effect/vitest": "^0.29.0",
     "@moltzap/client": "workspace:*",
     "@moltzap/server-core": "workspace:*",
     "@types/node": "^25.5.0",

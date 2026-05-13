@@ -18,11 +18,18 @@
  * Per the "minimize tech debt" team memory: factor the shared shape out
  * now that two live adapters consume it.
  */
-import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import * as path from "node:path";
 import { Data } from "effect";
 import type { SpawnInput } from "./runtime.js";
+import {
+  copyFileSync,
+  copySync,
+  existsSync,
+  makeDirectorySync,
+  symlinkSync,
+  writeFileSync,
+} from "./node-fs.js";
 
 class ChannelPluginInstallError extends Data.TaggedError(
   "ChannelPluginInstallError",
@@ -30,7 +37,7 @@ class ChannelPluginInstallError extends Data.TaggedError(
   readonly message: string;
 }> {}
 
-export interface PluginSymlinkSpec {
+interface PluginSymlinkSpec {
   /** Path inside the plugin's `node_modules/` (e.g. `effect`, `@x/y`). */
   readonly linkPath: string;
   /**
@@ -78,11 +85,11 @@ export function installChannelPlugin(opts: InstallChannelPluginOpts): string {
   const channelPackageDir = path.dirname(opts.channelDistDir);
 
   // `recursive: true` creates parent dirs as needed — one mkdir is enough.
-  fs.mkdirSync(extDir, { recursive: true });
+  makeDirectorySync(extDir);
 
   // Copy the plugin's `dist/` (skip nested node_modules + src so the copy
   // stays small and the runtime resolves through the symlinks below).
-  fs.cpSync(opts.channelDistDir, path.join(extDir, "dist"), {
+  copySync(opts.channelDistDir, path.join(extDir, "dist"), {
     recursive: true,
     dereference: true,
     filter: (src) => {
@@ -95,13 +102,13 @@ export function installChannelPlugin(opts: InstallChannelPluginOpts): string {
   // plugin manifest). Missing extras are silently skipped — this is a
   // best-effort copy, not a hard requirement.
   const packageJsonPath = path.join(channelPackageDir, "package.json");
-  if (fs.existsSync(packageJsonPath)) {
-    fs.copyFileSync(packageJsonPath, path.join(extDir, "package.json"));
+  if (existsSync(packageJsonPath)) {
+    copyFileSync(packageJsonPath, path.join(extDir, "package.json"));
   }
   for (const extra of opts.extraPackageFiles ?? []) {
     const src = path.join(channelPackageDir, extra);
-    if (fs.existsSync(src)) {
-      fs.copyFileSync(src, path.join(extDir, extra));
+    if (existsSync(src)) {
+      copyFileSync(src, path.join(extDir, extra));
     }
   }
 
@@ -110,13 +117,13 @@ export function installChannelPlugin(opts: InstallChannelPluginOpts): string {
   // workspace siblings; symlinking lets the plugin pick them up without
   // a redundant copy.)
   const pluginNm = path.join(extDir, "node_modules");
-  fs.mkdirSync(path.join(pluginNm, "@moltzap"), { recursive: true });
-  fs.symlinkSync(
+  makeDirectorySync(path.join(pluginNm, "@moltzap"));
+  symlinkSync(
     path.join(opts.repoRoot, "packages/protocol"),
     path.join(pluginNm, "@moltzap/protocol"),
     "dir",
   );
-  fs.symlinkSync(
+  symlinkSync(
     path.join(opts.repoRoot, "packages/client"),
     path.join(pluginNm, "@moltzap/client"),
     "dir",
@@ -124,7 +131,7 @@ export function installChannelPlugin(opts: InstallChannelPluginOpts): string {
 
   for (const spec of opts.extraSymlinks ?? []) {
     const linkTarget = path.join(pluginNm, spec.linkPath);
-    fs.mkdirSync(path.dirname(linkTarget), { recursive: true });
+    makeDirectorySync(path.dirname(linkTarget));
     symlinkPreferring(spec.candidates, linkTarget);
   }
 
@@ -143,11 +150,11 @@ export function seedWorkspaceFiles(
     return;
   }
   const workspaceDir = path.join(stateDir, "workspace");
-  fs.mkdirSync(workspaceDir, { recursive: true });
+  makeDirectorySync(workspaceDir);
   for (const file of workspaceFiles) {
     const destination = path.join(workspaceDir, file.relativePath);
-    fs.mkdirSync(path.dirname(destination), { recursive: true });
-    fs.writeFileSync(destination, file.content);
+    makeDirectorySync(path.dirname(destination));
+    writeFileSync(destination, file.content);
   }
 }
 
@@ -156,8 +163,8 @@ function symlinkPreferring(
   target: string,
 ): void {
   for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) {
-      fs.symlinkSync(candidate, target, "dir");
+    if (existsSync(candidate)) {
+      symlinkSync(candidate, target, "dir");
       return;
     }
   }
@@ -191,7 +198,7 @@ export function resolveChannelDependency(
   packageName: string,
 ): string | null {
   const anchor = path.join(channelPackageDir, "package.json");
-  if (!fs.existsSync(anchor)) {
+  if (!existsSync(anchor)) {
     return null;
   }
   try {
@@ -206,7 +213,9 @@ export function resolveChannelDependency(
         ? resolveErr.code
         : undefined;
     if (code !== "MODULE_NOT_FOUND") {
-      console.warn("failed to resolve channel dependency", resolveErr);
+      process.stderr.write(
+        `failed to resolve channel dependency ${String(resolveErr)}\n`,
+      );
     }
     return null;
   }

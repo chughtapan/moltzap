@@ -75,4 +75,4 @@ export const drainCoalesceMap = <K, A, E>(
     for (const [, d] of HashMap.entries(map)) {
       yield* Deferred.interrupt(d);
     }
-  });
+  }).pipe(Effect.withSpan("drainCoalesceMap"));

@@ -7,19 +7,10 @@ import { getLogger, type Logger } from "../logger.js";
 import type { RuntimeProcessConfig } from "./config.js";
 
 export type RuntimeRequestId = string & Brand.Brand<"RuntimeRequestId">;
-export const RuntimeRequestId = Brand.nominal<RuntimeRequestId>();
-
 export type RuntimeSessionId = string & Brand.Brand<"RuntimeSessionId">;
-export const RuntimeSessionId = Brand.nominal<RuntimeSessionId>();
-
 export type RuntimeAgentId = string & Brand.Brand<"RuntimeAgentId">;
-export const RuntimeAgentId = Brand.nominal<RuntimeAgentId>();
-
 export type RuntimeFiberId = string & Brand.Brand<"RuntimeFiberId">;
-export const RuntimeFiberId = Brand.nominal<RuntimeFiberId>();
-
 export type RuntimeSpanName = string & Brand.Brand<"RuntimeSpanName">;
-export const RuntimeSpanName = Brand.nominal<RuntimeSpanName>();
 
 export interface RuntimeLogContext {
   readonly requestId?: RuntimeRequestId;
@@ -54,19 +45,17 @@ export class RuntimeObservabilityError extends Data.TaggedError(
   readonly cause: RuntimeObservabilityCause;
 }> {}
 
-export class LoggerBootstrapFailed extends Data.TaggedError(
-  "LoggerBootstrapFailed",
-)<{
+class LoggerBootstrapFailed extends Data.TaggedError("LoggerBootstrapFailed")<{
   readonly message: string;
 }> {}
 
-export class FiberSupervisorUnavailable extends Data.TaggedError(
+class FiberSupervisorUnavailable extends Data.TaggedError(
   "FiberSupervisorUnavailable",
 )<{
   readonly message: string;
 }> {}
 
-export type RuntimeObservabilityCause =
+type RuntimeObservabilityCause =
   | LoggerBootstrapFailed
   | FiberSupervisorUnavailable;
 

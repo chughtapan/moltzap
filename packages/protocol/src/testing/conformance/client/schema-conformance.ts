@@ -21,7 +21,7 @@
  */
 import { Effect } from "effect";
 import { Value } from "@sinclair/typebox/value";
-import { NotificationFrameSchema } from "../../../transport/wire.js";
+import { notificationFrameSchema } from "../../../transport/wire.js";
 import { arbitraryNotificationFrame } from "../../arbitraries/frames.js";
 import * as fc from "fast-check";
 import type { ClientConformanceRunContext } from "./runner.js";
@@ -39,6 +39,7 @@ const PROPERTY_NOTIFICATION_WELL_FORMEDNESS_CLIENT =
 const PROPERTY_MALFORMED_FRAME_HANDLING_CLIENT =
   "malformed-frame-handling-client";
 const PROPERTY_BUDGET_MS = 8_000;
+const NotificationFrameSchema = notificationFrameSchema();
 
 /**
  * A2 client-side — TestServer emits a property-sampled valid

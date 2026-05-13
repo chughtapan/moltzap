@@ -9,14 +9,27 @@
 import { spawn, type ChildProcess, type ExecOptions } from "node:child_process";
 import { exec as execCb } from "node:child_process";
 import { createHash } from "node:crypto";
-import * as fs from "node:fs";
-import * as fsp from "node:fs/promises";
+import { HttpClient, HttpClientRequest } from "@effect/platform";
+import { NodeHttpClient } from "@effect/platform-node";
 import * as os from "node:os";
 import * as path from "node:path";
 import { env as hostEnv } from "node:process";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { Data, Duration, Effect } from "effect";
+import {
+  copyAsync,
+  copyFileAsync,
+  existsSync,
+  makeDirectoryAsync,
+  makeTempDirectoryAsync,
+  readFileAsync,
+  readFileStringAsync,
+  renameAsync,
+  removeAsync,
+  unlinkAsync,
+  writeFileAsync,
+} from "./node-fs.js";
 
 const exec = promisify(execCb);
 
@@ -35,7 +48,7 @@ const NANOCLAW_URL = `https://github.com/qwibitai/nanoclaw/archive/${NANOCLAW_SH
 const STRING_START_INDEX = 0;
 const NANOCLAW_CACHE_KEY_LENGTH = 12;
 
-export const NANOCLAW_RUNTIME_CACHE = path.join(
+const NANOCLAW_RUNTIME_CACHE = path.join(
   os.homedir(),
   ".cache/moltzap-runtimes/nanoclaw",
   NANOCLAW_SHA.slice(STRING_START_INDEX, NANOCLAW_CACHE_KEY_LENGTH),
@@ -109,29 +122,27 @@ function promiseEffect<T>(
 }
 
 function isOnecliReachable(): Effect.Effect<boolean, never> {
-  return Effect.tryPromise({
-    try: () =>
-      fetch(`${ONECLI_URL}/api/container-config`, {
-        signal: AbortSignal.timeout(ONECLI_PROBE_TIMEOUT_MS),
-      }),
-    catch: (cause) => cause,
+  return Effect.gen(function* () {
+    const client = yield* HttpClient.HttpClient;
+    yield* client.execute(
+      HttpClientRequest.get(`${ONECLI_URL}/api/container-config`),
+    );
+    return true;
   }).pipe(
-    Effect.match({
-      onFailure: (reachabilityErr) => {
-        if (
-          !(
-            reachabilityErr instanceof Error &&
-            reachabilityErr.name === "TimeoutError"
-          )
-        ) {
-          console.warn("failed to probe OneCLI reachability", reachabilityErr);
-        }
-        return false;
-      },
-      // Any HTTP response means the dashboard is listening. A 401/403 is fine —
-      // nanoclaw's SDK handles auth. We only care that the port is open.
-      onSuccess: () => true,
+    Effect.timeoutFail({
+      duration: Duration.millis(ONECLI_PROBE_TIMEOUT_MS),
+      onTimeout: () => new Error("OneCLI reachability probe timed out"),
     }),
+    Effect.provide(NodeHttpClient.layer),
+    Effect.catchAll((reachabilityErr) =>
+      reachabilityErr instanceof Error &&
+      reachabilityErr.message.includes("timed out")
+        ? Effect.succeed(false)
+        : Effect.logWarning(
+            "failed to probe OneCLI reachability",
+            reachabilityErr,
+          ).pipe(Effect.as(false)),
+    ),
   );
 }
 
@@ -143,7 +154,7 @@ function ensureOnecliRunning(): Effect.Effect<
     const reachable = yield* isOnecliReachable();
     if (reachable) return;
 
-    if (!fs.existsSync(ONECLI_COMPOSE_PATH)) {
+    if (!existsSync(ONECLI_COMPOSE_PATH)) {
       return yield* Effect.fail(
         toRuntimeError(
           `OneCLI gateway not running and not installed at ${ONECLI_COMPOSE_PATH}. ` +
@@ -197,7 +208,7 @@ function downloadTarball(
 ): Effect.Effect<void, NanoclawRuntimeProcessError> {
   return Effect.gen(function* () {
     yield* promiseEffect(`create nanoclaw download directory ${destDir}`, () =>
-      fsp.mkdir(destDir, { recursive: true }),
+      makeDirectoryAsync(destDir, { recursive: true }),
     );
     const tarballPath = path.join(destDir, "nanoclaw.tar.gz");
 
@@ -217,7 +228,7 @@ function downloadTarball(
 
     yield* promiseEffect(
       `remove downloaded nanoclaw tarball ${tarballPath}`,
-      () => fsp.unlink(tarballPath),
+      () => unlinkAsync(tarballPath),
     );
   });
 }
@@ -264,7 +275,7 @@ function sha1OfFile(
   filePath: string,
 ): Effect.Effect<string, NanoclawRuntimeProcessError> {
   return promiseEffect(`read file for sha1 ${filePath}`, () =>
-    fsp.readFile(filePath),
+    readFileAsync(filePath),
   ).pipe(Effect.map((buf) => createHash("sha1").update(buf).digest("hex")));
 }
 
@@ -279,14 +290,14 @@ function channelFileDrift(): Effect.Effect<
   return Effect.gen(function* () {
     const src = resolveChannelFilePath();
     const dst = path.join(NANOCLAW_RUNTIME_CACHE, "src/channels/moltzap.ts");
-    if (!fs.existsSync(src) || !fs.existsSync(dst)) return null;
+    if (!existsSync(src) || !existsSync(dst)) return null;
     const srcContent = yield* promiseEffect(
       `read source channel file ${src}`,
-      () => fsp.readFile(src, "utf8"),
+      () => readFileStringAsync(src, "utf8"),
     );
     const dstContent = yield* promiseEffect(
       `read cached channel file ${dst}`,
-      () => fsp.readFile(dst, "utf8"),
+      () => readFileStringAsync(dst, "utf8"),
     );
     return srcContent === dstContent ? null : { src, dst, content: srcContent };
   });
@@ -305,10 +316,10 @@ function clientDistDrift(): Effect.Effect<
       NANOCLAW_RUNTIME_CACHE,
       "node_modules/@moltzap/client/dist",
     );
-    if (!fs.existsSync(src) || !fs.existsSync(dst)) return null;
+    if (!existsSync(src) || !existsSync(dst)) return null;
     const srcCoreJs = path.join(src, "channel-core.js");
     const dstCoreJs = path.join(dst, "channel-core.js");
-    if (!fs.existsSync(dstCoreJs)) return { src, dst };
+    if (!existsSync(dstCoreJs)) return { src, dst };
     const srcHash = yield* sha1OfFile(srcCoreJs);
     const dstHash = yield* sha1OfFile(dstCoreJs);
     return srcHash === dstHash ? null : { src, dst };
@@ -330,14 +341,14 @@ function syncChannelFileIntoCache(): Effect.Effect<
 
     if (chDrift) {
       yield* promiseEffect(`write cached channel file ${chDrift.dst}`, () =>
-        fsp.writeFile(chDrift.dst, chDrift.content),
+        writeFileAsync(chDrift.dst, chDrift.content),
       );
     }
 
     if (clDrift) {
       yield* promiseEffect(
         `copy @moltzap/client dist into runtime cache ${clDrift.dst}`,
-        () => fsp.cp(clDrift.src, clDrift.dst, { recursive: true }),
+        () => copyAsync(clDrift.src, clDrift.dst, { recursive: true }),
       );
     }
 
@@ -360,7 +371,7 @@ function ensureNanoclawRuntimeInstalledEffect(): Effect.Effect<
 > {
   return Effect.gen(function* () {
     const readyMarker = path.join(NANOCLAW_RUNTIME_CACHE, ".ready");
-    if (fs.existsSync(readyMarker)) {
+    if (existsSync(readyMarker)) {
       yield* syncChannelFileIntoCache();
       return;
     }
@@ -369,7 +380,7 @@ function ensureNanoclawRuntimeInstalledEffect(): Effect.Effect<
 
     const tmpDir = `${NANOCLAW_RUNTIME_CACHE}.tmp`;
     yield* promiseEffect(`remove nanoclaw temp cache ${tmpDir}`, () =>
-      fsp.rm(tmpDir, { recursive: true, force: true }),
+      removeAsync(tmpDir, { recursive: true, force: true }),
     );
 
     // Download upstream nanoclaw source
@@ -377,7 +388,7 @@ function ensureNanoclawRuntimeInstalledEffect(): Effect.Effect<
 
     // Inject the moltzap channel file from packages/nanoclaw-channel/
     const channelFileSrc = resolveChannelFilePath();
-    if (!fs.existsSync(channelFileSrc)) {
+    if (!existsSync(channelFileSrc)) {
       return yield* Effect.fail(
         toRuntimeError(
           `Expected channel file at ${channelFileSrc} — did you build @moltzap/nanoclaw-channel?`,
@@ -387,7 +398,7 @@ function ensureNanoclawRuntimeInstalledEffect(): Effect.Effect<
     yield* promiseEffect(
       `copy moltzap channel file into nanoclaw cache ${channelFileSrc}`,
       () =>
-        fsp.copyFile(
+        copyFileAsync(
           channelFileSrc,
           path.join(tmpDir, "src/channels/moltzap.ts"),
         ),
@@ -397,11 +408,11 @@ function ensureNanoclawRuntimeInstalledEffect(): Effect.Effect<
     const barrelPath = path.join(tmpDir, "src/channels/index.ts");
     const barrel = yield* promiseEffect(
       `read nanoclaw channel barrel ${barrelPath}`,
-      () => fsp.readFile(barrelPath, "utf8"),
+      () => readFileStringAsync(barrelPath, "utf8"),
     );
     if (!barrel.includes("import './moltzap.js';")) {
       yield* promiseEffect(`write nanoclaw channel barrel ${barrelPath}`, () =>
-        fsp.writeFile(
+        writeFileAsync(
           barrelPath,
           barrel.trimEnd() + "\n\nimport './moltzap.js';\n",
         ),
@@ -412,7 +423,7 @@ function ensureNanoclawRuntimeInstalledEffect(): Effect.Effect<
     // (container/skills/ is what nanoclaw's agent container mounts, NOT
     // .claude/skills/ which is the host-side dev tree).
     const skillMdSrc = resolveSkillMdPath();
-    if (!fs.existsSync(skillMdSrc)) {
+    if (!existsSync(skillMdSrc)) {
       return yield* Effect.fail(
         toRuntimeError(
           `Expected shared SKILL.md at ${skillMdSrc} — repo layout change?`,
@@ -420,14 +431,14 @@ function ensureNanoclawRuntimeInstalledEffect(): Effect.Effect<
       );
     }
     yield* promiseEffect("create nanoclaw moltzap skill directory", () =>
-      fsp.mkdir(path.join(tmpDir, "container/skills/moltzap"), {
+      makeDirectoryAsync(path.join(tmpDir, "container/skills/moltzap"), {
         recursive: true,
       }),
     );
     yield* promiseEffect(
       `copy shared SKILL.md into nanoclaw cache ${skillMdSrc}`,
       () =>
-        fsp.copyFile(
+        copyFileAsync(
           skillMdSrc,
           path.join(tmpDir, "container/skills/moltzap/SKILL.md"),
         ),
@@ -464,16 +475,19 @@ function ensureNanoclawRuntimeInstalledEffect(): Effect.Effect<
     // Atomic rename — only mark .ready on full success
     yield* promiseEffect(
       `remove stale nanoclaw cache ${NANOCLAW_RUNTIME_CACHE}`,
-      () => fsp.rm(NANOCLAW_RUNTIME_CACHE, { recursive: true, force: true }),
+      () =>
+        removeAsync(NANOCLAW_RUNTIME_CACHE, { recursive: true, force: true }),
     );
     yield* promiseEffect("create nanoclaw cache parent directory", () =>
-      fsp.mkdir(path.dirname(NANOCLAW_RUNTIME_CACHE), { recursive: true }),
+      makeDirectoryAsync(path.dirname(NANOCLAW_RUNTIME_CACHE), {
+        recursive: true,
+      }),
     );
     yield* promiseEffect("promote nanoclaw temp cache into ready cache", () =>
-      fsp.rename(tmpDir, NANOCLAW_RUNTIME_CACHE),
+      renameAsync(tmpDir, NANOCLAW_RUNTIME_CACHE),
     );
     yield* promiseEffect(`write nanoclaw ready marker ${readyMarker}`, () =>
-      fsp.writeFile(readyMarker, ""),
+      writeFileAsync(readyMarker, ""),
     );
   });
 }
@@ -488,7 +502,10 @@ function startNanoclawRuntimeEffect(
   return Effect.gen(function* () {
     const dataDir = yield* promiseEffect(
       "create nanoclaw runtime data dir",
-      () => fsp.mkdtemp(path.join(os.tmpdir(), "moltzap-nanoclaw-runtime-")),
+      () =>
+        makeTempDirectoryAsync(
+          path.join(os.tmpdir(), "moltzap-nanoclaw-runtime-"),
+        ),
     );
 
     // @moltzap/client's MoltZapWsClient appends "/ws" and rewrites http→ws itself.
@@ -510,10 +527,11 @@ function startNanoclawRuntimeEffect(
         const destination = path.join(workspaceRoot, file.relativePath);
         yield* promiseEffect(
           `create workspace file directory ${path.dirname(destination)}`,
-          () => fsp.mkdir(path.dirname(destination), { recursive: true }),
+          () =>
+            makeDirectoryAsync(path.dirname(destination), { recursive: true }),
         );
         yield* promiseEffect(`write workspace file ${destination}`, () =>
-          fsp.writeFile(destination, file.content),
+          writeFileAsync(destination, file.content),
         );
       }
     }
@@ -649,7 +667,7 @@ function stopNanoclawRuntimeEffect(
       }
     }
     yield* promiseEffect(`remove nanoclaw data dir ${handle.dataDir}`, () =>
-      fsp.rm(handle.dataDir, { recursive: true, force: true }),
+      removeAsync(handle.dataDir, { recursive: true, force: true }),
     );
   });
 }

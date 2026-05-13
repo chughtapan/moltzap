@@ -17,7 +17,7 @@
  * Failure modes exit with code 1 and a diagnostic line on stderr.
  */
 import { bootClaudeCodeChannel } from "./entry.js";
-import { Config, ConfigError, Data, Effect, Option } from "effect";
+import { Config, ConfigError, Data, Effect, Option, Redacted } from "effect";
 
 class ChannelMainError extends Data.TaggedError("ChannelMainError")<{
   readonly cause: unknown;
@@ -29,12 +29,13 @@ function main(): Effect.Effect<
   never
 > {
   return Effect.gen(function* () {
-    const apiKey = yield* Config.string("MOLTZAP_API_KEY").pipe(
+    const redactedApiKey = yield* Config.redacted("MOLTZAP_API_KEY").pipe(
       Config.validate({
         message: "MOLTZAP_API_KEY env var is required",
-        validation: (value) => value.length > 0,
+        validation: (value) => Redacted.value(value).length > 0,
       }),
     );
+    const apiKey = Redacted.value(redactedApiKey);
     const serverUrl = yield* Config.string("MOLTZAP_SERVER_URL").pipe(
       Config.validate({
         message: "MOLTZAP_SERVER_URL env var is required",

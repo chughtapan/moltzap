@@ -14,7 +14,16 @@
  * directly via `Effect.provideService`.
  */
 import * as net from "node:net";
-import { Config, Context, Data, Effect, Layer, Option, Scope } from "effect";
+import {
+  Config,
+  Context,
+  Data,
+  Effect,
+  Layer,
+  Option,
+  Redacted,
+  Scope,
+} from "effect";
 import { MoltZapService } from "../service.js";
 import {
   NotConnectedError,
@@ -95,7 +104,7 @@ export class TransportConfigError extends Data.TaggedError(
  * Kind of transport currently in use. Observable for logs and tests.
  * Commands never branch on kind.
  */
-export type TransportKind = "daemon" | "direct" | "test";
+type TransportKind = "daemon" | "direct" | "test";
 
 /**
  * Transport surface used by every CLI command. One generic RPC call; the
@@ -157,7 +166,7 @@ const JSON_RPC_SERVER_ERROR_CODE = -32000;
 const PROBE_DAEMON_TIMEOUT_MS = 250;
 
 const EnvServerUrl = Config.option(Config.string("MOLTZAP_SERVER_URL"));
-const EnvApiKey = Config.option(Config.string("MOLTZAP_API_KEY"));
+const EnvApiKey = Config.option(Config.redacted("MOLTZAP_API_KEY"));
 
 const loadEnvServerUrl: Effect.Effect<string | undefined, never> =
   EnvServerUrl.pipe(
@@ -169,7 +178,12 @@ const loadEnvServerUrlWithDefault: Effect.Effect<string, never> =
     Effect.map((serverUrl) => serverUrl ?? DEFAULT_SERVER_URL),
   );
 const loadEnvApiKey: Effect.Effect<string | undefined, never> = EnvApiKey.pipe(
-  Effect.map(Option.getOrUndefined),
+  Effect.map((value) =>
+    Option.match(value, {
+      onNone: () => undefined,
+      onSome: Redacted.value,
+    }),
+  ),
   Effect.orElseSucceed(() => undefined),
 );
 
@@ -201,7 +215,7 @@ export const decideTransport = (
     // Default: daemon branch.
     const socketPath = options.socketPath ?? MoltZapService.SOCKET_PATH;
     return { _tag: "UseDaemon", socketPath } as const;
-  });
+  }).pipe(Effect.withSpan("decideTransport"));
 
 // Map daemon-branch Error to TransportError tags. The daemon socket client
 // surfaces a generic Error; we re-tag at the boundary so command handlers
@@ -400,7 +414,7 @@ export const makeTransportLayer = (
         default:
           return absurd(decision);
       }
-    }),
+    }).pipe(Effect.withSpan("makeTransportLayer")),
   );
 
 /**
@@ -493,7 +507,7 @@ export const resolveTransportInputs = (parsed: {
       socketPath: MoltZapService.SOCKET_PATH,
       probeDaemon: probeDaemonDefault,
     };
-  });
+  }).pipe(Effect.withSpan("resolveTransportInputs"));
 
 /**
  * Default daemon reachability probe: attempt a real connect to the daemon

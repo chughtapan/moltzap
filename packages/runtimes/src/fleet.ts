@@ -138,7 +138,7 @@ function teardownStartedAgents(
   return Effect.forEach(
     [...startedAgents].reverse(),
     (startedAgent) => startedAgent.runtime.teardown(),
-    { discard: true },
+    { concurrency: 1, discard: true },
   );
 }
 
@@ -198,7 +198,7 @@ export function startRuntimeAgent(
       yield* pending.releaseStartupCleanup;
       return pending.runtime;
     }),
-  );
+  ).pipe(Effect.withSpan("startRuntimeAgent"));
 }
 
 export function launchRuntimeFleet(
@@ -267,7 +267,7 @@ export function launchRuntimeFleet(
         },
       } satisfies RuntimeFleet;
     }),
-  );
+  ).pipe(Effect.withSpan("launchRuntimeFleet"));
 }
 
 export function launchRuntimeFleetWithProcessSignals(

@@ -90,17 +90,17 @@ export interface ServerHandle {
   readonly stop: () => Effect.Effect<void>;
 }
 
-export class StdioConnectFailed extends Data.TaggedError("StdioConnectFailed")<{
+class StdioConnectFailed extends Data.TaggedError("StdioConnectFailed")<{
   readonly cause: string;
 }> {}
 
-export class ToolRegistrationFailed extends Data.TaggedError(
+class ToolRegistrationFailed extends Data.TaggedError(
   "ToolRegistrationFailed",
 )<{
   readonly cause: string;
 }> {}
 
-export type ServerBootError = StdioConnectFailed | ToolRegistrationFailed;
+type ServerBootError = StdioConnectFailed | ToolRegistrationFailed;
 
 export type ServerBootResult =
   | { readonly _tag: "Ok"; readonly value: ServerHandle }
@@ -150,7 +150,7 @@ function buildReplyInputSchema(): {
   };
 }
 
-export interface DecodedReplyArgs {
+interface DecodedReplyArgs {
   readonly text: string;
   readonly replyTo?: MessageId;
   readonly files?: ReadonlyArray<string>;

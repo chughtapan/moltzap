@@ -1,7 +1,9 @@
 import { Type, type Static } from "@sinclair/typebox";
 import { AgentId } from "../identity/methods.js";
-import { DateTimeString, stringEnum } from "../schema-primitives.js";
+import { dateTimeStringSchema, stringEnum } from "../schema-primitives.js";
 import { defineRpc, defineNotification } from "../transport/method.js";
+
+const DateTimeString = dateTimeStringSchema();
 
 // ── presence schemas ─────────────────────────────────────────────────
 

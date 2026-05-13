@@ -42,8 +42,8 @@ export {
   ParticipantsRemovedNotificationDefinition,
   MessageReceivedNotificationDefinition,
   TaskFailedNotificationDefinition,
-  TmDecisionSchema,
-  MessageWithTmDecisionSchema,
+  tmDecisionSchema,
+  messageWithTmDecisionSchema,
 } from "./methods.js";
 
 export type {
