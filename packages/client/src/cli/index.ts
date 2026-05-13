@@ -34,6 +34,49 @@ import { currentArgv } from "./process-argv.js";
 const require = createRequire(import.meta.url);
 const { version } = require("../../package.json") as { version: string };
 
+interface ExtractedGlobalFlags {
+  impersonateKey?: string;
+  profileName?: string;
+  rest: Array<string>;
+}
+
+interface ParsedFlag {
+  readonly matched: boolean;
+  readonly value?: string;
+  readonly nextIndex: number;
+}
+
+function isRegisterCommand(argv: ReadonlyArray<string>): boolean {
+  return argv.some(
+    (token, index) =>
+      token === "register" &&
+      argv.slice(0, index).every((prev) => !prev.startsWith("-")),
+  );
+}
+
+function parseGlobalFlag(
+  argv: ReadonlyArray<string>,
+  index: number,
+  flagName: string,
+): ParsedFlag {
+  const token = argv[index]!;
+  if (token === flagName) {
+    const value = argv[index + 1];
+    return value === undefined
+      ? { matched: true, nextIndex: index }
+      : { matched: true, value, nextIndex: index + 1 };
+  }
+  const prefix = `${flagName}=`;
+  if (token.startsWith(prefix)) {
+    return {
+      matched: true,
+      value: token.slice(prefix.length),
+      nextIndex: index,
+    };
+  }
+  return { matched: false, nextIndex: index };
+}
+
 /**
  * Pull `--as <key>` and `--profile <name>` out of argv before handing the
  * remainder to `@effect/cli`. These are semantically global flags that
@@ -47,59 +90,37 @@ const { version } = require("../../package.json") as { version: string };
  */
 export const extractGlobalFlags = (
   argv: ReadonlyArray<string>,
-): {
-  impersonateKey?: string;
-  profileName?: string;
-  rest: Array<string>;
-} => {
+): ExtractedGlobalFlags => {
   // register parses --profile locally (spec §5.2: it writes a NEW profile).
   // Intercepting at global scope would make the transport-resolver treat a
   // not-yet-created profile as a lookup failure. Route --profile to register
   // when register is the invoked subcommand; route globally otherwise.
-  const isRegister = argv.some(
-    (t, i) =>
-      t === "register" &&
-      argv.slice(0, i).every((prev) => !prev.startsWith("-")),
-  );
+  const isRegister = isRegisterCommand(argv);
 
   const rest: Array<string> = [];
   let impersonateKey: string | undefined;
   let profileName: string | undefined;
-  for (let i = 0; i < argv.length; i++) {
-    const token = argv[i]!;
-    if (token === "--as") {
-      const next = argv[i + 1];
-      if (next !== undefined) {
-        impersonateKey = next;
-        i++;
-      }
-      continue;
-    }
-    if (token.startsWith("--as=")) {
-      impersonateKey = token.slice("--as=".length);
+  let index = 0;
+  while (index < argv.length) {
+    const token = argv[index]!;
+    const asFlag = parseGlobalFlag(argv, index, "--as");
+    if (asFlag.matched) {
+      impersonateKey = asFlag.value;
+      index = asFlag.nextIndex + 1;
       continue;
     }
     if (!isRegister) {
-      if (token === "--profile") {
-        const next = argv[i + 1];
-        if (next !== undefined) {
-          profileName = next;
-          i++;
-        }
-        continue;
-      }
-      if (token.startsWith("--profile=")) {
-        profileName = token.slice("--profile=".length);
+      const profileFlag = parseGlobalFlag(argv, index, "--profile");
+      if (profileFlag.matched) {
+        profileName = profileFlag.value;
+        index = profileFlag.nextIndex + 1;
         continue;
       }
     }
     rest.push(token);
+    index += 1;
   }
-  const out: {
-    impersonateKey?: string;
-    profileName?: string;
-    rest: Array<string>;
-  } = { rest };
+  const out: ExtractedGlobalFlags = { rest };
   if (impersonateKey !== undefined) out.impersonateKey = impersonateKey;
   if (profileName !== undefined) out.profileName = profileName;
   return out;

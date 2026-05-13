@@ -284,6 +284,26 @@ export const tagWsError = (method: string, err: unknown): TransportError => {
   return new TransportDecodeError({ method, cause: err });
 };
 
+type DirectConnectOnce = Effect.Effect<MoltZapWsClient, TransportError>;
+
+function mapDirectRpcError(method: string): (err: unknown) => TransportError {
+  return (err) => tagWsError(method, err);
+}
+
+function sendDirectRpc<D extends RpcDefinition<string, any, any>>(
+  connectOnce: DirectConnectOnce,
+  definition: D,
+  params: ParamsOf<D>,
+): Effect.Effect<ResultOf<D>, TransportError> {
+  return connectOnce.pipe(
+    Effect.flatMap((client) =>
+      client
+        .sendRpc(definition, params)
+        .pipe(Effect.mapError(mapDirectRpcError(definition.name))),
+    ),
+  );
+}
+
 /**
  * Build a direct-WebSocket transport. Requires `Scope` so `Layer.scoped`
  * can install a finalizer via `Effect.addFinalizer`. The finalizer fires on
@@ -348,13 +368,7 @@ const makeDirectTransport = (
         definition: D,
         params: ParamsOf<D>,
       ): Effect.Effect<ResultOf<D>, TransportError> =>
-        connectOnce.pipe(
-          Effect.flatMap((c) =>
-            c
-              .sendRpc(definition, params)
-              .pipe(Effect.mapError((e) => tagWsError(definition.name, e))),
-          ),
-        ),
+        sendDirectRpc(connectOnce, definition, params),
     };
   });
 

@@ -124,6 +124,14 @@ function rpcError(
   }) as RealClientRpcError;
 }
 
+function rpcErrorForMethod(
+  method: string,
+): (
+  cause: NotConnectedError | RpcServerError | RpcTimeoutError,
+) => RealClientRpcError {
+  return (cause) => rpcError(cause, method);
+}
+
 /**
  * Project a `RealClientNotificationFilter` (protocol-side shape) onto a
  * `SubscriptionFilter` (client-side shape). One-for-one field mapping
@@ -144,6 +152,82 @@ function logConformanceAdapterWarning(message: string, cause: unknown): void {
     Effect.logWarning(message).pipe(
       Effect.annotateLogs({ cause: String(cause) }),
     ),
+  );
+}
+
+function closeEventFromInfo(close: CloseInfo): RealClientCloseEvent {
+  return {
+    code: close.code,
+    reason: close.reason,
+    observedAtMs: Date.now(),
+  };
+}
+
+function recordCloseEvent(
+  closeRef: Ref.Ref<RealClientCloseEvent | null>,
+  close: CloseInfo,
+): void {
+  try {
+    Effect.runSync(
+      Ref.update(closeRef, (current) => current ?? closeEventFromInfo(close)),
+    );
+  } catch (closeErr) {
+    logConformanceAdapterWarning(
+      "failed to record conformance close event",
+      closeErr,
+    );
+  }
+}
+
+function observedNotificationFromFrame(
+  frame: NotificationFrame,
+): ObservedNotification {
+  const wireFrame: NotificationFrame = {
+    jsonrpc: frame.jsonrpc,
+    method: frame.method,
+    ...(frame.params !== undefined ? { params: frame.params } : {}),
+  };
+  const encoded = new TextEncoder().encode(JSON.stringify(wireFrame));
+  return {
+    emissionTag: null,
+    decoded: wireFrame,
+    rawBytes: encoded,
+    observedAtMs: Date.now(),
+  };
+}
+
+function recordObservedNotification(
+  notificationsRef: Ref.Ref<ReadonlyArray<ObservedNotification>>,
+  frame: NotificationFrame,
+): void {
+  const obs = observedNotificationFromFrame(frame);
+  try {
+    Effect.runSync(Ref.update(notificationsRef, (xs) => [...xs, obs]));
+  } catch (recordErr) {
+    logConformanceAdapterWarning(
+      "failed to record conformance observation",
+      recordErr,
+    );
+  }
+}
+
+function resolveRpcDefinition(
+  method: string,
+  params: unknown,
+): Effect.Effect<AnyRpcDefinition, RealClientRpcError> {
+  const definition = rpcMethods.find(
+    (d): d is AnyRpcDefinition => d.name === method,
+  );
+  if (definition !== undefined && definition.validateParams(params)) {
+    return Effect.succeed(definition);
+  }
+  return Effect.fail(
+    new RealClientRpcFailure({
+      cause: { method, params },
+      documentedErrorTag: null,
+      kind: "malformed-response",
+      method,
+    }) as RealClientRpcError,
   );
 }
 
@@ -172,26 +256,7 @@ export function createMoltZapRealClientFactory(
         // / `close.reason`, not the deleted `{1000, "disconnect"}`
         // hardcode. The reader fiber's `extractCloseInfo` derives these
         // from the actual `Exit.Exit<…, Socket.SocketError>`.
-        onDisconnect: (close: CloseInfo) => {
-          try {
-            Effect.runSync(
-              Ref.update(
-                closeRef,
-                (cur) =>
-                  cur ?? {
-                    code: close.code,
-                    reason: close.reason,
-                    observedAtMs: Date.now(),
-                  },
-              ),
-            );
-          } catch (closeErr) {
-            logConformanceAdapterWarning(
-              "failed to record conformance close event",
-              closeErr,
-            );
-          }
-        },
+        onDisconnect: (close: CloseInfo) => recordCloseEvent(closeRef, close),
       });
 
       // C4 + subscribe-stub: register a `{}`-filter subscription that
@@ -201,32 +266,9 @@ export function createMoltZapRealClientFactory(
       const captureAll = yield* ws
         .subscribe({}, (frame: NotificationFrame) =>
           Effect.sync(() => {
-            // Strip `definition` (added by `decodeNotification` post-Phase-12)
-            // before re-encoding so `rawBytes` matches the wire form the
-            // TestServer originally emitted. Conformance correlation in
-            // `lookupTagForRawBytes` keys on the wire form.
-            const wireFrame: NotificationFrame = {
-              jsonrpc: frame.jsonrpc,
-              method: frame.method,
-              ...(frame.params !== undefined ? { params: frame.params } : {}),
-            };
-            const encoded = new TextEncoder().encode(JSON.stringify(wireFrame));
-            const obs: ObservedNotification = {
-              emissionTag: null,
-              decoded: wireFrame,
-              rawBytes: encoded,
-              observedAtMs: Date.now(),
-            };
-            try {
-              Effect.runSync(
-                Ref.update(notificationsRef, (xs) => [...xs, obs]),
-              );
-            } catch (recordErr) {
-              logConformanceAdapterWarning(
-                "failed to record conformance observation",
-                recordErr,
-              );
-            }
+            // Strip `definition` before re-encoding so `rawBytes` matches
+            // the wire form the TestServer originally emitted.
+            recordObservedNotification(notificationsRef, frame);
           }),
         )
         .pipe(Effect.mapError((cause) => lifecycleError(cause)));
@@ -302,22 +344,10 @@ export function createMoltZapRealClientFactory(
           // The conformance suite passes string method names; resolve to
           // the protocol descriptor by name. Per-def `validateParams` is
           // checked inside `ws.sendRpc` via wire validation.
-          const definition = rpcMethods.find(
-            (d): d is AnyRpcDefinition => d.name === method,
-          );
-          if (definition === undefined || !definition.validateParams(params)) {
-            return yield* Effect.fail(
-              new RealClientRpcFailure({
-                cause: { method, params },
-                documentedErrorTag: null,
-                kind: "malformed-response",
-                method,
-              }) as RealClientRpcError,
-            );
-          }
+          const definition = yield* resolveRpcDefinition(method, params);
           const result = yield* ws
             .sendRpc(definition, params as ParamsOf<typeof definition>)
-            .pipe(Effect.mapError((cause) => rpcError(cause, method)));
+            .pipe(Effect.mapError(rpcErrorForMethod(method)));
           return definition.encodeResponse(null, result) as ResponseFrame;
         });
 

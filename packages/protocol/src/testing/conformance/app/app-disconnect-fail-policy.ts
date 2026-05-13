@@ -129,7 +129,7 @@ export function registerAppDisconnectFailPolicy(
         }).pipe(
           Effect.mapError((e) => unavailable(`sender register: ${e.body}`)),
         );
-        const senderClient = yield* makeTestClient({
+        yield* makeTestClient({
           serverUrl: ctx.realServer.wsUrl,
           agentKey: sender.apiKey,
           agentId: sender.agentId,
@@ -151,7 +151,6 @@ export function registerAppDisconnectFailPolicy(
         // `PropertyUnavailable` reason that names the missing
         // dependency; the suspect-the-leak dispatch round-trip is
         // unreachable.
-        void senderClient;
         yield* Scope.close(appScope, Exit.void);
         return yield* Effect.fail(
           new PropertyUnavailable({

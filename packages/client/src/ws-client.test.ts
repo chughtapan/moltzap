@@ -157,6 +157,23 @@ interface TestServer {
   readonly connections: ReadonlyArray<TestServerConnection>;
 }
 
+function rawSocketDataToString(data: string | Uint8Array): string {
+  return typeof data === "string"
+    ? data
+    : new TextDecoder("utf-8").decode(data);
+}
+
+function handleTestServerRawData(
+  conn: TestServerConnection,
+  receivedList: string[],
+  handler: ServerHandler,
+  data: string | Uint8Array,
+): Effect.Effect<void> {
+  const raw = rawSocketDataToString(data);
+  receivedList.push(raw);
+  return handler(conn, raw);
+}
+
 /**
  * Spin up an in-process `@effect/platform` WS server on `127.0.0.1:0`.
  * Caller owns the provided scope; when it closes, the server shuts down.
@@ -191,14 +208,7 @@ const startTestServer = (
             };
             connections.push(conn);
             yield* serverSock.runRaw((data) =>
-              Effect.gen(function* () {
-                const raw =
-                  typeof data === "string"
-                    ? data
-                    : new TextDecoder("utf-8").decode(data);
-                receivedList.push(raw);
-                yield* handler(conn, raw);
-              }),
+              handleTestServerRawData(conn, receivedList, handler, data),
             );
           }),
         )

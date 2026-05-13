@@ -28,6 +28,7 @@ import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
+  type CallToolRequest,
   type CallToolResult,
   type ListToolsResult,
 } from "@modelcontextprotocol/sdk/types.js";
@@ -156,101 +157,87 @@ interface DecodedReplyArgs {
   readonly files?: ReadonlyArray<string>;
 }
 
-export type ReplyArgsDecodeResult =
-  | { readonly _tag: "Ok"; readonly value: DecodedReplyArgs }
-  | {
-      readonly _tag: "Err";
-      readonly error: {
-        readonly _tag: "ReplyArgsInvalid";
-        readonly reason: string;
-      };
-    };
+class ReplyArgsInvalid extends Data.TaggedError("ReplyArgsInvalid")<{
+  readonly reason: string;
+}> {
+  override get message(): string {
+    return this.reason;
+  }
+}
+
+export type ReplyArgsDecodeResult = Either.Either<
+  DecodedReplyArgs,
+  ReplyArgsInvalid
+>;
 
 /**
  * Decode and validate a raw `reply` tool-call `arguments` object at the MCP
  * boundary (Principle 2). No `as` casts across this seam.
  */
+function invalidReplyArgs(reason: string): ReplyArgsInvalid {
+  return new ReplyArgsInvalid({ reason });
+}
+
+function decodeReplyTo(
+  raw: unknown,
+): Either.Either<MessageId | undefined, ReplyArgsInvalid> {
+  if (raw === undefined) return Either.right(undefined);
+  if (typeof raw !== "string" || raw.trim().length === 0) {
+    return Either.left(invalidReplyArgs("reply_to must be a non-empty string"));
+  }
+  try {
+    return Either.right(makeMessageId(raw));
+  } catch (cause) {
+    return Either.left(
+      invalidReplyArgs(`reply_to must be a valid message_id: ${String(cause)}`),
+    );
+  }
+}
+
+function decodeReplyFiles(
+  raw: unknown,
+): Either.Either<ReadonlyArray<string> | undefined, ReplyArgsInvalid> {
+  if (raw === undefined) return Either.right(undefined);
+  if (!Array.isArray(raw)) {
+    return Either.left(invalidReplyArgs("files must be an array"));
+  }
+  for (const file of raw) {
+    if (typeof file !== "string") {
+      return Either.left(invalidReplyArgs("files must be an array of strings"));
+    }
+  }
+  return Either.right(raw as ReadonlyArray<string>);
+}
+
+function decodedReplyArgsValue(
+  text: string,
+  replyTo: MessageId | undefined,
+  files: ReadonlyArray<string> | undefined,
+): DecodedReplyArgs {
+  if (files !== undefined) return { text, replyTo, files };
+  if (replyTo !== undefined) return { text, replyTo };
+  return { text };
+}
+
 export function decodeReplyArgs(raw: unknown): ReplyArgsDecodeResult {
   if (!isStringKeyedRecord(raw)) {
-    return {
-      _tag: "Err",
-      error: {
-        _tag: "ReplyArgsInvalid",
-        reason: "arguments must be an object",
-      },
-    };
+    return Either.left(invalidReplyArgs("arguments must be an object"));
   }
   const obj = raw;
 
   if (typeof obj.text !== "string") {
-    return {
-      _tag: "Err",
-      error: { _tag: "ReplyArgsInvalid", reason: "text must be a string" },
-    };
+    return Either.left(invalidReplyArgs("text must be a string"));
   }
   const text = obj.text;
   if (text.trim().length === 0) {
-    return {
-      _tag: "Err",
-      error: { _tag: "ReplyArgsInvalid", reason: "text must be non-empty" },
-    };
+    return Either.left(invalidReplyArgs("text must be non-empty"));
   }
 
-  let replyTo: MessageId | undefined;
-  if (obj.reply_to !== undefined) {
-    if (typeof obj.reply_to !== "string" || obj.reply_to.trim().length === 0) {
-      return {
-        _tag: "Err",
-        error: {
-          _tag: "ReplyArgsInvalid",
-          reason: "reply_to must be a non-empty string",
-        },
-      };
-    }
-    try {
-      replyTo = makeMessageId(obj.reply_to);
-    } catch (cause) {
-      return {
-        _tag: "Err",
-        error: {
-          _tag: "ReplyArgsInvalid",
-          reason: `reply_to must be a valid message_id: ${String(cause)}`,
-        },
-      };
-    }
-  }
-
-  let files: ReadonlyArray<string> | undefined;
-  if (obj.files !== undefined) {
-    if (!Array.isArray(obj.files)) {
-      return {
-        _tag: "Err",
-        error: { _tag: "ReplyArgsInvalid", reason: "files must be an array" },
-      };
-    }
-    for (const f of obj.files) {
-      if (typeof f !== "string") {
-        return {
-          _tag: "Err",
-          error: {
-            _tag: "ReplyArgsInvalid",
-            reason: "files must be an array of strings",
-          },
-        };
-      }
-    }
-    files = obj.files as ReadonlyArray<string>;
-  }
-
-  return {
-    _tag: "Ok",
-    value:
-      files !== undefined
-        ? { text, replyTo, files }
-        : replyTo !== undefined
-          ? { text, replyTo }
-          : { text },
-  };
+  return Either.gen(function* () {
+    const replyTo = yield* decodeReplyTo(obj.reply_to);
+    const files = yield* decodeReplyFiles(obj.files);
+    return decodedReplyArgsValue(text, replyTo, files);
+  });
 }
 
 function toolErrorResult(message: string): CallToolResult {
@@ -259,6 +246,168 @@ function toolErrorResult(message: string): CallToolResult {
 
 function toolOkResult(message: string): CallToolResult {
   return { content: [{ type: "text", text: message }] };
+}
+
+function filesUnsupportedResult(fileCount: number): CallToolResult {
+  return toolErrorResult(
+    `FilesUnsupported: reply.files is not supported in v1 (${fileCount.toString()} file(s) rejected). Tracked as v1.1 follow-up.`,
+  );
+}
+
+function sendFailureResult(error: ReplyError): CallToolResult {
+  if (error instanceof LeaseAlreadyConsumed) {
+    return toolErrorResult(
+      `LeaseAlreadyConsumed: dispatch lease ${error.leaseId} was already consumed by an earlier reply in this dispatch turn.`,
+    );
+  }
+  return toolErrorResult(
+    error instanceof SendFailed
+      ? `send failed: ${error.cause}`
+      : `reply error: ${error.name}`,
+  );
+}
+
+function sendResolvedReply(
+  deps: ServerDeps,
+  conversationId: string,
+  decoded: DecodedReplyArgs,
+): Effect.Effect<CallToolResult> {
+  return Effect.gen(function* () {
+    const sendResult = yield* Effect.either(
+      deps.sendReply(conversationId, decoded.text),
+    );
+    return Either.match(sendResult, {
+      onLeft: sendFailureResult,
+      onRight: () => toolOkResult(`Reply sent to ${conversationId}.`),
+    });
+  });
+}
+
+function handleDecodedReplyCall(
+  decoded: DecodedReplyArgs,
+  deps: ServerDeps,
+): Effect.Effect<CallToolResult> {
+  if (decoded.files !== undefined && decoded.files.length > 0) {
+    return Effect.succeed(filesUnsupportedResult(decoded.files.length));
+  }
+
+  const resolution = deps.routing.resolveTarget(decoded.replyTo);
+  switch (resolution._tag) {
+    case "Resolved":
+      return sendResolvedReply(deps, resolution.conversationId, decoded);
+    case "NoActiveConversation":
+      return Effect.succeed(
+        toolErrorResult(
+          "no active conversation: no inbound message has been observed yet; pass reply_to after an inbound arrives",
+        ),
+      );
+    case "ReplyToUnknown":
+      return Effect.succeed(
+        toolErrorResult(
+          `reply_to does not match a known message_id: ${resolution.replyTo as string}`,
+        ),
+      );
+    default: {
+      const _exhaustive: never = resolution;
+      return Effect.succeed(
+        toolErrorResult(`unreachable routing: ${JSON.stringify(_exhaustive)}`),
+      );
+    }
+  }
+}
+
+function handleCallToolRequest(
+  request: CallToolRequest,
+  deps: ServerDeps,
+): Effect.Effect<CallToolResult> {
+  if (request.params.name !== REPLY_TOOL_NAME) {
+    return Effect.succeed(
+      toolErrorResult(`unknown tool: ${request.params.name}`),
+    );
+  }
+
+  return Either.match(decodeReplyArgs(request.params.arguments), {
+    onLeft: (error) => Effect.succeed(toolErrorResult(error.reason)),
+    onRight: (decoded) => handleDecodedReplyCall(decoded, deps),
+  });
+}
+
+function emitMcpNotification(
+  server: Server,
+  notification: ClaudeChannelNotification,
+): Effect.Effect<void, unknown> {
+  return Effect.tryPromise({
+    try: () =>
+      server.notification({
+        method: notification.method,
+        params: toMcpNotificationParams(notification.params),
+      }),
+    catch: (cause) => cause,
+  });
+}
+
+function ignoreQueuedNotificationEmitFailure(
+  deps: ServerDeps,
+  err: unknown,
+): Effect.Effect<void> {
+  return Effect.sync(() =>
+    deps.logger.error(
+      { err },
+      "claude-code-channel: queued notification emit failed",
+    ),
+  );
+}
+
+function flushPendingNotifications(
+  server: Server,
+  deps: ServerDeps,
+  pending: ClaudeChannelNotification[],
+): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    while (pending.length > 0) {
+      const notification = pending.shift();
+      if (notification === undefined) break;
+      yield* emitMcpNotification(server, notification).pipe(
+        Effect.catchAll((err) =>
+          ignoreQueuedNotificationEmitFailure(deps, err),
+        ),
+      );
+    }
+  });
+}
+
+function emitPushNotification(
+  server: Server,
+  notification: ClaudeChannelNotification,
+): Effect.Effect<void, PushError> {
+  return Effect.tryPromise({
+    try: () =>
+      server.notification({
+        method: notification.method,
+        params: toMcpNotificationParams(notification.params),
+      }),
+    catch: (cause): PushError =>
+      new EmitFailed({
+        cause: stringifyCause(cause),
+      }),
+  });
+}
+
+function closeMcpServer(server: Server, deps: ServerDeps): Effect.Effect<void> {
+  return Effect.tryPromise({
+    try: () => server.close(),
+    catch: (cause): Error =>
+      cause instanceof Error ? cause : new Error(stringifyCause(cause)),
+  }).pipe(
+    Effect.catchAll((err) =>
+      Effect.sync(() => {
+        deps.logger.error(
+          { err },
+          "claude-code-channel: MCP close failed (swallowed per I8)",
+        );
+      }),
+    ),
+  );
 }
 
 /**
@@ -290,33 +439,7 @@ function bootChannelMcpServerEffect(
     const pending: ClaudeChannelNotification[] = [];
     server.oninitialized = () => {
       initialized = true;
-      // Best-effort flush; failures log and continue so one bad push doesn't
-      // hide the rest from the client.
-      void Effect.runPromise(
-        Effect.gen(function* () {
-          while (pending.length > 0) {
-            const n = pending.shift();
-            if (n === undefined) break;
-            yield* Effect.tryPromise({
-              try: () =>
-                server.notification({
-                  method: n.method,
-                  params: toMcpNotificationParams(n.params),
-                }),
-              catch: (err) => err,
-            }).pipe(
-              Effect.catchAll((err) =>
-                Effect.sync(() =>
-                  deps.logger.error(
-                    { err },
-                    "claude-code-channel: queued notification emit failed",
-                  ),
-                ),
-              ),
-            );
-          }
-        }),
-      );
+      Effect.runFork(flushPendingNotifications(server, deps, pending));
     };
 
     try {
@@ -335,77 +458,7 @@ function bootChannelMcpServerEffect(
       );
 
       server.setRequestHandler(CallToolRequestSchema, (request) =>
-        Effect.runPromise(
-          Effect.gen(function* () {
-            if (request.params.name !== REPLY_TOOL_NAME) {
-              return toolErrorResult(`unknown tool: ${request.params.name}`);
-            }
-            const decoded = decodeReplyArgs(request.params.arguments);
-            if (decoded._tag === "Err") {
-              return toolErrorResult(decoded.error.reason);
-            }
-            // v1 ships the contract-shaped `files` input (spec A4, fakechat parity),
-            // but attachment upload is a v1.1 follow-up. Reject explicitly with a
-            // tagged error rather than silently dropping the files (reviewer-187).
-            if (
-              decoded.value.files !== undefined &&
-              decoded.value.files.length > 0
-            ) {
-              return toolErrorResult(
-                `FilesUnsupported: reply.files is not supported in v1 (${decoded.value.files.length.toString()} file(s) rejected). Tracked as v1.1 follow-up.`,
-              );
-            }
-            const resolution = deps.routing.resolveTarget(
-              decoded.value.replyTo,
-            );
-            switch (resolution._tag) {
-              case "Resolved": {
-                const sendResult = yield* Effect.either(
-                  deps.sendReply(resolution.conversationId, decoded.value.text),
-                );
-                const sendFailure = Either.match(sendResult, {
-                  onLeft: (error) => {
-                    if (error instanceof LeaseAlreadyConsumed) {
-                      // Cutover #533: surface the single-use lease
-                      // contract verbatim. Multi-turn agents that call
-                      // `reply` more than once in one dispatch see this
-                      // as a structured tool-error rather than a silent
-                      // send failure.
-                      return toolErrorResult(
-                        `LeaseAlreadyConsumed: dispatch lease ${error.leaseId} was already consumed by an earlier reply in this dispatch turn.`,
-                      );
-                    }
-                    return toolErrorResult(
-                      error instanceof SendFailed
-                        ? `send failed: ${error.cause}`
-                        : `reply error: ${error.name}`,
-                    );
-                  },
-                  onRight: () => null,
-                });
-                if (sendFailure !== null) return sendFailure;
-                return toolOkResult(
-                  `Reply sent to ${resolution.conversationId as string}.`,
-                );
-              }
-              case "NoActiveConversation":
-                return toolErrorResult(
-                  "no active conversation: no inbound message has been observed yet; pass reply_to after an inbound arrives",
-                );
-              case "ReplyToUnknown":
-                return toolErrorResult(
-                  `reply_to does not match a known message_id: ${resolution.replyTo as string}`,
-                );
-              default: {
-                // Principle 4: exhaustiveness. Reach here only if RoutingResolution adds a tag.
-                const _exhaustive: never = resolution;
-                return toolErrorResult(
-                  `unreachable routing: ${JSON.stringify(_exhaustive)}`,
-                );
-              }
-            }
-          }),
-        ),
+        Effect.runPromise(handleCallToolRequest(request, deps)),
       );
     } catch (cause) {
       return {
@@ -442,35 +495,9 @@ function bootChannelMcpServerEffect(
             pending.push(notification);
             return;
           }
-          yield* Effect.tryPromise({
-            try: () =>
-              server.notification({
-                method: notification.method,
-                params: toMcpNotificationParams(notification.params),
-              }),
-            catch: (cause): PushError =>
-              new EmitFailed({
-                cause: stringifyCause(cause),
-              }),
-          });
+          yield* emitPushNotification(server, notification);
         }),
-      stop: () =>
-        Effect.gen(function* () {
-          yield* Effect.tryPromise({
-            try: () => server.close(),
-            catch: (cause): Error =>
-              cause instanceof Error ? cause : new Error(stringifyCause(cause)),
-          }).pipe(
-            Effect.catchAll((err) =>
-              Effect.sync(() => {
-                deps.logger.error(
-                  { err },
-                  "claude-code-channel: MCP close failed (swallowed per I8)",
-                );
-              }),
-            ),
-          );
-        }),
+      stop: () => closeMcpServer(server, deps),
     };
 
     return { _tag: "Ok", value: handle };

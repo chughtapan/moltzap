@@ -17,4 +17,9 @@ export {
   WheneableMergeQueryBuilder,
 } from "kysely";
 
-export type { KyselyConfig, RawBuilder, Transaction } from "kysely";
+export type {
+  KyselyConfig,
+  OnConflictBuilder,
+  RawBuilder,
+  Transaction,
+} from "kysely";

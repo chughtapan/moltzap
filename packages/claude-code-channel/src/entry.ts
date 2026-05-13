@@ -39,6 +39,34 @@ const DEFAULT_INSTRUCTIONS =
   'MoltZap messages arrive as <channel source="moltzap" chat_id="..." message_id="..." user="..." ts="...">. ' +
   "Reply with the reply tool. Pass reply_to=<message_id> to target a specific conversation; omit to reply to the most recent inbound.";
 
+function logNotificationPushFailure(
+  logger: BootOptions["logger"],
+  messageId: string,
+  err: unknown,
+): Effect.Effect<void> {
+  return Effect.sync(() =>
+    logger.error?.(
+      { err, messageId },
+      "claude-code-channel: notification push failed",
+    ),
+  );
+}
+
+function pushInboundNotification(
+  serverHandle: ServerHandle,
+  notification: Parameters<ServerHandle["push"]>[0],
+  logger: BootOptions["logger"],
+  messageId: string,
+): Effect.Effect<void> {
+  return serverHandle
+    .push(notification)
+    .pipe(
+      Effect.catchAll((err) =>
+        logNotificationPushFailure(logger, messageId, err),
+      ),
+    );
+}
+
 /**
  * Boot a Claude Code channel. Single public entry point of the package.
  *
@@ -187,18 +215,12 @@ function bootClaudeCodeChannelEffect(
           translated.value.params.meta.message_id,
           translated.value.params.meta.chat_id,
         );
-        yield* serverHandle
-          .push(translated.value)
-          .pipe(
-            Effect.catchAll((err) =>
-              Effect.sync(() =>
-                logger.error?.(
-                  { err, messageId: enriched.id },
-                  "claude-code-channel: notification push failed",
-                ),
-              ),
-            ),
-          );
+        yield* pushInboundNotification(
+          serverHandle,
+          translated.value,
+          logger,
+          enriched.id,
+        );
       }),
     );
 

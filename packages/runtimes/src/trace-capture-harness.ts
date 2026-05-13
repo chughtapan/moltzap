@@ -4,6 +4,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { Data, Effect, Either } from "effect";
 import { startRuntimeAgent, type RuntimeKind } from "./fleet.js";
 import { RuntimeReadyTimedOut, SpawnFailed } from "./errors.js";
+import type { Runtime } from "./runtime.js";
 
 import {
   type AnyRpcDefinition,
@@ -215,6 +216,33 @@ interface ConversationResponse {
   readonly messageId: string;
 }
 
+type RuntimeCandidate = {
+  readonly kind?: unknown;
+  readonly targetAgentName?: unknown;
+  readonly readyTimeoutMs?: unknown;
+};
+
+type ConversationCandidate = {
+  readonly kind?: unknown;
+  readonly setupMessage?: unknown;
+  readonly followUpMessages?: unknown;
+  readonly senderName?: unknown;
+  readonly groupName?: unknown;
+  readonly bystanders?: unknown;
+  readonly probeMessage?: unknown;
+  readonly probeSenderName?: unknown;
+};
+
+type BystanderPayload = GroupConversationPayload["bystanders"][number];
+type PayloadCandidate = {
+  readonly runtime?: unknown;
+  readonly conversation?: unknown;
+};
+type BystanderCandidate = {
+  readonly name?: unknown;
+  readonly messages?: unknown;
+};
+
 function failLoad(
   pathValue: string,
   tag: string,
@@ -348,41 +376,54 @@ function asStringList(
   return value;
 }
 
-function decodePayload(
-  sourcePath: string,
-  payload: unknown,
-): Effect.Effect<
-  HarnessPayload,
-  { readonly cause: Readonly<Record<string, unknown>> },
-  never
-> {
-  const issues: Array<string> = [];
-  const candidatePayload =
-    typeof payload === "object" && payload !== null && !Array.isArray(payload)
-      ? (payload as {
-          readonly runtime?: unknown;
-          readonly conversation?: unknown;
-        })
-      : undefined;
+function isObjectCandidate(value: unknown): value is object {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
-  if (candidatePayload === undefined) {
-    issues.push("payload must be an object");
-  }
+function isPayloadCandidate(value: unknown): value is PayloadCandidate {
+  return isObjectCandidate(value);
+}
 
-  const runtime =
-    typeof candidatePayload?.runtime === "object" &&
-    candidatePayload.runtime !== null &&
-    !Array.isArray(candidatePayload.runtime)
-      ? (candidatePayload.runtime as {
-          readonly kind?: unknown;
-          readonly targetAgentName?: unknown;
-          readonly readyTimeoutMs?: unknown;
-        })
-      : undefined;
-  if (runtime === undefined) {
+function isRuntimeCandidate(value: unknown): value is RuntimeCandidate {
+  return isObjectCandidate(value);
+}
+
+function isConversationCandidate(
+  value: unknown,
+): value is ConversationCandidate {
+  return isObjectCandidate(value);
+}
+
+function isBystanderCandidate(value: unknown): value is BystanderCandidate {
+  return isObjectCandidate(value);
+}
+
+function decodeRuntimeCandidate(
+  value: unknown,
+  issues: Array<string>,
+): RuntimeCandidate | undefined {
+  if (!isRuntimeCandidate(value)) {
     issues.push("runtime must be an object");
+    return undefined;
   }
+  return value;
+}
 
+function decodeConversationCandidate(
+  value: unknown,
+  issues: Array<string>,
+): ConversationCandidate | undefined {
+  if (!isConversationCandidate(value)) {
+    issues.push("conversation must be an object");
+    return undefined;
+  }
+  return value;
+}
+
+function validateRuntime(
+  runtime: RuntimeCandidate | undefined,
+  issues: Array<string>,
+): void {
   const runtimeKind = runtime?.kind;
   if (
     runtimeKind !== "openclaw" &&
@@ -408,26 +449,12 @@ function decodePayload(
   ) {
     issues.push("runtime.readyTimeoutMs must be a positive integer");
   }
+}
 
-  const conversation =
-    typeof candidatePayload?.conversation === "object" &&
-    candidatePayload.conversation !== null &&
-    !Array.isArray(candidatePayload.conversation)
-      ? (candidatePayload.conversation as {
-          readonly kind?: unknown;
-          readonly setupMessage?: unknown;
-          readonly followUpMessages?: unknown;
-          readonly senderName?: unknown;
-          readonly groupName?: unknown;
-          readonly bystanders?: unknown;
-          readonly probeMessage?: unknown;
-          readonly probeSenderName?: unknown;
-        })
-      : undefined;
-  if (conversation === undefined) {
-    issues.push("conversation must be an object");
-  }
-
+function validateConversationBase(
+  conversation: ConversationCandidate | undefined,
+  issues: Array<string>,
+): void {
   const conversationKind = conversation?.kind;
   if (
     conversationKind !== "direct" &&
@@ -442,12 +469,6 @@ function decodePayload(
   ) {
     issues.push("conversation.setupMessage must be a non-empty string");
   }
-  const followUpMessages =
-    asStringList(
-      conversation?.followUpMessages,
-      "conversation.followUpMessages",
-      issues,
-    ) ?? [];
   if (
     conversation?.senderName !== undefined &&
     (typeof conversation.senderName !== "string" ||
@@ -455,98 +476,115 @@ function decodePayload(
   ) {
     issues.push("conversation.senderName must be a non-empty string");
   }
+}
 
-  let bystanders: ReadonlyArray<{
-    readonly name: string;
-    readonly messages: ReadonlyArray<string>;
-  }> = [];
-  if (conversationKind === "group") {
-    if (
-      conversation?.groupName !== undefined &&
-      (typeof conversation.groupName !== "string" ||
-        conversation.groupName.length === 0)
-    ) {
-      issues.push("conversation.groupName must be a non-empty string");
-    }
-    if (conversation?.bystanders !== undefined) {
-      if (!Array.isArray(conversation.bystanders)) {
-        issues.push("conversation.bystanders must be an array");
-      } else {
-        const parsed: Array<{
-          readonly name: string;
-          readonly messages: ReadonlyArray<string>;
-        }> = [];
-        conversation.bystanders.forEach((entry, index) => {
-          if (
-            typeof entry !== "object" ||
-            entry === null ||
-            Array.isArray(entry)
-          ) {
-            issues.push(
-              `conversation.bystanders[${String(index)}] must be an object`,
-            );
-            return;
-          }
-          const candidate = entry as {
-            readonly name?: unknown;
-            readonly messages?: unknown;
-          };
-          if (
-            typeof candidate.name !== "string" ||
-            candidate.name.length === 0
-          ) {
-            issues.push(
-              `conversation.bystanders[${String(index)}].name must be a non-empty string`,
-            );
-            return;
-          }
-          parsed.push({
-            name: candidate.name,
-            messages:
-              asStringList(
-                candidate.messages,
-                `conversation.bystanders[${String(index)}].messages`,
-                issues,
-              ) ?? [],
-          });
-        });
-        bystanders = parsed;
-      }
-    }
+function decodeBystander(
+  entry: unknown,
+  index: number,
+  issues: Array<string>,
+): BystanderPayload | undefined {
+  if (!isBystanderCandidate(entry)) {
+    issues.push(`conversation.bystanders[${String(index)}] must be an object`);
+    return undefined;
+  }
+  if (typeof entry.name !== "string" || entry.name.length === 0) {
+    issues.push(
+      `conversation.bystanders[${String(index)}].name must be a non-empty string`,
+    );
+    return undefined;
+  }
+  return {
+    name: entry.name,
+    messages:
+      asStringList(
+        entry.messages,
+        `conversation.bystanders[${String(index)}].messages`,
+        issues,
+      ) ?? [],
+  };
+}
+
+function decodeGroupBystanders(
+  conversation: ConversationCandidate | undefined,
+  issues: Array<string>,
+): ReadonlyArray<BystanderPayload> {
+  if (conversation?.kind !== "group") return [];
+  if (
+    conversation.groupName !== undefined &&
+    (typeof conversation.groupName !== "string" ||
+      conversation.groupName.length === 0)
+  ) {
+    issues.push("conversation.groupName must be a non-empty string");
+  }
+  if (conversation.bystanders === undefined) return [];
+  if (!Array.isArray(conversation.bystanders)) {
+    issues.push("conversation.bystanders must be an array");
+    return [];
   }
 
+  const parsed: Array<BystanderPayload> = [];
+  for (const [index, entry] of conversation.bystanders.entries()) {
+    const bystander = decodeBystander(entry, index, issues);
+    if (bystander !== undefined) parsed.push(bystander);
+  }
+  return parsed;
+}
+
+function decodeCrossProbe(
+  conversation: ConversationCandidate | undefined,
+  issues: Array<string>,
+): {
+  readonly probeMessage?: string;
+  readonly probeSenderName?: string;
+} {
+  if (conversation?.kind !== "cross") return {};
   let probeMessage: string | undefined;
   let probeSenderName: string | undefined;
-  if (conversationKind === "cross") {
-    if (
-      typeof conversation?.probeMessage !== "string" ||
-      conversation.probeMessage.length === 0
-    ) {
-      issues.push("conversation.probeMessage must be a non-empty string");
-    } else {
-      probeMessage = conversation.probeMessage;
-    }
-    if (
-      conversation?.probeSenderName !== undefined &&
-      (typeof conversation.probeSenderName !== "string" ||
-        conversation.probeSenderName.length === 0)
-    ) {
-      issues.push("conversation.probeSenderName must be a non-empty string");
-    } else if (typeof conversation?.probeSenderName === "string") {
-      probeSenderName = conversation.probeSenderName;
-    }
+  if (
+    typeof conversation.probeMessage !== "string" ||
+    conversation.probeMessage.length === 0
+  ) {
+    issues.push("conversation.probeMessage must be a non-empty string");
+  } else {
+    probeMessage = conversation.probeMessage;
   }
-
-  if (issues.length > 0) {
-    return Effect.fail(failLoad(sourcePath, "InvalidPayload", { issues }));
+  if (
+    conversation.probeSenderName !== undefined &&
+    (typeof conversation.probeSenderName !== "string" ||
+      conversation.probeSenderName.length === 0)
+  ) {
+    issues.push("conversation.probeSenderName must be a non-empty string");
+  } else if (typeof conversation.probeSenderName === "string") {
+    probeSenderName = conversation.probeSenderName;
   }
+  return { probeMessage, probeSenderName };
+}
 
-  const narrowedRuntimeKind: RuntimeKind =
-    runtimeKind === "openclaw"
-      ? "openclaw"
-      : runtimeKind === RUNTIME_KIND_CLAUDE_CODE
-        ? RUNTIME_KIND_CLAUDE_CODE
-        : "nanoclaw";
+function narrowRuntimeKind(kind: unknown): RuntimeKind {
+  switch (kind) {
+    case "openclaw":
+      return "openclaw";
+    case RUNTIME_KIND_CLAUDE_CODE:
+      return RUNTIME_KIND_CLAUDE_CODE;
+    default:
+      return "nanoclaw";
+  }
+}
+
+function narrowConversationKind(kind: unknown): ConversationPayload["kind"] {
+  switch (kind) {
+    case "group":
+      return "group";
+    case "cross":
+      return "cross";
+    default:
+      return "direct";
+  }
+}
+
+function buildRuntimePayload(
+  runtime: RuntimeCandidate | undefined,
+): HarnessPayload["runtime"] {
   const targetAgentName =
     typeof runtime?.targetAgentName === "string"
       ? runtime.targetAgentName
@@ -555,60 +593,111 @@ function decodePayload(
     typeof runtime?.readyTimeoutMs === "number"
       ? runtime.readyTimeoutMs
       : undefined;
-  const narrowedConversationKind =
-    conversationKind === "group"
-      ? "group"
-      : conversationKind === "cross"
-        ? "cross"
-        : "direct";
-  const setupMessage =
-    typeof conversation?.setupMessage === "string"
-      ? conversation.setupMessage
-      : "";
-  const senderName =
-    typeof conversation?.senderName === "string"
-      ? conversation.senderName
-      : undefined;
-  const groupName =
-    typeof conversation?.groupName === "string"
-      ? conversation.groupName
-      : undefined;
-
-  const runtimePayload = {
-    kind: narrowedRuntimeKind,
+  return {
+    kind: narrowRuntimeKind(runtime?.kind),
     ...(targetAgentName !== undefined ? { targetAgentName } : {}),
     ...(readyTimeoutMs !== undefined ? { readyTimeoutMs } : {}),
-  } satisfies HarnessPayload["runtime"];
+  };
+}
 
-  const conversationPayload =
-    narrowedConversationKind === "group"
-      ? ({
-          kind: "group",
-          setupMessage,
-          followUpMessages,
-          ...(senderName !== undefined ? { senderName } : {}),
-          ...(groupName !== undefined ? { groupName } : {}),
-          bystanders,
-        } satisfies GroupConversationPayload)
-      : narrowedConversationKind === "cross"
-        ? ({
-            kind: "cross",
-            setupMessage,
-            followUpMessages,
-            ...(senderName !== undefined ? { senderName } : {}),
-            ...(probeSenderName !== undefined ? { probeSenderName } : {}),
-            probeMessage: probeMessage!,
-          } satisfies CrossConversationPayload)
-        : ({
-            kind: "direct",
-            setupMessage,
-            followUpMessages,
-            ...(senderName !== undefined ? { senderName } : {}),
-          } satisfies DirectConversationPayload);
+function buildConversationPayload(input: {
+  readonly conversation: ConversationCandidate | undefined;
+  readonly followUpMessages: ReadonlyArray<string>;
+  readonly bystanders: ReadonlyArray<BystanderPayload>;
+  readonly probeMessage: string | undefined;
+  readonly probeSenderName: string | undefined;
+}): ConversationPayload {
+  const conversationKind = narrowConversationKind(input.conversation?.kind);
+  const setupMessage =
+    typeof input.conversation?.setupMessage === "string"
+      ? input.conversation.setupMessage
+      : "";
+  const senderName =
+    typeof input.conversation?.senderName === "string"
+      ? input.conversation.senderName
+      : undefined;
+  const groupName =
+    typeof input.conversation?.groupName === "string"
+      ? input.conversation.groupName
+      : undefined;
+
+  switch (conversationKind) {
+    case "group":
+      return {
+        kind: "group",
+        setupMessage,
+        followUpMessages: input.followUpMessages,
+        ...(senderName !== undefined ? { senderName } : {}),
+        ...(groupName !== undefined ? { groupName } : {}),
+        bystanders: input.bystanders,
+      };
+    case "cross":
+      return {
+        kind: "cross",
+        setupMessage,
+        followUpMessages: input.followUpMessages,
+        ...(senderName !== undefined ? { senderName } : {}),
+        ...(input.probeSenderName !== undefined
+          ? { probeSenderName: input.probeSenderName }
+          : {}),
+        probeMessage: input.probeMessage ?? "",
+      };
+    case "direct":
+      return {
+        kind: "direct",
+        setupMessage,
+        followUpMessages: input.followUpMessages,
+        ...(senderName !== undefined ? { senderName } : {}),
+      };
+  }
+}
+
+function decodePayload(
+  sourcePath: string,
+  payload: unknown,
+): Effect.Effect<
+  HarnessPayload,
+  { readonly cause: Readonly<Record<string, unknown>> },
+  never
+> {
+  const issues: Array<string> = [];
+  const candidatePayload = isPayloadCandidate(payload) ? payload : undefined;
+  if (candidatePayload === undefined) {
+    issues.push("payload must be an object");
+  }
+
+  const runtime = decodeRuntimeCandidate(candidatePayload?.runtime, issues);
+  validateRuntime(runtime, issues);
+  const conversation = decodeConversationCandidate(
+    candidatePayload?.conversation,
+    issues,
+  );
+  validateConversationBase(conversation, issues);
+  const followUpMessages =
+    asStringList(
+      conversation?.followUpMessages,
+      "conversation.followUpMessages",
+      issues,
+    ) ?? [];
+  const bystanders = decodeGroupBystanders(conversation, issues);
+  const { probeMessage, probeSenderName } = decodeCrossProbe(
+    conversation,
+    issues,
+  );
+
+  if (issues.length > 0) {
+    return Effect.fail(failLoad(sourcePath, "InvalidPayload", { issues }));
+  }
 
   return Effect.succeed({
-    runtime: runtimePayload,
-    conversation: conversationPayload,
+    runtime: buildRuntimePayload(runtime),
+    conversation: buildConversationPayload({
+      conversation,
+      followUpMessages,
+      bystanders,
+      probeMessage,
+      probeSenderName,
+    }),
   });
 }
 
@@ -1068,6 +1157,228 @@ function withExclusiveRun<A, E>(
   );
 }
 
+interface TargetAgentRegistration {
+  readonly agentId: string;
+  readonly apiKey: string;
+  readonly agentName: string;
+}
+
+interface ConversationRun {
+  readonly participants: ReadonlyArray<{
+    readonly id: string;
+    readonly name: string;
+    readonly role: string;
+  }>;
+  readonly responses: ReadonlyArray<ConversationResponse>;
+}
+
+function startCoreTraceServer(
+  serverIndexModule: ServerIndexModule,
+  serverTestModule: ServerTestModule,
+): Effect.Effect<
+  CoreTestServer,
+  { readonly cause: Readonly<Record<string, unknown>> }
+> {
+  return Effect.tryPromise({
+    try: () =>
+      Promise.resolve(
+        serverTestModule.startCoreTestServer({
+          traceCaptureLayer: serverIndexModule.InMemoryTraceCaptureLive,
+        }),
+      ) as Promise<CoreTestServer>,
+    catch: (error) =>
+      failHarness(error instanceof Error ? error.message : String(error)),
+  });
+}
+
+function loadHarnessClientModule(): Effect.Effect<
+  ClientTestModule,
+  { readonly cause: Readonly<Record<string, unknown>> }
+> {
+  return loadClientTestModule().pipe(
+    Effect.mapError((error) =>
+      failHarness(error instanceof Error ? error.message : String(error)),
+    ),
+  );
+}
+
+function registerTargetAgent(input: {
+  readonly clientModule: ClientTestModule;
+  readonly baseUrl: string;
+  readonly targetAgentName: string;
+}): Effect.Effect<
+  TargetAgentRegistration,
+  { readonly cause: Readonly<Record<string, unknown>> }
+> {
+  return input.clientModule
+    .registerAgent(input.baseUrl, input.targetAgentName)
+    .pipe(
+      Effect.map((registered) => ({
+        agentId: registered.agentId,
+        apiKey: registered.apiKey,
+        agentName: input.targetAgentName,
+      })),
+      Effect.mapError((error) => failHarness(error.message)),
+    );
+}
+
+function mapRuntimeStartError(error: unknown): {
+  readonly cause: Readonly<Record<string, unknown>>;
+} {
+  if (error instanceof SpawnFailed) {
+    return failAgentStart({
+      _tag: "ContainerStartFailed",
+      message: error.message,
+    });
+  }
+  if (error instanceof RuntimeReadyTimedOut) {
+    return failAgentStart({
+      _tag: "ContainerStartFailed",
+      message: `runtime did not authenticate within ${String(error.timeoutMs)}ms`,
+    });
+  }
+  const exited = error as { readonly stderr?: unknown };
+  return failAgentStart({
+    _tag: "ContainerStartFailed",
+    message: `runtime exited before readiness: ${String(exited.stderr)}`,
+  });
+}
+
+function startHarnessRuntime(input: {
+  readonly payload: HarnessPayload;
+  readonly server: CoreTestServer;
+  readonly targetAgent: TargetAgentRegistration;
+  readonly clientModule: ClientTestModule;
+}) {
+  return startRuntimeAgent({
+    kind: input.payload.runtime.kind,
+    server: input.server.runtimeServer,
+    readyTimeoutMs:
+      input.payload.runtime.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS,
+    agent: {
+      agentName: input.targetAgent.agentName,
+      apiKey: input.targetAgent.apiKey,
+      agentId: input.targetAgent.agentId,
+      serverUrl: input.clientModule.stripWsPath(input.server.wsUrl),
+    },
+  }).pipe(Effect.mapError(mapRuntimeStartError));
+}
+
+function participantNameEntry(participant: {
+  readonly id: string;
+  readonly name: string;
+}): readonly [string, string] {
+  return [participant.id, participant.name];
+}
+
+function buildTraceBundle(input: {
+  readonly sourcePath: string;
+  readonly payload: HarnessPayload;
+  readonly plan: HarnessLoadArgs["plan"];
+  readonly runId: string | undefined;
+  readonly targetAgent: TargetAgentRegistration;
+  readonly runtimeStartedAt: string;
+  readonly traceEvents: readonly TraceCaptureEvent[];
+  readonly conversationRun: ConversationRun;
+}): Readonly<Record<string, unknown>> {
+  const namesById = new Map<string, string>([
+    [input.targetAgent.agentId, input.targetAgent.agentName],
+    ...input.conversationRun.participants.map(participantNameEntry),
+  ]);
+  const events = input.traceEvents.map((event) =>
+    toBundleEvent(event, namesById),
+  );
+  const endedAt = new Date().toISOString();
+  return {
+    runId: input.runId ?? randomUUID(),
+    project: input.plan.project,
+    scenarioId: input.plan.scenarioId,
+    name: input.plan.name,
+    description: input.plan.description,
+    requirements: input.plan.requirements,
+    agents: [
+      {
+        id: input.targetAgent.agentId,
+        name: input.targetAgent.agentName,
+        role: "target",
+      },
+      ...input.conversationRun.participants,
+    ],
+    ...(events.length > 0 ? { events } : {}),
+    context: {
+      runtimeKind: input.payload.runtime.kind,
+      conversationKind: input.payload.conversation.kind,
+      responses: input.conversationRun.responses,
+    },
+    outcomes: [
+      {
+        agentId: input.targetAgent.agentId,
+        status: "completed",
+        startedAt: input.runtimeStartedAt,
+        endedAt,
+      },
+      ...input.conversationRun.participants.map((participant) => ({
+        agentId: participant.id,
+        status: "completed",
+        startedAt: input.runtimeStartedAt,
+        endedAt,
+      })),
+    ],
+    metadata: {
+      modelName: `moltzap/${input.payload.runtime.kind}`,
+      sourcePath: input.sourcePath,
+    },
+  };
+}
+
+function stopCoreTraceServer(
+  serverTestModule: ServerTestModule,
+): Effect.Effect<void> {
+  return Effect.tryPromise({
+    try: () => Promise.resolve(serverTestModule.stopCoreTestServer()),
+    catch: (error) =>
+      error instanceof Error ? error : new Error(String(error)),
+  }).pipe(Effect.catchAll(() => Effect.void));
+}
+
+function executeTraceRun(input: {
+  readonly sourcePath: string;
+  readonly payload: HarnessPayload;
+  readonly plan: HarnessLoadArgs["plan"];
+  readonly runId: string | undefined;
+  readonly server: CoreTestServer;
+  readonly clientModule: ClientTestModule;
+  readonly targetAgent: TargetAgentRegistration;
+  readonly runtime: Runtime;
+  readonly runtimeStartedAt: string;
+}): Effect.Effect<
+  Readonly<Record<string, unknown>>,
+  { readonly cause: Readonly<Record<string, unknown>> },
+  never
+> {
+  const teardown = input.runtime.teardown();
+  return Effect.gen(function* () {
+    const conversationRun = yield* executeConversationPlan({
+      payload: input.payload,
+      baseUrl: input.server.baseUrl,
+      wsUrl: input.server.wsUrl,
+      targetAgentId: input.targetAgent.agentId,
+      clientModule: input.clientModule,
+    });
+    const traceEvents = yield* input.server.coreApp.traceCapture.snapshot();
+    return buildTraceBundle({
+      sourcePath: input.sourcePath,
+      payload: input.payload,
+      plan: input.plan,
+      runId: input.runId,
+      targetAgent: input.targetAgent,
+      runtimeStartedAt: input.runtimeStartedAt,
+      traceEvents,
+      conversationRun,
+    });
+  }).pipe(Effect.ensuring(teardown));
+}
+
 function createCoordinator(sourcePath: string, payload: HarnessPayload) {
   return {
     execute(
@@ -1087,145 +1398,39 @@ function createCoordinator(sourcePath: string, payload: HarnessPayload) {
             loadServerIndexModule(),
             loadServerTestModule(),
           ]);
-          const server = yield* Effect.tryPromise({
-            try: () =>
-              Promise.resolve(
-                serverTestModule.startCoreTestServer({
-                  traceCaptureLayer: serverIndexModule.InMemoryTraceCaptureLive,
-                }),
-              ) as Promise<CoreTestServer>,
-            catch: (error) =>
-              failHarness(
-                error instanceof Error ? error.message : String(error),
-              ),
-          });
+          const server = yield* startCoreTraceServer(
+            serverIndexModule,
+            serverTestModule,
+          );
           return yield* Effect.gen(function* () {
-            const clientModule = yield* loadClientTestModule().pipe(
-              Effect.mapError((error) =>
-                failHarness(
-                  error instanceof Error ? error.message : String(error),
-                ),
-              ),
-            );
+            const clientModule = yield* loadHarnessClientModule();
             const targetAgentName =
               payload.runtime.targetAgentName ??
               defaultTargetAgentName(payload.runtime.kind);
-            const targetAgent = yield* clientModule
-              .registerAgent(server.baseUrl, targetAgentName)
-              .pipe(
-                Effect.map((registered) => ({
-                  agentId: registered.agentId,
-                  apiKey: registered.apiKey,
-                  agentName: targetAgentName,
-                })),
-                Effect.mapError((error) => failHarness(error.message)),
-              );
+            const targetAgent = yield* registerTargetAgent({
+              clientModule,
+              baseUrl: server.baseUrl,
+              targetAgentName,
+            });
             const runtimeStartedAt = new Date().toISOString();
-            const runtime = yield* startRuntimeAgent({
-              kind: payload.runtime.kind,
-              server: server.runtimeServer,
-              readyTimeoutMs:
-                payload.runtime.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS,
-              agent: {
-                agentName: targetAgent.agentName,
-                apiKey: targetAgent.apiKey,
-                agentId: targetAgent.agentId,
-                serverUrl: clientModule.stripWsPath(server.wsUrl),
-              },
-            }).pipe(
-              Effect.mapError((error) => {
-                if (error instanceof SpawnFailed) {
-                  return failAgentStart({
-                    _tag: "ContainerStartFailed",
-                    message: error.message,
-                  });
-                }
-                if (error instanceof RuntimeReadyTimedOut) {
-                  return failAgentStart({
-                    _tag: "ContainerStartFailed",
-                    message: `runtime did not authenticate within ${String(error.timeoutMs)}ms`,
-                  });
-                }
-                return failAgentStart({
-                  _tag: "ContainerStartFailed",
-                  message: `runtime exited before readiness: ${error.stderr}`,
-                });
-              }),
-            );
-            return yield* Effect.gen(function* () {
-              void runtime;
-              const conversationRun = yield* executeConversationPlan({
-                payload,
-                baseUrl: server.baseUrl,
-                wsUrl: server.wsUrl,
-                targetAgentId: targetAgent.agentId,
-                clientModule,
-              });
-              const traceEvents = yield* server.coreApp.traceCapture.snapshot();
-              const participantNames = conversationRun.participants.map(
-                (participant): readonly [string, string] => [
-                  participant.id,
-                  participant.name,
-                ],
-              );
-              const namesById = new Map<string, string>([
-                [targetAgent.agentId, targetAgent.agentName],
-                ...participantNames,
-              ]);
-              const events = traceEvents.map((event) =>
-                toBundleEvent(event, namesById),
-              );
-              return {
-                runId: opts.runId ?? randomUUID(),
-                project: plan.project,
-                scenarioId: plan.scenarioId,
-                name: plan.name,
-                description: plan.description,
-                requirements: plan.requirements,
-                agents: [
-                  {
-                    id: targetAgent.agentId,
-                    name: targetAgent.agentName,
-                    role: "target",
-                  },
-                  ...conversationRun.participants,
-                ],
-                ...(events.length > 0 ? { events } : {}),
-                context: {
-                  runtimeKind: payload.runtime.kind,
-                  conversationKind: payload.conversation.kind,
-                  responses: conversationRun.responses,
-                },
-                outcomes: [
-                  {
-                    agentId: targetAgent.agentId,
-                    status: "completed",
-                    startedAt: runtimeStartedAt,
-                    endedAt: new Date().toISOString(),
-                  },
-                  ...conversationRun.participants.map((participant) => ({
-                    agentId: participant.id,
-                    status: "completed",
-                    startedAt: runtimeStartedAt,
-                    endedAt: new Date().toISOString(),
-                  })),
-                ],
-                metadata: {
-                  modelName: `moltzap/${payload.runtime.kind}`,
-                  sourcePath,
-                },
-              };
-            }).pipe(Effect.ensuring(runtime.teardown()));
-          }).pipe(
-            Effect.ensuring(
-              Effect.tryPromise({
-                try: () =>
-                  Promise.resolve(serverTestModule.stopCoreTestServer()),
-                catch: (error) =>
-                  error instanceof Error ? error : new Error(String(error)),
-              }).pipe(Effect.catchAll(() => Effect.void)),
-            ),
-          );
+            const runtime = yield* startHarnessRuntime({
+              payload,
+              server,
+              targetAgent,
+              clientModule,
+            });
+            return yield* executeTraceRun({
+              sourcePath,
+              payload,
+              plan,
+              runId: opts.runId,
+              server,
+              clientModule,
+              targetAgent,
+              runtime,
+              runtimeStartedAt,
+            });
+          }).pipe(Effect.ensuring(stopCoreTraceServer(serverTestModule)));
         }),
       ).pipe(Effect.mapError(asHarnessFailure));
     },

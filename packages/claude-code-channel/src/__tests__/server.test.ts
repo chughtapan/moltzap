@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { Effect } from "effect";
+import { Effect, Either } from "effect";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { Notification } from "@modelcontextprotocol/sdk/types.js";
@@ -484,11 +484,11 @@ describe("reply tool routing (spec OQ5)", () => {
 describe("decodeReplyArgs — boundary validation (Principle 2)", () => {
   it("accepts {text: 'hi'}", () => {
     const r = decodeReplyArgs({ text: "hi" });
-    expect(r._tag).toBe("Ok");
-    if (r._tag !== "Ok") return;
-    expect(r.value.text).toBe("hi");
-    expect(r.value.replyTo).toBeUndefined();
-    expect(r.value.files).toBeUndefined();
+    expect(Either.isRight(r)).toBe(true);
+    if (Either.isLeft(r)) return;
+    expect(r.right.text).toBe("hi");
+    expect(r.right.replyTo).toBeUndefined();
+    expect(r.right.files).toBeUndefined();
   });
 
   it("decodes {text, reply_to, files} — rejection happens at handler, not decoder", () => {
@@ -499,41 +499,41 @@ describe("decodeReplyArgs — boundary validation (Principle 2)", () => {
       reply_to: MESSAGE_1,
       files: ["a.png"],
     });
-    expect(r._tag).toBe("Ok");
-    if (r._tag !== "Ok") return;
-    expect(r.value.text).toBe("hi");
-    expect(r.value.replyTo).toBe(MESSAGE_1);
-    expect(r.value.files).toEqual(["a.png"]);
+    expect(Either.isRight(r)).toBe(true);
+    if (Either.isLeft(r)) return;
+    expect(r.right.text).toBe("hi");
+    expect(r.right.replyTo).toBe(MESSAGE_1);
+    expect(r.right.files).toEqual(["a.png"]);
   });
 
   it("rejects {text: 42} with ReplyArgsInvalid", () => {
     const r = decodeReplyArgs({ text: 42 });
-    expect(r._tag).toBe("Err");
+    expect(Either.isLeft(r)).toBe(true);
   });
 
   it("rejects missing text", () => {
     const r = decodeReplyArgs({});
-    expect(r._tag).toBe("Err");
+    expect(Either.isLeft(r)).toBe(true);
   });
 
   it("rejects non-string element in files", () => {
     const r = decodeReplyArgs({ text: "hi", files: ["a", 1] });
-    expect(r._tag).toBe("Err");
+    expect(Either.isLeft(r)).toBe(true);
   });
 
   it("rejects non-object input", () => {
     const r = decodeReplyArgs(null);
-    expect(r._tag).toBe("Err");
+    expect(Either.isLeft(r)).toBe(true);
   });
 
   it("rejects empty-string text", () => {
     const r = decodeReplyArgs({ text: "   " });
-    expect(r._tag).toBe("Err");
+    expect(Either.isLeft(r)).toBe(true);
   });
 
   it("rejects empty reply_to", () => {
     const r = decodeReplyArgs({ text: "hi", reply_to: "" });
-    expect(r._tag).toBe("Err");
+    expect(Either.isLeft(r)).toBe(true);
   });
 });
 

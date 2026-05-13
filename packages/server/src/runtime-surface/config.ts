@@ -423,8 +423,8 @@ export function loadRuntimeProcessConfig(
       true,
     );
 
-    const { _configDir, ...app } = loadedAppConfig;
-    void _configDir;
+    const app = { ...loadedAppConfig };
+    delete (app as { _configDir?: string })._configDir;
     const serverProviderInput = yield* buildServerConfigProviderInput(
       app,
       processEnv,

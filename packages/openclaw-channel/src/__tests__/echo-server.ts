@@ -244,7 +244,13 @@ function handleRequest(
   try {
     body = JSON.parse(rawBody);
   } catch (cause) {
-    void cause;
+    if (debug) {
+      console.warn(
+        `[echo-server] malformed JSON request body: ${
+          cause instanceof Error ? cause.message : String(cause)
+        }`,
+      );
+    }
     writeJsonError(res, HTTP_BAD_REQUEST, JSON_ERROR_MALFORMED_BODY);
     return;
   }

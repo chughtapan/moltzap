@@ -49,6 +49,14 @@ const LEVEL_TO_PINO: Record<
   None: "trace",
 };
 
+function formatEffectLogMessage(message: unknown): string {
+  if (typeof message === "string") return message;
+  if (Array.isArray(message) && message.length === 1) {
+    return String(message[0]);
+  }
+  return String(message);
+}
+
 /**
  * Effect `Logger` backed by a Pino instance. Same wrapping shape as the
  * server's `effectLogger` — annotations become Pino's first-arg object,
@@ -60,12 +68,7 @@ const effectLogger = EffectLogger.make(({ logLevel, message, annotations }) => {
   const merged: Record<string, unknown> = {};
   for (const [k, v] of annotations) merged[k] = v;
   const pinoMethod = LEVEL_TO_PINO[logLevel._tag] ?? "info";
-  const msg =
-    typeof message === "string"
-      ? message
-      : Array.isArray(message) && message.length === 1
-        ? String(message[0])
-        : String(message);
+  const msg = formatEffectLogMessage(message);
   try {
     PINO[pinoMethod](merged, msg);
   } catch (err) {

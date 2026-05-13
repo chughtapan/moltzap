@@ -3,7 +3,8 @@
  * Both test tiers import from here to avoid duplicating config-building and lifecycle logic.
  */
 
-import { execSync, spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
+import { randomInt } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -19,12 +20,18 @@ const DEFAULT_CHANNEL_TIMEOUT_MS = 180_000;
 const DEFAULT_READY_TIMEOUT_MS = 180_000;
 const GATEWAY_READY_PATTERN = "[gateway]";
 const CHANNEL_READY_PATTERNS = ["[moltzap]", "connected as"] as const;
+const DOCKER_BIN = "/usr/bin/docker";
 
 export const IMAGE_NAME = "moltzap-eval-agent:local";
 export const OPENCLAW_STATE_DIR = "/home/node/.openclaw";
 
 class OpenClawContainerError extends Error {
   override readonly name = "OpenClawContainerError";
+}
+
+function logContainerHelperFailure(action: string, cause: unknown): void {
+  const message = cause instanceof Error ? cause.message : String(cause);
+  console.warn(`[openclaw-container] ${action}: ${message}`);
 }
 
 export type ContainerModelConfig = {
@@ -46,10 +53,12 @@ export type OpenClawContainer = {
 
 export function isImageAvailable(): boolean {
   try {
-    execSync(`docker image inspect ${IMAGE_NAME}`, { stdio: "pipe" });
+    execFileSync(DOCKER_BIN, ["image", "inspect", IMAGE_NAME], {
+      stdio: "pipe",
+    });
     return true;
   } catch (cause) {
-    void cause;
+    logContainerHelperFailure("docker image inspect failed", cause);
     return false;
   }
 }
@@ -146,7 +155,7 @@ export function startRawContainer(
     DEFAULT_PORT_RANGE_START,
     DEFAULT_PORT_RANGE_END,
   ];
-  const controlPort = lo + Math.floor(Math.random() * (hi - lo));
+  const controlPort = randomInt(lo, hi);
 
   fs.writeFileSync(
     path.join(tmpDir, "openclaw.json"),
@@ -163,47 +172,81 @@ export function startRawContainer(
 
   const containerName = `moltzap-e2e-${opts.name}-${Date.now()}`;
   const startedEpoch = Math.floor(Date.now() / MS_PER_SECOND);
-  const envParts = [`-e OPENCLAW_STATE_DIR=${OPENCLAW_STATE_DIR}`];
+  const envParts = ["-e", `OPENCLAW_STATE_DIR=${OPENCLAW_STATE_DIR}`];
   if (opts.envVars) {
     for (const [k, v] of Object.entries(opts.envVars)) {
-      envParts.push(`-e ${k}=${v}`);
+      envParts.push("-e", `${k}=${v}`);
     }
   }
 
-  const containerId = execSync(
+  const containerId = execFileSync(
+    DOCKER_BIN,
     [
-      "docker create",
-      `--name ${containerName}`,
-      `--label moltzap-eval=true`,
-      `--label moltzap-eval-started=${startedEpoch}`,
-      `--stop-timeout 5`,
+      "create",
+      "--name",
+      containerName,
+      "--label",
+      "moltzap-eval=true",
+      "--label",
+      `moltzap-eval-started=${startedEpoch}`,
+      "--stop-timeout",
+      "5",
       ...envParts,
-      `--add-host host.docker.internal:host-gateway`,
-      `-p ${controlPort}:${CONTROL_UI_PORT}`,
+      "--add-host",
+      "host.docker.internal:host-gateway",
+      "-p",
+      `${controlPort}:${CONTROL_UI_PORT}`,
       IMAGE_NAME,
-      "node openclaw.mjs gateway run --allow-unconfigured --bind lan",
-    ].join(" "),
+      "node",
+      "openclaw.mjs",
+      "gateway",
+      "run",
+      "--allow-unconfigured",
+      "--bind",
+      "lan",
+    ],
     { encoding: "utf-8" },
   ).trim();
 
-  execSync(`docker cp ${tmpDir}/. ${containerId}:${OPENCLAW_STATE_DIR}/`);
-  execSync(`docker start ${containerId}`);
+  execFileSync(DOCKER_BIN, [
+    "cp",
+    `${tmpDir}/.`,
+    `${containerId}:${OPENCLAW_STATE_DIR}/`,
+  ]);
+  execFileSync(DOCKER_BIN, ["start", containerId]);
   // Only chown the files we copied; recursively chowning the entire state dir
   // is much slower because the eval image already contains plugin dependencies.
-  execSync(
-    `docker exec -u root ${containerId} sh -lc "chown node:node ${OPENCLAW_STATE_DIR}/openclaw.json && chown -R node:node ${OPENCLAW_STATE_DIR}/workspace ${OPENCLAW_STATE_DIR}/logs"`,
-  );
+  execFileSync(DOCKER_BIN, [
+    "exec",
+    "-u",
+    "root",
+    containerId,
+    "chown",
+    "node:node",
+    `${OPENCLAW_STATE_DIR}/openclaw.json`,
+  ]);
+  execFileSync(DOCKER_BIN, [
+    "exec",
+    "-u",
+    "root",
+    containerId,
+    "chown",
+    "-R",
+    "node:node",
+    `${OPENCLAW_STATE_DIR}/workspace`,
+    `${OPENCLAW_STATE_DIR}/logs`,
+  ]);
 
   return { containerId, controlPort, tmpDir };
 }
 
 export function getLogs(containerId: string): string {
   try {
-    return execSync(`docker logs ${containerId} 2>&1`, {
+    return execFileSync(DOCKER_BIN, ["logs", containerId], {
       encoding: "utf-8",
     });
   } catch (cause) {
-    void cause;
+    logContainerHelperFailure("docker logs failed", cause);
     return "";
   }
 }
@@ -219,9 +262,12 @@ export function waitForLogMatch(
   return new Promise<void>((resolve, reject) => {
     // Pre-flight: verify the container is still running before streaming.
     try {
-      const status = execSync(
-        `docker inspect ${containerId} --format='{{.State.Status}}'`,
-        { encoding: "utf-8" },
+      const status = execFileSync(
+        DOCKER_BIN,
+        ["inspect", containerId, "--format={{.State.Status}}"],
+        {
+          encoding: "utf-8",
+        },
       ).trim();
       if (status !== "running") {
         reject(
@@ -244,7 +290,7 @@ export function waitForLogMatch(
     let settled = false;
     let buffer = "";
 
-    const proc = spawn("docker", ["logs", "-f", containerId]);
+    const proc = spawn(DOCKER_BIN, ["logs", "-f", containerId]);
 
     const finish = () => {
       if (settled) return;
@@ -356,15 +402,15 @@ export function waitForReady(containerId: string) {
 /** Stop and remove a container, clean up temp files. */
 export function stopContainer(container: OpenClawContainer): void {
   try {
-    execSync(`docker rm -f ${container.containerId}`, { stdio: "pipe" });
+    execFileSync(DOCKER_BIN, ["rm", "-f", container.containerId], {
+      stdio: "pipe",
+    });
   } catch (cause) {
-    void cause;
-    // best effort
+    logContainerHelperFailure("docker rm failed during cleanup", cause);
   }
   try {
     fs.rmSync(container.tmpDir, { recursive: true, force: true });
   } catch (cause) {
-    void cause;
-    // best effort
+    logContainerHelperFailure("temporary directory cleanup failed", cause);
   }
 }

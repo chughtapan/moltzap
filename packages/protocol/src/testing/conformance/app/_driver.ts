@@ -337,10 +337,7 @@ const ERROR_CAUSE_TRUNCATE_LEN = 200;
 // at index 2 drops the "0." prefix. The 6-char suffix is enough
 // to disambiguate per-property instances within a single conformance
 // run.
-const RANDOM_SUFFIX_BASE = 36;
-const RANDOM_SUFFIX_PREFIX_LEN = 2;
 const RANDOM_SUFFIX_LEN = 6;
-const RANDOM_SUFFIX_END = RANDOM_SUFFIX_PREFIX_LEN + RANDOM_SUFFIX_LEN;
 
 function violation(name: string, reason: string): PropertyInvariantViolation {
   return new PropertyInvariantViolation({ category: CATEGORY, name, reason });
@@ -1038,12 +1035,10 @@ export function makeDispatchTestDriver(
 
 // ── Crypto helper for unique appId (avoids `crypto` import noise) ─────
 function cryptoRandomShort(): string {
-  // Avoid pulling node:crypto into the protocol's testing surface; the
-  // 6-char suffix is enough to disambiguate per-property instances
-  // within one conformance run.
-  return Math.random()
-    .toString(RANDOM_SUFFIX_BASE)
-    .slice(RANDOM_SUFFIX_PREFIX_LEN, RANDOM_SUFFIX_END);
+  return globalThis.crypto
+    .randomUUID()
+    .replaceAll("-", "")
+    .slice(0, RANDOM_SUFFIX_LEN);
 }
 
 // ── Re-export wire types for property authors ─────────────────────────
