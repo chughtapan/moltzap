@@ -407,6 +407,33 @@ interface LeaseEntry {
   readonly roundTripFiber: Fiber.RuntimeFiber<unknown, unknown> | null;
 }
 
+function setReadonlyMapValue<K, V>(
+  key: K,
+  value: V,
+): (map: ReadonlyMap<K, V>) => ReadonlyMap<K, V> {
+  return (map) => {
+    const next = new Map(map);
+    next.set(key, value);
+    return next;
+  };
+}
+
+function leaseStateForVerdict(verdict: LeaseVerdict): LeaseState {
+  switch (verdict._tag) {
+    case "grant":
+      return "GRANTED";
+    case "deny":
+      return "DENIED";
+    case "hold":
+      return "HOLD";
+  }
+}
+
+function leaseTimeoutForVerdict(verdict: LeaseVerdict): number | null {
+  if (verdict._tag !== "grant") return null;
+  return verdict.leaseTimeoutMs ?? null;
+}
+
 /**
  * Translation point between the in-process nested `LeaseRecord`
  * (binding field carries the full audit tuple) and the wire
@@ -648,6 +675,96 @@ export function makeLeaseRegistry(
         }),
       );
 
+    const finalizeClaim = (leaseId: LeaseId, messageId: MessageId) =>
+      Effect.gen(function* () {
+        const cur = yield* Ref.get(entriesRef);
+        const e = cur.get(leaseId);
+        if (!e) {
+          return yield* Effect.fail(
+            new LeaseInvalidError({
+              leaseId,
+              state: "EXPIRED",
+              expected: ["CLAIMED"],
+              operation: "finalize",
+            }),
+          );
+        }
+        if (e.record.state !== "CLAIMED") {
+          return yield* Effect.fail(
+            new LeaseInvalidError({
+              leaseId,
+              state: e.record.state,
+              expected: ["CLAIMED"],
+              operation: "finalize",
+            }),
+          );
+        }
+        const consumedAt = new Date().toISOString();
+        const consumedRecord: LeaseRecord = {
+          ...e.record,
+          state: "CONSUMED",
+          consumedAt,
+          consumedMessageId: messageId,
+        };
+        yield* replaceEntry(leaseId, {
+          record: consumedRecord,
+          ttlFiber: null,
+          roundTripFiber: null,
+        });
+        yield* emitDispatchesConsumed(consumedRecord, messageId, consumedAt);
+        yield* scheduleRetention(leaseId, consumedRecord.dispatchId);
+      });
+
+    const rescheduleRollbackTtl = (leaseId: LeaseId, e: LeaseEntry) => {
+      if (e.record.leaseTimeoutMs === null) {
+        return Effect.succeed(null);
+      }
+      return scheduleTtl(leaseId, e.record.leaseTimeoutMs);
+    };
+
+    const rollbackClaim = (leaseId: LeaseId) =>
+      Effect.gen(function* () {
+        const cur = yield* Ref.get(entriesRef);
+        const e = cur.get(leaseId);
+        if (!e) {
+          return yield* Effect.fail(
+            new LeaseInvalidError({
+              leaseId,
+              state: "EXPIRED",
+              expected: ["CLAIMED"],
+              operation: "rollback",
+            }),
+          );
+        }
+        if (e.record.state !== "CLAIMED") {
+          return yield* Effect.fail(
+            new LeaseInvalidError({
+              leaseId,
+              state: e.record.state,
+              expected: ["CLAIMED"],
+              operation: "rollback",
+            }),
+          );
+        }
+        const rolledBack: LeaseRecord = {
+          ...e.record,
+          state: "GRANTED",
+        };
+        // Reschedule TTL if one was originally configured.
+        const newFiber = yield* rescheduleRollbackTtl(leaseId, e);
+        yield* replaceEntry(leaseId, {
+          record: rolledBack,
+          ttlFiber: newFiber,
+          roundTripFiber: null,
+        });
+      });
+
+    const makeClaim = (leaseId: LeaseId): Claim => ({
+      leaseId,
+      finalize: (messageId) => finalizeClaim(leaseId, messageId),
+      rollback: rollbackClaim(leaseId),
+    });
+
     const registry: LeaseRegistry = {
       mint: (ctx) =>
         Effect.gen(function* () {
@@ -675,20 +792,16 @@ export function makeLeaseRegistry(
             expiredAt: null,
             leaseTimeoutMs: null,
           };
-          yield* Ref.update(entriesRef, (m) => {
-            const out = new Map(m);
-            out.set(leaseId, {
-              record,
-              ttlFiber: null,
-              roundTripFiber: null,
-            });
-            return out;
-          });
-          yield* Ref.update(dispatchIndexRef, (m) => {
-            const out = new Map(m);
-            out.set(dispatchId, leaseId);
-            return out;
-          });
+          const entry: LeaseEntry = {
+            record,
+            ttlFiber: null,
+            roundTripFiber: null,
+          };
+          yield* Ref.update(entriesRef, setReadonlyMapValue(leaseId, entry));
+          yield* Ref.update(
+            dispatchIndexRef,
+            setReadonlyMapValue(dispatchId, leaseId),
+          );
           return { leaseId, dispatchId };
         }),
 
@@ -712,16 +825,8 @@ export function makeLeaseRegistry(
             );
           }
           const resolvedAt = new Date().toISOString();
-          const nextState: LeaseState =
-            verdict._tag === "grant"
-              ? "GRANTED"
-              : verdict._tag === "deny"
-                ? "DENIED"
-                : "HOLD";
-          const leaseTimeoutMs =
-            verdict._tag === "grant" && verdict.leaseTimeoutMs !== undefined
-              ? verdict.leaseTimeoutMs
-              : null;
+          const nextState = leaseStateForVerdict(verdict);
+          const leaseTimeoutMs = leaseTimeoutForVerdict(verdict);
           const nextRecord: LeaseRecord = {
             ...entry.record,
             state: nextState,
@@ -786,91 +891,7 @@ export function makeLeaseRegistry(
             roundTripFiber: null,
           });
 
-          const claim: Claim = {
-            leaseId,
-            finalize: (messageId) =>
-              Effect.gen(function* () {
-                const cur = yield* Ref.get(entriesRef);
-                const e = cur.get(leaseId);
-                if (!e) {
-                  return yield* Effect.fail(
-                    new LeaseInvalidError({
-                      leaseId,
-                      state: "EXPIRED",
-                      expected: ["CLAIMED"],
-                      operation: "finalize",
-                    }),
-                  );
-                }
-                if (e.record.state !== "CLAIMED") {
-                  return yield* Effect.fail(
-                    new LeaseInvalidError({
-                      leaseId,
-                      state: e.record.state,
-                      expected: ["CLAIMED"],
-                      operation: "finalize",
-                    }),
-                  );
-                }
-                const consumedAt = new Date().toISOString();
-                const consumedRecord: LeaseRecord = {
-                  ...e.record,
-                  state: "CONSUMED",
-                  consumedAt,
-                  consumedMessageId: messageId,
-                };
-                yield* replaceEntry(leaseId, {
-                  record: consumedRecord,
-                  ttlFiber: null,
-                  roundTripFiber: null,
-                });
-                yield* emitDispatchesConsumed(
-                  consumedRecord,
-                  messageId,
-                  consumedAt,
-                );
-                yield* scheduleRetention(leaseId, consumedRecord.dispatchId);
-              }),
-            rollback: Effect.gen(function* () {
-              const cur = yield* Ref.get(entriesRef);
-              const e = cur.get(leaseId);
-              if (!e) {
-                return yield* Effect.fail(
-                  new LeaseInvalidError({
-                    leaseId,
-                    state: "EXPIRED",
-                    expected: ["CLAIMED"],
-                    operation: "rollback",
-                  }),
-                );
-              }
-              if (e.record.state !== "CLAIMED") {
-                return yield* Effect.fail(
-                  new LeaseInvalidError({
-                    leaseId,
-                    state: e.record.state,
-                    expected: ["CLAIMED"],
-                    operation: "rollback",
-                  }),
-                );
-              }
-              const rolledBack: LeaseRecord = {
-                ...e.record,
-                state: "GRANTED",
-              };
-              // Reschedule TTL if one was originally configured.
-              const newFiber =
-                e.record.leaseTimeoutMs !== null
-                  ? yield* scheduleTtl(leaseId, e.record.leaseTimeoutMs)
-                  : null;
-              yield* replaceEntry(leaseId, {
-                record: rolledBack,
-                ttlFiber: newFiber,
-                roundTripFiber: null,
-              });
-            }),
-          };
-          return claim;
+          return makeClaim(leaseId);
         }),
 
       read: (id) =>

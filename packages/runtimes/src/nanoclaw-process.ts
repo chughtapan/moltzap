@@ -13,7 +13,7 @@ import { HttpClient, HttpClientRequest } from "@effect/platform";
 import { NodeHttpClient } from "@effect/platform-node";
 import * as os from "node:os";
 import * as path from "node:path";
-import { env as hostEnv } from "node:process";
+import { env as hostEnv, execPath } from "node:process";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { Data, Duration, Effect } from "effect";
@@ -271,12 +271,12 @@ function resolveClientDistPath(): string {
   return path.join(current, "client/dist");
 }
 
-function sha1OfFile(
+function sha256OfFile(
   filePath: string,
 ): Effect.Effect<string, NanoclawRuntimeProcessError> {
-  return promiseEffect(`read file for sha1 ${filePath}`, () =>
+  return promiseEffect(`read file for sha256 ${filePath}`, () =>
     readFileAsync(filePath),
-  ).pipe(Effect.map((buf) => createHash("sha1").update(buf).digest("hex")));
+  ).pipe(Effect.map((buf) => createHash("sha256").update(buf).digest("hex")));
 }
 
 function channelFileDrift(): Effect.Effect<
@@ -320,8 +320,8 @@ function clientDistDrift(): Effect.Effect<
     const srcCoreJs = path.join(src, "channel-core.js");
     const dstCoreJs = path.join(dst, "channel-core.js");
     if (!existsSync(dstCoreJs)) return { src, dst };
-    const srcHash = yield* sha1OfFile(srcCoreJs);
-    const dstHash = yield* sha1OfFile(dstCoreJs);
+    const srcHash = yield* sha256OfFile(srcCoreJs);
+    const dstHash = yield* sha256OfFile(dstCoreJs);
     return srcHash === dstHash ? null : { src, dst };
   });
 }
@@ -538,7 +538,7 @@ function startNanoclawRuntimeEffect(
 
     const proc = yield* Effect.try({
       try: () =>
-        spawn("node", ["dist/index.js"], {
+        spawn(execPath, ["dist/index.js"], {
           cwd: NANOCLAW_RUNTIME_CACHE,
           env: {
             ...hostEnv,

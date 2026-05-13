@@ -169,17 +169,22 @@ export function getTestCoreApp() {
 }
 
 export function createTestUser(displayName: string) {
-  void displayName;
-  return { id: crypto.randomUUID(), supabaseUid: crypto.randomUUID() };
+  return {
+    id: crypto.randomUUID(),
+    supabaseUid: crypto.randomUUID(),
+    displayName,
+  };
 }
 
 export function createAgentInvite(inviterId: string) {
-  void inviterId;
-  return { token: "not-needed-in-core", inviteId: crypto.randomUUID() };
+  return {
+    token: "not-needed-in-core",
+    inviteId: crypto.randomUUID(),
+    inviterId,
+  };
 }
 
 export function claimTestAgent(claimToken: string, userId: string): void {
-  void claimToken;
-  void userId;
+  if (claimToken.length === 0 || userId.length === 0) return;
   // No-op — agents are active immediately in core
 }

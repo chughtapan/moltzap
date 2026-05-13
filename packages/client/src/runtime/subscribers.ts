@@ -157,6 +157,48 @@ interface LiveSubscription {
   readonly handler: SubscriberHandler;
 }
 
+interface SubscriberLogger {
+  readonly warn: (...args: ReadonlyArray<unknown>) => void;
+}
+
+function nextSubscriptionId(
+  counterRef: Ref.Ref<number>,
+): Effect.Effect<SubscriptionId> {
+  return Ref.updateAndGet(counterRef, (count) => count + 1).pipe(
+    Effect.map((count) => SubscriptionIdBrand(`sub-${count}`)),
+  );
+}
+
+function appendSubscription(
+  subsRef: Ref.Ref<ReadonlyArray<LiveSubscription>>,
+  live: LiveSubscription,
+): Effect.Effect<void> {
+  return Ref.update(subsRef, (subscriptions) => [...subscriptions, live]);
+}
+
+function removeSubscription(
+  subsRef: Ref.Ref<ReadonlyArray<LiveSubscription>>,
+  id: SubscriptionId,
+): Effect.Effect<void> {
+  return Ref.update(subsRef, (subscriptions) =>
+    subscriptions.filter((subscription) => subscription.id !== id),
+  );
+}
+
+function dispatchToSubscriber(
+  logger: SubscriberLogger,
+  sub: LiveSubscription,
+  frame: DecodedNotification<AnyNotificationDefinition>,
+): Effect.Effect<void> {
+  return Effect.suspend(() => sub.handler(frame)).pipe(
+    Effect.catchAllDefect((err) =>
+      Effect.sync(() => {
+        logger.warn("subscriber handler threw", err);
+      }),
+    ),
+  );
+}
+
 function isNotificationParamsRecord(
   value: unknown,
 ): value is Record<string, unknown> {
@@ -191,14 +233,10 @@ export function makeSubscriberRegistry(logger: {
 
     const register: SubscriberRegistry["register"] = (filter, handler) =>
       Effect.gen(function* () {
-        const n = yield* Ref.updateAndGet(counterRef, (c) => c + 1);
-        const id = SubscriptionIdBrand(`sub-${n}`);
+        const id = yield* nextSubscriptionId(counterRef);
         const live: LiveSubscription = { id, filter, handler };
-        yield* Ref.update(subsRef, (xs) => [...xs, live]);
-        const unsubscribe: Effect.Effect<void, never> = Ref.update(
-          subsRef,
-          (xs) => xs.filter((s) => s.id !== id),
-        );
+        yield* appendSubscription(subsRef, live);
+        const unsubscribe = removeSubscription(subsRef, id);
         return { id, unsubscribe };
       });
 
@@ -216,13 +254,7 @@ export function makeSubscriberRegistry(logger: {
           // Handlers must not throw; we catch defects defensively so
           // one buggy subscriber can't kill the dispatch loop or break
           // the reader fiber.
-          yield* Effect.suspend(() => sub.handler(frame)).pipe(
-            Effect.catchAllDefect((err) =>
-              Effect.sync(() => {
-                logger.warn("subscriber handler threw", err);
-              }),
-            ),
-          );
+          yield* dispatchToSubscriber(logger, sub, frame);
         }
       });
 

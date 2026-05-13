@@ -20,7 +20,7 @@ import type { ToxicProfile } from "./profile.js";
 
 const HTTP_SUCCESS_MIN = 200;
 const HTTP_REDIRECT_MIN = 300;
-const TOXIC_NAME_RANDOM_MAX = 1e9;
+const TOXIC_NAME_SUFFIX_LEN = 8;
 
 export interface ToxiproxyConfig {
   /** Control-plane URL, e.g. `http://localhost:8474`. */
@@ -64,11 +64,43 @@ export interface ToxiproxyClient {
   readonly ping: Effect.Effect<void, ToxicControlError>;
 }
 
+function toxicNameSuffix(): string {
+  return globalThis.crypto
+    .randomUUID()
+    .replaceAll("-", "")
+    .slice(0, TOXIC_NAME_SUFFIX_LEN);
+}
+
+function removeToxicFinalizer(
+  base: string,
+  proxyName: string,
+  toxicName: string,
+): () => Effect.Effect<void, never> {
+  return () =>
+    httpJson(
+      "remove-toxic",
+      `${base}/proxies/${encodeURIComponent(proxyName)}/toxics/${encodeURIComponent(toxicName)}`,
+      { method: "DELETE" },
+    ).pipe(
+      Effect.orElseSucceed(() => null),
+      Effect.asVoid,
+    );
+}
+
 interface RawProxy {
   readonly name: string;
   readonly listen: string;
   readonly upstream: string;
   readonly enabled?: boolean;
+}
+
+function requestForMethod(
+  method: "GET" | "POST" | "DELETE",
+  url: string,
+): HttpClientRequest.HttpClientRequest {
+  if (method === "POST") return HttpClientRequest.post(url);
+  if (method === "DELETE") return HttpClientRequest.del(url);
+  return HttpClientRequest.get(url);
 }
 
 function httpJson(
@@ -91,12 +123,7 @@ function httpJson(
   return Effect.gen(function* () {
     const client = yield* HttpClient.HttpClient;
     const method = init?.method ?? "GET";
-    const baseRequest =
-      method === "POST"
-        ? HttpClientRequest.post(url)
-        : method === "DELETE"
-          ? HttpClientRequest.del(url)
-          : HttpClientRequest.get(url);
+    const baseRequest = requestForMethod(method, url);
     const requestWithHeaders = HttpClientRequest.setHeaders(baseRequest, {
       "Content-Type": "application/json",
       ...init?.headers,
@@ -217,7 +244,7 @@ export function makeToxiproxyClient(
         withToxic: (profile) =>
           Effect.gen(function* () {
             const { type, attributes } = profileToAttributes(profile);
-            const toxicName = `${profile._tag}-${Math.floor(Math.random() * TOXIC_NAME_RANDOM_MAX)}`;
+            const toxicName = `${profile._tag}-${toxicNameSuffix()}`;
             yield* httpJson(
               "add-toxic",
               `${base}/proxies/${encodeURIComponent(opts.name)}/toxics`,
@@ -232,15 +259,8 @@ export function makeToxiproxyClient(
                 },
               },
             );
-            yield* Effect.addFinalizer(() =>
-              httpJson(
-                "remove-toxic",
-                `${base}/proxies/${encodeURIComponent(opts.name)}/toxics/${encodeURIComponent(toxicName)}`,
-                { method: "DELETE" },
-              ).pipe(
-                Effect.orElseSucceed(() => null),
-                Effect.asVoid,
-              ),
+            yield* Effect.addFinalizer(
+              removeToxicFinalizer(base, opts.name, toxicName),
             );
             return { name: toxicName, profile };
           }),

@@ -49,9 +49,7 @@ import { PROTOCOL_VERSION } from "../../../version.js";
 import { Connect } from "../../../network/methods.js";
 
 const DEFAULT_ACCEPT_TIMEOUT_MS = 5_000;
-const RANDOM_TAG_RADIX = 36;
-const RANDOM_TAG_SLICE_END = 10;
-const RANDOM_TAG_SLICE_START = 2;
+const RANDOM_TAG_LENGTH = 8;
 const REPLAY_SEED_MASK = 0x7fffffff;
 
 const loadFastCheckSeed: Effect.Effect<number, never> = Config.integer(
@@ -60,6 +58,13 @@ const loadFastCheckSeed: Effect.Effect<number, never> = Config.integer(
   Effect.withConfigProvider(ConfigProvider.fromEnv()),
   Effect.orElseSucceed(() => Date.now() & REPLAY_SEED_MASK),
 );
+
+function randomTagSuffix(): string {
+  return globalThis.crypto
+    .randomUUID()
+    .replaceAll("-", "")
+    .slice(0, RANDOM_TAG_LENGTH);
+}
 
 /**
  * Opaque handle to a live real MoltZap client connected to `TestServer`.
@@ -342,12 +347,7 @@ export function acquireClientRunContext(
     // The context carries the initial no-op shape so type-system contracts
     // hold; each property body still binds a per-handle window.
     const handshakeWindow: ClientHandshakeWindow = {
-      freshEmissionTag: Effect.sync(
-        () =>
-          `tag-${Math.random()
-            .toString(RANDOM_TAG_RADIX)
-            .slice(RANDOM_TAG_SLICE_START, RANDOM_TAG_SLICE_END)}`,
-      ),
+      freshEmissionTag: Effect.sync(() => `tag-${randomTagSuffix()}`),
       emitTaggedNotification: ({ connection, base, emissionTag }) =>
         emitTaggedNotificationDefault(connection, base, emissionTag),
       emitTaggedResponse: ({ connection, base, emissionTag }) =>

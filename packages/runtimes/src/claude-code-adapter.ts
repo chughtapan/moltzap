@@ -118,6 +118,57 @@ interface AdapterState {
 
 const TERM_WAIT_MS = 10_000;
 
+function consumeProcessStream(
+  stream: Stream.Stream<Uint8Array, unknown>,
+  logBuffer: { value: string },
+): Effect.Effect<void, never, never> {
+  return pipe(
+    stream,
+    Stream.runForEach((chunk) =>
+      Effect.sync(() => {
+        logBuffer.value += Buffer.from(chunk).toString("utf8");
+      }),
+    ),
+    Effect.catchAll(() => Effect.void),
+  );
+}
+
+function exitPollToCode(exit: Exit.Exit<number, never>): Option.Option<number> {
+  return Exit.match(exit, {
+    onSuccess: (code) => Option.some(code),
+    onFailure: () => Option.some(-1),
+  });
+}
+
+function pollExitCode(
+  proc: SpawnedProcess,
+): Effect.Effect<Option.Option<number>, never, never> {
+  return Fiber.poll(proc.exitFiber).pipe(
+    Effect.map(
+      Option.match({
+        onNone: () => Option.none<number>(),
+        onSome: exitPollToCode,
+      }),
+    ),
+  );
+}
+
+function waitAfterSigterm(
+  proc: SpawnedProcess,
+): Effect.Effect<number, never, never> {
+  const exitCodeEffect = Fiber.join(proc.exitFiber);
+  return proc.kill("SIGTERM").pipe(
+    Effect.flatMap(() =>
+      exitCodeEffect.pipe(
+        Effect.timeout(`${TERM_WAIT_MS} millis`),
+        Effect.catchAll(() =>
+          proc.kill("SIGKILL").pipe(Effect.flatMap(() => exitCodeEffect)),
+        ),
+      ),
+    ),
+  );
+}
+
 /**
  * Spawn `claude` via @effect/platform's Command, layering the Node
  * platform context so PlatformError fans out to never. The returned
@@ -158,23 +209,14 @@ function spawnClaudeProcess(opts: {
       Effect.forkIn(scope),
     );
 
-    const consumeStream = (
-      stream: Stream.Stream<Uint8Array, unknown>,
-    ): Effect.Effect<void, never, never> =>
-      pipe(
-        stream,
-        Stream.runForEach((chunk) =>
-          Effect.sync(() => {
-            opts.logBuffer.value += Buffer.from(chunk).toString("utf8");
-          }),
-        ),
-        Effect.catchAll(() => Effect.void),
-      );
-
     // Stream consumers also live in the process scope so they keep
     // appending logs until the subprocess closes its stdout/stderr.
-    yield* consumeStream(proc.stdout).pipe(Effect.forkIn(scope));
-    yield* consumeStream(proc.stderr).pipe(Effect.forkIn(scope));
+    yield* consumeProcessStream(proc.stdout, opts.logBuffer).pipe(
+      Effect.forkIn(scope),
+    );
+    yield* consumeProcessStream(proc.stderr, opts.logBuffer).pipe(
+      Effect.forkIn(scope),
+    );
 
     const kill = (signal: NodeJS.Signals): Effect.Effect<void, never, never> =>
       pipe(
@@ -494,38 +536,12 @@ export class ClaudeCodeAdapter implements Runtime {
     // SIGTERM with a timeout; escalate to SIGKILL if SIGTERM doesn't
     // reap. Closing `proc.scope` afterward runs Command.start's kill
     // finalizer + the stream-consumer fiber finalizers.
-    const exitCodeEffect = Fiber.join(proc.exitFiber);
     const killAndWait = pipe(
-      Fiber.poll(proc.exitFiber).pipe(
-        Effect.map(
-          Option.match({
-            onNone: () => Option.none<number>(),
-            onSome: (exit: Exit.Exit<number, never>) =>
-              Exit.match(exit, {
-                onSuccess: (code) => Option.some(code),
-                onFailure: () => Option.some(-1),
-              }),
-          }),
-        ),
-      ),
+      pollExitCode(proc),
       Effect.flatMap((exitOpt) =>
         Option.isSome(exitOpt)
           ? Effect.void
-          : pipe(
-              proc.kill("SIGTERM"),
-              Effect.flatMap(() =>
-                exitCodeEffect.pipe(
-                  Effect.timeout(`${TERM_WAIT_MS} millis`),
-                  Effect.catchAll(() =>
-                    pipe(
-                      proc.kill("SIGKILL"),
-                      Effect.flatMap(() => exitCodeEffect),
-                    ),
-                  ),
-                ),
-              ),
-              Effect.asVoid,
-            ),
+          : waitAfterSigterm(proc).pipe(Effect.asVoid),
       ),
     );
 

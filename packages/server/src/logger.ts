@@ -97,6 +97,18 @@ const levelToPino: Record<
   None: "trace",
 };
 
+function formatEffectLogMessage(message: unknown): string {
+  if (typeof message === "string") return message;
+  if (Array.isArray(message) && message.length === 1) {
+    return String(message[0]);
+  }
+  return String(message);
+}
+
+function formatUnknownError(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 /**
  * Effect `Logger` that writes to the current pino instance. Annotations added
  * via `Effect.annotateLogs({...})` become the first-arg object on the Pino
@@ -113,12 +125,7 @@ const effectLogger = EffectLogger.make(({ logLevel, message, annotations }) => {
   const pinoMethod = levelToPino[logLevel._tag] ?? "info";
   // Effect passes the message through unchanged (typically a string). Coerce
   // defensively so Pino's msg field stays printable.
-  const msg =
-    typeof message === "string"
-      ? message
-      : Array.isArray(message) && message.length === 1
-        ? String(message[0])
-        : String(message);
+  const msg = formatEffectLogMessage(message);
   // Pino can throw synchronously if its transport has closed (e.g. during
   // shutdown, when pino-pretty's worker has disconnected). Swallow rather
   // than letting the throw propagate as a defect through the Effect
@@ -128,13 +135,13 @@ const effectLogger = EffectLogger.make(({ logLevel, message, annotations }) => {
   } catch (err) {
     try {
       process.stderr.write(
-        `[logger-fallback] ${msg} (logger error: ${
-          err instanceof Error ? err.message : String(err)
-        })\n`,
+        `[logger-fallback] ${msg} (logger error: ${formatUnknownError(err)})\n`,
       );
-    } catch (err) {
-      void err;
-      // Nothing left to report to.
+    } catch (fallbackErr) {
+      // Last-resort reporting without going back through pino.
+      process.emitWarning(
+        `logger fallback failed: ${formatUnknownError(fallbackErr)}`,
+      );
     }
   }
 });

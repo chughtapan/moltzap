@@ -429,75 +429,94 @@ function getSchemaKind(schema: TypeBoxSchema): string | undefined {
   return typeof kind === "string" ? kind : undefined;
 }
 
-function getTypeName(schema: TypeBoxSchema): string {
-  if (!schema) return "unknown";
-  const kind = getSchemaKind(schema);
-  if (kind === "String") {
-    if (schema.format === "uuid") return "string (UUID)";
-    if (schema.format === "uri") return "string (URI)";
-    if (schema.format === "date-time") return "string (ISO 8601)";
-    if (schema.enum) return schema.enum.join(" | ");
-    return "string";
-  }
-  if (kind === "Integer") return "integer";
-  if (kind === "Number") return "number";
-  if (kind === "Boolean") return "boolean";
-  if (kind === "Array") return "array";
-  if (kind === "Object") return "object";
-  if (kind === "Record") return "object (map)";
-  if (kind === "Union") return "union";
-  if (kind === "Optional") return getTypeName(schema.anyOf?.[1] ?? schema);
-  if (kind === "Literal") return String(schema.const);
-  if (kind === "Unsafe") {
-    if (schema.enum) return schema.enum.join(" | ");
-    return typeof schema.type === "string" ? schema.type : "unknown";
-  }
-  return kind?.toLowerCase() ?? "unknown";
+function getStringTypeName(schema: TypeBoxSchema): string {
+  if (schema.format === "uuid") return "string (UUID)";
+  if (schema.format === "uri") return "string (URI)";
+  if (schema.format === "date-time") return "string (ISO 8601)";
+  if (schema.enum) return schema.enum.join(" | ");
+  return "string";
 }
 
-function extractProperties(schema: TypeBoxSchema): Array<{
-  name: string;
-  type: string;
-  required: boolean;
-  description: string;
-}> {
-  // Handle union schemas (like ConnectParamsSchema)
-  if (getSchemaKind(schema) === "Union" && schema.anyOf) {
-    const seen = new Map<
-      string,
-      { type: string; required: boolean; description: string }
-    >();
-    for (const member of schema.anyOf) {
-      if (getSchemaKind(member) === "Object" && member.properties) {
-        for (const [name, prop] of Object.entries(member.properties)) {
-          if (!seen.has(name)) {
-            seen.set(name, {
-              type: getTypeName(prop),
-              required: false,
-              description: prop.description ?? "",
-            });
-          }
-        }
-      }
-    }
-    return Array.from(seen.entries()).map(([name, info]) => ({
-      name,
-      ...info,
-    }));
+function getUnsafeTypeName(schema: TypeBoxSchema): string {
+  if (schema.enum) return schema.enum.join(" | ");
+  return typeof schema.type === "string" ? schema.type : "unknown";
+}
+
+function getTypeName(schema: TypeBoxSchema): string {
+  if (!schema) return "unknown";
+  switch (getSchemaKind(schema)) {
+    case "String":
+      return getStringTypeName(schema);
+    case "Integer":
+      return "integer";
+    case "Number":
+      return "number";
+    case "Boolean":
+      return "boolean";
+    case "Array":
+      return "array";
+    case "Object":
+      return "object";
+    case "Record":
+      return "object (map)";
+    case "Union":
+      return "union";
+    case "Optional":
+      return getTypeName(schema.anyOf?.[1] ?? schema);
+    case "Literal":
+      return String(schema.const);
+    case "Unsafe":
+      return getUnsafeTypeName(schema);
+    default:
+      return getSchemaKind(schema)?.toLowerCase() ?? "unknown";
   }
+}
 
-  if (getSchemaKind(schema) !== "Object" || !schema.properties) return [];
+interface SchemaPropertyDoc {
+  readonly name: string;
+  readonly type: string;
+  readonly required: boolean;
+  readonly description: string;
+}
 
-  const props = schema.properties;
-  // TypeBox puts required field names in schema.required array
-  const requiredSet = new Set<string>(schema.required ?? []);
-
-  return Object.entries(props).map(([name, prop]) => ({
+function schemaPropertyDoc(
+  name: string,
+  prop: TypeBoxSchema,
+  required: boolean,
+): SchemaPropertyDoc {
+  return {
     name,
     type: getTypeName(prop),
-    required: requiredSet.has(name),
+    required,
     description: prop.description ?? "",
+  };
+}
+
+function extractObjectProperties(schema: TypeBoxSchema): SchemaPropertyDoc[] {
+  if (getSchemaKind(schema) !== "Object" || !schema.properties) return [];
+
+  const requiredSet = new Set<string>(schema.required ?? []);
+  return Object.entries(schema.properties).map(([name, prop]) =>
+    schemaPropertyDoc(name, prop, requiredSet.has(name)),
+  );
+}
+
+function extractUnionProperties(schema: TypeBoxSchema): SchemaPropertyDoc[] {
+  const seen = new Map<string, SchemaPropertyDoc>();
+  for (const member of schema.anyOf ?? []) {
+    for (const prop of extractObjectProperties(member)) {
+      if (!seen.has(prop.name)) seen.set(prop.name, prop);
+    }
+  }
+  return Array.from(seen.values()).map((prop) => ({
+    ...prop,
+    required: false,
   }));
+}
+
+function extractProperties(schema: TypeBoxSchema): SchemaPropertyDoc[] {
+  if (getSchemaKind(schema) === "Union") return extractUnionProperties(schema);
+  return extractObjectProperties(schema);
 }
 
 // ── MDX Generation ───────────────────────────────────────────────────────
@@ -513,16 +532,12 @@ function escapeFrontmatter(s: string): string {
   return s.replace(/"/g, '\\"');
 }
 
-function generateMethodPage(def: AnyRpcDocDefinition): string {
-  const method = def.name;
-  const meta = methodDocs[method] ?? {};
-  const description = meta.description ?? `Call \`${method}\`.`;
-  const params = extractProperties(def.paramsSchema);
-  const result = extractProperties(def.resultSchema);
-
-  const body = meta.body ?? description;
-
-  let mdx = `---
+function renderMethodHeader(
+  method: string,
+  description: string,
+  body: string,
+): string {
+  return `---
 title: "${method}"
 description: "${escapeFrontmatter(description)}"
 ---
@@ -532,52 +547,77 @@ description: "${escapeFrontmatter(description)}"
 ${body}
 
 `;
+}
 
-  // Parameters
-  if (params.length > 0) {
-    mdx += `## Parameters\n\n`;
-    for (const p of params) {
-      const req = p.required ? " required" : "";
-      const desc = p.description || `The ${p.name} field.`;
-      mdx += `<ParamField path="${p.name}" type="${p.type}"${req}>\n  ${desc}\n</ParamField>\n\n`;
-    }
-  } else {
-    mdx += `## Parameters\n\nThis method takes no parameters.\n\n`;
-  }
+function renderParametersSection(params: readonly SchemaPropertyDoc[]): string {
+  if (params.length === 0)
+    return `## Parameters\n\nThis method takes no parameters.\n\n`;
 
-  // Response
-  if (result.length > 0) {
-    mdx += `## Response\n\n`;
-    if (meta.resultDescription) {
-      mdx += `${meta.resultDescription}\n\n`;
-    }
-    for (const r of result) {
-      const desc = r.description || `The ${r.name} field.`;
-      mdx += `<ResponseField name="${r.name}" type="${r.type}">\n  ${desc}\n</ResponseField>\n\n`;
-    }
-  } else {
-    mdx += `## Response\n\nThis method returns an empty object.\n\n`;
-  }
+  return (
+    `## Parameters\n\n` +
+    params
+      .map((p) => {
+        const req = p.required ? " required" : "";
+        const desc = p.description || `The ${p.name} field.`;
+        return `<ParamField path="${p.name}" type="${p.type}"${req}>\n  ${desc}\n</ParamField>\n\n`;
+      })
+      .join("")
+  );
+}
 
-  // Errors
-  if (meta.errors && meta.errors.length > 0) {
-    mdx += `## Errors\n\n| Code | Name | When |\n|------|------|------|\n`;
-    for (const e of meta.errors) {
-      mdx += `| ${e.code} | ${e.name} | ${e.when} |\n`;
-    }
-    mdx += `\n`;
-  }
+function renderResponseSection(
+  result: readonly SchemaPropertyDoc[],
+  resultDescription: string | undefined,
+): string {
+  if (result.length === 0)
+    return `## Response\n\nThis method returns an empty object.\n\n`;
 
-  // Related notifications
-  if (meta.relatedNotifications && meta.relatedNotifications.length > 0) {
-    mdx += `## Related Notifications\n\n`;
-    for (const notification of meta.relatedNotifications) {
-      mdx += `- [\`${notification}\`](/protocol/notifications/${slugify(notification)})\n`;
-    }
-    mdx += `\n`;
-  }
+  const description = resultDescription ? `${resultDescription}\n\n` : "";
+  return (
+    `## Response\n\n${description}` +
+    result
+      .map((r) => {
+        const desc = r.description || `The ${r.name} field.`;
+        return `<ResponseField name="${r.name}" type="${r.type}">\n  ${desc}\n</ResponseField>\n\n`;
+      })
+      .join("")
+  );
+}
 
-  return mdx;
+function renderErrorsSection(errors: readonly ErrorDoc[] | undefined): string {
+  if (!errors || errors.length === 0) return "";
+
+  const rows = errors.map((e) => `| ${e.code} | ${e.name} | ${e.when} |\n`);
+  return `## Errors\n\n| Code | Name | When |\n|------|------|------|\n${rows.join("")}\n`;
+}
+
+function renderRelatedNotificationsSection(
+  notifications: readonly string[] | undefined,
+): string {
+  if (!notifications || notifications.length === 0) return "";
+
+  const links = notifications.map(
+    (notification) =>
+      `- [\`${notification}\`](/protocol/notifications/${slugify(notification)})\n`,
+  );
+  return `## Related Notifications\n\n${links.join("")}\n`;
+}
+
+function generateMethodPage(def: AnyRpcDocDefinition): string {
+  const method = def.name;
+  const meta = methodDocs[method] ?? {};
+  const description = meta.description ?? `Call \`${method}\`.`;
+
+  return [
+    renderMethodHeader(method, description, meta.body ?? description),
+    renderParametersSection(extractProperties(def.paramsSchema)),
+    renderResponseSection(
+      extractProperties(def.resultSchema),
+      meta.resultDescription,
+    ),
+    renderErrorsSection(meta.errors),
+    renderRelatedNotificationsSection(meta.relatedNotifications),
+  ].join("");
 }
 
 function generateNotificationPage(def: NotificationDocDefinition): string {

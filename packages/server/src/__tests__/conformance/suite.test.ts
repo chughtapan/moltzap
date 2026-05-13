@@ -49,6 +49,15 @@ interface ComposeController {
   readonly teardown: () => Promise<void>;
 }
 
+function dockerComposeDown(composePath: string): Promise<void> {
+  return new Promise((resolveDown) => {
+    const down = spawn("docker", ["compose", "-f", composePath, "down", "-v"], {
+      stdio: "inherit",
+    });
+    down.on("exit", () => resolveDown());
+  });
+}
+
 function findComposeFile(): string {
   const fromPkg = path.resolve(
     process.cwd(),
@@ -77,15 +86,7 @@ function bringUpToxiproxy() {
         return;
       }
       resolve({
-        teardown: () =>
-          new Promise((resolveDown) => {
-            const down = spawn(
-              "docker",
-              ["compose", "-f", composePath, "down", "-v"],
-              { stdio: "inherit" },
-            );
-            down.on("exit", () => resolveDown());
-          }),
+        teardown: () => dockerComposeDown(composePath),
       });
     });
   });

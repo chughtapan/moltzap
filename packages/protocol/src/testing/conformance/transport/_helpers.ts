@@ -25,9 +25,7 @@ import { conversationId } from "../_shared/test-fixtures.js";
 
 export const ADVERSITY_CATEGORY = "adversity" as const;
 export const DEFAULT_CAPTURE_CAPACITY = 128;
-const ID_RADIX = 36;
-const RANDOM_SUFFIX_START = 2;
-const RANDOM_SUFFIX_END = 8;
+const RANDOM_SUFFIX_LENGTH = 6;
 const PROPERTY_BUDGET_MS = 15_000;
 
 type ConversationIdValue = Static<typeof ConversationId>;
@@ -44,13 +42,18 @@ export function adversityViolation(
 }
 
 function randomIdSuffix(): string {
-  return Math.random()
-    .toString(ID_RADIX)
-    .slice(RANDOM_SUFFIX_START, RANDOM_SUFFIX_END);
+  return globalThis.crypto
+    .randomUUID()
+    .replaceAll("-", "")
+    .slice(0, RANDOM_SUFFIX_LENGTH);
 }
 
 export function proxyName(prefix: string, seed: number): string {
   return `${prefix}-${seed}-${randomIdSuffix()}`;
+}
+
+function hostPortFromWebSocketUrl(wsUrl: string): string {
+  return new URL(wsUrl).host;
 }
 
 /** Acquire a TestClient that routes through the Toxiproxy proxy. */
@@ -145,9 +148,9 @@ export function withToxicProxy(opts: {
           }),
         )
       : (() => {
-          const upstreamHostPort = ctx.realServer.wsUrl
-            .replace(/^ws:\/\//, "")
-            .replace(/\/.*$/, "");
+          const upstreamHostPort = hostPortFromWebSocketUrl(
+            ctx.realServer.wsUrl,
+          );
           const unavailable = (reason: string): PropertyUnavailable =>
             new PropertyUnavailable({
               category: ADVERSITY_CATEGORY,

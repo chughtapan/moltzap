@@ -29,17 +29,6 @@ const sourceRules = {
   "jsdoc/match-description": "off",
   "jsdoc/text-escaping": "off",
   "jsdoc/valid-types": "off",
-  "sonarjs/cognitive-complexity": "off",
-  "sonarjs/hashing": "off",
-  "sonarjs/no-nested-functions": "off",
-  "sonarjs/no-nested-conditional": "off",
-  "sonarjs/no-os-command-from-path": "off",
-  "sonarjs/os-command": "off",
-  "sonarjs/redundant-type-aliases": "off",
-  "sonarjs/regex-complexity": "off",
-  "sonarjs/slow-regex": "off",
-  "sonarjs/use-type-alias": "off",
-  "sonarjs/void-use": "off",
   "@typescript-eslint/no-magic-numbers": [
     "warn",
     {
@@ -62,12 +51,10 @@ const testSupportRules = {
     "src/testing/**/*.ts",
     "src/test-utils/**/*.ts",
   ],
+  plugins: guard.configs.recommended.plugins,
   rules: {
     "@typescript-eslint/no-magic-numbers": "off",
-    "sonarjs/no-os-command-from-path": "off",
-    "sonarjs/os-command": "off",
-    "sonarjs/pseudo-random": "off",
-    "sonarjs/void-use": "off",
+    "sonarjs/no-nested-functions": ["error", { threshold: 5 }],
   },
 };
 

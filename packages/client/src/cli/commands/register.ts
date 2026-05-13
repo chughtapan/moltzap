@@ -31,6 +31,29 @@ interface OpenClawConfig {
   [key: string]: unknown;
 }
 
+function parseOpenClawConfig(
+  contents: string,
+): Effect.Effect<OpenClawConfig, unknown> {
+  return Effect.try({
+    try: () => JSON.parse(contents) as OpenClawConfig,
+    catch: (err) => err,
+  });
+}
+
+function readExistingOpenClawConfig(
+  fileSystem: FileSystem.FileSystem,
+  configPath: string,
+): Effect.Effect<OpenClawConfig, unknown> {
+  return fileSystem.exists(configPath).pipe(
+    Effect.flatMap((exists) => {
+      if (!exists) return Effect.succeed<OpenClawConfig>({});
+      return fileSystem
+        .readFileString(configPath, "utf-8")
+        .pipe(Effect.flatMap(parseOpenClawConfig));
+    }),
+  );
+}
+
 /**
  * Write channel config directly to the OpenClaw JSON file.
  * Avoids `openclaw config set` which triggers both a file-watcher restart
@@ -52,21 +75,10 @@ const writeOpenClawChannelConfig = (account: {
     const configPath = path.join(configDir, "openclaw.json");
 
     let config: OpenClawConfig = {};
-    const existingConfig = yield* fileSystem.exists(configPath).pipe(
-      Effect.flatMap((exists) =>
-        exists
-          ? fileSystem.readFileString(configPath, "utf-8").pipe(
-              Effect.flatMap((contents) =>
-                Effect.try({
-                  try: () => JSON.parse(contents) as OpenClawConfig,
-                  catch: (err) => err,
-                }),
-              ),
-            )
-          : Effect.succeed<OpenClawConfig>({}),
-      ),
-      Effect.either,
-    );
+    const existingConfig = yield* readExistingOpenClawConfig(
+      fileSystem,
+      configPath,
+    ).pipe(Effect.either);
     yield* Either.match(existingConfig, {
       onLeft: (err) =>
         Effect.logWarning(

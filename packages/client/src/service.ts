@@ -116,7 +116,9 @@ function appendClientEventTrace(record: Record<string, unknown>): void {
         `moltzap client event trace write failed: ${err instanceof Error ? err.message : String(err)}\n`,
       );
     } catch (stderrErr) {
-      void stderrErr;
+      process.emitWarning(
+        `moltzap client event trace stderr fallback failed: ${stderrErr instanceof Error ? stderrErr.message : String(stderrErr)}`,
+      );
     }
   }
 }
@@ -353,8 +355,7 @@ export class MoltZapService {
         // Spec #222 OQ-6: arg required. The body doesn't branch on
         // close metadata today; signature kept explicit so a future
         // disconnect-handler chain can plumb code/reason through.
-        onDisconnect: (close) => {
-          void close;
+        onDisconnect: () => {
           this._connected = false;
           fanout(this.handlers.disconnect, undefined, this.opts.logger);
         },
@@ -389,7 +390,7 @@ export class MoltZapService {
     this._connected = false;
     this.stopSocketServer();
     if (this.client) {
-      void Effect.runPromise(this.client.close());
+      Effect.runFork(this.client.close());
     }
     this.client = null;
     Effect.runSync(

@@ -60,6 +60,8 @@ export interface RpcCallOptions {
   readonly timeoutMs?: number;
 }
 
+type ConnectError = NotConnectedError | RpcTimeoutError | RpcServerError;
+
 /** Reconnect backoff: 1s base, doubling per attempt up to the cap. */
 const BASE_RECONNECT_DELAY_MS = 1000;
 const MAX_RECONNECT_DELAY_MS = 30_000;
@@ -105,6 +107,17 @@ const makeNotConnectedError = (): NotConnectedError =>
   new NotConnectedError({ message: MSG_NOT_CONNECTED });
 
 type ConnectResult = ResultOf<typeof Connect>;
+type DecodedIncomingFrame = Effect.Effect.Success<
+  ReturnType<typeof decodeFrames>
+>[number];
+type DecodedIncomingResponse = Extract<
+  DecodedIncomingFrame,
+  { readonly _tag: "ResponseSuccess" | "ResponseError" }
+>;
+type DecodedIncomingNotification = Extract<
+  DecodedIncomingFrame,
+  { readonly _tag: "Notification" }
+>;
 
 /** Tagged error type for any pending-RPC Deferred. */
 type PendingError = RpcServerError | NotConnectedError | RpcTimeoutError;
@@ -399,10 +412,7 @@ export class MoltZapWsClient {
 
   /** Open the socket, perform network/connect, resolve with HelloOk. Fails
    * immediately on pre-open close or error. */
-  connect(): Effect.Effect<
-    ConnectResult,
-    NotConnectedError | RpcTimeoutError | RpcServerError
-  > {
+  connect(): Effect.Effect<ConnectResult, ConnectError> {
     return Effect.suspend(() => {
       if (this.closed) {
         return Effect.fail(makeNotConnectedError());
@@ -429,10 +439,7 @@ export class MoltZapWsClient {
     definition: D,
     params: ParamsOf<D>,
     opts?: RpcCallOptions,
-  ): Effect.Effect<
-    ResultOf<D>,
-    NotConnectedError | RpcTimeoutError | RpcServerError
-  > {
+  ): Effect.Effect<ResultOf<D>, ConnectError> {
     const timeoutMs = opts?.timeoutMs ?? RPC_TIMEOUT_MS;
     return this.sendRpcEffect(definition, params, timeoutMs).pipe(
       Effect.flatMap((result) =>
@@ -519,7 +526,7 @@ export class MoltZapWsClient {
       Effect.asVoid,
       Effect.ensuring(
         Effect.sync(() => {
-          void this.runtime.dispose();
+          this.runtime.dispose();
         }),
       ),
     );
@@ -619,9 +626,19 @@ export class MoltZapWsClient {
     this.runtime.runFork(Scope.close(state.value.dispatcherScope, Exit.void));
   }
 
+  private notifyDisconnect(close: CloseInfo): Effect.Effect<void> {
+    return Effect.sync(() => {
+      try {
+        this.options.onDisconnect?.(close);
+      } catch (err) {
+        this.options.logger?.warn("onDisconnect handler threw", err);
+      }
+    });
+  }
+
   private connectEffect(): Effect.Effect<
     ConnectResult,
-    NotConnectedError | RpcTimeoutError | RpcServerError,
+    ConnectError,
     Socket.WebSocketConstructor
   > {
     return Effect.gen(this, function* () {
@@ -737,13 +754,7 @@ export class MoltZapWsClient {
               // a typed `CloseInfo` and pass it to `onDisconnect`. Pure
               // total classifier — see runtime/close-info.ts.
               const close = extractCloseInfo(exit);
-              yield* Effect.sync(() => {
-                try {
-                  this.options.onDisconnect?.(close);
-                } catch (err) {
-                  this.options.logger?.warn("onDisconnect handler threw", err);
-                }
-              });
+              yield* this.notifyDisconnect(close);
               if (!this.closed) {
                 this.scheduleReconnect();
               }
@@ -800,10 +811,7 @@ export class MoltZapWsClient {
     definition: D,
     params: ParamsOf<D>,
     timeoutMs: number,
-  ): Effect.Effect<
-    ResultOf<D>,
-    NotConnectedError | RpcTimeoutError | RpcServerError
-  > {
+  ): Effect.Effect<ResultOf<D>, ConnectError> {
     return Effect.gen(this, function* () {
       const method = definition.name;
       const state = yield* Ref.get(this.stateRef);
@@ -968,114 +976,144 @@ export class MoltZapWsClient {
     });
   }
 
+  private recordMalformedFrame(err: {
+    readonly raw: string;
+  }): Effect.Effect<null> {
+    return Effect.gen(this, function* () {
+      const count = yield* Ref.updateAndGet(this.malformedRef, (n) => n + 1);
+      if (count === 1 || count % MALFORMED_LOG_EVERY === 0) {
+        this.options.logger?.warn(
+          `Malformed frame (#${count}):`,
+          err.raw.slice(0, MALFORMED_FRAME_PREVIEW_CHARS),
+        );
+      }
+      return null;
+    });
+  }
+
+  private takePendingResponse(
+    id: JsonRpcId,
+  ): Effect.Effect<Deferred.Deferred<unknown, PendingError> | null> {
+    return Ref.modify(this.pendingRef, (pendingMap) => {
+      const entry = HashMap.get(pendingMap, id);
+      return entry._tag === "Some"
+        ? [entry.value, HashMap.remove(pendingMap, id)]
+        : [null, pendingMap];
+    });
+  }
+
+  private handleDecodedResponse(
+    decoded: DecodedIncomingResponse,
+  ): Effect.Effect<void> {
+    return Effect.gen(this, function* () {
+      const pending = yield* this.takePendingResponse(decoded.id);
+      if (pending === null) return;
+      if (decoded._tag === "ResponseError") {
+        const { error } = decoded;
+        yield* Deferred.fail(
+          pending,
+          new RpcServerError({
+            code:
+              typeof error.code === "number"
+                ? error.code
+                : JSON_RPC_INTERNAL_ERROR_CODE,
+            message: error.message ?? MSG_RPC_ERROR_FALLBACK,
+            data: error.data,
+          }),
+        );
+        return;
+      }
+      yield* Deferred.succeed(pending, decoded.result);
+    });
+  }
+
+  private handleDecodedServerRequest(
+    decoded: DecodedServerRequest,
+  ): Effect.Effect<void> {
+    return Effect.gen(this, function* () {
+      const state = yield* Ref.get(this.stateRef);
+      if (Option.isNone(state)) return;
+      const offered = yield* Queue.offer(
+        state.value.taskCallbackQueue,
+        decoded,
+      );
+      if (!offered) {
+        yield* this.writeQueueFullRejection(decoded.id, state.value.write);
+      }
+    });
+  }
+
+  private takeNotificationWaiter(
+    decoded: DecodedIncomingNotification,
+  ): Effect.Effect<NotificationWaiter | null> {
+    return Ref.modify(this.notificationWaitersRef, (waitersMap) => {
+      const bucket = HashMap.get(waitersMap, decoded.definition);
+      if (bucket._tag === "None" || bucket.value.length === 0) {
+        return [null as NotificationWaiter | null, waitersMap];
+      }
+      const arr = bucket.value;
+      const chosen = arr[arr.length - 1]!;
+      const rest = arr.slice(0, -1);
+      const nextMap =
+        rest.length === 0
+          ? HashMap.remove(waitersMap, decoded.definition)
+          : HashMap.set(waitersMap, decoded.definition, rest);
+      return [chosen, nextMap];
+    });
+  }
+
+  private bufferNotification(
+    decoded: DecodedIncomingNotification,
+  ): Effect.Effect<void> {
+    return Ref.update(this.notificationsBufferRef, (buffer) => {
+      const appended = [...buffer, decoded];
+      return appended.length > MAX_EVENT_BUFFER
+        ? appended.slice(-MAX_EVENT_BUFFER)
+        : appended;
+    });
+  }
+
+  private handleDecodedNotification(
+    decoded: DecodedIncomingNotification,
+  ): Effect.Effect<void> {
+    return Effect.gen(this, function* () {
+      yield* this.subscribers.dispatch(decoded);
+      const delivered = yield* this.takeNotificationWaiter(decoded);
+      if (delivered !== null) {
+        yield* delivered.complete(decoded);
+        return;
+      }
+      yield* this.bufferNotification(decoded);
+    });
+  }
+
+  private handleDecodedFrame(
+    decoded: DecodedIncomingFrame,
+  ): Effect.Effect<void> {
+    switch (decoded._tag) {
+      case "ResponseSuccess":
+      case "ResponseError":
+        return this.handleDecodedResponse(decoded);
+      case "ServerRequest":
+        return this.handleDecodedServerRequest(decoded);
+      case "Notification":
+        return this.handleDecodedNotification(decoded);
+    }
+  }
+
   /** Route an inbound frame. Malformed frames are logged + dropped; notification
    * frames dispatch to `onNotification` after the shape check. */
   private handleIncoming(raw: string): Effect.Effect<void> {
     return Effect.gen(this, function* () {
       const decodedFrames = yield* decodeFrames(raw).pipe(
         Effect.catchTag("MalformedFrameError", (err) =>
-          Effect.gen(this, function* () {
-            const n = yield* Ref.updateAndGet(this.malformedRef, (c) => c + 1);
-            if (n === 1 || n % MALFORMED_LOG_EVERY === 0) {
-              this.options.logger?.warn(
-                `Malformed frame (#${n}):`,
-                err.raw.slice(0, MALFORMED_FRAME_PREVIEW_CHARS),
-              );
-            }
-            return null;
-          }),
+          this.recordMalformedFrame(err),
         ),
       );
       if (decodedFrames === null) return;
 
       for (const decoded of decodedFrames) {
-        if (
-          decoded._tag === "ResponseSuccess" ||
-          decoded._tag === "ResponseError"
-        ) {
-          const id = decoded.id;
-          const pending = yield* Ref.modify(this.pendingRef, (m) => {
-            const entry = HashMap.get(m, id);
-            return entry._tag === "Some"
-              ? [entry.value, HashMap.remove(m, id)]
-              : [null, m];
-          });
-          if (pending === null) continue;
-
-          if (decoded._tag === "ResponseError") {
-            const { error } = decoded;
-            yield* Deferred.fail(
-              pending,
-              new RpcServerError({
-                code:
-                  typeof error.code === "number"
-                    ? error.code
-                    : JSON_RPC_INTERNAL_ERROR_CODE,
-                message: error.message ?? MSG_RPC_ERROR_FALLBACK,
-                data: error.data,
-              }),
-            );
-          } else {
-            yield* Deferred.succeed(pending, decoded.result);
-          }
-          continue;
-        }
-
-        if (decoded._tag === "ServerRequest") {
-          // Task-callback request — non-blocking offer to the global
-          // bounded queue (cutover #533). The drain fiber serializes
-          // handler execution. If the queue is saturated, surface a
-          // typed wire-level error so the server's `Deferred.await`
-          // settles deterministically rather than hanging.
-          const state = yield* Ref.get(this.stateRef);
-          if (Option.isNone(state)) {
-            // Reader fiber observed a frame without a corresponding
-            // ConnState — only path here is a frame arriving between
-            // scope-close finalization and reader-exit observation.
-            // Drop silently: the queue + drain fiber are already gone.
-            continue;
-          }
-          const offered = yield* Queue.offer(
-            state.value.taskCallbackQueue,
-            decoded,
-          );
-          if (!offered) {
-            yield* this.writeQueueFullRejection(decoded.id, state.value.write);
-          }
-          continue;
-        }
-
-        if (decoded._tag === "Notification") {
-          yield* this.subscribers.dispatch(decoded);
-          const delivered = yield* Ref.modify(
-            this.notificationWaitersRef,
-            (m) => {
-              const bucket = HashMap.get(m, decoded.definition);
-              if (bucket._tag === "None" || bucket.value.length === 0) {
-                return [null as NotificationWaiter | null, m];
-              }
-              const arr = bucket.value;
-              const chosen = arr[arr.length - 1]!;
-              const rest = arr.slice(0, -1);
-              const nextMap =
-                rest.length === 0
-                  ? HashMap.remove(m, decoded.definition)
-                  : HashMap.set(m, decoded.definition, rest);
-              return [chosen, nextMap];
-            },
-          );
-          if (delivered !== null) {
-            yield* delivered.complete(decoded);
-            continue;
-          }
-
-          yield* Ref.update(this.notificationsBufferRef, (xs) => {
-            const appended = [...xs, decoded];
-            return appended.length > MAX_EVENT_BUFFER
-              ? appended.slice(-MAX_EVENT_BUFFER)
-              : appended;
-          });
-        }
+        yield* this.handleDecodedFrame(decoded);
       }
     });
   }

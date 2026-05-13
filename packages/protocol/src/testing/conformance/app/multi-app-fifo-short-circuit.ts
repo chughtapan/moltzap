@@ -25,7 +25,6 @@ export function registerMultiAppFifoShortCircuit(
     "two apps; first denies; second hook is NOT invoked",
     Effect.scoped(
       Effect.gen(function* () {
-        void ctx;
         return yield* Effect.fail(
           new PropertyDeferred({
             category: CATEGORY,

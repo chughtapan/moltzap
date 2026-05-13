@@ -88,6 +88,24 @@ const typeOption = Options.text("type").pipe(
   Options.optional,
 );
 
+function resolveConversationType(
+  type: Option.Option<string>,
+  participantCount: number,
+): Effect.Effect<"dm" | "group", ConversationsInputError> {
+  if (Option.isNone(type)) {
+    return Effect.succeed(participantCount === 1 ? "dm" : "group");
+  }
+  if (type.value === "dm" || type.value === "group") {
+    return Effect.succeed(type.value);
+  }
+  return Effect.fail(
+    new ConversationsInputError({
+      message: `invalid conversation type: ${type.value}`,
+      reason: "type must be dm or group",
+    }),
+  );
+}
+
 const createConversation = Command.make(
   "create",
   { name: nameArg, participants: participantsArg, type: typeOption },
@@ -96,18 +114,7 @@ const createConversation = Command.make(
       const parsed = yield* Effect.all(
         participants.map((p) => resolveParticipant(p)),
       );
-      const convType = Option.isSome(type)
-        ? type.value === "dm" || type.value === "group"
-          ? type.value
-          : yield* Effect.fail(
-              new ConversationsInputError({
-                message: `invalid conversation type: ${type.value}`,
-                reason: "type must be dm or group",
-              }),
-            )
-        : parsed.length === 1
-          ? "dm"
-          : "group";
+      const convType = yield* resolveConversationType(type, parsed.length);
       const result = (yield* request(ConversationsCreate, {
         type: convType,
         name,

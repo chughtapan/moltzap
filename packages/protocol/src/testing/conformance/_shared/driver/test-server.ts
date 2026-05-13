@@ -153,6 +153,25 @@ function makeConnection(
   });
 }
 
+function rawSocketDataToString(data: string | Uint8Array): string {
+  return typeof data === "string"
+    ? data
+    : new TextDecoder("utf-8").decode(data);
+}
+
+function recordConnectionInbound(
+  conn: TestServerConnection,
+  data: string | Uint8Array,
+): Effect.Effect<void> {
+  const raw = rawSocketDataToString(data);
+  return decodeFrame(raw, "inbound").pipe(
+    Effect.matchEffect({
+      onFailure: () => recordMalformed(conn.inbound, raw, "bit-flip"),
+      onSuccess: (frame) => recordFrame(conn.inbound, "inbound", raw, frame),
+    }),
+  );
+}
+
 /**
  * Bind an `@effect/platform` WebSocket server. The surrounding `Scope` owns
  * the listener; releasing it closes every open connection, drains captures,
@@ -188,22 +207,7 @@ export function makeTestServer(
             );
             yield* Ref.update(serverState, (s) => [...s, conn]);
             yield* Ref.update(acceptQueue, (q) => [...q, conn]);
-            yield* sock.runRaw((data) =>
-              Effect.gen(function* () {
-                const raw =
-                  typeof data === "string"
-                    ? data
-                    : new TextDecoder("utf-8").decode(data);
-                yield* decodeFrame(raw, "inbound").pipe(
-                  Effect.matchEffect({
-                    onFailure: () =>
-                      recordMalformed(conn.inbound, raw, "bit-flip"),
-                    onSuccess: (frame) =>
-                      recordFrame(conn.inbound, "inbound", raw, frame),
-                  }),
-                );
-              }),
-            );
+            yield* sock.runRaw((data) => recordConnectionInbound(conn, data));
           }),
         )
         .pipe(Effect.ignore),

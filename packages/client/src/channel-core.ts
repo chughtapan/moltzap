@@ -55,6 +55,48 @@ export interface EnrichedInboundMessage {
   dispatchLeaseId?: string;
 }
 
+type CoalescedMessage = NonNullable<
+  EnrichedInboundMessage["coalescedMessages"]
+>[number];
+
+function isMessageList(
+  messageOrMessages: Message | ReadonlyArray<Message>,
+): messageOrMessages is ReadonlyArray<Message> {
+  return Array.isArray(messageOrMessages);
+}
+
+function asMessageArray(
+  messageOrMessages: Message | ReadonlyArray<Message>,
+): Message[] {
+  return isMessageList(messageOrMessages)
+    ? [...messageOrMessages]
+    : [messageOrMessages];
+}
+
+function formatCoalescedText(
+  coalesced: ReadonlyArray<CoalescedMessage>,
+): string {
+  if (coalesced.length === 1) return coalesced[0]!.text;
+  return coalesced
+    .map((message, index) =>
+      index === 0
+        ? message.text
+        : `[queued message from ${message.sender.name} at ${message.createdAt}]\n${message.text}`,
+    )
+    .join("\n\n");
+}
+
+function conversationMetaFrom(
+  convMeta: ReturnType<ChannelService["getConversation"]>,
+): EnrichedConversationMeta | undefined {
+  if (!convMeta) return undefined;
+  return {
+    type: convMeta.type === "group" ? "group" : "dm",
+    name: convMeta.name,
+    participants: convMeta.participants,
+  };
+}
+
 export interface PendingDispatchMessage {
   messageId: string;
   conversationId: string;
@@ -977,9 +1019,7 @@ export class MoltZapChannelCore {
     never
   > {
     return Effect.gen(function* () {
-      const messages = Array.isArray(messageOrMessages)
-        ? [...messageOrMessages]
-        : [messageOrMessages];
+      const messages = asMessageArray(messageOrMessages);
       const message = messages[0]!;
       const convMeta = service.getConversation(message.conversationId);
 
@@ -995,7 +1035,7 @@ export class MoltZapChannelCore {
 
       const senderName = yield* senderNameFor(message.senderId);
 
-      const coalesced = [];
+      const coalesced: CoalescedMessage[] = [];
       for (const [index, m] of messages.entries()) {
         const name =
           index === 0 ? senderName : yield* senderNameFor(m.senderId);
@@ -1011,28 +1051,13 @@ export class MoltZapChannelCore {
         });
       }
 
-      const text =
-        coalesced.length === 1
-          ? coalesced[0]!.text
-          : coalesced
-              .map((m, index) =>
-                index === 0
-                  ? m.text
-                  : `[queued message from ${m.sender.name} at ${m.createdAt}]\n${m.text}`,
-              )
-              .join("\n\n");
+      const text = formatCoalescedText(coalesced);
 
       const isFromMe =
         service.ownAgentId !== undefined &&
         message.senderId === service.ownAgentId;
 
-      const conversationMeta: EnrichedConversationMeta | undefined = convMeta
-        ? {
-            type: convMeta.type === "group" ? "group" : "dm",
-            name: convMeta.name,
-            participants: convMeta.participants,
-          }
-        : undefined;
+      const conversationMeta = conversationMetaFrom(convMeta);
 
       const contextBlocks: ContextBlocks = {};
 

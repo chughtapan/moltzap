@@ -18,7 +18,9 @@ export interface ChannelOpts {
 
 type ChannelFactory = (opts: ChannelOpts) => Channel | null;
 
+const registeredChannelFactories = new Map<string, ChannelFactory>();
+
 export function registerChannel(name: string, factory: ChannelFactory): void {
-  void name;
-  void factory;
+  if (registeredChannelFactories.get(name) === factory) return;
+  registeredChannelFactories.set(name, factory);
 }

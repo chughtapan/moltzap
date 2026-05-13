@@ -51,6 +51,92 @@ export type DecodedFrame =
 const isFramePadding = (char: string): boolean =>
   char === "\u0000" || char === "\ufeff" || /\s/u.test(char);
 
+interface FrameScanState {
+  readonly frames: string[];
+  start: number;
+  depth: number;
+  inString: boolean;
+  escaped: boolean;
+}
+
+function scanBeforeFrame(raw: string, char: string, index: number): number {
+  if (isFramePadding(char)) return -1;
+  if (char !== "{") {
+    throw new MalformedFrameError({ raw });
+  }
+  return index;
+}
+
+function scanStringChar(state: FrameScanState, char: string): void {
+  if (state.escaped) {
+    state.escaped = false;
+    return;
+  }
+  if (char === "\\") {
+    state.escaped = true;
+    return;
+  }
+  if (char === '"') {
+    state.inString = false;
+  }
+}
+
+function scanStructuralChar(
+  raw: string,
+  state: FrameScanState,
+  char: string,
+  index: number,
+): void {
+  if (char === '"') {
+    state.inString = true;
+    return;
+  }
+  if (char === "{") {
+    state.depth += 1;
+    return;
+  }
+  if (char !== "}") return;
+  state.depth -= 1;
+  if (state.depth !== 0) return;
+  state.frames.push(raw.slice(state.start, index + 1));
+  state.start = -1;
+}
+
+function scanRawFrameChar(
+  raw: string,
+  state: FrameScanState,
+  index: number,
+): void {
+  const char = raw[index]!;
+  if (state.start === -1) {
+    state.start = scanBeforeFrame(raw, char, index);
+    state.depth = state.start === -1 ? 0 : 1;
+    return;
+  }
+  if (state.inString) {
+    scanStringChar(state, char);
+    return;
+  }
+  scanStructuralChar(raw, state, char, index);
+}
+
+function scanRawFrames(raw: string): ReadonlyArray<string> {
+  const state: FrameScanState = {
+    frames: [],
+    start: -1,
+    depth: 0,
+    inString: false,
+    escaped: false,
+  };
+  for (let index = 0; index < raw.length; index += 1) {
+    scanRawFrameChar(raw, state, index);
+  }
+  if (state.start !== -1 || state.frames.length === 0) {
+    throw new MalformedFrameError({ raw });
+  }
+  return state.frames;
+}
+
 const liftServerInbound = (
   decoded: DecodedServerInbound,
   raw: string,
@@ -96,70 +182,7 @@ const splitRawFrames = (
   raw: string,
 ): Effect.Effect<ReadonlyArray<string>, MalformedFrameError> =>
   Effect.try({
-    try: () => {
-      const frames: string[] = [];
-      let start = -1;
-      let depth = 0;
-      let inString = false;
-      let escaped = false;
-
-      for (let index = 0; index < raw.length; index += 1) {
-        const char = raw[index]!;
-
-        if (start === -1) {
-          if (isFramePadding(char)) {
-            continue;
-          }
-          if (char !== "{") {
-            throw new MalformedFrameError({ raw });
-          }
-          start = index;
-          depth = 1;
-          continue;
-        }
-
-        if (inString) {
-          if (escaped) {
-            escaped = false;
-            continue;
-          }
-          if (char === "\\") {
-            escaped = true;
-            continue;
-          }
-          if (char === '"') {
-            inString = false;
-          }
-          continue;
-        }
-
-        if (char === '"') {
-          inString = true;
-          continue;
-        }
-        if (char === "{") {
-          depth += 1;
-          continue;
-        }
-        if (char !== "}") {
-          continue;
-        }
-
-        depth -= 1;
-        if (depth !== 0) {
-          continue;
-        }
-
-        frames.push(raw.slice(start, index + 1));
-        start = -1;
-      }
-
-      if (start !== -1 || frames.length === 0) {
-        throw new MalformedFrameError({ raw });
-      }
-
-      return frames;
-    },
+    try: () => scanRawFrames(raw),
     catch: (cause) =>
       cause instanceof MalformedFrameError
         ? cause

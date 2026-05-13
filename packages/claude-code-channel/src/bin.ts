@@ -101,7 +101,7 @@ function formatLogArgs(args: ReadonlyArray<unknown>): string {
   return args.map((a) => (typeof a === "string" ? a : safeJson(a))).join(" ");
 }
 
-void Effect.runPromise(main()).catch((err: unknown) => {
+Effect.runPromise(main()).catch((err: unknown) => {
   process.stderr.write(
     `[error] moltzap-claude-code-channel: uncaught ${err instanceof Error ? err.message : String(err)}\n`,
   );

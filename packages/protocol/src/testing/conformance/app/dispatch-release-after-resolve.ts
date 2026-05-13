@@ -10,6 +10,14 @@ import {
   withDriver,
 } from "./_helpers.js";
 
+function expectedLeaseState(verdict: {
+  readonly _tag: "grant" | "deny" | "hold";
+}): "GRANTED" | "DENIED" | "HOLD" {
+  if (verdict._tag === "grant") return "GRANTED";
+  if (verdict._tag === "deny") return "DENIED";
+  return "HOLD";
+}
+
 export function registerDispatchReleaseFiresAfterResolve(
   ctx: ConformanceRunContext,
 ): void {
@@ -35,12 +43,7 @@ export function registerDispatchReleaseFiresAfterResolve(
             });
             // Expected lease state per architect plan §3 + Final Decisions:
             // grant → GRANTED, deny → DENIED, hold → HOLD.
-            const expected =
-              verdict._tag === "grant"
-                ? "GRANTED"
-                : verdict._tag === "deny"
-                  ? "DENIED"
-                  : "HOLD";
+            const expected = expectedLeaseState(verdict);
             yield* driver.assertLeaseState(ack.dispatchId, expected);
             const release = yield* driver.recipient.waitForRelease();
             // Assert exactly one release: collect a second within a

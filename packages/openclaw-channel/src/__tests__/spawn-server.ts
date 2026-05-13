@@ -6,7 +6,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
 import { generateKeyPairSync, randomBytes } from "node:crypto";
-import { Config, ConfigProvider, Effect, Option } from "effect";
+import { Effect } from "effect";
 import {
   closeAdminPool as closeAdminPoolBoundary,
   createAdminPool,
@@ -17,7 +17,6 @@ import {
   type AdminPool,
 } from "./node-boundary.js";
 
-const SpawnPath = Config.option(Config.string("PATH"));
 const DEFAULT_HEALTH_TIMEOUT_MS = 30_000;
 const HEALTH_POLL_INTERVAL_MS = 100;
 const ADMIN_POOL_MAX_CONNECTIONS = 2;
@@ -59,14 +58,6 @@ function generateTestFirebaseKey(): string {
     auth_uri: "https://accounts.google.com/o/oauth2/auth",
     token_uri: "https://oauth2.googleapis.com/token",
   });
-}
-
-function readSpawnPath(): string | undefined {
-  return Option.getOrUndefined(
-    Effect.runSync(
-      SpawnPath.pipe(Effect.withConfigProvider(ConfigProvider.fromEnv())),
-    ),
-  );
 }
 
 function asSpawnedServerError(cause: unknown, fallbackMessage: string) {
@@ -257,9 +248,8 @@ export function spawnTestServer(pgHost: string, pgPort: number) {
 
       // 4. Spawn server subprocess
       const masterSecret = randomBytes(MASTER_SECRET_BYTES).toString("base64");
-      const child = spawn("node", [SERVER_ENTRY], {
+      const child = spawn(process.execPath, [SERVER_ENTRY], {
         env: {
-          PATH: readSpawnPath(),
           NODE_ENV: "production",
           DATABASE_URL: `postgresql://test:test@${pgHost}:${pgPort}/${dbName}`,
           ENCRYPTION_MASTER_SECRET: masterSecret,

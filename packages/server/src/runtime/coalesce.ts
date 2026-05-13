@@ -1,4 +1,59 @@
-import { Deferred, Effect, HashMap, Ref } from "effect";
+import { Deferred, Effect, Exit, HashMap, Ref } from "effect";
+
+type RestoreInterruptibility = <A, E, R>(
+  effect: Effect.Effect<A, E, R>,
+) => Effect.Effect<A, E, R>;
+
+interface InstalledDeferred<A, E> {
+  readonly deferred: Deferred.Deferred<A, E>;
+  readonly isOwner: boolean;
+}
+
+function removeCoalesceEntry<K, A, E>(
+  ref: Ref.Ref<HashMap.HashMap<K, Deferred.Deferred<A, E>>>,
+  key: K,
+): Effect.Effect<void> {
+  return Ref.update(ref, (map) => HashMap.remove(map, key));
+}
+
+function settleDeferred<A, E>(
+  deferred: Deferred.Deferred<A, E>,
+  exit: Exit.Exit<A, E>,
+): Effect.Effect<void> {
+  return exit._tag === "Success"
+    ? Deferred.succeed(deferred, exit.value)
+    : Deferred.failCause(deferred, exit.cause);
+}
+
+function completeCoalescedWork<K, A, E>(
+  ref: Ref.Ref<HashMap.HashMap<K, Deferred.Deferred<A, E>>>,
+  key: K,
+  deferred: Deferred.Deferred<A, E>,
+  exit: Exit.Exit<A, E>,
+): Effect.Effect<void> {
+  return removeCoalesceEntry(ref, key).pipe(
+    Effect.andThen(settleDeferred(deferred, exit)),
+  );
+}
+
+function forkOwnerWork<K, A, E>(
+  ref: Ref.Ref<HashMap.HashMap<K, Deferred.Deferred<A, E>>>,
+  key: K,
+  work: Effect.Effect<A, E>,
+  restore: RestoreInterruptibility,
+): (installed: InstalledDeferred<A, E>) => Effect.Effect<void> {
+  return ({ deferred, isOwner }) => {
+    if (!isOwner) return Effect.void;
+    return Effect.forkDaemon(
+      restore(work).pipe(
+        Effect.exit,
+        Effect.flatMap((exit) =>
+          completeCoalescedWork(ref, key, deferred, exit),
+        ),
+      ),
+    ).pipe(Effect.asVoid);
+  };
+}
 
 /**
  * Coalesce concurrent requests for the same key onto a single in-flight
@@ -22,7 +77,7 @@ export const coalesce = <K, A, E>(
     (
       map: HashMap.HashMap<K, Deferred.Deferred<A, E>>,
     ): [
-      { deferred: Deferred.Deferred<A, E>; isOwner: boolean },
+      InstalledDeferred<A, E>,
       HashMap.HashMap<K, Deferred.Deferred<A, E>>,
     ] => {
       const existing = HashMap.get(map, key);
@@ -40,24 +95,7 @@ export const coalesce = <K, A, E>(
   // inside `work` can actually interrupt their inner `Effect.async`.
   return Effect.uninterruptibleMask((restore) =>
     install.pipe(
-      Effect.tap(({ deferred, isOwner }) =>
-        isOwner
-          ? Effect.forkDaemon(
-              restore(work).pipe(
-                Effect.exit,
-                Effect.flatMap((exit) =>
-                  Ref.update(ref, (m) => HashMap.remove(m, key)).pipe(
-                    Effect.andThen(
-                      exit._tag === "Success"
-                        ? Deferred.succeed(deferred, exit.value)
-                        : Deferred.failCause(deferred, exit.cause),
-                    ),
-                  ),
-                ),
-              ),
-            )
-          : Effect.void,
-      ),
+      Effect.tap(forkOwnerWork(ref, key, work, restore)),
       Effect.flatMap(({ deferred }) => restore(Deferred.await(deferred))),
     ),
   );

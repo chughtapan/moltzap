@@ -26,7 +26,11 @@ export function sortJsonArray(
   arr: ReadonlyArray<unknown>,
 ): ReadonlyArray<unknown> {
   const keyed = arr.map((el) => ({ el, key: canonicalJson(el) }));
-  keyed.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  keyed.sort((a, b) => {
+    if (a.key < b.key) return -1;
+    if (a.key > b.key) return 1;
+    return 0;
+  });
   return keyed.map((k) => k.el);
 }
 

@@ -42,6 +42,28 @@ export interface CaptureBuffer {
 
 const startTime = Date.now();
 
+function appendBoundedFrame(
+  entry: CapturedFrame,
+  capacity: number,
+): (cur: ReadonlyArray<CapturedFrame>) => ReadonlyArray<CapturedFrame> {
+  return (cur) => {
+    const next = cur.length >= capacity ? cur.slice(1) : cur.slice();
+    return [...next, entry];
+  };
+}
+
+function publishCapturedFrame(
+  ref: Ref.Ref<ReadonlyArray<CapturedFrame>>,
+  pubsub: PubSub.PubSub<CapturedFrame>,
+  capacity: number,
+  entry: CapturedFrame,
+): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    yield* Ref.update(ref, appendBoundedFrame(entry, capacity));
+    yield* PubSub.publish(pubsub, entry);
+  });
+}
+
 /**
  * Ring-buffer + PubSub implementation. The Ref holds the bounded
  * array; PubSub fans each append out to every subscriber so `stream`
@@ -56,13 +78,7 @@ export function makeCaptureBuffer(opts: {
     const pubsub = yield* PubSub.sliding<CapturedFrame>(cap);
 
     const publish = (entry: CapturedFrame): Effect.Effect<void> =>
-      Effect.gen(function* () {
-        yield* Ref.update(ref, (cur) => {
-          const next = cur.length >= cap ? cur.slice(1) : cur.slice();
-          return [...next, entry];
-        });
-        yield* PubSub.publish(pubsub, entry);
-      });
+      publishCapturedFrame(ref, pubsub, cap, entry);
 
     const buf: CaptureBuffer = {
       snapshot: Ref.get(ref),

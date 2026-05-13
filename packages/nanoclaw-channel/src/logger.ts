@@ -2,11 +2,8 @@
 // writes ANSI-colored structured output to stdout/stderr. For unit tests in this
 // package, we only need a silent shape-compatible fake.
 
-type LogInput = Record<string, unknown> | string;
-
-function noop(dataOrMsg: LogInput, msg?: string): void {
-  void dataOrMsg;
-  void msg;
+function noop(...args: readonly unknown[]): void {
+  if (args.length === 0) return;
   // Unit tests don't assert on log output. In a real nanoclaw install, this
   // file is not used — imports resolve against nanoclaw's own logger.ts.
 }
