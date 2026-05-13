@@ -5,7 +5,7 @@
  * `apiKey` / `agentName` fields (see cli/config.ts) remain the "default"
  * record; named profiles live under a new top-level `profiles` key.
  *
- * Spec sbd#177 rev 3 §5.2 (`--profile <name>`, `--no-persist`),
+ * Spec sbd#177 rev 3 §5.2 (`--profile &lt;name>`, `--no-persist`),
  * Invariants §4.3 (coexistence) and §4.4 (no-disk-write guarantee).
  *
  * Architect note. The existing `cli/config.ts` pre-dates this branch and is
@@ -80,7 +80,7 @@ export interface ProfileRecord {
 
 /**
  * Layered view of config.json. The legacy top-level keys populate
- * `default`; named records live under `profiles.<name>`. `serverUrl`
+ * `default`; named records live under `profiles.&lt;name>`. `serverUrl`
  * is surfaced at the top because it is shared across profiles unless
  * a profile overrides it.
  */
@@ -317,7 +317,7 @@ export const resolveProfileAuth = (
   }).pipe(Effect.withSpan("resolveProfileAuth"));
 
 /**
- * Persist a new profile record under `profiles.<name>`, or replace the
+ * Persist a new profile record under `profiles.&lt;name>`, or replace the
  * legacy top-level record when `name` is `"default"`.
  *
  * When called with `"default"`, writes the legacy top-level `apiKey` /

@@ -152,7 +152,7 @@ const liftServerInbound = (
  * `DecodedServerRequest`. Each branch is guarded by the descriptor's
  * `validateParams` predicate so `decoded.definition` + `decoded.params`
  * narrow together, preserving the per-arm pairing required by the
- * distributive `DecodedServerRequest<D>` type. Adding a new
+ * distributive `DecodedServerRequest&lt;D>` type. Adding a new
  * task-callback descriptor adds one branch here.
  */
 const liftAppCallbackRequest = (

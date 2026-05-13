@@ -2,7 +2,7 @@
  * Context tags + Layer composition for the core server services.
  *
  * Dependency order is encoded in each `Layer.effect`'s `yield*` chain.
- * Tag string convention: `moltzap/<ClassName>`.
+ * Tag string convention: `moltzap/&lt;ClassName>`.
  */
 import { Context, Effect, Layer } from "effect";
 
@@ -88,7 +88,7 @@ const DEFAULT_LEASE_RETENTION_MS =
 // One Context.Tag per injectable. The type parameter on the tag class is the
 // compile-time token that Effect uses to index services.
 
-/** Postgres/PGlite database handle (Kysely<Database>). */
+/** Postgres/PGlite database handle (Kysely&lt;Database>). */
 export class DbTag extends Context.Tag("moltzap/Db")<DbTag, Db>() {}
 
 /** Re-exported so call sites importing tags from one file still compile.
@@ -104,7 +104,7 @@ export class EncryptionTag extends Context.Tag("moltzap/Encryption")<
 /**
  * Request-scoped connection id. Provided per WebSocket RPC dispatch by the
  * router; read by handlers via `yield* ConnIdTag`. Replaces the previous
- * `AsyncLocalStorage<string>` + `getConnId` prop threading.
+ * `AsyncLocalStorage&lt;string>` + `getConnId` prop threading.
  */
 export class ConnIdTag extends Context.Tag("moltzap/ConnId")<
   ConnIdTag,
@@ -115,14 +115,14 @@ export class ConnectionManagerTag extends Context.Tag(
   "moltzap/ConnectionManager",
 )<ConnectionManagerTag, ConnectionManager>() {}
 
-/** `AgentId → HashSet<ConnectionId>` multimap maintained by the
+/** `AgentId → HashSet&lt;ConnectionId>` multimap maintained by the
  * `network/connect` success path and the WS disconnect finalizer. Read by
  * {@link NetworkSendServiceTag} for O(1) outbound routing. */
 export class AgentEndpointResolverTag extends Context.Tag(
   "moltzap/AgentEndpointResolver",
 )<AgentEndpointResolverTag, AgentEndpointResolver>() {}
 
-/** In-process app-TM handler registry. `tm:app:<id>` addresses
+/** In-process app-TM handler registry. `tm:app:&lt;id>` addresses
  * dispatch through here; default DM / group TMs register at boot via
  * {@link AppTmRegistryLive}. */
 export class AppTmRegistryTag extends Context.Tag("moltzap/AppTmRegistry")<
@@ -166,7 +166,7 @@ export class AppHostTag extends Context.Tag("moltzap/AppHost")<
 
 /**
  * `LeaseRegistry` for the #529 reshape additive `dispatch/*` admission
- * surface. In-process state (`Ref<Map<LeaseId, LeaseEntry>>` + per-lease
+ * surface. In-process state (`Ref&lt;Map&lt;LeaseId, LeaseEntry>>` + per-lease
  * TTL fibers); no DB. Constructed once per server lifetime via
  * {@link LeaseRegistryLive}.
  */

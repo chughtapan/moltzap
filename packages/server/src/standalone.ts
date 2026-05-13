@@ -84,38 +84,58 @@ const operationFailed = (
 // handlers.
 
 /**
- * Parse and validate a JSON manifest blob. Returns `Right(AppManifest)`
+ * Parses and validates a JSON manifest blob. Returns `Right(AppManifest)`
  * on success, `Left(InvalidAppManifest)` on either JSON-parse failure
  * (`kind: "parse"`) or schema-validation failure (`kind: "schema"`).
  * Never throws. Exported for test access only.
  */
-export function decodeAppManifest(
+function parseAppManifestJson(
   json: string,
   path: string,
-): Either.Either<AppManifest, InvalidAppManifest> {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(json);
-  } catch (cause) {
-    return Either.left(
+): Effect.Effect<unknown, InvalidAppManifest> {
+  return Effect.try({
+    try: () => JSON.parse(json) as unknown,
+    catch: (cause) =>
       new InvalidAppManifest({
         kind: "parse",
         path,
         errors: [cause instanceof Error ? cause.message : String(cause)],
       }),
-    );
-  }
-  const validation = validateAppManifest(parsed);
-  if (validation._tag === "Invalid") {
-    return Either.left(
-      new InvalidAppManifest({
-        kind: "schema",
-        path,
-        errors: validation.errors,
-      }),
-    );
-  }
-  return Either.right(validation.manifest);
+  });
+}
+
+function validateParsedAppManifest(
+  parsed: unknown,
+  path: string,
+): Effect.Effect<AppManifest, InvalidAppManifest> {
+  return Either.match(validateAppManifest(parsed), {
+    onLeft: (error) =>
+      Effect.fail(
+        new InvalidAppManifest({
+          kind: "schema",
+          path,
+          errors: error.errors,
+        }),
+      ),
+    onRight: Effect.succeed,
+  });
+}
+
+function decodeAppManifestEffect(
+  json: string,
+  path: string,
+): Effect.Effect<AppManifest, InvalidAppManifest> {
+  return Effect.gen(function* () {
+    const parsed = yield* parseAppManifestJson(json, path);
+    return yield* validateParsedAppManifest(parsed, path);
+  });
+}
+
+export function decodeAppManifest(
+  json: string,
+  path: string,
+): Either.Either<AppManifest, InvalidAppManifest> {
+  return Effect.runSync(Effect.either(decodeAppManifestEffect(json, path)));
 }
 
 // ── Database factory ────────────────────────────────────────────────

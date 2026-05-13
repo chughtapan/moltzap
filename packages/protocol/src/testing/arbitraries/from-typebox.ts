@@ -3,7 +3,7 @@
  *
  * The reference model covers every wire method name in `RpcMap` (AC4 / Tier
  * B); properties therefore need a principled generator for each method's
- * params. Instead of handwriting an `Arbitrary<T>` per RPC, we derive it
+ * params. Instead of handwriting an `Arbitrary&lt;T>` per RPC, we derive it
  * from the schema already living at `paramsSchema`.
  *
  * Approach: walk TypeBox node kinds directly (`Object`, `Array`, `String`,
@@ -53,7 +53,7 @@ function isOptional(schema: TSchema): boolean {
 }
 
 /**
- * Derive an `Arbitrary<Static<S>>` for any TypeBox schema. The derivation
+ * Derive an `Arbitrary&lt;Static&lt;S>>` for any TypeBox schema. The derivation
  * is pure: given the same schema + fast-check seed, it yields the same
  * value tree (AC10 reproducibility).
  */

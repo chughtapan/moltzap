@@ -46,7 +46,7 @@ export interface ToxicHandle {
 export interface Proxy {
   /** Upstream (real server) address the proxy forwards to. */
   readonly upstream: string;
-  /** Client-facing URL (`ws://127.0.0.1:<ephemeralPort>`). */
+  /** Client-facing URL (`ws://127.0.0.1:&lt;ephemeralPort>`). */
   readonly listenUrl: string;
   /** Attach a toxic inside a Scope; removed on release. */
   readonly withToxic: (

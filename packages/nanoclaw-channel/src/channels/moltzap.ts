@@ -18,9 +18,9 @@ import { logger } from "../logger.js";
 import { registerChannel, type ChannelOpts } from "./registry.js";
 
 /**
- * Format cross-conversation messages using nanoclaw's native XML `<message>`
+ * Format cross-conversation messages using nanoclaw's native XML `&lt;message>`
  * structure (matching the upstream `formatMessages()` in router.ts), wrapped
- * in `<system-reminder>` for containment. Adds a `conversation` attribute
+ * in `&lt;system-reminder>` for containment. Adds a `conversation` attribute
  * to identify the source conversation.
  */
 function formatCrossConvNanoclaw(

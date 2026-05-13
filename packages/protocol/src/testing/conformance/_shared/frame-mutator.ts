@@ -90,11 +90,7 @@ export function encodeFrame(frame: AnyFrame): string {
   return JSON.stringify(frame);
 }
 
-/**
- * Parse + `Value.Check` an inbound frame. `FrameSchemaError` captures
- * the failing branch so Tier A can assert "drop or typed error, never
- * crash."
- */
+/** Parses and validates an inbound frame. */
 export function decodeFrame(
   raw: string,
   direction: "outbound" | "inbound",

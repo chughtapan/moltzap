@@ -78,15 +78,15 @@ function parseGlobalFlag(
 }
 
 /**
- * Pull `--as <key>` and `--profile <name>` out of argv before handing the
+ * Pull `--as &lt;key>` and `--profile &lt;name>` out of argv before handing the
  * remainder to `@effect/cli`. These are semantically global flags that
  * shape the transport layer for the whole invocation (spec sbd#177 rev 3
- * §5.1, §5.2, Invariant §4.2). Pre-parsing keeps the @effect/cli subcommand
+ * §5.1, §5.2, Invariant §4.2). Pre-parsing keeps the `@effect/cli` subcommand
  * tree clean of duplicated global options and guarantees `--as` can short-
  * circuit config-read side effects (architect design doc rev 4 finding 1).
  *
  * Accepts both `--as KEY` / `--as=KEY` forms; unknown flags pass through
- * to @effect/cli unchanged.
+ * to `@effect/cli` unchanged.
  */
 export const extractGlobalFlags = (
   argv: ReadonlyArray<string>,

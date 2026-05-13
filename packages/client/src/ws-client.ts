@@ -180,7 +180,7 @@ interface DecodedServerRequest {
 
 /**
  * Handler signature for `handleServerRpc`. The handler returns an
- * `Effect<unknown, RpcServerError>` — success values are encoded as the
+ * `Effect&lt;unknown, RpcServerError>` — success values are encoded as the
  * response `result`; typed RPC errors are encoded as the response
  * `error`. Defects (handler crashes, non-tagged exceptions) collapse to a
  * generic InternalError reply.
@@ -376,7 +376,7 @@ export class MoltZapWsClient {
   /**
    * Register a handler for a server-initiated RPC method. Survives
    * reconnects — the registry lives on the client, not the per-connection
-   * `ConnState`. Returns `Effect<void>` that fails with
+   * `ConnState`. Returns `Effect&lt;void>` that fails with
    * `DuplicateServerRpcHandlerError` if a handler for `method` is already
    * registered (shadowing the existing one would silently swap behaviour
    * mid-flight).

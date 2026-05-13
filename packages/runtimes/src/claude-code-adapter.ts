@@ -4,7 +4,7 @@
  * Mirrors `openclaw-adapter.ts`'s shape: the agent runtime binary is
  * Anthropic's `claude` CLI; the channel plugin is `@moltzap/claude-code-
  * channel`, installed into a per-agent state dir and wired in via
- * `claude --strict-mcp-config --mcp-config <path>`. The cc-channel's MCP
+ * `claude --strict-mcp-config --mcp-config &lt;path>`. The cc-channel's MCP
  * stdio server connects to moltzap, the moltzap server's
  * `ConnectionManager` records the auth, and `waitUntilReady` resolves —
  * same auth-on-connection signal openclaw and nanoclaw use.
@@ -170,7 +170,7 @@ function waitAfterSigterm(
 }
 
 /**
- * Spawn `claude` via @effect/platform's Command, layering the Node
+ * Spawn `claude` via `@effect/platform`'s Command, layering the Node
  * platform context so PlatformError fans out to never. The returned
  * `SpawnedProcess` exposes the exit fiber for callers that need to
  * `Fiber.poll` synchronously inside an `Effect.gen` polling loop.
@@ -596,8 +596,8 @@ function resolveWorkspaceClaudeBin(
 }
 
 /**
- * Project `process.env` (`Record<string, string | undefined>`) onto a
- * strict `Record<string, string>` so it slots into `Command.env` without
+ * Project `process.env` (`Record&lt;string, string | undefined>`) onto a
+ * strict `Record&lt;string, string>` so it slots into `Command.env` without
  * a wholesale `as` cast (issue #272 item 7). Also folds in adapter-set
  * extras (`CLAUDE_CODE_HOME` etc.) on top.
  */

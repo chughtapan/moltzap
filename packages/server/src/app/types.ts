@@ -65,7 +65,7 @@ export interface CoreConfig {
    * Fire-and-forget HTTP webhook after message delivery with the list of
    * offline recipient agent IDs. Use to drive push notifications or analytics
    * out of band. Body is signed with HMAC-SHA256 in the
-   * `X-MoltZap-Signature: sha256=<hex>` header using `secret`.
+   * `X-MoltZap-Signature: sha256=&lt;hex>` header using `secret`.
    *
    * Shape: `{ conversationId, messageId, offlineRecipientAgentIds: string[] }`.
    *

@@ -3,7 +3,7 @@
  * here; the vitest entry consumes them.
  *
  * Principle 3 (errors typed, not thrown): every property body is an
- * `Effect.Effect<void, PropertyFailure>`. Failures are tagged — never
+ * `Effect.Effect&lt;void, PropertyFailure>`. Failures are tagged — never
  * bare `throw`s. Fast-check's Promise-based `fc.assert` is bridged via
  * `Effect.tryPromise` at each call site so rejections become typed
  * `PropertyAssertionFailure`s.

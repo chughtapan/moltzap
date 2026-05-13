@@ -7,6 +7,7 @@
 import { Type, type Static } from "@sinclair/typebox";
 import Ajv from "ajv";
 import addFormats from "ajv-formats";
+import { Data, Either } from "effect";
 import { AgentId, agentOwnershipSchema } from "../identity/methods.js";
 import { ConversationId, MessageId, TaskId } from "../task/methods.js";
 import { messagePartsSchema, logicalClockSchema } from "../task/methods.js";
@@ -102,27 +103,38 @@ const formatAppManifestError = (error: {
 }): string =>
   `${error.instancePath || "/"} ${error.message ?? "validation failed"}`;
 
-export type AppManifestValidationResult =
-  | { readonly _tag: "Valid"; readonly manifest: AppManifest }
-  | { readonly _tag: "Invalid"; readonly errors: readonly string[] };
+export class AppManifestInvalid extends Data.TaggedError("AppManifestInvalid")<{
+  readonly errors: readonly string[];
+}> {}
+
+export type AppManifestValidationResult = Either.Either<
+  AppManifest,
+  AppManifestInvalid
+>;
+
+const currentAppManifestErrors = (): readonly string[] => {
+  const errors = (appManifestValidator.errors ?? []).map(
+    formatAppManifestError,
+  );
+  return errors.length > 0 ? errors : ["unknown validation failure"];
+};
+
+const validateAppManifestValue = Either.liftPredicate(
+  (value: unknown): value is AppManifest => appManifestValidator(value),
+  () => new AppManifestInvalid({ errors: currentAppManifestErrors() }),
+);
 
 export function validateAppManifest(
   value: unknown,
 ): AppManifestValidationResult {
-  if (appManifestValidator(value)) {
-    return { _tag: "Valid", manifest: value };
-  }
-  const errors = (appManifestValidator.errors ?? []).map(
-    formatAppManifestError,
-  );
-  return {
-    _tag: "Invalid",
-    errors: errors.length > 0 ? errors : ["unknown validation failure"],
-  };
+  return validateAppManifestValue(value);
 }
 
 export const isAppManifest = (value: unknown): value is AppManifest =>
-  validateAppManifest(value)._tag === "Valid";
+  Either.match(validateAppManifest(value), {
+    onLeft: () => false,
+    onRight: () => true,
+  });
 
 // ── apps/* RPCs ──────────────────────────────────────────────────────
 

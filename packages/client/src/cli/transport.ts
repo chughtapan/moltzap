@@ -3,7 +3,7 @@
  * the wire. Decides between the singleton daemon (Unix socket) and a
  * direct WebSocket per invocation.
  *
- * This file is the `--as <apiKey>` branch point (spec sbd#177 rev 3 §5.1,
+ * This file is the `--as &lt;apiKey>` branch point (spec sbd#177 rev 3 §5.1,
  * Invariant §4.2). Command handlers pull `Transport` from Effect context;
  * they do NOT open sockets or construct clients themselves. The kind of
  * transport in effect is decided once at CLI boot by {@link makeTransportLayer}
@@ -128,9 +128,9 @@ export const Transport = Context.GenericTag<Transport>("moltzap/cli/Transport");
  * `impersonateKey` wins over `profileKey` wins over daemon.
  */
 export interface TransportOptions {
-  /** `--as <apiKey>` literal. When set, force direct transport. */
+  /** `--as &lt;apiKey>` literal. When set, force direct transport. */
   readonly impersonateKey?: string;
-  /** Resolved profile apiKey if `--profile <name>` supplied. */
+  /** Resolved profile apiKey if `--profile &lt;name>` supplied. */
   readonly profileKey?: string;
   /** Resolved MOLTZAP_API_KEY for the legacy direct fallback branch. */
   readonly envFallbackKey?: string;
@@ -259,7 +259,11 @@ const makeDaemonTransport = (socketPath: string): Transport => ({
 
 // Map ws-client errors (NotConnectedError | RpcTimeoutError | RpcServerError)
 // to TransportError tags.
-/** @internal exported for decoder-fixture tests only (sbd#198). */
+/**
+ * Exported for decoder-fixture tests only (sbd#198).
+ *
+ * @internal
+ */
 export const tagWsError = (method: string, err: unknown): TransportError => {
   if (err instanceof NotConnectedError) {
     return new ServiceUnreachableError({
@@ -444,7 +448,7 @@ export const rpc = <D extends RpcDefinition<string, any, any>>(
 
 /**
  * Uniform error-to-exit adapter for subcommand handlers. Catches every error
- * channel, prints `Failed: <msg>` to stderr, and exits non-zero. Uses the
+ * channel, prints `Failed: &lt;msg>` to stderr, and exits non-zero. Uses the
  * tagged-error `message` field if present, otherwise the `_tag`, otherwise
  * a generic fallback. Shared across every v2 subcommand wrapper so the
  * exit-code contract (Invariant §4.6) has a single implementation.

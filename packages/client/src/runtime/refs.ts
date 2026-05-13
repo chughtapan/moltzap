@@ -2,7 +2,7 @@ import { Effect, HashMap, Option, Ref } from "effect";
 
 /**
  * Read a `Ref` synchronously outside an Effect scope. Only safe for `Ref`s
- * that never fiber-park (the stock `Ref.Ref<A>` never does). Use from
+ * that never fiber-park (the stock `Ref.Ref&lt;A>` never does). Use from
  * object methods or sync code paths that hold a `Ref` set up at construction.
  */
 export const snapshot = <A>(ref: Ref.Ref<A>): A => Effect.runSync(Ref.get(ref));

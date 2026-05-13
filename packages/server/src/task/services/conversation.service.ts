@@ -49,7 +49,7 @@ const MSG_NOT_A_PARTICIPANT = "Not a participant";
 /**
  * Policy gate consulted before any conversation edge (DM target,
  * group member, or `addParticipant` target) is created. Returns `true`
- * to allow the edge, `false` to deny it. The `Effect<_, never>` shape
+ * to allow the edge, `false` to deny it. The `Effect&lt;_, never>` shape
  * mirrors {@link ContactService.areInContact} on AppHost —
  * implementations absorb webhook failures internally and surface a
  * boolean verdict.
@@ -106,7 +106,7 @@ export class ConversationService {
     private resolveContactPolicy: ContactPolicyResolver = () => null,
   ) {}
 
-  /** Write-through: called from MessageService.send() with plaintext parts before encryption */
+  /** Writes the plaintext preview before message-part encryption. */
   updatePreviewCache(
     conversationId: ConversationId,
     firstPartText: string,
@@ -285,9 +285,9 @@ export class ConversationService {
   }
 
   /**
-   * Resolve an `agent:<name>` DM target and ensure a conversation
+   * Resolve an `agent:&lt;name>` DM target and ensure a conversation
    * exists. Used by `messages/send` when the caller supplies
-   * `to: "agent:<name>"` instead of a known conversationId. The task
+   * `to: "agent:&lt;name>"` instead of a known conversationId. The task
    * source is lazy (#464) so a dedup hit short-circuits without
    * minting.
    */

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import Ajv from "ajv";
 import addFormats from "ajv-formats";
+import { Either } from "effect";
 import {
   validateAppManifest,
   DispatchAuthorize,
@@ -13,11 +14,21 @@ const validateAuthorizeResult = ajv.compile(DispatchAuthorize.resultSchema);
 const validateRequestParams = ajv.compile(DispatchRequest.paramsSchema);
 
 const expectValidManifest = (manifest: unknown): void => {
-  expect(validateAppManifest(manifest)._tag).toBe("Valid");
+  expect(
+    Either.match(validateAppManifest(manifest), {
+      onLeft: () => false,
+      onRight: () => true,
+    }),
+  ).toBe(true);
 };
 
 const expectInvalidManifest = (manifest: unknown): void => {
-  expect(validateAppManifest(manifest)._tag).toBe("Invalid");
+  expect(
+    Either.match(validateAppManifest(manifest), {
+      onLeft: () => true,
+      onRight: () => false,
+    }),
+  ).toBe(true);
 };
 
 describe("AppManifestSchema", () => {

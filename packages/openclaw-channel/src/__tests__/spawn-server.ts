@@ -1,6 +1,6 @@
 /**
  * Spawns the MoltZap server as a subprocess for integration testing.
- * Replaces the in-process startTestServer() — no import dependency on @moltzap/server.
+ * Replaces the in-process startTestServer() with no import dependency on `@moltzap/server`.
  */
 
 import { spawn, type ChildProcess } from "node:child_process";

@@ -26,8 +26,8 @@ type LeaseRecordWire = ResultOf<typeof DispatchesGet>["lease"];
  *
  * Doctrine notes:
  *
- * - Every public method returns `Effect<T, E, R>` with a typed error
- *   channel (Principle 3). `Promise<T>` is forbidden on this surface.
+ * - Every public method returns `Effect&lt;T, E, R>` with a typed error
+ *   channel (Principle 3). `Promise&lt;T>` is forbidden on this surface.
  * - State transitions are atomic via `Ref.modify` (or equivalent
  *   first-writer-wins primitive at impl time). The state machine
  *   below names every transition; impl-staff exhaustively asserts via
@@ -241,7 +241,7 @@ interface Claim {
  */
 export interface LeaseRegistry {
   /**
-   * Mint a new PENDING lease. Synchronous (`Effect<..., never>`) — the
+   * Mint a new PENDING lease. Synchronous (`Effect&lt;..., never>`) — the
    * registry is in-process. Records the binding tuple for audit,
    * `dispatches/get`, and connection-close cleanup.
    *
@@ -498,7 +498,7 @@ function leaseVerdictToWire(
  * Construct the registry. The constructor is the only public factory
  * — `LeaseRegistry` is referenced as an interface from call sites.
  *
- * Implementation: a `Ref<Map<LeaseId, LeaseEntry>>` plus a per-lease
+ * Implementation: a `Ref&lt;Map&lt;LeaseId, LeaseEntry>>` plus a per-lease
  * scheduled TTL fiber (Effect-managed; safe to interrupt). Every state
  * transition is a `Ref.modify` predicate that returns the new entry +
  * a description of the side-effect (notification to emit, fiber to

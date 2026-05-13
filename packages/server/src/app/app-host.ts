@@ -50,7 +50,7 @@ function errorMessage(err: unknown): string {
  * common case per architect plan §3 + prereq 2 §3 — the
  * `requireConversationAdminAuthority` gate accepts only this shape for
  * `app_id IS NOT NULL`), `tasks.tm_endpoint_address` is the wire
- * address `tm:agent:<moderatorAgentId>`. Recover the agentId so the
+ * address `tm:agent:&lt;moderatorAgentId>`. Recover the agentId so the
  * deny arm of the forked round-trip can call `removeParticipant`
  * with the correct requester (epic decision #8).
  *
@@ -131,8 +131,8 @@ export class AppHost {
    * `tm_endpoint_address` (always populated post-#461 R12), NOT an
    * appId. Default-DM and default-group register at boot under
    * `DEFAULT_DM_TM_ADDRESS` / `DEFAULT_GROUP_TM_ADDRESS`; app TMs
-   * register under their `tm:app:<uuid>` address; future custom TMs
-   * (e.g., `tm:agent:<id>`) register under that.
+   * register under their `tm:app:&lt;uuid>` address; future custom TMs
+   * (e.g., `tm:agent:&lt;id>`) register under that.
    *
    * No sentinel constants needed — the existing address shapes IS
    * the key. See R8 (ghost-service hazard) for why this stays
@@ -639,10 +639,10 @@ export class AppHost {
   }
 
   /**
-   * #560: Register an in-process `messageAuthorize` handler keyed by
-   * `EndpointAddress`. Default-DM and default-group register at boot
+   * Register an in-process `messageAuthorize` handler keyed by
+   * `EndpointAddress`. Issue #560 default-DM and default-group register at boot
    * (in `app-tm-registry.ts` or wherever default TMs bootstrap);
-   * apps that hold their own `tm:app:<uuid>` address register at
+   * apps that hold their own `tm:app:&lt;uuid>` address register at
    * `apps/register` time. Idempotent — repeat calls overwrite the
    * existing entry for that address.
    */
@@ -654,21 +654,21 @@ export class AppHost {
   }
 
   /**
-   * #560 v4 — generic hook runner shared by every authorization hook
-   * registry. Encapsulates the lookup + in-process-vs-remote branch +
+   * Run authorization hooks through a shared fail-closed envelope.
+   * Issue #560 v4 registry encapsulates the lookup + in-process-vs-remote branch +
    * fail-closed envelope. Specific runners (`runMessageAuthorize`,
    * future `runAuthorizeDispatch` refactor) become thin wrappers that
    * supply the registry and the synthetic fallback verdict.
    *
-   *   private runHook<TKey, TContext, TResult>(opts: {
-   *     registry: Map<TKey, Hook<TContext, TResult>>;
+   *   private runHook&lt;TKey, TContext, TResult>(opts: {
+   *     registry: Map&lt;TKey, Hook&lt;TContext, TResult>>;
    *     key: TKey;
    *     ctx: TContext;
    *     manifestTimeoutMs: number;
    *     onTimeout: () => TResult;
    *     onError: () => TResult;
    *     defaultWhenAbsent: () => TResult;
-   *   }): Effect.Effect<TResult, never>;
+   *   }): Effect.Effect&lt;TResult, never>;
    *
    * Resolution path for `runMessageAuthorize` (C5 design pin —
    * documents how local/remote/default split lines up with the
@@ -720,7 +720,7 @@ export class AppHost {
    *
    * The address-keyed map (`messageAuthorizeHooks`) is the C2 design
    * pin: separate registry from the appId-keyed `hooks`, identical
-   * shape (`Map<TKey, Hook<TContext, TResult>>`). The hook-shape
+   * shape (`Map&lt;TKey, Hook&lt;TContext, TResult>>`). The hook-shape
    * unification is the v4 design pin (architect risk R13).
    */
   runMessageAuthorize(

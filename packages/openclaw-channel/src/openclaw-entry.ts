@@ -4,7 +4,7 @@
  * Wraps the existing MoltZapWsClient + mapping modules into the
  * ChannelPlugin shape expected by OpenClaw's api.registerChannel().
  *
- * Installed via: openclaw plugin install @moltzap/openclaw-channel
+ * Installed via: openclaw plugin install `@moltzap/openclaw-channel`
  * Config:        channels.moltzap.accounts[].{apiKey, serverUrl, agentName}
  *
  * OpenClaw's plugin interface imposes Promise-based contracts at the boundary

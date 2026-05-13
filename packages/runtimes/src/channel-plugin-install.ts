@@ -52,7 +52,7 @@ export interface InstallChannelPluginOpts {
   readonly stateDir: string;
   readonly channelDistDir: string;
   readonly repoRoot: string;
-  /** Subdirectory under `<stateDir>/extensions/`. */
+  /** Subdirectory under `&lt;stateDir>/extensions/`. */
   readonly extName: string;
   /**
    * Extra files copied verbatim from the channel package root into the
@@ -61,7 +61,7 @@ export interface InstallChannelPluginOpts {
    */
   readonly extraPackageFiles?: ReadonlyArray<string>;
   /**
-   * Extra symlinks to create under `<extDir>/node_modules/`. Each is
+   * Extra symlinks to create under `&lt;extDir>/node_modules/`. Each is
    * tried against an ordered list of candidate sources; first hit wins.
    */
   readonly extraSymlinks?: ReadonlyArray<PluginSymlinkSpec>;
@@ -71,12 +71,12 @@ export interface InstallChannelPluginOpts {
  * Install a moltzap channel package into a per-agent state dir.
  *
  * Standard layout produced:
- *   <stateDir>/extensions/<extName>/dist/...      ← copied from channelDistDir
- *   <stateDir>/extensions/<extName>/package.json  ← copied from channel pkg root
- *   <stateDir>/extensions/<extName>/node_modules/@moltzap/protocol → repoRoot/packages/protocol
- *   <stateDir>/extensions/<extName>/node_modules/@moltzap/client   → repoRoot/packages/client
- *   <stateDir>/extensions/<extName>/<extraPackageFiles[i]>         (when present)
- *   <stateDir>/extensions/<extName>/node_modules/<extraSymlinks[i].linkPath> → first existing candidate
+ *   &lt;stateDir>/extensions/&lt;extName>/dist/...      ← copied from channelDistDir
+ *   &lt;stateDir>/extensions/&lt;extName>/package.json  ← copied from channel pkg root
+ *   &lt;stateDir>/extensions/&lt;extName>/node_modules/@moltzap/protocol → repoRoot/packages/protocol
+ *   &lt;stateDir>/extensions/&lt;extName>/node_modules/@moltzap/client   → repoRoot/packages/client
+ *   &lt;stateDir>/extensions/&lt;extName>/&lt;extraPackageFiles[i]>         (when present)
+ *   &lt;stateDir>/extensions/&lt;extName>/node_modules/&lt;extraSymlinks[i].linkPath> → first existing candidate
  *
  * Returns the absolute path to the installed extension dir.
  */
@@ -139,7 +139,7 @@ export function installChannelPlugin(opts: InstallChannelPluginOpts): string {
 }
 
 /**
- * Drop SpawnInput.workspaceFiles into `<stateDir>/workspace/`. Identical
+ * Drop SpawnInput.workspaceFiles into `&lt;stateDir>/workspace/`. Identical
  * shape between adapters; lifted here so they share one implementation.
  */
 export function seedWorkspaceFiles(
@@ -173,26 +173,7 @@ function symlinkPreferring(
   });
 }
 
-/**
- * Resolve a runtime dependency the channel package imports, using
- * Node's standard module resolution anchored at the channel package's
- * `package.json`. Walks `node_modules` parent-ward, so it finds the
- * dep regardless of whether it lives at:
- *   - `<channelPackage>/node_modules/<dep>` (per-package install)
- *   - `<repoRoot>/node_modules/<dep>`       (workspace hoist)
- *   - any other ancestor `node_modules/<dep>` Node would walk to
- *
- * Returns the absolute path to the dep's package directory, or `null`
- * when the resolver can't find the dep from this anchor (missing
- * package.json, dep not installed, etc.). Callers can chain it with
- * legacy candidate paths so existing layouts (e.g. a bundled
- * `dist/node_modules/<dep>`) keep working as a fallback.
- *
- * Resolves `<dep>/package.json` rather than the package's main entry
- * so the returned path is always the package root, not a `dist/` file
- * inside it. (`exports`-restricted packages can hide the main entry
- * but virtually always expose `./package.json`.)
- */
+/** Resolves a runtime dependency imported by the channel package. */
 export function resolveChannelDependency(
   channelPackageDir: string,
   packageName: string,

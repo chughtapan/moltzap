@@ -14,7 +14,7 @@ import {
 } from "./wire.js";
 
 /** Typed manifest for one RPC method: wire name + schemas + validators.
- * Type-only payload accessors are exposed via `ParamsOf<D>`/`ResultOf<D>`
+ * Type-only payload accessors are exposed via `ParamsOf&lt;D>`/`ResultOf&lt;D>`
  * — there is no runtime `Params`/`Result` property. */
 export interface RpcDefinition<
   Name extends string,

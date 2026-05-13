@@ -24,11 +24,6 @@ const recommendedSourceRules = Object.fromEntries(
 
 const sourceRules = {
   ...recommendedSourceRules,
-  "jsdoc/empty-tags": "off",
-  "jsdoc/escape-inline-tags": "off",
-  "jsdoc/match-description": "off",
-  "jsdoc/text-escaping": "off",
-  "jsdoc/valid-types": "off",
   "@typescript-eslint/no-magic-numbers": [
     "warn",
     {

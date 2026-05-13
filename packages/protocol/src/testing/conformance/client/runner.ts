@@ -4,7 +4,7 @@
  * FC seed.
  *
  * Parallel to `conformance/runner.ts` (server-side: real server + TestClient).
- * This module's input is `realClient: () => Effect<RealClientHandle, E,
+ * This module's input is `realClient: () => Effect&lt;RealClientHandle, E,
  * Scope>`; scope teardown closes the real client, drains the handshake-noise
  * guard (see `ClientHandshakeWindow` below), and releases the TestServer.
  *

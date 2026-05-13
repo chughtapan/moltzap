@@ -21,20 +21,20 @@ const replyToOption = Options.text("reply-to").pipe(
 );
 
 /**
- * `moltzap send <target> <message> [--reply-to <id>]` — socket-call into
+ * `moltzap send &lt;target> &lt;message> [--reply-to &lt;id>]` — socket-call into
  * the local MoltZapService to enqueue an outbound message. `conv:` prefix
  * addresses a conversation id directly; otherwise `target` is passed as a
- * string the service resolves (typically `agent:<name>` for direct messages
+ * string the service resolves (typically `agent:&lt;name>` for direct messages
  * or a bare contact name the service resolves against the caller's roster).
  *
  * Identity selection is driven by the GLOBAL flags pre-parsed in
- * `cli/index.ts` before @effect/cli sees argv (see `extractGlobalFlags`):
+ * `cli/index.ts` before `@effect/cli` sees argv (see `extractGlobalFlags`):
  *
- *   --as <apiKey>       Send as the agent owning the given API key.
+ *   --as &lt;apiKey>       Send as the agent owning the given API key.
  *                       Bypasses the local daemon socket; dials the server
  *                       directly. Useful in multi-agent workflows where
  *                       the same host registers more than one agent.
- *   --profile <name>    Load the named profile from ~/.moltzap/config.json
+ *   --profile &lt;name>    Load the named profile from ~/.moltzap/config.json
  *                       and send as that agent. Short for looking up the
  *                       apiKey out of the profile and passing it as --as.
  *

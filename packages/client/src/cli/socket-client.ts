@@ -210,7 +210,7 @@ const resolvedAgentParticipant = (id: AgentId): ResolvedAgentParticipant => ({
   id,
 });
 
-/** Resolve "agent:name" or "agent:<uuid>" to { type, id }. */
+/** Resolve "agent:name" or "agent:&lt;uuid>" to { type, id }. */
 export const resolveParticipant = (
   raw: string,
 ): Effect.Effect<ResolvedAgentParticipant, SocketClientError> =>

@@ -388,7 +388,7 @@ class ConversationsInputError extends Data.TaggedError(
   readonly reason: string;
 }> {}
 
-/** `moltzap conversations get <id>` → conversations/get; prints { conversation, participants }. */
+/** `moltzap conversations get &lt;id>` → conversations/get; prints { conversation, participants }. */
 export const conversationsGetHandler = (args: {
   readonly conversationId: string;
 }): Effect.Effect<void, ConversationsCommandError, Transport> =>
@@ -401,7 +401,7 @@ export const conversationsGetHandler = (args: {
     });
   }).pipe(Effect.withSpan("conversationsGetHandler"));
 
-/** `moltzap conversations archive <id>` → conversations/archive; prints success marker. */
+/** `moltzap conversations archive &lt;id>` → conversations/archive; prints success marker. */
 export const conversationsArchiveHandler = (args: {
   readonly conversationId: string;
 }): Effect.Effect<void, ConversationsCommandError, Transport> =>
@@ -414,7 +414,7 @@ export const conversationsArchiveHandler = (args: {
     });
   }).pipe(Effect.withSpan("conversationsArchiveHandler"));
 
-/** `moltzap conversations unarchive <id>` → conversations/unarchive; prints success marker. */
+/** `moltzap conversations unarchive &lt;id>` → conversations/unarchive; prints success marker. */
 export const conversationsUnarchiveHandler = (args: {
   readonly conversationId: string;
 }): Effect.Effect<void, ConversationsCommandError, Transport> =>
@@ -475,7 +475,7 @@ export const conversationsCommand = Command.make("conversations", {}, () =>
   ]),
 );
 
-/** Top-level `moltzap history <conversationId>` — identical to `conversations history`. */
+/** Top-level `moltzap history &lt;conversationId>` — identical to `conversations history`. */
 export const historyCommand = Command.make(
   "history",
   {
