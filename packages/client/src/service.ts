@@ -156,13 +156,13 @@ export interface CrossConversationEntry {
   count: number;
 }
 
-/** Escape `<`, `>`, `&` so sender content can't escape a `<system-reminder>` block. */
+/** Escape `&lt;`, `>`, `&amp;` so sender content can't escape a `&lt;system-reminder>` block. */
 export function sanitizeForSystemReminder(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 /**
- * Format CrossConversationEntry[] as a `<system-reminder>` block. Adapters
+ * Format CrossConversationEntry[] as a `&lt;system-reminder>` block. Adapters
  * that inline context into prompt text (nanoclaw) and `MoltZapService.getContext`
  * share this formatter so sanitization and line shape stay in one place.
  */
@@ -198,7 +198,7 @@ interface ServiceHandlerPayloads {
   readonly message: Message;
   /**
    * The "raw notification" surface receives the wire decoder's
-   * `DecodedNotification<AnyNotificationDefinition>` union — known methods carry the
+   * `DecodedNotification&lt;AnyNotificationDefinition>` union — known methods carry the
    * descriptor and a raw `params: unknown` payload (validation hasn't
    * happened yet); unknown methods carry no descriptor at all.
    * Subscribers that want validated payloads register specific typed

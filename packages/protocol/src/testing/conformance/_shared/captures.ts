@@ -34,9 +34,9 @@ export interface CaptureBuffer {
   readonly snapshot: Effect.Effect<ReadonlyArray<CapturedFrame>>;
   readonly stream: Stream.Stream<CapturedFrame>;
   readonly clear: Effect.Effect<void>;
-  /** @internal — used by primitives to append. Not exported from barrel. */
+  /** @internal */
   readonly _publish: (entry: CapturedFrame) => Effect.Effect<void>;
-  /** @internal — soft capacity so `mergeCaptures` can fan messages out safely. */
+  /** @internal */
   readonly _capacity: number;
 }
 

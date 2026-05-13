@@ -20,7 +20,7 @@ export interface WriteClaudeCodeMcpConfigOpts {
 }
 
 /**
- * MCP server name as it appears under `mcpServers.<name>` in the JSON
+ * MCP server name as it appears under `mcpServers.&lt;name>` in the JSON
  * config Claude Code reads. Cold-read: `moltzap` because Claude Code's
  * channel-tag rendering is keyed on the plugin's own MCP namespace, not
  * this server name; this string is only the local config alias.

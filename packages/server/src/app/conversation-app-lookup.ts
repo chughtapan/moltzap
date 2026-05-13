@@ -23,7 +23,7 @@ import {
  * - `ConversationNotFound` — no row matches the given `conversationId`.
  *   Caller default-grants (preserves the pre-helper fall-through).
  *
- * The discriminated union — rather than `Option<{...}>` plus a separate
+ * The discriminated union — rather than `Option&lt;{...}>` plus a separate
  * archived flag — encodes exhaustiveness at the type level: every caller
  * `switch` ends with a `never` assignment and a future fifth case
  * becomes a compile error at every call site (Principle 4).

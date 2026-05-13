@@ -10,7 +10,7 @@
  * Plan: `docs/plans/layered-network-refactor-2026-05.md` (Slice F).
  *
  * `EndpointAddress` is a nominal `BrandedString` carrying the wire shape
- * `tm:<kind>:<uuid>`; the brand factory and predicate enforce the shape at
+ * `tm:&lt;kind>:&lt;uuid>`; the brand factory and predicate enforce the shape at
  * mint time. Re-exported from `network/index.ts` and (via `export *`) from
  * the root `@moltzap/protocol` flat barrel.
  */
@@ -41,7 +41,7 @@ export type EndpointAddress = BrandedString<"EndpointAddress">;
  * `agent-conn` kind retired. The volatile per-WebSocket-connection
  * lookup primitive lives entirely inside `AgentEndpointResolver` keyed
  * by `ConnectionId`; nothing on the wire serializes it. `agent` carries
- * the durable agent-id form `tm:agent:<agentId>` minted by
+ * the durable agent-id form `tm:agent:&lt;agentId>` minted by
  * {@link makeEndpointAddress} for task-manager registration (column
  * `tasks.tm_endpoint_address`). `app` is reserved for app-TM
  * registrations the Phase-9 topology dispatches via in-process loopback
@@ -59,8 +59,10 @@ const ENDPOINT_ADDRESS_PREFIX = "tm:";
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Predicate that an endpoint address has the canonical wire shape:
- *  `tm:<kind>:<uuid>`. Exported for tests and reviewers. */
+/**
+ * Predicate that an endpoint address has the canonical wire shape
+ * `tm:&lt;kind&gt;:&lt;uuid&gt;`. Exported for tests and reviewers.
+ */
 export const isEndpointAddress = (value: unknown): value is EndpointAddress => {
   if (typeof value !== "string") return false;
   if (!value.startsWith(ENDPOINT_ADDRESS_PREFIX)) return false;
@@ -90,7 +92,7 @@ export const endpointAddress = (value: string): EndpointAddress =>
  * Read the `kind` segment out of a branded {@link EndpointAddress}.
  *
  * The brand predicate at {@link isEndpointAddress} already proves the
- * shape `tm:<kind>:<uuid>` with `kind ∈ {@link ENDPOINT_ADDRESS_KINDS}`.
+ * shape `tm:&lt;kind>:&lt;uuid>` with `kind ∈ {@link ENDPOINT_ADDRESS_KINDS}`.
  * This helper checks the kinds in declaration order and returns the
  * first match. Adding a new kind to the const tuple automatically
  * extends this dispatch as long as the brand predicate is updated in
@@ -113,7 +115,7 @@ export const endpointAddressKind = (
 
 /**
  * Mint an `EndpointAddress` from a kind and a UUID. The single
- * construction site for `tm:<kind>:<uuid>` strings — every other
+ * construction site for `tm:&lt;kind>:&lt;uuid>` strings — every other
  * caller routes through here so the wire format does not fork.
  *
  * Throws if the resulting string fails {@link isEndpointAddress} (e.g.,
@@ -135,7 +137,7 @@ export const makeEndpointAddress = (
  * Disambiguation: this is the legacy registration-tag union used by
  * {@link EndpointRegistration}, NOT the address-prefix-driven
  * {@link EndpointAddressKind}. `EndpointAddressKind` (`"agent"`, `"app"`)
- * parses the wire-format `tm:<kind>:<uuid>` string; `EndpointKind` here
+ * parses the wire-format `tm:&lt;kind>:&lt;uuid>` string; `EndpointKind` here
  * labels a registration record's discriminator.
  *
  * - `"agent"` — a registered agent-identity endpoint. The resolver

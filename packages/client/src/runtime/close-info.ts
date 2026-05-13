@@ -1,7 +1,7 @@
 /**
  * Close-metadata extraction for the WebSocket reader fiber.
  *
- * Responsibility: inspect an `Exit.Exit<void, Socket.SocketError>` produced by
+ * Responsibility: inspect an `Exit.Exit&lt;void, Socket.SocketError>` produced by
  * `Socket.runRaw(...)` and project it onto a caller-facing `CloseInfo`
  * (WebSocket `{code, reason}`). Spec #222 AC 5.4 requires the real close
  * metadata, not hardcoded constants, when upstream surfaces it; OQ-5 names
@@ -38,7 +38,7 @@ export interface CloseInfo {
  * every branch has an assigned close pair.
  *
  * Exhaustiveness (Principle 4): the `Unknown` branch is the residual for
- * any `SocketError` variant @effect/platform adds in the future. The
+ * any `SocketError` variant `@effect/platform` adds in the future. The
  * implementation's pattern-match ends in `default: return absurd(kind)`.
  */
 export type CloseKind = Data.TaggedEnum<{
@@ -131,16 +131,7 @@ export function classifyCloseCause(
   return CloseKind.Unknown();
 }
 
-/**
- * Project an `Exit` onto `CloseInfo`. Composition of `classifyCloseCause`
- * plus the OQ-5 default map:
- *
- *   Clean              -> { code, reason } from SocketCloseError
- *   EndOfStream        -> DEFAULT_GRACEFUL_CLOSE
- *   HandshakeFailure   -> DEFAULT_ABNORMAL_CLOSE
- *   TransportFailure   -> DEFAULT_ABNORMAL_CLOSE
- *   Unknown            -> DEFAULT_ABNORMAL_CLOSE
- */
+/** Projects an `Exit` onto `CloseInfo`. */
 export function extractCloseInfo(
   exit: Exit.Exit<void, Socket.SocketError>,
 ): CloseInfo {

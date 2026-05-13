@@ -10,7 +10,7 @@ const DEFAULT_WEBHOOK_CONCURRENCY = 10;
 
 /**
  * HMAC-SHA256-sign a webhook payload and return the `X-MoltZap-Signature`
- * header value (`sha256=<hex>`). Receivers recompute over the exact JSON
+ * header value (`sha256=&lt;hex>`). Receivers recompute over the exact JSON
  * bytes we send, so callers must pass the same `payload` string they will
  * write to the HTTP body.
  */

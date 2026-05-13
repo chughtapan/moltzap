@@ -2,8 +2,8 @@
  * Conformance-suite runner.
  *
  * Orchestrates tiers A → E under one entrypoint so
- * `pnpm -F @moltzap/protocol test:conformance` is the only command a CI
- * job needs (AC11).
+ * the protocol package's `test:conformance` script is the only command a
+ * CI job needs (AC11).
  *
  * Responsibilities:
  *   - receive a real MoltZap server handle (built externally to preserve

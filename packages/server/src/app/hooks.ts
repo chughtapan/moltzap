@@ -10,9 +10,9 @@ import type { ConversationId, MessageId, TaskId } from "@moltzap/protocol/task";
  *
  * Today's instantiations (#560 v4 unification):
  *
- *   type TaskAuthorizeDispatchHook = Hook<TaskAuthorizeDispatchContext,
+ *   type TaskAuthorizeDispatchHook = Hook&lt;TaskAuthorizeDispatchContext,
  *                                         DispatchAdmissionResult>;
- *   type MessageAuthorizeHook      = Hook<MessageAuthorizeContext,
+ *   type MessageAuthorizeHook      = Hook&lt;MessageAuthorizeContext,
  *                                         MessageAuthorizeResult>;
  *
  * The user-facing callback returns sync-or-Promise (matches existing

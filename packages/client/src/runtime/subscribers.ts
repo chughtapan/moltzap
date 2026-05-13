@@ -27,7 +27,7 @@
  * logged via the client's injected `WsClientLogger` and swallowed
  * (matching the prior `onNotification` contract at `ws-client.ts:650-655`
  * pre-deletion). The registry itself has no typed error surface —
- * `register`, `dispatch`, and `closeAll` are `Effect<T, never>`.
+ * `register`, `dispatch`, and `closeAll` are `Effect&lt;T, never>`.
  */
 import { Brand, Effect, Ref } from "effect";
 import type {
@@ -77,7 +77,7 @@ export interface SubscriptionFilter {
  * holds the handle for its subscription's lifetime and runs
  * `unsubscribe` to stop delivery.
  *
- * `unsubscribe` is `Effect<void, never>`: it is idempotent and total.
+ * `unsubscribe` is `Effect&lt;void, never>`: it is idempotent and total.
  * Calling `unsubscribe` a second time, or after `closeAll`, is a no-op.
  */
 export interface NotificationSubscription {
@@ -93,7 +93,7 @@ export interface NotificationSubscription {
  * The frame is a known-descriptor `DecodedNotification` (post-S9
  * fail-close: malformed / unknown-method frames are rejected before
  * dispatch). Handlers receive validated `params` typed as
- * `NotificationParamsOf<D>` for the matching definition.
+ * `NotificationParamsOf&lt;D>` for the matching definition.
  *
  * Returning an `Effect` (not a plain `void`) lets handlers compose with
  * Effect-native downstream code without an extra runSync shim. The
@@ -132,9 +132,9 @@ export interface SubscriberRegistry {
    * live-subscription list at the start of dispatch so
    * unsubscribe-during-dispatch observes next-frame semantics (OQ-3 A).
    *
-   * Frames are pre-validation (`DecodedNotification<AnyNotificationDefinition>` union) — the
+   * Frames are pre-validation (`DecodedNotification&lt;AnyNotificationDefinition>` union) — the
    * type-system contract that subscribers see RAW frames, not the lifted
-   * `DecodedNotification<D>` shape that typed handlers see.
+   * `DecodedNotification&lt;D>` shape that typed handlers see.
    *
    * Dispatch order: registration order, iterated sequentially; slow
    * handlers block later subscriptions for this frame but never
@@ -211,7 +211,7 @@ function isNotificationParamsRecord(
  * same sink as the rest of the client.
  *
  * Implementation notes:
- *   - Live subscriptions are stored in a `Ref<ReadonlyArray<…>>` keyed
+ *   - Live subscriptions are stored in a `Ref&lt;ReadonlyArray&lt;…>>` keyed
  *     by registration order. Append-on-register, filter-on-unsubscribe
  *     keeps the dispatch path O(N) with N = live subscription count.
  *     Bigger structures aren't justified at the expected sub count

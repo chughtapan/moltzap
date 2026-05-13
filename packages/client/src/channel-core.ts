@@ -129,7 +129,7 @@ export type DispatchAdmissionDecision =
 
 /**
  * Server → recipient `dispatch/release` notification payload (the
- * verdict). Mirrors `NotificationParamsOf<typeof DispatchRelease>` from
+ * verdict). Mirrors `NotificationParamsOf&lt;typeof DispatchRelease>` from
  * the protocol, kept structurally typed here so this module does not
  * need a direct protocol descriptor import (the channel core stays
  * descriptor-free; the wire shape is asserted by the service module).
@@ -193,7 +193,7 @@ export interface ChannelService {
    * `{leaseId, dispatchId}` ack. The verdict arrives asynchronously
    * via the `dispatchRelease` event.
    *
-   * The argument shape mirrors `ParamsOf<DispatchRequest>` from the
+   * The argument shape mirrors `ParamsOf&lt;DispatchRequest>` from the
    * protocol (the channel core does not depend on the protocol
    * descriptor, hence the structural shape duplicated here).
    *

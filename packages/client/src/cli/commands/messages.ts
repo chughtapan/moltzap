@@ -1,5 +1,5 @@
 /**
- * `moltzap messages <subcommand>` — handler for spec sbd#177 rev 3 §5.5.
+ * `moltzap messages &lt;subcommand>` — handler for spec sbd#177 rev 3 §5.5.
  *
  * One subcommand in v1:
  *
@@ -38,7 +38,7 @@ class MessagesInputError extends Data.TaggedError("MessagesInputError")<{
 // ─── Input shapes ──────────────────────────────────────────────────────────
 
 /**
- * `moltzap messages list --conversation <id> [--limit N]` — spec §5.5.
+ * `moltzap messages list --conversation &lt;id> [--limit N]` — spec §5.5.
  * `cursor` deliberately absent from this interface until the open
  * question is resolved.
  */
@@ -51,7 +51,7 @@ export interface MessagesListArgs {
 
 /**
  * Wraps `messages/list`. Emits one message per line, tab-separated:
- * `<createdAt>\t<senderName ?? senderId>\t<text>`. `seq` was removed
+ * `&lt;createdAt>\t&lt;senderName ?? senderId>\t&lt;text>`. `seq` was removed
  * from the wire shape in PR #379 — only `id`, `senderId`, optional
  * `senderName`, `createdAt`, and `parts` survive.
  *

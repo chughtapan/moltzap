@@ -2,7 +2,7 @@
  * In-process registry of app-TM handlers.
  *
  * Phase 9b consumer-migration (sub-issue #460 round 3 R14): the
- * `tm:app:<id>` `EndpointAddressKind` exists for default DM / group TMs
+ * `tm:app:&lt;id>` `EndpointAddressKind` exists for default DM / group TMs
  * and (in a future arena cutover) any in-process TM that does not
  * authenticate as an agent. `network.send` dispatches `app`-kind
  * addresses through this registry — the handler runs on the server's
@@ -11,7 +11,7 @@
  * The default TMs' stable addresses are minted at module load via
  * deterministic UUIDs so every server boot binds the same address. Apps
  * that want to register a custom in-process TM call {@link register}
- * with an arbitrary `tm:app:<uuid>` address.
+ * with an arbitrary `tm:app:&lt;uuid>` address.
  */
 import { Effect, HashMap, Ref } from "effect";
 import {
@@ -106,7 +106,7 @@ export class AppTmRegistry {
    * Look up the handler for an address. Returns `undefined` when no
    * handler is registered — the caller (`NetworkSendService`) maps
    * that to `RecipientNotResolved` so the failure semantics match the
-   * `tm:agent:<id>` path's "agent has no live connection" branch.
+   * `tm:agent:&lt;id>` path's "agent has no live connection" branch.
    */
   resolve(address: EndpointAddress): Effect.Effect<AppTmHandler | undefined> {
     return Effect.map(Ref.get(this.state), (m) => {

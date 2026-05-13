@@ -1,7 +1,7 @@
 /**
  * Effect `Config` descriptions for the MoltZap YAML config.
  *
- * Each piece is a composable `Config<A>` built from `Config.primitive` leaves.
+ * Each piece is a composable `Config&lt;A>` built from `Config.primitive` leaves.
  * The resulting `MoltZapAppConfig` below produces the same runtime shape as
  * the legacy `MoltZapConfig` type from `schema.ts` — all nested sections that
  * were optional stay optional here via `Config.option` or `Config.withDefault`.

@@ -16,7 +16,7 @@ const statusArg = Args.text({ name: "status" }).pipe(
 );
 
 /**
- * `moltzap presence <status>` — pushes a presence update through the local
+ * `moltzap presence &lt;status>` — pushes a presence update through the local
  * Unix socket. Status argument is optional; missing → prints usage. Unknown
  * values exit 1 after a stderr message.
  */

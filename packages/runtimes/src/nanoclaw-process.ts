@@ -327,9 +327,9 @@ function clientDistDrift(): Effect.Effect<
 }
 
 /**
- * Re-sync workspace channel file + @moltzap/client dist into the warm cache
+ * Re-sync workspace channel file + `@moltzap/client` dist into the warm cache
  * when either has drifted, then rebuild nanoclaw. Caller must ensure the
- * workspace @moltzap/client has been freshly built.
+ * workspace `@moltzap/client` has been freshly built.
  */
 function syncChannelFileIntoCache(): Effect.Effect<
   void,

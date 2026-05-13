@@ -62,12 +62,12 @@ interface TaskRow {
 }
 
 /**
- * Stable TM-endpoint address for a registering agent: `tm:agent:<agentId>`.
+ * Stable TM-endpoint address for a registering agent: `tm:agent:&lt;agentId>`.
  * Persisted in `tasks.tm_endpoint_address` and routed through
  * `network.send` via `AgentEndpointResolver.resolveAll`. Phase 9b
  * consumer-migration (sub-issue #460 amendment) collapsed the volatile
  * per-WS-connection form into a resolver-internal `ConnectionId` lookup
- * — `tm:agent:<agentId>` is the only `EndpointAddress` shape that
+ * — `tm:agent:&lt;agentId>` is the only `EndpointAddress` shape that
  * appears on the wire today.
  */
 export function endpointAddressForAgent(agent: AgentId): EndpointAddress {
@@ -112,7 +112,7 @@ export interface TaskCreateInput {
    *   caller, matching the address `endpoints/registerTaskManager`
    *   used to derive.
    * - `conversations/create` auto-task callers pass a default
-   *   `tm:app:<defaultDmTm | defaultGroupTm>` address (R14).
+   *   `tm:app:&lt;defaultDmTm | defaultGroupTm>` address (R14).
    */
   readonly tmEndpointAddress: EndpointAddress;
 }
@@ -266,11 +266,11 @@ export class TaskService {
    * Phase 9b consumer-migration (sub-issue #460 round 3 R14): server-
    * internal helper for the `conversations/create` auto-task path and
    * the `messages/send` auto-DM path. Creates a task whose TM is the
-   * default `tm:app:<dm | group>` endpoint, returning the row so the
+   * default `tm:app:&lt;dm | group>` endpoint, returning the row so the
    * caller can pass `task.id` to `ConversationService.create`.
    *
    * Used by `conversations/create` (server handler) and the
-   * `messages/send` agent:<name> path. Custom-TM apps (werewolf etc.)
+   * `messages/send` agent:&lt;name> path. Custom-TM apps (werewolf etc.)
    * call the public `create` directly with their own
    * `tmEndpointAddress` instead.
    */

@@ -1,5 +1,5 @@
 /**
- * Internal utilities shared within @moltzap/claude-code-channel.
+ * Internal utilities shared within `@moltzap/claude-code-channel`.
  * Not exported from the package index.
  */
 

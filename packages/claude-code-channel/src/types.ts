@@ -1,5 +1,5 @@
 /**
- * types — public types for @moltzap/claude-code-channel.
+ * types — public types for `@moltzap/claude-code-channel`.
  *
  * Principle 2: the values that cross the channel boundary have declared
  * shapes. Principle 3: error channels are typed unions, not thrown strings.
@@ -51,7 +51,7 @@ export type IsoTimestamp = string & Brand.Brand<"IsoTimestamp">;
  * Claude Code channel notification shape.
  *
  * The meta keys are FIXED by Anthropic's channel contract (fakechat
- * reference, server.ts:135-148). Divergence breaks the `<channel>` tag
+ * reference, server.ts:135-148). Divergence breaks the `&lt;channel&gt;` tag
  * renderer inside Claude Code.
  */
 export interface ClaudeChannelNotification {
@@ -83,7 +83,7 @@ export type GateInbound = (
 /**
  * Boot options — one struct per caller.
  *
- * No `Record<string, unknown>`, no `any`. Logger is the same shape the rest
+ * No `Record&lt;string, unknown&gt;`, no `any`. Logger is the same shape the rest
  * of `@moltzap/client` uses.
  */
 export interface BootOptions {
@@ -98,7 +98,7 @@ export interface BootOptions {
   readonly serverName?: string;
   /**
    * Override the MCP server's `instructions` string delivered at handshake.
-   * Defaults to a contract-conformant default describing the `<channel>` tag
+   * Defaults to a contract-conformant default describing the `&lt;channel&gt;` tag
    * shape and the `reply` tool.
    */
   readonly instructions?: string;
@@ -119,7 +119,7 @@ export interface BootOptions {
  * Lifecycle handle returned by `bootClaudeCodeChannel`.
  *
  * Principle 3: every operation has a typed error channel. `push` uses
- * `Effect<void, PushError>` so the MCP emit failure surfaces as a tag, not a
+ * `Effect&lt;void, PushError&gt;` so the MCP emit failure surfaces as a tag, not a
  * rejected Promise. `stop` is infallible-by-design (teardown swallows
  * downstream errors into logs per spec I8).
  */

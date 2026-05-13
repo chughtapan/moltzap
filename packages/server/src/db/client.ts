@@ -31,9 +31,9 @@ export function createDb(connectionString: string): Kysely<Database> {
 /**
  * The canonical DB type.
  *
- * Under the hood this is always an `EffectKysely<Database>` — the Effect
+ * Under the hood this is always an `EffectKysely&lt;Database>` — the Effect
  * patches add builder-as-Effect support on top of Kysely's existing
- * Promise API, so code that depends on `Kysely<Database>` shape continues
+ * Promise API, so code that depends on `Kysely&lt;Database>` shape continues
  * to work without modification.
  */
 export type Db = Kysely<Database>;

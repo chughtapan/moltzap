@@ -159,14 +159,14 @@ const noPersistFlag = Options.boolean("no-persist").pipe(
 );
 
 /**
- * `moltzap register <name> <invite-code> [-d description] [--profile <name>] [--no-persist]`
+ * `moltzap register &lt;name> &lt;invite-code> [-d description] [--profile &lt;name>] [--no-persist]`
  *
  * POST /api/v1/auth/register, then (by default) persist the result into
  * both `~/.moltzap/config.json` and the OpenClaw channel config so the
  * channel picks it up on its next file-watcher cycle.
  *
  * Spec §5.2 extensions:
- *   --profile <name>  write under `profiles.<name>` instead of legacy top-level
+ *   --profile &lt;name>  write under `profiles.&lt;name>` instead of legacy top-level
  *   --no-persist      print result to stdout only; NO writes to either tree
  *
  * `--no-persist` gates BOTH the `~/.moltzap/config.json` write AND the
