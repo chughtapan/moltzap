@@ -43,6 +43,30 @@ class ExecutionFailed extends Data.TaggedError("ExecutionFailed")<{
   readonly message: string;
 }> {}
 
+class InvalidPayload extends Data.TaggedError("InvalidPayload")<{
+  readonly path: string;
+  readonly issues: readonly string[];
+}> {}
+
+class HarnessFailed extends Data.TaggedError("HarnessFailed")<{
+  readonly detail: ExecutionFailed;
+}> {}
+
+class ContainerStartFailed extends Data.TaggedError("ContainerStartFailed")<{
+  readonly message: string;
+}> {}
+
+class AgentStartFailed extends Data.TaggedError("AgentStartFailed")<{
+  readonly agentId: string;
+  readonly detail: ContainerStartFailed;
+}> {}
+
+type HarnessFailureCause = InvalidPayload | HarnessFailed | AgentStartFailed;
+
+interface HarnessFailure {
+  readonly cause: HarnessFailureCause;
+}
+
 interface HarnessLoadArgs {
   readonly sourcePath: string;
   readonly plan: {
@@ -245,62 +269,41 @@ type BystanderCandidate = {
 
 function failLoad(
   pathValue: string,
-  tag: string,
-  detail: Readonly<Record<string, unknown>>,
-): {
-  readonly cause: Readonly<Record<string, unknown>>;
-} {
-  return { cause: { _tag: tag, path: pathValue, ...detail } };
+  issues: readonly string[],
+): HarnessFailure {
+  return { cause: new InvalidPayload({ path: pathValue, issues }) };
 }
 
-function failHarness(message: string): {
-  readonly cause: {
-    readonly _tag: "HarnessFailed";
-    readonly detail: ExecutionFailed;
-  };
-} {
+function failHarness(message: string): HarnessFailure {
   return {
-    cause: {
-      _tag: "HarnessFailed",
+    cause: new HarnessFailed({
       detail: new ExecutionFailed({ message }),
-    },
+    }),
   };
 }
 
-function failAgentStart(detail: {
-  readonly _tag: "ContainerStartFailed";
-  readonly message: string;
-}): {
-  readonly cause: {
-    readonly _tag: "AgentStartFailed";
-    readonly agentId: string;
-    readonly detail: {
-      readonly _tag: "ContainerStartFailed";
-      readonly message: string;
-    };
-  };
-} {
+function failAgentStart(detail: ContainerStartFailed): HarnessFailure {
   return {
-    cause: {
-      _tag: "AgentStartFailed",
+    cause: new AgentStartFailed({
       agentId: PLACEHOLDER_AGENT_ID,
       detail,
-    },
+    }),
   };
 }
 
-function asHarnessFailure(error: unknown): {
-  readonly cause: Readonly<Record<string, unknown>>;
-} {
-  if (
+function isHarnessFailure(error: unknown): error is HarnessFailure {
+  return (
     typeof error === "object" &&
     error !== null &&
     "cause" in error &&
-    typeof error.cause === "object" &&
-    error.cause !== null
-  ) {
-    return error as { readonly cause: Readonly<Record<string, unknown>> };
-  }
+    (error.cause instanceof InvalidPayload ||
+      error.cause instanceof HarnessFailed ||
+      error.cause instanceof AgentStartFailed)
+  );
+}
+
+function asHarnessFailure(error: unknown): HarnessFailure {
+  if (isHarnessFailure(error)) return error;
   return failHarness(error instanceof Error ? error.message : String(error));
 }
 
@@ -655,11 +658,7 @@ function buildConversationPayload(input: {
 function decodePayload(
   sourcePath: string,
   payload: unknown,
-): Effect.Effect<
-  HarnessPayload,
-  { readonly cause: Readonly<Record<string, unknown>> },
-  never
-> {
+): Effect.Effect<HarnessPayload, HarnessFailure, never> {
   const issues: Array<string> = [];
   const candidatePayload = isPayloadCandidate(payload) ? payload : undefined;
   if (candidatePayload === undefined) {
@@ -686,7 +685,7 @@ function decodePayload(
   );
 
   if (issues.length > 0) {
-    return Effect.fail(failLoad(sourcePath, "InvalidPayload", { issues }));
+    return Effect.fail(failLoad(sourcePath, issues));
   }
 
   return Effect.succeed({
@@ -733,19 +732,7 @@ function waitForTargetResponse(input: {
   readonly targetAgentId: string;
   readonly conversationId: string;
   readonly timeoutMs: number;
-}): Effect.Effect<
-  ConversationResponse,
-  {
-    readonly cause: {
-      readonly _tag: "HarnessFailed";
-      readonly detail: {
-        readonly _tag: "ExecutionFailed";
-        readonly message: string;
-      };
-    };
-  },
-  never
-> {
+}): Effect.Effect<ConversationResponse, HarnessFailure, never> {
   return Effect.gen(function* () {
     const deadline = Date.now() + input.timeoutMs;
     while (Date.now() < deadline) {
@@ -789,19 +776,7 @@ function sendMessageAndWait(input: {
   readonly conversationId: string;
   readonly message: string;
   readonly timeoutMs?: number;
-}): Effect.Effect<
-  ConversationResponse,
-  {
-    readonly cause: {
-      readonly _tag: "HarnessFailed";
-      readonly detail: {
-        readonly _tag: "ExecutionFailed";
-        readonly message: string;
-      };
-    };
-  },
-  never
-> {
+}): Effect.Effect<ConversationResponse, HarnessFailure, never> {
   return Effect.gen(function* () {
     yield* input.sender.client
       .sendRpc(MessagesSend, {
@@ -823,19 +798,7 @@ function registerConnectedAgent(
   baseUrl: string,
   wsUrl: string,
   name: string,
-): Effect.Effect<
-  ConnectedActor,
-  {
-    readonly cause: {
-      readonly _tag: "HarnessFailed";
-      readonly detail: {
-        readonly _tag: "ExecutionFailed";
-        readonly message: string;
-      };
-    };
-  },
-  never
-> {
+): Effect.Effect<ConnectedActor, HarnessFailure, never> {
   return clientModule.registerAndConnect(baseUrl, wsUrl, name).pipe(
     Effect.map((connected) => ({
       agentId: connected.agentId,
@@ -849,19 +812,7 @@ function registerConnectedAgent(
 function createDirectConversation(
   sender: ConnectedActor,
   targetAgentId: string,
-): Effect.Effect<
-  string,
-  {
-    readonly cause: {
-      readonly _tag: "HarnessFailed";
-      readonly detail: {
-        readonly _tag: "ExecutionFailed";
-        readonly message: string;
-      };
-    };
-  },
-  never
-> {
+): Effect.Effect<string, HarnessFailure, never> {
   return sender.client
     .sendRpc(ConversationsCreate, {
       type: "dm",
@@ -878,19 +829,7 @@ function createGroupConversation(input: {
   readonly targetAgentId: string;
   readonly groupName: string;
   readonly participants: ReadonlyArray<ConnectedActor>;
-}): Effect.Effect<
-  string,
-  {
-    readonly cause: {
-      readonly _tag: "HarnessFailed";
-      readonly detail: {
-        readonly _tag: "ExecutionFailed";
-        readonly message: string;
-      };
-    };
-  },
-  never
-> {
+}): Effect.Effect<string, HarnessFailure, never> {
   return input.sender.client
     .sendRpc(ConversationsCreate, {
       type: "group",
@@ -924,9 +863,7 @@ function executeConversationPlan(input: {
     }>;
     readonly responses: ReadonlyArray<ConversationResponse>;
   },
-  {
-    readonly cause: Readonly<Record<string, unknown>>;
-  },
+  HarnessFailure,
   never
 > {
   return Effect.gen(function* () {
@@ -1121,20 +1058,7 @@ function toBundleEvent(
 
 function withExclusiveRun<A, E>(
   effect: Effect.Effect<A, E, never>,
-): Effect.Effect<
-  A,
-  | E
-  | {
-      readonly cause: {
-        readonly _tag: "HarnessFailed";
-        readonly detail: {
-          readonly _tag: "ExecutionFailed";
-          readonly message: string;
-        };
-      };
-    },
-  never
-> {
+): Effect.Effect<A, E | HarnessFailure, never> {
   return Effect.try({
     try: () => {
       if (activeRun) {
@@ -1175,10 +1099,7 @@ interface ConversationRun {
 function startCoreTraceServer(
   serverIndexModule: ServerIndexModule,
   serverTestModule: ServerTestModule,
-): Effect.Effect<
-  CoreTestServer,
-  { readonly cause: Readonly<Record<string, unknown>> }
-> {
+): Effect.Effect<CoreTestServer, HarnessFailure> {
   return Effect.tryPromise({
     try: () =>
       Promise.resolve(
@@ -1193,7 +1114,7 @@ function startCoreTraceServer(
 
 function loadHarnessClientModule(): Effect.Effect<
   ClientTestModule,
-  { readonly cause: Readonly<Record<string, unknown>> }
+  HarnessFailure
 > {
   return loadClientTestModule().pipe(
     Effect.mapError((error) =>
@@ -1206,10 +1127,7 @@ function registerTargetAgent(input: {
   readonly clientModule: ClientTestModule;
   readonly baseUrl: string;
   readonly targetAgentName: string;
-}): Effect.Effect<
-  TargetAgentRegistration,
-  { readonly cause: Readonly<Record<string, unknown>> }
-> {
+}): Effect.Effect<TargetAgentRegistration, HarnessFailure> {
   return input.clientModule
     .registerAgent(input.baseUrl, input.targetAgentName)
     .pipe(
@@ -1222,26 +1140,23 @@ function registerTargetAgent(input: {
     );
 }
 
-function mapRuntimeStartError(error: unknown): {
-  readonly cause: Readonly<Record<string, unknown>>;
-} {
+function mapRuntimeStartError(error: unknown): HarnessFailure {
   if (error instanceof SpawnFailed) {
-    return failAgentStart({
-      _tag: "ContainerStartFailed",
-      message: error.message,
-    });
+    return failAgentStart(new ContainerStartFailed({ message: error.message }));
   }
   if (error instanceof RuntimeReadyTimedOut) {
-    return failAgentStart({
-      _tag: "ContainerStartFailed",
-      message: `runtime did not authenticate within ${String(error.timeoutMs)}ms`,
-    });
+    return failAgentStart(
+      new ContainerStartFailed({
+        message: `runtime did not authenticate within ${String(error.timeoutMs)}ms`,
+      }),
+    );
   }
   const exited = error as { readonly stderr?: unknown };
-  return failAgentStart({
-    _tag: "ContainerStartFailed",
-    message: `runtime exited before readiness: ${String(exited.stderr)}`,
-  });
+  return failAgentStart(
+    new ContainerStartFailed({
+      message: `runtime exited before readiness: ${String(exited.stderr)}`,
+    }),
+  );
 }
 
 function startHarnessRuntime(input: {
@@ -1351,11 +1266,7 @@ function executeTraceRun(input: {
   readonly targetAgent: TargetAgentRegistration;
   readonly runtime: Runtime;
   readonly runtimeStartedAt: string;
-}): Effect.Effect<
-  Readonly<Record<string, unknown>>,
-  { readonly cause: Readonly<Record<string, unknown>> },
-  never
-> {
+}): Effect.Effect<Readonly<Record<string, unknown>>, HarnessFailure, never> {
   const teardown = input.runtime.teardown();
   return Effect.gen(function* () {
     const conversationRun = yield* executeConversationPlan({
@@ -1385,13 +1296,7 @@ function createCoordinator(sourcePath: string, payload: HarnessPayload) {
       plan: HarnessLoadArgs["plan"],
       _harness: unknown,
       opts: { readonly runId?: string } = {},
-    ): Effect.Effect<
-      Readonly<Record<string, unknown>>,
-      {
-        readonly cause: Readonly<Record<string, unknown>>;
-      },
-      never
-    > {
+    ): Effect.Effect<Readonly<Record<string, unknown>>, HarnessFailure, never> {
       return withExclusiveRun(
         Effect.gen(function* () {
           const [serverIndexModule, serverTestModule] = yield* Effect.all([
