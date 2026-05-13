@@ -30,7 +30,11 @@ import {
   PropertyInvariantViolation,
   registerProperty,
 } from "../_shared/registry.js";
-import { DELIVERY_CATEGORY, acquireConversation } from "./_helpers.js";
+import {
+  DELIVERY_CATEGORY,
+  acquireConversation,
+  deliveryViolation,
+} from "./_helpers.js";
 
 const PROPERTY = "store-and-replay";
 
@@ -43,14 +47,7 @@ export function registerStoreAndReplay(ctx: ConformanceRunContext): void {
     Effect.scoped(
       Effect.gen(function* () {
         const fixture = yield* acquireConversation(ctx, 1, "sr").pipe(
-          Effect.mapError(
-            (e) =>
-              new PropertyInvariantViolation({
-                category: DELIVERY_CATEGORY,
-                name: PROPERTY,
-                reason: `fixture: ${e}`,
-              }),
-          ),
+          Effect.mapError((e) => deliveryViolation(PROPERTY, `fixture: ${e}`)),
         );
         const participant = fixture.participants[0];
         if (participant === undefined) {
@@ -89,7 +86,7 @@ export function registerStoreAndReplay(ctx: ConformanceRunContext): void {
             }),
           );
         }
-      }),
+      }).pipe(Effect.withSpan("registerStoreAndReplay")),
     ),
   );
 }

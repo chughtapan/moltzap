@@ -37,7 +37,7 @@ export function runExpectingFailure(
       );
     }
     return failure;
-  });
+  }).pipe(Effect.withSpan("runExpectingFailure"));
 }
 
 export function expectInvariant(

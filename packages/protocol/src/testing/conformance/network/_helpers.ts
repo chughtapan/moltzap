@@ -93,7 +93,7 @@ export function acquireClient(
       ),
     );
     return { agent, client };
-  });
+  }).pipe(Effect.withSpan("acquireClient"));
 }
 
 export function acquireCloseableClient(
@@ -102,12 +102,11 @@ export function acquireCloseableClient(
   agent: TestAgent,
   label: string,
 ): Effect.Effect<CloseableTestClient, PropertyInvariantViolation, Scope.Scope> {
-  // makeCloseableTestClient owns its own internal scope; without a
-  // release finalizer, returning the client leaks the WebSocket past
-  // the property boundary. acquireRelease ties teardown to the
-  // surrounding Effect.scoped.
-  return Effect.acquireRelease(
-    makeCloseableTestClient({
+  // makeCloseableTestClient owns its own internal scope; bind its close
+  // action to the surrounding Scope so the WebSocket does not escape the
+  // property boundary.
+  return Effect.gen(function* () {
+    const client = yield* makeCloseableTestClient({
       serverUrl: ctx.realServer.wsUrl,
       agentKey: agent.apiKey,
       agentId: agent.agentId,
@@ -120,9 +119,12 @@ export function acquireCloseableClient(
           `makeCloseableTestClient(${label}): ${String(e)}`,
         ),
       ),
-    ),
-    (client) => client.close.pipe(Effect.orElseSucceed(() => undefined)),
-  );
+    );
+    yield* Effect.addFinalizer(() =>
+      client.close.pipe(Effect.orElseSucceed(() => undefined)),
+    );
+    return client;
+  }).pipe(Effect.withSpan("acquireCloseableClient"));
 }
 
 export function subscribePresence(
@@ -216,7 +218,7 @@ export function presenceStatusesFor(
       statuses.push(data.status);
     }
     return statuses;
-  });
+  }).pipe(Effect.withSpan("presenceStatusesFor"));
 }
 
 export function countPresenceChangedFor(

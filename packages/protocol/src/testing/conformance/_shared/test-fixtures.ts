@@ -11,6 +11,11 @@
  * Principle 3: registration returns
  * `Effect<TestAgent, AgentRegistrationError>` — no bare throws.
  */
+import {
+  FetchHttpClient,
+  HttpClient,
+  HttpClientRequest,
+} from "@effect/platform";
 import type { Static } from "@sinclair/typebox";
 import { Data, Effect } from "effect";
 import { Value } from "@sinclair/typebox/value";
@@ -104,25 +109,25 @@ export function registerTestAgent(opts: {
     });
   };
   return Effect.gen(function* () {
-    const res = yield* Effect.tryPromise({
-      try: () =>
-        fetch(`${opts.baseUrl}/api/v1/auth/register`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(requestBody),
-        }),
-      catch: toRegistrationError,
-    });
-    const body = yield* Effect.tryPromise({
-      try: () => res.text(),
-      catch: toRegistrationError,
-    });
-    if (!res.ok) {
+    const client = yield* HttpClient.HttpClient;
+    const request = HttpClientRequest.post(
+      `${opts.baseUrl}/api/v1/auth/register`,
+    ).pipe(
+      HttpClientRequest.setHeader("Content-Type", "application/json"),
+      HttpClientRequest.bodyUnsafeJson(requestBody),
+    );
+    const response = yield* client
+      .execute(request)
+      .pipe(Effect.mapError(toRegistrationError));
+    const body = yield* response.text.pipe(
+      Effect.mapError(toRegistrationError),
+    );
+    if (response.status < 200 || response.status >= 300) {
       return yield* Effect.fail(
         new AgentRegistrationError({
           baseUrl: opts.baseUrl,
           agentName: name,
-          status: res.status,
+          status: response.status,
           body,
         }),
       );
@@ -144,5 +149,8 @@ export function registerTestAgent(opts: {
       claimToken: parsed.claimToken,
       name,
     } satisfies TestAgent;
-  });
+  }).pipe(
+    Effect.provide(FetchHttpClient.layer),
+    Effect.withSpan("registerTestAgent"),
+  );
 }

@@ -55,6 +55,6 @@ export function registerNotificationWellFormedness(
           },
         ),
       ),
-    ),
+    ).pipe(Effect.withSpan("registerNotificationWellFormedness")),
   );
 }

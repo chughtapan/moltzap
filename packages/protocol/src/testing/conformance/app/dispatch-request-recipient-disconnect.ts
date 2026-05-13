@@ -43,6 +43,8 @@ export function registerDispatchRequestRecipientDisconnectAbandons(
       // Wide moderator timeout so the silence path holds the round-
       // trip open until the recipient hard-closes.
       { moderatorTimeoutMs: 30_000 },
+    ).pipe(
+      Effect.withSpan("registerDispatchRequestRecipientDisconnectAbandons"),
     ),
   );
 }

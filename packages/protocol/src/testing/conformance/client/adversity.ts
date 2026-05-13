@@ -127,7 +127,7 @@ export function registerLatencyResilienceClient(
             ),
           );
         }
-      }),
+      }).pipe(Effect.withSpan("registerLatencyResilienceClient")),
     ),
   );
 }
@@ -158,7 +158,7 @@ export function registerSlicerFramingClient(
           ? "Toxiproxy not provisioned; slicer toxic unavailable"
           : "slicer toxic property deferred pending TCP-level fragmentation harness integration",
       ),
-    ),
+    ).pipe(Effect.withSpan("registerSlicerFramingClient")),
   );
 }
 
@@ -181,7 +181,7 @@ export function registerResetPeerRecoveryClient(
           ? "Toxiproxy not provisioned; reset_peer toxic unavailable"
           : "reset_peer property deferred pending auto-reconnect observability wiring",
       ),
-    ),
+    ).pipe(Effect.withSpan("registerResetPeerRecoveryClient")),
   );
 }
 
@@ -263,7 +263,7 @@ export function registerTimeoutSurfaceClient(
             ),
           );
         }
-      }),
+      }).pipe(Effect.withSpan("registerTimeoutSurfaceClient")),
     ),
   );
 }
@@ -322,7 +322,7 @@ export function registerSlowCloseCleanupClient(
             );
           }
         }
-      }),
+      }).pipe(Effect.withSpan("registerSlowCloseCleanupClient")),
     ),
   );
 }

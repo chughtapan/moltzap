@@ -80,6 +80,6 @@ export function registerDispatchReleaseFiresAfterResolve(
           }),
         );
       }
-    }),
+    }).pipe(Effect.withSpan("registerDispatchReleaseFiresAfterResolve")),
   );
 }

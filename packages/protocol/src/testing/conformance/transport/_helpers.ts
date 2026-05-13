@@ -85,7 +85,7 @@ export function acquireProxiedClient(
       Effect.mapError((e) => unavailable(`makeTestClient: ${String(e)}`)),
     );
     return { agent, client };
-  });
+  }).pipe(Effect.withSpan("acquireProxiedClient"));
 }
 
 /**
@@ -177,7 +177,13 @@ export function withToxicProxy(opts: {
             }),
           );
         })();
-  registerProperty(ctx, ADVERSITY_CATEGORY, propertyName, description, run);
+  registerProperty(
+    ctx,
+    ADVERSITY_CATEGORY,
+    propertyName,
+    description,
+    run.pipe(Effect.withSpan("withToxicProxy")),
+  );
 }
 
 export function createOneOnOneConversation(
@@ -212,5 +218,5 @@ export function createOneOnOneConversation(
       );
     }
     return conversationId(id);
-  });
+  }).pipe(Effect.withSpan("createOneOnOneConversation"));
 }

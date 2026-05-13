@@ -32,7 +32,7 @@ export function registerConnectBroadcast(ctx: ConformanceRunContext): void {
           { agentId: a.agentId, status: "online" },
           NAME,
         );
-      }),
+      }).pipe(Effect.withSpan("registerConnectBroadcast")),
     ),
   );
 }

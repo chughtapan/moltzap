@@ -27,6 +27,13 @@ const PROPERTY = "schema-exhaustive-fuzz";
 const DEFAULT_TIMEOUT_MS = 3000;
 const FUZZ_CAPTURE_CAPACITY_PER_METHOD = 4;
 
+const invariant = (reason: string): PropertyInvariantViolation =>
+  new PropertyInvariantViolation({
+    category: CATEGORY,
+    name: PROPERTY,
+    reason,
+  });
+
 export function registerSchemaExhaustiveFuzz(ctx: ConformanceRunContext): void {
   registerProperty(
     ctx,
@@ -38,16 +45,7 @@ export function registerSchemaExhaustiveFuzz(ctx: ConformanceRunContext): void {
         const agent = yield* registerTestAgent({
           baseUrl: ctx.realServer.baseUrl,
           name: "fuzz",
-        }).pipe(
-          Effect.mapError(
-            (e) =>
-              new PropertyInvariantViolation({
-                category: CATEGORY,
-                name: PROPERTY,
-                reason: `register agent: ${e.body}`,
-              }),
-          ),
-        );
+        }).pipe(Effect.mapError((e) => invariant(`register agent: ${e.body}`)));
         const client = yield* makeTestClient({
           serverUrl: ctx.realServer.wsUrl,
           agentKey: agent.apiKey,
@@ -56,14 +54,7 @@ export function registerSchemaExhaustiveFuzz(ctx: ConformanceRunContext): void {
           captureCapacity:
             allRpcMethods.length * FUZZ_CAPTURE_CAPACITY_PER_METHOD,
         }).pipe(
-          Effect.mapError(
-            (e) =>
-              new PropertyInvariantViolation({
-                category: CATEGORY,
-                name: PROPERTY,
-                reason: `client acquire: ${String(e)}`,
-              }),
-          ),
+          Effect.mapError((e) => invariant(`client acquire: ${String(e)}`)),
         );
         const samplesPerMethod = ctx.opts.numRuns ?? 1;
         for (const method of allRpcMethods) {
@@ -105,7 +96,7 @@ export function registerSchemaExhaustiveFuzz(ctx: ConformanceRunContext): void {
             }
           }
         }
-      }),
+      }).pipe(Effect.withSpan("registerSchemaExhaustiveFuzz")),
     ),
   );
 }

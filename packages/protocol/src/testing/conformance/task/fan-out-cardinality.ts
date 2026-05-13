@@ -82,6 +82,6 @@ export function registerFanOutCardinality(ctx: ConformanceRunContext): void {
           numRuns: ctx.opts.numRuns ?? DELIVERY_DEFAULT_PROPERTY_NUM_RUNS,
         },
       ),
-    ),
+    ).pipe(Effect.withSpan("registerFanOutCardinality")),
   );
 }

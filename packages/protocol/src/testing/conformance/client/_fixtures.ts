@@ -36,6 +36,14 @@ import {
   type PropertyCategory,
 } from "../_shared/registry.js";
 
+function unavailable(
+  category: PropertyCategory,
+  name: string,
+  reason: string,
+): PropertyUnavailable {
+  return new PropertyUnavailable({ category, name, reason });
+}
+
 /**
  * Fixture returned to every property body after the prologue runs.
  * Every field below is safe to use inside `fc.asyncProperty` bodies.
@@ -59,40 +67,38 @@ export function acquireFixture(
   category: PropertyCategory,
   propertyName: string,
 ): Effect.Effect<ClientFixture, PropertyUnavailable, Scope.Scope> {
-  const unavailable = (reason: string): PropertyUnavailable =>
-    new PropertyUnavailable({
-      category,
-      name: propertyName,
-      reason,
-    });
+  const propertyUnavailable = (reason: string): PropertyUnavailable =>
+    unavailable(category, propertyName, reason);
 
   return Effect.gen(function* () {
     const handle = yield* ctx
       .realClientFactory({ testServerUrl: ctx.testServer.wsUrl })
       .pipe(
         Effect.mapError((e) =>
-          unavailable(`realClient factory: ${String(e.cause)}`),
+          propertyUnavailable(`realClient factory: ${String(e.cause)}`),
         ),
       );
     const connection = yield* awaitConnection(ctx.testServer).pipe(
       Effect.mapError((e) =>
-        unavailable(`TestServer.accept: ${String(e.cause)}`),
+        propertyUnavailable(`TestServer.accept: ${String(e.cause)}`),
       ),
     );
     yield* runAutoHandshakeResponder(connection, handle.agentId);
     yield* handle.ready.pipe(
       Effect.mapError((e) =>
-        unavailable(`realClient.ready: ${String(e.cause)}`),
+        propertyUnavailable(`realClient.ready: ${String(e.cause)}`),
       ),
       Effect.timeoutFail({
         duration: "15 seconds",
         onTimeout: () =>
-          unavailable("real client did not complete handshake within 15s"),
+          propertyUnavailable(
+            "real client did not complete handshake within 15s",
+          ),
       }),
     );
     const window = yield* makeClientHandshakeWindow(handle);
     return { handle, connection, window } satisfies ClientFixture;
-  });
+  }).pipe(Effect.withSpan("acquireFixture"));
 }
 
 /**
@@ -168,7 +174,7 @@ export function collectTagged(
     }
     const snap = yield* handle.notifications.snapshot;
     return filterTagged(snap, predicate);
-  });
+  }).pipe(Effect.withSpan("collectTagged"));
 }
 
 /**
@@ -193,16 +199,17 @@ export function subscribeAll(
   handle: RealClientHandle,
 ): Effect.Effect<void, PropertyUnavailable, Scope.Scope> {
   return Effect.gen(function* () {
-    const sub = yield* handle.notifications.subscribe({}).pipe(
-      Effect.mapError(
-        (e) =>
-          new PropertyUnavailable({
-            category: "delivery",
-            name: "subscribe",
-            reason: `subscribe failed: ${String(e.cause)}`,
-          }),
-      ),
-    );
+    const sub = yield* handle.notifications
+      .subscribe({})
+      .pipe(
+        Effect.mapError((e) =>
+          unavailable(
+            "delivery",
+            "subscribe",
+            `subscribe failed: ${String(e.cause)}`,
+          ),
+        ),
+      );
     yield* Effect.addFinalizer(() => sub.unsubscribe);
-  });
+  }).pipe(Effect.withSpan("subscribeAll"));
 }

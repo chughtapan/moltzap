@@ -111,7 +111,7 @@ export function registerModelEquivalenceClient(
             ),
           );
         }
-      }),
+      }).pipe(Effect.withSpan("registerModelEquivalenceClient")),
     ),
   );
 }
@@ -202,7 +202,7 @@ export function registerRequestIdUniquenessClient(
             ),
           );
         }
-      }),
+      }).pipe(Effect.withSpan("registerRequestIdUniquenessClient")),
     ),
   );
 }

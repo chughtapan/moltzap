@@ -139,7 +139,7 @@ export function registerIdempotence(ctx: ConformanceRunContext): void {
           }
         }
       }
-    }),
+    }).pipe(Effect.withSpan("registerIdempotence")),
   );
 }
 

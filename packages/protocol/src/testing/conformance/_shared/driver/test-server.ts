@@ -37,6 +37,22 @@ import {
 } from "../frame-mutator.js";
 import { TransportClosedError, TransportIoError } from "../errors.js";
 
+const outboundTransportIoError = (cause: unknown): TransportIoError =>
+  new TransportIoError({ direction: "outbound", cause });
+
+const inboundTransportIoError = (cause: unknown): TransportIoError =>
+  new TransportIoError({ direction: "inbound", cause });
+
+const outboundTransportClosedError = (
+  opts: { readonly code: number; readonly reason: string },
+  cause: unknown,
+): TransportClosedError =>
+  new TransportClosedError({
+    direction: "outbound",
+    code: opts.code,
+    reason: `${opts.reason}: ${String(cause)}`,
+  });
+
 export interface TestServerConfig {
   /** If 0, bind to an ephemeral port. */
   readonly port: number;
@@ -112,12 +128,7 @@ function makeConnection(
         const raw = encodeFrame(frame);
         // Validate on the way out as well — Invariant I3.
         yield* decodeFrame(raw, "outbound");
-        yield* writer(raw).pipe(
-          Effect.mapError(
-            (err) =>
-              new TransportIoError({ direction: "outbound", cause: err }),
-          ),
-        );
+        yield* writer(raw).pipe(Effect.mapError(outboundTransportIoError));
         yield* recordFrame(inbound, "outbound", raw, frame);
       });
 
@@ -131,24 +142,12 @@ function makeConnection(
         Effect.gen(function* () {
           const base: AnyFrame = opts.baseNotification as AnyFrame;
           const raw = malformFrame(base, opts.kind, opts.seed);
-          yield* writer(raw).pipe(
-            Effect.mapError(
-              (err) =>
-                new TransportIoError({ direction: "outbound", cause: err }),
-            ),
-          );
+          yield* writer(raw).pipe(Effect.mapError(outboundTransportIoError));
           yield* recordMalformed(inbound, raw, opts.kind);
         }),
       close: (opts) =>
         writer(new Socket.CloseEvent(opts.code, opts.reason)).pipe(
-          Effect.mapError(
-            (err) =>
-              new TransportClosedError({
-                direction: "outbound",
-                code: opts.code,
-                reason: `${opts.reason}: ${String(err)}`,
-              }),
-          ),
+          Effect.mapError((err) => outboundTransportClosedError(opts, err)),
         ),
     } satisfies TestServerConnection;
   });
@@ -173,11 +172,7 @@ export function makeTestServer(
     const server = yield* NodeSocketServer.makeWebSocket({
       port: config.port,
       host: config.host,
-    }).pipe(
-      Effect.mapError(
-        (err) => new TransportIoError({ direction: "inbound", cause: err }),
-      ),
-    );
+    }).pipe(Effect.mapError(inboundTransportIoError));
 
     // Fork the accept loop into the ambient scope; scope closure tears down
     // the listener and every per-connection fiber.
@@ -257,5 +252,5 @@ export function makeTestServer(
       allInbound,
       snapshot,
     } satisfies TestServer;
-  });
+  }).pipe(Effect.withSpan("makeTestServer"));
 }

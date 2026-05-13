@@ -43,6 +43,6 @@ export function registerRoundTripIdentity(ctx: ConformanceRunContext): void {
           },
         ),
       ),
-    ),
+    ).pipe(Effect.withSpan("registerRoundTripIdentity")),
   );
 }

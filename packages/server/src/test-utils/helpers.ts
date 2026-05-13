@@ -1,3 +1,8 @@
+import {
+  FetchHttpClient,
+  HttpClient,
+  HttpClientRequest,
+} from "@effect/platform";
 import { Data, Effect } from "effect";
 import type { NotificationFrame } from "@moltzap/protocol";
 import {
@@ -27,9 +32,45 @@ export interface ConnectedAgent {
 const openClients: ServerTestClient[] = [];
 const MIN_AGENT_GROUP_SIZE = 2;
 
-class ServerTestHelperError extends Data.TaggedError("ServerTestHelperError")<{
+class PostJsonRequestError extends Data.TaggedError("PostJsonRequestError")<{
   readonly message: string;
+  readonly method: "POST";
+  readonly path: string;
+  readonly reason: string;
+  readonly url: string;
+  readonly cause?: unknown;
 }> {}
+
+class PostJsonResponseError extends Data.TaggedError("PostJsonResponseError")<{
+  readonly message: string;
+  readonly method: "POST";
+  readonly path: string;
+  readonly reason: string;
+  readonly status: number;
+  readonly url: string;
+  readonly cause?: unknown;
+}> {}
+
+class PostJsonDecodeError extends Data.TaggedError("PostJsonDecodeError")<{
+  readonly message: string;
+  readonly method: "POST";
+  readonly path: string;
+  readonly reason: string;
+  readonly url: string;
+  readonly status: number;
+  readonly cause?: unknown;
+}> {}
+
+class AgentGroupSizeError extends Data.TaggedError("AgentGroupSizeError")<{
+  readonly message: string;
+  readonly minimumAgents: number;
+  readonly requestedAgents: number;
+}> {}
+
+type PostJsonError =
+  | PostJsonRequestError
+  | PostJsonResponseError
+  | PostJsonDecodeError;
 
 export function trackClient(client: ServerTestClient): void {
   openClients.push(client);
@@ -39,7 +80,7 @@ export function closeAllClients(): Effect.Effect<void, never> {
   return Effect.gen(function* () {
     for (const c of openClients) yield* c.close();
     openClients.length = 0;
-  });
+  }).pipe(Effect.withSpan("closeAllClients"));
 }
 
 export function registerAgent(
@@ -76,7 +117,7 @@ export function connectTestClient(opts: {
       close: () => client.close,
       drainNotifications: () => Effect.runSync(client.drainNotifications),
     };
-  });
+  }).pipe(Effect.withSpan("connectTestClient"));
 }
 
 /** Register and connect an agent. Tracked for automatic cleanup. */
@@ -88,7 +129,7 @@ export function registerAndConnect(
     const client = yield* connectTestClient({ agentId, apiKey });
     openClients.push(client);
     return { client, agentId, apiKey, name };
-  });
+  }).pipe(Effect.withSpan("registerAndConnect"));
 }
 
 /**
@@ -96,25 +137,64 @@ export function registerAndConnect(
  * `{status, json}`. The endpoints under test (`/api/v1/auth/register`,
  * `/api/v1/auth/claim`, `/api/v1/admin/register-agent`) all use this
  * same wire envelope, so each integration test importing this helper
- * can drop ~12 lines of `fetch + headers + JSON.stringify + .json()`
- * boilerplate. Returns a Promise (not an Effect) because vitest
- * `it.live(() => Effect.gen ...)` callers wrap with
- * `Effect.tryPromise(() => postJson(...))`, mirroring the existing
- * `Effect.tryPromise` wraps around raw fetch/db calls in this file.
+ * can drop the repeated request/JSON boilerplate.
  */
-// eslint-disable-next-line agent-code-guard/async-keyword -- test plumbing: vitest hooks expect async callbacks
-export async function postJson(
+export function postJson(
   baseUrl: string,
   path: string,
   body: Record<string, unknown>,
-  // eslint-disable-next-line agent-code-guard/promise-type -- test plumbing: see fn doc
-): Promise<{ status: number; json: unknown }> {
-  const res = await fetch(`${baseUrl}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  return { status: res.status, json: await res.json() };
+): Effect.Effect<{ status: number; json: unknown }, PostJsonError> {
+  const url = `${baseUrl}${path}`;
+  return Effect.gen(function* () {
+    const client = yield* HttpClient.HttpClient;
+    const request = HttpClientRequest.post(url).pipe(
+      HttpClientRequest.setHeader("Content-Type", "application/json"),
+      HttpClientRequest.bodyUnsafeJson(body),
+    );
+    const response = yield* client.execute(request).pipe(
+      Effect.catchTags({
+        RequestError: (cause) =>
+          Effect.fail(
+            new PostJsonRequestError({
+              message: `POST ${path} request failed: ${cause.reason}`,
+              method: "POST",
+              path,
+              reason: cause.reason,
+              url,
+              cause,
+            }),
+          ),
+        ResponseError: (cause) =>
+          Effect.fail(
+            new PostJsonResponseError({
+              message: `POST ${path} response failed: ${cause.reason}`,
+              method: "POST",
+              path,
+              reason: cause.reason,
+              status: cause.response.status,
+              url,
+              cause,
+            }),
+          ),
+      }),
+    );
+    const json = yield* response.json.pipe(
+      Effect.catchTag("ResponseError", (cause) =>
+        Effect.fail(
+          new PostJsonDecodeError({
+            message: `POST ${path} response body failed to decode: ${cause.reason}`,
+            method: "POST",
+            path,
+            reason: cause.reason,
+            url,
+            status: response.status,
+            cause,
+          }),
+        ),
+      ),
+    );
+    return { status: response.status, json };
+  }).pipe(Effect.provide(FetchHttpClient.layer), Effect.withSpan("postJson"));
 }
 
 /** Register an agent without connecting (for tests that need the raw client). */
@@ -141,7 +221,7 @@ export function registerOnly(name: string): Effect.Effect<
       apiKey: reg.apiKey,
       claimToken: reg.claimToken,
     };
-  });
+  }).pipe(Effect.withSpan("registerOnly"));
 }
 
 /** Create two agents, both connected. No contacts needed (core has open access). */
@@ -153,7 +233,7 @@ export function setupAgentPair(): Effect.Effect<
     const alice = yield* registerAndConnect("alice");
     const bob = yield* registerAndConnect("bob");
     return { alice, bob };
-  });
+  }).pipe(Effect.withSpan("setupAgentPair"));
 }
 
 /** Create N agents, all connected. Optionally create a group conversation. */
@@ -164,8 +244,10 @@ export function setupAgentGroup(
   return Effect.gen(function* () {
     if (count < MIN_AGENT_GROUP_SIZE) {
       return yield* Effect.fail(
-        new ServerTestHelperError({
+        new AgentGroupSizeError({
           message: `Agent group requires at least ${MIN_AGENT_GROUP_SIZE} agents`,
+          minimumAgents: MIN_AGENT_GROUP_SIZE,
+          requestedAgents: count,
         }),
       );
     }
@@ -191,5 +273,5 @@ export function setupAgentGroup(
     }
 
     return { agents, conversationId };
-  });
+  }).pipe(Effect.withSpan("setupAgentGroup"));
 }

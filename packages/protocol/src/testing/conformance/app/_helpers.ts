@@ -101,6 +101,6 @@ export function withDriver(
     Effect.gen(function* () {
       const driver = yield* makeDispatchTestDriver(ctx, driverOpts);
       yield* body(driver);
-    }),
+    }).pipe(Effect.withSpan("withDriver")),
   );
 }

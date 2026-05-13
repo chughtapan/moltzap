@@ -19,11 +19,11 @@ let harness: PgliteHarness;
 
 describe("AuthService.claimAgent (#486)", () => {
   beforeEach(async () => {
-    harness = await makePgliteHarness();
+    harness = await Effect.runPromise(makePgliteHarness());
   }, PGLITE_HOOK_TIMEOUT_MS);
 
   afterEach(async () => {
-    await harness.close();
+    await Effect.runPromise(harness.close);
   }, PGLITE_HOOK_TIMEOUT_MS);
 
   it("binds owner_user_id when token matches an unclaimed agent", async () => {

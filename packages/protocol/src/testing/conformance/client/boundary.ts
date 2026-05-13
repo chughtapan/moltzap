@@ -104,7 +104,7 @@ export function registerSchemaExhaustiveFuzzClient(
             ),
           );
         }
-      }),
+      }).pipe(Effect.withSpan("registerSchemaExhaustiveFuzzClient")),
     ),
   );
 }

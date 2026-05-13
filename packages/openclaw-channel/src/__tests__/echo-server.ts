@@ -11,7 +11,6 @@ import type {
   ChatCompletionCreateParams,
   ChatCompletionContentPartText,
 } from "openai/resources/chat/completions";
-import { Config, ConfigProvider, Effect, Option } from "effect";
 
 export type EchoServer = { port: number; close: () => void };
 
@@ -19,7 +18,6 @@ export interface EchoServerOptions {
   readonly debug?: boolean;
 }
 
-const EchoDebug = Config.option(Config.string("ECHO_DEBUG"));
 const HTTP_OK = 200;
 const HTTP_BAD_REQUEST = 400;
 const HTTP_NOT_FOUND = 404;
@@ -41,15 +39,6 @@ const SSE_HEADERS = {
 
 class EchoServerError extends Error {
   override readonly name = "EchoServerError";
-}
-
-function readEchoDebug(): boolean {
-  const raw = Option.getOrUndefined(
-    Effect.runSync(
-      EchoDebug.pipe(Effect.withConfigProvider(ConfigProvider.fromEnv())),
-    ),
-  );
-  return raw !== undefined && raw !== "" && raw !== "0" && raw !== "false";
 }
 
 function writeJson(
@@ -269,7 +258,7 @@ function handleRequest(
 }
 
 export function startEchoServer(options: EchoServerOptions = {}) {
-  const debug = options.debug ?? readEchoDebug();
+  const debug = options.debug ?? false;
   return new Promise<EchoServer>((resolve, reject) => {
     const server = http.createServer((req, res) => {
       const bodyChunks: Buffer[] = [];

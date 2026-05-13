@@ -71,7 +71,7 @@ export function registerSameStateNoDoubleFire(
             ),
           );
         }
-      }),
+      }).pipe(Effect.withSpan("registerSameStateNoDoubleFire")),
     ),
   );
 }

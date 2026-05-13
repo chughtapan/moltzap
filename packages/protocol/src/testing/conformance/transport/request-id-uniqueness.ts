@@ -99,6 +99,6 @@ export function registerRequestIdUniqueness(ctx: ConformanceRunContext): void {
           numRuns: ctx.opts.numRuns ?? REQUEST_ID_UNIQUENESS_NUM_RUNS,
         },
       ),
-    ),
+    ).pipe(Effect.withSpan("registerRequestIdUniqueness")),
   );
 }

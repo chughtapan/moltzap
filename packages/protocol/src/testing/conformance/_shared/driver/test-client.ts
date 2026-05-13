@@ -265,6 +265,20 @@ const HANDLER_DEFECT_MESSAGE_LIMIT = 200;
 const POLL_INTERVAL_MS = 10;
 const REQUEST_ID_RADIX = 36;
 
+const outboundTransportIoError = (cause: unknown): TransportIoError =>
+  new TransportIoError({ direction: "outbound", cause });
+
+const inboundFrameSchemaError = (
+  raw: string,
+  reason: string,
+): FrameSchemaError =>
+  new FrameSchemaError({
+    direction: "inbound",
+    expected: "response",
+    raw,
+    reason,
+  });
+
 function nextRequestId(): string {
   requestIdCounter += 1;
   return `tc-${Date.now().toString(REQUEST_ID_RADIX)}-${requestIdCounter.toString(REQUEST_ID_RADIX)}`;
@@ -340,15 +354,11 @@ export function makeTestClient(
       },
     ).pipe(
       Effect.provide(NodeSocket.layerWebSocketConstructor),
-      Effect.mapError(
-        (err) => new TransportIoError({ direction: "outbound", cause: err }),
-      ),
+      Effect.mapError(outboundTransportIoError),
     );
 
     const writer = yield* socket.writer.pipe(
-      Effect.mapError(
-        (err) => new TransportIoError({ direction: "outbound", cause: err }),
-      ),
+      Effect.mapError(outboundTransportIoError),
     );
 
     const writeFrame = (
@@ -365,12 +375,7 @@ export function makeTestClient(
             }),
           );
         }
-        yield* writer(raw).pipe(
-          Effect.mapError(
-            (err) =>
-              new TransportIoError({ direction: "outbound", cause: err }),
-          ),
-        );
+        yield* writer(raw).pipe(Effect.mapError(outboundTransportIoError));
       });
 
     const handleInbound = (raw: string): Effect.Effect<void> =>
@@ -611,14 +616,11 @@ export function makeTestClient(
           );
         }
         return yield* decodeRpcResult(definition, result.result).pipe(
-          Effect.mapError(
-            () =>
-              new FrameSchemaError({
-                direction: "inbound",
-                expected: "response",
-                raw: encodeFrame(result),
-                reason: `invalid result for rpc method ${method}`,
-              }),
+          Effect.mapError(() =>
+            inboundFrameSchemaError(
+              encodeFrame(result),
+              `invalid result for rpc method ${method}`,
+            ),
           ),
         );
       });
@@ -856,7 +858,7 @@ export function makeTestClient(
     }
 
     return client;
-  });
+  }).pipe(Effect.withSpan("makeTestClient"));
 }
 
 export function makeCloseableTestClient(
@@ -872,5 +874,5 @@ export function makeCloseableTestClient(
       ...client,
       close: Scope.close(scope, Exit.void),
     };
-  });
+  }).pipe(Effect.withSpan("makeCloseableTestClient"));
 }

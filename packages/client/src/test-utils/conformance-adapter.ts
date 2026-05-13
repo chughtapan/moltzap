@@ -139,6 +139,14 @@ function filterFromRealClient(
   };
 }
 
+function logConformanceAdapterWarning(message: string, cause: unknown): void {
+  Effect.runSync(
+    Effect.logWarning(message).pipe(
+      Effect.annotateLogs({ cause: String(cause) }),
+    ),
+  );
+}
+
 /**
  * Build a `RealClientHandle` factory that the protocol conformance suite
  * can invoke. The returned factory creates a fresh `MoltZapWsClient`,
@@ -178,7 +186,10 @@ export function createMoltZapRealClientFactory(
               ),
             );
           } catch (closeErr) {
-            console.warn("failed to record conformance close event", closeErr);
+            logConformanceAdapterWarning(
+              "failed to record conformance close event",
+              closeErr,
+            );
           }
         },
       });
@@ -211,7 +222,7 @@ export function createMoltZapRealClientFactory(
                 Ref.update(notificationsRef, (xs) => [...xs, obs]),
               );
             } catch (recordErr) {
-              console.warn(
+              logConformanceAdapterWarning(
                 "failed to record conformance observation",
                 recordErr,
               );
@@ -332,5 +343,5 @@ export function createMoltZapRealClientFactory(
         closeSignal,
         close,
       } satisfies RealClientHandle;
-    });
+    }).pipe(Effect.withSpan("createMoltZapRealClientFactory"));
 }

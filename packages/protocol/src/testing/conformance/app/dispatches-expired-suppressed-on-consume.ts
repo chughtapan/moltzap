@@ -75,6 +75,8 @@ export function registerDispatchesExpiredSuppressedOnConsumeBeforeTtl(
           );
         }
       }),
+    ).pipe(
+      Effect.withSpan("registerDispatchesExpiredSuppressedOnConsumeBeforeTtl"),
     ),
   );
 }

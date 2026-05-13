@@ -67,6 +67,6 @@ export function registerSameConversationDispatchesConcurrent(
         yield* driver.recipient.waitForRelease();
         yield* second.waitForRelease();
       }),
-    ),
+    ).pipe(Effect.withSpan("registerSameConversationDispatchesConcurrent")),
   );
 }

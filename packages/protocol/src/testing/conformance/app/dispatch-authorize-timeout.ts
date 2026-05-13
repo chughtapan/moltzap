@@ -59,6 +59,6 @@ export function registerDispatchAuthorizeTimeoutSynthesizesDeny(
           }
         }),
       { moderatorTimeoutMs: TINY_MODERATOR_TIMEOUT_MS },
-    ),
+    ).pipe(Effect.withSpan("registerDispatchAuthorizeTimeoutSynthesizesDeny")),
   );
 }

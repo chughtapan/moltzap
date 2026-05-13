@@ -117,6 +117,6 @@ export function registerRequestWellFormedness(
           endOnFailure: true,
         },
       ),
-    ),
+    ).pipe(Effect.withSpan("registerRequestWellFormedness")),
   );
 }

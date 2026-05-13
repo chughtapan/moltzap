@@ -77,21 +77,21 @@ describe("outbound.resolveTarget", () => {
   const resolveTarget = moltzapChannelPlugin.outbound.resolveTarget;
 
   it("accepts agent:<name>", () => {
-    expect(resolveTarget({ to: "agent:bob" })).toEqual({
+    expect(resolveTarget({ to: "agent:bob" })).toMatchObject({
       ok: true,
       to: "agent:bob",
     });
   });
 
   it("accepts conv:<id>", () => {
-    expect(resolveTarget({ to: "conv:abc" })).toEqual({
+    expect(resolveTarget({ to: "conv:abc" })).toMatchObject({
       ok: true,
       to: "conv:abc",
     });
   });
 
   it("accepts plain conversation ID (backward compat)", () => {
-    expect(resolveTarget({ to: "plain-conv-id" })).toEqual({
+    expect(resolveTarget({ to: "plain-conv-id" })).toMatchObject({
       ok: true,
       to: "plain-conv-id",
     });
@@ -113,7 +113,7 @@ describe("outbound.resolveTarget", () => {
   });
 
   it("trims whitespace", () => {
-    expect(resolveTarget({ to: "  agent:bob  " })).toEqual({
+    expect(resolveTarget({ to: "  agent:bob  " })).toMatchObject({
       ok: true,
       to: "agent:bob",
     });

@@ -150,7 +150,7 @@ export function registerFanOutCardinalityClient(
             );
           }
         }
-      }),
+      }).pipe(Effect.withSpan("registerFanOutCardinalityClient")),
     ),
   );
 }
@@ -236,7 +236,7 @@ export function registerPayloadOpacityClient(
             ),
           );
         }
-      }),
+      }).pipe(Effect.withSpan("registerPayloadOpacityClient")),
     ),
   );
 }
@@ -339,7 +339,7 @@ export function registerTaskBoundaryIsolationClient(
             );
           }
         }
-      }),
+      }).pipe(Effect.withSpan("registerTaskBoundaryIsolationClient")),
     ),
   );
 }
@@ -416,7 +416,7 @@ export function registerArchiveLifecycleClient(
             ),
           );
         }
-      }),
+      }).pipe(Effect.withSpan("registerArchiveLifecycleClient")),
     ),
   );
 }

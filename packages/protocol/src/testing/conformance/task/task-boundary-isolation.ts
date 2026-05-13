@@ -6,7 +6,11 @@ import {
   PropertyInvariantViolation,
   registerProperty,
 } from "../_shared/registry.js";
-import { DELIVERY_CATEGORY, acquireConversation } from "./_helpers.js";
+import {
+  DELIVERY_CATEGORY,
+  acquireConversation,
+  deliveryViolation,
+} from "./_helpers.js";
 
 const PROPERTY = "task-boundary-isolation";
 
@@ -21,23 +25,13 @@ export function registerTaskBoundaryIsolation(
     Effect.scoped(
       Effect.gen(function* () {
         const fxA = yield* acquireConversation(ctx, 1, "iso-a").pipe(
-          Effect.mapError(
-            (e) =>
-              new PropertyInvariantViolation({
-                category: DELIVERY_CATEGORY,
-                name: PROPERTY,
-                reason: `fixture A: ${e}`,
-              }),
+          Effect.mapError((e) =>
+            deliveryViolation(PROPERTY, `fixture A: ${e}`),
           ),
         );
         const fxB = yield* acquireConversation(ctx, 1, "iso-b").pipe(
-          Effect.mapError(
-            (e) =>
-              new PropertyInvariantViolation({
-                category: DELIVERY_CATEGORY,
-                name: PROPERTY,
-                reason: `fixture B: ${e}`,
-              }),
+          Effect.mapError((e) =>
+            deliveryViolation(PROPERTY, `fixture B: ${e}`),
           ),
         );
         yield* fxA.owner.client
@@ -62,7 +56,7 @@ export function registerTaskBoundaryIsolation(
             }),
           );
         }
-      }),
+      }).pipe(Effect.withSpan("registerTaskBoundaryIsolation")),
     ),
   );
 }

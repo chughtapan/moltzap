@@ -20,8 +20,9 @@
  * forbidden (extends AC13 to AC14). The factory injection pattern keeps
  * the protocol package leaf-of-the-graph.
  */
+import { FileSystem } from "@effect/platform";
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import { Cause, Chunk, Effect, Exit, Option, type Scope } from "effect";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { acquireClientRunContext } from "./runner.js";
 import type {
@@ -161,7 +162,7 @@ export function runClientConformanceSuite(
         artifactDir,
         allowedClientCoverageGaps(toxiproxyUrl),
       );
-    }),
+    }).pipe(Effect.withSpan("runClientConformanceSuite")),
   );
 }
 
@@ -213,7 +214,7 @@ function runAllClientProperties(
   allowedCoverageGaps: ReadonlyArray<AllowedCoverageGap>,
 ): Effect.Effect<SuiteResult> {
   return Effect.gen(function* () {
-    if (!existsSync(artifactDir)) mkdirSync(artifactDir, { recursive: true });
+    yield* ensureArtifactDir(artifactDir);
     const properties = collectProperties(ctx);
     const passed: string[] = [];
     const deferred: { name: string; reason: string }[] = [];
@@ -231,7 +232,7 @@ function runAllClientProperties(
       if (failure === null) {
         const msg = exit.cause.toString();
         failed.push({ name: id, failure: { _tag: "defect", message: msg } });
-        writeArtifact(artifactDir, p, ctx.seed, { defect: msg });
+        yield* writeArtifact(artifactDir, p, ctx.seed, { defect: msg });
         continue;
       }
       switch (failure._tag) {
@@ -248,7 +249,12 @@ function runAllClientProperties(
             break;
           }
           failed.push({ name: id, failure });
-          writeArtifact(artifactDir, p, ctx.seed, failureArtifact(failure));
+          yield* writeArtifact(
+            artifactDir,
+            p,
+            ctx.seed,
+            failureArtifact(failure),
+          );
           break;
         case "ConformancePropertyUnavailable":
           if (
@@ -263,12 +269,22 @@ function runAllClientProperties(
             break;
           }
           failed.push({ name: id, failure });
-          writeArtifact(artifactDir, p, ctx.seed, failureArtifact(failure));
+          yield* writeArtifact(
+            artifactDir,
+            p,
+            ctx.seed,
+            failureArtifact(failure),
+          );
           break;
         case "ConformancePropertyAssertionFailure":
         case "ConformancePropertyInvariantViolation":
           failed.push({ name: id, failure });
-          writeArtifact(artifactDir, p, ctx.seed, failureArtifact(failure));
+          yield* writeArtifact(
+            artifactDir,
+            p,
+            ctx.seed,
+            failureArtifact(failure),
+          );
           break;
         default: {
           const _exhaustive: never = failure;
@@ -311,28 +327,42 @@ function failureArtifact(failure: PropertyFailure): Record<string, unknown> {
   }
 }
 
+function ensureArtifactDir(dir: string): Effect.Effect<void> {
+  return FileSystem.FileSystem.pipe(
+    Effect.flatMap((fs) => fs.makeDirectory(dir, { recursive: true })),
+    Effect.provide(NodeFileSystem.layer),
+    Effect.orDie,
+  );
+}
+
 function writeArtifact(
   dir: string,
   property: RegisteredProperty,
   seed: number,
   payload: Record<string, unknown>,
-): void {
+): Effect.Effect<void> {
   const file = path.join(
     dir,
     `client-${property.category}-${property.name}.seed.json`,
   );
-  writeFileSync(
-    file,
-    JSON.stringify(
-      {
-        category: property.category,
-        name: property.name,
-        seed,
-        ...payload,
-      },
-      null,
-      JSON_INDENT_SPACES,
+  return FileSystem.FileSystem.pipe(
+    Effect.flatMap((fs) =>
+      fs.writeFileString(
+        file,
+        JSON.stringify(
+          {
+            category: property.category,
+            name: property.name,
+            seed,
+            ...payload,
+          },
+          null,
+          JSON_INDENT_SPACES,
+        ),
+      ),
     ),
+    Effect.provide(NodeFileSystem.layer),
+    Effect.orDie,
   );
 }
 

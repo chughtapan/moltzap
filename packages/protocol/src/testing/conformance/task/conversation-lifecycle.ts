@@ -134,7 +134,7 @@ export function registerConversationLifecycle(
             `messages/send failed after unarchive: ${error._tag}`,
           ),
         );
-      }),
+      }).pipe(Effect.withSpan("registerConversationLifecycle")),
     ),
   );
 }

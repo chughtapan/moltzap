@@ -78,6 +78,6 @@ export function registerTimeoutSurface(ctx: ConformanceRunContext): void {
             ),
           );
         }
-      }),
+      }).pipe(Effect.withSpan("registerTimeoutSurface")),
   });
 }

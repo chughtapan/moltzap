@@ -20,11 +20,11 @@ import type { NotificationFrame } from "../../transport/wire.js";
 
 /** Monotonic logical clock — the model does not read wall time. */
 export type LogicalTick = number & Brand.Brand<"LogicalTick">;
-export const LogicalTick = Brand.nominal<LogicalTick>();
+const logicalTick = Brand.nominal<LogicalTick>();
 
 /** Construct a `LogicalTick` from a raw number. Only call in this module. */
 export function mkTick(n: number): LogicalTick {
-  return LogicalTick(n);
+  return logicalTick(n);
 }
 
 /** Every kind of entity the model tracks. */

@@ -42,7 +42,6 @@ export function registerTaskCloseLifecycle(ctx: ConformanceRunContext): void {
             deliveryViolation(PROPERTY, `fixture: ${reason}`),
           ),
         );
-
         // Task is open: sender's first message round-trips. This arm
         // proves the fixture actually plumbs the TM correctly — without
         // it, the post-close failure could trivially pass against a
@@ -105,7 +104,7 @@ export function registerTaskCloseLifecycle(ctx: ConformanceRunContext): void {
         if (violation !== null) {
           return yield* Effect.fail(violation);
         }
-      }),
+      }).pipe(Effect.withSpan("registerTaskCloseLifecycle")),
     ),
   );
 }

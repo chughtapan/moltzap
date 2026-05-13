@@ -117,7 +117,7 @@ export function registerNotificationWellFormednessClient(
             ),
           );
         }
-      }),
+      }).pipe(Effect.withSpan("registerNotificationWellFormednessClient")),
     ),
   );
 }
@@ -188,7 +188,7 @@ export function registerMalformedFrameHandlingClient(
             ),
           );
         }
-      }),
+      }).pipe(Effect.withSpan("registerMalformedFrameHandlingClient")),
     ),
   );
 }

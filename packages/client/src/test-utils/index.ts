@@ -64,6 +64,6 @@ export function flushDispatchChain() {
           catch: (cause) => new FlushDispatchChainError({ cause }),
         });
       }
-    }),
+    }).pipe(Effect.withSpan("flushDispatchChain")),
   );
 }

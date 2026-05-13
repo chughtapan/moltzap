@@ -204,7 +204,7 @@ export function waitForConversationCreatedNotification(
         ),
       );
     }
-  });
+  }).pipe(Effect.withSpan("waitForConversationCreatedNotification"));
 }
 
 export function waitForConversationUpdatedNotification(
@@ -239,7 +239,7 @@ export function waitForConversationUpdatedNotification(
         ),
       );
     }
-  });
+  }).pipe(Effect.withSpan("waitForConversationUpdatedNotification"));
 }
 
 export function waitForMessageReceivedNotification(
@@ -270,7 +270,7 @@ export function waitForMessageReceivedNotification(
         ),
       );
     }
-  });
+  }).pipe(Effect.withSpan("waitForMessageReceivedNotification"));
 }
 
 export function waitForArchivedEvent(
@@ -306,7 +306,7 @@ export function waitForArchivedEvent(
         ),
       );
     }
-  });
+  }).pipe(Effect.withSpan("waitForArchivedEvent"));
 }
 
 export function waitForUnarchivedEvent(
@@ -338,7 +338,7 @@ export function waitForUnarchivedEvent(
         ),
       );
     }
-  });
+  }).pipe(Effect.withSpan("waitForUnarchivedEvent"));
 }
 
 export function assertConversationRejectsMessages(
@@ -378,7 +378,7 @@ export function assertConversationRejectsMessages(
     if (outcomeViolation !== null) {
       return yield* Effect.fail(outcomeViolation);
     }
-  });
+  }).pipe(Effect.withSpan("assertConversationRejectsMessages"));
 }
 
 export function acquireClient(
@@ -402,7 +402,7 @@ export function acquireClient(
       captureCapacity: DELIVERY_DEFAULT_CAPTURE_CAPACITY,
     }).pipe(Effect.mapError((e) => `makeTestClient(${name}): ${String(e)}`));
     return { agent, client };
-  });
+  }).pipe(Effect.withSpan("acquireClient"));
 }
 
 export function acquireConversation(
@@ -445,7 +445,7 @@ export function acquireConversation(
       participants,
       conversationId: makeConversationId(conversationId),
     };
-  });
+  }).pipe(Effect.withSpan("acquireConversation"));
 }
 
 export function closeTask(actor: ConversationActor, taskIdValue: TaskIdValue) {

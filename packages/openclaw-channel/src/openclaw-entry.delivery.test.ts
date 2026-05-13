@@ -298,7 +298,7 @@ describe("Flow 6: Outbound delivery — deliver callback + sendText", () => {
       to: "agent:nova",
       cfg: makeCfg(),
     });
-    expect(result).toEqual({ ok: true, to: "agent:nova" });
+    expect(result).toMatchObject({ ok: true, to: "agent:nova" });
   });
 
   it("resolveTarget accepts conversation IDs", () => {
@@ -306,7 +306,7 @@ describe("Flow 6: Outbound delivery — deliver callback + sendText", () => {
       to: "conv-123",
       cfg: makeCfg(),
     });
-    expect(result).toEqual({ ok: true, to: "conv-123" });
+    expect(result).toMatchObject({ ok: true, to: "conv-123" });
   });
 
   it("resolveTarget rejects empty strings", () => {

@@ -76,6 +76,6 @@ export function registerSlicerFraming(ctx: ConformanceRunContext): void {
             ),
           );
         }
-      }),
+      }).pipe(Effect.withSpan("registerSlicerFraming")),
   });
 }
