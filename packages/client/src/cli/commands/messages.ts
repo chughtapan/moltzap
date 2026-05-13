@@ -30,7 +30,7 @@ import type { ConversationId } from "@moltzap/protocol/task";
 
 export type MessagesCommandError = TransportError | MessagesInputError;
 
-export class MessagesInputError extends Data.TaggedError("MessagesInputError")<{
+class MessagesInputError extends Data.TaggedError("MessagesInputError")<{
   readonly message: string;
   readonly reason: string;
 }> {}
@@ -83,7 +83,7 @@ export const messagesListHandler = (
         console.log("... more messages available");
       }
     });
-  });
+  }).pipe(Effect.withSpan("messagesListHandler"));
 
 // ─── CLI commands ──────────────────────────────────────────────────────────
 

@@ -1,4 +1,6 @@
-import { Data, Effect } from "effect";
+import { HttpClient, HttpClientRequest } from "@effect/platform";
+import { NodeHttpClient } from "@effect/platform-node";
+import { Data, Effect, Either } from "effect";
 
 /** HTTP response from the agent registration endpoints
  * (`/api/v1/auth/register` and `/api/v1/admin/register-agent`). */
@@ -20,6 +22,8 @@ export interface RegisterAgentOptions {
 
 const PUBLIC_PATH = "/api/v1/auth/register";
 const ADMIN_PATH = "/api/v1/admin/register-agent";
+const HTTP_SUCCESS_STATUS_MIN = 200;
+const HTTP_REDIRECT_STATUS_MIN = 300;
 
 export class RegisterAgentError extends Data.TaggedError("RegisterAgentError")<{
   readonly message: string;
@@ -43,38 +47,66 @@ export const registerAgent = (
   name: string,
   opts?: RegisterAgentOptions,
 ): Effect.Effect<RegisterResponse, RegisterAgentError> =>
-  Effect.tryPromise({
-    try: () => {
-      const body: Record<string, string> = { name };
-      if (opts?.description) body.description = opts.description;
-      if (opts?.inviteCode) body.inviteCode = opts.inviteCode;
-      if (opts?.ownerUserId) body.ownerUserId = opts.ownerUserId;
-      const path = opts?.ownerUserId ? ADMIN_PATH : PUBLIC_PATH;
-      return fetch(`${baseUrl}${path}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-    },
-    catch: (err) => registerAgentError("Register request failed", err),
-  }).pipe(
-    Effect.flatMap((res) =>
-      res.ok
-        ? Effect.tryPromise({
-            try: () => res.json() as Promise<RegisterResponse>,
-            catch: (err) =>
-              registerAgentError("Register response decode failed", err),
-          })
-        : Effect.tryPromise({
-            try: () => res.text(),
-            catch: (err) =>
-              registerAgentError("Register error response read failed", err),
-          }).pipe(
-            Effect.flatMap((text) =>
+  Effect.gen(function* () {
+    const client = yield* HttpClient.HttpClient;
+    const body: Record<string, string> = { name };
+    if (opts?.description) body.description = opts.description;
+    if (opts?.inviteCode) body.inviteCode = opts.inviteCode;
+    if (opts?.ownerUserId) body.ownerUserId = opts.ownerUserId;
+    const path = opts?.ownerUserId ? ADMIN_PATH : PUBLIC_PATH;
+    const request = HttpClientRequest.post(`${baseUrl}${path}`).pipe(
+      HttpClientRequest.setHeader("Content-Type", "application/json"),
+      HttpClientRequest.bodyUnsafeJson(body),
+    );
+    const response = yield* client.execute(request);
+    if (
+      response.status < HTTP_SUCCESS_STATUS_MIN ||
+      response.status >= HTTP_REDIRECT_STATUS_MIN
+    ) {
+      const text = yield* response.text.pipe(
+        Effect.either,
+        Effect.flatMap(
+          Either.match({
+            onLeft: (cause) =>
               Effect.fail(
-                registerAgentError(`Register failed: ${res.status} ${text}`),
+                registerAgentError(
+                  "Register error response read failed",
+                  cause,
+                ),
               ),
+            onRight: (value) => Effect.succeed(value),
+          }),
+        ),
+      );
+      return yield* Effect.fail(
+        registerAgentError(`Register failed: ${response.status} ${text}`),
+      );
+    }
+    return yield* response.json.pipe(
+      Effect.either,
+      Effect.flatMap(
+        Either.match({
+          onLeft: (cause) =>
+            Effect.fail(
+              registerAgentError("Register response decode failed", cause),
             ),
+          onRight: (value) => Effect.succeed(value as RegisterResponse),
+        }),
+      ),
+    );
+  }).pipe(
+    Effect.provide(NodeHttpClient.layer),
+    Effect.either,
+    Effect.flatMap(
+      Either.match({
+        onLeft: (cause) =>
+          Effect.fail(
+            cause instanceof RegisterAgentError
+              ? cause
+              : registerAgentError("Register request failed", cause),
           ),
+        onRight: (value) => Effect.succeed(value),
+      }),
     ),
+    Effect.withSpan("registerAgent"),
   );

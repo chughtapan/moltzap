@@ -56,32 +56,30 @@ const LEVEL_TO_PINO: Record<
  * torn down, etc.) is swallowed to stderr so the Effect fiber doesn't
  * die on a log-write failure.
  */
-export const effectLogger = EffectLogger.make(
-  ({ logLevel, message, annotations }) => {
-    const merged: Record<string, unknown> = {};
-    for (const [k, v] of annotations) merged[k] = v;
-    const pinoMethod = LEVEL_TO_PINO[logLevel._tag] ?? "info";
-    const msg =
-      typeof message === "string"
-        ? message
-        : Array.isArray(message) && message.length === 1
-          ? String(message[0])
-          : String(message);
+const effectLogger = EffectLogger.make(({ logLevel, message, annotations }) => {
+  const merged: Record<string, unknown> = {};
+  for (const [k, v] of annotations) merged[k] = v;
+  const pinoMethod = LEVEL_TO_PINO[logLevel._tag] ?? "info";
+  const msg =
+    typeof message === "string"
+      ? message
+      : Array.isArray(message) && message.length === 1
+        ? String(message[0])
+        : String(message);
+  try {
+    PINO[pinoMethod](merged, msg);
+  } catch (err) {
     try {
-      PINO[pinoMethod](merged, msg);
-    } catch (err) {
-      try {
-        process.stderr.write(
-          `[cli-logger-fallback] ${msg} (${
-            err instanceof Error ? err.message : String(err)
-          })\n`,
-        );
-      } catch (stderrErr) {
-        console.error("[cli-logger-fallback] stderr write failed", stderrErr);
-      }
+      process.stderr.write(
+        `[cli-logger-fallback] ${msg} (${
+          err instanceof Error ? err.message : String(err)
+        })\n`,
+      );
+    } catch (stderrErr) {
+      console.error("[cli-logger-fallback] stderr write failed", stderrErr);
     }
-  },
-);
+  }
+});
 
 /**
  * Replaces Effect's default console logger at the root of the program,
@@ -120,6 +118,3 @@ export const minLogLevel: LogLevel.LogLevel = (() => {
       return LogLevel.Info;
   }
 })();
-
-/** Pino instance for raw synchronous logging (e.g. fatal exits). */
-export const rawLogger = PINO;

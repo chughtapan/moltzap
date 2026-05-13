@@ -2,16 +2,23 @@ import { describe, it, expect } from "vitest";
 import Ajv from "ajv";
 import addFormats from "ajv-formats";
 import {
-  AppManifestSchema,
+  validateAppManifest,
   DispatchAuthorize,
   DispatchRequest,
 } from "./methods.js";
 
 const ajv = addFormats(new Ajv({ strict: true, allErrors: true }));
 
-const validateManifest = ajv.compile(AppManifestSchema);
 const validateAuthorizeResult = ajv.compile(DispatchAuthorize.resultSchema);
 const validateRequestParams = ajv.compile(DispatchRequest.paramsSchema);
+
+const expectValidManifest = (manifest: unknown): void => {
+  expect(validateAppManifest(manifest)._tag).toBe("Valid");
+};
+
+const expectInvalidManifest = (manifest: unknown): void => {
+  expect(validateAppManifest(manifest)._tag).toBe("Invalid");
+};
 
 describe("AppManifestSchema", () => {
   it("accepts a valid manifest", () => {
@@ -19,7 +26,7 @@ describe("AppManifestSchema", () => {
       appId: "werewolf",
       name: "Werewolf",
     };
-    expect(validateManifest(manifest)).toBe(true);
+    expectValidManifest(manifest);
   });
 
   it("accepts a full manifest with all optional fields", () => {
@@ -33,13 +40,13 @@ describe("AppManifestSchema", () => {
         { key: "den", name: "Werewolf Den", participantFilter: "none" },
       ],
     };
-    expect(validateManifest(manifest)).toBe(true);
+    expectValidManifest(manifest);
   });
 
   it("rejects manifest missing required fields", () => {
-    expect(validateManifest({ appId: "test" })).toBe(false);
-    expect(validateManifest({ name: "test" })).toBe(false);
-    expect(validateManifest({})).toBe(false);
+    expectInvalidManifest({ appId: "test" });
+    expectInvalidManifest({ name: "test" });
+    expectInvalidManifest({});
   });
 
   it("rejects invalid participantFilter values", () => {
@@ -50,7 +57,7 @@ describe("AppManifestSchema", () => {
         { key: "main", name: "Main", participantFilter: "invalid" },
       ],
     };
-    expect(validateManifest(manifest)).toBe(false);
+    expectInvalidManifest(manifest);
   });
 
   it("rejects additional properties", () => {
@@ -59,7 +66,7 @@ describe("AppManifestSchema", () => {
       name: "Test",
       extra: "nope",
     };
-    expect(validateManifest(manifest)).toBe(false);
+    expectInvalidManifest(manifest);
   });
 
   it("rejects retired permissions field", () => {
@@ -68,7 +75,7 @@ describe("AppManifestSchema", () => {
       name: "Test",
       permissions: { required: [], optional: [] },
     };
-    expect(validateManifest(manifest)).toBe(false);
+    expectInvalidManifest(manifest);
   });
 
   it("rejects retired permissionTimeoutMs field", () => {
@@ -77,7 +84,7 @@ describe("AppManifestSchema", () => {
       name: "Test",
       permissionTimeoutMs: 30000,
     };
-    expect(validateManifest(manifest)).toBe(false);
+    expectInvalidManifest(manifest);
   });
 
   it("accepts manifest with dispatch_authorize timeout", () => {
@@ -88,7 +95,7 @@ describe("AppManifestSchema", () => {
         dispatch_authorize: { timeout_ms: 3000 },
       },
     };
-    expect(validateManifest(manifest)).toBe(true);
+    expectValidManifest(manifest);
   });
 
   it("accepts hook timeouts above 30s (no upper cap)", () => {
@@ -102,7 +109,7 @@ describe("AppManifestSchema", () => {
         dispatch_authorize: { timeout_ms: 900_000 },
       },
     };
-    expect(validateManifest(manifest)).toBe(true);
+    expectValidManifest(manifest);
   });
 
   it("rejects non-positive hook timeouts", () => {
@@ -113,7 +120,7 @@ describe("AppManifestSchema", () => {
         dispatch_authorize: { timeout_ms: 0 },
       },
     };
-    expect(validateManifest(manifest)).toBe(false);
+    expectInvalidManifest(manifest);
   });
 
   it("rejects additional properties on hook entries", () => {
@@ -124,7 +131,7 @@ describe("AppManifestSchema", () => {
         dispatch_authorize: { unexpected: "value" },
       },
     };
-    expect(validateManifest(manifest)).toBe(false);
+    expectInvalidManifest(manifest);
   });
 
   it("rejects retired hook keys", () => {
@@ -140,7 +147,7 @@ describe("AppManifestSchema", () => {
         name: "Test",
         hooks: { [key]: { timeout_ms: 1000 } },
       };
-      expect(validateManifest(manifest)).toBe(false);
+      expectInvalidManifest(manifest);
     }
   });
 });

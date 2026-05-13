@@ -1,5 +1,4 @@
 import * as net from "node:net";
-import * as fs from "node:fs";
 import { Data, Effect } from "effect";
 import { MoltZapService } from "@moltzap/client";
 import {
@@ -26,7 +25,7 @@ export class SocketRequestError extends Data.TaggedError("SocketRequestError")<{
   readonly cause?: unknown;
 }> {}
 
-export class ParticipantResolveError extends Data.TaggedError(
+class ParticipantResolveError extends Data.TaggedError(
   "ParticipantResolveError",
 )<{
   readonly input: string;
@@ -61,26 +60,33 @@ export const request = <D extends RpcDefinition<string, any, any>>(
   params: ParamsOf<D>,
   socketPath?: string,
 ): Effect.Effect<ResultOf<D>, SocketRequestError> =>
-  sendSocketRequest(definition.name, params, socketPath).pipe(
-    Effect.flatMap((result) =>
-      definition.validateResult(result)
-        ? Effect.succeed(result as ResultOf<D>)
-        : Effect.fail(
-            socketRequestError(
-              definition.name,
-              `Malformed result for method: ${definition.name}`,
-              result,
+  Effect.suspend(() => {
+    const resolvedSocketPath = socketPath ?? MoltZapService.SOCKET_PATH;
+    return sendSocketRequest(definition.name, params, resolvedSocketPath).pipe(
+      Effect.flatMap((result) =>
+        definition.validateResult(result)
+          ? Effect.succeed(result as ResultOf<D>)
+          : Effect.fail(
+              socketRequestError(
+                definition.name,
+                `Malformed result for method: ${definition.name}`,
+                result,
+              ),
             ),
-          ),
-    ),
-  );
+      ),
+    );
+  });
 
 export const requestLocalService = (
   command: LocalServiceCommand,
   params?: Record<string, unknown>,
   socketPath?: string,
 ): Effect.Effect<unknown, SocketRequestError> =>
-  sendSocketRequest(command, params, socketPath);
+  Effect.suspend(() => {
+    const resolvedParams = params ?? {};
+    const resolvedSocketPath = socketPath ?? MoltZapService.SOCKET_PATH;
+    return sendSocketRequest(command, resolvedParams, resolvedSocketPath);
+  });
 
 export const sendSocketRequest = (
   method: string,
@@ -194,13 +200,20 @@ export const sendSocketRequest = (
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+type ResolvedAgentParticipant = {
+  readonly type: "agent";
+  readonly id: AgentId;
+};
+
+const resolvedAgentParticipant = (id: AgentId): ResolvedAgentParticipant => ({
+  type: "agent",
+  id,
+});
+
 /** Resolve "agent:name" or "agent:<uuid>" to { type, id }. */
 export const resolveParticipant = (
   raw: string,
-): Effect.Effect<
-  { readonly type: "agent"; readonly id: AgentId },
-  SocketClientError
-> =>
+): Effect.Effect<ResolvedAgentParticipant, SocketClientError> =>
   Effect.gen(function* () {
     const colon = raw.indexOf(":");
     if (colon === -1) {
@@ -221,7 +234,9 @@ export const resolveParticipant = (
         }),
       );
     }
-    if (UUID_RE.test(value)) return { type: "agent", id: value as AgentId };
+    if (UUID_RE.test(value)) {
+      return resolvedAgentParticipant(value as AgentId);
+    }
     const result = yield* request(AgentsLookupByName, {
       names: [value],
     });
@@ -233,10 +248,5 @@ export const resolveParticipant = (
         }),
       );
     }
-    return { type: "agent", id: result.agents[0]!.id };
-  });
-
-/** Pure predicate: socket path exists. Wrapped in Effect so callers compose it. */
-export const isServiceRunning: Effect.Effect<boolean> = Effect.sync(() =>
-  fs.existsSync(MoltZapService.SOCKET_PATH),
-);
+    return resolvedAgentParticipant(result.agents[0]!.id);
+  }).pipe(Effect.withSpan("resolveParticipant"));

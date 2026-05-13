@@ -5,10 +5,10 @@
  * shapes. Principle 3: error channels are typed unions, not thrown strings.
  * Principle 4: every union discriminates on `_tag`.
  *
- * Interfaces only. No function bodies beyond `throw new Error("not implemented")`.
+ * Public interfaces and branded boundary values only.
  */
 
-import { Brand, type Effect } from "effect";
+import type { Brand, Effect } from "effect";
 import type { EnrichedInboundMessage, WsClientLogger } from "@moltzap/client";
 import { agentId, conversationId, messageId } from "@moltzap/protocol/testing";
 import type { AgentId as ProtocolAgentId } from "@moltzap/protocol/identity";
@@ -46,7 +46,6 @@ export const UserId = agentId;
  * rendered as contract-meta `ts`.
  */
 export type IsoTimestamp = string & Brand.Brand<"IsoTimestamp">;
-export const IsoTimestamp = Brand.nominal<IsoTimestamp>();
 
 /**
  * Claude Code channel notification shape.
@@ -130,5 +129,3 @@ export interface Handle {
   ) => Effect.Effect<void, PushError>;
   readonly stop: () => Effect.Effect<void>;
 }
-
-export type { AllowlistError, BootError, PushError } from "./errors.js";

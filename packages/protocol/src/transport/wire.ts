@@ -66,7 +66,7 @@ const RpcErrorSchema = Type.Object(
 
 const ResponseIdSchema = Type.Union([JsonRpcIdSchema, Type.Null()]);
 
-export const RequestFrameSchema = Type.Object(
+const RequestFrameSchema = Type.Object(
   {
     jsonrpc: Type.Literal("2.0"),
     id: JsonRpcIdSchema,
@@ -76,7 +76,7 @@ export const RequestFrameSchema = Type.Object(
   { additionalProperties: false },
 );
 
-export const ResponseFrameSchema = Type.Union([
+const ResponseFrameSchema = Type.Union([
   Type.Object(
     {
       jsonrpc: Type.Literal("2.0"),
@@ -95,7 +95,7 @@ export const ResponseFrameSchema = Type.Union([
   ),
 ]);
 
-export const NotificationFrameSchema = Type.Object(
+const NotificationFrameSchema = Type.Object(
   {
     jsonrpc: Type.Literal("2.0"),
     method: JsonRpcMethodSchema,
@@ -107,6 +107,18 @@ export const NotificationFrameSchema = Type.Object(
 export type RequestFrame = Static<typeof RequestFrameSchema>;
 export type ResponseFrame = Static<typeof ResponseFrameSchema>;
 export type NotificationFrame = Static<typeof NotificationFrameSchema>;
+
+export function requestFrameSchema(): typeof RequestFrameSchema {
+  return RequestFrameSchema;
+}
+
+export function responseFrameSchema(): typeof ResponseFrameSchema {
+  return ResponseFrameSchema;
+}
+
+export function notificationFrameSchema(): typeof NotificationFrameSchema {
+  return NotificationFrameSchema;
+}
 
 export const validateRequestFrame = ajv.compile(RequestFrameSchema) as (
   v: unknown,
@@ -186,9 +198,17 @@ export function responseFrame(
   id: string | null,
   body: ResponseFrameBody,
 ): ResponseFrame {
+  if (id === null) {
+    return {
+      jsonrpc: JSON_RPC_VERSION,
+      id: null,
+      ...body,
+    } as ResponseFrame;
+  }
+
   return {
     jsonrpc: JSON_RPC_VERSION,
-    id: id === null ? null : JsonRpcIdBrand(id),
+    id: JsonRpcIdBrand(id),
     ...body,
   } as ResponseFrame;
 }
@@ -200,6 +220,7 @@ export function encodeErrorResponse(
   id: JsonRpcId | null,
   error: ResponseFrameError,
 ): ResponseFrame {
+  if (id === null) return responseFrame(null, { error });
   return responseFrame(id, { error });
 }
 

@@ -2,13 +2,19 @@
    per-class wire error codes (replaces the central WIRE_CODES table). */
 import { Data } from "effect";
 import { Type, type Static } from "@sinclair/typebox";
-import { stringEnum, DateTimeString, brandedId } from "../schema-primitives.js";
+import {
+  stringEnum,
+  dateTimeStringSchema,
+  brandedId,
+} from "../schema-primitives.js";
 import { AgentId } from "../identity/agents.js";
 import { defineRpc, defineNotification } from "../transport/method.js";
 import {
   registerErrorClass,
   type RpcErrorPayload,
 } from "../transport/wire-errors.js";
+
+const DateTimeString = dateTimeStringSchema();
 
 export const ConversationId = brandedId("ConversationId");
 export type ConversationId = Static<typeof ConversationId>;
@@ -38,7 +44,7 @@ registerErrorClass(ConversationFullError);
 
 export const ConversationTypeEnum = stringEnum(["dm", "group"]);
 
-export const AgentParticipantRefSchema = Type.Object(
+const AgentParticipantRefSchema = Type.Object(
   {
     type: stringEnum(["agent"]),
     id: Type.String({ format: "uuid" }),
@@ -46,14 +52,14 @@ export const AgentParticipantRefSchema = Type.Object(
   { additionalProperties: false },
 );
 
-export const ConversationMetadataSchema = Type.Object(
+const ConversationMetadataSchema = Type.Object(
   {
     tags: Type.Optional(Type.Array(Type.Record(Type.String(), Type.String()))),
   },
   { additionalProperties: false },
 );
 
-export const ConversationSchema = Type.Object(
+const ConversationSchema = Type.Object(
   {
     id: ConversationId,
     type: ConversationTypeEnum,
@@ -67,7 +73,7 @@ export const ConversationSchema = Type.Object(
   { additionalProperties: false },
 );
 
-export const ConversationParticipantSchema = Type.Object(
+const ConversationParticipantSchema = Type.Object(
   {
     conversationId: ConversationId,
     participant: AgentParticipantRefSchema,
@@ -80,7 +86,7 @@ export const ConversationParticipantSchema = Type.Object(
   { additionalProperties: false },
 );
 
-export const ConversationSummarySchema = Type.Object(
+const ConversationSummarySchema = Type.Object(
   {
     id: ConversationId,
     type: ConversationTypeEnum,
@@ -99,6 +105,14 @@ export type ConversationParticipant = Static<
   typeof ConversationParticipantSchema
 >;
 export type ConversationSummary = Static<typeof ConversationSummarySchema>;
+
+export function agentParticipantRefSchema(): typeof AgentParticipantRefSchema {
+  return AgentParticipantRefSchema;
+}
+
+export function conversationSchema(): typeof ConversationSchema {
+  return ConversationSchema;
+}
 
 export const ConversationsCreate = defineRpc({
   name: "conversations/create",

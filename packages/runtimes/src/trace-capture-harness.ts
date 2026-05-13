@@ -3,7 +3,6 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Data, Effect, Either } from "effect";
 import { startRuntimeAgent, type RuntimeKind } from "./fleet.js";
-import type { Runtime } from "./runtime.js";
 import { RuntimeReadyTimedOut, SpawnFailed } from "./errors.js";
 
 import {
@@ -1047,25 +1046,25 @@ function withExclusiveRun<A, E>(
     },
   never
 > {
-  return Effect.acquireUseRelease(
-    Effect.try({
-      try: () => {
-        if (activeRun) {
-          throw new ActiveTraceCaptureRunExists({
-            message:
-              "MoltZap trace-capture harness only supports one active run at a time",
-          });
-        }
-        activeRun = true;
-      },
-      catch: (error) =>
-        failHarness(error instanceof Error ? error.message : String(error)),
-    }),
-    () => effect,
-    () =>
+  return Effect.try({
+    try: () => {
+      if (activeRun) {
+        throw new ActiveTraceCaptureRunExists({
+          message:
+            "MoltZap trace-capture harness only supports one active run at a time",
+        });
+      }
+      activeRun = true;
+    },
+    catch: (error) =>
+      failHarness(error instanceof Error ? error.message : String(error)),
+  }).pipe(
+    Effect.zipRight(effect),
+    Effect.ensuring(
       Effect.sync(() => {
         activeRun = false;
       }),
+    ),
   );
 }
 
@@ -1083,158 +1082,151 @@ function createCoordinator(sourcePath: string, payload: HarnessPayload) {
       never
     > {
       return withExclusiveRun(
-        Effect.acquireUseRelease(
-          Effect.gen(function* () {
-            const [serverIndexModule, serverTestModule] = yield* Effect.all([
-              loadServerIndexModule(),
-              loadServerTestModule(),
-            ]);
-            const server = yield* Effect.tryPromise({
-              try: () =>
-                Promise.resolve(
-                  serverTestModule.startCoreTestServer({
-                    traceCaptureLayer:
-                      serverIndexModule.InMemoryTraceCaptureLive,
-                  }),
-                ) as Promise<CoreTestServer>,
-              catch: (error) =>
+        Effect.gen(function* () {
+          const [serverIndexModule, serverTestModule] = yield* Effect.all([
+            loadServerIndexModule(),
+            loadServerTestModule(),
+          ]);
+          const server = yield* Effect.tryPromise({
+            try: () =>
+              Promise.resolve(
+                serverTestModule.startCoreTestServer({
+                  traceCaptureLayer: serverIndexModule.InMemoryTraceCaptureLive,
+                }),
+              ) as Promise<CoreTestServer>,
+            catch: (error) =>
+              failHarness(
+                error instanceof Error ? error.message : String(error),
+              ),
+          });
+          return yield* Effect.gen(function* () {
+            const clientModule = yield* loadClientTestModule().pipe(
+              Effect.mapError((error) =>
                 failHarness(
                   error instanceof Error ? error.message : String(error),
                 ),
-            });
-            return { server, serverTestModule };
-          }),
-          ({ server }) =>
-            Effect.gen(function* () {
-              const clientModule = yield* loadClientTestModule().pipe(
-                Effect.mapError((error) =>
-                  failHarness(
-                    error instanceof Error ? error.message : String(error),
-                  ),
-                ),
+              ),
+            );
+            const targetAgentName =
+              payload.runtime.targetAgentName ??
+              defaultTargetAgentName(payload.runtime.kind);
+            const targetAgent = yield* clientModule
+              .registerAgent(server.baseUrl, targetAgentName)
+              .pipe(
+                Effect.map((registered) => ({
+                  agentId: registered.agentId,
+                  apiKey: registered.apiKey,
+                  agentName: targetAgentName,
+                })),
+                Effect.mapError((error) => failHarness(error.message)),
               );
-              const targetAgentName =
-                payload.runtime.targetAgentName ??
-                defaultTargetAgentName(payload.runtime.kind);
-              const targetAgent = yield* clientModule
-                .registerAgent(server.baseUrl, targetAgentName)
-                .pipe(
-                  Effect.map((registered) => ({
-                    agentId: registered.agentId,
-                    apiKey: registered.apiKey,
-                    agentName: targetAgentName,
-                  })),
-                  Effect.mapError((error) => failHarness(error.message)),
-                );
-              const runtimeStartedAt = new Date().toISOString();
-              return yield* Effect.acquireUseRelease(
-                startRuntimeAgent({
-                  kind: payload.runtime.kind,
-                  server: server.runtimeServer,
-                  readyTimeoutMs:
-                    payload.runtime.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS,
-                  agent: {
-                    agentName: targetAgent.agentName,
-                    apiKey: targetAgent.apiKey,
-                    agentId: targetAgent.agentId,
-                    serverUrl: clientModule.stripWsPath(server.wsUrl),
+            const runtimeStartedAt = new Date().toISOString();
+            const runtime = yield* startRuntimeAgent({
+              kind: payload.runtime.kind,
+              server: server.runtimeServer,
+              readyTimeoutMs:
+                payload.runtime.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS,
+              agent: {
+                agentName: targetAgent.agentName,
+                apiKey: targetAgent.apiKey,
+                agentId: targetAgent.agentId,
+                serverUrl: clientModule.stripWsPath(server.wsUrl),
+              },
+            }).pipe(
+              Effect.mapError((error) => {
+                if (error instanceof SpawnFailed) {
+                  return failAgentStart({
+                    _tag: "ContainerStartFailed",
+                    message: error.message,
+                  });
+                }
+                if (error instanceof RuntimeReadyTimedOut) {
+                  return failAgentStart({
+                    _tag: "ContainerStartFailed",
+                    message: `runtime did not authenticate within ${String(error.timeoutMs)}ms`,
+                  });
+                }
+                return failAgentStart({
+                  _tag: "ContainerStartFailed",
+                  message: `runtime exited before readiness: ${error.stderr}`,
+                });
+              }),
+            );
+            return yield* Effect.gen(function* () {
+              void runtime;
+              const conversationRun = yield* executeConversationPlan({
+                payload,
+                baseUrl: server.baseUrl,
+                wsUrl: server.wsUrl,
+                targetAgentId: targetAgent.agentId,
+                clientModule,
+              });
+              const traceEvents = yield* server.coreApp.traceCapture.snapshot();
+              const participantNames = conversationRun.participants.map(
+                (participant): readonly [string, string] => [
+                  participant.id,
+                  participant.name,
+                ],
+              );
+              const namesById = new Map<string, string>([
+                [targetAgent.agentId, targetAgent.agentName],
+                ...participantNames,
+              ]);
+              const events = traceEvents.map((event) =>
+                toBundleEvent(event, namesById),
+              );
+              return {
+                runId: opts.runId ?? randomUUID(),
+                project: plan.project,
+                scenarioId: plan.scenarioId,
+                name: plan.name,
+                description: plan.description,
+                requirements: plan.requirements,
+                agents: [
+                  {
+                    id: targetAgent.agentId,
+                    name: targetAgent.agentName,
+                    role: "target",
                   },
-                }).pipe(
-                  Effect.mapError((error) => {
-                    if (error instanceof SpawnFailed) {
-                      return failAgentStart({
-                        _tag: "ContainerStartFailed",
-                        message: error.message,
-                      });
-                    }
-                    if (error instanceof RuntimeReadyTimedOut) {
-                      return failAgentStart({
-                        _tag: "ContainerStartFailed",
-                        message: `runtime did not authenticate within ${String(error.timeoutMs)}ms`,
-                      });
-                    }
-                    return failAgentStart({
-                      _tag: "ContainerStartFailed",
-                      message: `runtime exited before readiness: ${error.stderr}`,
-                    });
-                  }),
-                ),
-                (runtime: Runtime) =>
-                  Effect.gen(function* () {
-                    void runtime;
-                    const conversationRun = yield* executeConversationPlan({
-                      payload,
-                      baseUrl: server.baseUrl,
-                      wsUrl: server.wsUrl,
-                      targetAgentId: targetAgent.agentId,
-                      clientModule,
-                    });
-                    const traceEvents =
-                      yield* server.coreApp.traceCapture.snapshot();
-                    const participantNames = conversationRun.participants.map(
-                      (participant): readonly [string, string] => [
-                        participant.id,
-                        participant.name,
-                      ],
-                    );
-                    const namesById = new Map<string, string>([
-                      [targetAgent.agentId, targetAgent.agentName],
-                      ...participantNames,
-                    ]);
-                    const events = traceEvents.map((event) =>
-                      toBundleEvent(event, namesById),
-                    );
-                    return {
-                      runId: opts.runId ?? randomUUID(),
-                      project: plan.project,
-                      scenarioId: plan.scenarioId,
-                      name: plan.name,
-                      description: plan.description,
-                      requirements: plan.requirements,
-                      agents: [
-                        {
-                          id: targetAgent.agentId,
-                          name: targetAgent.agentName,
-                          role: "target",
-                        },
-                        ...conversationRun.participants,
-                      ],
-                      ...(events.length > 0 ? { events } : {}),
-                      context: {
-                        runtimeKind: payload.runtime.kind,
-                        conversationKind: payload.conversation.kind,
-                        responses: conversationRun.responses,
-                      },
-                      outcomes: [
-                        {
-                          agentId: targetAgent.agentId,
-                          status: "completed",
-                          startedAt: runtimeStartedAt,
-                          endedAt: new Date().toISOString(),
-                        },
-                        ...conversationRun.participants.map((participant) => ({
-                          agentId: participant.id,
-                          status: "completed",
-                          startedAt: runtimeStartedAt,
-                          endedAt: new Date().toISOString(),
-                        })),
-                      ],
-                      metadata: {
-                        modelName: `moltzap/${payload.runtime.kind}`,
-                        sourcePath,
-                      },
-                    };
-                  }),
-                (runtime) => runtime.teardown(),
-              );
-            }),
-          ({ serverTestModule }) =>
-            Effect.tryPromise({
-              try: () => Promise.resolve(serverTestModule.stopCoreTestServer()),
-              catch: (error) =>
-                error instanceof Error ? error : new Error(String(error)),
-            }).pipe(Effect.catchAll(() => Effect.void)),
-        ),
+                  ...conversationRun.participants,
+                ],
+                ...(events.length > 0 ? { events } : {}),
+                context: {
+                  runtimeKind: payload.runtime.kind,
+                  conversationKind: payload.conversation.kind,
+                  responses: conversationRun.responses,
+                },
+                outcomes: [
+                  {
+                    agentId: targetAgent.agentId,
+                    status: "completed",
+                    startedAt: runtimeStartedAt,
+                    endedAt: new Date().toISOString(),
+                  },
+                  ...conversationRun.participants.map((participant) => ({
+                    agentId: participant.id,
+                    status: "completed",
+                    startedAt: runtimeStartedAt,
+                    endedAt: new Date().toISOString(),
+                  })),
+                ],
+                metadata: {
+                  modelName: `moltzap/${payload.runtime.kind}`,
+                  sourcePath,
+                },
+              };
+            }).pipe(Effect.ensuring(runtime.teardown()));
+          }).pipe(
+            Effect.ensuring(
+              Effect.tryPromise({
+                try: () =>
+                  Promise.resolve(serverTestModule.stopCoreTestServer()),
+                catch: (error) =>
+                  error instanceof Error ? error : new Error(String(error)),
+              }).pipe(Effect.catchAll(() => Effect.void)),
+            ),
+          );
+        }),
       ).pipe(Effect.mapError(asHarnessFailure));
     },
   };

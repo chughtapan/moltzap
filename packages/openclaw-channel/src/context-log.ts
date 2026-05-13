@@ -1,10 +1,10 @@
-import fs from "node:fs";
 import path from "node:path";
 
 import { Config, ConfigProvider, Effect, Option } from "effect";
 import type { CrossConvMessage } from "@moltzap/client";
+import { appendFileSync, makeDirectorySync } from "./node-fs-sync.js";
 
-export interface OpenClawContextLogEntry {
+interface OpenClawContextLogEntry {
   readonly schemaVersion: 1;
   readonly recordedAt: string;
   readonly pid: number;
@@ -96,8 +96,8 @@ export function writeOpenClawContextLog(input: OpenClawContextLogInput): void {
     crossConversationMessages: input.crossConversationMessages,
   };
 
-  fs.mkdirSync(input.logDir, { recursive: true });
-  fs.appendFileSync(
+  makeDirectorySync(input.logDir);
+  appendFileSync(
     contextLogPath(input.logDir, input.accountAgentName),
     `${JSON.stringify(entry)}\n`,
     "utf8",

@@ -1,7 +1,16 @@
-import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import { Config, ConfigProvider, Data, Effect, Option } from "effect";
+import { FileSystem } from "@effect/platform";
+import { NodeFileSystem } from "@effect/platform-node";
+import {
+  Config,
+  ConfigProvider,
+  Data,
+  Effect,
+  Either,
+  Option,
+  Redacted,
+} from "effect";
 
 /**
  * CLI config shape. Loaded via `Effect.Config` from the on-disk JSON file
@@ -14,12 +23,11 @@ export interface MoltZapConfig {
   agentName?: string;
 }
 
-const CONFIG_DIR = path.join(os.homedir(), ".moltzap");
-const CONFIG_PATH = path.join(CONFIG_DIR, "config.json");
-
 const DEFAULT_SERVER_URL = "wss://api.moltzap.xyz";
 const CONFIG_FILE_MODE = 0o600;
 const JSON_INDENT_SPACES = 2;
+const CONFIG_FILE_NAME = "config.json";
+const ConfigHome = Config.option(Config.string("MOLTZAP_CONFIG_HOME"));
 
 export type CliConfigError =
   | ConfigReadError
@@ -56,16 +64,26 @@ const ConfigSchema = Config.all({
   serverUrl: Config.string("serverUrl").pipe(
     Config.withDefault(DEFAULT_SERVER_URL),
   ),
-  apiKey: Config.option(Config.string("apiKey")),
+  apiKey: Config.option(Config.redacted("apiKey")),
   agentName: Config.option(Config.string("agentName")),
 });
 const EnvOverrideSchema = Config.all({
-  apiKey: Config.option(Config.string("MOLTZAP_API_KEY")),
+  apiKey: Config.option(Config.redacted("MOLTZAP_API_KEY")),
   serverUrl: Config.option(Config.string("MOLTZAP_SERVER_URL")),
 });
 
+const getConfigHomeSync = (): string | undefined =>
+  Option.getOrUndefined(
+    Effect.runSync(
+      ConfigHome.pipe(Effect.withConfigProvider(ConfigProvider.fromEnv())),
+    ),
+  );
+
+const getConfigDir = (): string =>
+  getConfigHomeSync() ?? path.join(os.homedir(), ".moltzap");
+
 export function getConfigPath(): string {
-  return CONFIG_PATH;
+  return path.join(getConfigDir(), CONFIG_FILE_NAME);
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -77,24 +95,34 @@ const readJsonFile = (): Effect.Effect<
   ConfigReadError
 > =>
   Effect.gen(function* () {
-    const text = yield* Effect.try({
-      try: () => fs.readFileSync(CONFIG_PATH, "utf-8"),
-      catch: (err) => err,
-    }).pipe(
-      Effect.catchAll((err) => {
-        const code = (err as NodeJS.ErrnoException).code;
-        return code === "ENOENT"
-          ? Effect.succeed(null)
-          : Effect.fail(
+    const configPath = getConfigPath();
+    const text = yield* FileSystem.FileSystem.pipe(
+      Effect.flatMap((fileSystem) =>
+        fileSystem
+          .exists(configPath)
+          .pipe(
+            Effect.flatMap((exists) =>
+              exists
+                ? fileSystem.readFileString(configPath, "utf-8")
+                : Effect.succeed(null),
+            ),
+          ),
+      ),
+      Effect.provide(NodeFileSystem.layer),
+      Effect.either,
+      Effect.flatMap(
+        Either.match({
+          onLeft: (cause) =>
+            Effect.fail(
               new ConfigReadError({
-                cause: err,
-                message: `Failed to read ${CONFIG_PATH}: ${
-                  err instanceof Error ? err.message : String(err)
-                }`,
-                path: CONFIG_PATH,
+                cause,
+                message: `Failed to read ${configPath}: ${cause.message}`,
+                path: configPath,
               }),
-            );
-      }),
+            ),
+          onRight: (value) => Effect.succeed(value),
+        }),
+      ),
     );
     if (text === null) return {};
     const parsed = yield* Effect.try({
@@ -102,18 +130,18 @@ const readJsonFile = (): Effect.Effect<
       catch: (err) =>
         new ConfigReadError({
           cause: err,
-          message: `Failed to parse ${CONFIG_PATH}: ${
+          message: `Failed to parse ${configPath}: ${
             err instanceof Error ? err.message : String(err)
           }`,
-          path: CONFIG_PATH,
+          path: configPath,
         }),
     });
     if (!isRecord(parsed)) {
       return yield* Effect.fail(
         new ConfigReadError({
           cause: "config root is not a JSON object",
-          message: `Failed to parse ${CONFIG_PATH}: config root is not a JSON object`,
-          path: CONFIG_PATH,
+          message: `Failed to parse ${configPath}: config root is not a JSON object`,
+          path: configPath,
         }),
       );
     }
@@ -130,13 +158,14 @@ export const loadConfig: Effect.Effect<
   MoltZapConfig,
   ConfigReadError | ConfigInvalidError
 > = Effect.gen(function* () {
+  const configPath = getConfigPath();
   const json = yield* readJsonFile();
 
   const env: Record<string, string> = {};
   const envOverrides = yield* EnvOverrideSchema.pipe(
     Effect.withConfigProvider(ConfigProvider.fromEnv()),
     Effect.orElseSucceed(() => ({
-      apiKey: Option.none<string>(),
+      apiKey: Option.none<Redacted.Redacted<string>>(),
       serverUrl: Option.none<string>(),
     })),
   );
@@ -149,20 +178,26 @@ export const loadConfig: Effect.Effect<
   Option.match(envOverrides.apiKey, {
     onNone: () => undefined,
     onSome: (value) => {
-      env.apiKey = value;
+      env.apiKey = Redacted.value(value);
     },
   });
 
   const provider = ConfigProvider.fromJson({ ...json, ...env });
   const value = yield* ConfigSchema.pipe(
     Effect.withConfigProvider(provider),
-    Effect.mapError(
-      (cause) =>
-        new ConfigInvalidError({
-          cause,
-          message: `Invalid config in ${CONFIG_PATH}: ${cause}`,
-          path: CONFIG_PATH,
-        }),
+    Effect.either,
+    Effect.flatMap(
+      Either.match({
+        onLeft: (cause) =>
+          Effect.fail(
+            new ConfigInvalidError({
+              cause,
+              message: `Invalid config in ${configPath}: ${cause}`,
+              path: configPath,
+            }),
+          ),
+        onRight: (value) => Effect.succeed(value),
+      }),
     ),
   );
 
@@ -170,7 +205,7 @@ export const loadConfig: Effect.Effect<
   Option.match(value.apiKey, {
     onNone: () => undefined,
     onSome: (value) => {
-      result.apiKey = value;
+      result.apiKey = Redacted.value(value);
     },
   });
   Option.match(value.agentName, {
@@ -180,32 +215,42 @@ export const loadConfig: Effect.Effect<
     },
   });
   return result;
-});
+}).pipe(Effect.withSpan("loadConfig"));
 
 /** Write a new config blob to disk. Used by `moltzap register` post-registration. */
-export const writeConfig = (
+const writeConfig = (
   config: MoltZapConfig,
 ): Effect.Effect<void, ConfigWriteError> =>
-  Effect.try({
-    try: () => {
-      fs.mkdirSync(CONFIG_DIR, { recursive: true });
-      fs.writeFileSync(
-        CONFIG_PATH,
-        JSON.stringify(config, null, JSON_INDENT_SPACES) + "\n",
-        {
-          mode: CONFIG_FILE_MODE,
-        },
+  FileSystem.FileSystem.pipe(
+    Effect.flatMap((fileSystem) => {
+      const configDir = getConfigDir();
+      const configPath = getConfigPath();
+      return fileSystem.makeDirectory(configDir, { recursive: true }).pipe(
+        Effect.zipRight(
+          fileSystem.writeFileString(
+            configPath,
+            JSON.stringify(config, null, JSON_INDENT_SPACES) + "\n",
+            { mode: CONFIG_FILE_MODE },
+          ),
+        ),
+        Effect.either,
+        Effect.flatMap(
+          Either.match({
+            onLeft: (cause) =>
+              Effect.fail(
+                new ConfigWriteError({
+                  cause,
+                  message: `Failed to write ${configPath}: ${cause.message}`,
+                  path: configPath,
+                }),
+              ),
+            onRight: (value) => Effect.succeed(value),
+          }),
+        ),
       );
-    },
-    catch: (err) =>
-      new ConfigWriteError({
-        cause: err,
-        message: `Failed to write ${CONFIG_PATH}: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-        path: CONFIG_PATH,
-      }),
-  });
+    }),
+    Effect.provide(NodeFileSystem.layer),
+  );
 
 /** Load-modify-write helper. */
 export const updateConfig = (

@@ -5,11 +5,22 @@
 //   4. dispatches/* moderator-observability descriptors
 //   5. Aggregator arrays
 import { Type, type Static } from "@sinclair/typebox";
-import { AgentId, AgentOwnershipSchema } from "../identity/methods.js";
+import Ajv from "ajv";
+import addFormats from "ajv-formats";
+import { AgentId, agentOwnershipSchema } from "../identity/methods.js";
 import { ConversationId, MessageId, TaskId } from "../task/methods.js";
-import { MessagePartsSchema, LogicalClockSchema } from "../task/methods.js";
-import { DateTimeString, brandedId, stringEnum } from "../schema-primitives.js";
+import { messagePartsSchema, logicalClockSchema } from "../task/methods.js";
+import {
+  dateTimeStringSchema,
+  brandedId,
+  stringEnum,
+} from "../schema-primitives.js";
 import { defineNotification, defineRpc } from "../transport/method.js";
+
+const DateTimeString = dateTimeStringSchema();
+const AgentOwnershipSchema = agentOwnershipSchema();
+const MessagePartsSchema = messagePartsSchema();
+const LogicalClockSchema = logicalClockSchema();
 
 // ── App manifest schema ──────────────────────────────────────────────
 
@@ -52,7 +63,7 @@ const HookEntrySchema = Type.Object(
  * `dispatch_authorize` is absent: `grant`. See #560 for the send-side
  * design and #538/#536 for the receive-side history.
  */
-export const AppManifestSchema = Type.Object(
+const AppManifestSchema = Type.Object(
   {
     appId: Type.String(),
     name: Type.String(),
@@ -80,6 +91,38 @@ export const AppManifestSchema = Type.Object(
 );
 
 export type AppManifest = Static<typeof AppManifestSchema>;
+
+const appManifestValidator = addFormats(
+  new Ajv({ strict: true, allErrors: true }),
+).compile<AppManifest>(AppManifestSchema);
+
+const formatAppManifestError = (error: {
+  readonly instancePath?: string;
+  readonly message?: string;
+}): string =>
+  `${error.instancePath || "/"} ${error.message ?? "validation failed"}`;
+
+export type AppManifestValidationResult =
+  | { readonly _tag: "Valid"; readonly manifest: AppManifest }
+  | { readonly _tag: "Invalid"; readonly errors: readonly string[] };
+
+export function validateAppManifest(
+  value: unknown,
+): AppManifestValidationResult {
+  if (appManifestValidator(value)) {
+    return { _tag: "Valid", manifest: value };
+  }
+  const errors = (appManifestValidator.errors ?? []).map(
+    formatAppManifestError,
+  );
+  return {
+    _tag: "Invalid",
+    errors: errors.length > 0 ? errors : ["unknown validation failure"],
+  };
+}
+
+export const isAppManifest = (value: unknown): value is AppManifest =>
+  validateAppManifest(value)._tag === "Valid";
 
 // ── apps/* RPCs ──────────────────────────────────────────────────────
 

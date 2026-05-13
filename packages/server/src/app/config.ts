@@ -1,6 +1,6 @@
-import { Config, ConfigError, Effect, Option } from "effect";
+import { Config, ConfigError, Effect, Option, Redacted } from "effect";
 
-export interface CorsConfig {
+interface CorsConfig {
   exact: string[];
   patterns: RegExp[];
 }
@@ -23,9 +23,6 @@ export interface LoadedConfig {
   };
   devMode: boolean;
 }
-
-/** Type alias so copied infrastructure files (e.g. db/client.ts) compile without changes. */
-export type ServerConfig = LoadedConfig;
 
 const CORS_REGEX_PREFIX = "regex:";
 const DEFAULT_SERVER_PORT = 3000;
@@ -97,7 +94,10 @@ export const ServerConfigLoader: Effect.Effect<
   }
 
   const masterSecret = Option.getOrUndefined(
-    yield* Config.option(Config.string("ENCRYPTION_MASTER_SECRET")),
+    Option.map(
+      yield* Config.option(Config.redacted("ENCRYPTION_MASTER_SECRET")),
+      Redacted.value,
+    ),
   );
 
   const port = yield* Config.integer("PORT").pipe(
@@ -115,7 +115,7 @@ export const ServerConfigLoader: Effect.Effect<
     server: { port, corsOrigins },
     devMode,
   };
-});
+}).pipe(Effect.withSpan("ServerConfigLoader"));
 
 /**
  * Sync facade for the one boot entry (`app/dev.ts`) that runs outside an

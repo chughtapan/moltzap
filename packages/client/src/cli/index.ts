@@ -29,6 +29,7 @@ import {
   ProfileInvalidNameError,
   ProfileNotFoundError,
 } from "./profile.js";
+import { currentArgv } from "./process-argv.js";
 
 const require = createRequire(import.meta.url);
 const { version } = require("../../package.json") as { version: string };
@@ -154,8 +155,9 @@ const moltzap = Command.make("moltzap").pipe(
 const cli = Command.run(moltzap, { name: "moltzap", version });
 const NODE_ARGV_USER_ARGS_OFFSET = 2;
 
+const processArgv = currentArgv();
 const { impersonateKey, profileName, rest } = extractGlobalFlags(
-  process.argv.slice(NODE_ARGV_USER_ARGS_OFFSET),
+  processArgv.slice(NODE_ARGV_USER_ARGS_OFFSET),
 );
 
 const resolverInput: { impersonateKey?: string; profileName?: string } = {};
@@ -197,8 +199,8 @@ const TransportLive = makeTransportLayer(transportOptions);
 // Re-assemble argv so @effect/cli sees the same process-shape it expects
 // (Command.run slices off the first two tokens).
 const argvForCli = [
-  process.argv[0] ?? "node",
-  process.argv[1] ?? "moltzap",
+  processArgv[0] ?? "node",
+  processArgv[1] ?? "moltzap",
   ...rest,
 ];
 

@@ -35,7 +35,7 @@ export function sortJsonArray(
  * Use before final `JSON.stringify` so key-order noise does not break
  * byte-compare. Safe to apply over any payload.
  */
-export function sortObjectKeysDeep(value: unknown): unknown {
+function sortObjectKeysDeep(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(sortObjectKeysDeep);
   if (value === null || typeof value !== "object") return value;
   const out: Record<string, unknown> = {};

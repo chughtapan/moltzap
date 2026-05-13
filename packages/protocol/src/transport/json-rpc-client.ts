@@ -119,56 +119,43 @@ export const makeJsonRpcClient = (config: {
         const id = frame.id;
         const deferred = yield* Deferred.make<unknown, RpcCallError>();
 
-        // Issue #310 contract: the pending insert/remove are an
-        // acquireUseRelease pair. Release runs on success, error, AND
-        // interrupt, so a caller-driven cancellation
-        // (Effect.timeout, Fiber.interrupt) cleans up before the exit
-        // unwinds. A late inbound response then finds nothing in the
-        // map and `resolve` returns false (no Deferred re-resolve).
-        return yield* Effect.acquireUseRelease(
-          // acquire: register the pending entry. Atomic Ref.update —
-          // `resolve` and the Scope finalizer key off the same Ref, so
-          // all writers serialize.
-          Ref.update(pendingRef, (m) =>
-            HashMap.set(m, id, { method, definition, deferred }),
-          ),
-          // use: write the frame and await the response. Write
-          // failures fail the Deferred so a late inbound frame's
-          // `Deferred.succeed` is a no-op via `Effect.ignore` on an
-          // already-failed Deferred.
-          () =>
-            Effect.gen(function* () {
-              yield* config.write(JSON.stringify(frame)).pipe(
-                Effect.catchAll(() => {
-                  const err = new NotConnectedError({
-                    message: `JsonRpcClient: write failed for ${method}`,
-                  });
-                  return Deferred.fail(deferred, err).pipe(
-                    Effect.ignore,
-                    Effect.zipRight(Effect.fail<RpcCallError>(err)),
-                  );
-                }),
+        // Issue #310 contract: insert the pending entry before writing
+        // and remove it on success, error, or interrupt. A late inbound
+        // response then finds nothing in the map and `resolve` returns
+        // false (no Deferred re-resolve).
+        yield* Ref.update(pendingRef, (m) =>
+          HashMap.set(m, id, { method, definition, deferred }),
+        );
+
+        return yield* Effect.gen(function* () {
+          yield* config.write(JSON.stringify(frame)).pipe(
+            Effect.catchAll(() => {
+              const err = new NotConnectedError({
+                message: `JsonRpcClient: write failed for ${method}`,
+              });
+              return Deferred.fail(deferred, err).pipe(
+                Effect.ignore,
+                Effect.zipRight(Effect.fail<RpcCallError>(err)),
               );
-              const result = yield* Deferred.await(deferred);
-              const decoded = yield* decodeRpcResult(definition, result).pipe(
-                Effect.mapError(
-                  () =>
-                    new RpcServerError({
-                      code: JSON_RPC_RESERVED_CODES.InternalError,
-                      message: `Invalid result for method: ${method}`,
-                      data: result,
-                    }),
-                ),
-              );
-              return decoded as ResultOf<D>;
             }),
-          // release: remove the entry. Idempotent — `HashMap.remove`
-          // on an already-removed key is a no-op, so this is safe
-          // whether `resolve` already removed it (success/error path)
-          // or the Scope finalizer drained it (disconnect path).
-          () => Ref.update(pendingRef, (m) => HashMap.remove(m, id)),
+          );
+          const result = yield* Deferred.await(deferred);
+          const decoded = yield* decodeRpcResult(definition, result).pipe(
+            Effect.catchTag("RpcResultDecodeError", () =>
+              Effect.fail(
+                new RpcServerError({
+                  code: JSON_RPC_RESERVED_CODES.InternalError,
+                  message: `Invalid result for method: ${method}`,
+                  data: result,
+                }),
+              ),
+            ),
+          );
+          return decoded as ResultOf<D>;
+        }).pipe(
+          Effect.ensuring(Ref.update(pendingRef, (m) => HashMap.remove(m, id))),
         );
       });
 
     return { call, resolve, failAllPending };
-  });
+  }).pipe(Effect.withSpan("makeJsonRpcClient"));

@@ -53,7 +53,7 @@ export interface RoutingState {
   readonly resolveTarget: (replyTo: MessageId | undefined) => RoutingResolution;
 }
 
-export type RoutingResolution =
+type RoutingResolution =
   | { readonly _tag: "Resolved"; readonly conversationId: ConversationId }
   | { readonly _tag: "NoActiveConversation" }
   | { readonly _tag: "ReplyToUnknown"; readonly replyTo: MessageId };

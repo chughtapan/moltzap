@@ -61,6 +61,6 @@ export function visibleAgentIds(
         ]),
       );
       return rows.map((r) => r.id);
-    }),
+    }).pipe(Effect.withSpan("visibleAgentIds")),
   );
 }

@@ -1,29 +1,23 @@
 import { describe, expect, it } from "vitest";
-import Ajv from "ajv";
-import addFormats from "ajv-formats";
-import { MessageSchema, TextPartSchema } from "./methods.js";
-
-const ajv = addFormats(new Ajv({ strict: true }));
+import { validateMessage, validateTextPart } from "./methods.js";
 
 describe("TextPartSchema", () => {
-  const validate = ajv.compile(TextPartSchema);
-
   it("accepts valid text part", () => {
-    expect(validate({ type: "text", text: "hello" })).toBe(true);
+    expect(validateTextPart({ type: "text", text: "hello" })).toBe(true);
   });
 
   it("rejects empty text", () => {
-    expect(validate({ type: "text", text: "" })).toBe(false);
+    expect(validateTextPart({ type: "text", text: "" })).toBe(false);
   });
 
   it("rejects extra properties", () => {
-    expect(validate({ type: "text", text: "hello", extra: true })).toBe(false);
+    expect(validateTextPart({ type: "text", text: "hello", extra: true })).toBe(
+      false,
+    );
   });
 });
 
 describe("MessageSchema", () => {
-  const validate = ajv.compile(MessageSchema);
-
   const validMessage = {
     id: "550e8400-e29b-41d4-a716-446655440000",
     conversationId: "660e8400-e29b-41d4-a716-446655440000",
@@ -33,16 +27,16 @@ describe("MessageSchema", () => {
   };
 
   it("accepts valid message", () => {
-    expect(validate(validMessage)).toBe(true);
+    expect(validateMessage(validMessage)).toBe(true);
   });
 
   it("rejects message with no parts", () => {
-    expect(validate({ ...validMessage, parts: [] })).toBe(false);
+    expect(validateMessage({ ...validMessage, parts: [] })).toBe(false);
   });
 
   it("accepts message with replyToId", () => {
     expect(
-      validate({
+      validateMessage({
         ...validMessage,
         replyToId: "880e8400-e29b-41d4-a716-446655440000",
       }),
@@ -50,6 +44,6 @@ describe("MessageSchema", () => {
   });
 
   it("rejects message with extra properties", () => {
-    expect(validate({ ...validMessage, extra: true })).toBe(false);
+    expect(validateMessage({ ...validMessage, extra: true })).toBe(false);
   });
 });

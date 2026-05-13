@@ -1,23 +1,50 @@
 /**
  * Generates Mintlify MDX documentation pages from TypeBox protocol schemas.
  *
- * Run: pnpm --filter @moltzap/protocol tsx ../../scripts/generate-protocol-docs.ts
+ * Run: `pnpm --filter \@moltzap/protocol tsx ../../scripts/generate-protocol-docs.ts`
  */
 import { readdirSync, unlinkSync, writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
-import { Kind, type TSchema, type TProperties } from "@sinclair/typebox";
-import type { RpcDefinition } from "../packages/protocol/src/transport/rpc.js";
 import {
   rpcMethods,
   taskCallbackMethods,
   notificationDefinitions,
 } from "../packages/protocol/src/rpc-registry.js";
-import type { NotificationDefinition } from "../packages/protocol/src/transport/notification.js";
 import * as protocolSchema from "../packages/protocol/src/index.js";
 
 // ── Protocol Registry ───────────────────────────────────────────────────
 
-type AnyRpcDocDefinition = RpcDefinition<string, TSchema, TSchema>;
+const TypeBoxKind = Symbol.for("TypeBox.Kind");
+const SORT_KEY_PAD_WIDTH = 2;
+const JSON_INDENT = 2;
+const TASKS_CREATE_METHOD = "tasks/create";
+
+interface TypeBoxSchema {
+  readonly [key: symbol]: unknown;
+  readonly anyOf?: readonly TypeBoxSchema[];
+  readonly const?: unknown;
+  readonly description?: string;
+  readonly enum?: readonly unknown[];
+  readonly format?: string;
+  readonly properties?: TypeBoxProperties;
+  readonly required?: readonly string[];
+  readonly type?: unknown;
+}
+
+type TypeBoxProperties = Readonly<Record<string, TypeBoxSchema>>;
+
+interface AnyRpcDocDefinition {
+  readonly name: string;
+  readonly paramsSchema: TypeBoxSchema;
+  readonly resultSchema: TypeBoxSchema;
+  readonly validateParams: (data: unknown) => boolean;
+  readonly validateResult: (data: unknown) => boolean;
+}
+
+interface NotificationDocDefinition {
+  readonly name: string;
+  readonly paramsSchema: TypeBoxSchema;
+}
 
 interface ErrorDoc {
   readonly code: number;
@@ -311,20 +338,20 @@ const notificationDocs: Readonly<Record<string, NotificationDocMeta>> = {
   },
   "app/participantAdmitted": {
     description: "Pushed when an agent is admitted to a task.",
-    triggeredBy: ["tasks/create"],
+    triggeredBy: [TASKS_CREATE_METHOD],
   },
   "app/participantRejected": {
     description: "Pushed when an agent is rejected from a task.",
-    triggeredBy: ["tasks/create"],
+    triggeredBy: [TASKS_CREATE_METHOD],
   },
   "task/ready": {
     description:
       "Pushed when all required agents are admitted and the task is active.",
-    triggeredBy: ["tasks/create"],
+    triggeredBy: [TASKS_CREATE_METHOD],
   },
   "task/failed": {
     description: "Pushed when a task fails before becoming ready.",
-    triggeredBy: ["tasks/create"],
+    triggeredBy: [TASKS_CREATE_METHOD],
   },
   "task/closed": {
     description: "Pushed when a task closes.",
@@ -333,7 +360,7 @@ const notificationDocs: Readonly<Record<string, NotificationDocMeta>> = {
   "task/admissionComplete": {
     description:
       "Server → TM notification fired after admission completes (carries the admitted agent ids), before task/ready reaches participants.",
-    triggeredBy: ["tasks/create"],
+    triggeredBy: [TASKS_CREATE_METHOD],
   },
 };
 
@@ -356,16 +383,24 @@ function protocolRpcDefinitions(): readonly AnyRpcDocDefinition[] {
 
 function isRpcDefinition(value: unknown): value is AnyRpcDocDefinition {
   if (typeof value !== "object" || value === null) return false;
-  const candidate = value as Record<string, unknown>;
+  const name = getOwnProperty(value, "name");
+  const paramsSchema = getOwnProperty(value, "paramsSchema");
+  const resultSchema = getOwnProperty(value, "resultSchema");
+  const validateParams = getOwnProperty(value, "validateParams");
+  const validateResult = getOwnProperty(value, "validateResult");
   return (
-    typeof candidate.name === "string" &&
-    typeof candidate.paramsSchema === "object" &&
-    candidate.paramsSchema !== null &&
-    typeof candidate.resultSchema === "object" &&
-    candidate.resultSchema !== null &&
-    typeof candidate.validateParams === "function" &&
-    typeof candidate.validateResult === "function"
+    typeof name === "string" &&
+    typeof paramsSchema === "object" &&
+    paramsSchema !== null &&
+    typeof resultSchema === "object" &&
+    resultSchema !== null &&
+    typeof validateParams === "function" &&
+    typeof validateResult === "function"
   );
+}
+
+function getOwnProperty(value: object, key: string): unknown {
+  return Object.hasOwn(value, key) ? Reflect.get(value, key) : undefined;
 }
 
 function methodSortKey(method: string): string {
@@ -384,14 +419,19 @@ function methodSortKey(method: string): string {
   const prefix = method.split("/")[0] ?? "";
   const index = prefixOrder.indexOf(prefix);
   const order = index === -1 ? prefixOrder.length : index;
-  return `${order.toString().padStart(2, "0")}:${method}`;
+  return `${order.toString().padStart(SORT_KEY_PAD_WIDTH, "0")}:${method}`;
 }
 
 // ── Schema Introspection ─────────────────────────────────────────────────
 
-function getTypeName(schema: TSchema): string {
+function getSchemaKind(schema: TypeBoxSchema): string | undefined {
+  const kind = schema[TypeBoxKind];
+  return typeof kind === "string" ? kind : undefined;
+}
+
+function getTypeName(schema: TypeBoxSchema): string {
   if (!schema) return "unknown";
-  const kind = schema[Kind];
+  const kind = getSchemaKind(schema);
   if (kind === "String") {
     if (schema.format === "uuid") return "string (UUID)";
     if (schema.format === "uri") return "string (URI)";
@@ -410,33 +450,31 @@ function getTypeName(schema: TSchema): string {
   if (kind === "Literal") return String(schema.const);
   if (kind === "Unsafe") {
     if (schema.enum) return schema.enum.join(" | ");
-    return schema.type ?? "unknown";
+    return typeof schema.type === "string" ? schema.type : "unknown";
   }
   return kind?.toLowerCase() ?? "unknown";
 }
 
-function extractProperties(schema: TSchema): Array<{
+function extractProperties(schema: TypeBoxSchema): Array<{
   name: string;
   type: string;
   required: boolean;
   description: string;
 }> {
   // Handle union schemas (like ConnectParamsSchema)
-  if (schema[Kind] === "Union" && schema.anyOf) {
+  if (getSchemaKind(schema) === "Union" && schema.anyOf) {
     const seen = new Map<
       string,
       { type: string; required: boolean; description: string }
     >();
     for (const member of schema.anyOf) {
-      if (member[Kind] === "Object" && member.properties) {
-        for (const [name, prop] of Object.entries(
-          member.properties as TProperties,
-        )) {
+      if (getSchemaKind(member) === "Object" && member.properties) {
+        for (const [name, prop] of Object.entries(member.properties)) {
           if (!seen.has(name)) {
             seen.set(name, {
               type: getTypeName(prop),
               required: false,
-              description: (prop as any).description ?? "",
+              description: prop.description ?? "",
             });
           }
         }
@@ -448,9 +486,9 @@ function extractProperties(schema: TSchema): Array<{
     }));
   }
 
-  if (schema[Kind] !== "Object" || !schema.properties) return [];
+  if (getSchemaKind(schema) !== "Object" || !schema.properties) return [];
 
-  const props = schema.properties as TProperties;
+  const props = schema.properties;
   // TypeBox puts required field names in schema.required array
   const requiredSet = new Set<string>(schema.required ?? []);
 
@@ -458,7 +496,7 @@ function extractProperties(schema: TSchema): Array<{
     name,
     type: getTypeName(prop),
     required: requiredSet.has(name),
-    description: (prop as any).description ?? "",
+    description: prop.description ?? "",
   }));
 }
 
@@ -542,9 +580,7 @@ ${body}
   return mdx;
 }
 
-function generateNotificationPage(
-  def: NotificationDefinition<string, TSchema>,
-): string {
+function generateNotificationPage(def: NotificationDocDefinition): string {
   const fields = extractProperties(def.paramsSchema);
   const name = def.name;
   const meta = notificationDocs[name] ?? {};
@@ -666,9 +702,11 @@ console.log(
 console.log(
   `Generated ${notificationDefinitions.length + 1} notification pages in ${notificationsDir}`,
 );
-console.log(`\nMethod nav entries:\n${JSON.stringify(methodPages, null, 2)}`);
 console.log(
-  `\nNotification nav entries:\n${JSON.stringify(notificationPages, null, 2)}`,
+  `\nMethod nav entries:\n${JSON.stringify(methodPages, null, JSON_INDENT)}`,
+);
+console.log(
+  `\nNotification nav entries:\n${JSON.stringify(notificationPages, null, JSON_INDENT)}`,
 );
 
 function deleteStaleGeneratedPages(

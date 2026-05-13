@@ -51,6 +51,7 @@ export function registerFanOutCardinality(ctx: ConformanceRunContext): void {
                 const observed = yield* Effect.forEach(
                   fixture.participants,
                   (p) => p.client.snapshot,
+                  { concurrency: 1 },
                 );
                 const counts = observed.map(
                   (snap) =>

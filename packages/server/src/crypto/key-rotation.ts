@@ -3,7 +3,7 @@ import { EnvelopeEncryption, wrapKey, unwrapKey } from "./envelope.js";
 import { randomBytes } from "node:crypto";
 import { logger } from "../logger.js";
 import { serializePayload, deserializePayload } from "./serialization.js";
-import { sql } from "kysely";
+import { sql } from "../db/sql.js";
 import { Data, Effect } from "effect";
 import type { SqlError } from "@effect/sql/SqlError";
 import { takeFirstOrElse, transaction } from "../db/effect-kysely-toolkit.js";
@@ -125,6 +125,3 @@ function rotateKekEffect(
     return newVersion;
   });
 }
-
-// Re-export for consumers that imported from here
-export { serializePayload, deserializePayload } from "./serialization.js";

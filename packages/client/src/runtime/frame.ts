@@ -17,7 +17,7 @@ export type { DecodedNotification };
 
 /** Decoded response frame — XOR success | error, mirrors the protocol-level
  * discriminated arms. */
-export type DecodedResponse = DecodedResponseSuccess | DecodedResponseError;
+type DecodedResponse = DecodedResponseSuccess | DecodedResponseError;
 
 /**
  * Decoded server-initiated (taskCallback) request frame. The client
@@ -32,7 +32,7 @@ export type DecodedResponse = DecodedResponseSuccess | DecodedResponseError;
  * `{Definition, params: ParamsA | ParamsB}` shape that conflates
  * incompatible param schemas.
  */
-export type DecodedServerRequest<
+type DecodedServerRequest<
   D extends AnyTaskCallbackRpcDefinition = AnyTaskCallbackRpcDefinition,
 > = D extends AnyTaskCallbackRpcDefinition
   ? {
@@ -92,7 +92,7 @@ const liftAppCallbackRequest = (
   );
 };
 
-export const splitRawFrames = (
+const splitRawFrames = (
   raw: string,
 ): Effect.Effect<ReadonlyArray<string>, MalformedFrameError> =>
   Effect.try({
@@ -201,4 +201,4 @@ export const decodeFrames = (
     }
 
     return decodedFrames;
-  });
+  }).pipe(Effect.withSpan("decodeFrames"));

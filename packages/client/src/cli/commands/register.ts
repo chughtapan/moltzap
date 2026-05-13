@@ -1,8 +1,9 @@
-import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { Args, Command, Options } from "@effect/cli";
-import { Effect, Option } from "effect";
+import { FileSystem } from "@effect/platform";
+import { NodeFileSystem } from "@effect/platform-node";
+import { Effect, Either, Option } from "effect";
 import { getServerUrl, updateConfig } from "../config.js";
 import { registerAgent } from "../http-client.js";
 import {
@@ -45,41 +46,62 @@ const writeOpenClawChannelConfig = (account: {
   serverUrl: string;
   agentName: string;
 }): Effect.Effect<void, Error> =>
-  Effect.try({
-    try: () => {
-      const configDir = path.join(os.homedir(), ".openclaw");
-      const configPath = path.join(configDir, "openclaw.json");
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const configDir = path.join(os.homedir(), ".openclaw");
+    const configPath = path.join(configDir, "openclaw.json");
 
-      let config: OpenClawConfig = {};
-      try {
-        config = JSON.parse(
-          fs.readFileSync(configPath, "utf-8"),
-        ) as OpenClawConfig;
-      } catch (err) {
-        const code = (err as NodeJS.ErrnoException).code;
-        if (code !== "ENOENT") {
-          console.warn(
-            `moltzap: existing openclaw.json unreadable, starting fresh: ${
-              err instanceof Error ? err.message : String(err)
-            }`,
-          );
-        }
-      }
+    let config: OpenClawConfig = {};
+    const existingConfig = yield* fileSystem.exists(configPath).pipe(
+      Effect.flatMap((exists) =>
+        exists
+          ? fileSystem.readFileString(configPath, "utf-8").pipe(
+              Effect.flatMap((contents) =>
+                Effect.try({
+                  try: () => JSON.parse(contents) as OpenClawConfig,
+                  catch: (err) => err,
+                }),
+              ),
+            )
+          : Effect.succeed<OpenClawConfig>({}),
+      ),
+      Effect.either,
+    );
+    yield* Either.match(existingConfig, {
+      onLeft: (err) =>
+        Effect.logWarning(
+          `moltzap: existing openclaw.json unreadable, starting fresh: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        ),
+      onRight: (value) =>
+        Effect.sync(() => {
+          config = value;
+        }),
+    });
 
-      const channels = config.channels ?? {};
-      channels.moltzap = {
-        accounts: [{ id: "default", ...account }],
-      };
-      config.channels = channels;
+    const channels = config.channels ?? {};
+    channels.moltzap = {
+      accounts: [{ id: "default", ...account }],
+    };
+    config.channels = channels;
 
-      fs.mkdirSync(configDir, { recursive: true });
-      fs.writeFileSync(
-        configPath,
-        JSON.stringify(config, null, JSON_INDENT_SPACES) + "\n",
-      );
-    },
-    catch: (err) => (err instanceof Error ? err : new Error(String(err))),
-  });
+    yield* fileSystem.makeDirectory(configDir, { recursive: true });
+    yield* fileSystem.writeFileString(
+      configPath,
+      JSON.stringify(config, null, JSON_INDENT_SPACES) + "\n",
+    );
+  }).pipe(
+    Effect.provide(NodeFileSystem.layer),
+    Effect.either,
+    Effect.flatMap(
+      Either.match({
+        onLeft: (err) =>
+          Effect.fail(err instanceof Error ? err : new Error(String(err))),
+        onRight: (value) => Effect.succeed(value),
+      }),
+    ),
+  );
 
 const nameArg = Args.text({ name: "name" }).pipe(
   Args.withDescription("Agent name (lowercase alphanumeric, 3-32 chars)"),
@@ -210,6 +232,7 @@ export const registerCommand = Command.make(
         `\nShare the claim URL with the agent's owner to verify ownership.`,
       );
     }).pipe(
+      Effect.withSpan("registerCommand"),
       Effect.catchAll((err) =>
         Effect.sync(() => {
           const msg = err instanceof Error ? err.message : String(err);

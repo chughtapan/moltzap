@@ -42,7 +42,7 @@ interface FilterableNotificationFrame {
 
 /** Branded identifier for a subscription handle. Minted by `register`. */
 export type SubscriptionId = string & Brand.Brand<"SubscriptionId">;
-export const SubscriptionId = Brand.nominal<SubscriptionId>();
+const SubscriptionIdBrand = Brand.nominal<SubscriptionId>();
 
 /**
  * Filter grammar for `subscribe`. A notification is delivered to a subscription
@@ -192,7 +192,7 @@ export function makeSubscriberRegistry(logger: {
     const register: SubscriberRegistry["register"] = (filter, handler) =>
       Effect.gen(function* () {
         const n = yield* Ref.updateAndGet(counterRef, (c) => c + 1);
-        const id = SubscriptionId(`sub-${n}`);
+        const id = SubscriptionIdBrand(`sub-${n}`);
         const live: LiveSubscription = { id, filter, handler };
         yield* Ref.update(subsRef, (xs) => [...xs, live]);
         const unsubscribe: Effect.Effect<void, never> = Ref.update(
@@ -229,7 +229,7 @@ export function makeSubscriberRegistry(logger: {
     const closeAll: Effect.Effect<void, never> = Ref.set(subsRef, []);
 
     return { register, dispatch, closeAll };
-  });
+  }).pipe(Effect.withSpan("makeSubscriberRegistry"));
 }
 
 /**

@@ -31,7 +31,7 @@ const AppRefSchema = Type.Object(
 
 // -- Top-level config schema --------------------------------------------------
 
-export const MoltZapConfigSchema = Type.Object(
+const MoltZapConfigSchema = Type.Object(
   {
     server: Type.Optional(
       Type.Object(

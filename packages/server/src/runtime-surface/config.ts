@@ -11,6 +11,7 @@ import {
   Match,
   Option,
 } from "effect";
+import { NodeFileSystem } from "@effect/platform-node";
 import type { ConfigError } from "effect/ConfigError";
 import type { LoadedConfig } from "../app/config.js";
 import { ServerConfigLoader } from "../app/config.js";
@@ -18,7 +19,11 @@ import type { MoltZapAppConfig } from "../config/effect-config.js";
 import { ConfigLoadError, loadConfigFromFile } from "../config/loader.js";
 
 export type RuntimeConfigPath = string & Brand.Brand<"RuntimeConfigPath">;
-export const RuntimeConfigPath = Brand.nominal<RuntimeConfigPath>();
+const RuntimeConfigPathBrand = Brand.nominal<RuntimeConfigPath>();
+
+export function runtimeConfigPath(path: string): RuntimeConfigPath {
+  return RuntimeConfigPathBrand(path);
+}
 
 export type RuntimeEnvironment = "development" | "test" | "production";
 
@@ -56,24 +61,22 @@ export class RuntimeConfigSurfaceError extends Data.TaggedError(
   readonly cause: RuntimeConfigSurfaceCause;
 }> {}
 
-export class ConfigFileUnreadable extends Data.TaggedError(
-  "ConfigFileUnreadable",
-)<{
+class ConfigFileUnreadable extends Data.TaggedError("ConfigFileUnreadable")<{
   readonly message: string;
   readonly path: string;
 }> {}
 
-export class ConfigFileInvalid extends Data.TaggedError("ConfigFileInvalid")<{
+class ConfigFileInvalid extends Data.TaggedError("ConfigFileInvalid")<{
   readonly message: string;
   readonly path: string;
 }> {}
 
-export class EnvironmentInvalid extends Data.TaggedError("EnvironmentInvalid")<{
+class EnvironmentInvalid extends Data.TaggedError("EnvironmentInvalid")<{
   readonly key: string;
   readonly message: string;
 }> {}
 
-export type RuntimeConfigSurfaceCause =
+type RuntimeConfigSurfaceCause =
   | ConfigFileUnreadable
   | ConfigFileInvalid
   | EnvironmentInvalid;
@@ -149,7 +152,7 @@ function resolveRuntimeConfigPath(
 ): RuntimeConfigPath {
   const selected =
     input.configPath ?? processEnv["MOLTZAP_CONFIG"] ?? "moltzap.yaml";
-  return RuntimeConfigPath(selected);
+  return runtimeConfigPath(selected);
 }
 
 function mapConfigLoadError(
@@ -359,7 +362,7 @@ function buildServerConfigProviderInput(
     providerInput["MOLTZAP_DEV_MODE"] = devMode;
 
     return providerInput;
-  });
+  }).pipe(Effect.withSpan("loadRuntimeProcessConfig"));
 }
 
 /** Empty app config used when no YAML file is found on the auto-discovery path. */
@@ -393,6 +396,7 @@ export function loadRuntimeProcessConfig(
         () => Effect.succeed(EMPTY_APP_CONFIG),
       ),
       Effect.mapError((error) => mapConfigLoadError(configPath, error)),
+      Effect.provide(NodeFileSystem.layer),
     );
 
     // `_configDir` is set by loadConfigFromFile (dirname of the resolved path)
@@ -451,5 +455,5 @@ export function loadRuntimeProcessConfig(
       app,
       server,
     };
-  });
+  }).pipe(Effect.withSpan("loadRuntimeProcessConfig"));
 }

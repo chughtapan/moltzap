@@ -1,7 +1,6 @@
 import type { LogicalClock, Part } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId, MessageId, TaskId } from "@moltzap/protocol/task";
-import { Schema } from "effect";
 
 /**
  * Generic hook shape — single source of truth for the abstraction
@@ -22,9 +21,7 @@ import { Schema } from "effect";
  * additional instantiations — adding a bespoke hook shape is a
  * doctrine violation (architect risk R13).
  */
-export type Hook<TContext, TResult> = (
-  ctx: TContext,
-) => TResult | Promise<TResult>;
+type Hook<TContext, TResult> = (ctx: TContext) => TResult | Promise<TResult>;
 
 /**
  * Server-side dispatch admission hook surface. The single hook
@@ -64,40 +61,6 @@ export type DispatchAdmissionResult =
     }
   | { decision: "deny"; reason?: string }
   | { decision: "hold"; reason?: string };
-
-export const DispatchAdmissionResultSchema = Schema.Union(
-  Schema.Struct({
-    decision: Schema.Literal("grant"),
-    leaseId: Schema.optional(Schema.String),
-    leaseTimeoutMs: Schema.optional(Schema.Number),
-    dispatchMessageId: Schema.optional(Schema.String),
-  }),
-  Schema.Struct({
-    decision: Schema.Literal("deny"),
-    reason: Schema.optional(Schema.String),
-  }),
-  Schema.Struct({
-    decision: Schema.Literal("hold"),
-    reason: Schema.optional(Schema.String),
-  }),
-) as Schema.Schema<DispatchAdmissionResult, unknown>;
-
-/**
- * Wire-envelope schema for `dispatch/authorize`. The reply arrives as
- * `{ admission: ... }`, not the bare verdict. Decoding at the RPC edge
- * keeps AppHost's business logic typed (Principle 2: schemas at
- * boundaries, types inside).
- */
-export const DispatchAuthorizeRpcResultSchema = Schema.Struct({
-  admission: DispatchAdmissionResultSchema,
-}) as Schema.Schema<{ admission: DispatchAdmissionResult }, unknown>;
-
-/**
- * Module-level precompiled decoder.
- */
-export const decodeDispatchAuthorizeRpcResult = Schema.decodeUnknown(
-  DispatchAuthorizeRpcResultSchema,
-);
 
 export type TaskAuthorizeDispatchHook = Hook<
   TaskAuthorizeDispatchContext,
@@ -144,30 +107,6 @@ export interface MessageAuthorizeContext {
 export type MessageAuthorizeResult =
   | { decision: "Forward"; recipients: ReadonlyArray<AgentId> }
   | { decision: "Block"; reason?: string };
-
-export const MessageAuthorizeResultSchema = Schema.Union(
-  Schema.Struct({
-    decision: Schema.Literal("Forward"),
-    recipients: Schema.Array(Schema.String),
-  }),
-  Schema.Struct({
-    decision: Schema.Literal("Block"),
-    reason: Schema.optional(Schema.String),
-  }),
-) as Schema.Schema<MessageAuthorizeResult, unknown>;
-
-/**
- * Wire-envelope schema for `messages/authorize`. The reply arrives as
- * `{ verdict: ... }`, not the bare verdict. Decoding at the RPC edge
- * keeps AppHost's business logic typed (Principle 2).
- */
-export const MessageAuthorizeRpcResultSchema = Schema.Struct({
-  verdict: MessageAuthorizeResultSchema,
-}) as Schema.Schema<{ verdict: MessageAuthorizeResult }, unknown>;
-
-export const decodeMessageAuthorizeRpcResult = Schema.decodeUnknown(
-  MessageAuthorizeRpcResultSchema,
-);
 
 export type MessageAuthorizeHook = Hook<
   MessageAuthorizeContext,

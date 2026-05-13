@@ -1,9 +1,10 @@
 /** Webhook adapters for calling external services over HTTP. */
 
-import { Data, Duration, Effect, Schema } from "effect";
+import { Data, Duration, Effect, Either, Schema } from "effect";
 import { createHmac } from "node:crypto";
 import type { ContactService } from "../app/app-host.js";
 import type { Logger } from "../logger.js";
+import { postJson } from "./fetch-client.js";
 
 const DEFAULT_WEBHOOK_CONCURRENCY = 10;
 
@@ -171,7 +172,7 @@ export class WebhookClient {
     };
 
     const doFetch = Effect.tryPromise({
-      try: (signal) => fetch(url, { method: "POST", headers, body, signal }),
+      try: (signal) => postJson(url, { headers, body, signal }),
       catch: (err) => new WebhookNetworkError({ url, event, cause: err }),
     });
 
@@ -211,8 +212,19 @@ export class WebhookClient {
         Effect.flatMap(parseResponse),
         Effect.flatMap((parsed) =>
           Schema.decodeUnknown(schema)(parsed).pipe(
-            Effect.mapError(
-              (cause) => new WebhookDecodeError({ url, event, cause }),
+            Effect.either,
+            Effect.flatMap(
+              Either.match({
+                onLeft: (cause) =>
+                  Effect.fail(
+                    new WebhookDecodeError({
+                      url,
+                      event,
+                      cause,
+                    }),
+                  ),
+                onRight: (decoded) => Effect.succeed(decoded),
+              }),
             ),
           ),
         ),

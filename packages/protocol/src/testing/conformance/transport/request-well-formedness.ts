@@ -12,7 +12,7 @@ import { Effect } from "effect";
 import { Value } from "@sinclair/typebox/value";
 import { arbitraryAnyCall } from "../../arbitraries/rpc.js";
 import {
-  ResponseFrameSchema,
+  responseFrameSchema,
   type ResponseFrame,
 } from "@moltzap/protocol/transport";
 import { isRequestFrame, isResponseFrame } from "../_shared/frame-mutator.js";
@@ -25,6 +25,7 @@ const CATEGORY = "schema-conformance" as const;
 const DEFAULT_MALFORMED_RESPONSE_RUNS = 3;
 const DEFAULT_TIMEOUT_MS = 3000;
 const DEFAULT_CAPTURE_CAPACITY = 64;
+const ResponseFrameSchema = responseFrameSchema();
 
 export function registerRequestWellFormedness(
   ctx: ConformanceRunContext,

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "src/standalone.ts",
+    "src/**/*.test.ts",
+    "src/**/*.integration.test.ts",
+    "src/**/*.types-check.ts",
+    "src/**/__tests__/**/*.ts",
+    "vitest*.config.ts"
+  ],
+  "project": ["src/**/*.ts", "vitest*.config.ts"],
+  "ignoreBinaries": ["agent-code-guard-knip", "eslint"],
+  "ignoreDependencies": ["pino-pretty"]
+}

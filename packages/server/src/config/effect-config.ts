@@ -38,18 +38,18 @@ const opt = <A>(c: Config.Config<A>) =>
 
 // ── Service discriminated union (webhook | in_process) ────────────────
 
-export interface WebhookService {
+interface WebhookService {
   type: "webhook";
   webhook_url: string;
   timeout_ms?: number;
   callback_token?: string;
 }
 
-export interface InProcessService {
+interface InProcessService {
   type: "in_process";
 }
 
-export type ServiceConfig = WebhookService | InProcessService;
+type ServiceConfig = WebhookService | InProcessService;
 
 const WebhookService: Config.Config<WebhookService> = Config.all({
   type: Config.literal("webhook")("type"),
