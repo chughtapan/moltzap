@@ -83,6 +83,6 @@ export function registerMalformedFrameHandling(
           numRuns: ctx.opts.numRuns ?? DEFAULT_MALFORMED_RESPONSE_RUNS,
         },
       ),
-    ),
+    ).pipe(Effect.withSpan("registerMalformedFrameHandling")),
   );
 }

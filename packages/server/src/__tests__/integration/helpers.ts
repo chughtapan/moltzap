@@ -25,8 +25,6 @@ import {
   postJson,
   type ServerTestClient,
 } from "../../test-utils/helpers.js";
-import type { Database } from "../../db/database.js";
-import type { Kysely } from "kysely";
 import type { CoreApp } from "../../app/types.js";
 import { Effect, type Layer } from "effect";
 import { inject } from "vitest";
@@ -121,6 +119,7 @@ export function startTestServer(_opts?: StartTestServerOptions) {
         wsUrl: server.wsUrl,
         coreApp: server.coreApp,
       })),
+      Effect.withSpan("startTestServer"),
     ),
   );
 }
@@ -144,7 +143,7 @@ export function stopTestServer() {
             cause,
           ),
       });
-    }),
+    }).pipe(Effect.withSpan("stopTestServer")),
   );
 }
 
@@ -157,11 +156,11 @@ export function resetTestDb() {
         catch: (cause) =>
           new IntegrationTestHelperError("Core test DB failed to reset", cause),
       });
-    }),
+    }).pipe(Effect.withSpan("resetTestDb")),
   );
 }
 
-export function getKyselyDb(): Kysely<Database> {
+export function getKyselyDb(): ReturnType<typeof getCoreDb> {
   return getCoreDb();
 }
 

@@ -9,6 +9,7 @@
 import { inject } from "vitest";
 import type { Message } from "@moltzap/protocol";
 import { Data, Effect } from "effect";
+import { postJsonRequest } from "./node-boundary.js";
 
 const WAIT_FOR_POLL_INTERVAL_MS = 50;
 
@@ -34,12 +35,7 @@ export function registerAndClaim(name: string) {
     Effect.gen(function* () {
       const res = yield* Effect.tryPromise({
         try: (signal) =>
-          fetch(`${baseUrl}/api/v1/auth/register`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name }),
-            signal,
-          }),
+          postJsonRequest(`${baseUrl}/api/v1/auth/register`, { name }, signal),
         catch: (cause) =>
           new RegisterAndClaimError({
             message: `Register ${name} request failed`,
@@ -69,7 +65,7 @@ export function registerAndClaim(name: string) {
             cause,
           }),
       });
-    }),
+    }).pipe(Effect.withSpan("registerAndClaim")),
   );
 }
 

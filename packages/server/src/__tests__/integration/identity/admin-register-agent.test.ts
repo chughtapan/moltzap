@@ -64,12 +64,8 @@ const postAdmin = (body: Record<string, unknown>) =>
   postJson(baseUrl, "/api/v1/admin/register-agent", body);
 
 /** Effect-lifted POST to the admin route with `inviteCode` pre-applied. */
-function adminRegister(
-  body: Record<string, unknown>,
-): Effect.Effect<{ status: number; json: unknown }, Error> {
-  return Effect.tryPromise(() =>
-    postAdmin({ inviteCode: REGISTRATION_SECRET, ...body }),
-  );
+function adminRegister(body: Record<string, unknown>) {
+  return postAdmin({ inviteCode: REGISTRATION_SECRET, ...body });
 }
 
 describe("/api/v1/admin/register-agent — secret-gated ownerUserId", () => {
@@ -77,13 +73,11 @@ describe("/api/v1/admin/register-agent — secret-gated ownerUserId", () => {
     "registers an agent with explicit ownerUserId when invite code matches",
     () =>
       Effect.gen(function* () {
-        const result = yield* Effect.tryPromise(() =>
-          postAdmin({
-            name: "admin-owned-agent",
-            inviteCode: REGISTRATION_SECRET,
-            ownerUserId: SYSTEM_USER_ID,
-          }),
-        );
+        const result = yield* postAdmin({
+          name: "admin-owned-agent",
+          inviteCode: REGISTRATION_SECRET,
+          ownerUserId: SYSTEM_USER_ID,
+        });
         expect(result.status).toBe(201);
         const body = result.json as AdminRegisterResponse;
         expect(body.agentId).toBeDefined();
@@ -112,38 +106,32 @@ describe("/api/v1/admin/register-agent — secret-gated ownerUserId", () => {
 
   it.live("rejects when invite code is missing", () =>
     Effect.gen(function* () {
-      const result = yield* Effect.tryPromise(() =>
-        postAdmin({
-          name: "no-invite-code",
-          ownerUserId: SYSTEM_USER_ID,
-        }),
-      );
+      const result = yield* postAdmin({
+        name: "no-invite-code",
+        ownerUserId: SYSTEM_USER_ID,
+      });
       expect(result.status).toBe(403);
     }),
   );
 
   it.live("rejects when invite code does not match registrationSecret", () =>
     Effect.gen(function* () {
-      const result = yield* Effect.tryPromise(() =>
-        postAdmin({
-          name: "wrong-invite-code",
-          inviteCode: "not-the-real-secret",
-          ownerUserId: SYSTEM_USER_ID,
-        }),
-      );
+      const result = yield* postAdmin({
+        name: "wrong-invite-code",
+        inviteCode: "not-the-real-secret",
+        ownerUserId: SYSTEM_USER_ID,
+      });
       expect(result.status).toBe(403);
     }),
   );
 
   it.live("rejects ownerUserId that is not a UUID", () =>
     Effect.gen(function* () {
-      const result = yield* Effect.tryPromise(() =>
-        postAdmin({
-          name: "bad-owner",
-          inviteCode: REGISTRATION_SECRET,
-          ownerUserId: "not-a-uuid",
-        }),
-      );
+      const result = yield* postAdmin({
+        name: "bad-owner",
+        inviteCode: REGISTRATION_SECRET,
+        ownerUserId: "not-a-uuid",
+      });
       expect(result.status).toBe(400);
       const body = result.json as { error: string };
       expect(body.error).toMatch(/UUID/);
@@ -154,12 +142,10 @@ describe("/api/v1/admin/register-agent — secret-gated ownerUserId", () => {
     "registers without ownerUserId — owner_user_id is null when omitted",
     () =>
       Effect.gen(function* () {
-        const result = yield* Effect.tryPromise(() =>
-          postAdmin({
-            name: "no-owner-agent",
-            inviteCode: REGISTRATION_SECRET,
-          }),
-        );
+        const result = yield* postAdmin({
+          name: "no-owner-agent",
+          inviteCode: REGISTRATION_SECRET,
+        });
         expect(result.status).toBe(201);
         const body = result.json as AdminRegisterResponse;
 

@@ -99,6 +99,6 @@ export function registerDispatchesConsumedSuppressedOnSecondSend(
           );
         }
       }),
-    ),
+    ).pipe(Effect.withSpan("registerDispatchesConsumedSuppressedOnSecondSend")),
   );
 }

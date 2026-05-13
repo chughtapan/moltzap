@@ -68,6 +68,6 @@ export function registerDispatchesConsumedFiresOnFirstSend(
           );
         }
       }),
-    ),
+    ).pipe(Effect.withSpan("registerDispatchesConsumedFiresOnFirstSend")),
   );
 }

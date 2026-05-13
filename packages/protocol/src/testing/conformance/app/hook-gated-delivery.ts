@@ -129,7 +129,6 @@ export function registerHookGatedDelivery(ctx: ConformanceRunContext): void {
         }).pipe(
           Effect.mapError((e) => violation(`TM client acquire: ${String(e)}`)),
         );
-
         // 3. Sender client (open for the duration of the property).
         const senderClient = yield* makeTestClient({
           serverUrl: ctx.realServer.wsUrl,
@@ -291,10 +290,10 @@ export function registerHookGatedDelivery(ctx: ConformanceRunContext): void {
             violation(
               `recipient observed ${receivedCount} messages/received frame(s) ` +
                 `after a TM-blocked send; delivery was not prevented`,
-            ),
+              ),
           );
         }
-      }),
+      }).pipe(Effect.withSpan("registerHookGatedDelivery")),
     ),
   );
 }

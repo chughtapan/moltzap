@@ -55,6 +55,6 @@ export function registerSlowCloseCleanup(ctx: ConformanceRunContext): void {
             ),
           );
         }
-      }),
+      }).pipe(Effect.withSpan("registerSlowCloseCleanup")),
   });
 }

@@ -71,6 +71,6 @@ export function registerDispatchAuthorizeVerdictResolves(
           }),
         );
       }
-    }),
+    }).pipe(Effect.withSpan("registerDispatchAuthorizeVerdictResolves")),
   );
 }

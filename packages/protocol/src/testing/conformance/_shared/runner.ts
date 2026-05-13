@@ -12,7 +12,7 @@
  *   - pin fast-check seeds and export them on failure (AC10);
  *   - tear everything down in reverse order.
  */
-import { Config, ConfigProvider, Effect, Ref, Scope } from "effect";
+import { Config, ConfigProvider, Effect, Ref, type Scope } from "effect";
 import {
   makeToxiproxyClient,
   type ToxiproxyClient,
@@ -101,8 +101,9 @@ export function acquireRunContext(
     const seed = effectiveOpts.replaySeed ?? (yield* loadFastCheckSeed);
     const artifacts = yield* Ref.make<ReadonlyArray<ConformanceArtifact>>([]);
 
-    const realServer = yield* Effect.acquireRelease(opts.realServer, (handle) =>
-      handle.close.pipe(Effect.orElseSucceed(() => undefined)),
+    const realServer = yield* opts.realServer;
+    yield* Effect.addFinalizer(() =>
+      realServer.close.pipe(Effect.orElseSucceed(() => undefined)),
     );
 
     let toxiproxy: ToxiproxyClient | null = null;
@@ -121,7 +122,7 @@ export function acquireRunContext(
       seed,
       artifacts,
     } satisfies ConformanceRunContext;
-  });
+  }).pipe(Effect.withSpan("acquireRunContext"));
 }
 
 /**
@@ -133,9 +134,7 @@ export function acquireRunContext(
 export function runConformance(
   ctx: ConformanceRunContext,
 ): Effect.Effect<void> {
-  return Effect.sync(() => {
-    console.log(
-      `[conformance] seed=${ctx.seed} tiers=${ctx.opts.tiers.join(",")} toxiproxy=${ctx.toxiproxy !== null}`,
-    );
-  });
+  return Effect.logInfo(
+    `[conformance] seed=${ctx.seed} tiers=${ctx.opts.tiers.join(",")} toxiproxy=${ctx.toxiproxy !== null}`,
+  );
 }

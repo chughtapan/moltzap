@@ -55,7 +55,7 @@ export function registerMultiSubscriberFanOut(
             ),
           );
         }
-      }),
+      }).pipe(Effect.withSpan("registerMultiSubscriberFanOut")),
     ),
   );
 }

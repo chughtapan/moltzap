@@ -84,7 +84,7 @@ export function registerArchiveLifecycle(ctx: ConformanceRunContext): void {
             `messages/send failed after unarchive: ${error._tag}`,
           ),
         );
-      }),
+      }).pipe(Effect.withSpan("registerArchiveLifecycle")),
     ),
   );
 }

@@ -28,6 +28,13 @@ const PROPERTY = "caller-controlled-app-callback-timeout";
 const TIMEOUT_LOWER_MARGIN_MS = 20;
 const TIMEOUT_UPPER_MULTIPLIER = 4;
 
+const invariant = (reason: string): PropertyInvariantViolation =>
+  new PropertyInvariantViolation({
+    category: CATEGORY,
+    name: PROPERTY,
+    reason,
+  });
+
 export function registerCallerControlledAppCallbackTimeout(
   ctx: ConformanceRunContext,
 ): void {
@@ -41,16 +48,7 @@ export function registerCallerControlledAppCallbackTimeout(
         const agent = yield* registerTestAgent({
           baseUrl: ctx.realServer.baseUrl,
           name: "ct",
-        }).pipe(
-          Effect.mapError(
-            (e) =>
-              new PropertyInvariantViolation({
-                category: CATEGORY,
-                name: PROPERTY,
-                reason: `register agent: ${e.body}`,
-              }),
-          ),
-        );
+        }).pipe(Effect.mapError((e) => invariant(`register agent: ${e.body}`)));
         const client = yield* makeTestClient({
           serverUrl: ctx.realServer.wsUrl,
           agentKey: agent.apiKey,
@@ -58,14 +56,7 @@ export function registerCallerControlledAppCallbackTimeout(
           defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
           captureCapacity: DEFAULT_CAPTURE_CAPACITY,
         }).pipe(
-          Effect.mapError(
-            (e) =>
-              new PropertyInvariantViolation({
-                category: CATEGORY,
-                name: PROPERTY,
-                reason: `client acquire: ${String(e)}`,
-              }),
-          ),
+          Effect.mapError((e) => invariant(`client acquire: ${String(e)}`)),
         );
         // 250ms (rather than the architect plan's example 100ms) hardens
         // against CI scheduler tails; loaded shared runners can absorb
@@ -113,7 +104,7 @@ export function registerCallerControlledAppCallbackTimeout(
             }),
           );
         }
-      }),
+      }).pipe(Effect.withSpan("registerCallerControlledAppCallbackTimeout")),
     ),
   );
 }

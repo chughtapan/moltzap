@@ -18,8 +18,9 @@
  * `SuiteResult`. A consumer running under vitest asserts
  * `result.failed.length === 0` and is done.
  */
+import { FileSystem } from "@effect/platform";
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import { Cause, Chunk, Effect, Exit, Option } from "effect";
-import { writeFileSync, mkdirSync, existsSync } from "node:fs";
 import path from "node:path";
 import {
   acquireRunContext,
@@ -118,7 +119,7 @@ export function runAllProperties(
   allowedCoverageGaps: ReadonlyArray<AllowedCoverageGap> = [],
 ): Effect.Effect<SuiteResult> {
   return Effect.gen(function* () {
-    if (!existsSync(artifactDir)) mkdirSync(artifactDir, { recursive: true });
+    yield* ensureArtifactDir(artifactDir);
     const properties = collectProperties(ctx);
     const passed: string[] = [];
     const deferred: { name: string; reason: string }[] = [];
@@ -136,7 +137,7 @@ export function runAllProperties(
       if (failure === null) {
         const msg = exit.cause.toString();
         failed.push({ name: id, failure: { _tag: "defect", message: msg } });
-        writeArtifact(artifactDir, p, ctx.seed, { defect: msg });
+        yield* writeArtifact(artifactDir, p, ctx.seed, { defect: msg });
         continue;
       }
       switch (failure._tag) {
@@ -153,7 +154,12 @@ export function runAllProperties(
             break;
           }
           failed.push({ name: id, failure });
-          writeArtifact(artifactDir, p, ctx.seed, failureArtifact(failure));
+          yield* writeArtifact(
+            artifactDir,
+            p,
+            ctx.seed,
+            failureArtifact(failure),
+          );
           break;
         case "ConformancePropertyUnavailable":
           if (
@@ -168,12 +174,22 @@ export function runAllProperties(
             break;
           }
           failed.push({ name: id, failure });
-          writeArtifact(artifactDir, p, ctx.seed, failureArtifact(failure));
+          yield* writeArtifact(
+            artifactDir,
+            p,
+            ctx.seed,
+            failureArtifact(failure),
+          );
           break;
         case "ConformancePropertyAssertionFailure":
         case "ConformancePropertyInvariantViolation":
           failed.push({ name: id, failure });
-          writeArtifact(artifactDir, p, ctx.seed, failureArtifact(failure));
+          yield* writeArtifact(
+            artifactDir,
+            p,
+            ctx.seed,
+            failureArtifact(failure),
+          );
           break;
         default: {
           const _exhaustive: never = failure;
@@ -189,7 +205,7 @@ export function runAllProperties(
     }
 
     return { seed: ctx.seed, passed, deferred, unavailable, failed };
-  });
+  }).pipe(Effect.withSpan("runAllProperties"));
 }
 
 /**
@@ -228,7 +244,7 @@ export function runConformanceSuite(
         artifactDir,
         allowedServerCoverageGaps(toxiproxyUrl),
       );
-    }),
+    }).pipe(Effect.withSpan("runConformanceSuite")),
   );
 }
 
@@ -323,27 +339,41 @@ function failureArtifact(failure: PropertyFailure): Record<string, unknown> {
   }
 }
 
+function ensureArtifactDir(dir: string): Effect.Effect<void> {
+  return FileSystem.FileSystem.pipe(
+    Effect.flatMap((fs) => fs.makeDirectory(dir, { recursive: true })),
+    Effect.provide(NodeFileSystem.layer),
+    Effect.orDie,
+  );
+}
+
 function writeArtifact(
   dir: string,
   property: RegisteredProperty,
   seed: number,
   payload: Record<string, unknown>,
-): void {
+): Effect.Effect<void> {
   const file = path.join(
     dir,
     `${property.category}-${property.name}.seed.json`,
   );
-  writeFileSync(
-    file,
-    JSON.stringify(
-      {
-        category: property.category,
-        name: property.name,
-        seed,
-        ...payload,
-      },
-      null,
-      JSON_INDENT_SPACES,
+  return FileSystem.FileSystem.pipe(
+    Effect.flatMap((fs) =>
+      fs.writeFileString(
+        file,
+        JSON.stringify(
+          {
+            category: property.category,
+            name: property.name,
+            seed,
+            ...payload,
+          },
+          null,
+          JSON_INDENT_SPACES,
+        ),
+      ),
     ),
+    Effect.provide(NodeFileSystem.layer),
+    Effect.orDie,
   );
 }

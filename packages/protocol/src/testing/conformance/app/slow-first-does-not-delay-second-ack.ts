@@ -65,6 +65,6 @@ export function registerSlowFirstDoesNotDelaySecondAck(
       // verdicts eventually settle (and the property's scope-close
       // tear-down is not blocked).
       { moderatorTimeoutMs: 15_000 },
-    ),
+    ).pipe(Effect.withSpan("registerSlowFirstDoesNotDelaySecondAck")),
   );
 }

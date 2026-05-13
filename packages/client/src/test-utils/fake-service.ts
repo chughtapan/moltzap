@@ -138,13 +138,14 @@ export class FakeMoltZapService extends MoltZapService {
   emitEvent(event: NotificationFrame): void {
     const decoded = Effect.runSync(
       decodeServerInbound(event).pipe(
-        Effect.mapError(
-          () =>
+        Effect.catchTag("MalformedFrameError", (cause) =>
+          Effect.fail(
             new RpcServerError({
               code: JSON_RPC_RESERVED_CODES.InvalidParams,
               message: `FakeMoltZapService: invalid notification ${event.method}`,
-              data: event.params,
+              data: { params: event.params, raw: cause.raw },
             }),
+          ),
         ),
       ),
     );

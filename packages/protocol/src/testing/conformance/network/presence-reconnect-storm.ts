@@ -67,7 +67,7 @@ export function registerReconnectStorm(ctx: ConformanceRunContext): void {
             ),
           );
         }
-      }),
+      }).pipe(Effect.withSpan("registerReconnectStorm")),
     ),
   );
 }

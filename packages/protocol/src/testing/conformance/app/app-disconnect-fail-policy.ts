@@ -41,6 +41,13 @@ const DEFAULT_TIMEOUT_MS = 3000;
 const DEFAULT_CAPTURE_CAPACITY = 32;
 const DATE_ID_RADIX = 36;
 
+const unavailable = (reason: string): PropertyUnavailable =>
+  new PropertyUnavailable({
+    category: CATEGORY,
+    name: PROPERTY,
+    reason,
+  });
+
 export function registerAppDisconnectFailPolicy(
   ctx: ConformanceRunContext,
 ): void {
@@ -57,14 +64,7 @@ export function registerAppDisconnectFailPolicy(
           baseUrl: ctx.realServer.baseUrl,
           name: "adfp-app",
         }).pipe(
-          Effect.mapError(
-            (e) =>
-              new PropertyUnavailable({
-                category: CATEGORY,
-                name: PROPERTY,
-                reason: `app agent register: ${e.body}`,
-              }),
-          ),
+          Effect.mapError((e) => unavailable(`app agent register: ${e.body}`)),
         );
 
         // Step 2: open an app TestClient inside an INNER scope so the
@@ -81,13 +81,8 @@ export function registerAppDisconnectFailPolicy(
           }),
           appScope,
         ).pipe(
-          Effect.mapError(
-            (e) =>
-              new PropertyUnavailable({
-                category: CATEGORY,
-                name: PROPERTY,
-                reason: `app client acquire: ${String(e)}`,
-              }),
+          Effect.mapError((e) =>
+            unavailable(`app client acquire: ${String(e)}`),
           ),
         );
 
@@ -111,11 +106,7 @@ export function registerAppDisconnectFailPolicy(
         if (registerFailure !== null) {
           yield* Scope.close(appScope, Exit.void);
           return yield* Effect.fail(
-            new PropertyUnavailable({
-              category: CATEGORY,
-              name: PROPERTY,
-              reason: `apps/register failed: ${registerFailure._tag}`,
-            }),
+            unavailable(`apps/register failed: ${registerFailure._tag}`),
           );
         }
 
@@ -136,14 +127,7 @@ export function registerAppDisconnectFailPolicy(
           baseUrl: ctx.realServer.baseUrl,
           name: "adfp-sender",
         }).pipe(
-          Effect.mapError(
-            (e) =>
-              new PropertyUnavailable({
-                category: CATEGORY,
-                name: PROPERTY,
-                reason: `sender register: ${e.body}`,
-              }),
-          ),
+          Effect.mapError((e) => unavailable(`sender register: ${e.body}`)),
         );
         const senderClient = yield* makeTestClient({
           serverUrl: ctx.realServer.wsUrl,
@@ -152,13 +136,8 @@ export function registerAppDisconnectFailPolicy(
           defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
           captureCapacity: DEFAULT_CAPTURE_CAPACITY,
         }).pipe(
-          Effect.mapError(
-            (e) =>
-              new PropertyUnavailable({
-                category: CATEGORY,
-                name: PROPERTY,
-                reason: `sender client acquire: ${String(e)}`,
-              }),
+          Effect.mapError((e) =>
+            unavailable(`sender client acquire: ${String(e)}`),
           ),
         );
         // Phase 7 cutover removed `apps/create`'s session machinery. The
@@ -181,7 +160,7 @@ export function registerAppDisconnectFailPolicy(
             reason: `${TasksCreate.name} does not bootstrap session conversations; covered in Phase 9 with TM topology (#318)`,
           }),
         );
-      }),
+      }).pipe(Effect.withSpan("registerAppDisconnectFailPolicy")),
     ),
   );
 }

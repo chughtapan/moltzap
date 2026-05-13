@@ -180,6 +180,10 @@ export class RealClientLifecycleError extends Data.TaggedError(
   readonly cause: unknown;
 }> {}
 
+function newRealServerAcquireError(message: string): RealServerAcquireError {
+  return new RealServerAcquireError({ cause: new Error(message) });
+}
+
 /** Typed error surface for real-client RPC calls (D5 predicate target). */
 export class RealClientRpcError extends Data.TaggedError("RealClientRpcError")<{
   readonly cause: unknown;
@@ -314,11 +318,8 @@ export function acquireClientRunContext(
       host: "127.0.0.1",
       captureCapacity: 256,
     }).pipe(
-      Effect.mapError(
-        (err) =>
-          new RealServerAcquireError({
-            cause: new Error(`TestServer bind failed: ${String(err)}`),
-          }),
+      Effect.mapError((err) =>
+        newRealServerAcquireError(`TestServer bind failed: ${String(err)}`),
       ),
     );
 
@@ -363,7 +364,7 @@ export function acquireClientRunContext(
       seed,
       artifacts,
     } satisfies ClientConformanceRunContext;
-  });
+  }).pipe(Effect.withSpan("acquireClientRunContext"));
 }
 
 /**
@@ -451,7 +452,7 @@ export function makeClientHandshakeWindow(
 ): Effect.Effect<ClientHandshakeWindow, never, Scope.Scope> {
   return Effect.gen(function* () {
     const tagCounter = yield* Ref.make(0);
-    return {
+    const handshakeWindow: ClientHandshakeWindow = {
       freshEmissionTag: Ref.updateAndGet(tagCounter, (n) => n + 1).pipe(
         Effect.map((n) => `emit-${handle.agentId}-${n}`),
       ),
@@ -461,7 +462,8 @@ export function makeClientHandshakeWindow(
         emitTaggedResponseDefault(connection, base, emissionTag),
       awaitHandshakeComplete: handle.ready,
     };
-  });
+    return handshakeWindow;
+  }).pipe(Effect.withSpan("makeClientHandshakeWindow"));
 }
 
 /**
@@ -515,7 +517,7 @@ export function runAutoHandshakeResponder(
           }
         }
       }
-    }),
+    }).pipe(Effect.withSpan("runAutoHandshakeResponder")),
   ).pipe(Effect.asVoid);
 }
 

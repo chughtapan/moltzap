@@ -87,6 +87,6 @@ export function registerReleaseForOneLeaseDoesNotWaitOnAnother(
           );
         }),
       { moderatorTimeoutMs: 15_000 },
-    ),
+    ).pipe(Effect.withSpan("registerReleaseForOneLeaseDoesNotWaitOnAnother")),
   );
 }

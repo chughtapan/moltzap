@@ -126,6 +126,6 @@ export function registerSpuriousAppCallbackFrameHandling(
             }),
           ),
       }),
-    ),
+    ).pipe(Effect.withSpan("registerSpuriousAppCallbackFrameHandling")),
   );
 }

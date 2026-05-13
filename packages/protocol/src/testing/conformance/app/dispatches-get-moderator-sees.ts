@@ -90,6 +90,6 @@ export function registerDispatchesGetModeratorSeesRecord(
           );
         }
       }),
-    ),
+    ).pipe(Effect.withSpan("registerDispatchesGetModeratorSeesRecord")),
   );
 }

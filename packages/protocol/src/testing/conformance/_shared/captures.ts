@@ -72,7 +72,7 @@ export function makeCaptureBuffer(opts: {
       _capacity: cap,
     };
     return buf;
-  });
+  }).pipe(Effect.withSpan("makeCaptureBuffer"));
 }
 
 /**
@@ -121,7 +121,7 @@ export function mergeCaptures(
       _publish: merged._publish,
       _capacity: merged._capacity,
     } satisfies CaptureBuffer;
-  });
+  }).pipe(Effect.withSpan("mergeCaptures"));
 }
 
 /** Internal hook used by primitives to push a decode failure as-bytes. */

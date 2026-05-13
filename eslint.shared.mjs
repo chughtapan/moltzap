@@ -64,13 +64,6 @@ const testSupportRules = {
   ],
   rules: {
     "@typescript-eslint/no-magic-numbers": "off",
-    "agent-code-guard/acquire-release-requires-scope": "off",
-    "agent-code-guard/no-console-in-effect": "off",
-    "agent-code-guard/no-effect-error-coalescing": "off",
-    "agent-code-guard/no-exported-brand-constructor": "off",
-    "agent-code-guard/no-promise-all-in-effect": "off",
-    "agent-code-guard/prefer-effect-platform": "off",
-    "agent-code-guard/require-span-on-exported-effect": "off",
     "sonarjs/no-os-command-from-path": "off",
     "sonarjs/os-command": "off",
     "sonarjs/pseudo-random": "off",

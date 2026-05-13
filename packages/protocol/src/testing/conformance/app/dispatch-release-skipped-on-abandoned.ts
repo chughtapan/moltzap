@@ -48,6 +48,6 @@ export function registerDispatchReleaseSkippedOnAbandoned(
           // primary signal.
         }),
       { moderatorTimeoutMs: 30_000 },
-    ),
+    ).pipe(Effect.withSpan("registerDispatchReleaseSkippedOnAbandoned")),
   );
 }

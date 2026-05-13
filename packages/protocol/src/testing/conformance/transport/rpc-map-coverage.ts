@@ -105,6 +105,6 @@ export function registerRpcMapCoverage(ctx: ConformanceRunContext): void {
           );
         }
       }
-    }),
+    }).pipe(Effect.withSpan("registerRpcMapCoverage")),
   );
 }

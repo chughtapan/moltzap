@@ -30,7 +30,7 @@ let harness: PgliteHarness;
 let db: Kysely<Database>;
 
 async function freshDb(): Promise<void> {
-  harness = await makePgliteHarness();
+  harness = await Effect.runPromise(makePgliteHarness());
   db = harness.db;
   // Seed agents — raw insert satisfies the FK without exercising the
   // full agents-service registration path.
@@ -81,7 +81,7 @@ describe("TaskService", () => {
   }, PGLITE_HOOK_TIMEOUT_MS);
 
   afterEach(async () => {
-    await harness.close();
+    await Effect.runPromise(harness.close);
   }, PGLITE_HOOK_TIMEOUT_MS);
 
   // Phase 9b consumer-migration (sub-issue #460 round 3 R12+R13):

@@ -112,6 +112,6 @@ export function registerModelEquivalence(ctx: ConformanceRunContext): void {
         }),
         { seed: ctx.seed, numRuns: ctx.opts.numRuns ?? numRunsFloor },
       ),
-    ),
+    ).pipe(Effect.withSpan("registerModelEquivalence")),
   );
 }

@@ -33,7 +33,7 @@ export function registerMultiAppFifoShortCircuit(
             followUp: `dual-app first-deny short-circuit needs TM-topology dispatch; reactivate alongside #555 (${TasksCreate.name} bootstrap)`,
           }),
         );
-      }),
+      }).pipe(Effect.withSpan("registerMultiAppFifoShortCircuit")),
     ),
   );
 }

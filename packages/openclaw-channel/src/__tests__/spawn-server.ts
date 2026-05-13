@@ -6,25 +6,17 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
 import { generateKeyPairSync, randomBytes } from "node:crypto";
-import { existsSync } from "node:fs";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-import pg from "pg";
 import { Config, ConfigProvider, Effect, Option } from "effect";
+import {
+  closeAdminPool as closeAdminPoolBoundary,
+  createAdminPool,
+  healthRequest,
+  runAdminQuery as runAdminQueryBoundary,
+  SERVER_ENTRY,
+  serverEntryExists,
+  type AdminPool,
+} from "./node-boundary.js";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-// Auto-start entry. `dist/index.js` is the library export surface and exits
-// immediately when invoked as a script; `dist/standalone.js` registers the
-// auto-start guard that calls startServer().
-const SERVER_ENTRY = join(
-  __dirname,
-  "..",
-  "..",
-  "..",
-  "server",
-  "dist",
-  "standalone.js",
-);
 const SpawnPath = Config.option(Config.string("PATH"));
 const DEFAULT_HEALTH_TIMEOUT_MS = 30_000;
 const HEALTH_POLL_INTERVAL_MS = 100;
@@ -49,7 +41,7 @@ export interface SpawnedServer {
   dbName: string;
   port: number;
   process: ChildProcess;
-  adminPool: pg.Pool;
+  adminPool: AdminPool;
 }
 
 function generateTestFirebaseKey(): string {
@@ -102,64 +94,61 @@ function findFreePort() {
   });
 }
 
-function pollHealth(port: number, timeoutMs = DEFAULT_HEALTH_TIMEOUT_MS) {
-  return Effect.runPromise(
-    Effect.gen(function* () {
-      const start = Date.now();
-      while (Date.now() - start < timeoutMs) {
-        const healthy = yield* Effect.tryPromise({
-          try: (signal) => fetch(`http://localhost:${port}/health`, { signal }),
-          catch: (cause) =>
-            new SpawnedServerError("Server health check request failed", cause),
-        }).pipe(
-          Effect.map((res) => res.ok),
-          Effect.catchAll(() => Effect.succeed(false)),
-        );
-        if (healthy) return;
-        yield* Effect.sleep(`${HEALTH_POLL_INTERVAL_MS} millis`);
-      }
-      return yield* Effect.fail(
-        new SpawnedServerError(
-          `Server health check timed out after ${timeoutMs}ms on port ${port}`,
-        ),
+function pollHealth(
+  port: number,
+  timeoutMs = DEFAULT_HEALTH_TIMEOUT_MS,
+): Effect.Effect<void, SpawnedServerError> {
+  return Effect.gen(function* () {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const healthy = yield* Effect.tryPromise({
+        try: (signal) => healthRequest(port, signal),
+        catch: (cause) =>
+          new SpawnedServerError("Server health check request failed", cause),
+      }).pipe(
+        Effect.map((res) => res.ok),
+        Effect.catchAll(() => Effect.succeed(false)),
       );
-    }),
-  );
-}
-
-function adminQuery(pool: pg.Pool, sql: string) {
-  return pool.query(sql);
+      if (healthy) return;
+      yield* Effect.sleep(`${HEALTH_POLL_INTERVAL_MS} millis`);
+    }
+    return yield* Effect.fail(
+      new SpawnedServerError(
+        `Server health check timed out after ${timeoutMs}ms on port ${port}`,
+      ),
+    );
+  }).pipe(Effect.withSpan("pollHealth"));
 }
 
 function quoteDatabaseName(dbName: string): string {
   return `"${dbName}"`;
 }
 
-function runAdminQuery(pool: pg.Pool, sql: string) {
+function runAdminQuery(pool: AdminPool, sql: string) {
   return Effect.tryPromise({
-    try: () => adminQuery(pool, sql),
+    try: () => runAdminQueryBoundary(pool, sql),
     catch: (cause) =>
       new SpawnedServerError("Admin database query failed", cause),
   });
 }
 
-function createDatabaseFromTemplate(pool: pg.Pool, dbName: string) {
+function createDatabaseFromTemplate(pool: AdminPool, dbName: string) {
   return runAdminQuery(
     pool,
     `CREATE DATABASE ${quoteDatabaseName(dbName)} TEMPLATE moltzap_template`,
   );
 }
 
-function dropDatabase(pool: pg.Pool, dbName: string) {
+function dropDatabase(pool: AdminPool, dbName: string) {
   return runAdminQuery(
     pool,
     `DROP DATABASE IF EXISTS ${quoteDatabaseName(dbName)}`,
   );
 }
 
-function closeAdminPool(pool: pg.Pool) {
+function closeAdminPool(pool: AdminPool) {
   return Effect.tryPromise({
-    try: () => pool.end(),
+    try: () => closeAdminPoolBoundary(pool),
     catch: (cause) =>
       new SpawnedServerError("Admin database pool close failed", cause),
   });
@@ -210,17 +199,19 @@ function waitForServerReady(
     readonly stderr: string;
   },
 ) {
-  return Effect.tryPromise({
-    try: () =>
-      Promise.race([pollHealth(port), unexpectedExitPromise(child, readLogs)]),
-    catch: (cause) =>
-      asSpawnedServerError(cause, "Server failed before becoming healthy"),
-  });
+  return Effect.raceFirst(
+    pollHealth(port),
+    Effect.tryPromise({
+      try: () => unexpectedExitPromise(child, readLogs),
+      catch: (cause) =>
+        asSpawnedServerError(cause, "Server failed before becoming healthy"),
+    }),
+  );
 }
 
 function cleanupSpawnFailure(
   child: ChildProcess,
-  adminPool: pg.Pool,
+  adminPool: AdminPool,
   dbName: string,
 ) {
   return Effect.gen(function* () {
@@ -236,7 +227,7 @@ export function spawnTestServer(pgHost: string, pgPort: number) {
   return Effect.runPromise(
     Effect.gen(function* () {
       // 1. Check server binary exists
-      if (!existsSync(SERVER_ENTRY)) {
+      if (!serverEntryExists()) {
         return yield* Effect.fail(
           new SpawnedServerError(
             `Server not built. Run: pnpm --filter @moltzap/server build\n` +
@@ -247,7 +238,7 @@ export function spawnTestServer(pgHost: string, pgPort: number) {
 
       // 2. Create temp database from template
       const dbName = `test_${crypto.randomUUID().replace(/-/g, "")}`;
-      const adminPool = new pg.Pool({
+      const adminPool = createAdminPool({
         host: pgHost,
         port: pgPort,
         user: "test",
@@ -313,7 +304,7 @@ export function spawnTestServer(pgHost: string, pgPort: number) {
         process: child,
         adminPool,
       };
-    }),
+    }).pipe(Effect.withSpan("spawnTestServer")),
   );
 }
 
@@ -339,6 +330,6 @@ export function stopSpawnedServer(server: SpawnedServer) {
         Effect.catchAll(() => Effect.void),
       );
       yield* closeAdminPool(server.adminPool);
-    }),
+    }).pipe(Effect.withSpan("stopSpawnedServer")),
   );
 }

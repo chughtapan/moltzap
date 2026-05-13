@@ -75,6 +75,40 @@ class MoltZapClientNotConnectedError extends Data.TaggedError(
   }
 }
 
+class OpenClawTargetResolved extends Data.TaggedClass(
+  "OpenClawTargetResolved",
+)<{
+  readonly to: string;
+}> {
+  readonly ok = true as const;
+}
+
+class OpenClawTargetRejected extends Data.TaggedClass(
+  "OpenClawTargetRejected",
+)<{
+  readonly error: Error;
+}> {
+  readonly ok = false as const;
+}
+
+type OpenClawTargetResolveResult =
+  | OpenClawTargetResolved
+  | OpenClawTargetRejected;
+
+class OpenClawSendTextSuccess extends Data.TaggedClass(
+  "OpenClawSendTextSuccess",
+)<{}> {
+  readonly ok = true as const;
+}
+
+class OpenClawSendTextFailure extends Data.TaggedClass(
+  "OpenClawSendTextFailure",
+)<{
+  readonly error: Error;
+}> {
+  readonly ok = false as const;
+}
+
 function adaptOpenClawLogger(
   logMethod: ((...args: unknown[]) => void) | undefined,
 ): (...args: unknown[]) => void {
@@ -184,7 +218,6 @@ const waitForAbort = (signal: AbortSignal): Effect.Effect<void> =>
  * this closure. `register(api)` calls this so each registration gets its own
  * per-plugin state, eliminating module-level mutable globals.
  */
-// eslint-disable-next-line agent-code-guard/manual-result -- OpenClaw plugin factory returns the channel object shape, not a reusable Result/Either algebra.
 export function createMoltzapChannelPlugin() {
   const activeClients = new Map<string, MoltZapService>();
 
@@ -700,23 +733,21 @@ export function createMoltzapChannelPlugin() {
         cfg?: OpenClawConfig;
         accountId?: string | null;
         mode?: string;
-      }): { ok: true; to: string } | { ok: false; error: Error } {
+      }): OpenClawTargetResolveResult {
         const to = params.to?.trim();
         if (!to) {
-          return {
-            ok: false,
+          return new OpenClawTargetRejected({
             error: new Error("MoltZap: target is required"),
-          };
+          });
         }
         if (to.includes(":") && !isMoltZapTarget(to)) {
-          return {
-            ok: false,
+          return new OpenClawTargetRejected({
             error: new Error(
               `MoltZap: unsupported target format "${to}" — use agent:<name> or conv:<id>`,
             ),
-          };
+          });
         }
-        return { ok: true, to };
+        return new OpenClawTargetResolved({ to });
       },
 
       sendText(ctx: {
@@ -747,15 +778,15 @@ export function createMoltzapChannelPlugin() {
               replyTo: ctx.replyToId,
             });
           }
-          return { ok: true as const };
+          return new OpenClawSendTextSuccess();
         }).pipe(
           Effect.withSpan("createMoltzapChannelPlugin.sendText"),
           Effect.match({
             onSuccess: (ok) => ok,
-            onFailure: (err) => ({
-              ok: false as const,
-              error: err instanceof Error ? err : new Error(String(err)),
-            }),
+            onFailure: (err) =>
+              new OpenClawSendTextFailure({
+                error: err instanceof Error ? err : new Error(String(err)),
+              }),
           }),
         );
         return Effect.runPromise(effect);

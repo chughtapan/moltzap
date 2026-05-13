@@ -1033,7 +1033,7 @@ export function makeDispatchTestDriver(
       assertLeaseState,
       advanceTime,
     } satisfies DispatchTestDriver;
-  });
+  }).pipe(Effect.withSpan("makeDispatchTestDriver"));
 }
 
 // ── Crypto helper for unique appId (avoids `crypto` import noise) ─────

@@ -78,25 +78,21 @@ describe("/api/v1/auth/claim — programmatic claim (#486)", () => {
       expect(bobReg.claimToken).toBeDefined();
       expect(aliceReg.claimUrl).toMatch(/\/api\/v1\/auth\/claim$/);
 
-      const aliceClaim = yield* Effect.tryPromise(() =>
-        postClaim({
-          claimToken: aliceReg.claimToken,
-          ownerUserId: ALICE_USER_ID,
-          inviteCode: REGISTRATION_SECRET,
-        }),
-      );
+      const aliceClaim = yield* postClaim({
+        claimToken: aliceReg.claimToken,
+        ownerUserId: ALICE_USER_ID,
+        inviteCode: REGISTRATION_SECRET,
+      });
       expect(aliceClaim.status).toBe(201);
       const aliceClaimBody = aliceClaim.json as ClaimResponse;
       expect(aliceClaimBody.agentId).toBe(aliceReg.agentId);
       expect(aliceClaimBody.ownerUserId).toBe(ALICE_USER_ID);
 
-      yield* Effect.tryPromise(() =>
-        postClaim({
-          claimToken: bobReg.claimToken,
-          ownerUserId: BOB_USER_ID,
-          inviteCode: REGISTRATION_SECRET,
-        }),
-      );
+      yield* postClaim({
+        claimToken: bobReg.claimToken,
+        ownerUserId: BOB_USER_ID,
+        inviteCode: REGISTRATION_SECRET,
+      });
 
       const aliceClient = yield* connectTestClient({
         wsUrl,
@@ -127,22 +123,18 @@ describe("/api/v1/auth/claim — programmatic claim (#486)", () => {
           inviteCode: REGISTRATION_SECRET,
         });
 
-        const first = yield* Effect.tryPromise(() =>
-          postClaim({
-            claimToken: reg.claimToken,
-            ownerUserId: ALICE_USER_ID,
-            inviteCode: REGISTRATION_SECRET,
-          }),
-        );
+        const first = yield* postClaim({
+          claimToken: reg.claimToken,
+          ownerUserId: ALICE_USER_ID,
+          inviteCode: REGISTRATION_SECRET,
+        });
         expect(first.status).toBe(201);
 
-        const second = yield* Effect.tryPromise(() =>
-          postClaim({
-            claimToken: reg.claimToken,
-            ownerUserId: ALICE_USER_ID,
-            inviteCode: REGISTRATION_SECRET,
-          }),
-        );
+        const second = yield* postClaim({
+          claimToken: reg.claimToken,
+          ownerUserId: ALICE_USER_ID,
+          inviteCode: REGISTRATION_SECRET,
+        });
         expect(second.status).toBe(200);
       }),
   );
@@ -153,20 +145,16 @@ describe("/api/v1/auth/claim — programmatic claim (#486)", () => {
       const reg = yield* registerAgent(baseUrl, `mismatch-claim-${idx}`, {
         inviteCode: REGISTRATION_SECRET,
       });
-      yield* Effect.tryPromise(() =>
-        postClaim({
-          claimToken: reg.claimToken,
-          ownerUserId: ALICE_USER_ID,
-          inviteCode: REGISTRATION_SECRET,
-        }),
-      );
-      const conflict = yield* Effect.tryPromise(() =>
-        postClaim({
-          claimToken: reg.claimToken,
-          ownerUserId: BOB_USER_ID,
-          inviteCode: REGISTRATION_SECRET,
-        }),
-      );
+      yield* postClaim({
+        claimToken: reg.claimToken,
+        ownerUserId: ALICE_USER_ID,
+        inviteCode: REGISTRATION_SECRET,
+      });
+      const conflict = yield* postClaim({
+        claimToken: reg.claimToken,
+        ownerUserId: BOB_USER_ID,
+        inviteCode: REGISTRATION_SECRET,
+      });
       expect(conflict.status).toBe(403);
       expect((conflict.json as ClaimError).code).toBe(CLAIM_OWNER_MISMATCH);
     }),
@@ -174,13 +162,11 @@ describe("/api/v1/auth/claim — programmatic claim (#486)", () => {
 
   it.live("unknown claim token returns 401 with CLAIM_NOT_FOUND code", () =>
     Effect.gen(function* () {
-      const result = yield* Effect.tryPromise(() =>
-        postClaim({
-          claimToken: "MZAP-DEADBEEFDEADBEEFDEADBEEFDEADBEEF",
-          ownerUserId: ALICE_USER_ID,
-          inviteCode: REGISTRATION_SECRET,
-        }),
-      );
+      const result = yield* postClaim({
+        claimToken: "MZAP-DEADBEEFDEADBEEFDEADBEEFDEADBEEF",
+        ownerUserId: ALICE_USER_ID,
+        inviteCode: REGISTRATION_SECRET,
+      });
       expect(result.status).toBe(401);
       expect((result.json as ClaimError).code).toBe(CLAIM_NOT_FOUND);
     }),
@@ -188,25 +174,21 @@ describe("/api/v1/auth/claim — programmatic claim (#486)", () => {
 
   it.live("validator rejects malformed body (missing ownerUserId → 400)", () =>
     Effect.gen(function* () {
-      const result = yield* Effect.tryPromise(() =>
-        postClaim({
-          claimToken: "MZAP-XYZ",
-          inviteCode: REGISTRATION_SECRET,
-        }),
-      );
+      const result = yield* postClaim({
+        claimToken: "MZAP-XYZ",
+        inviteCode: REGISTRATION_SECRET,
+      });
       expect(result.status).toBe(400);
     }),
   );
 
   it.live("validator rejects non-UUID ownerUserId (400)", () =>
     Effect.gen(function* () {
-      const result = yield* Effect.tryPromise(() =>
-        postClaim({
-          claimToken: "MZAP-XYZ",
-          ownerUserId: "not-a-uuid",
-          inviteCode: REGISTRATION_SECRET,
-        }),
-      );
+      const result = yield* postClaim({
+        claimToken: "MZAP-XYZ",
+        ownerUserId: "not-a-uuid",
+        inviteCode: REGISTRATION_SECRET,
+      });
       expect(result.status).toBe(400);
     }),
   );
@@ -217,13 +199,11 @@ describe("/api/v1/auth/claim — programmatic claim (#486)", () => {
       const reg = yield* registerAgent(baseUrl, `bad-invite-${idx}`, {
         inviteCode: REGISTRATION_SECRET,
       });
-      const result = yield* Effect.tryPromise(() =>
-        postClaim({
-          claimToken: reg.claimToken,
-          ownerUserId: ALICE_USER_ID,
-          inviteCode: "wrong-secret",
-        }),
-      );
+      const result = yield* postClaim({
+        claimToken: reg.claimToken,
+        ownerUserId: ALICE_USER_ID,
+        inviteCode: "wrong-secret",
+      });
       expect(result.status).toBe(403);
     }),
   );
@@ -234,12 +214,10 @@ describe("/api/v1/auth/claim — programmatic claim (#486)", () => {
       const reg = yield* registerAgent(baseUrl, `missing-invite-${idx}`, {
         inviteCode: REGISTRATION_SECRET,
       });
-      const result = yield* Effect.tryPromise(() =>
-        postClaim({
-          claimToken: reg.claimToken,
-          ownerUserId: ALICE_USER_ID,
-        }),
-      );
+      const result = yield* postClaim({
+        claimToken: reg.claimToken,
+        ownerUserId: ALICE_USER_ID,
+      });
       expect(result.status).toBe(403);
     }),
   );

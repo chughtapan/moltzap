@@ -75,6 +75,6 @@ export function registerLatencyResilience(ctx: ConformanceRunContext): void {
             ),
           );
         }
-      }),
+      }).pipe(Effect.withSpan("registerLatencyResilience")),
   });
 }

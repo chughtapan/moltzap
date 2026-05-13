@@ -72,6 +72,6 @@ export function registerResetPeerRecovery(ctx: ConformanceRunContext): void {
             }),
           );
         }
-      }),
+      }).pipe(Effect.withSpan("registerResetPeerRecovery")),
   });
 }
