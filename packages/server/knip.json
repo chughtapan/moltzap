@@ -9,6 +9,5 @@
     "vitest*.config.ts"
   ],
   "project": ["src/**/*.ts", "vitest*.config.ts"],
-  "ignoreBinaries": ["agent-code-guard-knip", "eslint"],
-  "ignoreDependencies": ["pino-pretty"]
+  "ignoreBinaries": ["agent-code-guard-knip", "eslint"]
 }

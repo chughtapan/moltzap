@@ -8,6 +8,7 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
+import type { BootOptions as ClaudeCodeChannelBootOptions } from "@moltzap/claude-code-channel";
 
 const JSON_INDENT_SPACES = 2;
 
@@ -37,6 +38,10 @@ interface ClaudeCodeMcpConfig {
   };
 }
 
+type ClaudeCodeChannelServerName = NonNullable<
+  ClaudeCodeChannelBootOptions["serverName"]
+>;
+
 export function writeClaudeCodeMcpConfig(
   opts: WriteClaudeCodeMcpConfigOpts,
 ): string {
@@ -48,6 +53,7 @@ export function writeClaudeCodeMcpConfig(
     .replace(/^wss:/, "https:");
 
   const binPath = path.join(opts.extDir, "dist", "bin.js");
+  const channelServerName: ClaudeCodeChannelServerName = `@moltzap/claude-code-channel/${opts.agentName}`;
 
   const config: ClaudeCodeMcpConfig = {
     mcpServers: {
@@ -57,7 +63,7 @@ export function writeClaudeCodeMcpConfig(
         env: {
           MOLTZAP_API_KEY: opts.apiKey,
           MOLTZAP_SERVER_URL: serverUrl,
-          MOLTZAP_SERVER_NAME: `@moltzap/claude-code-channel/${opts.agentName}`,
+          MOLTZAP_SERVER_NAME: channelServerName,
         },
       },
     },

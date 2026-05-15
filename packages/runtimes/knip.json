@@ -7,10 +7,5 @@
     "vitest*.config.ts"
   ],
   "project": ["src/**/*.ts", "vitest*.config.ts"],
-  "ignoreBinaries": ["agent-code-guard-knip", "eslint"],
-  "ignoreDependencies": [
-    "@anthropic-ai/claude-code",
-    "@moltzap/claude-code-channel",
-    "openclaw"
-  ]
+  "ignoreBinaries": ["agent-code-guard-knip", "eslint"]
 }

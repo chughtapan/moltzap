@@ -61,6 +61,11 @@ export const readFileAsync = (path: string) => fsp.readFile(path);
 export const readFileStringAsync = (path: string, encoding: BufferEncoding) =>
   fsp.readFile(path, encoding);
 
+export const readFileStringSync = (
+  path: string,
+  encoding: BufferEncoding,
+): string => fs.readFileSync(path, encoding);
+
 export const removeAsync = (
   path: string,
   options: RecursiveForceRemoveOptions,

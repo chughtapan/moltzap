@@ -55,7 +55,11 @@ import {
   resolveChannelDependency,
   seedWorkspaceFiles,
 } from "./channel-plugin-install.js";
-import { existsSync, makeTempDirectorySync, removeSync } from "./node-fs.js";
+import { makeTempDirectorySync, removeSync } from "./node-fs.js";
+import {
+  resolveClaudeCodeChannelDistDir,
+  resolveWorkspaceClaudeBin,
+} from "./package-resolution.js";
 
 class WorkspaceRootNotFound extends Data.TaggedError("WorkspaceRootNotFound")<{
   readonly message: string;
@@ -561,10 +565,13 @@ export function createWorkspaceClaudeCodeAdapter(
   return new ClaudeCodeAdapter({
     server: input.server,
     claudeBin:
-      input.claudeBin ?? resolveWorkspaceClaudeBin(packageRoot, repoRoot),
+      input.claudeBin ??
+      resolveWorkspaceClaudeBin({
+        repoRoot,
+        workspacePackageRoot: packageRoot,
+      }),
     channelDistDir:
-      input.channelDistDir ??
-      path.join(repoRoot, "packages/claude-code-channel/dist"),
+      input.channelDistDir ?? resolveClaudeCodeChannelDistDir(repoRoot),
     repoRoot,
   });
 }
@@ -582,17 +589,6 @@ function resolveWorkspacePackageRoot(): string {
   throw new WorkspaceRootNotFound({
     message: "Unable to resolve packages/runtimes workspace root",
   });
-}
-
-function resolveWorkspaceClaudeBin(
-  packageRoot: string,
-  repoRoot: string,
-): string {
-  const packageBin = path.join(packageRoot, "node_modules/.bin/claude");
-  if (existsSync(packageBin)) {
-    return packageBin;
-  }
-  return path.join(repoRoot, "node_modules/.bin/claude");
 }
 
 /**

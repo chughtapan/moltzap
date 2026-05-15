@@ -4,6 +4,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import type { OpenClawConfig } from "openclaw/plugin-sdk";
 
 import type {
   Runtime,
@@ -19,12 +20,12 @@ import {
   seedWorkspaceFiles as seedSharedWorkspaceFiles,
 } from "./channel-plugin-install.js";
 import {
-  existsSync,
   makeDirectorySync,
   makeTempDirectorySync,
   removeSync,
   writeFileSync,
 } from "./node-fs.js";
+import { resolveWorkspaceOpenClawBin } from "./package-resolution.js";
 
 const OPENCLAW_TERM_WAIT_MS = 10_000;
 const OPENCLAW_KILL_WAIT_MS = 5_000;
@@ -313,7 +314,11 @@ export function createWorkspaceOpenClawAdapter(
   return new OpenClawAdapter({
     server: input.server,
     openclawBin:
-      input.openclawBin ?? resolveWorkspaceOpenClawBin(packageRoot, repoRoot),
+      input.openclawBin ??
+      resolveWorkspaceOpenClawBin({
+        repoRoot,
+        workspacePackageRoot: packageRoot,
+      }),
     channelDistDir:
       input.channelDistDir ??
       path.join(repoRoot, "packages/openclaw-channel/dist"),
@@ -334,17 +339,6 @@ function resolveWorkspacePackageRoot(): string {
   throw new WorkspaceRootNotFound({
     message: "Unable to resolve packages/runtimes workspace root",
   });
-}
-
-function resolveWorkspaceOpenClawBin(
-  packageRoot: string,
-  repoRoot: string,
-): string {
-  const packageBin = path.join(packageRoot, "node_modules/.bin/openclaw");
-  if (existsSync(packageBin)) {
-    return packageBin;
-  }
-  return path.join(repoRoot, "node_modules/.bin/openclaw");
 }
 
 function allocateFreePort(): Effect.Effect<
@@ -431,34 +425,6 @@ function filterDefinedEnv(
 
 // --- Config and plugin install (module-private) ---
 
-interface OpenClawConfig {
-  agents: {
-    defaults: {
-      model: { primary: string };
-      workspace: string;
-      compaction: { mode: string };
-    };
-  };
-  commands: { native: string; nativeSkills: string; restart: boolean };
-  messages: {
-    queue: { mode: string; debounceMs: number; cap: number; drop: string };
-  };
-  channels: {
-    moltzap: {
-      accounts: Array<{
-        id: string;
-        apiKey: string;
-        serverUrl: string;
-        agentName: string;
-      }>;
-    };
-  };
-  gateway: {
-    mode: string;
-    auth: { mode: string; token: string };
-  };
-}
-
 function writeOpenClawConfig(opts: {
   stateDir: string;
   serverUrl: string;
@@ -470,7 +436,7 @@ function writeOpenClawConfig(opts: {
     .replace(/\/ws$/, "")
     .replace(/^ws:/, "http:");
 
-  const config: OpenClawConfig = {
+  const config = {
     agents: {
       defaults: {
         model: { primary: opts.modelId ?? DEFAULT_OPENCLAW_MODEL_ID },
@@ -501,7 +467,7 @@ function writeOpenClawConfig(opts: {
         token: `runtime-${Date.now().toString(TOKEN_RADIX)}`,
       },
     },
-  };
+  } satisfies OpenClawConfig;
 
   makeDirectorySync(path.join(opts.stateDir, "workspace"));
   makeDirectorySync(path.join(opts.stateDir, "logs"));
