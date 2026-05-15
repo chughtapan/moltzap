@@ -12,6 +12,7 @@
  */
 import { Config, Context, Effect, Layer, Logger as EffectLogger } from "effect";
 import pino from "pino";
+import pinoPretty from "pino-pretty";
 
 export type Logger = pino.Logger;
 
@@ -67,13 +68,10 @@ const buildPino = Effect.gen(function* () {
   const nodeEnv = yield* Config.string("NODE_ENV").pipe(
     Config.withDefault("development"),
   );
-  const instance = pino({
-    level,
-    transport:
-      nodeEnv !== "production"
-        ? { target: "pino-pretty", options: { colorize: true } }
-        : undefined,
-  });
+  const instance =
+    nodeEnv !== "production"
+      ? pino({ level }, pinoPretty({ colorize: true }))
+      : pino({ level });
   current = instance;
   return instance;
 });

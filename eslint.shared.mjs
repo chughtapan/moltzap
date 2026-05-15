@@ -29,6 +29,7 @@ const sourceRules = {
     {
       ignore: [-1, 0, 1],
       ignoreArrayIndexes: true,
+      ignoreReadonlyClassProperties: true,
     },
   ],
   "@typescript-eslint/no-unused-vars": "error",

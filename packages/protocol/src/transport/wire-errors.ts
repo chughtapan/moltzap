@@ -1,7 +1,3 @@
-/* eslint-disable @typescript-eslint/no-magic-numbers --
- * Numeric error codes ARE the constant declarations here; per-class
- * codes deliberately replace the central WIRE_CODES table (Phase 1.5).
- */
 import { Data } from "effect";
 
 /** JSON-RPC 2.0 reserved codes. Emitted by JsonRpcServer; never raised by handlers. */
