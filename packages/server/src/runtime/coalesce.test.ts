@@ -14,6 +14,8 @@ import {
 import { expect } from "vitest";
 import { coalesce, drainCoalesceMap } from "./coalesce.js";
 
+const COALESCE_TIMEOUT_MS = 200;
+
 /**
  * Fresh Ref for each test — we never share state across cases, so races
  * inside one test don't leak into another.
@@ -142,7 +144,7 @@ it.effect(
         // never resumes
       }).pipe(
         Effect.timeoutFail({
-          duration: Duration.millis(200),
+          duration: Duration.millis(COALESCE_TIMEOUT_MS),
           onTimeout: () => new BoomError(),
         }),
       );
@@ -159,7 +161,7 @@ it.effect(
       );
 
       yield* Effect.yieldNow();
-      yield* TestClock.adjust(Duration.millis(200));
+      yield* TestClock.adjust(Duration.millis(COALESCE_TIMEOUT_MS));
 
       const exit = yield* Effect.exit(Deferred.await(deferred));
       expect(Exit.isFailure(exit)).toBe(true);
@@ -182,7 +184,7 @@ it.effect(
         // never resumes
       }).pipe(
         Effect.timeoutFail({
-          duration: Duration.millis(200),
+          duration: Duration.millis(COALESCE_TIMEOUT_MS),
           onTimeout: () => new BoomError(),
         }),
       );
@@ -190,7 +192,7 @@ it.effect(
       const fiber = yield* Effect.fork(Effect.exit(coalesce(ref, "k", work)));
 
       yield* Effect.yieldNow();
-      yield* TestClock.adjust(Duration.millis(200));
+      yield* TestClock.adjust(Duration.millis(COALESCE_TIMEOUT_MS));
 
       const exit = yield* Fiber.join(fiber);
       expect(Exit.isFailure(exit)).toBe(true);

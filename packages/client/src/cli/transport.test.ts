@@ -25,6 +25,9 @@ import {
 
 import { TasksList } from "@moltzap/protocol";
 
+const SESSION_NOT_FOUND_CODE = -32001;
+const RPC_TIMEOUT_MS = 15_000;
+
 /**
  * Module-level mock so transport.ts's `new MoltZapWsClient(...)` call is
  * intercepted for the composed-rpc test below. Existing tests (decideTransport,
@@ -155,14 +158,14 @@ describe("tagWsError — maps ws-client error tags to TransportError variants", 
     const err = tagWsError(
       TasksList.name,
       new RpcServerError({
-        code: -32001,
+        code: SESSION_NOT_FOUND_CODE,
         message: "session not found",
       }),
     );
     expect(err).toBeInstanceOf(TransportRpcError);
     expect(err._tag).toBe("TransportRpcError");
     if (err instanceof TransportRpcError) {
-      expect(err.code).toBe(-32001);
+      expect(err.code).toBe(SESSION_NOT_FOUND_CODE);
       expect(err.message).toBe("session not found");
     }
   });
@@ -181,12 +184,12 @@ describe("tagWsError — maps ws-client error tags to TransportError variants", 
       TasksList.name,
       new RpcTimeoutError({
         method: TasksList.name,
-        timeoutMs: 15_000,
+        timeoutMs: RPC_TIMEOUT_MS,
       }),
     );
     expect(err).toBeInstanceOf(TransportTimeoutError);
     if (err instanceof TransportTimeoutError) {
-      expect(err.timeoutMs).toBe(15_000);
+      expect(err.timeoutMs).toBe(RPC_TIMEOUT_MS);
     }
   });
 

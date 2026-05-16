@@ -2,6 +2,9 @@ import { describe, it, expect, afterEach } from "vitest";
 import { Effect, Exit, Cause } from "effect";
 import { ServerConfigLoader } from "./config.js";
 
+const DEFAULT_SERVER_PORT = 3000;
+const OVERRIDE_SERVER_PORT = 8080;
+
 afterEach(() => {
   // Clean up any env vars set by individual tests
   delete process.env["DATABASE_URL"];
@@ -33,7 +36,7 @@ describe("ServerConfigLoader", () => {
 
     expect(result.database.url).toBe(""); // empty string → PGlite in standalone
     expect(result.encryption.masterSecret).toBeUndefined();
-    expect(result.server.port).toBe(3000);
+    expect(result.server.port).toBe(DEFAULT_SERVER_PORT);
     expect(result.devMode).toBe(true);
   });
 
@@ -81,7 +84,7 @@ describe("ServerConfigLoader", () => {
 
     const result = await Effect.runPromise(ServerConfigLoader);
 
-    expect(result.server.port).toBe(8080);
+    expect(result.server.port).toBe(OVERRIDE_SERVER_PORT);
   });
 
   it("parses CORS_ORIGINS in production mode (no devMode)", async () => {

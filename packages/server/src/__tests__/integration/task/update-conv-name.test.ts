@@ -17,7 +17,7 @@ import {
 
 beforeAll(async () => {
   await startTestServer();
-}, 60_000);
+});
 
 afterAll(async () => {
   await stopTestServer();

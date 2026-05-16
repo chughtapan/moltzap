@@ -25,9 +25,13 @@ import {
 import { getWsUrl } from "../../../test-utils/index.js";
 import { JSON_RPC_RESERVED_CODES } from "@moltzap/protocol";
 
+const RESPONSE_FLUSH_WAIT_MS = 200;
+const GARBAGE_FRAME_COUNT = 101;
+const MIN_PARSE_ERROR_RESPONSES = 95;
+
 beforeAll(async () => {
   await startTestServer();
-}, 60_000);
+});
 
 afterAll(async () => {
   await stopTestServer();
@@ -77,7 +81,7 @@ const sendRawFrames = (wsUrl: string, frames: string[]) =>
       }
 
       // Wait for the server to flush every response.
-      yield* Effect.sleep(Duration.millis(200));
+      yield* Effect.sleep(Duration.millis(RESPONSE_FLUSH_WAIT_MS));
       yield* Scope.close(scope, undefined as never);
       return yield* Ref.get(responsesRef);
     }),
@@ -93,7 +97,7 @@ describe("Scenario 22: malformed-frame flood does not crash the server", () => {
         // Mix of JSON-syntax errors targeting the `JSON.parse` branch —
         // valid-JSON-but-wrong-shape frames go through `validators.requestFrame`.
         const garbage: string[] = [];
-        for (let i = 0; i < 101; i++) {
+        for (let i = 0; i < GARBAGE_FRAME_COUNT; i++) {
           garbage.push(`{not-json-${i}`);
         }
 
@@ -105,7 +109,9 @@ describe("Scenario 22: malformed-frame flood does not crash the server", () => {
           const f = r as { error?: { code?: number } };
           return f.error?.code === JSON_RPC_RESERVED_CODES.ParseError;
         });
-        expect(parseErrors.length).toBeGreaterThanOrEqual(95);
+        expect(parseErrors.length).toBeGreaterThanOrEqual(
+          MIN_PARSE_ERROR_RESPONSES,
+        );
 
         // Fresh connection still works after the flood.
         const agent = yield* registerAndConnect("post-flood-agent");

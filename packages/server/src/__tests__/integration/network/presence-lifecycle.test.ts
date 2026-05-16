@@ -22,7 +22,7 @@ const PRESENCE_DEV_OWNER = "00000000-0000-4000-8000-000000000470";
 
 beforeAll(async () => {
   await startTestServer({ devModeUserId: PRESENCE_DEV_OWNER });
-}, 60_000);
+});
 
 afterAll(async () => {
   await stopTestServer();

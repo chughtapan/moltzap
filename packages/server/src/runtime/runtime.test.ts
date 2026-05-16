@@ -6,6 +6,8 @@ import { wireErrorFromInstance } from "@moltzap/protocol/testing";
 import { validateParams } from "./validator.js";
 import { InvalidParamsError } from "./errors.js";
 
+const CONFLICT_ERROR_CODE = -32003;
+
 interface Shape {
   name: string;
 }
@@ -40,7 +42,7 @@ it.effect("ConflictError carries message and optional data", () =>
     expect(Exit.isFailure(exit)).toBe(true);
     if (Exit.isFailure(exit) && exit.cause._tag === "Fail") {
       const wire = wireErrorFromInstance(exit.cause.error);
-      expect(wire?.code).toBe(-32003);
+      expect(wire?.code).toBe(CONFLICT_ERROR_CODE);
       expect(wire?.message).toBe("nope");
       expect(wire?.data).toEqual({ why: "x" });
     }

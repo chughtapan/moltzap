@@ -17,7 +17,7 @@ import { ConversationsCreate, MessagesSend } from "@moltzap/protocol";
 
 beforeAll(async () => {
   await startTestServer();
-}, 60_000);
+});
 
 afterAll(async () => {
   await stopTestServer();

@@ -9,6 +9,8 @@ import {
 } from "./webhook.js";
 
 const OkSchema = Schema.Struct({ ok: Schema.Boolean });
+const HTTP_FORBIDDEN = 403;
+const FAST_WEBHOOK_TIMEOUT_MS = 50;
 
 // -- WebhookClient (sync) ---------------------------------------------------
 
@@ -53,7 +55,7 @@ describe("WebhookClient.call", () => {
 
   it("fails with WebhookHttpError on non-2xx status", async () => {
     vi.mocked(fetch).mockResolvedValue(
-      new Response("forbidden", { status: 403 }),
+      new Response("forbidden", { status: HTTP_FORBIDDEN }),
     );
 
     const exit = await Effect.runPromiseExit(
@@ -73,13 +75,13 @@ describe("WebhookClient.call", () => {
     if (err._tag !== "Some") return;
     expect(err.value._tag).toBe("WebhookHttpError");
     const httpErr = err.value as WebhookHttpError;
-    expect(httpErr.status).toBe(403);
+    expect(httpErr.status).toBe(HTTP_FORBIDDEN);
     expect(httpErr.body).toBe("forbidden");
   });
 
   it("fails with WebhookTimeoutError when timeoutMs elapses", async () => {
     // fetch never resolves — Effect.timeoutFail triggers on the real
-    // clock. We keep the budget small (50ms) so the test stays fast.
+    // clock. We keep the budget small so the test stays fast.
     vi.mocked(fetch).mockImplementation(
       () => new Promise(() => undefined) as never,
     );
@@ -89,7 +91,7 @@ describe("WebhookClient.call", () => {
         url: "https://hook.test/x",
         event: "test.timeout",
         body: {},
-        timeoutMs: 50,
+        timeoutMs: FAST_WEBHOOK_TIMEOUT_MS,
         schema: Schema.Unknown,
       }),
     );
@@ -99,7 +101,9 @@ describe("WebhookClient.call", () => {
     const err = Cause.failureOption(exit.cause);
     if (err._tag !== "Some") throw new Error("expected failure");
     expect(err.value._tag).toBe("WebhookTimeoutError");
-    expect((err.value as WebhookTimeoutError).timeoutMs).toBe(50);
+    expect((err.value as WebhookTimeoutError).timeoutMs).toBe(
+      FAST_WEBHOOK_TIMEOUT_MS,
+    );
   });
 
   it("fails with WebhookDecodeError when body doesn't match schema", async () => {

@@ -15,6 +15,9 @@ import {
   MessagesSend,
 } from "@moltzap/protocol";
 
+const AES_GCM_IV_BYTES = 12;
+const AES_GCM_AUTH_TAG_BYTES = 16;
+
 let _baseUrl: string;
 let _wsUrl: string;
 
@@ -22,7 +25,7 @@ beforeAll(async () => {
   const server = await startTestServer({ encryption: true });
   _baseUrl = server.baseUrl;
   _wsUrl = server.wsUrl;
-}, 60_000);
+});
 
 afterAll(async () => {
   await stopTestServer();
@@ -73,9 +76,9 @@ describe("Scenario 7: Encryption", () => {
         const tag = row.parts_tag as Buffer;
 
         // IV should be 12 bytes (AES-GCM standard)
-        expect(iv.length).toBe(12);
+        expect(iv.length).toBe(AES_GCM_IV_BYTES);
         // Auth tag should be 16 bytes
-        expect(tag.length).toBe(16);
+        expect(tag.length).toBe(AES_GCM_AUTH_TAG_BYTES);
         // DEK and KEK versions should be set
         expect(row.dek_version).toBeGreaterThanOrEqual(1);
         expect(row.kek_version).toBeGreaterThanOrEqual(1);

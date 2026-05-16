@@ -42,6 +42,9 @@ import { Connect } from "../../network/methods.js";
 import { ConversationsList } from "../../task/methods.js";
 import { jsonRpcMethod, requestFrame } from "../../transport/wire.js";
 
+const MALFORM_SEED = 42;
+const EXPECTED_MERGED_CAPTURE_COUNT = 2;
+
 describe("codec", () => {
   it("round-trips a valid request frame", async () => {
     const frame: AnyFrame = requestFrame("req-1", Connect, {
@@ -85,7 +88,7 @@ describe("codec", () => {
       "extra-property",
     ] as const;
     for (const k of kinds) {
-      expect(() => malformFrame(base, k, 42)).not.toThrow();
+      expect(() => malformFrame(base, k, MALFORM_SEED)).not.toThrow();
     }
   });
 });
@@ -126,7 +129,7 @@ describe("captures", () => {
         return snap.length;
       }),
     );
-    expect(result).toBe(2);
+    expect(result).toBe(EXPECTED_MERGED_CAPTURE_COUNT);
   });
 });
 

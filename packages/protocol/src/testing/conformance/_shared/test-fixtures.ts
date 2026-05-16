@@ -25,6 +25,8 @@ import { ConversationId, MessageId, TaskId } from "../../../task/methods.js";
 const UNIQUE_SUFFIX_RADIX = 36;
 const UNIQUE_SUFFIX_START = 2;
 const UNIQUE_SUFFIX_END = 8;
+const HTTP_SUCCESS_MIN = 200;
+const HTTP_SUCCESS_MAX_EXCLUSIVE = 300;
 
 // --- Branded-ID constructors ---
 //
@@ -122,7 +124,10 @@ export function registerTestAgent(opts: {
     const body = yield* response.text.pipe(
       Effect.mapError(toRegistrationError),
     );
-    if (response.status < 200 || response.status >= 300) {
+    if (
+      response.status < HTTP_SUCCESS_MIN ||
+      response.status >= HTTP_SUCCESS_MAX_EXCLUSIVE
+    ) {
       return yield* Effect.fail(
         new AgentRegistrationError({
           baseUrl: opts.baseUrl,

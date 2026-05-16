@@ -48,8 +48,10 @@ export type PgliteHarnessError =
   | PgliteExecError
   | PgliteCloseError;
 
+const SQL_PREVIEW_MAX_CHARS = 160;
+
 function sqlPreview(sql: string): string {
-  return sql.replace(/\s+/g, " ").trim().slice(0, 160);
+  return sql.replace(/\s+/g, " ").trim().slice(0, SQL_PREVIEW_MAX_CHARS);
 }
 
 export interface PgliteHarness {

@@ -71,14 +71,21 @@ interface BadClientOptions {
   readonly rpcBehavior?: RpcBehavior;
 }
 
+const CLIENT_PROOF_TIMEOUT_MS = 30_000;
+const MALFORMED_FRAME_PROOF_TIMEOUT_MS = 10_000;
+
 describe("client-side conformance executable divergence proofs", () => {
-  it("registerNotificationWellFormednessClient fails when surfaced notifications lose required fields", async () => {
-    const failure = await runSingleClientProof(
-      registerNotificationWellFormednessClient,
-      { eventBehavior: "strip-required-field" },
-    );
-    expectInvariant(failure, "notification-well-formedness-client");
-  }, 30_000);
+  it(
+    "registerNotificationWellFormednessClient fails when surfaced notifications lose required fields",
+    async () => {
+      const failure = await runSingleClientProof(
+        registerNotificationWellFormednessClient,
+        { eventBehavior: "strip-required-field" },
+      );
+      expectInvariant(failure, "notification-well-formedness-client");
+    },
+    CLIENT_PROOF_TIMEOUT_MS,
+  );
 
   it("registerFanOutCardinalityClient fails when a real client scrambles fan-out order", async () => {
     const failure = await runSingleClientProof(
@@ -97,13 +104,17 @@ describe("client-side conformance executable divergence proofs", () => {
     expectInvariant(failure, "payload-opacity-client");
   });
 
-  it("registerMalformedFrameHandlingClient fails when malformed frames poison liveness", async () => {
-    const failure = await runSingleClientProof(
-      registerMalformedFrameHandlingClient,
-      { eventBehavior: "close-on-malformed" },
-    );
-    expectInvariant(failure, "malformed-frame-handling-client");
-  }, 10_000);
+  it(
+    "registerMalformedFrameHandlingClient fails when malformed frames poison liveness",
+    async () => {
+      const failure = await runSingleClientProof(
+        registerMalformedFrameHandlingClient,
+        { eventBehavior: "close-on-malformed" },
+      );
+      expectInvariant(failure, "malformed-frame-handling-client");
+    },
+    MALFORMED_FRAME_PROOF_TIMEOUT_MS,
+  );
 
   it("registerTaskBoundaryIsolationClient fails when task ids are cross-wired", async () => {
     const failure = await runSingleClientProof(

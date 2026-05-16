@@ -17,40 +17,45 @@ import { clientConformance } from "@moltzap/protocol/testing";
 import { createMoltZapRealClientFactory } from "@moltzap/client/test-utils";
 
 const TOXIPROXY_URL = process.env.TOXIPROXY_URL ?? null;
+const CLIENT_CONFORMANCE_TIMEOUT_MS = 600_000;
 
 describe("@moltzap/client client-side conformance", () => {
-  it("client-side properties pass against MoltZapWsClient", async () => {
-    const factory = createMoltZapRealClientFactory({
-      agentKey: "test-agent-key",
-      agentId: "00000000-0000-4000-8000-00000000c1ce",
-    });
-    const exit = await Effect.runPromiseExit(
-      clientConformance.runClientConformanceSuite({
-        realClient: factory,
-        toxiproxyUrl: TOXIPROXY_URL,
-      }),
-    );
-    expect(Exit.isSuccess(exit)).toBe(true);
-    if (!Exit.isSuccess(exit)) return;
-    const result = exit.value;
-    console.log(
-      `[client-conformance] seed=${result.seed} passed=${result.passed.length} deferred=${result.deferred.length} unavailable=${result.unavailable.length} failed=${result.failed.length}`,
-    );
-    if (result.unavailable.length > 0) {
+  it(
+    "client-side properties pass against MoltZapWsClient",
+    async () => {
+      const factory = createMoltZapRealClientFactory({
+        agentKey: "test-agent-key",
+        agentId: "00000000-0000-4000-8000-00000000c1ce",
+      });
+      const exit = await Effect.runPromiseExit(
+        clientConformance.runClientConformanceSuite({
+          realClient: factory,
+          toxiproxyUrl: TOXIPROXY_URL,
+        }),
+      );
+      expect(Exit.isSuccess(exit)).toBe(true);
+      if (!Exit.isSuccess(exit)) return;
+      const result = exit.value;
       console.log(
-        `[client-conformance] unavailable: ${result.unavailable.map((u) => `${u.name}: ${u.reason}`).join(" | ")}`,
+        `[client-conformance] seed=${result.seed} passed=${result.passed.length} deferred=${result.deferred.length} unavailable=${result.unavailable.length} failed=${result.failed.length}`,
       );
-    }
-    if (result.failed.length > 0) {
-      const summary = result.failed
-        .map((f) => {
-          const tag = "_tag" in f.failure ? f.failure._tag : "unknown";
-          return `${f.name}: ${tag}`;
-        })
-        .join("; ");
-      throw new Error(
-        `${result.failed.length} client-side properties failed: ${summary}`,
-      );
-    }
-  }, 600_000);
+      if (result.unavailable.length > 0) {
+        console.log(
+          `[client-conformance] unavailable: ${result.unavailable.map((u) => `${u.name}: ${u.reason}`).join(" | ")}`,
+        );
+      }
+      if (result.failed.length > 0) {
+        const summary = result.failed
+          .map((f) => {
+            const tag = "_tag" in f.failure ? f.failure._tag : "unknown";
+            return `${f.name}: ${tag}`;
+          })
+          .join("; ");
+        throw new Error(
+          `${result.failed.length} client-side properties failed: ${summary}`,
+        );
+      }
+    },
+    CLIENT_CONFORMANCE_TIMEOUT_MS,
+  );
 });

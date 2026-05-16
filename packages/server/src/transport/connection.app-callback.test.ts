@@ -49,6 +49,11 @@ const AGENT_ID = agentId("22222222-2222-4222-8222-222222222222");
 const CONVERSATION_ID = conversationId("33333333-3333-4333-8333-333333333333");
 const MESSAGE_ID = messageId("44444444-4444-4444-8444-444444444444");
 const PARTICIPANT = { agentId: AGENT_ID, ownerId: "owner-a" } as const;
+const HANDLER_DEFECT_CODE = -32999;
+const CALLER_TIMEOUT_MS = 100;
+const MIN_TIMEOUT_ELAPSED_MS = 95;
+const MAX_TIMEOUT_ELAPSED_MS = 2000;
+const DRAIN_TIMEOUT_MS = 50;
 
 const authorizeDispatchParams = (text: string, taskId = TASK_ID) => ({
   taskId,
@@ -208,7 +213,7 @@ describe("sendRpcToClient — happy-path round-trip", () => {
       if (err._tag === "Some") {
         expect(err.value).toBeInstanceOf(RpcServerError);
         const e = err.value as RpcServerError;
-        expect(e.code).toBe(-32999);
+        expect(e.code).toBe(HANDLER_DEFECT_CODE);
         expect(e.message).toBe("task-already-closed");
       }
     }
@@ -330,7 +335,7 @@ describe("sendRpcToClient — caller timeout", () => {
           "timeout",
           makeTaskId("cccccccc-cccc-4ccc-8ccc-cccccccccccc"),
         ),
-      ).pipe(Effect.timeout(Duration.millis(100)), Effect.exit);
+      ).pipe(Effect.timeout(Duration.millis(CALLER_TIMEOUT_MS)), Effect.exit);
       const elapsed = Date.now() - start;
 
       // The frame WAS written (proves the primitive started its work
@@ -354,8 +359,8 @@ describe("sendRpcToClient — caller timeout", () => {
         expect(err.value._tag).toBe("TimeoutException");
       }
     }
-    expect(elapsed).toBeGreaterThanOrEqual(95);
-    expect(elapsed).toBeLessThan(2000);
+    expect(elapsed).toBeGreaterThanOrEqual(MIN_TIMEOUT_ELAPSED_MS);
+    expect(elapsed).toBeLessThan(MAX_TIMEOUT_ELAPSED_MS);
   });
 
   it("late response after interrupt: resolve returns false, no Deferred re-resolve", async () => {
@@ -460,7 +465,7 @@ describe("sendRpcToClient — caller timeout", () => {
           "drain",
           makeTaskId("cccccccc-cccc-4ccc-8ccc-cccccccccccc"),
         ),
-      ).pipe(Effect.timeout(Duration.millis(50)), Effect.exit);
+      ).pipe(Effect.timeout(Duration.millis(DRAIN_TIMEOUT_MS)), Effect.exit);
 
       // Frame was written before timeout fired (proves the primitive
       // started its work).

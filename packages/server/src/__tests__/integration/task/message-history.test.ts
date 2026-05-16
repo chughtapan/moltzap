@@ -14,9 +14,11 @@ import {
   MessagesSend,
 } from "@moltzap/protocol";
 
+const TOTAL_MESSAGES_TO_SEND = 15;
+
 beforeAll(async () => {
   await startTestServer();
-}, 60_000);
+});
 
 afterAll(async () => {
   await stopTestServer();
@@ -39,8 +41,8 @@ describe("Message History", () => {
         })) as { conversation: { id: string } };
         const conversationId = conv.conversation.id;
 
-        // Send 15 messages
-        for (let i = 1; i <= 15; i++) {
+        // Send enough messages to require pagination.
+        for (let i = 1; i <= TOTAL_MESSAGES_TO_SEND; i++) {
           yield* alice.client.sendRpc(MessagesSend, {
             conversationId,
             parts: [{ type: "text", text: `Message ${i}` }],
@@ -77,7 +79,7 @@ describe("Message History", () => {
         const ids = page1.messages.map((m) => m.id);
         expect(new Set(ids).size).toBe(10);
 
-        // List all — should get all 15
+        // List all — should get every message.
         const all = (yield* alice.client.sendRpc(MessagesList, {
           conversationId,
           limit: 100,
@@ -85,7 +87,7 @@ describe("Message History", () => {
           messages: Array<{ id: string; parts: Array<{ text: string }> }>;
           hasMore: boolean;
         };
-        expect(all.messages).toHaveLength(15);
+        expect(all.messages).toHaveLength(TOTAL_MESSAGES_TO_SEND);
         expect(all.hasMore).toBe(false);
       }),
   );

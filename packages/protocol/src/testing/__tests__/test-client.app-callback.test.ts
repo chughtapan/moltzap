@@ -43,6 +43,11 @@ const CONVERSATION_ID = conversationId("550e8400-e29b-41d4-a716-446655440001");
 const AGENT_ID = agentId("550e8400-e29b-41d4-a716-446655440002");
 const MESSAGE_ID = messageId("550e8400-e29b-41d4-a716-446655440003");
 const HOOK_AGENT = { agentId: AGENT_ID, ownerId: "owner-1" } as const;
+const RESPONSE_WAIT_TIMEOUT_MS = 2_000;
+const HANDLER_REJECTION_CODE = -32099;
+const JSON_RPC_METHOD_NOT_FOUND_CODE = -32601;
+const SHORT_AWAIT_SERVER_REQUEST_TIMEOUT_MS = 50;
+const GENEROUS_AWAIT_SERVER_REQUEST_TIMEOUT_MS = 60_000;
 
 const authorizeDispatchParams = (taskId = TASK_ID) => ({
   taskId,
@@ -213,7 +218,7 @@ function expectResponseError(reply: ResponseFrame): {
 const waitForResponse = (
   server: ScriptedServerHandle,
   id: string,
-  maxMs = 2_000,
+  maxMs = RESPONSE_WAIT_TIMEOUT_MS,
 ): Effect.Effect<ResponseFrame> =>
   Effect.gen(function* () {
     const deadline = Date.now() + maxMs;
@@ -261,7 +266,7 @@ describe("TestClient — handleServerRpc", () => {
             new RpcResponseError({
               method: DispatchAuthorize.name,
               requestId: "srv-2",
-              code: -32099,
+              code: HANDLER_REJECTION_CODE,
               message: "domain-rejected",
               data: { reason: "x" },
             }),
@@ -276,7 +281,7 @@ describe("TestClient — handleServerRpc", () => {
         );
         const reply = yield* waitForResponse(server, "srv-2");
         const error = expectResponseError(reply);
-        expect(error.code).toBe(-32099);
+        expect(error.code).toBe(HANDLER_REJECTION_CODE);
         expect(error.message).toBe("domain-rejected");
         expect(error.data).toEqual({ reason: "x" });
       }),
@@ -295,7 +300,7 @@ describe("TestClient — handleServerRpc", () => {
         );
         const reply = yield* waitForResponse(server, "srv-3");
         const error = expectResponseError(reply);
-        expect(error.code).toBe(-32601);
+        expect(error.code).toBe(JSON_RPC_METHOD_NOT_FOUND_CODE);
         expect(error.message).toContain(DispatchAuthorize.name);
       }),
     );
@@ -407,7 +412,11 @@ describe("TestClient — awaitServerRequest", () => {
         // Caller-controlled timeout. No task-callback request is ever
         // sent — the awaiter must terminate by the timeout, not hang.
         return yield* Effect.exit(
-          client.awaitServerRequest(DispatchAuthorize, undefined, 50),
+          client.awaitServerRequest(
+            DispatchAuthorize,
+            undefined,
+            SHORT_AWAIT_SERVER_REQUEST_TIMEOUT_MS,
+          ),
         );
       }),
     );
@@ -430,12 +439,18 @@ describe("TestClient — awaitServerRequest", () => {
         // this as the supported pattern: "Effect.timeout at call site,
         // not schema cap."
         return yield* Effect.exit(
-          client.awaitServerRequest(DispatchAuthorize, undefined, 60_000).pipe(
-            Effect.timeoutFail({
-              duration: "30 millis",
-              onTimeout: () => new Error("call-site-timeout"),
-            }),
-          ),
+          client
+            .awaitServerRequest(
+              DispatchAuthorize,
+              undefined,
+              GENEROUS_AWAIT_SERVER_REQUEST_TIMEOUT_MS,
+            )
+            .pipe(
+              Effect.timeoutFail({
+                duration: "30 millis",
+                onTimeout: () => new Error("call-site-timeout"),
+              }),
+            ),
         );
       }),
     );

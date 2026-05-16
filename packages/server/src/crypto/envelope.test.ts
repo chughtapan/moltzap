@@ -10,11 +10,13 @@ import {
 } from "./envelope.js";
 import { randomBytes } from "node:crypto";
 
+const AES_KEY_BYTES = 32;
+
 describe("encrypt/decrypt", () => {
   it("roundtrips arbitrary data", () => {
     fc.assert(
       fc.property(fc.uint8Array({ minLength: 1, maxLength: 10000 }), (data) => {
-        const key = randomBytes(32);
+        const key = randomBytes(AES_KEY_BYTES);
         const plaintext = Buffer.from(data);
         const encrypted = encrypt(plaintext, key);
         const decrypted = decrypt(encrypted, key);
@@ -25,7 +27,7 @@ describe("encrypt/decrypt", () => {
   });
 
   it("produces unique IVs per encryption", () => {
-    const key = randomBytes(32);
+    const key = randomBytes(AES_KEY_BYTES);
     const plaintext = Buffer.from("same data");
     const a = encrypt(plaintext, key);
     const b = encrypt(plaintext, key);
@@ -33,21 +35,21 @@ describe("encrypt/decrypt", () => {
   });
 
   it("fails with wrong key", () => {
-    const key = randomBytes(32);
-    const wrongKey = randomBytes(32);
+    const key = randomBytes(AES_KEY_BYTES);
+    const wrongKey = randomBytes(AES_KEY_BYTES);
     const encrypted = encrypt(Buffer.from("secret"), key);
     expect(() => decrypt(encrypted, wrongKey)).toThrow();
   });
 
   it("fails with corrupted ciphertext", () => {
-    const key = randomBytes(32);
+    const key = randomBytes(AES_KEY_BYTES);
     const encrypted = encrypt(Buffer.from("secret"), key);
     encrypted.ciphertext[0]! ^= 0xff;
     expect(() => decrypt(encrypted, key)).toThrow();
   });
 
   it("fails with corrupted tag", () => {
-    const key = randomBytes(32);
+    const key = randomBytes(AES_KEY_BYTES);
     const encrypted = encrypt(Buffer.from("secret"), key);
     encrypted.tag[0]! ^= 0xff;
     expect(() => decrypt(encrypted, key)).toThrow();
@@ -56,7 +58,7 @@ describe("encrypt/decrypt", () => {
 
 describe("key wrapping", () => {
   it("roundtrips DEK through KEK", () => {
-    const kek = randomBytes(32);
+    const kek = randomBytes(AES_KEY_BYTES);
     const dek = generateDek();
     const wrapped = wrapKey(dek, kek);
     const unwrapped = unwrapKey(wrapped, kek);
@@ -64,8 +66,8 @@ describe("key wrapping", () => {
   });
 
   it("fails with wrong KEK", () => {
-    const kek = randomBytes(32);
-    const wrongKek = randomBytes(32);
+    const kek = randomBytes(AES_KEY_BYTES);
+    const wrongKek = randomBytes(AES_KEY_BYTES);
     const dek = generateDek();
     const wrapped = wrapKey(dek, kek);
     expect(() => unwrapKey(wrapped, wrongKek)).toThrow();
@@ -73,11 +75,11 @@ describe("key wrapping", () => {
 });
 
 describe("EnvelopeEncryption", () => {
-  const masterSecret = randomBytes(32).toString("base64");
+  const masterSecret = randomBytes(AES_KEY_BYTES).toString("base64");
   const envelope = new EnvelopeEncryption(masterSecret);
 
   it("roundtrips KEK through master secret", () => {
-    const kek = randomBytes(32);
+    const kek = randomBytes(AES_KEY_BYTES);
     const encrypted = envelope.encryptKek(kek);
     const decrypted = envelope.decryptKek(encrypted);
     expect(decrypted).toEqual(kek);
@@ -97,7 +99,7 @@ describe("EnvelopeEncryption", () => {
   });
 
   it("simulates KEK rotation without re-encrypting messages", () => {
-    const kekV1 = randomBytes(32);
+    const kekV1 = randomBytes(AES_KEY_BYTES);
     const dek = generateDek();
     const wrappedDekV1 = wrapKey(dek, kekV1);
     const message = envelope.encryptMessage(
@@ -106,7 +108,7 @@ describe("EnvelopeEncryption", () => {
     );
 
     // Rotate: wrap same DEK with new KEK v2
-    const kekV2 = randomBytes(32);
+    const kekV2 = randomBytes(AES_KEY_BYTES);
     const unwrappedDek = unwrapKey(wrappedDekV1, kekV1);
     const wrappedDekV2 = wrapKey(unwrappedDek, kekV2);
 

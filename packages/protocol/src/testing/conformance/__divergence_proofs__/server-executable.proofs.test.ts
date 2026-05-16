@@ -76,6 +76,11 @@ type BadServerBehavior =
   | "silence-after-non-request"
   | "task-close-noop";
 
+const REQUEST_WELL_FORMEDNESS_PROOF_TIMEOUT_MS = 12_000;
+const SERVER_PROOF_TIMEOUT_MS = 10_000;
+const HTTP_OK = 200;
+const HTTP_NOT_FOUND = 404;
+
 describe("server-side conformance executable divergence proofs", () => {
   it("registerAuthorityNegative fails when pre-handshake RPCs return success", async () => {
     const failure = await runSingleServerProof(registerAuthorityNegative, {
@@ -120,12 +125,19 @@ describe("server-side conformance executable divergence proofs", () => {
     expectInvariant(failure, "spurious-app-callback-frame-handling");
   }, 10_000);
 
-  it("registerRequestWellFormedness fails when sampled calls receive no reply", async () => {
-    const failure = await runSingleServerProof(registerRequestWellFormedness, {
-      behavior: "drop-sampled-response",
-    });
-    expectAssertionFailure(failure, "request-well-formedness");
-  }, 12_000);
+  it(
+    "registerRequestWellFormedness fails when sampled calls receive no reply",
+    async () => {
+      const failure = await runSingleServerProof(
+        registerRequestWellFormedness,
+        {
+          behavior: "drop-sampled-response",
+        },
+      );
+      expectAssertionFailure(failure, "request-well-formedness");
+    },
+    REQUEST_WELL_FORMEDNESS_PROOF_TIMEOUT_MS,
+  );
 
   it("registerRpcMapCoverage fails when a sampled method never responds", async () => {
     const failure = await runSingleServerProof(registerRpcMapCoverage, {
@@ -134,19 +146,30 @@ describe("server-side conformance executable divergence proofs", () => {
     expectInvariant(failure, "rpc-map-coverage");
   });
 
-  it("registerArchiveLifecycle fails when archive does not broadcast lifecycle", async () => {
-    const failure = await runSingleServerProof(registerArchiveLifecycle, {
-      behavior: "archive-missing-event",
-    });
-    expectInvariant(failure, "archive-lifecycle");
-  }, 10_000);
+  it(
+    "registerArchiveLifecycle fails when archive does not broadcast lifecycle",
+    async () => {
+      const failure = await runSingleServerProof(registerArchiveLifecycle, {
+        behavior: "archive-missing-event",
+      });
+      expectInvariant(failure, "archive-lifecycle");
+    },
+    SERVER_PROOF_TIMEOUT_MS,
+  );
 
-  it("registerConversationLifecycle fails when create does not broadcast lifecycle", async () => {
-    const failure = await runSingleServerProof(registerConversationLifecycle, {
-      behavior: "conversation-missing-created-event",
-    });
-    expectInvariant(failure, "conversation-lifecycle");
-  }, 10_000);
+  it(
+    "registerConversationLifecycle fails when create does not broadcast lifecycle",
+    async () => {
+      const failure = await runSingleServerProof(
+        registerConversationLifecycle,
+        {
+          behavior: "conversation-missing-created-event",
+        },
+      );
+      expectInvariant(failure, "conversation-lifecycle");
+    },
+    SERVER_PROOF_TIMEOUT_MS,
+  );
 
   it("registerTaskCloseLifecycle fails when post-close messages/send returns success", async () => {
     const failure = await runSingleServerProof(registerTaskCloseLifecycle, {
@@ -165,47 +188,80 @@ describe("server-side conformance executable divergence proofs", () => {
 
   // Presence — all six fail under a server that answers RPCs but never
   // broadcasts presence/changed (the pre-arena#252 shape).
-  it("registerConnectBroadcast fails when network/connect does not broadcast presence/changed", async () => {
-    const failure = await runSingleServerProof(registerConnectBroadcast, {
-      behavior: "presence-silent",
-    });
-    expectInvariant(failure, "connect-broadcast");
-  }, 10_000);
+  it(
+    "registerConnectBroadcast fails when network/connect does not broadcast presence/changed",
+    async () => {
+      const failure = await runSingleServerProof(registerConnectBroadcast, {
+        behavior: "presence-silent",
+      });
+      expectInvariant(failure, "connect-broadcast");
+    },
+    SERVER_PROOF_TIMEOUT_MS,
+  );
 
-  it("registerDisconnectBroadcast fails when ws-close does not broadcast presence/changed", async () => {
-    const failure = await runSingleServerProof(registerDisconnectBroadcast, {
-      behavior: "presence-silent",
-    });
-    expectInvariant(failure, "disconnect-broadcast");
-  }, 10_000);
+  it(
+    "registerDisconnectBroadcast fails when ws-close does not broadcast presence/changed",
+    async () => {
+      const failure = await runSingleServerProof(registerDisconnectBroadcast, {
+        behavior: "presence-silent",
+      });
+      expectInvariant(failure, "disconnect-broadcast");
+    },
+    SERVER_PROOF_TIMEOUT_MS,
+  );
 
-  it("registerReconnectStorm fails when no presence/changed events fire on connect/disconnect", async () => {
-    const failure = await runSingleServerProof(registerReconnectStorm, {
-      behavior: "presence-silent",
-    });
-    expectInvariant(failure, "reconnect-storm");
-  }, 10_000);
+  it(
+    "registerReconnectStorm fails when no presence/changed events fire on connect/disconnect",
+    async () => {
+      const failure = await runSingleServerProof(registerReconnectStorm, {
+        behavior: "presence-silent",
+      });
+      expectInvariant(failure, "reconnect-storm");
+    },
+    SERVER_PROOF_TIMEOUT_MS,
+  );
 
-  it("registerSameStateNoDoubleFire fails when no presence/changed event fires on initial connect", async () => {
-    const failure = await runSingleServerProof(registerSameStateNoDoubleFire, {
-      behavior: "presence-silent",
-    });
-    expectInvariant(failure, "same-state-no-double-fire");
-  }, 10_000);
+  it(
+    "registerSameStateNoDoubleFire fails when no presence/changed event fires on initial connect",
+    async () => {
+      const failure = await runSingleServerProof(
+        registerSameStateNoDoubleFire,
+        {
+          behavior: "presence-silent",
+        },
+      );
+      expectInvariant(failure, "same-state-no-double-fire");
+    },
+    SERVER_PROOF_TIMEOUT_MS,
+  );
 
-  it("registerMultiSubscriberFanOut fails when subscribers receive no presence/changed event", async () => {
-    const failure = await runSingleServerProof(registerMultiSubscriberFanOut, {
-      behavior: "presence-silent",
-    });
-    expectInvariant(failure, "multi-subscriber-fan-out");
-  }, 10_000);
+  it(
+    "registerMultiSubscriberFanOut fails when subscribers receive no presence/changed event",
+    async () => {
+      const failure = await runSingleServerProof(
+        registerMultiSubscriberFanOut,
+        {
+          behavior: "presence-silent",
+        },
+      );
+      expectInvariant(failure, "multi-subscriber-fan-out");
+    },
+    SERVER_PROOF_TIMEOUT_MS,
+  );
 
-  it("registerSubscribeAfterConnect fails when subscribe snapshot reports stale offline for a connected agent", async () => {
-    const failure = await runSingleServerProof(registerSubscribeAfterConnect, {
-      behavior: "presence-stale-snapshot",
-    });
-    expectInvariant(failure, "subscribe-after-connect");
-  }, 10_000);
+  it(
+    "registerSubscribeAfterConnect fails when subscribe snapshot reports stale offline for a connected agent",
+    async () => {
+      const failure = await runSingleServerProof(
+        registerSubscribeAfterConnect,
+        {
+          behavior: "presence-stale-snapshot",
+        },
+      );
+      expectInvariant(failure, "subscribe-after-connect");
+    },
+    SERVER_PROOF_TIMEOUT_MS,
+  );
 });
 
 async function runSingleServerProof(
@@ -261,10 +317,11 @@ function makeBadServerContext(
 
 const BAD_SERVER_AGENT_UUID_PREFIX = "00000000-0000-4000-8000-";
 const BAD_SERVER_AGENT_UUID_NODE_LEN = 12;
+const BAD_SERVER_AGENT_UUID_RADIX = 16;
 
 function badServerAgentId(counter: number): string {
   return `${BAD_SERVER_AGENT_UUID_PREFIX}${counter
-    .toString(16)
+    .toString(BAD_SERVER_AGENT_UUID_RADIX)
     .padStart(BAD_SERVER_AGENT_UUID_NODE_LEN, "0")}`;
 }
 
@@ -276,14 +333,14 @@ const makeRegistrationHttpServer: Effect.Effect<
   let counter = 0;
   const server = http.createServer((req, res) => {
     if (req.method !== "POST" || req.url !== "/api/v1/auth/register") {
-      res.writeHead(404, { "Content-Type": "application/json" });
+      res.writeHead(HTTP_NOT_FOUND, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: "not found" }));
       return;
     }
     req.resume();
     req.on("end", () => {
       counter += 1;
-      res.writeHead(200, { "Content-Type": "application/json" });
+      res.writeHead(HTTP_OK, { "Content-Type": "application/json" });
       res.end(
         JSON.stringify({
           agentId: badServerAgentId(counter),
@@ -472,7 +529,9 @@ function makeBadResult(
         ? {
             conversations: [
               {
-                id: `00000000-0000-4000-8000-${ordinal.toString(16).padStart(12, "0")}`,
+                id: `00000000-0000-4000-8000-${ordinal
+                  .toString(BAD_SERVER_AGENT_UUID_RADIX)
+                  .padStart(BAD_SERVER_AGENT_UUID_NODE_LEN, "0")}`,
                 type: "group",
                 unreadCount: ordinal,
               },

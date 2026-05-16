@@ -7,6 +7,9 @@ import {
   RpcTimeoutError,
 } from "@moltzap/protocol";
 
+const RPC_TIMEOUT_MS = 30_000;
+const METHOD_NOT_FOUND_CODE = -32601;
+
 describe("AgentNotFoundError", () => {
   it("carries agentName and derives a `_tag` + `message`", () => {
     const err = new AgentNotFoundError({ agentName: "foo" });
@@ -39,23 +42,23 @@ describe("RpcTimeoutError", () => {
   it("carries method + timeoutMs and `_tag === 'RpcTimeoutError'`", () => {
     const err = new RpcTimeoutError({
       method: MessagesSend.name,
-      timeoutMs: 30_000,
+      timeoutMs: RPC_TIMEOUT_MS,
     });
     expect(err._tag).toBe("RpcTimeoutError");
     expect(err.method).toBe(MessagesSend.name);
-    expect(err.timeoutMs).toBe(30_000);
+    expect(err.timeoutMs).toBe(RPC_TIMEOUT_MS);
   });
 });
 
 describe("RpcServerError", () => {
   it("carries code, message, and optional data", () => {
     const err = new RpcServerError({
-      code: -32601,
+      code: METHOD_NOT_FOUND_CODE,
       message: "method not found",
       data: { hint: "check spelling" },
     });
     expect(err._tag).toBe("RpcServerError");
-    expect(err.code).toBe(-32601);
+    expect(err.code).toBe(METHOD_NOT_FOUND_CODE);
     expect(err.message).toBe("method not found");
     expect(err.data).toEqual({ hint: "check spelling" });
   });

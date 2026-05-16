@@ -29,6 +29,14 @@ import type { CoreApp } from "../../app/types.js";
 import { Effect, type Layer } from "effect";
 import { inject } from "vitest";
 
+export const HTTP_OK = 200;
+export const HTTP_CREATED = 201;
+export const HTTP_BAD_REQUEST = 400;
+export const HTTP_UNAUTHORIZED = 401;
+export const HTTP_FORBIDDEN = 403;
+export const HTTP_CONFLICT = 409;
+export const DEFAULT_NOTIFICATION_TIMEOUT_MS = 5_000;
+
 export type { ConnectedAgent } from "../../test-utils/helpers.js";
 export {
   connectTestClient,

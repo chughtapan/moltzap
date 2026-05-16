@@ -13,6 +13,7 @@ const mockClose = vi.fn();
 const mockGetAgentName = vi.fn();
 const mockResolveAgentName = vi.fn();
 const mockGetConversation = vi.fn();
+const MESSAGE_DISPATCH_SETTLE_MS = 100;
 const mockPeekContextEntries =
   vi.fn<
     (convId: string) => {
@@ -358,7 +359,7 @@ describe("Flow 5: Inbound contract — dispatchReplyWithBufferedBlockDispatcher"
 
     capturedOnMessage!(makeMessage());
 
-    await new Promise((r) => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, MESSAGE_DISPATCH_SETTLE_MS));
     expect(dispatch2).not.toHaveBeenCalled();
 
     ac2.abort();

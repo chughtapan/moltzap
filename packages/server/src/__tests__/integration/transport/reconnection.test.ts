@@ -22,7 +22,7 @@ let wsUrl: string;
 beforeAll(async () => {
   const urls = await startTestServer();
   wsUrl = urls.wsUrl;
-}, 60_000);
+});
 
 afterAll(async () => {
   await stopTestServer();

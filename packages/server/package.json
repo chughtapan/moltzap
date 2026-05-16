@@ -80,6 +80,8 @@
   "devDependencies": {
     "@effect/vitest": "^0.29.0",
     "@types/pg": "^8.11.0",
+    "eslint": "^9",
+    "eslint-plugin-agent-code-guard": "0.0.13",
     "fast-check": "^4.0.0",
     "kysely-codegen": "^0.20.0",
     "tsx": "^4.19.0",

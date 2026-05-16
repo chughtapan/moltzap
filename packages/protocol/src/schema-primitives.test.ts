@@ -10,6 +10,7 @@ import {
 } from "./schema-primitives.js";
 
 const DateTimeString = dateTimeStringSchema();
+const INVALID_ENUM_VALUE = 123;
 
 const ajv = addFormats(new Ajv({ strict: true }));
 
@@ -26,7 +27,7 @@ describe("stringEnum", () => {
     const validate = ajv.compile(schema);
     expect(validate("other")).toBe(false);
     expect(validate("")).toBe(false);
-    expect(validate(123)).toBe(false);
+    expect(validate(INVALID_ENUM_VALUE)).toBe(false);
   });
 
   it("produces enum schema, not anyOf", () => {

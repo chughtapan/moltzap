@@ -15,6 +15,11 @@ import {
   trackClient,
   connectTestClient,
   registerAgent,
+  HTTP_BAD_REQUEST,
+  HTTP_CONFLICT,
+  HTTP_CREATED,
+  HTTP_FORBIDDEN,
+  HTTP_OK,
 } from "../helpers.js";
 
 import { Connect } from "@moltzap/protocol";
@@ -44,7 +49,7 @@ beforeAll(async () => {
   wsUrl = server.wsUrl;
   db = getKyselyDb();
   getTestCoreApp().registerApp(ADMIN_TEST_MANIFEST);
-}, 60_000);
+});
 
 afterAll(async () => {
   await stopTestServer();
@@ -78,7 +83,7 @@ describe("/api/v1/admin/register-agent — secret-gated ownerUserId", () => {
           inviteCode: REGISTRATION_SECRET,
           ownerUserId: SYSTEM_USER_ID,
         });
-        expect(result.status).toBe(201);
+        expect(result.status).toBe(HTTP_CREATED);
         const body = result.json as AdminRegisterResponse;
         expect(body.agentId).toBeDefined();
         expect(body.apiKey).toMatch(/^moltzap_agent_/);
@@ -110,7 +115,7 @@ describe("/api/v1/admin/register-agent — secret-gated ownerUserId", () => {
         name: "no-invite-code",
         ownerUserId: SYSTEM_USER_ID,
       });
-      expect(result.status).toBe(403);
+      expect(result.status).toBe(HTTP_FORBIDDEN);
     }),
   );
 
@@ -121,7 +126,7 @@ describe("/api/v1/admin/register-agent — secret-gated ownerUserId", () => {
         inviteCode: "not-the-real-secret",
         ownerUserId: SYSTEM_USER_ID,
       });
-      expect(result.status).toBe(403);
+      expect(result.status).toBe(HTTP_FORBIDDEN);
     }),
   );
 
@@ -132,7 +137,7 @@ describe("/api/v1/admin/register-agent — secret-gated ownerUserId", () => {
         inviteCode: REGISTRATION_SECRET,
         ownerUserId: "not-a-uuid",
       });
-      expect(result.status).toBe(400);
+      expect(result.status).toBe(HTTP_BAD_REQUEST);
       const body = result.json as { error: string };
       expect(body.error).toMatch(/UUID/);
     }),
@@ -146,7 +151,7 @@ describe("/api/v1/admin/register-agent — secret-gated ownerUserId", () => {
           name: "no-owner-agent",
           inviteCode: REGISTRATION_SECRET,
         });
-        expect(result.status).toBe(201);
+        expect(result.status).toBe(HTTP_CREATED);
         const body = result.json as AdminRegisterResponse;
 
         const row = yield* Effect.tryPromise(() =>
@@ -171,14 +176,14 @@ describe("/api/v1/admin/register-agent — secret-gated ownerUserId", () => {
           name: "rotating-agent",
           ownerUserId: SYSTEM_USER_ID,
         });
-        expect(first.status).toBe(201);
+        expect(first.status).toBe(HTTP_CREATED);
         const firstBody = first.json as AdminRegisterResponse;
 
         const second = yield* adminRegister({
           name: "rotating-agent",
           ownerUserId: SYSTEM_USER_ID,
         });
-        expect(second.status).toBe(200);
+        expect(second.status).toBe(HTTP_OK);
         const secondBody = second.json as AdminRegisterResponse;
 
         expect(secondBody.agentId).toBe(firstBody.agentId);
@@ -193,14 +198,14 @@ describe("/api/v1/admin/register-agent — secret-gated ownerUserId", () => {
         name: "rotated-key-rejection",
         ownerUserId: SYSTEM_USER_ID,
       });
-      expect(first.status).toBe(201);
+      expect(first.status).toBe(HTTP_CREATED);
       const oldKey = (first.json as AdminRegisterResponse).apiKey;
 
       const second = yield* adminRegister({
         name: "rotated-key-rejection",
         ownerUserId: SYSTEM_USER_ID,
       });
-      expect(second.status).toBe(200);
+      expect(second.status).toBe(HTTP_OK);
       const rotated = second.json as AdminRegisterResponse;
       expect(rotated.apiKey).not.toBe(oldKey);
 
@@ -243,13 +248,13 @@ describe("/api/v1/admin/register-agent — secret-gated ownerUserId", () => {
         name: "owner-mismatch-agent",
         ownerUserId: SYSTEM_USER_ID,
       });
-      expect(first.status).toBe(201);
+      expect(first.status).toBe(HTTP_CREATED);
 
       const second = yield* adminRegister({
         name: "owner-mismatch-agent",
         ownerUserId: OTHER_USER_ID,
       });
-      expect(second.status).toBe(409);
+      expect(second.status).toBe(HTTP_CONFLICT);
       expect((second.json as { code?: string }).code).toBe(
         "REGISTRATION_CONFLICT",
       );
@@ -264,11 +269,11 @@ describe("/api/v1/admin/register-agent — secret-gated ownerUserId", () => {
           name: "drop-owner-agent",
           ownerUserId: SYSTEM_USER_ID,
         });
-        expect(first.status).toBe(201);
+        expect(first.status).toBe(HTTP_CREATED);
 
         // IS NOT DISTINCT FROM treats NULL ≠ <uuid>; upsert is rejected.
         const second = yield* adminRegister({ name: "drop-owner-agent" });
-        expect(second.status).toBe(409);
+        expect(second.status).toBe(HTTP_CONFLICT);
       }),
   );
 
@@ -280,7 +285,7 @@ describe("/api/v1/admin/register-agent — secret-gated ownerUserId", () => {
           name: "suspended-agent",
           ownerUserId: SYSTEM_USER_ID,
         });
-        expect(first.status).toBe(201);
+        expect(first.status).toBe(HTTP_CREATED);
         const firstBody = first.json as AdminRegisterResponse;
 
         yield* Effect.tryPromise(() =>
@@ -295,7 +300,7 @@ describe("/api/v1/admin/register-agent — secret-gated ownerUserId", () => {
           name: "suspended-agent",
           ownerUserId: SYSTEM_USER_ID,
         });
-        expect(second.status).toBe(409);
+        expect(second.status).toBe(HTTP_CONFLICT);
 
         const row = yield* Effect.tryPromise(() =>
           db
@@ -320,7 +325,7 @@ describe("/api/v1/admin/register-agent — secret-gated ownerUserId", () => {
           name: "concurrent-rotate-agent",
           ownerUserId: SYSTEM_USER_ID,
         });
-        expect(seed.status).toBe(201);
+        expect(seed.status).toBe(HTTP_CREATED);
         const seedBody = seed.json as AdminRegisterResponse;
 
         const [a, b] = yield* Effect.all(
@@ -336,8 +341,8 @@ describe("/api/v1/admin/register-agent — secret-gated ownerUserId", () => {
           ],
           { concurrency: "unbounded" },
         );
-        expect(a.status).toBe(200);
-        expect(b.status).toBe(200);
+        expect(a.status).toBe(HTTP_OK);
+        expect(b.status).toBe(HTTP_OK);
         const aBody = a.json as AdminRegisterResponse;
         const bBody = b.json as AdminRegisterResponse;
 

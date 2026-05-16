@@ -24,6 +24,9 @@ import {
 
 let wsUrl: string;
 
+const REPLY_POLL_INTERVAL_MS = 250;
+const STRESS_TEST_TIMEOUT_MS = 180_000;
+
 async function waitForRepliesByList(params: {
   client: MoltZapWsClient;
   conversationId: string;
@@ -54,7 +57,7 @@ async function waitForRepliesByList(params: {
       return replies.slice(0, params.expectedCount);
     }
 
-    await new Promise((r) => setTimeout(r, 250));
+    await new Promise((r) => setTimeout(r, REPLY_POLL_INTERVAL_MS));
   }
 
   throw new Error(
@@ -237,7 +240,7 @@ describe.skipIf(inject("containerAId") === "")(
             throw err;
           }
         }),
-      180_000,
+      STRESS_TEST_TIMEOUT_MS,
     );
   },
 );

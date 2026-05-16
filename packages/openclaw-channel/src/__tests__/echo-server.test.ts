@@ -1,6 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { startEchoServer, type EchoServer } from "./echo-server.js";
 
+const HTTP_OK = 200;
+const HTTP_BAD_REQUEST = 400;
+const HTTP_NOT_FOUND = 404;
+
 describe("echo-server", () => {
   let server: EchoServer;
 
@@ -24,7 +28,7 @@ describe("echo-server", () => {
       },
     );
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(HTTP_OK);
     const body = await res.json();
     expect(body).toMatchObject({
       object: "chat.completion",
@@ -52,7 +56,7 @@ describe("echo-server", () => {
       },
     );
 
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(HTTP_BAD_REQUEST);
     const body = await res.json();
     expect(body.error).toBeDefined();
   });
@@ -62,7 +66,7 @@ describe("echo-server", () => {
       method: "GET",
     });
 
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(HTTP_NOT_FOUND);
   });
 
   it("assigns a random port and shuts down cleanly", async () => {

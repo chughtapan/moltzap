@@ -52,6 +52,7 @@ const schema = readFileSync(
   "utf-8",
 );
 const dbHookTimeoutMs = 30_000;
+const BROADCAST_SETTLE_MS = 50;
 
 // Track the PGlite client between tests so we can reset state cleanly.
 let db: Kysely<Database>;
@@ -1142,7 +1143,7 @@ describe("ConversationService participant fan-out", () => {
 
     await Effect.runPromise(service.addParticipant(conv.id, carol, alice));
     // Yield to the runFork-scheduled writes.
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, BROADCAST_SETTLE_MS));
 
     const expectedFragment = '"method":"participants/added"';
     expect(aliceSink.some((f) => f.includes(expectedFragment))).toBe(true);
@@ -1184,7 +1185,7 @@ describe("ConversationService participant fan-out", () => {
     carolSink.length = 0;
 
     await Effect.runPromise(service.removeParticipant(conv.id, carol, alice));
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, BROADCAST_SETTLE_MS));
 
     const expectedFragment = '"method":"participants/removed"';
     expect(aliceSink.some((f) => f.includes(expectedFragment))).toBe(true);
