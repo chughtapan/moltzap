@@ -7,7 +7,7 @@
  */
 import type { Static } from "@sinclair/typebox";
 import { Effect, type Scope } from "effect";
-import type { Proxy } from "../../toxics/client.js";
+import type { ToxiproxyProxy } from "../../toxics/client.js";
 import type { ToxicProfile } from "../../toxics/profile.js";
 import {
   makeTestClient,
@@ -59,7 +59,7 @@ function hostPortFromWebSocketUrl(wsUrl: string): string {
 /** Acquire a TestClient that routes through the Toxiproxy proxy. */
 export function acquireProxiedClient(
   ctx: ConformanceRunContext,
-  proxy: Proxy,
+  proxy: ToxiproxyProxy,
   name: string,
   defaultTimeoutMs: number,
   unavailable: (reason: string) => PropertyUnavailable,
@@ -108,7 +108,7 @@ export function acquireProxiedClient(
  * handshake flow cleanly instead of hanging on a black-holed channel.
  */
 export type ToxicBodyParams = {
-  readonly proxy: Proxy;
+  readonly proxy: ToxiproxyProxy;
   readonly unavailable: (reason: string) => PropertyUnavailable;
   readonly attachToxic: Effect.Effect<void, PropertyUnavailable, Scope.Scope>;
 };
