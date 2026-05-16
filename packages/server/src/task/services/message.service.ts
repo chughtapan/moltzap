@@ -815,7 +815,7 @@ export class MessageService {
       .call({
         url: cfg.url,
         event: "messages.delivered",
-        body: undefined,
+        body: null,
         bodyJson: payload,
         timeoutMs: DELIVERY_WEBHOOK_TIMEOUT_MS,
         headers: { "X-MoltZap-Signature": signature },

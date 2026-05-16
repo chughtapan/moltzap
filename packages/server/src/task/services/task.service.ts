@@ -410,14 +410,13 @@ export class TaskService {
       // The task id is fixed (this is a TM acting on its own task),
       // so wrap it in `Effect.succeed` for the lazy-`mintTask`
       // contract `ConversationService.create` expects.
-      const conversation = yield* this.conversations.create(
+      return yield* this.conversations.create(
         input.type,
         input.name,
         [...input.participantAgentIds],
         caller,
         Effect.succeed({ id }),
       );
-      return conversation;
     });
   }
 
@@ -440,7 +439,11 @@ export class TaskService {
     return Effect.gen(this, function* () {
       yield* this.requireTmAuthority(id, caller);
       yield* this.requireConversationInTask(id, input.conversationId);
-      const message = yield* this.messages.send(
+      // The post-insert UPDATE retired — `MessageService.send` stamps
+      // `task_id` from `conv.task_id` at insert time, and
+      // `requireConversationInTask` above already proved
+      // `conv.task_id === id`.
+      return yield* this.messages.send(
         input.conversationId,
         [...input.parts],
         input.senderAgentId,
@@ -453,11 +456,6 @@ export class TaskService {
         // TM's own socket would self-loop.
         true,
       );
-      // The post-insert UPDATE retired — `MessageService.send` stamps
-      // `task_id` from `conv.task_id` at insert time, and
-      // `requireConversationInTask` above already proved
-      // `conv.task_id === id`.
-      return message;
     });
   }
 

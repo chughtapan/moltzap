@@ -78,7 +78,7 @@ export function createRoutingState(
   }
   const cap = Math.floor(capacity);
   const map = new Map<MessageId, ConversationId>();
-  let lastActive: ConversationId | undefined = undefined;
+  let lastActive: ConversationId | undefined;
 
   function recordInbound(
     messageId: MessageId,

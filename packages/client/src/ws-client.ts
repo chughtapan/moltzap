@@ -792,7 +792,7 @@ export class MoltZapWsClient {
       // `raceFirst` (not `race`) — `race` waits for the loser when the
       // winner fails, so a typed network/connect error would hang behind the
       // still-pending handshake-watchdog Deferred.
-      const result = yield* Effect.raceFirst(
+      return yield* Effect.raceFirst(
         authEffect,
         Deferred.await(handshakeSettled),
       ).pipe(
@@ -802,8 +802,6 @@ export class MoltZapWsClient {
           }),
         ),
       );
-
-      return result;
     });
   }
 
