@@ -281,6 +281,36 @@ const sessionKeyOption = Options.text("session-key").pipe(
   Options.optional,
 );
 
+function renderHistoryHeader(
+  conversationId: string,
+  sessionKey: Option.Option<string>,
+  result: HistoryResult,
+): void {
+  if (!Option.isSome(sessionKey) || !result.conversationMeta) return;
+  const label = result.conversationMeta.name ?? result.conversationMeta.type;
+  console.log(
+    `Conversation: ${label} (${conversationId}) | ${result.newCount} new`,
+  );
+  console.log("");
+}
+
+function messageAgeMinutes(createdAt: string): number {
+  return Math.max(
+    0,
+    Math.round(
+      (Date.now() - new Date(createdAt).getTime()) / MILLISECONDS_PER_MINUTE,
+    ),
+  );
+}
+
+function renderHistoryMessage(message: HistoryMessage): void {
+  const ago = messageAgeMinutes(message.createdAt);
+  const newMarker = message.isNew ? " *" : "";
+  console.log(
+    `  [${ago}m ago] ${message.senderName}: ${message.text}${newMarker}`,
+  );
+}
+
 const renderHistory = (
   conversationId: string,
   sessionKey: Option.Option<string>,
@@ -295,23 +325,9 @@ const renderHistory = (
     console.log("No messages.");
     return;
   }
-  if (Option.isSome(sessionKey) && result.conversationMeta) {
-    const label = result.conversationMeta.name ?? result.conversationMeta.type;
-    console.log(
-      `Conversation: ${label} (${conversationId}) | ${result.newCount} new`,
-    );
-    console.log("");
-  }
-  for (const m of result.messages) {
-    const ago = Math.max(
-      0,
-      Math.round(
-        (Date.now() - new Date(m.createdAt).getTime()) /
-          MILLISECONDS_PER_MINUTE,
-      ),
-    );
-    const newMarker = m.isNew ? " *" : "";
-    console.log(`  [${ago}m ago] ${m.senderName}: ${m.text}${newMarker}`);
+  renderHistoryHeader(conversationId, sessionKey, result);
+  for (const message of result.messages) {
+    renderHistoryMessage(message);
   }
   if (result.hasMore) {
     console.log("  ... more messages available");

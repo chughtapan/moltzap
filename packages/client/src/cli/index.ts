@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/** @file MoltZap CLI entrypoint and global transport flag pre-parser. */
 import { Command } from "@effect/cli";
 import { NodeContext, NodeRuntime } from "@effect/platform-node";
 import { Effect, Logger } from "effect";
@@ -45,6 +46,13 @@ interface ParsedFlag {
   readonly nextIndex: number;
 }
 
+interface ConsumedGlobalArg {
+  readonly impersonateKey?: string;
+  readonly profileName?: string;
+  readonly restToken?: string;
+  readonly nextIndex: number;
+}
+
 function isRegisterCommand(argv: ReadonlyArray<string>): boolean {
   return argv.some(
     (token, index) =>
@@ -76,6 +84,28 @@ function parseGlobalFlag(
   return { matched: false, nextIndex: index };
 }
 
+function consumeGlobalArg(
+  argv: ReadonlyArray<string>,
+  index: number,
+  isRegister: boolean,
+): ConsumedGlobalArg {
+  const token = argv[index]!;
+  const asFlag = parseGlobalFlag(argv, index, "--as");
+  if (asFlag.matched) {
+    return { impersonateKey: asFlag.value, nextIndex: asFlag.nextIndex + 1 };
+  }
+  const profileFlag = isRegister
+    ? { matched: false, nextIndex: index }
+    : parseGlobalFlag(argv, index, "--profile");
+  if (profileFlag.matched) {
+    return {
+      profileName: profileFlag.value,
+      nextIndex: profileFlag.nextIndex + 1,
+    };
+  }
+  return { restToken: token, nextIndex: index + 1 };
+}
+
 /**
  * Pull `--as &lt;key>` and `--profile &lt;name>` out of argv before handing the
  * remainder to `@effect/cli`. These are semantically global flags that
@@ -86,7 +116,8 @@ function parseGlobalFlag(
  *
  * Accepts both `--as KEY` / `--as=KEY` forms; unknown flags pass through
  * to `@effect/cli` unchanged.
- * @param argv
+ * @param argv Raw user arguments after the node executable and bin path.
+ * @returns Parsed global transport flags plus argv with those flags removed.
  */
 export const extractGlobalFlags = (
   argv: ReadonlyArray<string>,
@@ -102,29 +133,51 @@ export const extractGlobalFlags = (
   let profileName: string | undefined;
   let index = 0;
   while (index < argv.length) {
-    const token = argv[index]!;
-    const asFlag = parseGlobalFlag(argv, index, "--as");
-    if (asFlag.matched) {
-      impersonateKey = asFlag.value;
-      index = asFlag.nextIndex + 1;
-      continue;
-    }
-    if (!isRegister) {
-      const profileFlag = parseGlobalFlag(argv, index, "--profile");
-      if (profileFlag.matched) {
-        profileName = profileFlag.value;
-        index = profileFlag.nextIndex + 1;
-        continue;
-      }
-    }
-    rest.push(token);
-    index += 1;
+    const consumed = consumeGlobalArg(argv, index, isRegister);
+    impersonateKey = consumed.impersonateKey ?? impersonateKey;
+    profileName = consumed.profileName ?? profileName;
+    if (consumed.restToken !== undefined) rest.push(consumed.restToken);
+    index = consumed.nextIndex;
   }
   const out: ExtractedGlobalFlags = { rest };
   if (impersonateKey !== undefined) out.impersonateKey = impersonateKey;
   if (profileName !== undefined) out.profileName = profileName;
   return out;
 };
+
+function exitWithCliError(message: string): never {
+  console.error(`moltzap: ${message}`);
+  process.exit(1);
+}
+
+function transportResolutionMessage(err: unknown): string {
+  if (err instanceof ProfileNotFoundError) {
+    return `profile not found: ${err.name}`;
+  }
+  if (err instanceof ProfileInvalidNameError) {
+    return `invalid profile name "${err.name}": ${err.reason}`;
+  }
+  if (err instanceof ProfileConfigReadError) {
+    const cause =
+      err.cause instanceof Error ? err.cause.message : String(err.cause);
+    return `config read error at ${err.path}: ${cause}`;
+  }
+  if (err instanceof TransportConfigError) {
+    return `transport config: ${err.reason}`;
+  }
+  return err instanceof Error ? err.message : String(err);
+}
+
+function resolveTransportOptionsOrExit(input: {
+  impersonateKey?: string;
+  profileName?: string;
+}): TransportOptions {
+  try {
+    return Effect.runSync(resolveTransportInputs(input));
+  } catch (err) {
+    return exitWithCliError(transportResolutionMessage(err));
+  }
+}
 
 /**
  * Top-level `moltzap` command. Subcommands are `@effect/cli` `Command`s —
@@ -188,32 +241,7 @@ if (profileName !== undefined) resolverInput.profileName = profileName;
 // Resolve transport inputs eagerly. On failure exit with a user-readable
 // message before touching @effect/cli; the CLI parser never sees a broken
 // transport config.
-const transportOptions: TransportOptions = (() => {
-  const exit1 = (msg: string): never => {
-    console.error(`moltzap: ${msg}`);
-    process.exit(1);
-  };
-  try {
-    return Effect.runSync(resolveTransportInputs(resolverInput));
-  } catch (err) {
-    if (err instanceof ProfileNotFoundError) {
-      return exit1(`profile not found: ${err.name}`);
-    }
-    if (err instanceof ProfileInvalidNameError) {
-      return exit1(`invalid profile name "${err.name}": ${err.reason}`);
-    }
-    if (err instanceof ProfileConfigReadError) {
-      const cause =
-        err.cause instanceof Error ? err.cause.message : String(err.cause);
-      return exit1(`config read error at ${err.path}: ${cause}`);
-    }
-    if (err instanceof TransportConfigError) {
-      return exit1(`transport config: ${err.reason}`);
-    }
-    const msg = err instanceof Error ? err.message : String(err);
-    return exit1(msg);
-  }
-})();
+const transportOptions = resolveTransportOptionsOrExit(resolverInput);
 
 const TransportLive = makeTransportLayer(transportOptions);
 

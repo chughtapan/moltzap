@@ -160,6 +160,100 @@ const noPersistFlag = Options.boolean("no-persist").pipe(
   ),
 );
 
+type RegistrationResult = Effect.Effect.Success<
+  ReturnType<typeof registerAgent>
+>;
+type NoPersistEmission = Effect.Effect.Success<
+  ReturnType<typeof emitNoPersist>
+>;
+
+interface PersistRegistrationInput {
+  readonly profile: Option.Option<string>;
+  readonly record: ProfileRecord;
+  readonly result: RegistrationResult;
+  readonly serverUrl: string;
+  readonly name: string;
+}
+
+function invalidAgentName(name: string): Effect.Effect<never> {
+  return Effect.sync(() => {
+    console.error(
+      `Invalid agent name "${name}". Must be 3-32 chars, lowercase alphanumeric and hyphens, cannot start or end with a hyphen.`,
+    );
+    process.exit(1);
+  });
+}
+
+function profileRecordFrom(
+  name: string,
+  result: RegistrationResult,
+  serverUrl: string,
+): ProfileRecord {
+  return {
+    apiKey: result.apiKey,
+    agentName: name,
+    serverUrl,
+    registeredAt: new Date().toISOString(),
+  };
+}
+
+function printNoPersistRegistration(
+  name: string,
+  result: RegistrationResult,
+  emitted: NoPersistEmission,
+): void {
+  console.log(`Agent "${name}" registered (not persisted).`);
+  console.log(`  Agent ID:   ${result.agentId}`);
+  console.log(`  API Key:    ${emitted.record.apiKey}`);
+  console.log(`  Server URL: ${emitted.record.serverUrl}`);
+  console.log(`  Claim URL:  ${result.claimUrl}`);
+  console.log(
+    "\nShare the claim URL with the agent's owner to verify ownership.",
+  );
+}
+
+function printPersistedRegistration(
+  name: string,
+  result: RegistrationResult,
+  serverUrl: string,
+): void {
+  console.log(`Agent "${name}" registered and channel configured.`);
+  console.log(`  Agent ID:   ${result.agentId}`);
+  console.log(`  API Key:    ${result.apiKey}`);
+  console.log(`  Server URL: ${serverUrl}`);
+  console.log(`  Claim URL:  ${result.claimUrl}`);
+  console.log(
+    "\nShare the claim URL with the agent's owner to verify ownership.",
+  );
+}
+
+function persistRegistration({
+  profile,
+  record,
+  result,
+  serverUrl,
+  name,
+}: PersistRegistrationInput): Effect.Effect<void, unknown> {
+  if (Option.isSome(profile)) {
+    return parseProfileName(profile.value).pipe(
+      Effect.flatMap((profileName) => writeProfile(profileName, record)),
+    );
+  }
+  return updateConfig(() => ({
+    serverUrl,
+    apiKey: result.apiKey,
+    agentName: name,
+  })).pipe(
+    Effect.zipRight(
+      writeOpenClawChannelConfig({
+        apiKey: result.apiKey,
+        serverUrl,
+        agentName: name,
+      }),
+    ),
+  );
+}
+
 /**
  * `moltzap register &lt;name> &lt;invite-code> [-d description] [--profile &lt;name>] [--no-persist]`
  *
@@ -186,65 +280,23 @@ export const registerCommand = Command.make(
   },
   ({ name, inviteCode, description, profile, noPersist }) => {
     if (!NAME_PATTERN.test(name)) {
-      return Effect.sync(() => {
-        console.error(
-          `Invalid agent name "${name}". Must be 3-32 chars, lowercase alphanumeric and hyphens, cannot start or end with a hyphen.`,
-        );
-        process.exit(1);
-      });
+      return invalidAgentName(name);
     }
     const desc = Option.isSome(description) ? description.value : undefined;
     return Effect.gen(function* () {
       const result = yield* registerAgent(name, inviteCode, desc);
       const serverUrl = yield* getServerUrl;
-
-      const record: ProfileRecord = {
-        apiKey: result.apiKey,
-        agentName: name,
-        serverUrl,
-        registeredAt: new Date().toISOString(),
-      };
+      const record = profileRecordFrom(name, result, serverUrl);
 
       if (noPersist) {
         // Invariant §4.4: no writes to ~/.moltzap/ or ~/.openclaw/.
         const emitted = yield* emitNoPersist(record);
-        console.log(`Agent "${name}" registered (not persisted).`);
-        console.log(`  Agent ID:   ${result.agentId}`);
-        console.log(`  API Key:    ${emitted.record.apiKey}`);
-        console.log(`  Server URL: ${emitted.record.serverUrl}`);
-        console.log(`  Claim URL:  ${result.claimUrl}`);
-        console.log(
-          `\nShare the claim URL with the agent's owner to verify ownership.`,
-        );
+        printNoPersistRegistration(name, result, emitted);
         return;
       }
 
-      if (Option.isSome(profile)) {
-        const profileName = yield* parseProfileName(profile.value);
-        yield* writeProfile(profileName, record);
-      } else {
-        // Legacy top-level persistence path (unchanged).
-        yield* updateConfig(() => ({
-          serverUrl,
-          apiKey: result.apiKey,
-          agentName: name,
-        }));
-
-        yield* writeOpenClawChannelConfig({
-          apiKey: result.apiKey,
-          serverUrl,
-          agentName: name,
-        });
-      }
-
-      console.log(`Agent "${name}" registered and channel configured.`);
-      console.log(`  Agent ID:   ${result.agentId}`);
-      console.log(`  API Key:    ${result.apiKey}`);
-      console.log(`  Server URL: ${serverUrl}`);
-      console.log(`  Claim URL:  ${result.claimUrl}`);
-      console.log(
-        `\nShare the claim URL with the agent's owner to verify ownership.`,
-      );
+      yield* persistRegistration({ profile, record, result, serverUrl, name });
+      printPersistedRegistration(name, result, serverUrl);
     }).pipe(
       Effect.withSpan("registerCommand"),
       Effect.catchAll((err) =>
