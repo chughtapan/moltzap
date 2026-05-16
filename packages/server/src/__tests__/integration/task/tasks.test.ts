@@ -17,6 +17,8 @@ import {
   resetTestDb,
   trackClient,
   connectTestClient,
+  HTTP_CREATED,
+  HTTP_OK,
   type ServerTestClient,
 } from "../helpers.js";
 
@@ -34,7 +36,7 @@ beforeAll(async () => {
   });
   baseUrl = server.baseUrl;
   wsUrl = server.wsUrl;
-}, 60_000);
+});
 
 afterAll(async () => {
   await stopTestServer();
@@ -64,7 +66,7 @@ async function adminRegister(
     }),
   });
   const json = (await res.json()) as AdminRegisterResponse;
-  if (res.status !== 201 && res.status !== 200) {
+  if (res.status !== HTTP_CREATED && res.status !== HTTP_OK) {
     throw new Error(
       `admin register failed: ${res.status} ${JSON.stringify(json)}`,
     );

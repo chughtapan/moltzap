@@ -1,11 +1,13 @@
-import guard from "eslint-plugin-agent-code-guard";
-import { packageEslintConfig } from "../../eslint.shared.mjs";
+import {
+  architecturePlugins,
+  packageEslintConfig,
+} from "../../eslint.shared.mjs";
 
 export default [
   ...packageEslintConfig(),
   {
     files: ["src/network/**/*.ts", "src/task/**/*.ts"],
-    plugins: guard.configs.architecture.plugins,
+    plugins: architecturePlugins,
     rules: {
       "agent-code-guard/architecture-directive-parse-error": "error",
       "agent-code-guard/no-upward-layer-import": [

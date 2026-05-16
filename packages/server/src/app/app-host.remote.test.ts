@@ -120,6 +120,7 @@ const FIXTURE_AGENT_RECIPIENT = agentId("00000000-0000-4000-8000-000000000a01");
 const FIXTURE_AGENT_SENDER = agentId("00000000-0000-4000-8000-000000000a02");
 const FIXTURE_MESSAGE_ID = messageId("00000000-0000-4000-8000-000000000201");
 const MESSAGE_APP_ID = "00000000-0000-4000-8000-000000000560";
+const MANIFEST_DISPATCH_TIMEOUT_MS = 1234;
 const MESSAGE_TM_ADDRESS = endpointAddress(`tm:app:${MESSAGE_APP_ID}`);
 
 const baseAuthorizeDispatchCtx = (
@@ -237,7 +238,7 @@ describe("AppHost.registerRemoteApp", () => {
 
   it("stores the manifest verbatim (so dispatch can read timeout_ms)", () => {
     const { host } = makeAppHostFixture();
-    const manifest = baseManifest("app-m", 1234);
+    const manifest = baseManifest("app-m", MANIFEST_DISPATCH_TIMEOUT_MS);
     host.registerRemoteApp(manifest, "conn-1");
     expect(host.getManifest("app-m")).toBe(manifest);
   });

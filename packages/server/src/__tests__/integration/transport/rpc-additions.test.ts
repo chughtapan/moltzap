@@ -16,9 +16,11 @@ import {
   NetworkPing,
 } from "@moltzap/protocol";
 
+const NETWORK_PING_MAX_CLOCK_SKEW_MS = 60_000;
+
 beforeAll(async () => {
   await startTestServer();
-}, 60_000);
+});
 
 afterAll(async () => {
   await stopTestServer();
@@ -42,7 +44,9 @@ describe("Scenario 34: apps/register + network/ping RPCs", () => {
         expect(result.ts).toMatch(
           /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
         );
-        expect(Date.now() - Date.parse(result.ts)).toBeLessThan(60_000);
+        expect(Date.now() - Date.parse(result.ts)).toBeLessThan(
+          NETWORK_PING_MAX_CLOCK_SKEW_MS,
+        );
       }),
     );
   });

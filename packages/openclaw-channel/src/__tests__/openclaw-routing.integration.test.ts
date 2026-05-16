@@ -27,6 +27,16 @@ import {
 
 let wsUrl: string;
 
+const GATEWAY_LIFECYCLE_TIMEOUT_MS = 30_000;
+const NOTIFICATION_WAIT_TIMEOUT_MS = 60_000;
+const STANDARD_SCENARIO_TIMEOUT_MS = 90_000;
+const LONG_SCENARIO_TIMEOUT_MS = 120_000;
+const CROSS_CONTAINER_SCENARIO_TIMEOUT_MS = 180_000;
+const CONVERSATION_EVENT_SETTLE_MS = 500;
+const LARGE_MESSAGE_CHARS = 5_000;
+const MIN_LARGE_REPLY_CHARS = 4_096;
+const RECONNECT_SETTLE_MS = 1_000;
+
 beforeAll(() => {
   wsUrl = inject("wsUrl");
 });
@@ -50,7 +60,7 @@ describe.skipIf(inject("containerAId") === "")(
             expect(logs).toContain("[moltzap]");
           });
         }),
-      30_000,
+      GATEWAY_LIFECYCLE_TIMEOUT_MS,
     );
 
     // --- Agent-to-agent tests (shared container A) ---
@@ -87,7 +97,7 @@ describe.skipIf(inject("containerAId") === "")(
             const reply = extractMessage(
               yield* aliceClient.waitForNotification(
                 "messages/received",
-                60_000,
+                NOTIFICATION_WAIT_TIMEOUT_MS,
               ),
             );
             expect(reply.parts.length).toBeGreaterThan(0);
@@ -97,7 +107,7 @@ describe.skipIf(inject("containerAId") === "")(
 
             yield* aliceClient.close();
           }),
-        90_000,
+        STANDARD_SCENARIO_TIMEOUT_MS,
       );
 
       it.live(
@@ -133,7 +143,10 @@ describe.skipIf(inject("containerAId") === "")(
             );
 
             // Wait for conversation event to propagate to the gateway
-            yield* Effect.promise(() => new Promise((r) => setTimeout(r, 500)));
+            yield* Effect.promise(
+              () =>
+                new Promise((r) => setTimeout(r, CONVERSATION_EVENT_SETTLE_MS)),
+            );
 
             yield* aliceClient.sendRpc(MessagesSend, {
               conversationId: convId,
@@ -143,7 +156,7 @@ describe.skipIf(inject("containerAId") === "")(
             const reply = extractMessage(
               yield* aliceClient.waitForNotification(
                 "messages/received",
-                60_000,
+                NOTIFICATION_WAIT_TIMEOUT_MS,
               ),
             );
             expect(reply.parts.length).toBeGreaterThan(0);
@@ -152,7 +165,7 @@ describe.skipIf(inject("containerAId") === "")(
 
             yield* aliceClient.close();
           }),
-        90_000,
+        STANDARD_SCENARIO_TIMEOUT_MS,
       );
 
       it.live(
@@ -187,9 +200,18 @@ describe.skipIf(inject("containerAId") === "")(
 
             const replies = yield* Effect.all(
               [
-                aliceClient.waitForNotification("messages/received", 60_000),
-                aliceClient.waitForNotification("messages/received", 60_000),
-                aliceClient.waitForNotification("messages/received", 60_000),
+                aliceClient.waitForNotification(
+                  "messages/received",
+                  NOTIFICATION_WAIT_TIMEOUT_MS,
+                ),
+                aliceClient.waitForNotification(
+                  "messages/received",
+                  NOTIFICATION_WAIT_TIMEOUT_MS,
+                ),
+                aliceClient.waitForNotification(
+                  "messages/received",
+                  NOTIFICATION_WAIT_TIMEOUT_MS,
+                ),
               ],
               { concurrency: "unbounded" },
             );
@@ -203,7 +225,7 @@ describe.skipIf(inject("containerAId") === "")(
 
             yield* aliceClient.close();
           }),
-        120_000,
+        LONG_SCENARIO_TIMEOUT_MS,
       );
     });
 
@@ -250,8 +272,14 @@ describe.skipIf(inject("containerAId") === "")(
 
           const events = yield* Effect.all(
             [
-              aliceClient.waitForNotification("messages/received", 60_000),
-              aliceClient.waitForNotification("messages/received", 60_000),
+              aliceClient.waitForNotification(
+                "messages/received",
+                NOTIFICATION_WAIT_TIMEOUT_MS,
+              ),
+              aliceClient.waitForNotification(
+                "messages/received",
+                NOTIFICATION_WAIT_TIMEOUT_MS,
+              ),
             ],
             { concurrency: "unbounded" },
           );
@@ -269,7 +297,7 @@ describe.skipIf(inject("containerAId") === "")(
 
           yield* aliceClient.close();
         }),
-      180_000,
+      CROSS_CONTAINER_SCENARIO_TIMEOUT_MS,
     );
 
     // --- Aggressive scenarios ---
@@ -321,7 +349,7 @@ describe.skipIf(inject("containerAId") === "")(
             const received = extractMessage(
               yield* receiverClient.waitForNotification(
                 "messages/received",
-                60_000,
+                NOTIFICATION_WAIT_TIMEOUT_MS,
               ),
             );
             expect(received.senderId).toBe(containerAAgentId);
@@ -331,7 +359,7 @@ describe.skipIf(inject("containerAId") === "")(
             yield* senderClient.close();
             yield* receiverClient.close();
           }),
-        90_000,
+        STANDARD_SCENARIO_TIMEOUT_MS,
       );
 
       it.live(
@@ -379,7 +407,7 @@ describe.skipIf(inject("containerAId") === "")(
             const msg1 = extractMessage(
               yield* receiverClient.waitForNotification(
                 "messages/received",
-                60_000,
+                NOTIFICATION_WAIT_TIMEOUT_MS,
               ),
             );
 
@@ -390,7 +418,7 @@ describe.skipIf(inject("containerAId") === "")(
             const msg2 = extractMessage(
               yield* receiverClient.waitForNotification(
                 "messages/received",
-                60_000,
+                NOTIFICATION_WAIT_TIMEOUT_MS,
               ),
             );
 
@@ -400,7 +428,7 @@ describe.skipIf(inject("containerAId") === "")(
             yield* senderClient.close();
             yield* receiverClient.close();
           }),
-        90_000,
+        STANDARD_SCENARIO_TIMEOUT_MS,
       );
     });
 
@@ -429,7 +457,7 @@ describe.skipIf(inject("containerAId") === "")(
 
             yield* agentClient.close();
           }),
-        30_000,
+        GATEWAY_LIFECYCLE_TIMEOUT_MS,
       );
 
       it.live(
@@ -455,7 +483,7 @@ describe.skipIf(inject("containerAId") === "")(
               }),
             );
 
-            const largeText = "A".repeat(5000);
+            const largeText = "A".repeat(LARGE_MESSAGE_CHARS);
 
             yield* aliceClient.sendRpc(MessagesSend, {
               conversationId: convId,
@@ -465,18 +493,18 @@ describe.skipIf(inject("containerAId") === "")(
             const reply = extractMessage(
               yield* aliceClient.waitForNotification(
                 "messages/received",
-                60_000,
+                NOTIFICATION_WAIT_TIMEOUT_MS,
               ),
             );
             expect(reply.conversationId).toBe(convId);
             expect(reply.senderId).toBe(containerAAgentId);
             const replyText = extractText(reply);
             expect(replyText).toContain("ECHO:");
-            expect(replyText.length).toBeGreaterThan(4096);
+            expect(replyText.length).toBeGreaterThan(MIN_LARGE_REPLY_CHARS);
 
             yield* aliceClient.close();
           }),
-        120_000,
+        LONG_SCENARIO_TIMEOUT_MS,
       );
 
       it.live(
@@ -510,7 +538,7 @@ describe.skipIf(inject("containerAId") === "")(
             const reply1 = extractMessage(
               yield* aliceClient.waitForNotification(
                 "messages/received",
-                60_000,
+                NOTIFICATION_WAIT_TIMEOUT_MS,
               ),
             );
             expect(extractText(reply1)).toContain("ECHO:");
@@ -519,7 +547,7 @@ describe.skipIf(inject("containerAId") === "")(
             yield* aliceClient.close();
 
             yield* Effect.promise(
-              () => new Promise((r) => setTimeout(r, 1000)),
+              () => new Promise((r) => setTimeout(r, RECONNECT_SETTLE_MS)),
             );
 
             const aliceClient2 = new MoltZapWsClient({
@@ -536,7 +564,7 @@ describe.skipIf(inject("containerAId") === "")(
             const reply2 = extractMessage(
               yield* aliceClient2.waitForNotification(
                 "messages/received",
-                60_000,
+                NOTIFICATION_WAIT_TIMEOUT_MS,
               ),
             );
             expect(extractText(reply2)).toContain("ECHO:");
@@ -544,7 +572,7 @@ describe.skipIf(inject("containerAId") === "")(
 
             yield* aliceClient2.close();
           }),
-        120_000,
+        LONG_SCENARIO_TIMEOUT_MS,
       );
     });
   },

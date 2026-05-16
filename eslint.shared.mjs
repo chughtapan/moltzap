@@ -22,16 +22,30 @@ const recommendedSourceRules = Object.fromEntries(
   ),
 );
 
+const baseMagicNumberOptions = {
+  ignoreArrayIndexes: true,
+  ignoreReadonlyClassProperties: true,
+};
+
+const noMagicNumbersRule = [
+  "warn",
+  {
+    ...baseMagicNumberOptions,
+    ignore: [-1, 0, 1],
+  },
+];
+
+const testNoMagicNumbersRule = [
+  "warn",
+  {
+    ...baseMagicNumberOptions,
+    ignore: [-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+  },
+];
+
 const sourceRules = {
   ...recommendedSourceRules,
-  "@typescript-eslint/no-magic-numbers": [
-    "warn",
-    {
-      ignore: [-1, 0, 1],
-      ignoreArrayIndexes: true,
-      ignoreReadonlyClassProperties: true,
-    },
-  ],
+  "@typescript-eslint/no-magic-numbers": noMagicNumbersRule,
   "@typescript-eslint/no-unused-vars": "error",
   "sonarjs/no-duplicate-string": ["warn", { threshold: 4 }],
 };
@@ -47,12 +61,17 @@ const testSupportRules = {
     "src/testing/**/*.ts",
     "src/test-utils/**/*.ts",
   ],
-  plugins: guard.configs.recommended.plugins,
+  plugins: {
+    ...guard.configs.recommended.plugins,
+    "@typescript-eslint": tseslint,
+  },
   rules: {
-    "@typescript-eslint/no-magic-numbers": "off",
+    "@typescript-eslint/no-magic-numbers": testNoMagicNumbersRule,
     "sonarjs/no-nested-functions": ["error", { threshold: 5 }],
   },
 };
+
+export const architecturePlugins = guard.configs.architecture.plugins;
 
 const eslintDisableCommentRules = {
   files: ["**/*.ts"],

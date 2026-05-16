@@ -74,6 +74,8 @@ import {
   type ServerTestClient,
 } from "../helpers.js";
 
+const TASK_MANAGER_ROUTING_TEST_TIMEOUT_MS = 20_000;
+
 let baseUrl: string;
 let wsUrl: string;
 
@@ -81,7 +83,7 @@ beforeAll(async () => {
   const server = await startTestServer();
   baseUrl = server.baseUrl;
   wsUrl = server.wsUrl;
-}, 60_000);
+});
 
 afterAll(async () => {
   await stopTestServer();
@@ -204,7 +206,7 @@ describe("Phase 9b — messages/send → TM routing via network.send", () => {
         expect(receivedMsg.id).toBe(message.id);
         expect(receivedMsg.parts).toEqual([{ type: "text", text: "hi TM" }]);
       }),
-    20_000,
+    TASK_MANAGER_ROUTING_TEST_TIMEOUT_MS,
   );
 
   it.live(
@@ -236,7 +238,7 @@ describe("Phase 9b — messages/send → TM routing via network.send", () => {
           expect(err.message).toMatch(/Task manager/i);
         }
       }),
-    20_000,
+    TASK_MANAGER_ROUTING_TEST_TIMEOUT_MS,
   );
 
   it.live(
@@ -278,7 +280,7 @@ describe("Phase 9b — messages/send → TM routing via network.send", () => {
           expect(err.data?.status).toBe("closed");
         }
       }),
-    20_000,
+    TASK_MANAGER_ROUTING_TEST_TIMEOUT_MS,
   );
 
   it.live(
@@ -317,7 +319,7 @@ describe("Phase 9b — messages/send → TM routing via network.send", () => {
         const receivedMsg = (received.params as { message: Message }).message;
         expect(receivedMsg.id).toBe(sent.message.id);
       }),
-    20_000,
+    TASK_MANAGER_ROUTING_TEST_TIMEOUT_MS,
   );
 
   it.live(
@@ -350,7 +352,7 @@ describe("Phase 9b — messages/send → TM routing via network.send", () => {
         const receivedMsg = (received.params as { message: Message }).message;
         expect(receivedMsg.id).toBe(sent.message.id);
       }),
-    20_000,
+    TASK_MANAGER_ROUTING_TEST_TIMEOUT_MS,
   );
 
   it.live(
@@ -394,6 +396,6 @@ describe("Phase 9b — messages/send → TM routing via network.send", () => {
         // would arrive (network.send self-loop + conversation broadcast).
         expect(receivedCount).toBe(1);
       }),
-    20_000,
+    TASK_MANAGER_ROUTING_TEST_TIMEOUT_MS,
   );
 });

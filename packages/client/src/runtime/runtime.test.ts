@@ -8,11 +8,17 @@ import {
   RpcTimeoutError,
 } from "@moltzap/protocol";
 
+const RPC_TIMEOUT_MS = 30_000;
+const NOT_FOUND_CODE = -32002;
+
 it.effect("tagged errors discriminate by _tag", () =>
   Effect.gen(function* () {
     const exit = yield* Effect.exit(
       Effect.fail(
-        new RpcTimeoutError({ method: MessagesSend.name, timeoutMs: 30_000 }),
+        new RpcTimeoutError({
+          method: MessagesSend.name,
+          timeoutMs: RPC_TIMEOUT_MS,
+        }),
       ),
     );
     if (Exit.isFailure(exit) && exit.cause._tag === "Fail") {
@@ -27,10 +33,10 @@ it.effect("tagged errors discriminate by _tag", () =>
 
 itSync("RpcServerError preserves wire fields", () => {
   const err = new RpcServerError({
-    code: -32002,
+    code: NOT_FOUND_CODE,
     message: "Not found",
   });
-  expect(err.code).toBe(-32002);
+  expect(err.code).toBe(NOT_FOUND_CODE);
   expect(err.message).toBe("Not found");
   expect(err.data).toBeUndefined();
 });

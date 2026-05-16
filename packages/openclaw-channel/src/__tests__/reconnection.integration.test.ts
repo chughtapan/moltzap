@@ -30,6 +30,12 @@ const rpcWs = <D extends RpcDefinition<string, any, any>>(
 let baseUrl: string;
 let wsUrl: string;
 
+const DISCONNECT_WAIT_MS = 3_000;
+const RECONNECT_WAIT_MS = 10_000;
+const OPTIONAL_RECONNECT_WAIT_MS = 2_000;
+const MISSED_MESSAGE_WAIT_MS = 15_000;
+const MESSAGE_DELIVERY_WAIT_MS = 5_000;
+
 beforeAll(() => {
   baseUrl = inject("baseUrl");
   wsUrl = inject("wsUrl");
@@ -64,13 +70,13 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
       disconnectWs(client);
 
       yield* Effect.tryPromise({
-        try: () => waitFor(() => disconnected, 3000),
+        try: () => waitFor(() => disconnected, DISCONNECT_WAIT_MS),
         catch: (err) => (err instanceof Error ? err : new Error(String(err))),
       });
       expect(disconnected).toBe(true);
 
       yield* Effect.tryPromise({
-        try: () => waitFor(() => reconnected, 10_000),
+        try: () => waitFor(() => reconnected, RECONNECT_WAIT_MS),
         catch: (err) => (err instanceof Error ? err : new Error(String(err))),
       });
       expect(reconnected).toBe(true);
@@ -121,9 +127,10 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
       disconnectWs(bobClient);
       yield* Effect.tryPromise({
         try: () =>
-          waitFor(() => reconnectHelloOk !== null || true, 2000).catch(
-            () => {},
-          ),
+          waitFor(
+            () => reconnectHelloOk !== null || true,
+            OPTIONAL_RECONNECT_WAIT_MS,
+          ).catch(() => {}),
         catch: (err) => (err instanceof Error ? err : new Error(String(err))),
       });
 
@@ -133,7 +140,8 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
       });
 
       yield* Effect.tryPromise({
-        try: () => waitFor(() => reconnectHelloOk !== null, 15_000),
+        try: () =>
+          waitFor(() => reconnectHelloOk !== null, MISSED_MESSAGE_WAIT_MS),
         catch: (err) => (err instanceof Error ? err : new Error(String(err))),
       });
 
@@ -198,7 +206,8 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
       });
 
       yield* Effect.tryPromise({
-        try: () => waitFor(() => receivedMessages.length >= 1, 5000),
+        try: () =>
+          waitFor(() => receivedMessages.length >= 1, MESSAGE_DELIVERY_WAIT_MS),
         catch: (err) => (err instanceof Error ? err : new Error(String(err))),
       });
       expect(receivedMessages[0]!.parts[0]!).toEqual({
@@ -208,12 +217,12 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
 
       disconnectWs(bobClient);
       yield* Effect.tryPromise({
-        try: () => waitFor(() => disconnected, 3000),
+        try: () => waitFor(() => disconnected, DISCONNECT_WAIT_MS),
         catch: (err) => (err instanceof Error ? err : new Error(String(err))),
       });
 
       yield* Effect.tryPromise({
-        try: () => waitFor(() => reconnected, 10_000),
+        try: () => waitFor(() => reconnected, RECONNECT_WAIT_MS),
         catch: (err) => (err instanceof Error ? err : new Error(String(err))),
       });
 
@@ -225,7 +234,8 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
       });
 
       yield* Effect.tryPromise({
-        try: () => waitFor(() => receivedMessages.length >= 1, 5000),
+        try: () =>
+          waitFor(() => receivedMessages.length >= 1, MESSAGE_DELIVERY_WAIT_MS),
         catch: (err) => (err instanceof Error ? err : new Error(String(err))),
       });
       expect(receivedMessages[0]!.parts[0]!).toEqual({
@@ -266,11 +276,13 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
       closeWs(client);
 
       yield* Effect.tryPromise({
-        try: () => waitFor(() => disconnected, 3000),
+        try: () => waitFor(() => disconnected, DISCONNECT_WAIT_MS),
         catch: (err) => (err instanceof Error ? err : new Error(String(err))),
       });
 
-      yield* Effect.promise(() => new Promise((r) => setTimeout(r, 3000)));
+      yield* Effect.promise(
+        () => new Promise((r) => setTimeout(r, DISCONNECT_WAIT_MS)),
+      );
 
       expect(reconnectCount).toBe(0);
     }),
@@ -301,7 +313,7 @@ describe("Flow 8: Reconnection + missed message catch-up", () => {
       disconnectWs(client);
 
       yield* Effect.tryPromise({
-        try: () => waitFor(() => reconnected, 10_000),
+        try: () => waitFor(() => reconnected, RECONNECT_WAIT_MS),
         catch: (err) => (err instanceof Error ? err : new Error(String(err))),
       });
 

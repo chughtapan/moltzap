@@ -33,6 +33,14 @@ import { MessagesList, MessagesSend } from "@moltzap/protocol";
  * do the same thing — tests sit at the same boundary. */
 const run = <A, E>(e: Effect.Effect<A, E>): Promise<A> => Effect.runPromise(e);
 
+const INTEGRATION_HOOK_TIMEOUT_MS = 60_000;
+const MESSAGE_SETTLE_MS = 500;
+const NOTIFICATION_WAIT_MS = 5_000;
+const HISTORY_SETTLE_MS = 2_000;
+const LONG_MESSAGE_LENGTH = 500;
+const HISTORY_MESSAGE_COUNT = 25;
+const SOCKET_RESPONSE_TIMEOUT_MS = 2_000;
+
 let baseUrl: string;
 let wsUrl: string;
 
@@ -42,7 +50,7 @@ beforeAll(async () => {
   const server = await startCoreTestServer({ pgHost, pgPort });
   baseUrl = server.baseUrl;
   wsUrl = server.wsUrl;
-}, 60_000);
+}, INTEGRATION_HOOK_TIMEOUT_MS);
 
 afterAll(async () => {
   await stopCoreTestServer();
@@ -89,7 +97,9 @@ function sendAndSettle(
       parts: [{ type: "text", text }],
     });
     // Let the message propagate through WebSocket events
-    yield* Effect.promise(() => new Promise((r) => setTimeout(r, 500)));
+    yield* Effect.promise(
+      () => new Promise((r) => setTimeout(r, MESSAGE_SETTLE_MS)),
+    );
   });
 }
 
@@ -195,7 +205,9 @@ describe("Connection & Core API", () => {
 
       // Send from the service (own agent) — should NOT fire on("message")
       yield* service.send(conv.conversation.id, "Self message");
-      yield* Effect.promise(() => new Promise((r) => setTimeout(r, 500)));
+      yield* Effect.promise(
+        () => new Promise((r) => setTimeout(r, MESSAGE_SETTLE_MS)),
+      );
 
       expect(received.length).toBe(0);
 
@@ -266,7 +278,7 @@ describe("Connection & Core API", () => {
 
       const event = yield* regB.client.waitForNotification(
         MessageReceivedNotificationDefinition,
-        5000,
+        NOTIFICATION_WAIT_MS,
       );
       const msg = (
         event.params as { message: { parts: Array<{ text: string }> } }
@@ -487,13 +499,13 @@ describe("Cross-Conversation Context", () => {
         participants: [{ type: "agent", id: regC.agentId }],
       })) as { conversation: { id: string } };
 
-      const longMsg = "A".repeat(500);
+      const longMsg = "A".repeat(LONG_MESSAGE_LENGTH);
       yield* sendAndSettle(regC.client, convC.conversation.id, longMsg);
 
       const ctx = service.getContext(convB.conversation.id)!;
       // The preview should be truncated — full 500-char message should not appear
-      expect(ctx).not.toContain("A".repeat(500));
-      expect(ctx.length).toBeLessThan(500);
+      expect(ctx).not.toContain("A".repeat(LONG_MESSAGE_LENGTH));
+      expect(ctx.length).toBeLessThan(LONG_MESSAGE_LENGTH);
 
       service.close();
       yield* regA.client.close();
@@ -779,16 +791,18 @@ describe("Cross-Conversation Context", () => {
         participants: [{ type: "agent", id: regC.agentId }],
       })) as { conversation: { id: string } };
 
-      for (let i = 0; i < 25; i++) {
+      for (let i = 0; i < HISTORY_MESSAGE_COUNT; i++) {
         yield* regC.client.sendRpc(MessagesSend, {
           conversationId: convC.conversation.id,
           parts: [{ type: "text", text: `msg-${i}` }],
         });
       }
-      yield* Effect.promise(() => new Promise((r) => setTimeout(r, 2000)));
+      yield* Effect.promise(
+        () => new Promise((r) => setTimeout(r, HISTORY_SETTLE_MS)),
+      );
 
       const history = service.getHistory(convC.conversation.id);
-      expect(history.length).toBe(25);
+      expect(history.length).toBe(HISTORY_MESSAGE_COUNT);
 
       const texts = history.map((m) =>
         m.parts
@@ -952,14 +966,18 @@ describe("History with session key", () => {
 
       // A sends a message
       yield* service.send(conv.conversation.id, "Hello from A");
-      yield* Effect.promise(() => new Promise((r) => setTimeout(r, 500)));
+      yield* Effect.promise(
+        () => new Promise((r) => setTimeout(r, MESSAGE_SETTLE_MS)),
+      );
 
       // B sends a message
       yield* sendAndSettle(regB.client, conv.conversation.id, "Hello from B");
 
       // A sends another message
       yield* service.send(conv.conversation.id, "Follow up from A");
-      yield* Effect.promise(() => new Promise((r) => setTimeout(r, 500)));
+      yield* Effect.promise(
+        () => new Promise((r) => setTimeout(r, MESSAGE_SETTLE_MS)),
+      );
 
       // Fetch history via RPC (same as CLI moltzap history would do)
       const result = (yield* service.sendRpc(MessagesList, {
@@ -1018,7 +1036,9 @@ describe("History with session key", () => {
 
       // Each agent sends a message
       yield* service.send(conv.conversation.id, "Agent A here");
-      yield* Effect.promise(() => new Promise((r) => setTimeout(r, 500)));
+      yield* Effect.promise(
+        () => new Promise((r) => setTimeout(r, MESSAGE_SETTLE_MS)),
+      );
       yield* sendAndSettle(regB.client, conv.conversation.id, "Agent B here");
       yield* sendAndSettle(regC.client, conv.conversation.id, "Agent C here");
 
@@ -1157,7 +1177,9 @@ describe("Socket Server", () => {
             parts: [{ type: "text", text: "Hello from A" }],
           }),
         );
-        yield* Effect.promise(() => new Promise((r) => setTimeout(r, 500)));
+        yield* Effect.promise(
+          () => new Promise((r) => setTimeout(r, MESSAGE_SETTLE_MS)),
+        );
         yield* sendAndSettle(regB.client, conv.conversation.id, "Hello from B");
 
         const result = (yield* Effect.promise(() =>
@@ -1410,7 +1432,7 @@ describe("Socket Server", () => {
           const start = performance.now();
           yield* Effect.promise(() => socketRequest("ping"));
           const elapsed = performance.now() - start;
-          expect(elapsed).toBeLessThan(2000);
+          expect(elapsed).toBeLessThan(SOCKET_RESPONSE_TIMEOUT_MS);
         } finally {
           service.close();
           yield* reg.client.close();
@@ -1535,7 +1557,9 @@ describe("Socket Server", () => {
             { type: "image", url: "https://example.com/photo.jpg" },
           ],
         });
-        yield* Effect.promise(() => new Promise((r) => setTimeout(r, 500)));
+        yield* Effect.promise(
+          () => new Promise((r) => setTimeout(r, MESSAGE_SETTLE_MS)),
+        );
 
         const result = (yield* Effect.promise(() =>
           socketRequest("history", {

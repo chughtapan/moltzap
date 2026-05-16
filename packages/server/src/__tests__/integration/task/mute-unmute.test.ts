@@ -16,9 +16,11 @@ import {
   MessageReceivedNotificationDefinition,
 } from "@moltzap/protocol";
 
+const STRAY_EVENT_SETTLE_MS = 500;
+
 beforeAll(async () => {
   await startTestServer();
-}, 60_000);
+});
 
 afterAll(async () => {
   await stopTestServer();
@@ -56,7 +58,9 @@ describe("Mute and Unmute", () => {
         );
 
         // Wait for any stray events to arrive, then verify Alice got nothing
-        yield* Effect.promise(() => new Promise((r) => setTimeout(r, 500)));
+        yield* Effect.promise(
+          () => new Promise((r) => setTimeout(r, STRAY_EVENT_SETTLE_MS)),
+        );
         const aliceMutedEvents = alice.client
           .drainNotifications()
           .filter(

@@ -39,6 +39,11 @@ const silentLogger = {
   error: () => {},
 };
 
+const WAIT_FOR_TIMEOUT_MS = 10_000;
+const WAIT_FOR_TICK_MS = 25;
+const HARNESS_BOOT_TIMEOUT_MS = 120_000;
+const INBOUND_NOTIFICATION_TIMEOUT_MS = 15_000;
+
 interface Harness {
   channelHandle: Handle;
   peerService: MoltZapService;
@@ -137,8 +142,8 @@ async function bootHarness(): Promise<Harness> {
 
 async function waitFor(
   condition: () => boolean,
-  timeoutMs = 10_000,
-  tickMs = 25,
+  timeoutMs = WAIT_FOR_TIMEOUT_MS,
+  tickMs = WAIT_FOR_TICK_MS,
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -153,7 +158,7 @@ describe("echo integration — @moltzap/claude-code-channel", () => {
 
   beforeAll(async () => {
     h = await bootHarness();
-  }, 120_000);
+  }, HARNESS_BOOT_TIMEOUT_MS);
 
   afterAll(async () => {
     await h.stop();
@@ -168,7 +173,7 @@ describe("echo integration — @moltzap/claude-code-channel", () => {
             n.method === "notifications/claude/channel" &&
             (n.params as { content?: string }).content === "ping-one",
         ),
-      15_000,
+      INBOUND_NOTIFICATION_TIMEOUT_MS,
     );
     const n = h.notifications.find(
       (nn) =>
@@ -204,7 +209,7 @@ describe("echo integration — @moltzap/claude-code-channel", () => {
     });
     expect(result.isError).not.toBe(true);
 
-    await waitFor(() => h.peerInbox.length > inboxBefore, 10_000);
+    await waitFor(() => h.peerInbox.length > inboxBefore);
     const newMsg = h.peerInbox[h.peerInbox.length - 1];
     expect(newMsg?.conversationId).toBe(h.conversationId);
     const text = newMsg?.parts.find(
@@ -229,7 +234,7 @@ describe("echo integration — @moltzap/claude-code-channel", () => {
     });
     expect(result.isError).not.toBe(true);
 
-    await waitFor(() => h.peerInbox.length > inboxBefore, 10_000);
+    await waitFor(() => h.peerInbox.length > inboxBefore);
     const newMsg = h.peerInbox[h.peerInbox.length - 1];
     const text = newMsg?.parts.find(
       (p): p is { type: "text"; text: string } => p.type === "text",

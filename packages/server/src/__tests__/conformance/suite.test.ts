@@ -31,6 +31,10 @@ const SKIP_DOCKER = process.env.SKIP_DOCKER === "1";
 const TOXIPROXY_URL = process.env.TOXIPROXY_URL ?? "http://127.0.0.1:8474";
 const CONFORMANCE_DEV_MODE_USER_ID = "00000000-0000-4000-8000-000000000340";
 const TOXIPROXY_PROBE_INTERVAL = "500 millis";
+const TOXIPROXY_BOOT_TIMEOUT_MS = 30_000;
+const TOXIPROXY_REUSE_TIMEOUT_MS = 5_000;
+const TOXIPROXY_BEFORE_ALL_TIMEOUT_MS = 60_000;
+const CONFORMANCE_SUITE_TIMEOUT_MS = 600_000;
 
 class ToxiproxyProbeFailed extends Data.TaggedError("ToxiproxyProbeFailed")<{
   readonly cause: unknown;
@@ -140,68 +144,72 @@ describe("moltzap-server-core conformance", () => {
     if (SKIP_TOXIPROXY) return;
     if (!SKIP_DOCKER) {
       compose = await bringUpToxiproxy();
-      await waitForToxiproxy(TOXIPROXY_URL, 30_000);
+      await waitForToxiproxy(TOXIPROXY_URL, TOXIPROXY_BOOT_TIMEOUT_MS);
     } else {
-      await waitForToxiproxy(TOXIPROXY_URL, 5_000);
+      await waitForToxiproxy(TOXIPROXY_URL, TOXIPROXY_REUSE_TIMEOUT_MS);
     }
     toxiproxyUrl = TOXIPROXY_URL;
-  }, 60_000);
+  }, TOXIPROXY_BEFORE_ALL_TIMEOUT_MS);
 
   afterAll(async () => {
     if (compose !== null) await compose.teardown();
   });
 
-  it("every protocol conformance property passes against the core server", async () => {
-    const exit = await Effect.runPromiseExit(
-      runConformanceSuite({
-        realServer: Effect.tryPromise({
-          try: () =>
-            startCoreTestServer({
-              devModeUserId: CONFORMANCE_DEV_MODE_USER_ID,
-            }),
-          catch: (cause) => new RealServerAcquireError({ cause }),
-        }).pipe(
-          Effect.map((handle) => ({
-            wsUrl: handle.wsUrl,
-            baseUrl: handle.baseUrl,
-            close: Effect.tryPromise({
-              try: () => stopCoreTestServer(),
-              catch: () => undefined,
-            }).pipe(Effect.orElseSucceed(() => undefined)),
-          })),
-        ),
-        toxiproxyUrl,
-      }),
-    );
-    expect(Exit.isSuccess(exit)).toBe(true);
-    if (!Exit.isSuccess(exit)) return;
-    const result: SuiteResult = exit.value;
-    console.log(
-      `[conformance] seed=${result.seed} passed=${result.passed.length} deferred=${result.deferred.length} unavailable=${result.unavailable.length} failed=${result.failed.length}`,
-    );
-    if (result.unavailable.length > 0) {
+  it(
+    "every protocol conformance property passes against the core server",
+    async () => {
+      const exit = await Effect.runPromiseExit(
+        runConformanceSuite({
+          realServer: Effect.tryPromise({
+            try: () =>
+              startCoreTestServer({
+                devModeUserId: CONFORMANCE_DEV_MODE_USER_ID,
+              }),
+            catch: (cause) => new RealServerAcquireError({ cause }),
+          }).pipe(
+            Effect.map((handle) => ({
+              wsUrl: handle.wsUrl,
+              baseUrl: handle.baseUrl,
+              close: Effect.tryPromise({
+                try: () => stopCoreTestServer(),
+                catch: () => undefined,
+              }).pipe(Effect.orElseSucceed(() => undefined)),
+            })),
+          ),
+          toxiproxyUrl,
+        }),
+      );
+      expect(Exit.isSuccess(exit)).toBe(true);
+      if (!Exit.isSuccess(exit)) return;
+      const result: SuiteResult = exit.value;
       console.log(
-        `[conformance] unavailable: ${result.unavailable.map((u) => `${u.name}: ${u.reason}`).join(" | ")}`,
+        `[conformance] seed=${result.seed} passed=${result.passed.length} deferred=${result.deferred.length} unavailable=${result.unavailable.length} failed=${result.failed.length}`,
       );
-    }
-    if (result.failed.length > 0) {
-      const summary = result.failed
-        .map((f) => {
-          const tag = "_tag" in f.failure ? f.failure._tag : "unknown";
-          const reason =
-            "cause" in f.failure
-              ? String(f.failure.cause)
-              : "reason" in f.failure
-                ? f.failure.reason
-                : "message" in f.failure
-                  ? f.failure.message
-                  : "";
-          return `${f.name}: ${tag} — ${reason}`;
-        })
-        .join("; ");
-      throw new Error(
-        `${result.failed.length}/${result.failed.length + result.passed.length + result.deferred.length + result.unavailable.length} failed: ${summary}`,
-      );
-    }
-  }, 600_000);
+      if (result.unavailable.length > 0) {
+        console.log(
+          `[conformance] unavailable: ${result.unavailable.map((u) => `${u.name}: ${u.reason}`).join(" | ")}`,
+        );
+      }
+      if (result.failed.length > 0) {
+        const summary = result.failed
+          .map((f) => {
+            const tag = "_tag" in f.failure ? f.failure._tag : "unknown";
+            const reason =
+              "cause" in f.failure
+                ? String(f.failure.cause)
+                : "reason" in f.failure
+                  ? f.failure.reason
+                  : "message" in f.failure
+                    ? f.failure.message
+                    : "";
+            return `${f.name}: ${tag} — ${reason}`;
+          })
+          .join("; ");
+        throw new Error(
+          `${result.failed.length}/${result.failed.length + result.passed.length + result.deferred.length + result.unavailable.length} failed: ${summary}`,
+        );
+      }
+    },
+    CONFORMANCE_SUITE_TIMEOUT_MS,
+  );
 });

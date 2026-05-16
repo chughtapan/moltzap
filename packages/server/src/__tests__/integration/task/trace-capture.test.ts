@@ -25,7 +25,7 @@ beforeAll(async () => {
     traceCaptureLayer: InMemoryTraceCaptureLive,
   });
   traceCapture = server.coreApp.traceCapture;
-}, 60_000);
+});
 
 afterAll(async () => {
   await stopTestServer();

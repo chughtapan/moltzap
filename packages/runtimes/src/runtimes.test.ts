@@ -34,6 +34,11 @@ const fleetRuntimeFactoryState = vi.hoisted(() => ({
   nextRuntime: null as null | (() => Runtime),
 }));
 
+const LOG_OFFSET = 100;
+const STUB_PROCESS_GROUP_PID = -4242;
+const TEARDOWN_TIMER_ADVANCE_MS = 15_000;
+const READY_TIMEOUT_MS = 1_000;
+
 vi.mock("./openclaw-adapter.js", async () => {
   const actual = await vi.importActual<typeof import("./openclaw-adapter.js")>(
     "./openclaw-adapter.js",
@@ -156,7 +161,7 @@ describe("OpenClawAdapter.getLogs", () => {
 
   it("returns empty slice for non-zero offset when no process has been spawned", () => {
     const adapter = new OpenClawAdapter(stubDeps());
-    const slice: LogSlice = adapter.getLogs(100);
+    const slice: LogSlice = adapter.getLogs(LOG_OFFSET);
     expect(slice.text).toBe("");
     expect(slice.nextOffset).toBe(0);
   });
@@ -203,7 +208,7 @@ describe("OpenClawAdapter.teardown", () => {
       signal?: NodeJS.Signals | 0,
     ) => {
       killCalls.push({ pid, signal: signal ?? 0 });
-      if (pid !== -4242) {
+      if (pid !== STUB_PROCESS_GROUP_PID) {
         throw new Error(`Unexpected pid ${pid}`);
       }
       if ((signal ?? 0) === 0) {
@@ -246,7 +251,7 @@ describe("OpenClawAdapter.teardown", () => {
 
     try {
       const teardownPromise = Effect.runPromise(adapter.teardown());
-      await vi.advanceTimersByTimeAsync(15_000);
+      await vi.advanceTimersByTimeAsync(TEARDOWN_TIMER_ADVANCE_MS);
       await teardownPromise;
     } finally {
       vi.useRealTimers();
@@ -255,13 +260,14 @@ describe("OpenClawAdapter.teardown", () => {
 
     expect(killCalls).toEqual(
       expect.arrayContaining([
-        { pid: -4242, signal: "SIGTERM" },
-        { pid: -4242, signal: "SIGKILL" },
+        { pid: STUB_PROCESS_GROUP_PID, signal: "SIGTERM" },
+        { pid: STUB_PROCESS_GROUP_PID, signal: "SIGKILL" },
       ]),
     );
     expect(
-      killCalls.filter((call) => call.pid === -4242 && call.signal === 0)
-        .length,
+      killCalls.filter(
+        (call) => call.pid === STUB_PROCESS_GROUP_PID && call.signal === 0,
+      ).length,
     ).toBeGreaterThan(0);
   });
 });
@@ -274,7 +280,7 @@ describe("OpenClawAdapter.waitUntilReady", () => {
   it("returns Ready when no process has been spawned", async () => {
     const adapter = new OpenClawAdapter(stubDeps());
     const outcome: ReadyOutcome = await Effect.runPromise(
-      adapter.waitUntilReady(1000),
+      adapter.waitUntilReady(READY_TIMEOUT_MS),
     );
     expect(outcome._tag).toBe("Ready");
   });
@@ -438,7 +444,7 @@ describe("ClaudeCodeAdapter", () => {
   it("waitUntilReady returns Ready when no process has been spawned", async () => {
     const adapter = new ClaudeCodeAdapter(stubClaudeCodeDeps());
     const outcome: ReadyOutcome = await Effect.runPromise(
-      adapter.waitUntilReady(1000),
+      adapter.waitUntilReady(READY_TIMEOUT_MS),
     );
     expect(outcome._tag).toBe("Ready");
   });

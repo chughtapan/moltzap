@@ -23,6 +23,8 @@ import {
 } from "./test-utils/index.js";
 import { RpcServerError } from "@moltzap/protocol";
 
+const STUCK_MESSAGE_LEASE_TIMEOUT_MS = 50;
+
 /**
  * Legacy-shaped admission request the existing test bodies pass into
  * `decide`. The real `requestDispatch` wire-params surface is
@@ -953,7 +955,10 @@ describe("MoltZapChannelCore", () => {
         Effect.succeed({
           _tag: "grant" as const,
           leaseId: `lease-${request.message.id}`,
-          leaseTimeoutMs: request.message.id === message("msg-stuck") ? 1 : 50,
+          leaseTimeoutMs:
+            request.message.id === message("msg-stuck")
+              ? 1
+              : STUCK_MESSAGE_LEASE_TIMEOUT_MS,
         }),
       );
       const core = new MoltZapChannelCore({

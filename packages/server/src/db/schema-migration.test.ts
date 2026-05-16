@@ -19,6 +19,7 @@ const AGENT_ID = agentId("00000000-0000-4000-8000-0000000a9e47");
 const TASK_ID = taskId("00000000-0000-4000-8000-0000000fa5c0");
 const CONV_ID = conversationId("00000000-0000-4000-8000-0000000c01f5");
 const ORPHAN_TASK_ID = taskId("00000000-0000-4000-8000-0000000d3ad0");
+const API_KEY_SECRET_HASH_LENGTH = 64;
 
 let db: Kysely<Database>;
 let pglite: {
@@ -44,7 +45,7 @@ async function freshDb(): Promise<void> {
       id: AGENT_ID,
       name: "task-fixture",
       api_key_id: "0123456789abcdef",
-      api_key_secret_hash: "x".repeat(64),
+      api_key_secret_hash: "x".repeat(API_KEY_SECRET_HASH_LENGTH),
       claim_token: "claim-task-fixture",
       status: "active",
     })

@@ -15,6 +15,8 @@ import {
   resetTestDb,
   trackClient,
   connectTestClient,
+  HTTP_CREATED,
+  HTTP_OK,
 } from "../helpers.js";
 import { userId, RpcResponseError } from "@moltzap/protocol/testing";
 import type { UserId } from "@moltzap/protocol/identity";
@@ -35,7 +37,7 @@ beforeAll(async () => {
   });
   baseUrl = server.baseUrl;
   wsUrl = server.wsUrl;
-}, 60_000);
+});
 
 afterAll(async () => {
   await stopTestServer();
@@ -65,7 +67,7 @@ async function adminRegister(
     }),
   });
   const json = (await res.json()) as AdminRegisterResponse;
-  if (res.status !== 201 && res.status !== 200) {
+  if (res.status !== HTTP_CREATED && res.status !== HTTP_OK) {
     throw new Error(
       `admin register failed: ${res.status} ${JSON.stringify(json)}`,
     );

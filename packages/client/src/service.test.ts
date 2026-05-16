@@ -32,6 +32,16 @@ const AGENT_SELF_ID = testAgentId("agent-self");
 const AGENT_GM_ID = testAgentId("agent-gm");
 const CONVERSATION_ALICE_ID = testConversationId("conv-alice");
 const CONVERSATION_ARCHIVED_ID = testConversationId("conv-archived");
+const MINUTE_MS = 60_000;
+const LONG_TEXT_LENGTH = 200;
+const CONTEXT_PREVIEW_LENGTH = 120;
+const CONTEXT_PREVIEW_OVERFLOW_LENGTH = 121;
+const MESSAGE_TIMESTAMP_MS = 100;
+const SECOND_MESSAGE_TIMESTAMP_MS = 200;
+const FULL_HISTORY_CONVERSATION_SPACING_MS = 10_000;
+const FULL_HISTORY_MESSAGE_SPACING_MS = 1_000;
+const FULL_HISTORY_EXPECTED_MESSAGES = 50;
+const STORED_MESSAGE_COUNT = 30;
 
 describe("MoltZapService.sendToAgent", () => {
   let service: FakeMoltZapService;
@@ -345,7 +355,7 @@ describe("MoltZapService.getContext — XML injection hardening", () => {
     service.setAgentNameDirect("agent-bob", "Bob");
 
     // Pin a timestamp 3 minutes ago so the "Xm ago" rendering is deterministic.
-    const threeMinAgo = new Date(Date.now() - 3 * 60 * 1000).toISOString();
+    const threeMinAgo = new Date(Date.now() - 3 * MINUTE_MS).toISOString();
     service.addMessage(
       "conv-other",
       msg({
@@ -371,7 +381,7 @@ describe("MoltZapService.getContext — XML injection hardening", () => {
     const service = new FakeMoltZapService();
     service.setAgentNameDirect("agent-bob", "Bob");
 
-    const longText = "A".repeat(200);
+    const longText = "A".repeat(LONG_TEXT_LENGTH);
     service.addMessage(
       "conv-other",
       msg({
@@ -381,8 +391,10 @@ describe("MoltZapService.getContext — XML injection hardening", () => {
     );
 
     const context = service.getContext("conv-self");
-    expect(context).toContain('"' + "A".repeat(120) + '"');
-    expect(context).not.toContain('"' + "A".repeat(121) + '"');
+    expect(context).toContain('"' + "A".repeat(CONTEXT_PREVIEW_LENGTH) + '"');
+    expect(context).not.toContain(
+      '"' + "A".repeat(CONTEXT_PREVIEW_OVERFLOW_LENGTH) + '"',
+    );
   });
 });
 
@@ -408,7 +420,7 @@ describe("MoltZapService.peekContextEntries", () => {
   it("returns structured entries without advancing markers", () => {
     const service = new FakeMoltZapService();
     service.setAgentNameDirect("agent-bob", "Bob");
-    addSimpleMessage(service, "conv-other", 100);
+    addSimpleMessage(service, "conv-other", MESSAGE_TIMESTAMP_MS);
 
     const { entries } = service.peekContextEntries("conv-self");
 
@@ -424,7 +436,7 @@ describe("MoltZapService.peekContextEntries", () => {
   it("peeking twice without commit is idempotent", () => {
     const service = new FakeMoltZapService();
     service.setAgentNameDirect("agent-bob", "Bob");
-    addSimpleMessage(service, "conv-other", 100);
+    addSimpleMessage(service, "conv-other", MESSAGE_TIMESTAMP_MS);
 
     const first = service.peekContextEntries("conv-self").entries;
     const second = service.peekContextEntries("conv-self").entries;
@@ -436,7 +448,7 @@ describe("MoltZapService.peekContextEntries", () => {
   it("commit() advances markers so subsequent peeks return empty", () => {
     const service = new FakeMoltZapService();
     service.setAgentNameDirect("agent-bob", "Bob");
-    addSimpleMessage(service, "conv-other", 100);
+    addSimpleMessage(service, "conv-other", MESSAGE_TIMESTAMP_MS);
 
     const first = service.peekContextEntries("conv-self");
     first.commit();
@@ -448,7 +460,7 @@ describe("MoltZapService.peekContextEntries", () => {
   it("getContext() commits automatically on non-null result", () => {
     const service = new FakeMoltZapService();
     service.setAgentNameDirect("agent-bob", "Bob");
-    addSimpleMessage(service, "conv-other", 100);
+    addSimpleMessage(service, "conv-other", MESSAGE_TIMESTAMP_MS);
 
     expect(service.getContext("conv-self")).not.toBeNull();
     expect(service.getContext("conv-self")).toBeNull();
@@ -475,7 +487,7 @@ describe("MoltZapService.peekContextEntries", () => {
   it("commit() is idempotent — calling twice is a no-op", () => {
     const service = new FakeMoltZapService();
     service.setAgentNameDirect("agent-bob", "Bob");
-    addSimpleMessage(service, "conv-other", 100);
+    addSimpleMessage(service, "conv-other", MESSAGE_TIMESTAMP_MS);
 
     const { commit } = service.peekContextEntries("conv-self");
     commit();
@@ -486,7 +498,7 @@ describe("MoltZapService.peekContextEntries", () => {
   it("commit for one viewing conversation does not advance markers for another", () => {
     const service = new FakeMoltZapService();
     service.setAgentNameDirect("agent-bob", "Bob");
-    addSimpleMessage(service, "conv-other", 100);
+    addSimpleMessage(service, "conv-other", MESSAGE_TIMESTAMP_MS);
 
     service.peekContextEntries("conv-self-a").commit();
 
@@ -497,13 +509,18 @@ describe("MoltZapService.peekContextEntries", () => {
   it("peek after new message arrives post-commit returns only the new message", () => {
     const service = new FakeMoltZapService();
     service.setAgentNameDirect("agent-bob", "Bob");
-    addSimpleMessage(service, "conv-other", 100, "first");
+    addSimpleMessage(service, "conv-other", MESSAGE_TIMESTAMP_MS, "first");
 
     const first = service.peekContextEntries("conv-self");
     first.commit();
     expect(first.entries[0]!.text).toBe("first");
 
-    addSimpleMessage(service, "conv-other", 200, "second");
+    addSimpleMessage(
+      service,
+      "conv-other",
+      SECOND_MESSAGE_TIMESTAMP_MS,
+      "second",
+    );
 
     const second = service.peekContextEntries("conv-self");
     expect(second.entries).toHaveLength(1);
@@ -623,7 +640,9 @@ describe("MoltZapService.peekFullMessages", () => {
             senderId: "agent-bob",
             parts: [{ type: "text", text: `c${c}-m${m}` }],
             createdAt: new Date(
-              Date.now() + c * 10000 + m * 1000,
+              Date.now() +
+                c * FULL_HISTORY_CONVERSATION_SPACING_MS +
+                m * FULL_HISTORY_MESSAGE_SPACING_MS,
             ).toISOString(),
           }),
         );
@@ -631,7 +650,7 @@ describe("MoltZapService.peekFullMessages", () => {
     }
 
     const { messages } = service.peekFullMessages("conv-self");
-    expect(messages).toHaveLength(50);
+    expect(messages).toHaveLength(FULL_HISTORY_EXPECTED_MESSAGES);
   });
 
   it("peek without commit is idempotent", () => {
@@ -672,7 +691,7 @@ describe("MoltZapService.peekFullMessages", () => {
 
   it("stores more than 20 messages per conversation without eviction", () => {
     const service = new FakeMoltZapService();
-    for (let i = 1; i <= 30; i++) {
+    for (let i = 1; i <= STORED_MESSAGE_COUNT; i++) {
       service.addMessage(
         "conv-a",
         buildMessage({
@@ -680,12 +699,14 @@ describe("MoltZapService.peekFullMessages", () => {
           conversationId: "conv-a",
           senderId: "agent-bob",
           parts: [{ type: "text", text: `msg-${i}` }],
-          createdAt: new Date(Date.now() + i * 1000).toISOString(),
+          createdAt: new Date(
+            Date.now() + i * FULL_HISTORY_MESSAGE_SPACING_MS,
+          ).toISOString(),
         }),
       );
     }
     const { messages } = service.peekFullMessages("conv-self");
-    expect(messages).toHaveLength(30);
+    expect(messages).toHaveLength(STORED_MESSAGE_COUNT);
   });
 });
 

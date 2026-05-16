@@ -6,6 +6,7 @@ import {
   stopTestServer,
   resetTestDb,
   setupAgentPair,
+  DEFAULT_NOTIFICATION_TIMEOUT_MS,
 } from "../helpers.js";
 
 import {
@@ -16,7 +17,7 @@ import {
 
 beforeAll(async () => {
   await startTestServer();
-}, 60_000);
+});
 
 afterAll(async () => {
   await stopTestServer();
@@ -39,7 +40,10 @@ describe("Heartbeat / Idle Connection", () => {
 
       // Wait 5 seconds of idle time
       yield* Effect.promise(
-        () => new Promise((resolve) => setTimeout(resolve, 5000)),
+        () =>
+          new Promise((resolve) =>
+            setTimeout(resolve, DEFAULT_NOTIFICATION_TIMEOUT_MS),
+          ),
       );
 
       // After idle period, Alice sends a message

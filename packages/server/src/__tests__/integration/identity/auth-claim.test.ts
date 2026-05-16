@@ -14,6 +14,11 @@ import {
   trackClient,
   connectTestClient,
   registerAgent,
+  HTTP_BAD_REQUEST,
+  HTTP_CREATED,
+  HTTP_FORBIDDEN,
+  HTTP_OK,
+  HTTP_UNAUTHORIZED,
 } from "../helpers.js";
 
 const REGISTRATION_SECRET = "claim-test-secret-zxcv";
@@ -30,7 +35,7 @@ beforeAll(async () => {
   });
   baseUrl = server.baseUrl;
   wsUrl = server.wsUrl;
-}, 60_000);
+});
 
 afterAll(async () => {
   await stopTestServer();
@@ -83,7 +88,7 @@ describe("/api/v1/auth/claim — programmatic claim (#486)", () => {
         ownerUserId: ALICE_USER_ID,
         inviteCode: REGISTRATION_SECRET,
       });
-      expect(aliceClaim.status).toBe(201);
+      expect(aliceClaim.status).toBe(HTTP_CREATED);
       const aliceClaimBody = aliceClaim.json as ClaimResponse;
       expect(aliceClaimBody.agentId).toBe(aliceReg.agentId);
       expect(aliceClaimBody.ownerUserId).toBe(ALICE_USER_ID);
@@ -128,14 +133,14 @@ describe("/api/v1/auth/claim — programmatic claim (#486)", () => {
           ownerUserId: ALICE_USER_ID,
           inviteCode: REGISTRATION_SECRET,
         });
-        expect(first.status).toBe(201);
+        expect(first.status).toBe(HTTP_CREATED);
 
         const second = yield* postClaim({
           claimToken: reg.claimToken,
           ownerUserId: ALICE_USER_ID,
           inviteCode: REGISTRATION_SECRET,
         });
-        expect(second.status).toBe(200);
+        expect(second.status).toBe(HTTP_OK);
       }),
   );
 
@@ -155,7 +160,7 @@ describe("/api/v1/auth/claim — programmatic claim (#486)", () => {
         ownerUserId: BOB_USER_ID,
         inviteCode: REGISTRATION_SECRET,
       });
-      expect(conflict.status).toBe(403);
+      expect(conflict.status).toBe(HTTP_FORBIDDEN);
       expect((conflict.json as ClaimError).code).toBe(CLAIM_OWNER_MISMATCH);
     }),
   );
@@ -167,7 +172,7 @@ describe("/api/v1/auth/claim — programmatic claim (#486)", () => {
         ownerUserId: ALICE_USER_ID,
         inviteCode: REGISTRATION_SECRET,
       });
-      expect(result.status).toBe(401);
+      expect(result.status).toBe(HTTP_UNAUTHORIZED);
       expect((result.json as ClaimError).code).toBe(CLAIM_NOT_FOUND);
     }),
   );
@@ -178,7 +183,7 @@ describe("/api/v1/auth/claim — programmatic claim (#486)", () => {
         claimToken: "MZAP-XYZ",
         inviteCode: REGISTRATION_SECRET,
       });
-      expect(result.status).toBe(400);
+      expect(result.status).toBe(HTTP_BAD_REQUEST);
     }),
   );
 
@@ -189,7 +194,7 @@ describe("/api/v1/auth/claim — programmatic claim (#486)", () => {
         ownerUserId: "not-a-uuid",
         inviteCode: REGISTRATION_SECRET,
       });
-      expect(result.status).toBe(400);
+      expect(result.status).toBe(HTTP_BAD_REQUEST);
     }),
   );
 
@@ -204,7 +209,7 @@ describe("/api/v1/auth/claim — programmatic claim (#486)", () => {
         ownerUserId: ALICE_USER_ID,
         inviteCode: "wrong-secret",
       });
-      expect(result.status).toBe(403);
+      expect(result.status).toBe(HTTP_FORBIDDEN);
     }),
   );
 
@@ -218,7 +223,7 @@ describe("/api/v1/auth/claim — programmatic claim (#486)", () => {
         claimToken: reg.claimToken,
         ownerUserId: ALICE_USER_ID,
       });
-      expect(result.status).toBe(403);
+      expect(result.status).toBe(HTTP_FORBIDDEN);
     }),
   );
 

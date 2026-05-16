@@ -22,7 +22,7 @@ beforeAll(async () => {
   const server = await startTestServer();
   _baseUrl = server.baseUrl;
   _wsUrl = server.wsUrl;
-}, 60_000);
+});
 
 afterAll(async () => {
   await stopTestServer();

@@ -35,6 +35,9 @@ import { AgentName, ApiKey, ServerUrl } from "./runtime.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(here, "..", "..", "..");
+const CORE_SERVER_HOOK_TIMEOUT_MS = 60_000;
+const CLAUDE_READY_TIMEOUT_MS = 120_000;
+const CLAUDE_ADAPTER_TEST_TIMEOUT_MS = 180_000;
 const CC_CHANNEL_DIST = join(
   REPO_ROOT,
   "packages",
@@ -74,55 +77,61 @@ if (CLAUDE_BIN === null) {
 
     beforeAll(async () => {
       server = await startCoreTestServer();
-    }, 60_000);
+    }, CORE_SERVER_HOOK_TIMEOUT_MS);
 
     afterAll(async () => {
       await stopCoreTestServer();
     });
 
-    it("spawn → ready → teardown completes against the real claude CLI + cc-channel MCP plugin", async () => {
-      const reg = await Effect.runPromise(
-        registerAgent(server.baseUrl, "claude-code-runtime-it"),
-      );
-
-      const adapter = createWorkspaceClaudeCodeAdapter({
-        server: server.runtimeServer,
-        claudeBin: CLAUDE_BIN,
-        channelDistDir: CC_CHANNEL_DIST,
-        repoRoot: REPO_ROOT,
-      });
-
-      const spawnResult = await Effect.runPromise(
-        Effect.either(
-          adapter.spawn({
-            agentName: AgentName("claude-code-runtime-it"),
-            apiKey: ApiKey(reg.apiKey),
-            agentId: reg.agentId,
-            serverUrl: ServerUrl(stripWsPath(server.wsUrl)),
-          }),
-        ),
-      );
-      expect(spawnResult._tag).toBe("Right");
-
-      const ready = await Effect.runPromise(adapter.waitUntilReady(120_000));
-      if (ready._tag !== "Ready") {
-        const logs = adapter.getLogs(0).text;
-        throw new Error(
-          `expected Ready, got ${ready._tag}. claude+cc-channel logs:\n${logs}`,
+    it(
+      "spawn → ready → teardown completes against the real claude CLI + cc-channel MCP plugin",
+      async () => {
+        const reg = await Effect.runPromise(
+          registerAgent(server.baseUrl, "claude-code-runtime-it"),
         );
-      }
-      expect(ready._tag).toBe("Ready");
 
-      // `getLogs` returns a `LogSlice` shape regardless of whether the
-      // stream-consumer fibers have flushed yet — assert shape, not size.
-      const slice = adapter.getLogs(0);
-      expect(typeof slice.text).toBe("string");
-      expect(slice.nextOffset).toBe(slice.text.length);
+        const adapter = createWorkspaceClaudeCodeAdapter({
+          server: server.runtimeServer,
+          claudeBin: CLAUDE_BIN,
+          channelDistDir: CC_CHANNEL_DIST,
+          repoRoot: REPO_ROOT,
+        });
 
-      await Effect.runPromise(adapter.teardown());
+        const spawnResult = await Effect.runPromise(
+          Effect.either(
+            adapter.spawn({
+              agentName: AgentName("claude-code-runtime-it"),
+              apiKey: ApiKey(reg.apiKey),
+              agentId: reg.agentId,
+              serverUrl: ServerUrl(stripWsPath(server.wsUrl)),
+            }),
+          ),
+        );
+        expect(spawnResult._tag).toBe("Right");
 
-      // Idempotent — second teardown is a no-op.
-      await Effect.runPromise(adapter.teardown());
-    }, 180_000);
+        const ready = await Effect.runPromise(
+          adapter.waitUntilReady(CLAUDE_READY_TIMEOUT_MS),
+        );
+        if (ready._tag !== "Ready") {
+          const logs = adapter.getLogs(0).text;
+          throw new Error(
+            `expected Ready, got ${ready._tag}. claude+cc-channel logs:\n${logs}`,
+          );
+        }
+        expect(ready._tag).toBe("Ready");
+
+        // `getLogs` returns a `LogSlice` shape regardless of whether the
+        // stream-consumer fibers have flushed yet — assert shape, not size.
+        const slice = adapter.getLogs(0);
+        expect(typeof slice.text).toBe("string");
+        expect(slice.nextOffset).toBe(slice.text.length);
+
+        await Effect.runPromise(adapter.teardown());
+
+        // Idempotent — second teardown is a no-op.
+        await Effect.runPromise(adapter.teardown());
+      },
+      CLAUDE_ADAPTER_TEST_TIMEOUT_MS,
+    );
   });
 }

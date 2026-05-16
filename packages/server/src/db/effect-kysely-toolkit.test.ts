@@ -11,6 +11,8 @@ import {
 } from "./effect-kysely-toolkit.js";
 import { ConflictError } from "@moltzap/protocol";
 
+const SUCCESS_VALUE = 42;
+
 // ── catchSqlErrorAsDefect ───────────────────────────────────────────────
 
 it.effect("catchSqlErrorAsDefect converts SqlError to a Die defect", () =>
@@ -75,8 +77,8 @@ it.effect(
 
 it.effect("catchSqlErrorAsDefect leaves successful programs unchanged", () =>
   Effect.gen(function* () {
-    const result = yield* catchSqlErrorAsDefect(Effect.succeed(42));
-    expect(result).toBe(42);
+    const result = yield* catchSqlErrorAsDefect(Effect.succeed(SUCCESS_VALUE));
+    expect(result).toBe(SUCCESS_VALUE);
   }),
 );
 

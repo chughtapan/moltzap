@@ -16,7 +16,7 @@ beforeAll(async () => {
 
   const server = await startCoreTestServer({ pgHost, pgPort });
   baseUrl = server.baseUrl;
-}, 60_000);
+});
 
 afterAll(async () => {
   await stopCoreTestServer();

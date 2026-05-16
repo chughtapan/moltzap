@@ -93,6 +93,20 @@ const LOCALHOST_HOST = "127.0.0.1";
 const TEST_AGENT_ID = agentId("11111111-1111-4111-8111-111111111111");
 const RECONNECT_AGENT_ID = agentId("22222222-2222-4222-8222-222222222222");
 const TEST_MESSAGE_ID = messageId("44444444-4444-4444-8444-444444444444");
+const NORMAL_CLOSE_CODE = 1000;
+const SERVER_ERROR_CLOSE_CODE = 1011;
+const WAIT_FOR_DEFAULT_TIMEOUT_MS = 2_000;
+const CONNECT_FAILURE_MAX_MS = 3_000;
+const REFUSED_CONNECT_MAX_MS = 15_000;
+const REFUSED_CONNECT_TEST_TIMEOUT_MS = 20_000;
+const REALTIME_POLL_TIMEOUT_MS = 2_000;
+const POST_TIMEOUT_SETTLE_MS = 50;
+const MALFORMED_FRAME_COUNT = 101;
+const MALFORMED_FRAME_FLUSH_MS = 300;
+const CLOSE_PROPAGATION_TIMEOUT_MS = 1_000;
+const STALE_PORT_TEST_TIMEOUT_MS = 15_000;
+const CLOSE_INFO_WAIT_MS = 2_000;
+const HANDLER_REJECTION_CODE = -32099;
 const TEST_CONVERSATION_ID = conversationId(
   "33333333-3333-4333-8333-333333333333",
 );
@@ -200,7 +214,7 @@ const startTestServer = (
             const receivedList: string[] = [];
             const conn: TestServerConnection = {
               send: (raw) => write(raw).pipe(Effect.ignore),
-              close: (code = 1000, reason = "test close") =>
+              close: (code = NORMAL_CLOSE_CODE, reason = "test close") =>
                 write(new Socket.CloseEvent(code, reason)).pipe(Effect.ignore),
               get received(): ReadonlyArray<string> {
                 return receivedList;
@@ -355,7 +369,7 @@ const withTestServer = async <A>(
  */
 async function waitFor(
   pred: () => boolean,
-  { maxMs = 2000 }: { maxMs?: number } = {},
+  { maxMs = WAIT_FOR_DEFAULT_TIMEOUT_MS }: { maxMs?: number } = {},
 ): Promise<void> {
   const deadline = Date.now() + maxMs;
   while (!pred()) {
@@ -420,7 +434,7 @@ describe("§5.1 connect() does not hang on pre-open failure", () => {
         // Handler closes on the very first inbound frame — i.e. before the
         // client sees any network/connect response.
         const server = yield* startTestServer((conn) =>
-          conn.close(1000).pipe(Effect.ignore),
+          conn.close(NORMAL_CLOSE_CODE).pipe(Effect.ignore),
         );
         const client = makeClient(server.url);
         const t0 = Date.now();
@@ -428,34 +442,38 @@ describe("§5.1 connect() does not hang on pre-open failure", () => {
           expect(connectP(client)).rejects.toThrow(/WebSocket not connected/),
         );
         const elapsed = Date.now() - t0;
-        expect(elapsed).toBeLessThan(3000);
+        expect(elapsed).toBeLessThan(CONNECT_FAILURE_MAX_MS);
         yield* closeClient(client);
       }),
     );
   });
 
-  it("rejects when the server refuses the connection (well within RPC timeout)", async () => {
-    // Point the client at a port that's not accepting connections. The
-    // `ws` lib emits 'error' on TCP connect failure which maps to
-    // `SocketGenericError{reason: "Open"}`. Our reader fiber's `onExit`
-    // catches and fails the handshake deferred → NotConnectedError.
-    //
-    // Observed: ECONNREFUSED fires in single-digit ms locally; give
-    // generous CI headroom via the 15s assertion but keep test timeout at
-    // 20s to avoid flakes on slow runners.
-    const refusedPort = await findClosedLocalPort();
-    const client = makeClient(`http://${LOCALHOST_HOST}:${refusedPort}`);
-    const t0 = Date.now();
-    try {
-      await connectP(client);
-      throw new Error("expected connect to reject");
-    } catch (err) {
-      expect((err as Error).message).toMatch(/WebSocket not connected/);
-    }
-    const elapsed = Date.now() - t0;
-    expect(elapsed).toBeLessThan(15_000);
-    await Effect.runPromise(client.close());
-  }, 20_000);
+  it(
+    "rejects when the server refuses the connection (well within RPC timeout)",
+    async () => {
+      // Point the client at a port that's not accepting connections. The
+      // `ws` lib emits 'error' on TCP connect failure which maps to
+      // `SocketGenericError{reason: "Open"}`. Our reader fiber's `onExit`
+      // catches and fails the handshake deferred → NotConnectedError.
+      //
+      // Observed: ECONNREFUSED fires in single-digit ms locally; give
+      // generous CI headroom via the 15s assertion but keep test timeout at
+      // 20s to avoid flakes on slow runners.
+      const refusedPort = await findClosedLocalPort();
+      const client = makeClient(`http://${LOCALHOST_HOST}:${refusedPort}`);
+      const t0 = Date.now();
+      try {
+        await connectP(client);
+        throw new Error("expected connect to reject");
+      } catch (err) {
+        expect((err as Error).message).toMatch(/WebSocket not connected/);
+      }
+      const elapsed = Date.now() - t0;
+      expect(elapsed).toBeLessThan(REFUSED_CONNECT_MAX_MS);
+      await Effect.runPromise(client.close());
+    },
+    REFUSED_CONNECT_TEST_TIMEOUT_MS,
+  );
 
   it("resolves with HelloOk on the happy open → network/connect path", async () => {
     await withTestServer(
@@ -551,7 +569,7 @@ describe("§5.3 sendRpc does NOT retry on timeout (TestClock)", () => {
         // `Effect.async` sidesteps TestClock: the callback fires when our
         // setTimeout triggers on the real event loop.
         yield* Effect.async<void>((resume) => {
-          const deadlineMs = Date.now() + 2000;
+          const deadlineMs = Date.now() + REALTIME_POLL_TIMEOUT_MS;
           const tick = (): void => {
             if (serverConn.received.length > beforeCount) {
               resume(Effect.void);
@@ -591,7 +609,7 @@ describe("§5.3 sendRpc does NOT retry on timeout (TestClock)", () => {
         // No retry frame may have been enqueued — timeout is terminal. Bounce
         // once through the real event loop for any stragglers.
         yield* Effect.async<void>((resume) => {
-          setTimeout(() => resume(Effect.void), 50);
+          setTimeout(() => resume(Effect.void), POST_TIMEOUT_SETTLE_MS);
         });
         expect(serverConn.received.length).toBe(beforeCount + 1);
 
@@ -647,7 +665,7 @@ describe("reconnect backoff", () => {
         // Kill the server-side connection. The client's reader sees a close,
         // fails pendings, invokes onDisconnect, and schedules a reconnect
         // via `Effect.sleep` + `Schedule.jittered`.
-        yield* server.connections[0]!.close(1000);
+        yield* server.connections[0]!.close(NORMAL_CLOSE_CODE);
 
         yield* Effect.promise(() =>
           waitFor(
@@ -777,7 +795,7 @@ describe("§5.4 malformed frames are logged but do not affect pending RPCs", () 
         // Awaiting it would wedge the test for the full RPC_TIMEOUT_MS.
         void sendRpcP(client, ConversationsList, {}).catch(() => {});
         yield* Effect.promise(() =>
-          waitFor(() => events.length > 0, { maxMs: 2000 }),
+          waitFor(() => events.length > 0, { maxMs: CLOSE_INFO_WAIT_MS }),
         );
         expect(events[0]).toMatchObject({
           method: MessageReceivedNotificationDefinition.name,
@@ -805,7 +823,9 @@ describe("§5.4 malformed frames are logged but do not affect pending RPCs", () 
 
         // Fire-and-forget: see the well-formed-event test above for rationale.
         void sendRpcP(client, ConversationsList, {}).catch(() => {});
-        yield* Effect.promise(() => new Promise((r) => setTimeout(r, 50)));
+        yield* Effect.promise(
+          () => new Promise((r) => setTimeout(r, POST_TIMEOUT_SETTLE_MS)),
+        );
         expect(events).toHaveLength(0);
         expect(logger.warn).toHaveBeenCalled();
 
@@ -828,7 +848,7 @@ describe("malformed-frame log cadence (MALFORMED_LOG_EVERY)", () => {
         // malformed frames back at the client.
         const server = yield* startHandshakingServer((conn) =>
           Effect.gen(function* () {
-            for (let i = 0; i < 101; i++) {
+            for (let i = 0; i < MALFORMED_FRAME_COUNT; i++) {
               yield* conn.send("definitely not json " + i);
             }
           }),
@@ -843,7 +863,9 @@ describe("malformed-frame log cadence (MALFORMED_LOG_EVERY)", () => {
         void sendRpcP(client, ConversationsList, {}).catch(() => {});
 
         // Wait for the malformed frames to flush through the reader fiber.
-        yield* Effect.promise(() => new Promise((r) => setTimeout(r, 300)));
+        yield* Effect.promise(
+          () => new Promise((r) => setTimeout(r, MALFORMED_FRAME_FLUSH_MS)),
+        );
 
         expect(logger.warn).toHaveBeenCalledTimes(3);
         const warnMessages = logger.warn.mock.calls.map(
@@ -882,7 +904,9 @@ describe("close() interleaved with a pending RPC", () => {
         yield* Effect.promise(() =>
           expect(rpcP).rejects.toThrow(/WebSocket not connected/),
         );
-        expect(Date.now() - beforeMs).toBeLessThan(1000);
+        expect(Date.now() - beforeMs).toBeLessThan(
+          CLOSE_PROPAGATION_TIMEOUT_MS,
+        );
       }),
     );
   });
@@ -899,7 +923,7 @@ describe("socket error after connect", () => {
         const logger = makeLogger();
         // Handshakes, then on any follow-up RPC, closes abruptly (code 1011).
         const server = yield* startHandshakingServer((conn) =>
-          conn.close(1011),
+          conn.close(SERVER_ERROR_CLOSE_CODE),
         );
         const client = makeClient(server.url, { logger });
         yield* Effect.promise(() => connectP(client));
@@ -962,46 +986,52 @@ describe("sendRpc(RpcDefinition, params) — typed manifest overload", () => {
 // ─────────────────────────────────────────────────────────────────────
 
 describe("graceful close drains ESTABLISHED sockets (AC2)", () => {
-  it("10 clients close cleanly: no CLOSE_WAIT sockets on the server port", async () => {
-    await withTestServer(
-      Effect.gen(function* () {
-        const server = yield* startHandshakingServer(() => Effect.void);
-        const port = new URL(server.url).port;
+  it(
+    "10 clients close cleanly: no CLOSE_WAIT sockets on the server port",
+    async () => {
+      await withTestServer(
+        Effect.gen(function* () {
+          const server = yield* startHandshakingServer(() => Effect.void);
+          const port = new URL(server.url).port;
 
-        // Connect 10 clients concurrently.
-        const clients = yield* Effect.all(
-          Array.from({ length: 10 }, () => {
-            const c = makeClient(server.url);
-            return Effect.promise(() => connectP(c)).pipe(Effect.map(() => c));
-          }),
-          { concurrency: "unbounded" },
-        );
-        expect(server.connections.length).toBe(10);
-
-        // Close all 10 via the graceful Effect-based close().
-        yield* Effect.all(
-          clients.map((c) => c.close()),
-          { concurrency: "unbounded" },
-        );
-
-        // Brief pause for TCP close handshake to complete.
-        yield* Effect.sleep("150 millis");
-
-        // Assert no CLOSE_WAIT connections remain on the server port.
-        const ssOut = yield* Effect.sync(() =>
-          execSync("ss -tn state CLOSE-WAIT 2>/dev/null || true", {
-            encoding: "utf-8",
-          }),
-        );
-        const stale = ssOut
-          .split("\n")
-          .filter(
-            (line) => line.includes(`:${port} `) || line.endsWith(`:${port}`),
+          // Connect 10 clients concurrently.
+          const clients = yield* Effect.all(
+            Array.from({ length: 10 }, () => {
+              const c = makeClient(server.url);
+              return Effect.promise(() => connectP(c)).pipe(
+                Effect.map(() => c),
+              );
+            }),
+            { concurrency: "unbounded" },
           );
-        expect(stale).toHaveLength(0);
-      }),
-    );
-  }, 15_000);
+          expect(server.connections.length).toBe(10);
+
+          // Close all 10 via the graceful Effect-based close().
+          yield* Effect.all(
+            clients.map((c) => c.close()),
+            { concurrency: "unbounded" },
+          );
+
+          // Brief pause for TCP close handshake to complete.
+          yield* Effect.sleep("150 millis");
+
+          // Assert no CLOSE_WAIT connections remain on the server port.
+          const ssOut = yield* Effect.sync(() =>
+            execSync("ss -tn state CLOSE-WAIT 2>/dev/null || true", {
+              encoding: "utf-8",
+            }),
+          );
+          const stale = ssOut
+            .split("\n")
+            .filter(
+              (line) => line.includes(`:${port} `) || line.endsWith(`:${port}`),
+            );
+          expect(stale).toHaveLength(0);
+        }),
+      );
+    },
+    STALE_PORT_TEST_TIMEOUT_MS,
+  );
 });
 
 // ─────────────────────────────────────────────────────────────────────
@@ -1038,16 +1068,16 @@ describe("spec #222 §5.4 — onDisconnect close metadata (V7)", () => {
           },
         });
         yield* Effect.promise(() => connectP(client));
-        yield* server.connections[0]!.close(1000, "bye");
+        yield* server.connections[0]!.close(NORMAL_CLOSE_CODE, "bye");
 
         yield* Effect.promise(() =>
-          waitFor(() => closes.length > 0, { maxMs: 2000 }),
+          waitFor(() => closes.length > 0, { maxMs: CLOSE_INFO_WAIT_MS }),
         );
         yield* closeClient(client);
 
         expect(closes.length).toBeGreaterThanOrEqual(1);
         const first = closes[0]!;
-        expect(first.code).toBe(1000);
+        expect(first.code).toBe(NORMAL_CLOSE_CODE);
         expect(first.reason).toBe("normal"); // OQ-5 default, not "bye"
       }),
     );
@@ -1064,10 +1094,10 @@ describe("spec #222 §5.4 — onDisconnect close metadata (V7)", () => {
           },
         });
         yield* Effect.promise(() => connectP(client));
-        yield* server.connections[0]!.close(1011, "boom");
+        yield* server.connections[0]!.close(SERVER_ERROR_CLOSE_CODE, "boom");
 
         yield* Effect.promise(() =>
-          waitFor(() => closes.length > 0, { maxMs: 2000 }),
+          waitFor(() => closes.length > 0, { maxMs: CLOSE_INFO_WAIT_MS }),
         );
         yield* closeClient(client);
 
@@ -1075,7 +1105,7 @@ describe("spec #222 §5.4 — onDisconnect close metadata (V7)", () => {
         const first = closes[0]!;
         // Distinguishable from the 1000 test above (AC 5.4-4):
         // a hardcoded `{1000, "disconnect"}` would fail this assertion.
-        expect(first.code).toBe(1011);
+        expect(first.code).toBe(SERVER_ERROR_CLOSE_CODE);
         expect(first.reason).toBe("boom");
       }),
     );
@@ -1153,7 +1183,7 @@ describe("Phase 1.0 (B.1) — handleServerRpc round-trip", () => {
                   return false;
                 }
               }),
-            { maxMs: 2000 },
+            { maxMs: CLOSE_INFO_WAIT_MS },
           ),
         ).pipe(
           Effect.flatMap(() =>
@@ -1241,7 +1271,7 @@ describe("Phase 1.0 (B.1) — handleServerRpc round-trip", () => {
                   return false;
                 }
               }),
-            { maxMs: 2000 },
+            { maxMs: CLOSE_INFO_WAIT_MS },
           ),
         );
 
@@ -1258,7 +1288,7 @@ describe("Phase 1.0 (B.1) — handleServerRpc round-trip", () => {
         if (!validateResponseFrame(parsed)) return;
         expect("error" in parsed).toBe(true);
         if (!("error" in parsed)) return;
-        expect(parsed.error.code).toBe(-32099);
+        expect(parsed.error.code).toBe(HANDLER_REJECTION_CODE);
         expect(parsed.error.message).toBe("domain-rejected");
         expect((parsed.error.data as { reason: string }).reason).toBe("test");
 
