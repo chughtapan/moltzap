@@ -19,13 +19,13 @@
  * `connId` it routes by via `coreApp.connections.all()`, which is the
  * existing public surface.
  */
-import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { it } from "@effect/vitest";
+import { expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Cause, Effect, Exit, Option } from "effect";
 import {
-  startTestServer,
-  stopTestServer,
-  resetTestDb,
+  it,
+  startTestServerEffect,
+  stopTestServerEffect,
+  resetTestDbEffect,
   getCoreApp,
 } from "../helpers.js";
 import {
@@ -38,21 +38,16 @@ import { PresenceChangedNotificationDefinition } from "@moltzap/protocol";
 import { agentId as protocolAgentId } from "@moltzap/protocol/testing";
 import { makeEndpointAddress } from "@moltzap/protocol/network";
 import {
+  DeliveryAck,
   opaquePayload,
   RecipientNotResolved,
 } from "../../../network/network-send.js";
 
-beforeAll(async () => {
-  await startTestServer();
-});
+beforeAll(() => Effect.runPromise(startTestServerEffect()));
 
-afterAll(async () => {
-  await stopTestServer();
-});
+afterAll(() => Effect.runPromise(stopTestServerEffect()));
 
-beforeEach(async () => {
-  await resetTestDb();
-});
+beforeEach(() => Effect.runPromise(resetTestDbEffect()));
 
 /**
  * Look up the connection id for an authenticated agent by walking the
@@ -68,121 +63,104 @@ function connIdsForAgent(agentIdString: string): readonly string[] {
     .map((conn) => conn.id);
 }
 
-describe("AgentEndpointResolver + network.send lifecycle (Phase 8 G1)", () => {
-  it.live(
-    "network.send delivers a real notification to a connected agent via durable address",
-    () =>
-      Effect.gen(function* () {
-        const alice = yield* registerAndConnect("alice-resolver");
-        const [connId] = connIdsForAgent(alice.agentId);
-        if (!connId) throw new Error("expected one live connection");
-        // Phase 9b consumer-migration (sub-issue #460 amendment):
-        // `agent-conn` retired. Sends use the durable
-        // `tm:agent:<agentId>` form; the resolver picks one of the
-        // agent's live ConnectionIds internally.
-        const address = makeEndpointAddress("agent", alice.agentId);
+it("network.send delivers a real notification to a durable address", () =>
+  Effect.gen(function* () {
+    const alice = yield* registerAndConnect("alice-resolver");
+    const [connId] = connIdsForAgent(alice.agentId);
+    if (!connId) throw new Error("expected one live connection");
+    // Phase 9b consumer-migration (sub-issue #460 amendment):
+    // `agent-conn` retired. Sends use the durable
+    // `tm:agent:<agentId>` form; the resolver picks one of the
+    // agent's live ConnectionIds internally.
+    const address = makeEndpointAddress("agent", alice.agentId);
 
-        // Real notification frame so the client's typed-bridge accepts it.
-        // Asserts end-to-end wire delivery, not just the server-side write
-        // ack — `waitForNotification` only fires after the frame decodes
-        // through the validation pipeline at the client edge.
-        const frame = PresenceChangedNotificationDefinition.encode({
-          agentId: protocolAgentId(alice.agentId),
-          status: "online",
-        });
+    // Real notification frame so the client's typed-bridge accepts it.
+    // Asserts end-to-end wire delivery, not just the server-side write
+    // ack — `waitForNotification` only fires after the frame decodes
+    // through the validation pipeline at the client edge.
+    const frame = PresenceChangedNotificationDefinition.encode({
+      agentId: protocolAgentId(alice.agentId),
+      status: "online",
+    });
 
-        const ack = yield* getCoreApp().networkSendService.send(
-          address,
-          opaquePayload(JSON.stringify(frame)),
-        );
-        expect(ack._tag).toBe("DeliveryAck");
-        expect(ack.to).toEqual(address);
+    const ack = yield* getCoreApp().networkSendService.send(
+      address,
+      opaquePayload(JSON.stringify(frame)),
+    );
+    expect(ack).toBeInstanceOf(DeliveryAck);
+    expect(ack.to).toEqual(address);
 
-        const received = yield* alice.client.waitForNotification(
-          PresenceChangedNotificationDefinition,
-        );
-        expect((received.params as { agentId: string }).agentId).toBe(
-          alice.agentId,
-        );
-      }),
-  );
+    const received = yield* alice.client.waitForNotification(
+      PresenceChangedNotificationDefinition,
+    );
+    expect((received.params as { agentId: string }).agentId).toBe(
+      alice.agentId,
+    );
+  }));
 
-  it.live(
-    "disconnect drains the resolver: subsequent send fails with RecipientNotResolved",
-    () =>
-      Effect.gen(function* () {
-        const alice = yield* registerAndConnect("alice-drain");
-        const address = makeEndpointAddress("agent", alice.agentId);
+it("disconnect drains the resolver before subsequent send", () =>
+  Effect.gen(function* () {
+    const alice = yield* registerAndConnect("alice-drain");
+    const address = makeEndpointAddress("agent", alice.agentId);
 
-        yield* alice.client.close();
-        // The WS finalizer that calls `agentEndpointResolver.remove`
-        // runs asynchronously after `close`; small sleep lets it settle
-        // before the assertion.
-        yield* Effect.sleep("100 millis");
+    yield* alice.client.close();
+    // The WS finalizer that calls `agentEndpointResolver.remove`
+    // runs asynchronously after `close`; small sleep lets it settle
+    // before the assertion.
+    yield* Effect.sleep("100 millis");
 
-        const exit = yield* Effect.exit(
-          getCoreApp().networkSendService.send(
-            address,
-            opaquePayload(JSON.stringify({ noop: true })),
-          ),
-        );
-        expect(Exit.isFailure(exit)).toBe(true);
-        if (Exit.isFailure(exit)) {
-          const failure = Cause.failureOption(exit.cause);
-          expect(Option.isSome(failure)).toBe(true);
-          if (Option.isSome(failure)) {
-            expect(failure.value).toBeInstanceOf(RecipientNotResolved);
-          }
-        }
-      }),
-  );
+    const exit = yield* Effect.exit(
+      getCoreApp().networkSendService.send(
+        address,
+        opaquePayload(JSON.stringify({ noop: true })),
+      ),
+    );
+    expect(exit).toSatisfy(Exit.isFailure);
+    if (Exit.isFailure(exit)) {
+      const failure = Cause.failureOption(exit.cause);
+      expect(Option.isSome(failure)).toBe(true);
+      if (Option.isSome(failure)) {
+        expect(failure.value).toBeInstanceOf(RecipientNotResolved);
+      }
+    }
+  }));
 
-  it.live(
-    "multimap: two connections of the same agent both share the durable address routing",
-    () =>
-      Effect.gen(function* () {
-        const { agentId: aId, apiKey } = yield* registerAgent(
-          getBaseUrl(),
-          "alice-multi",
-        );
-        const c1 = yield* connectTestClient({ agentId: aId, apiKey });
-        const c2 = yield* connectTestClient({ agentId: aId, apiKey });
+it("two connections of the same agent share durable address routing", () =>
+  Effect.gen(function* () {
+    const { agentId: aId, apiKey } = yield* registerAgent(
+      getBaseUrl(),
+      "alice-multi",
+    );
+    const c1 = yield* connectTestClient({ agentId: aId, apiKey });
+    const c2 = yield* connectTestClient({ agentId: aId, apiKey });
 
-        const ids = connIdsForAgent(aId);
-        expect(ids).toHaveLength(2);
+    const ids = connIdsForAgent(aId);
+    expect(ids).toHaveLength(2);
 
-        // Phase 9b: durable address fans out to one of the agent's live
-        // connections (pick-one routing). The send always succeeds when
-        // at least one connection is live; both connections register
-        // under the same agent in the resolver's forward map.
-        const address = makeEndpointAddress("agent", aId);
-        const frame = PresenceChangedNotificationDefinition.encode({
-          agentId: protocolAgentId(aId),
-          status: "online",
-        });
-        const payload = opaquePayload(JSON.stringify(frame));
+    // Phase 9b: durable address fans out to one of the agent's live
+    // connections (pick-one routing). The send always succeeds when
+    // at least one connection is live; both connections register
+    // under the same agent in the resolver's forward map.
+    const address = makeEndpointAddress("agent", aId);
+    const frame = PresenceChangedNotificationDefinition.encode({
+      agentId: protocolAgentId(aId),
+      status: "online",
+    });
+    const payload = opaquePayload(JSON.stringify(frame));
 
-        const ack1 = yield* getCoreApp().networkSendService.send(
-          address,
-          payload,
-        );
-        expect(ack1._tag).toBe("DeliveryAck");
+    const ack1 = yield* getCoreApp().networkSendService.send(address, payload);
+    expect(ack1).toBeInstanceOf(DeliveryAck);
 
-        // Drop c1 — c2 still serves the durable address.
-        yield* c1.close();
-        yield* Effect.sleep("100 millis");
+    // Drop c1 — c2 still serves the durable address.
+    yield* c1.close();
+    yield* Effect.sleep("100 millis");
 
-        const ack2 = yield* getCoreApp().networkSendService.send(
-          address,
-          payload,
-        );
-        expect(ack2._tag).toBe("DeliveryAck");
-        const r2 = yield* c2.waitForNotification(
-          PresenceChangedNotificationDefinition,
-        );
-        expect((r2.params as { agentId: string }).agentId).toBe(aId);
+    const ack2 = yield* getCoreApp().networkSendService.send(address, payload);
+    expect(ack2).toBeInstanceOf(DeliveryAck);
+    const r2 = yield* c2.waitForNotification(
+      PresenceChangedNotificationDefinition,
+    );
+    expect((r2.params as { agentId: string }).agentId).toBe(aId);
 
-        yield* c2.close();
-      }),
-  );
-});
+    yield* c2.close();
+  }));

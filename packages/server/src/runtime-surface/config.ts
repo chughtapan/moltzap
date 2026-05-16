@@ -87,6 +87,8 @@ const DEFAULT_RUNTIME_ENVIRONMENT: RuntimeEnvironment = "development";
 const DEFAULT_LOG_LEVEL: RuntimeLogLevel = "info";
 const DEFAULT_SERVICE_NAME = "moltzap-server";
 const DECIMAL_RADIX = 10;
+const TRUE_BOOLEAN_VALUES = new Set(["true", "1", "yes", "on"]);
+const FALSE_BOOLEAN_VALUES = new Set(["false", "0", "no", "off"]);
 
 const optionalEnv = (key: string) =>
   Config.option(Config.string(key)).pipe(Config.map(Option.getOrUndefined));
@@ -258,22 +260,8 @@ function parseBooleanEnv(
     return Effect.succeed(fallback);
   }
   const normalized = raw.trim().toLowerCase();
-  if (
-    normalized === "true" ||
-    normalized === "1" ||
-    normalized === "yes" ||
-    normalized === "on"
-  ) {
-    return Effect.succeed(true);
-  }
-  if (
-    normalized === "false" ||
-    normalized === "0" ||
-    normalized === "no" ||
-    normalized === "off"
-  ) {
-    return Effect.succeed(false);
-  }
+  if (TRUE_BOOLEAN_VALUES.has(normalized)) return Effect.succeed(true);
+  if (FALSE_BOOLEAN_VALUES.has(normalized)) return Effect.succeed(false);
   return Effect.fail(
     environmentInvalid(
       key,
@@ -314,45 +302,71 @@ function resolveTracingServiceName(
   return Effect.succeed(raw);
 }
 
+function setProviderInputIfDefined(
+  providerInput: Record<string, unknown>,
+  key: string,
+  value: unknown,
+): void {
+  if (value !== undefined) providerInput[key] = value;
+}
+
+function applyAppConfigProviderInput(
+  providerInput: Record<string, unknown>,
+  appConfig: MoltZapAppConfig,
+): void {
+  setProviderInputIfDefined(
+    providerInput,
+    "DATABASE_URL",
+    appConfig.database?.url,
+  );
+  setProviderInputIfDefined(
+    providerInput,
+    "ENCRYPTION_MASTER_SECRET",
+    appConfig.encryption?.master_secret,
+  );
+  setProviderInputIfDefined(providerInput, "PORT", appConfig.server?.port);
+  if (appConfig.server?.cors_origins !== undefined) {
+    providerInput["CORS_ORIGINS"] = appConfig.server.cors_origins.join(",");
+  }
+  setProviderInputIfDefined(
+    providerInput,
+    "MOLTZAP_DEV_MODE",
+    appConfig.dev_mode?.enabled,
+  );
+}
+
+function applyProcessEnvProviderInput(
+  providerInput: Record<string, unknown>,
+  processEnv: ProcessEnvSnapshot,
+): void {
+  setProviderInputIfDefined(
+    providerInput,
+    "DATABASE_URL",
+    processEnv["DATABASE_URL"],
+  );
+  setProviderInputIfDefined(
+    providerInput,
+    "ENCRYPTION_MASTER_SECRET",
+    processEnv["ENCRYPTION_MASTER_SECRET"],
+  );
+  setProviderInputIfDefined(
+    providerInput,
+    "CORS_ORIGINS",
+    processEnv["CORS_ORIGINS"],
+  );
+}
+
 function buildServerConfigProviderInput(
   appConfig: MoltZapAppConfig,
   processEnv: ProcessEnvSnapshot,
 ): Effect.Effect<Record<string, unknown>, RuntimeConfigSurfaceError, never> {
   return Effect.gen(function* () {
     const providerInput: Record<string, unknown> = {};
-
-    if (appConfig.database?.url !== undefined) {
-      providerInput["DATABASE_URL"] = appConfig.database.url;
-    }
-    if (appConfig.encryption?.master_secret !== undefined) {
-      providerInput["ENCRYPTION_MASTER_SECRET"] =
-        appConfig.encryption.master_secret;
-    }
-    if (appConfig.server?.port !== undefined) {
-      providerInput["PORT"] = appConfig.server.port;
-    }
-    if (appConfig.server?.cors_origins !== undefined) {
-      providerInput["CORS_ORIGINS"] = appConfig.server.cors_origins.join(",");
-    }
-    if (appConfig.dev_mode?.enabled !== undefined) {
-      providerInput["MOLTZAP_DEV_MODE"] = appConfig.dev_mode.enabled;
-    }
-
-    if (processEnv["DATABASE_URL"] !== undefined) {
-      providerInput["DATABASE_URL"] = processEnv["DATABASE_URL"];
-    }
-    if (processEnv["ENCRYPTION_MASTER_SECRET"] !== undefined) {
-      providerInput["ENCRYPTION_MASTER_SECRET"] =
-        processEnv["ENCRYPTION_MASTER_SECRET"];
-    }
-    if (processEnv["CORS_ORIGINS"] !== undefined) {
-      providerInput["CORS_ORIGINS"] = processEnv["CORS_ORIGINS"];
-    }
+    applyAppConfigProviderInput(providerInput, appConfig);
+    applyProcessEnvProviderInput(providerInput, processEnv);
 
     const port = yield* parseIntegerEnv(processEnv["PORT"], "PORT");
-    if (port !== undefined) {
-      providerInput["PORT"] = port;
-    }
+    setProviderInputIfDefined(providerInput, "PORT", port);
 
     const devMode = yield* parseBooleanEnv(
       processEnv["MOLTZAP_DEV_MODE"],
@@ -370,39 +384,103 @@ const EMPTY_APP_CONFIG: MoltZapAppConfig & { _configDir: string } = {
   _configDir: globalThis.process.cwd(),
 };
 
+type LoadedRuntimeAppConfig = MoltZapAppConfig & { _configDir: string };
+
+function isExplicitConfigPath(
+  input: LoadRuntimeConfigInput,
+  processEnv: ProcessEnvSnapshot,
+): boolean {
+  return (
+    input.configPath !== undefined || processEnv["MOLTZAP_CONFIG"] !== undefined
+  );
+}
+
+function loadRuntimeAppConfig(
+  configPath: RuntimeConfigPath,
+  processEnv: ProcessEnvSnapshot,
+  explicitConfigPath: boolean,
+): Effect.Effect<LoadedRuntimeAppConfig, RuntimeConfigSurfaceError, never> {
+  return loadConfigFromFile(configPath, processEnv).pipe(
+    Effect.catchIf(
+      (error): error is ConfigLoadError =>
+        error instanceof ConfigLoadError &&
+        error.kind === "read" &&
+        !explicitConfigPath,
+      () => Effect.succeed(EMPTY_APP_CONFIG),
+    ),
+    Effect.mapError((error) => mapConfigLoadError(configPath, error)),
+    Effect.provide(NodeContext.layer),
+  );
+}
+
+function stripConfigDir(
+  loadedAppConfig: LoadedRuntimeAppConfig,
+): MoltZapAppConfig {
+  const app = { ...loadedAppConfig };
+  delete (app as { _configDir?: string })._configDir;
+  return app;
+}
+
+function loadServerConfig(
+  configPath: RuntimeConfigPath,
+  serverProviderInput: Record<string, unknown>,
+): Effect.Effect<LoadedConfig, RuntimeConfigSurfaceError, never> {
+  return ServerConfigLoader.pipe(
+    Effect.withConfigProvider(ConfigProvider.fromJson(serverProviderInput)),
+    Effect.mapError((configError) =>
+      configFileInvalid(
+        configPath,
+        `Invalid runtime config in "${configPath}": ${formatConfigError(configError)}`,
+      ),
+    ),
+  );
+}
+
+interface RuntimeConfigAssembly {
+  readonly configPath: RuntimeConfigPath;
+  readonly configDirectory: string;
+  readonly environment: RuntimeEnvironment;
+  readonly loggingLevel: RuntimeLogLevel;
+  readonly tracingServiceName: string;
+  readonly includeFiberIds: boolean;
+  readonly includeRequestContext: boolean;
+  readonly app: MoltZapAppConfig;
+  readonly server: LoadedConfig;
+}
+
+function assembleRuntimeProcessConfig(
+  input: RuntimeConfigAssembly,
+): RuntimeProcessConfig {
+  return {
+    configPath: input.configPath,
+    configDirectory: input.configDirectory,
+    environment: input.environment,
+    logging: {
+      level: input.loggingLevel,
+      preserveLegacyFields: true,
+    },
+    tracing: {
+      serviceName: input.tracingServiceName,
+      includeFiberIds: input.includeFiberIds,
+      includeRequestContext: input.includeRequestContext,
+    },
+    app: input.app,
+    server: input.server,
+  };
+}
+
 export function loadRuntimeProcessConfig(
   input: LoadRuntimeConfigInput,
 ): Effect.Effect<RuntimeProcessConfig, RuntimeConfigSurfaceError, never> {
   return Effect.gen(function* () {
     const processEnv = input.processEnv ?? (yield* loadRuntimeEnvSnapshot);
     const configPath = resolveRuntimeConfigPath(input, processEnv);
-
-    // Whether the operator explicitly asked for a config file (CLI arg or env
-    // var). When false, a missing file is not an error — the server boots with
-    // PGlite + no encryption as the zero-config quickstart default.
-    const isExplicitConfigPath =
-      input.configPath !== undefined ||
-      processEnv["MOLTZAP_CONFIG"] !== undefined;
-
-    const loadedAppConfig = yield* loadConfigFromFile(
+    const loadedAppConfig = yield* loadRuntimeAppConfig(
       configPath,
       processEnv,
-    ).pipe(
-      Effect.catchIf(
-        (error): error is ConfigLoadError =>
-          error instanceof ConfigLoadError &&
-          error.kind === "read" &&
-          !isExplicitConfigPath,
-        () => Effect.succeed(EMPTY_APP_CONFIG),
-      ),
-      Effect.mapError((error) => mapConfigLoadError(configPath, error)),
-      Effect.provide(NodeContext.layer),
+      isExplicitConfigPath(input, processEnv),
     );
-
-    // `_configDir` is set by loadConfigFromFile (dirname of the resolved path)
-    // or by EMPTY_APP_CONFIG (process.cwd()) when no YAML file was found.
-    const configDirectory = loadedAppConfig._configDir;
-
+    const app = stripConfigDir(loadedAppConfig);
     const environment = yield* resolveRuntimeEnvironment(
       processEnv["NODE_ENV"],
     );
@@ -422,38 +500,22 @@ export function loadRuntimeProcessConfig(
       "MOLTZAP_INCLUDE_REQUEST_CONTEXT",
       true,
     );
-
-    const app = { ...loadedAppConfig };
-    delete (app as { _configDir?: string })._configDir;
     const serverProviderInput = yield* buildServerConfigProviderInput(
       app,
       processEnv,
     );
-    const server = yield* ServerConfigLoader.pipe(
-      Effect.withConfigProvider(ConfigProvider.fromJson(serverProviderInput)),
-      Effect.mapError((configError) =>
-        configFileInvalid(
-          configPath,
-          `Invalid runtime config in "${configPath}": ${formatConfigError(configError)}`,
-        ),
-      ),
-    );
+    const server = yield* loadServerConfig(configPath, serverProviderInput);
 
-    return {
+    return assembleRuntimeProcessConfig({
       configPath,
-      configDirectory,
+      configDirectory: loadedAppConfig._configDir,
       environment,
-      logging: {
-        level: loggingLevel,
-        preserveLegacyFields: true,
-      },
-      tracing: {
-        serviceName: tracingServiceName,
-        includeFiberIds,
-        includeRequestContext,
-      },
+      loggingLevel,
+      tracingServiceName,
+      includeFiberIds,
+      includeRequestContext,
       app,
       server,
-    };
+    });
   }).pipe(Effect.withSpan("loadRuntimeProcessConfig"));
 }

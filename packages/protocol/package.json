@@ -60,7 +60,7 @@
   "devDependencies": {
     "@effect/platform-node": "^0.106.0",
     "eslint": "^9",
-    "eslint-plugin-agent-code-guard": "0.0.13",
+    "eslint-plugin-agent-code-guard": "0.0.14",
     "fast-check": "^4.6.0",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",

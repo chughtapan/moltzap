@@ -48,6 +48,7 @@ export class AuthService {
 
   registerAgent(
     params: RegisterParams,
+
     /**
      * When set, populates `owner_user_id` at insert time. Callers MUST
      * validate the value upstream — this argument is treated as trusted.

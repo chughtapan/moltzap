@@ -1,3 +1,6 @@
+/**
+ * @file Test helpers shared by client package unit and integration tests.
+ */
 export {
   createFakeChannelService,
   type ChannelServiceEmit,
@@ -38,6 +41,11 @@ type MessageFixtureOverrides = Omit<
   readonly taggedEntities?: ReadonlyArray<string>;
 };
 
+/**
+ * Build a protocol Message fixture with branded IDs and overridable fields.
+ * @param overrides Optional fields to override on the default message.
+ * @returns A complete Message fixture.
+ */
 export function buildMessage(overrides: MessageFixtureOverrides = {}): Message {
   const { id, conversationId, senderId, replyToId, taggedEntities, ...rest } =
     overrides;
@@ -55,6 +63,10 @@ export function buildMessage(overrides: MessageFixtureOverrides = {}): Message {
   };
 }
 
+/**
+ * Let queued dispatch microtasks settle in tests.
+ * @returns A Promise that resolves after the dispatch chain is flushed.
+ */
 export function flushDispatchChain() {
   return Effect.runPromise(
     Effect.gen(function* () {

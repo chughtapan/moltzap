@@ -83,8 +83,11 @@ const EndpointAddressBrand = Brand.refined<EndpointAddress>(
       `Invalid EndpointAddress: expected "tm:<kind>:<uuid>" with kind ∈ {${ENDPOINT_ADDRESS_KINDS.join(", ")}}, got ${JSON.stringify(value)}`,
     ),
 );
-/** Brand a raw string as an {@link EndpointAddress}. Throws if the value
- *  fails {@link isEndpointAddress}. */
+
+/**
+ * Brand a raw string as an {@link EndpointAddress}. Throws if the value
+ *  fails {@link isEndpointAddress}.
+ */
 export const endpointAddress = (value: string): EndpointAddress =>
   EndpointAddressBrand(value);
 

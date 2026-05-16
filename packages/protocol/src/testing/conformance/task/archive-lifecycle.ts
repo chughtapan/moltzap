@@ -21,6 +21,8 @@ import {
   unarchiveConversation,
   waitForArchivedEvent,
   waitForUnarchivedEvent,
+  type ConversationActor,
+  type ConversationFixture,
 } from "./_helpers.js";
 
 const PROPERTY = "archive-lifecycle";
@@ -31,60 +33,75 @@ export function registerArchiveLifecycle(ctx: ConformanceRunContext): void {
     DELIVERY_CATEGORY,
     PROPERTY,
     "archive/unarchive emits lifecycle events and gates messages/send",
-    Effect.scoped(
-      Effect.gen(function* () {
-        const fixture = yield* acquirePropertyConversation(
-          ctx,
-          PROPERTY,
-          "arch",
-        );
-        const participant = yield* firstParticipant(fixture, PROPERTY);
-
-        const archive = yield* archiveConversation(
-          fixture.owner,
-          fixture.conversationId,
-        ).pipe(Effect.either);
-        yield* requireRight(archive, (error) =>
-          deliveryViolation(PROPERTY, `archive failed: ${error._tag}`),
-        );
-        yield* waitForArchivedEvent(
-          participant,
-          fixture.conversationId,
-          fixture.owner.agent.agentId,
-          PROPERTY,
-        );
-        yield* assertConversationRejectsMessages(
-          participant,
-          fixture.conversationId,
-          PROPERTY,
-        );
-
-        const unarchive = yield* unarchiveConversation(
-          fixture.owner,
-          fixture.conversationId,
-        ).pipe(Effect.either);
-        yield* requireRight(unarchive, (error) =>
-          deliveryViolation(PROPERTY, `unarchive failed: ${error._tag}`),
-        );
-        yield* waitForUnarchivedEvent(
-          participant,
-          fixture.conversationId,
-          fixture.owner.agent.agentId,
-          PROPERTY,
-        );
-
-        const resumedSend = yield* sendText(
-          participant,
-          fixture.conversationId,
-          "must-succeed-after-unarchive",
-        ).pipe(Effect.either);
-        yield* requireRight(resumedSend, (error) =>
-          deliveryViolation(
-            PROPERTY,
-            `messages/send failed after unarchive: ${error._tag}`,
-          ),
-        );
-      }).pipe(Effect.withSpan("registerArchiveLifecycle")),
-    ),
+    runArchiveLifecycle(ctx).pipe(Effect.withSpan("registerArchiveLifecycle")),
   );
+}
+
+function runArchiveLifecycle(ctx: ConformanceRunContext) {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const fixture = yield* acquirePropertyConversation(ctx, PROPERTY, "arch");
+      const participant = yield* firstParticipant(fixture, PROPERTY);
+      yield* assertArchive(fixture, participant);
+      yield* assertUnarchive(fixture, participant);
+    }),
+  );
+}
+
+function assertArchive(
+  fixture: ConversationFixture,
+  participant: ConversationActor,
+) {
+  return Effect.gen(function* () {
+    const archive = yield* archiveConversation(
+      fixture.owner,
+      fixture.conversationId,
+    ).pipe(Effect.either);
+    yield* requireRight(archive, (error) =>
+      deliveryViolation(PROPERTY, `archive failed: ${error._tag}`),
+    );
+    yield* waitForArchivedEvent(
+      participant,
+      fixture.conversationId,
+      fixture.owner.agent.agentId,
+      PROPERTY,
+    );
+    yield* assertConversationRejectsMessages(
+      participant,
+      fixture.conversationId,
+      PROPERTY,
+    );
+  });
+}
+
+function assertUnarchive(
+  fixture: ConversationFixture,
+  participant: ConversationActor,
+) {
+  return Effect.gen(function* () {
+    const unarchive = yield* unarchiveConversation(
+      fixture.owner,
+      fixture.conversationId,
+    ).pipe(Effect.either);
+    yield* requireRight(unarchive, (error) =>
+      deliveryViolation(PROPERTY, `unarchive failed: ${error._tag}`),
+    );
+    yield* waitForUnarchivedEvent(
+      participant,
+      fixture.conversationId,
+      fixture.owner.agent.agentId,
+      PROPERTY,
+    );
+    const resumedSend = yield* sendText(
+      participant,
+      fixture.conversationId,
+      "must-succeed-after-unarchive",
+    ).pipe(Effect.either);
+    yield* requireRight(resumedSend, (error) =>
+      deliveryViolation(
+        PROPERTY,
+        `messages/send failed after unarchive: ${error._tag}`,
+      ),
+    );
+  });
 }

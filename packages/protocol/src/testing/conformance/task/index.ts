@@ -1,4 +1,6 @@
 /**
+ * @file Public barrel for task-layer conformance properties.
+ *
  * Task-layer conformance properties.
  *
  * Task / conversation / message invariants — fan-out cardinality,

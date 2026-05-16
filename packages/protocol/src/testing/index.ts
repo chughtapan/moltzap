@@ -1,4 +1,6 @@
 /**
+ * @file Public barrel for protocol testing utilities.
+ *
  * `@moltzap/protocol/testing` — TestClient + TestServer primitives,
  * reference model, arbitrary derivation, Toxiproxy adversity layer, and
  * the five-tier conformance runner.

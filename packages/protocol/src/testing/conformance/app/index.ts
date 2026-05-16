@@ -1,4 +1,6 @@
 /**
+ * @file Public barrel for app-layer conformance properties.
+ *
  * App-layer conformance properties.
  *
  * Dispatch / lease / app-callback invariants — the 15

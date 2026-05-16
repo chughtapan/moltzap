@@ -86,6 +86,7 @@ function parseGlobalFlag(
  *
  * Accepts both `--as KEY` / `--as=KEY` forms; unknown flags pass through
  * to `@effect/cli` unchanged.
+ * @param argv
  */
 export const extractGlobalFlags = (
   argv: ReadonlyArray<string>,

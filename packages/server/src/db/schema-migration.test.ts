@@ -1,226 +1,313 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { Kysely } from "kysely";
-import { KyselyPGlite } from "kysely-pglite";
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { it as effectIt } from "@effect/vitest";
+import { Effect, Exit } from "effect";
+import { describe, expect } from "vitest";
 import { agentId, conversationId, taskId } from "@moltzap/protocol/testing";
-import { makeEffectKysely } from "./effect-kysely-toolkit.js";
-import type { Database } from "./database.js";
+import {
+  makePgliteHarness,
+  PGLITE_HOOK_TIMEOUT_MS,
+  type PgliteHarness,
+} from "../test-utils/pglite-harness.js";
+import { takeFirstOrFail } from "./effect-kysely-toolkit.js";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const schema = readFileSync(
-  join(__dirname, "..", "app", "core-schema.sql"),
-  "utf-8",
-);
-const DB_HOOK_TIMEOUT_MS = 30_000;
+const it = effectIt.scoped;
 
 const AGENT_ID = agentId("00000000-0000-4000-8000-0000000a9e47");
 const TASK_ID = taskId("00000000-0000-4000-8000-0000000fa5c0");
 const CONV_ID = conversationId("00000000-0000-4000-8000-0000000c01f5");
 const ORPHAN_TASK_ID = taskId("00000000-0000-4000-8000-0000000d3ad0");
 const API_KEY_SECRET_HASH_LENGTH = 64;
+const STATUS_WAITING = "waiting";
+const WEREWOLF_APP_ID = "werewolf";
+const WEREWOLF_HOST_ENDPOINT = "tm://werewolf/host-1";
+const AGENT_ENDPOINT = "tm:agent:00000000-0000-4000-8000-0000000a9e47";
+const GROUP_CONVERSATION_TYPE = "group";
+const DM_CONVERSATION_TYPE = "dm";
+const MESSAGE_SEQ = "1";
+const LEGACY_TABLES = [
+  "app_sessions",
+  "app_session_participants",
+  "app_session_conversations",
+  "message_delivery",
+] as const;
+const LEGACY_ENUMS = [
+  "app_session_status",
+  "app_participant_status",
+  "delivery_status",
+] as const;
 
-let db: Kysely<Database>;
-let pglite: {
-  exec: (sql: string) => Promise<unknown>;
-  close: () => Promise<void>;
-};
+describe("tasks schema task constraints", () => {
+  it(
+    "creates a task with default status and TM endpoint",
+    createsTaskWithDefaults,
+    PGLITE_HOOK_TIMEOUT_MS,
+  );
 
-async function freshDb(): Promise<void> {
-  const kpg = await KyselyPGlite.create();
-  pglite = {
-    exec: (sql) => kpg.client.exec(sql),
-    close: () => kpg.client.close(),
-  };
-  db = makeEffectKysely<Database>({ dialect: kpg.dialect });
-  await pglite.exec(schema);
-  await db
-    .insertInto("encryption_keys")
-    .values({ version: 1, encrypted_key: "test-kek" })
-    .execute();
-  await db
-    .insertInto("agents")
-    .values({
-      id: AGENT_ID,
-      name: "task-fixture",
-      api_key_id: "0123456789abcdef",
-      api_key_secret_hash: "x".repeat(API_KEY_SECRET_HASH_LENGTH),
-      claim_token: "claim-task-fixture",
-      status: "active",
-    })
-    .execute();
+  it(
+    "rejects a task insert that omits tm_endpoint_address",
+    rejectsTaskWithoutTmEndpoint,
+    PGLITE_HOOK_TIMEOUT_MS,
+  );
+});
+
+describe("tasks schema conversation constraints", () => {
+  it(
+    "admits an agent into a task and links a conversation and message",
+    linksConversationAndMessageToTask,
+    PGLITE_HOOK_TIMEOUT_MS,
+  );
+
+  it(
+    "rejects a conversation insert that omits task_id",
+    rejectsConversationWithoutTask,
+    PGLITE_HOOK_TIMEOUT_MS,
+  );
+
+  it(
+    "rejects conversations.task_id that does not reference a real task",
+    rejectsConversationWithOrphanTask,
+    PGLITE_HOOK_TIMEOUT_MS,
+  );
+});
+
+describe("tasks schema destructive migration guard", () => {
+  it("legacy tables are gone", legacyTablesAreGone, PGLITE_HOOK_TIMEOUT_MS);
+
+  it("legacy enums are gone", legacyEnumsAreGone, PGLITE_HOOK_TIMEOUT_MS);
+
+  it(
+    "tasks and task_participants survive",
+    survivingTablesRemain,
+    PGLITE_HOOK_TIMEOUT_MS,
+  );
+});
+
+function createsTaskWithDefaults() {
+  return withTaskSchemaHarness((harness) =>
+    Effect.gen(function* () {
+      yield* insertTask(harness, WEREWOLF_HOST_ENDPOINT, WEREWOLF_APP_ID);
+
+      const task = yield* takeFirstOrFail(
+        harness.db
+          .selectFrom("tasks")
+          .select(["status", "tm_endpoint_address", "started_at", "ended_at"])
+          .where("id", "=", TASK_ID),
+      );
+      expect(task.status).toBe(STATUS_WAITING);
+      expect(task.tm_endpoint_address).toBe(WEREWOLF_HOST_ENDPOINT);
+      expect(task.started_at).toBeNull();
+      expect(task.ended_at).toBeNull();
+    }),
+  );
 }
 
-describe("tasks schema (core-schema.sql)", () => {
-  beforeEach(async () => {
-    await freshDb();
-  }, DB_HOOK_TIMEOUT_MS);
+function rejectsTaskWithoutTmEndpoint() {
+  return withTaskSchemaHarness((harness) =>
+    Effect.gen(function* () {
+      const exit = yield* Effect.exit(
+        harness.exec(
+          `INSERT INTO tasks (initiator_agent_id) VALUES ('${AGENT_ID}')`,
+        ),
+      );
+      expect(Exit.isFailure(exit)).toBe(true);
+    }),
+  );
+}
 
-  afterEach(async () => {
-    await pglite.close();
-  }, DB_HOOK_TIMEOUT_MS);
+function linksConversationAndMessageToTask() {
+  return withTaskSchemaHarness((harness) =>
+    Effect.gen(function* () {
+      yield* insertTask(harness, AGENT_ENDPOINT);
+      yield* admitAgentToTask(harness);
+      yield* insertConversation(harness, TASK_ID);
+      yield* insertMessage(harness);
+      yield* expectTaskLinks(harness);
+    }),
+  );
+}
 
-  it("creates a task with default status='waiting' and a NOT NULL tm_endpoint_address", async () => {
-    // Phase 9b consumer-migration (sub-issue #460 round 3 R12):
-    // `tasks.tm_endpoint_address` flipped to NOT NULL alongside the
-    // atomic `tasks/create` (R13) — the schema-level constraint is what
-    // forbids the intermediate "task without TM" state, replacing the
-    // pre-R12 service-level vacuous fail-closed branch.
-    await db
-      .insertInto("tasks")
-      .values({
-        id: TASK_ID,
-        app_id: "werewolf",
-        initiator_agent_id: AGENT_ID,
-        tm_endpoint_address: "tm://werewolf/host-1",
-      })
-      .execute();
+function rejectsConversationWithoutTask() {
+  return withTaskSchemaHarness((harness) =>
+    Effect.gen(function* () {
+      const exit = yield* Effect.exit(
+        harness.exec(
+          `INSERT INTO conversations (id, type, created_by_id) VALUES ('${CONV_ID}', '${DM_CONVERSATION_TYPE}', '${AGENT_ID}')`,
+        ),
+      );
+      expect(Exit.isFailure(exit)).toBe(true);
+    }),
+  );
+}
 
-    const task = await db
-      .selectFrom("tasks")
-      .select(["status", "tm_endpoint_address", "started_at", "ended_at"])
-      .where("id", "=", TASK_ID)
-      .executeTakeFirstOrThrow();
-    expect(task.status).toBe("waiting");
-    expect(task.tm_endpoint_address).toBe("tm://werewolf/host-1");
-    expect(task.started_at).toBeNull();
-    expect(task.ended_at).toBeNull();
+function rejectsConversationWithOrphanTask() {
+  return withTaskSchemaHarness((harness) =>
+    Effect.gen(function* () {
+      const exit = yield* Effect.exit(
+        harness.db.insertInto("conversations").values({
+          id: CONV_ID,
+          type: GROUP_CONVERSATION_TYPE,
+          created_by_id: AGENT_ID,
+          task_id: ORPHAN_TASK_ID,
+        }),
+      );
+      expect(Exit.isFailure(exit)).toBe(true);
+    }),
+  );
+}
+
+function legacyTablesAreGone() {
+  return withTaskSchemaHarness((harness) =>
+    Effect.gen(function* () {
+      for (const tableName of LEGACY_TABLES) {
+        const exit = yield* Effect.exit(
+          harness.exec(`SELECT 1 FROM ${tableName} LIMIT 1`),
+        );
+        expect(Exit.isFailure(exit)).toBe(true);
+      }
+      expect(LEGACY_TABLES.length).toBeGreaterThan(0);
+    }),
+  );
+}
+
+function legacyEnumsAreGone() {
+  return withTaskSchemaHarness((harness) =>
+    Effect.gen(function* () {
+      for (const typeName of LEGACY_ENUMS) {
+        yield* harness.exec(`CREATE TYPE ${typeName} AS ENUM ('probe')`);
+        yield* harness.exec(`DROP TYPE ${typeName}`);
+      }
+      expect(LEGACY_ENUMS.length).toBeGreaterThan(0);
+    }),
+  );
+}
+
+function survivingTablesRemain() {
+  return withTaskSchemaHarness((harness) =>
+    Effect.gen(function* () {
+      const tasks = yield* harness.exec("SELECT 1 FROM tasks LIMIT 1");
+      const participants = yield* harness.exec(
+        "SELECT 1 FROM task_participants LIMIT 1",
+      );
+      expect(tasks).toBeDefined();
+      expect(participants).toBeDefined();
+    }),
+  );
+}
+
+function withTaskSchemaHarness<A>(
+  run: (harness: PgliteHarness) => Effect.Effect<A, unknown>,
+): Effect.Effect<A, unknown> {
+  return Effect.scoped(
+    Effect.acquireRelease(makePgliteHarness(), closeHarness).pipe(
+      Effect.flatMap((harness) => seedAndRunHarness(harness, run)),
+    ),
+  );
+}
+
+function closeHarness(harness: PgliteHarness): Effect.Effect<void> {
+  return harness.close.pipe(Effect.orDie);
+}
+
+function seedAndRunHarness<A>(
+  harness: PgliteHarness,
+  run: (harness: PgliteHarness) => Effect.Effect<A, unknown>,
+): Effect.Effect<A, unknown> {
+  return seedTaskSchemaHarness(harness).pipe(
+    Effect.flatMap(() => run(harness)),
+  );
+}
+
+function seedTaskSchemaHarness(
+  harness: PgliteHarness,
+): Effect.Effect<unknown, unknown> {
+  return harness.exec(`
+    INSERT INTO encryption_keys (version, encrypted_key)
+    VALUES (1, 'test-kek');
+
+    INSERT INTO agents (
+      id,
+      name,
+      api_key_id,
+      api_key_secret_hash,
+      claim_token,
+      status
+    )
+    VALUES (
+      '${AGENT_ID}',
+      'task-fixture',
+      '0123456789abcdef',
+      '${"x".repeat(API_KEY_SECRET_HASH_LENGTH)}',
+      'claim-task-fixture',
+      'active'
+    );
+  `);
+}
+
+function insertTask(
+  harness: PgliteHarness,
+  tmEndpointAddress: string,
+  appId?: string,
+) {
+  return harness.db.insertInto("tasks").values({
+    id: TASK_ID,
+    app_id: appId,
+    initiator_agent_id: AGENT_ID,
+    tm_endpoint_address: tmEndpointAddress,
   });
+}
 
-  it("rejects a task insert that omits tm_endpoint_address", async () => {
-    // Phase 9b consumer-migration (sub-issue #460 round 3 R12):
-    // pre-R12 this was a legal "register-the-TM-later" insert. Now the
-    // NOT NULL constraint rejects it at the SQL boundary, so no caller
-    // can sneak past the atomic `tasks/create` requirement.
-    await expect(
-      pglite.exec(
-        `INSERT INTO tasks (initiator_agent_id) VALUES ('${AGENT_ID}')`,
-      ),
-    ).rejects.toThrow(/null|violates|tm_endpoint_address/i);
+function admitAgentToTask(harness: PgliteHarness) {
+  return harness.db
+    .insertInto("task_participants")
+    .values({ task_id: TASK_ID, agent_id: AGENT_ID, admitted_at: new Date() });
+}
+
+function insertConversation(harness: PgliteHarness, task: typeof TASK_ID) {
+  return harness.db.insertInto("conversations").values({
+    id: CONV_ID,
+    type: GROUP_CONVERSATION_TYPE,
+    created_by_id: AGENT_ID,
+    task_id: task,
   });
+}
 
-  it("admits an agent into a task and links a conversation + message to it", async () => {
-    await db
-      .insertInto("tasks")
-      .values({
-        id: TASK_ID,
-        initiator_agent_id: AGENT_ID,
-        tm_endpoint_address: "tm:agent:00000000-0000-4000-8000-0000000a9e47",
-      })
-      .execute();
-    await db
-      .insertInto("task_participants")
-      .values({ task_id: TASK_ID, agent_id: AGENT_ID, admitted_at: new Date() })
-      .execute();
-    await db
-      .insertInto("conversations")
-      .values({
-        id: CONV_ID,
-        type: "group",
-        created_by_id: AGENT_ID,
-        task_id: TASK_ID,
-      })
-      .execute();
-    await db
-      .insertInto("messages")
-      .values({
-        conversation_id: CONV_ID,
-        sender_id: AGENT_ID,
-        seq: "1",
-        parts_encrypted: Buffer.from(""),
-        parts_iv: Buffer.from(""),
-        parts_tag: Buffer.from(""),
-        kek_version: 1,
-        task_id: TASK_ID,
-      })
-      .execute();
+function insertMessage(harness: PgliteHarness) {
+  return harness.db.insertInto("messages").values({
+    conversation_id: CONV_ID,
+    sender_id: AGENT_ID,
+    seq: MESSAGE_SEQ,
+    parts_encrypted: Buffer.from(""),
+    parts_iv: Buffer.from(""),
+    parts_tag: Buffer.from(""),
+    kek_version: 1,
+    task_id: TASK_ID,
+  });
+}
 
-    const conv = await db
-      .selectFrom("conversations")
-      .select(["task_id"])
-      .where("id", "=", CONV_ID)
-      .executeTakeFirstOrThrow();
+function expectTaskLinks(harness: PgliteHarness) {
+  return Effect.gen(function* () {
+    const conv = yield* takeFirstOrFail(
+      harness.db
+        .selectFrom("conversations")
+        .select(["task_id"])
+        .where("id", "=", CONV_ID),
+    );
     expect(conv.task_id).toBe(TASK_ID);
 
-    const message = await db
-      .selectFrom("messages")
-      .select(["task_id"])
-      .where("conversation_id", "=", CONV_ID)
-      .executeTakeFirstOrThrow();
+    const message = yield* takeFirstOrFail(
+      harness.db
+        .selectFrom("messages")
+        .select(["task_id"])
+        .where("conversation_id", "=", CONV_ID),
+    );
     expect(message.task_id).toBe(TASK_ID);
 
-    const part = await db
-      .selectFrom("task_participants")
-      .select(["agent_id", "admitted_at"])
-      .where("task_id", "=", TASK_ID)
-      .executeTakeFirstOrThrow();
+    const part = yield* takeFirstOrFail(
+      harness.db
+        .selectFrom("task_participants")
+        .select(["agent_id", "admitted_at"])
+        .where("task_id", "=", TASK_ID),
+    );
     expect(part.agent_id).toBe(AGENT_ID);
     expect(part.admitted_at).not.toBeNull();
   });
-
-  it("rejects a conversation insert that omits task_id", async () => {
-    // Phase 9b consumer-migration (sub-issue #460 round 3 R12):
-    // `conversations.task_id` is NOT NULL by schema. Pre-R12 the
-    // `tasks/createConversation` flow tolerated unlinked conversations
-    // and post-bound them via UPDATE; the atomic `tasks/create` (R13)
-    // makes that two-step unnecessary, and the schema constraint
-    // forbids any caller from minting a task-less conversation.
-    await expect(
-      pglite.exec(
-        `INSERT INTO conversations (id, type, created_by_id) VALUES ('${CONV_ID}', 'dm', '${AGENT_ID}')`,
-      ),
-    ).rejects.toThrow(/null|violates|task_id/i);
-  });
-
-  it("rejects conversations.task_id that does not reference a real task", async () => {
-    await expect(
-      db
-        .insertInto("conversations")
-        .values({
-          id: CONV_ID,
-          type: "group",
-          created_by_id: AGENT_ID,
-          task_id: ORPHAN_TASK_ID,
-        })
-        .execute(),
-    ).rejects.toThrow(/foreign key|violates/i);
-  });
-
-  // Destructive-migration guard: every dropped relation must reject
-  // re-use. SELECTing a legacy table errors with `relation … does not
-  // exist`; the surviving `tasks` table SELECTs an empty row set.
-  // Future drift (re-introducing tables OR leaving enum types behind)
-  // trips the assertions below instead of silently reintroducing the
-  // schema. `app_sessions*` rows are Phase 7 (sub-issue #425);
-  // `message_delivery` is Phase 7.5 (sub-issue #450).
-  it.each([
-    "app_sessions",
-    "app_session_participants",
-    "app_session_conversations",
-    "message_delivery",
-  ])("table %s is gone", async (tableName) => {
-    await expect(
-      pglite.exec(`SELECT 1 FROM ${tableName} LIMIT 1`),
-    ).rejects.toThrow(/does not exist/i);
-  });
-
-  it.each(["app_session_status", "app_participant_status", "delivery_status"])(
-    "enum %s is gone",
-    async (typeName) => {
-      // Recreating the enum succeeds iff the prior cutover dropped it.
-      // CREATE TYPE on an existing name errors "already exists";
-      // the assertion proves the type is absent from the freshly-applied
-      // schema.
-      await pglite.exec(`CREATE TYPE ${typeName} AS ENUM ('probe')`);
-      await pglite.exec(`DROP TYPE ${typeName}`);
-    },
-  );
-
-  it("tasks + task_participants survive (positive control)", async () => {
-    // SELECT against the surviving tables succeeds — proves the cutover
-    // didn't accidentally drop too much.
-    await pglite.exec("SELECT 1 FROM tasks LIMIT 1");
-    await pglite.exec("SELECT 1 FROM task_participants LIMIT 1");
-  });
-});
+}

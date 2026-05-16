@@ -1,3 +1,6 @@
+/**
+ * @file Public barrel for Toxiproxy toxic profiles and control helpers.
+ */
 export {
   type ToxicProfile,
   type ToxicTag,

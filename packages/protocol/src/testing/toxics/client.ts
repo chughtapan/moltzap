@@ -94,8 +94,21 @@ interface RawProxy {
   readonly enabled?: boolean;
 }
 
+type HttpMethod = "DELETE" | "GET" | "POST";
+type ToxicOperation =
+  | "create-proxy"
+  | "delete-proxy"
+  | "add-toxic"
+  | "remove-toxic";
+
+interface HttpJsonInit {
+  readonly method?: HttpMethod;
+  readonly body?: unknown;
+  readonly headers?: Readonly<Record<string, string>>;
+}
+
 function requestForMethod(
-  method: "GET" | "POST" | "DELETE",
+  method: HttpMethod,
   url: string,
 ): HttpClientRequest.HttpClientRequest {
   if (method === "POST") return HttpClientRequest.post(url);
@@ -104,13 +117,9 @@ function requestForMethod(
 }
 
 function httpJson(
-  op: "create-proxy" | "delete-proxy" | "add-toxic" | "remove-toxic",
+  op: ToxicOperation,
   url: string,
-  init?: {
-    readonly method?: "DELETE" | "GET" | "POST";
-    readonly body?: unknown;
-    readonly headers?: Readonly<Record<string, string>>;
-  },
+  init?: HttpJsonInit,
 ): Effect.Effect<unknown, ToxicControlError> {
   const toToxicError = (err: unknown): ToxicControlError => {
     if (err instanceof ToxicControlError) return err;
@@ -122,34 +131,51 @@ function httpJson(
   };
   return Effect.gen(function* () {
     const client = yield* HttpClient.HttpClient;
-    const method = init?.method ?? "GET";
-    const baseRequest = requestForMethod(method, url);
-    const requestWithHeaders = HttpClientRequest.setHeaders(baseRequest, {
-      "Content-Type": "application/json",
-      ...init?.headers,
-    });
-    const request =
-      init?.body === undefined
-        ? requestWithHeaders
-        : HttpClientRequest.bodyUnsafeJson(requestWithHeaders, init.body);
+    const request = jsonRequest(url, init);
     const response = yield* client
       .execute(request)
       .pipe(Effect.mapError(toToxicError));
     const body = yield* response.text.pipe(Effect.mapError(toToxicError));
-    if (
-      response.status < HTTP_SUCCESS_MIN ||
-      response.status >= HTTP_REDIRECT_MIN
-    ) {
-      return yield* Effect.fail(
-        new ToxicControlError({ op, status: response.status, body }),
-      );
-    }
-    if (body.length === 0) return null;
-    return yield* Effect.try({
-      try: () => JSON.parse(body) as unknown,
-      catch: toToxicError,
-    });
+    yield* failOnBadStatus(op, response.status, body);
+    return yield* parseJsonBody(body, toToxicError);
   }).pipe(Effect.provide(FetchHttpClient.layer));
+}
+
+function jsonRequest(
+  url: string,
+  init: HttpJsonInit | undefined,
+): HttpClientRequest.HttpClientRequest {
+  const method = init?.method ?? "GET";
+  const baseRequest = requestForMethod(method, url);
+  const requestWithHeaders = HttpClientRequest.setHeaders(baseRequest, {
+    "Content-Type": "application/json",
+    ...init?.headers,
+  });
+  return init?.body === undefined
+    ? requestWithHeaders
+    : HttpClientRequest.bodyUnsafeJson(requestWithHeaders, init.body);
+}
+
+function failOnBadStatus(
+  op: ToxicOperation,
+  status: number,
+  body: string,
+): Effect.Effect<void, ToxicControlError> {
+  return status >= HTTP_SUCCESS_MIN && status < HTTP_REDIRECT_MIN
+    ? Effect.void
+    : Effect.fail(new ToxicControlError({ op, status, body }));
+}
+
+function parseJsonBody(
+  body: string,
+  toToxicError: (err: unknown) => ToxicControlError,
+): Effect.Effect<unknown, ToxicControlError> {
+  return body.length === 0
+    ? Effect.succeed(null)
+    : Effect.try({
+        try: () => JSON.parse(body) as unknown,
+        catch: toToxicError,
+      });
 }
 
 function profileToAttributes(profile: ToxicProfile): {
@@ -206,66 +232,91 @@ export function makeToxiproxyClient(
   config: ToxiproxyConfig,
 ): Effect.Effect<ToxiproxyClient, ToxicControlError> {
   const base = config.apiUrl.replace(/\/$/, "");
+  return Effect.succeed({
+    proxy: (opts) => createProxy(base, opts),
+    ping: pingToxiproxy(base),
+  });
+}
 
-  const ping: Effect.Effect<void, ToxicControlError> = httpJson(
-    "create-proxy",
-    `${base}/version`,
-    { method: "GET" },
-  ).pipe(Effect.asVoid);
+function pingToxiproxy(base: string): Effect.Effect<void, ToxicControlError> {
+  return httpJson("create-proxy", `${base}/version`, { method: "GET" }).pipe(
+    Effect.asVoid,
+  );
+}
 
-  const proxy: ToxiproxyClient["proxy"] = (opts) =>
-    Effect.gen(function* () {
-      const body = yield* httpJson("create-proxy", `${base}/proxies`, {
+function createProxy(
+  base: string,
+  opts: Parameters<ToxiproxyClient["proxy"]>[0],
+): ReturnType<ToxiproxyClient["proxy"]> {
+  return Effect.gen(function* () {
+    const raw = (yield* httpJson("create-proxy", `${base}/proxies`, {
+      method: "POST",
+      body: proxyBody(opts),
+    })) as RawProxy;
+    yield* Effect.addFinalizer(deleteProxyFinalizer(base, opts.name));
+    return {
+      upstream: raw.upstream,
+      listenUrl: proxyListenUrl(raw),
+      withToxic: (profile) => addToxic(base, opts.name, profile),
+    } satisfies ToxiproxyProxy;
+  }).pipe(Effect.withSpan("makeToxiproxyClient"));
+}
+
+function proxyBody(opts: Parameters<ToxiproxyClient["proxy"]>[0]) {
+  return {
+    name: opts.name,
+    upstream: opts.upstream,
+    listen: "127.0.0.1:0",
+    enabled: true,
+  };
+}
+
+function proxyListenUrl(raw: RawProxy): string {
+  return raw.listen.startsWith("ws://") ? raw.listen : `ws://${raw.listen}`;
+}
+
+function deleteProxyFinalizer(
+  base: string,
+  proxyName: string,
+): () => Effect.Effect<void, never> {
+  return () =>
+    httpJson(
+      "delete-proxy",
+      `${base}/proxies/${encodeURIComponent(proxyName)}`,
+      {
+        method: "DELETE",
+      },
+    ).pipe(
+      Effect.orElseSucceed(() => null),
+      Effect.asVoid,
+    );
+}
+
+function addToxic(
+  base: string,
+  proxyName: string,
+  profile: ToxicProfile,
+): ReturnType<ToxiproxyProxy["withToxic"]> {
+  return Effect.gen(function* () {
+    const { type, attributes } = profileToAttributes(profile);
+    const toxicName = `${profile._tag}-${toxicNameSuffix()}`;
+    yield* httpJson(
+      "add-toxic",
+      `${base}/proxies/${encodeURIComponent(proxyName)}/toxics`,
+      {
         method: "POST",
         body: {
-          name: opts.name,
-          upstream: opts.upstream,
-          listen: "127.0.0.1:0",
-          enabled: true,
+          name: toxicName,
+          type,
+          stream: "downstream",
+          toxicity: 1.0,
+          attributes,
         },
-      });
-      const raw = body as RawProxy;
-      const listen = raw.listen.startsWith("ws://")
-        ? raw.listen
-        : `ws://${raw.listen}`;
-      yield* Effect.addFinalizer(() =>
-        httpJson(
-          "delete-proxy",
-          `${base}/proxies/${encodeURIComponent(opts.name)}`,
-          { method: "DELETE" },
-        ).pipe(
-          Effect.orElseSucceed(() => null),
-          Effect.asVoid,
-        ),
-      );
-      return {
-        upstream: raw.upstream,
-        listenUrl: listen,
-        withToxic: (profile) =>
-          Effect.gen(function* () {
-            const { type, attributes } = profileToAttributes(profile);
-            const toxicName = `${profile._tag}-${toxicNameSuffix()}`;
-            yield* httpJson(
-              "add-toxic",
-              `${base}/proxies/${encodeURIComponent(opts.name)}/toxics`,
-              {
-                method: "POST",
-                body: {
-                  name: toxicName,
-                  type,
-                  stream: "downstream",
-                  toxicity: 1.0,
-                  attributes,
-                },
-              },
-            );
-            yield* Effect.addFinalizer(
-              removeToxicFinalizer(base, opts.name, toxicName),
-            );
-            return { name: toxicName, profile };
-          }),
-      } satisfies ToxiproxyProxy;
-    }).pipe(Effect.withSpan("makeToxiproxyClient"));
-
-  return Effect.succeed({ proxy, ping });
+      },
+    );
+    yield* Effect.addFinalizer(
+      removeToxicFinalizer(base, proxyName, toxicName),
+    );
+    return { name: toxicName, profile };
+  });
 }

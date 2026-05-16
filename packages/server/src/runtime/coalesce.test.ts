@@ -1,6 +1,8 @@
-import { it } from "@effect/vitest";
+import { it as effectIt } from "@effect/vitest";
+import * as fc from "fast-check";
 import {
   Cause,
+  Data,
   Deferred,
   Duration,
   Effect,
@@ -11,230 +13,259 @@ import {
   Ref,
   TestClock,
 } from "effect";
-import { expect } from "vitest";
+import { describe, expect } from "vitest";
 import { coalesce, drainCoalesceMap } from "./coalesce.js";
 
+const it = effectIt.effect;
+
 const COALESCE_TIMEOUT_MS = 200;
+const PROPERTY_RUNS = 25;
+const SAME_KEY = "k";
+const SUCCESS_VALUE = "ok";
+const WORK_FAILURE_MESSAGE = "boom";
+const SAME_KEY_REQUESTS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const;
+const FAILURE_WAITERS = [1, 2, 3, 4, 5] as const;
 
-/**
- * Fresh Ref for each test — we never share state across cases, so races
- * inside one test don't leak into another.
- */
-const makeMapRef = <A, E>() =>
-  Ref.make(HashMap.empty<string, Deferred.Deferred<A, E>>());
+class CoalesceTimeoutError extends Data.TaggedError("CoalesceTimeoutError") {}
 
-it.effect("concurrent fibers on same key share a single work run", () =>
-  Effect.gen(function* () {
-    const ref = yield* makeMapRef<number, never>();
-    const counter = yield* Ref.make(0);
+describe("coalesce success", () => {
+  const successProperty = fc.property(
+    fc.string(),
+    assertSuccessfulCoalesceValue,
+  );
 
-    // Work bumps the counter and then succeeds with the observed count.
-    // If coalesce is race-safe, `counter` hits exactly 1 regardless of
-    // how many fibers race past `Ref.modify` simultaneously.
-    const work = Effect.gen(function* () {
-      const n = yield* Ref.updateAndGet(counter, (x) => x + 1);
-      // Yield once so sibling fibers actually get scheduled in between
-      // — without this, `Effect.gen` can run to completion synchronously
-      // and the test never exercises the race at all.
-      yield* Effect.yieldNow();
-      return n;
-    });
-
-    // Unbounded concurrency on the same key: every fiber hits
-    // `coalesce(ref, "k", work)` at roughly the same instant.
-    const results = yield* Effect.forEach(
-      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-      () => coalesce(ref, "k", work),
-      { concurrency: "unbounded" },
-    );
-
-    // Exactly one `work` invocation — if the `Ref.modify` + deferred
-    // install weren't atomic, `counter` would exceed 1.
-    const total = yield* Ref.get(counter);
-    expect(total).toBe(1);
-
-    // Every waiter saw the same result (value 1 — the single run).
-    for (const r of results) {
-      expect(r).toBe(1);
-    }
-  }),
-);
-
-it.effect("map entry is removed after success", () =>
-  Effect.gen(function* () {
-    const ref = yield* makeMapRef<string, never>();
-
-    const result = yield* coalesce(ref, "k", Effect.succeed("ok"));
-    expect(result).toBe("ok");
-
-    // Post-success: the map must be empty so a subsequent call with the
-    // same key starts a fresh work run (no stale Deferred resolves
-    // instantly with the previous run's value).
-    const map = yield* Ref.get(ref);
-    expect(HashMap.size(map)).toBe(0);
-  }),
-);
-
-it.effect("failure propagates to all waiters and entry is removed", () =>
-  Effect.gen(function* () {
-    const ref = yield* makeMapRef<number, string>();
-    const counter = yield* Ref.make(0);
-
-    const work = Effect.gen(function* () {
-      yield* Ref.update(counter, (x) => x + 1);
-      yield* Effect.yieldNow();
-      return yield* Effect.fail("boom");
-    });
-
-    const exits = yield* Effect.forEach(
-      [1, 2, 3, 4, 5],
-      () => Effect.exit(coalesce(ref, "k", work)),
-      { concurrency: "unbounded" },
-    );
-
-    for (const exit of exits) {
-      expect(Exit.isFailure(exit)).toBe(true);
-      if (Exit.isFailure(exit)) {
-        const fail = Cause.failureOption(exit.cause);
-        expect(Option.isSome(fail)).toBe(true);
-        if (Option.isSome(fail)) {
-          expect(fail.value).toBe("boom");
-        }
-      }
-    }
-
-    // Work still ran exactly once.
-    expect(yield* Ref.get(counter)).toBe(1);
-
-    // Map is empty after failure — next call starts fresh.
-    const map = yield* Ref.get(ref);
-    expect(HashMap.size(map)).toBe(0);
-  }),
-);
-
-// ─────────────────────────────────────────────────────────────────────
-// Regression: timeouts inside `work` must propagate to awaiters.
-// ─────────────────────────────────────────────────────────────────────
-//
-// `requestPermission` in `AppHost` wraps an `Effect.async` with
-// `Effect.timeoutFail` and runs inside `coalesce(..., work)`. Observed
-// regression: integration tests for permission-timeout hung because
-// the caller's `Deferred.await` never saw the timeout failure.
-//
-// These tests drive virtual time through `TestClock.adjust` to prove
-// the fix: daemon fiber runs `work`, timeout fires INSIDE `work`, the
-// daemon's `Effect.exit` captures the failure cause, and
-// `Deferred.failCause` routes it to every awaiter.
-
-// Sanity check BEFORE coalesce: does a plain forkDaemon + Effect.timeoutFail
-// propagate a timeout through a Deferred under TestClock at all?
-it.effect(
-  "sanity: forkDaemon + Effect.timeoutFail propagates to a Deferred under TestClock",
-  () =>
+  it("concurrent fibers on same key share a single work run", () =>
     Effect.gen(function* () {
-      class BoomError extends Error {
-        constructor() {
-          super("BOOM");
-        }
+      const ref = yield* makeMapRef<number, never>();
+      const counter = yield* Ref.make(0);
+      const work = countedWork(counter);
+
+      const results = yield* runConcurrentCoalesce(ref, work);
+      const total = yield* Ref.get(counter);
+
+      expect(total).toBe(1);
+      expectAllResults(results, 1);
+    }));
+
+  it("property: success resolves with the work value and clears the map", () =>
+    Effect.sync(() => {
+      expect.hasAssertions();
+      fc.assert(successProperty, { numRuns: PROPERTY_RUNS });
+    }));
+
+  it("map entry is removed after success", () =>
+    Effect.gen(function* () {
+      const ref = yield* makeMapRef<string, never>();
+
+      const result = yield* coalesce(
+        ref,
+        SAME_KEY,
+        Effect.succeed(SUCCESS_VALUE),
+      );
+      expect(result).toBe(SUCCESS_VALUE);
+
+      const map = yield* Ref.get(ref);
+      expect(HashMap.size(map)).toBe(0);
+    }));
+});
+
+describe("coalesce failure", () => {
+  it("failure propagates to all waiters and entry is removed", () =>
+    Effect.gen(function* () {
+      const ref = yield* makeMapRef<number, string>();
+      const counter = yield* Ref.make(0);
+      const work = failingCountedWork(counter);
+
+      const exits = yield* runConcurrentCoalesceExits(ref, work);
+
+      for (const exit of exits) {
+        expectFailureValue(exit, WORK_FAILURE_MESSAGE);
       }
 
-      const deferred = yield* Deferred.make<number, BoomError>();
+      expect(yield* Ref.get(counter)).toBe(1);
+      const map = yield* Ref.get(ref);
+      expect(HashMap.size(map)).toBe(0);
+    }));
+});
 
-      const work = Effect.async<number, BoomError>((_resume) => {
-        // never resumes
-      }).pipe(
-        Effect.timeoutFail({
-          duration: Duration.millis(COALESCE_TIMEOUT_MS),
-          onTimeout: () => new BoomError(),
-        }),
-      );
+describe("coalesce timeout propagation", () => {
+  it("sanity: forkDaemon + Effect.timeoutFail propagates to a Deferred under TestClock", () =>
+    Effect.gen(function* () {
+      const deferred = yield* Deferred.make<number, CoalesceTimeoutError>();
+      const work = timeoutWork();
 
-      yield* Effect.forkDaemon(
-        work.pipe(
-          Effect.exit,
-          Effect.flatMap((exit) =>
-            exit._tag === "Success"
-              ? Deferred.succeed(deferred, exit.value)
-              : Deferred.failCause(deferred, exit.cause),
-          ),
-        ),
-      );
-
+      yield* forkExitIntoDeferred(work, deferred);
       yield* Effect.yieldNow();
       yield* TestClock.adjust(Duration.millis(COALESCE_TIMEOUT_MS));
 
       const exit = yield* Effect.exit(Deferred.await(deferred));
       expect(Exit.isFailure(exit)).toBe(true);
-    }),
-);
+    }));
 
-it.effect(
-  "Effect.timeoutFail inside work propagates to awaiters via Deferred.failCause",
-  () =>
+  it("Effect.timeoutFail inside work propagates to awaiters via Deferred.failCause", () =>
     Effect.gen(function* () {
-      class BoomError extends Error {
-        constructor() {
-          super("BOOM");
-        }
-      }
-
-      const ref = yield* makeMapRef<number, BoomError>();
-
-      const work = Effect.async<number, BoomError>((_resume) => {
-        // never resumes
-      }).pipe(
-        Effect.timeoutFail({
-          duration: Duration.millis(COALESCE_TIMEOUT_MS),
-          onTimeout: () => new BoomError(),
-        }),
-      );
-
-      const fiber = yield* Effect.fork(Effect.exit(coalesce(ref, "k", work)));
+      const ref = yield* makeMapRef<number, CoalesceTimeoutError>();
+      const work = timeoutWork();
+      const fiber = yield* Effect.fork(coalesceExit(ref, work));
 
       yield* Effect.yieldNow();
       yield* TestClock.adjust(Duration.millis(COALESCE_TIMEOUT_MS));
 
       const exit = yield* Fiber.join(fiber);
-      expect(Exit.isFailure(exit)).toBe(true);
-      if (Exit.isFailure(exit)) {
-        const fail = Cause.failureOption(exit.cause);
-        expect(Option.isSome(fail)).toBe(true);
-        if (Option.isSome(fail)) {
-          expect(fail.value).toBeInstanceOf(BoomError);
-        }
-      }
+      expectFailureInstance(exit, CoalesceTimeoutError);
 
       const map = yield* Ref.get(ref);
       expect(HashMap.size(map)).toBe(0);
-    }),
-);
+    }));
+});
 
-it.effect(
-  "drainCoalesceMap interrupts pending waiters and clears the map",
-  () =>
+describe("drainCoalesceMap", () => {
+  it("drainCoalesceMap interrupts pending waiters and clears the map", () =>
     Effect.gen(function* () {
       const ref = yield* makeMapRef<string, never>();
+      const fiber = yield* Effect.fork(coalesce(ref, SAME_KEY, Effect.never));
 
-      // Work that never completes on its own — only drainCoalesceMap will
-      // unblock it, via Deferred.interrupt.
-      const blocked = Effect.never as Effect.Effect<string, never>;
-
-      // Fork the waiter so we can drain the map while it's still pending.
-      const fiber = yield* Effect.fork(coalesce(ref, "k", blocked));
-
-      // Give the fork a tick to install its Deferred in the map.
       yield* Effect.yieldNow();
       const beforeDrain = yield* Ref.get(ref);
       expect(HashMap.size(beforeDrain)).toBe(1);
 
       yield* drainCoalesceMap(ref);
 
-      // Waiter sees interruption, not a value or a typed failure.
       const exit = yield* fiber.await;
       expect(Exit.isInterrupted(exit)).toBe(true);
 
-      // Map was cleared.
       const afterDrain = yield* Ref.get(ref);
       expect(HashMap.size(afterDrain)).toBe(0);
+    }));
+});
+
+const makeMapRef = <A, E>() =>
+  Ref.make(HashMap.empty<string, Deferred.Deferred<A, E>>());
+
+function countedWork(counter: Ref.Ref<number>) {
+  return Effect.gen(function* () {
+    const n = yield* Ref.updateAndGet(counter, (x) => x + 1);
+    yield* Effect.yieldNow();
+    return n;
+  });
+}
+
+function failingCountedWork(counter: Ref.Ref<number>) {
+  return Effect.gen(function* () {
+    yield* Ref.update(counter, (x) => x + 1);
+    yield* Effect.yieldNow();
+    return yield* Effect.fail(WORK_FAILURE_MESSAGE);
+  });
+}
+
+function runConcurrentCoalesce<A, E>(
+  ref: Ref.Ref<HashMap.HashMap<string, Deferred.Deferred<A, E>>>,
+  work: Effect.Effect<A, E>,
+) {
+  return Effect.forEach(SAME_KEY_REQUESTS, coalesceSameKey(ref, work), {
+    concurrency: SAME_KEY_REQUESTS.length,
+  });
+}
+
+function runConcurrentCoalesceExits<A, E>(
+  ref: Ref.Ref<HashMap.HashMap<string, Deferred.Deferred<A, E>>>,
+  work: Effect.Effect<A, E>,
+) {
+  return Effect.forEach(FAILURE_WAITERS, coalesceSameKeyExit(ref, work), {
+    concurrency: FAILURE_WAITERS.length,
+  });
+}
+
+function coalesceSameKey<A, E>(
+  ref: Ref.Ref<HashMap.HashMap<string, Deferred.Deferred<A, E>>>,
+  work: Effect.Effect<A, E>,
+) {
+  return () => coalesce(ref, SAME_KEY, work);
+}
+
+function coalesceSameKeyExit<A, E>(
+  ref: Ref.Ref<HashMap.HashMap<string, Deferred.Deferred<A, E>>>,
+  work: Effect.Effect<A, E>,
+) {
+  return () => coalesceExit(ref, work);
+}
+
+function coalesceExit<A, E>(
+  ref: Ref.Ref<HashMap.HashMap<string, Deferred.Deferred<A, E>>>,
+  work: Effect.Effect<A, E>,
+) {
+  return Effect.exit(coalesce(ref, SAME_KEY, work));
+}
+
+function assertSuccessfulCoalesceValue(value: string) {
+  const snapshot = Effect.runSync(successfulCoalesceSnapshot(value));
+  expect(snapshot.result).toBe(value);
+  expect(snapshot.mapSize).toBe(0);
+}
+
+function successfulCoalesceSnapshot(value: string) {
+  return Effect.gen(function* () {
+    const ref = yield* makeMapRef<string, never>();
+    const result = yield* coalesce(ref, SAME_KEY, Effect.succeed(value));
+    const map = yield* Ref.get(ref);
+    return { result, mapSize: HashMap.size(map) };
+  });
+}
+
+function timeoutWork() {
+  return Effect.async<number, CoalesceTimeoutError>(() => undefined).pipe(
+    Effect.timeoutFail({
+      duration: Duration.millis(COALESCE_TIMEOUT_MS),
+      onTimeout: () => new CoalesceTimeoutError(),
     }),
-);
+  );
+}
+
+function forkExitIntoDeferred<A, E>(
+  work: Effect.Effect<A, E>,
+  deferred: Deferred.Deferred<A, E>,
+) {
+  return Effect.forkDaemon(
+    work.pipe(
+      Effect.exit,
+      Effect.flatMap((exit) =>
+        Exit.matchEffect(exit, {
+          onFailure: (cause) => Deferred.failCause(deferred, cause),
+          onSuccess: (value) => Deferred.succeed(deferred, value),
+        }),
+      ),
+    ),
+  );
+}
+
+function expectAllResults<A>(results: readonly A[], expected: A) {
+  for (const result of results) {
+    expect(result).toBe(expected);
+  }
+}
+
+function failureOption<E>(exit: Exit.Exit<unknown, E>): Option.Option<E> {
+  return Exit.match(exit, {
+    onFailure: Cause.failureOption,
+    onSuccess: () => Option.none(),
+  });
+}
+
+function expectFailureValue<E>(exit: Exit.Exit<unknown, E>, expected: E) {
+  const actual = Option.match(failureOption(exit), {
+    onNone: () => undefined,
+    onSome: (error) => error,
+  });
+  expect(actual).toBe(expected);
+}
+
+function expectFailureInstance<E>(
+  exit: Exit.Exit<unknown, E>,
+  expectedClass: abstract new (...args: never[]) => E,
+) {
+  const matchesExpectedClass = Option.match(failureOption(exit), {
+    onNone: () => false,
+    onSome: (error) => error instanceof expectedClass,
+  });
+  expect(matchesExpectedClass).toBe(true);
+}

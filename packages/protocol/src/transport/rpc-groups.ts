@@ -15,16 +15,19 @@ type AnyNotificationDefinition = NotificationDefinition<string, TSchema>;
 export type DecodedRpcRequest<D extends AnyRpcDefinition> =
   D extends AnyRpcDefinition
     ? {
+        readonly frame: RequestFrame;
         readonly id: JsonRpcId;
         readonly definition: D;
         readonly params: ParamsOf<D>;
       }
     : never;
 
-/** A decoded notification carries the discriminator + descriptor + typed
+/**
+ * A decoded notification carries the discriminator + descriptor + typed
  * params + the original wire `jsonrpc`. It does NOT extend `NotificationFrame`
  * — re-encoding goes through `definition.encode(params)`, not by re-serializing
- * this struct, so the strict-additionalProperties wire schema stays unstuck. */
+ * this struct, so the strict-additionalProperties wire schema stays unstuck.
+ */
 export type DecodedNotification<D extends AnyNotificationDefinition> =
   D extends AnyNotificationDefinition
     ? {
@@ -84,6 +87,7 @@ export function decodeRpcRequest<
     return Effect.fail(new InvalidRpcParamsError({ frame, definition }));
   }
   return Effect.succeed({
+    frame,
     id: frame.id,
     definition,
     params,

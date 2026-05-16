@@ -1,5 +1,16 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { Cause, Effect, Exit, Fiber, Schema } from "effect";
+import { it as effectIt } from "@effect/vitest";
+import { afterEach, beforeEach, describe, expect, vi } from "vitest";
+import {
+  Cause,
+  Data,
+  Duration,
+  Effect,
+  Exit,
+  Fiber,
+  Option,
+  Schedule,
+  Schema,
+} from "effect";
 import {
   WebhookClient,
   WebhookDecodeError,
@@ -8,176 +19,275 @@ import {
   WebhookTimeoutError,
 } from "./webhook.js";
 
+const it = effectIt.live;
+
 const OkSchema = Schema.Struct({ ok: Schema.Boolean });
+const HTTP_OK = 200;
 const HTTP_FORBIDDEN = 403;
 const FAST_WEBHOOK_TIMEOUT_MS = 50;
+const WEBHOOK_TIMEOUT_MS = 5000;
+const INTERRUPT_TIMEOUT_MS = 60_000;
+const WEBHOOK_USERS_URL = "https://hook.test/users";
+const WEBHOOK_TEST_URL = "https://hook.test/x";
+const USERS_VALIDATE_EVENT = "users.validate";
+const TEST_EVENT = "test";
+const TEST_TIMEOUT_EVENT = "test.timeout";
+const TEST_SCHEMA_EVENT = "test.schema";
+const TEST_NETWORK_EVENT = "test.net";
+const TEST_INTERRUPT_EVENT = "test.interrupt";
+const FORBIDDEN_BODY = "forbidden";
+const NETWORK_ERROR_MESSAGE = "ECONNREFUSED";
+const ABORTED_MESSAGE = "aborted";
+const POST_METHOD = "POST";
+const OK_RESPONSE_BODY = { ok: true } as const;
+const INVALID_RESPONSE_BODY = { ok: "not a boolean" } as const;
+const CAPTURED_SIGNAL_RETRY_COUNT = 20;
 
-// -- WebhookClient (sync) ---------------------------------------------------
+class CapturedSignalMissing extends Data.TaggedError(
+  "CapturedSignalMissing",
+)<{}> {}
 
-describe("WebhookClient.call", () => {
-  let client: WebhookClient;
+class FetchRejected extends Data.TaggedError("FetchRejected")<{
+  readonly message: string;
+}> {}
 
-  beforeEach(() => {
-    client = new WebhookClient(5);
-    vi.stubGlobal("fetch", vi.fn());
-  });
+class FetchAborted extends Data.TaggedError("FetchAborted")<{
+  readonly message: string;
+}> {}
 
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
+let client: WebhookClient;
 
-  it("returns parsed JSON on 200 response", async () => {
-    vi.mocked(fetch).mockResolvedValue(
-      new Response(JSON.stringify({ ok: true }), { status: 200 }),
-    );
+beforeEach(() => {
+  client = new WebhookClient(5);
+  vi.stubGlobal("fetch", vi.fn());
+});
 
-    const result = await Effect.runPromise(
-      client.call({
-        url: "https://hook.test/users",
-        event: "users.validate",
-        body: { userId: "u1" },
-        timeoutMs: 5000,
-        schema: OkSchema,
-      }),
-    );
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
-    expect(result).toEqual({ ok: true });
+describe("WebhookClient.call success", () => {
+  it("returns parsed JSON on 200 response", () => returnsParsedJson());
+});
+
+describe("WebhookClient.call remote failures", () => {
+  it("fails with WebhookHttpError on non-2xx status", () =>
+    failsWithHttpError());
+
+  it("fails with WebhookDecodeError when body does not match schema", () =>
+    failsWithDecodeError());
+});
+
+describe("WebhookClient.call transport failures", () => {
+  it("fails with WebhookTimeoutError when timeoutMs elapses", () =>
+    failsWithTimeoutError());
+
+  it("fails with WebhookNetworkError on fetch rejection", () =>
+    failsWithNetworkError());
+});
+
+describe("WebhookClient.call interruption", () => {
+  it("aborts fetch via AbortSignal on fiber interrupt", () =>
+    abortsFetchOnInterrupt());
+});
+
+function returnsParsedJson() {
+  vi.mocked(fetch).mockResolvedValue(jsonResponse(OK_RESPONSE_BODY, HTTP_OK));
+
+  return Effect.gen(function* () {
+    const result = yield* client.call({
+      url: WEBHOOK_USERS_URL,
+      event: USERS_VALIDATE_EVENT,
+      body: { userId: "u1" },
+      timeoutMs: WEBHOOK_TIMEOUT_MS,
+      schema: OkSchema,
+    });
+
+    expect(result).toEqual(OK_RESPONSE_BODY);
     expect(fetch).toHaveBeenCalledWith(
-      "https://hook.test/users",
+      WEBHOOK_USERS_URL,
       expect.objectContaining({
-        method: "POST",
+        method: POST_METHOD,
         headers: expect.objectContaining({
-          "X-MoltZap-Event": "users.validate",
+          "X-MoltZap-Event": USERS_VALIDATE_EVENT,
         }),
       }),
     );
   });
+}
 
-  it("fails with WebhookHttpError on non-2xx status", async () => {
-    vi.mocked(fetch).mockResolvedValue(
-      new Response("forbidden", { status: HTTP_FORBIDDEN }),
+function failsWithHttpError() {
+  vi.mocked(fetch).mockResolvedValue(
+    new Response(FORBIDDEN_BODY, { status: HTTP_FORBIDDEN }),
+  );
+
+  return Effect.gen(function* () {
+    const error = expectHttpError(
+      yield* Effect.exit(
+        client.call({
+          url: WEBHOOK_TEST_URL,
+          event: TEST_EVENT,
+          body: {},
+          timeoutMs: WEBHOOK_TIMEOUT_MS,
+          schema: Schema.Unknown,
+        }),
+      ),
     );
 
-    const exit = await Effect.runPromiseExit(
-      client.call({
-        url: "https://hook.test/x",
-        event: "test",
-        body: {},
-        timeoutMs: 5000,
-        schema: Schema.Unknown,
-      }),
-    );
-
-    expect(exit._tag).toBe("Failure");
-    if (exit._tag !== "Failure") return;
-    const err = Cause.failureOption(exit.cause);
-    expect(err._tag).toBe("Some");
-    if (err._tag !== "Some") return;
-    expect(err.value._tag).toBe("WebhookHttpError");
-    const httpErr = err.value as WebhookHttpError;
-    expect(httpErr.status).toBe(HTTP_FORBIDDEN);
-    expect(httpErr.body).toBe("forbidden");
+    expect(error.status).toBe(HTTP_FORBIDDEN);
+    expect(error.body).toBe(FORBIDDEN_BODY);
   });
+}
 
-  it("fails with WebhookTimeoutError when timeoutMs elapses", async () => {
-    // fetch never resolves — Effect.timeoutFail triggers on the real
-    // clock. We keep the budget small so the test stays fast.
-    vi.mocked(fetch).mockImplementation(
-      () => new Promise(() => undefined) as never,
+function failsWithTimeoutError() {
+  vi.mocked(fetch).mockImplementation(() => Effect.runPromise(Effect.never));
+
+  return Effect.gen(function* () {
+    const error = expectTimeoutError(
+      yield* Effect.exit(
+        client.call({
+          url: WEBHOOK_TEST_URL,
+          event: TEST_TIMEOUT_EVENT,
+          body: {},
+          timeoutMs: FAST_WEBHOOK_TIMEOUT_MS,
+          schema: Schema.Unknown,
+        }),
+      ),
     );
 
-    const exit = await Effect.runPromiseExit(
-      client.call({
-        url: "https://hook.test/x",
-        event: "test.timeout",
-        body: {},
-        timeoutMs: FAST_WEBHOOK_TIMEOUT_MS,
-        schema: Schema.Unknown,
-      }),
-    );
-
-    expect(Exit.isFailure(exit)).toBe(true);
-    if (!Exit.isFailure(exit)) return;
-    const err = Cause.failureOption(exit.cause);
-    if (err._tag !== "Some") throw new Error("expected failure");
-    expect(err.value._tag).toBe("WebhookTimeoutError");
-    expect((err.value as WebhookTimeoutError).timeoutMs).toBe(
-      FAST_WEBHOOK_TIMEOUT_MS,
-    );
+    expect(error.timeoutMs).toBe(FAST_WEBHOOK_TIMEOUT_MS);
   });
+}
 
-  it("fails with WebhookDecodeError when body doesn't match schema", async () => {
-    vi.mocked(fetch).mockResolvedValue(
-      new Response(JSON.stringify({ ok: "not a boolean" }), { status: 200 }),
+function failsWithDecodeError() {
+  vi.mocked(fetch).mockResolvedValue(
+    jsonResponse(INVALID_RESPONSE_BODY, HTTP_OK),
+  );
+
+  return Effect.gen(function* () {
+    const error = expectDecodeError(
+      yield* Effect.exit(
+        client.call({
+          url: WEBHOOK_TEST_URL,
+          event: TEST_SCHEMA_EVENT,
+          body: {},
+          timeoutMs: WEBHOOK_TIMEOUT_MS,
+          schema: OkSchema,
+        }),
+      ),
     );
 
-    const exit = await Effect.runPromiseExit(
-      client.call({
-        url: "https://hook.test/x",
-        event: "test.schema",
-        body: {},
-        timeoutMs: 5000,
-        schema: OkSchema,
-      }),
-    );
-
-    expect(Exit.isFailure(exit)).toBe(true);
-    if (!Exit.isFailure(exit)) return;
-    const err = Cause.failureOption(exit.cause);
-    if (err._tag !== "Some") throw new Error("expected failure");
-    expect(err.value._tag).toBe("WebhookDecodeError");
-    expect((err.value as WebhookDecodeError).event).toBe("test.schema");
+    expect(error.event).toBe(TEST_SCHEMA_EVENT);
   });
+}
 
-  it("fails with WebhookNetworkError on fetch rejection", async () => {
-    vi.mocked(fetch).mockRejectedValue(new Error("ECONNREFUSED"));
+function failsWithNetworkError() {
+  const cause = new FetchRejected({ message: NETWORK_ERROR_MESSAGE });
+  vi.mocked(fetch).mockRejectedValue(cause);
 
-    const exit = await Effect.runPromiseExit(
-      client.call({
-        url: "https://hook.test/x",
-        event: "test.net",
-        body: {},
-        timeoutMs: 5000,
-        schema: Schema.Unknown,
-      }),
+  return Effect.gen(function* () {
+    const error = expectNetworkError(
+      yield* Effect.exit(
+        client.call({
+          url: WEBHOOK_TEST_URL,
+          event: TEST_NETWORK_EVENT,
+          body: {},
+          timeoutMs: WEBHOOK_TIMEOUT_MS,
+          schema: Schema.Unknown,
+        }),
+      ),
     );
 
-    expect(Exit.isFailure(exit)).toBe(true);
-    if (!Exit.isFailure(exit)) return;
-    const err = Cause.failureOption(exit.cause);
-    if (err._tag !== "Some") throw new Error("expected failure");
-    expect(err.value._tag).toBe("WebhookNetworkError");
-    const netErr = err.value as WebhookNetworkError;
-    expect(netErr.cause).toBeInstanceOf(Error);
-    expect((netErr.cause as Error).message).toBe("ECONNREFUSED");
+    expect(error.cause).toBe(cause);
   });
+}
 
-  it("aborts fetch via AbortSignal on fiber interrupt", async () => {
-    let capturedSignal: AbortSignal | undefined;
-    vi.mocked(fetch).mockImplementation((_url, init) => {
-      capturedSignal = (init as RequestInit).signal as AbortSignal;
-      return new Promise((_resolve, reject) => {
-        capturedSignal?.addEventListener("abort", () =>
-          reject(new Error("aborted")),
-        );
-      });
+function abortsFetchOnInterrupt() {
+  let capturedSignal: AbortSignal | undefined;
+  vi.mocked(fetch).mockImplementation((_url, init) => {
+    capturedSignal = (init as RequestInit).signal as AbortSignal;
+    return new Promise((_resolve, reject) => {
+      capturedSignal?.addEventListener("abort", () =>
+        reject(new FetchAborted({ message: ABORTED_MESSAGE })),
+      );
     });
+  });
 
-    const fiber = Effect.runFork(
+  return Effect.gen(function* () {
+    const fiber = yield* Effect.fork(
       client.call({
-        url: "https://hook.test/x",
-        event: "test.interrupt",
+        url: WEBHOOK_TEST_URL,
+        event: TEST_INTERRUPT_EVENT,
         body: {},
-        timeoutMs: 60000,
+        timeoutMs: INTERRUPT_TIMEOUT_MS,
         schema: Schema.Unknown,
       }),
     );
 
-    // Give the fetch mock one tick to register.
-    await new Promise((r) => setTimeout(r, 0));
-    expect(capturedSignal?.aborted).toBe(false);
+    const signal = yield* waitForCapturedSignal(() => capturedSignal);
+    expect(signal.aborted).toBe(false);
 
-    await Effect.runPromise(Fiber.interrupt(fiber));
-    expect(capturedSignal?.aborted).toBe(true);
+    yield* Fiber.interrupt(fiber);
+    expect(signal.aborted).toBe(true);
   });
-});
+}
+
+function jsonResponse(body: unknown, status: number): Response {
+  return new Response(JSON.stringify(body), { status });
+}
+
+function expectFailure(exit: Exit.Exit<unknown, unknown>): unknown {
+  expect(Exit.isFailure(exit)).toBe(true);
+  if (!Exit.isFailure(exit)) expect.fail("expected failure exit");
+  const failure = Cause.failureOption(exit.cause);
+  expect(Option.isSome(failure)).toBe(true);
+  if (Option.isNone(failure)) expect.fail("expected typed failure");
+  return failure.value;
+}
+
+function expectHttpError(exit: Exit.Exit<unknown, unknown>): WebhookHttpError {
+  const failure = expectFailure(exit);
+  expect(failure).toBeInstanceOf(WebhookHttpError);
+  return failure as WebhookHttpError;
+}
+
+function expectTimeoutError(
+  exit: Exit.Exit<unknown, unknown>,
+): WebhookTimeoutError {
+  const failure = expectFailure(exit);
+  expect(failure).toBeInstanceOf(WebhookTimeoutError);
+  return failure as WebhookTimeoutError;
+}
+
+function expectDecodeError(
+  exit: Exit.Exit<unknown, unknown>,
+): WebhookDecodeError {
+  const failure = expectFailure(exit);
+  expect(failure).toBeInstanceOf(WebhookDecodeError);
+  return failure as WebhookDecodeError;
+}
+
+function expectNetworkError(
+  exit: Exit.Exit<unknown, unknown>,
+): WebhookNetworkError {
+  const failure = expectFailure(exit);
+  expect(failure).toBeInstanceOf(WebhookNetworkError);
+  return failure as WebhookNetworkError;
+}
+
+function waitForCapturedSignal(
+  read: () => AbortSignal | undefined,
+): Effect.Effect<AbortSignal> {
+  return Effect.sync(read).pipe(
+    Effect.flatMap((signal) =>
+      signal
+        ? Effect.succeed(signal)
+        : Effect.fail(new CapturedSignalMissing()),
+    ),
+    Effect.retry({
+      times: CAPTURED_SIGNAL_RETRY_COUNT,
+      schedule: Schedule.spaced(Duration.millis(1)),
+    }),
+    Effect.orDie,
+  );
+}

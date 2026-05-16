@@ -113,6 +113,7 @@ export function acquireFixture(
 export interface TaggedObservation {
   readonly tag: string;
   readonly raw: Uint8Array;
+  readonly decoded: NotificationFrame;
   readonly params: Readonly<Record<string, unknown>>;
   readonly notificationName: NotificationFrame["method"];
 }
@@ -151,6 +152,7 @@ function filterTagged(
       out.push({
         tag,
         raw: o.rawBytes,
+        decoded: o.decoded,
         params,
         notificationName: o.decoded.method,
       });

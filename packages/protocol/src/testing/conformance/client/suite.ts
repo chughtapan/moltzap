@@ -82,6 +82,7 @@ export interface ClientConformanceSuiteOptions {
   readonly realClient: (args: {
     readonly testServerUrl: string;
   }) => Effect.Effect<RealClientHandle, RealClientLifecycleError, Scope.Scope>;
+
   /**
    * Toxiproxy control-plane URL. When `null`, adversity properties are
    * registered and surface `PropertyUnavailable`. Mirrors server-side
@@ -91,12 +92,38 @@ export interface ClientConformanceSuiteOptions {
   readonly replaySeed?: number;
   readonly numRuns?: number;
   readonly artifactDir?: string;
+
   /**
    * Default `true`. When `true`, TestServer binds behind Toxiproxy so
    * adversity toxics shape the wire between TestServer and the real
    * client. Set to `false` only for debugging.
    */
   readonly bindThroughToxiproxy?: boolean;
+}
+
+interface ClientSuiteAccumulator {
+  readonly passed: string[];
+  readonly deferred: { name: string; reason: string }[];
+  readonly unavailable: { name: string; reason: string }[];
+  readonly failed: SuiteResult["failed"][number][];
+}
+
+interface ClientRunPropertyInput {
+  readonly property: RegisteredProperty;
+  readonly seed: number;
+  readonly artifactDir: string;
+  readonly allowedCoverageGaps: ReadonlyArray<AllowedCoverageGap>;
+  readonly acc: ClientSuiteAccumulator;
+}
+
+interface ClientDefectRecordInput extends ClientRunPropertyInput {
+  readonly id: string;
+  readonly exit: Exit.Exit<void, PropertyFailure>;
+}
+
+interface ClientFailureRecordInput extends ClientRunPropertyInput {
+  readonly id: string;
+  readonly failure: PropertyFailure;
 }
 
 /**
@@ -217,89 +244,142 @@ function runAllClientProperties(
   return Effect.gen(function* () {
     yield* ensureArtifactDir(artifactDir);
     const properties = collectProperties(ctx);
-    const passed: string[] = [];
-    const deferred: { name: string; reason: string }[] = [];
-    const unavailable: { name: string; reason: string }[] = [];
-    const failed: SuiteResult["failed"][number][] = [];
-
+    const acc = emptyClientSuiteAccumulator();
     for (const p of properties) {
-      const id = `${p.category}/${p.name}`;
-      const exit = yield* Effect.exit(p.run);
-      if (Exit.isSuccess(exit)) {
-        passed.push(id);
-        continue;
-      }
-      const failure = firstTypedFailure(exit);
-      if (failure === null) {
-        const msg = exit.cause.toString();
-        failed.push({ name: id, failure: { _tag: "defect", message: msg } });
-        yield* writeArtifact(artifactDir, p, ctx.seed, { defect: msg });
-        continue;
-      }
-      switch (failure._tag) {
-        case "ConformancePropertyDeferred":
-          if (
-            isAllowedCoverageGap(
-              allowedCoverageGaps,
-              "deferred",
-              id,
-              failure.followUp,
-            )
-          ) {
-            deferred.push({ name: id, reason: failure.followUp });
-            break;
-          }
-          failed.push({ name: id, failure });
-          yield* writeArtifact(
-            artifactDir,
-            p,
-            ctx.seed,
-            failureArtifact(failure),
-          );
-          break;
-        case "ConformancePropertyUnavailable":
-          if (
-            isAllowedCoverageGap(
-              allowedCoverageGaps,
-              "unavailable",
-              id,
-              failure.reason,
-            )
-          ) {
-            unavailable.push({ name: id, reason: failure.reason });
-            break;
-          }
-          failed.push({ name: id, failure });
-          yield* writeArtifact(
-            artifactDir,
-            p,
-            ctx.seed,
-            failureArtifact(failure),
-          );
-          break;
-        case "ConformancePropertyAssertionFailure":
-        case "ConformancePropertyInvariantViolation":
-          failed.push({ name: id, failure });
-          yield* writeArtifact(
-            artifactDir,
-            p,
-            ctx.seed,
-            failureArtifact(failure),
-          );
-          break;
-        default: {
-          const _exhaustive: never = failure;
-          failed.push({
-            name: id,
-            failure: {
-              _tag: "defect",
-              message: `unhandled failure tag: ${String(_exhaustive)}`,
-            },
-          });
-        }
-      }
+      yield* runClientProperty({
+        property: p,
+        seed: ctx.seed,
+        artifactDir,
+        allowedCoverageGaps,
+        acc,
+      });
     }
-    return { seed: ctx.seed, passed, deferred, unavailable, failed };
+    return clientSuiteResult(ctx.seed, acc);
+  });
+}
+
+function emptyClientSuiteAccumulator(): ClientSuiteAccumulator {
+  return { passed: [], deferred: [], unavailable: [], failed: [] };
+}
+
+function clientSuiteResult(
+  seed: number,
+  acc: ClientSuiteAccumulator,
+): SuiteResult {
+  return {
+    seed,
+    passed: acc.passed,
+    deferred: acc.deferred,
+    unavailable: acc.unavailable,
+    failed: acc.failed,
+  };
+}
+
+function runClientProperty(input: ClientRunPropertyInput): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    const id = `${input.property.category}/${input.property.name}`;
+    const exit = yield* Effect.exit(input.property.run);
+    if (Exit.isSuccess(exit)) {
+      input.acc.passed.push(id);
+      return;
+    }
+    const failure = firstTypedFailure(exit);
+    if (failure === null) {
+      yield* recordClientDefect({ ...input, id, exit });
+      return;
+    }
+    yield* recordClientFailure({ ...input, id, failure });
+  });
+}
+
+function recordClientDefect(
+  input: ClientDefectRecordInput,
+): Effect.Effect<void> {
+  const message = Exit.isFailure(input.exit)
+    ? input.exit.cause.toString()
+    : "<success>";
+  input.acc.failed.push({
+    name: input.id,
+    failure: { _tag: "defect", message },
+  });
+  return writeArtifact(input.artifactDir, input.property, input.seed, {
+    defect: message,
+  });
+}
+
+function recordClientFailure(
+  input: ClientFailureRecordInput,
+): Effect.Effect<void> {
+  switch (input.failure._tag) {
+    case "ConformancePropertyDeferred":
+      return recordClientDeferred(input);
+    case "ConformancePropertyUnavailable":
+      return recordClientUnavailable(input);
+    case "ConformancePropertyAssertionFailure":
+    case "ConformancePropertyInvariantViolation":
+      return recordClientFailedProperty(input);
+    default:
+      return Effect.sync(() => recordClientUnhandledFailure(input));
+  }
+}
+
+function recordClientDeferred(
+  input: ClientFailureRecordInput,
+): Effect.Effect<void> {
+  const failure = input.failure;
+  if (failure._tag !== "ConformancePropertyDeferred") return Effect.void;
+  if (clientCoverageGapAllowed(input, "deferred", failure.followUp)) {
+    input.acc.deferred.push({ name: input.id, reason: failure.followUp });
+    return Effect.void;
+  }
+  return recordClientFailedProperty(input);
+}
+
+function recordClientUnavailable(
+  input: ClientFailureRecordInput,
+): Effect.Effect<void> {
+  const failure = input.failure;
+  if (failure._tag !== "ConformancePropertyUnavailable") return Effect.void;
+  if (clientCoverageGapAllowed(input, "unavailable", failure.reason)) {
+    input.acc.unavailable.push({ name: input.id, reason: failure.reason });
+    return Effect.void;
+  }
+  return recordClientFailedProperty(input);
+}
+
+function clientCoverageGapAllowed(
+  input: ClientFailureRecordInput,
+  kind: "deferred" | "unavailable",
+  reason: string,
+): boolean {
+  return isAllowedCoverageGap(
+    input.allowedCoverageGaps,
+    kind,
+    input.id,
+    reason,
+  );
+}
+
+function recordClientFailedProperty(
+  input: ClientFailureRecordInput,
+): Effect.Effect<void> {
+  input.acc.failed.push({ name: input.id, failure: input.failure });
+  return writeArtifact(
+    input.artifactDir,
+    input.property,
+    input.seed,
+    failureArtifact(input.failure),
+  );
+}
+
+function recordClientUnhandledFailure(input: ClientFailureRecordInput): void {
+  const failure = input.failure;
+  input.acc.failed.push({
+    name: input.id,
+    failure: {
+      _tag: "defect",
+      message: `unhandled failure tag: ${String(failure._tag)}`,
+    },
   });
 }
 

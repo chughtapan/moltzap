@@ -1,3 +1,6 @@
+/**
+ * @file Public barrel for the protocol conformance framework.
+ */
 export {
   type ConformanceArtifact,
   type ConformanceRunContext,

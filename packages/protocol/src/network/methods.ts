@@ -89,8 +89,10 @@ export const PresenceUpdate = defineRpc({
   result: Type.Object({}, { additionalProperties: false }),
 });
 
-/** Replace-semantics: replaces the connection's subscriber set with
- * `agentIds`. Empty array unsubscribes from all. Idempotent. */
+/**
+ * Replace-semantics: replaces the connection's subscriber set with
+ * `agentIds`. Empty array unsubscribes from all. Idempotent.
+ */
 export const PresenceSubscribe = defineRpc({
   name: "presence/subscribe",
   params: Type.Object(

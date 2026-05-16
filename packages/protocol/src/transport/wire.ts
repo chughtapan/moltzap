@@ -6,12 +6,14 @@ import { brandedString } from "../schema-primitives.js";
 
 // ── AJV ──────────────────────────────────────────────────────────────
 
-/** Single shared AJV instance for the protocol package. Both `defineRpc()`
+/**
+ * Single shared AJV instance for the protocol package. Both `defineRpc()`
  * and `defineNotification()` register their TypeBox schemas against this
  * instance, so every wire boundary uses the same compiled validator pool
  * with identical options. The instance itself is not exported because
  * AJV mutates its own `opts` on first compile; the factory exposes only
- * `compile`, sealed inside the closure. */
+ * `compile`, sealed inside the closure.
+ */
 const ajvInstance = addFormats(new Ajv({ strict: true, allErrors: true }));
 
 export const ajv: {
@@ -42,9 +44,11 @@ export type JsonRpcMethod<Name extends string = string> = Name &
 
 const JsonRpcMethodBrand = Brand.nominal<JsonRpcMethod>();
 
-/** Internal factory for descriptor construction (`defineRpc`,
+/**
+ * Internal factory for descriptor construction (`defineRpc`,
  * `defineNotification`). Not on the package barrel — callers pass plain
- * strings to frame builders, which brand internally. */
+ * strings to frame builders, which brand internally.
+ */
 export const jsonRpcMethod = <const Name extends string>(
   method: Name,
 ): JsonRpcMethod<Name> => JsonRpcMethodBrand(method) as JsonRpcMethod<Name>;
@@ -213,9 +217,11 @@ export function responseFrame(
   } as ResponseFrame;
 }
 
-/** Public wire-error response encoder. Constructs a JSON-RPC error
+/**
+ * Public wire-error response encoder. Constructs a JSON-RPC error
  * response for any wire id (no method binding). Method-tied success
- * responses go through `RpcDefinition.encodeResponse`. */
+ * responses go through `RpcDefinition.encodeResponse`.
+ */
 export function encodeErrorResponse(
   id: JsonRpcId | null,
   error: ResponseFrameError,

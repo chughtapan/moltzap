@@ -23,7 +23,7 @@
  * `PropertyUnavailable` when `ctx.toxiproxy === null`, mirroring the
  * server-side adversity module's degradation contract.
  */
-import { Clock, Effect } from "effect";
+import { Clock, Effect, type Exit, type Scope } from "effect";
 import { notificationFrame } from "../../../transport/wire.js";
 import { MessageReceivedNotificationDefinition } from "../../../task/methods.js";
 import {
@@ -38,7 +38,10 @@ import {
   collectTagged,
   invariant,
   subscribeAll,
+  type ClientFixture,
+  type TaggedObservation,
 } from "./_fixtures.js";
+import type { PropertyFailure } from "../_shared/registry.js";
 
 import { AgentsList } from "../../../identity/methods.js";
 
@@ -67,69 +70,99 @@ export function registerLatencyResilienceClient(
     CATEGORY,
     PROPERTY_LATENCY_RESILIENCE_CLIENT,
     "fan-out survives latency (Toxiproxy) or degrades to cardinality check",
-    Effect.scoped(
-      Effect.gen(function* () {
-        if (ctx.toxiproxy === null) {
-          return yield* Effect.fail(
-            unavailable(
-              PROPERTY_LATENCY_RESILIENCE_CLIENT,
-              "Toxiproxy not provisioned; client-side latency toxic unavailable in this run",
-            ),
-          );
-        }
-        const fx = yield* acquireFixture(
-          ctx,
+    Effect.scoped(runLatencyResilienceClient(ctx)),
+  );
+}
+
+function runLatencyResilienceClient(
+  ctx: ClientConformanceRunContext,
+): Effect.Effect<void, PropertyFailure, Scope.Scope> {
+  return Effect.gen(function* () {
+    yield* requireToxiproxy(ctx, PROPERTY_LATENCY_RESILIENCE_CLIENT);
+    const fx = yield* acquireFixture(
+      ctx,
+      CATEGORY,
+      PROPERTY_LATENCY_RESILIENCE_CLIENT,
+    );
+    yield* subscribeAll(fx.handle);
+    const tags = yield* emitLatencyNotifications(fx);
+    const observed = yield* collectTagged(fx.handle, hasAnyTag(tags), {
+      expected: LATENCY_NOTIFICATION_COUNT,
+      budgetMs: PROPERTY_BUDGET_MS,
+    });
+    yield* assertLatencyObservationCount(observed);
+  }).pipe(Effect.withSpan("registerLatencyResilienceClient"));
+}
+
+function requireToxiproxy(
+  ctx: ClientConformanceRunContext,
+  propertyName: string,
+): Effect.Effect<void, PropertyFailure> {
+  return ctx.toxiproxy === null
+    ? Effect.fail(
+        unavailable(
+          propertyName,
+          "Toxiproxy not provisioned; client-side latency toxic unavailable in this run",
+        ),
+      )
+    : Effect.void;
+}
+
+const LATENCY_NOTIFICATION_COUNT = 3;
+
+function emitLatencyNotifications(
+  fx: ClientFixture,
+): Effect.Effect<ReadonlyArray<string>> {
+  return Effect.gen(function* () {
+    const tags: string[] = [];
+    const senderId = agentId(fx.handle.agentId);
+    const convId = toConversationId("00000000-0000-4000-8000-1a7e9c1ea7e9");
+    for (let i = 0; i < LATENCY_NOTIFICATION_COUNT; i++) {
+      const tag = yield* fx.window.freshEmissionTag;
+      tags.push(tag);
+      yield* fx.window.emitTaggedNotification({
+        connection: fx.connection,
+        base: latencyNotification(senderId, convId, i),
+        emissionTag: tag,
+      });
+    }
+    return tags;
+  });
+}
+
+function latencyNotification(
+  senderId: ReturnType<typeof agentId>,
+  conversationId: ReturnType<typeof toConversationId>,
+  slot: number,
+) {
+  return notificationFrame(MessageReceivedNotificationDefinition, {
+    message: {
+      id: messageId(`00000000-0000-4000-8000-${latencySlot(slot)}`),
+      conversationId,
+      senderId,
+      parts: [{ type: "text", text: `latency-${slot}` }],
+      createdAt: new Date(0).toISOString(),
+    },
+  });
+}
+
+function hasAnyTag(tags: ReadonlyArray<string>): (tag: string) => boolean {
+  const tagSet = new Set(tags);
+  return (tag) => tagSet.has(tag);
+}
+
+function assertLatencyObservationCount(
+  observed: ReadonlyArray<TaggedObservation>,
+): Effect.Effect<void, PropertyFailure> {
+  return observed.length === LATENCY_NOTIFICATION_COUNT
+    ? Effect.void
+    : Effect.fail(
+        invariant(
           CATEGORY,
           PROPERTY_LATENCY_RESILIENCE_CLIENT,
-        );
-        yield* subscribeAll(fx.handle);
-        // Phase-12 (#222) typed inbound decoder validates per-method
-        // paramsSchema, so the vehicle frame must be schema-conformant
-        // for `messages/received`. Per-slot unique `messageId` keeps wire
-        // bytes distinct so `lookupTagForRawBytes` doesn't collapse the
-        // N emissions onto a single registry key.
-        const N = 3;
-        const senderId = agentId(fx.handle.agentId);
-        const convId = toConversationId("00000000-0000-4000-8000-1a7e9c1ea7e9");
-        const tags: string[] = [];
-        for (let i = 0; i < N; i++) {
-          const base = notificationFrame(
-            MessageReceivedNotificationDefinition,
-            {
-              message: {
-                id: messageId(`00000000-0000-4000-8000-${latencySlot(i)}`),
-                conversationId: convId,
-                senderId,
-                parts: [{ type: "text", text: `latency-${i}` }],
-                createdAt: new Date(0).toISOString(),
-              },
-            },
-          );
-          const tag = yield* fx.window.freshEmissionTag;
-          tags.push(tag);
-          yield* fx.window.emitTaggedNotification({
-            connection: fx.connection,
-            base,
-            emissionTag: tag,
-          });
-        }
-        const tagSet = new Set(tags);
-        const observed = yield* collectTagged(fx.handle, (t) => tagSet.has(t), {
-          expected: N,
-          budgetMs: PROPERTY_BUDGET_MS,
-        });
-        if (observed.length !== N) {
-          return yield* Effect.fail(
-            invariant(
-              CATEGORY,
-              PROPERTY_LATENCY_RESILIENCE_CLIENT,
-              `expected ${N} under latency, got ${observed.length}`,
-            ),
-          );
-        }
-      }).pipe(Effect.withSpan("registerLatencyResilienceClient")),
-    ),
-  );
+          `expected ${LATENCY_NOTIFICATION_COUNT} under latency, got ${observed.length}`,
+        ),
+      );
 }
 
 const LATENCY_SLOT_PAD = 12;
@@ -202,70 +235,76 @@ export function registerTimeoutSurfaceClient(
     CATEGORY,
     PROPERTY_TIMEOUT_SURFACE_CLIENT,
     "never-responded RPC surfaces typed RpcTimeoutError on the real client",
-    Effect.scoped(
-      Effect.gen(function* () {
-        const fx = yield* acquireFixture(
-          ctx,
+    Effect.scoped(runTimeoutSurfaceClient(ctx)),
+  );
+}
+
+function runTimeoutSurfaceClient(
+  ctx: ClientConformanceRunContext,
+): Effect.Effect<void, PropertyFailure, Scope.Scope> {
+  return Effect.gen(function* () {
+    const fx = yield* acquireFixture(
+      ctx,
+      CATEGORY,
+      PROPERTY_TIMEOUT_SURFACE_CLIENT,
+    );
+    const start = yield* Clock.currentTimeMillis;
+    const outcome = yield* Effect.exit(silentAgentsListCall(fx));
+    const elapsed = (yield* Clock.currentTimeMillis) - start;
+    yield* assertTimeoutSurface(outcome, elapsed);
+  }).pipe(Effect.withSpan("registerTimeoutSurfaceClient"));
+}
+
+function silentAgentsListCall(fx: ClientFixture) {
+  return fx.handle.call.call(AgentsList.name, {}).pipe(
+    Effect.timeoutFail({
+      duration: `${PROPERTY_BUDGET_MS} millis`,
+      onTimeout: () =>
+        unavailable(
+          PROPERTY_TIMEOUT_SURFACE_CLIENT,
+          `client timeout > ${PROPERTY_BUDGET_MS}ms suite budget`,
+        ),
+    }),
+  );
+}
+
+function assertTimeoutSurface(
+  outcome: Exit.Exit<unknown, unknown>,
+  elapsed: number,
+): Effect.Effect<void, PropertyFailure> {
+  if (outcome._tag === "Success") {
+    return Effect.fail(
+      invariant(
+        CATEGORY,
+        PROPERTY_TIMEOUT_SURFACE_CLIENT,
+        "RPC unexpectedly resolved without a response",
+      ),
+    );
+  }
+  return assertTimeoutCause(String(outcome.cause), elapsed);
+}
+
+function assertTimeoutCause(
+  causeStr: string,
+  elapsed: number,
+): Effect.Effect<void, PropertyFailure> {
+  if (causeStr.includes("PropertyUnavailable")) {
+    return Effect.fail(
+      unavailable(
+        PROPERTY_TIMEOUT_SURFACE_CLIENT,
+        `client timeout exceeded suite budget (${elapsed}ms)`,
+      ),
+    );
+  }
+  return causeStr.includes("RpcTimeoutError") || causeStr.includes("timeout")
+    ? Effect.void
+    : Effect.fail(
+        invariant(
           CATEGORY,
           PROPERTY_TIMEOUT_SURFACE_CLIENT,
-        );
-        // Do NOT start a responder — TestServer silently absorbs the
-        // request. The real client's internal timeout must fire.
-        //
-        // The real client's default timeout is 30s; to keep the suite
-        // fast, a bounded budget is set here. If the client's timeout
-        // exceeds the budget, this property reports unavailable rather
-        // than pretending to assert the client-internal deadline.
-        const start = yield* Clock.currentTimeMillis;
-        const outcome = yield* Effect.exit(
-          fx.handle.call.call(AgentsList.name, {}).pipe(
-            Effect.timeoutFail({
-              duration: `${PROPERTY_BUDGET_MS} millis`,
-              onTimeout: () =>
-                unavailable(
-                  PROPERTY_TIMEOUT_SURFACE_CLIENT,
-                  `client timeout > ${PROPERTY_BUDGET_MS}ms suite budget`,
-                ),
-            }),
-          ),
-        );
-        const elapsed = (yield* Clock.currentTimeMillis) - start;
-        if (outcome._tag === "Success") {
-          return yield* Effect.fail(
-            invariant(
-              CATEGORY,
-              PROPERTY_TIMEOUT_SURFACE_CLIENT,
-              "RPC unexpectedly resolved without a response",
-            ),
-          );
-        }
-        // Walk the cause chain for a RealClientRpcError matching the
-        // typed-timeout contract. `PropertyUnavailable` from the suite
-        // budget is a different branch.
-        const causeStr = String(outcome.cause);
-        if (causeStr.includes("PropertyUnavailable")) {
-          return yield* Effect.fail(
-            unavailable(
-              PROPERTY_TIMEOUT_SURFACE_CLIENT,
-              `client timeout exceeded suite budget (${elapsed}ms)`,
-            ),
-          );
-        }
-        if (
-          !causeStr.includes("RpcTimeoutError") &&
-          !causeStr.includes("timeout")
-        ) {
-          return yield* Effect.fail(
-            invariant(
-              CATEGORY,
-              PROPERTY_TIMEOUT_SURFACE_CLIENT,
-              `expected timeout-shape rejection, got: ${causeStr.slice(0, TIMEOUT_ERROR_PREVIEW_CHARS)}`,
-            ),
-          );
-        }
-      }).pipe(Effect.withSpan("registerTimeoutSurfaceClient")),
-    ),
-  );
+          `expected timeout-shape rejection, got: ${causeStr.slice(0, TIMEOUT_ERROR_PREVIEW_CHARS)}`,
+        ),
+      );
 }
 
 /**

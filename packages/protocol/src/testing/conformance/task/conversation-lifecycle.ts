@@ -27,6 +27,8 @@ import {
   waitForConversationUpdatedNotification,
   waitForMessageReceivedNotification,
   waitForUnarchivedEvent,
+  type ConversationActor,
+  type ConversationFixture,
 } from "./_helpers.js";
 
 const PROPERTY = "conversation-lifecycle";
@@ -39,102 +41,135 @@ export function registerConversationLifecycle(
     DELIVERY_CATEGORY,
     PROPERTY,
     "create/send/update/archive/unarchive lifecycle is observable and enforced",
-    Effect.scoped(
-      Effect.gen(function* () {
-        const fixture = yield* acquirePropertyConversation(
-          ctx,
-          PROPERTY,
-          "life",
-        );
-        const participant = yield* firstParticipant(fixture, PROPERTY);
-
-        yield* waitForConversationCreatedNotification(
-          participant,
-          fixture.conversationId,
-          PROPERTY,
-        );
-
-        const firstSend = yield* sendText(
-          fixture.owner,
-          fixture.conversationId,
-          "lifecycle-before-update",
-        ).pipe(Effect.either);
-        yield* requireRight(firstSend, (error) =>
-          deliveryViolation(
-            PROPERTY,
-            `messages/send failed before archive: ${error._tag}`,
-          ),
-        );
-        yield* waitForMessageReceivedNotification(
-          participant,
-          fixture.conversationId,
-          PROPERTY,
-        );
-
-        const updatedName = `Lifecycle ${ctx.seed}`;
-        const update = yield* updateConversationName(
-          fixture.owner,
-          fixture.conversationId,
-          updatedName,
-        ).pipe(Effect.either);
-        yield* requireRight(update, (error) =>
-          deliveryViolation(
-            PROPERTY,
-            `conversations/update failed: ${error._tag}`,
-          ),
-        );
-        yield* waitForConversationUpdatedNotification(
-          participant,
-          fixture.conversationId,
-          updatedName,
-          PROPERTY,
-        );
-
-        const archive = yield* archiveConversation(
-          fixture.owner,
-          fixture.conversationId,
-        ).pipe(Effect.either);
-        yield* requireRight(archive, (error) =>
-          deliveryViolation(PROPERTY, `archive failed: ${error._tag}`),
-        );
-        yield* waitForArchivedEvent(
-          participant,
-          fixture.conversationId,
-          fixture.owner.agent.agentId,
-          PROPERTY,
-        );
-        yield* assertConversationRejectsMessages(
-          participant,
-          fixture.conversationId,
-          PROPERTY,
-        );
-
-        const unarchive = yield* unarchiveConversation(
-          fixture.owner,
-          fixture.conversationId,
-        ).pipe(Effect.either);
-        yield* requireRight(unarchive, (error) =>
-          deliveryViolation(PROPERTY, `unarchive failed: ${error._tag}`),
-        );
-        yield* waitForUnarchivedEvent(
-          participant,
-          fixture.conversationId,
-          fixture.owner.agent.agentId,
-          PROPERTY,
-        );
-
-        const resumedSend = yield* sendText(
-          participant,
-          fixture.conversationId,
-          "lifecycle-after-unarchive",
-        ).pipe(Effect.either);
-        yield* requireRight(resumedSend, (error) =>
-          deliveryViolation(
-            PROPERTY,
-            `messages/send failed after unarchive: ${error._tag}`,
-          ),
-        );
-      }).pipe(Effect.withSpan("registerConversationLifecycle")),
+    runConversationLifecycle(ctx).pipe(
+      Effect.withSpan("registerConversationLifecycle"),
     ),
   );
+}
+
+type LifecycleFixture = ConversationFixture;
+type LifecycleParticipant = ConversationActor;
+
+function runConversationLifecycle(ctx: ConformanceRunContext) {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const fixture = yield* acquirePropertyConversation(ctx, PROPERTY, "life");
+      const participant = yield* firstParticipant(fixture, PROPERTY);
+      yield* assertCreatedAndInitialSend(fixture, participant);
+      yield* assertConversationUpdate(ctx, fixture, participant);
+      yield* assertArchivePhase(fixture, participant);
+      yield* assertUnarchivePhase(fixture, participant);
+    }),
+  );
+}
+
+function assertCreatedAndInitialSend(
+  fixture: LifecycleFixture,
+  participant: LifecycleParticipant,
+) {
+  return Effect.gen(function* () {
+    yield* waitForConversationCreatedNotification(
+      participant,
+      fixture.conversationId,
+      PROPERTY,
+    );
+    const firstSend = yield* sendText(
+      fixture.owner,
+      fixture.conversationId,
+      "lifecycle-before-update",
+    ).pipe(Effect.either);
+    yield* requireRight(firstSend, (error) =>
+      deliveryViolation(
+        PROPERTY,
+        `messages/send failed before archive: ${error._tag}`,
+      ),
+    );
+    yield* waitForMessageReceivedNotification(
+      participant,
+      fixture.conversationId,
+      PROPERTY,
+    );
+  });
+}
+
+function assertConversationUpdate(
+  ctx: ConformanceRunContext,
+  fixture: LifecycleFixture,
+  participant: LifecycleParticipant,
+) {
+  return Effect.gen(function* () {
+    const updatedName = `Lifecycle ${ctx.seed}`;
+    const update = yield* updateConversationName(
+      fixture.owner,
+      fixture.conversationId,
+      updatedName,
+    ).pipe(Effect.either);
+    yield* requireRight(update, (error) =>
+      deliveryViolation(PROPERTY, `conversations/update failed: ${error._tag}`),
+    );
+    yield* waitForConversationUpdatedNotification(
+      participant,
+      fixture.conversationId,
+      updatedName,
+      PROPERTY,
+    );
+  });
+}
+
+function assertArchivePhase(
+  fixture: LifecycleFixture,
+  participant: LifecycleParticipant,
+) {
+  return Effect.gen(function* () {
+    const archive = yield* archiveConversation(
+      fixture.owner,
+      fixture.conversationId,
+    ).pipe(Effect.either);
+    yield* requireRight(archive, (error) =>
+      deliveryViolation(PROPERTY, `archive failed: ${error._tag}`),
+    );
+    yield* waitForArchivedEvent(
+      participant,
+      fixture.conversationId,
+      fixture.owner.agent.agentId,
+      PROPERTY,
+    );
+    yield* assertConversationRejectsMessages(
+      participant,
+      fixture.conversationId,
+      PROPERTY,
+    );
+  });
+}
+
+function assertUnarchivePhase(
+  fixture: LifecycleFixture,
+  participant: LifecycleParticipant,
+) {
+  return Effect.gen(function* () {
+    const unarchive = yield* unarchiveConversation(
+      fixture.owner,
+      fixture.conversationId,
+    ).pipe(Effect.either);
+    yield* requireRight(unarchive, (error) =>
+      deliveryViolation(PROPERTY, `unarchive failed: ${error._tag}`),
+    );
+    yield* waitForUnarchivedEvent(
+      participant,
+      fixture.conversationId,
+      fixture.owner.agent.agentId,
+      PROPERTY,
+    );
+    const resumedSend = yield* sendText(
+      participant,
+      fixture.conversationId,
+      "lifecycle-after-unarchive",
+    ).pipe(Effect.either);
+    yield* requireRight(resumedSend, (error) =>
+      deliveryViolation(
+        PROPERTY,
+        `messages/send failed after unarchive: ${error._tag}`,
+      ),
+    );
+  });
 }

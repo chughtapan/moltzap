@@ -95,6 +95,14 @@ export interface PropertyRegistry {
   readonly entries: Ref.Ref<ReadonlyArray<RegisteredProperty>>;
 }
 
+type RegisterPropertyArgs = readonly [
+  ctx: PropertyContext,
+  category: PropertyCategory,
+  name: string,
+  description: string,
+  run: PropertyRun,
+];
+
 const registries = new WeakMap<PropertyContext, PropertyRegistry>();
 
 function ensureRegistry(ctx: PropertyContext): PropertyRegistry {
@@ -108,13 +116,8 @@ function ensureRegistry(ctx: PropertyContext): PropertyRegistry {
   return reg;
 }
 
-export function registerProperty(
-  ctx: PropertyContext,
-  category: PropertyCategory,
-  name: string,
-  description: string,
-  run: PropertyRun,
-): void {
+export function registerProperty(...args: RegisterPropertyArgs): void {
+  const [ctx, category, name, description, run] = args;
   const reg = ensureRegistry(ctx);
   Effect.runSync(
     Ref.update(reg.entries, (cur) => [

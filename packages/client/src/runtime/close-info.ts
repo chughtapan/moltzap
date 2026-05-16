@@ -98,37 +98,37 @@ function absurd(x: never): never {
 export function classifyCloseCause(
   cause: Cause.Cause<Socket.SocketError>,
 ): CloseKind {
-  // The reader fiber emits at most one SocketError-shaped failure on
-  // close; iterate the `Cause.failures` chunk and route on the first
-  // match. `Chunk` is iterable, so a `for…of` walk is sufficient.
   for (const failure of Cause.failures(cause)) {
-    if (Socket.SocketCloseError.is(failure)) {
-      return CloseKind.Clean({
-        code: failure.code,
-        reason: failure.closeReason ?? "",
-      });
-    }
-    if (Socket.isSocketError(failure)) {
-      // SocketGenericError — branch on the four documented reasons and
-      // let any future variant fall through to `Unknown`.
-      const generic = failure as Socket.SocketGenericError;
-      switch (generic.reason) {
-        case "Open":
-        case "OpenTimeout":
-          return CloseKind.HandshakeFailure({
-            underlying: generic.reason,
-          });
-        case "Read":
-        case "Write":
-          return CloseKind.TransportFailure({
-            underlying: generic.reason,
-          });
-        default:
-          return CloseKind.Unknown();
-      }
-    }
+    const kind = classifySocketFailure(failure);
+    if (kind !== null) return kind;
   }
   return CloseKind.Unknown();
+}
+
+function classifySocketFailure(failure: unknown): CloseKind | null {
+  if (Socket.SocketCloseError.is(failure)) {
+    return CloseKind.Clean({
+      code: failure.code,
+      reason: failure.closeReason ?? "",
+    });
+  }
+  if (!Socket.isSocketError(failure)) return null;
+  return classifyGenericSocketError(failure as Socket.SocketGenericError);
+}
+
+function classifyGenericSocketError(
+  failure: Socket.SocketGenericError,
+): CloseKind {
+  switch (failure.reason) {
+    case "Open":
+    case "OpenTimeout":
+      return CloseKind.HandshakeFailure({ underlying: failure.reason });
+    case "Read":
+    case "Write":
+      return CloseKind.TransportFailure({ underlying: failure.reason });
+    default:
+      return CloseKind.Unknown();
+  }
 }
 
 /** Projects an `Exit` onto `CloseInfo`. */

@@ -1,3 +1,6 @@
+/**
+ * @file Public barrel for app RPC descriptors and app-hook protocol types.
+ */
 export {
   AppsRegister,
   AppManifestSchema,

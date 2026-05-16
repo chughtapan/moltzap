@@ -279,25 +279,32 @@ export function matchesFilter(
   filter: SubscriptionFilter,
   frame: FilterableNotificationFrame,
 ): boolean {
+  const methodPrefix = filter.notificationNamePrefix;
   if (
-    filter.notificationNamePrefix !== undefined &&
-    !frame.method.startsWith(filter.notificationNamePrefix)
-  ) {
+    methodPrefix !== undefined &&
+    !matchesMethodPrefix(methodPrefix, frame.method)
+  )
     return false;
-  }
   const params: Record<string, unknown> | null = isNotificationParamsRecord(
     frame.params,
   )
     ? frame.params
     : null;
 
-  if (filter.emissionTag !== undefined) {
-    const tag = params?.["__emissionTag"];
-    if (tag !== filter.emissionTag) return false;
-  }
-  if (filter.conversationId !== undefined) {
-    const cid = params?.["conversationId"];
-    if (cid !== filter.conversationId) return false;
-  }
-  return true;
+  return (
+    matchesPayloadValue(params, "__emissionTag", filter.emissionTag) &&
+    matchesPayloadValue(params, "conversationId", filter.conversationId)
+  );
+}
+
+function matchesMethodPrefix(prefix: string, method: string): boolean {
+  return method.startsWith(prefix);
+}
+
+function matchesPayloadValue(
+  params: Record<string, unknown> | null,
+  key: string,
+  expected: string | undefined,
+): boolean {
+  return expected === undefined || params?.[key] === expected;
 }

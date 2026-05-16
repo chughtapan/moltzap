@@ -46,7 +46,7 @@
     "@types/node": "^25.5.0",
     "@types/pg": "^8.11.0",
     "eslint": "^9",
-    "eslint-plugin-agent-code-guard": "0.0.13",
+    "eslint-plugin-agent-code-guard": "0.0.14",
     "openai": "^6.26.0",
     "pg": "^8.13.0",
     "typescript": "^5.7.0",

@@ -1,4 +1,6 @@
 /**
+ * @file Public barrel for identity-layer conformance properties.
+ *
  * Identity-layer conformance properties.
  *
  * Authority + agent-identity invariants — who is allowed to call what,

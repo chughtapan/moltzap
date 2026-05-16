@@ -37,7 +37,7 @@ function makeConn(id: string, agentId: string | null): MoltZapConnection {
   };
 }
 
-describe("ConnectionManager.subscribeAgentsToConversation", () => {
+describe("ConnectionManager.subscribeAgentsToConversation matching", () => {
   it("subscribes every matching connection to the conversation", () => {
     const manager = new ConnectionManager();
     const a1 = makeConn("c-alice-1", "alice");
@@ -78,7 +78,9 @@ describe("ConnectionManager.subscribeAgentsToConversation", () => {
     expect(subscribed).toEqual(["c-authed"]);
     expect(unauthed.conversationIds.has("conv-1")).toBe(false);
   });
+});
 
+describe("ConnectionManager.subscribeAgentsToConversation no-op cases", () => {
   it("is idempotent — repeated calls do not double-subscribe", () => {
     const manager = new ConnectionManager();
     const conn = makeConn("c-1", "alice");

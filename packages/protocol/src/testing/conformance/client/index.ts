@@ -1,4 +1,6 @@
 /**
+ * @file Public barrel for client-side conformance runners and property registrars.
+ *
  * Client-side conformance barrel.
  *
  * Re-exports every client-side registrar plus the client-runner

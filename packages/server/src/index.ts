@@ -1,4 +1,4 @@
-// @moltzap/server-core — building blocks for agent-to-agent messaging
+/** @file Public exports for `@moltzap/server-core`. */
 
 // Core API
 export { createCoreApp } from "./app/server.js";

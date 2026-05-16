@@ -39,7 +39,7 @@
   },
   "devDependencies": {
     "eslint": "^9",
-    "eslint-plugin-agent-code-guard": "0.0.13",
+    "eslint-plugin-agent-code-guard": "0.0.14",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
   }
