@@ -1,5 +1,3 @@
-import * as path from "node:path";
-import * as os from "node:os";
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import {
@@ -11,6 +9,7 @@ import {
   Option,
   Redacted,
 } from "effect";
+import { getMoltZapConfigDir, getMoltZapConfigPath } from "../local-paths.js";
 
 /**
  * CLI config shape. Loaded via `Effect.Config` from the on-disk JSON file
@@ -26,8 +25,6 @@ export interface MoltZapConfig {
 const DEFAULT_SERVER_URL = "wss://api.moltzap.xyz";
 const CONFIG_FILE_MODE = 0o600;
 const JSON_INDENT_SPACES = 2;
-const CONFIG_FILE_NAME = "config.json";
-const ConfigHome = Config.option(Config.string("MOLTZAP_CONFIG_HOME"));
 
 export type CliConfigError =
   | ConfigReadError
@@ -72,19 +69,11 @@ const EnvOverrideSchema = Config.all({
   serverUrl: Config.option(Config.string("MOLTZAP_SERVER_URL")),
 });
 
-const getConfigHomeSync = (): string | undefined =>
-  Option.getOrUndefined(
-    Effect.runSync(
-      ConfigHome.pipe(Effect.withConfigProvider(ConfigProvider.fromEnv())),
-    ),
-  );
-
-const getConfigDir = (): string =>
-  getConfigHomeSync() ?? path.join(os.homedir(), ".moltzap");
-
 export function getConfigPath(): string {
-  return path.join(getConfigDir(), CONFIG_FILE_NAME);
+  return getMoltZapConfigPath();
 }
+
+const getConfigDir = getMoltZapConfigDir;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);

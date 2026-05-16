@@ -1,9 +1,11 @@
-import * as os from "node:os";
-import * as path from "node:path";
 import { Args, Command, Options } from "@effect/cli";
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { Effect, Either, Option } from "effect";
+import {
+  getOpenClawConfigDir,
+  getOpenClawConfigPath,
+} from "../../local-paths.js";
 import { getServerUrl, updateConfig } from "../config.js";
 import { registerAgent } from "../http-client.js";
 import {
@@ -71,8 +73,8 @@ const writeOpenClawChannelConfig = (account: {
 }): Effect.Effect<void, Error> =>
   Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
-    const configDir = path.join(os.homedir(), ".openclaw");
-    const configPath = path.join(configDir, "openclaw.json");
+    const configDir = getOpenClawConfigDir();
+    const configPath = getOpenClawConfigPath();
 
     let config: OpenClawConfig = {};
     const existingConfig = yield* readExistingOpenClawConfig(

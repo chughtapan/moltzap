@@ -1,9 +1,10 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { Effect } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { contextLogPath, writeOpenClawContextLog } from "./context-log.js";
+import { writeOpenClawContextLog } from "./context-log.js";
 
 const oldStateDir = process.env["OPENCLAW_STATE_DIR"];
 
@@ -16,52 +17,58 @@ afterEach(() => {
 });
 
 describe("writeOpenClawContextLog", () => {
-  it("does nothing when no log dir is configured", () => {
-    expect(() =>
-      writeOpenClawContextLog({
-        logDir: undefined,
-        accountId: "default",
-        accountAgentName: "eval-p1",
-        conversationId: "conv-town",
-        conversationType: "group",
-        from: "agent:gm",
-        to: "eval-p1",
-        body: "hello",
-        bodyForAgent: "hello",
-        crossConversationMessages: [],
-      }),
-    ).not.toThrow();
+  it("does nothing when no log dir is configured", async () => {
+    await expect(
+      Effect.runPromise(
+        writeOpenClawContextLog({
+          logDir: undefined,
+          accountId: "default",
+          accountAgentName: "eval-p1",
+          conversationId: "conv-town",
+          conversationType: "group",
+          from: "agent:gm",
+          to: "eval-p1",
+          body: "hello",
+          bodyForAgent: "hello",
+          crossConversationMessages: [],
+        }),
+      ),
+    ).resolves.toBeUndefined();
   });
 
-  it("writes one JSONL record per context dispatch", () => {
+  it("writes one JSONL record per context dispatch", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "oc-context-log-"));
     process.env["OPENCLAW_STATE_DIR"] = "/tmp/openclaw-eval-p1-abc";
 
-    writeOpenClawContextLog({
-      logDir: dir,
-      accountId: "default",
-      accountAgentName: "eval-p1",
-      ownAgentId: "agent-1",
-      conversationId: "conv-town",
-      conversationName: "town_square",
-      conversationType: "group",
-      from: "agent:gm",
-      to: "eval-p1",
-      body: "Time to vote",
-      bodyForAgent: "Messages (untrusted metadata):\n[]\n\nTime to vote",
-      crossConversationMessages: [
-        {
-          conversationId: "conv-den",
-          conversationName: "werewolf_den",
-          senderName: "gm",
-          senderId: "agent-gm",
-          text: "old kill reminder",
-          timestamp: "2026-04-25T00:00:00.000Z",
-        },
-      ],
-    });
+    await Effect.runPromise(
+      writeOpenClawContextLog({
+        logDir: dir,
+        accountId: "default",
+        accountAgentName: "eval-p1",
+        ownAgentId: "agent-1",
+        conversationId: "conv-town",
+        conversationName: "town_square",
+        conversationType: "group",
+        from: "agent:gm",
+        to: "eval-p1",
+        body: "Time to vote",
+        bodyForAgent: "Messages (untrusted metadata):\n[]\n\nTime to vote",
+        crossConversationMessages: [
+          {
+            conversationId: "conv-den",
+            conversationName: "werewolf_den",
+            senderName: "gm",
+            senderId: "agent-gm",
+            text: "old kill reminder",
+            timestamp: "2026-04-25T00:00:00.000Z",
+          },
+        ],
+      }),
+    );
 
-    const file = contextLogPath(dir, "eval-p1");
+    const [fileName] = fs.readdirSync(dir);
+    expect(fileName).toBeDefined();
+    const file = path.join(dir, fileName!);
     const lines = fs.readFileSync(file, "utf8").trim().split("\n");
     expect(lines).toHaveLength(1);
     const entry = JSON.parse(lines[0]!) as Record<string, unknown>;

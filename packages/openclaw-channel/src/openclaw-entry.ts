@@ -20,7 +20,10 @@ import {
 } from "@moltzap/client";
 import { Config, ConfigProvider, Data, Effect, Option } from "effect";
 import { formatCrossConvOpenClaw } from "./format-cross-conv.js";
-import { writeOpenClawContextLog } from "./context-log.js";
+import {
+  writeOpenClawContextLog,
+  type OpenClawContextLogInput,
+} from "./context-log.js";
 import {
   extractConversationCreated,
   extractConversationUpdated,
@@ -125,6 +128,26 @@ function adaptOpenClawLogger(
     }
     logMethod(...args);
   };
+}
+
+function logContextLogWriteFailure(
+  log: OpenClawLogger | undefined,
+  error: unknown,
+): Effect.Effect<void, never> {
+  return Effect.sync(() => {
+    log?.warn?.(
+      `MoltZap: failed to write OpenClaw context log: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  });
+}
+
+function writeContextLogOrWarn(
+  log: OpenClawLogger | undefined,
+  input: OpenClawContextLogInput,
+): Effect.Effect<void, never> {
+  return writeOpenClawContextLog(input).pipe(
+    Effect.catchAll((error) => logContextLogWriteFailure(log, error)),
+  );
 }
 
 type MoltZapAccount = {
@@ -426,26 +449,20 @@ export function createMoltzapChannelPlugin() {
               ? `${crossConvBlock}\n\n${enriched.text}`
               : enriched.text;
 
-            try {
-              writeOpenClawContextLog({
-                logDir: contextLogDir,
-                accountId,
-                accountAgentName: account.agentName,
-                ownAgentId: service.ownAgentId,
-                conversationId: enriched.conversationId,
-                conversationName: enriched.conversationMeta?.name,
-                conversationType: chatType,
-                from: fromId,
-                to: account.agentName ?? accountId,
-                body: enriched.text,
-                bodyForAgent,
-                crossConversationMessages,
-              });
-            } catch (error) {
-              log?.warn?.(
-                `MoltZap: failed to write OpenClaw context log: ${error instanceof Error ? error.message : String(error)}`,
-              );
-            }
+            yield* writeContextLogOrWarn(log, {
+              logDir: contextLogDir,
+              accountId,
+              accountAgentName: account.agentName,
+              ownAgentId: service.ownAgentId,
+              conversationId: enriched.conversationId,
+              conversationName: enriched.conversationMeta?.name,
+              conversationType: chatType,
+              from: fromId,
+              to: account.agentName ?? accountId,
+              body: enriched.text,
+              bodyForAgent,
+              crossConversationMessages,
+            });
 
             if (crossConvBlock) {
               log?.info?.(
@@ -692,8 +709,8 @@ export function createMoltzapChannelPlugin() {
         return Effect.runPromise(
           core.connect().pipe(
             Effect.tap(() =>
-              Effect.sync(() => {
-                service.startSocketServer();
+              Effect.gen(function* () {
+                yield* service.startSocketServer();
                 log?.info?.(
                   `MoltZap: connected as ${account.agentName} (${service.ownAgentId})`,
                 );

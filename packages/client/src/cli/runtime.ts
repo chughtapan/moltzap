@@ -60,28 +60,14 @@ function formatEffectLogMessage(message: unknown): string {
 /**
  * Effect `Logger` backed by a Pino instance. Same wrapping shape as the
  * server's `effectLogger` — annotations become Pino's first-arg object,
- * the message is the string payload. Pino throw (shutdown transport
- * torn down, etc.) is swallowed to stderr so the Effect fiber doesn't
- * die on a log-write failure.
+ * the message is the string payload.
  */
 const effectLogger = EffectLogger.make(({ logLevel, message, annotations }) => {
   const merged: Record<string, unknown> = {};
   for (const [k, v] of annotations) merged[k] = v;
   const pinoMethod = LEVEL_TO_PINO[logLevel._tag] ?? "info";
   const msg = formatEffectLogMessage(message);
-  try {
-    PINO[pinoMethod](merged, msg);
-  } catch (err) {
-    try {
-      process.stderr.write(
-        `[cli-logger-fallback] ${msg} (${
-          err instanceof Error ? err.message : String(err)
-        })\n`,
-      );
-    } catch (stderrErr) {
-      console.error("[cli-logger-fallback] stderr write failed", stderrErr);
-    }
-  }
+  PINO[pinoMethod](merged, msg);
 });
 
 /**

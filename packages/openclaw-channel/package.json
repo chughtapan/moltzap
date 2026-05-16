@@ -34,9 +34,11 @@
     "test:conformance": "bash ../protocol/scripts/check-divergence-proofs.sh && vitest run -c vitest.conformance.config.ts"
   },
   "dependencies": {
+    "@effect/platform": "^0.96.1",
+    "@effect/platform-node": "^0.106.0",
     "@moltzap/client": "workspace:*",
     "@moltzap/protocol": "workspace:*",
-    "effect": "3.21.0"
+    "effect": "3.21.2"
   },
   "devDependencies": {
     "@effect/vitest": "^0.29.0",

@@ -1,4 +1,5 @@
-import { Effect, pipe } from "effect";
+import { NodeContext } from "@effect/platform-node";
+import { Effect, Exit, Fiber, Option, pipe } from "effect";
 
 import type {
   Runtime,
@@ -9,9 +10,9 @@ import type {
 } from "./runtime.js";
 import { SpawnFailed } from "./errors.js";
 import {
-  ensureNanoclawRuntimeInstalled,
-  startNanoclawRuntime,
-  stopNanoclawRuntime,
+  ensureNanoclawRuntimeInstalledEffect,
+  startNanoclawRuntimeEffect,
+  stopNanoclawRuntimeEffect,
   getNanoclawRuntimeLogs,
   type NanoclawRuntimeHandle,
 } from "./nanoclaw-process.js";
@@ -43,25 +44,18 @@ export class NanoclawAdapter implements Runtime {
     };
 
     return Effect.gen(this, function* () {
-      yield* Effect.tryPromise({
-        try: () => ensureNanoclawRuntimeInstalled(),
-        catch: toSpawnFailed,
-      });
+      yield* ensureNanoclawRuntimeInstalledEffect();
 
-      const handle = yield* Effect.tryPromise({
-        try: () =>
-          startNanoclawRuntime({
-            apiKey: input.apiKey,
-            serverUrl: input.serverUrl,
-            workspaceFiles: input.workspaceFiles,
-          }),
-        catch: toSpawnFailed,
+      const handle = yield* startNanoclawRuntimeEffect({
+        apiKey: input.apiKey,
+        serverUrl: input.serverUrl,
+        workspaceFiles: input.workspaceFiles,
       });
 
       yield* Effect.sync(() => {
         this.state = { handle, spawnInput: input, tornDown: false };
       });
-    });
+    }).pipe(Effect.mapError(toSpawnFailed), Effect.provide(NodeContext.layer));
   }
 
   waitUntilReady(timeoutMs: number): Effect.Effect<ReadyOutcome, never, never> {
@@ -77,14 +71,21 @@ export class NanoclawAdapter implements Runtime {
     // exit code until it terminates, then surfaces stderr from the runtime's
     // log accumulator.
     const exitTick: Effect.Effect<ReadyOutcome | null, never, never> =
-      Effect.sync(() => {
-        if (handle.proc.exitCode === null) return null;
-        return {
-          _tag: "ProcessExited" as const,
-          exitCode: handle.proc.exitCode,
-          stderr: getNanoclawRuntimeLogs(handle),
-        };
-      });
+      Fiber.poll(handle.exitFiber).pipe(
+        Effect.map(
+          Option.match({
+            onNone: () => null,
+            onSome: (exit: Exit.Exit<number, never>) => ({
+              _tag: "ProcessExited" as const,
+              exitCode: Exit.match(exit, {
+                onSuccess: (code) => code,
+                onFailure: () => -1,
+              }),
+              stderr: getNanoclawRuntimeLogs(handle),
+            }),
+          }),
+        ),
+      );
     const exitLoop: Effect.Effect<ReadyOutcome, never, never> = pipe(
       Effect.iterate(null as ReadyOutcome | null, {
         while: (s) => s === null,
@@ -106,15 +107,20 @@ export class NanoclawAdapter implements Runtime {
         (outcome): Effect.Effect<ReadyOutcome, never, never> =>
           outcome._tag !== "Timeout"
             ? Effect.succeed(outcome)
-            : Effect.sync(
-                (): ReadyOutcome =>
-                  handle.proc.exitCode !== null
-                    ? {
-                        _tag: "ProcessExited" as const,
-                        exitCode: handle.proc.exitCode,
-                        stderr: getNanoclawRuntimeLogs(handle),
-                      }
-                    : outcome,
+            : Fiber.poll(handle.exitFiber).pipe(
+                Effect.map(
+                  Option.match({
+                    onNone: (): ReadyOutcome => outcome,
+                    onSome: (exit: Exit.Exit<number, never>): ReadyOutcome => ({
+                      _tag: "ProcessExited" as const,
+                      exitCode: Exit.match(exit, {
+                        onSuccess: (code) => code,
+                        onFailure: () => -1,
+                      }),
+                      stderr: getNanoclawRuntimeLogs(handle),
+                    }),
+                  }),
+                ),
               ),
       ),
       Effect.tap((outcome) =>
@@ -148,10 +154,10 @@ export class NanoclawAdapter implements Runtime {
       Effect.flatMap((handle) =>
         handle === null
           ? Effect.void
-          : Effect.tryPromise({
-              try: () => stopNanoclawRuntime(handle),
-              catch: () => undefined,
-            }).pipe(Effect.catchAll(() => Effect.void)),
+          : stopNanoclawRuntimeEffect(handle).pipe(
+              Effect.provide(NodeContext.layer),
+              Effect.catchAll(() => Effect.void),
+            ),
       ),
     );
   }

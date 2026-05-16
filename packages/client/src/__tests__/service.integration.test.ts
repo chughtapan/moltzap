@@ -1089,7 +1089,7 @@ describe("Socket Server", () => {
     Effect.gen(function* () {
       const reg = yield* registerAgent("sock-ping");
       const service = yield* connectService(reg.apiKey);
-      service.startSocketServer();
+      yield* service.startSocketServer();
       try {
         const result = (yield* Effect.promise(() => socketRequest("ping"))) as {
           ok: boolean;
@@ -1108,7 +1108,7 @@ describe("Socket Server", () => {
     Effect.gen(function* () {
       const reg = yield* registerAgent("sock-status");
       const service = yield* connectService(reg.apiKey);
-      service.startSocketServer();
+      yield* service.startSocketServer();
       try {
         const result = (yield* Effect.promise(() =>
           socketRequest("status"),
@@ -1131,7 +1131,7 @@ describe("Socket Server", () => {
       const regB = yield* registerAgent("sock-rpc-b");
       yield* regB.client.connect();
       const service = yield* connectService(regA.apiKey);
-      service.startSocketServer();
+      yield* service.startSocketServer();
       try {
         const conv = (yield* Effect.promise(() =>
           socketRequest(ConversationsCreate.name, {
@@ -1162,7 +1162,7 @@ describe("Socket Server", () => {
       const regB = yield* registerAgent("sock-hist-b");
       yield* regB.client.connect();
       const service = yield* connectService(regA.apiKey);
-      service.startSocketServer();
+      yield* service.startSocketServer();
       try {
         const conv = (yield* Effect.promise(() =>
           socketRequest(ConversationsCreate.name, {
@@ -1216,7 +1216,7 @@ describe("Socket Server", () => {
         yield* regB.client.connect();
         yield* regC.client.connect();
         const service = yield* connectService(regA.apiKey);
-        service.startSocketServer();
+        yield* service.startSocketServer();
         try {
           const convB = (yield* service.sendRpc(ConversationsCreate, {
             type: "dm",
@@ -1287,7 +1287,7 @@ describe("Socket Server", () => {
       yield* regB.client.connect();
       yield* regC.client.connect();
       const service = yield* connectService(regA.apiKey);
-      service.startSocketServer();
+      yield* service.startSocketServer();
       try {
         const convB = (yield* service.sendRpc(ConversationsCreate, {
           type: "dm",
@@ -1360,7 +1360,7 @@ describe("Socket Server", () => {
       yield* regC.client.connect();
       yield* regD.client.connect();
       const service = yield* connectService(regA.apiKey);
-      service.startSocketServer();
+      yield* service.startSocketServer();
       try {
         const convB = (yield* service.sendRpc(ConversationsCreate, {
           type: "dm",
@@ -1427,7 +1427,7 @@ describe("Socket Server", () => {
       Effect.gen(function* () {
         const reg = yield* registerAgent("sock-timer");
         const service = yield* connectService(reg.apiKey);
-        service.startSocketServer();
+        yield* service.startSocketServer();
         try {
           const start = performance.now();
           yield* Effect.promise(() => socketRequest("ping"));
@@ -1446,8 +1446,8 @@ describe("Socket Server", () => {
       const regB = yield* registerAgent("sock-multi-b");
       const serviceA = yield* connectService(regA.apiKey);
       const serviceB = yield* connectService(regB.apiKey);
-      serviceA.startSocketServer();
-      serviceB.startSocketServer();
+      yield* serviceA.startSocketServer();
+      yield* serviceB.startSocketServer();
       try {
         expect(serviceA.socketPath).not.toBe(serviceB.socketPath);
 
@@ -1475,7 +1475,7 @@ describe("Socket Server", () => {
       const regB = yield* registerAgent("sock-page-b");
       yield* regB.client.connect();
       const service = yield* connectService(regA.apiKey);
-      service.startSocketServer();
+      yield* service.startSocketServer();
       try {
         const conv = (yield* Effect.promise(() =>
           socketRequest(ConversationsCreate.name, {
@@ -1541,7 +1541,7 @@ describe("Socket Server", () => {
       const regB = yield* registerAgent("sock-attach-b");
       yield* regB.client.connect();
       const service = yield* connectService(regA.apiKey);
-      service.startSocketServer();
+      yield* service.startSocketServer();
       try {
         const conv = (yield* Effect.promise(() =>
           socketRequest(ConversationsCreate.name, {
@@ -1587,7 +1587,7 @@ describe("Socket Server", () => {
       Effect.gen(function* () {
         const reg = yield* registerAgent("sock-stable");
         const service = yield* connectService(reg.apiKey);
-        service.startSocketServer();
+        yield* service.startSocketServer();
         const pathAtStart = service.socketPath;
         try {
           const result = (yield* Effect.promise(() =>
@@ -1607,7 +1607,7 @@ describe("Socket Server", () => {
     Effect.gen(function* () {
       const reg = yield* registerAgent("sock-unknown");
       const service = yield* connectService(reg.apiKey);
-      service.startSocketServer();
+      yield* service.startSocketServer();
       try {
         const result = yield* Effect.either(
           Effect.tryPromise(() =>
@@ -1626,7 +1626,7 @@ describe("Socket Server", () => {
     Effect.gen(function* () {
       const reg = yield* registerAgent("sock-validate");
       const service = yield* connectService(reg.apiKey);
-      service.startSocketServer();
+      yield* service.startSocketServer();
       const tryReq = (params: Record<string, unknown>) =>
         Effect.tryPromise({
           try: () => socketRequest("history", params),

@@ -20,10 +20,10 @@
  * forbidden (extends AC13 to AC14). The factory injection pattern keeps
  * the protocol package leaf-of-the-graph.
  */
-import { FileSystem } from "@effect/platform";
+import { FileSystem, Path } from "@effect/platform";
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
+import * as NodePath from "@effect/platform-node/NodePath";
 import { Cause, Chunk, Effect, Exit, Option, type Scope } from "effect";
-import path from "node:path";
 import { acquireClientRunContext } from "./runner.js";
 import type {
   ClientConformanceRunContext,
@@ -137,15 +137,16 @@ export function runClientConformanceSuite(
   ToxicControlError | RealServerAcquireError | RealClientLifecycleError
 > {
   const toxiproxyUrl = opts.toxiproxyUrl ?? null;
-  const artifactDir =
-    opts.artifactDir ??
-    conformanceArtifactDirFromEnv() ??
-    path.resolve(process.cwd(), "conformance-artifacts");
+  const configuredArtifactDir =
+    opts.artifactDir ?? conformanceArtifactDirFromEnv();
   const tiers: ClientConformanceRunOptions["tiers"] =
     toxiproxyUrl === null ? ["A", "B", "C", "E"] : ["A", "B", "C", "D", "E"];
 
   return Effect.scoped(
     Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const artifactDir =
+        configuredArtifactDir ?? path.resolve("conformance-artifacts");
       const ctx = yield* acquireClientRunContext({
         tiers,
         realClient: opts.realClient,
@@ -163,7 +164,7 @@ export function runClientConformanceSuite(
         allowedClientCoverageGaps(toxiproxyUrl),
       );
     }).pipe(Effect.withSpan("runClientConformanceSuite")),
-  );
+  ).pipe(Effect.provide(NodePath.layer));
 }
 
 function allowedClientCoverageGaps(
@@ -341,26 +342,28 @@ function writeArtifact(
   seed: number,
   payload: Record<string, unknown>,
 ): Effect.Effect<void> {
-  const file = path.join(
-    dir,
-    `client-${property.category}-${property.name}.seed.json`,
-  );
-  return FileSystem.FileSystem.pipe(
-    Effect.flatMap((fs) =>
-      fs.writeFileString(
-        file,
-        JSON.stringify(
-          {
-            category: property.category,
-            name: property.name,
-            seed,
-            ...payload,
-          },
-          null,
-          JSON_INDENT_SPACES,
-        ),
+  return Effect.gen(function* () {
+    const path = yield* Path.Path;
+    const fs = yield* FileSystem.FileSystem;
+    const file = path.join(
+      dir,
+      `client-${property.category}-${property.name}.seed.json`,
+    );
+    yield* fs.writeFileString(
+      file,
+      JSON.stringify(
+        {
+          category: property.category,
+          name: property.name,
+          seed,
+          ...payload,
+        },
+        null,
+        JSON_INDENT_SPACES,
       ),
-    ),
+    );
+  }).pipe(
+    Effect.provide(NodePath.layer),
     Effect.provide(NodeFileSystem.layer),
     Effect.orDie,
   );

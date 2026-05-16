@@ -1,8 +1,7 @@
-import path from "node:path";
-
+import { FileSystem, Path } from "@effect/platform";
+import { NodeFileSystem, NodePath } from "@effect/platform-node";
 import { Config, ConfigProvider, Effect, Option } from "effect";
 import type { CrossConvMessage } from "@moltzap/client";
-import { appendFileSync, makeDirectorySync } from "./node-fs-sync.js";
 
 interface OpenClawContextLogEntry {
   readonly schemaVersion: 1;
@@ -55,51 +54,68 @@ const getOpenClawStateDir = (): string | undefined =>
     ),
   );
 
-export function contextLogPath(
+function contextLogPath(
   logDir: string,
   accountAgentName: string | undefined,
-): string {
+): Effect.Effect<string, never, Path.Path> {
   const stateDir = getOpenClawStateDir();
-  const stateName = stateDir ? path.basename(stateDir) : `pid-${process.pid}`;
   const agentName = accountAgentName ?? "agent";
-  return path.join(
-    logDir,
-    `${sanitizePathPart(agentName)}.${sanitizePathPart(stateName)}.${process.pid}.contexts.jsonl`,
+  return Path.Path.pipe(
+    Effect.map((path) => {
+      const stateName = stateDir
+        ? path.basename(stateDir)
+        : `pid-${process.pid}`;
+      return path.join(
+        logDir,
+        `${sanitizePathPart(agentName)}.${sanitizePathPart(stateName)}.${process.pid}.contexts.jsonl`,
+      );
+    }),
   );
 }
 
-export function writeOpenClawContextLog(input: OpenClawContextLogInput): void {
-  if (!input.logDir) return;
-  const stateDir = getOpenClawStateDir();
+export function writeOpenClawContextLog(
+  input: OpenClawContextLogInput,
+): Effect.Effect<void, unknown, never> {
+  const logDir = input.logDir;
+  if (!logDir) return Effect.void;
+  return Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const stateDir = getOpenClawStateDir();
 
-  const entry: OpenClawContextLogEntry = {
-    schemaVersion: 1,
-    recordedAt: new Date().toISOString(),
-    pid: process.pid,
-    cwd: process.cwd(),
-    ...(stateDir !== undefined ? { stateDir } : {}),
-    accountId: input.accountId,
-    ...(input.accountAgentName !== undefined
-      ? { accountAgentName: input.accountAgentName }
-      : {}),
-    ...(input.ownAgentId !== undefined ? { ownAgentId: input.ownAgentId } : {}),
-    conversationId: input.conversationId,
-    ...(input.conversationName !== undefined
-      ? { conversationName: input.conversationName }
-      : {}),
-    conversationType: input.conversationType,
-    from: input.from,
-    to: input.to,
-    body: input.body,
-    bodyForAgent: input.bodyForAgent,
-    crossConversationMessageCount: input.crossConversationMessages.length,
-    crossConversationMessages: input.crossConversationMessages,
-  };
+    const entry: OpenClawContextLogEntry = {
+      schemaVersion: 1,
+      recordedAt: new Date().toISOString(),
+      pid: process.pid,
+      cwd: process.cwd(),
+      ...(stateDir !== undefined ? { stateDir } : {}),
+      accountId: input.accountId,
+      ...(input.accountAgentName !== undefined
+        ? { accountAgentName: input.accountAgentName }
+        : {}),
+      ...(input.ownAgentId !== undefined
+        ? { ownAgentId: input.ownAgentId }
+        : {}),
+      conversationId: input.conversationId,
+      ...(input.conversationName !== undefined
+        ? { conversationName: input.conversationName }
+        : {}),
+      conversationType: input.conversationType,
+      from: input.from,
+      to: input.to,
+      body: input.body,
+      bodyForAgent: input.bodyForAgent,
+      crossConversationMessageCount: input.crossConversationMessages.length,
+      crossConversationMessages: input.crossConversationMessages,
+    };
 
-  makeDirectorySync(input.logDir);
-  appendFileSync(
-    contextLogPath(input.logDir, input.accountAgentName),
-    `${JSON.stringify(entry)}\n`,
-    "utf8",
+    yield* fileSystem.makeDirectory(logDir, { recursive: true });
+    const file = yield* contextLogPath(logDir, input.accountAgentName);
+    yield* fileSystem.writeFileString(file, `${JSON.stringify(entry)}\n`, {
+      flag: "a",
+    });
+  }).pipe(
+    Effect.withSpan("writeOpenClawContextLog"),
+    Effect.provide(NodePath.layer),
+    Effect.provide(NodeFileSystem.layer),
   );
 }

@@ -16,19 +16,10 @@
  * named export of `config.ts`. The public interface defined below is the
  * contract impl-staff preserves regardless of layout.
  */
-import * as os from "node:os";
-import * as path from "node:path";
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
-import {
-  Brand,
-  Config,
-  ConfigProvider,
-  Data,
-  Effect,
-  Either,
-  Option,
-} from "effect";
+import { Brand, Data, Effect, Either } from "effect";
+import { getMoltZapConfigDir, getMoltZapConfigPath } from "../local-paths.js";
 
 // ─── Branded names ─────────────────────────────────────────────────────────
 
@@ -47,20 +38,8 @@ const NAME_PATTERN = /^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$/;
 const DEFAULT_SERVER_URL = "wss://api.moltzap.xyz";
 const CONFIG_FILE_MODE = 0o600;
 const JSON_INDENT_SPACES = 2;
-const ConfigHome = Config.option(Config.string("MOLTZAP_CONFIG_HOME"));
-
-const getConfigHomeSync = (): string | undefined =>
-  Option.getOrUndefined(
-    Effect.runSync(
-      ConfigHome.pipe(Effect.withConfigProvider(ConfigProvider.fromEnv())),
-    ),
-  );
-
-const getConfigDir = (): string =>
-  getConfigHomeSync() ?? path.join(os.homedir(), ".moltzap");
-
-const getConfigFilePathSync = (): string =>
-  path.join(getConfigDir(), "config.json");
+const getConfigDir = getMoltZapConfigDir;
+const getConfigFilePathSync = getMoltZapConfigPath;
 
 // ─── Records ───────────────────────────────────────────────────────────────
 

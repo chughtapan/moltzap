@@ -16,6 +16,9 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { FileSystem, Path } from "@effect/platform";
+import { NodeContext } from "@effect/platform-node";
+import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -34,48 +37,59 @@ afterEach(() => {
 });
 
 describe("resolveChannelDependency", () => {
-  it("resolves a dep installed at the channel package's own node_modules (no dist/node_modules required)", () => {
+  it("resolves a dep installed at the channel package's own node_modules (no dist/node_modules required)", async () => {
     const channelPkg = path.join(workDir, "openclaw-channel");
     const depPkg = path.join(channelPkg, "node_modules", "effect");
     seedPackage(channelPkg, { name: "@moltzap/openclaw-channel" });
     seedPackage(depPkg, { name: "effect", version: "3.21.0" });
 
-    const resolved = resolveChannelDependency(channelPkg, "effect");
+    const resolved = await runWithNodeFileSystem(
+      resolveChannelDependency(channelPkg, "effect"),
+    );
 
     expect(resolved).toBe(depPkg);
     expect(resolved).not.toContain("dist/node_modules");
   });
 
-  it("resolves a dep hoisted to a parent (workspace-root) node_modules", () => {
+  it("resolves a dep hoisted to a parent (workspace-root) node_modules", async () => {
     const channelPkg = path.join(workDir, "packages", "openclaw-channel");
     const hoistedDep = path.join(workDir, "node_modules", "effect");
     seedPackage(channelPkg, { name: "@moltzap/openclaw-channel" });
     seedPackage(hoistedDep, { name: "effect", version: "3.21.0" });
 
-    const resolved = resolveChannelDependency(channelPkg, "effect");
+    const resolved = await runWithNodeFileSystem(
+      resolveChannelDependency(channelPkg, "effect"),
+    );
 
     expect(resolved).toBe(hoistedDep);
   });
 
-  it("returns null when the channel package has no package.json", () => {
+  it("returns null when the channel package has no package.json", async () => {
     const channelPkg = path.join(workDir, "openclaw-channel");
     fs.mkdirSync(channelPkg, { recursive: true });
-    expect(resolveChannelDependency(channelPkg, "effect")).toBeNull();
+    await expect(
+      runWithNodeFileSystem(resolveChannelDependency(channelPkg, "effect")),
+    ).resolves.toBeNull();
   });
 
-  it("returns null when the dep cannot be found anywhere in the resolution chain", () => {
+  it("returns null when the dep cannot be found anywhere in the resolution chain", async () => {
     const channelPkg = path.join(workDir, "openclaw-channel");
     seedPackage(channelPkg, { name: "@moltzap/openclaw-channel" });
     // A purposefully-improbable scoped name keeps Node's parent-walking
     // resolution from accidentally finding a real install (workDir lives
     // under `/tmp`, which on dev machines can sit beneath populated
     // node_modules trees).
-    expect(
-      resolveChannelDependency(channelPkg, "@moltzap/__nonexistent-dep-285__"),
-    ).toBeNull();
+    await expect(
+      runWithNodeFileSystem(
+        resolveChannelDependency(
+          channelPkg,
+          "@moltzap/__nonexistent-dep-285__",
+        ),
+      ),
+    ).resolves.toBeNull();
   });
 
-  it("returns the package root (not a dist subpath) for packages whose main lives under dist/", () => {
+  it("returns the package root (not a dist subpath) for packages whose main lives under dist/", async () => {
     const channelPkg = path.join(workDir, "openclaw-channel");
     const depPkg = path.join(channelPkg, "node_modules", "fancy-dep");
     seedPackage(channelPkg, { name: "@moltzap/openclaw-channel" });
@@ -85,14 +99,16 @@ describe("resolveChannelDependency", () => {
       main: "dist/index.js",
     });
 
-    const resolved = resolveChannelDependency(channelPkg, "fancy-dep");
+    const resolved = await runWithNodeFileSystem(
+      resolveChannelDependency(channelPkg, "fancy-dep"),
+    );
 
     expect(resolved).toBe(depPkg);
   });
 });
 
 describe("installChannelPlugin (workspace layout, no dist/node_modules)", () => {
-  it("symlinks an extraSymlink dep from the workspace node_modules when dist/node_modules is absent", () => {
+  it("symlinks an extraSymlink dep from the workspace node_modules when dist/node_modules is absent", async () => {
     // Mirror real workspace layout: a channel package with its built dist/
     // and a sibling node_modules containing the runtime dep — exactly the
     // shape `pnpm install --frozen-lockfile && pnpm -r build` produces and
@@ -114,30 +130,31 @@ describe("installChannelPlugin (workspace layout, no dist/node_modules)", () => 
     fs.mkdirSync(stateDir, { recursive: true });
 
     const channelPackageDir = path.dirname(channelDist);
-    const effectResolved = resolveChannelDependency(
-      channelPackageDir,
-      "effect",
+    const effectResolved = await runWithNodeFileSystem(
+      resolveChannelDependency(channelPackageDir, "effect"),
     );
     expect(effectResolved).toBe(channelDepDir);
 
-    const extDir = installChannelPlugin({
-      stateDir,
-      channelDistDir: channelDist,
-      repoRoot,
-      extName: "openclaw-channel",
-      extraSymlinks: [
-        {
-          linkPath: "effect",
-          candidates: [
-            ...(effectResolved === null ? [] : [effectResolved]),
-            // Legacy fallback path that does NOT exist in this layout —
-            // kept here intentionally so the test proves the resolver
-            // candidate wins over the bundled fallback.
-            path.join(channelDist, "node_modules", "effect"),
-          ],
-        },
-      ],
-    });
+    const extDir = await runWithNodeFileSystem(
+      installChannelPlugin({
+        stateDir,
+        channelDistDir: channelDist,
+        repoRoot,
+        extName: "openclaw-channel",
+        extraSymlinks: [
+          {
+            linkPath: "effect",
+            candidates: [
+              ...(effectResolved === null ? [] : [effectResolved]),
+              // Legacy fallback path that does NOT exist in this layout —
+              // kept here intentionally so the test proves the resolver
+              // candidate wins over the bundled fallback.
+              path.join(channelDist, "node_modules", "effect"),
+            ],
+          },
+        ],
+      }),
+    );
 
     const symlinkPath = path.join(extDir, "node_modules", "effect");
     expect(fs.lstatSync(symlinkPath).isSymbolicLink()).toBe(true);
@@ -154,4 +171,10 @@ function seedPackage(
     path.join(pkgDir, "package.json"),
     JSON.stringify(pkgJson, null, 2),
   );
+}
+
+function runWithNodeFileSystem<A, E>(
+  effect: Effect.Effect<A, E, FileSystem.FileSystem | Path.Path>,
+): Promise<A> {
+  return Effect.runPromise(effect.pipe(Effect.provide(NodeContext.layer)));
 }

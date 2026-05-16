@@ -6,8 +6,7 @@
  * `runPromiseExit` to inspect failures) and decide how to react.
  */
 
-import { dirname } from "node:path";
-import { FileSystem } from "@effect/platform";
+import { FileSystem, Path } from "@effect/platform";
 import { parse as parseYaml } from "yaml";
 import {
   Config,
@@ -65,6 +64,11 @@ const readEnvValue = (
     ),
   );
 };
+
+const dirnameEffect = (
+  pathName: string,
+): Effect.Effect<string, never, Path.Path> =>
+  Path.Path.pipe(Effect.map((path) => path.dirname(pathName)));
 
 /** Interpolate `${ENV_VAR}` references in string values throughout a parsed object. */
 function interpolateEnvVars(
@@ -136,7 +140,7 @@ export const loadConfigFromFile = (
 ): Effect.Effect<
   MoltZapAppConfig & { _configDir: string },
   ConfigLoadError,
-  FileSystem.FileSystem
+  FileSystem.FileSystem | Path.Path
 > =>
   Effect.gen(function* () {
     const configPath =
@@ -226,10 +230,10 @@ export const loadConfigFromFile = (
 
     const configDir = yield* FileSystem.FileSystem.pipe(
       Effect.flatMap((fs) => fs.realPath(configPath)),
-      Effect.map(dirname),
+      Effect.flatMap(dirnameEffect),
       Effect.catchAll((cause) =>
         Effect.logWarning("Failed to resolve config path symlink:", cause).pipe(
-          Effect.as(dirname(configPath)),
+          Effect.flatMap(() => dirnameEffect(configPath)),
         ),
       ),
     );

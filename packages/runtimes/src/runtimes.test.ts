@@ -1,6 +1,6 @@
-import { EventEmitter } from "node:events";
+import type { Signal } from "@effect/platform/CommandExecutor";
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { Effect, Exit, Fiber } from "effect";
+import { Effect, Exit, Fiber, Scope } from "effect";
 
 import {
   OpenClawAdapter,
@@ -35,7 +35,6 @@ const fleetRuntimeFactoryState = vi.hoisted(() => ({
 }));
 
 const LOG_OFFSET = 100;
-const STUB_PROCESS_GROUP_PID = -4242;
 const TEARDOWN_TIMER_ADVANCE_MS = 15_000;
 const READY_TIMEOUT_MS = 1_000;
 
@@ -197,54 +196,26 @@ describe("OpenClawAdapter.teardown", () => {
     await Effect.runPromise(adapter.teardown());
   });
 
-  it("waits for detached process-group exit before returning", async () => {
+  it("sends SIGTERM then SIGKILL when the process does not exit", async () => {
     vi.useFakeTimers();
-    const killCalls: Array<{
-      readonly pid: number;
-      readonly signal: NodeJS.Signals | 0;
-    }> = [];
-    const killSpy = vi.spyOn(process, "kill").mockImplementation(((
-      pid: number,
-      signal?: NodeJS.Signals | 0,
-    ) => {
-      killCalls.push({ pid, signal: signal ?? 0 });
-      if (pid !== STUB_PROCESS_GROUP_PID) {
-        throw new Error(`Unexpected pid ${pid}`);
-      }
-      if ((signal ?? 0) === 0) {
-        if (groupAlive) {
-          return true;
-        }
-        const err = new Error("ESRCH") as Error & { code?: string };
-        err.code = "ESRCH";
-        throw err;
-      }
-      if (signal === "SIGTERM") {
-        fakeChild.exitCode = 0;
-        queueMicrotask(() => {
-          fakeChild.emit("exit", 0, null);
-        });
-        return true;
-      }
-      if (signal === "SIGKILL") {
-        groupAlive = false;
-        return true;
-      }
-      return true;
-    }) as typeof process.kill);
-    let groupAlive = true;
-    const fakeChild = new EventEmitter() as EventEmitter & {
-      exitCode: number | null;
-      pid: number;
-    };
-    fakeChild.exitCode = null;
-    fakeChild.pid = 4242;
+    const killCalls: Signal[] = [];
+    const scope = Effect.runSync(Scope.make());
+    const exitFiber = Effect.runFork(
+      Effect.never as Effect.Effect<number, never, never>,
+    );
 
     const adapter = new OpenClawAdapter(stubDeps());
     (adapter as OpenClawAdapterWithInjectedState).state = {
-      child: fakeChild,
+      process: {
+        exitFiber,
+        kill: (signal: Signal) =>
+          Effect.sync(() => {
+            killCalls.push(signal);
+          }),
+        scope,
+      },
       stateDir: "/tmp/openclaw-teardown-test",
-      logBuffer: "",
+      logBuffer: { value: "" },
       spawnInput: stubSpawnInput(),
       tornDown: false,
     };
@@ -255,20 +226,10 @@ describe("OpenClawAdapter.teardown", () => {
       await teardownPromise;
     } finally {
       vi.useRealTimers();
-      killSpy.mockRestore();
+      Effect.runFork(Fiber.interrupt(exitFiber));
     }
 
-    expect(killCalls).toEqual(
-      expect.arrayContaining([
-        { pid: STUB_PROCESS_GROUP_PID, signal: "SIGTERM" },
-        { pid: STUB_PROCESS_GROUP_PID, signal: "SIGKILL" },
-      ]),
-    );
-    expect(
-      killCalls.filter(
-        (call) => call.pid === STUB_PROCESS_GROUP_PID && call.signal === 0,
-      ).length,
-    ).toBeGreaterThan(0);
+    expect(killCalls).toEqual(["SIGTERM", "SIGKILL"]);
   });
 });
 
@@ -615,12 +576,13 @@ interface MockRuntimeHandle {
 }
 
 interface InjectedOpenClawAdapterState {
-  readonly child: EventEmitter & {
-    readonly pid: number;
-    exitCode: number | null;
+  readonly process: {
+    readonly exitFiber: Fiber.RuntimeFiber<number, never>;
+    readonly kill: (signal: Signal) => Effect.Effect<void, never, never>;
+    readonly scope: Scope.CloseableScope;
   };
   readonly stateDir: string;
-  readonly logBuffer: string;
+  readonly logBuffer: { readonly value: string };
   readonly spawnInput: SpawnInput;
   tornDown: boolean;
 }

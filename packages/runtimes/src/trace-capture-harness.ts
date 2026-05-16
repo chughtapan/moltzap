@@ -1,6 +1,4 @@
-import { randomUUID } from "node:crypto";
-import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { Path } from "@effect/platform";
 import { Data, Effect, Either } from "effect";
 import { startRuntimeAgent, type RuntimeKind } from "./fleet.js";
 import { RuntimeReadyTimedOut, SpawnFailed } from "./errors.js";
@@ -24,6 +22,10 @@ const DEFAULT_GROUP_NAME = "cc-judge-group";
 const PLACEHOLDER_AGENT_ID = "target-agent";
 const PLACEHOLDER_IMAGE = "managed/by-moltzap-trace-capture";
 const RUNTIME_KIND_CLAUDE_CODE = "claude-code";
+
+interface RuntimeCrypto {
+  readonly randomUUID?: () => string;
+}
 
 let activeRun = false;
 
@@ -308,20 +310,44 @@ function asHarnessFailure(error: unknown): HarnessFailure {
 }
 
 function packagesDir(): string {
-  let current = path.dirname(fileURLToPath(import.meta.url));
-  while (current !== path.parse(current).root) {
-    if (path.basename(current) === "packages") {
-      return current;
-    }
-    current = path.dirname(current);
-  }
-  throw new WorkspacePackagesDirNotFound({
-    message: "Unable to resolve workspace packages directory",
-  });
+  return Effect.runSync(
+    Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const here = yield* path.fromFileUrl(new URL(import.meta.url));
+      let current = path.dirname(here);
+      while (current !== path.parse(current).root) {
+        if (path.basename(current) === "packages") {
+          return current;
+        }
+        current = path.dirname(current);
+      }
+      return yield* Effect.fail(
+        new WorkspacePackagesDirNotFound({
+          message: "Unable to resolve workspace packages directory",
+        }),
+      );
+    }).pipe(Effect.provide(Path.layer), Effect.orDie),
+  );
 }
 
 function packageModuleUrl(...segments: ReadonlyArray<string>): string {
-  return pathToFileURL(path.join(packagesDir(), ...segments)).href;
+  return Effect.runSync(
+    Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const url = yield* path.toFileUrl(path.join(packagesDir(), ...segments));
+      return url.href;
+    }).pipe(Effect.provide(Path.layer), Effect.orDie),
+  );
+}
+
+function randomRunId(): Effect.Effect<string, HarnessFailure> {
+  const crypto = (globalThis as { readonly crypto?: RuntimeCrypto }).crypto;
+  if (crypto?.randomUUID === undefined) {
+    return Effect.fail(
+      failHarness("Runtime crypto.randomUUID is not available"),
+    );
+  }
+  return Effect.sync(() => crypto.randomUUID!());
 }
 
 function loadClientTestModule(): Effect.Effect<ClientTestModule, Error, never> {
@@ -1190,7 +1216,7 @@ function buildTraceBundle(input: {
   readonly sourcePath: string;
   readonly payload: HarnessPayload;
   readonly plan: HarnessLoadArgs["plan"];
-  readonly runId: string | undefined;
+  readonly runId: string;
   readonly targetAgent: TargetAgentRegistration;
   readonly runtimeStartedAt: string;
   readonly traceEvents: readonly TraceCaptureEvent[];
@@ -1205,7 +1231,7 @@ function buildTraceBundle(input: {
   );
   const endedAt = new Date().toISOString();
   return {
-    runId: input.runId ?? randomUUID(),
+    runId: input.runId,
     project: input.plan.project,
     scenarioId: input.plan.scenarioId,
     name: input.plan.name,
@@ -1277,11 +1303,12 @@ function executeTraceRun(input: {
       clientModule: input.clientModule,
     });
     const traceEvents = yield* input.server.coreApp.traceCapture.snapshot();
+    const runId = input.runId ?? (yield* randomRunId());
     return buildTraceBundle({
       sourcePath: input.sourcePath,
       payload: input.payload,
       plan: input.plan,
-      runId: input.runId,
+      runId,
       targetAgent: input.targetAgent,
       runtimeStartedAt: input.runtimeStartedAt,
       traceEvents,

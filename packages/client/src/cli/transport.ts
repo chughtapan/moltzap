@@ -13,7 +13,7 @@
  * that provides a recording `Transport`; unit tests provide `Transport`
  * directly via `Effect.provideService`.
  */
-import * as net from "node:net";
+import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import {
   Config,
   Context,
@@ -543,21 +543,15 @@ export const resolveTransportInputs = (parsed: {
  * path and still fails fast when the socket refuses or hangs.
  */
 const probeDaemonDefault = (): Effect.Effect<boolean, never> =>
-  Effect.async<boolean, never>((resume) => {
-    let settled = false;
-    const done = (reachable: boolean): void => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      conn.removeAllListeners();
-      conn.destroy();
-      resume(Effect.succeed(reachable));
-    };
-    const conn = net.createConnection(MoltZapService.SOCKET_PATH);
-    const timer = setTimeout(() => done(false), PROBE_DAEMON_TIMEOUT_MS);
-    conn.once("connect", () => done(true));
-    conn.once("error", () => done(false));
-  });
+  Effect.scoped(
+    NodeSocket.makeNet({
+      path: MoltZapService.SOCKET_PATH,
+      openTimeout: `${PROBE_DAEMON_TIMEOUT_MS} millis`,
+    }).pipe(
+      Effect.as(true),
+      Effect.catchAll(() => Effect.succeed(false)),
+    ),
+  );
 
 function absurd(x: never): never {
   throw new Error(`unreachable: ${String(x)}`);

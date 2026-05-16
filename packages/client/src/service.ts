@@ -1,6 +1,8 @@
-import * as net from "node:net";
-import * as path from "node:path";
-import * as os from "node:os";
+import { FileSystem, Path } from "@effect/platform";
+import * as SocketServer from "@effect/platform/SocketServer";
+import { NodeContext } from "@effect/platform-node";
+import * as NodeSocketServer from "@effect/platform-node/NodeSocketServer";
+import { RpcSerialization, RpcServer } from "@effect/rpc";
 import {
   AgentsLookup,
   AgentsLookupByName,
@@ -47,10 +49,14 @@ import {
   ConfigProvider,
   Data,
   Effect,
+  Either,
+  Exit,
   HashMap,
+  Layer,
   Match,
   Option,
   Ref,
+  Scope,
 } from "effect";
 import {
   MoltZapWsClient,
@@ -61,14 +67,10 @@ import { AgentNotFoundError } from "./runtime/errors.js";
 import { getOr, snapshot } from "./runtime/refs.js";
 import { LocalServiceCommands } from "./runtime/local-service-commands.js";
 import {
-  appendFileSync,
-  chmodSync,
-  makeDirectorySync,
-  readLinkSync,
-  symlinkSync,
-  unlinkSync,
-  type NodeFsError,
-} from "./runtime/node-fs-sync.js";
+  getMoltZapAgentServiceSocketPath,
+  getMoltZapServiceSocketPath,
+} from "./local-paths.js";
+import { LocalDaemonRpcs, type LocalDaemonParams } from "./local-daemon-rpc.js";
 
 const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -85,6 +87,34 @@ class ServiceInputError extends Data.TaggedError("ServiceInputError")<{
   readonly message: string;
 }> {}
 
+function logFileSystemIssue(
+  logger: WsClientLogger | undefined,
+  level: "info" | "warn",
+  message: string,
+  error: unknown,
+): Effect.Effect<void, never> {
+  return Effect.sync(() => {
+    logger?.[level](message, error);
+  });
+}
+
+const errorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
+function chmodSocketPath(
+  sockPath: string,
+  logger: WsClientLogger | undefined,
+): Effect.Effect<void, never> {
+  return FileSystem.FileSystem.pipe(
+    Effect.flatMap((fileSystem) =>
+      fileSystem.chmod(sockPath, SOCKET_FILE_MODE),
+    ),
+    Effect.catchAll((error) =>
+      logFileSystemIssue(logger, "warn", "chmod 0600 on socket failed", error),
+    ),
+  ).pipe(Effect.provide(NodeContext.layer));
+}
+
 const ClientEventLogDir = Config.option(
   Config.string("MOLTZAP_CLIENT_EVENT_LOG_DIR"),
 );
@@ -98,29 +128,32 @@ const getClientEventLogDir = (): string | undefined =>
     ),
   );
 
-function appendClientEventTrace(record: Record<string, unknown>): void {
+function appendClientEventTrace(
+  record: Record<string, unknown>,
+): Effect.Effect<void, never> {
   const dir = getClientEventLogDir();
-  if (!dir) return;
-  try {
-    makeDirectorySync(dir);
+  if (!dir) return Effect.void;
+  return Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
     const agentId =
       typeof record["agentId"] === "string" ? record["agentId"] : "unknown";
     const safeAgentId = /^[A-Za-z0-9_-]+$/.test(agentId) ? agentId : "unknown";
-    appendFileSync(
-      path.join(dir, `client-events-${safeAgentId}.jsonl`),
-      JSON.stringify(record) + "\n",
+    yield* Effect.zipRight(
+      fileSystem.makeDirectory(dir, { recursive: true }),
+      fileSystem.writeFileString(
+        path.join(dir, `client-events-${safeAgentId}.jsonl`),
+        JSON.stringify(record) + "\n",
+        { flag: "a" },
+      ),
     );
-  } catch (err) {
-    try {
-      process.stderr.write(
-        `moltzap client event trace write failed: ${err instanceof Error ? err.message : String(err)}\n`,
-      );
-    } catch (stderrErr) {
-      process.emitWarning(
-        `moltzap client event trace stderr fallback failed: ${stderrErr instanceof Error ? stderrErr.message : String(stderrErr)}`,
-      );
-    }
-  }
+  }).pipe(
+    Effect.withSpan("appendClientEventTrace"),
+    Effect.provide(NodeContext.layer),
+    Effect.catchAll((err) =>
+      Effect.logWarning("moltzap client event trace write failed", err),
+    ),
+  );
 }
 
 /**
@@ -382,13 +415,13 @@ export class MoltZapService {
 
   /**
    * Tear down the service. `close()` is sync because it fans out to the
-   * socket server, Refs, and the ws-client — the ws-client's own close
-   * Effect is run via `Effect.runSync` here so the caller gets an immediate
-   * shutdown the way existing code expects.
+   * socket server, Refs, and the ws-client. Effectful network/filesystem
+   * cleanup is forked at the edge so existing callers still get immediate
+   * shutdown.
    */
   close(): void {
     this._connected = false;
-    this.stopSocketServer();
+    Effect.runFork(this.stopSocketServer());
     if (this.client) {
       Effect.runFork(this.client.close());
     }
@@ -413,15 +446,11 @@ export class MoltZapService {
 
   // --- Socket Server ---
 
-  private socketServer: net.Server | null = null;
+  private socketServerScope: Scope.CloseableScope | null = null;
   private activeSocketPath: string | null = null;
 
   /** Default socket path for CLI discovery. Per-instance path uses agentId. */
-  static readonly SOCKET_PATH = path.join(
-    os.homedir(),
-    ".moltzap",
-    "service.sock",
-  );
+  static readonly SOCKET_PATH = getMoltZapServiceSocketPath();
 
   /**
    * `agentId` is a server-assigned string. Treat it as untrusted: if a
@@ -436,147 +465,161 @@ export class MoltZapService {
   /** Per-instance socket path based on connected agentId. */
   get socketPath(): string {
     const id = MoltZapService.safeAgentIdSegment(this.ownAgentId ?? "default");
-    return path.join(os.homedir(), ".moltzap", `service-${id}.sock`);
+    return getMoltZapAgentServiceSocketPath(id);
   }
 
-  startSocketServer(): void {
-    const sockPath = this.socketPath;
-    this.activeSocketPath = sockPath;
-    try {
-      unlinkSync(sockPath);
-    } catch (err) {
-      // ENOENT is the normal case (no stale socket); log everything
-      // else (permission denied, EACCES) so operators can diagnose.
-      const code = (err as NodeFsError).code;
-      if (code !== "ENOENT") {
-        this.opts.logger?.warn("unlink existing socket failed", err);
+  startSocketServer(): Effect.Effect<void, unknown, never> {
+    return Effect.gen(this, function* () {
+      const previousScope = this.socketServerScope;
+      if (previousScope !== null) {
+        yield* Scope.close(previousScope, Exit.succeed(undefined));
+        this.socketServerScope = null;
       }
-    }
-    makeDirectorySync(path.dirname(sockPath));
 
-    this.socketServer = net.createServer((conn) => {
-      let buffer = "";
-      conn.on("data", (chunk) => {
-        buffer += chunk.toString();
-        const lines = buffer.split("\n");
-        buffer = lines.pop()!;
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          // Fork the line-handler Effect onto the Effect runtime. Each line
-          // dispatches independently; the fiber runs until it writes a
-          // response or error frame back onto the socket.
-          Effect.runFork(this.handleSocketLineEffect(line, conn));
-        }
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const sockPath = this.socketPath;
+
+      yield* fileSystem
+        .remove(sockPath, { force: true })
+        .pipe(
+          Effect.catchAll((error) =>
+            logFileSystemIssue(
+              this.opts.logger,
+              "warn",
+              "unlink existing socket failed",
+              error,
+            ),
+          ),
+        );
+      yield* fileSystem.makeDirectory(path.dirname(sockPath), {
+        recursive: true,
       });
-    });
-    this.socketServer.listen(sockPath, () => {
+
+      const socketScope = yield* Scope.make();
+      const closeSocketScope = Scope.close(
+        socketScope,
+        Exit.succeed(undefined),
+      );
+      const server = yield* NodeSocketServer.make({ path: sockPath }).pipe(
+        Scope.extend(socketScope),
+        Effect.tapError(() => closeSocketScope),
+      );
+      const handlerLayer = LocalDaemonRpcs.toLayer({
+        LocalDaemonCall: ({ method, params }) =>
+          this.handleSocketRequestEffect(method, params).pipe(
+            Effect.mapError(errorMessage),
+          ),
+      });
+      const rpcLayer = RpcServer.layer(LocalDaemonRpcs).pipe(
+        Layer.provide(handlerLayer),
+        Layer.provide(RpcServer.layerProtocolSocketServer),
+        Layer.provide(RpcSerialization.layerNdjson),
+        Layer.provide(Layer.succeed(SocketServer.SocketServer, server)),
+      );
+
+      yield* Layer.build(rpcLayer).pipe(
+        Scope.extend(socketScope),
+        Effect.tapError(() => closeSocketScope),
+      );
+      this.socketServerScope = socketScope;
+      this.activeSocketPath = sockPath;
       // Owner-only permissions: the socket exposes an RPC passthrough that
       // impersonates this agent to the server, so other local users on the
       // host must not be able to connect.
-      try {
-        chmodSync(sockPath, SOCKET_FILE_MODE);
-      } catch (err) {
-        this.opts.logger?.warn("chmod 0600 on socket failed", err);
-      }
-    });
+      yield* chmodSocketPath(sockPath, this.opts.logger);
 
-    // Symlink default path to this instance for CLI discovery
-    try {
-      unlinkSync(MoltZapService.SOCKET_PATH);
-    } catch (err) {
-      // Stale/missing default symlink is expected most of the time; log
-      // at debug so real permission errors still surface.
-      this.opts.logger?.info("unlink default socket symlink", err);
-    }
-    try {
-      symlinkSync(sockPath, MoltZapService.SOCKET_PATH);
-    } catch (err) {
-      this.opts.logger?.warn("symlink default socket failed", err);
-    }
+      // Symlink default path to this instance for CLI discovery.
+      yield* fileSystem
+        .remove(MoltZapService.SOCKET_PATH, { force: true })
+        .pipe(
+          Effect.catchAll((error) =>
+            logFileSystemIssue(
+              this.opts.logger,
+              "info",
+              "unlink default socket symlink",
+              error,
+            ),
+          ),
+        );
+      yield* fileSystem
+        .symlink(sockPath, MoltZapService.SOCKET_PATH)
+        .pipe(
+          Effect.catchAll((error) =>
+            logFileSystemIssue(
+              this.opts.logger,
+              "warn",
+              "symlink default socket failed",
+              error,
+            ),
+          ),
+        );
+    }).pipe(
+      Effect.withSpan("MoltZapService.startSocketServer"),
+      Effect.provide(NodeContext.layer),
+    );
   }
 
-  stopSocketServer(): void {
-    this.socketServer?.close();
-    this.socketServer = null;
+  private stopSocketServer(): Effect.Effect<void, never> {
+    const socketScope = this.socketServerScope;
+    this.socketServerScope = null;
     const sockPath = this.activeSocketPath ?? this.socketPath;
     this.activeSocketPath = null;
-    try {
-      unlinkSync(sockPath);
-    } catch (err) {
-      this.opts.logger?.info("unlink socket path", err);
-    }
-    // Remove default symlink only if it points to this instance.
-    try {
-      const target = readLinkSync(MoltZapService.SOCKET_PATH);
-      if (target === sockPath) unlinkSync(MoltZapService.SOCKET_PATH);
-    } catch (err) {
-      this.opts.logger?.info("cleanup default symlink", err);
-    }
-  }
-
-  /**
-   * Handle one JSON line from the unix socket as an Effect. Parses the
-   * request, dispatches through `handleSocketRequestEffect`, and writes
-   * either a `{result}` or `{error}` frame back onto the connection.
-   * Never fails — all branches resolve into a `conn.write` side effect.
-   */
-  private handleSocketLineEffect(
-    line: string,
-    conn: net.Socket,
-  ): Effect.Effect<void, never> {
-    return Effect.suspend(() => {
-      let req: Record<string, unknown>;
-      try {
-        const parsed = JSON.parse(line);
-        if (!isPlainRecord(parsed)) {
-          return Effect.sync(() =>
-            conn.write(
-              JSON.stringify({
-                error: "request must be a JSON object",
-              }) + "\n",
+    return Effect.gen(this, function* () {
+      if (socketScope !== null) {
+        yield* Scope.close(socketScope, Exit.succeed(undefined));
+      }
+      const fileSystem = yield* FileSystem.FileSystem;
+      yield* fileSystem
+        .remove(sockPath, { force: true })
+        .pipe(
+          Effect.catchAll((error) =>
+            logFileSystemIssue(
+              this.opts.logger,
+              "info",
+              "unlink socket path",
+              error,
+            ),
+          ),
+        );
+      const target = yield* fileSystem
+        .readLink(MoltZapService.SOCKET_PATH)
+        .pipe(Effect.either);
+      const shouldRemoveDefaultSocket = Either.match(target, {
+        onLeft: () => false,
+        onRight: (value) => value === sockPath,
+      });
+      if (shouldRemoveDefaultSocket) {
+        yield* fileSystem
+          .remove(MoltZapService.SOCKET_PATH, { force: true })
+          .pipe(
+            Effect.catchAll((error) =>
+              logFileSystemIssue(
+                this.opts.logger,
+                "info",
+                "cleanup default symlink",
+                error,
+              ),
             ),
           );
-        }
-        req = parsed;
-      } catch (err) {
-        return Effect.sync(() =>
-          conn.write(
-            JSON.stringify({
-              error: err instanceof Error ? err.message : String(err),
-            }) + "\n",
-          ),
-        );
       }
-      if (typeof req.method !== "string" || !req.method) {
-        return Effect.sync(() =>
-          conn.write(
-            JSON.stringify({
-              error: "method is required and must be a string",
-            }) + "\n",
-          ),
-        );
-      }
-      const params = isPlainRecord(req.params) ? req.params : {};
-      return this.handleSocketRequestEffect(req.method, params).pipe(
-        Effect.match({
-          onSuccess: (result) => {
-            conn.write(JSON.stringify({ result }) + "\n");
-          },
-          onFailure: (err) => {
-            conn.write(
-              JSON.stringify({
-                error: err instanceof Error ? err.message : String(err),
-              }) + "\n",
-            );
-          },
-        }),
-      );
-    });
+    }).pipe(
+      Effect.withSpan("MoltZapService.stopSocketServer"),
+      Effect.provide(NodeContext.layer),
+      Effect.catchAll((error) =>
+        logFileSystemIssue(
+          this.opts.logger,
+          "info",
+          "cleanup default symlink",
+          error,
+        ),
+      ),
+    );
   }
 
   private handleSocketRequestEffect(
     method: string,
-    params: Record<string, unknown>,
+    params: LocalDaemonParams,
   ): Effect.Effect<unknown, ServiceInputError | ServiceRpcError> {
     return Effect.suspend(() => {
       switch (method) {
@@ -1160,16 +1203,18 @@ export class MoltZapService {
       typeof params["conversationId"] === "string"
         ? params["conversationId"]
         : undefined;
-    appendClientEventTrace({
-      ts: new Date().toISOString(),
-      agentId: this._ownAgentId ?? "unknown",
-      notification: notification.method,
-      messageId: message?.["id"],
-      messageConversationId: message?.["conversationId"],
-      messageSenderId: message?.["senderId"],
-      conversationId: conversation?.["id"] ?? notificationConversationId,
-      conversationName: conversation?.["name"],
-    });
+    Effect.runFork(
+      appendClientEventTrace({
+        ts: new Date().toISOString(),
+        agentId: this._ownAgentId ?? "unknown",
+        notification: notification.method,
+        messageId: message?.["id"],
+        messageConversationId: message?.["conversationId"],
+        messageSenderId: message?.["senderId"],
+        conversationId: conversation?.["id"] ?? notificationConversationId,
+        conversationName: conversation?.["name"],
+      }),
+    );
 
     fanout(this.handlers.rawNotification, notification, this.opts.logger);
 

@@ -2,6 +2,7 @@ import {
   PostgreSqlContainer,
   type StartedPostgreSqlContainer,
 } from "@testcontainers/postgresql";
+import { Effect } from "effect";
 import type { GlobalSetupContext } from "vitest/node";
 import {
   startEchoServer,
@@ -87,28 +88,31 @@ export default async function ({ provide }: GlobalSetupContext) {
   if (canRunContainers) {
     const model = echoModelConfig(echo.port);
 
-    containerA = startRawContainer(
-      buildOpenClawConfig({
-        model,
-        serverUrl: server.baseUrl,
-        agentApiKey: agentA.apiKey,
-        agentName: "container-agent-a",
-      }),
-      { name: "shared-a", agentName: "container-agent-a" },
-    );
-
-    containerB = startRawContainer(
-      buildOpenClawConfig({
-        model,
-        serverUrl: server.baseUrl,
-        agentApiKey: agentB.apiKey,
-        agentName: "container-agent-b",
-      }),
-      {
-        name: "shared-b",
-        agentName: "container-agent-b",
-        portRange: [19500, 19999],
-      },
+    [containerA, containerB] = await Effect.runPromise(
+      Effect.all([
+        startRawContainer(
+          buildOpenClawConfig({
+            model,
+            serverUrl: server.baseUrl,
+            agentApiKey: agentA.apiKey,
+            agentName: "container-agent-a",
+          }),
+          { name: "shared-a", agentName: "container-agent-a" },
+        ),
+        startRawContainer(
+          buildOpenClawConfig({
+            model,
+            serverUrl: server.baseUrl,
+            agentApiKey: agentB.apiKey,
+            agentName: "container-agent-b",
+          }),
+          {
+            name: "shared-b",
+            agentName: "container-agent-b",
+            portRange: [19500, 19999],
+          },
+        ),
+      ]),
     );
 
     // Start sequentially — parallel container startup can overwhelm Docker on dev machines
@@ -127,8 +131,8 @@ export default async function ({ provide }: GlobalSetupContext) {
   provide("containerBApiKey", agentB.apiKey);
 
   return async () => {
-    if (containerA) stopContainer(containerA);
-    if (containerB) stopContainer(containerB);
+    if (containerA) await Effect.runPromise(stopContainer(containerA));
+    if (containerB) await Effect.runPromise(stopContainer(containerB));
     containerA = null;
     containerB = null;
     if (spawnedServer) await stopSpawnedServer(spawnedServer);
