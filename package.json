@@ -22,10 +22,9 @@
   },
   "devDependencies": {
     "@eslint-community/eslint-plugin-eslint-comments": "^4.7.1",
-    "@typescript-eslint/eslint-plugin": "^8.58.2",
     "@typescript-eslint/parser": "^8.58.2",
     "eslint": "^9",
-    "eslint-plugin-agent-code-guard": "0.0.13",
+    "eslint-plugin-agent-code-guard": "0.0.14",
     "husky": "^9.0.0",
     "mint": "^4.0.0",
     "oxfmt": "^0.7.0",

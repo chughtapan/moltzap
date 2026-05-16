@@ -65,6 +65,7 @@ export interface ConformanceRunContext {
   readonly opts: ConformanceRunOptions;
   /** Seed to pin every property to. Exported on failure for replay. */
   readonly seed: number;
+
   /**
    * Per-property artifact sink. The tier modules call `record` to stash a
    * seed + toxic profile when a property fails; the suite post-process

@@ -26,7 +26,8 @@ import {
   type ServerTestClient,
 } from "../../test-utils/helpers.js";
 import type { CoreApp } from "../../app/types.js";
-import { Effect, type Layer } from "effect";
+import { Data, Effect, Either, type Layer } from "effect";
+import { it as effectIt } from "@effect/vitest";
 import { inject } from "vitest";
 
 export const HTTP_OK = 200;
@@ -36,6 +37,7 @@ export const HTTP_UNAUTHORIZED = 401;
 export const HTTP_FORBIDDEN = 403;
 export const HTTP_CONFLICT = 409;
 export const DEFAULT_NOTIFICATION_TIMEOUT_MS = 5_000;
+export const it = effectIt.live;
 
 export type { ConnectedAgent } from "../../test-utils/helpers.js";
 export {
@@ -60,6 +62,15 @@ export function notificationMatches(
   return (notification) => notification.method === method;
 }
 
+export function expectEitherLeft<A, E>(value: Either.Either<A, E>): E {
+  return Either.match(value, {
+    onLeft: (error) => error,
+    onRight: () => {
+      throw new IntegrationTestHelperError("Expected Either.Left.");
+    },
+  });
+}
+
 let _coreApp: CoreApp | null = null;
 
 type StartTestServerOptions = {
@@ -67,8 +78,10 @@ type StartTestServerOptions = {
   encryption?: boolean;
   /** Optional validator forwarded to `startCoreTestServer` — see its docs. */
   sessionValidator?: SessionValidator;
+
   /** Optional secret forwarded to `startCoreTestServer` — see its docs. */
   registrationSecret?: string;
+
   /**
    * Optional dev-mode owner id. When set, every agent registered via the
    * public `/api/v1/auth/register` endpoint is implicitly owned by this
@@ -91,45 +104,73 @@ class IntegrationTestHelperError extends Error {
   }
 }
 
+export interface AdminRegisterResponse {
+  agentId: string;
+  apiKey: string;
+}
+
+class AdminRegisterDecodeError extends Data.TaggedError(
+  "AdminRegisterDecodeError",
+)<{
+  readonly message: string;
+  readonly json: unknown;
+}> {}
+
+class AdminRegisterStatusError extends Data.TaggedError(
+  "AdminRegisterStatusError",
+)<{
+  readonly message: string;
+  readonly status: number;
+  readonly json: unknown;
+}> {}
+
+function isAdminRegisterResponse(json: unknown): json is AdminRegisterResponse {
+  if (typeof json !== "object" || json === null) return false;
+  if (!("agentId" in json) || typeof json.agentId !== "string") return false;
+  if (!("apiKey" in json) || typeof json.apiKey !== "string") return false;
+  return true;
+}
+
 /**
  * Start the core test server using the shared Postgres from globalSetup.
  */
-export function startTestServer(_opts?: StartTestServerOptions) {
+export function startTestServerEffect(_opts?: StartTestServerOptions) {
+  const opts = _opts ?? {};
   // Get pgHost/pgPort from vitest's globalSetup via inject()
   const pgHost = inject("testPgHost");
   const pgPort = inject("testPgPort");
 
-  return Effect.runPromise(
-    Effect.tryPromise({
-      try: () =>
-        startCoreTestServer({
-          pgHost,
-          pgPort,
-          encryption: _opts?.encryption,
-          sessionValidator: _opts?.sessionValidator,
-          registrationSecret: _opts?.registrationSecret,
-          devModeUserId: _opts?.devModeUserId,
-          traceCaptureLayer: _opts?.traceCaptureLayer,
-        }),
-      catch: (cause) =>
-        new IntegrationTestHelperError(
-          "Core test server failed to start",
-          cause,
-        ),
-    }).pipe(
-      Effect.tap((server) =>
-        Effect.sync(() => {
-          _coreApp = server.coreApp;
-        }),
-      ),
-      Effect.map((server) => ({
-        baseUrl: server.baseUrl,
-        wsUrl: server.wsUrl,
-        coreApp: server.coreApp,
-      })),
-      Effect.withSpan("startTestServer"),
+  return Effect.tryPromise({
+    try: () =>
+      startCoreTestServer({
+        pgHost,
+        pgPort,
+        encryption: opts.encryption,
+        sessionValidator: opts.sessionValidator,
+        registrationSecret: opts.registrationSecret,
+        devModeUserId: opts.devModeUserId,
+        traceCaptureLayer: opts.traceCaptureLayer,
+      }),
+    catch: (cause) =>
+      new IntegrationTestHelperError("Core test server failed to start", cause),
+  }).pipe(
+    Effect.tap((server) =>
+      Effect.sync(() => {
+        _coreApp = server.coreApp;
+      }),
     ),
+    Effect.map((server) => ({
+      baseUrl: server.baseUrl,
+      wsUrl: server.wsUrl,
+      coreApp: server.coreApp,
+    })),
+    Effect.withSpan("startTestServer"),
   );
+}
+
+export function startTestServer(_opts?: StartTestServerOptions) {
+  const opts = _opts ?? {};
+  return Effect.runPromise(startTestServerEffect(opts));
 }
 
 export function getCoreApp(): CoreApp {
@@ -138,33 +179,74 @@ export function getCoreApp(): CoreApp {
   return _coreApp;
 }
 
+export function stopTestServerEffect() {
+  return Effect.gen(function* () {
+    yield* closeAllClients();
+    _coreApp = null;
+    yield* Effect.tryPromise({
+      try: () => stopCoreTestServer(),
+      catch: (cause) =>
+        new IntegrationTestHelperError(
+          "Core test server failed to stop",
+          cause,
+        ),
+    });
+  }).pipe(Effect.withSpan("stopTestServer"));
+}
+
 export function stopTestServer() {
-  return Effect.runPromise(
-    Effect.gen(function* () {
-      yield* closeAllClients();
-      _coreApp = null;
-      yield* Effect.tryPromise({
-        try: () => stopCoreTestServer(),
-        catch: (cause) =>
-          new IntegrationTestHelperError(
-            "Core test server failed to stop",
-            cause,
-          ),
-      });
-    }).pipe(Effect.withSpan("stopTestServer")),
-  );
+  return Effect.runPromise(stopTestServerEffect());
+}
+
+export function resetTestDbEffect() {
+  return Effect.gen(function* () {
+    yield* closeAllClients();
+    yield* Effect.tryPromise({
+      try: () => resetCoreTestDb(),
+      catch: (cause) =>
+        new IntegrationTestHelperError("Core test DB failed to reset", cause),
+    });
+  }).pipe(Effect.withSpan("resetTestDb"));
 }
 
 export function resetTestDb() {
-  return Effect.runPromise(
-    Effect.gen(function* () {
-      yield* closeAllClients();
-      yield* Effect.tryPromise({
-        try: () => resetCoreTestDb(),
-        catch: (cause) =>
-          new IntegrationTestHelperError("Core test DB failed to reset", cause),
-      });
-    }).pipe(Effect.withSpan("resetTestDb")),
+  return Effect.runPromise(resetTestDbEffect());
+}
+
+export function adminRegisterAgent(opts: {
+  baseUrl: string;
+  inviteCode: string;
+  name: string;
+  ownerUserId: string;
+  description?: string;
+}) {
+  const body: Record<string, unknown> = {
+    name: opts.name,
+    inviteCode: opts.inviteCode,
+    ownerUserId: opts.ownerUserId,
+  };
+  if (opts.description !== undefined) body.description = opts.description;
+
+  return postJson(opts.baseUrl, "/api/v1/admin/register-agent", body).pipe(
+    Effect.flatMap(({ status, json }) => {
+      if (status !== HTTP_CREATED && status !== HTTP_OK) {
+        return Effect.fail(
+          new AdminRegisterStatusError({
+            message: `admin register failed: ${status}`,
+            status,
+            json,
+          }),
+        );
+      }
+      return isAdminRegisterResponse(json)
+        ? Effect.succeed(json)
+        : Effect.fail(
+            new AdminRegisterDecodeError({
+              message: "admin register response did not match expected shape",
+              json,
+            }),
+          );
+    }),
   );
 }
 

@@ -9,8 +9,6 @@
  */
 import { Effect } from "effect";
 import * as fc from "fast-check";
-import type { NotificationFrame } from "../../../transport/wire.js";
-import { MessageReceivedNotificationDefinition } from "../../../task/methods.js";
 import { arbitraryNotificationFrame } from "../../arbitraries/frames.js";
 import type { ClientConformanceRunContext } from "./runner.js";
 import { registerProperty } from "../_shared/registry.js";
@@ -19,6 +17,7 @@ import {
   collectTagged,
   invariant,
   subscribeAll,
+  type ClientFixture,
 } from "./_fixtures.js";
 
 const CATEGORY = "boundary" as const;
@@ -43,68 +42,108 @@ export function registerSchemaExhaustiveFuzzClient(
     CATEGORY,
     PROPERTY_SCHEMA_EXHAUSTIVE_FUZZ_CLIENT,
     "real client absorbs arbitrary NotificationFrames; liveness and boundary hold",
-    Effect.scoped(
-      Effect.gen(function* () {
-        const fx = yield* acquireFixture(
-          ctx,
-          CATEGORY,
-          PROPERTY_SCHEMA_EXHAUSTIVE_FUZZ_CLIENT,
-        );
-        yield* subscribeAll(fx.handle);
-        // Fuzz burst: default 10 frames; stress mode scales with
-        // CONFORMANCE_NUM_RUNS through ctx.opts.numRuns.
-        const fuzzRuns = ctx.opts.numRuns ?? DEFAULT_FUZZ_BURST_RUNS;
-        const burst = fc.sample(arbitraryNotificationFrame(), {
-          numRuns: fuzzRuns,
-          seed: ctx.seed,
-        });
-        for (const frame of burst) {
-          yield* fx.connection
-            .emitNotification(frame)
-            .pipe(Effect.orElseSucceed(() => undefined));
-        }
-        // (1) Real client still alive — closeSignal not fired.
-        const closeRace = yield* Effect.race(
-          fx.handle.closeSignal.pipe(Effect.as("closed" as const)),
-          Effect.sleep("100 millis").pipe(Effect.as("alive" as const)),
-        );
-        if (closeRace === "closed") {
-          return yield* Effect.fail(
-            invariant(
-              CATEGORY,
-              PROPERTY_SCHEMA_EXHAUSTIVE_FUZZ_CLIENT,
-              "real client closed during fuzz burst",
-            ),
-          );
-        }
-        // (2) Liveness probe.
-        const tag = yield* fx.window.freshEmissionTag;
-        // Vehicle: known notification method; params intentionally non-
-        // conformant. Decoder stays payload-opaque (#200 §5 C3); the
-        // liveness probe is independent of params shape.
-        yield* fx.window.emitTaggedNotification({
-          connection: fx.connection,
-          base: {
-            jsonrpc: "2.0",
-            method: MessageReceivedNotificationDefinition.name,
-            params: {},
-          } as NotificationFrame,
-          emissionTag: tag,
-        });
-        const observed = yield* collectTagged(fx.handle, (t) => t === tag, {
-          expected: 1,
-          budgetMs: PROPERTY_BUDGET_MS,
-        });
-        if (observed.length === 0) {
-          return yield* Effect.fail(
-            invariant(
-              CATEGORY,
-              PROPERTY_SCHEMA_EXHAUSTIVE_FUZZ_CLIENT,
-              "liveness probe never surfaced after fuzz burst",
-            ),
-          );
-        }
-      }).pipe(Effect.withSpan("registerSchemaExhaustiveFuzzClient")),
+    runSchemaExhaustiveFuzz(ctx).pipe(
+      Effect.withSpan("registerSchemaExhaustiveFuzzClient"),
     ),
   );
+}
+
+function runSchemaExhaustiveFuzz(ctx: ClientConformanceRunContext) {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const fx = yield* acquireSubscribedFixture(ctx);
+      yield* emitFuzzBurst(ctx, fx);
+      yield* assertClientStayedAlive(fx);
+      yield* assertPostFuzzLiveness(ctx, fx);
+    }),
+  );
+}
+
+function acquireSubscribedFixture(ctx: ClientConformanceRunContext) {
+  return Effect.gen(function* () {
+    const fx = yield* acquireFixture(
+      ctx,
+      CATEGORY,
+      PROPERTY_SCHEMA_EXHAUSTIVE_FUZZ_CLIENT,
+    );
+    yield* subscribeAll(fx.handle);
+    return fx;
+  });
+}
+
+function emitFuzzBurst(ctx: ClientConformanceRunContext, fx: ClientFixture) {
+  return Effect.gen(function* () {
+    const fuzzRuns = ctx.opts.numRuns ?? DEFAULT_FUZZ_BURST_RUNS;
+    const burst = fc.sample(arbitraryNotificationFrame(), {
+      numRuns: fuzzRuns,
+      seed: ctx.seed,
+    });
+    for (const frame of burst) {
+      yield* fx.connection
+        .emitNotification(frame)
+        .pipe(Effect.orElseSucceed(() => undefined));
+    }
+  });
+}
+
+function assertClientStayedAlive(fx: ClientFixture) {
+  return Effect.gen(function* () {
+    const closeRace = yield* Effect.race(
+      fx.handle.closeSignal.pipe(Effect.as("closed" as const)),
+      Effect.sleep("100 millis").pipe(Effect.as("alive" as const)),
+    );
+    if (closeRace === "closed") {
+      return yield* Effect.fail(
+        invariant(
+          CATEGORY,
+          PROPERTY_SCHEMA_EXHAUSTIVE_FUZZ_CLIENT,
+          "real client closed during fuzz burst",
+        ),
+      );
+    }
+  });
+}
+
+function assertPostFuzzLiveness(
+  ctx: ClientConformanceRunContext,
+  fx: ClientFixture,
+) {
+  return Effect.gen(function* () {
+    const livenessFrame = yield* sampleLivenessFrame(ctx.seed);
+    const tag = yield* fx.window.freshEmissionTag;
+    yield* fx.window.emitTaggedNotification({
+      connection: fx.connection,
+      base: livenessFrame,
+      emissionTag: tag,
+    });
+    const observed = yield* collectTagged(fx.handle, (t) => t === tag, {
+      expected: 1,
+      budgetMs: PROPERTY_BUDGET_MS,
+    });
+    if (observed.length === 0) {
+      return yield* Effect.fail(
+        invariant(
+          CATEGORY,
+          PROPERTY_SCHEMA_EXHAUSTIVE_FUZZ_CLIENT,
+          "liveness probe never surfaced after fuzz burst",
+        ),
+      );
+    }
+  });
+}
+
+function sampleLivenessFrame(seed: number) {
+  const sampled = fc.sample(arbitraryNotificationFrame(), {
+    numRuns: 1,
+    seed,
+  })[0];
+  return sampled === undefined
+    ? Effect.fail(
+        invariant(
+          CATEGORY,
+          PROPERTY_SCHEMA_EXHAUSTIVE_FUZZ_CLIENT,
+          "failed to sample liveness NotificationFrame",
+        ),
+      )
+    : Effect.succeed(sampled);
 }

@@ -1,115 +1,171 @@
-import { describe, it, expect } from "vitest";
+import type { AppManifest } from "@moltzap/protocol";
+import * as fc from "fast-check";
 import { Either } from "effect";
+import { describe, expect, it } from "vitest";
 import { decodeAppManifest, InvalidAppManifest } from "./standalone.js";
 
-// Boundary-validation tests for the on-disk app-manifest decoder.
-// Issue #468: `JSON.parse(json)` previously flowed an untyped `any`
-// straight into `app.registerApp(manifest)`. `decodeAppManifest`
-// validates against `AppManifestSchema` before the value reaches the
-// service surface; these tests exercise both branches.
+const APP_ID = "werewolf";
+const APP_NAME = "Werewolf";
+const DESCRIPTION = "Social deduction";
+const TOWN_SQUARE_KEY = "town_square";
+const TOWN_SQUARE_NAME = "Town Square";
+const ALL_PARTICIPANTS = "all";
+const VALID_MANIFEST_PATH = "/path/to/werewolf.json";
+const BROKEN_MANIFEST_PATH = "/path/to/broken.json";
+const MISSING_NAME_PATH = "/path/to/missing-name.json";
+const EXTRA_FIELD_PATH = "/path/to/extra-field.json";
+const LEGACY_PERMISSIONS_PATH = "/path/to/legacy-permissions.json";
+const WRONG_TYPE_PATH = "/path/to/wrong-type.json";
+const MALFORMED_JSON = "{ not valid json";
+const PARSE_KIND = "parse";
+const SCHEMA_KIND = "schema";
+const UNEXPECTED_VALUE = "nope";
+const TEST_NAME = "Test";
+const PROPERTY_RUNS = 25;
+const MAX_PARTICIPANTS = 12;
+const DISPATCH_AUTHORIZE_TIMEOUT_MS = 5_000;
 
 const VALID_MANIFEST = {
-  appId: "werewolf",
-  name: "Werewolf",
-};
+  appId: APP_ID,
+  name: APP_NAME,
+} satisfies AppManifest;
 
-describe("decodeAppManifest", () => {
+const MINIMAL_MANIFESTS = fc.record({
+  appId: fc.string(),
+  name: fc.string(),
+});
+
+describe("decodeAppManifest valid manifests", () => {
+  const minimalManifestProperty = fc.property(
+    MINIMAL_MANIFESTS,
+    assertMinimalManifestRoundTrip,
+  );
+
   it("returns Right(manifest) for a valid manifest JSON", () => {
-    const result = decodeAppManifest(
-      JSON.stringify(VALID_MANIFEST),
-      "/path/to/werewolf.json",
+    const manifest = expectDecodedManifest(
+      decodeAppManifest(JSON.stringify(VALID_MANIFEST), VALID_MANIFEST_PATH),
     );
-    expect(Either.isRight(result)).toBe(true);
-    if (Either.isRight(result)) {
-      expect(result.right.appId).toBe("werewolf");
-      expect(result.right.name).toBe("Werewolf");
-    }
+    expect(manifest?.appId).toBe(APP_ID);
+    expect(manifest?.name).toBe(APP_NAME);
+  });
+
+  it("property: minimal manifests round-trip through the decoder", () => {
+    expect.hasAssertions();
+    fc.assert(minimalManifestProperty, { numRuns: PROPERTY_RUNS });
   });
 
   it("accepts a full manifest with optional fields", () => {
-    const manifest = {
-      appId: "werewolf",
-      name: "Werewolf",
-      description: "Social deduction",
-      limits: { maxParticipants: 12 },
-      conversations: [
-        { key: "town_square", name: "Town Square", participantFilter: "all" },
-      ],
-      hooks: {
-        dispatch_authorize: { timeout_ms: 5000 },
-      },
-    };
-    const result = decodeAppManifest(
-      JSON.stringify(manifest),
-      "/path/to/werewolf.json",
+    const manifest = expectDecodedManifest(
+      decodeAppManifest(JSON.stringify(fullManifest()), VALID_MANIFEST_PATH),
     );
-    expect(Either.isRight(result)).toBe(true);
+    expect(manifest).toBeDefined();
   });
+});
 
+describe("decodeAppManifest parse errors", () => {
   it("returns Left(InvalidAppManifest, kind=parse) for malformed JSON", () => {
-    const result = decodeAppManifest(
-      "{ not valid json",
-      "/path/to/broken.json",
+    const error = expectManifestError(
+      decodeAppManifest(MALFORMED_JSON, BROKEN_MANIFEST_PATH),
     );
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left).toBeInstanceOf(InvalidAppManifest);
-      expect(result.left.kind).toBe("parse");
-      expect(result.left.path).toBe("/path/to/broken.json");
-      expect(result.left.errors.length).toBeGreaterThan(0);
-    }
+    expect(error).toBeInstanceOf(InvalidAppManifest);
+    expect(error?.kind).toBe(PARSE_KIND);
+    expect(error?.path).toBe(BROKEN_MANIFEST_PATH);
+    expect(error?.errors.length).toBeGreaterThan(0);
   });
+});
 
-  it("returns Left(InvalidAppManifest, kind=schema) when required fields missing", () => {
-    const result = decodeAppManifest(
-      JSON.stringify({ appId: "test" }), // missing `name`
-      "/path/to/missing-name.json",
+describe("decodeAppManifest required schema errors", () => {
+  it("returns Left(kind=schema) when required fields are missing", () => {
+    const error = expectManifestError(
+      decodeAppManifest(JSON.stringify({ appId: APP_ID }), MISSING_NAME_PATH),
     );
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left).toBeInstanceOf(InvalidAppManifest);
-      expect(result.left.kind).toBe("schema");
-      expect(result.left.path).toBe("/path/to/missing-name.json");
-      expect(result.left.errors.length).toBeGreaterThan(0);
-    }
+    expect(error).toBeInstanceOf(InvalidAppManifest);
+    expect(error?.kind).toBe(SCHEMA_KIND);
+    expect(error?.path).toBe(MISSING_NAME_PATH);
+    expect(error?.errors.length).toBeGreaterThan(0);
   });
+});
 
+describe("decodeAppManifest closed schema errors", () => {
   it("returns Left(kind=schema) on additional properties", () => {
-    const result = decodeAppManifest(
-      JSON.stringify({ ...VALID_MANIFEST, unexpected: "nope" }),
-      "/path/to/extra-field.json",
+    const error = expectManifestError(
+      decodeAppManifest(
+        JSON.stringify({ ...VALID_MANIFEST, unexpected: UNEXPECTED_VALUE }),
+        EXTRA_FIELD_PATH,
+      ),
     );
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left.kind).toBe("schema");
-    }
+    expect(error?.kind).toBe(SCHEMA_KIND);
   });
 
   it("returns Left(kind=schema) on retired permissions field", () => {
-    // Phase 1B deleted the entire permissions surface; a manifest still
-    // carrying a permissions block must reject — proves the deletion is
-    // enforced end-to-end, not just at the wire boundary.
-    const result = decodeAppManifest(
-      JSON.stringify({
-        ...VALID_MANIFEST,
-        permissions: { required: [], optional: [] },
-      }),
-      "/path/to/legacy-permissions.json",
+    const error = expectManifestError(
+      decodeAppManifest(
+        JSON.stringify({
+          ...VALID_MANIFEST,
+          permissions: { required: [], optional: [] },
+        }),
+        LEGACY_PERMISSIONS_PATH,
+      ),
     );
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left.kind).toBe("schema");
-    }
+    expect(error?.kind).toBe(SCHEMA_KIND);
   });
 
   it("returns Left(kind=schema) on wrong field type", () => {
-    const result = decodeAppManifest(
-      JSON.stringify({ appId: 42, name: "Test" }), // appId must be string
-      "/path/to/wrong-type.json",
+    const error = expectManifestError(
+      decodeAppManifest(
+        JSON.stringify({ appId: 42, name: TEST_NAME }),
+        WRONG_TYPE_PATH,
+      ),
     );
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left.kind).toBe("schema");
-    }
+    expect(error?.kind).toBe(SCHEMA_KIND);
   });
 });
+
+function fullManifest(): AppManifest {
+  return {
+    ...VALID_MANIFEST,
+    description: DESCRIPTION,
+    limits: { maxParticipants: MAX_PARTICIPANTS },
+    conversations: [
+      {
+        key: TOWN_SQUARE_KEY,
+        name: TOWN_SQUARE_NAME,
+        participantFilter: ALL_PARTICIPANTS,
+      },
+    ],
+    hooks: {
+      dispatch_authorize: { timeout_ms: DISPATCH_AUTHORIZE_TIMEOUT_MS },
+    },
+  };
+}
+
+function assertMinimalManifestRoundTrip(manifest: AppManifest) {
+  const decoded = expectDecodedManifest(
+    decodeAppManifest(JSON.stringify(manifest), VALID_MANIFEST_PATH),
+  );
+  expect(decoded).toEqual(manifest);
+}
+
+function expectDecodedManifest(
+  result: Either.Either<AppManifest, InvalidAppManifest>,
+): AppManifest | undefined {
+  return Either.match(result, {
+    onLeft: (error) => {
+      expect(error).toBeUndefined();
+      return undefined;
+    },
+    onRight: (manifest) => manifest,
+  });
+}
+
+function expectManifestError(
+  result: Either.Either<AppManifest, InvalidAppManifest>,
+): InvalidAppManifest | undefined {
+  return Either.match(result, {
+    onLeft: (error) => error,
+    onRight: (manifest) => {
+      expect(manifest).toBeUndefined();
+      return undefined;
+    },
+  });
+}

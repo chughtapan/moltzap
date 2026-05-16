@@ -1,32 +1,78 @@
-import { describe, expect, it } from "vitest";
-import { access, readFile } from "node:fs/promises";
-import { constants } from "node:fs";
-import { fileURLToPath } from "node:url";
-import path from "node:path";
+import { it as effectIt } from "@effect/vitest";
+import { FileSystem, Path } from "@effect/platform";
+import { NodeContext } from "@effect/platform-node";
+import { Effect } from "effect";
+import { describe, expect } from "vitest";
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-const packageRoot = path.resolve(here, "..");
-const packageJsonPath = path.join(packageRoot, "package.json");
+const it = effectIt.effect;
+
+const PACKAGE_JSON_FILE = "package.json";
+const BIN_FILE = "bin/moltzap-server";
+const CORE_SCHEMA_FILE = "src/app/core-schema.sql";
+const SERVER_BIN_NAME = "moltzap-server";
+const SERVER_BIN_PATH = "bin/moltzap-server";
+const PINO_PRETTY_DEP = "pino-pretty";
+const UTF8_ENCODING = "utf8";
+const EXECUTE_MODE_BITS = 0o111;
+
+interface PackageJsonShape {
+  readonly bin?: Record<string, string>;
+  readonly dependencies?: Record<string, string>;
+  readonly files?: string[];
+}
 
 describe("@moltzap/server-core package metadata", () => {
-  it("publishes a single executable bin for npx invocation", async () => {
-    const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8")) as {
-      bin?: Record<string, string>;
-      dependencies?: Record<string, string>;
-      files?: string[];
-    };
+  it("publishes a single executable bin for npx invocation", () =>
+    Effect.gen(function* () {
+      const paths = yield* packagePaths();
+      const packageJson = yield* readPackageJson(paths.packageJsonPath);
 
-    expect(packageJson.files).toContain("bin");
-    expect(packageJson.files).toContain("src/app/core-schema.sql");
-    expect(packageJson.bin).toEqual({
-      "moltzap-server": "bin/moltzap-server",
-    });
-    expect(packageJson.dependencies).toHaveProperty("pino-pretty");
+      expect(packageJson.files).toContain("bin");
+      expect(packageJson.files).toContain(CORE_SCHEMA_FILE);
+      expect(packageJson.bin).toEqual({ [SERVER_BIN_NAME]: SERVER_BIN_PATH });
+      expect(packageJson.dependencies).toHaveProperty(PINO_PRETTY_DEP);
 
-    await access(path.join(packageRoot, "bin/moltzap-server"), constants.X_OK);
-    await access(
-      path.join(packageRoot, "src/app/core-schema.sql"),
-      constants.R_OK,
-    );
-  });
+      yield* expectReadable(paths.coreSchemaPath);
+      yield* expectExecutable(paths.binPath);
+    }).pipe(Effect.provide(NodeContext.layer)));
 });
+
+function packagePaths() {
+  return Effect.gen(function* () {
+    const path = yield* Path.Path;
+    const packageRoot = yield* path.fromFileUrl(new URL("..", import.meta.url));
+    return {
+      packageJsonPath: path.join(packageRoot, PACKAGE_JSON_FILE),
+      binPath: path.join(packageRoot, BIN_FILE),
+      coreSchemaPath: path.join(packageRoot, CORE_SCHEMA_FILE),
+    };
+  });
+}
+
+function readPackageJson(
+  packageJsonPath: string,
+): Effect.Effect<PackageJsonShape, unknown, FileSystem.FileSystem> {
+  return FileSystem.FileSystem.pipe(
+    Effect.flatMap((fs) => fs.readFileString(packageJsonPath, UTF8_ENCODING)),
+    Effect.map((raw) => JSON.parse(raw) as PackageJsonShape),
+  );
+}
+
+function expectReadable(
+  path: string,
+): Effect.Effect<void, unknown, FileSystem.FileSystem> {
+  return FileSystem.FileSystem.pipe(
+    Effect.flatMap((fs) => fs.access(path, { readable: true })),
+  );
+}
+
+function expectExecutable(
+  path: string,
+): Effect.Effect<void, unknown, FileSystem.FileSystem> {
+  return FileSystem.FileSystem.pipe(
+    Effect.flatMap((fs) => fs.stat(path)),
+    Effect.map((info) => {
+      expect(info.mode & EXECUTE_MODE_BITS).not.toBe(0);
+    }),
+  );
+}

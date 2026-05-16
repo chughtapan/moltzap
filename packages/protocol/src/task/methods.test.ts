@@ -17,33 +17,35 @@ describe("TextPartSchema", () => {
   });
 });
 
-describe("MessageSchema", () => {
-  const validMessage = {
-    id: "550e8400-e29b-41d4-a716-446655440000",
-    conversationId: "660e8400-e29b-41d4-a716-446655440000",
-    senderId: "770e8400-e29b-41d4-a716-446655440000",
-    parts: [{ type: "text", text: "Hello!" }],
-    createdAt: "2026-03-14T12:00:00.000Z",
-  };
+const VALID_MESSAGE = {
+  id: "550e8400-e29b-41d4-a716-446655440000",
+  conversationId: "660e8400-e29b-41d4-a716-446655440000",
+  senderId: "770e8400-e29b-41d4-a716-446655440000",
+  parts: [{ type: "text", text: "Hello!" }],
+  createdAt: "2026-03-14T12:00:00.000Z",
+};
 
+describe("MessageSchema acceptance", () => {
   it("accepts valid message", () => {
-    expect(validateMessage(validMessage)).toBe(true);
-  });
-
-  it("rejects message with no parts", () => {
-    expect(validateMessage({ ...validMessage, parts: [] })).toBe(false);
+    expect(validateMessage(VALID_MESSAGE)).toBe(true);
   });
 
   it("accepts message with replyToId", () => {
     expect(
       validateMessage({
-        ...validMessage,
+        ...VALID_MESSAGE,
         replyToId: "880e8400-e29b-41d4-a716-446655440000",
       }),
     ).toBe(true);
   });
+});
+
+describe("MessageSchema rejection", () => {
+  it("rejects message with no parts", () => {
+    expect(validateMessage({ ...VALID_MESSAGE, parts: [] })).toBe(false);
+  });
 
   it("rejects message with extra properties", () => {
-    expect(validateMessage({ ...validMessage, extra: true })).toBe(false);
+    expect(validateMessage({ ...VALID_MESSAGE, extra: true })).toBe(false);
   });
 });

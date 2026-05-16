@@ -40,6 +40,7 @@ export interface EnrichedInboundMessage {
   replyToId?: string;
   conversationMeta?: EnrichedConversationMeta;
   contextBlocks: ContextBlocks;
+
   /**
    * Present when multiple queued messages from the same conversation were
    * coalesced into this single dispatch. Includes the primary message first.
@@ -188,6 +189,7 @@ export interface ChannelService {
     messages: CrossConvMessage[];
     commit: () => void;
   };
+
   /**
    * Issue `dispatch/request` and receive the immediate
    * `{leaseId, dispatchId}` ack. The verdict arrives asynchronously
@@ -304,6 +306,7 @@ export class MoltZapChannelCore {
   private readonly dispatchAdmissionTimeoutMs: number;
   private connected = false;
   private inboundHandler: InboundHandler<unknown> | null = null;
+
   /**
    * Lease id scoped to the in-flight `dispatchInboundEffect` call
    * (set immediately around the user-handler invocation). Replaces
@@ -314,6 +317,7 @@ export class MoltZapChannelCore {
    * concurrent dispatches do not exist on this code path.
    */
   private leaseIdInFlight: string | undefined;
+
   /**
    * Per-lease parking Deferreds for dispatches awaiting their
    * `dispatchRelease` verdict. Settled by the `dispatchRelease` event
@@ -323,6 +327,7 @@ export class MoltZapChannelCore {
     string,
     Deferred.Deferred<DispatchReleaseFrame, never>
   >();
+
   /**
    * Ring buffer of `dispatchRelease` frames that arrived before the
    * recipient registered its parking Deferred (release-then-ack
@@ -343,8 +348,11 @@ export class MoltZapChannelCore {
     string,
     InboundDispatchWork[]
   >();
-  /** Inbound messages enqueue synchronously; a single forked consumer fiber
-   * serialises delivery so handlers execute one-at-a-time in arrival order. */
+
+  /**
+   * Inbound messages enqueue synchronously; a single forked consumer fiber
+   * serialises delivery so handlers execute one-at-a-time in arrival order.
+   */
   private readonly inboundQueue: Queue.Queue<InboundDispatchWork> =
     Effect.runSync(Queue.unbounded<InboundDispatchWork>());
   private readonly consumerFiber: Fiber.RuntimeFiber<void, never>;

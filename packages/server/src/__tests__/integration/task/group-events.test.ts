@@ -1,10 +1,10 @@
-import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { it } from "@effect/vitest";
+import { expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Effect } from "effect";
 import {
-  startTestServer,
-  stopTestServer,
-  resetTestDb,
+  it,
+  startTestServerEffect,
+  stopTestServerEffect,
+  resetTestDbEffect,
   setupAgentGroup,
 } from "../helpers.js";
 import type { ConnectedAgent } from "../helpers.js";
@@ -14,60 +14,52 @@ import {
   ConversationCreatedNotificationDefinition,
 } from "@moltzap/protocol";
 
-beforeAll(async () => {
-  await startTestServer();
-});
+const GROUP_TYPE = "group";
+const GROUP_NAME = "Eval Group";
 
-afterAll(async () => {
-  await stopTestServer();
-});
+beforeAll(() => Effect.runPromise(startTestServerEffect()));
 
-beforeEach(async () => {
-  await resetTestDb();
-});
+afterAll(() => Effect.runPromise(stopTestServerEffect()));
 
-describe("Group Creation Events", () => {
-  it.live(
-    "group creation notifies all participants with conversations/created event",
-    () =>
-      Effect.gen(function* () {
-        const { agents } = yield* setupAgentGroup(3);
-        const [alice, bob, eve] = agents as [
-          ConnectedAgent,
-          ConnectedAgent,
-          ConnectedAgent,
-        ];
+beforeEach(() => Effect.runPromise(resetTestDbEffect()));
 
-        // Set up event waiters on Bob and Eve BEFORE creating the group
+it("group creation notifies all participants with conversations/created event", () =>
+  Effect.gen(function* () {
+    const { agents } = yield* setupAgentGroup(3);
+    const [alice, bob, eve] = agents as [
+      ConnectedAgent,
+      ConnectedAgent,
+      ConnectedAgent,
+    ];
 
-        const conv = (yield* alice.client.sendRpc(ConversationsCreate, {
-          type: "group",
-          name: "Eval Group",
-          participants: [
-            { type: "agent", id: bob.agentId },
-            { type: "agent", id: eve.agentId },
-          ],
-        })) as {
-          conversation: { id: string; type: string; name: string };
-        };
+    // Set up event waiters on Bob and Eve BEFORE creating the group
 
-        expect(conv.conversation.type).toBe("group");
-        expect(conv.conversation.name).toBe("Eval Group");
+    const conv = (yield* alice.client.sendRpc(ConversationsCreate, {
+      type: GROUP_TYPE,
+      name: GROUP_NAME,
+      participants: [
+        { type: "agent", id: bob.agentId },
+        { type: "agent", id: eve.agentId },
+      ],
+    })) as {
+      conversation: { id: string; type: string; name: string };
+    };
 
-        const bobCreated = yield* bob.client.waitForNotification(
-          ConversationCreatedNotificationDefinition,
-        );
-        const eveCreated = yield* eve.client.waitForNotification(
-          ConversationCreatedNotificationDefinition,
-        );
+    expect(conv.conversation.type).toBe(GROUP_TYPE);
+    expect(conv.conversation.name).toBe(GROUP_NAME);
 
-        const bobConv = (bobCreated.params as { conversation: { id: string } })
-          .conversation;
-        const eveConv = (eveCreated.params as { conversation: { id: string } })
-          .conversation;
+    const bobCreated = yield* bob.client.waitForNotification(
+      ConversationCreatedNotificationDefinition,
+    );
+    const eveCreated = yield* eve.client.waitForNotification(
+      ConversationCreatedNotificationDefinition,
+    );
 
-        expect(bobConv.id).toBe(conv.conversation.id);
-        expect(eveConv.id).toBe(conv.conversation.id);
-      }),
-  );
-});
+    const bobConv = (bobCreated.params as { conversation: { id: string } })
+      .conversation;
+    const eveConv = (eveCreated.params as { conversation: { id: string } })
+      .conversation;
+
+    expect(bobConv.id).toBe(conv.conversation.id);
+    expect(eveConv.id).toBe(conv.conversation.id);
+  }));

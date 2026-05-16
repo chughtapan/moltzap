@@ -21,7 +21,11 @@
  */
 import { Effect } from "effect";
 import { Value } from "@sinclair/typebox/value";
-import { notificationFrameSchema } from "../../../transport/wire.js";
+import {
+  notificationFrameSchema,
+  validateNotificationFrame,
+  type NotificationFrame,
+} from "../../../transport/wire.js";
 import { arbitraryNotificationFrame } from "../../arbitraries/frames.js";
 import * as fc from "fast-check";
 import type { ClientConformanceRunContext } from "./runner.js";
@@ -31,6 +35,8 @@ import {
   collectTagged,
   invariant,
   subscribeAll,
+  type ClientFixture,
+  type TaggedObservation,
 } from "./_fixtures.js";
 
 const CATEGORY = "schema-conformance" as const;
@@ -61,63 +67,8 @@ export function registerNotificationWellFormednessClient(
     CATEGORY,
     PROPERTY_NOTIFICATION_WELL_FORMEDNESS_CLIENT,
     "valid NotificationFrame emitted by TestServer surfaces schema-clean on real client",
-    Effect.scoped(
-      Effect.gen(function* () {
-        const fx = yield* acquireFixture(
-          ctx,
-          CATEGORY,
-          PROPERTY_NOTIFICATION_WELL_FORMEDNESS_CLIENT,
-        );
-        yield* subscribeAll(fx.handle);
-        const sampled = fc.sample(arbitraryNotificationFrame(), {
-          numRuns: 1,
-          seed: ctx.seed,
-        })[0];
-        if (sampled === undefined) {
-          return yield* Effect.fail(
-            invariant(
-              CATEGORY,
-              PROPERTY_NOTIFICATION_WELL_FORMEDNESS_CLIENT,
-              "failed to sample NotificationFrame",
-            ),
-          );
-        }
-        const tag = yield* fx.window.freshEmissionTag;
-        yield* fx.window.emitTaggedNotification({
-          connection: fx.connection,
-          base: sampled,
-          emissionTag: tag,
-        });
-        const observed = yield* collectTagged(fx.handle, (t) => t === tag, {
-          expected: 1,
-          budgetMs: PROPERTY_BUDGET_MS,
-        });
-        if (observed.length === 0) {
-          return yield* Effect.fail(
-            invariant(
-              CATEGORY,
-              PROPERTY_NOTIFICATION_WELL_FORMEDNESS_CLIENT,
-              `tagged notification ${tag} not surfaced within ${PROPERTY_BUDGET_MS}ms`,
-            ),
-          );
-        }
-        const reconstructed = {
-          jsonrpc: "2.0",
-          method: observed[0]!.notificationName,
-          ...(observed[0]!.params !== undefined
-            ? { params: observed[0]!.params }
-            : {}),
-        };
-        if (!Value.Check(NotificationFrameSchema, reconstructed)) {
-          return yield* Effect.fail(
-            invariant(
-              CATEGORY,
-              PROPERTY_NOTIFICATION_WELL_FORMEDNESS_CLIENT,
-              "real client surfaced notification that fails NotificationFrameSchema",
-            ),
-          );
-        }
-      }).pipe(Effect.withSpan("registerNotificationWellFormednessClient")),
+    runNotificationWellFormedness(ctx).pipe(
+      Effect.withSpan("registerNotificationWellFormednessClient"),
     ),
   );
 }
@@ -139,56 +90,127 @@ export function registerMalformedFrameHandlingClient(
     CATEGORY,
     PROPERTY_MALFORMED_FRAME_HANDLING_CLIENT,
     "malformed TestServer emission absorbed silently; liveness intact",
-    Effect.scoped(
-      Effect.gen(function* () {
-        const fx = yield* acquireFixture(
-          ctx,
-          CATEGORY,
-          PROPERTY_MALFORMED_FRAME_HANDLING_CLIENT,
-        );
-        yield* subscribeAll(fx.handle);
-        const baseNotification = fc.sample(arbitraryNotificationFrame(), {
-          numRuns: 1,
-          seed: ctx.seed,
-        })[0];
-        if (baseNotification === undefined) {
-          return yield* Effect.fail(
-            invariant(
-              CATEGORY,
-              PROPERTY_MALFORMED_FRAME_HANDLING_CLIENT,
-              "failed to sample base NotificationFrame",
-            ),
-          );
-        }
-        // Emit a malformed frame — the real client must absorb it.
-        yield* fx.connection
-          .emitMalformed({
-            baseNotification,
-            kind: "bit-flip",
-            seed: ctx.seed,
-          })
-          .pipe(Effect.orElseSucceed(() => undefined));
-        // Liveness probe: emit a valid tagged notification after the malformed one.
-        const tag = yield* fx.window.freshEmissionTag;
-        yield* fx.window.emitTaggedNotification({
-          connection: fx.connection,
-          base: baseNotification,
-          emissionTag: tag,
-        });
-        const observed = yield* collectTagged(fx.handle, (t) => t === tag, {
-          expected: 1,
-          budgetMs: PROPERTY_BUDGET_MS,
-        });
-        if (observed.length === 0) {
-          return yield* Effect.fail(
-            invariant(
-              CATEGORY,
-              PROPERTY_MALFORMED_FRAME_HANDLING_CLIENT,
-              "liveness failed: no tagged notification after malformed emission",
-            ),
-          );
-        }
-      }).pipe(Effect.withSpan("registerMalformedFrameHandlingClient")),
+    runMalformedFrameHandling(ctx).pipe(
+      Effect.withSpan("registerMalformedFrameHandlingClient"),
     ),
   );
+}
+
+function runNotificationWellFormedness(ctx: ClientConformanceRunContext) {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const fx = yield* acquireSubscribedFixture(
+        ctx,
+        PROPERTY_NOTIFICATION_WELL_FORMEDNESS_CLIENT,
+      );
+      const sampled = yield* sampleNotification(
+        ctx.seed,
+        PROPERTY_NOTIFICATION_WELL_FORMEDNESS_CLIENT,
+        "failed to sample NotificationFrame",
+      );
+      const observed = yield* emitAndCollectTagged(
+        fx,
+        sampled,
+        PROPERTY_NOTIFICATION_WELL_FORMEDNESS_CLIENT,
+      );
+      yield* assertNotificationSchemaClean(observed);
+    }),
+  );
+}
+
+function runMalformedFrameHandling(ctx: ClientConformanceRunContext) {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const fx = yield* acquireSubscribedFixture(
+        ctx,
+        PROPERTY_MALFORMED_FRAME_HANDLING_CLIENT,
+      );
+      const baseNotification = yield* sampleNotification(
+        ctx.seed,
+        PROPERTY_MALFORMED_FRAME_HANDLING_CLIENT,
+        "failed to sample base NotificationFrame",
+      );
+      yield* fx.connection
+        .emitMalformed({
+          baseNotification,
+          kind: "bit-flip",
+          seed: ctx.seed,
+        })
+        .pipe(Effect.orElseSucceed(() => undefined));
+      yield* emitAndCollectTagged(
+        fx,
+        baseNotification,
+        PROPERTY_MALFORMED_FRAME_HANDLING_CLIENT,
+      );
+    }),
+  );
+}
+
+function acquireSubscribedFixture(
+  ctx: ClientConformanceRunContext,
+  propertyName: string,
+) {
+  return Effect.gen(function* () {
+    const fx = yield* acquireFixture(ctx, CATEGORY, propertyName);
+    yield* subscribeAll(fx.handle);
+    return fx;
+  });
+}
+
+function sampleNotification(
+  seed: number,
+  propertyName: string,
+  reason: string,
+) {
+  const sampled = fc.sample(arbitraryNotificationFrame(), {
+    numRuns: 1,
+    seed,
+  })[0];
+  return sampled === undefined
+    ? Effect.fail(invariant(CATEGORY, propertyName, reason))
+    : Effect.succeed(sampled);
+}
+
+function emitAndCollectTagged(
+  fx: ClientFixture,
+  base: NotificationFrame,
+  propertyName: string,
+) {
+  return Effect.gen(function* () {
+    const tag = yield* fx.window.freshEmissionTag;
+    yield* fx.window.emitTaggedNotification({
+      connection: fx.connection,
+      base,
+      emissionTag: tag,
+    });
+    const observed = yield* collectTagged(fx.handle, (t) => t === tag, {
+      expected: 1,
+      budgetMs: PROPERTY_BUDGET_MS,
+    });
+    if (observed.length === 0) {
+      return yield* Effect.fail(
+        invariant(CATEGORY, propertyName, livenessFailure(propertyName, tag)),
+      );
+    }
+    return observed[0]!;
+  });
+}
+
+function livenessFailure(propertyName: string, tag: string): string {
+  return propertyName === PROPERTY_NOTIFICATION_WELL_FORMEDNESS_CLIENT
+    ? `tagged notification ${tag} not surfaced within ${PROPERTY_BUDGET_MS}ms`
+    : "liveness failed: no tagged notification after malformed emission";
+}
+
+function assertNotificationSchemaClean(observed: TaggedObservation) {
+  return validateNotificationFrame(observed.decoded) &&
+    Value.Check(NotificationFrameSchema, observed.decoded)
+    ? Effect.void
+    : Effect.fail(
+        invariant(
+          CATEGORY,
+          PROPERTY_NOTIFICATION_WELL_FORMEDNESS_CLIENT,
+          "real client surfaced notification that fails NotificationFrameSchema",
+        ),
+      );
 }

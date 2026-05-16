@@ -31,6 +31,7 @@ export interface ConnectedAgent {
 
 const openClients: ServerTestClient[] = [];
 const MIN_AGENT_GROUP_SIZE = 2;
+const POST_METHOD = "POST";
 
 class PostJsonRequestError extends Data.TaggedError("PostJsonRequestError")<{
   readonly message: string;
@@ -71,6 +72,15 @@ type PostJsonError =
   | PostJsonRequestError
   | PostJsonResponseError
   | PostJsonDecodeError;
+
+interface PostJsonResult {
+  readonly status: number;
+  readonly json: unknown;
+}
+
+type HttpResponse = Effect.Effect.Success<
+  ReturnType<HttpClient.HttpClient["execute"]>
+>;
 
 export function trackClient(client: ServerTestClient): void {
   openClients.push(client);
@@ -143,58 +153,83 @@ export function postJson(
   baseUrl: string,
   path: string,
   body: Record<string, unknown>,
-): Effect.Effect<{ status: number; json: unknown }, PostJsonError> {
+): Effect.Effect<PostJsonResult, PostJsonError> {
   const url = `${baseUrl}${path}`;
   return Effect.gen(function* () {
     const client = yield* HttpClient.HttpClient;
-    const request = HttpClientRequest.post(url).pipe(
-      HttpClientRequest.setHeader("Content-Type", "application/json"),
-      HttpClientRequest.bodyUnsafeJson(body),
+    const response = yield* executePostJson(
+      client,
+      postJsonRequest(url, body),
+      path,
+      url,
     );
-    const response = yield* client.execute(request).pipe(
-      Effect.catchTags({
-        RequestError: (cause) =>
-          Effect.fail(
-            new PostJsonRequestError({
-              message: `POST ${path} request failed: ${cause.reason}`,
-              method: "POST",
-              path,
-              reason: cause.reason,
-              url,
-              cause,
-            }),
-          ),
-        ResponseError: (cause) =>
-          Effect.fail(
-            new PostJsonResponseError({
-              message: `POST ${path} response failed: ${cause.reason}`,
-              method: "POST",
-              path,
-              reason: cause.reason,
-              status: cause.response.status,
-              url,
-              cause,
-            }),
-          ),
-      }),
-    );
-    const json = yield* response.json.pipe(
-      Effect.catchTag("ResponseError", (cause) =>
+    return yield* decodePostJsonResponse(response, path, url);
+  }).pipe(Effect.provide(FetchHttpClient.layer), Effect.withSpan("postJson"));
+}
+
+function postJsonRequest(url: string, body: Record<string, unknown>) {
+  return HttpClientRequest.post(url).pipe(
+    HttpClientRequest.setHeader("Content-Type", "application/json"),
+    HttpClientRequest.bodyUnsafeJson(body),
+  );
+}
+
+function executePostJson(
+  client: HttpClient.HttpClient,
+  request: ReturnType<typeof postJsonRequest>,
+  path: string,
+  url: string,
+): Effect.Effect<HttpResponse, PostJsonRequestError | PostJsonResponseError> {
+  return client.execute(request).pipe(
+    Effect.catchTags({
+      RequestError: (cause) =>
         Effect.fail(
-          new PostJsonDecodeError({
-            message: `POST ${path} response body failed to decode: ${cause.reason}`,
-            method: "POST",
+          new PostJsonRequestError({
+            message: `POST ${path} request failed: ${cause.reason}`,
+            method: POST_METHOD,
             path,
             reason: cause.reason,
             url,
-            status: response.status,
             cause,
           }),
         ),
+      ResponseError: (cause) =>
+        Effect.fail(
+          new PostJsonResponseError({
+            message: `POST ${path} response failed: ${cause.reason}`,
+            method: POST_METHOD,
+            path,
+            reason: cause.reason,
+            status: cause.response.status,
+            url,
+            cause,
+          }),
+        ),
+    }),
+  );
+}
+
+function decodePostJsonResponse(
+  response: HttpResponse,
+  path: string,
+  url: string,
+): Effect.Effect<PostJsonResult, PostJsonDecodeError> {
+  return response.json.pipe(
+    Effect.map((json) => ({ status: response.status, json })),
+    Effect.catchTag("ResponseError", (cause) =>
+      Effect.fail(
+        new PostJsonDecodeError({
+          message: `POST ${path} response body failed to decode: ${cause.reason}`,
+          method: POST_METHOD,
+          path,
+          reason: cause.reason,
+          url,
+          status: response.status,
+          cause,
+        }),
       ),
-    );
-    return { status: response.status, json };
-  }).pipe(Effect.provide(FetchHttpClient.layer), Effect.withSpan("postJson"));
+    ),
+  );
 }
 
 /** Register an agent without connecting (for tests that need the raw client). */

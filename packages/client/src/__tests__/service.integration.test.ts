@@ -29,8 +29,10 @@ import { MoltZapService } from "@moltzap/client";
 
 import { MessagesList, MessagesSend } from "@moltzap/protocol";
 
-/** Shorthand: run a service Effect to a Promise. The CLI + OpenClaw edges
- * do the same thing — tests sit at the same boundary. */
+/**
+ * Shorthand: run a service Effect to a Promise. The CLI + OpenClaw edges
+ * do the same thing — tests sit at the same boundary.
+ */
 const run = <A, E>(e: Effect.Effect<A, E>): Promise<A> => Effect.runPromise(e);
 
 const INTEGRATION_HOOK_TIMEOUT_MS = 60_000;

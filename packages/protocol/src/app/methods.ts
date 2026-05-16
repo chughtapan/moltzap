@@ -1,9 +1,3 @@
-// App-layer manifest. File outline:
-//   1. App manifest schema (AppManifestSchema, AppManifest)
-//   2. apps/* RPCs (AppsRegister)
-//   3. dispatch/* admission descriptors
-//   4. dispatches/* moderator-observability descriptors
-//   5. Aggregator arrays
 import { Type, type Static } from "@sinclair/typebox";
 import Ajv from "ajv";
 import addFormats from "ajv-formats";
@@ -22,8 +16,6 @@ const DateTimeString = dateTimeStringSchema();
 const AgentOwnershipSchema = agentOwnershipSchema();
 const MessagePartsSchema = messagePartsSchema();
 const LogicalClockSchema = logicalClockSchema();
-
-// ── App manifest schema ──────────────────────────────────────────────
 
 const AppManifestConversationSchema = Type.Object(
   {

@@ -27,44 +27,73 @@ export interface LoadedConfig {
 const CORS_REGEX_PREFIX = "regex:";
 const DEFAULT_SERVER_PORT = 3000;
 
+const missingCorsOrigins = ConfigError.MissingData(
+  ["CORS_ORIGINS"],
+  "CORS_ORIGINS is required in production. Set to comma-separated origins, use regex: prefix for patterns.",
+);
+
+const splitCorsOrigins = (raw: string): string[] =>
+  raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+const readCorsOriginEntries = (
+  raw: string | undefined,
+  devMode: boolean,
+): Effect.Effect<string[], ConfigError.ConfigError> => {
+  if (raw) {
+    return Effect.succeed(splitCorsOrigins(raw));
+  }
+  if (devMode) {
+    return Effect.succeed(["*"]);
+  }
+  return Effect.fail(missingCorsOrigins);
+};
+
+const invalidCorsRegex = (
+  pattern: string,
+  cause: unknown,
+): ConfigError.ConfigError =>
+  ConfigError.InvalidData(
+    ["CORS_ORIGINS"],
+    `Invalid regex in CORS_ORIGINS: "${pattern}" — ${cause instanceof Error ? cause.message : String(cause)}`,
+  );
+
+const compileCorsPattern = (
+  entry: string,
+): Effect.Effect<RegExp, ConfigError.ConfigError> => {
+  const pattern = entry.slice(CORS_REGEX_PREFIX.length);
+  return Effect.try({
+    try: () => new RegExp(`^${pattern}$`),
+    catch: (cause) => invalidCorsRegex(pattern, cause),
+  });
+};
+
+const appendCorsEntry = (
+  config: CorsConfig,
+  entry: string,
+): Effect.Effect<CorsConfig, ConfigError.ConfigError> => {
+  if (!entry.startsWith(CORS_REGEX_PREFIX)) {
+    return Effect.succeed({ ...config, exact: [...config.exact, entry] });
+  }
+  return compileCorsPattern(entry).pipe(
+    Effect.map((pattern) => ({
+      ...config,
+      patterns: [...config.patterns, pattern],
+    })),
+  );
+};
+
 const parseCorsOrigins = (
   raw: string | undefined,
   devMode: boolean,
 ): Effect.Effect<CorsConfig, ConfigError.ConfigError> =>
-  Effect.gen(function* () {
-    if (!raw) {
-      if (devMode) return { exact: ["*"], patterns: [] };
-      return yield* Effect.fail(
-        ConfigError.MissingData(
-          ["CORS_ORIGINS"],
-          "CORS_ORIGINS is required in production. Set to comma-separated origins, use regex: prefix for patterns.",
-        ),
-      );
-    }
-    const exact: string[] = [];
-    const patterns: RegExp[] = [];
-    for (const entry of raw
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean)) {
-      if (entry.startsWith(CORS_REGEX_PREFIX)) {
-        const pattern = entry.slice(CORS_REGEX_PREFIX.length);
-        try {
-          patterns.push(new RegExp(`^${pattern}$`));
-        } catch (err) {
-          return yield* Effect.fail(
-            ConfigError.InvalidData(
-              ["CORS_ORIGINS"],
-              `Invalid regex in CORS_ORIGINS: "${pattern}" — ${err instanceof Error ? err.message : String(err)}`,
-            ),
-          );
-        }
-      } else {
-        exact.push(entry);
-      }
-    }
-    return { exact, patterns };
-  });
+  readCorsOriginEntries(raw, devMode).pipe(
+    Effect.flatMap((entries) =>
+      Effect.reduce(entries, { exact: [], patterns: [] }, appendCorsEntry),
+    ),
+  );
 
 /**
  * Effect-native server config loader. Reads env vars through `Config` so

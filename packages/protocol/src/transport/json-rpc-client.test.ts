@@ -9,7 +9,7 @@
  * with no arguments).
  */
 import { describe, expect, it } from "vitest";
-import { Cause, Deferred, Effect, Exit, Fiber } from "effect";
+import { Cause, Deferred, Effect, Exit, Fiber, Option } from "effect";
 import { Type } from "@sinclair/typebox";
 
 import { defineRpc } from "./method.js";
@@ -86,12 +86,11 @@ describe("JsonRpcClient.resolve — unregistered error code → RpcServerError",
 });
 
 describe("JsonRpcClient.resolve — registered tagged-error decode", () => {
-  it("preserves the wire frame's `data` payload on a registered error code", async () => {
-    const wireData = { agentIds: ["agent-a", "agent-b"] } as const;
-
-    const exit = await Effect.runPromise(
+  it("preserves the wire frame's `data` payload on a registered error code", () =>
+    Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
+          const wireData = { agentIds: ["agent-a", "agent-b"] } as const;
           // Capture the request id the client mints on the first write.
           // Effect.ignore makes a second write (none expected) a no-op.
           const idDef = yield* Deferred.make<string>();
@@ -117,20 +116,14 @@ describe("JsonRpcClient.resolve — registered tagged-error decode", () => {
           const handled = yield* client.resolve(inbound);
           expect(handled).toBe(true);
 
-          return yield* Effect.exit(Fiber.join(callFiber));
+          const exit = yield* Effect.exit(Fiber.join(callFiber));
+          expect(Exit.isFailure(exit)).toBe(true);
+          if (!Exit.isFailure(exit)) return;
+
+          const value = Option.getOrNull(Cause.failureOption(exit.cause));
+          expect(value).toBeInstanceOf(ForbiddenError);
+          expect((value as ForbiddenError).data).toEqual(wireData);
         }),
       ),
-    );
-
-    expect(Exit.isFailure(exit)).toBe(true);
-    if (!Exit.isFailure(exit)) return;
-    const failure = Cause.failureOption(exit.cause);
-    expect(failure._tag).toBe("Some");
-    if (failure._tag !== "Some") return;
-    const value = failure.value;
-    expect(value).toBeInstanceOf(ForbiddenError);
-    // Regression guard for #511: the wire `data` payload reaches the
-    // typed instance instead of arriving as `undefined`.
-    expect((value as ForbiddenError).data).toEqual(wireData);
-  });
+    ));
 });

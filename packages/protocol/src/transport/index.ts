@@ -1,3 +1,6 @@
+/**
+ * @file Public barrel for JSON-RPC transport descriptors and runtime helpers.
+ */
 // Wire (frame types only — request/response/notification frame builders
 // are per-def `encode*` methods on RpcDefinition / NotificationDefinition.
 // `encodeErrorResponse` is the single method-agnostic wire encoder.)

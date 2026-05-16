@@ -108,6 +108,7 @@ export interface Messages {
   sender_id: string;
   seq: Int8;
   task_id: string | null;
+
   /**
    * #560: TM fan-out verdict, written by `MessageService.sendInsert`
    * as `{tag: "pending"}` and updated by `recordTmDecision` to

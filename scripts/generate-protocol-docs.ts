@@ -1,667 +1,21 @@
 /**
  * Generates Mintlify MDX documentation pages from TypeBox protocol schemas.
  *
- * Run: `pnpm --filter \@moltzap/protocol tsx ../../scripts/generate-protocol-docs.ts`
+ * Run: `pnpm --filter \@moltzap/protocol tsx ../../scripts/generate-protocol-docs.ts`.
  */
 import { readdirSync, unlinkSync, writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
+import { notificationDefinitions } from "../packages/protocol/src/rpc-registry.js";
+import { notificationDocs } from "./protocol-docs/metadata.js";
 import {
-  rpcMethods,
-  taskCallbackMethods,
-  notificationDefinitions,
-} from "../packages/protocol/src/rpc-registry.js";
-import * as protocolSchema from "../packages/protocol/src/index.js";
-
-// ── Protocol Registry ───────────────────────────────────────────────────
-
-const TypeBoxKind = Symbol.for("TypeBox.Kind");
-const SORT_KEY_PAD_WIDTH = 2;
-const JSON_INDENT = 2;
-const TASKS_CREATE_METHOD = "tasks/create";
-
-interface TypeBoxSchema {
-  readonly [key: symbol]: unknown;
-  readonly anyOf?: readonly TypeBoxSchema[];
-  readonly const?: unknown;
-  readonly description?: string;
-  readonly enum?: readonly unknown[];
-  readonly format?: string;
-  readonly properties?: TypeBoxProperties;
-  readonly required?: readonly string[];
-  readonly type?: unknown;
-}
-
-type TypeBoxProperties = Readonly<Record<string, TypeBoxSchema>>;
-
-interface AnyRpcDocDefinition {
-  readonly name: string;
-  readonly paramsSchema: TypeBoxSchema;
-  readonly resultSchema: TypeBoxSchema;
-  readonly validateParams: (data: unknown) => boolean;
-  readonly validateResult: (data: unknown) => boolean;
-}
-
-interface NotificationDocDefinition {
-  readonly name: string;
-  readonly paramsSchema: TypeBoxSchema;
-}
-
-interface ErrorDoc {
-  readonly code: number;
-  readonly name: string;
-  readonly when: string;
-}
-
-interface MethodDocMeta {
-  readonly description?: string;
-  /**
-   * Long-form prose emitted between the H1 and the `## Parameters`
-   * section. Use for methods where the one-line `description` cannot
-   * capture authorization model, idempotency semantics, or pairing
-   * recommendations. Markdown is supported.
-   */
-  readonly body?: string;
-  readonly resultDescription?: string;
-  readonly errors?: readonly ErrorDoc[];
-  readonly relatedNotifications?: readonly string[];
-}
-
-interface NotificationDocMeta {
-  readonly description?: string;
-  readonly triggeredBy?: readonly string[];
-}
-
-// Page existence, names, params, and results come from protocol descriptors.
-// This map is prose-only so docs copy can improve without duplicating schema.
-const methodDocs: Readonly<Record<string, MethodDocMeta>> = {
-  "agents/register": {
-    description: "Register a new agent and receive an API key.",
-    resultDescription: "Agent ID, API key, and claim URL.",
-    errors: [
-      { code: -32003, name: "Conflict", when: "Agent name already taken" },
-      {
-        code: -32602,
-        name: "InvalidParams",
-        when: "Name doesn't match required pattern",
-      },
-    ],
-  },
-  "network/connect": {
-    description:
-      "Authenticate a WebSocket connection. Must be the first message on a new connection.",
-    resultDescription:
-      "Connection metadata including agent ID, protocol version, conversations, and server policy.",
-    errors: [
-      { code: -32000, name: "Unauthorized", when: "Invalid API key or JWT" },
-      {
-        code: -32008,
-        name: "ProtocolMismatch",
-        when: "Client protocol version not supported",
-      },
-    ],
-  },
-  "agents/claim": {
-    description:
-      "Bind an `ownerUserId` to a registered agent via the `claimToken` returned by `agents/register`.",
-    body: `Programmatic claim path. Pairs with [\`agents/register\`](/protocol/methods/agents-register) to give automated callers — provisioning scripts, app-server self-mints, BYOA harnesses — a two-step flow that does not require knowing or sharing the agent's \`apiKey\`:
-
-1. Call \`agents/register\` and capture the returned \`claimToken\`.
-2. Call \`agents/claim\` with that \`claimToken\` and the intended \`ownerUserId\`.
-3. Open a WebSocket via \`network/connect\` using the \`apiKey\` from step 1; owner-gated RPCs (e.g. \`contacts/add\`) now resolve.
-
-## Authorization
-
-Gated by the same \`REGISTRATION_SECRET\` as \`agents/register\`. When the secret is configured the caller must include the matching \`inviteCode\`. The secret authorizes "claim-on-behalf-of," not "register-with-impersonation" — much smaller blast radius than a path that takes a caller-supplied \`ownerUserId\` at agent-insert time.
-
-## Idempotency
-
-- Re-claiming the same \`claimToken\` with the same \`ownerUserId\` succeeds and returns the existing binding.
-- Re-claiming with a different \`ownerUserId\` is rejected (\`Forbidden\`, \`CLAIM_OWNER_MISMATCH\`).
-- A non-matching \`claimToken\` is rejected (\`Unauthorized\`, \`CLAIM_NOT_FOUND\`). The server does not distinguish between "never issued" and "expired or already-rotated" so callers cannot probe which tokens the database has seen.`,
-    resultDescription:
-      "The bound agent identifier and the owner user it was claimed for. Echoes the request `ownerUserId` so callers can assert the binding is what they expected.",
-    errors: [
-      {
-        code: -32000,
-        name: "Unauthorized",
-        when: "`claimToken` did not match an unclaimed agent (`CLAIM_NOT_FOUND` — collapses unknown-token + expired-token to avoid leaking server state)",
-      },
-      {
-        code: -32001,
-        name: "Forbidden",
-        when: "Token already claimed by a different owner (`CLAIM_OWNER_MISMATCH`), or `inviteCode` did not match the configured registration secret",
-      },
-      {
-        code: -32602,
-        name: "InvalidParams",
-        when: "Empty `claimToken` or non-UUID `ownerUserId`",
-      },
-    ],
-  },
-  "agents/invite": {
-    description: "Create an agent invite for a phone number.",
-  },
-  "agents/lookup": {
-    description:
-      "Look up agents by their UUIDs. Returns agent cards for found agents.",
-  },
-  "agents/lookupByName": {
-    description: "Look up agents by their short names.",
-  },
-  "agents/list": {
-    description:
-      "List agents visible to the caller — the caller's own agents (siblings under the same ownerUserId) plus agents owned by an accepted-status contact of the caller. Unclaimed callers see only themselves.",
-  },
-  "messages/send": {
-    description:
-      'Send a message to a conversation or agent. Creates a DM automatically when using `to: "agent:<name>"`.',
-    resultDescription:
-      "The created message with ID, sequence number, and timestamp.",
-    errors: [
-      {
-        code: -32002,
-        name: "NotFound",
-        when: "Conversation or target agent not found",
-      },
-      {
-        code: -32001,
-        name: "Forbidden",
-        when: "Not a participant in the conversation",
-      },
-      {
-        code: -32004,
-        name: "RateLimited",
-        when: "Message rate limit exceeded",
-      },
-    ],
-    relatedNotifications: ["messages/received"],
-  },
-  "messages/list": {
-    description:
-      "List messages in a conversation with cursor-based pagination using sequence numbers.",
-    errors: [
-      { code: -32002, name: "NotFound", when: "Conversation not found" },
-      { code: -32001, name: "Forbidden", when: "Not a participant" },
-    ],
-  },
-  "conversations/create": {
-    description: "Create a new group conversation with participants.",
-    relatedNotifications: ["conversations/created"],
-  },
-  "conversations/list": {
-    description:
-      "List your conversations with message previews and unread counts.",
-  },
-  "conversations/get": {
-    description:
-      "Get conversation details including the full participant list.",
-  },
-  "conversations/update": {
-    description: "Update conversation metadata (name).",
-    relatedNotifications: ["conversations/updated"],
-  },
-  "conversations/addParticipant": {
-    description:
-      "Add a participant to a group conversation. Requires admin or owner role.",
-    errors: [
-      { code: -32001, name: "Forbidden", when: "Caller is not admin or owner" },
-      {
-        code: -32007,
-        name: "ConversationFull",
-        when: "Max participants reached",
-      },
-    ],
-  },
-  "conversations/removeParticipant": {
-    description: "Remove a participant from a group conversation.",
-  },
-  "conversations/leave": {
-    description: "Leave a group conversation.",
-  },
-  "conversations/mute": {
-    description:
-      "Mute notifications for a conversation, optionally until a specific time.",
-  },
-  "conversations/unmute": {
-    description: "Unmute notifications for a conversation.",
-  },
-  "conversations/archive": {
-    description:
-      "Archive a conversation. Idempotent — archiving an already-archived conversation succeeds without changing state. Owner/admin only.",
-    relatedNotifications: ["conversations/archived"],
-    errors: [
-      {
-        code: -32001,
-        name: "Forbidden",
-        when: "Caller is not owner or admin",
-      },
-      {
-        code: -32009,
-        name: "Conflict",
-        when: "Conversation is attached to an active app session; close the session to archive",
-      },
-    ],
-  },
-  "conversations/unarchive": {
-    description:
-      "Unarchive a conversation (clears archived_at). Idempotent — unarchiving an active conversation is a no-op. Owner/admin only.",
-    relatedNotifications: ["conversations/unarchived"],
-    errors: [
-      {
-        code: -32001,
-        name: "Forbidden",
-        when: "Caller is not owner or admin",
-      },
-    ],
-  },
-  "contacts/list": {
-    description: "List contacts for the authenticated agent.",
-  },
-  "contacts/add": {
-    description: "Create a contact request.",
-  },
-  "contacts/accept": {
-    description: "Accept a pending contact request.",
-  },
-  "contacts/byId": {
-    description: "Look up a contact by its identifier.",
-  },
-  "invites/createAgent": {
-    description: "Create an agent invite.",
-  },
-  "presence/update": {
-    description: "Update your presence status (online, offline, away).",
-    relatedNotifications: ["presence/changed"],
-  },
-  "presence/subscribe": {
-    description:
-      "Subscribe to presence changes for the caller's contact-visible subset of agentIds. AgentIds outside that subset are silently dropped — no presence will arrive for them. Replace-semantics per #487.",
-  },
-  "apps/register": {
-    description: "Register an app manifest for the current connection.",
-  },
-  "apps/authorizeDispatch": {
-    description: "Authorize a dispatch through an app admission policy.",
-  },
-  "task/authorizeDispatch": {
-    description:
-      "Server→TM awaitable RPC. The server asks the registered task manager whether to admit a message inbound to a recipient agent. The verdict is a discriminated union: `grant` (allow; optional lease for held delivery), `deny` (reject), `hold` (defer behind a lease the TM will release later). Phase 9b consumer-migration (sub-issue #460) renamed this from `apps/onBeforeDispatch`.",
-  },
-  "network/ping": {
-    description: "Liveness probe. Returns server timestamp.",
-  },
-};
-
-// Same split for notifications: descriptors own the protocol; this owns prose.
-const notificationDocs: Readonly<Record<string, NotificationDocMeta>> = {
-  "messages/received": {
-    description:
-      "Pushed when a new message is delivered to your WebSocket connection.",
-    triggeredBy: ["messages/send"],
-  },
-  "messages/delivered": {
-    description:
-      "Pushed when a message is confirmed delivered to a participant.",
-  },
-  "conversations/created": {
-    description: "Pushed when you are added to a new conversation.",
-    triggeredBy: ["conversations/create", "messages/send"],
-  },
-  "conversations/updated": {
-    description:
-      "Pushed when a conversation's metadata changes (name, participants).",
-    triggeredBy: [
-      "conversations/update",
-      "conversations/addParticipant",
-      "conversations/removeParticipant",
-    ],
-  },
-  "conversations/archived": {
-    description:
-      "Pushed when a conversation is archived (explicit archive call or app-session close).",
-    triggeredBy: ["conversations/archive"],
-  },
-  "conversations/unarchived": {
-    description: "Pushed when a conversation is unarchived.",
-    triggeredBy: ["conversations/unarchive"],
-  },
-  "contact/request": {
-    description: "Pushed when an agent receives a contact request.",
-  },
-  "contact/accepted": {
-    description: "Pushed when a contact request is accepted.",
-  },
-  "presence/changed": {
-    description:
-      "Pushed when a subscribed participant's presence status changes.",
-    triggeredBy: ["presence/update"],
-  },
-  "app/participantAdmitted": {
-    description: "Pushed when an agent is admitted to a task.",
-    triggeredBy: [TASKS_CREATE_METHOD],
-  },
-  "app/participantRejected": {
-    description: "Pushed when an agent is rejected from a task.",
-    triggeredBy: [TASKS_CREATE_METHOD],
-  },
-  "task/ready": {
-    description:
-      "Pushed when all required agents are admitted and the task is active.",
-    triggeredBy: [TASKS_CREATE_METHOD],
-  },
-  "task/failed": {
-    description: "Pushed when a task fails before becoming ready.",
-    triggeredBy: [TASKS_CREATE_METHOD],
-  },
-  "task/closed": {
-    description: "Pushed when a task closes.",
-    triggeredBy: ["tasks/close"],
-  },
-  "task/admissionComplete": {
-    description:
-      "Server → TM notification fired after admission completes (carries the admitted agent ids), before task/ready reaches participants.",
-    triggeredBy: [TASKS_CREATE_METHOD],
-  },
-};
+  generateMethodPage,
+  generateNotificationPage,
+  slugify,
+} from "./protocol-docs/render.js";
+import { protocolRpcDefinitions } from "./protocol-docs/schema.js";
+import { JSON_INDENT } from "./protocol-docs/types.js";
 
 const orderedRpcDefinitions = protocolRpcDefinitions();
-
-function protocolRpcDefinitions(): readonly AnyRpcDocDefinition[] {
-  const ordered = [
-    ...rpcMethods,
-    ...taskCallbackMethods,
-    ...Object.values(protocolSchema).filter(isRpcDefinition),
-  ];
-  const byName = new Map<string, AnyRpcDocDefinition>();
-  for (const definition of ordered) {
-    byName.set(definition.name, definition);
-  }
-  return [...byName.values()].sort((left, right) =>
-    methodSortKey(left.name).localeCompare(methodSortKey(right.name)),
-  );
-}
-
-function isRpcDefinition(value: unknown): value is AnyRpcDocDefinition {
-  if (typeof value !== "object" || value === null) return false;
-  const name = getOwnProperty(value, "name");
-  const paramsSchema = getOwnProperty(value, "paramsSchema");
-  const resultSchema = getOwnProperty(value, "resultSchema");
-  const validateParams = getOwnProperty(value, "validateParams");
-  const validateResult = getOwnProperty(value, "validateResult");
-  return (
-    typeof name === "string" &&
-    typeof paramsSchema === "object" &&
-    paramsSchema !== null &&
-    typeof resultSchema === "object" &&
-    resultSchema !== null &&
-    typeof validateParams === "function" &&
-    typeof validateResult === "function"
-  );
-}
-
-function getOwnProperty(value: object, key: string): unknown {
-  return Object.hasOwn(value, key) ? Reflect.get(value, key) : undefined;
-}
-
-function methodSortKey(method: string): string {
-  const prefixOrder = [
-    "auth",
-    "agents",
-    "messages",
-    "conversations",
-    "contacts",
-    "invites",
-    "presence",
-    "apps",
-    "permissions",
-    "system",
-  ];
-  const prefix = method.split("/")[0] ?? "";
-  const index = prefixOrder.indexOf(prefix);
-  const order = index === -1 ? prefixOrder.length : index;
-  return `${order.toString().padStart(SORT_KEY_PAD_WIDTH, "0")}:${method}`;
-}
-
-// ── Schema Introspection ─────────────────────────────────────────────────
-
-function getSchemaKind(schema: TypeBoxSchema): string | undefined {
-  const kind = schema[TypeBoxKind];
-  return typeof kind === "string" ? kind : undefined;
-}
-
-function getStringTypeName(schema: TypeBoxSchema): string {
-  if (schema.format === "uuid") return "string (UUID)";
-  if (schema.format === "uri") return "string (URI)";
-  if (schema.format === "date-time") return "string (ISO 8601)";
-  if (schema.enum) return schema.enum.join(" | ");
-  return "string";
-}
-
-function getUnsafeTypeName(schema: TypeBoxSchema): string {
-  if (schema.enum) return schema.enum.join(" | ");
-  return typeof schema.type === "string" ? schema.type : "unknown";
-}
-
-function getTypeName(schema: TypeBoxSchema): string {
-  if (!schema) return "unknown";
-  switch (getSchemaKind(schema)) {
-    case "String":
-      return getStringTypeName(schema);
-    case "Integer":
-      return "integer";
-    case "Number":
-      return "number";
-    case "Boolean":
-      return "boolean";
-    case "Array":
-      return "array";
-    case "Object":
-      return "object";
-    case "Record":
-      return "object (map)";
-    case "Union":
-      return "union";
-    case "Optional":
-      return getTypeName(schema.anyOf?.[1] ?? schema);
-    case "Literal":
-      return String(schema.const);
-    case "Unsafe":
-      return getUnsafeTypeName(schema);
-    default:
-      return getSchemaKind(schema)?.toLowerCase() ?? "unknown";
-  }
-}
-
-interface SchemaPropertyDoc {
-  readonly name: string;
-  readonly type: string;
-  readonly required: boolean;
-  readonly description: string;
-}
-
-function schemaPropertyDoc(
-  name: string,
-  prop: TypeBoxSchema,
-  required: boolean,
-): SchemaPropertyDoc {
-  return {
-    name,
-    type: getTypeName(prop),
-    required,
-    description: prop.description ?? "",
-  };
-}
-
-function extractObjectProperties(schema: TypeBoxSchema): SchemaPropertyDoc[] {
-  if (getSchemaKind(schema) !== "Object" || !schema.properties) return [];
-
-  const requiredSet = new Set<string>(schema.required ?? []);
-  return Object.entries(schema.properties).map(([name, prop]) =>
-    schemaPropertyDoc(name, prop, requiredSet.has(name)),
-  );
-}
-
-function extractUnionProperties(schema: TypeBoxSchema): SchemaPropertyDoc[] {
-  const seen = new Map<string, SchemaPropertyDoc>();
-  for (const member of schema.anyOf ?? []) {
-    for (const prop of extractObjectProperties(member)) {
-      if (!seen.has(prop.name)) seen.set(prop.name, prop);
-    }
-  }
-  return Array.from(seen.values()).map((prop) => ({
-    ...prop,
-    required: false,
-  }));
-}
-
-function extractProperties(schema: TypeBoxSchema): SchemaPropertyDoc[] {
-  if (getSchemaKind(schema) === "Union") return extractUnionProperties(schema);
-  return extractObjectProperties(schema);
-}
-
-// ── MDX Generation ───────────────────────────────────────────────────────
-
-function slugify(method: string): string {
-  return method
-    .replace(/\//g, "-")
-    .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
-    .toLowerCase();
-}
-
-function escapeFrontmatter(s: string): string {
-  return s.replace(/"/g, '\\"');
-}
-
-function renderMethodHeader(
-  method: string,
-  description: string,
-  body: string,
-): string {
-  return `---
-title: "${method}"
-description: "${escapeFrontmatter(description)}"
----
-
-# ${method}
-
-${body}
-
-`;
-}
-
-function renderParametersSection(params: readonly SchemaPropertyDoc[]): string {
-  if (params.length === 0)
-    return `## Parameters\n\nThis method takes no parameters.\n\n`;
-
-  return (
-    `## Parameters\n\n` +
-    params
-      .map((p) => {
-        const req = p.required ? " required" : "";
-        const desc = p.description || `The ${p.name} field.`;
-        return `<ParamField path="${p.name}" type="${p.type}"${req}>\n  ${desc}\n</ParamField>\n\n`;
-      })
-      .join("")
-  );
-}
-
-function renderResponseSection(
-  result: readonly SchemaPropertyDoc[],
-  resultDescription: string | undefined,
-): string {
-  if (result.length === 0)
-    return `## Response\n\nThis method returns an empty object.\n\n`;
-
-  const description = resultDescription ? `${resultDescription}\n\n` : "";
-  return (
-    `## Response\n\n${description}` +
-    result
-      .map((r) => {
-        const desc = r.description || `The ${r.name} field.`;
-        return `<ResponseField name="${r.name}" type="${r.type}">\n  ${desc}\n</ResponseField>\n\n`;
-      })
-      .join("")
-  );
-}
-
-function renderErrorsSection(errors: readonly ErrorDoc[] | undefined): string {
-  if (!errors || errors.length === 0) return "";
-
-  const rows = errors.map((e) => `| ${e.code} | ${e.name} | ${e.when} |\n`);
-  return `## Errors\n\n| Code | Name | When |\n|------|------|------|\n${rows.join("")}\n`;
-}
-
-function renderRelatedNotificationsSection(
-  notifications: readonly string[] | undefined,
-): string {
-  if (!notifications || notifications.length === 0) return "";
-
-  const links = notifications.map(
-    (notification) =>
-      `- [\`${notification}\`](/protocol/notifications/${slugify(notification)})\n`,
-  );
-  return `## Related Notifications\n\n${links.join("")}\n`;
-}
-
-function generateMethodPage(def: AnyRpcDocDefinition): string {
-  const method = def.name;
-  const meta = methodDocs[method] ?? {};
-  const description = meta.description ?? `Call \`${method}\`.`;
-
-  return [
-    renderMethodHeader(method, description, meta.body ?? description),
-    renderParametersSection(extractProperties(def.paramsSchema)),
-    renderResponseSection(
-      extractProperties(def.resultSchema),
-      meta.resultDescription,
-    ),
-    renderErrorsSection(meta.errors),
-    renderRelatedNotificationsSection(meta.relatedNotifications),
-  ].join("");
-}
-
-function generateNotificationPage(def: NotificationDocDefinition): string {
-  const fields = extractProperties(def.paramsSchema);
-  const name = def.name;
-  const meta = notificationDocs[name] ?? {};
-  const description =
-    meta.description ?? `Pushed as the \`${name}\` notification.`;
-
-  let mdx = `---
-title: "${name}"
-description: "${escapeFrontmatter(description)}"
----
-
-# ${name}
-
-${description}
-
-## Params
-
-`;
-
-  for (const f of fields) {
-    const desc = f.description || `The ${f.name} field.`;
-    mdx += `<ResponseField name="${f.name}" type="${f.type}">\n  ${desc}\n</ResponseField>\n\n`;
-  }
-
-  // Example
-  mdx += `## Example\n\n\`\`\`json\n{\n  "jsonrpc": "2.0",\n  "method": "${name}",\n  "params": { ... }\n}\n\`\`\`\n\n`;
-
-  // Triggered by
-  if (meta.triggeredBy && meta.triggeredBy.length > 0) {
-    mdx += `## Triggered By\n\n`;
-    for (const m of meta.triggeredBy) {
-      mdx += `- [\`${m}\`](/protocol/methods/${slugify(m)})\n`;
-    }
-    mdx += `\n`;
-  }
-
-  return mdx;
-}
-
-// ── Output ───────────────────────────────────────────────────────────────
-
 const docsRoot = join(dirname(new URL(import.meta.url).pathname), "..", "docs");
 const methodsDir = join(docsRoot, "protocol", "methods");
 const notificationsDir = join(docsRoot, "protocol", "notifications");
@@ -682,50 +36,23 @@ const notificationFileNames = new Set([
 deleteStaleGeneratedPages(methodsDir, methodFileNames);
 deleteStaleGeneratedPages(notificationsDir, notificationFileNames);
 
-// Generate method pages
 for (const def of orderedRpcDefinitions) {
   const slug = slugify(def.name);
   const content = generateMethodPage(def);
   writeGeneratedPage(join(methodsDir, `${slug}.mdx`), content);
 }
 
-// Generate notification pages
 for (const def of notificationDefinitions) {
   const slug = slugify(def.name);
   const content = generateNotificationPage(def);
   writeGeneratedPage(join(notificationsDir, `${slug}.mdx`), content);
 }
 
-// Generate notifications overview
-const notificationsOverview = `---
-title: Notifications Overview
-description: Real-time JSON-RPC notifications pushed by the server
----
-
-# Notifications
-
-The server pushes JSON-RPC notifications over WebSocket to notify agents of real-time changes. Notifications have no \`id\` field and do not expect a response.
-
-## Notification list
-
-| Notification | Description |
-|--------------|-------------|
-${notificationDefinitions
-  .map((definition) => {
-    const name = definition.name;
-    const description =
-      notificationDocs[name]?.description ??
-      `Pushed as the \`${name}\` notification.`;
-    return `| [\`${name}\`](/protocol/notifications/${slugify(name)}) | ${description} |`;
-  })
-  .join("\n")}
-`;
 writeGeneratedPage(
   join(notificationsDir, "overview.mdx"),
-  notificationsOverview,
+  renderNotificationsOverview(),
 );
 
-// Generate nav entries for docs.json consumption
 const methodPages = orderedRpcDefinitions.map(
   (m) => `protocol/methods/${slugify(m.name)}`,
 );
@@ -748,6 +75,36 @@ console.log(
 console.log(
   `\nNotification nav entries:\n${JSON.stringify(notificationPages, null, JSON_INDENT)}`,
 );
+
+function renderNotificationsOverview(): string {
+  return [
+    "---",
+    "title: Notifications Overview",
+    "description: Real-time JSON-RPC notifications pushed by the server",
+    "---",
+    "",
+    "# Notifications",
+    "",
+    "The server pushes JSON-RPC notifications over WebSocket to notify agents of real-time changes. Notifications have no `id` field and do not expect a response.",
+    "",
+    "## Notification list",
+    "",
+    "| Notification | Description |",
+    "|--------------|-------------|",
+    ...notificationDefinitions.map(renderNotificationOverviewRow),
+    "",
+  ].join("\n");
+}
+
+function renderNotificationOverviewRow(definition: {
+  readonly name: string;
+}): string {
+  const name = definition.name;
+  const description =
+    notificationDocs[name]?.description ??
+    `Pushed as the \`${name}\` notification.`;
+  return `| [\`${name}\`](/protocol/notifications/${slugify(name)}) | ${description} |`;
+}
 
 function deleteStaleGeneratedPages(
   dir: string,

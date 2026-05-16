@@ -33,13 +33,13 @@ export function registerSlowCloseCleanup(ctx: ConformanceRunContext): void {
         // 2s budget even though the toxic delays its close-frame.
         yield* Effect.scoped(
           Effect.gen(function* () {
-            const _client = yield* acquireProxiedClient(
+            const _client = yield* acquireProxiedClient({
               ctx,
               proxy,
-              `sc-${ctx.seed}-c`,
-              SLOW_CLOSE_CLIENT_TIMEOUT_MS,
+              name: `sc-${ctx.seed}-c`,
+              defaultTimeoutMs: SLOW_CLOSE_CLIENT_TIMEOUT_MS,
               unavailable,
-            );
+            });
             // A single RPC proves the socket is alive before close.
             yield* _client.client
               .sendRpc(ConversationsList, {})

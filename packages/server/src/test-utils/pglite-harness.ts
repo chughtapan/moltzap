@@ -57,9 +57,13 @@ function sqlPreview(sql: string): string {
 export interface PgliteHarness {
   /** Effect-Kysely-wrapped client. Yieldable as Effect via the toolkit. */
   readonly db: EffectKysely<Database>;
-  /** Run raw SQL — the harness uses this to load the schema; tests can
-   *  use it to seed extra rows after `make()` returns. */
+
+  /**
+   * Run raw SQL. The harness uses this to load the schema; tests can use it
+   * to seed extra rows after `make()` returns.
+   */
   readonly exec: (sql: string) => Effect.Effect<unknown, PgliteExecError>;
+
   /** Tear down the in-memory instance. Call from `afterEach`. */
   readonly close: Effect.Effect<void, PgliteCloseError>;
 }

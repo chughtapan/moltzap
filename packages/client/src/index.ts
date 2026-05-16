@@ -1,3 +1,6 @@
+/**
+ * @file Public barrel for the MoltZap client package.
+ */
 export {
   MoltZapService,
   formatCrossConversationBlock,

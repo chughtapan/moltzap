@@ -1,46 +1,48 @@
 import { describe, expect, it } from "vitest";
 import { validateAgent, validateAgentCard } from "./methods.js";
 
-describe("AgentSchema", () => {
-  const validAgent = {
-    id: "550e8400-e29b-41d4-a716-446655440000",
-    name: "atlas-bot",
-    status: "active",
-    createdAt: "2026-03-14T12:00:00.000Z",
-  };
+const VALID_AGENT = {
+  id: "550e8400-e29b-41d4-a716-446655440000",
+  name: "atlas-bot",
+  status: "active",
+  createdAt: "2026-03-14T12:00:00.000Z",
+};
 
+const VALID_CARD = {
+  id: "550e8400-e29b-41d4-a716-446655440000",
+  name: "atlas-bot",
+  status: "active",
+};
+
+describe("AgentSchema acceptance", () => {
   it("accepts valid agent", () => {
-    expect(validateAgent(validAgent)).toBe(true);
-  });
-
-  it("rejects invalid agent name (uppercase)", () => {
-    expect(validateAgent({ ...validAgent, name: "Atlas" })).toBe(false);
-  });
-
-  it("rejects agent name too short", () => {
-    expect(validateAgent({ ...validAgent, name: "ab" })).toBe(false);
-  });
-
-  it("rejects invalid status", () => {
-    expect(validateAgent({ ...validAgent, status: "deleted" })).toBe(false);
+    expect(validateAgent(VALID_AGENT)).toBe(true);
   });
 });
 
-describe("AgentCardSchema", () => {
-  const validCard = {
-    id: "550e8400-e29b-41d4-a716-446655440000",
-    name: "atlas-bot",
-    status: "active",
-  };
+describe("AgentSchema rejection", () => {
+  it("rejects invalid agent name (uppercase)", () => {
+    expect(validateAgent({ ...VALID_AGENT, name: "Atlas" })).toBe(false);
+  });
 
+  it("rejects agent name too short", () => {
+    expect(validateAgent({ ...VALID_AGENT, name: "ab" })).toBe(false);
+  });
+
+  it("rejects invalid status", () => {
+    expect(validateAgent({ ...VALID_AGENT, status: "deleted" })).toBe(false);
+  });
+});
+
+describe("AgentCardSchema acceptance", () => {
   it("accepts valid card with required fields only", () => {
-    expect(validateAgentCard(validCard)).toBe(true);
+    expect(validateAgentCard(VALID_CARD)).toBe(true);
   });
 
   it("accepts valid card with all optional fields", () => {
     expect(
       validateAgentCard({
-        ...validCard,
+        ...VALID_CARD,
         displayName: "Atlas Bot",
         description: "A helpful bot",
         ownerUserId: "660e8400-e29b-41d4-a716-446655440000",
@@ -49,55 +51,67 @@ describe("AgentCardSchema", () => {
   });
 
   it("accepts short name (3 chars)", () => {
-    expect(validateAgentCard({ ...validCard, name: "bot" })).toBe(true);
+    expect(validateAgentCard({ ...VALID_CARD, name: "bot" })).toBe(true);
   });
+});
 
+describe("AgentCardSchema name bounds", () => {
   it("accepts long name (32 chars)", () => {
     expect(
       validateAgentCard({
-        ...validCard,
+        ...VALID_CARD,
         name: "a-very-long-agent-name-for-test",
       }),
     ).toBe(true);
   });
 
   it("rejects name too short (2 chars)", () => {
-    expect(validateAgentCard({ ...validCard, name: "ab" })).toBe(false);
+    expect(validateAgentCard({ ...VALID_CARD, name: "ab" })).toBe(false);
   });
 
   it("rejects name too long (33 chars)", () => {
     expect(
       validateAgentCard({
-        ...validCard,
+        ...VALID_CARD,
         name: "a-very-long-agent-name-for-testxx",
       }),
     ).toBe(false);
   });
+});
 
+describe("AgentCardSchema value rejection", () => {
   it("rejects uppercase name", () => {
-    expect(validateAgentCard({ ...validCard, name: "Atlas" })).toBe(false);
+    expect(validateAgentCard({ ...VALID_CARD, name: "Atlas" })).toBe(false);
   });
 
   it("rejects invalid status", () => {
-    expect(validateAgentCard({ ...validCard, status: "deleted" })).toBe(false);
-  });
-
-  it("rejects missing status", () => {
-    const { status: _, ...noStatus } = validCard;
-    expect(validateAgentCard(noStatus)).toBe(false);
+    expect(validateAgentCard({ ...VALID_CARD, status: "deleted" })).toBe(false);
   });
 
   it("rejects extra properties", () => {
-    expect(validateAgentCard({ ...validCard, extra: true })).toBe(false);
+    expect(validateAgentCard({ ...VALID_CARD, extra: true })).toBe(false);
+  });
+});
+
+describe("AgentCardSchema required fields", () => {
+  it("rejects missing status", () => {
+    const noStatus = Object.fromEntries(
+      Object.entries(VALID_CARD).filter(([key]) => key !== "status"),
+    );
+    expect(validateAgentCard(noStatus)).toBe(false);
   });
 
   it("rejects missing id", () => {
-    const { id: _, ...noId } = validCard;
+    const noId = Object.fromEntries(
+      Object.entries(VALID_CARD).filter(([key]) => key !== "id"),
+    );
     expect(validateAgentCard(noId)).toBe(false);
   });
 
   it("rejects missing name", () => {
-    const { name: _, ...noName } = validCard;
+    const noName = Object.fromEntries(
+      Object.entries(VALID_CARD).filter(([key]) => key !== "name"),
+    );
     expect(validateAgentCard(noName)).toBe(false);
   });
 });

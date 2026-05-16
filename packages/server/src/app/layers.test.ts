@@ -1,9 +1,7 @@
-import { it } from "@effect/vitest";
-import type { Kysely } from "kysely";
+import { it as effectIt } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import { expect } from "vitest";
 import type { Db } from "../db/client.js";
-import type { Database } from "../db/database.js";
 import { NoopTraceCaptureLive } from "../runtime-surface/trace-capture.js";
 import { LoggerLive, getLogger } from "../logger.js";
 import { ConnectionManager } from "../transport/connection.js";
@@ -27,15 +25,20 @@ import {
   resolveServices,
 } from "./layers.js";
 
+const it = effectIt.effect;
+const FUNCTION_TYPE = "function";
+
 /**
  * Minimal Kysely stub. None of the constructors under test execute queries
  * — they just stash the db reference — so we don't need a real connection
  * to verify that the Layer graph wires the services together.
  */
-const fakeDb = {} as Kysely<Database> as Db;
+const fakeDb = {} as Db;
 
-/** Base layer — feeds the ServicesLive requirements. LoggerLive provides
- * LoggerTag itself, so no separate `Layer.succeed(LoggerTag, …)` needed. */
+/**
+ * Base layer — feeds the ServicesLive requirements. LoggerLive provides
+ * LoggerTag itself, so no separate `Layer.succeed(LoggerTag, …)` needed.
+ */
 const BaseLive = Layer.mergeAll(
   Layer.succeed(DbTag, fakeDb),
   Layer.succeed(EncryptionTag, null),
@@ -49,7 +52,7 @@ const BaseLive = Layer.mergeAll(
 /** Full composition — Base provides inputs to ServicesLive's requirements. */
 const FullLive = Layer.provideMerge(ServicesLive, BaseLive);
 
-it.effect("ServicesLive resolves every service via resolveServices", () =>
+it("ServicesLive resolves every service via resolveServices", () =>
   Effect.gen(function* () {
     const services = yield* resolveServices;
 
@@ -76,7 +79,7 @@ it.effect("ServicesLive resolves every service via resolveServices", () =>
     expect(services.presenceService).toBeInstanceOf(PresenceService);
     expect(services.appHost).toBeInstanceOf(AppHost);
     expect(services.messageService).toBeInstanceOf(MessageService);
-    expect(typeof services.traceCapture.record).toBe("function");
+    expect(typeof services.traceCapture.record).toBe(FUNCTION_TYPE);
 
     // Every slot is populated — `null` counts for encryption.
     for (const k of Object.keys(services)) {
@@ -84,5 +87,4 @@ it.effect("ServicesLive resolves every service via resolveServices", () =>
       expect(services[k as keyof typeof services]).not.toBeNull();
       expect(services[k as keyof typeof services]).toBeDefined();
     }
-  }).pipe(Effect.provide(FullLive)),
-);
+  }).pipe(Effect.provide(FullLive)));

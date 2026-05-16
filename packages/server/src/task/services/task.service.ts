@@ -102,6 +102,7 @@ function rowToParticipant(row: {
 export interface TaskCreateInput {
   readonly appId?: string;
   readonly invitedAgentIds?: readonly AgentId[];
+
   /**
    * Phase 9b consumer-migration (sub-issue #460 round 3 R13): atomic
    * task creation. Replaces the pre-R13 two-step (`tasks/create` then
@@ -410,13 +411,13 @@ export class TaskService {
       // The task id is fixed (this is a TM acting on its own task),
       // so wrap it in `Effect.succeed` for the lazy-`mintTask`
       // contract `ConversationService.create` expects.
-      return yield* this.conversations.create(
-        input.type,
-        input.name,
-        [...input.participantAgentIds],
-        caller,
-        Effect.succeed({ id }),
-      );
+      return yield* this.conversations.create({
+        type: input.type,
+        name: input.name,
+        agentIds: input.participantAgentIds,
+        creatorAgentId: caller,
+        mintTask: Effect.succeed({ id }),
+      });
     });
   }
 
@@ -443,19 +444,13 @@ export class TaskService {
       // `task_id` from `conv.task_id` at insert time, and
       // `requireConversationInTask` above already proved
       // `conv.task_id === id`.
-      return yield* this.messages.send(
-        input.conversationId,
-        [...input.parts],
-        input.senderAgentId,
-        input.replyToId,
-        // No connection-exclude — the TM is a participant and observes
-        // the message via the broadcast path.
-        undefined,
-        // Bypass TM routing — this insert IS the TM acting on an
-        // already-admitted message; firing `network.send` back to the
-        // TM's own socket would self-loop.
-        true,
-      );
+      return yield* this.messages.send({
+        conversationId: input.conversationId,
+        parts: [...input.parts],
+        senderAgentId: input.senderAgentId,
+        replyToId: input.replyToId,
+        bypassTmRouting: true,
+      });
     });
   }
 

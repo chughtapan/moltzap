@@ -41,11 +41,13 @@ import {
 
 export { taskCallbackMethods };
 
-/** Closed union of every wire-registered tagged-error class instance.
+/**
+ * Closed union of every wire-registered tagged-error class instance.
  * Drives `RpcCallError` so consumers can `Effect.catchTag(...)` against
  * concrete tags (e.g. "Forbidden", "NotInContacts"). Mirrors the static
  * registry built by `registerErrorClass` — keep in sync if a new class
- * lands. */
+ * lands.
+ */
 export type RegisteredTaggedError =
   | UnauthorizedError
   | ForbiddenError
@@ -84,21 +86,27 @@ export type AnyNotificationDefinition =
 export class DecodedResponseSuccess extends Data.TaggedClass(
   "ResponseSuccess",
 )<{
+  readonly frame: ResponseFrame;
   readonly id: JsonRpcId;
   readonly result: unknown;
 }> {}
 
-/** Discriminated error arm of a decoded JSON-RPC response — wire-frame
+/**
+ * Discriminated error arm of a decoded JSON-RPC response — wire-frame
  * decoder discriminator, not an Effect tagged error (the wire `error`
- * sub-object carries `code`/`message`/`data`, no Effect machinery). */
+ * sub-object carries `code`/`message`/`data`, no Effect machinery).
+ */
 export class DecodedResponseError extends Data.TaggedClass("ResponseError")<{
+  readonly frame: ResponseFrame;
   readonly id: JsonRpcId;
   readonly error: Extract<ResponseFrame, { error: unknown }>["error"];
 }> {}
 
-/** Decoded shape of a frame inbound to the client (from server):
+/**
+ * Decoded shape of a frame inbound to the client (from server):
  * a response (success XOR error), a server-initiated task-callback
- * request, or a notification. */
+ * request, or a notification.
+ */
 export type DecodedServerInbound =
   | DecodedResponseSuccess
   | DecodedResponseError
@@ -109,9 +117,11 @@ export type DecodedServerInbound =
       readonly _tag: "Notification";
     } & DecodedNotification<AnyNotificationDefinition>);
 
-/** Decoded shape of a frame inbound to the server (from client):
+/**
+ * Decoded shape of a frame inbound to the server (from client):
  * a client RPC request, a response (success XOR error) to a
- * server-initiated callback, or a notification. */
+ * server-initiated callback, or a notification.
+ */
 export type DecodedClientInbound =
   | ({ readonly _tag: "ClientRequest" } & DecodedRpcRequest<AnyRpcDefinition>)
   | DecodedResponseSuccess
@@ -133,6 +143,7 @@ function decodeResponseFrame(
   if ("error" in frame && frame.error !== undefined) {
     return Effect.succeed(
       new DecodedResponseError({
+        frame,
         id: frame.id,
         error: frame.error,
       }),
@@ -141,6 +152,7 @@ function decodeResponseFrame(
   if ("result" in frame) {
     return Effect.succeed(
       new DecodedResponseSuccess({
+        frame,
         id: frame.id,
         result: frame.result,
       }),
@@ -149,8 +161,10 @@ function decodeResponseFrame(
   return Effect.fail(new MalformedFrameError({ raw }));
 }
 
-/** Typed entry point for client-inbound frames. Fails closed with
- * `MalformedFrameError` on any wire-level mismatch. */
+/**
+ * Typed entry point for client-inbound frames. Fails closed with
+ * `MalformedFrameError` on any wire-level mismatch.
+ */
 export function decodeServerInbound(
   parsed: unknown,
 ): Effect.Effect<DecodedServerInbound, MalformedFrameError> {
@@ -176,8 +190,10 @@ export function decodeServerInbound(
   );
 }
 
-/** Typed entry point for server-inbound frames. Fails closed with
- * `MalformedFrameError` on any wire-level mismatch. */
+/**
+ * Typed entry point for server-inbound frames. Fails closed with
+ * `MalformedFrameError` on any wire-level mismatch.
+ */
 export function decodeClientInbound(
   parsed: unknown,
 ): Effect.Effect<DecodedClientInbound, MalformedFrameError> {

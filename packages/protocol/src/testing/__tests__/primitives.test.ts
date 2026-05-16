@@ -9,7 +9,7 @@
  * exhaustiveness.
  */
 import { describe, it, expect } from "vitest";
-import { Effect } from "effect";
+import { Effect, Either } from "effect";
 import * as fc from "fast-check";
 import {
   encodeFrame,
@@ -40,39 +40,56 @@ import {
 
 import { Connect } from "../../network/methods.js";
 import { ConversationsList } from "../../task/methods.js";
-import { jsonRpcMethod, requestFrame } from "../../transport/wire.js";
+import {
+  jsonRpcMethod,
+  requestFrame,
+  type NotificationFrame,
+} from "../../transport/wire.js";
 
 const MALFORM_SEED = 42;
 const EXPECTED_MERGED_CAPTURE_COUNT = 2;
+const TESTING_FRAME_SCHEMA_ERROR_TAG = "TestingFrameSchemaError";
+const UNAUTHENTICATED_DENIAL = "deny-unauthenticated";
 
-describe("codec", () => {
-  it("round-trips a valid request frame", async () => {
-    const frame: AnyFrame = requestFrame("req-1", Connect, {
-      agentKey: "k",
-      agentId: "a",
-      minProtocol: "0.1.0",
-      maxProtocol: "0.1.0",
-    });
-    const raw = encodeFrame(frame);
-    const decoded = await Effect.runPromise(
-      Effect.either(decodeFrame(raw, "inbound")),
-    );
-    expect(decoded._tag).toBe("Right");
-    if (decoded._tag === "Right") {
-      expect(isRequestFrame(decoded.right)).toBe(true);
-    }
-  });
+describe("codec decoding", () => {
+  it("round-trips a valid request frame", () =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        const frame: AnyFrame = requestFrame("req-1", Connect, {
+          agentKey: "k",
+          agentId: "a",
+          minProtocol: "0.1.0",
+          maxProtocol: "0.1.0",
+        });
+        const decoded = yield* Effect.either(
+          decodeFrame(encodeFrame(frame), "inbound"),
+        );
+        expect(
+          Either.match(decoded, {
+            onLeft: () => false,
+            onRight: isRequestFrame,
+          }),
+        ).toBe(true);
+      }),
+    ));
 
-  it("returns typed FrameSchemaError on malformed JSON", async () => {
-    const decoded = await Effect.runPromise(
-      Effect.either(decodeFrame("{not json", "inbound")),
-    );
-    expect(decoded._tag).toBe("Left");
-    if (decoded._tag === "Left") {
-      expect(decoded.left._tag).toBe("TestingFrameSchemaError");
-    }
-  });
+  it("returns typed FrameSchemaError on malformed JSON", () =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        const decoded = yield* Effect.either(
+          decodeFrame("{not json", "inbound"),
+        );
+        expect(
+          Either.match(decoded, {
+            onLeft: (error) => error._tag,
+            onRight: () => null,
+          }),
+        ).toBe(TESTING_FRAME_SCHEMA_ERROR_TAG);
+      }),
+    ));
+});
 
+describe("codec malformed frames", () => {
   it("malformFrame never throws for any kind + seed", () => {
     const base: AnyFrame = requestFrame("r", Connect, {
       agentKey: "k",
@@ -94,8 +111,8 @@ describe("codec", () => {
 });
 
 describe("captures", () => {
-  it("captures a frame and surfaces it in snapshot", async () => {
-    const result = await Effect.runPromise(
+  it("captures a frame and surfaces it in snapshot", () =>
+    Effect.runPromise(
       Effect.gen(function* () {
         const buf = yield* makeCaptureBuffer({ capacity: 8 });
         const frame: AnyFrame = {
@@ -105,15 +122,13 @@ describe("captures", () => {
         } as NotificationFrame;
         yield* recordFrame(buf, "inbound", encodeFrame(frame), frame);
         const snap = yield* buf.snapshot;
-        return snap;
+        expect(snap).toHaveLength(1);
+        expect(snap[0]?.frame && isNotificationFrame(snap[0].frame)).toBe(true);
       }),
-    );
-    expect(result).toHaveLength(1);
-    expect(result[0]?.frame && isNotificationFrame(result[0].frame)).toBe(true);
-  });
+    ));
 
-  it("mergeCaptures aggregates multiple buffers in timestamp order", async () => {
-    const result = await Effect.runPromise(
+  it("mergeCaptures aggregates multiple buffers in timestamp order", () =>
+    Effect.runPromise(
       Effect.gen(function* () {
         const a = yield* makeCaptureBuffer({ capacity: 4 });
         const b = yield* makeCaptureBuffer({ capacity: 4 });
@@ -126,11 +141,9 @@ describe("captures", () => {
         yield* recordFrame(b, "inbound", "{}", frame);
         const merged = yield* mergeCaptures([a, b]);
         const snap = yield* merged.snapshot;
-        return snap.length;
+        expect(snap).toHaveLength(EXPECTED_MERGED_CAPTURE_COUNT);
       }),
-    );
-    expect(result).toBe(EXPECTED_MERGED_CAPTURE_COUNT);
-  });
+    ));
 });
 
 describe("reference model", () => {
@@ -140,13 +153,13 @@ describe("reference model", () => {
       if (sampled === undefined) continue;
       const { outcome, next } = applyCall(initialReferenceState, sampled);
       expect(outcome._tag === "ok" || outcome._tag === "error").toBe(true);
-      expect(typeof next.tick).toBe("number");
+      expect(next.tick).toEqual(expect.any(Number));
     }
   });
 
   it("isIdempotent returns boolean for every method", () => {
     for (const method of allRpcMethods) {
-      expect(typeof isIdempotent(method)).toBe("boolean");
+      expect(isIdempotent(method)).toEqual(expect.any(Boolean));
     }
   });
 
@@ -161,7 +174,7 @@ describe("reference model", () => {
       call,
       agentId("00000000-0000-4000-8000-000000000000"),
     );
-    expect(verdict).toBe("deny-unauthenticated");
+    expect(verdict).toBe(UNAUTHENTICATED_DENIAL);
   });
 });
 
@@ -185,7 +198,7 @@ describe("arbitraries", () => {
     const [drawn] = fc.sample(arbitraryAnyCall(), { numRuns: 1, seed: 7 });
     expect(drawn).toBeDefined();
     if (drawn !== undefined) {
-      expect(typeof drawn.method).toBe("string");
+      expect(drawn.method).toEqual(expect.any(String));
     }
   });
 });

@@ -27,8 +27,10 @@ export type RpcCallError =
   | RpcServerError
   | RegisteredTaggedError;
 
-/** Originator side of a JSON-RPC connection. Scope-bound: closing the
- * scope runs `failAllPending(NotConnectedError)`. Caller owns timeouts. */
+/**
+ * Originator side of a JSON-RPC connection. Scope-bound: closing the
+ * scope runs `failAllPending(NotConnectedError)`. Caller owns timeouts.
+ */
 export interface JsonRpcClient {
   readonly call: <D extends AnyRpcDefinition>(
     definition: D,

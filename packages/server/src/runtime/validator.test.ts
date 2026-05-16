@@ -1,90 +1,111 @@
-import { it } from "@effect/vitest";
-import { Effect, Exit } from "effect";
-import { expect, it as vitestIt } from "vitest";
+import { it as effectIt } from "@effect/vitest";
+import * as fc from "fast-check";
+import { Cause, Data, Effect, Exit, Option } from "effect";
+import { describe, expect } from "vitest";
 import { validateParams } from "./validator.js";
 import { InvalidParamsError } from "./errors.js";
 
-// Trivial validators — each exercises one branch of `validateParams`.
-const acceptAll = (x: unknown): x is { hello: string } =>
-  typeof x === "object" &&
-  x !== null &&
-  typeof (x as Record<string, unknown>)["hello"] === "string";
+const it = effectIt.effect;
+
+const VALID_HELLO = "world";
+const INVALID_SHAPE_VALUE = "shape";
+const PROPERTY_RUNS = 25;
+const HELLO_INPUTS = fc.record({ hello: fc.string() });
+
+interface HelloShape {
+  readonly hello: string;
+}
+
+class ValidationProbeError extends Data.TaggedError("ValidationProbeError") {}
+
+const acceptAll = (x: unknown): x is HelloShape =>
+  hasStringProperty(x, "hello");
 const rejectAll = (_x: unknown): _x is never => false;
 const throwingValidator = (_x: unknown): _x is never => {
-  throw new Error("validator blew up");
+  throw new ValidationProbeError();
 };
 
-it.effect("passes params through when validator returns true", () =>
-  Effect.gen(function* () {
-    const input = { hello: "world" };
-    const result = yield* validateParams<typeof input>(acceptAll, input);
-    // Preserves identity — no cloning / normalization.
-    expect(result).toBe(input);
-  }),
-);
+describe("validateParams accepted input", () => {
+  const acceptedInputProperty = fc.property(
+    HELLO_INPUTS,
+    assertAcceptedInputPreservesIdentity,
+  );
 
-it.effect("fails with InvalidParamsError when validator returns false", () =>
-  Effect.gen(function* () {
-    const exit = yield* Effect.exit(
-      validateParams<unknown>(rejectAll, { any: "shape" }),
-    );
-    expect(Exit.isFailure(exit)).toBe(true);
-    if (Exit.isFailure(exit) && exit.cause._tag === "Fail") {
-      expect(exit.cause.error).toBeInstanceOf(InvalidParamsError);
-    } else {
-      throw new Error("expected typed Fail");
-    }
-  }),
-);
+  it("passes params through when validator returns true", () =>
+    Effect.gen(function* () {
+      const input = { hello: VALID_HELLO };
+      const result = yield* validateParams<typeof input>(acceptAll, input);
+      expect(result).toBe(input);
+    }));
 
-it.effect("fails with InvalidParamsError for null input", () =>
-  Effect.gen(function* () {
-    const exit = yield* Effect.exit(validateParams<unknown>(rejectAll, null));
-    expect(Exit.isFailure(exit)).toBe(true);
-    if (Exit.isFailure(exit) && exit.cause._tag === "Fail") {
-      expect(exit.cause.error).toBeInstanceOf(InvalidParamsError);
-    }
-  }),
-);
+  it("property: accepted inputs preserve identity", () =>
+    Effect.sync(() => {
+      expect.hasAssertions();
+      fc.assert(acceptedInputProperty, { numRuns: PROPERTY_RUNS });
+    }));
+});
 
-it.effect("fails with InvalidParamsError for undefined input", () =>
-  Effect.gen(function* () {
-    const exit = yield* Effect.exit(
-      validateParams<unknown>(rejectAll, undefined),
-    );
-    expect(Exit.isFailure(exit)).toBe(true);
-    if (Exit.isFailure(exit) && exit.cause._tag === "Fail") {
-      expect(exit.cause.error).toBeInstanceOf(InvalidParamsError);
-    }
-  }),
-);
+describe("validateParams invalid input", () => {
+  it("fails with InvalidParamsError when validator returns false", () =>
+    Effect.gen(function* () {
+      const exit = yield* Effect.exit(
+        validateParams<unknown>(rejectAll, { any: INVALID_SHAPE_VALUE }),
+      );
+      expectInvalidParamsFailure(exit);
+    }));
 
-vitestIt(
-  "treats a synchronous throw from the validator as an uncaught exception",
-  () => {
-    // Current behavior: `validateParams` calls `validator(input)` eagerly
-    // at the top of the function body, BEFORE constructing any Effect.
-    // A synchronous throw therefore escapes the caller as a plain JS
-    // exception — it is NOT lifted into the Effect error channel, and
-    // not wrapped as a defect either. We intentionally document this:
-    // handlers pass AJV-compiled validators (which don't throw on bad
-    // input — they return false), so wrapping in try/catch would be
-    // dead defensive code. If the policy ever changes to "wrap throws
-    // as defects," this test should switch to the Effect.exit shape.
-    expect(() =>
-      validateParams<unknown>(throwingValidator, { whatever: 1 }),
-    ).toThrow("validator blew up");
+  it("fails with InvalidParamsError for null input", () =>
+    Effect.gen(function* () {
+      const exit = yield* Effect.exit(validateParams<unknown>(rejectAll, null));
+      expectInvalidParamsFailure(exit);
+    }));
 
-    // Sanity: once lifted into an Effect.sync wrapper, the throw DOES
-    // become a defect. This is how a caller could opt into defect
-    // semantics if they wanted — not what the current API does.
-    const wrapped = Effect.suspend(() =>
-      validateParams<unknown>(throwingValidator, { whatever: 1 }),
-    );
-    const exit = Effect.runSyncExit(wrapped);
-    expect(Exit.isFailure(exit)).toBe(true);
-    if (Exit.isFailure(exit)) {
-      expect(exit.cause._tag).toBe("Die");
-    }
-  },
-);
+  it("fails with InvalidParamsError for undefined input", () =>
+    Effect.gen(function* () {
+      const exit = yield* Effect.exit(
+        validateParams<unknown>(rejectAll, undefined),
+      );
+      expectInvalidParamsFailure(exit);
+    }));
+});
+
+describe("validateParams validator exceptions", () => {
+  it("maps a synchronous validator exception to InvalidParamsError", () =>
+    Effect.gen(function* () {
+      const exit = yield* Effect.exit(
+        validateParams<unknown>(throwingValidator, { whatever: 1 }),
+      );
+      expectInvalidParamsFailure(exit);
+    }));
+});
+
+function hasStringProperty<Key extends string>(
+  value: unknown,
+  key: Key,
+): value is { readonly [Property in Key]: string } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof Reflect.get(value, key) === "string"
+  );
+}
+
+function assertAcceptedInputPreservesIdentity(input: HelloShape) {
+  const result = Effect.runSync(validateParams<typeof input>(acceptAll, input));
+  expect(result).toBe(input);
+}
+
+function failureOption<E>(exit: Exit.Exit<unknown, E>): Option.Option<E> {
+  return Exit.match(exit, {
+    onFailure: Cause.failureOption,
+    onSuccess: () => Option.none(),
+  });
+}
+
+function expectInvalidParamsFailure<E>(exit: Exit.Exit<unknown, E>) {
+  const isInvalidParams = Option.match(failureOption(exit), {
+    onNone: () => false,
+    onSome: (error) => error instanceof InvalidParamsError,
+  });
+  expect(isInvalidParams).toBe(true);
+}

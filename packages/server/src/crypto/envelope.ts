@@ -55,8 +55,12 @@ export function unwrapKey(wrapped: EncryptedPayload, kek: Buffer): Buffer {
   return decrypt(wrapped, kek);
 }
 
-export function generateDek(): Buffer {
+export function generateKeyMaterial(): Buffer {
   return randomBytes(KEY_LENGTH);
+}
+
+export function generateDek(): Buffer {
+  return generateKeyMaterial();
 }
 
 export class EnvelopeEncryption {

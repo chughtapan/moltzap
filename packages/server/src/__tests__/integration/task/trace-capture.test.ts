@@ -1,11 +1,11 @@
 import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { it } from "@effect/vitest";
 import { Effect } from "effect";
 
 import {
-  startTestServer,
-  stopTestServer,
-  resetTestDb,
+  it,
+  startTestServerEffect,
+  stopTestServerEffect,
+  resetTestDbEffect,
   registerAndConnect,
 } from "../helpers.js";
 import {
@@ -20,24 +20,30 @@ import {
 
 let traceCapture: TraceCapture;
 
-beforeAll(async () => {
-  const server = await startTestServer({
-    traceCaptureLayer: InMemoryTraceCaptureLive,
-  });
-  traceCapture = server.coreApp.traceCapture;
-});
+beforeAll(() =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const server = yield* startTestServerEffect({
+        traceCaptureLayer: InMemoryTraceCaptureLive,
+      });
+      traceCapture = server.coreApp.traceCapture;
+    }),
+  ),
+);
 
-afterAll(async () => {
-  await stopTestServer();
-});
+afterAll(() => Effect.runPromise(stopTestServerEffect()));
 
-beforeEach(async () => {
-  await resetTestDb();
-  await Effect.runPromise(traceCapture.clear());
-});
+beforeEach(() =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      yield* resetTestDbEffect();
+      yield* traceCapture.clear();
+    }),
+  ),
+);
 
 describe("trace capture", () => {
-  it.live("records delivered messages through the server DI capture", () =>
+  it("records delivered messages through the server DI capture", () =>
     Effect.gen(function* () {
       const alice = yield* registerAndConnect("alice-trace-capture");
       const bob = yield* registerAndConnect("bob-trace-capture");
@@ -72,8 +78,7 @@ describe("trace capture", () => {
 
       yield* alice.client.close();
       yield* bob.client.close();
-    }),
-  );
+    }));
 
   // Phase 7 cutover removed `apps/create`'s session bootstrap, which
   // owned the path that wired `before_message_delivery` to the

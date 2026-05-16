@@ -1,7 +1,6 @@
 import * as Socket from "@effect/platform/Socket";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import {
-  Cause,
   Data,
   Deferred,
   Duration,
@@ -21,20 +20,26 @@ import {
   PROTOCOL_VERSION,
   Connect,
   encodeErrorResponse,
+  makeJsonRpcClient,
+  makeJsonRpcServer,
   NotConnectedError,
   RpcServerError,
   RpcTimeoutError,
   type AnyTaskCallbackRpcDefinition,
   type AnyNotificationDefinition,
+  type DecodedNotification,
+  type DecodedServerInbound,
+  type JsonRpcClient,
   type JsonRpcId,
   type ParamsOf,
-  type RequestFrame,
   type ResponseFrame,
   type ResultOf,
+  type RpcCallError,
   type RpcDefinition,
+  type RpcHandler,
 } from "@moltzap/protocol";
 import { DuplicateServerRpcHandlerError } from "./runtime/errors.js";
-import { decodeFrames, type DecodedNotification } from "./runtime/frame.js";
+import { decodeFrames } from "./runtime/frame.js";
 import {
   makeSubscriberRegistry,
   type NotificationSubscription,
@@ -60,7 +65,7 @@ export interface RpcCallOptions {
   readonly timeoutMs?: number;
 }
 
-type ConnectError = NotConnectedError | RpcTimeoutError | RpcServerError;
+type ConnectError = RpcCallError | RpcTimeoutError;
 
 /** Reconnect backoff: 1s base, doubling per attempt up to the cap. */
 const BASE_RECONNECT_DELAY_MS = 1000;
@@ -70,7 +75,6 @@ const NORMAL_CLOSE_CODE = 1000;
 const EVENT_WAIT_TIMEOUT_MS = 5000;
 const WEB_SOCKET_OPEN_TIMEOUT_SECONDS = 10;
 const MALFORMED_FRAME_PREVIEW_CHARS = 200;
-const JSON_RPC_INTERNAL_ERROR_CODE = -32603;
 
 /**
  * Log 1-of-N malformed frames. A misbehaving server could flood us otherwise;
@@ -99,7 +103,6 @@ const MAX_EVENT_BUFFER = 1000;
 const TASK_CALLBACK_QUEUE_CAPACITY = 8192;
 
 const MSG_NOT_CONNECTED = "WebSocket not connected";
-const MSG_RPC_ERROR_FALLBACK = "RPC error";
 
 const UTF8_DECODER = new TextDecoder("utf-8");
 
@@ -118,9 +121,6 @@ type DecodedIncomingNotification = Extract<
   DecodedIncomingFrame,
   { readonly _tag: "Notification" }
 >;
-
-/** Tagged error type for any pending-RPC Deferred. */
-type PendingError = RpcServerError | NotConnectedError | RpcTimeoutError;
 
 class ReconnectAttemptFailedError extends Data.TaggedError(
   "ReconnectAttemptFailedError",
@@ -148,9 +148,14 @@ interface ConnState {
   ) => Effect.Effect<void, Socket.SocketError>;
   readonly readerFiber: Fiber.RuntimeFiber<void, Socket.SocketError>;
   readonly scope: Scope.CloseableScope;
-  /** Settled when the reader fiber exits, letting `connect()` race against
-   * pre-open close and fail fast instead of waiting the RPC timeout. */
-  readonly handshakeSettled: Deferred.Deferred<ConnectResult, PendingError>;
+  readonly jsonRpcClient: JsonRpcClient;
+
+  /**
+   * Settled when the reader fiber exits, letting `connect()` race against
+   * pre-open close and fail fast instead of waiting the RPC timeout.
+   */
+  readonly handshakeSettled: Deferred.Deferred<ConnectResult, ConnectError>;
+
   /**
    * Per-connection task-callback executor queue. Bounded; the WS reader
    * non-blockingly offers decoded requests, the drain fiber runs
@@ -158,6 +163,7 @@ interface ConnState {
    * dispatcher with the simpler single-queue topology.
    */
   readonly taskCallbackQueue: Queue.Queue<DecodedServerRequest>;
+
   /**
    * Closeable Scope owning the drain fiber. Off-Scope from the socket
    * so `runSync(client.close())` can `runFork(Scope.close(...))`
@@ -166,16 +172,18 @@ interface ConnState {
   readonly dispatcherScope: Scope.CloseableScope;
 }
 
-/**
- * Internal type for a decoded inbound task-callback request handed off
- * to the global queue. Mirrors `DecodedServerRequest` from
- * `runtime/frame.ts` but lives here so the queue does not need a
- * `runtime/` import cycle.
- */
-interface DecodedServerRequest {
-  readonly id: JsonRpcId;
-  readonly definition: AnyTaskCallbackRpcDefinition;
-  readonly params: unknown;
+type DecodedServerRequest = Extract<
+  DecodedServerInbound,
+  { readonly _tag: "ServerRequest" }
+>;
+
+type ClientWebSocket = Effect.Effect.Success<
+  ReturnType<typeof Socket.makeWebSocket>
+>;
+
+interface TaskCallbackDispatcher {
+  readonly dispatcherScope: Scope.CloseableScope;
+  readonly taskCallbackQueue: Queue.Queue<DecodedServerRequest>;
 }
 
 /**
@@ -217,10 +225,12 @@ interface NotificationWaiter {
   readonly fail: (error: Error) => Effect.Effect<void>;
 }
 
-/** Notifications are pre-validated by the wire decoder
+/**
+ * Notifications are pre-validated by the wire decoder
  * (`decodeNotification` in `@moltzap/protocol`) — fail-close on unknown
  * methods or bad params. Buffer + waiters hold the validated shape
- * directly; no separate Raw|Unknown lift remains. */
+ * directly; no separate Raw|Unknown lift remains.
+ */
 
 function acceptTypedNotification<D extends AnyNotificationDefinition>(
   definition: D,
@@ -258,6 +268,7 @@ export interface WsClientLogger {
 export interface MoltZapWsClientOptions {
   serverUrl: string;
   agentKey: string;
+
   /**
    * Called once per disconnect (not reconnect). Spec #222 §5.4 + OQ-5 (A):
    * `close` is the typed close metadata — real WebSocket `{code, reason}`
@@ -289,14 +300,12 @@ export interface MoltZapWsClientOptions {
  * so callers' `connect()` / `sendRpc()` Effects have no extra requirement.
  */
 export class MoltZapWsClient {
-  private readonly pendingRef: Ref.Ref<
-    HashMap.HashMap<JsonRpcId, Deferred.Deferred<unknown, PendingError>>
-  >;
   private readonly stateRef: Ref.Ref<Option.Option<ConnState>>;
   private readonly malformedRef: Ref.Ref<number>;
   private readonly notificationsBufferRef: Ref.Ref<
     ReadonlyArray<DecodedNotification<AnyNotificationDefinition>>
   >;
+
   /**
    * Waiters keyed by notification descriptor identity. Each bucket is a FIFO
    * stack: delivery pops the most recently registered waiter (the tail).
@@ -311,6 +320,7 @@ export class MoltZapWsClient {
     Socket.WebSocketConstructor,
     never
   >;
+
   /**
    * Per-subscription notification registry. Spec #222 §5.3 (C4 + the
    * `RealClientEventSubscriber.subscribe` filter stub). Constructed
@@ -329,18 +339,12 @@ export class MoltZapWsClient {
     HashMap.HashMap<AnyTaskCallbackRpcDefinition, ErasedServerRpcHandler>
   >;
 
-  private requestCounter = 0;
   private closed = false;
   private reconnectFiber: Fiber.RuntimeFiber<void, never> | null = null;
   private _helloOk: ConnectResult | null = null;
 
   constructor(private readonly options: MoltZapWsClientOptions) {
     this.runtime = ManagedRuntime.make(NodeSocket.layerWebSocketConstructor);
-    this.pendingRef = this.runtime.runSync(
-      Ref.make<
-        HashMap.HashMap<JsonRpcId, Deferred.Deferred<unknown, PendingError>>
-      >(HashMap.empty()),
-    );
     this.stateRef = this.runtime.runSync(
       Ref.make<Option.Option<ConnState>>(Option.none()),
     );
@@ -410,8 +414,10 @@ export class MoltZapWsClient {
     return this._helloOk;
   }
 
-  /** Open the socket, perform network/connect, resolve with HelloOk. Fails
-   * immediately on pre-open close or error. */
+  /**
+   * Open the socket, perform network/connect, resolve with HelloOk. Fails
+   * immediately on pre-open close or error.
+   */
   connect(): Effect.Effect<ConnectResult, ConnectError> {
     return Effect.suspend(() => {
       if (this.closed) {
@@ -441,19 +447,7 @@ export class MoltZapWsClient {
     opts?: RpcCallOptions,
   ): Effect.Effect<ResultOf<D>, ConnectError> {
     const timeoutMs = opts?.timeoutMs ?? RPC_TIMEOUT_MS;
-    return this.sendRpcEffect(definition, params, timeoutMs).pipe(
-      Effect.flatMap((result) =>
-        definition.validateResult(result)
-          ? Effect.succeed(result)
-          : Effect.fail(
-              new RpcServerError({
-                code: JSON_RPC_INTERNAL_ERROR_CODE,
-                message: `Invalid result for method: ${definition.name}`,
-                data: result,
-              }),
-            ),
-      ),
-    );
+    return this.sendRpcEffect(definition, params, timeoutMs);
   }
 
   /**
@@ -532,46 +526,43 @@ export class MoltZapWsClient {
     );
   }
 
-  /** Wait for the next inbound notification matching `definition`.
+  /**
+   * Wait for the next inbound notification matching `definition`.
    * Consumes a buffered match if present; otherwise awaits the next match
-   * with a per-call timeout. */
+   * with a per-call timeout.
+   */
   waitForNotification<D extends AnyNotificationDefinition>(
     definition: D,
     timeoutMs = EVENT_WAIT_TIMEOUT_MS,
   ): Effect.Effect<DecodedNotification<D>, Error> {
     return Effect.gen(this, function* () {
-      const buffered = yield* Ref.modify(
-        this.notificationsBufferRef,
-        (frames) => {
-          for (const [idx, frame] of frames.entries()) {
-            if (!acceptTypedNotification(definition, frame)) continue;
-            const next = [...frames.slice(0, idx), ...frames.slice(idx + 1)];
-            return [frame, next];
-          }
-          return [null, frames];
-        },
-      );
+      const buffered = yield* this.takeBufferedNotification(definition);
       if (buffered !== null) return buffered;
+      return yield* this.awaitNotification(definition, timeoutMs);
+    });
+  }
 
+  private takeBufferedNotification<D extends AnyNotificationDefinition>(
+    definition: D,
+  ): Effect.Effect<DecodedNotification<D> | null> {
+    return Ref.modify(this.notificationsBufferRef, (frames) => {
+      for (const [idx, frame] of frames.entries()) {
+        if (!acceptTypedNotification(definition, frame)) continue;
+        const next = [...frames.slice(0, idx), ...frames.slice(idx + 1)];
+        return [frame, next];
+      }
+      return [null, frames];
+    });
+  }
+
+  private awaitNotification<D extends AnyNotificationDefinition>(
+    definition: D,
+    timeoutMs: number,
+  ): Effect.Effect<DecodedNotification<D>, Error> {
+    return Effect.gen(this, function* () {
       const deferred = yield* Deferred.make<DecodedNotification<D>, Error>();
-      const waiter: NotificationWaiter = {
-        definition,
-        complete: (notification) =>
-          acceptTypedNotification(definition, notification)
-            ? Deferred.succeed(deferred, notification).pipe(Effect.asVoid)
-            : Effect.void,
-        fail: (error) => Deferred.fail(deferred, error).pipe(Effect.asVoid),
-      };
-      yield* Ref.update(this.notificationWaitersRef, (m) => {
-        const existing = HashMap.get(m, definition);
-        const next =
-          existing._tag === "Some" ? [...existing.value, waiter] : [waiter];
-        return HashMap.set(
-          m,
-          definition,
-          next as ReadonlyArray<NotificationWaiter>,
-        );
-      });
+      const waiter = this.makeNotificationWaiter(definition, deferred);
+      yield* this.addNotificationWaiter(definition, waiter);
       return yield* Deferred.await(deferred).pipe(
         Effect.timeoutFail({
           duration: `${timeoutMs} millis`,
@@ -579,19 +570,54 @@ export class MoltZapWsClient {
             new Error(`Timeout waiting for notification: ${definition.name}`),
         }),
         Effect.onExit((exit) =>
-          exit._tag === "Failure"
-            ? Ref.update(this.notificationWaitersRef, (m) =>
-                removeWaiter(m, definition, waiter),
-              )
+          Exit.isFailure(exit)
+            ? this.removeNotificationWaiter(definition, waiter)
             : Effect.void,
         ),
       );
     });
   }
 
-  /** Return all buffered notifications and clear the buffer. Synchronous.
+  private makeNotificationWaiter<D extends AnyNotificationDefinition>(
+    definition: D,
+    deferred: Deferred.Deferred<DecodedNotification<D>, Error>,
+  ): NotificationWaiter {
+    return {
+      definition,
+      complete: (notification) =>
+        acceptTypedNotification(definition, notification)
+          ? Deferred.succeed(deferred, notification).pipe(Effect.asVoid)
+          : Effect.void,
+      fail: (error) => Deferred.fail(deferred, error).pipe(Effect.asVoid),
+    };
+  }
+
+  private addNotificationWaiter(
+    definition: AnyNotificationDefinition,
+    waiter: NotificationWaiter,
+  ): Effect.Effect<void> {
+    return Ref.update(this.notificationWaitersRef, (m) => {
+      const existing = HashMap.get(m, definition);
+      const next =
+        existing._tag === "Some" ? [...existing.value, waiter] : [waiter];
+      return HashMap.set(m, definition, next);
+    });
+  }
+
+  private removeNotificationWaiter(
+    definition: AnyNotificationDefinition,
+    waiter: NotificationWaiter,
+  ): Effect.Effect<void> {
+    return Ref.update(this.notificationWaitersRef, (m) =>
+      removeWaiter(m, definition, waiter),
+    );
+  }
+
+  /**
+   * Return all buffered notifications and clear the buffer. Synchronous.
    * Frames are pre-validation (`params: unknown`) — buffer holds the
-   * raw shape produced by the wire decoder. */
+   * raw shape produced by the wire decoder.
+   */
   drainNotifications(): DecodedNotification<AnyNotificationDefinition>[] {
     const snapshot = this.runtime.runSync(Ref.get(this.notificationsBufferRef));
     this.runtime.runSync(Ref.set(this.notificationsBufferRef, []));
@@ -608,11 +634,7 @@ export class MoltZapWsClient {
     if (Option.isNone(state)) return;
     // Detach from state first so sendRpc fails fast while we tear down.
     this.runtime.runSync(Ref.set(this.stateRef, Option.none()));
-    // Fail pendings via runFork — `failAllPending` yields through
-    // `Deferred.fail` (not safe for runSync). Fire-and-forget: the reader
-    // fiber's onExit will also drain on interrupt; duplicate drain is
-    // harmless because `failAllPending` resets the pendingRef atomically.
-    this.runtime.runFork(this.failAllPending(MSG_NOT_CONNECTED));
+    this.runtime.runFork(this.failConnectionPending(state.value));
     // Interrupt the reader fiber. runRaw exits, the socket scope closes,
     // ws.close(1000) fires as part of that teardown.
     this.runtime.runFork(Fiber.interrupt(state.value.readerFiber));
@@ -642,68 +664,78 @@ export class MoltZapWsClient {
     Socket.WebSocketConstructor
   > {
     return Effect.gen(this, function* () {
-      const url = this.options.serverUrl.replace(/^http/, "ws") + "/ws";
-
-      // Fresh scope per connect attempt. Held by the client (not the caller's
-      // fiber) so the reader + writer outlive the outer `connect()` Effect.
+      const url = this.webSocketUrl();
       const scope = yield* Scope.make();
-
-      // Map Socket open failures (SocketGenericError / SocketCloseError) to
-      // NotConnectedError so callers see a single typed error.
-      const openTimeout = Duration.seconds(WEB_SOCKET_OPEN_TIMEOUT_SECONDS);
-      const socket = yield* Scope.extend(
-        Socket.makeWebSocket(url, { openTimeout }),
-        scope,
-      ).pipe(
-        Effect.timeoutFail({
-          duration: openTimeout,
-          onTimeout: makeNotConnectedError,
-        }),
-        Effect.catchAllCause((cause) =>
-          Effect.zipRight(
-            Effect.sync(() =>
-              this.options.logger?.warn("WebSocket open failed", cause),
-            ),
-            Effect.sync(() => {
-              this.runtime.runFork(Scope.close(scope, Exit.void));
-            }).pipe(Effect.zipRight(Effect.fail(makeNotConnectedError()))),
-          ),
-        ),
-      );
-
+      const socket = yield* this.openSocket(url, scope);
       const write = yield* Scope.extend(socket.writer, scope);
-
-      // Settled first by whichever fires: the network/connect response, or
-      // reader-fiber exit on any close/error before handshake.
+      const jsonRpcClient = yield* Scope.extend(
+        makeJsonRpcClient({
+          write: (raw) => write(raw),
+          idPrefix: "rpc",
+        }),
+        scope,
+      );
       const handshakeSettled = yield* Deferred.make<
         ConnectResult,
-        PendingError
+        ConnectError
       >();
+      const dispatcher = yield* this.startTaskCallbackDispatcher(write);
+      const readerFiber = this.runtime.runFork(
+        this.readerEffect(socket, handshakeSettled, dispatcher.dispatcherScope),
+      );
 
-      // Cutover (#533) — single bounded global queue + single drain
-      // fiber replaces the pre-cutover partitioned dispatcher. The
-      // queue capacity (`TASK_CALLBACK_QUEUE_CAPACITY` = 8192)
-      // preserves today's 256×32 burst envelope. The drain fiber
-      // takes one request at a time and runs the registered handler
-      // serially; the only remaining task-callback descriptor today
-      // is `dispatch/authorize`, which the recipient may not handle
-      // concurrently with itself.
-      //
-      // Dispatcher Scope is allocated independently of the per-connect
-      // socket Scope (`scope` above). Closing it interrupts the drain
-      // fiber via Scope finalizers; teardown from `close()` /
-      // `disconnectSync()` is `runFork(Scope.close(...))`, mirroring
-      // the reader-fiber ownership pattern (off-Scope so
-      // `runSync(client.close())` doesn't yield through the runtime
-      // — load-bearing regression gate at
-      // `ws-client.test.ts:1233-1259`).
+      yield* this.publishConnectionState({
+        write,
+        readerFiber,
+        scope,
+        jsonRpcClient,
+        handshakeSettled,
+        taskCallbackQueue: dispatcher.taskCallbackQueue,
+        dispatcherScope: dispatcher.dispatcherScope,
+      });
+      return yield* this.awaitConnectAuth(handshakeSettled);
+    });
+  }
+
+  private webSocketUrl(): string {
+    return this.options.serverUrl.replace(/^http/, "ws") + "/ws";
+  }
+
+  private openSocket(
+    url: string,
+    scope: Scope.CloseableScope,
+  ): Effect.Effect<
+    ClientWebSocket,
+    NotConnectedError,
+    Socket.WebSocketConstructor
+  > {
+    const openTimeout = Duration.seconds(WEB_SOCKET_OPEN_TIMEOUT_SECONDS);
+    return Scope.extend(Socket.makeWebSocket(url, { openTimeout }), scope).pipe(
+      Effect.timeoutFail({
+        duration: openTimeout,
+        onTimeout: makeNotConnectedError,
+      }),
+      Effect.catchAllCause((cause) =>
+        Effect.zipRight(
+          Effect.sync(() =>
+            this.options.logger?.warn("WebSocket open failed", cause),
+          ),
+          Effect.sync(() => {
+            this.runtime.runFork(Scope.close(scope, Exit.void));
+          }).pipe(Effect.zipRight(Effect.fail(makeNotConnectedError()))),
+        ),
+      ),
+    );
+  }
+
+  private startTaskCallbackDispatcher(
+    write: ConnState["write"],
+  ): Effect.Effect<TaskCallbackDispatcher> {
+    return Effect.gen(this, function* () {
       const dispatcherScope = yield* Scope.make();
       const taskCallbackQueue = yield* Queue.bounded<DecodedServerRequest>(
         TASK_CALLBACK_QUEUE_CAPACITY,
       );
-      // Drain fiber: serialize handler execution. Forked into the
-      // off-Scope `dispatcherScope` so it is interrupted exactly when
-      // the dispatcher Scope closes, not when the socket Scope closes.
       const drainEffect = Effect.forever(
         Queue.take(taskCallbackQueue).pipe(
           Effect.flatMap((req) =>
@@ -712,97 +744,68 @@ export class MoltZapWsClient {
         ),
       );
       yield* Effect.forkIn(drainEffect, dispatcherScope);
+      return { dispatcherScope, taskCallbackQueue };
+    });
+  }
 
-      // Use `onExit` (not `tapErrorCause`) so the clean-close path also
-      // triggers pending-drain. `@effect/platform/Socket` treats code 1000
-      // as a SUCCESS exit, so error-only handlers miss it and pending RPCs
-      // would hang forever.
-      const readerEffect = socket
-        .runRaw((data) =>
-          this.handleIncoming(
-            typeof data === "string" ? data : UTF8_DECODER.decode(data),
-          ),
-        )
-        .pipe(
-          Effect.onExit((exit) =>
-            Effect.gen(this, function* () {
-              if (Exit.isFailure(exit)) {
-                this.options.logger?.warn("WebSocket error", exit.cause);
-              }
-              this._helloOk = null;
-              yield* this.failAllPending(MSG_NOT_CONNECTED);
-              // Unblock any `connect()` still awaiting the handshake.
-              yield* Deferred.fail(
-                handshakeSettled,
-                makeNotConnectedError(),
-              ).pipe(Effect.ignore);
-              // Clear connection state BEFORE the appCallback teardown so
-              // `sendRpc` and observers see the closed state immediately.
-              // Awaiting `Fiber.interrupt` would block this branch on a
-              // slow appCallback handler still draining (codex P2).
-              yield* Ref.set(this.stateRef, Option.none());
-              // Tear down the task-callback dispatcher Scope on
-              // socket-level close (e.g. server-initiated). `close()`
-              // / `disconnectSync()` already handle their own
-              // teardown for client-initiated paths; this branch
-              // covers the case where the server closes us. Forked
-              // so a slow handler does not delay the rest of the
-              // disconnect path. Idempotent with the explicit
-              // teardown in close().
-              this.runtime.runFork(Scope.close(dispatcherScope, Exit.void));
-              // Spec #222 §5.4 (V7): project the reader-fiber exit onto
-              // a typed `CloseInfo` and pass it to `onDisconnect`. Pure
-              // total classifier — see runtime/close-info.ts.
-              const close = extractCloseInfo(exit);
-              yield* this.notifyDisconnect(close);
-              if (!this.closed) {
-                this.scheduleReconnect();
-              }
-            }),
-          ),
-        );
-
-      // Fork the reader on the CLIENT's runtime (not the caller's fiber) so
-      // it outlives the outer `connect()`. Otherwise the caller's fiber tree
-      // finalizes on return, interrupts the reader, and `onExit` clears
-      // `_helloOk` behind a caller that believed connect() succeeded.
-      const readerFiber = this.runtime.runFork(readerEffect);
-
-      // Publish state BEFORE network/connect: the write goes through
-      // `sendRpcEffect`, which reads `stateRef`.
-      yield* Ref.set(
-        this.stateRef,
-        Option.some({
-          write,
-          readerFiber,
-          scope,
-          handshakeSettled,
-          taskCallbackQueue,
-          dispatcherScope,
-        }),
-      );
-
-      const authEffect = this.sendRpc(Connect, {
-        agentKey: this.options.agentKey,
-        minProtocol: PROTOCOL_VERSION,
-        maxProtocol: PROTOCOL_VERSION,
-      });
-
-      // Race the network/connect response against the handshakeSettled deferred
-      // `raceFirst` (not `race`) — `race` waits for the loser when the
-      // winner fails, so a typed network/connect error would hang behind the
-      // still-pending handshake-watchdog Deferred.
-      return yield* Effect.raceFirst(
-        authEffect,
-        Deferred.await(handshakeSettled),
-      ).pipe(
-        Effect.tap((value) =>
-          Effect.sync(() => {
-            this._helloOk = value;
-          }),
+  private readerEffect(
+    socket: ClientWebSocket,
+    handshakeSettled: Deferred.Deferred<ConnectResult, ConnectError>,
+    dispatcherScope: Scope.CloseableScope,
+  ): Effect.Effect<void, Socket.SocketError> {
+    return socket
+      .runRaw((data) =>
+        this.handleIncoming(
+          typeof data === "string" ? data : UTF8_DECODER.decode(data),
+        ),
+      )
+      .pipe(
+        Effect.onExit((exit) =>
+          this.handleReaderExit(exit, handshakeSettled, dispatcherScope),
         ),
       );
+  }
+
+  private handleReaderExit(
+    exit: Exit.Exit<void, Socket.SocketError>,
+    handshakeSettled: Deferred.Deferred<ConnectResult, ConnectError>,
+    dispatcherScope: Scope.CloseableScope,
+  ): Effect.Effect<void> {
+    return Effect.gen(this, function* () {
+      if (Exit.isFailure(exit)) {
+        this.options.logger?.warn("WebSocket error", exit.cause);
+      }
+      this._helloOk = null;
+      yield* this.failAllPending(MSG_NOT_CONNECTED);
+      yield* Deferred.fail(handshakeSettled, makeNotConnectedError()).pipe(
+        Effect.ignore,
+      );
+      yield* Ref.set(this.stateRef, Option.none());
+      this.runtime.runFork(Scope.close(dispatcherScope, Exit.void));
+      yield* this.notifyDisconnect(extractCloseInfo(exit));
+      if (!this.closed) this.scheduleReconnect();
     });
+  }
+
+  private publishConnectionState(state: ConnState): Effect.Effect<void> {
+    return Ref.set(this.stateRef, Option.some(state));
+  }
+
+  private awaitConnectAuth(
+    handshakeSettled: Deferred.Deferred<ConnectResult, ConnectError>,
+  ): Effect.Effect<ConnectResult, ConnectError> {
+    const authEffect = this.sendRpc(Connect, {
+      agentKey: this.options.agentKey,
+      minProtocol: PROTOCOL_VERSION,
+      maxProtocol: PROTOCOL_VERSION,
+    });
+    return Effect.raceFirst(authEffect, Deferred.await(handshakeSettled)).pipe(
+      Effect.tap((value) =>
+        Effect.sync(() => {
+          this._helloOk = value;
+        }),
+      ),
+    );
   }
 
   private sendRpcEffect<D extends RpcDefinition<string, any, any>>(
@@ -811,68 +814,17 @@ export class MoltZapWsClient {
     timeoutMs: number,
   ): Effect.Effect<ResultOf<D>, ConnectError> {
     return Effect.gen(this, function* () {
-      const method = definition.name;
       const state = yield* Ref.get(this.stateRef);
       if (Option.isNone(state)) {
         return yield* Effect.fail(makeNotConnectedError());
       }
-
-      this.requestCounter += 1;
-      const frame: RequestFrame = definition.encodeRequest(
-        `rpc-${this.requestCounter}`,
-        params,
-      );
-      const id = frame.id;
-
-      // Register the Deferred BEFORE writing — write yields, reader could
-      // close + failAllPending before we register, leaving us awaiting a
-      // never-resolved Deferred.
-      const deferred = yield* Deferred.make<unknown, PendingError>();
-      yield* Ref.update(this.pendingRef, (m) => HashMap.set(m, id, deferred));
-
-      const writeAttempt = Effect.either(
-        state.value.write(JSON.stringify(frame)),
-      );
-      const earlyFailure: Effect.Effect<null> = Deferred.await(deferred).pipe(
-        Effect.catchAll(() => Effect.succeed(null)),
-        Effect.as(null),
-      );
-      const writeRace = yield* Effect.race(writeAttempt, earlyFailure);
-      const writeFailure =
-        writeRace === null
-          ? null
-          : Either.match(writeRace, {
-              onLeft: (err) => err,
-              onRight: () => null,
-            });
-      if (writeFailure !== null) {
-        this.options.logger?.warn("ws.send failed", writeFailure);
-        yield* Ref.update(this.pendingRef, (m) => HashMap.remove(m, id));
-        return yield* Effect.fail(makeNotConnectedError());
-      }
-
-      const result = yield* Deferred.await(deferred).pipe(
+      return yield* state.value.jsonRpcClient.call(definition, params).pipe(
         Effect.timeoutFail({
           duration: `${timeoutMs} millis`,
-          onTimeout: () => new RpcTimeoutError({ method, timeoutMs }),
+          onTimeout: () =>
+            new RpcTimeoutError({ method: definition.name, timeoutMs }),
         }),
-        Effect.onExit((exit) =>
-          Exit.isFailure(exit)
-            ? Ref.update(this.pendingRef, (m) => HashMap.remove(m, id))
-            : Effect.void,
-        ),
       );
-
-      if (!definition.validateResult(result)) {
-        return yield* Effect.fail(
-          new RpcServerError({
-            code: JSON_RPC_INTERNAL_ERROR_CODE,
-            message: `Invalid result for method: ${definition.name}`,
-            data: result,
-          }),
-        );
-      }
-      return result as ResultOf<D>;
     });
   }
 
@@ -922,57 +874,53 @@ export class MoltZapWsClient {
     write: ConnState["write"],
   ): Effect.Effect<void, never> {
     return Effect.gen(this, function* () {
-      const handlers = yield* Ref.get(this.appCallbackHandlersRef);
-      const lookup = HashMap.get(handlers, request.definition);
-      const buildReply =
-        lookup._tag === "None"
-          ? Effect.succeed(
-              encodeErrorResponse(request.id, {
-                code: -32601,
-                message: "No handler registered for app callback descriptor",
-              }) satisfies ResponseFrame,
-            )
-          : lookup
-              .value(request.params, {
-                requestId: request.id,
-                definition: request.definition,
-              })
-              .pipe(
-                Effect.match({
-                  onSuccess: (result) =>
-                    request.definition.encodeResponse(
-                      request.id,
-                      result,
-                    ) satisfies ResponseFrame,
-                  onFailure: (err) =>
-                    encodeErrorResponse(request.id, {
-                      code: err.code,
-                      message: err.message,
-                      ...(err.data !== undefined ? { data: err.data } : {}),
-                    }) satisfies ResponseFrame,
-                }),
-                Effect.catchAllCause((cause) =>
-                  Effect.sync(() => {
-                    this.options.logger?.warn(
-                      "appCallback handler defected",
-                      Cause.pretty(cause),
-                    );
-                    return encodeErrorResponse(request.id, {
-                      code: -32603,
-                      message: "Internal error",
-                    }) satisfies ResponseFrame;
-                  }),
-                ),
-              );
-      const reply = yield* buildReply;
-      yield* write(JSON.stringify(reply)).pipe(
-        Effect.catchAll((err) =>
-          Effect.sync(() =>
-            this.options.logger?.warn("appCallback response write failed", err),
-          ),
-        ),
-      );
+      const reply = yield* this.buildInboundServerReply(request);
+      yield* this.writeInboundServerReply(write, reply);
     });
+  }
+
+  private buildInboundServerReply(
+    request: DecodedServerRequest,
+  ): Effect.Effect<ResponseFrame, never> {
+    return Effect.gen(this, function* () {
+      const handlers = yield* Ref.get(this.appCallbackHandlersRef);
+      const rpcServer = makeJsonRpcServer<ServerRpcContext>(
+        this.appCallbackRpcHandlers(handlers),
+        null,
+      );
+      return yield* rpcServer.handle(request.frame, {
+        requestId: request.id,
+        definition: request.definition,
+      });
+    });
+  }
+
+  private appCallbackRpcHandlers(
+    handlers: HashMap.HashMap<
+      AnyTaskCallbackRpcDefinition,
+      ErasedServerRpcHandler
+    >,
+  ): ReadonlyArray<RpcHandler<ServerRpcContext>> {
+    return Array.from(
+      HashMap.entries(handlers),
+      ([definition, appHandler]): RpcHandler<ServerRpcContext> => ({
+        definition,
+        handle: (params, ctx) => appHandler(params, { ...ctx, definition }),
+      }),
+    );
+  }
+
+  private writeInboundServerReply(
+    write: ConnState["write"],
+    reply: ResponseFrame,
+  ): Effect.Effect<void, never> {
+    return write(JSON.stringify(reply)).pipe(
+      Effect.catchAll((err) =>
+        Effect.sync(() =>
+          this.options.logger?.warn("appCallback response write failed", err),
+        ),
+      ),
+    );
   }
 
   private recordMalformedFrame(err: {
@@ -990,39 +938,15 @@ export class MoltZapWsClient {
     });
   }
 
-  private takePendingResponse(
-    id: JsonRpcId,
-  ): Effect.Effect<Deferred.Deferred<unknown, PendingError> | null> {
-    return Ref.modify(this.pendingRef, (pendingMap) => {
-      const entry = HashMap.get(pendingMap, id);
-      return entry._tag === "Some"
-        ? [entry.value, HashMap.remove(pendingMap, id)]
-        : [null, pendingMap];
-    });
-  }
-
   private handleDecodedResponse(
     decoded: DecodedIncomingResponse,
   ): Effect.Effect<void> {
     return Effect.gen(this, function* () {
-      const pending = yield* this.takePendingResponse(decoded.id);
-      if (pending === null) return;
-      if (decoded._tag === "ResponseError") {
-        const { error } = decoded;
-        yield* Deferred.fail(
-          pending,
-          new RpcServerError({
-            code:
-              typeof error.code === "number"
-                ? error.code
-                : JSON_RPC_INTERNAL_ERROR_CODE,
-            message: error.message ?? MSG_RPC_ERROR_FALLBACK,
-            data: error.data,
-          }),
-        );
-        return;
-      }
-      yield* Deferred.succeed(pending, decoded.result);
+      const state = yield* Ref.get(this.stateRef);
+      if (Option.isNone(state)) return;
+      yield* state.value.jsonRpcClient
+        .resolve(decoded.frame)
+        .pipe(Effect.asVoid);
     });
   }
 
@@ -1100,8 +1024,10 @@ export class MoltZapWsClient {
     }
   }
 
-  /** Route an inbound frame. Malformed frames are logged + dropped; notification
-   * frames dispatch to `onNotification` after the shape check. */
+  /**
+   * Route an inbound frame. Malformed frames are logged + dropped; notification
+   * frames dispatch to `onNotification` after the shape check.
+   */
   private handleIncoming(raw: string): Effect.Effect<void> {
     return Effect.gen(this, function* () {
       const decodedFrames = yield* decodeFrames(raw).pipe(
@@ -1135,22 +1061,26 @@ export class MoltZapWsClient {
     });
   }
 
+  private failConnectionPending(state: ConnState): Effect.Effect<void> {
+    return state.jsonRpcClient.failAllPending(
+      new NotConnectedError({ message: MSG_NOT_CONNECTED }),
+    );
+  }
+
   private failAllPending(message: string): Effect.Effect<void> {
     return Effect.gen(this, function* () {
-      const pending = yield* Ref.getAndSet(
-        this.pendingRef,
-        HashMap.empty<JsonRpcId, Deferred.Deferred<unknown, PendingError>>(),
+      const state = yield* Ref.get(this.stateRef);
+      if (Option.isNone(state)) return;
+      yield* state.value.jsonRpcClient.failAllPending(
+        new NotConnectedError({ message }),
       );
-      for (const [, d] of HashMap.entries(pending)) {
-        yield* Deferred.fail(d, new NotConnectedError({ message })).pipe(
-          Effect.ignore,
-        );
-      }
     });
   }
 
-  /** Schedule a reconnect attempt. Jittered exponential backoff (1s base,
-   * 30s cap) routed through `Effect.sleep` so `TestClock` can drive it. */
+  /**
+   * Schedule a reconnect attempt. Jittered exponential backoff (1s base,
+   * 30s cap) routed through `Effect.sleep` so `TestClock` can drive it.
+   */
   private scheduleReconnect(): void {
     if (this.closed || this.reconnectFiber !== null) return;
 

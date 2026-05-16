@@ -45,8 +45,10 @@ export class HookBlockedError extends Data.TaggedError(
 }
 registerErrorClass(HookBlockedError);
 
-/** Logical time frontier per delivery domain (usually a conversation):
- * monotonic `epoch` + per-participant observed counts in `vector`. */
+/**
+ * Logical time frontier per delivery domain (usually a conversation):
+ * monotonic `epoch` + per-participant observed counts in `vector`.
+ */
 const LogicalClockSchema = Type.Object(
   {
     domainId: Type.String({ minLength: 1 }),

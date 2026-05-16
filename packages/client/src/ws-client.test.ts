@@ -164,6 +164,7 @@ type ServerHandler = (
 
 interface TestServer {
   readonly url: string;
+
   /**
    * Accumulates every TestServerConnection ever accepted. Tests assert on
    * it to check e.g. no reconnect happened (length === 1).

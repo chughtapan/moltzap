@@ -138,6 +138,7 @@ export interface TransportOptions {
   readonly serverUrl: string;
   /** Daemon socket path (absent only in tests that don't set it). */
   readonly socketPath?: string;
+
   /**
    * Lazy probe: called ONLY on the env-fallback branch (step 2 below).
    * The as-flag branch never invokes it (Invariant §4.2: --as must not
@@ -277,9 +278,9 @@ const makeDaemonTransport = (socketPath: string): Transport => ({
 
 // Map ws-client errors (NotConnectedError | RpcTimeoutError | RpcServerError)
 // to TransportError tags.
+
 /**
  * Exported for decoder-fixture tests only (sbd#198).
- *
  * @internal
  */
 export const tagWsError = (method: string, err: unknown): TransportError => {

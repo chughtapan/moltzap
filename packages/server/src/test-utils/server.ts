@@ -104,6 +104,7 @@ export interface CoreTestServer {
   wsUrl: string;
   db: EffectKysely<Database>;
   coreApp: CoreApp;
+
   /**
    * Pre-wired `RuntimeServerHandle` for runtime-adapter tests. Implements
    * `awaitAgentReady` by polling the live `ConnectionManager` — the same
@@ -118,6 +119,7 @@ type StartCoreTestServerOptions = {
   pgHost?: string;
   pgPort?: number;
   encryption?: boolean;
+
   /**
    * Optional user validator injected into the AppHost. Tests that exercise
    * admission coalescing or validator short-circuiting pass a counting fake;
@@ -125,6 +127,7 @@ type StartCoreTestServerOptions = {
    * harness (admit all owners).
    */
   sessionValidator?: SessionValidator;
+
   /**
    * When set, the server requires `inviteCode` matching this value on
    * `/api/v1/auth/register` and enables the `/api/v1/admin/register-agent`
@@ -177,72 +180,104 @@ function destroyDb() {
   return db?.destroy() ?? Promise.resolve();
 }
 
-export function startCoreTestServer(_opts?: StartCoreTestServerOptions) {
+function ensureNoCoreTestServerRunning() {
+  if (!coreApp) return Effect.void;
+  return Effect.fail(
+    new CoreTestServerError(
+      "Test server already running. Call stopCoreTestServer() first.",
+    ),
+  );
+}
+
+function createPgliteInstance() {
+  return Effect.gen(function* () {
+    const { KyselyPGlite } = yield* importPglite();
+    return yield* Effect.tryPromise({
+      try: () => KyselyPGlite.create(),
+      catch: (cause) =>
+        new CoreTestServerError("PGlite instance creation failed", cause),
+    });
+  });
+}
+
+function initializeTestDatabase() {
+  return Effect.gen(function* () {
+    const kpg = yield* createPgliteInstance();
+    pgliteClient = kpg.client;
+    appDb = makeEffectKysely<Database>({ dialect: kpg.dialect });
+    const schema = yield* loadCoreSchemaSql();
+    yield* execPglite(schema);
+    return appDb;
+  });
+}
+
+function configureEncryption(
+  db: EffectKysely<Database>,
+  opts: StartCoreTestServerOptions,
+) {
+  if (!opts.encryption) return Effect.succeed(undefined);
+  const masterSecret = randomBytes(ENCRYPTION_MASTER_SECRET_BYTES).toString(
+    "base64",
+  );
+  _masterSecret = masterSecret;
+  return seedEncryptionKey(db, masterSecret).pipe(Effect.as(masterSecret));
+}
+
+function createCoreTestApp(
+  db: EffectKysely<Database>,
+  opts: StartCoreTestServerOptions,
+  masterSecret: string | undefined,
+): CoreApp {
+  return createCoreApp({
+    db,
+    dbCleanup: destroyDb,
+    encryptionMasterSecret: masterSecret,
+    port: 0,
+    corsOrigins: ["*"],
+    devMode: true,
+    devModeUserId: opts.devModeUserId,
+    sessionValidator: opts.sessionValidator,
+    registrationSecret: opts.registrationSecret,
+    traceCaptureLayer: opts.traceCaptureLayer,
+  });
+}
+
+function publishCoreTestUrls(app: CoreApp): { baseUrl: string; wsUrl: string } {
+  const assignedPort = app.port;
+  _baseUrl = `http://localhost:${assignedPort}`;
+  _wsUrl = `ws://localhost:${assignedPort}/ws`;
+  return { baseUrl: _baseUrl, wsUrl: _wsUrl };
+}
+
+function makeRuntimeServer(app: CoreApp): CoreTestRuntimeServerHandle {
+  return {
+    awaitAgentReady: (agentId, timeoutMs) =>
+      awaitAgentReadyByPolling(app.connections, agentId, timeoutMs),
+  };
+}
+
+function buildCoreTestServer(
+  app: CoreApp,
+  db: EffectKysely<Database>,
+): CoreTestServer {
+  const urls = publishCoreTestUrls(app);
+  return {
+    ...urls,
+    db,
+    coreApp: app,
+    runtimeServer: makeRuntimeServer(app),
+  };
+}
+
+export function startCoreTestServer(opts: StartCoreTestServerOptions = {}) {
   return Effect.runPromise(
     Effect.gen(function* () {
-      if (coreApp) {
-        return yield* Effect.fail(
-          new CoreTestServerError(
-            "Test server already running. Call stopCoreTestServer() first.",
-          ),
-        );
-      }
-
-      const { KyselyPGlite } = yield* importPglite();
-      const kpg = yield* Effect.tryPromise({
-        try: () => KyselyPGlite.create(),
-        catch: (cause) =>
-          new CoreTestServerError("PGlite instance creation failed", cause),
-      });
-
-      pgliteClient = kpg.client;
-      appDb = makeEffectKysely<Database>({
-        dialect: kpg.dialect,
-      });
-
-      const schema = yield* loadCoreSchemaSql();
-      yield* execPglite(schema);
-
-      let masterSecret: string | undefined;
-      if (_opts?.encryption) {
-        masterSecret = randomBytes(ENCRYPTION_MASTER_SECRET_BYTES).toString(
-          "base64",
-        );
-        _masterSecret = masterSecret;
-        yield* seedEncryptionKey(appDb, masterSecret);
-      }
-
-      coreApp = createCoreApp({
-        db: appDb,
-        dbCleanup: destroyDb,
-        encryptionMasterSecret: masterSecret,
-        port: 0,
-        corsOrigins: ["*"],
-        devMode: true,
-        devModeUserId: _opts?.devModeUserId,
-        sessionValidator: _opts?.sessionValidator,
-        registrationSecret: _opts?.registrationSecret,
-        traceCaptureLayer: _opts?.traceCaptureLayer,
-      });
-
+      yield* ensureNoCoreTestServerRunning();
+      const db = yield* initializeTestDatabase();
+      const masterSecret = yield* configureEncryption(db, opts);
+      coreApp = createCoreTestApp(db, opts, masterSecret);
       yield* Effect.sleep(`${PGLITE_BOOT_DELAY_MS} millis`);
-
-      const assignedPort = coreApp.port;
-      _baseUrl = `http://localhost:${assignedPort}`;
-      _wsUrl = `ws://localhost:${assignedPort}/ws`;
-
-      const runtimeServer: CoreTestRuntimeServerHandle = {
-        awaitAgentReady: (agentId, timeoutMs) =>
-          awaitAgentReadyByPolling(coreApp!.connections, agentId, timeoutMs),
-      };
-
-      return {
-        baseUrl: _baseUrl,
-        wsUrl: _wsUrl,
-        db: appDb,
-        coreApp,
-        runtimeServer,
-      };
+      return buildCoreTestServer(coreApp, db);
     }).pipe(Effect.withSpan("startCoreTestServer")),
   );
 }
