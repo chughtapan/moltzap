@@ -819,8 +819,9 @@ export class MoltZapWsClient {
         return yield* Effect.fail(makeNotConnectedError());
       }
 
+      this.requestCounter += 1;
       const frame: RequestFrame = definition.encodeRequest(
-        `rpc-${++this.requestCounter}`,
+        `rpc-${this.requestCounter}`,
         params,
       );
       const id = frame.id;

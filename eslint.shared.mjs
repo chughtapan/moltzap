@@ -16,11 +16,32 @@ const architectureRuleNames = new Set(
   Object.keys(guard.configs.architecture.rules),
 );
 
+const isOffRule = (rule) => (Array.isArray(rule) ? rule[0] : rule) === "off";
+
+const asErrorRule = (rule) =>
+  Array.isArray(rule) ? ["error", ...rule.slice(1)] : "error";
+
 const recommendedSourceRules = Object.fromEntries(
-  Object.entries(guard.configs.recommended.rules).filter(
-    ([ruleName]) => !architectureRuleNames.has(ruleName),
-  ),
+  Object.entries(guard.configs.recommended.rules)
+    .filter(
+      ([ruleName, rule]) =>
+        !architectureRuleNames.has(ruleName) && !isOffRule(rule),
+    )
+    .map(([ruleName, rule]) => [ruleName, asErrorRule(rule)]),
 );
+
+const sonarCorrectnessRules = {
+  "sonarjs/array-constructor": "error",
+  "sonarjs/class-prototype": "error",
+  "sonarjs/for-in": "error",
+  "sonarjs/no-built-in-override": "error",
+  "sonarjs/no-function-declaration-in-block": "error",
+  "sonarjs/no-nested-incdec": "error",
+  "sonarjs/no-nested-switch": "error",
+  "sonarjs/no-require-or-define": "error",
+  "sonarjs/no-sonar-comments": "error",
+  "sonarjs/no-tab": "error",
+};
 
 const baseMagicNumberOptions = {
   ignoreArrayIndexes: true,
@@ -28,7 +49,7 @@ const baseMagicNumberOptions = {
 };
 
 const noMagicNumbersRule = [
-  "warn",
+  "error",
   {
     ...baseMagicNumberOptions,
     ignore: [-1, 0, 1],
@@ -36,7 +57,7 @@ const noMagicNumbersRule = [
 ];
 
 const testNoMagicNumbersRule = [
-  "warn",
+  "error",
   {
     ...baseMagicNumberOptions,
     ignore: [-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
@@ -45,9 +66,10 @@ const testNoMagicNumbersRule = [
 
 const sourceRules = {
   ...recommendedSourceRules,
+  ...sonarCorrectnessRules,
   "@typescript-eslint/no-magic-numbers": noMagicNumbersRule,
   "@typescript-eslint/no-unused-vars": "error",
-  "sonarjs/no-duplicate-string": ["warn", { threshold: 4 }],
+  "sonarjs/no-duplicate-string": ["error", { threshold: 4 }],
 };
 
 const testSupportRules = {

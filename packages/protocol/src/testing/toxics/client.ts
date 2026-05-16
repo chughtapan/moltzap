@@ -43,7 +43,7 @@ export interface ToxicHandle {
  * between real client and TestServer). Acquiring the scope allocates an
  * ephemeral port and registers the proxy; releasing deletes it.
  */
-export interface Proxy {
+export interface ToxiproxyProxy {
   /** Upstream (real server) address the proxy forwards to. */
   readonly upstream: string;
   /** Client-facing URL (`ws://127.0.0.1:&lt;ephemeralPort>`). */
@@ -59,7 +59,7 @@ export interface ToxiproxyClient {
   readonly proxy: (opts: {
     readonly name: string;
     readonly upstream: string;
-  }) => Effect.Effect<Proxy, ToxicControlError, Scope.Scope>;
+  }) => Effect.Effect<ToxiproxyProxy, ToxicControlError, Scope.Scope>;
   /** Probe: control plane reachable. */
   readonly ping: Effect.Effect<void, ToxicControlError>;
 }
@@ -264,7 +264,7 @@ export function makeToxiproxyClient(
             );
             return { name: toxicName, profile };
           }),
-      } satisfies Proxy;
+      } satisfies ToxiproxyProxy;
     }).pipe(Effect.withSpan("makeToxiproxyClient"));
 
   return Effect.succeed({ proxy, ping });

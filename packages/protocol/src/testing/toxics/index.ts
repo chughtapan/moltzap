@@ -9,7 +9,7 @@ export { defaultToxicProfile } from "./defaults.js";
 export {
   type ToxiproxyClient,
   type ToxiproxyConfig,
-  type Proxy,
+  type ToxiproxyProxy,
   type ToxicHandle,
   makeToxiproxyClient,
 } from "./client.js";

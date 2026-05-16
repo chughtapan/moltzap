@@ -9,8 +9,8 @@
  * Approach: walk TypeBox node kinds directly (`Object`, `Array`, `String`,
  * `Number`, `Integer`, `Boolean`, `Union`, `Literal`, `Unknown`) and map to
  * the equivalent fast-check primitive. Optional fields become `fc.option`
- * collapsed to `undefined`. Records are composed via `fc.record` so each
- * field shrinks independently.
+ * collapsed to an internal absence sentinel. Records are composed via
+ * `fc.record` so each field shrinks independently.
  *
  * Resolution of Open Question O2: hand-rolled walker kept; no external
  * helper added. Rationale recorded inline below and in the PR body.
@@ -26,6 +26,7 @@ const DEFAULT_JSON_MAX_DEPTH = 2;
 const DEFAULT_DATE_MIN_YEAR = 2000;
 const DEFAULT_DATE_MAX_YEAR = 2100;
 const DEFAULT_STRING_MAX_LENGTH = 16;
+const OPTIONAL_FIELD_ABSENT = Symbol("optional-field-absent");
 
 type TBNode = TSchema & {
   readonly type?: string;
@@ -171,7 +172,7 @@ function objectArbitrary(node: TBNode): fc.Arbitrary<Record<string, unknown>> {
       // Optional fields: drop with 50% probability so the value is absent
       // rather than `undefined`, matching `additionalProperties: false`
       // schemas that reject `{ x: undefined }` after JSON round-trip.
-      record[key] = fc.option(arb, { nil: undefined });
+      record[key] = fc.option(arb, { nil: OPTIONAL_FIELD_ABSENT });
     }
   }
 
@@ -179,7 +180,7 @@ function objectArbitrary(node: TBNode): fc.Arbitrary<Record<string, unknown>> {
     // Strip `undefined` values so JSON.stringify round-trips cleanly.
     const out: Record<string, unknown> = {};
     for (const [k, val] of Object.entries(v)) {
-      if (val !== undefined) out[k] = val;
+      if (val !== OPTIONAL_FIELD_ABSENT && val !== undefined) out[k] = val;
     }
     return out;
   });

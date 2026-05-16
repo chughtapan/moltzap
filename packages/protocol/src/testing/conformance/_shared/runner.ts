@@ -110,9 +110,7 @@ export function acquireRunContext(
     if (effectiveOpts.tiers.includes("D")) {
       const url = effectiveOpts.toxiproxyUrl ?? "http://127.0.0.1:8474";
       toxiproxy = yield* makeToxiproxyClient({ apiUrl: url });
-      yield* toxiproxy.ping.pipe(
-        Effect.retry({ times: 10, schedule: undefined }),
-      );
+      yield* toxiproxy.ping.pipe(Effect.retry({ times: 10 }));
     }
 
     return {

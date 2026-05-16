@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-import { createRequire } from "node:module";
 import { Command } from "@effect/cli";
 import { NodeContext, NodeRuntime } from "@effect/platform-node";
 import { Effect, Logger } from "effect";
+import packageJson from "../../package.json" with { type: "json" };
 import { agentsCommand } from "./commands/agents.js";
 import { contactsCommand } from "./commands/contacts.js";
 import {
@@ -31,8 +31,7 @@ import {
 } from "./profile.js";
 import { currentArgv } from "./process-argv.js";
 
-const require = createRequire(import.meta.url);
-const { version } = require("../../package.json") as { version: string };
+const { version } = packageJson;
 
 interface ExtractedGlobalFlags {
   impersonateKey?: string;

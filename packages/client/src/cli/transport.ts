@@ -168,6 +168,11 @@ const PROBE_DAEMON_TIMEOUT_MS = 250;
 const EnvServerUrl = Config.option(Config.string("MOLTZAP_SERVER_URL"));
 const EnvApiKey = Config.option(Config.redacted("MOLTZAP_API_KEY"));
 
+type DirectTransportDecision = Extract<
+  TransportDecision,
+  { readonly _tag: "UseDirect" }
+>;
+
 const loadEnvServerUrl: Effect.Effect<string | undefined, never> =
   EnvServerUrl.pipe(
     Effect.map(Option.getOrUndefined),
@@ -186,6 +191,19 @@ const loadEnvApiKey: Effect.Effect<string | undefined, never> = EnvApiKey.pipe(
   ),
   Effect.orElseSucceed(() => undefined),
 );
+
+const selectDirectTransportKey = (
+  decision: DirectTransportDecision,
+  options: TransportOptions,
+): string | undefined => {
+  const keyByReason = {
+    "as-flag": options.impersonateKey,
+    "env-fallback": options.envFallbackKey,
+    profile: options.profileKey,
+  } satisfies Record<DirectTransportDecision["reason"], string | undefined>;
+
+  return keyByReason[decision.reason];
+};
 
 /**
  * Decision function — Effect-returning because the env-fallback branch
@@ -401,18 +419,7 @@ export const makeTransportLayer = (
         case "UseDaemon":
           return makeDaemonTransport(decision.socketPath);
         case "UseDirect": {
-          let key: string | undefined;
-          switch (decision.reason) {
-            case "as-flag":
-              key = options.impersonateKey;
-              break;
-            case "profile":
-              key = options.profileKey;
-              break;
-            case "env-fallback":
-              key = options.envFallbackKey;
-              break;
-          }
+          const key = selectDirectTransportKey(decision, options);
           if (key === undefined) {
             return yield* Effect.fail(
               new TransportConfigError({
