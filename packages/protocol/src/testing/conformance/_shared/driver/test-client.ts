@@ -707,7 +707,7 @@ export function makeTestClient(
         // Race the pending Deferred against a quiescence timeout. Clean up
         // the pending entry on both legs so no slot leaks when the server
         // drops silently.
-        const outcome = yield* Effect.raceFirst(
+        return yield* Effect.raceFirst(
           Deferred.await(deferred).pipe(
             Effect.matchEffect({
               onSuccess: () => Effect.succeed(null as RpcResponseError | null),
@@ -727,7 +727,6 @@ export function makeTestClient(
             }),
           ),
         );
-        return outcome;
       });
 
     const sendRawFrame: TestClient["sendRawFrame"] = (frame) =>

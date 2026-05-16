@@ -279,8 +279,11 @@ export function matchesFilter(
   filter: SubscriptionFilter,
   frame: FilterableNotificationFrame,
 ): boolean {
-  if (filter.notificationNamePrefix !== undefined) {
-    if (!frame.method.startsWith(filter.notificationNamePrefix)) return false;
+  if (
+    filter.notificationNamePrefix !== undefined &&
+    !frame.method.startsWith(filter.notificationNamePrefix)
+  ) {
+    return false;
   }
   const params: Record<string, unknown> | null = isNotificationParamsRecord(
     frame.params,

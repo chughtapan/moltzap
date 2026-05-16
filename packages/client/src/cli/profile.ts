@@ -174,8 +174,7 @@ const decodeProfileRecord = (
   fallbackServerUrl: string,
 ): ProfileRecord | undefined => {
   if (!isRecord(raw)) return undefined;
-  const apiKey = raw.apiKey;
-  const agentName = raw.agentName;
+  const { apiKey, agentName } = raw;
   if (typeof apiKey !== "string" || typeof agentName !== "string") {
     return undefined;
   }
