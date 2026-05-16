@@ -42,7 +42,7 @@ vi.mock("@moltzap/client", async () => {
       sendRpc: mockSendRpc,
       send: mockSend,
       sendToAgent: mockSendToAgent,
-      startSocketServer: vi.fn(),
+      startSocketServer: vi.fn().mockReturnValue(Effect.void),
       stopSocketServer: vi.fn(),
       on: vi.fn().mockImplementation((event: string, handler: Function) => {
         if (event === "message")

@@ -5,9 +5,11 @@
 
 import { execFileSync, spawn } from "node:child_process";
 import { randomInt } from "node:crypto";
-import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { FileSystem } from "@effect/platform";
+import { NodeFileSystem } from "@effect/platform-node";
+import { Effect } from "effect";
 
 const CONTROL_UI_PORT = 18789;
 const OPENCLAW_TOKEN_RADIX = 36;
@@ -31,7 +33,9 @@ class OpenClawContainerError extends Error {
 
 function logContainerHelperFailure(action: string, cause: unknown): void {
   const message = cause instanceof Error ? cause.message : String(cause);
-  console.warn(`[openclaw-container] ${action}: ${message}`);
+  Effect.runFork(
+    Effect.logWarning(`[openclaw-container] ${action}: ${message}`),
+  );
 }
 
 export type ContainerModelConfig = {
@@ -149,95 +153,108 @@ export function startRawContainer(
     envVars?: Record<string, string>;
     portRange?: [number, number];
   },
-): OpenClawContainer {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-e2e-"));
-  const [lo, hi] = opts.portRange ?? [
-    DEFAULT_PORT_RANGE_START,
-    DEFAULT_PORT_RANGE_END,
-  ];
-  const controlPort = randomInt(lo, hi);
+): Effect.Effect<OpenClawContainer, unknown, never> {
+  return FileSystem.FileSystem.pipe(
+    Effect.flatMap((fileSystem) =>
+      Effect.gen(function* () {
+        const tmpDir = yield* fileSystem.makeTempDirectory({
+          directory: os.tmpdir(),
+          prefix: "openclaw-e2e-",
+        });
+        const [lo, hi] = opts.portRange ?? [
+          DEFAULT_PORT_RANGE_START,
+          DEFAULT_PORT_RANGE_END,
+        ];
+        const controlPort = randomInt(lo, hi);
 
-  fs.writeFileSync(
-    path.join(tmpDir, "openclaw.json"),
-    JSON.stringify(config, null, JSON_INDENT_SPACES),
+        yield* fileSystem.writeFileString(
+          path.join(tmpDir, "openclaw.json"),
+          JSON.stringify(config, null, JSON_INDENT_SPACES),
+        );
+        for (const sub of ["workspace", "logs"]) {
+          yield* fileSystem.makeDirectory(path.join(tmpDir, sub), {
+            recursive: true,
+          });
+        }
+
+        yield* fileSystem.writeFileString(
+          path.join(tmpDir, "workspace", "IDENTITY.md"),
+          `---\nName: ${opts.agentName}\nCreature: AI agent\nVibe: helpful\n---\n`,
+        );
+
+        const containerName = `moltzap-e2e-${opts.name}-${Date.now()}`;
+        const startedEpoch = Math.floor(Date.now() / MS_PER_SECOND);
+        const envParts = ["-e", `OPENCLAW_STATE_DIR=${OPENCLAW_STATE_DIR}`];
+        if (opts.envVars) {
+          for (const [k, v] of Object.entries(opts.envVars)) {
+            envParts.push("-e", `${k}=${v}`);
+          }
+        }
+
+        const containerId = execFileSync(
+          DOCKER_BIN,
+          [
+            "create",
+            "--name",
+            containerName,
+            "--label",
+            "moltzap-eval=true",
+            "--label",
+            `moltzap-eval-started=${startedEpoch}`,
+            "--stop-timeout",
+            "5",
+            ...envParts,
+            "--add-host",
+            "host.docker.internal:host-gateway",
+            "-p",
+            `${controlPort}:${CONTROL_UI_PORT}`,
+            IMAGE_NAME,
+            "node",
+            "openclaw.mjs",
+            "gateway",
+            "run",
+            "--allow-unconfigured",
+            "--bind",
+            "lan",
+          ],
+          { encoding: "utf-8" },
+        ).trim();
+
+        execFileSync(DOCKER_BIN, [
+          "cp",
+          `${tmpDir}/.`,
+          `${containerId}:${OPENCLAW_STATE_DIR}/`,
+        ]);
+        execFileSync(DOCKER_BIN, ["start", containerId]);
+        // Only chown the files we copied; recursively chowning the entire state dir
+        // is much slower because the eval image already contains plugin dependencies.
+        execFileSync(DOCKER_BIN, [
+          "exec",
+          "-u",
+          "root",
+          containerId,
+          "chown",
+          "node:node",
+          `${OPENCLAW_STATE_DIR}/openclaw.json`,
+        ]);
+        execFileSync(DOCKER_BIN, [
+          "exec",
+          "-u",
+          "root",
+          containerId,
+          "chown",
+          "-R",
+          "node:node",
+          `${OPENCLAW_STATE_DIR}/workspace`,
+          `${OPENCLAW_STATE_DIR}/logs`,
+        ]);
+
+        return { containerId, controlPort, tmpDir };
+      }),
+    ),
+    Effect.withSpan("startRawContainer"),
+    Effect.provide(NodeFileSystem.layer),
   );
-  for (const sub of ["workspace", "logs"]) {
-    fs.mkdirSync(path.join(tmpDir, sub), { recursive: true });
-  }
-
-  fs.writeFileSync(
-    path.join(tmpDir, "workspace", "IDENTITY.md"),
-    `---\nName: ${opts.agentName}\nCreature: AI agent\nVibe: helpful\n---\n`,
-  );
-
-  const containerName = `moltzap-e2e-${opts.name}-${Date.now()}`;
-  const startedEpoch = Math.floor(Date.now() / MS_PER_SECOND);
-  const envParts = ["-e", `OPENCLAW_STATE_DIR=${OPENCLAW_STATE_DIR}`];
-  if (opts.envVars) {
-    for (const [k, v] of Object.entries(opts.envVars)) {
-      envParts.push("-e", `${k}=${v}`);
-    }
-  }
-
-  const containerId = execFileSync(
-    DOCKER_BIN,
-    [
-      "create",
-      "--name",
-      containerName,
-      "--label",
-      "moltzap-eval=true",
-      "--label",
-      `moltzap-eval-started=${startedEpoch}`,
-      "--stop-timeout",
-      "5",
-      ...envParts,
-      "--add-host",
-      "host.docker.internal:host-gateway",
-      "-p",
-      `${controlPort}:${CONTROL_UI_PORT}`,
-      IMAGE_NAME,
-      "node",
-      "openclaw.mjs",
-      "gateway",
-      "run",
-      "--allow-unconfigured",
-      "--bind",
-      "lan",
-    ],
-    { encoding: "utf-8" },
-  ).trim();
-
-  execFileSync(DOCKER_BIN, [
-    "cp",
-    `${tmpDir}/.`,
-    `${containerId}:${OPENCLAW_STATE_DIR}/`,
-  ]);
-  execFileSync(DOCKER_BIN, ["start", containerId]);
-  // Only chown the files we copied; recursively chowning the entire state dir
-  // is much slower because the eval image already contains plugin dependencies.
-  execFileSync(DOCKER_BIN, [
-    "exec",
-    "-u",
-    "root",
-    containerId,
-    "chown",
-    "node:node",
-    `${OPENCLAW_STATE_DIR}/openclaw.json`,
-  ]);
-  execFileSync(DOCKER_BIN, [
-    "exec",
-    "-u",
-    "root",
-    containerId,
-    "chown",
-    "-R",
-    "node:node",
-    `${OPENCLAW_STATE_DIR}/workspace`,
-    `${OPENCLAW_STATE_DIR}/logs`,
-  ]);
-
-  return { containerId, controlPort, tmpDir };
 }
 
 export function getLogs(containerId: string): string {
@@ -400,17 +417,39 @@ export function waitForReady(containerId: string) {
 }
 
 /** Stop and remove a container, clean up temp files. */
-export function stopContainer(container: OpenClawContainer): void {
-  try {
-    execFileSync(DOCKER_BIN, ["rm", "-f", container.containerId], {
-      stdio: "pipe",
-    });
-  } catch (cause) {
-    logContainerHelperFailure("docker rm failed during cleanup", cause);
-  }
-  try {
-    fs.rmSync(container.tmpDir, { recursive: true, force: true });
-  } catch (cause) {
-    logContainerHelperFailure("temporary directory cleanup failed", cause);
-  }
+export function stopContainer(
+  container: OpenClawContainer,
+): Effect.Effect<void, never, never> {
+  return FileSystem.FileSystem.pipe(
+    Effect.flatMap((fileSystem) =>
+      Effect.gen(function* () {
+        try {
+          execFileSync(DOCKER_BIN, ["rm", "-f", container.containerId], {
+            stdio: "pipe",
+          });
+        } catch (cause) {
+          logContainerHelperFailure("docker rm failed during cleanup", cause);
+        }
+        yield* fileSystem
+          .remove(container.tmpDir, { recursive: true, force: true })
+          .pipe(
+            Effect.catchAll((cause) =>
+              Effect.sync(() =>
+                logContainerHelperFailure(
+                  "temporary directory cleanup failed",
+                  cause,
+                ),
+              ),
+            ),
+          );
+      }),
+    ),
+    Effect.withSpan("stopContainer"),
+    Effect.provide(NodeFileSystem.layer),
+    Effect.catchAll((cause) =>
+      Effect.sync(() =>
+        logContainerHelperFailure("temporary directory cleanup failed", cause),
+      ),
+    ),
+  );
 }

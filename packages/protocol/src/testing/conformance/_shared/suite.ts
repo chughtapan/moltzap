@@ -18,10 +18,10 @@
  * `SuiteResult`. A consumer running under vitest asserts
  * `result.failed.length === 0` and is done.
  */
-import { FileSystem } from "@effect/platform";
+import { FileSystem, Path } from "@effect/platform";
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
+import * as NodePath from "@effect/platform-node/NodePath";
 import { Cause, Chunk, Effect, Exit, Option } from "effect";
-import path from "node:path";
 import {
   acquireRunContext,
   type ConformanceRunContext,
@@ -220,15 +220,16 @@ export function runConformanceSuite(
   opts: ConformanceSuiteOptions,
 ): Effect.Effect<SuiteResult, ToxicControlError | RealServerAcquireError> {
   const toxiproxyUrl = opts.toxiproxyUrl ?? null;
-  const artifactDir =
-    opts.artifactDir ??
-    conformanceArtifactDirFromEnv() ??
-    path.resolve(process.cwd(), "conformance-artifacts");
+  const configuredArtifactDir =
+    opts.artifactDir ?? conformanceArtifactDirFromEnv();
   const categories: ConformanceRunOptions["tiers"] =
     toxiproxyUrl === null ? ["A", "B", "C", "E"] : ["A", "B", "C", "D", "E"];
 
   return Effect.scoped(
     Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const artifactDir =
+        configuredArtifactDir ?? path.resolve("conformance-artifacts");
       const ctx = yield* acquireRunContext({
         tiers: categories,
         realServer: opts.realServer,
@@ -245,7 +246,7 @@ export function runConformanceSuite(
         allowedServerCoverageGaps(toxiproxyUrl),
       );
     }).pipe(Effect.withSpan("runConformanceSuite")),
-  );
+  ).pipe(Effect.provide(NodePath.layer));
 }
 
 function allowedServerCoverageGaps(
@@ -353,26 +354,28 @@ function writeArtifact(
   seed: number,
   payload: Record<string, unknown>,
 ): Effect.Effect<void> {
-  const file = path.join(
-    dir,
-    `${property.category}-${property.name}.seed.json`,
-  );
-  return FileSystem.FileSystem.pipe(
-    Effect.flatMap((fs) =>
-      fs.writeFileString(
-        file,
-        JSON.stringify(
-          {
-            category: property.category,
-            name: property.name,
-            seed,
-            ...payload,
-          },
-          null,
-          JSON_INDENT_SPACES,
-        ),
+  return Effect.gen(function* () {
+    const path = yield* Path.Path;
+    const fs = yield* FileSystem.FileSystem;
+    const file = path.join(
+      dir,
+      `${property.category}-${property.name}.seed.json`,
+    );
+    yield* fs.writeFileString(
+      file,
+      JSON.stringify(
+        {
+          category: property.category,
+          name: property.name,
+          seed,
+          ...payload,
+        },
+        null,
+        JSON_INDENT_SPACES,
       ),
-    ),
+    );
+  }).pipe(
+    Effect.provide(NodePath.layer),
     Effect.provide(NodeFileSystem.layer),
     Effect.orDie,
   );

@@ -11,7 +11,7 @@ import {
   Match,
   Option,
 } from "effect";
-import { NodeFileSystem } from "@effect/platform-node";
+import { NodeContext } from "@effect/platform-node";
 import type { ConfigError } from "effect/ConfigError";
 import type { LoadedConfig } from "../app/config.js";
 import { ServerConfigLoader } from "../app/config.js";
@@ -396,7 +396,7 @@ export function loadRuntimeProcessConfig(
         () => Effect.succeed(EMPTY_APP_CONFIG),
       ),
       Effect.mapError((error) => mapConfigLoadError(configPath, error)),
-      Effect.provide(NodeFileSystem.layer),
+      Effect.provide(NodeContext.layer),
     );
 
     // `_configDir` is set by loadConfigFromFile (dirname of the resolved path)

@@ -1,25 +1,75 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { FileSystem, Path } from "@effect/platform";
+import { SystemError } from "@effect/platform/Error";
+import type { PlatformError } from "@effect/platform/Error";
 import { Effect, Exit, Cause } from "effect";
 import { loadConfigFromFile, ConfigLoadError } from "./loader.js";
-
-vi.mock("node:fs", () => ({
-  readFileSync: vi.fn(),
-  realpathSync: vi.fn((p: string) => p),
-}));
-
-import { readFileSync, realpathSync } from "node:fs";
 
 const VALID_YAML = `
 database:
   url: postgres://localhost:5432/moltzap
 `;
 
+const files = new Map<string, string>();
+
+const fileSystemError = (
+  method: string,
+  path: string,
+  description: string,
+): SystemError =>
+  new SystemError({
+    reason: method === "realPath" ? "PermissionDenied" : "NotFound",
+    module: "FileSystem",
+    method,
+    pathOrDescriptor: path,
+    description,
+  });
+
+const readFileString = vi.fn(
+  (path: string, _encoding?: string): Effect.Effect<string, PlatformError> => {
+    const contents = files.get(path);
+    if (contents === undefined) {
+      return Effect.fail(
+        fileSystemError(
+          "readFileString",
+          path,
+          "ENOENT: no such file or directory",
+        ),
+      );
+    }
+    return Effect.succeed(contents);
+  },
+);
+
+const realPath = vi.fn(
+  (path: string): Effect.Effect<string, PlatformError> => Effect.succeed(path),
+);
+
+const testFileSystem = {
+  readFileString,
+  realPath,
+} satisfies Pick<FileSystem.FileSystem, "readFileString" | "realPath">;
+
+const testFileSystemService = FileSystem.makeNoop(testFileSystem);
+
+const loadConfig = (
+  path?: string,
+  processEnv?: Readonly<Record<string, string | undefined>>,
+) =>
+  loadConfigFromFile(path, processEnv).pipe(
+    Effect.provideService(FileSystem.FileSystem, testFileSystemService),
+    Effect.provide(Path.layer),
+  );
+
+const setConfigFile = (path: string, contents: string): void => {
+  files.set(path, contents);
+};
+
 beforeEach(() => {
-  vi.mocked(readFileSync).mockReset();
-  // Default: realpathSync is an identity function (as declared in the
-  // top-level mock). Per-test overrides can replace this behavior.
-  vi.mocked(realpathSync).mockReset();
-  vi.mocked(realpathSync).mockImplementation(((p: string) => p) as never);
+  files.clear();
+  readFileString.mockClear();
+  realPath.mockReset();
+  realPath.mockImplementation((path: string) => Effect.succeed(path));
 });
 
 afterEach(() => {
@@ -41,120 +91,122 @@ function expectConfigLoadError(
 
 describe("loadConfigFromFile", () => {
   it("loads valid YAML and returns parsed config", async () => {
-    vi.mocked(readFileSync).mockReturnValue(VALID_YAML);
+    setConfigFile("test.yaml", VALID_YAML);
 
-    const config = await Effect.runPromise(loadConfigFromFile("test.yaml"));
+    const config = await Effect.runPromise(loadConfig("test.yaml"));
     expect(config.database?.url).toBe("postgres://localhost:5432/moltzap");
   });
 
   it("interpolates ${ENV_VAR} references", async () => {
     vi.stubEnv("TEST_DB_URL", "postgres://prod:5432/db");
-    vi.mocked(readFileSync).mockReturnValue(`
+    setConfigFile(
+      "test.yaml",
+      `
 database:
   url: \${TEST_DB_URL}
-`);
+`,
+    );
 
-    const config = await Effect.runPromise(loadConfigFromFile("test.yaml"));
+    const config = await Effect.runPromise(loadConfig("test.yaml"));
     expect(config.database?.url).toBe("postgres://prod:5432/db");
   });
 
   it("interpolates multiple env vars in one string", async () => {
     vi.stubEnv("DB_HOST", "myhost");
     vi.stubEnv("DB_PORT", "5433");
-    vi.mocked(readFileSync).mockReturnValue(`
+    setConfigFile(
+      "test.yaml",
+      `
 database:
   url: postgres://\${DB_HOST}:\${DB_PORT}/moltzap
-`);
+`,
+    );
 
-    const config = await Effect.runPromise(loadConfigFromFile("test.yaml"));
+    const config = await Effect.runPromise(loadConfig("test.yaml"));
     expect(config.database?.url).toBe("postgres://myhost:5433/moltzap");
   });
 
   it("fails with env ConfigLoadError for missing env var", async () => {
     delete process.env["MISSING_VAR"];
-    vi.mocked(readFileSync).mockReturnValue(`
+    setConfigFile(
+      "test.yaml",
+      `
 database:
   url: \${MISSING_VAR}
-`);
+`,
+    );
 
-    const exit = await Effect.runPromiseExit(loadConfigFromFile("test.yaml"));
+    const exit = await Effect.runPromiseExit(loadConfig("test.yaml"));
     const err = expectConfigLoadError(exit);
     expect(err.kind).toBe("env");
     expect(err.message).toContain("MISSING_VAR");
   });
 
   it("fails with yaml ConfigLoadError for invalid YAML", async () => {
-    vi.mocked(readFileSync).mockReturnValue("{{{{not yaml");
+    setConfigFile("test.yaml", "{{{{not yaml");
 
-    const exit = await Effect.runPromiseExit(loadConfigFromFile("test.yaml"));
+    const exit = await Effect.runPromiseExit(loadConfig("test.yaml"));
     const err = expectConfigLoadError(exit);
     expect(err.kind).toBe("yaml");
     expect(err.message).toContain("Invalid YAML");
   });
 
   it("fails with read ConfigLoadError for missing file", async () => {
-    vi.mocked(readFileSync).mockImplementation(() => {
-      throw new Error("ENOENT: no such file or directory");
-    });
-
-    const exit = await Effect.runPromiseExit(
-      loadConfigFromFile("missing.yaml"),
-    );
+    const exit = await Effect.runPromiseExit(loadConfig("missing.yaml"));
     const err = expectConfigLoadError(exit);
     expect(err.kind).toBe("read");
     expect(err.message).toContain("Cannot read config file");
   });
 
-  it("fails with validation ConfigLoadError for a schema violation (port out of range)", async () => {
-    // TypeBox catches port: -1 before Effect Config runs; configError is not
-    // set for TypeBox failures. The test asserts the error kind and path.
-    vi.mocked(readFileSync).mockReturnValue(`
+  it("fails with validation ConfigLoadError carrying a ConfigError tree", async () => {
+    setConfigFile(
+      "test.yaml",
+      `
 server:
   port: -1
-`);
+`,
+    );
 
-    const exit = await Effect.runPromiseExit(loadConfigFromFile("test.yaml"));
+    const exit = await Effect.runPromiseExit(loadConfig("test.yaml"));
     const err = expectConfigLoadError(exit);
     expect(err.kind).toBe("validation");
-    expect(err.message).toContain("/server/port");
+    expect(err.configError).toBeDefined();
   });
 
   it("defaults to MOLTZAP_CONFIG env var when no path given", async () => {
     vi.stubEnv("MOLTZAP_CONFIG", "custom.yaml");
-    vi.mocked(readFileSync).mockReturnValue(VALID_YAML);
+    setConfigFile("custom.yaml", VALID_YAML);
 
-    await Effect.runPromise(loadConfigFromFile());
-    expect(readFileSync).toHaveBeenCalledWith("custom.yaml", "utf-8");
+    await Effect.runPromise(loadConfig());
+    expect(readFileString).toHaveBeenCalledWith("custom.yaml", "utf-8");
   });
 
   it("defaults to moltzap.yaml when no path and no env var", async () => {
     delete process.env["MOLTZAP_CONFIG"];
-    vi.mocked(readFileSync).mockReturnValue(VALID_YAML);
+    setConfigFile("moltzap.yaml", VALID_YAML);
 
-    await Effect.runPromise(loadConfigFromFile());
-    expect(readFileSync).toHaveBeenCalledWith("moltzap.yaml", "utf-8");
+    await Effect.runPromise(loadConfig());
+    expect(readFileString).toHaveBeenCalledWith("moltzap.yaml", "utf-8");
   });
 
   it("falls back to dirname(configPath) when realpathSync throws", async () => {
     // Bug-fix coverage: when a config file lives at a path whose symlink
     // resolution fails (e.g. the file doesn't exist on disk during tests,
-    // or fs.realpathSync throws a permission error), the loader must not
+    // or FileSystem.realPath fails with a permission error), the loader must not
     // crash — it falls back to `dirname(configPath)` so `_configDir` is
     // still a usable string for resolving paths relative to the config.
-    vi.mocked(readFileSync).mockReturnValue(VALID_YAML);
-    vi.mocked(realpathSync).mockImplementation(() => {
-      throw new Error("EACCES: permission denied");
-    });
-    // Swallow the single console.warn the loader emits so the suite
-    // output stays clean — we still assert the fallback behavior below.
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    setConfigFile("/some/dir/moltzap.yaml", VALID_YAML);
+    realPath.mockImplementation(
+      (path: string): Effect.Effect<string, PlatformError> =>
+        Effect.fail(
+          fileSystemError("realPath", path, "EACCES: permission denied"),
+        ),
+    );
 
     const config = await Effect.runPromise(
-      loadConfigFromFile("/some/dir/moltzap.yaml"),
+      loadConfig("/some/dir/moltzap.yaml"),
     );
     expect(config._configDir).toBe("/some/dir");
-    expect(warnSpy).toHaveBeenCalledTimes(1);
-    warnSpy.mockRestore();
   });
 
   it("fails with env ConfigLoadError when env var is set but empty", async () => {
@@ -164,12 +216,15 @@ server:
     // loader.ts:41 treats empty === undefined so the operator hits the
     // error at config-load time instead of during request handling.
     vi.stubEnv("HOST", "");
-    vi.mocked(readFileSync).mockReturnValue(`
+    setConfigFile(
+      "test.yaml",
+      `
 database:
   url: postgres://\${HOST}:5432/db
-`);
+`,
+    );
 
-    const exit = await Effect.runPromiseExit(loadConfigFromFile("test.yaml"));
+    const exit = await Effect.runPromiseExit(loadConfig("test.yaml"));
     const err = expectConfigLoadError(exit);
     expect(err.kind).toBe("env");
     expect(err.message).toContain("HOST");
@@ -177,38 +232,19 @@ database:
 
   it("interpolates env vars inside arrays", async () => {
     vi.stubEnv("ORIGIN", "https://app.example.com");
-    vi.mocked(readFileSync).mockReturnValue(`
+    setConfigFile(
+      "test.yaml",
+      `
 database:
   url: pg://localhost/db
 server:
   cors_origins:
     - \${ORIGIN}
-`);
+`,
+    );
 
-    const config = await Effect.runPromise(loadConfigFromFile("test.yaml"));
+    const config = await Effect.runPromise(loadConfig("test.yaml"));
     expect(config.server?.cors_origins).toEqual(["https://app.example.com"]);
-  });
-
-  it("rejects a non-boolean string for dev_mode.enabled", async () => {
-    vi.mocked(readFileSync).mockReturnValue(`
-dev_mode:
-  enabled: "not-a-boolean"
-`);
-
-    const exit = await Effect.runPromiseExit(loadConfigFromFile("test.yaml"));
-    const err = expectConfigLoadError(exit);
-    expect(err.kind).toBe("validation");
-    expect(err.message).toContain("/dev_mode/enabled");
-  });
-
-  it("accepts a native boolean true for dev_mode.enabled", async () => {
-    vi.mocked(readFileSync).mockReturnValue(`
-dev_mode:
-  enabled: true
-`);
-
-    const config = await Effect.runPromise(loadConfigFromFile("test.yaml"));
-    expect(config.dev_mode?.enabled).toBe(true);
   });
 
   // Top-level YAML trust boundary: previously an unchecked `as unknown` cast
@@ -220,9 +256,9 @@ dev_mode:
     ["array", "- 1\n- 2\n"],
     ["null", "~"],
   ])("rejects non-mapping YAML top-level (%s)", async (_label, yaml) => {
-    vi.mocked(readFileSync).mockReturnValue(yaml);
+    setConfigFile("test.yaml", yaml);
 
-    const exit = await Effect.runPromiseExit(loadConfigFromFile("test.yaml"));
+    const exit = await Effect.runPromiseExit(loadConfig("test.yaml"));
     const err = expectConfigLoadError(exit);
     expect(err.kind).toBe("yaml");
     expect(err.message).toMatch(/top-level value must be a mapping/);

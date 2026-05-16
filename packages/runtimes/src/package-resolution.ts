@@ -1,7 +1,6 @@
 import { createRequire } from "node:module";
-import path from "node:path";
-import { Data } from "effect";
-import { existsSync, readFileStringSync } from "./node-fs.js";
+import { Path } from "@effect/platform";
+import { Data, Effect } from "effect";
 import claudeCodePackageJson from "@anthropic-ai/claude-code/package.json" with { type: "json" };
 
 const requireFromHere = createRequire(import.meta.url);
@@ -31,11 +30,11 @@ function parsePackageJson(
   packageRoot: string,
   packageName: string,
 ): PackageJson {
-  const packageJsonPath = path.join(packageRoot, "package.json");
+  const packageJsonPath = pathSync((path) =>
+    path.join(packageRoot, "package.json"),
+  );
   try {
-    return JSON.parse(
-      readFileStringSync(packageJsonPath, "utf8"),
-    ) as PackageJson;
+    return requireFromHere(packageJsonPath) as PackageJson;
   } catch (cause) {
     throw new PackageResolutionFailed({
       packageName,
@@ -45,16 +44,37 @@ function parsePackageJson(
   }
 }
 
-function packageRootFromResolvedFile(resolvedFile: string): string {
-  let current = path.dirname(resolvedFile);
-  while (current !== path.parse(current).root) {
-    if (existsSync(path.join(current, "package.json"))) {
-      return current;
+function packageRootFromResolvedFile(
+  packageName: string,
+  resolvedFile: string,
+): string {
+  const packageSegments = packageName.split("/");
+  const separator = pathSync((path) => path.sep);
+  const resolvedSegments = resolvedFile.split(separator);
+  for (
+    let index = resolvedSegments.length - packageSegments.length;
+    index >= 0;
+    index--
+  ) {
+    if (
+      packageSegments.every(
+        (segment, offset) => resolvedSegments[index + offset] === segment,
+      )
+    ) {
+      return resolvedSegments
+        .slice(0, index + packageSegments.length)
+        .join(separator);
     }
-    current = path.dirname(current);
+  }
+  const packageBaseName = packageSegments.at(-1);
+  if (packageBaseName !== undefined) {
+    const packageIndex = resolvedSegments.lastIndexOf(packageBaseName);
+    if (packageIndex >= 0) {
+      return resolvedSegments.slice(0, packageIndex + 1).join(separator);
+    }
   }
   throw new PackageResolutionFailed({
-    packageName: resolvedFile,
+    packageName,
     message: `Unable to find package root for ${resolvedFile}`,
   });
 }
@@ -67,12 +87,12 @@ function packageBinTarget(
   const packageJson = parsePackageJson(packageRoot, packageName);
   const { bin } = packageJson;
   if (typeof bin === "string") {
-    return path.join(packageRoot, bin);
+    return pathSync((path) => path.join(packageRoot, bin));
   }
   if (typeof bin === "object" && bin !== null && binName in bin) {
     const target = Object.entries(bin).find(([name]) => name === binName)?.[1];
     if (typeof target === "string") {
-      return path.join(packageRoot, target);
+      return pathSync((path) => path.join(packageRoot, target));
     }
   }
   throw new PackageResolutionFailed({
@@ -82,25 +102,34 @@ function packageBinTarget(
 }
 
 function resolveWorkspaceBin(input: WorkspaceBinInput): string {
-  const packageLocalBin = path.join(
-    input.workspacePackageRoot,
-    "node_modules/.bin",
-    input.binName,
+  const requireFromWorkspace = createRequire(
+    pathSync((path) => path.join(input.workspacePackageRoot, "package.json")),
   );
-  if (existsSync(packageLocalBin)) {
-    return packageLocalBin;
+  try {
+    const resolvedFile = requireFromWorkspace.resolve(input.packageName);
+    return packageBinTarget(
+      packageRootFromResolvedFile(input.packageName, resolvedFile),
+      input.packageName,
+      input.binName,
+    );
+  } catch (resolveErr) {
+    logWarningSync(
+      `failed to resolve ${input.packageName} from workspace package; falling back to dependency root`,
+      resolveErr,
+    );
+    return packageBinTarget(
+      input.packageRoot,
+      input.packageName,
+      input.binName,
+    );
   }
-
-  const repoBin = path.join(input.repoRoot, "node_modules/.bin", input.binName);
-  if (existsSync(repoBin)) {
-    return repoBin;
-  }
-
-  return packageBinTarget(input.packageRoot, input.packageName, input.binName);
 }
 
 function resolveOpenClawPackageRoot(): string {
-  return packageRootFromResolvedFile(requireFromHere.resolve("openclaw"));
+  return packageRootFromResolvedFile(
+    "openclaw",
+    requireFromHere.resolve("openclaw"),
+  );
 }
 
 function resolveClaudeCodePackageRoot(): string {
@@ -111,8 +140,10 @@ function resolveClaudeCodePackageRoot(): string {
       message: "Resolved Claude Code package metadata has an unexpected name",
     });
   }
-  return path.dirname(
-    requireFromHere.resolve("@anthropic-ai/claude-code/package.json"),
+  return pathSync((path) =>
+    path.dirname(
+      requireFromHere.resolve("@anthropic-ai/claude-code/package.json"),
+    ),
   );
 }
 
@@ -142,16 +173,32 @@ export function resolveWorkspaceClaudeBin(input: {
 
 export function resolveClaudeCodeChannelDistDir(repoRoot: string): string {
   try {
-    return path.join(
-      packageRootFromResolvedFile(
-        requireFromHere.resolve("@moltzap/claude-code-channel"),
+    return pathSync((path) =>
+      path.join(
+        packageRootFromResolvedFile(
+          "@moltzap/claude-code-channel",
+          requireFromHere.resolve("@moltzap/claude-code-channel"),
+        ),
+        "dist",
       ),
-      "dist",
     );
   } catch (cause) {
-    process.stderr.write(
-      `failed to resolve @moltzap/claude-code-channel from package manager; falling back to workspace path: ${String(cause)}\n`,
+    logWarningSync(
+      "failed to resolve @moltzap/claude-code-channel from package manager; falling back to workspace path",
+      cause,
     );
-    return path.join(repoRoot, "packages/claude-code-channel/dist");
+    return pathSync((path) =>
+      path.join(repoRoot, "packages/claude-code-channel/dist"),
+    );
   }
+}
+
+function pathSync<A>(f: (path: Path.Path) => A): A {
+  return Effect.runSync(
+    Path.Path.pipe(Effect.map(f), Effect.provide(Path.layer)),
+  );
+}
+
+function logWarningSync(message: string, cause: unknown): void {
+  Effect.runSync(Effect.logWarning(message, cause));
 }

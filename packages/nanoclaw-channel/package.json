@@ -31,7 +31,7 @@
   "dependencies": {
     "@moltzap/client": "workspace:*",
     "@moltzap/protocol": "workspace:*",
-    "effect": "3.21.0"
+    "effect": "3.21.2"
   },
   "devDependencies": {
     "eslint": "^9",

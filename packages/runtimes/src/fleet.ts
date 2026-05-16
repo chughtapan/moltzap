@@ -1,4 +1,5 @@
 import { Data, Effect, Exit, Fiber } from "effect";
+import type { Signal } from "@effect/platform/CommandExecutor";
 import {
   RuntimeExitedBeforeReady,
   RuntimeReadyTimedOut,
@@ -62,7 +63,7 @@ export interface RuntimeFleetLaunchOptions {
 
 export interface RuntimeFleetProcessSignalOptions
   extends RuntimeFleetLaunchOptions {
-  readonly signals?: ReadonlyArray<NodeJS.Signals>;
+  readonly signals?: ReadonlyArray<Signal>;
 }
 
 export interface RuntimeFleetAgent {
@@ -79,7 +80,7 @@ export interface RuntimeFleet {
 export class RuntimeFleetStartupInterrupted extends Data.TaggedError(
   "RuntimeFleetStartupInterrupted",
 )<{
-  readonly signal: NodeJS.Signals;
+  readonly signal: Signal;
   readonly message: string;
 }> {}
 
@@ -283,7 +284,7 @@ export function launchRuntimeFleetWithProcessSignals(
     RuntimeLaunchFailed | RuntimeFleetStartupInterrupted
   >((resume) => {
     const fiber = Effect.runFork(launchRuntimeFleet(options));
-    let shutdownSignal: NodeJS.Signals | null = null;
+    let shutdownSignal: Signal | null = null;
 
     const handlers = signals.map((signal) => {
       const handler = (): void => {

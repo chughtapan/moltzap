@@ -25,22 +25,10 @@
  * subprocess exits with an error and `waitUntilReady` surfaces it as a
  * `ProcessExited` outcome.
  */
-import { Command } from "@effect/platform";
+import { Command, FileSystem, Path } from "@effect/platform";
+import type { Signal } from "@effect/platform/CommandExecutor";
 import { NodeContext } from "@effect/platform-node";
-import {
-  Data,
-  Effect,
-  Either,
-  Exit,
-  Fiber,
-  Option,
-  Scope,
-  Stream,
-  pipe,
-} from "effect";
-import os from "node:os";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { Data, Effect, Exit, Fiber, Option, Scope, Stream, pipe } from "effect";
 
 import type {
   Runtime,
@@ -55,7 +43,6 @@ import {
   resolveChannelDependency,
   seedWorkspaceFiles,
 } from "./channel-plugin-install.js";
-import { makeTempDirectorySync, removeSync } from "./node-fs.js";
 import {
   resolveClaudeCodeChannelDistDir,
   resolveWorkspaceClaudeBin,
@@ -103,7 +90,7 @@ interface SpawnedProcess {
    * side-channel mutable.
    */
   readonly exitFiber: Fiber.RuntimeFiber<number, never>;
-  readonly kill: (signal: NodeJS.Signals) => Effect.Effect<void, never, never>;
+  readonly kill: (signal: Signal) => Effect.Effect<void, never, never>;
   /**
    * Long-lived `Scope` that carries `Command.start`'s finalizer (which
    * kills the process). The adapter closes this scope on teardown.
@@ -121,6 +108,7 @@ interface AdapterState {
 }
 
 const TERM_WAIT_MS = 10_000;
+const UTF8_DECODER = new TextDecoder("utf-8");
 
 function consumeProcessStream(
   stream: Stream.Stream<Uint8Array, unknown>,
@@ -130,7 +118,7 @@ function consumeProcessStream(
     stream,
     Stream.runForEach((chunk) =>
       Effect.sync(() => {
-        logBuffer.value += Buffer.from(chunk).toString("utf8");
+        logBuffer.value += UTF8_DECODER.decode(chunk);
       }),
     ),
     Effect.catchAll(() => Effect.void),
@@ -157,18 +145,30 @@ function pollExitCode(
   );
 }
 
+function killAndPoll(
+  proc: SpawnedProcess,
+  signal: Signal,
+  timeoutMs: number,
+): Effect.Effect<Option.Option<number>, never, never> {
+  return proc.kill(signal).pipe(
+    Effect.timeout(`${timeoutMs} millis`),
+    Effect.catchAll(() => Effect.void),
+    Effect.zipRight(pollExitCode(proc)),
+  );
+}
+
 function waitAfterSigterm(
   proc: SpawnedProcess,
 ): Effect.Effect<number, never, never> {
-  const exitCodeEffect = Fiber.join(proc.exitFiber);
-  return proc.kill("SIGTERM").pipe(
-    Effect.flatMap(() =>
-      exitCodeEffect.pipe(
-        Effect.timeout(`${TERM_WAIT_MS} millis`),
-        Effect.catchAll(() =>
-          proc.kill("SIGKILL").pipe(Effect.flatMap(() => exitCodeEffect)),
-        ),
-      ),
+  return killAndPoll(proc, "SIGTERM", TERM_WAIT_MS).pipe(
+    Effect.flatMap(
+      Option.match({
+        onNone: () =>
+          killAndPoll(proc, "SIGKILL", TERM_WAIT_MS).pipe(
+            Effect.map(Option.getOrElse(() => -1)),
+          ),
+        onSome: Effect.succeed,
+      }),
     ),
   );
 }
@@ -222,7 +222,7 @@ function spawnClaudeProcess(opts: {
       Effect.forkIn(scope),
     );
 
-    const kill = (signal: NodeJS.Signals): Effect.Effect<void, never, never> =>
+    const kill = (signal: Signal): Effect.Effect<void, never, never> =>
       pipe(
         proc.kill(signal),
         Effect.catchAll(() => Effect.void),
@@ -247,32 +247,23 @@ export class ClaudeCodeAdapter implements Runtime {
   constructor(private readonly deps: ClaudeCodeAdapterDeps) {}
 
   spawn(input: SpawnInput): Effect.Effect<void, SpawnFailed, never> {
-    // Wrap each fs/spawn step in an `Effect.try` that maps the cause to
-    // `SpawnFailed`. Hoisted to a single helper so the
-    // four sequential steps don't repeat the same boilerplate (issue
-    // #272 item 4).
-    const tryStep = <A>(fn: () => A): Effect.Effect<A, SpawnFailed, never> =>
-      Effect.try({
-        try: fn,
-        catch: (cause) => {
-          const error =
-            cause instanceof Error ? cause : new Error(String(cause));
-          return new SpawnFailed({
-            agentName: input.agentName,
-            cause: error,
-            message: `Failed to spawn agent "${input.agentName}": ${error.message}`,
-          });
-        },
+    const toSpawnFailed = (cause: unknown): SpawnFailed => {
+      const error = cause instanceof Error ? cause : new Error(String(cause));
+      return new SpawnFailed({
+        agentName: input.agentName,
+        cause: error,
+        message: `Failed to spawn agent "${input.agentName}": ${error.message}`,
       });
+    };
 
     return Effect.gen(this, function* () {
-      const stateDir = yield* tryStep(() =>
-        makeTempDirectorySync(
-          path.join(os.tmpdir(), `claude-code-${input.agentName}-`),
-        ),
-      );
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const stateDir = yield* fileSystem.makeTempDirectory({
+        prefix: `claude-code-${input.agentName}-`,
+      });
 
-      yield* tryStep(() => seedWorkspaceFiles(stateDir, input.workspaceFiles));
+      yield* seedWorkspaceFiles(stateDir, input.workspaceFiles);
 
       // cc-channel resolves @modelcontextprotocol/sdk + effect at
       // MCP-load time; symlink them into the per-agent ext dir. Use
@@ -283,56 +274,52 @@ export class ClaudeCodeAdapter implements Runtime {
       // resolution order for consumers without a discoverable
       // `package.json`.
       const channelPackageDir = path.dirname(this.deps.channelDistDir);
-      const mcpSdkResolved = resolveChannelDependency(
+      const mcpSdkResolved = yield* resolveChannelDependency(
         channelPackageDir,
         "@modelcontextprotocol/sdk",
       );
-      const effectResolved = resolveChannelDependency(
+      const effectResolved = yield* resolveChannelDependency(
         channelPackageDir,
         "effect",
       );
-      const extDir = yield* tryStep(() =>
-        installChannelPlugin({
-          stateDir,
-          channelDistDir: this.deps.channelDistDir,
-          repoRoot: this.deps.repoRoot,
-          extName: "claude-code-channel",
-          extraSymlinks: [
-            {
-              linkPath: "@modelcontextprotocol/sdk",
-              candidates: [
-                ...(mcpSdkResolved === null ? [] : [mcpSdkResolved]),
-                path.join(
-                  channelPackageDir,
-                  "node_modules/@modelcontextprotocol/sdk",
-                ),
-                path.join(
-                  this.deps.repoRoot,
-                  "node_modules/@modelcontextprotocol/sdk",
-                ),
-              ],
-            },
-            {
-              linkPath: "effect",
-              candidates: [
-                ...(effectResolved === null ? [] : [effectResolved]),
-                path.join(channelPackageDir, "node_modules/effect"),
-                path.join(this.deps.repoRoot, "node_modules/effect"),
-              ],
-            },
-          ],
-        }),
-      );
+      const extDir = yield* installChannelPlugin({
+        stateDir,
+        channelDistDir: this.deps.channelDistDir,
+        repoRoot: this.deps.repoRoot,
+        extName: "claude-code-channel",
+        extraSymlinks: [
+          {
+            linkPath: "@modelcontextprotocol/sdk",
+            candidates: [
+              ...(mcpSdkResolved === null ? [] : [mcpSdkResolved]),
+              path.join(
+                channelPackageDir,
+                "node_modules/@modelcontextprotocol/sdk",
+              ),
+              path.join(
+                this.deps.repoRoot,
+                "node_modules/@modelcontextprotocol/sdk",
+              ),
+            ],
+          },
+          {
+            linkPath: "effect",
+            candidates: [
+              ...(effectResolved === null ? [] : [effectResolved]),
+              path.join(channelPackageDir, "node_modules/effect"),
+              path.join(this.deps.repoRoot, "node_modules/effect"),
+            ],
+          },
+        ],
+      });
 
-      const mcpConfigPath = yield* tryStep(() =>
-        writeClaudeCodeMcpConfig({
-          stateDir,
-          extDir,
-          serverUrl: input.serverUrl,
-          apiKey: input.apiKey,
-          agentName: input.agentName,
-        }),
-      );
+      const mcpConfigPath = yield* writeClaudeCodeMcpConfig({
+        stateDir,
+        extDir,
+        serverUrl: input.serverUrl,
+        apiKey: input.apiKey,
+        agentName: input.agentName,
+      });
 
       // `--strict-mcp-config` ensures only adapter-provided MCP servers
       // load (no leakage from host claude config).
@@ -374,29 +361,11 @@ export class ClaudeCodeAdapter implements Runtime {
         claudeBin: this.deps.claudeBin,
         args: claudeArgs,
         cwd: stateDir,
-        // `process.env` values are `string | undefined`; filter to
-        // string-only to satisfy `Command.env`'s `Record<string, string>`
-        // contract without a wholesale `as` cast (issue #272 item 7).
-        env: filterDefinedEnv(globalThis.process.env, {
+        env: {
           CLAUDE_CODE_HOME: stateDir,
-        }),
+        },
         logBuffer,
-      }).pipe(
-        Effect.either,
-        Effect.flatMap(
-          Either.match({
-            onLeft: (cause) =>
-              Effect.fail(
-                new SpawnFailed({
-                  agentName: input.agentName,
-                  cause,
-                  message: `Failed to spawn agent "${input.agentName}": ${cause.message}`,
-                }),
-              ),
-            onRight: (value) => Effect.succeed(value),
-          }),
-        ),
-      );
+      });
 
       this.state = {
         process: child,
@@ -405,7 +374,7 @@ export class ClaudeCodeAdapter implements Runtime {
         logBuffer,
         tornDown: false,
       };
-    });
+    }).pipe(Effect.mapError(toSpawnFailed), Effect.provide(NodeContext.layer));
   }
 
   waitUntilReady(timeoutMs: number): Effect.Effect<ReadyOutcome, never, never> {
@@ -525,10 +494,11 @@ export class ClaudeCodeAdapter implements Runtime {
     this.state.tornDown = true;
     const { process: proc, stateDir } = this.state;
 
-    const removeStateDir = Effect.try({
-      try: () => removeSync(stateDir, { recursive: true, force: true }),
-      catch: (cause) => cause,
-    }).pipe(
+    const removeStateDir = FileSystem.FileSystem.pipe(
+      Effect.flatMap((fileSystem) =>
+        fileSystem.remove(stateDir, { recursive: true, force: true }),
+      ),
+      Effect.provide(NodeContext.layer),
       Effect.catchAll((cause) =>
         Effect.logWarning(
           "failed to remove claude-code adapter state dir",
@@ -561,7 +531,9 @@ export function createWorkspaceClaudeCodeAdapter(
   input: WorkspaceClaudeCodeAdapterInput,
 ): ClaudeCodeAdapter {
   const packageRoot = resolveWorkspacePackageRoot();
-  const repoRoot = input.repoRoot ?? path.dirname(path.dirname(packageRoot));
+  const repoRoot =
+    input.repoRoot ??
+    pathSync((path) => path.dirname(path.dirname(packageRoot)));
   return new ClaudeCodeAdapter({
     server: input.server,
     claudeBin:
@@ -579,36 +551,32 @@ export function createWorkspaceClaudeCodeAdapter(
 // --- Module-private helpers ---
 
 function resolveWorkspacePackageRoot(): string {
-  let current = path.dirname(fileURLToPath(import.meta.url));
-  while (current !== path.parse(current).root) {
-    if (path.basename(current) === "packages") {
-      return path.join(current, "runtimes");
-    }
-    current = path.dirname(current);
-  }
-  throw new WorkspaceRootNotFound({
-    message: "Unable to resolve packages/runtimes workspace root",
-  });
+  return pathEffectSync(
+    Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const here = yield* path.fromFileUrl(new URL(import.meta.url));
+      let current = path.dirname(here);
+      while (current !== path.parse(current).root) {
+        if (path.basename(current) === "packages") {
+          return path.join(current, "runtimes");
+        }
+        current = path.dirname(current);
+      }
+      return yield* Effect.fail(
+        new WorkspaceRootNotFound({
+          message: "Unable to resolve packages/runtimes workspace root",
+        }),
+      );
+    }),
+  );
 }
 
-/**
- * Project `process.env` (`Record&lt;string, string | undefined>`) onto a
- * strict `Record&lt;string, string>` so it slots into `Command.env` without
- * a wholesale `as` cast (issue #272 item 7). Also folds in adapter-set
- * extras (`CLAUDE_CODE_HOME` etc.) on top.
- */
-function filterDefinedEnv(
-  source: NodeJS.ProcessEnv,
-  extras: Readonly<Record<string, string>>,
-): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [key, value] of Object.entries(source)) {
-    if (typeof value === "string") {
-      out[key] = value;
-    }
-  }
-  for (const [key, value] of Object.entries(extras)) {
-    out[key] = value;
-  }
-  return out;
+function pathSync<A>(f: (path: Path.Path) => A): A {
+  return Effect.runSync(
+    Path.Path.pipe(Effect.map(f), Effect.provide(Path.layer)),
+  );
+}
+
+function pathEffectSync<A>(effect: Effect.Effect<A, unknown, Path.Path>): A {
+  return Effect.runSync(effect.pipe(Effect.provide(Path.layer), Effect.orDie));
 }

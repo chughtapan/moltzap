@@ -9,8 +9,6 @@ const tsLanguageOptions = {
     AbortController: "readonly",
     AbortSignal: "readonly",
     Buffer: "readonly",
-    BufferEncoding: "readonly",
-    NodeJS: "readonly",
     Response: "readonly",
     TextDecoder: "readonly",
     TextEncoder: "readonly",
