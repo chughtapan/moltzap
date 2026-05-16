@@ -69,6 +69,17 @@ const EnvOverrideSchema = Config.all({
   serverUrl: Config.option(Config.string("MOLTZAP_SERVER_URL")),
 });
 
+interface EnvOverrides {
+  readonly apiKey: Option.Option<Redacted.Redacted<string>>;
+  readonly serverUrl: Option.Option<string>;
+}
+
+interface DecodedConfig {
+  readonly serverUrl: string;
+  readonly apiKey: Option.Option<Redacted.Redacted<string>>;
+  readonly agentName: Option.Option<string>;
+}
+
 export function getConfigPath(): string {
   return getMoltZapConfigPath();
 }
@@ -78,6 +89,64 @@ const getConfigDir = getMoltZapConfigDir;
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
+function describeCause(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
+}
+
+function configReadError(
+  configPath: string,
+  cause: unknown,
+  detail: string,
+): ConfigReadError {
+  return new ConfigReadError({
+    cause,
+    message: `Failed to ${detail} ${configPath}: ${describeCause(cause)}`,
+    path: configPath,
+  });
+}
+
+const readConfigFileText = (
+  configPath: string,
+): Effect.Effect<string | null, ConfigReadError> =>
+  FileSystem.FileSystem.pipe(
+    Effect.flatMap((fileSystem) =>
+      fileSystem
+        .exists(configPath)
+        .pipe(
+          Effect.flatMap((exists) =>
+            exists
+              ? fileSystem.readFileString(configPath, "utf-8")
+              : Effect.succeed(null),
+          ),
+        ),
+    ),
+    Effect.provide(NodeFileSystem.layer),
+    Effect.mapError((cause) => configReadError(configPath, cause, "read")),
+  );
+
+const parseConfigJson = (
+  configPath: string,
+  text: string,
+): Effect.Effect<unknown, ConfigReadError> =>
+  Effect.try({
+    try: (): unknown => JSON.parse(text),
+    catch: (err) => configReadError(configPath, err, "parse"),
+  });
+
+const requireConfigRecord = (
+  configPath: string,
+  parsed: unknown,
+): Effect.Effect<Record<string, unknown>, ConfigReadError> =>
+  isRecord(parsed)
+    ? Effect.succeed(parsed)
+    : Effect.fail(
+        new ConfigReadError({
+          cause: "config root is not a JSON object",
+          message: `Failed to parse ${configPath}: config root is not a JSON object`,
+          path: configPath,
+        }),
+      );
+
 /** Read the on-disk JSON (best-effort: ENOENT → empty object). */
 const readJsonFile = (): Effect.Effect<
   Record<string, unknown>,
@@ -85,94 +154,45 @@ const readJsonFile = (): Effect.Effect<
 > =>
   Effect.gen(function* () {
     const configPath = getConfigPath();
-    const text = yield* FileSystem.FileSystem.pipe(
-      Effect.flatMap((fileSystem) =>
-        fileSystem
-          .exists(configPath)
-          .pipe(
-            Effect.flatMap((exists) =>
-              exists
-                ? fileSystem.readFileString(configPath, "utf-8")
-                : Effect.succeed(null),
-            ),
-          ),
-      ),
-      Effect.provide(NodeFileSystem.layer),
-      Effect.either,
-      Effect.flatMap(
-        Either.match({
-          onLeft: (cause) =>
-            Effect.fail(
-              new ConfigReadError({
-                cause,
-                message: `Failed to read ${configPath}: ${cause.message}`,
-                path: configPath,
-              }),
-            ),
-          onRight: (value) => Effect.succeed(value),
-        }),
-      ),
-    );
+    const text = yield* readConfigFileText(configPath);
     if (text === null) return {};
-    const parsed = yield* Effect.try({
-      try: (): unknown => JSON.parse(text),
-      catch: (err) =>
-        new ConfigReadError({
-          cause: err,
-          message: `Failed to parse ${configPath}: ${
-            err instanceof Error ? err.message : String(err)
-          }`,
-          path: configPath,
-        }),
-    });
-    if (!isRecord(parsed)) {
-      return yield* Effect.fail(
-        new ConfigReadError({
-          cause: "config root is not a JSON object",
-          message: `Failed to parse ${configPath}: config root is not a JSON object`,
-          path: configPath,
-        }),
-      );
-    }
-    return parsed;
+    const parsed = yield* parseConfigJson(configPath, text);
+    return yield* requireConfigRecord(configPath, parsed);
   });
 
-/**
- * Load and validate the CLI config. Merges on-disk JSON with env overrides
- * (MOLTZAP_SERVER_URL, MOLTZAP_API_KEY) through a single `ConfigProvider`.
- * Missing file resolves with defaults; parse errors surface as typed
- * failures so callers see them instead of getting silent defaults.
- */
-export const loadConfig: Effect.Effect<
-  MoltZapConfig,
-  ConfigReadError | ConfigInvalidError
-> = Effect.gen(function* () {
-  const configPath = getConfigPath();
-  const json = yield* readJsonFile();
-
-  const env: Record<string, string> = {};
-  const envOverrides = yield* EnvOverrideSchema.pipe(
+const readEnvOverrides = (): Effect.Effect<EnvOverrides, never> =>
+  EnvOverrideSchema.pipe(
     Effect.withConfigProvider(ConfigProvider.fromEnv()),
     Effect.orElseSucceed(() => ({
       apiKey: Option.none<Redacted.Redacted<string>>(),
       serverUrl: Option.none<string>(),
     })),
   );
-  Option.match(envOverrides.serverUrl, {
+
+function envRecordFromOverrides(
+  overrides: EnvOverrides,
+): Record<string, string> {
+  const env: Record<string, string> = {};
+  Option.match(overrides.serverUrl, {
     onNone: () => undefined,
     onSome: (value) => {
       env.serverUrl = value;
     },
   });
-  Option.match(envOverrides.apiKey, {
+  Option.match(overrides.apiKey, {
     onNone: () => undefined,
     onSome: (value) => {
       env.apiKey = Redacted.value(value);
     },
   });
+  return env;
+}
 
-  const provider = ConfigProvider.fromJson({ ...json, ...env });
-  const value = yield* ConfigSchema.pipe(
+const decodeConfigValue = (
+  configPath: string,
+  provider: ConfigProvider.ConfigProvider,
+): Effect.Effect<DecodedConfig, ConfigInvalidError> =>
+  ConfigSchema.pipe(
     Effect.withConfigProvider(provider),
     Effect.either,
     Effect.flatMap(
@@ -190,20 +210,38 @@ export const loadConfig: Effect.Effect<
     ),
   );
 
+function toMoltZapConfig(value: DecodedConfig): MoltZapConfig {
   const result: MoltZapConfig = { serverUrl: value.serverUrl };
   Option.match(value.apiKey, {
     onNone: () => undefined,
-    onSome: (value) => {
-      result.apiKey = Redacted.value(value);
+    onSome: (apiKey) => {
+      result.apiKey = Redacted.value(apiKey);
     },
   });
   Option.match(value.agentName, {
     onNone: () => undefined,
-    onSome: (value) => {
-      result.agentName = value;
+    onSome: (agentName) => {
+      result.agentName = agentName;
     },
   });
   return result;
+}
+
+/**
+ * Load and validate the CLI config. Merges on-disk JSON with env overrides
+ * (MOLTZAP_SERVER_URL, MOLTZAP_API_KEY) through a single `ConfigProvider`.
+ * Missing file resolves with defaults; parse errors surface as typed
+ * failures so callers see them instead of getting silent defaults.
+ */
+export const loadConfig: Effect.Effect<
+  MoltZapConfig,
+  ConfigReadError | ConfigInvalidError
+> = Effect.gen(function* () {
+  const configPath = getConfigPath();
+  const json = yield* readJsonFile();
+  const env = envRecordFromOverrides(yield* readEnvOverrides());
+  const provider = ConfigProvider.fromJson({ ...json, ...env });
+  return toMoltZapConfig(yield* decodeConfigValue(configPath, provider));
 }).pipe(Effect.withSpan("loadConfig"));
 
 /** Write a new config blob to disk. Used by `moltzap register` post-registration. */
