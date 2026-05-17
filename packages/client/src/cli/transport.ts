@@ -104,7 +104,9 @@ export class TransportConfigError extends Data.TaggedError(
  * Kind of transport currently in use. Observable for logs and tests.
  * Commands never branch on kind.
  */
-type TransportKind = "daemon" | "direct" | "test";
+export const DIRECT_TRANSPORT_KIND = "direct";
+
+type TransportKind = "daemon" | typeof DIRECT_TRANSPORT_KIND | "test";
 
 /**
  * Transport surface used by every CLI command. One generic RPC call; the
@@ -386,7 +388,7 @@ const makeDirectTransport = (
     );
 
     return {
-      kind: "direct" as const,
+      kind: DIRECT_TRANSPORT_KIND,
       rpc: <D extends RpcDefinition<string, any, any>>(
         definition: D,
         params: ParamsOf<D>,

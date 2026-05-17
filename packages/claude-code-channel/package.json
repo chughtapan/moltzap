@@ -15,7 +15,7 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "moltzap-claude-code-channel": "./dist/bin.js"
+    "moltzap-claude-code-channel": "./dist/cli.js"
   },
   "exports": {
     ".": "./dist/index.js",
@@ -38,6 +38,7 @@
     "effect": "^3.21.2"
   },
   "devDependencies": {
+    "@effect/vitest": "^0.29.0",
     "eslint": "^9",
     "eslint-plugin-agent-code-guard": "0.0.14",
     "typescript": "^5.7.0",

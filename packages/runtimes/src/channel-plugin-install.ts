@@ -34,6 +34,7 @@ class ChannelPluginInstallError extends Data.TaggedError(
 interface PluginSymlinkSpec {
   /** Path inside the plugin's `node_modules/` (e.g. `effect`, `@x/y`). */
   readonly linkPath: string;
+
   /**
    * Ordered candidate source paths. The first existing candidate is used.
    * Throws if none exist — surface the missing dep as a config error
@@ -48,17 +49,25 @@ export interface InstallChannelPluginOpts {
   readonly repoRoot: string;
   /** Subdirectory under `&lt;stateDir>/extensions/`. */
   readonly extName: string;
+
   /**
    * Extra files copied verbatim from the channel package root into the
    * installed extension dir. Each entry is a basename (e.g.
    * `openclaw.plugin.json`); silently skipped if not present.
    */
   readonly extraPackageFiles?: ReadonlyArray<string>;
+
   /**
    * Extra symlinks to create under `&lt;extDir>/node_modules/`. Each is
    * tried against an ordered list of candidate sources; first hit wins.
    */
   readonly extraSymlinks?: ReadonlyArray<PluginSymlinkSpec>;
+}
+
+interface CopyDirectoryContext {
+  readonly fileSystem: FileSystem.FileSystem;
+  readonly path: Path.Path;
+  readonly root: string;
 }
 
 /**
@@ -88,55 +97,96 @@ export function installChannelPlugin(
     const channelPackageDir = path.dirname(opts.channelDistDir);
 
     yield* fileSystem.makeDirectory(extDir, { recursive: true });
-
     yield* copyDistDirectory(
       fileSystem,
       path,
       opts.channelDistDir,
       path.join(extDir, "dist"),
     );
-
-    // Copy package.json + any extra package-level manifests (e.g. openclaw's
-    // plugin manifest). Missing extras are silently skipped — this is a
-    // best-effort copy, not a hard requirement.
-    const packageJsonPath = path.join(channelPackageDir, "package.json");
-    yield* copyFileIfExists(
+    yield* copyPackageFiles({
       fileSystem,
-      packageJsonPath,
-      path.join(extDir, "package.json"),
-    );
-    for (const extra of opts.extraPackageFiles ?? []) {
-      const src = path.join(channelPackageDir, extra);
-      yield* copyFileIfExists(fileSystem, src, path.join(extDir, extra));
-    }
-
-    // Standard workspace symlinks: every channel resolves @moltzap/protocol
-    // and @moltzap/client at runtime. (The protocol + client packages are
-    // workspace siblings; symlinking lets the plugin pick them up without
-    // a redundant copy.)
+      path,
+      channelPackageDir,
+      extDir,
+      extraPackageFiles: opts.extraPackageFiles ?? [],
+    });
     const pluginNm = path.join(extDir, "node_modules");
+    yield* linkWorkspacePackages(fileSystem, path, opts.repoRoot, pluginNm);
+    yield* linkExtraSymlinks(
+      fileSystem,
+      path,
+      pluginNm,
+      opts.extraSymlinks ?? [],
+    );
+
+    return extDir;
+  }).pipe(Effect.withSpan("installChannelPlugin"));
+}
+
+function copyPackageFiles(input: {
+  readonly fileSystem: FileSystem.FileSystem;
+  readonly path: Path.Path;
+  readonly channelPackageDir: string;
+  readonly extDir: string;
+  readonly extraPackageFiles: ReadonlyArray<string>;
+}): Effect.Effect<void, PlatformError> {
+  return Effect.gen(function* () {
+    const packageJsonPath = input.path.join(
+      input.channelPackageDir,
+      "package.json",
+    );
+    yield* copyFileIfExists(
+      input.fileSystem,
+      packageJsonPath,
+      input.path.join(input.extDir, "package.json"),
+    );
+    for (const extra of input.extraPackageFiles) {
+      const src = input.path.join(input.channelPackageDir, extra);
+      yield* copyFileIfExists(
+        input.fileSystem,
+        src,
+        input.path.join(input.extDir, extra),
+      );
+    }
+  });
+}
+
+function linkWorkspacePackages(
+  fileSystem: FileSystem.FileSystem,
+  path: Path.Path,
+  repoRoot: string,
+  pluginNm: string,
+): Effect.Effect<void, PlatformError> {
+  return Effect.gen(function* () {
     yield* fileSystem.makeDirectory(path.join(pluginNm, "@moltzap"), {
       recursive: true,
     });
     yield* fileSystem.symlink(
-      path.join(opts.repoRoot, "packages/protocol"),
+      path.join(repoRoot, "packages/protocol"),
       path.join(pluginNm, "@moltzap/protocol"),
     );
     yield* fileSystem.symlink(
-      path.join(opts.repoRoot, "packages/client"),
+      path.join(repoRoot, "packages/client"),
       path.join(pluginNm, "@moltzap/client"),
     );
+  });
+}
 
-    for (const spec of opts.extraSymlinks ?? []) {
+function linkExtraSymlinks(
+  fileSystem: FileSystem.FileSystem,
+  path: Path.Path,
+  pluginNm: string,
+  specs: ReadonlyArray<PluginSymlinkSpec>,
+): Effect.Effect<void, ChannelPluginInstallError | PlatformError> {
+  return Effect.gen(function* () {
+    for (const spec of specs) {
       const linkTarget = path.join(pluginNm, spec.linkPath);
       yield* fileSystem.makeDirectory(path.dirname(linkTarget), {
         recursive: true,
       });
       yield* symlinkPreferring(fileSystem, spec.candidates, linkTarget);
     }
-
-    return extDir;
-  }).pipe(Effect.withSpan("installChannelPlugin"));
+  });
 }
 
 /**
@@ -240,41 +290,39 @@ function copyDistDirectory(
   src: string,
   dest: string,
 ): Effect.Effect<void, PlatformError> {
-  return copyFilteredDirectory(fileSystem, path, src, dest, src);
+  return copyFilteredDirectory({ fileSystem, path, root: src }, src, dest);
 }
 
 function copyFilteredDirectory(
-  fileSystem: FileSystem.FileSystem,
-  path: Path.Path,
+  context: CopyDirectoryContext,
   src: string,
   dest: string,
-  root: string,
 ): Effect.Effect<void, PlatformError> {
   return Effect.gen(function* () {
-    const rel = path.relative(root, src);
+    const rel = context.path.relative(context.root, src);
     if (rel.startsWith("node_modules") || rel.startsWith("src")) {
       return;
     }
 
-    const info = yield* fileSystem.stat(src);
+    const info = yield* context.fileSystem.stat(src);
     if (info.type === "Directory") {
-      yield* fileSystem.makeDirectory(dest, { recursive: true });
-      const entries = yield* fileSystem.readDirectory(src);
+      yield* context.fileSystem.makeDirectory(dest, { recursive: true });
+      const entries = yield* context.fileSystem.readDirectory(src);
       for (const entry of entries) {
         yield* copyFilteredDirectory(
-          fileSystem,
-          path,
-          path.join(src, entry),
-          path.join(dest, entry),
-          root,
+          context,
+          context.path.join(src, entry),
+          context.path.join(dest, entry),
         );
       }
       return;
     }
 
     if (info.type === "File") {
-      yield* fileSystem.makeDirectory(path.dirname(dest), { recursive: true });
-      yield* fileSystem.copyFile(src, dest);
+      yield* context.fileSystem.makeDirectory(context.path.dirname(dest), {
+        recursive: true,
+      });
+      yield* context.fileSystem.copyFile(src, dest);
     }
   });
 }

@@ -56,7 +56,7 @@ export function writeClaudeCodeMcpConfig(
   return Effect.gen(function* () {
     const path = yield* Path.Path;
     const fileSystem = yield* FileSystem.FileSystem;
-    const binPath = path.join(opts.extDir, "dist", "bin.js");
+    const binPath = path.join(opts.extDir, "dist", "cli.js");
     const channelServerName: ClaudeCodeChannelServerName = `@moltzap/claude-code-channel/${opts.agentName}`;
 
     const config: ClaudeCodeMcpConfig = {

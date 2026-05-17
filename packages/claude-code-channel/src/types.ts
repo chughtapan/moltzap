@@ -9,7 +9,7 @@
  */
 
 import type { Brand, Effect } from "effect";
-import type { EnrichedInboundMessage, WsClientLogger } from "@moltzap/client";
+import type { EnrichedInboundMessage } from "@moltzap/client";
 import { agentId, conversationId, messageId } from "@moltzap/protocol/testing";
 import type { AgentId as ProtocolAgentId } from "@moltzap/protocol/identity";
 import type {
@@ -18,6 +18,9 @@ import type {
 } from "@moltzap/protocol/task";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { AllowlistError, PushError } from "./errors.js";
+
+export const CLAUDE_CHANNEL_NOTIFICATION_METHOD =
+  "notifications/claude/channel";
 
 /**
  * Branded conversation id — corresponds to MoltZap's `conversationId` on the
@@ -55,7 +58,7 @@ export type IsoTimestamp = string & Brand.Brand<"IsoTimestamp">;
  * renderer inside Claude Code.
  */
 export interface ClaudeChannelNotification {
-  readonly method: "notifications/claude/channel";
+  readonly method: typeof CLAUDE_CHANNEL_NOTIFICATION_METHOD;
   readonly params: {
     readonly content: string;
     readonly meta: {
@@ -83,25 +86,27 @@ export type GateInbound = (
 /**
  * Boot options — one struct per caller.
  *
- * No `Record&lt;string, unknown&gt;`, no `any`. Logger is the same shape the rest
- * of `@moltzap/client` uses.
+ * No `Record&lt;string, unknown&gt;`, no `any`. Logging is provided through Effect
+ * logger layers at process boundaries.
  */
 export interface BootOptions {
   readonly serverUrl: string;
   readonly agentKey: string;
-  readonly logger: WsClientLogger;
   readonly gateInbound?: GateInbound;
+
   /**
    * Override the MCP server's advertised name. Defaults to
    * `"@moltzap/claude-code-channel"`.
    */
   readonly serverName?: string;
+
   /**
    * Override the MCP server's `instructions` string delivered at handshake.
    * Defaults to a contract-conformant default describing the `&lt;channel&gt;` tag
    * shape and the `reply` tool.
    */
   readonly instructions?: string;
+
   /**
    * Internal test seam. When present, replaces the default
    * `StdioServerTransport` with an injected `Transport` (e.g.

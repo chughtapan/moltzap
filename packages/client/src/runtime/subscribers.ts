@@ -24,10 +24,10 @@
  * unsubscribed state.
  *
  * Error channel: handlers are invoked inside a defect-catcher; a throw is
- * logged via the client's injected `WsClientLogger` and swallowed
- * (matching the prior `onNotification` contract at `ws-client.ts:650-655`
- * pre-deletion). The registry itself has no typed error surface —
- * `register`, `dispatch`, and `closeAll` are `Effect&lt;T, never>`.
+ * logged through Effect logging and swallowed (matching the prior
+ * `onNotification` contract at `ws-client.ts:650-655` pre-deletion). The
+ * registry itself has no typed error surface — `register`, `dispatch`, and
+ * `closeAll` are `Effect&lt;T, never>`.
  */
 import { Brand, Effect, Ref } from "effect";
 import type {
@@ -87,8 +87,8 @@ export interface NotificationSubscription {
 
 /**
  * Per-subscription handler signature. Runs inside the registry's
- * dispatch fiber. Must not throw — throws are caught by the registry,
- * logged via the injected logger, and swallowed.
+ * dispatch fiber. Must not throw — throws are caught by the registry, logged,
+ * and swallowed.
  *
  * The frame is a known-descriptor `DecodedNotification` (post-S9
  * fail-close: malformed / unknown-method frames are rejected before
@@ -157,10 +157,6 @@ interface LiveSubscription {
   readonly handler: SubscriberHandler;
 }
 
-interface SubscriberLogger {
-  readonly warn: (...args: ReadonlyArray<unknown>) => void;
-}
-
 function nextSubscriptionId(
   counterRef: Ref.Ref<number>,
 ): Effect.Effect<SubscriptionId> {
@@ -186,15 +182,12 @@ function removeSubscription(
 }
 
 function dispatchToSubscriber(
-  logger: SubscriberLogger,
   sub: LiveSubscription,
   frame: DecodedNotification<AnyNotificationDefinition>,
 ): Effect.Effect<void> {
   return Effect.suspend(() => sub.handler(frame)).pipe(
     Effect.catchAllDefect((err) =>
-      Effect.sync(() => {
-        logger.warn("subscriber handler threw", err);
-      }),
+      Effect.logWarning("subscriber handler threw", err),
     ),
   );
 }
@@ -207,8 +200,7 @@ function isNotificationParamsRecord(
 
 /**
  * Construct an empty registry. Called once from the `MoltZapWsClient`
- * constructor. Takes a logger so registry-internal error logs reach the
- * same sink as the rest of the client.
+ * constructor.
  *
  * Implementation notes:
  *   - Live subscriptions are stored in a `Ref&lt;ReadonlyArray&lt;…>>` keyed
@@ -224,9 +216,10 @@ function isNotificationParamsRecord(
  *     surfaces as a defect; we log + swallow to match the pre-deletion
  *     `onNotification` contract.
  */
-export function makeSubscriberRegistry(logger: {
-  readonly warn: (...args: ReadonlyArray<unknown>) => void;
-}): Effect.Effect<SubscriberRegistry, never> {
+export function makeSubscriberRegistry(): Effect.Effect<
+  SubscriberRegistry,
+  never
+> {
   return Effect.gen(function* () {
     const subsRef = yield* Ref.make<ReadonlyArray<LiveSubscription>>([]);
     const counterRef = yield* Ref.make(0);
@@ -254,7 +247,7 @@ export function makeSubscriberRegistry(logger: {
           // Handlers must not throw; we catch defects defensively so
           // one buggy subscriber can't kill the dispatch loop or break
           // the reader fiber.
-          yield* dispatchToSubscriber(logger, sub, frame);
+          yield* dispatchToSubscriber(sub, frame);
         }
       });
 

@@ -28,6 +28,7 @@ import type {
   UserId,
 } from "./types.js";
 import {
+  CLAUDE_CHANNEL_NOTIFICATION_METHOD,
   ConversationId as makeConversationId,
   MessageId as makeMessageId,
   UserId as makeUserId,
@@ -177,7 +178,7 @@ export function toClaudeChannelNotification(
     onRight: (meta) => ({
       _tag: "Ok",
       value: {
-        method: "notifications/claude/channel",
+        method: CLAUDE_CHANNEL_NOTIFICATION_METHOD,
         params: {
           content,
           meta,

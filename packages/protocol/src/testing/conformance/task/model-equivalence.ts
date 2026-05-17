@@ -47,6 +47,7 @@ import {
   assertProperty,
   registerProperty,
 } from "../_shared/registry.js";
+import type { PropertyAssertionFailure } from "../_shared/registry.js";
 
 const CATEGORY = "rpc-semantics" as const;
 const PROPERTY = "model-equivalence";
@@ -66,8 +67,8 @@ export function registerModelEquivalence(ctx: ConformanceRunContext): void {
     CATEGORY,
     PROPERTY,
     `when model predicts ok, server MUST return ok (K=${K} confident methods)`,
-    assertProperty(CATEGORY, PROPERTY, () =>
-      assertModelEquivalence(ctx, numRunsFloor),
+    assertProperty(CATEGORY, PROPERTY, (onFailure) =>
+      assertModelEquivalence(ctx, numRunsFloor, onFailure),
     ).pipe(Effect.withSpan("registerModelEquivalence")),
   );
 }
@@ -75,10 +76,15 @@ export function registerModelEquivalence(ctx: ConformanceRunContext): void {
 function assertModelEquivalence(
   ctx: ConformanceRunContext,
   numRunsFloor: number,
-) {
-  return fc.assert(modelEquivalenceProperty(ctx), {
-    seed: ctx.seed,
-    numRuns: ctx.opts.numRuns ?? numRunsFloor,
+  onFailure: (cause: unknown) => PropertyAssertionFailure,
+): Effect.Effect<void, PropertyAssertionFailure> {
+  return Effect.tryPromise({
+    try: () =>
+      fc.assert(modelEquivalenceProperty(ctx), {
+        seed: ctx.seed,
+        numRuns: ctx.opts.numRuns ?? numRunsFloor,
+      }),
+    catch: onFailure,
   });
 }
 

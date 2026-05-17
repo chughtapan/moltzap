@@ -1,0 +1,117 @@
+import { expect } from "vitest";
+import { live as it } from "@effect/vitest";
+import { Effect } from "effect";
+import * as H from "./service.integration-support.js";
+
+H.setupServiceIntegration();
+
+// ─── Group 2b: peekFullMessages ──────────────────────────────────────────────
+
+it("messages/list returns both own and other agent messages", () =>
+  Effect.gen(function* () {
+    const regA = yield* H.registerAgent("hist-a");
+    const regB = yield* H.registerAgent("hist-b");
+
+    yield* regB.client.connect();
+    const service = yield* H.connectService(regA.apiKey);
+
+    // Create DM between A and B
+    const conv = yield* service.sendRpc(H.ConversationsCreate, {
+      type: "dm",
+      participants: [{ type: "agent", id: regB.agentId }],
+    });
+
+    // A sends a message
+    yield* service.send(conv.conversation.id, "Hello from A");
+    yield* Effect.sleep(`${H.MESSAGE_SETTLE_MS} millis`);
+
+    // B sends a message
+    yield* H.sendAndSettle(regB.client, conv.conversation.id, "Hello from B");
+
+    // A sends another message
+    yield* service.send(conv.conversation.id, "Follow up from A");
+    yield* Effect.sleep(`${H.MESSAGE_SETTLE_MS} millis`);
+
+    // Fetch history via RPC (same as CLI moltzap history would do)
+    const result = (yield* service.sendRpc(H.MessagesList, {
+      conversationId: conv.conversation.id,
+      limit: 10,
+    })) as {
+      messages: Array<{
+        senderId: string;
+        parts: Array<{ type: string; text?: string }>;
+      }>;
+    };
+
+    // Should contain messages from BOTH agents
+    expect(result.messages.length).toBeGreaterThanOrEqual(3);
+
+    const senderIds = result.messages.map((m) => m.senderId);
+    expect(senderIds).toContain(regA.agentId); // own messages
+    expect(senderIds).toContain(regB.agentId); // other's messages
+
+    // Verify own messages are identifiable via ownAgentId
+    const ownMessages = result.messages.filter(
+      (m) => m.senderId === service.ownAgentId,
+    );
+    expect(ownMessages.length).toBeGreaterThanOrEqual(2);
+
+    const otherMessages = result.messages.filter(
+      (m) => m.senderId === regB.agentId,
+    );
+    expect(otherMessages.length).toBeGreaterThanOrEqual(1);
+
+    service.close();
+    yield* regA.client.close();
+    yield* regB.client.close();
+  }));
+
+it("group conversation history shows all participants", () =>
+  Effect.gen(function* () {
+    const regA = yield* H.registerAgent("grp-a");
+    const regB = yield* H.registerAgent("grp-b");
+    const regC = yield* H.registerAgent("grp-c");
+
+    yield* regB.client.connect();
+    yield* regC.client.connect();
+    const service = yield* H.connectService(regA.apiKey);
+
+    // Create group
+    const conv = yield* service.sendRpc(H.ConversationsCreate, {
+      type: "group",
+      name: "Test Group",
+      participants: [
+        { type: "agent", id: regB.agentId },
+        { type: "agent", id: regC.agentId },
+      ],
+    });
+
+    // Each agent sends a message
+    yield* service.send(conv.conversation.id, "Agent A here");
+    yield* Effect.sleep(`${H.MESSAGE_SETTLE_MS} millis`);
+    yield* H.sendAndSettle(regB.client, conv.conversation.id, "Agent B here");
+    yield* H.sendAndSettle(regC.client, conv.conversation.id, "Agent C here");
+
+    // Fetch history
+    const result = (yield* service.sendRpc(H.MessagesList, {
+      conversationId: conv.conversation.id,
+      limit: 10,
+    })) as {
+      messages: Array<{
+        senderId: string;
+        parts: Array<{ type: string; text?: string }>;
+      }>;
+    };
+
+    // All 3 agents should appear
+    const senderIds = new Set(result.messages.map((m) => m.senderId));
+    expect(senderIds.size).toBe(H.HISTORY_PARTICIPANT_COUNT);
+    expect(senderIds).toContain(regA.agentId);
+    expect(senderIds).toContain(regB.agentId);
+    expect(senderIds).toContain(regC.agentId);
+
+    service.close();
+    yield* regA.client.close();
+    yield* regB.client.close();
+    yield* regC.client.close();
+  }));

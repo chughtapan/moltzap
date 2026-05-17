@@ -3,7 +3,6 @@
  */
 
 import { Brand, Data, Effect } from "effect";
-import { getLogger, type Logger } from "../logger.js";
 import type { RuntimeProcessConfig } from "./config.js";
 
 export type RuntimeRequestId = string & Brand.Brand<"RuntimeRequestId">;
@@ -27,7 +26,6 @@ export interface RuntimeTraceSpan {
 }
 
 export interface RuntimeObservability {
-  readonly logger: Logger;
   readonly config: RuntimeProcessConfig;
   readonly annotate: <A, E, R>(
     context: RuntimeLogContext,
@@ -45,19 +43,13 @@ export class RuntimeObservabilityError extends Data.TaggedError(
   readonly cause: RuntimeObservabilityCause;
 }> {}
 
-class LoggerBootstrapFailed extends Data.TaggedError("LoggerBootstrapFailed")<{
-  readonly message: string;
-}> {}
-
 class FiberSupervisorUnavailable extends Data.TaggedError(
   "FiberSupervisorUnavailable",
 )<{
   readonly message: string;
 }> {}
 
-type RuntimeObservabilityCause =
-  | LoggerBootstrapFailed
-  | FiberSupervisorUnavailable;
+type RuntimeObservabilityCause = FiberSupervisorUnavailable;
 
 type LogFieldValue = string | number | boolean;
 
@@ -121,38 +113,18 @@ function filterSpanForConfig(
 export function createRuntimeObservability(
   config: RuntimeProcessConfig,
 ): Effect.Effect<RuntimeObservability, RuntimeObservabilityError, never> {
-  return Effect.try({
-    try: () => {
-      const rootLogger = getLogger();
-      rootLogger.level = config.logging.level;
-      const logger = rootLogger.child({
-        service: config.tracing.serviceName,
-        environment: config.environment,
-      });
-      return {
-        logger,
-        config,
-        annotate: <A, E, R>(
-          context: RuntimeLogContext,
-          effect: Effect.Effect<A, E, R>,
-        ): Effect.Effect<A, E, R> =>
-          withRuntimeLogContext(
-            filterContextForConfig(config, context),
-            effect,
-          ),
-        span: <A, E, R>(
-          span: RuntimeTraceSpan,
-          effect: Effect.Effect<A, E, R>,
-        ): Effect.Effect<A, E, R> =>
-          withRuntimeTraceSpan(filterSpanForConfig(config, span), effect),
-      };
-    },
-    catch: (cause) =>
-      new RuntimeObservabilityError({
-        cause: new LoggerBootstrapFailed({
-          message: cause instanceof Error ? cause.message : String(cause),
-        }),
-      }),
+  return Effect.succeed({
+    config,
+    annotate: <A, E, R>(
+      context: RuntimeLogContext,
+      effect: Effect.Effect<A, E, R>,
+    ): Effect.Effect<A, E, R> =>
+      withRuntimeLogContext(filterContextForConfig(config, context), effect),
+    span: <A, E, R>(
+      span: RuntimeTraceSpan,
+      effect: Effect.Effect<A, E, R>,
+    ): Effect.Effect<A, E, R> =>
+      withRuntimeTraceSpan(filterSpanForConfig(config, span), effect),
   });
 }
 

@@ -4,39 +4,15 @@ import {
   type Message,
   type Part,
 } from "@moltzap/protocol";
-import { Data, Effect, HashMap, Match, Option } from "effect";
+import { Data, HashMap, Match, Option } from "effect";
 import type { ConversationMeta, CrossConversationEntry } from "../service.js";
 import { getOr } from "./refs.js";
 
-const DEFAULT_HISTORY_LIMIT = 10;
 const MILLISECONDS_PER_MINUTE = 60_000;
 
 export class ServiceInputError extends Data.TaggedError("ServiceInputError")<{
   readonly message: string;
 }> {}
-
-export interface HistoryRequest {
-  readonly convId: string;
-  readonly limit: number;
-  readonly sessionKey?: string;
-}
-
-interface FormatHistoryMessageOptions {
-  readonly agentNames: HashMap.HashMap<string, string>;
-  readonly ownAgentId: string | undefined;
-  readonly lastReadIds: ReadonlySet<string>;
-  readonly hasSessionKey: boolean;
-}
-
-export interface HistoryMessageSummary {
-  readonly id: string;
-  readonly senderId: string;
-  readonly senderName: string;
-  readonly isOwn: boolean;
-  readonly text: string;
-  readonly createdAt: string;
-  readonly isNew: boolean;
-}
 
 export interface CrossConvState {
   readonly messagesMap: HashMap.HashMap<string, ReadonlyArray<Message>>;
@@ -78,54 +54,6 @@ const stringProperty = (
   return typeof value === "string" ? value : undefined;
 };
 
-const serviceInputError = (
-  message: string,
-): Effect.Effect<never, ServiceInputError> =>
-  Effect.fail(new ServiceInputError({ message }));
-
-function parseConversationId(
-  params: Record<string, unknown>,
-): Effect.Effect<string, ServiceInputError> {
-  const value = params.conversationId;
-  if (typeof value === "string" && value.length > 0) {
-    return Effect.succeed(value);
-  }
-  return serviceInputError("conversationId is required and must be a string");
-}
-
-function parseLimit(
-  params: Record<string, unknown>,
-): Effect.Effect<number, ServiceInputError> {
-  const value = params.limit;
-  if (value === undefined) return Effect.succeed(DEFAULT_HISTORY_LIMIT);
-  if (typeof value === "number") return Effect.succeed(value);
-  return serviceInputError("limit must be a number");
-}
-
-function parseSessionKey(
-  params: Record<string, unknown>,
-): Effect.Effect<string | undefined, ServiceInputError> {
-  const value = params.sessionKey;
-  if (value === undefined) return Effect.succeed(undefined);
-  if (typeof value === "string") return Effect.succeed(value);
-  return serviceInputError("sessionKey must be a string");
-}
-
-export function parseHistoryRequest(
-  params: Record<string, unknown>,
-): Effect.Effect<HistoryRequest, ServiceInputError> {
-  return Effect.gen(function* () {
-    const convId = yield* parseConversationId(params);
-    const limit = yield* parseLimit(params);
-    const sessionKey = yield* parseSessionKey(params);
-    return {
-      convId,
-      limit,
-      ...(sessionKey === undefined ? {} : { sessionKey }),
-    };
-  }).pipe(Effect.withSpan("parseHistoryRequest"));
-}
-
 export const renderPart: (part: Part) => string = Match.type<Part>().pipe(
   Match.discriminatorsExhaustive("type")({
     text: (text) => text.text,
@@ -133,42 +61,6 @@ export const renderPart: (part: Part) => string = Match.type<Part>().pipe(
     file: (file) => `[file: ${file.name}]`,
   }),
 );
-
-export function formatHistoryMessage(
-  message: Message,
-  options: FormatHistoryMessageOptions,
-): HistoryMessageSummary {
-  const senderName = Option.getOrElse(
-    HashMap.get(options.agentNames, message.senderId),
-    () => message.senderId,
-  );
-  const isOwn = message.senderId === options.ownAgentId;
-  return {
-    id: message.id,
-    senderId: message.senderId,
-    senderName: isOwn ? "you" : senderName,
-    isOwn,
-    text: message.parts.map(renderPart).join(" "),
-    createdAt: message.createdAt,
-    isNew: options.hasSessionKey ? !options.lastReadIds.has(message.id) : false,
-  };
-}
-
-export function lastReadIdsForSession(
-  lastReadMap: HashMap.HashMap<
-    string,
-    HashMap.HashMap<string, ReadonlySet<string>>
-  >,
-  request: HistoryRequest,
-): ReadonlySet<string> {
-  if (request.sessionKey === undefined) return new Set<string>();
-  return Option.getOrElse(
-    Option.flatMap(HashMap.get(lastReadMap, request.sessionKey), (perConv) =>
-      HashMap.get(perConv, request.convId),
-    ),
-    () => new Set<string>() as ReadonlySet<string>,
-  );
-}
 
 export function newMessagesForConversation(
   convId: string,

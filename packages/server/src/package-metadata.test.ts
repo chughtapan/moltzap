@@ -11,7 +11,6 @@ const BIN_FILE = "bin/moltzap-server";
 const CORE_SCHEMA_FILE = "src/app/core-schema.sql";
 const SERVER_BIN_NAME = "moltzap-server";
 const SERVER_BIN_PATH = "bin/moltzap-server";
-const PINO_PRETTY_DEP = "pino-pretty";
 const UTF8_ENCODING = "utf8";
 const EXECUTE_MODE_BITS = 0o111;
 
@@ -30,7 +29,6 @@ describe("@moltzap/server-core package metadata", () => {
       expect(packageJson.files).toContain("bin");
       expect(packageJson.files).toContain(CORE_SCHEMA_FILE);
       expect(packageJson.bin).toEqual({ [SERVER_BIN_NAME]: SERVER_BIN_PATH });
-      expect(packageJson.dependencies).toHaveProperty(PINO_PRETTY_DEP);
 
       yield* expectReadable(paths.coreSchemaPath);
       yield* expectExecutable(paths.binPath);

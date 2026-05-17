@@ -7,8 +7,6 @@
 import { Context, Effect, Layer } from "effect";
 
 import type { Db } from "../db/client.js";
-import type { Logger } from "../logger.js";
-import { LoggerTag } from "../logger.js";
 import {
   TraceCaptureTag,
   type TraceCapture,
@@ -449,7 +447,7 @@ const Tier6 = Layer.provideMerge(TaskServiceLive, Tier5);
 
 /**
  * All service Layers merged, with cross-layer deps resolved. Still requires
- * `DbTag | LoggerTag | EncryptionTag` from a base Layer.
+ * `DbTag | EncryptionTag` from a base Layer.
  */
 export const ServicesLive = Tier6;
 
@@ -459,7 +457,6 @@ export const ServicesLive = Tier6;
  */
 export interface ResolvedServices {
   readonly db: Db;
-  readonly logger: Logger;
   readonly connections: ConnectionManager;
   readonly agentEndpointResolver: AgentEndpointResolver;
   readonly appTmRegistry: AppTmRegistry;
@@ -484,7 +481,6 @@ export interface ResolvedServices {
  */
 export const resolveServices = Effect.all({
   db: DbTag,
-  logger: LoggerTag,
   encryption: EncryptionTag,
   connections: ConnectionManagerTag,
   agentEndpointResolver: AgentEndpointResolverTag,

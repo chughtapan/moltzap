@@ -258,12 +258,6 @@ function removeWaiter(
     : HashMap.set(m, definition, filtered);
 }
 
-export interface WsClientLogger {
-  info: (...args: unknown[]) => void;
-  warn: (...args: unknown[]) => void;
-  error: (...args: unknown[]) => void;
-}
-
 export interface MoltZapWsClientOptions {
   serverUrl: string;
   agentKey: string;
@@ -283,7 +277,6 @@ export interface MoltZapWsClientOptions {
    */
   onDisconnect?: (close: CloseInfo) => void;
   onReconnect?: (helloOk: ConnectResult) => void;
-  logger?: WsClientLogger;
 }
 
 /**
@@ -364,11 +357,7 @@ export class MoltZapWsClient {
     // Registry construction is `Effect<…, never>`; running it sync here
     // matches every other Ref initializer in this constructor and
     // keeps `subscribers` non-nullable inside the class.
-    this.subscribers = this.runtime.runSync(
-      makeSubscriberRegistry({
-        warn: (...args) => this.options.logger?.warn(...args),
-      }),
-    );
+    this.subscribers = this.runtime.runSync(makeSubscriberRegistry());
     this.appCallbackHandlersRef = this.runtime.runSync(
       Ref.make<
         HashMap.HashMap<AnyTaskCallbackRpcDefinition, ErasedServerRpcHandler>
@@ -649,11 +638,11 @@ export class MoltZapWsClient {
   }
 
   private notifyDisconnect(close: CloseInfo): Effect.Effect<void> {
-    return Effect.sync(() => {
+    return Effect.gen(this, function* () {
       try {
         this.options.onDisconnect?.(close);
       } catch (err) {
-        this.options.logger?.warn("onDisconnect handler threw", err);
+        yield* Effect.logWarning("onDisconnect handler threw", err);
       }
     });
   }
@@ -717,9 +706,7 @@ export class MoltZapWsClient {
       }),
       Effect.catchAllCause((cause) =>
         Effect.zipRight(
-          Effect.sync(() =>
-            this.options.logger?.warn("WebSocket open failed", cause),
-          ),
+          Effect.logWarning("WebSocket open failed", cause),
           Effect.sync(() => {
             this.runtime.runFork(Scope.close(scope, Exit.void));
           }).pipe(Effect.zipRight(Effect.fail(makeNotConnectedError()))),
@@ -773,7 +760,7 @@ export class MoltZapWsClient {
   ): Effect.Effect<void> {
     return Effect.gen(this, function* () {
       if (Exit.isFailure(exit)) {
-        this.options.logger?.warn("WebSocket error", exit.cause);
+        yield* Effect.logWarning("WebSocket error", exit.cause);
       }
       this._helloOk = null;
       yield* this.failAllPending(MSG_NOT_CONNECTED);
@@ -844,11 +831,9 @@ export class MoltZapWsClient {
     });
     return write(JSON.stringify(reply)).pipe(
       Effect.catchAll((werr) =>
-        Effect.sync(() =>
-          this.options.logger?.warn(
-            "task-callback queue-full rejection write failed",
-            werr,
-          ),
+        Effect.logWarning(
+          "task-callback queue-full rejection write failed",
+          werr,
         ),
       ),
     );
@@ -886,7 +871,6 @@ export class MoltZapWsClient {
       const handlers = yield* Ref.get(this.appCallbackHandlersRef);
       const rpcServer = makeJsonRpcServer<ServerRpcContext>(
         this.appCallbackRpcHandlers(handlers),
-        null,
       );
       return yield* rpcServer.handle(request.frame, {
         requestId: request.id,
@@ -916,9 +900,7 @@ export class MoltZapWsClient {
   ): Effect.Effect<void, never> {
     return write(JSON.stringify(reply)).pipe(
       Effect.catchAll((err) =>
-        Effect.sync(() =>
-          this.options.logger?.warn("appCallback response write failed", err),
-        ),
+        Effect.logWarning("appCallback response write failed", err),
       ),
     );
   }
@@ -929,9 +911,10 @@ export class MoltZapWsClient {
     return Effect.gen(this, function* () {
       const count = yield* Ref.updateAndGet(this.malformedRef, (n) => n + 1);
       if (count === 1 || count % MALFORMED_LOG_EVERY === 0) {
-        this.options.logger?.warn(
-          `Malformed frame (#${count}):`,
-          err.raw.slice(0, MALFORMED_FRAME_PREVIEW_CHARS),
+        yield* Effect.logWarning(`Malformed frame (#${count})`).pipe(
+          Effect.annotateLogs({
+            rawPreview: err.raw.slice(0, MALFORMED_FRAME_PREVIEW_CHARS),
+          }),
         );
       }
       return null;
@@ -1086,11 +1069,11 @@ export class MoltZapWsClient {
 
     const attempt = this.connectEffect().pipe(
       Effect.tap((helloOk) =>
-        Effect.sync(() => {
+        Effect.gen(this, function* () {
           try {
             this.options.onReconnect?.(helloOk);
           } catch (err) {
-            this.options.logger?.warn("onReconnect handler threw", err);
+            yield* Effect.logWarning("onReconnect handler threw", err);
           }
         }),
       ),

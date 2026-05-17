@@ -43,6 +43,21 @@ export interface SpawnedServer {
   adminPool: AdminPool;
 }
 
+interface ServerLogs {
+  readonly stdout: string;
+  readonly stderr: string;
+}
+
+interface TestDatabase {
+  readonly dbName: string;
+  readonly adminPool: AdminPool;
+}
+
+interface ServerProcess {
+  readonly child: ChildProcess;
+  readonly readLogs: () => ServerLogs;
+}
+
 function generateTestFirebaseKey(): string {
   const { privateKey } = generateKeyPairSync("rsa", {
     modulusLength: 2048,
@@ -214,87 +229,125 @@ function cleanupSpawnFailure(
   });
 }
 
-export function spawnTestServer(pgHost: string, pgPort: number) {
-  return Effect.runPromise(
-    Effect.gen(function* () {
-      // 1. Check server binary exists
-      if (!serverEntryExists()) {
-        return yield* Effect.fail(
-          new SpawnedServerError(
-            `Server not built. Run: pnpm --filter @moltzap/server build\n` +
-              `Expected: ${SERVER_ENTRY}`,
-          ),
-        );
-      }
-
-      // 2. Create temp database from template
-      const dbName = `test_${crypto.randomUUID().replace(/-/g, "")}`;
-      const adminPool = createAdminPool({
-        host: pgHost,
-        port: pgPort,
-        user: "test",
-        password: "test",
-        database: "postgres",
-        max: ADMIN_POOL_MAX_CONNECTIONS,
-      });
-      yield* createDatabaseFromTemplate(adminPool, dbName);
-
-      // 3. Pre-allocate a free port
-      const port = yield* Effect.tryPromise({
-        try: () => findFreePort(),
-        catch: (cause) =>
-          asSpawnedServerError(cause, "Failed to find a free server port"),
-      });
-
-      // 4. Spawn server subprocess
-      const masterSecret = randomBytes(MASTER_SECRET_BYTES).toString("base64");
-      const child = spawn(process.execPath, [SERVER_ENTRY], {
-        env: {
-          NODE_ENV: "production",
-          DATABASE_URL: `postgresql://test:test@${pgHost}:${pgPort}/${dbName}`,
-          ENCRYPTION_MASTER_SECRET: masterSecret,
-          MOLTZAP_DEV_MODE: "true",
-          PORT: String(port),
-          FIREBASE_SERVICE_ACCOUNT_KEY: generateTestFirebaseKey(),
-          VAPID_PUBLIC_KEY:
-            "BHKL-uNCIASscCmYZERbVn--qT9RVp6mt90rIrLwrXSAxuCTSbamzi7JlQulOQ5TTmAzMgYLcsqzEM-zFLSFbdE",
-          VAPID_PRIVATE_KEY: "Z9kV3uuqbO7rr_39L2dFA-FKgVpeLv6gS6W_5_cylMk",
-          VAPID_SUBJECT: "mailto:test@example.com",
-          CLAIM_BASE_URL: `http://localhost:${port}`,
-        },
-        stdio: ["pipe", "pipe", "pipe"],
-      });
-
-      // Capture stdout + stderr for diagnostics on failure. The server uses
-      // pino, which writes to stdout — surface both streams so failure messages
-      // aren't swallowed.
-      let stdout = "";
-      let stderr = "";
-      child.stdout?.on("data", (chunk: Buffer) => {
-        stdout += chunk.toString();
-      });
-      child.stderr?.on("data", (chunk: Buffer) => {
-        stderr += chunk.toString();
-      });
-
-      // 5. Wait for server to be ready
-      yield* waitForServerReady(child, port, () => ({ stdout, stderr })).pipe(
-        Effect.catchAll((err) =>
-          cleanupSpawnFailure(child, adminPool, dbName).pipe(
-            Effect.zipRight(Effect.fail(err)),
-          ),
+function assertServerEntryExists() {
+  return serverEntryExists()
+    ? Effect.void
+    : Effect.fail(
+        new SpawnedServerError(
+          `Server not built. Run: pnpm --filter @moltzap/server build\n` +
+            `Expected: ${SERVER_ENTRY}`,
         ),
       );
+}
 
-      return {
-        baseUrl: `http://localhost:${port}`,
-        wsUrl: `ws://localhost:${port}/ws`,
-        dbName,
-        port,
-        process: child,
-        adminPool,
-      };
-    }).pipe(Effect.withSpan("spawnTestServer")),
+function createTestDatabase(
+  pgHost: string,
+  pgPort: number,
+): Effect.Effect<TestDatabase, SpawnedServerError> {
+  return Effect.gen(function* () {
+    const dbName = `test_${crypto.randomUUID().replace(/-/g, "")}`;
+    const adminPool = createAdminPool({
+      host: pgHost,
+      port: pgPort,
+      user: "test",
+      password: "test",
+      database: "postgres",
+      max: ADMIN_POOL_MAX_CONNECTIONS,
+    });
+    yield* createDatabaseFromTemplate(adminPool, dbName);
+    return { dbName, adminPool };
+  });
+}
+
+function findAvailableServerPort() {
+  return Effect.tryPromise({
+    try: () => findFreePort(),
+    catch: (cause) =>
+      asSpawnedServerError(cause, "Failed to find a free server port"),
+  });
+}
+
+function buildServerEnv(
+  pgHost: string,
+  pgPort: number,
+  dbName: string,
+  port: number,
+) {
+  const masterSecret = randomBytes(MASTER_SECRET_BYTES).toString("base64");
+  return {
+    NODE_ENV: "production",
+    DATABASE_URL: `postgresql://test:test@${pgHost}:${pgPort}/${dbName}`,
+    ENCRYPTION_MASTER_SECRET: masterSecret,
+    MOLTZAP_DEV_MODE: "true",
+    PORT: String(port),
+    FIREBASE_SERVICE_ACCOUNT_KEY: generateTestFirebaseKey(),
+    VAPID_PUBLIC_KEY:
+      "BHKL-uNCIASscCmYZERbVn--qT9RVp6mt90rIrLwrXSAxuCTSbamzi7JlQulOQ5TTmAzMgYLcsqzEM-zFLSFbdE",
+    VAPID_PRIVATE_KEY: "Z9kV3uuqbO7rr_39L2dFA-FKgVpeLv6gS6W_5_cylMk",
+    VAPID_SUBJECT: "mailto:test@example.com",
+    CLAIM_BASE_URL: `http://localhost:${port}`,
+  };
+}
+
+function captureProcessLogs(child: ChildProcess): () => ServerLogs {
+  let stdout = "";
+  let stderr = "";
+  child.stdout?.on("data", (chunk: Buffer) => {
+    stdout += chunk.toString();
+  });
+  child.stderr?.on("data", (chunk: Buffer) => {
+    stderr += chunk.toString();
+  });
+  return () => ({ stdout, stderr });
+}
+
+function spawnServerProcess(
+  pgHost: string,
+  pgPort: number,
+  dbName: string,
+  port: number,
+): ServerProcess {
+  const child = spawn(process.execPath, [SERVER_ENTRY], {
+    env: buildServerEnv(pgHost, pgPort, dbName, port),
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  return { child, readLogs: captureProcessLogs(child) };
+}
+
+function startSpawnedServer(pgHost: string, pgPort: number) {
+  return Effect.gen(function* () {
+    yield* assertServerEntryExists();
+    const { dbName, adminPool } = yield* createTestDatabase(pgHost, pgPort);
+    const port = yield* findAvailableServerPort();
+    const { child, readLogs } = spawnServerProcess(
+      pgHost,
+      pgPort,
+      dbName,
+      port,
+    );
+
+    yield* waitForServerReady(child, port, readLogs).pipe(
+      Effect.catchAll((err) =>
+        cleanupSpawnFailure(child, adminPool, dbName).pipe(
+          Effect.zipRight(Effect.fail(err)),
+        ),
+      ),
+    );
+
+    return {
+      baseUrl: `http://localhost:${port}`,
+      wsUrl: `ws://localhost:${port}/ws`,
+      dbName,
+      port,
+      process: child,
+      adminPool,
+    };
+  });
+}
+
+export function spawnTestServer(pgHost: string, pgPort: number) {
+  return Effect.runPromise(
+    startSpawnedServer(pgHost, pgPort).pipe(Effect.withSpan("spawnTestServer")),
   );
 }
 

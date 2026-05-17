@@ -62,10 +62,9 @@ const DEFAULT_CAPACITY = 256;
 
 /**
  * Construct a fresh routing state. One instance per boot.
- *
  * @param capacity bounded LRU size (default 256 recent message_ids, per
- *        architect design doc §2.4). Exceeding the cap evicts the oldest
- *        (FIFO) — relying on JavaScript `Map` preserving insertion order.
+ * architect design doc §2.4). Exceeding the cap evicts the oldest
+ * (FIFO) — relying on JavaScript `Map` preserving insertion order.
  */
 export function createRoutingState(
   capacity: number = DEFAULT_CAPACITY,

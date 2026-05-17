@@ -40,7 +40,6 @@ const DOCKER_UP_COMMAND = "docker compose up";
 const DOCKER_DOWN_COMMAND = "docker compose down";
 const SUCCESS_EXIT_CODE = 0;
 const FAILURE_REASON_KEYS = ["cause", "reason", "message"] as const;
-const CONFORMANCE_ENV = loadConformanceEnv();
 
 class ComposeFileNotFound extends Data.TaggedError("ComposeFileNotFound")<{
   readonly cwd: string;
@@ -66,7 +65,11 @@ class ConformanceSuiteFailed extends Data.TaggedError(
   "ConformanceSuiteFailed",
 )<{
   readonly summary: string;
-}> {}
+}> {
+  override get message(): string {
+    return this.summary;
+  }
+}
 
 interface ConformanceEnv {
   readonly skipToxiproxy: boolean;
@@ -99,6 +102,7 @@ const ConformanceEnvConfig = Config.all({
     Config.withDefault(DEFAULT_TOXIPROXY_URL),
   ),
 });
+const CONFORMANCE_ENV = loadConformanceEnv();
 
 function enabledEnvFlag(name: string) {
   return Config.string(name).pipe(

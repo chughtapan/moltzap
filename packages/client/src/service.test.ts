@@ -1,5 +1,5 @@
 import { it as effectIt } from "@effect/vitest";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { Effect, Either, Exit } from "effect";
 import type { Message, ResultOf } from "@moltzap/protocol";
 import {
@@ -99,7 +99,6 @@ const DATE_ONE = "2026-04-13T22:00:00Z";
 const DATE_TWO = "2026-04-13T22:00:01Z";
 const DATE_THREE = "2026-04-13T22:00:02Z";
 const DEFAULT_TEST_DATE = "2026-04-16T00:00:00Z";
-const DEFAULT_TEST_DATE_MS = "2026-04-16T00:00:00.000Z";
 const MINUTE_MS = 60_000;
 const LONG_TEXT_LENGTH = 200;
 const CONTEXT_PREVIEW_LENGTH = 120;
@@ -244,11 +243,15 @@ function sendToAgentCachesPerAgentName() {
       (call) => call.method === MessagesSend.name,
     );
     expect(sendCalls).toHaveLength(2);
+    const [firstSend, secondSend] = sendCalls as [
+      (typeof sendCalls)[number],
+      (typeof sendCalls)[number],
+    ];
     expect(
-      (sendCalls[0]?.params as { conversationId: string }).conversationId,
+      (firstSend.params as { conversationId: string }).conversationId,
     ).toBe(CONVERSATION_ALICE_ID);
     expect(
-      (sendCalls[1]?.params as { conversationId: string }).conversationId,
+      (secondSend.params as { conversationId: string }).conversationId,
     ).toBe(CONVERSATION_BOB_ID);
   });
 }
@@ -1105,17 +1108,8 @@ describe("MoltZapService conversation archive lifecycle", () => {
 });
 
 describe("MoltZapService.fanout — message handlers", () => {
-  it("runs all handlers even if one throws, logging via the provided logger", () => {
-    const logger = {
-      info: vi.fn(),
-      warn: vi.fn(),
-      error: vi.fn(),
-    };
+  it("runs all handlers even if one throws", () => {
     const service = new FakeMoltZapService();
-    // Monkey-patch the internal logger so fanout can log via it. The opts
-    // field is private; accessing via Reflect keeps the test minimal.
-    const opts = Reflect.get(service, "opts") as { logger: typeof logger };
-    opts.logger = logger;
 
     const seen: Message[] = [];
     service.on("message", () => {
@@ -1140,7 +1134,6 @@ describe("MoltZapService.fanout — message handlers", () => {
 
     // Second handler still fired despite first handler throwing.
     expect(seen).toEqual([msg]);
-    expect(logger.error).toHaveBeenCalledOnce();
   });
 });
 

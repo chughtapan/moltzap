@@ -27,8 +27,8 @@ const replyToOption = Options.text("reply-to").pipe(
  * string the service resolves (typically `agent:&lt;name>` for direct messages
  * or a bare contact name the service resolves against the caller's roster).
  *
- * Identity selection is driven by the GLOBAL flags pre-parsed in
- * `cli/index.ts` before `@effect/cli` sees argv (see `extractGlobalFlags`):
+ * Identity selection is driven by the parent `@effect/cli` options wired in
+ * `cli/index.ts`:
  *
  *   --as &lt;apiKey>       Send as the agent owning the given API key.
  *                       Bypasses the local daemon socket; dials the server

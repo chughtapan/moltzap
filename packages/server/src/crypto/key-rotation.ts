@@ -8,7 +8,6 @@ import {
   unwrapKey,
   type EncryptedPayload,
 } from "./envelope.js";
-import { logger } from "../logger.js";
 import { serializePayload, deserializePayload } from "./serialization.js";
 import { sql } from "../db/sql.js";
 import { Data, Effect } from "effect";
@@ -68,7 +67,7 @@ function seedInitialKekEffect(
       })
       .onConflict((oc) => oc.column("version").doNothing());
 
-    logger.info("Seeded initial KEK version 1");
+    yield* Effect.logInfo("Seeded initial KEK version 1");
   });
 }
 
@@ -194,5 +193,9 @@ function logKekRotation(
   newVersion: number,
   reWrappedCount: number,
 ) {
-  logger.info({ oldVersion, newVersion, reWrappedCount }, "KEK rotated");
+  Effect.runFork(
+    Effect.logInfo("KEK rotated").pipe(
+      Effect.annotateLogs({ oldVersion, newVersion, reWrappedCount }),
+    ),
+  );
 }

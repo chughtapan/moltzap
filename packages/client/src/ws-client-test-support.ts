@@ -14,7 +14,7 @@
  * `TestClock` (see the `describe("reconnect backoff")` block for details).
  */
 import { createServer } from "node:net";
-import { expect, it, vi } from "vitest";
+import { expect, it } from "vitest";
 import { it as itEffect } from "@effect/vitest";
 import {
   Cause,
@@ -213,19 +213,9 @@ class ClosedLocalPortError extends Data.TaggedError("ClosedLocalPortError")<{
   readonly cause: unknown;
 }> {}
 
-class TestPromiseError extends Data.TaggedError("TestPromiseError")<{
-  readonly cause: unknown;
-}> {}
-
 class WaitForTimeoutError extends Data.TaggedError("WaitForTimeoutError")<{
   readonly timeoutMs: number;
 }> {}
-
-const tryPromise = <A>(evaluate: () => PromiseLike<A>) =>
-  Effect.tryPromise({
-    try: evaluate,
-    catch: (cause) => new TestPromiseError({ cause }),
-  });
 
 function rawSocketDataToString(data: string | Uint8Array): string {
   return typeof data === "string"
@@ -248,7 +238,7 @@ const parseJsonOption = (raw: string): Option.Option<unknown> =>
   Effect.runSync(
     Effect.try({
       try: () => JSON.parse(raw) as unknown,
-      catch: (cause) => new TestPromiseError({ cause }),
+      catch: (cause) => cause,
     }).pipe(Effect.option),
   );
 
@@ -391,42 +381,12 @@ const findClosedLocalPort = (): Effect.Effect<number, ClosedLocalPortError> =>
     });
   });
 
-// ── Logger helper ──────────────────────────────────────────────────────
-
-function makeLogger(): {
-  info: ReturnType<typeof vi.fn>;
-  warn: ReturnType<typeof vi.fn>;
-  error: ReturnType<typeof vi.fn>;
-} {
-  return {
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  };
-}
-
 // ── Client adapter helpers ─────────────────────────────────────────────
-
-/**
- * Build a client, connect against the given URL, complete the network/connect
- * handshake, and return the live client. The server handler auto-responds
- * to `network/connect` with a canned HelloOk; subsequent frames route through
- * the outer `handler`.
- */
-interface ClientHarness {
-  readonly client: MoltZapWsClient;
-  readonly serverConn: TestServerConnection;
-  readonly logger: ReturnType<typeof makeLogger>;
-  readonly onNotificationCalls: Array<unknown>;
-  readonly onDisconnectCalls: Array<void>;
-  readonly onReconnectCalls: Array<unknown>;
-}
 
 interface MakeClientOverrides {
   readonly onNotification?: (evt: NotificationFrame) => void;
   readonly onDisconnect?: (close: CloseInfo) => void;
   readonly onReconnect?: (hello: unknown) => void;
-  readonly logger?: ClientHarness["logger"];
 }
 
 const ignoreDisconnect = (_close: CloseInfo): void => undefined;
@@ -706,14 +666,12 @@ function makeClient(
     onNotification,
     onDisconnect = ignoreDisconnect,
     onReconnect = ignoreReconnect,
-    logger = makeLogger(),
   } = overrides;
   const client = new MoltZapWsClient({
     serverUrl: url,
     agentKey: "test-key",
     onDisconnect,
     onReconnect,
-    logger,
   });
   if (onNotification !== undefined) {
     Effect.runSync(client.subscribe({}, notificationHandler(onNotification)));
@@ -723,39 +681,27 @@ function makeClient(
 
 export {
   AgentsLookupByName,
-  Connect,
   ConversationsList,
   DispatchAuthorize,
   Duration,
-  Effect,
-  Exit,
   Fiber,
   ForbiddenError,
   MessageReceivedNotificationDefinition,
   MessagesSend,
   MoltZapWsClient,
-  Option,
-  PROTOCOL_VERSION,
   RpcTimeoutError,
-  Scope,
   TestClock,
-  agentId,
   closeClient,
   connectClient,
   connectClientForServer,
-  conversationId,
   dispatchRequestParams,
   effectTest,
   scopedEffectTest,
   expectEffectFailure,
   findClosedLocalPort,
   findResponseRaw,
-  firstConnection,
   grantDispatchAuthorizeHandler,
-  helloOk,
   makeClient,
-  makeLogger,
-  messageId,
   messageReceivedFrame,
   sendMalformedFrameBurst,
   sendMalformedFramesAndResponse,
@@ -767,8 +713,6 @@ export {
   startHandshakingServer,
   startReconnectServer,
   startTestServer,
-  tryPromise,
-  validateRequestFrame,
   validateResponseFrame,
   waitFor,
   realSleep,
@@ -783,23 +727,19 @@ export {
   RECONNECT_AGENT_ID,
   SESSION_A,
   SESSION_B,
-  TEST_MESSAGE_ID,
   NORMAL_CLOSE_CODE,
   SERVER_ERROR_CLOSE_CODE,
-  WAIT_FOR_DEFAULT_TIMEOUT_MS,
   CONNECT_FAILURE_MAX_MS,
   REFUSED_CONNECT_MAX_MS,
   REFUSED_CONNECT_TEST_TIMEOUT_MS,
   REALTIME_POLL_TIMEOUT_MS,
   POST_TIMEOUT_SETTLE_MS,
-  MALFORMED_FRAME_COUNT,
   MALFORMED_FRAME_FLUSH_MS,
   CLIENT_DRAIN_COUNT,
   CLOSE_PROPAGATION_TIMEOUT_MS,
   STALE_PORT_TEST_TIMEOUT_MS,
   CLOSE_INFO_WAIT_MS,
   HANDLER_REJECTION_CODE,
-  WAIT_FOR_POLL_INTERVAL_MS,
   NORMAL_CLOSE_REASON,
   SERVER_ERROR_REASON,
   SERVER_TEST_REQUEST_ID,
@@ -809,20 +749,5 @@ export {
   DOMAIN_REJECTED_REASON,
   DUPLICATE_HANDLER_ERROR_TAG,
   TEST_CONVERSATION_ID,
-  TEST_POLICY,
-  TEST_MESSAGE,
 };
-export type {
-  ClientHarness,
-  CloseInfo,
-  DispatchRequestParams,
-  MakeClientOverrides,
-  MutableRef,
-  NotificationFrame,
-  RequestFrame,
-  RpcDefinition,
-  ServerHandler,
-  SocketWriter,
-  TestServer,
-  TestServerConnection,
-};
+export type { CloseInfo, MutableRef, RequestFrame };

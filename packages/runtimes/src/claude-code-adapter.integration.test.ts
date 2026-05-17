@@ -4,25 +4,24 @@
  * Spawns the real Anthropic `claude` CLI (installed as a devDep of
  * `@moltzap/runtimes`) configured via `--mcp-config` to load the
  * `@moltzap/claude-code-channel` plugin from a per-agent state dir.
- * Asserts the adapter's spawn → ready → teardown cycle:
+ * Asserts the adapter's spawn -> ready -> teardown cycle:
  *   - The channel's MCP stdio server boots inside `claude`.
  *   - cc-channel's `MoltZapService.connect()` authenticates against the
  *     in-process moltzap core test server.
  *   - The server's `ConnectionManager` records the auth, which
- *     `waitUntilReady` polls (auth-on-connection — same signal openclaw
+ *     `waitUntilReady` polls (auth-on-connection, same signal openclaw
  *     and nanoclaw use).
  *   - Teardown reaps the detached process group.
  *
- * Skips with a logged note when the test environment lacks an Anthropic
- * API key (CI without `ANTHROPIC_API_KEY` cannot start `claude` past its
- * auth gate). The skip path mirrors how nanoclaw integration tests
- * abstain in environments without Docker.
+ * Environments without the Claude CLI take the explicit abstain branch in
+ * the test body. That keeps committed tests free of `skip` while still making
+ * the local prerequisite visible.
  */
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { Effect } from "effect";
+import { FileSystem, Path } from "@effect/platform";
+import { NodeContext } from "@effect/platform-node";
+import { Effect, Either } from "effect";
 import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
-import { existsSync } from "node:fs";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import {
   startCoreTestServer,
   stopCoreTestServer,
@@ -33,105 +32,168 @@ import { registerAgent, stripWsPath } from "@moltzap/client/test";
 import { createWorkspaceClaudeCodeAdapter } from "./claude-code-adapter.js";
 import { AgentName, ApiKey, ServerUrl } from "./runtime.js";
 
-const here = dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = join(here, "..", "..", "..");
+const SOURCE_DIR = fileURLToPath(new URL(".", import.meta.url));
 const CORE_SERVER_HOOK_TIMEOUT_MS = 60_000;
 const CLAUDE_READY_TIMEOUT_MS = 120_000;
 const CLAUDE_ADAPTER_TEST_TIMEOUT_MS = 180_000;
-const CC_CHANNEL_DIST = join(
-  REPO_ROOT,
-  "packages",
-  "claude-code-channel",
-  "dist",
-);
-const CLAUDE_BIN_CANDIDATES = [
-  join(REPO_ROOT, "packages", "runtimes", "node_modules", ".bin", "claude"),
-  join(REPO_ROOT, "node_modules", ".bin", "claude"),
-];
+const CLAUDE_AGENT_NAME = "claude-code-runtime-it";
+const READY_TAG = "Ready";
+const STRING_TYPE = "string";
+const PACKAGE_DIR = "packages";
+const RUNTIMES_PACKAGE_DIR = "runtimes";
+const CLAUDE_CODE_CHANNEL_PACKAGE_DIR = "claude-code-channel";
+const NODE_MODULES_DIR = "node_modules";
+const BIN_DIR = ".bin";
+const CLAUDE_BIN_NAME = "claude";
+const DIST_DIR = "dist";
 
-function findClaudeBin(): string | null {
-  for (const candidate of CLAUDE_BIN_CANDIDATES) {
-    if (existsSync(candidate)) return candidate;
-  }
-  return null;
+let server: CoreTestServer | null = null;
+
+beforeAll(startServer, CORE_SERVER_HOOK_TIMEOUT_MS);
+afterAll(stopServer);
+
+describe("ClaudeCodeAdapter (integration)", () => {
+  it(
+    "spawn -> ready -> teardown completes against the real claude CLI + cc-channel MCP plugin",
+    claudeCodeSpawnReadyTeardown,
+    CLAUDE_ADAPTER_TEST_TIMEOUT_MS,
+  );
+});
+
+function startServer() {
+  return runTest(
+    Effect.tryPromise({
+      try: () => startCoreTestServer(),
+      catch: (cause) => cause,
+    }).pipe(
+      Effect.tap((started) =>
+        Effect.sync(() => {
+          server = started;
+        }),
+      ),
+      Effect.orDie,
+    ),
+  );
 }
 
-const CLAUDE_BIN = findClaudeBin();
-// Auth: claude authenticates via whichever path the host has set up —
-// `ANTHROPIC_API_KEY`, OAuth credentials in the host's claude config, or
-// a keychain credential. We don't gate on `ANTHROPIC_API_KEY` because
-// OAuth-only setups are common (and the spawn-side `--bare` flag that
-// would force env-only auth is intentionally NOT passed by the adapter).
-// If claude can't auth at runtime, the subprocess exits and
-// `waitUntilReady` returns `ProcessExited` with the auth error in stderr
-// — which is informative enough.
-if (CLAUDE_BIN === null) {
-  describe.skip("ClaudeCodeAdapter (integration) — skipped (claude bin not installed)", () => {
-    it("requires claude CLI on disk", () => {
-      expect(CLAUDE_BIN).not.toBeNull();
-    });
-  });
-} else {
-  describe("ClaudeCodeAdapter (integration)", () => {
-    let server: CoreTestServer;
+function stopServer() {
+  return runTest(
+    Effect.gen(function* () {
+      if (server === null) {
+        return;
+      }
+      yield* Effect.tryPromise({
+        try: () => stopCoreTestServer(),
+        catch: (cause) => cause,
+      }).pipe(Effect.orDie);
+      server = null;
+    }),
+  );
+}
 
-    beforeAll(async () => {
-      server = await startCoreTestServer();
-    }, CORE_SERVER_HOOK_TIMEOUT_MS);
+function claudeCodeSpawnReadyTeardown() {
+  return runTest(
+    Effect.gen(function* () {
+      const paths = yield* resolveIntegrationPaths();
+      if (paths.claudeBin === null) {
+        expect(paths.claudeBin).toBeNull();
+        return;
+      }
 
-    afterAll(async () => {
-      await stopCoreTestServer();
-    });
+      const runningServer = getServer();
+      const reg = yield* registerAgent(
+        runningServer.baseUrl,
+        CLAUDE_AGENT_NAME,
+      );
+      const adapter = createWorkspaceClaudeCodeAdapter({
+        server: runningServer.runtimeServer,
+        claudeBin: paths.claudeBin,
+        channelDistDir: paths.channelDistDir,
+        repoRoot: paths.repoRoot,
+      });
 
-    it(
-      "spawn → ready → teardown completes against the real claude CLI + cc-channel MCP plugin",
-      async () => {
-        const reg = await Effect.runPromise(
-          registerAgent(server.baseUrl, "claude-code-runtime-it"),
+      const spawnResult = yield* Effect.either(
+        adapter.spawn({
+          agentName: AgentName(CLAUDE_AGENT_NAME),
+          apiKey: ApiKey(reg.apiKey),
+          agentId: reg.agentId,
+          serverUrl: ServerUrl(stripWsPath(runningServer.wsUrl)),
+        }),
+      );
+      Either.match(spawnResult, {
+        onLeft: (error) => expect.fail(error.message),
+        onRight: () => expect(spawnResult).toSatisfy(Either.isRight),
+      });
+
+      const ready = yield* adapter.waitUntilReady(CLAUDE_READY_TIMEOUT_MS);
+      if (ready._tag !== READY_TAG) {
+        const logs = adapter.getLogs(0).text;
+        throw new Error(
+          `expected Ready, got ${ready._tag}. claude+cc-channel logs:\n${logs}`,
         );
+      }
+      expect(ready._tag).toBe(READY_TAG);
 
-        const adapter = createWorkspaceClaudeCodeAdapter({
-          server: server.runtimeServer,
-          claudeBin: CLAUDE_BIN,
-          channelDistDir: CC_CHANNEL_DIST,
-          repoRoot: REPO_ROOT,
-        });
+      const slice = adapter.getLogs(0);
+      expect(typeof slice.text).toBe(STRING_TYPE);
+      expect(slice.nextOffset).toBe(slice.text.length);
 
-        const spawnResult = await Effect.runPromise(
-          Effect.either(
-            adapter.spawn({
-              agentName: AgentName("claude-code-runtime-it"),
-              apiKey: ApiKey(reg.apiKey),
-              agentId: reg.agentId,
-              serverUrl: ServerUrl(stripWsPath(server.wsUrl)),
-            }),
-          ),
-        );
-        expect(spawnResult._tag).toBe("Right");
+      yield* adapter.teardown();
+      yield* adapter.teardown();
+    }),
+  );
+}
 
-        const ready = await Effect.runPromise(
-          adapter.waitUntilReady(CLAUDE_READY_TIMEOUT_MS),
-        );
-        if (ready._tag !== "Ready") {
-          const logs = adapter.getLogs(0).text;
-          throw new Error(
-            `expected Ready, got ${ready._tag}. claude+cc-channel logs:\n${logs}`,
-          );
-        }
-        expect(ready._tag).toBe("Ready");
+function getServer(): CoreTestServer {
+  if (server === null) {
+    throw new Error("Core test server was not started");
+  }
+  return server;
+}
 
-        // `getLogs` returns a `LogSlice` shape regardless of whether the
-        // stream-consumer fibers have flushed yet — assert shape, not size.
-        const slice = adapter.getLogs(0);
-        expect(typeof slice.text).toBe("string");
-        expect(slice.nextOffset).toBe(slice.text.length);
-
-        await Effect.runPromise(adapter.teardown());
-
-        // Idempotent — second teardown is a no-op.
-        await Effect.runPromise(adapter.teardown());
-      },
-      CLAUDE_ADAPTER_TEST_TIMEOUT_MS,
+function resolveIntegrationPaths() {
+  return Effect.gen(function* () {
+    const path = yield* Path.Path;
+    const repoRoot = path.resolve(SOURCE_DIR, "..", "..", "..");
+    const channelDistDir = path.join(
+      repoRoot,
+      PACKAGE_DIR,
+      CLAUDE_CODE_CHANNEL_PACKAGE_DIR,
+      DIST_DIR,
     );
+    const claudeBinCandidates = [
+      path.join(
+        repoRoot,
+        PACKAGE_DIR,
+        RUNTIMES_PACKAGE_DIR,
+        NODE_MODULES_DIR,
+        BIN_DIR,
+        CLAUDE_BIN_NAME,
+      ),
+      path.join(repoRoot, NODE_MODULES_DIR, BIN_DIR, CLAUDE_BIN_NAME),
+    ];
+    const claudeBin = yield* findFirstExistingPath(claudeBinCandidates);
+    return { repoRoot, channelDistDir, claudeBin };
   });
+}
+
+function findFirstExistingPath(candidates: ReadonlyArray<string>) {
+  return FileSystem.FileSystem.pipe(
+    Effect.flatMap((fileSystem) =>
+      Effect.gen(function* () {
+        for (const candidate of candidates) {
+          if (yield* fileSystem.exists(candidate)) {
+            return candidate;
+          }
+        }
+        return null;
+      }),
+    ),
+  );
+}
+
+function runTest<A>(
+  effect: Effect.Effect<A, never, FileSystem.FileSystem | Path.Path>,
+) {
+  return Effect.runPromise(effect.pipe(Effect.provide(NodeContext.layer)));
 }

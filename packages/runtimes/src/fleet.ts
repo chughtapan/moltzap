@@ -94,6 +94,15 @@ interface PendingRuntimeAgent {
   readonly releaseStartupCleanup: Effect.Effect<void, never, never>;
 }
 
+interface ProcessSignalHandler {
+  readonly signal: Signal;
+  readonly handler: () => void;
+}
+
+interface ShutdownSignalState {
+  value: Signal | null;
+}
+
 class UnknownRuntimeAgent extends Data.TaggedError("UnknownRuntimeAgent")<{
   readonly agentName: string;
   readonly knownAgents: ReadonlyArray<string>;
@@ -141,6 +150,74 @@ function teardownStartedAgents(
     (startedAgent) => startedAgent.runtime.teardown(),
     { concurrency: 1, discard: true },
   );
+}
+
+function runtimeStartOptionsForAgent(
+  options: RuntimeFleetLaunchOptions,
+  agent: RuntimeAgentSpec,
+): RuntimeStartOptions {
+  return {
+    kind: options.kind,
+    server: options.server,
+    agent,
+    readyTimeoutMs: options.readyTimeoutMs,
+    ...(options.openclaw !== undefined ? { openclaw: options.openclaw } : {}),
+    ...(options.nanoclaw !== undefined ? { nanoclaw: options.nanoclaw } : {}),
+    ...(options.claudeCode !== undefined
+      ? { claudeCode: options.claudeCode }
+      : {}),
+  };
+}
+
+function startFleetAgent(
+  options: RuntimeFleetLaunchOptions,
+  startedAgents: StartedRuntimeAgent[],
+  agent: RuntimeAgentSpec,
+) {
+  return Effect.gen(function* () {
+    const pending = yield* startPendingRuntimeAgent(
+      runtimeStartOptionsForAgent(options, agent),
+    );
+    const startedAgent = {
+      spec: agent,
+      runtime: pending.runtime,
+    } satisfies StartedRuntimeAgent;
+    startedAgents.push(startedAgent);
+    yield* pending.releaseStartupCleanup;
+    return startedAgent;
+  });
+}
+
+function logsForStartedAgent(
+  started: ReadonlyArray<StartedRuntimeAgent>,
+  name: string,
+): string {
+  const startedAgent = started.find(
+    (candidate) => candidate.spec.agentName === name,
+  );
+  if (startedAgent !== undefined) {
+    return startedAgent.runtime.getLogs(LOG_START_OFFSET).text;
+  }
+
+  const knownAgents = started.map((candidate) => candidate.spec.agentName);
+  throw new UnknownRuntimeAgent({
+    agentName: name,
+    knownAgents,
+    message: `Unknown runtime agent "${name}". Known agents: ${knownAgents.join(", ")}`,
+  });
+}
+
+function toRuntimeFleet(
+  started: ReadonlyArray<StartedRuntimeAgent>,
+): RuntimeFleet {
+  return {
+    agents: started.map((startedAgent) => ({
+      name: startedAgent.spec.agentName,
+      agentId: startedAgent.spec.agentId,
+    })),
+    stopAll: () => teardownStartedAgents(started),
+    getLogs: (name: string): string => logsForStartedAgent(started, name),
+  };
 }
 
 function startPendingRuntimeAgent(options: RuntimeStartOptions) {
@@ -208,67 +285,82 @@ export function launchRuntimeFleet(
   return Effect.scoped(
     Effect.gen(function* () {
       const startedAgents: StartedRuntimeAgent[] = [];
-      const launchOne = (agent: RuntimeAgentSpec) =>
-        Effect.gen(function* () {
-          const pending = yield* startPendingRuntimeAgent({
-            kind: options.kind,
-            server: options.server,
-            agent,
-            readyTimeoutMs: options.readyTimeoutMs,
-            ...(options.openclaw !== undefined
-              ? { openclaw: options.openclaw }
-              : {}),
-            ...(options.nanoclaw !== undefined
-              ? { nanoclaw: options.nanoclaw }
-              : {}),
-            ...(options.claudeCode !== undefined
-              ? { claudeCode: options.claudeCode }
-              : {}),
-          });
-          const startedAgent = {
-            spec: agent,
-            runtime: pending.runtime,
-          } satisfies StartedRuntimeAgent;
-          startedAgents.push(startedAgent);
-          yield* pending.releaseStartupCleanup;
-          return startedAgent;
-        });
-
-      const started = yield* Effect.forEach(options.agents, launchOne, {
-        concurrency: options.concurrency ?? 1,
-      }).pipe(
+      const started = yield* Effect.forEach(
+        options.agents,
+        (agent) => startFleetAgent(options, startedAgents, agent),
+        {
+          concurrency: options.concurrency ?? 1,
+        },
+      ).pipe(
         Effect.onExit((exit) =>
           Exit.isSuccess(exit)
             ? Effect.void
             : teardownStartedAgents(startedAgents),
         ),
       );
-
-      return {
-        agents: started.map((startedAgent) => ({
-          name: startedAgent.spec.agentName,
-          agentId: startedAgent.spec.agentId,
-        })),
-        stopAll: () => teardownStartedAgents(started),
-        getLogs(name: string): string {
-          const startedAgent = started.find(
-            (candidate) => candidate.spec.agentName === name,
-          );
-          if (startedAgent === undefined) {
-            const knownAgents = started.map(
-              (candidate) => candidate.spec.agentName,
-            );
-            throw new UnknownRuntimeAgent({
-              agentName: name,
-              knownAgents,
-              message: `Unknown runtime agent "${name}". Known agents: ${knownAgents.join(", ")}`,
-            });
-          }
-          return startedAgent.runtime.getLogs(LOG_START_OFFSET).text;
-        },
-      } satisfies RuntimeFleet;
+      return toRuntimeFleet(started);
     }),
   ).pipe(Effect.withSpan("launchRuntimeFleet"));
+}
+
+function installProcessSignalHandlers(
+  signals: ReadonlyArray<Signal>,
+  state: ShutdownSignalState,
+  fiber: Fiber.RuntimeFiber<RuntimeFleet, RuntimeLaunchFailed>,
+): ReadonlyArray<ProcessSignalHandler> {
+  return signals.map((signal) => {
+    const handler = (): void => {
+      if (state.value !== null) {
+        return;
+      }
+      state.value = signal;
+      Effect.runFork(Fiber.interrupt(fiber));
+    };
+    process.on(signal, handler);
+    return { signal, handler };
+  });
+}
+
+function cleanupProcessSignalHandlers(
+  handlers: ReadonlyArray<ProcessSignalHandler>,
+): void {
+  for (const { signal, handler } of handlers) {
+    process.off(signal, handler);
+  }
+}
+
+function observeFleetLaunchFiber(
+  fiber: Fiber.RuntimeFiber<RuntimeFleet, RuntimeLaunchFailed>,
+  state: ShutdownSignalState,
+  cleanup: () => void,
+  resume: (
+    effect: Effect.Effect<
+      RuntimeFleet,
+      RuntimeLaunchFailed | RuntimeFleetStartupInterrupted
+    >,
+  ) => void,
+): void {
+  fiber.addObserver((exit) => {
+    cleanup();
+    if (Exit.isSuccess(exit)) {
+      resume(Effect.succeed(exit.value));
+      return;
+    }
+    if (state.value !== null && Exit.isInterrupted(exit)) {
+      resume(interruptedStartup(state.value));
+      return;
+    }
+    resume(Effect.failCause(exit.cause));
+  });
+}
+
+function interruptedStartup(signal: Signal) {
+  return Effect.fail(
+    new RuntimeFleetStartupInterrupted({
+      signal,
+      message: `Runtime fleet startup interrupted by ${signal}`,
+    }),
+  );
 }
 
 export function launchRuntimeFleetWithProcessSignals(
@@ -284,45 +376,17 @@ export function launchRuntimeFleetWithProcessSignals(
     RuntimeLaunchFailed | RuntimeFleetStartupInterrupted
   >((resume) => {
     const fiber = Effect.runFork(launchRuntimeFleet(options));
-    let shutdownSignal: Signal | null = null;
-
-    const handlers = signals.map((signal) => {
-      const handler = (): void => {
-        if (shutdownSignal !== null) {
-          return;
-        }
-        shutdownSignal = signal;
-        Effect.runFork(Fiber.interrupt(fiber));
-      };
-      process.on(signal, handler);
-      return { signal, handler };
-    });
-
+    const shutdownSignal: ShutdownSignalState = { value: null };
+    const handlers = installProcessSignalHandlers(
+      signals,
+      shutdownSignal,
+      fiber,
+    );
     const cleanup = (): void => {
-      for (const { signal, handler } of handlers) {
-        process.off(signal, handler);
-      }
+      cleanupProcessSignalHandlers(handlers);
     };
 
-    fiber.addObserver((exit) => {
-      cleanup();
-      if (Exit.isSuccess(exit)) {
-        resume(Effect.succeed(exit.value));
-        return;
-      }
-      if (shutdownSignal !== null && Exit.isInterrupted(exit)) {
-        resume(
-          Effect.fail(
-            new RuntimeFleetStartupInterrupted({
-              signal: shutdownSignal,
-              message: `Runtime fleet startup interrupted by ${shutdownSignal}`,
-            }),
-          ),
-        );
-        return;
-      }
-      resume(Effect.failCause(exit.cause));
-    });
+    observeFleetLaunchFiber(fiber, shutdownSignal, cleanup, resume);
 
     return Effect.sync(() => {
       cleanup();

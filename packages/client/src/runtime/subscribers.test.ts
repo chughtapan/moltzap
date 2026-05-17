@@ -15,7 +15,7 @@
  * discriminate.
  */
 import * as fc from "fast-check";
-import { expect, it, vi } from "vitest";
+import { expect, it } from "vitest";
 import { Effect, Ref } from "effect";
 import {
   ConversationArchivedNotificationDefinition,
@@ -115,8 +115,6 @@ const conversationArchivedNotification = (
     by: AGENT_ID,
   });
 
-const noopLogger = { warn: vi.fn() };
-
 it("property: notificationNamePrefix follows string startsWith", () => {
   expect.hasAssertions();
   fc.assert(
@@ -188,7 +186,7 @@ it("non-record `params` cannot satisfy payload-key filters", () => {
 it("dispatches in registration order", () =>
   Effect.runPromise(
     Effect.gen(function* () {
-      const registry = yield* makeSubscriberRegistry(noopLogger);
+      const registry = yield* makeSubscriberRegistry();
       const order: string[] = [];
       yield* registry.register({}, () => pushValue(order, "a"));
       yield* registry.register({}, () => pushValue(order, "b"));
@@ -200,7 +198,7 @@ it("dispatches in registration order", () =>
 it("unsubscribe stops delivery for the next frame", () =>
   Effect.runPromise(
     Effect.gen(function* () {
-      const registry = yield* makeSubscriberRegistry(noopLogger);
+      const registry = yield* makeSubscriberRegistry();
       const aCalls: number[] = [];
       const bCalls: number[] = [];
       let frameIdx = 0;
@@ -225,7 +223,7 @@ it("unsubscribe stops delivery for the next frame", () =>
 it("filters narrow delivery", () =>
   Effect.runPromise(
     Effect.gen(function* () {
-      const registry = yield* makeSubscriberRegistry(noopLogger);
+      const registry = yield* makeSubscriberRegistry();
       const seenByConv1: DecodedNotification<AnyNotificationDefinition>[] = [];
       const seenByConv2: DecodedNotification<AnyNotificationDefinition>[] = [];
       yield* registry.register({ conversationId: CONV_1 }, (frame) =>
@@ -248,11 +246,10 @@ it("filters narrow delivery", () =>
     }),
   ));
 
-it("handler exceptions are caught and logged via the injected logger", () =>
+it("handler exceptions are caught and subsequent subscribers still run", () =>
   Effect.runPromise(
     Effect.gen(function* () {
-      const warn = vi.fn();
-      const registry = yield* makeSubscriberRegistry({ warn });
+      const registry = yield* makeSubscriberRegistry();
       const otherCalls: number[] = [];
 
       yield* registry.register({}, subscriberDefect);
@@ -260,16 +257,14 @@ it("handler exceptions are caught and logged via the injected logger", () =>
 
       yield* registry.dispatch(taskFailedNotification());
 
-      expect(warn).toHaveBeenCalledTimes(1);
       expect(otherCalls).toEqual([1]); // other subscribers still fire.
     }),
   ));
 
-it("construction-time handler throw is caught and logged", () =>
+it("construction-time handler throw is caught", () =>
   Effect.runPromise(
     Effect.gen(function* () {
-      const warn = vi.fn();
-      const registry = yield* makeSubscriberRegistry({ warn });
+      const registry = yield* makeSubscriberRegistry();
       const otherCalls: number[] = [];
 
       yield* registry.register({}, constructionThrow);
@@ -277,7 +272,6 @@ it("construction-time handler throw is caught and logged", () =>
 
       yield* registry.dispatch(taskFailedNotification());
 
-      expect(warn).toHaveBeenCalledTimes(1);
       expect(otherCalls).toEqual([1]); // subsequent subscribers still fire.
     }),
   ));
@@ -285,7 +279,7 @@ it("construction-time handler throw is caught and logged", () =>
 it("closeAll drops every subscription", () =>
   Effect.runPromise(
     Effect.gen(function* () {
-      const registry = yield* makeSubscriberRegistry(noopLogger);
+      const registry = yield* makeSubscriberRegistry();
       const calls: number[] = [];
       yield* registry.register({}, () => pushValue(calls, 1));
       yield* registry.closeAll;
@@ -300,7 +294,7 @@ it("Ref-make composition works inside an Effect.gen", () =>
     // resolves with `never` failure tag, so this can't catch
     // typechecker drift, but it does pin behaviour.
     Effect.gen(function* () {
-      const registry = yield* makeSubscriberRegistry(noopLogger);
+      const registry = yield* makeSubscriberRegistry();
       const counter = yield* Ref.make(0);
       yield* registry.register({}, () => Ref.update(counter, increment));
       yield* registry.dispatch(taskFailedNotification());

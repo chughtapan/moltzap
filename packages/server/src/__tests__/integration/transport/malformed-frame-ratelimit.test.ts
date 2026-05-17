@@ -3,9 +3,8 @@
  *
  * The server uses a per-connection counter with `MALFORMED_LOG_EVERY = 50`
  * so a hostile or buggy client sending garbage frames can't dominate the
- * log. This test doesn't try to observe logger calls directly — the
- * server's logger is a process-global pino instance with no injection
- * seam — but it does prove the more load-bearing contract:
+ * log. This test doesn't observe logger output directly, but it does prove
+ * the more load-bearing contract:
  *
  *   1. The server stays up under 100+ garbage frames on a single socket.
  *   2. Every malformed frame produces a `ParseError` response frame.

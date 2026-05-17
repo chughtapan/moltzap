@@ -8,13 +8,11 @@ import {
   type EnrichedConversationMeta,
   type EnrichedInboundMessage,
   type ServiceRpcError,
-  type WsClientLogger,
 } from "@moltzap/client";
 
 const EVAL_GROUP_NAME_ID_CHARS = 8;
 
-import type { Channel } from "../types.js";
-import { logger } from "../logger.js";
+import type { Channel, NewMessage } from "../types.js";
 import { registerChannel, type ChannelOpts } from "./registry.js";
 
 /**
@@ -112,10 +110,18 @@ export class MoltZapChannel implements Channel {
   ) {
     core.onInbound((msg) => Effect.sync(() => this.handleInbound(msg)));
     core.onDisconnect(() => {
-      logger.warn({ channel: "moltzap" }, "MoltZap disconnected");
+      Effect.runFork(
+        Effect.logWarning("MoltZap disconnected").pipe(
+          Effect.annotateLogs({ channel: "moltzap" }),
+        ),
+      );
     });
     core.onReconnect(() => {
-      logger.info({ channel: "moltzap" }, "MoltZap reconnected");
+      Effect.runFork(
+        Effect.logInfo("MoltZap reconnected").pipe(
+          Effect.annotateLogs({ channel: "moltzap" }),
+        ),
+      );
     });
   }
 
@@ -127,8 +133,8 @@ export class MoltZapChannel implements Channel {
         .connect()
         .pipe(
           Effect.tap(() =>
-            Effect.sync(() =>
-              logger.info({ channel: "moltzap" }, "MoltZap connected"),
+            Effect.logInfo("MoltZap connected").pipe(
+              Effect.annotateLogs({ channel: "moltzap" }),
             ),
           ),
         ),
@@ -207,24 +213,43 @@ export class MoltZapChannel implements Channel {
 
   private handleInbound(enriched: EnrichedInboundMessage): void {
     const chatJid = jidFromConversationId(enriched.conversationId);
+    this.rememberDispatchLease(chatJid, enriched);
+    this.maybeAutoRegister(chatJid, enriched.conversationId);
+    this.emitChatMetadata(chatJid, enriched);
+    this.opts.onMessage(chatJid, this.toNewMessage(chatJid, enriched));
+  }
+
+  private rememberDispatchLease(
+    chatJid: string,
+    enriched: EnrichedInboundMessage,
+  ): void {
     if (enriched.dispatchLeaseId) {
       this.dispatchLeasesByJid.set(chatJid, enriched.dispatchLeaseId);
     }
+  }
 
+  private maybeAutoRegister(chatJid: string, conversationId: string): void {
     // SMOKE-TEST ONLY: auto-register unknown convs in MOLTZAP_EVAL_MODE.
     // Remove when the runtime-adapter interface lands.
     if (this.evalMode) {
-      this.ensureAutoRegistered(chatJid, enriched.conversationId);
+      this.ensureAutoRegistered(chatJid, conversationId);
     }
+  }
 
-    this.opts.onChatMetadata(
+  private emitChatMetadata(
+    chatJid: string,
+    enriched: EnrichedInboundMessage,
+  ): void {
+    this.opts.onChatMetadata({
       chatJid,
-      enriched.createdAt,
-      enriched.conversationMeta?.name,
-      "moltzap",
-      enriched.conversationMeta?.type === "group",
-    );
+      timestamp: enriched.createdAt,
+      name: enriched.conversationMeta?.name,
+      channel: "moltzap",
+      isGroup: enriched.conversationMeta?.type === "group",
+    });
+  }
 
+  private contentFor(enriched: EnrichedInboundMessage): string {
     const blocks: string[] = [];
     if (enriched.contextBlocks.crossConversationMessages?.length) {
       blocks.push(
@@ -237,21 +262,24 @@ export class MoltZapChannel implements Channel {
     if (enriched.contextBlocks.groupMetadata) {
       blocks.push(formatGroupBlock(enriched.contextBlocks.groupMetadata));
     }
-    const content =
-      blocks.length > 0
-        ? `${blocks.join("\n\n")}\n\n${enriched.text}`
-        : enriched.text;
+    if (blocks.length === 0) return enriched.text;
+    return `${blocks.join("\n\n")}\n\n${enriched.text}`;
+  }
 
-    this.opts.onMessage(chatJid, {
+  private toNewMessage(
+    chatJid: string,
+    enriched: EnrichedInboundMessage,
+  ): NewMessage {
+    return {
       id: enriched.id,
       chat_jid: chatJid,
       sender: enriched.sender.id,
       sender_name: enriched.sender.name ?? enriched.sender.id,
-      content,
+      content: this.contentFor(enriched),
       timestamp: enriched.createdAt,
       is_from_me: enriched.isFromMe,
       reply_to_message_id: enriched.replyToId,
-    });
+    };
   }
 
   private ensureAutoRegistered(chatJid: string, conversationId: string): void {
@@ -275,22 +303,12 @@ registerChannel("moltzap", (opts: ChannelOpts): Channel | null => {
 
   if (!apiKey) return null;
 
-  const wsLogger: WsClientLogger = {
-    info: (...args) =>
-      logger.info({ channel: "moltzap" }, args.map(String).join(" ")),
-    warn: (...args) =>
-      logger.warn({ channel: "moltzap" }, args.map(String).join(" ")),
-    error: (...args) =>
-      logger.error({ channel: "moltzap" }, args.map(String).join(" ")),
-  };
-
   const service = new MoltZapService({
     serverUrl,
     agentKey: apiKey,
-    logger: wsLogger,
   });
 
-  const core = new MoltZapChannelCore({ service, logger: wsLogger });
+  const core = new MoltZapChannelCore({ service });
 
   return new MoltZapChannel(opts, core, service.ownAgentId ?? "", evalMode);
 });

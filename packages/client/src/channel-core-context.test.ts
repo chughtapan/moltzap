@@ -413,7 +413,7 @@ effectTest(
 
 function disconnectRunningHandlersContinueAfterOneThrowsLoggerErrorSeesDisconnectHandlerThrew() {
   return Effect.gen(function* () {
-    const { fake, core, errorSpy } = customSetup();
+    const { fake, core } = customSetup();
     const recorded: string[] = [];
     core.onDisconnect(() => {
       throw new Error("first disconnect boom");
@@ -426,25 +426,16 @@ function disconnectRunningHandlersContinueAfterOneThrowsLoggerErrorSeesDisconnec
     fake.emit.disconnect();
 
     expect(recorded).toEqual([SECOND_TEXT]);
-    expect(errorSpy).toHaveBeenCalled();
-    const msgs = errorSpy.mock.calls.map(
-      (c: unknown[]) => (typeof c[1] === "string" ? c[1] : c[0]) as string,
-    );
-    expect(
-      msgs.some(
-        (m) => typeof m === "string" && m.includes("disconnect handler threw"),
-      ),
-    ).toBe(true);
   });
 }
 
 effectTest(
-  "disconnect: running handlers continue after one throws; logger.error sees 'disconnect handler threw'",
+  "disconnect: running handlers continue after one throws",
   disconnectRunningHandlersContinueAfterOneThrowsLoggerErrorSeesDisconnectHandlerThrew,
 );
 
-it("reconnect: running handlers continue after one throws; logger.error sees 'reconnect handler threw'", () => {
-  const { fake, core, errorSpy } = customSetup();
+it("reconnect: running handlers continue after one throws", () => {
+  const { fake, core } = customSetup();
   const recorded: string[] = [];
   core.onReconnect(() => {
     throw new Error("first reconnect boom");
@@ -456,14 +447,6 @@ it("reconnect: running handlers continue after one throws; logger.error sees 're
   fake.emit.reconnect();
 
   expect(recorded).toEqual([SECOND_TEXT]);
-  const msgs = errorSpy.mock.calls.map(
-    (c: unknown[]) => (typeof c[1] === "string" ? c[1] : c[0]) as string,
-  );
-  expect(
-    msgs.some(
-      (m) => typeof m === "string" && m.includes("reconnect handler threw"),
-    ),
-  ).toBe(true);
 });
 
 function leavesMarkersUnadvancedWhenTheHandlerSEffectFailsSoTheNextMessageReSeesTheSameContextEntries() {
