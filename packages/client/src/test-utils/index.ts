@@ -64,18 +64,22 @@ export function buildMessage(overrides: MessageFixtureOverrides = {}): Message {
 }
 
 /**
+ * Effect form of {@link flushDispatchChain} for tests already running inside
+ * an Effect runtime.
+ */
+export const flushDispatchChainEffect = Effect.gen(function* () {
+  for (let i = 0; i < FLUSH_DISPATCH_TURNS; i++) {
+    yield* Effect.tryPromise({
+      try: () => Promise.resolve(),
+      catch: (cause) => new FlushDispatchChainError({ cause }),
+    });
+  }
+}).pipe(Effect.withSpan("flushDispatchChain"));
+
+/**
  * Let queued dispatch microtasks settle in tests.
  * @returns A Promise that resolves after the dispatch chain is flushed.
  */
 export function flushDispatchChain() {
-  return Effect.runPromise(
-    Effect.gen(function* () {
-      for (let i = 0; i < FLUSH_DISPATCH_TURNS; i++) {
-        yield* Effect.tryPromise({
-          try: () => Promise.resolve(),
-          catch: (cause) => new FlushDispatchChainError({ cause }),
-        });
-      }
-    }).pipe(Effect.withSpan("flushDispatchChain")),
-  );
+  return Effect.runPromise(flushDispatchChainEffect);
 }
