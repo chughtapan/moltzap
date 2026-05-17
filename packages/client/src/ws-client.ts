@@ -23,7 +23,6 @@ import {
   makeJsonRpcClient,
   makeJsonRpcServer,
   NotConnectedError,
-  RpcServerError,
   RpcTimeoutError,
   type AnyTaskCallbackRpcDefinition,
   type AnyNotificationDefinition,
@@ -37,6 +36,7 @@ import {
   type RpcCallError,
   type RpcDefinition,
   type RpcHandler,
+  type RegisteredTaggedError,
 } from "@moltzap/protocol";
 import { DuplicateServerRpcHandlerError } from "./runtime/errors.js";
 import { decodeFrames } from "./runtime/frame.js";
@@ -187,11 +187,10 @@ interface TaskCallbackDispatcher {
 }
 
 /**
- * Handler signature for `handleServerRpc`. The handler returns an
- * `Effect&lt;unknown, RpcServerError>` — success values are encoded as the
- * response `result`; typed RPC errors are encoded as the response
- * `error`. Defects (handler crashes, non-tagged exceptions) collapse to a
- * generic InternalError reply.
+ * Handler signature for `handleServerRpc`. Success values are encoded as the
+ * response `result`; protocol-registered tagged errors are encoded as the
+ * response `error`. Defects (handler crashes, unregistered failures) collapse
+ * to a generic InternalError reply.
  *
  * The `unknown`/`unknown` parameter and result types narrow generically
  * against `taskCallbackMethods` at each `handleServerRpc(definition,
@@ -210,12 +209,12 @@ export type ServerRpcHandler<
 > = (
   params: ParamsOf<D>,
   ctx: ServerRpcContext & { readonly definition: D },
-) => Effect.Effect<ResultOf<D>, RpcServerError>;
+) => Effect.Effect<ResultOf<D>, RegisteredTaggedError>;
 
 type ErasedServerRpcHandler = (
   params: unknown,
   ctx: ServerRpcContext,
-) => Effect.Effect<unknown, RpcServerError>;
+) => Effect.Effect<unknown, RegisteredTaggedError>;
 
 interface NotificationWaiter {
   readonly definition: AnyNotificationDefinition;
@@ -436,7 +435,8 @@ export class MoltZapWsClient {
    * Send an RPC. Fails with a typed error:
    *   - `NotConnectedError` if the socket isn't OPEN or closes mid-RPC
    *   - `RpcTimeoutError` after `RPC_TIMEOUT_MS` — no automatic retry
-   *   - `RpcServerError` on a typed server-error frame
+   *   - a registered tagged error for known protocol error codes
+   *   - `RpcServerError` for unknown protocol error codes
    *
    * Descriptor-backed RPC call. Callers pass the protocol descriptor, and the
    * client extracts the wire method only inside the encoder path.
@@ -863,8 +863,8 @@ export class MoltZapWsClient {
    *
    * Cases:
    *   - Handler registered + Effect succeeds → encode `result`.
-   *   - Handler registered + Effect fails (RpcServerError) → encode
-   *     `error` from the tag.
+   *   - Handler registered + Effect fails with a registered tagged error →
+   *     encode `error` from the tag.
    *   - Handler registered + Effect defects (untagged crash) →
    *     encode generic InternalError, log the cause.
    *   - No handler registered → encode MethodNotFound error response.
