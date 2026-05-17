@@ -1,16 +1,21 @@
-import { createServer, type IncomingMessage, type Server } from "node:http";
-import type { AddressInfo } from "node:net";
-import { describe, expect, it } from "vitest";
-import { Effect } from "effect";
+import {
+  HttpRouter,
+  HttpServer,
+  HttpServerRequest,
+  HttpServerResponse,
+} from "@effect/platform";
+import { NodeHttpServer } from "@effect/platform-node";
+import { it as effectIt } from "@effect/vitest";
+import { Effect, Exit, Ref } from "effect";
+import { describe, expect } from "vitest";
 import { registerAgent } from "./auth.js";
 
-/** Run an Effect to a Promise for vitest assertions. */
-const run = <A, E>(e: Effect.Effect<A, E>): Promise<A> => Effect.runPromise(e);
+const it = effectIt.scoped;
 
 interface CapturedCall {
-  path: string;
-  method?: string;
-  body: unknown;
+  readonly path: string;
+  readonly method: string;
+  readonly body: unknown;
 }
 
 interface StubResponse {
@@ -19,141 +24,174 @@ interface StubResponse {
   readonly contentType: string;
 }
 
+type StubResponder = (path: string) => StubResponse;
+
+const ADMIN_REGISTER_PATH = "/api/v1/admin/register-agent";
+const PUBLIC_REGISTER_PATH = "/api/v1/auth/register";
+const POST_METHOD = "POST";
 const CREATED_STATUS = 201;
 const FORBIDDEN_STATUS = 403;
+const SINGLE_CALL_COUNT = 1;
 const LOCALHOST = "127.0.0.1";
-
-const readRequestBody = async (request: IncomingMessage): Promise<string> => {
-  const chunks: Buffer[] = [];
-  for await (const chunk of request) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  }
-  return Buffer.concat(chunks).toString("utf8");
-};
-
-const listen = (server: Server): Promise<void> =>
-  new Promise((resolve, reject) => {
-    const onError = (error: Error) => {
-      server.off("listening", onListening);
-      reject(error);
-    };
-    const onListening = () => {
-      server.off("error", onError);
-      resolve();
-    };
-    server.once("error", onError);
-    server.once("listening", onListening);
-    server.listen(0, LOCALHOST);
-  });
-
-const close = (server: Server): Promise<void> =>
-  new Promise((resolve, reject) => {
-    server.close((error) => {
-      if (error) reject(error);
-      else resolve();
-    });
-  });
+const LOCAL_HTTP_SCHEME = "http";
+const JSON_CONTENT_TYPE = "application/json";
+const TEXT_CONTENT_TYPE = "text/plain";
+const TEST_AGENT_NAME = "test";
+const INVITE_CODE = "secret";
+const OWNER_USER_ID = "00000000-0000-4000-8000-000000000001";
+const AGENT_ID = "agent-id";
+const API_KEY = "api-key";
+const CLAIM_URL = "https://example.test/claim";
+const CLAIM_TOKEN = "claim-token";
+const INVITE_REQUIRED_BODY = "invite required";
 
 const defaultRegisterResponse = (): StubResponse => ({
   status: CREATED_STATUS,
-  contentType: "application/json",
+  contentType: JSON_CONTENT_TYPE,
   body: JSON.stringify({
-    agentId: "agent-id",
-    apiKey: "api-key",
-    claimUrl: "http://example/claim",
-    claimToken: "claim-token",
+    agentId: AGENT_ID,
+    apiKey: API_KEY,
+    claimUrl: CLAIM_URL,
+    claimToken: CLAIM_TOKEN,
   }),
 });
 
-async function withRegisterServer<T>(
-  test: (ctx: { baseUrl: string; calls: CapturedCall[] }) => Promise<T>,
-  responder: (path: string) => StubResponse = defaultRegisterResponse,
-): Promise<T> {
-  const calls: CapturedCall[] = [];
-  const server = createServer((request, response) => {
-    void (async () => {
-      const path = request.url ?? "/";
-      const bodyText = await readRequestBody(request);
-      const stubResponse = responder(path);
-      response.statusCode = stubResponse.status;
-      response.setHeader("Content-Type", stubResponse.contentType);
-      response.end(stubResponse.body);
-      const parsedBody: unknown = bodyText ? JSON.parse(bodyText) : undefined;
-      calls.push({
-        path,
-        method: request.method,
-        body: parsedBody,
-      });
-    })().catch((error: unknown) => {
-      response.statusCode = 500;
-      response.end(error instanceof Error ? error.message : String(error));
-    });
+const forbiddenResponse = (): StubResponse => ({
+  status: FORBIDDEN_STATUS,
+  contentType: TEXT_CONTENT_TYPE,
+  body: INVITE_REQUIRED_BODY,
+});
+
+const localBaseUrl = (port: number): string =>
+  `${LOCAL_HTTP_SCHEME}://${LOCALHOST}:${port}`;
+
+const requestBody = (request: HttpServerRequest.HttpServerRequest) =>
+  request.json.pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+
+const appendCapturedCall = (
+  calls: Ref.Ref<ReadonlyArray<CapturedCall>>,
+  call: CapturedCall,
+) => Ref.update(calls, (current) => [...current, call]);
+
+const responseFromStub = (response: StubResponse) =>
+  HttpServerResponse.text(response.body, {
+    status: response.status,
+    contentType: response.contentType,
   });
 
-  await listen(server);
-  const address = server.address();
-  if (address === null || typeof address === "string") {
-    await close(server);
-    throw new Error("expected TCP server address");
-  }
-  const baseUrl = `http://${LOCALHOST}:${(address as AddressInfo).port}`;
-  try {
-    return await test({ baseUrl, calls });
-  } finally {
-    await close(server);
-  }
+const routeHandler = (
+  path: string,
+  calls: Ref.Ref<ReadonlyArray<CapturedCall>>,
+  responder: StubResponder,
+) =>
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const body = yield* requestBody(request);
+    yield* appendCapturedCall(calls, {
+      path,
+      method: request.method,
+      body,
+    });
+    return responseFromStub(responder(path));
+  });
+
+const makeRegisterServer = (
+  responder: StubResponder = defaultRegisterResponse,
+) =>
+  Effect.gen(function* () {
+    const calls = yield* Ref.make<ReadonlyArray<CapturedCall>>([]);
+    const adminRoute = HttpRouter.post(
+      ADMIN_REGISTER_PATH,
+      routeHandler(ADMIN_REGISTER_PATH, calls, responder),
+    );
+    const publicRoute = HttpRouter.post(
+      PUBLIC_REGISTER_PATH,
+      routeHandler(PUBLIC_REGISTER_PATH, calls, responder),
+    );
+
+    yield* HttpServer.serveEffect(
+      HttpRouter.empty.pipe(adminRoute, publicRoute),
+    );
+    const address = yield* HttpServer.addressWith((serverAddress) =>
+      Effect.succeed(serverAddress),
+    );
+    if (address._tag !== "TcpAddress") {
+      return yield* Effect.dieMessage(`expected TCP address: ${address._tag}`);
+    }
+    return { baseUrl: localBaseUrl(address.port), calls };
+  });
+
+const expectSingleCall = (calls: ReadonlyArray<CapturedCall>): CapturedCall => {
+  expect(calls).toHaveLength(SINGLE_CALL_COUNT);
+  const [call] = calls;
+  expect(call).toBeDefined();
+  return call ?? { path: "", method: "", body: undefined };
+};
+
+function postsOwnerUserIdToAdminEndpoint() {
+  return Effect.gen(function* () {
+    const server = yield* makeRegisterServer();
+    const result = yield* registerAgent(server.baseUrl, TEST_AGENT_NAME, {
+      inviteCode: INVITE_CODE,
+      ownerUserId: OWNER_USER_ID,
+    });
+
+    const call = expectSingleCall(yield* Ref.get(server.calls));
+    expect(call.path).toBe(ADMIN_REGISTER_PATH);
+    expect(call.method).toBe(POST_METHOD);
+    expect(call.body).toEqual({
+      name: TEST_AGENT_NAME,
+      inviteCode: INVITE_CODE,
+      ownerUserId: OWNER_USER_ID,
+    });
+    expect(result.agentId).toBe(AGENT_ID);
+  }).pipe(Effect.provide(NodeHttpServer.layerTest), Effect.orDie);
+}
+
+function postsToPublicEndpointWithoutOwnerUserId() {
+  return Effect.gen(function* () {
+    const server = yield* makeRegisterServer();
+
+    yield* registerAgent(server.baseUrl, TEST_AGENT_NAME, {
+      inviteCode: INVITE_CODE,
+    });
+
+    const call = expectSingleCall(yield* Ref.get(server.calls));
+    expect(call.path).toBe(PUBLIC_REGISTER_PATH);
+    expect(call.body).toEqual({
+      name: TEST_AGENT_NAME,
+      inviteCode: INVITE_CODE,
+    });
+  }).pipe(Effect.provide(NodeHttpServer.layerTest), Effect.orDie);
+}
+
+function nonSuccessResponseFails() {
+  return Effect.gen(function* () {
+    const server = yield* makeRegisterServer(() => forbiddenResponse());
+
+    const exit = yield* Effect.exit(
+      registerAgent(server.baseUrl, TEST_AGENT_NAME, {
+        ownerUserId: OWNER_USER_ID,
+      }),
+    );
+
+    expect(Exit.isFailure(exit)).toBe(true);
+  }).pipe(Effect.provide(NodeHttpServer.layerTest), Effect.orDie);
 }
 
 describe("registerAgent", () => {
-  it("posts ownerUserId in the body to the admin endpoint", async () => {
-    await withRegisterServer(async ({ baseUrl, calls }) => {
-      const result = await run(
-        registerAgent(baseUrl, "test", {
-          inviteCode: "secret",
-          ownerUserId: "00000000-0000-4000-8000-000000000001",
-        }),
-      );
+  it(
+    "posts ownerUserId in the body to the admin endpoint",
+    postsOwnerUserIdToAdminEndpoint,
+  );
 
-      expect(calls).toHaveLength(1);
-      const [call] = calls;
-      expect(call!.path).toBe("/api/v1/admin/register-agent");
-      expect(call!.method).toBe("POST");
-      expect(call!.body).toEqual({
-        name: "test",
-        inviteCode: "secret",
-        ownerUserId: "00000000-0000-4000-8000-000000000001",
-      });
-      expect(result.agentId).toBe("agent-id");
-    });
-  });
+  it(
+    "posts to the public endpoint without ownerUserId when absent",
+    postsToPublicEndpointWithoutOwnerUserId,
+  );
 
-  it("posts to the public endpoint without ownerUserId when absent", async () => {
-    await withRegisterServer(async ({ baseUrl, calls }) => {
-      await run(registerAgent(baseUrl, "test", { inviteCode: "secret" }));
-
-      expect(calls[0]!.path).toBe("/api/v1/auth/register");
-      // toEqual with `additionalProperties` rejects extra keys, so this also
-      // proves ownerUserId is not on the body.
-      expect(calls[0]!.body).toEqual({ name: "test", inviteCode: "secret" });
-    });
-  });
-
-  it("fails when the server returns a non-2xx response", async () => {
-    await withRegisterServer(
-      async ({ baseUrl }) => {
-        const exit = await Effect.runPromiseExit(
-          registerAgent(baseUrl, "test", {
-            ownerUserId: "00000000-0000-4000-8000-000000000001",
-          }),
-        );
-
-        expect(exit._tag).toBe("Failure");
-      },
-      () => ({
-        status: FORBIDDEN_STATUS,
-        contentType: "text/plain",
-        body: "invite required",
-      }),
-    );
-  });
+  it(
+    "fails when the server returns a non-2xx response",
+    nonSuccessResponseFails,
+  );
 });
