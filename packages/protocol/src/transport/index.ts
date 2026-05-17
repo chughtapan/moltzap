@@ -61,8 +61,4 @@ export type { DecodedRpcRequest, DecodedNotification } from "./rpc-groups.js";
 export { makeJsonRpcClient } from "./json-rpc-client.js";
 export type { JsonRpcClient, RpcCallError } from "./json-rpc-client.js";
 export { handler, makeJsonRpcServer } from "./json-rpc-server.js";
-export type {
-  JsonRpcServer,
-  RpcHandler,
-  RpcLogger,
-} from "./json-rpc-server.js";
+export type { JsonRpcServer, RpcHandler } from "./json-rpc-server.js";

@@ -133,13 +133,10 @@ const descriptionOption = Options.text("description").pipe(
 
 // Spec sbd#177 rev 3 §5.2 barrel edits: --profile and --no-persist.
 //
-// NOTE on `--profile` routing: `register` is the ONE subcommand that
-// consumes `--profile` locally rather than letting `extractGlobalFlags`
-// (cli/index.ts) swallow it for transport selection. Reason: register
-// writes a NEW profile, so the named profile does not yet exist and the
-// transport resolver would reject it as missing. `extractGlobalFlags`
-// detects this case by inspecting argv for the `register` leaf and leaves
-// `--profile` in argv; `@effect/cli` binds it here.
+// NOTE on `--profile` routing: `register` consumes `--profile` locally because
+// it writes a NEW profile. Parent-level `moltzap --profile <name>` still means
+// "load an existing profile" for transport selection, and would reject the new
+// profile before this command could create it.
 const profileOption = Options.text("profile").pipe(
   Options.withDescription(
     "Named profile to register under. Writes the new apiKey to " +

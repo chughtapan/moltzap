@@ -13,7 +13,7 @@ export const CROSS_CONV_HEADER = "Messages (untrusted metadata):";
 const JSON_INDENT_SPACES = 2;
 
 export function formatCrossConvOpenClaw(
-  messages: CrossConvMessage[],
+  messages: readonly CrossConvMessage[],
   opts: { ownAgentId: string },
 ): string | null {
   if (messages.length === 0) return null;

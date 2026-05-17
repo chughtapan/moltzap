@@ -47,7 +47,6 @@ interface PollingConnections {
  * let the presence subscription remain pending; `Timeout` will fire after
  * `timeoutMs` and the caller can investigate via the runtime adapter's
  * `getLogs(0)`.
- *
  * @example
  * Out-of-process consumer (zapbot orchestrator) replaces this helper with a
  * WebSocket presence subscription against a standalone moltzap-server.

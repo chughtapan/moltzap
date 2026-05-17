@@ -131,6 +131,42 @@ function emitConv1TextMessage(
   });
 }
 
+function recordReceivedMessage(
+  received: EnrichedInboundMessage[],
+  inbound: EnrichedInboundMessage,
+): Effect.Effect<void> {
+  return Effect.sync(() => {
+    received.push(inbound);
+  });
+}
+
+function recordReceivedMessageId(
+  received: string[],
+  inbound: EnrichedInboundMessage,
+): Effect.Effect<void> {
+  return Effect.sync(() => {
+    received.push(inbound.id);
+  });
+}
+
+function installReceivedRecorder(
+  core: ChannelCoreFixture["core"],
+  received: EnrichedInboundMessage[],
+): void {
+  core.onInbound((inbound) => recordReceivedMessage(received, inbound));
+}
+
+function installNonStuckMessageIdRecorder(
+  core: ChannelCoreFixture["core"],
+  received: string[],
+): void {
+  core.onInbound((inbound) =>
+    inbound.id === message("msg-stuck")
+      ? Effect.never
+      : recordReceivedMessageId(received, inbound),
+  );
+}
+
 function expectSingleCoalescedMessage(
   received: ReceivedMessages,
   expected: CoalescedMessageExpectation,
@@ -432,7 +468,7 @@ effectTest(
 
 function dropsDeniedInboundDispatchWorkWithoutCallingTheHandler() {
   return Effect.gen(function* () {
-    const { fake, received, infoSpy } = customSetup();
+    const { fake, received } = customSetup();
     installAdmission(fake, () =>
       Effect.succeed({
         _tag: "deny" as const,
@@ -444,14 +480,6 @@ function dropsDeniedInboundDispatchWorkWithoutCallingTheHandler() {
     yield* flushDispatchChainEffect;
 
     expect(received).toHaveLength(0);
-    expect(infoSpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        messageId: message("msg-denied"),
-        attempt: 0,
-        reason: "not this slot",
-      }),
-      "MoltZapChannelCore: inbound dispatch denied",
-    );
   });
 }
 
@@ -462,7 +490,7 @@ effectTest(
 
 function holdsHeadOfLineWorkUntilANewInboundMessageRefreshesTheSnapshot() {
   return Effect.gen(function* () {
-    const { fake, received, infoSpy } = customSetup();
+    const { fake, received } = customSetup();
     setGroupConversation(fake, "conv-1");
     setAgentNames(fake, [
       ["agent-alice", "Alice"],
@@ -483,14 +511,6 @@ function holdsHeadOfLineWorkUntilANewInboundMessageRefreshesTheSnapshot() {
     yield* flushDispatchChainEffect;
 
     expectHeldDispatchRefresh(received, pendingSnapshots);
-    expect(infoSpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        messageId: message("msg-1"),
-        attempt: 0,
-        reason: "not_yet",
-      }),
-      "MoltZapChannelCore: inbound dispatch held",
-    );
   });
 }
 
@@ -538,7 +558,7 @@ effectTest(
 
 function purgesHeldAndQueuedDispatchWorkWhenAConversationIsArchived() {
   return Effect.gen(function* () {
-    const { fake, received, infoSpy } = customSetup();
+    const { fake, received } = customSetup();
     fake.state.setConversation("conv-1", {
       type: "group",
       participants: [],
@@ -561,19 +581,6 @@ function purgesHeldAndQueuedDispatchWorkWhenAConversationIsArchived() {
 
     expect(calls).toBe(1);
     expect(received).toHaveLength(0);
-    expect(infoSpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        conversationId: conversation("conv-1"),
-      }),
-      "MoltZapChannelCore: closed conversation dispatch work purged",
-    );
-    expect(infoSpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        messageId: message("msg-after-archive"),
-        conversationId: conversation("conv-1"),
-      }),
-      "MoltZapChannelCore: dropping inbound message for closed conversation",
-    );
   });
 }
 
@@ -654,19 +661,12 @@ function failsClosedWhenDispatchAdmissionErrors() {
   return Effect.gen(function* () {
     const fake = createFakeChannelService({ ownAgentId: "agent-self" });
     const received: EnrichedInboundMessage[] = [];
-    const errorSpy = vi.fn();
     fake.state.setConversation("conv-1", { type: "dm", participants: [] });
     fake.state.setAgentName("agent-alice", "Alice");
-    const warnSpy = vi.fn();
     const core = new MoltZapChannelCore({
       service: fake.service,
-      logger: { info: () => {}, warn: warnSpy, error: errorSpy },
     });
-    core.onInbound((m) =>
-      Effect.sync(() => {
-        received.push(m);
-      }),
-    );
+    installReceivedRecorder(core, received);
     installAdmission(fake, () =>
       Effect.fail(
         new RpcServerError({
@@ -680,13 +680,6 @@ function failsClosedWhenDispatchAdmissionErrors() {
     yield* flushDispatchChainEffect;
 
     expect(received).toHaveLength(0);
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        messageId: message("msg-fail-closed"),
-        attempt: 0,
-      }),
-      "MoltZapChannelCore: dispatch admission failed closed",
-    );
   });
 }
 
@@ -700,32 +693,18 @@ it("fails closed when dispatch admission hangs", () =>
     Effect.gen(function* () {
       const fake = createFakeChannelService({ ownAgentId: "agent-self" });
       const received: EnrichedInboundMessage[] = [];
-      const errorSpy = vi.fn();
       fake.state.setConversation("conv-1", { type: "dm", participants: [] });
       fake.state.setAgentName("agent-alice", "Alice");
-      const warnSpy = vi.fn();
       const core = new MoltZapChannelCore({
         service: fake.service,
-        logger: { info: () => {}, warn: warnSpy, error: errorSpy },
         dispatchAdmissionTimeoutMs: 1,
       });
-      core.onInbound((m) =>
-        Effect.sync(() => {
-          received.push(m);
-        }),
-      );
+      installReceivedRecorder(core, received);
       installAdmission(fake, () => Effect.never);
 
       fake.emit.message(buildMessage({ id: "msg-timeout-closed" }));
 
       yield* Effect.sleep(10);
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          messageId: message("msg-timeout-closed"),
-          attempt: 0,
-        }),
-        "MoltZapChannelCore: dispatch admission failed closed",
-      );
       yield* flushDispatchChainEffect;
 
       expect(received).toHaveLength(0);
@@ -737,8 +716,6 @@ it("continues draining inbound work after a dispatch lease expires", () =>
     Effect.gen(function* () {
       const fake = createFakeChannelService({ ownAgentId: "agent-self" });
       const received: string[] = [];
-      const warnSpy = vi.fn();
-      const errorSpy = vi.fn();
       fake.state.setConversation("conv-1", { type: "dm", participants: [] });
       fake.state.setAgentName("agent-alice", "Alice");
       installAdmission(fake, (request) =>
@@ -753,14 +730,8 @@ it("continues draining inbound work after a dispatch lease expires", () =>
       );
       const core = new MoltZapChannelCore({
         service: fake.service,
-        logger: { info: () => {}, warn: warnSpy, error: errorSpy },
       });
-      core.onInbound((m) => {
-        if (m.id === message("msg-stuck")) return Effect.never;
-        return Effect.sync(() => {
-          received.push(m.id);
-        });
-      });
+      installNonStuckMessageIdRecorder(core, received);
 
       fake.emit.message(buildMessage({ id: "msg-stuck" }));
       yield* flushDispatchChainEffect;
@@ -769,14 +740,6 @@ it("continues draining inbound work after a dispatch lease expires", () =>
       yield* flushDispatchChainEffect;
 
       expect(received).toEqual([message("msg-next")]);
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          messageId: message("msg-stuck"),
-          leaseId: `lease-${message("msg-stuck")}`,
-          timeoutMs: 1,
-        }),
-        "MoltZapChannelCore: inbound dispatch lease expired",
-      );
     }),
   ));
 

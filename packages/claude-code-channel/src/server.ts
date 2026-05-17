@@ -21,7 +21,6 @@
  */
 
 import { Data, Effect, Either } from "effect";
-import type { WsClientLogger } from "@moltzap/client";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
@@ -74,7 +73,6 @@ export interface ServerDeps {
     text: string,
   ) => Effect.Effect<void, ReplyError>;
   readonly routing: RoutingState;
-  readonly logger: WsClientLogger;
   /** Internal test seam; production defaults to `new StdioServerTransport()`. */
   readonly transportFactory?: () => Transport;
 }
@@ -106,6 +104,11 @@ type ServerBootError = StdioConnectFailed | ToolRegistrationFailed;
 export type ServerBootResult =
   | { readonly _tag: "Ok"; readonly value: ServerHandle }
   | { readonly _tag: "Err"; readonly error: ServerBootError };
+
+interface PendingNotificationState {
+  initialized: boolean;
+  readonly pending: ClaudeChannelNotification[];
+}
 
 /**
  * Schema for the `reply` tool's inputSchema field. Matches contract verbatim
@@ -347,20 +350,16 @@ function emitMcpNotification(
 }
 
 function ignoreQueuedNotificationEmitFailure(
-  deps: ServerDeps,
   err: unknown,
 ): Effect.Effect<void> {
-  return Effect.sync(() =>
-    deps.logger.error(
-      { err },
-      "claude-code-channel: queued notification emit failed",
-    ),
+  const message = "claude-code-channel: queued notification emit failed";
+  return Effect.logError(message).pipe(
+    Effect.annotateLogs({ err: stringifyCause(err) }),
   );
 }
 
 function flushPendingNotifications(
   server: Server,
-  deps: ServerDeps,
   pending: ClaudeChannelNotification[],
 ): Effect.Effect<void> {
   return Effect.gen(function* () {
@@ -368,9 +367,7 @@ function flushPendingNotifications(
       const notification = pending.shift();
       if (notification === undefined) break;
       yield* emitMcpNotification(server, notification).pipe(
-        Effect.catchAll((err) =>
-          ignoreQueuedNotificationEmitFailure(deps, err),
-        ),
+        Effect.catchAll((err) => ignoreQueuedNotificationEmitFailure(err)),
       );
     }
   });
@@ -393,20 +390,108 @@ function emitPushNotification(
   });
 }
 
-function closeMcpServer(server: Server, deps: ServerDeps): Effect.Effect<void> {
+function closeMcpServer(server: Server): Effect.Effect<void> {
   return Effect.tryPromise({
     try: () => server.close(),
     catch: (cause): Error =>
       cause instanceof Error ? cause : new Error(stringifyCause(cause)),
+  }).pipe(Effect.catchAll((err) => logMcpCloseFailure(err)));
+}
+
+function makeMcpServer(config: ServerConfig): Server {
+  return new Server(
+    { name: config.serverName, version: "0.1.0" },
+    {
+      capabilities: CHANNEL_CAPABILITIES,
+      instructions: config.instructions,
+    },
+  );
+}
+
+function buildToolList(): ListToolsResult {
+  return {
+    tools: [
+      {
+        name: REPLY_TOOL_NAME,
+        description:
+          "Send a message back through the MoltZap channel. Pass reply_to (a message_id from the channel) to target a specific conversation; omit to reply to the most recent inbound.",
+        inputSchema: buildReplyInputSchema(),
+      },
+    ],
+  };
+}
+
+function registerServerHandlers(
+  server: Server,
+  deps: ServerDeps,
+): Effect.Effect<void, ToolRegistrationFailed> {
+  return Effect.try({
+    try: () => {
+      const toolList = buildToolList();
+      server.setRequestHandler(ListToolsRequestSchema, () =>
+        Promise.resolve(toolList),
+      );
+      server.setRequestHandler(CallToolRequestSchema, (request) =>
+        Effect.runPromise(handleCallToolRequest(request, deps)),
+      );
+    },
+    catch: (cause) =>
+      new ToolRegistrationFailed({ cause: stringifyCause(cause) }),
+  });
+}
+
+function connectServer(
+  server: Server,
+  deps: ServerDeps,
+): Effect.Effect<ServerBootResult | null> {
+  const transport = deps.transportFactory
+    ? deps.transportFactory()
+    : new StdioServerTransport();
+  return Effect.tryPromise({
+    try: () => server.connect(transport),
+    catch: (cause) => cause,
   }).pipe(
-    Effect.catchAll((err) =>
-      Effect.sync(() => {
-        deps.logger.error(
-          { err },
-          "claude-code-channel: MCP close failed (swallowed per I8)",
-        );
+    Effect.match({
+      onFailure: (cause): ServerBootResult => ({
+        _tag: "Err",
+        error: new StdioConnectFailed({
+          cause: stringifyCause(cause),
+        }),
       }),
-    ),
+      onSuccess: () => null,
+    }),
+  );
+}
+
+function markServerInitialized(
+  server: Server,
+  state: PendingNotificationState,
+): void {
+  state.initialized = true;
+  Effect.runFork(flushPendingNotifications(server, state.pending));
+}
+
+function makeServerHandle(
+  server: Server,
+  state: PendingNotificationState,
+): ServerHandle {
+  return {
+    push: (notification) =>
+      Effect.gen(function* () {
+        if (!state.initialized) {
+          state.pending.push(notification);
+          return;
+        }
+        yield* emitPushNotification(server, notification);
+      }),
+    stop: () => closeMcpServer(server),
+  };
+}
+
+function logMcpCloseFailure(err: unknown): Effect.Effect<void> {
+  const message = "claude-code-channel: MCP close failed (swallowed per I8)";
+  return Effect.logError(message).pipe(
+    Effect.annotateLogs({ err: stringifyCause(err) }),
   );
 }
 
@@ -426,80 +511,22 @@ function bootChannelMcpServerEffect(
   deps: ServerDeps,
 ): Effect.Effect<ServerBootResult, never, never> {
   return Effect.gen(function* () {
-    const server = new Server(
-      { name: config.serverName, version: "0.1.0" },
-      {
-        capabilities: CHANNEL_CAPABILITIES,
-        instructions: config.instructions,
-      },
+    const server = makeMcpServer(config);
+    const state: PendingNotificationState = { initialized: false, pending: [] };
+    server.oninitialized = () => markServerInitialized(server, state);
+
+    const registration = yield* Effect.either(
+      registerServerHandlers(server, deps),
     );
+    const registrationFailure = Either.match(registration, {
+      onLeft: (error): ServerBootResult => ({ _tag: "Err", error }),
+      onRight: () => null,
+    });
+    if (registrationFailure !== null) return registrationFailure;
 
-    // Pending-notification queue for pre-initialization push calls.
-    let initialized = false;
-    const pending: ClaudeChannelNotification[] = [];
-    server.oninitialized = () => {
-      initialized = true;
-      Effect.runFork(flushPendingNotifications(server, deps, pending));
-    };
-
-    try {
-      const toolList: ListToolsResult = {
-        tools: [
-          {
-            name: REPLY_TOOL_NAME,
-            description:
-              "Send a message back through the MoltZap channel. Pass reply_to (a message_id from the channel) to target a specific conversation; omit to reply to the most recent inbound.",
-            inputSchema: buildReplyInputSchema(),
-          },
-        ],
-      };
-      server.setRequestHandler(ListToolsRequestSchema, () =>
-        Promise.resolve(toolList),
-      );
-
-      server.setRequestHandler(CallToolRequestSchema, (request) =>
-        Effect.runPromise(handleCallToolRequest(request, deps)),
-      );
-    } catch (cause) {
-      return {
-        _tag: "Err",
-        error: new ToolRegistrationFailed({
-          cause: stringifyCause(cause),
-        }),
-      };
-    }
-
-    const transport = deps.transportFactory
-      ? deps.transportFactory()
-      : new StdioServerTransport();
-    const connectFailure = yield* Effect.tryPromise({
-      try: () => server.connect(transport),
-      catch: (cause) => cause,
-    }).pipe(
-      Effect.match({
-        onFailure: (cause): ServerBootResult => ({
-          _tag: "Err",
-          error: new StdioConnectFailed({
-            cause: stringifyCause(cause),
-          }),
-        }),
-        onSuccess: () => null,
-      }),
-    );
+    const connectFailure = yield* connectServer(server, deps);
     if (connectFailure !== null) return connectFailure;
 
-    const handle: ServerHandle = {
-      push: (notification) =>
-        Effect.gen(function* () {
-          if (!initialized) {
-            pending.push(notification);
-            return;
-          }
-          yield* emitPushNotification(server, notification);
-        }),
-      stop: () => closeMcpServer(server, deps),
-    };
-
-    return { _tag: "Ok", value: handle };
+    return { _tag: "Ok", value: makeServerHandle(server, state) };
   });
 }

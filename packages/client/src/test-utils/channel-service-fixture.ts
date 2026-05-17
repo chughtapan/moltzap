@@ -32,7 +32,15 @@ type ServiceHandler =
 interface SentReply {
   convId: string;
   text: string;
+  replyTo?: string;
   dispatchLeaseId?: string;
+}
+
+interface SendFixtureReplyInput {
+  readonly conversationId: string;
+  readonly text: string;
+  readonly replyTo: string | undefined;
+  readonly dispatchLeaseId: string | undefined;
 }
 
 interface FixtureConversationMeta {
@@ -96,6 +104,7 @@ export interface ChannelServiceState {
   readonly sent: ReadonlyArray<{
     convId: string;
     text: string;
+    replyTo?: string;
     dispatchLeaseId?: string;
   }>;
   readonly connectCalls: { count: number };
@@ -175,17 +184,33 @@ function connectFixtureService(
 
 function sendFixtureReply(
   store: ChannelServiceFixtureStore,
-  conversationId: string,
-  text: string,
-  dispatchLeaseId: string | undefined,
+  input: SendFixtureReplyInput,
 ): Effect.Effect<void> {
   return Effect.sync(() => {
     store.sent.push({
-      convId: conversationId,
-      text,
-      ...(dispatchLeaseId ? { dispatchLeaseId } : {}),
+      convId: input.conversationId,
+      text: input.text,
+      ...(input.replyTo ? { replyTo: input.replyTo } : {}),
+      ...(input.dispatchLeaseId
+        ? { dispatchLeaseId: input.dispatchLeaseId }
+        : {}),
     });
   });
+}
+
+function makeFixtureSend(
+  store: ChannelServiceFixtureStore,
+): ChannelService["send"] {
+  return (conversationId, text, opts) => {
+    const replyTo = opts?.replyTo;
+    const dispatchLeaseId = opts?.dispatchLeaseId;
+    return sendFixtureReply(store, {
+      conversationId,
+      text,
+      replyTo,
+      dispatchLeaseId,
+    });
+  };
 }
 
 function getFixtureConversation(
@@ -227,14 +252,7 @@ function makeService(store: ChannelServiceFixtureStore): ChannelService {
       store.closeCalls.count++;
     },
 
-    send(
-      conversationId: string,
-      text: string,
-      opts?: { dispatchLeaseId?: string },
-    ) {
-      const dispatchLeaseId = opts?.dispatchLeaseId;
-      return sendFixtureReply(store, conversationId, text, dispatchLeaseId);
-    },
+    send: makeFixtureSend(store),
 
     getConversation(convId: string) {
       return getFixtureConversation(store, convId);

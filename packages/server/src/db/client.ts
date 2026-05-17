@@ -2,7 +2,6 @@ import { type Kysely, PostgresDialect } from "kysely";
 import pg from "pg";
 import type { Database } from "./database.js";
 import { makeEffectKysely } from "./effect-kysely-toolkit.js";
-import { logger } from "../logger.js";
 
 /**
  * Build a patched Kysely instance backed by a Postgres connection string.
@@ -20,7 +19,7 @@ export function createDb(connectionString: string): Kysely<Database> {
   });
 
   pool.on("error", (err) => {
-    logger.error({ err }, "Unexpected database pool error");
+    process.emitWarning(err);
   });
 
   return makeEffectKysely<Database>({

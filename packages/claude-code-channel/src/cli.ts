@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+
 /**
  * Stdio MCP-server entry — what Claude Code (`claude --mcp-config ...`)
  * subprocess-spawns to bring this channel online.
@@ -17,16 +18,29 @@
  * Failure modes exit with code 1 and a diagnostic line on stderr.
  */
 import { bootClaudeCodeChannel } from "./entry.js";
-import { Config, ConfigError, Data, Effect, Option, Redacted } from "effect";
+import {
+  Config,
+  ConfigError,
+  Data,
+  Effect,
+  Logger,
+  Option,
+  Redacted,
+} from "effect";
 
 class ChannelMainError extends Data.TaggedError("ChannelMainError")<{
   readonly cause: unknown;
 }> {}
 
-function main(): Effect.Effect<
-  void,
-  ChannelMainError | ConfigError.ConfigError,
-  never
+interface RuntimeConfig {
+  readonly apiKey: string;
+  readonly serverUrl: string;
+  readonly serverName?: string;
+}
+
+function loadRuntimeConfig(): Effect.Effect<
+  RuntimeConfig,
+  ConfigError.ConfigError
 > {
   return Effect.gen(function* () {
     const redactedApiKey = yield* Config.redacted("MOLTZAP_API_KEY").pipe(
@@ -42,68 +56,75 @@ function main(): Effect.Effect<
         validation: (value) => value.length > 0,
       }),
     );
-
-    // Logger writes to stderr — stdout is reserved for MCP JSON-RPC framing.
-    // Variadic `unknown[]` matches @moltzap/client's `WsClientLogger` shape
-    // (ws-client.ts:110).
-    const logger = {
-      info: (...args: unknown[]): void => {
-        process.stderr.write(`[info] ${formatLogArgs(args)}\n`);
-      },
-      warn: (...args: unknown[]): void => {
-        process.stderr.write(`[warn] ${formatLogArgs(args)}\n`);
-      },
-      error: (...args: unknown[]): void => {
-        process.stderr.write(`[error] ${formatLogArgs(args)}\n`);
-      },
-    };
-
     const serverName = Option.getOrUndefined(
       yield* Config.option(Config.string("MOLTZAP_SERVER_NAME")),
     );
+    return {
+      apiKey,
+      serverUrl,
+      ...(serverName === undefined || serverName.length === 0
+        ? {}
+        : { serverName }),
+    };
+  });
+}
+
+const StderrLoggerLive = Logger.replace(
+  Logger.defaultLogger,
+  Logger.withConsoleError(Logger.stringLogger),
+);
+
+function main(): Effect.Effect<
+  void,
+  ChannelMainError | ConfigError.ConfigError,
+  never
+> {
+  return Effect.gen(function* () {
+    const { apiKey, serverUrl, serverName } = yield* loadRuntimeConfig();
     const result = yield* Effect.tryPromise({
       try: () =>
         bootClaudeCodeChannel({
           serverUrl,
           agentKey: apiKey,
-          logger,
-          ...(typeof serverName === "string" && serverName.length > 0
-            ? { serverName }
-            : {}),
+          ...(serverName === undefined ? {} : { serverName }),
         }),
       catch: (cause) => new ChannelMainError({ cause }),
     });
     if (result._tag === "Err") {
-      process.stderr.write(
-        `[error] moltzap-claude-code-channel: bootClaudeCodeChannel failed: ${result.error._tag}: ${result.error.cause}\n`,
+      return yield* Effect.fail(
+        new ChannelMainError({
+          cause: `${result.error._tag}: ${result.error.cause}`,
+        }),
       );
-      process.exit(1);
     }
 
     // Adapter readiness is observed by the moltzap server's ConnectionManager
     // once the WS auth completes. The MCP stdio server stays alive driving the
     // `notifications/claude/channel` and `reply` tool calls; teardown is
     // signal-driven (SIGTERM from the parent runtime adapter).
-    process.stderr.write("[info] moltzap-claude-code-channel: ready\n");
+    yield* Effect.logInfo("moltzap-claude-code-channel: ready");
   });
 }
 
-function safeJson(value: unknown): string {
-  try {
-    return JSON.stringify(value);
-  } catch (jsonErr) {
-    const reason = jsonErr instanceof Error ? jsonErr.message : String(jsonErr);
-    return `${String(value)} (json serialization failed: ${reason})`;
-  }
+function startupFailureCause(
+  err: ChannelMainError | ConfigError.ConfigError,
+): string {
+  return err instanceof ChannelMainError ? String(err.cause) : String(err);
 }
 
-function formatLogArgs(args: ReadonlyArray<unknown>): string {
-  return args.map((a) => (typeof a === "string" ? a : safeJson(a))).join(" ");
-}
-
-Effect.runPromise(main()).catch((err: unknown) => {
-  process.stderr.write(
-    `[error] moltzap-claude-code-channel: uncaught ${err instanceof Error ? err.message : String(err)}\n`,
+function logStartupFailure(
+  err: ChannelMainError | ConfigError.ConfigError,
+): Effect.Effect<void> {
+  return Effect.logError("moltzap-claude-code-channel: startup failed").pipe(
+    Effect.annotateLogs({ cause: startupFailureCause(err) }),
   );
+}
+
+Effect.runPromise(
+  main().pipe(
+    Effect.tapError(logStartupFailure),
+    Effect.provide(StderrLoggerLive),
+  ),
+).catch(() => {
   process.exit(1);
 });

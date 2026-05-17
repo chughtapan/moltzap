@@ -2,12 +2,6 @@ import { Command } from "@effect/cli";
 import { Effect } from "effect";
 import { LocalServiceCommands, requestLocalService } from "../socket-client.js";
 
-interface StatusResult {
-  agentId: string;
-  connected: boolean;
-  conversations: number;
-}
-
 /**
  * `moltzap status` — calls the local service's `status` RPC and prints
  * agent id, live connection state, and conversation count.
@@ -16,10 +10,9 @@ export const statusCommand = Command.make("status", {}, () =>
   requestLocalService(LocalServiceCommands.Status).pipe(
     Effect.tap((result) =>
       Effect.sync(() => {
-        const r = result as StatusResult;
-        console.log(`Agent ID:       ${r.agentId ?? "none"}`);
-        console.log(`Connected:      ${r.connected}`);
-        console.log(`Conversations:  ${r.conversations}`);
+        console.log(`Agent ID:       ${result.agentId ?? "none"}`);
+        console.log(`Connected:      ${result.connected}`);
+        console.log(`Conversations:  ${result.conversations}`);
       }),
     ),
     Effect.asVoid,

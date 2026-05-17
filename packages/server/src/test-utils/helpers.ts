@@ -123,7 +123,14 @@ export function connectTestClient(opts: {
       autoConnect: opts.autoConnect,
     });
     return {
-      ...client,
+      sendRpc: client.sendRpc.bind(client),
+      sendMalformed: client.sendMalformed.bind(client),
+      waitForNotification: client.waitForNotification.bind(client),
+      handleServerRpc: client.handleServerRpc.bind(client),
+      awaitServerRequest: client.awaitServerRequest.bind(client),
+      notifications: client.notifications,
+      captures: client.captures,
+      snapshot: client.snapshot,
       close: () => client.close,
       drainNotifications: () => Effect.runSync(client.drainNotifications),
     };

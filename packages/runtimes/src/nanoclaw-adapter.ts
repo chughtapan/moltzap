@@ -10,6 +10,10 @@ import type {
 } from "./runtime.js";
 import { SpawnFailed } from "./errors.js";
 import {
+  processExitLoop,
+  promoteTimeoutIfProcessExited,
+} from "./adapter-readiness.js";
+import {
   ensureNanoclawRuntimeInstalledEffect,
   startNanoclawRuntimeEffect,
   stopNanoclawRuntimeEffect,
@@ -26,6 +30,19 @@ interface AdapterState {
   handle: NanoclawRuntimeHandle;
   spawnInput: SpawnInput;
   tornDown: boolean;
+}
+
+function exitToCode(exit: Exit.Exit<number, never>): number {
+  return Exit.match(exit, {
+    onSuccess: (code) => code,
+    onFailure: () => -1,
+  });
+}
+
+function pollNanoclawExitCode(
+  handle: NanoclawRuntimeHandle,
+): Effect.Effect<Option.Option<number>, never, never> {
+  return Fiber.poll(handle.exitFiber).pipe(Effect.map(Option.map(exitToCode)));
 }
 
 export class NanoclawAdapter implements Runtime {
@@ -66,62 +83,21 @@ export class NanoclawAdapter implements Runtime {
     const agentId = spawnInput.agentId;
 
     const serverReady = this.deps.server.awaitAgentReady(agentId, timeoutMs);
-
-    // Adapter-side `ProcessExited` detector. Polls the nanoclaw subprocess'
-    // exit code until it terminates, then surfaces stderr from the runtime's
-    // log accumulator.
-    const exitTick: Effect.Effect<ReadyOutcome | null, never, never> =
-      Fiber.poll(handle.exitFiber).pipe(
-        Effect.map(
-          Option.match({
-            onNone: () => null,
-            onSome: (exit: Exit.Exit<number, never>) => ({
-              _tag: "ProcessExited" as const,
-              exitCode: Exit.match(exit, {
-                onSuccess: (code) => code,
-                onFailure: () => -1,
-              }),
-              stderr: getNanoclawRuntimeLogs(handle),
-            }),
-          }),
-        ),
-      );
-    const exitLoop: Effect.Effect<ReadyOutcome, never, never> = pipe(
-      Effect.iterate(null as ReadyOutcome | null, {
-        while: (s) => s === null,
-        body: () => Effect.sleep("250 millis").pipe(Effect.zipRight(exitTick)),
-      }),
-      Effect.map(
-        (s): ReadyOutcome => s ?? { _tag: "Timeout" as const, timeoutMs },
-      ),
-    );
+    const processExit = {
+      pollExitCode: () => pollNanoclawExitCode(handle),
+      stderr: () => getNanoclawRuntimeLogs(handle),
+      timeoutMs,
+    };
 
     return pipe(
-      Effect.race(serverReady, exitLoop),
+      Effect.race(serverReady, processExitLoop(processExit)),
       // Final-check: if the race resolved `Timeout`, nanoclaw's subprocess
       // may have exited within the last `exitLoop` tick window — one last
       // sync probe promotes that case to `ProcessExited` with the actual
       // exit code so the diagnostic stderr isn't lost behind an opaque
       // `Timeout`.
-      Effect.flatMap(
-        (outcome): Effect.Effect<ReadyOutcome, never, never> =>
-          outcome._tag !== "Timeout"
-            ? Effect.succeed(outcome)
-            : Fiber.poll(handle.exitFiber).pipe(
-                Effect.map(
-                  Option.match({
-                    onNone: (): ReadyOutcome => outcome,
-                    onSome: (exit: Exit.Exit<number, never>): ReadyOutcome => ({
-                      _tag: "ProcessExited" as const,
-                      exitCode: Exit.match(exit, {
-                        onSuccess: (code) => code,
-                        onFailure: () => -1,
-                      }),
-                      stderr: getNanoclawRuntimeLogs(handle),
-                    }),
-                  }),
-                ),
-              ),
+      Effect.flatMap((outcome) =>
+        promoteTimeoutIfProcessExited(outcome, processExit),
       ),
       Effect.tap((outcome) =>
         outcome._tag === "Ready" ? Effect.void : this.teardown(),

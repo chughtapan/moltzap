@@ -271,7 +271,17 @@ const TaskFailedNotificationSchema = Type.Object(
   { additionalProperties: false },
 );
 
+const TaskClosedNotificationSchema = Type.Object(
+  { task: TaskSchema },
+  { additionalProperties: false },
+);
+
 export const TaskFailedNotificationDefinition = defineNotification({
   name: "task/failed",
   params: TaskFailedNotificationSchema,
+});
+
+export const TaskClosedNotificationDefinition = defineNotification({
+  name: "task/closed",
+  params: TaskClosedNotificationSchema,
 });

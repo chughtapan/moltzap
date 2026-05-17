@@ -38,6 +38,7 @@ import {
   TasksStoreMessage,
   TasksGetMessages,
   TasksGetMessagesSince,
+  TaskClosedNotificationDefinition,
   TaskFailedNotificationDefinition,
 } from "./tasks.js";
 
@@ -76,5 +77,6 @@ export const taskNotifications = [
   ParticipantsAddedNotificationDefinition,
   ParticipantsRemovedNotificationDefinition,
   MessageReceivedNotificationDefinition,
+  TaskClosedNotificationDefinition,
   TaskFailedNotificationDefinition,
 ] as const;

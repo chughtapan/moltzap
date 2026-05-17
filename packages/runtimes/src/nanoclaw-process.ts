@@ -100,6 +100,12 @@ interface CommandRunOptions {
   readonly timeout?: number;
 }
 
+interface StartedNanoclawProcess {
+  readonly proc: Process;
+  readonly scope: Scope.CloseableScope;
+  readonly exitFiber: Fiber.RuntimeFiber<number, never>;
+}
+
 function toRuntimeError(message: string, cause?: unknown) {
   return new NanoclawRuntimeProcessError({
     reason: message,
@@ -514,6 +520,180 @@ function syncChannelFileIntoCache(): Effect.Effect<
   });
 }
 
+function readyMarkerPath(): string {
+  return pathSync((path) => path.join(NANOCLAW_RUNTIME_CACHE, ".ready"));
+}
+
+function tempRuntimeCachePath(): string {
+  return `${NANOCLAW_RUNTIME_CACHE}.tmp`;
+}
+
+function resetTempRuntimeCache(tmpDir: string) {
+  return FileSystem.FileSystem.pipe(
+    Effect.flatMap((fileSystem) =>
+      fsEffect(
+        `remove nanoclaw temp cache ${tmpDir}`,
+        fileSystem.remove(tmpDir, { recursive: true, force: true }),
+      ),
+    ),
+  );
+}
+
+function ensureChannelFileExists(channelFileSrc: string) {
+  return FileSystem.FileSystem.pipe(
+    Effect.flatMap((fileSystem) =>
+      fsEffect(
+        `check moltzap channel file ${channelFileSrc}`,
+        fileSystem.exists(channelFileSrc),
+      ),
+    ),
+    Effect.flatMap((exists) =>
+      exists
+        ? Effect.void
+        : Effect.fail(
+            toRuntimeError(
+              `Expected channel file at ${channelFileSrc} — did you build @moltzap/nanoclaw-channel?`,
+            ),
+          ),
+    ),
+  );
+}
+
+function copyChannelFileIntoCache(tmpDir: string) {
+  return Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const channelFileSrc = resolveChannelFilePath();
+    yield* ensureChannelFileExists(channelFileSrc);
+    yield* fsEffect(
+      `copy moltzap channel file into nanoclaw cache ${channelFileSrc}`,
+      fileSystem.copyFile(
+        channelFileSrc,
+        pathSync((path) => path.join(tmpDir, "src/channels/moltzap.ts")),
+      ),
+    );
+  });
+}
+
+function appendMoltzapBarrelImport(tmpDir: string) {
+  return Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const barrelPath = pathSync((path) =>
+      path.join(tmpDir, "src/channels/index.ts"),
+    );
+    const barrel = yield* fsEffect(
+      `read nanoclaw channel barrel ${barrelPath}`,
+      fileSystem.readFileString(barrelPath, "utf8"),
+    );
+    if (barrel.includes("import './moltzap.js';")) {
+      return;
+    }
+    yield* fsEffect(
+      `write nanoclaw channel barrel ${barrelPath}`,
+      fileSystem.writeFileString(
+        barrelPath,
+        `${barrel.trimEnd()}\n\nimport './moltzap.js';\n`,
+      ),
+    );
+  });
+}
+
+function ensureSkillFileExists(skillMdSrc: string) {
+  return FileSystem.FileSystem.pipe(
+    Effect.flatMap((fileSystem) =>
+      fsEffect(
+        `check shared SKILL.md ${skillMdSrc}`,
+        fileSystem.exists(skillMdSrc),
+      ),
+    ),
+    Effect.flatMap((exists) =>
+      exists
+        ? Effect.void
+        : Effect.fail(
+            toRuntimeError(
+              `Expected shared SKILL.md at ${skillMdSrc} — repo layout change?`,
+            ),
+          ),
+    ),
+  );
+}
+
+function copySharedSkillIntoCache(tmpDir: string) {
+  return Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const skillMdSrc = resolveSkillMdPath();
+    const skillDir = pathSync((path) =>
+      path.join(tmpDir, "container/skills/moltzap"),
+    );
+    yield* ensureSkillFileExists(skillMdSrc);
+    yield* fsEffect(
+      "create nanoclaw moltzap skill directory",
+      fileSystem.makeDirectory(skillDir, { recursive: true }),
+    );
+    yield* fsEffect(
+      `copy shared SKILL.md into nanoclaw cache ${skillMdSrc}`,
+      fileSystem.copyFile(
+        skillMdSrc,
+        pathSync((path) => path.join(skillDir, "SKILL.md")),
+      ),
+    );
+  });
+}
+
+function buildNanoclawRuntimeCache(tmpDir: string) {
+  return Effect.all(
+    [
+      execEffect(
+        "npm install @moltzap/client@latest --no-package-lock --ignore-scripts",
+        { cwd: tmpDir, timeout: 120_000 },
+      ),
+      execEffect("npm install --no-package-lock", {
+        cwd: tmpDir,
+        timeout: 300_000,
+      }),
+      execEffect("npm run build", { cwd: tmpDir, timeout: 120_000 }),
+      execEffect("bash container/build.sh", {
+        cwd: tmpDir,
+        timeout: 300_000,
+      }),
+    ],
+    { concurrency: 1, discard: true },
+  );
+}
+
+function promoteRuntimeCache(tmpDir: string, readyMarker: string) {
+  return FileSystem.FileSystem.pipe(
+    Effect.flatMap((fileSystem) =>
+      Effect.all(
+        [
+          fsEffect(
+            `remove stale nanoclaw cache ${NANOCLAW_RUNTIME_CACHE}`,
+            fileSystem.remove(NANOCLAW_RUNTIME_CACHE, {
+              recursive: true,
+              force: true,
+            }),
+          ),
+          fsEffect(
+            "create nanoclaw cache parent directory",
+            fileSystem.makeDirectory(
+              pathSync((path) => path.dirname(NANOCLAW_RUNTIME_CACHE)),
+              { recursive: true },
+            ),
+          ),
+          fsEffect(
+            "promote nanoclaw temp cache into ready cache",
+            fileSystem.rename(tmpDir, NANOCLAW_RUNTIME_CACHE),
+          ),
+          fsEffect(
+            `write nanoclaw ready marker ${readyMarker}`,
+            fileSystem.writeFileString(readyMarker, ""),
+          ),
+        ],
+        { concurrency: 1, discard: true },
+      ),
+    ),
+  );
+}
+
 export function ensureNanoclawRuntimeInstalledEffect(): Effect.Effect<
   void,
   NanoclawRuntimeProcessError,
@@ -521,9 +701,7 @@ export function ensureNanoclawRuntimeInstalledEffect(): Effect.Effect<
 > {
   return Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
-    const readyMarker = pathSync((path) =>
-      path.join(NANOCLAW_RUNTIME_CACHE, ".ready"),
-    );
+    const readyMarker = readyMarkerPath();
     const ready = yield* fsEffect(
       `check nanoclaw ready marker ${readyMarker}`,
       fileSystem.exists(readyMarker),
@@ -535,142 +713,171 @@ export function ensureNanoclawRuntimeInstalledEffect(): Effect.Effect<
 
     yield* preflightDocker();
 
-    const tmpDir = `${NANOCLAW_RUNTIME_CACHE}.tmp`;
-    yield* fsEffect(
-      `remove nanoclaw temp cache ${tmpDir}`,
-      fileSystem.remove(tmpDir, { recursive: true, force: true }),
-    );
-
-    // Download upstream nanoclaw source
+    const tmpDir = tempRuntimeCachePath();
+    yield* resetTempRuntimeCache(tmpDir);
     yield* downloadTarball(NANOCLAW_URL, tmpDir);
-
-    // Inject the moltzap channel file from packages/nanoclaw-channel/
-    const channelFileSrc = resolveChannelFilePath();
-    const channelFileExists = yield* fsEffect(
-      `check moltzap channel file ${channelFileSrc}`,
-      fileSystem.exists(channelFileSrc),
-    );
-    if (!channelFileExists) {
-      return yield* Effect.fail(
-        toRuntimeError(
-          `Expected channel file at ${channelFileSrc} — did you build @moltzap/nanoclaw-channel?`,
-        ),
-      );
-    }
-    yield* fsEffect(
-      `copy moltzap channel file into nanoclaw cache ${channelFileSrc}`,
-      fileSystem.copyFile(
-        channelFileSrc,
-        pathSync((path) => path.join(tmpDir, "src/channels/moltzap.ts")),
-      ),
-    );
-
-    // Append barrel import if missing. Idempotent, robust to upstream channel additions.
-    const barrelPath = pathSync((path) =>
-      path.join(tmpDir, "src/channels/index.ts"),
-    );
-    const barrel = yield* fsEffect(
-      `read nanoclaw channel barrel ${barrelPath}`,
-      fileSystem.readFileString(barrelPath, "utf8"),
-    );
-    if (!barrel.includes("import './moltzap.js';")) {
-      yield* fsEffect(
-        `write nanoclaw channel barrel ${barrelPath}`,
-        fileSystem.writeFileString(
-          barrelPath,
-          barrel.trimEnd() + "\n\nimport './moltzap.js';\n",
-        ),
-      );
-    }
-
-    // Copy the shared root SKILL.md into nanoclaw's container/skills tree
-    // (container/skills/ is what nanoclaw's agent container mounts, NOT
-    // .claude/skills/ which is the host-side dev tree).
-    const skillMdSrc = resolveSkillMdPath();
-    const skillMdExists = yield* fsEffect(
-      `check shared SKILL.md ${skillMdSrc}`,
-      fileSystem.exists(skillMdSrc),
-    );
-    if (!skillMdExists) {
-      return yield* Effect.fail(
-        toRuntimeError(
-          `Expected shared SKILL.md at ${skillMdSrc} — repo layout change?`,
-        ),
-      );
-    }
-    yield* fsEffect(
-      "create nanoclaw moltzap skill directory",
-      fileSystem.makeDirectory(
-        pathSync((path) => path.join(tmpDir, "container/skills/moltzap")),
-        {
-          recursive: true,
-        },
-      ),
-    );
-    yield* fsEffect(
-      `copy shared SKILL.md into nanoclaw cache ${skillMdSrc}`,
-      fileSystem.copyFile(
-        skillMdSrc,
-        pathSync((path) =>
-          path.join(tmpDir, "container/skills/moltzap/SKILL.md"),
-        ),
-      ),
-    );
-
-    // Install @moltzap/client from npm registry. Cli's own moltzap binary is
-    // not needed inside the container; the channel file imports MoltZapService
-    // from the package. The @latest tag resolves to whatever is published.
-    yield* execEffect(
-      "npm install @moltzap/client@latest --no-package-lock --ignore-scripts",
-      { cwd: tmpDir, timeout: 120_000 },
-    );
-
-    // Install nanoclaw's own deps. Do NOT use --ignore-scripts here: nanoclaw's
-    // better-sqlite3 is a native module that must run its build script to compile
-    // bindings against the host's node version. The smoke test accepts the supply
-    // chain risk of lifecycle scripts running; the SHA pin bounds the exposure.
-    yield* execEffect("npm install --no-package-lock", {
-      cwd: tmpDir,
-      timeout: 300_000,
-    });
-
-    // Compile nanoclaw + the injected channel file
-    yield* execEffect("npm run build", { cwd: tmpDir, timeout: 120_000 });
-
-    // Build nanoclaw's agent container image (used by nanoclaw's container-runner
-    // when spawning agent subcontainers at runtime). This runs vendored bash
-    // from upstream — documented supply chain risk for the smoke test phase.
-    yield* execEffect("bash container/build.sh", {
-      cwd: tmpDir,
-      timeout: 300_000,
-    });
-
-    // Atomic rename — only mark .ready on full success
-    yield* fsEffect(
-      `remove stale nanoclaw cache ${NANOCLAW_RUNTIME_CACHE}`,
-      fileSystem.remove(NANOCLAW_RUNTIME_CACHE, {
-        recursive: true,
-        force: true,
-      }),
-    );
-    yield* fsEffect(
-      "create nanoclaw cache parent directory",
-      fileSystem.makeDirectory(
-        pathSync((path) => path.dirname(NANOCLAW_RUNTIME_CACHE)),
-        {
-          recursive: true,
-        },
-      ),
-    );
-    yield* fsEffect(
-      "promote nanoclaw temp cache into ready cache",
-      fileSystem.rename(tmpDir, NANOCLAW_RUNTIME_CACHE),
-    );
-    yield* fsEffect(
-      `write nanoclaw ready marker ${readyMarker}`,
-      fileSystem.writeFileString(readyMarker, ""),
-    );
+    yield* copyChannelFileIntoCache(tmpDir);
+    yield* appendMoltzapBarrelImport(tmpDir);
+    yield* copySharedSkillIntoCache(tmpDir);
+    yield* buildNanoclawRuntimeCache(tmpDir);
+    yield* promoteRuntimeCache(tmpDir, readyMarker);
   }).pipe(Effect.withSpan("ensureNanoclawRuntimeInstalledEffect"));
+}
+
+function normalizeNanoclawServerUrl(serverUrl: string): string {
+  return serverUrl
+    .replace(/\/ws$/, "")
+    .replace(/^ws:/, "http:")
+    .replace(/^wss:/, "https:");
+}
+
+function createNanoclawDataDir() {
+  return FileSystem.FileSystem.pipe(
+    Effect.flatMap((fileSystem) =>
+      fsEffect(
+        "create nanoclaw runtime data dir",
+        fileSystem.makeTempDirectory({
+          prefix: "moltzap-nanoclaw-runtime-",
+        }),
+      ),
+    ),
+  );
+}
+
+function writeRuntimeWorkspaceFiles(
+  workspaceFiles: StartNanoclawRuntimeOptions["workspaceFiles"],
+) {
+  if (workspaceFiles === undefined) {
+    return Effect.void;
+  }
+  return FileSystem.FileSystem.pipe(
+    Effect.flatMap((fileSystem) =>
+      Effect.forEach(
+        workspaceFiles,
+        (file) => writeRuntimeWorkspaceFile(fileSystem, file),
+        { concurrency: 1, discard: true },
+      ),
+    ),
+  );
+}
+
+function writeRuntimeWorkspaceFile(
+  fileSystem: FileSystem.FileSystem,
+  file: NonNullable<StartNanoclawRuntimeOptions["workspaceFiles"]>[number],
+) {
+  const workspaceRoot = pathSync((path) =>
+    path.join(NANOCLAW_RUNTIME_CACHE, "container/skills"),
+  );
+  const destination = pathSync((path) =>
+    path.join(workspaceRoot, file.relativePath),
+  );
+  const destinationDir = pathSync((path) => path.dirname(destination));
+  return Effect.all(
+    [
+      fsEffect(
+        `create workspace file directory ${destinationDir}`,
+        fileSystem.makeDirectory(destinationDir, { recursive: true }),
+      ),
+      fsEffect(
+        `write workspace file ${destination}`,
+        fileSystem.writeFileString(destination, file.content),
+      ),
+    ],
+    { concurrency: 1, discard: true },
+  );
+}
+
+function makeNanoclawCommand(
+  opts: StartNanoclawRuntimeOptions,
+  dataDir: string,
+) {
+  return Command.make("node", "dist/index.js").pipe(
+    Command.workingDirectory(NANOCLAW_RUNTIME_CACHE),
+    Command.env({
+      MOLTZAP_API_KEY: opts.apiKey,
+      MOLTZAP_SERVER_URL: normalizeNanoclawServerUrl(opts.serverUrl),
+      MOLTZAP_EVAL_MODE: "1",
+      DATA_DIR: dataDir,
+      CONTAINER_RUNTIME: "docker",
+      ONECLI_URL: ONECLI_URL,
+      LOG_LEVEL: "info",
+    }),
+  );
+}
+
+function startNanoclawProcess(
+  opts: StartNanoclawRuntimeOptions,
+  dataDir: string,
+  capturedLogs: string[],
+) {
+  const command = makeNanoclawCommand(opts, dataDir);
+  return Effect.gen(function* () {
+    const scope = yield* Scope.make();
+    const proc = yield* Command.start(command).pipe(Scope.extend(scope));
+    const exitFiber = yield* proc.exitCode.pipe(
+      Effect.map(Number),
+      Effect.catchAll(() => Effect.succeed(-1)),
+      Effect.forkIn(scope),
+    );
+    yield* consumeProcessStream(proc.stdout, capturedLogs).pipe(
+      Effect.forkIn(scope),
+    );
+    yield* consumeProcessStream(proc.stderr, capturedLogs).pipe(
+      Effect.forkIn(scope),
+    );
+    return { proc, scope, exitFiber } satisfies StartedNanoclawProcess;
+  }).pipe(
+    Effect.provide(NodeContext.layer),
+    Effect.mapError((cause) => toRuntimeError("spawn nanoclaw runtime", cause)),
+  );
+}
+
+function waitForNanoclawConnection(
+  exitFiber: Fiber.RuntimeFiber<number, never>,
+  capturedLogs: string[],
+) {
+  return Effect.race(
+    waitForConnectedMarker(capturedLogs),
+    failIfProcessExitsBeforeConnect(exitFiber, capturedLogs),
+  ).pipe(
+    Effect.timeoutFail({
+      duration: Duration.millis(CONNECT_TIMEOUT_MS),
+      onTimeout: () => connectionTimeoutError(capturedLogs),
+    }),
+  );
+}
+
+function waitForConnectedMarker(capturedLogs: string[]) {
+  return Effect.iterate(false, {
+    while: (connected) => !connected,
+    body: () =>
+      Effect.sleep(Duration.millis(CONNECT_WATCH_INTERVAL_MS)).pipe(
+        Effect.as(CONNECTED_MARKER.test(capturedLogs.join(""))),
+      ),
+  }).pipe(Effect.asVoid);
+}
+
+function failIfProcessExitsBeforeConnect(
+  exitFiber: Fiber.RuntimeFiber<number, never>,
+  capturedLogs: string[],
+) {
+  return Fiber.join(exitFiber).pipe(
+    Effect.flatMap((code) =>
+      Effect.fail(
+        toRuntimeError(
+          `nanoclaw runtime exited before connecting (code=${code}).\nLast ${LOG_TAIL_LINE_COUNT} log lines:\n${logTail(capturedLogs)}`,
+        ),
+      ),
+    ),
+  );
+}
+
+function connectionTimeoutError(capturedLogs: string[]) {
+  return toRuntimeError(
+    `nanoclaw runtime did not connect within ${
+      CONNECT_TIMEOUT_MS / MILLISECONDS_PER_SECOND
+    }s.\nLast ${LOG_TAIL_LINE_COUNT} log lines:\n${logTail(capturedLogs)}`,
+  );
 }
 
 export function startNanoclawRuntimeEffect(
@@ -681,115 +888,15 @@ export function startNanoclawRuntimeEffect(
   FileSystem.FileSystem
 > {
   return Effect.gen(function* () {
-    const fileSystem = yield* FileSystem.FileSystem;
-    const dataDir = yield* fsEffect(
-      "create nanoclaw runtime data dir",
-      fileSystem.makeTempDirectory({
-        prefix: "moltzap-nanoclaw-runtime-",
-      }),
-    );
-
-    // @moltzap/client's MoltZapWsClient appends "/ws" and rewrites http→ws itself.
-    // The eval runner hands us the already-expanded wsUrl (ws://host:port/ws),
-    // so strip the suffix and flip the scheme to match what the client expects
-    // as input — otherwise the client produces /ws/ws and the upgrade fails.
-    const normalizedServerUrl = opts.serverUrl
-      .replace(/\/ws$/, "")
-      .replace(/^ws:/, "http:")
-      .replace(/^wss:/, "https:");
-
+    const dataDir = yield* createNanoclawDataDir();
     yield* ensureOnecliRunning();
-    if (opts.workspaceFiles !== undefined) {
-      const workspaceRoot = pathSync((path) =>
-        path.join(NANOCLAW_RUNTIME_CACHE, "container/skills"),
-      );
-      for (const file of opts.workspaceFiles) {
-        const destination = pathSync((path) =>
-          path.join(workspaceRoot, file.relativePath),
-        );
-        const destinationDir = pathSync((path) => path.dirname(destination));
-        yield* fsEffect(
-          `create workspace file directory ${destinationDir}`,
-          fileSystem.makeDirectory(destinationDir, {
-            recursive: true,
-          }),
-        );
-        yield* fsEffect(
-          `write workspace file ${destination}`,
-          fileSystem.writeFileString(destination, file.content),
-        );
-      }
-    }
+    yield* writeRuntimeWorkspaceFiles(opts.workspaceFiles);
 
     const capturedLogs: string[] = [];
+    const started = yield* startNanoclawProcess(opts, dataDir, capturedLogs);
 
-    const command = Command.make("node", "dist/index.js").pipe(
-      Command.workingDirectory(NANOCLAW_RUNTIME_CACHE),
-      Command.env({
-        MOLTZAP_API_KEY: opts.apiKey,
-        MOLTZAP_SERVER_URL: normalizedServerUrl,
-        MOLTZAP_EVAL_MODE: "1",
-        DATA_DIR: dataDir,
-        CONTAINER_RUNTIME: "docker",
-        ONECLI_URL: ONECLI_URL,
-        LOG_LEVEL: "info",
-      }),
-    );
-    const { proc, scope, exitFiber } = yield* Effect.gen(function* () {
-      const scope = yield* Scope.make();
-      const proc = yield* Command.start(command).pipe(Scope.extend(scope));
-      const exitFiber = yield* proc.exitCode.pipe(
-        Effect.map(Number),
-        Effect.catchAll(() => Effect.succeed(-1)),
-        Effect.forkIn(scope),
-      );
-      yield* consumeProcessStream(proc.stdout, capturedLogs).pipe(
-        Effect.forkIn(scope),
-      );
-      yield* consumeProcessStream(proc.stderr, capturedLogs).pipe(
-        Effect.forkIn(scope),
-      );
-      return { proc, scope, exitFiber };
-    }).pipe(
-      Effect.provide(NodeContext.layer),
-      Effect.mapError((cause) =>
-        toRuntimeError("spawn nanoclaw runtime", cause),
-      ),
-    );
-
-    const waitForMarker = Effect.iterate(false, {
-      while: (connected) => !connected,
-      body: () =>
-        Effect.sleep(Duration.millis(CONNECT_WATCH_INTERVAL_MS)).pipe(
-          Effect.as(CONNECTED_MARKER.test(capturedLogs.join(""))),
-        ),
-    }).pipe(Effect.asVoid);
-    const exitBeforeConnect = Fiber.join(exitFiber).pipe(
-      Effect.flatMap((code) =>
-        Effect.fail(
-          toRuntimeError(
-            `nanoclaw runtime exited before connecting (code=${code}).\nLast ${LOG_TAIL_LINE_COUNT} log lines:\n${logTail(capturedLogs)}`,
-          ),
-        ),
-      ),
-    );
-    const waitForConnection = Effect.race(
-      waitForMarker,
-      exitBeforeConnect,
-    ).pipe(
-      Effect.timeoutFail({
-        duration: Duration.millis(CONNECT_TIMEOUT_MS),
-        onTimeout: () => {
-          return toRuntimeError(
-            `nanoclaw runtime did not connect within ${
-              CONNECT_TIMEOUT_MS / MILLISECONDS_PER_SECOND
-            }s.\nLast ${LOG_TAIL_LINE_COUNT} log lines:\n${logTail(capturedLogs)}`,
-          );
-        },
-      }),
-    );
-    yield* waitForConnection;
-    return { proc, scope, exitFiber, dataDir, capturedLogs };
+    yield* waitForNanoclawConnection(started.exitFiber, capturedLogs);
+    return { ...started, dataDir, capturedLogs };
   }).pipe(Effect.withSpan("startNanoclawRuntimeEffect"));
 }
 

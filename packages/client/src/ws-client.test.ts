@@ -27,7 +27,6 @@ import {
   findResponseRaw,
   grantDispatchAuthorizeHandler,
   makeClient,
-  makeLogger,
   messageReceivedFrame,
   realSleep,
   sendMalformedFrameBurst,
@@ -334,13 +333,12 @@ effectTest(
   () =>
     withTestServer(
       Effect.gen(function* () {
-        const logger = makeLogger();
         // Server auto-handshakes. On `conversations/list`, injects a few
         // malformed inbound frames, then the real response.
         const server = yield* startHandshakingServer(
           sendMalformedFramesAndResponse,
         );
-        const client = makeClient(server.url, { logger });
+        const client = makeClient(server.url);
         yield* connectClient(client);
 
         const result = (yield* sendRpcEffect(
@@ -349,9 +347,6 @@ effectTest(
           {},
         )) as { conversations: unknown[] };
         expect(result.conversations).toEqual([]);
-        // Logger saw at least one malformed-frame warning.
-        expect(logger.warn).toHaveBeenCalled();
-
         yield* closeClient(client);
       }),
     ),
@@ -362,13 +357,11 @@ effectTest(
   () =>
     withTestServer(
       Effect.gen(function* () {
-        const logger = makeLogger();
         const events: unknown[] = [];
         const server = yield* startHandshakingServer(
           sendPaddedNotificationAndResponse,
         );
         const client = makeClient(server.url, {
-          logger,
           onNotification: (event) => events.push(event),
         });
         yield* connectClient(client);
@@ -379,7 +372,6 @@ effectTest(
         yield* realSleep(POST_TIMEOUT_SETTLE_MS);
 
         expect(events).toHaveLength(0);
-        expect(logger.warn).toHaveBeenCalled();
 
         yield* Fiber.interrupt(rpcFiber);
         yield* closeClient(client);
@@ -422,14 +414,12 @@ effectTest("does NOT route a notification frame missing the method field", () =>
   withTestServer(
     Effect.gen(function* () {
       const events: unknown[] = [];
-      const logger = makeLogger();
       // Send a malformed notification on the first post-handshake frame.
       const server = yield* startHandshakingServer((conn) =>
         conn.send(JSON.stringify({ jsonrpc: JSON_RPC_VERSION, params: {} })),
       );
       const client = makeClient(server.url, {
         onNotification: (e) => events.push(e),
-        logger,
       });
       yield* connectClient(client);
 
@@ -439,7 +429,6 @@ effectTest("does NOT route a notification frame missing the method field", () =>
       );
       yield* Effect.sleep(Duration.millis(POST_TIMEOUT_SETTLE_MS));
       expect(events).toHaveLength(0);
-      expect(logger.warn).toHaveBeenCalled();
 
       yield* Fiber.interrupt(rpcFiber);
       yield* closeClient(client);
@@ -456,14 +445,11 @@ effectTest(
   () =>
     withTestServer(
       Effect.gen(function* () {
-        const logger = makeLogger();
         // Server auto-handshakes. On ANY post-handshake frame, fires 101
         // malformed frames back at the client.
         const server = yield* startHandshakingServer(sendMalformedFrameBurst);
-        const client = makeClient(server.url, { logger });
+        const client = makeClient(server.url);
         yield* connectClient(client);
-
-        logger.warn.mockClear();
 
         // Fire-and-forget: server responds with 101 malformed frames, no
         // actual RPC response, so awaiting the noop would wedge the test.
@@ -473,14 +459,6 @@ effectTest(
 
         // Wait for the malformed frames to flush through the reader fiber.
         yield* Effect.sleep(Duration.millis(MALFORMED_FRAME_FLUSH_MS));
-
-        expect(logger.warn).toHaveBeenCalledTimes(3);
-        const warnMessages = logger.warn.mock.calls.map(
-          (c: unknown[]) => c[0] as string,
-        );
-        expect(warnMessages[0]).toMatch(/^Malformed frame \(#1\):/);
-        expect(warnMessages[1]).toMatch(/^Malformed frame \(#50\):/);
-        expect(warnMessages[2]).toMatch(/^Malformed frame \(#100\):/);
 
         yield* Fiber.interrupt(rpcFiber);
         yield* closeClient(client);
@@ -529,21 +507,17 @@ effectTest(
   () =>
     withTestServer(
       Effect.gen(function* () {
-        const logger = makeLogger();
         // Handshakes, then on any follow-up RPC, closes abruptly (code 1011).
         const server = yield* startHandshakingServer((conn) =>
           conn.close(SERVER_ERROR_CLOSE_CODE),
         );
-        const client = makeClient(server.url, { logger });
+        const client = makeClient(server.url);
         yield* connectClient(client);
 
         yield* expectEffectFailure(
           sendRpcEffect(client, ConversationsList, {}),
           /WebSocket not connected/,
         );
-        // Logger captured the WebSocket error (warn level).
-        expect(logger.warn).toHaveBeenCalled();
-
         yield* closeClient(client);
       }),
     ),

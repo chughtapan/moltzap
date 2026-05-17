@@ -3,31 +3,40 @@
  * the SDK's `InMemoryTransport` pair. Covers capability handshake (A14),
  * tool registry (A4, A7), notification shape (A5, A6), routing (OQ5), and
  * boundary validation (Principle 2).
- *
- * Transplanted from zapbot `test/claude-channel-server.test.ts` (verdict
- * §(b) MOVE row 4). Tests updated for the pruned tool set (reply only;
- * send_direct_message and edit_message deleted / omitted).
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
+import { it as effectIt } from "@effect/vitest";
 import { Effect, Either } from "effect";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import type { Notification } from "@modelcontextprotocol/sdk/types.js";
+
 import {
-  bootChannelMcpServer,
   CHANNEL_CAPABILITIES,
   decodeReplyArgs,
   REPLY_TOOL_INPUT_SCHEMA,
 } from "../server.js";
-import { createRoutingState } from "../routing.js";
 import type { ClaudeChannelNotification } from "../types.js";
-import { ConversationId, MessageId, UserId } from "../types.js";
+import {
+  CLAUDE_CHANNEL_NOTIFICATION_METHOD,
+  ConversationId,
+  MessageId,
+  UserId,
+} from "../types.js";
 import {
   LeaseAlreadyConsumed,
   SendFailed,
   type ReplyError,
 } from "../errors.js";
+import {
+  callTool,
+  listTools,
+  waitForTransportTick,
+  withHarness,
+  type ServerHarness,
+} from "./server-test-support.js";
+
+type SentReply = { readonly conversationId: string; readonly text: string };
+
+const effectTest = effectIt.effect;
 
 const CONVERSATION_1 = "00000000-0000-4000-8000-0000000000a1";
 const CONVERSATION_2 = "00000000-0000-4000-8000-0000000000a2";
@@ -39,522 +48,529 @@ const MESSAGE_KNOWN = "00000000-0000-4000-8000-0000000001a3";
 const MESSAGE_MISSING = "00000000-0000-4000-8000-0000000001a4";
 const MESSAGE_X = "00000000-0000-4000-8000-0000000001a5";
 const USER_PEER = "00000000-0000-4000-8000-0000000002a1";
+const REPLY_TOOL_NAME = "reply";
+const SEND_DIRECT_MESSAGE_TOOL_NAME = "send_direct_message";
+const EDIT_MESSAGE_TOOL_NAME = "edit_message";
+const REPLY_TEXT = "hi";
+const SECOND_REPLY_TEXT = "second reply attempt";
+const TEXT_TYPE = "string";
+const OBJECT_TYPE = "object";
+const ARRAY_TYPE = "array";
+const PING_TEXT = "ping";
+const TIMESTAMP = "2026-04-24T00:00:00Z";
+const FILE_A = "a.png";
+const FILE_B = "b.png";
+const LEASE_ID = "lease-cc-test";
 
-const silentLogger = {
-  info: () => {},
-  warn: () => {},
-  error: () => {},
+const EXPECTED_CHANNEL_CAPABILITIES = {
+  tools: {},
+  experimental: { "claude/channel": {} },
 };
 
-async function setup(opts?: {
-  onSendReply?: (
-    conversationId: string,
-    text: string,
-  ) => Effect.Effect<void, ReplyError>;
-}) {
-  const [serverTransport, clientTransport] =
-    InMemoryTransport.createLinkedPair();
-  const routing = createRoutingState();
+const EXPECTED_REPLY_INPUT_SCHEMA = {
+  type: OBJECT_TYPE,
+  properties: {
+    text: { type: TEXT_TYPE },
+    reply_to: { type: TEXT_TYPE },
+    files: { type: ARRAY_TYPE, items: { type: TEXT_TYPE } },
+  },
+  required: ["text"],
+};
 
-  const sendReply =
-    opts?.onSendReply ??
-    ((_conversationId: string, _text: string) =>
-      Effect.succeed(undefined as void));
-
-  const boot = await bootChannelMcpServer(
-    {
-      serverName: "test-channel",
-      instructions: "test-instructions",
-    },
-    {
-      sendReply,
-      routing,
-      logger: silentLogger,
-      transportFactory: () => serverTransport,
-    },
-  );
-  if (boot._tag === "Err") {
-    throw new Error(`boot failed: ${boot.error._tag}`);
-  }
-  const serverHandle = boot.value;
-
-  const client = new Client(
-    { name: "test-client", version: "0.1.0" },
-    { capabilities: {} },
-  );
-
-  const notifications: Notification[] = [];
-  client.fallbackNotificationHandler = async (notification: Notification) => {
-    notifications.push(notification);
-  };
-
-  await client.connect(clientTransport);
-
+function makeNotification(
+  conversationId: string,
+  messageId: string,
+): ClaudeChannelNotification {
   return {
-    serverHandle,
-    client,
-    routing,
-    notifications,
-    cleanup: async () => {
-      await client.close();
-      await Effect.runPromise(serverHandle.stop());
+    method: CLAUDE_CHANNEL_NOTIFICATION_METHOD,
+    params: {
+      content: PING_TEXT,
+      meta: {
+        chat_id: ConversationId(conversationId),
+        message_id: MessageId(messageId),
+        user: UserId(USER_PEER),
+        ts: TIMESTAMP as never,
+      },
     },
   };
 }
 
-describe("bootChannelMcpServer — capability handshake (spec A14)", () => {
-  it("advertises capabilities { tools: {}, experimental: { 'claude/channel': {} } }", async () => {
-    const { client, cleanup } = await setup();
-    try {
-      const caps = client.getServerCapabilities();
+function expectDecodeSuccess(raw: unknown) {
+  return Either.match(decodeReplyArgs(raw), {
+    onLeft: (error) => {
+      expect(error).toBeUndefined();
+      return undefined;
+    },
+    onRight: (value) => value,
+  });
+}
+
+function expectDecodeFailure(raw: unknown): void {
+  Either.match(decodeReplyArgs(raw), {
+    onLeft: (error) => expect(error).toBeDefined(),
+    onRight: (value) => expect(value).toBeUndefined(),
+  });
+}
+
+function recordInboundPair(
+  harness: ServerHarness,
+  messageId: string,
+  conversationId: string,
+): void {
+  harness.routing.recordInbound(
+    MessageId(messageId),
+    ConversationId(conversationId),
+  );
+}
+
+function sentRecorder(sent: SentReply[]) {
+  return (conversationId: string, text: string) =>
+    Effect.sync(() => {
+      sent.push({ conversationId, text });
+    });
+}
+
+function advertisesChannelCapabilityContract() {
+  return withHarness((harness) =>
+    Effect.sync(() => {
+      const caps = harness.client.getServerCapabilities();
       expect(caps).toBeDefined();
-      expect(caps?.tools).toEqual({});
-      expect(caps?.experimental).toEqual({ "claude/channel": {} });
-    } finally {
-      await cleanup();
-    }
-  });
+      expect(caps?.tools).toEqual(CHANNEL_CAPABILITIES.tools);
+      expect(caps?.experimental).toEqual(CHANNEL_CAPABILITIES.experimental);
+    }),
+  );
+}
 
-  it("does NOT advertise experimental['claude/channel/permission']", async () => {
-    const { client, cleanup } = await setup();
-    try {
-      const caps = client.getServerCapabilities();
-      expect(caps?.experimental).not.toHaveProperty(
-        "claude/channel/permission",
-      );
-    } finally {
-      await cleanup();
-    }
-  });
+function doesNotAdvertisePermissionRelay() {
+  return withHarness((harness) =>
+    Effect.sync(() => {
+      expect(
+        harness.client.getServerCapabilities()?.experimental,
+      ).not.toHaveProperty("claude/channel/permission");
+    }),
+  );
+}
 
-  it("CHANNEL_CAPABILITIES constant is the contract shape (pins string literal)", () => {
-    expect(CHANNEL_CAPABILITIES).toEqual({
-      tools: {},
-      experimental: { "claude/channel": {} },
-    });
-  });
-});
-
-describe("bootChannelMcpServer — tool registry (spec A4, A7)", () => {
-  it("registers exactly one tool: reply", async () => {
-    const { client, cleanup } = await setup();
-    try {
-      const result = await client.listTools();
+function registersExactlyOneReplyTool() {
+  return withHarness((harness) =>
+    Effect.gen(function* () {
+      const result = yield* listTools(harness.client);
       expect(result.tools).toHaveLength(1);
-      expect(result.tools[0]?.name).toBe("reply");
-    } finally {
-      await cleanup();
-    }
-  });
+      expect(result.tools[0]?.name).toBe(REPLY_TOOL_NAME);
+    }),
+  );
+}
 
-  it("reply.inputSchema matches contract: text required, reply_to? files?", async () => {
-    const { client, cleanup } = await setup();
-    try {
-      const result = await client.listTools();
-      const reply = result.tools.find((t) => t.name === "reply");
+function replyInputSchemaMatchesContract() {
+  return withHarness((harness) =>
+    Effect.gen(function* () {
+      const result = yield* listTools(harness.client);
+      const reply = result.tools.find((tool) => tool.name === REPLY_TOOL_NAME);
       expect(reply).toBeDefined();
-      expect(reply?.inputSchema).toMatchObject({
-        type: "object",
-        properties: {
-          text: { type: "string" },
-          reply_to: { type: "string" },
-          files: { type: "array", items: { type: "string" } },
-        },
-        required: ["text"],
-      });
-    } finally {
-      await cleanup();
-    }
-  });
+      expect(reply?.inputSchema).toMatchObject(REPLY_TOOL_INPUT_SCHEMA);
+    }),
+  );
+}
 
-  it("does NOT register send_direct_message", async () => {
-    const { client, cleanup } = await setup();
-    try {
-      const result = await client.listTools();
-      expect(result.tools.map((t) => t.name)).not.toContain(
-        "send_direct_message",
+function doesNotRegisterSendDirectMessage() {
+  return withHarness((harness) =>
+    Effect.gen(function* () {
+      const result = yield* listTools(harness.client);
+      expect(result.tools.map((tool) => tool.name)).not.toContain(
+        SEND_DIRECT_MESSAGE_TOOL_NAME,
       );
-    } finally {
-      await cleanup();
-    }
-  });
+    }),
+  );
+}
 
-  it("does NOT register edit_message (v1 — OQ4 default B)", async () => {
-    const { client, cleanup } = await setup();
-    try {
-      const result = await client.listTools();
-      expect(result.tools.map((t) => t.name)).not.toContain("edit_message");
-    } finally {
-      await cleanup();
-    }
-  });
-
-  it("REPLY_TOOL_INPUT_SCHEMA is the exported contract shape", () => {
-    expect(REPLY_TOOL_INPUT_SCHEMA).toMatchObject({
-      type: "object",
-      properties: {
-        text: { type: "string" },
-        reply_to: { type: "string" },
-        files: { type: "array", items: { type: "string" } },
-      },
-      required: ["text"],
-    });
-  });
-});
-
-describe("notification emission (spec A5, A6)", () => {
-  function makeNotification(
-    conversationId: string,
-    messageId: string,
-  ): ClaudeChannelNotification {
-    return {
-      method: "notifications/claude/channel",
-      params: {
-        content: "ping",
-        meta: {
-          chat_id: ConversationId(conversationId),
-          message_id: MessageId(messageId),
-          user: UserId(USER_PEER),
-          ts: "2026-04-24T00:00:00Z" as never,
-        },
-      },
-    };
-  }
-
-  it("Handle.push emits method 'notifications/claude/channel' with contract meta", async () => {
-    const { serverHandle, notifications, cleanup } = await setup();
-    try {
-      await Effect.runPromise(
-        serverHandle.push(makeNotification(CONVERSATION_1, MESSAGE_1)),
+function doesNotRegisterEditMessage() {
+  return withHarness((harness) =>
+    Effect.gen(function* () {
+      const result = yield* listTools(harness.client);
+      expect(result.tools.map((tool) => tool.name)).not.toContain(
+        EDIT_MESSAGE_TOOL_NAME,
       );
-      // Give the transport a tick to deliver.
-      await new Promise((r) => setTimeout(r, 10));
-      expect(notifications).toHaveLength(1);
-      const n = notifications[0];
-      expect(n).toBeDefined();
-      expect(n!.method).toBe("notifications/claude/channel");
-      const meta = (n!.params as { meta: Record<string, unknown> }).meta;
-      expect(meta).toMatchObject({
+    }),
+  );
+}
+
+function emitsChannelMethodWithContractMeta() {
+  return withHarness((harness) =>
+    Effect.gen(function* () {
+      yield* harness.serverHandle.push(
+        makeNotification(CONVERSATION_1, MESSAGE_1),
+      );
+      yield* waitForTransportTick();
+      expect(harness.notifications).toHaveLength(1);
+      const notification = harness.notifications[0];
+      expect(notification).toBeDefined();
+      expect(notification!.method).toBe(CLAUDE_CHANNEL_NOTIFICATION_METHOD);
+      expect((notification!.params as { meta: unknown }).meta).toMatchObject({
         chat_id: CONVERSATION_1,
         message_id: MESSAGE_1,
         user: USER_PEER,
-        ts: "2026-04-24T00:00:00Z",
+        ts: TIMESTAMP,
       });
-    } finally {
-      await cleanup();
-    }
+    }),
+  );
+}
+
+function pushEmitsOnlyChannelNotificationMethod() {
+  return withHarness((harness) =>
+    Effect.gen(function* () {
+      yield* harness.serverHandle.push(
+        makeNotification(CONVERSATION_1, MESSAGE_1),
+      );
+      yield* harness.serverHandle.push(
+        makeNotification(CONVERSATION_2, MESSAGE_2),
+      );
+      yield* waitForTransportTick();
+      expect(new Set(harness.notifications.map((n) => n.method))).toEqual(
+        new Set([CLAUDE_CHANNEL_NOTIFICATION_METHOD]),
+      );
+    }),
+  );
+}
+
+function replyToPresentAndKnownSendsToMessageChat() {
+  const sent: SentReply[] = [];
+  return withHarness(assertReplyToPresentAndKnown(sent), {
+    onSendReply: sentRecorder(sent),
   });
+}
 
-  it("notification method set under push equals exactly {'notifications/claude/channel'}", async () => {
-    const { serverHandle, notifications, cleanup } = await setup();
-    try {
-      await Effect.runPromise(
-        serverHandle.push(makeNotification(CONVERSATION_1, MESSAGE_1)),
-      );
-      await Effect.runPromise(
-        serverHandle.push(makeNotification(CONVERSATION_2, MESSAGE_2)),
-      );
-      await new Promise((r) => setTimeout(r, 10));
-      const methods = new Set(notifications.map((n) => n.method));
-      expect(methods).toEqual(new Set(["notifications/claude/channel"]));
-    } finally {
-      await cleanup();
-    }
-  });
-});
-
-describe("reply tool routing (spec OQ5)", () => {
-  it("resolves reply_to present + known → sends to that message's chat_id", async () => {
-    const sent: Array<{ conversationId: string; text: string }> = [];
-    const { client, routing, cleanup } = await setup({
-      onSendReply: (conversationId, text) =>
-        Effect.sync(() => {
-          sent.push({ conversationId, text });
-        }),
-    });
-    try {
-      routing.recordInbound(
-        MessageId(MESSAGE_1),
-        ConversationId(CONVERSATION_1),
-      );
-      routing.recordInbound(
-        MessageId(MESSAGE_2),
-        ConversationId(CONVERSATION_2),
-      );
-
-      const result = await client.callTool({
-        name: "reply",
-        arguments: { text: "hi", reply_to: MESSAGE_1 },
+function assertReplyToPresentAndKnown(sent: SentReply[]) {
+  return (harness: ServerHarness) =>
+    Effect.gen(function* () {
+      recordInboundPair(harness, MESSAGE_1, CONVERSATION_1);
+      recordInboundPair(harness, MESSAGE_2, CONVERSATION_2);
+      const result = yield* callTool(harness.client, {
+        name: REPLY_TOOL_NAME,
+        arguments: { text: REPLY_TEXT, reply_to: MESSAGE_1 },
       });
       expect(result.isError).not.toBe(true);
-      expect(sent).toEqual([{ conversationId: CONVERSATION_1, text: "hi" }]);
-    } finally {
-      await cleanup();
-    }
-  });
-
-  it("resolves reply_to absent → last-active chat_id", async () => {
-    const sent: Array<{ conversationId: string; text: string }> = [];
-    const { client, routing, cleanup } = await setup({
-      onSendReply: (conversationId, text) =>
-        Effect.sync(() => {
-          sent.push({ conversationId, text });
-        }),
+      expect(sent).toEqual([
+        { conversationId: CONVERSATION_1, text: REPLY_TEXT },
+      ]);
     });
-    try {
-      routing.recordInbound(
-        MessageId(MESSAGE_1),
-        ConversationId(CONVERSATION_1),
-      );
-      routing.recordInbound(
-        MessageId(MESSAGE_2),
-        ConversationId(CONVERSATION_2),
-      );
+}
 
-      const result = await client.callTool({
-        name: "reply",
-        arguments: { text: "hi" },
+function replyToAbsentSendsToLastActiveChat() {
+  const sent: SentReply[] = [];
+  return withHarness(assertReplyToAbsent(sent), {
+    onSendReply: sentRecorder(sent),
+  });
+}
+
+function assertReplyToAbsent(sent: SentReply[]) {
+  return (harness: ServerHarness) =>
+    Effect.gen(function* () {
+      recordInboundPair(harness, MESSAGE_1, CONVERSATION_1);
+      recordInboundPair(harness, MESSAGE_2, CONVERSATION_2);
+      const result = yield* callTool(harness.client, {
+        name: REPLY_TOOL_NAME,
+        arguments: { text: REPLY_TEXT },
       });
       expect(result.isError).not.toBe(true);
-      expect(sent).toEqual([{ conversationId: CONVERSATION_2, text: "hi" }]);
-    } finally {
-      await cleanup();
-    }
-  });
-
-  it("returns tool error when reply_to absent and no inbound observed (NoActiveConversation)", async () => {
-    const { client, cleanup } = await setup();
-    try {
-      const result = await client.callTool({
-        name: "reply",
-        arguments: { text: "hi" },
-      });
-      expect(result.isError).toBe(true);
-      const content = Array.isArray(result.content) ? result.content : [];
-      expect(JSON.stringify(content)).toMatch(/no active conversation/);
-    } finally {
-      await cleanup();
-    }
-  });
-
-  it("returns tool error when reply_to unknown (ReplyToUnknown)", async () => {
-    const { client, routing, cleanup } = await setup();
-    try {
-      routing.recordInbound(
-        MessageId(MESSAGE_KNOWN),
-        ConversationId(CONVERSATION_KNOWN),
-      );
-      const result = await client.callTool({
-        name: "reply",
-        arguments: { text: "hi", reply_to: MESSAGE_MISSING },
-      });
-      expect(result.isError).toBe(true);
-      const content = Array.isArray(result.content) ? result.content : [];
-      expect(JSON.stringify(content)).toMatch(new RegExp(MESSAGE_MISSING));
-    } finally {
-      await cleanup();
-    }
-  });
-
-  it("never silently drops — every call delivers or returns isError", async () => {
-    // Covered by the above four cases in aggregate. This test pins that the
-    // default (no routing state, no arguments) returns isError:true rather
-    // than a no-op Ok result.
-    const { client, cleanup } = await setup();
-    try {
-      const result = await client.callTool({ name: "reply", arguments: {} });
-      expect(result.isError).toBe(true);
-    } finally {
-      await cleanup();
-    }
-  });
-
-  it("rejects reply with non-empty files with FilesUnsupported tool error (v1, reviewer-187)", async () => {
-    const sent: Array<{ conversationId: string; text: string }> = [];
-    const { client, routing, cleanup } = await setup({
-      onSendReply: (conversationId, text) =>
-        Effect.sync(() => {
-          sent.push({ conversationId, text });
-        }),
+      expect(sent).toEqual([
+        { conversationId: CONVERSATION_2, text: REPLY_TEXT },
+      ]);
     });
-    try {
-      routing.recordInbound(
-        MessageId(MESSAGE_1),
-        ConversationId(CONVERSATION_1),
+}
+
+function emptyFilesArrayIsEquivalentToOmitted() {
+  const sent: SentReply[] = [];
+  return withHarness(assertEmptyFilesArray(sent), {
+    onSendReply: sentRecorder(sent),
+  });
+}
+
+function assertEmptyFilesArray(sent: SentReply[]) {
+  return (harness: ServerHarness) =>
+    Effect.gen(function* () {
+      recordInboundPair(harness, MESSAGE_1, CONVERSATION_1);
+      const result = yield* callTool(harness.client, {
+        name: REPLY_TOOL_NAME,
+        arguments: { text: REPLY_TEXT, reply_to: MESSAGE_1, files: [] },
+      });
+      expect(result.isError).not.toBe(true);
+      expect(sent).toEqual([
+        { conversationId: CONVERSATION_1, text: REPLY_TEXT },
+      ]);
+    });
+}
+
+function returnsToolErrorWithoutActiveConversation() {
+  return withHarness((harness) =>
+    Effect.gen(function* () {
+      const result = yield* callTool(harness.client, {
+        name: REPLY_TOOL_NAME,
+        arguments: { text: REPLY_TEXT },
+      });
+      expect(result.isError).toBe(true);
+      expect(JSON.stringify(result.content)).toMatch(/no active conversation/);
+    }),
+  );
+}
+
+function returnsToolErrorWhenReplyToIsUnknown() {
+  return withHarness((harness) =>
+    Effect.gen(function* () {
+      recordInboundPair(harness, MESSAGE_KNOWN, CONVERSATION_KNOWN);
+      const result = yield* callTool(harness.client, {
+        name: REPLY_TOOL_NAME,
+        arguments: { text: REPLY_TEXT, reply_to: MESSAGE_MISSING },
+      });
+      expect(result.isError).toBe(true);
+      expect(JSON.stringify(result.content)).toMatch(
+        new RegExp(MESSAGE_MISSING),
       );
-      const result = await client.callTool({
-        name: "reply",
+    }),
+  );
+}
+
+function neverSilentlyDropsCallsWithoutRoutingState() {
+  return withHarness((harness) =>
+    Effect.gen(function* () {
+      const result = yield* callTool(harness.client, {
+        name: REPLY_TOOL_NAME,
+        arguments: {},
+      });
+      expect(result.isError).toBe(true);
+    }),
+  );
+}
+
+function rejectsNonEmptyFilesWithoutSending() {
+  const sent: SentReply[] = [];
+  return withHarness(assertRejectsNonEmptyFiles(sent), {
+    onSendReply: sentRecorder(sent),
+  });
+}
+
+function assertRejectsNonEmptyFiles(sent: SentReply[]) {
+  return (harness: ServerHarness) =>
+    Effect.gen(function* () {
+      recordInboundPair(harness, MESSAGE_1, CONVERSATION_1);
+      const result = yield* callTool(harness.client, {
+        name: REPLY_TOOL_NAME,
         arguments: {
-          text: "hi",
+          text: REPLY_TEXT,
           reply_to: MESSAGE_1,
-          files: ["a.png", "b.png"],
+          files: [FILE_A, FILE_B],
         },
       });
       expect(result.isError).toBe(true);
-      const content = Array.isArray(result.content) ? result.content : [];
-      expect(JSON.stringify(content)).toMatch(/FilesUnsupported/);
-      expect(JSON.stringify(content)).toMatch(/2 file\(s\)/);
-      // Critical: the send side-effect MUST NOT fire when files are rejected.
+      expect(JSON.stringify(result.content)).toMatch(/FilesUnsupported/);
       expect(sent).toEqual([]);
-    } finally {
-      await cleanup();
-    }
-  });
+    });
+}
 
-  it("accepts reply with empty files array (equivalent to omitted)", async () => {
-    const sent: Array<{ conversationId: string; text: string }> = [];
-    const { client, routing, cleanup } = await setup({
-      onSendReply: (conversationId, text) =>
-        Effect.sync(() => {
-          sent.push({ conversationId, text });
+function surfacesSendFailedAsToolError() {
+  return withHarness(assertSendFailed, {
+    onSendReply: () =>
+      Effect.fail<ReplyError>(new SendFailed({ cause: "ws dropped" })),
+  });
+}
+
+function assertSendFailed(harness: ServerHarness) {
+  return Effect.gen(function* () {
+    recordInboundPair(harness, MESSAGE_X, CONVERSATION_X);
+    const result = yield* callTool(harness.client, {
+      name: REPLY_TOOL_NAME,
+      arguments: { text: REPLY_TEXT },
+    });
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result.content)).toMatch(/ws dropped/);
+  });
+}
+
+function surfacesLeaseAlreadyConsumedAsStructuredToolError() {
+  return withHarness(assertLeaseAlreadyConsumed, {
+    onSendReply: () =>
+      Effect.fail<ReplyError>(new LeaseAlreadyConsumed({ leaseId: LEASE_ID })),
+  });
+}
+
+function assertLeaseAlreadyConsumed(harness: ServerHarness) {
+  return Effect.gen(function* () {
+    recordInboundPair(harness, MESSAGE_X, CONVERSATION_X);
+    const result = yield* callTool(harness.client, {
+      name: REPLY_TOOL_NAME,
+      arguments: { text: SECOND_REPLY_TEXT },
+    });
+    expect(result.isError).toBe(true);
+    const serialized = JSON.stringify(result.content);
+    expect(serialized).toMatch(/LeaseAlreadyConsumed/);
+    expect(serialized).toMatch(new RegExp(LEASE_ID));
+  });
+}
+
+function returnsOrThrowsForUnknownToolName() {
+  return withHarness((harness) =>
+    Effect.gen(function* () {
+      const result = yield* Effect.either(
+        callTool(harness.client, {
+          name: EDIT_MESSAGE_TOOL_NAME,
+          arguments: { message_id: MESSAGE_1, text: REPLY_TEXT },
         }),
-    });
-    try {
-      routing.recordInbound(
-        MessageId(MESSAGE_1),
-        ConversationId(CONVERSATION_1),
       );
-      const result = await client.callTool({
-        name: "reply",
-        arguments: { text: "hi", reply_to: MESSAGE_1, files: [] },
+      Either.match(result, {
+        onLeft: (error) =>
+          expect(String(error.cause)).toMatch(
+            /edit_message|not found|unknown/i,
+          ),
+        onRight: (toolResult) => {
+          if ("isError" in toolResult) expect(toolResult.isError).toBe(true);
+        },
       });
-      expect(result.isError).not.toBe(true);
-      expect(sent).toEqual([{ conversationId: CONVERSATION_1, text: "hi" }]);
-    } finally {
-      await cleanup();
-    }
-  });
+    }),
+  );
+}
 
-  it("surfaces ReplyError.SendFailed as tool error (isError: true)", async () => {
-    const { client, routing, cleanup } = await setup({
-      onSendReply: () =>
-        Effect.fail<ReplyError>(new SendFailed({ cause: "ws dropped" })),
-    });
-    try {
-      routing.recordInbound(
-        MessageId(MESSAGE_X),
-        ConversationId(CONVERSATION_X),
-      );
-      const result = await client.callTool({
-        name: "reply",
-        arguments: { text: "hi" },
-      });
-      expect(result.isError).toBe(true);
-      const content = Array.isArray(result.content) ? result.content : [];
-      expect(JSON.stringify(content)).toMatch(/ws dropped/);
-    } finally {
-      await cleanup();
-    }
-  });
+describe("bootChannelMcpServer capability handshake", () => {
+  effectTest(
+    "advertises the channel capability contract",
+    advertisesChannelCapabilityContract,
+  );
 
-  // Cutover #533 single-use lease: a multi-turn agent that calls
-  // `reply` twice in one dispatch sees the second call's lease in
-  // CONSUMED state. The entry-mapper projects the
-  // `RpcServerError(data.reason="LeaseInvalid")` onto
-  // `LeaseAlreadyConsumed`; server.ts surfaces the typed error as
-  // `toolErrorResult("LeaseAlreadyConsumed: ...")` instead of the
-  // generic `send failed: ...` projection.
-  it("surfaces ReplyError.LeaseAlreadyConsumed as a structured tool error", async () => {
-    const { client, routing, cleanup } = await setup({
-      onSendReply: () =>
-        Effect.fail<ReplyError>(
-          new LeaseAlreadyConsumed({ leaseId: "lease-cc-test" }),
-        ),
-    });
-    try {
-      routing.recordInbound(
-        MessageId(MESSAGE_X),
-        ConversationId(CONVERSATION_X),
-      );
-      const result = await client.callTool({
-        name: "reply",
-        arguments: { text: "second reply attempt" },
-      });
-      expect(result.isError).toBe(true);
-      const content = Array.isArray(result.content) ? result.content : [];
-      const serialized = JSON.stringify(content);
-      expect(serialized).toMatch(/LeaseAlreadyConsumed/);
-      expect(serialized).toMatch(/lease-cc-test/);
-    } finally {
-      await cleanup();
-    }
+  effectTest(
+    "does not advertise permission relay capabilities",
+    doesNotAdvertisePermissionRelay,
+  );
+
+  it("CHANNEL_CAPABILITIES constant is the contract shape", () => {
+    expect(CHANNEL_CAPABILITIES).toEqual(EXPECTED_CHANNEL_CAPABILITIES);
   });
 });
 
-describe("decodeReplyArgs — boundary validation (Principle 2)", () => {
-  it("accepts {text: 'hi'}", () => {
-    const r = decodeReplyArgs({ text: "hi" });
-    expect(Either.isRight(r)).toBe(true);
-    if (Either.isLeft(r)) return;
-    expect(r.right.text).toBe("hi");
-    expect(r.right.replyTo).toBeUndefined();
-    expect(r.right.files).toBeUndefined();
+describe("bootChannelMcpServer reply tool registry", () => {
+  effectTest("registers exactly one reply tool", registersExactlyOneReplyTool);
+  effectTest(
+    "reply.inputSchema matches the contract",
+    replyInputSchemaMatchesContract,
+  );
+
+  it("REPLY_TOOL_INPUT_SCHEMA is the exported contract shape", () => {
+    expect(REPLY_TOOL_INPUT_SCHEMA).toMatchObject(EXPECTED_REPLY_INPUT_SCHEMA);
+  });
+});
+
+describe("bootChannelMcpServer deleted tool registry", () => {
+  effectTest(
+    "does not register send_direct_message",
+    doesNotRegisterSendDirectMessage,
+  );
+  effectTest("does not register edit_message", doesNotRegisterEditMessage);
+});
+
+describe("notification emission", () => {
+  effectTest(
+    "Handle.push emits the channel method with contract meta",
+    emitsChannelMethodWithContractMeta,
+  );
+  effectTest(
+    "push emits only the channel notification method",
+    pushEmitsOnlyChannelNotificationMethod,
+  );
+});
+
+describe("reply tool routing success cases", () => {
+  effectTest(
+    "reply_to present and known sends to that message chat",
+    replyToPresentAndKnownSendsToMessageChat,
+  );
+  effectTest(
+    "reply_to absent sends to last-active chat",
+    replyToAbsentSendsToLastActiveChat,
+  );
+  effectTest(
+    "empty files array is equivalent to omitted",
+    emptyFilesArrayIsEquivalentToOmitted,
+  );
+});
+
+describe("reply tool routing error cases", () => {
+  effectTest(
+    "returns tool error without an active conversation",
+    returnsToolErrorWithoutActiveConversation,
+  );
+  effectTest(
+    "returns tool error when reply_to is unknown",
+    returnsToolErrorWhenReplyToIsUnknown,
+  );
+  effectTest(
+    "never silently drops calls without routing state",
+    neverSilentlyDropsCallsWithoutRoutingState,
+  );
+});
+
+describe("reply tool file and lease errors", () => {
+  effectTest(
+    "rejects non-empty files without sending",
+    rejectsNonEmptyFilesWithoutSending,
+  );
+  effectTest(
+    "surfaces SendFailed as a tool error",
+    surfacesSendFailedAsToolError,
+  );
+  effectTest(
+    "surfaces LeaseAlreadyConsumed as a structured tool error",
+    surfacesLeaseAlreadyConsumedAsStructuredToolError,
+  );
+});
+
+describe("decodeReplyArgs valid inputs", () => {
+  it("accepts text only", () => {
+    const decoded = expectDecodeSuccess({ text: REPLY_TEXT });
+    expect(decoded?.text).toBe(REPLY_TEXT);
+    expect(decoded?.replyTo).toBeUndefined();
+    expect(decoded?.files).toBeUndefined();
   });
 
-  it("decodes {text, reply_to, files} — rejection happens at handler, not decoder", () => {
-    // Decoder preserves the `files` field so the handler can emit a tagged
-    // FilesUnsupported tool error. Contract surface stays intact (spec A4).
-    const r = decodeReplyArgs({
-      text: "hi",
+  it("preserves text, reply_to, and files for the handler", () => {
+    const decoded = expectDecodeSuccess({
+      text: REPLY_TEXT,
       reply_to: MESSAGE_1,
-      files: ["a.png"],
+      files: [FILE_A],
     });
-    expect(Either.isRight(r)).toBe(true);
-    if (Either.isLeft(r)) return;
-    expect(r.right.text).toBe("hi");
-    expect(r.right.replyTo).toBe(MESSAGE_1);
-    expect(r.right.files).toEqual(["a.png"]);
+    expect(decoded?.text).toBe(REPLY_TEXT);
+    expect(decoded?.replyTo).toBe(MESSAGE_1);
+    expect(decoded?.files).toEqual([FILE_A]);
   });
+});
 
-  it("rejects {text: 42} with ReplyArgsInvalid", () => {
-    const r = decodeReplyArgs({ text: 42 });
-    expect(Either.isLeft(r)).toBe(true);
+describe("decodeReplyArgs invalid text inputs", () => {
+  it("rejects numeric text", () => {
+    expectDecodeFailure({ text: 42 });
   });
 
   it("rejects missing text", () => {
-    const r = decodeReplyArgs({});
-    expect(Either.isLeft(r)).toBe(true);
-  });
-
-  it("rejects non-string element in files", () => {
-    const r = decodeReplyArgs({ text: "hi", files: ["a", 1] });
-    expect(Either.isLeft(r)).toBe(true);
-  });
-
-  it("rejects non-object input", () => {
-    const r = decodeReplyArgs(null);
-    expect(Either.isLeft(r)).toBe(true);
+    expectDecodeFailure({});
   });
 
   it("rejects empty-string text", () => {
-    const r = decodeReplyArgs({ text: "   " });
-    expect(Either.isLeft(r)).toBe(true);
+    expectDecodeFailure({ text: "   " });
+  });
+});
+
+describe("decodeReplyArgs invalid optional inputs", () => {
+  it("rejects non-string file entries", () => {
+    expectDecodeFailure({ text: REPLY_TEXT, files: [FILE_A, 1] });
+  });
+
+  it("rejects non-object input", () => {
+    expectDecodeFailure(null);
   });
 
   it("rejects empty reply_to", () => {
-    const r = decodeReplyArgs({ text: "hi", reply_to: "" });
-    expect(Either.isLeft(r)).toBe(true);
+    expectDecodeFailure({ text: REPLY_TEXT, reply_to: "" });
   });
 });
 
 describe("unknown tool name", () => {
-  it("returns tool error for unknown tool name", async () => {
-    const { client, cleanup } = await setup();
-    try {
-      const result = await client.callTool({
-        name: "edit_message",
-        arguments: { message_id: "M1", text: "hi" },
-      });
-      // The SDK may reject before our handler if tool is unknown to listTools;
-      // accept either SDK-level rejection or our tool error.
-      if ("isError" in result) {
-        expect(result.isError).toBe(true);
-      }
-    } catch (err) {
-      // SDK throws "Tool edit_message not found" — acceptable.
-      expect(String(err)).toMatch(/edit_message|not found|unknown/i);
-    } finally {
-      await cleanup();
-    }
-  });
+  effectTest(
+    "returns or throws a tool error for unknown tool name",
+    returnsOrThrowsForUnknownToolName,
+  );
 });

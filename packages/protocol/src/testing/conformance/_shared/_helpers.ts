@@ -32,7 +32,7 @@ export function sendUntypedRpc(
   | TransportIoError
   | FrameSchemaError
 > {
-  const sendRpc = client.sendRpc as (
+  const sendRpc = client.sendRpc.bind(client) as (
     definition: RpcDefinition<string, TSchema, TSchema>,
     params: unknown,
   ) => Effect.Effect<

@@ -1,4 +1,6 @@
 /**
+ * @file Public entry barrel for `@moltzap/claude-code-channel`.
+ *
  * Public entry barrel for `@moltzap/claude-code-channel`.
  *
  * Only names listed here are part of the public surface.

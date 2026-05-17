@@ -4,9 +4,9 @@
  *
  * Principle 3 (errors typed, not thrown): every property body is an
  * `Effect.Effect&lt;void, PropertyFailure>`. Failures are tagged — never
- * bare `throw`s. Fast-check's Promise-based `fc.assert` is bridged via
- * `Effect.tryPromise` at each call site so rejections become typed
- * `PropertyAssertionFailure`s.
+ * bare `throw`s. Fast-check's immediate and Promise-backed assertions
+ * are bridged through Effect at each call site; this wrapper gives those
+ * call sites the typed assertion-failure constructor.
  *
  * Principle 6 (scope is a hard budget): this module lives under
  * `src/testing/` (included in the main `tsc --build`). It must NOT
@@ -95,6 +95,10 @@ export interface PropertyRegistry {
   readonly entries: Ref.Ref<ReadonlyArray<RegisteredProperty>>;
 }
 
+type PropertyAssertionFailureFactory = (
+  cause: unknown,
+) => PropertyAssertionFailure;
+
 type RegisterPropertyArgs = readonly [
   ctx: PropertyContext,
   category: PropertyCategory,
@@ -142,10 +146,9 @@ export function collectProperties(
 export function assertProperty(
   category: PropertyCategory,
   name: string,
-  body: () => void | PromiseLike<void>,
+  body: (onFailure: PropertyAssertionFailureFactory) => PropertyRun,
 ): PropertyRun {
-  return Effect.tryPromise({
-    try: () => Promise.resolve(body()),
-    catch: (cause) => new PropertyAssertionFailure({ category, name, cause }),
-  });
+  return Effect.suspend(() =>
+    body((cause) => new PropertyAssertionFailure({ category, name, cause })),
+  );
 }

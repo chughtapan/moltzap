@@ -41,6 +41,7 @@ export {
   ParticipantsAddedNotificationDefinition,
   ParticipantsRemovedNotificationDefinition,
   MessageReceivedNotificationDefinition,
+  TaskClosedNotificationDefinition,
   TaskFailedNotificationDefinition,
   tmDecisionSchema,
   messageWithTmDecisionSchema,

@@ -50,11 +50,7 @@ import {
   Ref,
   Scope,
 } from "effect";
-import {
-  MoltZapWsClient,
-  type RpcCallOptions,
-  type WsClientLogger,
-} from "./ws-client.js";
+import { MoltZapWsClient, type RpcCallOptions } from "./ws-client.js";
 import { AgentNotFoundError } from "./runtime/errors.js";
 import { getOr, snapshot } from "./runtime/refs.js";
 import { LocalServiceCommands } from "./runtime/local-service-commands.js";
@@ -71,16 +67,20 @@ import {
   buildContextEntries,
   type ContextCandidate,
   type CrossConvState,
-  formatHistoryMessage,
-  type HistoryRequest,
-  lastReadIdsForSession,
   makeContextCandidate,
   newMessagesForConversation,
   notificationTraceRecord,
-  parseHistoryRequest,
   renderPart,
   ServiceInputError,
 } from "./runtime/service-helpers.js";
+import {
+  decodeHistoryRequest,
+  formatHistoryMessage,
+  type HistoryRequestInputError,
+  type HistoryRequest,
+  type HistoryResponse,
+  lastReadIdsForSession,
+} from "./runtime/local-history.js";
 
 const CROSS_CONTEXT_TEXT_LIMIT = 120;
 const DEFAULT_MAX_CONTEXT_CONVERSATIONS = 5;
@@ -191,7 +191,6 @@ export function formatCrossConversationBlock(
 export interface ServiceOptions {
   serverUrl: string;
   agentKey: string;
-  logger?: WsClientLogger;
 }
 
 type NotificationHandler<T> = (data: T) => void;
@@ -250,18 +249,17 @@ const DEDUP_WINDOW_PER_CONV = 1000;
 
 /**
  * Invoke every handler with `arg`, isolating throws so one bad handler
- * doesn't abort the remaining fanout. Logs via the optional client logger.
+ * doesn't abort the remaining fanout.
  */
 function fanout<T>(
   handlers: ReadonlyArray<NotificationHandler<T>>,
   arg: T,
-  logger?: WsClientLogger,
 ): void {
   for (const h of handlers) {
     try {
       h(arg);
     } catch (err) {
-      logger?.error("notification handler threw", err);
+      Effect.runFork(Effect.logError("notification handler threw", err));
     }
   }
 }
@@ -375,7 +373,6 @@ export class MoltZapService {
         fanout(
           this.handlers.dispatchRelease,
           notification.params as NotificationParamsOf<typeof DispatchRelease>,
-          this.opts.logger,
         ),
     ],
     [
@@ -386,7 +383,6 @@ export class MoltZapService {
           notification.params as NotificationParamsOf<
             typeof DispatchesConsumed
           >,
-          this.opts.logger,
         ),
     ],
     [
@@ -395,7 +391,6 @@ export class MoltZapService {
         fanout(
           this.handlers.dispatchesExpired,
           notification.params as NotificationParamsOf<typeof DispatchesExpired>,
-          this.opts.logger,
         ),
     ],
   ]);
@@ -418,17 +413,16 @@ export class MoltZapService {
       this.client = new MoltZapWsClient({
         serverUrl: this.opts.serverUrl,
         agentKey: this.opts.agentKey,
-        logger: this.opts.logger,
         // Spec #222 OQ-6: arg required. The body doesn't branch on
         // close metadata today; signature kept explicit so a future
         // disconnect-handler chain can plumb code/reason through.
         onDisconnect: () => {
           this._connected = false;
-          fanout(this.handlers.disconnect, undefined, this.opts.logger);
+          fanout(this.handlers.disconnect, undefined);
         },
         onReconnect: (helloOk) => {
           this._connected = true;
-          fanout(this.handlers.reconnect, helloOk, this.opts.logger);
+          fanout(this.handlers.reconnect, helloOk);
         },
       });
       // Spec #222 OQ-4: per-notification callback is replaced by subscriptions.
@@ -509,12 +503,10 @@ export class MoltZapService {
         socketScope: previous.socketScope,
         socketPath: previous.sockPath,
         defaultSocketPath: MoltZapService.SOCKET_PATH,
-        logger: this.opts.logger,
       });
       const running = yield* startLocalSocketServer({
         socketPath: this.socketPath,
         defaultSocketPath: MoltZapService.SOCKET_PATH,
-        logger: this.opts.logger,
         handleRequest: (method, params) =>
           this.handleSocketRequestEffect(method, params),
       });
@@ -540,60 +532,73 @@ export class MoltZapService {
       socketScope,
       socketPath: sockPath,
       defaultSocketPath: MoltZapService.SOCKET_PATH,
-      logger: this.opts.logger,
     }).pipe(Effect.withSpan("MoltZapService.stopSocketServer"));
   }
 
   private handleSocketRequestEffect(
     method: string,
     params: LocalDaemonParams,
-  ): Effect.Effect<unknown, ServiceInputError | ServiceRpcError> {
-    return Effect.suspend(() => {
-      switch (method) {
-        case LocalServiceCommands.Ping:
-          return Effect.succeed({ ok: true, agentId: this.ownAgentId });
+  ): Effect.Effect<
+    unknown,
+    HistoryRequestInputError | ServiceInputError | ServiceRpcError
+  > {
+    return Effect.suspend(
+      (): Effect.Effect<
+        unknown,
+        HistoryRequestInputError | ServiceInputError | ServiceRpcError
+      > => {
+        switch (method) {
+          case LocalServiceCommands.Ping:
+            return Effect.succeed({ ok: true, agentId: this.ownAgentId });
 
-        case LocalServiceCommands.Status:
-          return Effect.succeed({
-            agentId: this.ownAgentId,
-            connected: this._connected,
-            conversations: this.getConversations().length,
-          });
+          case LocalServiceCommands.Status:
+            return Effect.succeed({
+              agentId: this.ownAgentId,
+              connected: this._connected,
+              conversations: this.getConversations().length,
+            });
 
-        case LocalServiceCommands.History:
-          return this.handleHistoryRequest(params);
+          case LocalServiceCommands.History:
+            return this.handleHistoryRequest(params);
 
-        default: {
-          const definition = rpcMethods.find(
-            (d): d is AnyRpcDefinition => d.name === method,
-          );
-          if (definition === undefined || !definition.validateParams(params)) {
-            return Effect.fail(
-              new ServiceInputError({
-                message: `unknown or invalid RPC method: ${method}`,
-              }),
+          default: {
+            const definition = rpcMethods.find(
+              (d): d is AnyRpcDefinition => d.name === method,
+            );
+            if (
+              definition === undefined ||
+              !definition.validateParams(params)
+            ) {
+              return Effect.fail(
+                new ServiceInputError({
+                  message: `unknown or invalid RPC method: ${method}`,
+                }),
+              );
+            }
+            return this.sendRpc(
+              definition,
+              params as ParamsOf<typeof definition>,
             );
           }
-          return this.sendRpc(
-            definition,
-            params as ParamsOf<typeof definition>,
-          );
         }
-      }
-    });
+      },
+    );
   }
 
   private handleHistoryRequest(
     params: Record<string, unknown>,
-  ): Effect.Effect<unknown, ServiceInputError | ServiceRpcError> {
+  ): Effect.Effect<
+    HistoryResponse,
+    HistoryRequestInputError | ServiceRpcError
+  > {
     return Effect.gen(this, function* () {
-      const request = yield* parseHistoryRequest(params);
+      const request = yield* decodeHistoryRequest(params);
       const result = yield* this.sendRpc(MessagesList, {
-        conversationId: request.convId as ConversationId,
+        conversationId: request.conversationId as ConversationId,
         limit: request.limit,
       });
       const convMeta = yield* this.loadHistorySupportData(
-        request.convId,
+        request.conversationId,
         result.messages,
       );
       const agentNames = yield* Ref.get(this.agentNamesRef);
@@ -676,14 +681,14 @@ export class MoltZapService {
     if (request.sessionKey === undefined || messages.length === 0) {
       return Effect.void;
     }
-    const { convId, sessionKey } = request;
+    const { conversationId, sessionKey } = request;
     return Ref.update(this.lastReadRef, (outer) => {
       const perSession = getOr(outer, sessionKey, () =>
         HashMap.empty<string, ReadonlySet<string>>(),
       );
       const existing = getOr(
         perSession,
-        convId,
+        conversationId,
         () => new Set<string>() as ReadonlySet<string>,
       );
       if (messages.every((message) => existing.has(message.id))) return outer;
@@ -694,7 +699,7 @@ export class MoltZapService {
       return HashMap.set(
         outer,
         sessionKey,
-        HashMap.set(perSession, convId, nextSet),
+        HashMap.set(perSession, conversationId, nextSet),
       );
     });
   }
@@ -1070,7 +1075,7 @@ export class MoltZapService {
     notification: DecodedNotification<AnyNotificationDefinition>,
   ): void {
     this.recordNotificationTrace(notification);
-    fanout(this.handlers.rawNotification, notification, this.opts.logger);
+    fanout(this.handlers.rawNotification, notification);
     this.dispatchTypedNotification(notification);
   }
 
@@ -1141,7 +1146,7 @@ export class MoltZapService {
     // via resolveAgentName(), which populates agentNamesRef on first miss and
     // hits the cache on every subsequent message.
     if (msg.senderId !== this._ownAgentId) {
-      fanout(this.handlers.message, msg, this.opts.logger);
+      fanout(this.handlers.message, msg);
     }
   }
 
@@ -1164,18 +1169,14 @@ export class MoltZapService {
     notification: ConversationArchivedNotification,
   ): void {
     this.markConversationArchived(notification.conversationId);
-    fanout(this.handlers.conversationArchived, notification, this.opts.logger);
+    fanout(this.handlers.conversationArchived, notification);
   }
 
   private handleConversationUnarchivedNotification(
     notification: ConversationUnarchivedNotification,
   ): void {
     this.archivedConversationIds.delete(notification.conversationId);
-    fanout(
-      this.handlers.conversationUnarchived,
-      notification,
-      this.opts.logger,
-    );
+    fanout(this.handlers.conversationUnarchived, notification);
   }
 
   private upsertConversationNotification(

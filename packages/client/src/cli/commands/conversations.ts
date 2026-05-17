@@ -8,6 +8,11 @@ import {
   requestLocalService,
   resolveParticipant,
 } from "../socket-client.js";
+import type {
+  HistoryRequestInput,
+  HistoryMessageSummary,
+  HistoryResponse,
+} from "../../runtime/local-history.js";
 
 const jsonOption = Options.boolean("json").pipe(
   Options.withDescription("Output as JSON"),
@@ -254,23 +259,6 @@ const removeParticipantCommand = Command.make(
     ),
 ).pipe(Command.withDescription("Remove a participant from a conversation"));
 
-interface HistoryMessage {
-  seq: number;
-  senderId: string;
-  senderName: string;
-  isOwn: boolean;
-  text: string;
-  createdAt: string;
-  isNew: boolean;
-}
-
-interface HistoryResult {
-  messages: HistoryMessage[];
-  hasMore: boolean;
-  conversationMeta?: { type: string; name?: string };
-  newCount: number;
-}
-
 const historyLimitOption = Options.integer("limit").pipe(
   Options.withDefault(DEFAULT_HISTORY_LIMIT),
   Options.withDescription("Max messages to show"),
@@ -284,7 +272,7 @@ const sessionKeyOption = Options.text("session-key").pipe(
 function renderHistoryHeader(
   conversationId: string,
   sessionKey: Option.Option<string>,
-  result: HistoryResult,
+  result: HistoryResponse,
 ): void {
   if (!Option.isSome(sessionKey) || !result.conversationMeta) return;
   const label = result.conversationMeta.name ?? result.conversationMeta.type;
@@ -303,7 +291,7 @@ function messageAgeMinutes(createdAt: string): number {
   );
 }
 
-function renderHistoryMessage(message: HistoryMessage): void {
+function renderHistoryMessage(message: HistoryMessageSummary): void {
   const ago = messageAgeMinutes(message.createdAt);
   const newMarker = message.isNew ? " *" : "";
   console.log(
@@ -314,7 +302,7 @@ function renderHistoryMessage(message: HistoryMessage): void {
 const renderHistory = (
   conversationId: string,
   sessionKey: Option.Option<string>,
-  result: HistoryResult,
+  result: HistoryResponse,
   json: boolean,
 ): void => {
   if (json) {
@@ -345,13 +333,11 @@ const historyHandler = ({
   json: boolean;
   sessionKey: Option.Option<string>;
 }): Effect.Effect<void> => {
-  const params: Record<string, unknown> = { conversationId, limit };
-  if (Option.isSome(sessionKey)) params.sessionKey = sessionKey.value;
+  const params: HistoryRequestInput = Option.isSome(sessionKey)
+    ? { conversationId, limit, sessionKey: sessionKey.value }
+    : { conversationId, limit };
   return wrap(
-    requestLocalService(LocalServiceCommands.History, params) as Effect.Effect<
-      HistoryResult,
-      Error
-    >,
+    requestLocalService(LocalServiceCommands.History, params),
     (result) => {
       renderHistory(conversationId, sessionKey, result, json);
     },

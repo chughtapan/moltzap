@@ -1,7 +1,6 @@
 import { it as effectIt } from "@effect/vitest";
 import { RpcServerError, type Message } from "@moltzap/protocol";
 import { Data, Effect } from "effect";
-import { vi } from "vitest";
 
 import {
   MoltZapChannelCore,
@@ -195,23 +194,16 @@ export function customSetup(): {
   fake: FakeChannelService;
   core: MoltZapChannelCore;
   received: EnrichedInboundMessage[];
-  infoSpy: ReturnType<typeof vi.fn>;
-  errorSpy: ReturnType<typeof vi.fn>;
 } {
   const fake = createFakeChannelService({ ownAgentId: "agent-self" });
   const received: EnrichedInboundMessage[] = [];
-  const infoSpy = vi.fn();
-  const errorSpy = vi.fn();
-  const core = new MoltZapChannelCore({
-    service: fake.service,
-    logger: { info: infoSpy, warn: () => {}, error: errorSpy },
-  });
+  const core = new MoltZapChannelCore({ service: fake.service });
   core.onInbound((m) =>
     Effect.sync(() => {
       received.push(m);
     }),
   );
-  return { fake, core, received, infoSpy, errorSpy };
+  return { fake, core, received };
 }
 
 export function forceResolveAgentNamePath(fake: FakeChannelService): void {

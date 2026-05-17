@@ -2,7 +2,6 @@
 
 import { Effect, Schema } from "effect";
 import type { ContactService } from "../app/app-host.js";
-import type { Logger } from "../logger.js";
 import type { WebhookClient } from "./webhook.js";
 
 const ContactsCheckResponse = Schema.Struct({ inContact: Schema.Boolean });
@@ -12,7 +11,6 @@ export class WebhookContactService implements ContactService {
     private client: WebhookClient,
     private url: string,
     private timeoutMs: number,
-    private webhookLogger: Logger,
   ) {}
 
   areInContact(
@@ -30,13 +28,12 @@ export class WebhookContactService implements ContactService {
       .pipe(
         Effect.map((result) => result.inContact),
         Effect.catchAll((err) =>
-          Effect.sync(() => {
-            this.webhookLogger.error(
-              { err, userIdA, userIdB, url: this.url },
-              "Contact check webhook failed, rejecting contact",
-            );
-            return false;
-          }),
+          Effect.logError(
+            "Contact check webhook failed, rejecting contact",
+          ).pipe(
+            Effect.annotateLogs({ err, userIdA, userIdB, url: this.url }),
+            Effect.as(false),
+          ),
         ),
       );
   }

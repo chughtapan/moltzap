@@ -14,7 +14,6 @@ import {
   DispatchLeaseExpired,
 } from "./channel-core-errors.js";
 import { enrichChannelMessage } from "./channel-core-enrichment.js";
-import type { WsClientLogger } from "./ws-client.js";
 
 export interface EnrichedSender {
   id: string;
@@ -149,7 +148,7 @@ export interface ChannelService {
   send(
     conversationId: string,
     text: string,
-    opts?: { dispatchLeaseId?: string },
+    opts?: { replyTo?: string; dispatchLeaseId?: string },
   ): Effect.Effect<void, ServiceRpcError>;
   isConversationArchived?(conversationId: string): boolean;
   getConversation(
@@ -196,7 +195,6 @@ export interface ChannelService {
 
 export interface ChannelCoreOptions {
   service: ChannelService;
-  logger?: WsClientLogger;
   dispatchAdmissionTimeoutMs?: number;
 }
 
@@ -209,12 +207,6 @@ export interface ChannelCoreOptions {
 export type InboundHandler<E = unknown> = (
   msg: EnrichedInboundMessage,
 ) => Effect.Effect<void, E>;
-
-const noopLogger = {
-  info: () => {},
-  warn: () => {},
-  error: () => {},
-};
 
 const DEFAULT_DISPATCH_ADMISSION_TIMEOUT_MS = 30_000;
 const DEFAULT_DISPATCH_LEASE_TIMEOUT_MS = 90_000;
@@ -240,6 +232,31 @@ function errorSummary(err: unknown): Record<string, unknown> {
   };
 }
 
+function effectLogInfo(
+  message: string,
+  annotations: Record<string, unknown>,
+): Effect.Effect<void, never> {
+  return Effect.logInfo(message).pipe(Effect.annotateLogs(annotations));
+}
+
+function effectLogWarning(
+  message: string,
+  annotations: Record<string, unknown>,
+): Effect.Effect<void, never> {
+  return Effect.logWarning(message).pipe(Effect.annotateLogs(annotations));
+}
+
+function effectLogError(
+  message: string,
+  annotations: Record<string, unknown>,
+): Effect.Effect<void, never> {
+  return Effect.logError(message).pipe(Effect.annotateLogs(annotations));
+}
+
+function runBackgroundLog(effect: Effect.Effect<void, never>): void {
+  Effect.runFork(effect);
+}
+
 interface InboundDispatchWork {
   message: Message;
   attempt: number;
@@ -257,7 +274,6 @@ interface InboundDispatchWork {
  */
 export class MoltZapChannelCore {
   private readonly service: ChannelService;
-  private readonly logger: WsClientLogger;
   private readonly dispatchAdmissionTimeoutMs: number;
   private connected = false;
   private inboundHandler: InboundHandler<unknown> | null = null;
@@ -316,7 +332,6 @@ export class MoltZapChannelCore {
 
   constructor(opts: ChannelCoreOptions) {
     this.service = opts.service;
-    this.logger = opts.logger ?? noopLogger;
     this.dispatchAdmissionTimeoutMs =
       opts.dispatchAdmissionTimeoutMs ?? DEFAULT_DISPATCH_ADMISSION_TIMEOUT_MS;
 
@@ -330,12 +345,14 @@ export class MoltZapChannelCore {
   private registerMessageListener(): void {
     this.service.on("message", (message) => {
       if (this.closedConversationIds.has(message.conversationId)) {
-        this.logger.info(
-          {
-            messageId: message.id,
-            conversationId: message.conversationId,
-          },
-          "MoltZapChannelCore: dropping inbound message for closed conversation",
+        runBackgroundLog(
+          effectLogInfo(
+            "MoltZapChannelCore: dropping inbound message for closed conversation",
+            {
+              messageId: message.id,
+              conversationId: message.conversationId,
+            },
+          ),
         );
         return;
       }
@@ -354,7 +371,7 @@ export class MoltZapChannelCore {
         Effect.flatMap((work) =>
           this.dispatchInboundWork(work).pipe(
             Effect.catchAllCause((cause) =>
-              Effect.sync(() => this.logInboundFailure(work, cause)),
+              this.logInboundFailure(work, cause),
             ),
           ),
         ),
@@ -366,16 +383,13 @@ export class MoltZapChannelCore {
   private logInboundFailure(
     work: InboundDispatchWork,
     cause: Cause.Cause<unknown>,
-  ): void {
-    this.logger.error(
-      {
-        messageId: work.message.id,
-        conversationId: work.message.conversationId,
-        causePretty: Cause.pretty(cause),
-        ...errorSummary(Cause.squash(cause)),
-      },
-      "MoltZapChannelCore: inbound handler failed",
-    );
+  ): Effect.Effect<void, never> {
+    return effectLogError("MoltZapChannelCore: inbound handler failed", {
+      messageId: work.message.id,
+      conversationId: work.message.conversationId,
+      causePretty: Cause.pretty(cause),
+      ...errorSummary(Cause.squash(cause)),
+    });
   }
 
   private registerConnectionListeners(): void {
@@ -438,9 +452,11 @@ export class MoltZapChannelCore {
       const oldest = this.pendingReleasesByLease.keys().next().value;
       if (oldest === undefined) break;
       this.pendingReleasesByLease.delete(oldest);
-      this.logger.warn(
-        { leaseId: oldest },
-        "MoltZapChannelCore: dispatchRelease ring buffer evicted oldest entry (capacity reached)",
+      runBackgroundLog(
+        effectLogWarning(
+          "MoltZapChannelCore: dispatchRelease ring buffer evicted oldest entry (capacity reached)",
+          { leaseId: oldest },
+        ),
       );
     }
   }
@@ -453,9 +469,11 @@ export class MoltZapChannelCore {
         return;
       }
       this.pendingReleasesByLease.delete(leaseId);
-      this.logger.warn(
-        { leaseId, ageMs: nowMs - entry.receivedAtMs },
-        "MoltZapChannelCore: dispatchRelease ring buffer evicted stale entry (soft TTL)",
+      runBackgroundLog(
+        effectLogWarning(
+          "MoltZapChannelCore: dispatchRelease ring buffer evicted stale entry (soft TTL)",
+          { leaseId, ageMs: nowMs - entry.receivedAtMs },
+        ),
       );
     }
   }
@@ -487,9 +505,11 @@ export class MoltZapChannelCore {
       try {
         h();
       } catch (err) {
-        this.logger.error(
-          { err, label },
-          `MoltZapChannelCore: ${label} handler threw`,
+        runBackgroundLog(
+          effectLogError(`MoltZapChannelCore: ${label} handler threw`, {
+            err,
+            label,
+          }),
         );
       }
     }
@@ -529,11 +549,9 @@ export class MoltZapChannelCore {
       this.closedConversationIds.has(conversationId) ||
       this.service.isConversationArchived?.(conversationId)
     ) {
-      return Effect.sync(() =>
-        this.logger.info(
-          { conversationId },
-          "MoltZapChannelCore: dropping reply for closed conversation",
-        ),
+      return effectLogInfo(
+        "MoltZapChannelCore: dropping reply for closed conversation",
+        { conversationId },
       );
     }
     return this.service.send(conversationId, text, {
@@ -557,12 +575,14 @@ export class MoltZapChannelCore {
       }
     }
 
-    this.logger.info(
-      {
-        conversationId,
-        droppedQueued,
-      },
-      "MoltZapChannelCore: closed conversation dispatch work purged",
+    runBackgroundLog(
+      effectLogInfo(
+        "MoltZapChannelCore: closed conversation dispatch work purged",
+        {
+          conversationId,
+          droppedQueued,
+        },
+      ),
     );
   }
 
@@ -663,15 +683,15 @@ export class MoltZapChannelCore {
       }),
       Effect.flatMap(({ leaseId }) => this.awaitDispatchRelease(work, leaseId)),
       Effect.catchAll((err) =>
-        Effect.sync(() => {
-          this.logger.warn(
+        Effect.gen(function* () {
+          yield* effectLogWarning(
+            "MoltZapChannelCore: dispatch admission failed closed",
             {
               messageId: work.message.id,
               conversationId: work.message.conversationId,
               attempt: work.attempt,
               err,
             },
-            "MoltZapChannelCore: dispatch admission failed closed",
           );
           return {
             _tag: "deny" as const,
@@ -713,14 +733,14 @@ export class MoltZapChannelCore {
         ),
       );
       if (settled._tag === "None") {
-        this.logger.warn(
+        yield* effectLogWarning(
+          "MoltZapChannelCore: dispatchRelease wait timed out - fail-closed deny",
           {
             messageId: work.message.id,
             conversationId: work.message.conversationId,
             leaseId,
             timeoutMs: this.dispatchAdmissionTimeoutMs,
           },
-          "MoltZapChannelCore: dispatchRelease wait timed out — fail-closed deny",
         );
         return {
           _tag: "deny" as const,
@@ -754,16 +774,15 @@ export class MoltZapChannelCore {
       { readonly decision: "grant" }
     >,
   ): DispatchGrantDecision {
-    this.logger.info(
-      {
+    runBackgroundLog(
+      effectLogInfo("MoltZapChannelCore: dispatch admission granted", {
         messageId: work.message.id,
         conversationId: work.message.conversationId,
         attempt: work.attempt,
         leaseId,
         leaseTimeoutMs: verdict.leaseTimeoutMs,
         dispatchMessageId: verdict.dispatchMessageId,
-      },
-      "MoltZapChannelCore: dispatch admission granted",
+      }),
     );
     return {
       _tag: "grant",
@@ -932,16 +951,13 @@ export class MoltZapChannelCore {
     current: InboundDispatchWork,
     decision: DispatchHoldDecision,
   ): Effect.Effect<void, never> {
-    return Effect.sync(() => {
-      this.logger.info(
-        {
-          messageId: current.message.id,
-          conversationId: current.message.conversationId,
-          attempt: current.attempt,
-          reason: decision.reason,
-        },
-        "MoltZapChannelCore: inbound dispatch held",
-      );
+    return Effect.gen(this, function* () {
+      yield* effectLogInfo("MoltZapChannelCore: inbound dispatch held", {
+        messageId: current.message.id,
+        conversationId: current.message.conversationId,
+        attempt: current.attempt,
+        reason: decision.reason,
+      });
       this.parkDispatchWork(current);
     });
   }
@@ -949,15 +965,13 @@ export class MoltZapChannelCore {
   private logClosedDispatchDrop(
     current: InboundDispatchWork,
   ): Effect.Effect<void, never> {
-    return Effect.sync(() =>
-      this.logger.info(
-        {
-          messageId: current.message.id,
-          conversationId: current.message.conversationId,
-          attempt: current.attempt,
-        },
-        "MoltZapChannelCore: dropping dispatch for closed conversation",
-      ),
+    return effectLogInfo(
+      "MoltZapChannelCore: dropping dispatch for closed conversation",
+      {
+        messageId: current.message.id,
+        conversationId: current.message.conversationId,
+        attempt: current.attempt,
+      },
     );
   }
 
@@ -965,16 +979,14 @@ export class MoltZapChannelCore {
     current: InboundDispatchWork,
     decision: DispatchGrantDecision,
   ): Effect.Effect<void, never> {
-    return Effect.sync(() =>
-      this.logger.warn(
-        {
-          messageId: current.message.id,
-          conversationId: current.message.conversationId,
-          attempt: current.attempt,
-          dispatchMessageId: decision.dispatchMessageId,
-        },
-        "MoltZapChannelCore: dispatch admission target unavailable",
-      ),
+    return effectLogWarning(
+      "MoltZapChannelCore: dispatch admission target unavailable",
+      {
+        messageId: current.message.id,
+        conversationId: current.message.conversationId,
+        attempt: current.attempt,
+        dispatchMessageId: decision.dispatchMessageId,
+      },
     );
   }
 
@@ -984,19 +996,14 @@ export class MoltZapChannelCore {
     messages: ReadonlyArray<Message>,
     decision: DispatchGrantDecision,
   ): Effect.Effect<void, never> {
-    return Effect.sync(() =>
-      this.logger.info(
-        {
-          messageId: primaryMessage.id,
-          admittedMessageId: current.message.id,
-          conversationId: current.message.conversationId,
-          attempt: current.attempt,
-          leaseId: decision.leaseId,
-          coalescedMessageCount: messages.length,
-        },
-        "MoltZapChannelCore: inbound dispatch starting",
-      ),
-    );
+    return effectLogInfo("MoltZapChannelCore: inbound dispatch starting", {
+      messageId: primaryMessage.id,
+      admittedMessageId: current.message.id,
+      conversationId: current.message.conversationId,
+      attempt: current.attempt,
+      leaseId: decision.leaseId,
+      coalescedMessageCount: messages.length,
+    });
   }
 
   private logDispatchLeaseExpired(
@@ -1004,19 +1011,16 @@ export class MoltZapChannelCore {
     current: InboundDispatchWork,
     decision: DispatchGrantDecision,
   ): Effect.Effect<boolean, never> {
-    return Effect.sync(() => {
-      this.logger.warn(
-        {
-          messageId: err.messageId,
-          conversationId: err.conversationId,
-          attempt: current.attempt,
-          leaseId: decision.leaseId,
-          timeoutMs: err.timeoutMs,
-        },
-        "MoltZapChannelCore: inbound dispatch lease expired",
-      );
-      return true;
-    });
+    return effectLogWarning(
+      "MoltZapChannelCore: inbound dispatch lease expired",
+      {
+        messageId: err.messageId,
+        conversationId: err.conversationId,
+        attempt: current.attempt,
+        leaseId: decision.leaseId,
+        timeoutMs: err.timeoutMs,
+      },
+    ).pipe(Effect.as(true));
   }
 
   private logDispatchCompleted(
@@ -1024,35 +1028,25 @@ export class MoltZapChannelCore {
     primaryMessage: Message,
     decision: DispatchGrantDecision,
   ): Effect.Effect<void, never> {
-    return Effect.sync(() =>
-      this.logger.info(
-        {
-          messageId: primaryMessage.id,
-          admittedMessageId: current.message.id,
-          conversationId: current.message.conversationId,
-          attempt: current.attempt,
-          leaseId: decision.leaseId,
-        },
-        "MoltZapChannelCore: inbound dispatch completed",
-      ),
-    );
+    return effectLogInfo("MoltZapChannelCore: inbound dispatch completed", {
+      messageId: primaryMessage.id,
+      admittedMessageId: current.message.id,
+      conversationId: current.message.conversationId,
+      attempt: current.attempt,
+      leaseId: decision.leaseId,
+    });
   }
 
   private logDeniedDispatch(
     current: InboundDispatchWork,
     decision: DispatchDenyDecision,
   ): Effect.Effect<void, never> {
-    return Effect.sync(() =>
-      this.logger.info(
-        {
-          messageId: current.message.id,
-          conversationId: current.message.conversationId,
-          attempt: current.attempt,
-          reason: decision.reason,
-        },
-        "MoltZapChannelCore: inbound dispatch denied",
-      ),
-    );
+    return effectLogInfo("MoltZapChannelCore: inbound dispatch denied", {
+      messageId: current.message.id,
+      conversationId: current.message.conversationId,
+      attempt: current.attempt,
+      reason: decision.reason,
+    });
   }
 
   private pendingDispatchSnapshot(

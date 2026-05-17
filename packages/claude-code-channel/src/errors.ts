@@ -1,10 +1,5 @@
 import { Data } from "effect";
-
-export class ServiceConnectFailed extends Data.TaggedError(
-  "ServiceConnectFailed",
-)<{
-  readonly cause: string;
-}> {}
+import type { ServiceRpcError } from "@moltzap/client";
 
 export class McpTransportFailed extends Data.TaggedError("McpTransportFailed")<{
   readonly cause: string;
@@ -20,7 +15,7 @@ class SchemaDecodeFailed extends Data.TaggedError("SchemaDecodeFailed")<{
 }> {}
 
 export type BootError =
-  | ServiceConnectFailed
+  | ServiceRpcError
   | McpTransportFailed
   | AgentKeyInvalid
   | SchemaDecodeFailed;

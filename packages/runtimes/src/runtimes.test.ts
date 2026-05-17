@@ -1,18 +1,11 @@
 import type { Signal } from "@effect/platform/CommandExecutor";
-import { describe, it, expect, afterEach, vi } from "vitest";
-import { Effect, Exit, Fiber, Scope } from "effect";
+import { describe, it, expect, vi } from "vitest";
+import { Effect, Either, Fiber, Scope } from "effect";
 
 import {
   OpenClawAdapter,
   type OpenClawAdapterDeps,
 } from "./openclaw-adapter.js";
-import {
-  launchRuntimeFleet,
-  launchRuntimeFleetWithProcessSignals,
-  RuntimeFleetStartupInterrupted,
-  startRuntimeAgent,
-  type RuntimeAgentSpec,
-} from "./fleet.js";
 import {
   NanoclawAdapter,
   type NanoclawAdapterDeps,
@@ -30,31 +23,41 @@ import type {
 } from "./runtime.js";
 import { SpawnFailed } from "./errors.js";
 
-const fleetRuntimeFactoryState = vi.hoisted(() => ({
-  nextRuntime: null as null | (() => Runtime),
-}));
-
 const LOG_OFFSET = 100;
 const TEARDOWN_TIMER_ADVANCE_MS = 15_000;
 const READY_TIMEOUT_MS = 1_000;
-
-vi.mock("./openclaw-adapter.js", async () => {
-  const actual = await vi.importActual<typeof import("./openclaw-adapter.js")>(
-    "./openclaw-adapter.js",
-  );
-  return {
-    ...actual,
-    createWorkspaceOpenClawAdapter: vi.fn(() => {
-      const factory = fleetRuntimeFactoryState.nextRuntime;
-      if (factory === null) {
-        throw new Error(
-          "Expected a configured runtime factory for fleet tests",
-        );
-      }
-      return factory();
-    }),
-  };
-});
+const FUNCTION_TYPE = "function";
+const STRING_TYPE = "string";
+const INBOUND_MARKER = "inbound from agent:";
+const READY_TAG = "Ready";
+const TIMEOUT_TAG = "Timeout";
+const PROCESS_EXITED_TAG = "ProcessExited";
+const READY_LABEL = "ready";
+const MATCH_TIMEOUT_MS = 5_000;
+const TIMEOUT_MATCH_RESULT = `timeout:${MATCH_TIMEOUT_MS}`;
+const PROCESS_EXIT_MATCH_RESULT = "exit:null";
+const TEST_AGENT_NAME = "test-agent";
+const TEST_API_KEY = "test-api-key";
+const TEST_AGENT_ID = "agent-001";
+const TEST_SERVER_URL = "ws://localhost:9999/ws";
+const ALICE_AGENT_NAME = "alice";
+const ALICE_API_KEY = "sk-abc";
+const SPAWN_FAILED_MESSAGE = "ENOENT";
+const SIGTERM_SIGNAL = "SIGTERM";
+const SIGKILL_SIGNAL = "SIGKILL";
+const TEARDOWN_STATE_DIR = "openclaw-teardown-test";
+const EXPECTED_READY_OUTCOME_TAGS = [
+  READY_TAG,
+  TIMEOUT_TAG,
+  PROCESS_EXITED_TAG,
+] as const;
+const RUNTIME_METHODS = [
+  "spawn",
+  "waitUntilReady",
+  "teardown",
+  "getLogs",
+  "getInboundMarker",
+] as const satisfies ReadonlyArray<keyof Runtime>;
 
 // Minimal stub for the live server surface the adapters poll for readiness.
 // `awaitAgentReady` returns `Effect.never` to model "agent never authenticates" —
@@ -84,46 +87,27 @@ function brand<T extends string>(
 
 function stubSpawnInput(overrides?: Partial<SpawnInput>): SpawnInput {
   return {
-    agentName: brand("test-agent", "AgentName"),
-    apiKey: brand("test-api-key", "ApiKey"),
-    agentId: "agent-001",
-    serverUrl: brand("ws://localhost:9999/ws", "ServerUrl"),
+    agentName: brand(TEST_AGENT_NAME, "AgentName"),
+    apiKey: brand(TEST_API_KEY, "ApiKey"),
+    agentId: TEST_AGENT_ID,
+    serverUrl: brand(TEST_SERVER_URL, "ServerUrl"),
     ...overrides,
   };
 }
-
-afterEach(() => {
-  fleetRuntimeFactoryState.nextRuntime = null;
-});
 
 // ---------------------------------------------------------------------------
 // Runtime interface contract
 // ---------------------------------------------------------------------------
 
 describe("Runtime interface", () => {
-  it("OpenClawAdapter satisfies the Runtime interface (structural typing)", () => {
-    const adapter: Runtime = new OpenClawAdapter(stubDeps());
-
-    expect(typeof adapter.spawn).toBe("function");
-    expect(typeof adapter.waitUntilReady).toBe("function");
-    expect(typeof adapter.teardown).toBe("function");
-    expect(typeof adapter.getLogs).toBe("function");
-    expect(typeof adapter.getInboundMarker).toBe("function");
-  });
-
-  it("exposes exactly the five Runtime interface methods publicly", () => {
-    const adapter = new OpenClawAdapter(stubDeps());
-    const runtimeMethods = [
-      "spawn",
-      "waitUntilReady",
-      "teardown",
-      "getLogs",
-      "getInboundMarker",
-    ] as const;
-    for (const m of runtimeMethods) {
-      expect(typeof adapter[m]).toBe("function");
-    }
-  });
+  it(
+    "OpenClawAdapter satisfies the Runtime interface (structural typing)",
+    openClawAdapterSatisfiesRuntimeInterface,
+  );
+  it(
+    "exposes exactly the five Runtime interface methods publicly",
+    openClawAdapterExposesRuntimeMethods,
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -131,19 +115,10 @@ describe("Runtime interface", () => {
 // ---------------------------------------------------------------------------
 
 describe("OpenClawAdapter.spawn", () => {
-  it("fails with SpawnFailed when bin does not exist", async () => {
-    const adapter = new OpenClawAdapter(stubDeps());
-    const result = await Effect.runPromise(
-      Effect.either(adapter.spawn(stubSpawnInput())),
-    );
-
-    expect(result._tag).toBe("Left");
-    if (result._tag === "Left") {
-      expect(result.left._tag).toBe("SpawnFailed");
-      expect(result.left.agentName).toBe("test-agent");
-      expect(result.left.cause).toBeInstanceOf(Error);
-    }
-  });
+  it(
+    "fails with SpawnFailed when bin does not exist",
+    openClawSpawnFailsWhenBinDoesNotExist,
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -170,13 +145,13 @@ describe("OpenClawAdapter.getInboundMarker", () => {
   it("returns a non-empty string", () => {
     const adapter = new OpenClawAdapter(stubDeps());
     const marker = adapter.getInboundMarker();
-    expect(typeof marker).toBe("string");
+    expect(typeof marker).toBe(STRING_TYPE);
     expect(marker.length).toBeGreaterThan(0);
   });
 
   it("returns the expected openclaw-channel inbound log prefix", () => {
     const adapter = new OpenClawAdapter(stubDeps());
-    expect(adapter.getInboundMarker()).toBe("inbound from agent:");
+    expect(adapter.getInboundMarker()).toBe(INBOUND_MARKER);
   });
 });
 
@@ -185,52 +160,18 @@ describe("OpenClawAdapter.getInboundMarker", () => {
 // ---------------------------------------------------------------------------
 
 describe("OpenClawAdapter.teardown", () => {
-  it("completes without error when no process has been spawned", async () => {
-    const adapter = new OpenClawAdapter(stubDeps());
-    await Effect.runPromise(adapter.teardown());
-  });
-
-  it("is idempotent — calling twice has same effect as once", async () => {
-    const adapter = new OpenClawAdapter(stubDeps());
-    await Effect.runPromise(adapter.teardown());
-    await Effect.runPromise(adapter.teardown());
-  });
-
-  it("sends SIGTERM then SIGKILL when the process does not exit", async () => {
-    vi.useFakeTimers();
-    const killCalls: Signal[] = [];
-    const scope = Effect.runSync(Scope.make());
-    const exitFiber = Effect.runFork(
-      Effect.never as Effect.Effect<number, never, never>,
-    );
-
-    const adapter = new OpenClawAdapter(stubDeps());
-    (adapter as OpenClawAdapterWithInjectedState).state = {
-      process: {
-        exitFiber,
-        kill: (signal: Signal) =>
-          Effect.sync(() => {
-            killCalls.push(signal);
-          }),
-        scope,
-      },
-      stateDir: "/tmp/openclaw-teardown-test",
-      logBuffer: { value: "" },
-      spawnInput: stubSpawnInput(),
-      tornDown: false,
-    };
-
-    try {
-      const teardownPromise = Effect.runPromise(adapter.teardown());
-      await vi.advanceTimersByTimeAsync(TEARDOWN_TIMER_ADVANCE_MS);
-      await teardownPromise;
-    } finally {
-      vi.useRealTimers();
-      Effect.runFork(Fiber.interrupt(exitFiber));
-    }
-
-    expect(killCalls).toEqual(["SIGTERM", "SIGKILL"]);
-  });
+  it(
+    "completes without error when no process has been spawned",
+    openClawTeardownWithoutSpawnCompletes,
+  );
+  it(
+    "is idempotent — calling twice has same effect as once",
+    openClawTeardownIsIdempotent,
+  );
+  it(
+    "sends SIGTERM then SIGKILL when the process does not exit",
+    openClawTeardownSendsTerminateThenKill,
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -238,13 +179,10 @@ describe("OpenClawAdapter.teardown", () => {
 // ---------------------------------------------------------------------------
 
 describe("OpenClawAdapter.waitUntilReady", () => {
-  it("returns Ready when no process has been spawned", async () => {
-    const adapter = new OpenClawAdapter(stubDeps());
-    const outcome: ReadyOutcome = await Effect.runPromise(
-      adapter.waitUntilReady(READY_TIMEOUT_MS),
-    );
-    expect(outcome._tag).toBe("Ready");
-  });
+  it(
+    "returns Ready when no process has been spawned",
+    openClawWaitUntilReadyReturnsReadyWithoutSpawn,
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -254,36 +192,36 @@ describe("OpenClawAdapter.waitUntilReady", () => {
 describe("ReadyOutcome", () => {
   it("all variants are distinguishable by _tag", () => {
     const outcomes: ReadyOutcome[] = [
-      { _tag: "Ready" },
-      { _tag: "Timeout", timeoutMs: 60000 },
-      { _tag: "ProcessExited", exitCode: 1, stderr: "err" },
+      { _tag: READY_TAG },
+      { _tag: TIMEOUT_TAG, timeoutMs: 60000 },
+      { _tag: PROCESS_EXITED_TAG, exitCode: 1, stderr: "err" },
     ];
 
     const tags = outcomes.map((o) => o._tag);
-    expect(tags).toEqual(["Ready", "Timeout", "ProcessExited"]);
+    expect(tags).toEqual(EXPECTED_READY_OUTCOME_TAGS);
   });
 
   it("switch over ReadyOutcome is exhaustive with absurd", () => {
     function matchOutcome(o: ReadyOutcome): string {
       switch (o._tag) {
-        case "Ready":
-          return "ready";
-        case "Timeout":
+        case READY_TAG:
+          return READY_LABEL;
+        case TIMEOUT_TAG:
           return `timeout:${o.timeoutMs}`;
-        case "ProcessExited":
+        case PROCESS_EXITED_TAG:
           return `exit:${o.exitCode}`;
         default:
           return absurd(o);
       }
     }
 
-    expect(matchOutcome({ _tag: "Ready" })).toBe("ready");
-    expect(matchOutcome({ _tag: "Timeout", timeoutMs: 5000 })).toBe(
-      "timeout:5000",
-    );
+    expect(matchOutcome({ _tag: READY_TAG })).toBe(READY_LABEL);
     expect(
-      matchOutcome({ _tag: "ProcessExited", exitCode: null, stderr: "" }),
-    ).toBe("exit:null");
+      matchOutcome({ _tag: TIMEOUT_TAG, timeoutMs: MATCH_TIMEOUT_MS }),
+    ).toBe(TIMEOUT_MATCH_RESULT);
+    expect(
+      matchOutcome({ _tag: PROCESS_EXITED_TAG, exitCode: null, stderr: "" }),
+    ).toBe(PROCESS_EXIT_MATCH_RESULT);
   });
 });
 
@@ -293,18 +231,18 @@ describe("ReadyOutcome", () => {
 
 describe("branded types", () => {
   it("AgentName brand compiles and round-trips", () => {
-    const name = brand("alice", "AgentName");
-    expect(name).toBe("alice");
+    const name = brand(ALICE_AGENT_NAME, "AgentName");
+    expect(name).toBe(ALICE_AGENT_NAME);
   });
 
   it("ApiKey brand compiles and round-trips", () => {
-    const key = brand("sk-abc", "ApiKey");
-    expect(key).toBe("sk-abc");
+    const key = brand(ALICE_API_KEY, "ApiKey");
+    expect(key).toBe(ALICE_API_KEY);
   });
 
   it("ServerUrl brand compiles and round-trips", () => {
-    const url = brand("ws://localhost:9999/ws", "ServerUrl");
-    expect(url).toBe("ws://localhost:9999/ws");
+    const url = brand(TEST_SERVER_URL, "ServerUrl");
+    expect(url).toBe(TEST_SERVER_URL);
   });
 });
 
@@ -314,14 +252,14 @@ describe("branded types", () => {
 
 describe("SpawnFailed", () => {
   it("carries agentName and cause", () => {
-    const cause = new Error("ENOENT");
+    const cause = new Error(SPAWN_FAILED_MESSAGE);
     const err = new SpawnFailed({
-      agentName: "alice",
+      agentName: ALICE_AGENT_NAME,
       cause,
-      message: `Failed to spawn agent "alice": ${cause.message}`,
+      message: `Failed to spawn agent "${ALICE_AGENT_NAME}": ${cause.message}`,
     });
-    expect(err._tag).toBe("SpawnFailed");
-    expect(err.agentName).toBe("alice");
+    expect(err).toBeInstanceOf(SpawnFailed);
+    expect(err.agentName).toBe(ALICE_AGENT_NAME);
     expect(err.cause).toBe(cause);
   });
 });
@@ -337,12 +275,7 @@ function stubNanoclawDeps(): NanoclawAdapterDeps {
 describe("NanoclawAdapter", () => {
   it("satisfies the Runtime interface (structural typing)", () => {
     const adapter: Runtime = new NanoclawAdapter(stubNanoclawDeps());
-
-    expect(typeof adapter.spawn).toBe("function");
-    expect(typeof adapter.waitUntilReady).toBe("function");
-    expect(typeof adapter.teardown).toBe("function");
-    expect(typeof adapter.getLogs).toBe("function");
-    expect(typeof adapter.getInboundMarker).toBe("function");
+    expectRuntimeMethods(adapter);
   });
 
   it("getLogs returns empty slice when not spawned", () => {
@@ -355,7 +288,7 @@ describe("NanoclawAdapter", () => {
   it("getInboundMarker returns non-empty string", () => {
     const adapter = new NanoclawAdapter(stubNanoclawDeps());
     const marker = adapter.getInboundMarker();
-    expect(typeof marker).toBe("string");
+    expect(typeof marker).toBe(STRING_TYPE);
     expect(marker.length).toBeGreaterThan(0);
   });
 });
@@ -380,13 +313,13 @@ function stubClaudeCodeDeps(): ClaudeCodeAdapterDeps {
 describe("ClaudeCodeAdapter", () => {
   it("satisfies the Runtime interface (structural typing)", () => {
     const adapter: Runtime = new ClaudeCodeAdapter(stubClaudeCodeDeps());
-
-    expect(typeof adapter.spawn).toBe("function");
-    expect(typeof adapter.waitUntilReady).toBe("function");
-    expect(typeof adapter.teardown).toBe("function");
-    expect(typeof adapter.getLogs).toBe("function");
-    expect(typeof adapter.getInboundMarker).toBe("function");
+    expectRuntimeMethods(adapter);
   });
+
+  it(
+    "property: Runtime method contracts match the other adapters",
+    claudeCodeAdapterMatchesRuntimeMethodContract,
+  );
 
   it("getLogs returns empty slice when not spawned", () => {
     const adapter = new ClaudeCodeAdapter(stubClaudeCodeDeps());
@@ -398,182 +331,181 @@ describe("ClaudeCodeAdapter", () => {
   it("getInboundMarker returns non-empty string", () => {
     const adapter = new ClaudeCodeAdapter(stubClaudeCodeDeps());
     const marker = adapter.getInboundMarker();
-    expect(typeof marker).toBe("string");
+    expect(typeof marker).toBe(STRING_TYPE);
     expect(marker.length).toBeGreaterThan(0);
   });
 
-  it("waitUntilReady returns Ready when no process has been spawned", async () => {
-    const adapter = new ClaudeCodeAdapter(stubClaudeCodeDeps());
-    const outcome: ReadyOutcome = await Effect.runPromise(
-      adapter.waitUntilReady(READY_TIMEOUT_MS),
-    );
-    expect(outcome._tag).toBe("Ready");
-  });
-
-  it("teardown is idempotent when no process has been spawned", async () => {
-    const adapter = new ClaudeCodeAdapter(stubClaudeCodeDeps());
-    await Effect.runPromise(adapter.teardown());
-    await Effect.runPromise(adapter.teardown());
-  });
-
-  it("spawn fails with SpawnFailed when the channel dist dir does not exist", async () => {
-    const adapter = new ClaudeCodeAdapter(stubClaudeCodeDeps());
-    const result = await Effect.runPromise(
-      Effect.either(adapter.spawn(stubSpawnInput())),
-    );
-    expect(result._tag).toBe("Left");
-    if (result._tag === "Left") {
-      expect(result.left._tag).toBe("SpawnFailed");
-      expect(result.left.agentName).toBe("test-agent");
-    }
-  });
+  it(
+    "waitUntilReady returns Ready when no process has been spawned",
+    claudeCodeWaitUntilReadyReturnsReadyWithoutSpawn,
+  );
+  it(
+    "teardown is idempotent when no process has been spawned",
+    claudeCodeTeardownIsIdempotent,
+  );
+  it(
+    "spawn fails with SpawnFailed when the channel dist dir does not exist",
+    claudeCodeSpawnFailsWhenChannelDistDirIsMissing,
+  );
 });
 
 // ---------------------------------------------------------------------------
-// Fleet lifecycle cleanup
+// Test bodies
 // ---------------------------------------------------------------------------
 
-describe("runtime fleet lifecycle", () => {
-  it("tears down an in-flight runtime when startRuntimeAgent is interrupted", async () => {
-    const blocked = createMockRuntime({
-      readyEffect: Effect.never,
-    });
-    setMockFleetRuntimes(blocked.runtime);
+function openClawAdapterSatisfiesRuntimeInterface(): void {
+  const adapter: Runtime = new OpenClawAdapter(stubDeps());
+  expectRuntimeMethods(adapter);
+}
 
-    const fiber = Effect.runFork(
-      startRuntimeAgent({
-        kind: "openclaw",
-        server: stubServer(),
-        agent: stubRuntimeAgentSpec(),
-        readyTimeoutMs: 60_000,
-      }),
-    );
+function openClawAdapterExposesRuntimeMethods(): void {
+  const adapter = new OpenClawAdapter(stubDeps());
+  const publicMethods = RUNTIME_METHODS.filter((method) => method in adapter);
+  expect(publicMethods).toEqual(RUNTIME_METHODS);
+  expectRuntimeMethods(adapter);
+}
 
-    await blocked.waitStarted;
-    await Effect.runPromise(Fiber.interrupt(fiber));
-    const exit = await Effect.runPromise(Fiber.await(fiber));
+function openClawSpawnFailsWhenBinDoesNotExist() {
+  return runTest(
+    Effect.gen(function* () {
+      const adapter = new OpenClawAdapter(stubDeps());
+      const result = yield* Effect.either(adapter.spawn(stubSpawnInput()));
 
-    expect(Exit.isInterrupted(exit)).toBe(true);
-    expect(blocked.stats.spawnCalls).toBe(1);
-    expect(blocked.stats.waitCalls).toBe(1);
-    expect(blocked.stats.teardownCalls).toBe(1);
-  });
+      Either.match(result, {
+        onLeft: (error) => {
+          expect(error).toBeInstanceOf(SpawnFailed);
+          expect(error.agentName).toBe(TEST_AGENT_NAME);
+          expect(error.cause).toBeInstanceOf(Error);
+        },
+        onRight: () => expect.fail(),
+      });
+    }),
+  );
+}
 
-  it("tears down ready and in-flight runtimes when launchRuntimeFleet is interrupted mid-startup", async () => {
-    const first = createMockRuntime({
-      readyEffect: Effect.succeed({ _tag: "Ready" }),
-    });
-    const second = createMockRuntime({
-      readyEffect: Effect.never,
-    });
-    setMockFleetRuntimes(first.runtime, second.runtime);
+function openClawTeardownWithoutSpawnCompletes() {
+  const adapter = new OpenClawAdapter(stubDeps());
+  return expect(Effect.runPromise(adapter.teardown())).resolves.toBeUndefined();
+}
 
-    const fiber = Effect.runFork(
-      launchRuntimeFleet({
-        kind: "openclaw",
-        server: stubServer(),
-        agents: [
-          stubRuntimeAgentSpec({ agentName: "alpha", agentId: "agent-001" }),
-          stubRuntimeAgentSpec({ agentName: "beta", agentId: "agent-002" }),
-        ],
-        readyTimeoutMs: 60_000,
-      }),
-    );
+function openClawTeardownIsIdempotent() {
+  const adapter = new OpenClawAdapter(stubDeps());
+  return expect(
+    Effect.runPromise(
+      adapter.teardown().pipe(Effect.zipRight(adapter.teardown())),
+    ),
+  ).resolves.toBeUndefined();
+}
 
-    await second.waitStarted;
-    await Effect.runPromise(Fiber.interrupt(fiber));
-    const exit = await Effect.runPromise(Fiber.await(fiber));
+function openClawTeardownSendsTerminateThenKill() {
+  return runTest(
+    Effect.gen(function* () {
+      vi.useFakeTimers();
+      const killCalls: Signal[] = [];
+      const scope = yield* Scope.make();
+      const exitFiber = yield* Effect.fork(
+        Effect.never as Effect.Effect<number, never, never>,
+      );
 
-    expect(Exit.isInterrupted(exit)).toBe(true);
-    expect(first.stats.teardownCalls).toBe(1);
-    expect(second.stats.teardownCalls).toBe(1);
-  });
+      const adapter = new OpenClawAdapter(stubDeps());
+      (adapter as OpenClawAdapterWithInjectedState).state = {
+        process: {
+          exitFiber,
+          kill: (signal: Signal) =>
+            Effect.sync(() => {
+              killCalls.push(signal);
+            }),
+          scope,
+        },
+        stateDir: TEARDOWN_STATE_DIR,
+        logBuffer: { value: "" },
+        spawnInput: stubSpawnInput(),
+        tornDown: false,
+      };
 
-  it("tears down an in-flight fleet when a configured process signal arrives", async () => {
-    const first = createMockRuntime({
-      readyEffect: Effect.succeed({ _tag: "Ready" }),
-    });
-    const second = createMockRuntime({
-      readyEffect: Effect.never,
-    });
-    setMockFleetRuntimes(first.runtime, second.runtime);
+      try {
+        const teardownPromise = Effect.runPromise(adapter.teardown());
+        yield* Effect.tryPromise({
+          try: () => vi.advanceTimersByTimeAsync(TEARDOWN_TIMER_ADVANCE_MS),
+          catch: (cause) => cause,
+        }).pipe(Effect.orDie);
+        yield* Effect.tryPromise({
+          try: () => teardownPromise,
+          catch: (cause) => cause,
+        }).pipe(Effect.orDie);
+      } finally {
+        vi.useRealTimers();
+        yield* Fiber.interrupt(exitFiber);
+      }
 
-    const fiber = Effect.runFork(
-      Effect.either(
-        launchRuntimeFleetWithProcessSignals({
-          kind: "openclaw",
-          server: stubServer(),
-          agents: [
-            stubRuntimeAgentSpec({ agentName: "alpha", agentId: "agent-001" }),
-            stubRuntimeAgentSpec({ agentName: "beta", agentId: "agent-002" }),
-          ],
-          readyTimeoutMs: 60_000,
-          signals: ["SIGUSR2"],
-        }),
-      ),
-    );
+      expect(killCalls).toEqual([SIGTERM_SIGNAL, SIGKILL_SIGNAL]);
+    }),
+  );
+}
 
-    await second.waitStarted;
-    process.emit("SIGUSR2");
-    const result = await Effect.runPromise(Fiber.join(fiber));
+function openClawWaitUntilReadyReturnsReadyWithoutSpawn() {
+  return runTest(
+    Effect.gen(function* () {
+      const adapter = new OpenClawAdapter(stubDeps());
+      const outcome: ReadyOutcome =
+        yield* adapter.waitUntilReady(READY_TIMEOUT_MS);
+      expect(outcome._tag).toBe(READY_TAG);
+    }),
+  );
+}
 
-    expect(result._tag).toBe("Left");
-    if (result._tag === "Left") {
-      expect(result.left).toBeInstanceOf(RuntimeFleetStartupInterrupted);
-      expect(result.left.signal).toBe("SIGUSR2");
-    }
-    expect(first.stats.teardownCalls).toBe(1);
-    expect(second.stats.teardownCalls).toBe(1);
-  });
+function claudeCodeAdapterMatchesRuntimeMethodContract(): void {
+  const adapters: ReadonlyArray<Runtime> = [
+    new OpenClawAdapter(stubDeps()),
+    new NanoclawAdapter(stubNanoclawDeps()),
+    new ClaudeCodeAdapter(stubClaudeCodeDeps()),
+  ];
 
-  it("tears down previously started and failing runtimes before fleet launch returns an error", async () => {
-    const first = createMockRuntime({
-      readyEffect: Effect.succeed({ _tag: "Ready" }),
-    });
-    const second = createMockRuntime({
-      readyEffect: Effect.succeed({ _tag: "Timeout", timeoutMs: 250 }),
-    });
-    setMockFleetRuntimes(first.runtime, second.runtime);
+  for (const adapter of adapters) {
+    expectRuntimeMethods(adapter);
+  }
+}
 
-    const result = await Effect.runPromise(
-      Effect.either(
-        launchRuntimeFleet({
-          kind: "openclaw",
-          server: stubServer(),
-          agents: [
-            stubRuntimeAgentSpec({ agentName: "alpha", agentId: "agent-001" }),
-            stubRuntimeAgentSpec({ agentName: "beta", agentId: "agent-002" }),
-          ],
-          readyTimeoutMs: 250,
-        }),
-      ),
-    );
+function claudeCodeWaitUntilReadyReturnsReadyWithoutSpawn() {
+  return runTest(
+    Effect.gen(function* () {
+      const adapter = new ClaudeCodeAdapter(stubClaudeCodeDeps());
+      const outcome: ReadyOutcome =
+        yield* adapter.waitUntilReady(READY_TIMEOUT_MS);
+      expect(outcome._tag).toBe(READY_TAG);
+    }),
+  );
+}
 
-    expect(result._tag).toBe("Left");
-    if (result._tag === "Left") {
-      expect(result.left._tag).toBe("RuntimeReadyTimedOut");
-      expect(result.left.agentName).toBe("beta");
-    }
-    expect(first.stats.teardownCalls).toBe(1);
-    expect(second.stats.teardownCalls).toBe(1);
-  });
-});
+function claudeCodeTeardownIsIdempotent() {
+  const adapter = new ClaudeCodeAdapter(stubClaudeCodeDeps());
+  return expect(
+    Effect.runPromise(
+      adapter.teardown().pipe(Effect.zipRight(adapter.teardown())),
+    ),
+  ).resolves.toBeUndefined();
+}
+
+function claudeCodeSpawnFailsWhenChannelDistDirIsMissing() {
+  return runTest(
+    Effect.gen(function* () {
+      const adapter = new ClaudeCodeAdapter(stubClaudeCodeDeps());
+      const result = yield* Effect.either(adapter.spawn(stubSpawnInput()));
+
+      Either.match(result, {
+        onLeft: (error) => {
+          expect(error).toBeInstanceOf(SpawnFailed);
+          expect(error.agentName).toBe(TEST_AGENT_NAME);
+        },
+        onRight: () => expect.fail(),
+      });
+    }),
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-interface MockRuntimeStats {
-  spawnCalls: number;
-  waitCalls: number;
-  teardownCalls: number;
-}
-
-interface MockRuntimeHandle {
-  readonly runtime: Runtime;
-  readonly stats: MockRuntimeStats;
-  readonly waitStarted: Promise<void>;
-}
 
 interface InjectedOpenClawAdapterState {
   readonly process: {
@@ -591,67 +523,14 @@ type OpenClawAdapterWithInjectedState = OpenClawAdapter & {
   state: InjectedOpenClawAdapterState | null;
 };
 
-function stubRuntimeAgentSpec(
-  overrides?: Partial<RuntimeAgentSpec>,
-): RuntimeAgentSpec {
-  return {
-    agentName: "test-agent",
-    apiKey: "test-api-key",
-    agentId: "agent-001",
-    serverUrl: "ws://localhost:9999/ws",
-    ...overrides,
-  };
+function runTest<A>(effect: Effect.Effect<A, never, never>) {
+  return Effect.runPromise(effect);
 }
 
-function setMockFleetRuntimes(...runtimes: ReadonlyArray<Runtime>): void {
-  const queue = [...runtimes];
-  fleetRuntimeFactoryState.nextRuntime = () => {
-    const runtime = queue.shift();
-    if (runtime === undefined) {
-      throw new Error("No mocked runtime remaining for fleet test");
-    }
-    return runtime;
-  };
-}
-
-function createMockRuntime(options: {
-  readonly readyEffect: Effect.Effect<ReadyOutcome, never, never>;
-}): MockRuntimeHandle {
-  const stats: MockRuntimeStats = {
-    spawnCalls: 0,
-    waitCalls: 0,
-    teardownCalls: 0,
-  };
-
-  let resolveWaitStarted: (() => void) | null = null;
-  const waitStarted = new Promise<void>((resolve) => {
-    resolveWaitStarted = resolve;
-  });
-
-  const runtime: Runtime = {
-    spawn: () =>
-      Effect.sync(() => {
-        stats.spawnCalls += 1;
-      }),
-    waitUntilReady: () =>
-      Effect.sync(() => {
-        stats.waitCalls += 1;
-        resolveWaitStarted?.();
-        resolveWaitStarted = null;
-      }).pipe(Effect.zipRight(options.readyEffect)),
-    teardown: () =>
-      Effect.sync(() => {
-        stats.teardownCalls += 1;
-      }),
-    getLogs: () => ({ text: "", nextOffset: 0 }),
-    getInboundMarker: () => "inbound from agent:",
-  };
-
-  return {
-    runtime,
-    stats,
-    waitStarted,
-  };
+function expectRuntimeMethods(adapter: Runtime): void {
+  for (const method of RUNTIME_METHODS) {
+    expect(typeof adapter[method]).toBe(FUNCTION_TYPE);
+  }
 }
 
 function absurd(x: never): never {

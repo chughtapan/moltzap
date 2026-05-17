@@ -1,15 +1,18 @@
 import * as Socket from "@effect/platform/Socket";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import { RpcClient, RpcClientError, RpcSerialization } from "@effect/rpc";
-import { Data, Effect, Layer } from "effect";
+import { Data, Effect, Layer, ParseResult } from "effect";
 import {
   LocalDaemonRpcs,
   normalizeLocalDaemonParams,
 } from "../local-daemon-rpc.js";
 import { MoltZapService } from "../service.js";
 import {
+  decodeLocalServiceResult,
   LocalServiceCommands,
   type LocalServiceCommand,
+  type LocalServiceParams,
+  type LocalServiceResults,
 } from "../runtime/local-service-commands.js";
 
 import {
@@ -88,6 +91,16 @@ const fromLocalDaemonCallError = (
   return fromRpcClientError(method, err);
 };
 
+const fromParseError = (
+  method: string,
+  err: ParseResult.ParseError,
+): SocketRequestError =>
+  socketRequestError(
+    method,
+    `Malformed local service response for ${method}: ${ParseResult.TreeFormatter.formatErrorSync(err)}`,
+    err,
+  );
+
 /**
  * Send a request to the MoltZapService via the local daemon RPC socket. Typed failures:
  *   - "service not running" when the socket path doesn't exist / ECONNREFUSED
@@ -117,15 +130,21 @@ export const request = <D extends RpcDefinition<string, any, any>>(
     );
   });
 
-export const requestLocalService = (
-  command: LocalServiceCommand,
-  params?: Record<string, unknown>,
+export const requestLocalService = <C extends LocalServiceCommand>(
+  command: C,
+  params?: LocalServiceParams<C>,
   socketPath?: string,
-): Effect.Effect<unknown, SocketRequestError> =>
+): Effect.Effect<LocalServiceResults[C], SocketRequestError> =>
   Effect.suspend(() => {
     const resolvedParams = params ?? {};
     const resolvedSocketPath = socketPath ?? MoltZapService.SOCKET_PATH;
-    return sendSocketRequest(command, resolvedParams, resolvedSocketPath);
+    return sendSocketRequest(command, resolvedParams, resolvedSocketPath).pipe(
+      Effect.flatMap((result) =>
+        decodeLocalServiceResult(command, result).pipe(
+          Effect.mapError((err) => fromParseError(command, err)),
+        ),
+      ),
+    );
   });
 
 export const sendSocketRequest = (
