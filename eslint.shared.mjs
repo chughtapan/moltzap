@@ -28,15 +28,15 @@ const packageIgnores = {
   ignores: ["**/dist/**", "**/node_modules/**", "**/*.d.ts"],
 };
 
-const strictRules = {
+const makeStrictRules = ({ maxLines = 1050 } = {}) => ({
   ...guard.configs.strict.rules,
   "max-lines": [
     "error",
-    { max: 1050, skipBlankLines: true, skipComments: true },
+    { max: maxLines, skipBlankLines: true, skipComments: true },
   ],
-};
+});
 
-const testSupportRules = {
+const makeTestSupportRules = (strictRules) => ({
   files: [
     "src/**/*.test.ts",
     "src/**/*.spec.ts",
@@ -51,7 +51,7 @@ const testSupportRules = {
   plugins: guard.configs.strict.plugins,
   settings: guard.configs.strict.settings,
   rules: strictRules,
-};
+});
 
 const eslintDisableCommentRules = {
   files: ["**/*.ts"],
@@ -76,7 +76,8 @@ const documentationRules = {
   rules: guard.configs.documentation.rules,
 };
 
-export function packageEslintConfig() {
+export function packageEslintConfig(options = {}) {
+  const strictRules = makeStrictRules(options);
   return [
     packageIgnores,
     {
@@ -87,7 +88,7 @@ export function packageEslintConfig() {
       settings: guard.configs.strict.settings,
       rules: strictRules,
     },
-    testSupportRules,
+    makeTestSupportRules(strictRules),
     integrationTestRules,
     documentationRules,
     eslintDisableCommentRules,
@@ -95,6 +96,7 @@ export function packageEslintConfig() {
 }
 
 export function rootEslintConfig() {
+  const strictRules = makeStrictRules();
   return [
     packageIgnores,
     {

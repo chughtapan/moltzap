@@ -136,6 +136,10 @@ export interface TestClient {
     TransportClosedError | TransportIoError | FrameSchemaError
   >;
 
+  readonly sendResponseFrame: (
+    frame: ResponseFrame,
+  ) => Effect.Effect<void, TransportClosedError | TransportIoError>;
+
   readonly notifications: Stream.Stream<
     DecodedNotification<AnyNotificationDefinition>,
     TransportClosedError
@@ -448,6 +452,12 @@ class RuntimeTestClient implements TestClient {
     return sendMalformedFrame(this.runtime, opts);
   }
 
+  sendResponseFrame(
+    frame: ResponseFrame,
+  ): ReturnType<TestClient["sendResponseFrame"]> {
+    return writeOutboundFrame(this.runtime, frame);
+  }
+
   waitForNotification<D extends AnyNotificationDefinition>(
     definition: D,
     timeoutMs?: number,
@@ -558,9 +568,16 @@ function writeReply(
   runtime: TestClientRuntime,
   reply: ResponseFrame,
 ): Effect.Effect<void> {
-  const raw = JSON.stringify(reply);
-  return recordFrame(runtime.captures, "outbound", raw, reply).pipe(
-    Effect.zipRight(writeFrame(runtime, raw).pipe(Effect.ignore)),
+  return writeOutboundFrame(runtime, reply).pipe(Effect.ignore);
+}
+
+function writeOutboundFrame(
+  runtime: TestClientRuntime,
+  frame: AnyFrame,
+): Effect.Effect<void, TransportClosedError | TransportIoError> {
+  const raw = encodeFrame(frame);
+  return recordFrame(runtime.captures, "outbound", raw, frame).pipe(
+    Effect.zipRight(writeFrame(runtime, raw)),
   );
 }
 
