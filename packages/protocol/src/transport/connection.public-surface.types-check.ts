@@ -92,19 +92,34 @@ type _ConnectionCallError = ConnectionCallError;
 type _ConnectionWriteError = ConnectionWriteError;
 type _ConnectionRegisterError = ConnectionRegisterError;
 
-// ─── F6 gate (r2 — plan-eng P2-B + codex P2-r2-1) ────────────────────
+// ─── F6 gate (split-generic + per-definition register narrowing) ─────
 // Gate the split-generic + per-definition register narrowing.
 //
 // (1) `Connection` MUST accept four generic positions with
 //     `CtxPostAuth extends CtxPreAuth`. The four-arg instantiation
-//     below fails compile if the second generic disappears or if the
-//     `extends`-constraint is dropped. `CtxPreAuth = { pre: 1 }` and
-//     `CtxPostAuth = { pre: 1; post: 2 }` deliberately differ so the
-//     split-generic is observable.
+//     below fails compile if the second generic disappears.
+//     `CtxPreAuth = { pre: 1 }` and `CtxPostAuth = { pre: 1; post: 2 }`
+//     deliberately differ so the split-generic is observable.
 type _ConnectionSplitGeneric = Connection<
   { readonly pre: 1 },
   { readonly pre: 1; readonly post: 2 }
 >;
+
+// (1b) Negative canary — `CtxPostAuth extends CtxPreAuth` constraint
+//      MUST gate the second generic. Construct an instantiation where
+//      the second arg does NOT extend the first (`{pre:1}` is missing
+//      `post`, so it does NOT extend `{pre:1; post:2}`). If impl-staff
+//      regresses by dropping the `extends` constraint, the
+//      `@ts-expect-error` becomes a type error (the line compiles
+//      cleanly). Per `feedback_canaries_focus_on_live_code` (clarified):
+//      negative canaries gating CURRENT-surface soundness ARE within
+//      doctrine. The instantiation is collapsed to one line so the
+//      `@ts-expect-error` directive (which suppresses errors on the
+//      immediately FOLLOWING line only) reaches the constraint
+//      violation, which TypeScript attaches to the offending type arg.
+// prettier-ignore
+// @ts-expect-error — second generic must extend first; this pair violates it.
+type _ConnectionConstraintGate = Connection<{ readonly pre: 1; readonly post: 2 }, { readonly pre: 1 }>;
 
 // (2) `register(Connect, h)` MUST accept an `RpcHandler` typed against
 //     `CtxPreAuth` (the first generic), NOT `CtxPostAuth`. Construct a
@@ -126,6 +141,26 @@ const _f6RegisterAcceptsPreAuth: Effect.Effect<
   ConnectionRegisterError,
   never
 > = splitConn.register(Connect, connectHandlerPreAuth);
+
+// Negative canary (P2-r3 — register-overload leakage gate).
+// `register(Connect, …)` MUST reject a `RpcHandler` typed against
+// `CtxPostAuth`. The leakage that motivates this gate: a global cast
+// or a non-narrowed default overload accepts the post-auth handler
+// for the `Connect` definition, and the dispatcher's pre-auth call
+// path then deref's `ctx.auth.userId` at runtime → NPE. The single
+// conditional-typed `register` signature closes the seam — when D
+// resolves to `typeof Connect`, the handler slot's conditional
+// requires `RpcHandler<CtxPreAuth, D>`, and `RpcHandler<CtxPostAuth, D>`
+// is rejected under handler contravariance in `Ctx`. If impl-staff
+// regresses (single global cast, or a default overload that doesn't
+// exclude `Connect`), this `@ts-expect-error` becomes a type error.
+declare const connectHandlerPostAuth: RpcHandlerV2<
+  { readonly pre: 1; readonly post: 2 },
+  typeof Connect
+>;
+// prettier-ignore
+// @ts-expect-error — register(Connect, postAuthHandler) must NOT type-check.
+const _f6RejectsConnectWithPostAuth = splitConn.register(Connect, connectHandlerPostAuth);
 
 // (3) The non-Connect ("default") overload MUST bind the handler's ctx
 //     to `CtxPostAuth`. `Parameters<typeof X>` returns the LAST
@@ -150,6 +185,7 @@ const _f6PostAuthIsDefault: _DefaultHandlerCtx = _f6PostAuthBindsDefault;
 // Touch the bindings so unused-var elision doesn't trim them.
 export const _f6GateAssert = [
   _f6RegisterAcceptsPreAuth,
+  _f6RejectsConnectWithPostAuth,
   _f6DefaultIsPostAuth,
   _f6PostAuthIsDefault,
 ] as const;
@@ -174,4 +210,5 @@ export type _AC1Canary =
   | _ConnectionCallError
   | _ConnectionWriteError
   | _ConnectionRegisterError
-  | _ConnectionSplitGeneric;
+  | _ConnectionSplitGeneric
+  | _ConnectionConstraintGate;

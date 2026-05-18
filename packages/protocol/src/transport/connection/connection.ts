@@ -294,8 +294,9 @@ export interface Connection<
    * Handlers added after construction take effect on the next decoded
    * inbound frame (per the dispatch-time snapshot rule).
    *
-   * r2 (codex P2-r2-1 — per-definition narrowing) — overloaded so the
-   * type-level `Ctx` matches the actual runtime invariant:
+   * Per-definition narrowing — single conditional-typed signature so
+   * the type-level `Ctx` matches the actual runtime invariant for
+   * every definition:
    *
    *   - `Connect` is the auth-establishing bootstrap RPC. The auth
    *      hook short-circuits to `Effect.void` for `Connect` without
@@ -307,19 +308,35 @@ export interface Connection<
    *
    * The dispatcher branches on `req.definition === Connect` to pick
    * the right `Ctx` per request (§6.1 of the design doc). Localizing
-   * the seam in ONE switch removes the unconditional pre→post type
-   * coercion that earlier r1 drafts spread across every handler call.
+   * the seam here means no unconditional pre→post type coercion
+   * leaks across handler calls.
+   *
+   * Soundness note. The earlier overload-set draft (Connect overload
+   * first, default overload `&lt;D extends AnyRpcDefinition>` second)
+   * admitted `register(Connect, postAuthHandler)` via the default
+   * overload: the Connect overload rejected the post-auth handler
+   * under `RpcHandler`'s contravariance in `Ctx`, but the default
+   * overload's `D` was not narrowed to exclude `Connect`, so the
+   * fall-through accepted it — leaving the dispatcher to pass a
+   * `CtxPreAuth` value to a handler typed for `CtxPostAuth` (runtime
+   * NPE on `ctx.auth.userId` deref). The single-conditional signature
+   * below closes the seam because `D` is inferred ONCE per call: when
+   * `D = typeof Connect`, the handler slot's conditional resolves to
+   * `RpcHandler&lt;CtxPreAuth, D>`, and the post-auth handler is rejected
+   * — there is no second overload to fall through to. The
+   * `Parameters&lt;typeof register>[1]` canary at
+   * `connection.public-surface.types-check.ts` evaluates the
+   * conditional against the generic's constraint
+   * (`AnyRpcDefinition extends typeof Connect`? — false), so the
+   * default-branch handler-ctx still resolves to `CtxPostAuth` and
+   * the bidirectional gate continues to fire.
    */
-  readonly register: {
-    <D extends typeof Connect>(
-      def: D,
-      handler: RpcHandler<CtxPreAuth, D>,
-    ): Effect.Effect<Subscription, ConnectionRegisterError, never>;
-    <D extends AnyRpcDefinition>(
-      def: D,
-      handler: RpcHandler<CtxPostAuth, D>,
-    ): Effect.Effect<Subscription, ConnectionRegisterError, never>;
-  };
+  readonly register: <D extends AnyRpcDefinition>(
+    def: D,
+    handler: D extends typeof Connect
+      ? RpcHandler<CtxPreAuth, D>
+      : RpcHandler<CtxPostAuth, D>,
+  ) => Effect.Effect<Subscription, ConnectionRegisterError, never>;
 
   /**
    * Unregister the handler for `def.name`. Idempotent: a no-op when
