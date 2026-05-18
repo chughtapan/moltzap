@@ -107,3 +107,55 @@ export type TaskTags =
  * yields it directly.
  */
 export type AppTags = TaskTags | AppHostTag | AppTmRegistryTag;
+
+/**
+ * Spec E (#601) R-channel capability tags — DELIBERATELY a SIBLING
+ * alias, NOT folded into `TaskTags` / `AppTags`.
+ *
+ * **Why a sibling.** Capability tags are value-carrying authority
+ * proofs (`TmAuthority`, `TaskReadAccess`, …, composite
+ * `MessageSendPermission`) that handler bodies MUST drain via
+ * `Effect.provideServiceEffect(TAG, obtainTAG(...))` before the
+ * Effect leaves the handler. Folding them into `TaskTags` would let a
+ * handler whose body `yield*`s a capability without providing it
+ * satisfy the `Reqs extends TaskTags` constraint at the
+ * `defineTaskMethod` call site, compile cleanly, and panic at runtime
+ * when `ManagedRuntime` cannot resolve the unbound capability Tag.
+ *
+ * Keeping `CapabilityTags` SEPARATE from `TaskTags` preserves
+ * Decision A's invariant (architect plan #606 §3): capability tags
+ * cannot leak past the wrapper boundary. The
+ * `capability-r-channel.types-check.ts` Canary 5 (added r1 per
+ * plan-eng-review-606 Finding 2) demonstrates this: a handler that
+ * yields `MessageSendPermission` without `provideServiceEffect` fails
+ * the `Reqs extends TaskTags` constraint via `@ts-expect-error`.
+ *
+ * The alias exists for:
+ *   - Type-level documentation of the capability surface.
+ *   - Re-use inside obtain helpers + the composite `MessageSendPermission`
+ *     variant payloads (which may declare `R = CapabilityTags & ...`
+ *     when composing layered capabilities).
+ *   - Future internal utility types (e.g., `Drain[Reqs, CapabilityTags]`)
+ *     that prove a handler's R is empty of capability tags.
+ *
+ * Phase 1 implement-staff PR adds the concrete `Context.Tag` classes
+ * (`TmAuthority`, `TaskReadAccess`, `ConversationParticipantAccess`,
+ * `ConversationInTask`, `AgentExists`, `AgentInTaskParticipants`,
+ * `ContactPolicyAllowsReach`, `TaskActive`, `ConversationNotArchived`,
+ * `ValidReplyTarget`, `NoReplyTarget`, `GroupCapacityForCreate`,
+ * `MessageSendPermission`) to this alias. The architect stub leaves
+ * the union empty (`never`) — implementations resolve the concrete
+ * union when their files land.
+ */
+
+/**
+ * Architect-stub alias body. Starts as `never`; Phase 1 impl-staff
+ * populates the union with the concrete capability Tag classes
+ * enumerated in the JSDoc block above. The alias name is the
+ * exported contract — the canary (`capability-r-channel.types-check.ts`)
+ * imports it; downstream impl-staff and consumers depend on the
+ * name, not the body. When the union flips to a non-empty type the
+ * sonarjs alias-redundancy concern resolves naturally.
+ */
+// eslint-disable-next-line sonarjs/redundant-type-aliases -- architect-stub; see JSDoc above for the populate-by-impl-staff rationale.
+export type CapabilityTags = never;

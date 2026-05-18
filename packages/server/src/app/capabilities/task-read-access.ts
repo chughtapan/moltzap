@@ -1,5 +1,5 @@
 import { Context, Effect } from "effect";
-import type { Task } from "@moltzap/protocol";
+import type { ForbiddenError, NotFoundError, Task } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { TaskId } from "@moltzap/protocol/task";
 import { TaskServiceTag } from "../layers.js";
@@ -29,9 +29,17 @@ export class TaskReadAccess extends Context.Tag(
  *   const taskService = yield* TaskServiceTag;
  *   const task = yield* taskService.requireReadAccess(taskId, caller);
  *   return { task, callerAgentId: caller };
+ *
+ * Error channel — propagates `TaskService.requireReadAccess`'s public
+ * failure modes verbatim. `ForbiddenError` for "caller is neither
+ * initiator nor admitted participant"; `NotFoundError` for "task does
+ * not exist".
  */
 export const obtainTaskReadAccess = (
   _taskId: TaskId,
   _caller: AgentId,
-): Effect.Effect<TaskReadAccessValue, never, TaskServiceTag> =>
-  notImplemented("obtainTaskReadAccess") as never;
+): Effect.Effect<
+  TaskReadAccessValue,
+  ForbiddenError | NotFoundError,
+  TaskServiceTag
+> => notImplemented("obtainTaskReadAccess") as never;

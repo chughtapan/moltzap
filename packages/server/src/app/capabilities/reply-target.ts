@@ -1,8 +1,7 @@
 import { Context, Effect } from "effect";
-import type {
-  ConversationId,
-  MessageId,
-} from "@moltzap/protocol/task";
+import type { NotFoundError } from "@moltzap/protocol";
+import type { ConversationId, MessageId } from "@moltzap/protocol/task";
+import { MessageServiceTag } from "../layers.js";
 import { notImplemented } from "./not-implemented.js";
 
 /**
@@ -36,9 +35,10 @@ export interface NoReplyTargetValue {
   readonly _tag: "NoReplyTarget";
 }
 
-export class NoReplyTarget extends Context.Tag(
-  "@moltzap/server/NoReplyTarget",
-)<NoReplyTarget, NoReplyTargetValue>() {}
+export class NoReplyTarget extends Context.Tag("@moltzap/server/NoReplyTarget")<
+  NoReplyTarget,
+  NoReplyTargetValue
+>() {}
 
 /**
  * Architect-stub. Body shape:
@@ -51,10 +51,21 @@ export class NoReplyTarget extends Context.Tag(
  * to `@internal` exported per Decision B (Option A); this obtain calls
  * through the service Tag.
  */
+
+/**
+ * Error channel — `MessageService.requireReplyTarget` fails with
+ * `NotFoundError` when `replyToId` does not resolve to a message in
+ * `conversationId`. `SqlError` from the underlying select is caught
+ * defectively inside the service helper.
+ *
+ * R channel includes `MessageServiceTag` because the obtain helper
+ * dereferences the (Phase-4-promoted-to-`@internal`)
+ * `MessageService.requireReplyTarget` method through the service Tag.
+ */
 export const obtainValidReplyTarget = (
   _conversationId: ConversationId,
   _replyToId: MessageId,
-): Effect.Effect<ValidReplyTargetValue, never> =>
+): Effect.Effect<ValidReplyTargetValue, NotFoundError, MessageServiceTag> =>
   notImplemented("obtainValidReplyTarget") as never;
 
 /** Synchronous constructor — no runtime check needed. */

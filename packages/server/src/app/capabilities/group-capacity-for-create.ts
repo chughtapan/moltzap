@@ -1,4 +1,5 @@
 import { Context, Effect } from "effect";
+import type { ConversationFullError } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
 import { ConversationServiceTag } from "../layers.js";
 import { notImplemented } from "./not-implemented.js";
@@ -31,8 +32,18 @@ export class GroupCapacityForCreate extends Context.Tag(
  * Phase 3 promotes `requireGroupCapacityForCreate` to `@internal`
  * exported per Decision B (Option A).
  */
+
+/**
+ * Error channel — `ConversationService.requireGroupCapacityForCreate`
+ * fails with `ConversationFullError` when the proposed participant
+ * count exceeds the policy limit. Pure capacity check; no DB read; no
+ * SqlError in E.
+ */
 export const obtainGroupCapacityForCreate = (
   _creatorAgentId: AgentId,
   _invitedAgentIds: readonly AgentId[],
-): Effect.Effect<GroupCapacityForCreateValue, never, ConversationServiceTag> =>
-  notImplemented("obtainGroupCapacityForCreate") as never;
+): Effect.Effect<
+  GroupCapacityForCreateValue,
+  ConversationFullError,
+  ConversationServiceTag
+> => notImplemented("obtainGroupCapacityForCreate") as never;

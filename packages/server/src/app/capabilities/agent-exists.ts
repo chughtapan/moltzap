@@ -1,4 +1,5 @@
 import { Context, Effect } from "effect";
+import type { NotFoundError } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
 import { ParticipantServiceTag } from "../layers.js";
 import { notImplemented } from "./not-implemented.js";
@@ -30,7 +31,13 @@ export class AgentExists extends Context.Tag("@moltzap/server/AgentExists")<
  *   const ownerUserId = yield* participants.requireExists(agentId);
  *   return { agentId, ownerUserId };
  */
+
+/**
+ * Error channel — `ParticipantService.requireExists` fails with
+ * `NotFoundError` when the `agents` row is absent. `SqlError` from the
+ * underlying select is caught defectively inside the service helper.
+ */
 export const obtainAgentExists = (
   _agentId: AgentId,
-): Effect.Effect<AgentExistsValue, never, ParticipantServiceTag> =>
+): Effect.Effect<AgentExistsValue, NotFoundError, ParticipantServiceTag> =>
   notImplemented("obtainAgentExists") as never;

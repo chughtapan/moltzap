@@ -1,5 +1,5 @@
 /**
- * R-channel capability tokens for privileged service methods.
+ * @file R-channel capability tokens for privileged service methods.
  *
  * Architect plan #606 / Spec #601. See `README.md` in this directory
  * for the pattern overview; see

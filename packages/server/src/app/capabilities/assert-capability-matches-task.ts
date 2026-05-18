@@ -21,7 +21,9 @@ import type { TmAuthorityValue } from "./tm-authority.js";
  */
 
 /**
- * Architect-stub. Body shape:
+ * Verifies the capability's carried taskId equals the expected taskId.
+ * Architect-stub; Phase 1 implement-staff (#601) supplies the body.
+ * @example Body shape:
  *   if (cap.task.id !== expectedTaskId) return yield* Effect.fail(
  *     new ForbiddenError({ message: "capability/task mismatch" }));
  *   return Effect.void;
@@ -35,9 +37,10 @@ export const assertTmAuthorityMatchesTask = (
   );
 
 /**
- * Architect-stub. Body shape mirrors `assertTmAuthorityMatchesTask` but
- * checks `(cap.taskId === expectedTaskId &&
- *        cap.conversationId === expectedConversationId)`.
+ * Verifies the capability's carried `(taskId, conversationId)` pair
+ * equals the expected pair. Architect-stub; Phase 1 implement-staff
+ * supplies the body — same shape as `assertTmAuthorityMatchesTask`
+ * but checks both ids.
  */
 export const assertConversationInTaskMatches = (
   _cap: ConversationInTaskValue,

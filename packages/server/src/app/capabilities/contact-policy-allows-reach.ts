@@ -1,5 +1,10 @@
 import { Context, Effect } from "effect";
-import type { AgentId } from "@moltzap/protocol/identity";
+import type {
+  ForbiddenError,
+  InvalidParamsError,
+  NotFoundError,
+} from "@moltzap/protocol";
+import type { AgentId, NotInContactsError } from "@moltzap/protocol/identity";
 import { ConversationServiceTag } from "../layers.js";
 import { notImplemented } from "./not-implemented.js";
 
@@ -38,21 +43,37 @@ export class ContactPolicyAllowsReach extends Context.Tag(
  * Decision B (Option A) so this obtain helper can call them through the
  * service Tag.
  */
+
+/**
+ * Error channel — `ConversationService.requireContactPolicyForCreate`
+ * fans out to `requireCreatorContactsAll` / `checkContactEdge` which
+ * fail with:
+ *   - `NotInContactsError` — caller's contact policy rejects a target
+ *   - `NotFoundError` — a referenced `agents` row is missing
+ *   - `ForbiddenError` — generic policy denial
+ *   - `InvalidParamsError` — DM-arity / shape mismatch
+ *
+ * `SqlError` from the underlying contact-edge lookups is caught
+ * defectively inside the service helper.
+ */
 export const obtainContactPolicyForCreate = (
   _creatorAgentId: AgentId,
   _targetAgentIds: readonly AgentId[],
 ): Effect.Effect<
   ContactPolicyAllowsReachValue,
-  never,
+  ForbiddenError | NotFoundError | NotInContactsError | InvalidParamsError,
   ConversationServiceTag
 > => notImplemented("obtainContactPolicyForCreate") as never;
 
-/** Architect-stub. Variant used by `TaskConversationAddParticipant`. */
+/**
+ * Variant used by `TaskConversationAddParticipant`. Error channel
+ * matches `obtainContactPolicyForCreate` (same underlying fan-out).
+ */
 export const obtainContactPolicyForAdd = (
   _creatorAgentId: AgentId,
   _targetAgentId: AgentId,
 ): Effect.Effect<
   ContactPolicyAllowsReachValue,
-  never,
+  ForbiddenError | NotFoundError | NotInContactsError | InvalidParamsError,
   ConversationServiceTag
 > => notImplemented("obtainContactPolicyForAdd") as never;

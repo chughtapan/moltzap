@@ -1,4 +1,5 @@
 import { Context, Effect } from "effect";
+import type { ForbiddenError } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { TaskId } from "@moltzap/protocol/task";
 import { TaskServiceTag } from "../layers.js";
@@ -37,8 +38,18 @@ export class AgentInTaskParticipants extends Context.Tag(
  * (Option A), wrapping the same `task_participants` query D1's handler
  * would otherwise do inline.
  */
+
+/**
+ * Error channel — the NEW `TaskService.requireAgentInTaskParticipants`
+ * helper fails with `ForbiddenError` when the agent is not in
+ * `task_participants` for the given task. `SqlError` is caught
+ * defectively at the service-helper boundary.
+ */
 export const obtainAgentInTaskParticipants = (
   _taskId: TaskId,
   _agentId: AgentId,
-): Effect.Effect<AgentInTaskParticipantsValue, never, TaskServiceTag> =>
-  notImplemented("obtainAgentInTaskParticipants") as never;
+): Effect.Effect<
+  AgentInTaskParticipantsValue,
+  ForbiddenError,
+  TaskServiceTag
+> => notImplemented("obtainAgentInTaskParticipants") as never;
