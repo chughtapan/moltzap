@@ -1,5 +1,8 @@
 import { Context, Effect } from "effect";
-import type { ConversationId } from "@moltzap/protocol/task";
+import type {
+  ConversationArchivedError,
+  ConversationId,
+} from "@moltzap/protocol/task";
 import { notImplemented } from "./not-implemented.js";
 
 /**
@@ -27,8 +30,13 @@ export class ConversationNotArchived extends Context.Tag(
  *     ConversationArchivedError({}));
  *   return { conversationId };
  */
+
+/**
+ * Error channel — fails with `ConversationArchivedError` when
+ * `archivedAt` is non-null. Pure refine; no R dependency.
+ */
 export const refineConversationNotArchived = (
   _conversationId: ConversationId,
   _archivedAt: Date | null,
-): Effect.Effect<ConversationNotArchivedValue, never> =>
+): Effect.Effect<ConversationNotArchivedValue, ConversationArchivedError> =>
   notImplemented("refineConversationNotArchived") as never;

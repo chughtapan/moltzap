@@ -1,11 +1,13 @@
 import { Context, Effect } from "effect";
-import type { Task } from "@moltzap/protocol";
-import type { AgentId } from "@moltzap/protocol/identity";
 import type {
-  ConversationId,
-  MessageId,
-  TaskId,
-} from "@moltzap/protocol/task";
+  ConversationArchivedError,
+  ForbiddenError,
+  NotFoundError,
+  Task,
+  TaskClosedError,
+} from "@moltzap/protocol";
+import type { AgentId } from "@moltzap/protocol/identity";
+import type { ConversationId, MessageId, TaskId } from "@moltzap/protocol/task";
 import {
   ConversationServiceTag,
   MessageServiceTag,
@@ -26,7 +28,7 @@ import { notImplemented } from "./not-implemented.js";
  *           & (ValidReplyTarget | NoReplyTarget)
  *
  * Effect's R channel uses union types to ENCODE the set of required
- * services — `Effect<A, E, T1 | T2>` requires BOTH `T1` AND `T2` to be
+ * services — `Effect&lt;A, E, T1 | T2>` requires BOTH `T1` AND `T2` to be
  * provided before the effect is runnable (covariant `R` parameter; each
  * `Effect.provideService(Tag, val)` subtracts exactly the matching
  * `Tag`; remaining tags in the union are still required). There is no
@@ -115,7 +117,11 @@ export interface ObtainMessageSendPermissionInput {
 }
 
 /**
- * Architect-stub. Body shape (Phase 4 implements):
+ * Architect-stub. Body shape (Phase 4 implements). Column references
+ * (`tm_endpoint_address`, `task_status`, `archived_at`, `task_id`) are
+ * the projection produced by
+ * `MessageService.readSendConversation` — Phase 4 promotes that helper
+ * to `@internal` per Decision B and consumes the same projection here.
  *
  *   const taskService = yield* TaskServiceTag;
  *   const convService = yield* ConversationServiceTag;
@@ -131,26 +137,40 @@ export interface ObtainMessageSendPermissionInput {
  *   const isTmBypass = conv.tm_endpoint_address ===
  *     endpointAddressForAgent(input.senderAgentId);
  *   const task = yield* taskService.fetchTask(input.taskId); // promote
- *     to @internal per Decision B
+ *     to `@internal` per Decision B
  *
  *   const replyTarget = input.replyToId === undefined
  *     ? { _tag: "NoReply" as const }
- *     : { _tag: "ValidReply" as const, replyToId: yield*
- *         msgService.requireReplyTarget({ conversationId, replyToId }) };
+ *     : { _tag: "ValidReply" as const,
+ *         replyToId: (yield* obtainValidReplyTarget(
+ *           input.conversationId, input.replyToId)).replyToId };
  *
  *   if (!isTmBypass) {
  *     yield* refineTaskActive(input.taskId, conv.task_status);
- *     return { _tag: "forParticipantOnActiveTask", task, ..., replyTarget };
+ *     return { _tag: "forParticipantOnActiveTask",
+ *              task, conversationId: input.conversationId,
+ *              senderAgentId: input.senderAgentId, replyTarget };
  *   }
  *   if (replyTarget._tag === "NoReply") {
- *     return { _tag: "forTmBypass", task, ..., replyTarget };
+ *     return { _tag: "forTmBypass",
+ *              task, conversationId: input.conversationId,
+ *              senderAgentId: input.senderAgentId, replyTarget };
  *   }
- *   return { _tag: "forTmBypassWithReply", task, ..., replyTarget };
+ *   return { _tag: "forTmBypassWithReply",
+ *            task, conversationId: input.conversationId,
+ *            senderAgentId: input.senderAgentId, replyTarget };
+ *
+ * Error channel — union of every source-service public failure that
+ * the body propagates without rewrap:
+ *   - `ForbiddenError` from `requireParticipant`, `requireTmAuthority`
+ *   - `NotFoundError` from `obtainValidReplyTarget`, `fetchTask`
+ *   - `ConversationArchivedError` from `refineConversationNotArchived`
+ *   - `TaskClosedError` from `refineTaskActive`
  */
 export const obtainMessageSendPermission = (
   _input: ObtainMessageSendPermissionInput,
 ): Effect.Effect<
   MessageSendPermissionValue,
-  never,
+  ForbiddenError | NotFoundError | ConversationArchivedError | TaskClosedError,
   TaskServiceTag | ConversationServiceTag | MessageServiceTag
 > => notImplemented("obtainMessageSendPermission") as never;

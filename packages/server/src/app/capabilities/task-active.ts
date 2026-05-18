@@ -1,6 +1,6 @@
 import { Context, Effect } from "effect";
 import type { TaskStatus } from "@moltzap/protocol";
-import type { TaskId } from "@moltzap/protocol/task";
+import type { TaskClosedError, TaskId } from "@moltzap/protocol/task";
 import { notImplemented } from "./not-implemented.js";
 
 /**
@@ -33,8 +33,14 @@ export class TaskActive extends Context.Tag("@moltzap/server/TaskActive")<
  *     Effect.fail(new TaskClosedError(...));
  *   return { taskId, status };
  */
+
+/**
+ * Error channel — fails with `TaskClosedError` when `status` is
+ * `closed` or `failed`. Pure refine over the already-fetched
+ * `task.status` column; no R dependency.
+ */
 export const refineTaskActive = (
   _taskId: TaskId,
   _status: TaskStatus,
-): Effect.Effect<TaskActiveValue, never> =>
+): Effect.Effect<TaskActiveValue, TaskClosedError> =>
   notImplemented("refineTaskActive") as never;

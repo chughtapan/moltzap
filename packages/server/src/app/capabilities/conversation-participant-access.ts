@@ -1,4 +1,5 @@
 import { Context, Effect } from "effect";
+import type { ForbiddenError } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
 import type { ConversationId } from "@moltzap/protocol/task";
 import { ConversationServiceTag } from "../layers.js";
@@ -32,11 +33,19 @@ export class ConversationParticipantAccess extends Context.Tag(
  *   yield* conv.requireParticipant(conversationId, caller);
  *   return { conversationId, callerAgentId: caller };
  */
+
+/**
+ * Error channel — propagates `ConversationService.requireParticipant`'s
+ * `ForbiddenError` ("Not a participant in this conversation"). The
+ * `SqlError` from the underlying `conversation_participants` lookup is
+ * caught defectively by `catchSqlErrorAsDefect` inside the service
+ * helper, so it does NOT appear in E.
+ */
 export const obtainConversationParticipantAccess = (
   _conversationId: ConversationId,
   _caller: AgentId,
 ): Effect.Effect<
   ConversationParticipantAccessValue,
-  never,
+  ForbiddenError,
   ConversationServiceTag
 > => notImplemented("obtainConversationParticipantAccess") as never;

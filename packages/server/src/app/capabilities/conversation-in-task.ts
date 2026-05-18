@@ -1,4 +1,5 @@
 import { Context, Effect } from "effect";
+import type { ForbiddenError } from "@moltzap/protocol";
 import type { ConversationId, TaskId } from "@moltzap/protocol/task";
 import { TaskServiceTag } from "../layers.js";
 import { notImplemented } from "./not-implemented.js";
@@ -34,8 +35,15 @@ export class ConversationInTask extends Context.Tag(
  *   yield* taskService.requireConversationInTask(taskId, conversationId);
  *   return { taskId, conversationId };
  */
+
+/**
+ * Error channel — `TaskService.requireConversationInTask` fails with
+ * `ForbiddenError` ("Conversation does not belong to the specified
+ * task"). `SqlError` from the underlying lookup is caught defectively
+ * inside the service helper.
+ */
 export const obtainConversationInTask = (
   _taskId: TaskId,
   _conversationId: ConversationId,
-): Effect.Effect<ConversationInTaskValue, never, TaskServiceTag> =>
+): Effect.Effect<ConversationInTaskValue, ForbiddenError, TaskServiceTag> =>
   notImplemented("obtainConversationInTask") as never;
