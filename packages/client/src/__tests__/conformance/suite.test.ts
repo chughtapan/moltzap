@@ -11,13 +11,11 @@
  * `args.testServerUrl`. The factory below points its `MoltZapWsClient`
  * at that URL.
  */
-import { it as effectIt } from "@effect/vitest";
-import { describe, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { Config, Data, Effect, Exit, Option } from "effect";
 import { clientConformance } from "@moltzap/protocol/testing";
 import { createMoltZapRealClientFactory } from "@moltzap/client/test-utils";
 
-const it = effectIt.effect;
 const CLIENT_CONFORMANCE_TIMEOUT_MS = 600_000;
 const TOXIPROXY_URL = Effect.runSync(
   Config.option(Config.string("TOXIPROXY_URL")).pipe(
@@ -35,7 +33,7 @@ class ClientConformanceFailed extends Data.TaggedError(
 describe("@moltzap/client client-side conformance", () => {
   it(
     "client-side properties pass against MoltZapWsClient",
-    () => clientConformancePasses(),
+    () => Effect.runPromise(clientConformancePasses()),
     CLIENT_CONFORMANCE_TIMEOUT_MS,
   );
 });
