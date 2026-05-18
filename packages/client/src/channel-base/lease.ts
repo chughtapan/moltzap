@@ -54,10 +54,16 @@ export class LeaseAlreadyConsumed extends Data.TaggedError(
  * `ctx.leaseId` (optional) is the lease the caller just sent. Caller-supplied
  * because the server's `ForbiddenError.data` shape does NOT carry leaseId.
  * Falls back to `"(unknown)"` when omitted (matches current claude-code).
+ *
+ * `ctx.consumedAt` (required) is the epoch ms to stamp on the resulting
+ * `LeaseAlreadyConsumed.consumedAt`. Required because `LeaseAlreadyConsumed`
+ * requires it and this function is synchronous (no Clock access). Callers
+ * either pass `Date.now()` directly or use `catchLeaseInvalid` which reads
+ * `Clock.currentTimeMillis` inside the Effect.
  */
 export function projectLeaseInvalid(
   _err: RpcServerError,
-  _ctx?: { readonly leaseId?: string },
+  _ctx: { readonly leaseId?: string; readonly consumedAt: number },
 ): LeaseAlreadyConsumed | RpcServerError {
   throw new Error("not implemented (arch stub; impl-staff scope)");
 }
@@ -65,7 +71,8 @@ export function projectLeaseInvalid(
 /**
  * Effect-pipe convenience: catches `RpcServerError` and runs
  * `projectLeaseInvalid` on each instance. Reads `Clock.currentTimeMillis`
- * inside the catch to populate `consumedAt`.
+ * inside the catch and passes the result to `projectLeaseInvalid` as
+ * `consumedAt`.
  *
  * Use at every channel's outbound `core.sendReply(...)` boundary:
  *
