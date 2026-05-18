@@ -1,11 +1,9 @@
 import { expect } from "vitest";
 import { live as it } from "@effect/vitest";
 import { Effect } from "effect";
-import * as H from "./service.integration-support.js";
+import * as H from "../../support/index.js";
 
 H.setupServiceIntegration();
-
-// ─── Group 2b: peekFullMessages ──────────────────────────────────────────────
 
 it("returns full messages from other conversations sorted by timestamp", () =>
   Effect.gen(function* () {
@@ -121,5 +119,3 @@ it("commit advances markers — second peek returns only new messages", () =>
     yield* regB.client.close();
     yield* regC.client.close();
   }));
-
-// ─── Group 3: History with Session Key ───────────────────────────────────────

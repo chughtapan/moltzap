@@ -1,11 +1,9 @@
 import { expect } from "vitest";
 import { live as it } from "@effect/vitest";
 import { Effect } from "effect";
-import * as H from "./service.integration-support.js";
+import * as H from "../../support/index.js";
 
 H.setupServiceIntegration();
-
-// ─── Group 4: Socket Server ──────────────────────────────────────────────────
 
 it("lastRead tracks seen message IDs across reads", () =>
   Effect.gen(function* () {

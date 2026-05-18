@@ -1,11 +1,9 @@
 import { expect } from "vitest";
 import { live as it } from "@effect/vitest";
 import { Effect } from "effect";
-import * as H from "./service.integration-support.js";
+import * as H from "../../support/index.js";
 
 H.setupServiceIntegration();
-
-// ─── Group 2b: peekFullMessages ──────────────────────────────────────────────
 
 it("messages/list returns both own and other agent messages", () =>
   Effect.gen(function* () {

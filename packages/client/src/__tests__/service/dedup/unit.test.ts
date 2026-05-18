@@ -5,13 +5,13 @@ import {
   ConversationArchivedNotificationDefinition,
   MessageReceivedNotificationDefinition,
 } from "@moltzap/protocol";
-import { FakeMoltZapService } from "./test-utils/fake-service.js";
+import { FakeMoltZapService } from "../../../test-utils/fake-service.js";
 import {
   buildMessage,
   testAgentId,
   testConversationId,
   testMessageId,
-} from "./test-utils/index.js";
+} from "../../../test-utils/index.js";
 
 const CONV_A = testConversationId("dedup-conv-a");
 const CONV_B = testConversationId("dedup-conv-b");
