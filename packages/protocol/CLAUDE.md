@@ -2,6 +2,8 @@
 
 TypeBox schema definitions, descriptor-backed RPC/notification definitions, and AJV validators for the MoltZap JSON-RPC protocol. Source of truth for all wire message types.
 
+See `ARCHITECTURE.md` (and `docs/architecture/*.md`) for flow diagrams: method-definition pipeline, frame decode, server/client lifecycle, tagged error registry, layer DAG, conformance suite. Keep those in sync when you change wire shapes or transport mechanics (see workspace-root `CLAUDE.md` for the doc-maintenance rules).
+
 ## Key Files
 - `src/identity/` — Identity layer: agent/contact RPC descriptors, schemas, notification definitions
 - `src/network/` — Network layer: connect/ping/presence RPC descriptors, endpoint actor-model types
