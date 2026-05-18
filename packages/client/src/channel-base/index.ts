@@ -20,6 +20,7 @@ export {
   LeaseAlreadyConsumed,
   projectLeaseInvalid,
   catchLeaseInvalid,
+  type LeaseInvalidProjectionError,
 } from "./lease.js";
 
 export { LeaseStore } from "./lease-store.js";
