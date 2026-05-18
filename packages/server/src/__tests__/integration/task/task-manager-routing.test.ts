@@ -176,20 +176,21 @@ function setupTaskBoundConversation(
   });
 }
 
-it("property: task binding carries both task and conversation IDs", () => {
-  expect.hasAssertions();
-  fc.assert(
-    fc.property(fc.uuid(), fc.uuid(), (taskId, conversationId) => {
-      const binding: TaskBinding = {
-        taskId: taskId as Task["id"],
-        conversationId,
-      };
-      expect(binding.taskId).toBe(taskId);
-      expect(binding.conversationId).toBe(conversationId);
-    }),
-    { numRuns: PROPERTY_RUNS },
-  );
-});
+it("property: task binding carries both task and conversation IDs", () =>
+  Effect.sync(() => {
+    expect.hasAssertions();
+    fc.assert(
+      fc.property(fc.uuid(), fc.uuid(), (taskId, conversationId) => {
+        const binding: TaskBinding = {
+          taskId: taskId as Task["id"],
+          conversationId,
+        };
+        expect(binding.taskId).toBe(taskId);
+        expect(binding.conversationId).toBe(conversationId);
+      }),
+      { numRuns: PROPERTY_RUNS },
+    );
+  }));
 
 it(
   "TM live: messages/send to a task-bound conversation succeeds",

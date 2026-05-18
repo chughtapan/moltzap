@@ -94,9 +94,10 @@ it("multiple other conversations appear in context", () =>
 it("maxConversations limits output", () =>
   Effect.gen(function* () {
     const regA = yield* H.registerAgent("lim-a");
+    const agentNames = ["lim-b", "lim-c", "lim-d", "lim-e"];
     const agents = yield* Effect.all(
-      ["lim-b", "lim-c", "lim-d", "lim-e"].map((n) => H.registerAgent(n)),
-      { concurrency: agents.length },
+      agentNames.map((n) => H.registerAgent(n)),
+      { concurrency: agentNames.length },
     );
     for (const a of agents) yield* a.client.connect();
 

@@ -40,30 +40,35 @@ interface ConversationListResult {
   conversations: Array<{ id: string }>;
 }
 
+function conversationStub(id: string): { id: string } {
+  return { id };
+}
+
 beforeAll(() => Effect.runPromise(startTestServerEffect()));
 
 afterAll(() => Effect.runPromise(stopTestServerEffect()));
 
 beforeEach(() => Effect.runPromise(resetTestDbEffect()));
 
-it("property: conversation membership lookup follows listed IDs", () => {
-  expect.hasAssertions();
-  fc.assert(
-    fc.property(
-      fc.uuid(),
-      fc.array(fc.uuid(), { minLength: 0, maxLength: 8 }),
-      (conversationId, ids) => {
-        const list = {
-          conversations: ids.map((id) => ({ id })),
-        };
-        expect(hasConversation(list, conversationId)).toBe(
-          ids.includes(conversationId),
-        );
-      },
-    ),
-    { numRuns: PROPERTY_RUNS },
-  );
-});
+it("property: conversation membership lookup follows listed IDs", () =>
+  Effect.sync(() => {
+    expect.hasAssertions();
+    fc.assert(
+      fc.property(
+        fc.uuid(),
+        fc.array(fc.uuid(), { minLength: 0, maxLength: 8 }),
+        (conversationId, ids) => {
+          const list = {
+            conversations: ids.map(conversationStub),
+          };
+          expect(hasConversation(list, conversationId)).toBe(
+            ids.includes(conversationId),
+          );
+        },
+      ),
+      { numRuns: PROPERTY_RUNS },
+    );
+  }));
 
 it("owner archives and unarchives; broadcasts events", () =>
   Effect.gen(function* () {
@@ -129,15 +134,18 @@ it("unarchive of active conversation is idempotent", () =>
     expect(result).toEqual({});
   }));
 
-// Phase 7 cutover removed `apps/create`'s session-bootstrap path that
-// attached manifest conversations under the legacy `app_sessions` ⇄
-// `app_session_conversations` join. The "archive returns 409 for a
-// session-attached conversation" assertion has no production trigger
-// until Phase 9 wires the equivalent invariant on `tasks`/TM topology.
-// Tombstoned via it.todo so the suite reports the gap.
-it.todo(
-  "archive of task-attached conversation returns 409 (Phase 9 reactivation)",
-);
+it("archive of task-attached conversation succeeds for the owner", () =>
+  Effect.gen(function* () {
+    const group = yield* archiveGroup();
+    const taskId = yield* readConversationTaskId(group.conversationId);
+    expect(taskId).toEqual(expect.any(String));
+
+    const result = yield* group.alice.client.sendRpc(ConversationsArchive, {
+      conversationId: group.conversationId,
+    });
+    expect(result).toEqual({});
+    yield* expectArchivedInDb(group.conversationId);
+  }));
 
 it("concurrent archive by the same privileged caller is idempotent", () =>
   Effect.gen(function* () {
@@ -254,6 +262,20 @@ function expectArchivedInDb(conversationId: string) {
         .executeTakeFirst(),
     );
     expect(row?.archived_at).not.toBeNull();
+  });
+}
+
+function readConversationTaskId(conversationId: string) {
+  const db = getCoreDb();
+  return Effect.gen(function* () {
+    const row = yield* Effect.tryPromise(() =>
+      db
+        .selectFrom("conversations")
+        .select("task_id")
+        .where("id", "=", conversationId)
+        .executeTakeFirstOrThrow(),
+    );
+    return row.task_id;
   });
 }
 

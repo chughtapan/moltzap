@@ -33,20 +33,21 @@ afterAll(() => Effect.runPromise(stopTestServerEffect()));
 
 beforeEach(() => Effect.runPromise(resetTestDbEffect()));
 
-it("property: recent timestamp predicate is bounded by configured skew", () => {
-  expect.hasAssertions();
-  fc.assert(
-    fc.property(
-      fc.integer({ min: 0, max: NETWORK_PING_MAX_CLOCK_SKEW_MS * 2 }),
-      (ageMs) => {
-        expect(isWithinPingSkew(ageMs)).toBe(
-          ageMs < NETWORK_PING_MAX_CLOCK_SKEW_MS,
-        );
-      },
-    ),
-    { numRuns: PROPERTY_RUNS },
-  );
-});
+it("property: recent timestamp predicate is bounded by configured skew", () =>
+  Effect.sync(() => {
+    expect.hasAssertions();
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 0, max: NETWORK_PING_MAX_CLOCK_SKEW_MS * 2 }),
+        (ageMs) => {
+          expect(isWithinPingSkew(ageMs)).toBe(
+            ageMs < NETWORK_PING_MAX_CLOCK_SKEW_MS,
+          );
+        },
+      ),
+      { numRuns: PROPERTY_RUNS },
+    );
+  }));
 
 it(`${NetworkPing.name}: returns an ISO8601 timestamp`, () =>
   Effect.gen(function* () {

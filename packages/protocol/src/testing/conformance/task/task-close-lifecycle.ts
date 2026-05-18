@@ -7,6 +7,7 @@
 import { Effect } from "effect";
 import {
   TaskClosedNotificationDefinition,
+  TaskClosedError,
   TasksAddParticipant,
   TasksClose,
   TasksCreate,
@@ -83,6 +84,7 @@ function runTaskCloseLifecycle(ctx: ConformanceRunContext) {
         fixture.participant,
         fixture.conversationId,
         PROPERTY,
+        { code: TaskClosedError.code, label: "TaskClosed" },
       );
     }),
   );

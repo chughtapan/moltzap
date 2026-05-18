@@ -319,6 +319,10 @@ export function assertConversationRejectsMessages(
   actor: ConversationActor,
   conversationId: ConversationIdValue,
   propertyName: string,
+  expectedError: { readonly code: number; readonly label: string } = {
+    code: ConversationArchivedError.code,
+    label: "ConversationArchived",
+  },
 ): Effect.Effect<void, PropertyInvariantViolation> {
   return Effect.gen(function* () {
     const outcome = yield* sendText(
@@ -335,7 +339,7 @@ export function assertConversationRejectsMessages(
       onLeft: (error) => {
         if (
           error instanceof RpcResponseError &&
-          error.code === ConversationArchivedError.code
+          error.code === expectedError.code
         ) {
           return null;
         }
@@ -345,7 +349,7 @@ export function assertConversationRejectsMessages(
             : error._tag;
         return deliveryViolation(
           propertyName,
-          `messages/send returned ${errorLabel}, expected ConversationArchived`,
+          `messages/send returned ${errorLabel}, expected ${expectedError.label}`,
         );
       },
     });

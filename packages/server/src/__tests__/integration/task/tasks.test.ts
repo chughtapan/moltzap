@@ -116,15 +116,16 @@ function expectSelfTmAddress(agentId: string): string {
   return `tm:agent:${agentId}`;
 }
 
-it("property: self TM address derives from the authenticated agent ID", () => {
-  expect.hasAssertions();
-  fc.assert(
-    fc.property(fc.uuid(), (agentId) => {
-      expect(expectSelfTmAddress(agentId)).toBe(`tm:agent:${agentId}`);
-    }),
-    { numRuns: PROPERTY_RUNS },
-  );
-});
+it("property: self TM address derives from the authenticated agent ID", () =>
+  Effect.sync(() => {
+    expect.hasAssertions();
+    fc.assert(
+      fc.property(fc.uuid(), (agentId) => {
+        expect(expectSelfTmAddress(agentId)).toBe(`tm:agent:${agentId}`);
+      }),
+      { numRuns: PROPERTY_RUNS },
+    );
+  }));
 
 it("tasks/create returns a waiting task with server-derived self TM", () =>
   Effect.gen(function* () {

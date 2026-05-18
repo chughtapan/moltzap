@@ -17,7 +17,7 @@
  */
 import { it as effectIt } from "@effect/vitest";
 import { describe, expect } from "vitest";
-import { Data, Deferred, Effect, Scope } from "effect";
+import { Deferred, Effect, Scope } from "effect";
 import * as Socket from "@effect/platform/Socket";
 import * as NodeSocketServer from "@effect/platform-node/NodeSocketServer";
 import {
@@ -34,6 +34,7 @@ import {
 } from "@moltzap/protocol/testing";
 import { MoltZapService } from "../../service.js";
 import type { Message } from "@moltzap/protocol";
+import { realSleep, waitFor } from "../../ws-client-test-support.js";
 
 const it = effectIt.scoped;
 const LOCALHOST_HOST = "127.0.0.1";
@@ -86,10 +87,6 @@ interface ConnectedService {
   readonly conn: ServerConn;
   readonly seen: Message[];
 }
-
-class WaitForTimedOut extends Data.TaggedError("WaitForTimedOut")<{
-  readonly message: string;
-}> {}
 
 /**
  * Spin up an in-process WS server that auto-responds to `network/connect`
@@ -176,25 +173,6 @@ function connectService(
   }).pipe(Effect.withSpan("dedup.connectService"));
 }
 
-function waitFor(
-  pred: () => boolean,
-  { maxMs = 2000 }: { maxMs?: number } = {},
-): Effect.Effect<void, WaitForTimedOut> {
-  return Effect.gen(function* () {
-    const deadline = Date.now() + maxMs;
-    while (!pred()) {
-      if (Date.now() > deadline) {
-        return yield* Effect.fail(
-          new WaitForTimedOut({
-            message: "waitFor: condition not satisfied in time",
-          }),
-        );
-      }
-      yield* Effect.sleep("5 millis");
-    }
-  });
-}
-
 function messageCountAtLeast(seen: readonly Message[], count: number) {
   return () => seen.length >= count;
 }
@@ -239,7 +217,7 @@ function dedupsDoubleEmit() {
     yield* conn.send(frame);
     yield* conn.send(frame);
     yield* waitFor(messageCountAtLeast(seen, 1), { maxMs: 2000 });
-    yield* Effect.sleep("200 millis");
+    yield* realSleep(200);
     expectDuplicateFrameSurfacedOnce(seen);
     service.close();
   });
@@ -255,7 +233,7 @@ function dedupsDuplicateThenFresh() {
     yield* conn.send(dupFrame);
     yield* conn.send(freshMessageFrame());
     yield* waitFor(messageCountAtLeast(seen, 2), { maxMs: 2000 });
-    yield* Effect.sleep("200 millis");
+    yield* realSleep(200);
     expectDuplicateThenFresh(seen);
     service.close();
   });

@@ -363,7 +363,6 @@ export const MessageServiceLive = Layer.effect(
     const db = yield* DbTag;
     const conversations = yield* ConversationServiceTag;
     const networkSend = yield* NetworkSendServiceTag;
-    const resolver = yield* AgentEndpointResolverTag;
     const encryption = yield* EncryptionTag;
     const deliveryWebhook = yield* DeliveryWebhookTag;
     const webhookClient = yield* WebhookClientTag;
@@ -373,7 +372,6 @@ export const MessageServiceLive = Layer.effect(
       db,
       conversations,
       networkSend,
-      resolver,
       encryption,
       deliveryWebhook,
       webhookClient,
