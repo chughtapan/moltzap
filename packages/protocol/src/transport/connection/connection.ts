@@ -32,6 +32,7 @@ import type {
   ResultOf,
   RpcDefinition,
 } from "../method.js";
+import type { AnyTaskCallbackRpcDefinition } from "../../rpc-registry.js";
 import type { JsonRpcId } from "../wire.js";
 import type {
   ConnectionClosedError,
@@ -58,21 +59,33 @@ type AnyNotificationDefinition = NotificationDefinition<string, TSchema>;
  * Typed transport facade. Owns the JSON.parse → decode → match →
  * dispatch → encode → write pipeline.
  *
- * Two constructors fix the direction at construction time
+ * Direction is encoded in the generics, NOT a runtime discriminant
  * (Spec A Decision D6):
- *   - `makeServerConnection` — inbound = `decodeClientInbound`,
- *      outbound `call`/`notify` shape = `AnyTaskCallbackRpcDefinition`
- *   - `makeClientConnection` — inbound = `decodeServerInbound`,
- *      outbound `call`/`notify` shape = `AnyRpcDefinition`
+ *   - `ServerConnection&lt;Ctx>` = `Connection&lt;Ctx, AnyTaskCallbackRpcDefinition, AnyNotificationDefinition>`
+ *   - `ClientConnection&lt;Ctx>` = `Connection&lt;Ctx, AnyRpcDefinition,             AnyNotificationDefinition>`
  *
- * Direction is NOT a runtime discriminant; consumers select the
- * constructor at scope-acquisition time.
+ * Two constructors return the appropriate aliased shape; the type
+ * system rejects e.g. `serverConnection.call(ClientOnlyRpc, ...)` at
+ * compile time.
  *
- * The generic `Ctx` is the handler context plumbed through dispatch.
- * Server: `DispatchContext` (auth + connId). Client: `ServerRpcContext`
- * (requestId + definition).
+ * Generic positions:
+ *   - `Ctx`       — handler-thread context (server: pre-auth dispatch
+ *                    context with `auth: AuthenticatedContext | null` +
+ *                    `connId`; client: `ServerRpcContext` with
+ *                    `requestId` + `definition`). Hooks AND handlers
+ *                    receive the same `Ctx` so caller-side state flows
+ *                    structurally through both seams.
+ *   - `OutCall`   — outbound RPC definition set (`AnyTaskCallbackRpcDefinition`
+ *                    on server, `AnyRpcDefinition` on client).
+ *   - `OutNotify` — outbound notification definition set (currently
+ *                    `AnyNotificationDefinition` on both sides; Spec B
+ *                    may narrow client-side).
  */
-export interface Connection<Ctx = unknown> {
+export interface Connection<
+  Ctx = unknown,
+  OutCall extends AnyRpcDefinition = AnyRpcDefinition,
+  OutNotify extends AnyNotificationDefinition = AnyNotificationDefinition,
+> {
   // ── Inbound pump ───────────────────────────────────────────────────
 
   /**
@@ -143,7 +156,7 @@ export interface Connection<Ctx = unknown> {
    * call site; Connection does not impose one. `RequestTimeoutError`
    * surfaces only when the caller's deadline expires.
    */
-  readonly call: <D extends AnyRpcDefinition>(
+  readonly call: <D extends OutCall>(
     def: D,
     params: ParamsOf<D>,
   ) => Effect.Effect<
@@ -157,10 +170,11 @@ export interface Connection<Ctx = unknown> {
 
   /**
    * Send a notification (no response expected). Spec A Decision D5:
-   * `def extends AnyNotificationDefinition` is enforced at the type
-   * level — compile-time discrimination, not a runtime branch.
+   * `def extends OutNotify` is enforced at the type level — compile-time
+   * discrimination, not a runtime branch. The constructor that produced
+   * this Connection fixes `OutNotify`.
    */
-  readonly notify: <D extends AnyNotificationDefinition>(
+  readonly notify: <D extends OutNotify>(
     def: D,
     params: NotificationParamsOf<D>,
   ) => Effect.Effect<void, SocketWriteError | ConnectionClosedError, never>;
@@ -221,7 +235,7 @@ export interface Connection<Ctx = unknown> {
 
   /**
    * Register a handler for a method. Rejects with `DuplicateHandlerError`
-   * if a handler already exists for `def.method`.
+   * if a handler already exists for `def.name`.
    *
    * See "Handler registration contract" in the design doc for the five
    * invariants (key, duplicate-key, idempotent unregister, idempotent
@@ -236,7 +250,7 @@ export interface Connection<Ctx = unknown> {
   ) => Effect.Effect<Subscription, DuplicateHandlerError, never>;
 
   /**
-   * Unregister the handler for `def.method`. Idempotent: a no-op when
+   * Unregister the handler for `def.name`. Idempotent: a no-op when
    * no handler is currently registered.
    *
    * In-flight handler invocations that have already entered the handler
@@ -260,40 +274,62 @@ export interface ConnectionConfig {
 }
 
 /**
- * Server-side constructor. Inbound shape = `decodeClientInbound`
- * (client → server frames). Outbound `call`/`notify` constrained to
- * `AnyTaskCallbackRpcDefinition` at the type level — prevents
- * accidental dispatch of a client→server method on the appCallback
- * channel.
+ * Server-side Connection. Outbound `call` is constrained to the
+ * server→client appCallback set at the type level; the type system
+ * rejects accidental dispatch of a client→server method.
  *
- * Returns an `Effect.Effect&lt;Connection&lt;Ctx>, never, Scope.Scope>`:
+ * Imports `AnyTaskCallbackRpcDefinition` from `../../rpc-registry.js`;
+ * impl-staff lifts the import when filling the body.
+ */
+export type ServerConnection<Ctx = unknown> = Connection<
+  Ctx,
+  AnyTaskCallbackRpcDefinition,
+  AnyNotificationDefinition
+>;
+
+/**
+ * Client-side Connection. Outbound `call` constrained to the full
+ * `AnyRpcDefinition` set (client originates every client→server RPC).
+ */
+export type ClientConnection<Ctx = unknown> = Connection<
+  Ctx,
+  AnyRpcDefinition,
+  AnyNotificationDefinition
+>;
+
+/**
+ * Server-side constructor. Inbound shape = `decodeClientInbound`
+ * (client → server frames). Returns a `ServerConnection&lt;Ctx>` whose
+ * `call` is type-restricted to `AnyTaskCallbackRpcDefinition`.
+ *
+ * Returns `Effect&lt;ServerConnection&lt;Ctx>, never, Scope.Scope>`:
  * caller owns the scope (per Spec A Invariant "Connection's Effect
  * requirements"). Scope-close runs the correlator finalizer that
  * drains pending calls with `ConnectionClosedError`.
  */
 export function makeServerConnection<Ctx = unknown>(
   _config: ConnectionConfig,
-): Effect.Effect<Connection<Ctx>, never, Scope.Scope> {
+): Effect.Effect<ServerConnection<Ctx>, never, Scope.Scope> {
   // Stub: defect (never-channel preserved). Impl-staff fills the body.
   return Effect.dieMessage(
     "not implemented: makeServerConnection (Spec A #595 / arch #603)",
-  ) as Effect.Effect<Connection<Ctx>, never, Scope.Scope>;
+  ) as Effect.Effect<ServerConnection<Ctx>, never, Scope.Scope>;
 }
 
 /**
  * Client-side constructor. Inbound shape = `decodeServerInbound`
- * (server → client frames). Outbound `call`/`notify` constrained to
- * the full `AnyRpcDefinition` set.
+ * (server → client frames). Returns a `ClientConnection&lt;Ctx>` whose
+ * `call` is type-restricted to the full `AnyRpcDefinition` set.
  *
- * Returns an `Effect.Effect&lt;Connection&lt;Ctx>, never, Scope.Scope>`.
+ * Returns `Effect&lt;ClientConnection&lt;Ctx>, never, Scope.Scope>`.
  * Scope-close runs the correlator finalizer that drains pending calls
  * with `ConnectionClosedError`.
  */
 export function makeClientConnection<Ctx = unknown>(
   _config: ConnectionConfig,
-): Effect.Effect<Connection<Ctx>, never, Scope.Scope> {
+): Effect.Effect<ClientConnection<Ctx>, never, Scope.Scope> {
   // Stub: defect (never-channel preserved). Impl-staff fills the body.
   return Effect.dieMessage(
     "not implemented: makeClientConnection (Spec A #595 / arch #603)",
-  ) as Effect.Effect<Connection<Ctx>, never, Scope.Scope>;
+  ) as Effect.Effect<ClientConnection<Ctx>, never, Scope.Scope>;
 }

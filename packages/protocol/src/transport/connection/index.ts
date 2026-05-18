@@ -9,7 +9,12 @@
  */
 
 // ── Facade ───────────────────────────────────────────────────────────
-export type { Connection, ConnectionConfig } from "./connection.js";
+export type {
+  Connection,
+  ConnectionConfig,
+  ServerConnection,
+  ClientConnection,
+} from "./connection.js";
 export { makeServerConnection, makeClientConnection } from "./connection.js";
 
 // ── Transport seam ──────────────────────────────────────────────────

@@ -61,7 +61,7 @@ export interface QueuedHandlerOptions {
  * `Connection.register(def, queuedHandler(handler, opts))` directly.
  *
  * Implementation hint (impl-staff): the wrapper allocates an
- * `Effect.Queue.bounded&lt;…>` keyed per `def.method`, forks a drainer
+ * `Effect.Queue.bounded&lt;…>` keyed per `def.name`, forks a drainer
  * fiber at first dispatch, and routes `onFull` rejections back through
  * Connection's writer.
  */

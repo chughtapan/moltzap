@@ -83,6 +83,7 @@ export type { JsonRpcServer, RpcHandler } from "./json-rpc-server.js";
 // for the wire pipeline (JSON.parse → decode → match → dispatch →
 // encode → write).
 export type {
+  ClientConnection,
   Connection,
   ConnectionConfig,
   ConnectionContext,
@@ -91,6 +92,7 @@ export type {
   JsonValue,
   OnFullPolicy,
   QueuedHandlerOptions,
+  ServerConnection,
   SocketLike,
   Subscription,
 } from "./connection/index.js";

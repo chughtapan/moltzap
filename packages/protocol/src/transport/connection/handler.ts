@@ -24,7 +24,6 @@ import type { ParamsOf, ResultOf, RpcDefinition } from "../method.js";
 import type { JsonRpcId, JsonRpcMethod } from "../wire.js";
 import type { SocketLike } from "./socket-like.js";
 import type { RegisteredTaggedError } from "../../rpc-registry.js";
-import type { RpcServerError } from "../rpc-errors.js";
 
 type AnyRpcDefinition = RpcDefinition<string, TSchema, TSchema>;
 
@@ -131,12 +130,14 @@ export type ConnectionContext<Ctx = unknown> = Ctx & {
  * The spec's hook signature names `AuthError | RpcServerError`.
  * `AuthError` is caller-defined; in-tree the only caller (server
  * `socket-handler.ts`) raises `UnauthorizedError`, which is already a
- * member of `RegisteredTaggedError`. This alias closes the union over
- * every wire-coded class — caller auth errors are admissible iff they
- * register via `registerErrorClass` (the existing in-tree pattern).
+ * member of `RegisteredTaggedError`. `RpcServerError` is intentionally
+ * NOT a member of this union — that class's `data?: unknown` field
+ * would re-introduce `unknown` at the public boundary (codex R2 caught
+ * this). `RpcServerError` remains an `RpcCallError` arm (server
+ * returned an unregistered code), not a hook-side raise channel.
  *
- * Architect decision (resolves §9 clarification): this is the final
- * shape. Callers extending `HookFailure` must registerErrorClass; no
+ * Architect decision (final): callers extending `HookFailure` must
+ * register their auth-error class via `registerErrorClass`; no
  * `unknown` escape hatch.
  */
-export type HookFailure = RegisteredTaggedError | RpcServerError;
+export type HookFailure = RegisteredTaggedError;

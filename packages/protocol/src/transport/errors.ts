@@ -170,10 +170,10 @@ export type ConnectionRunError = SocketReadError | DispatchPanic;
 
 /**
  * `Connection.register(def, handler)` failed because a handler is
- * already registered for `def.method`. Callers must `unregister(def)`
+ * already registered for `def.name`. Callers must `unregister(def)`
  * first to swap.
  *
- * See "Handler registration contract" in the design doc (sub-issue
+ * See "Handler-registration invariants" in the design doc (sub-issue
  * #603 body) for the full duplicate-key / in-flight / snapshot
  * semantics.
  */
