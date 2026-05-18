@@ -11,7 +11,7 @@ Wire-level dispatch.
 
 | Direction | Allowed |
 |---|---|
-| Imports FROM | kernels only (`db`, `crypto`, `runtime`, `runtime-surface`, `adapters`, `config`, `logger`, `test-utils`) |
+| Imports FROM | kernels only (`db`, `crypto`, `runtime`, `runtime-surface`, `adapters`, `config`, `test-utils`) |
 | Imports TO   | identity, network, task, app (any protocol layer composes on top) |
 
 Transport is the lowest protocol layer. It does not know about identity, conversations, presence, or app hosts. Handlers live in their layer's `handlers/` directory and are bound via `defineXMethod` from this layer.

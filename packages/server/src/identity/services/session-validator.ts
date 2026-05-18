@@ -1,6 +1,5 @@
 import { Cause, Effect, Schema } from "effect";
 import type { WebhookClient } from "../../adapters/webhook.js";
-import type { Logger } from "../../logger.js";
 import type { AgentId, UserId } from "../../app/types.js";
 
 const SessionValidateResponse = Schema.Union(
@@ -37,7 +36,6 @@ export class WebhookSessionValidator implements SessionValidator {
     private client: WebhookClient,
     private url: string,
     private timeoutMs: number,
-    private logger: Logger,
   ) {}
 
   validateSession(token: string): Effect.Effect<SessionValidation, never> {
@@ -60,36 +58,26 @@ export class WebhookSessionValidator implements SessionValidator {
             : { valid: true, agentId, ownerUserId };
         }),
         Effect.catchAllCause((cause) =>
-          Effect.sync((): SessionValidation => {
-            this.logCauseAsFailClosed(cause, {
-              url: this.url,
-            });
-            return { valid: false };
-          }),
+          this.logCauseAsFailClosed(cause, { url: this.url }).pipe(
+            Effect.as({ valid: false } satisfies SessionValidation),
+          ),
         ),
       );
   }
 
-  /**
-   * Fail-closed reject logging. Expected failures (`Cause.Fail` —
-   * `WebhookError` variants) log at warn. Defects (`Cause.Die` — bugs)
-   * log at error with the full pretty cause.
-   */
   private logCauseAsFailClosed(
     cause: Cause.Cause<unknown>,
     ctx: Record<string, unknown>,
-  ): void {
+  ): Effect.Effect<void> {
     const label = "Session validation webhook";
+    const annotations = { cause: Cause.pretty(cause), ...ctx };
     if (Cause.dieOption(cause)._tag === "Some") {
-      this.logger.error(
-        { cause: Cause.pretty(cause), ...ctx },
-        `${label} defect (bug) — rejecting`,
-      );
-    } else {
-      this.logger.warn(
-        { cause: Cause.pretty(cause), ...ctx },
-        `${label} failed — rejecting`,
+      return Effect.logError(`${label} defect (bug) - rejecting`).pipe(
+        Effect.annotateLogs(annotations),
       );
     }
+    return Effect.logWarning(`${label} failed - rejecting`).pipe(
+      Effect.annotateLogs(annotations),
+    );
   }
 }

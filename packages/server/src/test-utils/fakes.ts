@@ -10,34 +10,12 @@
  * the real service interface*. If the real interface changes, the test
  * double becomes a compile error instead of a silent runtime mismatch.
  *
- * Two modes:
- *   (1) Typed plain-object fakes — for services that are passed around as
- *       instances (e.g. `new WebhookSessionValidator(client, ...)`). Use
- *       `makeFakeService<T>()` or the service-specific helpers below.
- *   (2) Layer-based fakes — for services accessed via `Context.Tag`. These
- *       slot into an Effect program via `Layer.provide(program, fakeLayer)`.
+ * Typed plain-object fakes cover services that tests pass around as
+ * instances. Use `makeFakeService&lt;T>()` at the call site so the fake's
+ * shape stays tied to the real interface.
  */
 
-import { Data, Layer, unsafeCoerce } from "effect";
-
-import type { WebhookClient } from "../adapters/webhook.js";
-import type { AppHost } from "../app/app-host.js";
-import type { AuthService } from "../identity/services/auth.service.js";
-import type { ConversationService } from "../task/services/conversation.service.js";
-import type { MessageService } from "../task/services/message.service.js";
-import type { ParticipantService } from "../identity/services/participant.service.js";
-import type { PresenceService } from "../network/services/presence.service.js";
-import type { ConnectionManager } from "../transport/connection.js";
-
-import {
-  AppHostTag,
-  AuthServiceTag,
-  ConnectionManagerTag,
-  ConversationServiceTag,
-  MessageServiceTag,
-  ParticipantServiceTag,
-  PresenceServiceTag,
-} from "../app/layers.js";
+import { Data, unsafeCoerce } from "effect";
 
 // ── Generic typed fake factory ─────────────────────────────────────────────
 
@@ -78,70 +56,3 @@ export const makeFakeService = <S extends object>(impl: Partial<S>): S =>
       },
     }),
   );
-
-// ── Webhook client — not behind a Tag, used via constructor injection ──────
-
-/**
- * Typed test double for `WebhookClient`. Use instead of `vi.spyOn` on a real
- * instance: the `Pick<>` constraint forces the caller to match the real
- * `call` signature, so a contract change in `WebhookClient` breaks the
- * test at compile time rather than at runtime.
- *
- * Example:
- *   const client = makeFakeWebhookClient({
- *     call: () => Effect.succeed({ valid: true }),
- *   });
- *   const svc = new WebhookSessionValidator(client, "url", 5000, logger);
- */
-export const makeFakeWebhookClient = (
-  impl: Pick<WebhookClient, "call">,
-): WebhookClient =>
-  unsafeCoerce<Pick<WebhookClient, "call">, WebhookClient>(impl);
-
-// ── Layer-based fakes for tagged services ──────────────────────────────────
-//
-// Each helper wraps a `Partial<S>` in `makeFakeService` then lifts it into a
-// `Layer` keyed by the corresponding `Context.Tag`. Use these when a test
-// runs an Effect program against a full service graph — swap a single
-// service by merging the fake layer over the live one.
-
-export const fakeAuthServiceLayer = (
-  impl: Partial<AuthService>,
-): Layer.Layer<AuthServiceTag> =>
-  Layer.succeed(AuthServiceTag, makeFakeService<AuthService>(impl));
-
-export const fakeParticipantServiceLayer = (
-  impl: Partial<ParticipantService>,
-): Layer.Layer<ParticipantServiceTag> =>
-  Layer.succeed(
-    ParticipantServiceTag,
-    makeFakeService<ParticipantService>(impl),
-  );
-
-export const fakeConversationServiceLayer = (
-  impl: Partial<ConversationService>,
-): Layer.Layer<ConversationServiceTag> =>
-  Layer.succeed(
-    ConversationServiceTag,
-    makeFakeService<ConversationService>(impl),
-  );
-
-export const fakePresenceServiceLayer = (
-  impl: Partial<PresenceService>,
-): Layer.Layer<PresenceServiceTag> =>
-  Layer.succeed(PresenceServiceTag, makeFakeService<PresenceService>(impl));
-
-export const fakeMessageServiceLayer = (
-  impl: Partial<MessageService>,
-): Layer.Layer<MessageServiceTag> =>
-  Layer.succeed(MessageServiceTag, makeFakeService<MessageService>(impl));
-
-export const fakeAppHostLayer = (
-  impl: Partial<AppHost>,
-): Layer.Layer<AppHostTag> =>
-  Layer.succeed(AppHostTag, makeFakeService<AppHost>(impl));
-
-export const fakeConnectionManagerLayer = (
-  impl: Partial<ConnectionManager>,
-): Layer.Layer<ConnectionManagerTag> =>
-  Layer.succeed(ConnectionManagerTag, makeFakeService<ConnectionManager>(impl));

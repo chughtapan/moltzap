@@ -13,9 +13,9 @@ import { createCoreApp } from "./app/server.js";
 import { seedInitialKek } from "./crypto/key-rotation.js";
 import { EnvelopeEncryption } from "./crypto/envelope.js";
 import { makeEffectKysely } from "./db/effect-kysely-toolkit.js";
-import { WebhookClient, WebhookContactService } from "./adapters/webhook.js";
+import { WebhookClient } from "./adapters/webhook.js";
+import { WebhookContactService } from "./adapters/webhook-contact-service.js";
 import { WebhookSessionValidator } from "./identity/services/session-validator.js";
-import { logger } from "./logger.js";
 import type { CoreApp, CoreConfig } from "./app/types.js";
 import type { Database } from "./db/database.js";
 import type { Db } from "./db/client.js";
@@ -25,10 +25,6 @@ import {
   loadRuntimeProcessConfig,
   type RuntimeConfigSurfaceError,
 } from "./runtime-surface/config.js";
-import {
-  createRuntimeObservability,
-  type RuntimeObservabilityError,
-} from "./runtime-surface/logging.js";
 import { currentArgv, isStandaloneDirectRun } from "./runtime/direct-run.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -59,7 +55,6 @@ export class InvalidAppManifest extends Data.TaggedError("InvalidAppManifest")<{
 
 type StandaloneServerError =
   | RuntimeConfigSurfaceError
-  | RuntimeObservabilityError
   | StandaloneOperationFailed
   | SchemaFileNotFound;
 
@@ -284,11 +279,13 @@ function autoMigrateEffect(
     });
 
     if (result.rows[0]?.has_schema) {
-      logger.info("Database schema already exists, skipping migration");
+      yield* Effect.logInfo(
+        "Database schema already exists, skipping migration",
+      );
       return;
     }
 
-    logger.info("Applying database schema...");
+    yield* Effect.logInfo("Applying database schema...");
 
     const fs = yield* FileSystem.FileSystem;
     const schemaPath = yield* findSchemaFile();
@@ -305,12 +302,12 @@ function autoMigrateEffect(
         catch: (cause) => operationFailed("seed encryption key", cause),
       });
     } else {
-      logger.info(
+      yield* Effect.logInfo(
         "Encryption not configured — messages will be stored as plaintext",
       );
     }
 
-    logger.info("Database schema applied successfully");
+    yield* Effect.logInfo("Database schema applied successfully");
   });
 }
 
@@ -338,9 +335,6 @@ function startServerEffect(
         ? {}
         : { configPath: runtimeConfigPath(configPath) },
     );
-    const observability = yield* createRuntimeObservability(runtimeConfig);
-    const log = observability.logger;
-
     // Create database (PGlite if no URL, Postgres otherwise)
     const appConfig = runtimeConfig.app;
     const databaseUrl = runtimeConfig.server.database.url;
@@ -350,7 +344,9 @@ function startServerEffect(
       : createPostgresDb(databaseUrl);
 
     if (usePgLite) {
-      log.info("Using embedded PGlite database (no external Postgres needed)");
+      yield* Effect.logInfo(
+        "Using embedded PGlite database (no external Postgres needed)",
+      );
     }
 
     // Auto-migrate
@@ -368,7 +364,6 @@ function startServerEffect(
             webhookClient,
             sessionValidatorCfg.webhook_url,
             sessionValidatorCfg.timeout_ms ?? DEFAULT_WEBHOOK_TIMEOUT_MS,
-            log,
           )
         : undefined;
 
@@ -381,10 +376,9 @@ function startServerEffect(
       ? (appConfig.dev_mode.user_id ?? randomUUID())
       : undefined;
     if (devModeUserId) {
-      log.warn(
-        { devModeUserId },
-        "dev_mode.enabled=true — registered agents will be auto-owned; do not use in production",
-      );
+      yield* Effect.logWarning(
+        "dev_mode.enabled=true - registered agents will be auto-owned; do not use in production",
+      ).pipe(Effect.annotateLogs({ devModeUserId }));
     }
 
     const coreConfig: CoreConfig = {
@@ -411,7 +405,6 @@ function startServerEffect(
           webhookClient,
           appConfig.services.contacts.webhook_url,
           appConfig.services.contacts.timeout_ms ?? DEFAULT_WEBHOOK_TIMEOUT_MS,
-          log,
         ),
       );
     }
@@ -440,35 +433,36 @@ function startServerEffect(
           Effect.flatMap(
             Either.match({
               onLeft: (err) =>
-                Effect.sync(() => {
-                  log.error(
-                    { err, path: appRef.manifest },
-                    "Failed to load app manifest",
-                  );
-                }),
+                Effect.logError("Failed to load app manifest").pipe(
+                  Effect.annotateLogs({ err, path: appRef.manifest }),
+                ),
               onRight: (json) =>
-                Effect.sync(() => {
-                  Either.match(decodeAppManifest(json, appRef.manifest), {
-                    onLeft: (err) => {
-                      log.error(
-                        {
-                          path: err.path,
-                          kind: err.kind,
-                          errors: err.errors,
-                        },
-                        err.kind === "parse"
-                          ? "App manifest JSON parse failed; skipping registration"
-                          : "App manifest failed schema validation; skipping registration",
-                      );
-                    },
-                    onRight: (manifest) => {
+                Either.match(decodeAppManifest(json, appRef.manifest), {
+                  onLeft: (err) =>
+                    Effect.logError(
+                      err.kind === "parse"
+                        ? "App manifest JSON parse failed; skipping registration"
+                        : "App manifest failed schema validation; skipping registration",
+                    ).pipe(
+                      Effect.annotateLogs({
+                        path: err.path,
+                        kind: err.kind,
+                        errors: err.errors,
+                      }),
+                    ),
+                  onRight: (manifest) =>
+                    Effect.sync(() => {
                       app.registerApp(manifest);
-                      log.info(
-                        { appId: manifest.appId, path: appRef.manifest },
-                        "App manifest registered",
-                      );
-                    },
-                  });
+                    }).pipe(
+                      Effect.zipRight(
+                        Effect.logInfo("App manifest registered").pipe(
+                          Effect.annotateLogs({
+                            appId: manifest.appId,
+                            path: appRef.manifest,
+                          }),
+                        ),
+                      ),
+                    ),
                 }),
             }),
           ),
@@ -476,13 +470,12 @@ function startServerEffect(
       }
     }
 
-    log.info(
-      {
+    yield* Effect.logInfo("MoltZap server started (standalone mode)").pipe(
+      Effect.annotateLogs({
         port: app.port,
         mode: "standalone",
         db: usePgLite ? "pglite" : "postgres",
-      },
-      "MoltZap server started (standalone mode)",
+      }),
     );
 
     return {
@@ -498,7 +491,11 @@ function startServerEffect(
 // bin/moltzap-server calls startServer() explicitly via import.
 if (isStandaloneDirectRun(currentArgv())) {
   startServer().catch((err) => {
-    logger.error({ err }, "Server startup failed");
+    Effect.runFork(
+      Effect.logError("Server startup failed").pipe(
+        Effect.annotateLogs({ err }),
+      ),
+    );
     process.exit(1);
   });
 }

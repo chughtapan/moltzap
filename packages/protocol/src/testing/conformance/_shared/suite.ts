@@ -38,8 +38,10 @@ import { IDENTITY_PROPERTIES } from "../identity/index.js";
 import { NETWORK_PROPERTIES } from "../network/index.js";
 import { TASK_PROPERTIES } from "../task/index.js";
 import { APP_PROPERTIES } from "../app/index.js";
-import type { RealServerAcquireError } from "./errors.js";
-import type { ToxicControlError } from "../../toxics/errors.js";
+import type {
+  RealServerAcquireError,
+  ToxicControlError,
+} from "../_shared/errors.js";
 import {
   isAllowedCoverageGap,
   type AllowedCoverageGap,
@@ -50,6 +52,66 @@ import { TasksCreate } from "../../../task/methods.js";
 
 const JSON_INDENT_SPACES = 2;
 const TOXIPROXY_NOT_PROVISIONED = "Toxiproxy client not provisioned";
+const BASE_ALLOWED_SERVER_COVERAGE_GAPS: ReadonlyArray<AllowedCoverageGap> = [
+  {
+    kind: "deferred",
+    id: "adversity/backpressure",
+    reasonIncludes: "issues/186",
+  },
+  {
+    kind: "unavailable",
+    id: "adversity/reset-peer-recovery",
+    reasonIncludes: "reset_peer toxic did not close",
+  },
+  {
+    kind: "deferred",
+    id: "delivery/hook-gated-delivery",
+    reasonIncludes: TasksCreate.name,
+  },
+  {
+    kind: "deferred",
+    id: "delivery/multi-app-fifo-short-circuit",
+    reasonIncludes: TasksCreate.name,
+  },
+  {
+    kind: "unavailable",
+    id: "boundary/app-disconnect-fail-policy",
+    reasonIncludes: TasksCreate.name,
+  },
+  {
+    kind: "deferred",
+    id: "rpc-semantics/spurious-app-callback-frame-handling",
+    reasonIncludes: "B.9",
+  },
+];
+const TOXIPROXY_MISSING_ALLOWED_COVERAGE_GAPS: ReadonlyArray<AllowedCoverageGap> =
+  [
+    {
+      kind: "unavailable",
+      id: "adversity/latency-resilience",
+      reasonIncludes: TOXIPROXY_NOT_PROVISIONED,
+    },
+    {
+      kind: "unavailable",
+      id: "adversity/slicer-framing",
+      reasonIncludes: TOXIPROXY_NOT_PROVISIONED,
+    },
+    {
+      kind: "unavailable",
+      id: "adversity/reset-peer-recovery",
+      reasonIncludes: TOXIPROXY_NOT_PROVISIONED,
+    },
+    {
+      kind: "unavailable",
+      id: "adversity/timeout-surface",
+      reasonIncludes: TOXIPROXY_NOT_PROVISIONED,
+    },
+    {
+      kind: "unavailable",
+      id: "adversity/slow-close-cleanup",
+      reasonIncludes: TOXIPROXY_NOT_PROVISIONED,
+    },
+  ];
 
 /**
  * Input shape — consumer names the concrete implementation under test and
@@ -58,6 +120,7 @@ const TOXIPROXY_NOT_PROVISIONED = "Toxiproxy client not provisioned";
 export interface ConformanceSuiteOptions {
   /** Factory for the implementation under test (server handle). */
   readonly realServer: Effect.Effect<RealServerHandle, RealServerAcquireError>;
+
   /**
    * Toxiproxy control-plane URL. When `null`, the adversity category is
    * skipped (registered properties return `PropertyUnavailable`).
@@ -88,6 +151,31 @@ export interface SuiteResult {
       | PropertyFailure
       | { readonly _tag: "defect"; readonly message: string };
   }>;
+}
+
+interface SuiteAccumulator {
+  readonly passed: string[];
+  readonly deferred: { name: string; reason: string }[];
+  readonly unavailable: { name: string; reason: string }[];
+  readonly failed: SuiteResult["failed"][number][];
+}
+
+interface RunPropertyInput {
+  readonly property: RegisteredProperty;
+  readonly seed: number;
+  readonly artifactDir: string;
+  readonly allowedCoverageGaps: ReadonlyArray<AllowedCoverageGap>;
+  readonly acc: SuiteAccumulator;
+}
+
+interface DefectRecordInput extends RunPropertyInput {
+  readonly id: string;
+  readonly exit: Exit.Exit<void, PropertyFailure>;
+}
+
+interface FailureRecordInput extends RunPropertyInput {
+  readonly id: string;
+  readonly failure: PropertyFailure;
 }
 
 /**
@@ -121,91 +209,132 @@ export function runAllProperties(
   return Effect.gen(function* () {
     yield* ensureArtifactDir(artifactDir);
     const properties = collectProperties(ctx);
-    const passed: string[] = [];
-    const deferred: { name: string; reason: string }[] = [];
-    const unavailable: { name: string; reason: string }[] = [];
-    const failed: SuiteResult["failed"][number][] = [];
-
+    const acc = emptySuiteAccumulator();
     for (const p of properties) {
-      const id = `${p.category}/${p.name}`;
-      const exit = yield* Effect.exit(p.run);
-      if (Exit.isSuccess(exit)) {
-        passed.push(id);
-        continue;
-      }
-      const failure = firstTypedFailure(exit);
-      if (failure === null) {
-        const msg = exit.cause.toString();
-        failed.push({ name: id, failure: { _tag: "defect", message: msg } });
-        yield* writeArtifact(artifactDir, p, ctx.seed, { defect: msg });
-        continue;
-      }
-      switch (failure._tag) {
-        case "ConformancePropertyDeferred":
-          if (
-            isAllowedCoverageGap(
-              allowedCoverageGaps,
-              "deferred",
-              id,
-              failure.followUp,
-            )
-          ) {
-            deferred.push({ name: id, reason: failure.followUp });
-            break;
-          }
-          failed.push({ name: id, failure });
-          yield* writeArtifact(
-            artifactDir,
-            p,
-            ctx.seed,
-            failureArtifact(failure),
-          );
-          break;
-        case "ConformancePropertyUnavailable":
-          if (
-            isAllowedCoverageGap(
-              allowedCoverageGaps,
-              "unavailable",
-              id,
-              failure.reason,
-            )
-          ) {
-            unavailable.push({ name: id, reason: failure.reason });
-            break;
-          }
-          failed.push({ name: id, failure });
-          yield* writeArtifact(
-            artifactDir,
-            p,
-            ctx.seed,
-            failureArtifact(failure),
-          );
-          break;
-        case "ConformancePropertyAssertionFailure":
-        case "ConformancePropertyInvariantViolation":
-          failed.push({ name: id, failure });
-          yield* writeArtifact(
-            artifactDir,
-            p,
-            ctx.seed,
-            failureArtifact(failure),
-          );
-          break;
-        default: {
-          const _exhaustive: never = failure;
-          failed.push({
-            name: id,
-            failure: {
-              _tag: "defect",
-              message: `unhandled failure tag: ${String(_exhaustive)}`,
-            },
-          });
-        }
-      }
+      yield* runRegisteredProperty({
+        property: p,
+        seed: ctx.seed,
+        artifactDir,
+        allowedCoverageGaps,
+        acc,
+      });
     }
-
-    return { seed: ctx.seed, passed, deferred, unavailable, failed };
+    return suiteResult(ctx.seed, acc);
   }).pipe(Effect.withSpan("runAllProperties"));
+}
+
+function emptySuiteAccumulator(): SuiteAccumulator {
+  return { passed: [], deferred: [], unavailable: [], failed: [] };
+}
+
+function suiteResult(seed: number, acc: SuiteAccumulator): SuiteResult {
+  return {
+    seed,
+    passed: acc.passed,
+    deferred: acc.deferred,
+    unavailable: acc.unavailable,
+    failed: acc.failed,
+  };
+}
+
+function runRegisteredProperty(input: RunPropertyInput): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    const id = `${input.property.category}/${input.property.name}`;
+    const exit = yield* Effect.exit(input.property.run);
+    if (Exit.isSuccess(exit)) {
+      input.acc.passed.push(id);
+      return;
+    }
+    const failure = firstTypedFailure(exit);
+    if (failure === null) {
+      yield* recordDefect({ ...input, id, exit });
+      return;
+    }
+    yield* recordTypedFailure({ ...input, id, failure });
+  });
+}
+
+function recordDefect(input: DefectRecordInput): Effect.Effect<void> {
+  const message = Exit.isFailure(input.exit)
+    ? input.exit.cause.toString()
+    : "<success>";
+  input.acc.failed.push({
+    name: input.id,
+    failure: { _tag: "defect", message },
+  });
+  return writeArtifact(input.artifactDir, input.property, input.seed, {
+    defect: message,
+  });
+}
+
+function recordTypedFailure(input: FailureRecordInput): Effect.Effect<void> {
+  switch (input.failure._tag) {
+    case "ConformancePropertyDeferred":
+      return recordDeferredFailure(input);
+    case "ConformancePropertyUnavailable":
+      return recordUnavailableFailure(input);
+    case "ConformancePropertyAssertionFailure":
+    case "ConformancePropertyInvariantViolation":
+      return recordFailedProperty(input);
+    default:
+      return Effect.sync(() => recordUnhandledFailure(input));
+  }
+}
+
+function recordDeferredFailure(input: FailureRecordInput): Effect.Effect<void> {
+  const failure = input.failure;
+  if (failure._tag !== "ConformancePropertyDeferred") return Effect.void;
+  if (coverageGapAllowed(input, "deferred", failure.followUp)) {
+    input.acc.deferred.push({ name: input.id, reason: failure.followUp });
+    return Effect.void;
+  }
+  return recordFailedProperty(input);
+}
+
+function recordUnavailableFailure(
+  input: FailureRecordInput,
+): Effect.Effect<void> {
+  const failure = input.failure;
+  if (failure._tag !== "ConformancePropertyUnavailable") return Effect.void;
+  if (coverageGapAllowed(input, "unavailable", failure.reason)) {
+    input.acc.unavailable.push({ name: input.id, reason: failure.reason });
+    return Effect.void;
+  }
+  return recordFailedProperty(input);
+}
+
+function coverageGapAllowed(
+  input: FailureRecordInput,
+  kind: "deferred" | "unavailable",
+  reason: string,
+): boolean {
+  return isAllowedCoverageGap(
+    input.allowedCoverageGaps,
+    kind,
+    input.id,
+    reason,
+  );
+}
+
+function recordFailedProperty(input: FailureRecordInput): Effect.Effect<void> {
+  input.acc.failed.push({ name: input.id, failure: input.failure });
+  return writeArtifact(
+    input.artifactDir,
+    input.property,
+    input.seed,
+    failureArtifact(input.failure),
+  );
+}
+
+function recordUnhandledFailure(input: FailureRecordInput): void {
+  const failure = input.failure;
+  input.acc.failed.push({
+    name: input.id,
+    failure: {
+      _tag: "defect",
+      message: `unhandled failure tag: ${String(failure._tag)}`,
+    },
+  });
 }
 
 /**
@@ -252,61 +381,12 @@ export function runConformanceSuite(
 function allowedServerCoverageGaps(
   toxiproxyUrl: string | null,
 ): ReadonlyArray<AllowedCoverageGap> {
-  const gaps: AllowedCoverageGap[] = [
-    {
-      kind: "unavailable",
-      id: "adversity/reset-peer-recovery",
-      reasonIncludes: "reset_peer toxic did not close",
-    },
-    // multi-app FIFO short-circuit and app-disconnect fail-policy
-    // properties gate on hook-routing surface that the layered refactor
-    // reshaped. They short-circuit to PropertyDeferred / PropertyUnavailable
-    // citing TasksCreate as the gating dependency. Both outcomes are
-    // accepted (the boundary fixture acquires more state than the delivery
-    // fixtures and therefore can self-report Unavailable earlier in setup).
-    // delivery/hook-gated-delivery was unblocked by #560 and is now
-    // executable — its deferred gap entry is removed here.
-    {
-      kind: "deferred",
-      id: "delivery/multi-app-fifo-short-circuit",
-      reasonIncludes: TasksCreate.name,
-    },
-    {
-      kind: "unavailable",
-      id: "boundary/app-disconnect-fail-policy",
-      reasonIncludes: TasksCreate.name,
-    },
-  ];
-  if (toxiproxyUrl === null) {
-    gaps.push(
-      {
-        kind: "unavailable",
-        id: "adversity/latency-resilience",
-        reasonIncludes: TOXIPROXY_NOT_PROVISIONED,
-      },
-      {
-        kind: "unavailable",
-        id: "adversity/slicer-framing",
-        reasonIncludes: TOXIPROXY_NOT_PROVISIONED,
-      },
-      {
-        kind: "unavailable",
-        id: "adversity/reset-peer-recovery",
-        reasonIncludes: TOXIPROXY_NOT_PROVISIONED,
-      },
-      {
-        kind: "unavailable",
-        id: "adversity/timeout-surface",
-        reasonIncludes: TOXIPROXY_NOT_PROVISIONED,
-      },
-      {
-        kind: "unavailable",
-        id: "adversity/slow-close-cleanup",
-        reasonIncludes: TOXIPROXY_NOT_PROVISIONED,
-      },
-    );
-  }
-  return gaps;
+  return toxiproxyUrl === null
+    ? [
+        ...BASE_ALLOWED_SERVER_COVERAGE_GAPS,
+        ...TOXIPROXY_MISSING_ALLOWED_COVERAGE_GAPS,
+      ]
+    : BASE_ALLOWED_SERVER_COVERAGE_GAPS;
 }
 
 /**

@@ -9,13 +9,15 @@
 import { Clock, Effect, Either } from "effect";
 import { defaultToxicProfile } from "../../toxics/defaults.js";
 import { TransportClosedError } from "../_shared/errors.js";
-import { ConversationsList } from "@moltzap/protocol/task";
+import type { TestClient } from "../_shared/driver/test-client.js";
+import { ConversationsList } from "../../../task/methods.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { PropertyUnavailable } from "../_shared/registry.js";
 import {
   ADVERSITY_CATEGORY,
   acquireProxiedClient,
   proxyName,
+  type ToxicBodyParams,
   withToxicProxy,
 } from "./_helpers.js";
 
@@ -30,48 +32,76 @@ export function registerResetPeerRecovery(ctx: ConformanceRunContext): void {
     description: "reset_peer surfaces TransportClosedError without hanging",
     proxyName: proxyName("rst", ctx.seed),
     profile: defaultToxicProfile.reset_peer,
-    body: ({ proxy, unavailable, attachToxic }) =>
-      Effect.gen(function* () {
-        const sender = yield* acquireProxiedClient(
-          ctx,
-          proxy,
-          `rst-${ctx.seed}-s`,
-          // Deadline > reset_peer.timeoutMs (2000); bounded so a
-          // never-firing reset doesn't hang the suite.
-          RESET_CLIENT_TIMEOUT_MS,
-          unavailable,
-        );
-        const observed = yield* Effect.scoped(
-          Effect.gen(function* () {
-            yield* attachToxic;
-            const start = yield* Clock.currentTimeMillis;
-            for (let i = 0; i < RESET_POLL_ATTEMPTS; i++) {
-              const outcome = yield* sender.client
-                .sendRpc(ConversationsList, {})
-                .pipe(Effect.either);
-              const transportClosed = Either.match(outcome, {
-                onLeft: (error) => error instanceof TransportClosedError,
-                onRight: () => false,
-              });
-              if (transportClosed) {
-                return true;
-              }
-              yield* Effect.sleep("300 millis");
-              const elapsed = (yield* Clock.currentTimeMillis) - start;
-              if (elapsed > RESET_CLOSE_BUDGET_MS) return false;
-            }
-            return false;
-          }),
-        );
-        if (!observed) {
-          return yield* Effect.fail(
-            new PropertyUnavailable({
-              category: ADVERSITY_CATEGORY,
-              name: "reset-peer-recovery",
-              reason: "reset_peer toxic did not close within 3.5s budget",
-            }),
-          );
-        }
-      }).pipe(Effect.withSpan("registerResetPeerRecovery")),
+    body: (params) =>
+      runResetPeerRecovery(ctx, params).pipe(
+        Effect.withSpan("registerResetPeerRecovery"),
+      ),
+  });
+}
+
+function runResetPeerRecovery(
+  ctx: ConformanceRunContext,
+  params: ToxicBodyParams,
+) {
+  return Effect.gen(function* () {
+    const sender = yield* acquireProxiedClient({
+      ctx,
+      proxy: params.proxy,
+      name: `rst-${ctx.seed}-s`,
+      defaultTimeoutMs: RESET_CLIENT_TIMEOUT_MS,
+      unavailable: params.unavailable,
+    });
+    const observed = yield* observeResetClose(
+      sender.client,
+      params.attachToxic,
+    );
+    if (!observed) {
+      return yield* Effect.fail(resetUnavailable());
+    }
+  });
+}
+
+function observeResetClose(
+  client: TestClient,
+  attachToxic: ToxicBodyParams["attachToxic"],
+) {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      yield* attachToxic;
+      const start = yield* Clock.currentTimeMillis;
+      for (let i = 0; i < RESET_POLL_ATTEMPTS; i++) {
+        if (yield* rpcClosedByTransport(client)) return true;
+        yield* Effect.sleep("300 millis");
+        if (yield* resetBudgetExceeded(start)) return false;
+      }
+      return false;
+    }),
+  );
+}
+
+function rpcClosedByTransport(client: TestClient) {
+  return Effect.gen(function* () {
+    const outcome = yield* client
+      .sendRpc(ConversationsList, {})
+      .pipe(Effect.either);
+    return Either.match(outcome, {
+      onLeft: (error) => error instanceof TransportClosedError,
+      onRight: () => false,
+    });
+  });
+}
+
+function resetBudgetExceeded(start: number) {
+  return Effect.gen(function* () {
+    const elapsed = (yield* Clock.currentTimeMillis) - start;
+    return elapsed > RESET_CLOSE_BUDGET_MS;
+  });
+}
+
+function resetUnavailable(): PropertyUnavailable {
+  return new PropertyUnavailable({
+    category: ADVERSITY_CATEGORY,
+    name: "reset-peer-recovery",
+    reason: "reset_peer toxic did not close within 3.5s budget",
   });
 }

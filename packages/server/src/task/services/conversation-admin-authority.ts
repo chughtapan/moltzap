@@ -75,6 +75,6 @@ export function requireConversationAdminAuthority(
           new ForbiddenError({ message: "Insufficient permissions" }),
         );
       }
-    }),
+    }).pipe(Effect.withSpan("requireConversationAdminAuthority")),
   );
 }

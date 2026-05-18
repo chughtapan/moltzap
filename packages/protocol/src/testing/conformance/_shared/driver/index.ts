@@ -1,20 +1,24 @@
 /**
- * Wire-driver harness — barrel for the `_shared/driver/` sub-folder.
+ * @file Wire-driver harness barrel for the `_shared/driver/` sub-folder.
  *
- * `driver/` is the coherent home for test-time JSON-RPC wire harnesses
- * that act AS a counterparty (client or server) so property tests can
- * drive the real implementation under test. Today it contains
- * `test-client.ts` and `test-server.ts`; if a future helper is
- * narrowly a wire-driver harness piece, it joins this folder. If it
- * is not, it lives elsewhere — `driver/` is not a dump.
+ * The `driver/` folder contains test-time JSON-RPC wire harnesses.
  *
- * Re-exported through `testing/index.ts` so external consumers continue
- * to import `makeTestClient` / `makeTestServer` / etc. from
- * `@moltzap/protocol/testing` with no path-aware changes on their side.
+ * These harnesses act as a counterparty for property tests.
+ *
+ * The folder currently contains `test-client.ts` and `test-server.ts`.
+ * Future wire-driver helpers belong here. Other helpers belong elsewhere.
+ *
+ * Re-exporting keeps external consumers on the public testing entrypoint.
  */
 
 export {
   type CloseableTestClient,
+  NotificationWaitError,
+  ServerRequestWaitError,
+  type ServerRpcContext,
+  type ServerRpcDefinition,
+  type ServerRpcParams,
+  type ServerRpcResult,
   type TestClient,
   type TestClientConfig,
   makeCloseableTestClient,

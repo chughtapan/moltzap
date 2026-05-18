@@ -15,36 +15,19 @@
  * dispatchLeaseId=X)` consumes the lease via `Effect.acquireUseRelease(
  * claim, sendInsert+commit, finalize|rollback)`.
  */
-import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { it } from "@effect/vitest";
-import { Effect } from "effect";
 import {
-  AppsRegister,
-  ConversationsArchive,
-  ConversationsCreate,
-  DispatchAuthorize,
-  DispatchRequest,
-  DispatchRelease,
-  DispatchesGet,
-  MessagesSend,
-  ParticipantsRemovedNotificationDefinition,
-  TasksCreate,
-  TasksCreateConversation,
-  type AppManifest,
-  type ConversationId,
-  type DispatchId,
-  type LeaseId,
-  type MessageId,
-} from "@moltzap/protocol";
-import { agentId as protocolAgentId } from "@moltzap/protocol/testing";
-import {
-  startTestServer,
-  stopTestServer,
-  resetTestDb,
-  registerAndConnect,
-  setupAgentPair,
-  getTestCoreApp,
-} from "../../helpers.js";
+  DISPATCH_STATE_CONSUMED,
+  DISPATCH_STATE_GRANTED,
+  EITHER_LEFT_TAG,
+  EXPECTED_TYPE_STRING,
+  createDispatchFlowFixture,
+  makeProbeMessageId,
+  startDispatchFlowServer,
+  stopDispatchFlowServer,
+} from "./fixture.js";
+import { setupAgentPair, getTestCoreApp } from "../../helpers.js";
+
+const it = effectIt.live;
 
 const TEST_APP_ID = "moderator-dispatch-test-app";
 
@@ -54,55 +37,22 @@ const TEST_APP_MANIFEST: AppManifest = {
   conversations: [{ key: "main", name: "Main", participantFilter: "all" }],
 };
 
-let hookCalls = 0;
-let nextHookVerdict:
-  | { decision: "grant"; leaseTimeoutMs?: number }
-  | { decision: "deny"; reason?: string }
-  | { decision: "hold"; reason?: string }
-  | { kind: "never-reply" } = { decision: "grant" };
+const fixture = createDispatchFlowFixture(TEST_APP_MANIFEST);
 
-beforeAll(async () => {
-  await startTestServer();
-}, 60_000);
+beforeAll(startDispatchFlowServer, 60_000);
 
-afterAll(async () => {
-  await stopTestServer();
-});
+afterAll(stopDispatchFlowServer);
 
-beforeEach(async () => {
-  await resetTestDb();
-  hookCalls = 0;
-  nextHookVerdict = { decision: "grant" };
-  const coreApp = getTestCoreApp();
-  coreApp.registerApp(TEST_APP_MANIFEST);
-  coreApp.onTaskAuthorizeDispatch(TEST_APP_ID, async () => {
-    hookCalls += 1;
-    const v = nextHookVerdict;
-    if ("kind" in v && v.kind === "never-reply") {
-      // Never resolves — server-side timeout fires.
-      await new Promise(() => {
-        /* never */
-      });
-    }
-    return v as
-      | { decision: "grant"; leaseTimeoutMs?: number }
-      | { decision: "deny"; reason?: string }
-      | { decision: "hold"; reason?: string };
-  });
-});
-
-function makeProbeMessageId(): MessageId {
-  return crypto.randomUUID() as MessageId;
-}
+beforeEach(() => Effect.runPromise(fixture.reset));
 
 describe("dispatch/* — single-use lease consumption (#529 reshape additive)", () => {
   // ── Scenario 7 — PENDING messages/send (architect §8 #7) ────────────
-  it.live(
+  it(
     "PENDING messages/send: recipient sends with dispatchLeaseId before release arrives → typed LeaseInvalidError(state=PENDING), no parking",
     () =>
       Effect.gen(function* () {
         const { alice, bob } = yield* setupAgentPair();
-        nextHookVerdict = { kind: "never-reply" };
+        fixture.setNextHookVerdict({ kind: "never-reply" });
         const task = yield* alice.client.sendRpc(TasksCreate, {
           appId: TEST_APP_ID,
           tmType: "self",
@@ -127,7 +77,7 @@ describe("dispatch/* — single-use lease consumption (#529 reshape additive)", 
             dispatchLeaseId: ack.leaseId,
           }),
         );
-        expect(result._tag).toBe("Left");
+        expect(result._tag).toBe(EITHER_LEFT_TAG);
         // ForbiddenError with data.reason = "LeaseInvalid" + state = "PENDING"
         // is the wire surface (see messages.handlers.ts).
       }),
@@ -135,7 +85,7 @@ describe("dispatch/* — single-use lease consumption (#529 reshape additive)", 
   );
 
   // ── Scenario 8 — single-use enforcement (architect §8 #8) ───────────
-  it.live(
+  it(
     "single-use enforcement: GRANTED lease used once → second send returns typed LeaseInvalidError(state=CONSUMED)",
     () =>
       Effect.gen(function* () {
@@ -157,7 +107,7 @@ describe("dispatch/* — single-use lease consumption (#529 reshape additive)", 
           parts: [{ type: "text", text: "first" }],
           dispatchLeaseId: ack.leaseId,
         });
-        expect(typeof first.message.id).toBe("string");
+        expect(typeof first.message.id).toBe(EXPECTED_TYPE_STRING);
         // Second send must reject (CONSUMED).
         const second = yield* Effect.either(
           bob.client.sendRpc(MessagesSend, {
@@ -166,13 +116,13 @@ describe("dispatch/* — single-use lease consumption (#529 reshape additive)", 
             dispatchLeaseId: ack.leaseId,
           }),
         );
-        expect(second._tag).toBe("Left");
+        expect(second._tag).toBe(EITHER_LEFT_TAG);
       }),
     20_000,
   );
 
   // ── Scenario 9 — insert-failure rollback (architect §8 #9, risk #10) ─
-  it.live(
+  it(
     "insert-failure rollback: archive between grant and send → sendInsert fails → lease rolls back to GRANTED via Effect.acquireUseRelease",
     () =>
       Effect.gen(function* () {
@@ -203,14 +153,14 @@ describe("dispatch/* — single-use lease consumption (#529 reshape additive)", 
           }),
         );
         // Insert failed (archived).
-        expect(sendResult._tag).toBe("Left");
+        expect(sendResult._tag).toBe(EITHER_LEFT_TAG);
         // Lease must be back to GRANTED (rolled back), not CLAIMED or CONSUMED.
         const coreApp = getTestCoreApp();
         const record = yield* coreApp.leaseRegistry.read({
           _tag: "leaseId",
           value: ack.leaseId as LeaseId,
         });
-        expect(record.state).toBe("GRANTED");
+        expect(record.state).toBe(DISPATCH_STATE_GRANTED);
       }),
     20_000,
   );
@@ -237,7 +187,7 @@ describe("dispatch/* — single-use lease consumption (#529 reshape additive)", 
   //       still be readable, and the retry MUST reject with the
   //       CONSUMED typed error — exactly the architect-§8 #10
   //       invariant.
-  it.live(
+  it(
     "post-insert durability happy path: successful send leaves lease CONSUMED with durable row; retry rejects",
     () =>
       Effect.gen(function* () {
@@ -264,7 +214,7 @@ describe("dispatch/* — single-use lease consumption (#529 reshape additive)", 
           _tag: "leaseId",
           value: ack.leaseId as LeaseId,
         });
-        expect(record.state).toBe("CONSUMED");
+        expect(record.state).toBe(DISPATCH_STATE_CONSUMED);
         expect(record.consumedMessageId).toBe(first.message.id);
         // Retry rejects.
         const retry = yield* Effect.either(
@@ -274,17 +224,17 @@ describe("dispatch/* — single-use lease consumption (#529 reshape additive)", 
             dispatchLeaseId: ack.leaseId,
           }),
         );
-        expect(retry._tag).toBe("Left");
+        expect(retry._tag).toBe(EITHER_LEFT_TAG);
       }),
     20_000,
   );
 
-  it.live(
+  it(
     "post-insert durability failure path: sendCommit fails after finalize → lease stays CONSUMED + durable row stays + retry rejects (architect §8 #10)",
     () =>
       Effect.gen(function* () {
         const { alice, bob } = yield* setupAgentPair();
-        nextHookVerdict = { decision: "grant" };
+        fixture.setNextHookVerdict({ decision: "grant" });
         // App-bound conversation so sendCommit's TM routing path runs.
         // tm_endpoint_address = tm:agent:<aliceId>. Disconnecting alice
         // before bob's send removes alice from the agent-endpoint
@@ -319,7 +269,7 @@ describe("dispatch/* — single-use lease consumption (#529 reshape additive)", 
           }),
         );
         // sendCommit failure surfaces to bob as an RPC error.
-        expect(sendResult._tag).toBe("Left");
+        expect(sendResult._tag).toBe(EITHER_LEFT_TAG);
         // Lease MUST be CONSUMED (finalize ran before the failure;
         // post-insert side-effect failures do not roll back).
         const coreApp = getTestCoreApp();
@@ -327,7 +277,7 @@ describe("dispatch/* — single-use lease consumption (#529 reshape additive)", 
           _tag: "leaseId",
           value: ack.leaseId as LeaseId,
         });
-        expect(record.state).toBe("CONSUMED");
+        expect(record.state).toBe(DISPATCH_STATE_CONSUMED);
         expect(record.consumedMessageId).not.toBeNull();
         // Retry rejects with CONSUMED — durable row is permanent, the
         // caller MUST NOT retry a successful insert. bob.client is
@@ -340,7 +290,7 @@ describe("dispatch/* — single-use lease consumption (#529 reshape additive)", 
             dispatchLeaseId: ack.leaseId,
           }),
         );
-        expect(retry._tag).toBe("Left");
+        expect(retry._tag).toBe(EITHER_LEFT_TAG);
       }),
     25_000,
   );

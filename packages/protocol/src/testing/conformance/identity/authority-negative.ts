@@ -5,13 +5,19 @@
  * with a typed error (not a success, not a crash).
  */
 import { Effect, Either } from "effect";
-import { ForbiddenError, UnauthorizedError } from "@moltzap/protocol/transport";
-import { ConversationsList } from "@moltzap/protocol/task";
+import {
+  ForbiddenError,
+  UnauthorizedError,
+} from "../../../transport/wire-errors.js";
+import { ConversationsList } from "../../../task/methods.js";
 import { authorizationOutcome } from "../../models/dispatch.js";
 import { initialReferenceState } from "../../models/state.js";
 import { agentId } from "../_shared/test-fixtures.js";
 import { RpcResponseError } from "../_shared/errors.js";
-import { makeTestClient } from "../_shared/driver/test-client.js";
+import {
+  makeTestClient,
+  type TestClient,
+} from "../_shared/driver/test-client.js";
 import { registerTestAgent } from "../_shared/test-fixtures.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import {
@@ -37,92 +43,93 @@ export function registerAuthorityNegative(ctx: ConformanceRunContext): void {
     CATEGORY,
     PROPERTY,
     "unauthenticated agent → typed denial on conversations/list",
-    Effect.scoped(
-      Effect.gen(function* () {
-        // We still need an agentKey to open the socket, but we skip
-        // `network/connect` so the server sees an un-authed session.
-        const agent = yield* registerTestAgent({
-          baseUrl: ctx.realServer.baseUrl,
-          name: "an",
-        }).pipe(
-          Effect.mapError((e) =>
-            invariant(`agent registration failed: ${e.body}`),
-          ),
-        );
-        const client = yield* makeTestClient({
-          serverUrl: ctx.realServer.wsUrl,
-          agentKey: agent.apiKey,
-          agentId: agent.agentId,
-          defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
-          captureCapacity: DEFAULT_CAPTURE_CAPACITY,
-          autoConnect: false,
-        }).pipe(
-          Effect.mapError((e) =>
-            invariant(`client acquire failed: ${String(e)}`),
-          ),
-        );
-        const outcome = yield* client
-          .sendRpc(ConversationsList, {})
-          .pipe(Effect.either);
-        const error = yield* Either.match(outcome, {
-          onLeft: (failure) => Effect.succeed(failure),
-          onRight: () =>
-            Effect.fail(
-              new PropertyInvariantViolation({
-                category: CATEGORY,
-                name: PROPERTY,
-                reason:
-                  "pre-handshake conversations/list returned success — expected typed denial",
-              }),
-            ),
-        });
-        // Narrow the Left: must be a typed auth-shaped RpcResponseError
-        // (Unauthorized / Forbidden). A timeout or transport-close
-        // would also surface as `Left` but does NOT satisfy the
-        // property — it proves nothing about authorization.
-        if (!(error instanceof RpcResponseError)) {
-          return yield* Effect.fail(
-            new PropertyInvariantViolation({
-              category: CATEGORY,
-              name: PROPERTY,
-              reason: `expected RpcResponseError, got ${error._tag}`,
-            }),
-          );
-        }
-        const code = error.code;
-        const isAuthShaped =
-          code === UnauthorizedError.code || code === ForbiddenError.code;
-        if (!isAuthShaped) {
-          return yield* Effect.fail(
-            new PropertyInvariantViolation({
-              category: CATEGORY,
-              name: PROPERTY,
-              reason: `expected Unauthorized/Forbidden code (${UnauthorizedError.code} / ${ForbiddenError.code}), got ${code}`,
-            }),
-          );
-        }
-        // Oracle cross-check: the model also predicts deny for this
-        // unauthenticated caller. Keeps the model honest alongside the
-        // server.
-        const modelVerdict = authorizationOutcome(
-          initialReferenceState,
-          {
-            definition: ConversationsList,
-            method: ConversationsList.name,
-            params: {},
-          },
-          agentId("00000000-0000-4000-8000-000000000000"),
-        );
-        if (modelVerdict !== "deny-unauthenticated") {
-          return yield* Effect.fail(
-            new PropertyInvariantViolation({
-              category: CATEGORY,
-              name: PROPERTY,
-              reason: `model oracle disagrees: expected deny-unauthenticated, got ${modelVerdict}`,
-            }),
-          );
-        }
-      }).pipe(Effect.withSpan("registerAuthorityNegative")),
+    assertAuthorityNegative(ctx).pipe(
+      Effect.withSpan("registerAuthorityNegative"),
     ),
   );
+}
+
+function assertAuthorityNegative(ctx: ConformanceRunContext) {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const client = yield* acquirePreHandshakeClient(ctx);
+      yield* assertConversationsListDenied(client);
+      yield* assertModelDeniesUnauthenticated();
+    }),
+  );
+}
+
+function acquirePreHandshakeClient(ctx: ConformanceRunContext) {
+  return Effect.gen(function* () {
+    const agent = yield* registerTestAgent({
+      baseUrl: ctx.realServer.baseUrl,
+      name: "an",
+    }).pipe(
+      Effect.mapError((e) => invariant(`agent registration failed: ${e.body}`)),
+    );
+    return yield* makeTestClient({
+      serverUrl: ctx.realServer.wsUrl,
+      agentKey: agent.apiKey,
+      agentId: agent.agentId,
+      defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
+      captureCapacity: DEFAULT_CAPTURE_CAPACITY,
+      autoConnect: false,
+    }).pipe(
+      Effect.mapError((e) => invariant(`client acquire failed: ${String(e)}`)),
+    );
+  });
+}
+
+function assertConversationsListDenied(client: TestClient) {
+  return Effect.gen(function* () {
+    const outcome = yield* client
+      .sendRpc(ConversationsList, {})
+      .pipe(Effect.either);
+    const error = yield* Either.match(outcome, {
+      onLeft: (failure) => Effect.succeed(failure),
+      onRight: () =>
+        Effect.fail(
+          invariant(
+            "pre-handshake conversations/list returned success — expected typed denial",
+          ),
+        ),
+    });
+    yield* assertAuthResponseError(error);
+  });
+}
+
+function assertAuthResponseError(error: unknown) {
+  if (!(error instanceof RpcResponseError)) {
+    return Effect.fail(
+      invariant(`expected RpcResponseError, got ${String(error)}`),
+    );
+  }
+  const isAuthShaped =
+    error.code === UnauthorizedError.code || error.code === ForbiddenError.code;
+  return isAuthShaped
+    ? Effect.void
+    : Effect.fail(
+        invariant(
+          `expected Unauthorized/Forbidden code (${UnauthorizedError.code} / ${ForbiddenError.code}), got ${error.code}`,
+        ),
+      );
+}
+
+function assertModelDeniesUnauthenticated() {
+  const modelVerdict = authorizationOutcome(
+    initialReferenceState,
+    {
+      definition: ConversationsList,
+      method: ConversationsList.name,
+      params: {},
+    },
+    agentId("00000000-0000-4000-8000-000000000000"),
+  );
+  return modelVerdict === "deny-unauthenticated"
+    ? Effect.void
+    : Effect.fail(
+        invariant(
+          `model oracle disagrees: expected deny-unauthenticated, got ${modelVerdict}`,
+        ),
+      );
 }

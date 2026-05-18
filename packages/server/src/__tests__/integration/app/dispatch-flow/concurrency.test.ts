@@ -15,36 +15,15 @@
  * dispatchLeaseId=X)` consumes the lease via `Effect.acquireUseRelease(
  * claim, sendInsert+commit, finalize|rollback)`.
  */
-import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { it } from "@effect/vitest";
-import { Effect } from "effect";
 import {
-  AppsRegister,
-  ConversationsArchive,
-  ConversationsCreate,
-  DispatchAuthorize,
-  DispatchRequest,
-  DispatchRelease,
-  DispatchesGet,
-  MessagesSend,
-  ParticipantsRemovedNotificationDefinition,
-  TasksCreate,
-  TasksCreateConversation,
-  type AppManifest,
-  type ConversationId,
-  type DispatchId,
-  type LeaseId,
-  type MessageId,
-} from "@moltzap/protocol";
-import { agentId as protocolAgentId } from "@moltzap/protocol/testing";
-import {
-  startTestServer,
-  stopTestServer,
-  resetTestDb,
-  registerAndConnect,
-  setupAgentPair,
-  getTestCoreApp,
-} from "../../helpers.js";
+  createDispatchFlowFixture,
+  makeProbeMessageId,
+  startDispatchFlowServer,
+  stopDispatchFlowServer,
+} from "./fixture.js";
+import { setupAgentPair } from "../../helpers.js";
+
+const it = effectIt.live;
 
 const TEST_APP_ID = "moderator-dispatch-test-app";
 
@@ -54,50 +33,17 @@ const TEST_APP_MANIFEST: AppManifest = {
   conversations: [{ key: "main", name: "Main", participantFilter: "all" }],
 };
 
-let hookCalls = 0;
-let nextHookVerdict:
-  | { decision: "grant"; leaseTimeoutMs?: number }
-  | { decision: "deny"; reason?: string }
-  | { decision: "hold"; reason?: string }
-  | { kind: "never-reply" } = { decision: "grant" };
+const fixture = createDispatchFlowFixture(TEST_APP_MANIFEST);
 
-beforeAll(async () => {
-  await startTestServer();
-}, 60_000);
+beforeAll(startDispatchFlowServer, 60_000);
 
-afterAll(async () => {
-  await stopTestServer();
-});
+afterAll(stopDispatchFlowServer);
 
-beforeEach(async () => {
-  await resetTestDb();
-  hookCalls = 0;
-  nextHookVerdict = { decision: "grant" };
-  const coreApp = getTestCoreApp();
-  coreApp.registerApp(TEST_APP_MANIFEST);
-  coreApp.onTaskAuthorizeDispatch(TEST_APP_ID, async () => {
-    hookCalls += 1;
-    const v = nextHookVerdict;
-    if ("kind" in v && v.kind === "never-reply") {
-      // Never resolves — server-side timeout fires.
-      await new Promise(() => {
-        /* never */
-      });
-    }
-    return v as
-      | { decision: "grant"; leaseTimeoutMs?: number }
-      | { decision: "deny"; reason?: string }
-      | { decision: "hold"; reason?: string };
-  });
-});
-
-function makeProbeMessageId(): MessageId {
-  return crypto.randomUUID() as MessageId;
-}
+beforeEach(() => Effect.runPromise(fixture.reset));
 
 describe("dispatch/* — concurrency (#529 reshape additive)", () => {
   // ── Scenario 11 — cross-conversation concurrency (architect §8 #11) ─
-  it.live(
+  it(
     "cross-conversation concurrency: two dispatch/request in different (taskId, conversationId) → both round-trips concurrent",
     () =>
       Effect.gen(function* () {
@@ -137,10 +83,10 @@ describe("dispatch/* — concurrency (#529 reshape additive)", () => {
               parts: [{ type: "text", text: "second" }],
             }),
           ],
-          { concurrency: "unbounded" },
+          { concurrency: 2 },
         );
         expect(ack1.leaseId).not.toBe(ack2.leaseId);
-        // Both moderator round-trips ran (hookCalls === 2) and both
+        // Both moderator round-trips ran (fixture.hookCalls() === 2) and both
         // produced a release.
         const release1 = yield* bob.client.waitForNotification(
           DispatchRelease,
@@ -156,14 +102,14 @@ describe("dispatch/* — concurrency (#529 reshape additive)", () => {
         ]);
         expect(seen.has(ack1.leaseId)).toBe(true);
         expect(seen.has(ack2.leaseId)).toBe(true);
-        expect(hookCalls).toBe(2);
+        expect(fixture.hookCalls()).toBe(2);
       }),
     25_000,
   );
 
   // ── Scenario 12 — same-conversation concurrency (architect §8 #12) ──
   // Closes #358 P1: no server-side per-conversation serialization.
-  it.live(
+  it(
     "same-conversation concurrency: two dispatch/request in same (taskId, conversationId) → both round-trips concurrent (no server serialization)",
     () =>
       Effect.gen(function* () {
@@ -192,7 +138,7 @@ describe("dispatch/* — concurrency (#529 reshape additive)", () => {
               parts: [{ type: "text", text: "second" }],
             }),
           ],
-          { concurrency: "unbounded" },
+          { concurrency: 2 },
         );
         // Both leases minted distinct ids (no shared resource serialized them).
         expect(ack1.leaseId).not.toBe(ack2.leaseId);
@@ -200,7 +146,7 @@ describe("dispatch/* — concurrency (#529 reshape additive)", () => {
         // Two release notifications fire.
         yield* bob.client.waitForNotification(DispatchRelease, 5000);
         yield* bob.client.waitForNotification(DispatchRelease, 5000);
-        expect(hookCalls).toBe(2);
+        expect(fixture.hookCalls()).toBe(2);
       }),
     25_000,
   );

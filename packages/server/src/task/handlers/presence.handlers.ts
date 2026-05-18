@@ -21,7 +21,7 @@ export const presenceHandlers: RpcMethodRegistry = [
           excludeConnId: senderConnId,
         });
         return {};
-      }),
+      }).pipe(Effect.withSpan("presence.update")),
   }),
   defineTaskMethod(PresenceSubscribe, {
     requiresActive: true,
@@ -49,6 +49,6 @@ export const presenceHandlers: RpcMethodRegistry = [
         presenceService.subscribe(connId, visibleIds);
         const statuses = presenceService.getMany(visibleIds);
         return { statuses };
-      }),
+      }).pipe(Effect.withSpan("presence.subscribe")),
   }),
 ];

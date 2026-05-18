@@ -7,8 +7,12 @@
  */
 import * as fc from "fast-check";
 import { Effect } from "effect";
-import { arbitraryCallFor } from "../../arbitraries/rpc.js";
+import {
+  arbitraryCallFor,
+  type ArbitraryRpcCall,
+} from "../../arbitraries/rpc.js";
 import { isRequestFrame, isResponseFrame } from "../_shared/frame-mutator.js";
+import type { CapturedFrame } from "../_shared/captures.js";
 import { makeTestClient } from "../_shared/driver/test-client.js";
 import { registerTestAgent } from "../_shared/test-fixtures.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
@@ -16,11 +20,12 @@ import {
   PropertyInvariantViolation,
   registerProperty,
 } from "../_shared/registry.js";
-import { AgentsList, ContactsList } from "@moltzap/protocol/identity";
-import { Connect } from "@moltzap/protocol/network";
-import { ConversationsList } from "@moltzap/protocol/task";
+import { AgentsList, ContactsList } from "../../../identity/methods.js";
+import { Connect } from "../../../network/methods.js";
+import { ConversationsList } from "../../../task/methods.js";
 
 const CATEGORY = "schema-conformance" as const;
+const PROPERTY = "rpc-map-coverage";
 const DEFAULT_TIMEOUT_MS = 3000;
 const DEFAULT_CAPTURE_CAPACITY = 64;
 
@@ -30,81 +35,113 @@ const COVERAGE_SAMPLE = [
   ConversationsList.name,
   ContactsList.name,
 ] as const;
+type CoverageMethod = (typeof COVERAGE_SAMPLE)[number];
+
+const invariant = (reason: string): PropertyInvariantViolation =>
+  new PropertyInvariantViolation({
+    category: CATEGORY,
+    name: PROPERTY,
+    reason,
+  });
 
 export function registerRpcMapCoverage(ctx: ConformanceRunContext): void {
   registerProperty(
     ctx,
     CATEGORY,
-    "rpc-map-coverage",
+    PROPERTY,
     "a representative sample of method names reaches a real-server response",
-    Effect.gen(function* () {
-      for (const method of COVERAGE_SAMPLE) {
-        const callArb = arbitraryCallFor(method);
-        const [sampled] = fc.sample(callArb, { numRuns: 1, seed: ctx.seed });
-        if (sampled === undefined) {
-          return yield* Effect.fail(
-            new PropertyInvariantViolation({
-              category: CATEGORY,
-              name: "rpc-map-coverage",
-              reason: `failed to sample call for ${method}`,
-            }),
-          );
-        }
-        const reached = yield* Effect.scoped(
-          Effect.gen(function* () {
-            const agent = yield* registerTestAgent({
-              baseUrl: ctx.realServer.baseUrl,
-              name: "cov",
-            });
-            const client = yield* makeTestClient({
-              serverUrl: ctx.realServer.wsUrl,
-              agentKey: agent.apiKey,
-              agentId: agent.agentId,
-              defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
-              captureCapacity: DEFAULT_CAPTURE_CAPACITY,
-            });
-            // Exclude handshake frames so "reached" can't be satisfied
-            // by the auto-connect reply — every method must produce its
-            // OWN response with a matching request id.
-            const handshakeEnd = (yield* client.snapshot).length;
-            yield* client
-              .sendRpc(sampled.definition, sampled.params)
-              .pipe(Effect.either);
-            const snap = (yield* client.snapshot).slice(handshakeEnd);
-            const outbound = snap.find(
-              (s) =>
-                s.kind === "outbound" &&
-                s.frame !== null &&
-                isRequestFrame(s.frame) &&
-                s.frame.method === sampled.method,
-            );
-            if (
-              outbound?.frame === null ||
-              outbound?.frame === undefined ||
-              !isRequestFrame(outbound.frame)
-            ) {
-              return false;
-            }
-            const expectedId = outbound.frame.id;
-            return snap.some(
-              (s) =>
-                s.kind === "inbound" &&
-                s.frame !== null &&
-                isResponseFrame(s.frame) &&
-                s.frame.id === expectedId,
-            );
-          }),
-        ).pipe(Effect.orElseSucceed(() => false));
-        if (!reached) {
-          return yield* Effect.fail(
-            new PropertyInvariantViolation({
-              category: CATEGORY,
-              name: "rpc-map-coverage",
-              reason: `method ${method} produced no observable response`,
-            }),
-          );
-        }
+    assertRpcMapCoverage(ctx).pipe(Effect.withSpan("registerRpcMapCoverage")),
+  );
+}
+
+function assertRpcMapCoverage(ctx: ConformanceRunContext) {
+  return Effect.gen(function* () {
+    for (const method of COVERAGE_SAMPLE) {
+      const sampled = yield* sampleCoverageCall(method, ctx.seed);
+      const reached = yield* methodReachedServer(ctx, sampled);
+      if (!reached) {
+        return yield* Effect.fail(
+          invariant(`method ${method} produced no observable response`),
+        );
       }
-    }).pipe(Effect.withSpan("registerRpcMapCoverage")),
+    }
+  });
+}
+
+function sampleCoverageCall(method: CoverageMethod, seed: number) {
+  const [sampled] = fc.sample(arbitraryCallFor(method), { numRuns: 1, seed });
+  return sampled === undefined
+    ? Effect.fail(invariant(`failed to sample call for ${method}`))
+    : Effect.succeed(sampled);
+}
+
+function methodReachedServer(
+  ctx: ConformanceRunContext,
+  sampled: ArbitraryRpcCall,
+) {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const client = yield* acquireCoverageClient(ctx);
+      const handshakeEnd = (yield* client.snapshot).length;
+      yield* client
+        .sendRpc(sampled.definition, sampled.params)
+        .pipe(Effect.either);
+      const snap = (yield* client.snapshot).slice(handshakeEnd);
+      const expectedId = outboundRequestId(snap, sampled);
+      return expectedId === null ? false : hasResponseFor(snap, expectedId);
+    }),
+  ).pipe(Effect.orElseSucceed(() => false));
+}
+
+function acquireCoverageClient(ctx: ConformanceRunContext) {
+  return Effect.gen(function* () {
+    const agent = yield* registerTestAgent({
+      baseUrl: ctx.realServer.baseUrl,
+      name: "cov",
+    });
+    return yield* makeTestClient({
+      serverUrl: ctx.realServer.wsUrl,
+      agentKey: agent.apiKey,
+      agentId: agent.agentId,
+      defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
+      captureCapacity: DEFAULT_CAPTURE_CAPACITY,
+    });
+  });
+}
+
+function outboundRequestId(
+  snap: ReadonlyArray<CapturedFrame>,
+  sampled: ArbitraryRpcCall,
+) {
+  const outbound = snap.find((frame) => isOutboundRequest(frame, sampled));
+  return outbound?.frame !== null &&
+    outbound?.frame !== undefined &&
+    isRequestFrame(outbound.frame)
+    ? outbound.frame.id
+    : null;
+}
+
+function isOutboundRequest(
+  frame: CapturedFrame,
+  sampled: ArbitraryRpcCall,
+): boolean {
+  return (
+    frame.kind === "outbound" &&
+    frame.frame !== null &&
+    isRequestFrame(frame.frame) &&
+    frame.frame.method === sampled.method
+  );
+}
+
+function hasResponseFor(
+  snap: ReadonlyArray<CapturedFrame>,
+  expectedId: string,
+) {
+  return snap.some(
+    (frame) =>
+      frame.kind === "inbound" &&
+      frame.frame !== null &&
+      isResponseFrame(frame.frame) &&
+      frame.frame.id === expectedId,
   );
 }

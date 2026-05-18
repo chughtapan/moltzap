@@ -83,51 +83,13 @@ export class ContactsService {
   ): Effect.Effect<ContactAcceptResult, ContactsServiceError> {
     return catchSqlErrorAsDefect(
       Effect.gen(this, function* () {
-        const updated = yield* this.db
-          .updateTable("contacts")
-          .set({ status: "accepted" })
-          .where("id", "=", id)
-          .where("contact_user_id", "=", owner)
-          .where("status", "=", "pending")
-          .returningAll();
-
+        const updated = yield* this.markPendingContactAccepted(owner, id);
         if (updated.length === 0) {
-          const existing = yield* this.db
-            .selectFrom("contacts")
-            .selectAll()
-            .where("id", "=", id);
-          if (existing.length === 0) {
-            return yield* Effect.fail(
-              new NotFoundError({ message: ERR_NOT_FOUND }),
-            );
-          }
-          const row = existing[0]!;
-          if (row.contact_user_id !== owner) {
-            return yield* Effect.fail(
-              new ForbiddenError({ message: ERR_NOT_RECIPIENT }),
-            );
-          }
-          return {
-            contact: rowToContact(row),
-            requesterUserId: row.owner_user_id,
-            transitioned: false,
-          };
+          return yield* this.resolveAlreadyAcceptedContact(owner, id);
         }
 
         const row = updated[0]!;
-        yield* this.db
-          .insertInto("contacts")
-          .values({
-            owner_user_id: row.contact_user_id,
-            contact_user_id: row.owner_user_id,
-            relationship: row.relationship,
-            status: "accepted",
-          })
-          .onConflict((oc) =>
-            oc.columns(["owner_user_id", "contact_user_id"]).doUpdateSet({
-              status: "accepted",
-            }),
-          );
+        yield* this.upsertMirroredAcceptedContact(row);
         return {
           contact: rowToContact(row),
           requesterUserId: row.owner_user_id,
@@ -135,6 +97,57 @@ export class ContactsService {
         };
       }),
     );
+  }
+
+  private markPendingContactAccepted(owner: UserId, id: ContactId) {
+    return this.db
+      .updateTable("contacts")
+      .set({ status: "accepted" })
+      .where("id", "=", id)
+      .where("contact_user_id", "=", owner)
+      .where("status", "=", "pending")
+      .returningAll();
+  }
+
+  private resolveAlreadyAcceptedContact(owner: UserId, id: ContactId) {
+    return Effect.gen(this, function* () {
+      const existing = yield* this.db
+        .selectFrom("contacts")
+        .selectAll()
+        .where("id", "=", id);
+      if (existing.length === 0) {
+        return yield* Effect.fail(
+          new NotFoundError({ message: ERR_NOT_FOUND }),
+        );
+      }
+      const row = existing[0]!;
+      if (row.contact_user_id !== owner) {
+        return yield* Effect.fail(
+          new ForbiddenError({ message: ERR_NOT_RECIPIENT }),
+        );
+      }
+      return {
+        contact: rowToContact(row),
+        requesterUserId: row.owner_user_id,
+        transitioned: false,
+      };
+    });
+  }
+
+  private upsertMirroredAcceptedContact(row: ContactRow) {
+    return this.db
+      .insertInto("contacts")
+      .values({
+        owner_user_id: row.contact_user_id,
+        contact_user_id: row.owner_user_id,
+        relationship: row.relationship,
+        status: "accepted",
+      })
+      .onConflict((oc) =>
+        oc.columns(["owner_user_id", "contact_user_id"]).doUpdateSet({
+          status: "accepted",
+        }),
+      );
   }
 
   byId(

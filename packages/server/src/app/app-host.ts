@@ -5,7 +5,6 @@ import type {
   ConnectionManager,
   MoltZapConnection,
 } from "../transport/connection.js";
-import { logger } from "../logger.js";
 import type {
   AnyTaskCallbackRpcDefinition,
   AppManifest,
@@ -33,7 +32,7 @@ import {
   endpointAddressKind,
   type EndpointAddress,
 } from "@moltzap/protocol/network";
-import { Data, Effect, Option } from "effect";
+import { Data, Effect, Either, Option } from "effect";
 import {
   catchSqlErrorAsDefect,
   takeFirstOption,
@@ -76,7 +75,7 @@ const DEFAULT_APP_HOOK_TIMEOUT_MS = 5000;
 /**
  * Derive an `appId` from an `EndpointAddress` for `remoteRegistrations`
  * lookup (#560 C5 remote-path resolution). The mapping is well-defined
- * only for the `tm:app:<appId>` shape — custom-TM `tm:agent:<id>`
+ * only for the `tm:app:&lt;appId>` shape — custom-TM `tm:agent:&lt;id>`
  * addresses do not carry an appId and short-circuit to null. Caller
  * (`runMessageAuthorize`) falls through to the synthetic default
  * verdict when both the in-process hook AND this lookup are absent.
@@ -142,6 +141,7 @@ export class AppHost {
     EndpointAddress,
     MessageAuthorizeHook
   >();
+
   /**
    * Remote-app routing table. An entry exists iff `registerRemoteApp` was
    * called for `appId`; the value records which WS connection serves the
@@ -208,7 +208,11 @@ export class AppHost {
 
   registerApp(manifest: AppManifest): void {
     this.manifests.set(manifest.appId, manifest);
-    logger.info({ appId: manifest.appId }, "App registered");
+    Effect.runFork(
+      Effect.logInfo("App registered").pipe(
+        Effect.annotateLogs({ appId: manifest.appId }),
+      ),
+    );
   }
 
   /**
@@ -227,9 +231,10 @@ export class AppHost {
   registerRemoteApp(manifest: AppManifest, connectionId: string): void {
     this.manifests.set(manifest.appId, manifest);
     this.remoteRegistrations.set(manifest.appId, { connectionId });
-    logger.info(
-      { appId: manifest.appId, connectionId },
-      "Remote app registered",
+    Effect.runFork(
+      Effect.logInfo("Remote app registered").pipe(
+        Effect.annotateLogs({ appId: manifest.appId, connectionId }),
+      ),
     );
   }
 
@@ -247,7 +252,11 @@ export class AppHost {
    */
   unregisterRemoteApp(appId: string): void {
     if (this.remoteRegistrations.delete(appId)) {
-      logger.info({ appId }, "Remote app unregistered");
+      Effect.runFork(
+        Effect.logInfo("Remote app unregistered").pipe(
+          Effect.annotateLogs({ appId }),
+        ),
+      );
     }
   }
 
@@ -439,6 +448,7 @@ export class AppHost {
         clock?: LogicalClock;
         parts?: Part[];
       }>;
+
       /**
        * Captured at mint time from `tasks.tm_endpoint_address`. Used in
        * the deny arm to derive the moderator's agentId for
@@ -678,7 +688,7 @@ export class AppHost {
    *      → call in-process (default-DM/group + any custom in-process
    *      app TM register here at boot or `apps/register`).
    *   2. Else, derive `appId` from the address (today: parse
-   *      `tm:app:<appId>` shape) and check `remoteRegistrations.has
+   *      `tm:app:&lt;appId>` shape) and check `remoteRegistrations.has
    *      (appId)`. If present → send `messages/authorize` S→C RPC
    *      over that connection via `runRemoteHookEffect`. The remote
    *      path mirrors the existing dispatch/authorize remote path
@@ -963,17 +973,20 @@ export class AppHost {
           }),
         );
       }
-      return yield* sendRpcToClient(conn, opts.definition, opts.params).pipe(
-        Effect.mapError(
-          (err) =>
-            new RemoteHookError({
-              appId: opts.appId,
-              method,
-              connectionId: opts.connectionId,
-              reason: `task-callback RPC failed: ${errorMessage(err)}`,
-              cause: err,
-            }),
-        ),
+      const result = yield* Effect.either(
+        sendRpcToClient(conn, opts.definition, opts.params),
+      );
+      if (Either.isRight(result)) {
+        return result.right;
+      }
+      return yield* Effect.fail(
+        new RemoteHookError({
+          appId: opts.appId,
+          method,
+          connectionId: opts.connectionId,
+          reason: `task-callback RPC failed: ${errorMessage(result.left)}`,
+          cause: result.left,
+        }),
       );
     });
   }

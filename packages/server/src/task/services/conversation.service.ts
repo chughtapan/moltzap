@@ -93,6 +93,7 @@ export class ConversationService {
     private db: Db,
     private participants: ParticipantService,
     private connections: ConnectionManager,
+
     /**
      * Lazy lookup for the active contact policy. Returns `null` when no
      * policy is wired (default for unit tests + dev mode), in which case
@@ -127,6 +128,7 @@ export class ConversationService {
     name: string | undefined,
     agentIds: AgentId[],
     creatorAgentId: AgentId,
+
     /**
      * Lazy task source. `conversations.task_id` is NOT NULL (round 3
      * R12), so every insert must bind to a task. Issue #464: passing

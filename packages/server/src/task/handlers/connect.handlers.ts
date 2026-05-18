@@ -49,7 +49,7 @@ function authenticateAgentKey(
       agentStatus: agent.status,
       ownerUserId: agent.ownerUserId,
     };
-  });
+  }).pipe(Effect.withSpan("connect.authenticateAgentKey"));
 }
 
 /**
@@ -100,7 +100,7 @@ function authenticateSession(
         agentStatus: rowOpt.value.status,
         ownerUserId: result.ownerUserId,
       };
-    }),
+    }).pipe(Effect.withSpan("connect.authenticateSession")),
   );
 }
 
@@ -108,7 +108,7 @@ function buildHelloOk(
   ctx: AuthenticatedContext,
   presenceService: PresenceService,
 ): Effect.Effect<HelloOk, UnauthorizedError | InvalidParamsError> {
-  return Effect.gen(function* () {
+  return Effect.sync(() => {
     presenceService.setOnline(ctx.agentId);
     return {
       protocolVersion: PROTOCOL_VERSION,
@@ -125,7 +125,7 @@ function buildHelloOk(
         },
       },
     };
-  });
+  }).pipe(Effect.withSpan("connect.buildHelloOk"));
 }
 
 export const connectHandlers: RpcMethodRegistry = [
@@ -231,7 +231,7 @@ export const connectHandlers: RpcMethodRegistry = [
           }
 
           return yield* buildHelloOk(auth, presenceService);
-        }),
+        }).pipe(Effect.withSpan("network.connect")),
       ),
   }),
 ];

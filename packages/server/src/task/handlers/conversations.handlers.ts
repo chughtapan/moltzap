@@ -48,7 +48,7 @@ const broadcastToConversation = <D extends NotificationDefinition<string, any>>(
     yield* networkSendService.broadcast(participants, payload, {
       forConversation: conversationId,
     });
-  });
+  }).pipe(Effect.withSpan("conversations.broadcast"));
 
 export const conversationHandlers: RpcMethodRegistry = [
   defineTaskMethod(ConversationsCreate, {
@@ -80,7 +80,7 @@ export const conversationHandlers: RpcMethodRegistry = [
         yield* networkSendService.broadcast(agentIds, createdPayload);
 
         return { conversation };
-      }),
+      }).pipe(Effect.withSpan("conversations.create")),
   }),
   defineTaskMethod(ConversationsList, {
     requiresActive: true,
@@ -93,7 +93,7 @@ export const conversationHandlers: RpcMethodRegistry = [
           params.cursor,
           params.archived,
         );
-      }),
+      }).pipe(Effect.withSpan("conversations.list")),
   }),
   defineTaskMethod(ConversationsGet, {
     requiresActive: true,
@@ -104,7 +104,7 @@ export const conversationHandlers: RpcMethodRegistry = [
           params.conversationId,
           ctx.agentId,
         );
-      }),
+      }).pipe(Effect.withSpan("conversations.get")),
   }),
   defineTaskMethod(ConversationsUpdate, {
     requiresActive: true,
@@ -124,7 +124,7 @@ export const conversationHandlers: RpcMethodRegistry = [
         );
 
         return { conversation };
-      }),
+      }).pipe(Effect.withSpan("conversations.update")),
   }),
   defineTaskMethod(ConversationsLeave, {
     requiresActive: true,
@@ -139,7 +139,7 @@ export const conversationHandlers: RpcMethodRegistry = [
           conn.conversationIds.delete(params.conversationId);
         }
         return {};
-      }),
+      }).pipe(Effect.withSpan("conversations.leave")),
   }),
   defineTaskMethod(ConversationsArchive, {
     requiresActive: true,
@@ -160,7 +160,7 @@ export const conversationHandlers: RpcMethodRegistry = [
           },
         );
         return {};
-      }),
+      }).pipe(Effect.withSpan("conversations.archive")),
   }),
   defineTaskMethod(ConversationsUnarchive, {
     requiresActive: true,
@@ -180,7 +180,7 @@ export const conversationHandlers: RpcMethodRegistry = [
           },
         );
         return {};
-      }),
+      }).pipe(Effect.withSpan("conversations.unarchive")),
   }),
   defineTaskMethod(ConversationsMute, {
     requiresActive: true,
@@ -199,7 +199,7 @@ export const conversationHandlers: RpcMethodRegistry = [
           conn.mutedConversations.add(params.conversationId);
         }
         return {};
-      }),
+      }).pipe(Effect.withSpan("conversations.mute")),
   }),
   defineTaskMethod(ConversationsUnmute, {
     requiresActive: true,
@@ -214,7 +214,7 @@ export const conversationHandlers: RpcMethodRegistry = [
           conn.mutedConversations.delete(params.conversationId);
         }
         return {};
-      }),
+      }).pipe(Effect.withSpan("conversations.unmute")),
   }),
 
   defineTaskMethod(ConversationsAddParticipant, {
@@ -233,7 +233,7 @@ export const conversationHandlers: RpcMethodRegistry = [
         // already calls `subscribeAgentsToConversation` in
         // `addParticipant`, so the handler-side loop was dead.
         return { participant };
-      }),
+      }).pipe(Effect.withSpan("conversations.addParticipant")),
   }),
 
   defineTaskMethod(ConversationsRemoveParticipant, {
@@ -247,6 +247,6 @@ export const conversationHandlers: RpcMethodRegistry = [
           ctx.agentId,
         );
         return {};
-      }),
+      }).pipe(Effect.withSpan("conversations.removeParticipant")),
   }),
 ];

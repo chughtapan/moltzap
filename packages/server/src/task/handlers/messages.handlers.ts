@@ -23,8 +23,8 @@ import {
   takeFirstOption,
 } from "../../db/effect-kysely-toolkit.js";
 
-/** Parse "agent:<name>" target format, returning the agent name. */
-export function parseTo(to: string): Effect.Effect<string, InvalidParamsError> {
+/** Parse "agent:&lt;name>" target format, returning the agent name. */
+function parseTo(to: string): Effect.Effect<string, InvalidParamsError> {
   const match = to.match(/^agent:(.+)$/);
   if (!match) {
     return Effect.fail(
@@ -124,57 +124,65 @@ export const messageHandlers: RpcMethodRegistry = [
             //     (lease stays CONSUMED + durable row stays per
             //     architect §3 + epic decision #5).
             let finalized = false;
-            const message = yield* Effect.acquireUseRelease(
-              leaseRegistry.claim(leaseId).pipe(
-                Effect.mapError((err) => {
-                  if (err instanceof LeaseInvalidError) {
-                    return new ForbiddenError({
-                      message: `lease ${leaseId} not claimable: state=${err.state}`,
-                      data: {
-                        reason: "LeaseInvalid",
-                        state: err.state,
-                        expected: err.expected as readonly string[],
-                      },
-                    });
-                  }
-                  return new NotFoundError({
-                    message: `lease ${leaseId} not found`,
-                  });
-                }),
+            const message = yield* Effect.scoped(
+              Effect.acquireUseRelease(
+                leaseRegistry.claim(leaseId).pipe(
+                  Effect.catchTags({
+                    LeaseInvalidError: (err: LeaseInvalidError) =>
+                      Effect.fail(
+                        new ForbiddenError({
+                          message: `lease ${leaseId} not claimable: state=${err.state}`,
+                          data: {
+                            reason: "LeaseInvalid",
+                            state: err.state,
+                            expected: err.expected as readonly string[],
+                          },
+                        }),
+                      ),
+                    LeaseNotFoundError: () =>
+                      Effect.fail(
+                        new NotFoundError({
+                          message: `lease ${leaseId} not found`,
+                        }),
+                      ),
+                  }),
+                ),
+                (claim) =>
+                  Effect.gen(function* () {
+                    const carrier = yield* messageService.sendInsert(
+                      conversationId,
+                      params.parts,
+                      ctx.agentId,
+                      params.replyToId,
+                      connId,
+                    );
+                    // Finalize BEFORE sendCommit. The durable row is
+                    // committed; the lease transitions CLAIMED →
+                    // CONSUMED and `dispatches/consumed` emits to the
+                    // moderator's connection. Post-insert side-effect
+                    // failures do not roll back the lease.
+                    yield* claim
+                      .finalize(carrier.message.id)
+                      .pipe(Effect.catchAll(() => Effect.void));
+                    finalized = true;
+                    return yield* messageService.sendCommit(
+                      carrier,
+                      conversationId,
+                      ctx.agentId,
+                    );
+                  }).pipe(Effect.withSpan("messages.sendWithLease")),
+                (claim, exit) => {
+                  if (Exit.isSuccess(exit)) return Effect.void;
+                  // sendCommit failed AFTER finalize → no rollback;
+                  // lease stays CONSUMED + durable row stays.
+                  if (finalized) return Effect.void;
+                  // sendInsert (or claim) failed BEFORE finalize →
+                  // rollback CLAIMED → GRANTED.
+                  return claim.rollback.pipe(
+                    Effect.catchAll(() => Effect.void),
+                  );
+                },
               ),
-              (claim) =>
-                Effect.gen(function* () {
-                  const carrier = yield* messageService.sendInsert(
-                    conversationId,
-                    params.parts,
-                    ctx.agentId,
-                    params.replyToId,
-                    connId,
-                  );
-                  // Finalize BEFORE sendCommit. The durable row is
-                  // committed; the lease transitions CLAIMED →
-                  // CONSUMED and `dispatches/consumed` emits to the
-                  // moderator's connection. Post-insert side-effect
-                  // failures do not roll back the lease.
-                  yield* claim
-                    .finalize(carrier.message.id)
-                    .pipe(Effect.catchAll(() => Effect.void));
-                  finalized = true;
-                  return yield* messageService.sendCommit(
-                    carrier,
-                    conversationId,
-                    ctx.agentId,
-                  );
-                }),
-              (claim, exit) => {
-                if (Exit.isSuccess(exit)) return Effect.void;
-                // sendCommit failed AFTER finalize → no rollback;
-                // lease stays CONSUMED + durable row stays.
-                if (finalized) return Effect.void;
-                // sendInsert (or claim) failed BEFORE finalize →
-                // rollback CLAIMED → GRANTED.
-                return claim.rollback.pipe(Effect.catchAll(() => Effect.void));
-              },
             );
             return { message };
           }
@@ -187,7 +195,7 @@ export const messageHandlers: RpcMethodRegistry = [
             connId,
           );
           return { message };
-        }),
+        }).pipe(Effect.withSpan("messages.send")),
       ),
   }),
   defineTaskMethod(MessagesList, {
@@ -198,6 +206,6 @@ export const messageHandlers: RpcMethodRegistry = [
         return yield* messageService.list(params.conversationId, ctx.agentId, {
           limit: params.limit,
         });
-      }),
+      }).pipe(Effect.withSpan("messages.list")),
   }),
 ];

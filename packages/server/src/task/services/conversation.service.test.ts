@@ -5,19 +5,15 @@
  * Why: the conversation broadcast path gates on `conn.conversationIds`.
  * A participant whose connection isn't in the set silently misses every
  * event on the conversation. Before the service auto-subscribed, every
- * downstream caller (the conversations/create RPC handler, moltzap-arena's
- * werewolf-app role DM creation, agent-manager createConversation) had to
- * reimplement the same loop. Some did; some didn't. The werewolf-app's
- * role-DM flow didn't, so 4-player evals ran with three of four players
- * asking "I haven't received my secret role in any DM" every game.
- *
- * These tests exercise the service directly against PGlite so the contract
- * is locked at the service boundary — dropping the subscribe calls causes
- * these tests to fail regardless of whether any handler also loops.
+ * downstream caller had to reimplement the same loop. Some did; some
+ * didn't. These tests exercise the service directly against PGlite so the
+ * contract is locked at the service boundary.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Cause, Effect, Exit } from "effect";
+import { it as effectIt } from "@effect/vitest";
+import * as fc from "fast-check";
+import { afterEach, beforeEach, describe, expect } from "vitest";
+import { Cause, Effect, Exit, Option } from "effect";
 import {
   ForbiddenError,
   JSON_RPC_RESERVED_CODES,
@@ -27,15 +23,11 @@ import {
   conversationId as makeConversationId,
   wireErrorFromInstance,
 } from "@moltzap/protocol/testing";
-import type { Kysely } from "kysely";
-import { KyselyPGlite } from "kysely-pglite";
-import { readFileSync } from "node:fs";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-import { makeEffectKysely } from "../../db/effect-kysely-toolkit.js";
-import type { Database } from "../../db/database.js";
 import { AuthService } from "../../identity/services/auth.service.js";
-import { ConversationService } from "./conversation.service.js";
+import {
+  ConversationService,
+  type ContactPolicyCheck,
+} from "./conversation.service.js";
 import { ParticipantService } from "../../identity/services/participant.service.js";
 import {
   ConnectionManager,
@@ -44,37 +36,100 @@ import {
 import { unusedJsonRpcClient } from "../../transport/connection.test-utils.js";
 import type { AuthenticatedContext } from "../../transport/context.js";
 import type { AgentId } from "../../app/types.js";
-import type { TaskId } from "@moltzap/protocol/task";
+import type { ConversationId, TaskId } from "@moltzap/protocol/task";
+import { takeFirstOrFail } from "../../db/effect-kysely-toolkit.js";
+import {
+  makePgliteHarness,
+  PGLITE_HOOK_TIMEOUT_MS,
+  type PgliteHarness,
+} from "../../test-utils/index.js";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const schema = readFileSync(
-  join(__dirname, "..", "..", "app", "core-schema.sql"),
-  "utf-8",
-);
-const dbHookTimeoutMs = 30_000;
 const BROADCAST_SETTLE_MS = 50;
+const PROPERTY_RUNS = 8;
+const CONV_TYPE_DM = "dm";
+const CONV_TYPE_GROUP = "group";
+const PLANNING_NAME = "planning";
+const TEAM_NAME = "team";
+const RENAMED_NAME = "renamed";
+const BOB_RENAME = "by-bob";
+const MISSING_UPDATE_NAME = "x";
+const OWNER_ALICE = "00000000-0000-0000-0000-0000000000a1";
+const OWNER_BOB = "00000000-0000-0000-0000-0000000000b2";
+const OWNER_CAROL = "00000000-0000-0000-0000-0000000000c3";
+const MISSING_CONVERSATION_ID = makeConversationId(
+  "00000000-0000-4000-8000-00000000dead",
+);
+const PARTICIPANTS_ADDED_FRAGMENT = '"method":"participants/added"';
+const PARTICIPANTS_REMOVED_FRAGMENT = '"method":"participants/removed"';
+const CONTACT_POLICY_MESSAGE = /contact policy/i;
+const DM_MESSAGE = /dm/i;
 
-// Track the PGlite client between tests so we can reset state cleanly.
-let db: Kysely<Database>;
-let pglite: {
-  exec: (sql: string) => Promise<unknown>;
-  close: () => Promise<void>;
-};
+let harness: PgliteHarness;
 
-async function freshDb(): Promise<void> {
-  const kpg = await KyselyPGlite.create();
-  // kysely-pglite returns a typed client that exposes a wider interface than
-  // the handful of methods (exec/close) these tests need.
-  pglite = {
-    exec: (sql) => kpg.client.exec(sql),
-    close: () => kpg.client.close(),
-  };
-  db = makeEffectKysely<Database>({ dialect: kpg.dialect });
-  await pglite.exec(schema);
-}
+const it = effectIt.effect;
 
 const noopWrite: MoltZapConnection["write"] = () => Effect.void;
 const noopShutdown: MoltZapConnection["shutdown"] = Effect.void;
+
+interface Fixture {
+  readonly connections: ConnectionManager;
+  readonly service: ConversationService;
+  readonly auth: AuthService;
+}
+
+interface WireFailure {
+  readonly code: number;
+  readonly message: string;
+  readonly data?: unknown;
+}
+
+interface CreateConversationInput {
+  readonly service: ConversationService;
+  readonly type: typeof CONV_TYPE_DM | typeof CONV_TYPE_GROUP;
+  readonly name: string | undefined;
+  readonly participants: AgentId[];
+  readonly initiator: AgentId;
+}
+
+function setupHarness() {
+  return makePgliteHarness().pipe(
+    Effect.tap((created) =>
+      Effect.sync(() => {
+        harness = created;
+      }),
+    ),
+  );
+}
+
+function useHarnessLifecycle() {
+  beforeEach(() => Effect.runPromise(setupHarness()), PGLITE_HOOK_TIMEOUT_MS);
+  afterEach(() => Effect.runPromise(harness.close), PGLITE_HOOK_TIMEOUT_MS);
+}
+
+function makeFixture(): Fixture {
+  const connections = new ConnectionManager();
+  const participants = new ParticipantService(harness.db);
+  return {
+    connections,
+    service: new ConversationService(harness.db, participants, connections),
+    auth: new AuthService(harness.db),
+  };
+}
+
+function makeFixtureWithPolicy(policy: ContactPolicyCheck): Fixture {
+  const connections = new ConnectionManager();
+  const participants = new ParticipantService(harness.db);
+  return {
+    connections,
+    service: new ConversationService(
+      harness.db,
+      participants,
+      connections,
+      () => policy,
+    ),
+    auth: new AuthService(harness.db),
+  };
+}
 
 function makeConn(connId: string, agentId: AgentId): MoltZapConnection {
   const auth: AuthenticatedContext = {
@@ -94,1107 +149,868 @@ function makeConn(connId: string, agentId: AgentId): MoltZapConnection {
   };
 }
 
-async function seedAgent(
-  authService: AuthService,
-  name: string,
-  ownerUserId?: string,
-): Promise<AgentId> {
-  const { agentId } = await Effect.runPromise(
-    authService.registerAgent({ name }, ownerUserId),
-  );
-  return agentId;
+function recordingConn(
+  connId: string,
+  agentId: AgentId,
+  sink: string[],
+): MoltZapConnection {
+  const auth: AuthenticatedContext = {
+    agentId,
+    agentStatus: "active",
+    ownerUserId: null,
+  };
+  return {
+    id: connId,
+    write: (raw) =>
+      Effect.sync(() => {
+        sink.push(raw);
+      }),
+    shutdown: noopShutdown,
+    auth,
+    lastPong: Date.now(),
+    conversationIds: new Set<string>(),
+    mutedConversations: new Set<string>(),
+    jsonRpcClient: unusedJsonRpcClient(),
+  };
 }
 
-/**
- * Phase 9b consumer-migration (sub-issue #460 round 3 R12+R13):
- * `conversations.task_id` and `tasks.tm_endpoint_address` are both
- * NOT NULL, and `ConversationService.create` requires a task id at
- * insert. Tests that previously called `service.create` directly now
- * mint a fresh task per call via this helper — the TM is the
- * initiator (matches `tasks/create` from a custom-TM caller).
- */
-async function seedTask(initiator: AgentId): Promise<TaskId> {
-  const row = await db
-    .insertInto("tasks")
-    .values({
-      initiator_agent_id: initiator,
-      status: "waiting",
-      tm_endpoint_address: `tm:agent:${initiator}`,
-    })
-    .returning("id")
-    .executeTakeFirstOrThrow();
-  return row.id;
+function seedAgent(auth: AuthService, name: string) {
+  return auth
+    .registerAgent({ name })
+    .pipe(Effect.map((registered) => registered.agentId));
 }
 
-/**
- * Wrap `ConversationService.create` so each test seeds a fresh
- * default-TM task and supplies its id without manual plumbing. The
- * helper preserves the wire-shape semantics of `ConversationsCreate`:
- * one task per conversation insert.
- */
-async function createConv(
-  service: ConversationService,
-  type: "dm" | "group",
-  name: string | undefined,
-  participants: AgentId[],
-  initiator: AgentId,
-) {
-  const taskId = await seedTask(initiator);
-  return Effect.runPromise(
-    service.create(
-      type,
-      name,
-      participants,
-      initiator,
-      Effect.succeed({ id: taskId }),
-    ),
-  );
+function seedOwnedAgent(auth: AuthService, name: string, ownerUserId: string) {
+  return auth
+    .registerAgent({ name }, ownerUserId)
+    .pipe(Effect.map((registered) => registered.agentId));
 }
 
-/** Exit-returning twin of {@link createConv} for failure-path tests. */
-async function createConvExit(
-  service: ConversationService,
-  type: "dm" | "group",
-  name: string | undefined,
-  participants: AgentId[],
-  initiator: AgentId,
-) {
-  const taskId = await seedTask(initiator);
-  return Effect.runPromiseExit(
-    service.create(
-      type,
-      name,
-      participants,
-      initiator,
-      Effect.succeed({ id: taskId }),
-    ),
-  );
-}
-
-/** Extract the wire metadata (code, message, data) of any tagged-error
- * class raised by the service. */
-interface WireFailure {
-  readonly code: number;
-  readonly message: string;
-  readonly data?: unknown;
-}
-function expectRpcFailure<A>(exit: Exit.Exit<A, unknown>): WireFailure {
-  if (Exit.isSuccess(exit)) {
-    throw new Error(
-      `Expected tagged failure, got success: ${JSON.stringify(exit.value)}`,
-    );
-  }
-  const failure = Cause.failureOption(exit.cause);
-  if (failure._tag !== "Some") {
-    throw new Error(
-      `Expected tagged failure, got: ${Cause.pretty(exit.cause)}`,
-    );
-  }
-  const wire = wireErrorFromInstance(failure.value);
-  if (wire === null) {
-    throw new Error(
-      `Expected wire-error class, got: ${JSON.stringify(failure.value)}`,
-    );
-  }
-  return wire;
-}
-
-describe("ConversationService.create auto-subscribes participants", () => {
-  beforeEach(freshDb, dbHookTimeoutMs);
-  afterEach(async () => {
-    await pglite?.close();
+function seedAliceBob(fx: Fixture) {
+  return Effect.all({
+    alice: seedAgent(fx.auth, "alice"),
+    bob: seedAgent(fx.auth, "bob"),
   });
+}
 
-  it("subscribes creator + every participant agent's open connections", async () => {
-    const connections = new ConnectionManager();
-    const participants = new ParticipantService(db);
-    const service = new ConversationService(db, participants, connections);
-    const authService = new AuthService(db);
+function seedAliceBobCarol(fx: Fixture) {
+  return Effect.all({
+    alice: seedAgent(fx.auth, "alice"),
+    bob: seedAgent(fx.auth, "bob"),
+    carol: seedAgent(fx.auth, "carol"),
+  });
+}
 
-    const alice = await seedAgent(authService, "alice");
-    const bob = await seedAgent(authService, "bob");
-    const carol = await seedAgent(authService, "carol");
+function seedOwnedAliceBob(fx: Fixture) {
+  return Effect.all({
+    alice: seedOwnedAgent(fx.auth, "alice", OWNER_ALICE),
+    bob: seedOwnedAgent(fx.auth, "bob", OWNER_BOB),
+  });
+}
 
+function seedOwnedAliceBobCarol(fx: Fixture) {
+  return Effect.all({
+    alice: seedOwnedAgent(fx.auth, "alice", OWNER_ALICE),
+    bob: seedOwnedAgent(fx.auth, "bob", OWNER_BOB),
+    carol: seedOwnedAgent(fx.auth, "carol", OWNER_CAROL),
+  });
+}
+
+function seedTask(initiator: AgentId): Effect.Effect<TaskId, unknown> {
+  return takeFirstOrFail(
+    harness.db
+      .insertInto("tasks")
+      .values({
+        initiator_agent_id: initiator,
+        status: "waiting",
+        tm_endpoint_address: `tm:agent:${initiator}`,
+      })
+      .returning("id"),
+  ).pipe(Effect.map((row) => row.id));
+}
+
+function createConversation(input: CreateConversationInput) {
+  return Effect.gen(function* () {
+    const taskId = yield* seedTask(input.initiator);
+    return yield* input.service.create(
+      input.type,
+      input.name,
+      input.participants,
+      input.initiator,
+      Effect.succeed({ id: taskId }),
+    );
+  });
+}
+
+function createConversationExit(input: CreateConversationInput) {
+  return Effect.gen(function* () {
+    const taskId = yield* seedTask(input.initiator);
+    return yield* Effect.exit(
+      input.service.create(
+        input.type,
+        input.name,
+        input.participants,
+        input.initiator,
+        Effect.succeed({ id: taskId }),
+      ),
+    );
+  });
+}
+
+function createDm(service: ConversationService, bob: AgentId, alice: AgentId) {
+  return createConversation({
+    service,
+    type: CONV_TYPE_DM,
+    name: undefined,
+    participants: [bob],
+    initiator: alice,
+  });
+}
+
+function createDmExit(
+  service: ConversationService,
+  bob: AgentId,
+  alice: AgentId,
+) {
+  return createConversationExit({
+    service,
+    type: CONV_TYPE_DM,
+    name: undefined,
+    participants: [bob],
+    initiator: alice,
+  });
+}
+
+function createNamedGroup(
+  service: ConversationService,
+  name: string,
+  participants: AgentId[],
+  initiator: AgentId,
+) {
+  return createConversation({
+    service,
+    type: CONV_TYPE_GROUP,
+    name,
+    participants,
+    initiator,
+  });
+}
+
+function createNamedGroupExit(
+  service: ConversationService,
+  name: string,
+  participants: AgentId[],
+  initiator: AgentId,
+) {
+  return createConversationExit({
+    service,
+    type: CONV_TYPE_GROUP,
+    name,
+    participants,
+    initiator,
+  });
+}
+
+function expectRpcFailure<A>(exit: Exit.Exit<A, unknown>): WireFailure {
+  expect(Exit.isFailure(exit)).toBe(true);
+  if (Exit.isSuccess(exit)) return { code: 0, message: "" };
+
+  const failure = Cause.failureOption(exit.cause);
+  expect(Option.isSome(failure)).toBe(true);
+  if (Option.isNone(failure)) return { code: 0, message: "" };
+
+  const wire = wireErrorFromInstance(failure.value);
+  expect(wire).not.toBeNull();
+  return wire ?? { code: 0, message: "" };
+}
+
+function participantAgentIds(conversationId: ConversationId) {
+  return harness.db
+    .selectFrom("conversation_participants")
+    .select("agent_id")
+    .where("conversation_id", "=", conversationId)
+    .pipe(Effect.map((rows) => rows.map((row) => row.agent_id).sort()));
+}
+
+function settleBroadcasts() {
+  return Effect.tryPromise({
+    try: () =>
+      new Promise<void>((resolve) => {
+        setTimeout(resolve, BROADCAST_SETTLE_MS);
+      }),
+    catch: (cause) => cause,
+  }).pipe(Effect.orDie);
+}
+
+function recordPolicyCall(
+  calls: Array<[string, string]>,
+  ownerA: string,
+  ownerB: string,
+  verdict: boolean,
+): boolean {
+  calls.push([ownerA, ownerB]);
+  return verdict;
+}
+
+function recordingPolicy(
+  calls: Array<[string, string]>,
+  verdict: boolean,
+): ContactPolicyCheck {
+  return (left, right) =>
+    Effect.sync(() => recordPolicyCall(calls, left, right, verdict));
+}
+
+function policyInvocationProperty() {
+  return Effect.sync(() => {
+    fc.assert(
+      fc.property(fc.uuid(), fc.uuid(), (ownerA, ownerB) => {
+        const calls: Array<[string, string]> = [];
+        const policy = recordingPolicy(calls, true);
+        expect(Effect.runSync(policy(ownerA, ownerB))).toBe(true);
+        expect(calls).toEqual([[ownerA, ownerB]]);
+      }),
+      { numRuns: PROPERTY_RUNS },
+    );
+  });
+}
+
+function subscribeCreatorAndParticipants() {
+  return Effect.gen(function* () {
+    const fx = makeFixture();
+    const { alice, bob, carol } = yield* seedAliceBobCarol(fx);
     const aliceConn = makeConn("c-alice", alice);
     const bobConn = makeConn("c-bob", bob);
     const carolConn = makeConn("c-carol", carol);
-    connections.add(aliceConn);
-    connections.add(bobConn);
-    connections.add(carolConn);
+    fx.connections.add(aliceConn);
+    fx.connections.add(bobConn);
+    fx.connections.add(carolConn);
 
-    const conv = await createConv(
-      service,
-      "group",
-      "planning",
+    const conv = yield* createNamedGroup(
+      fx.service,
+      PLANNING_NAME,
       [bob, carol],
       alice,
     );
-
     expect(aliceConn.conversationIds.has(conv.id)).toBe(true);
     expect(bobConn.conversationIds.has(conv.id)).toBe(true);
     expect(carolConn.conversationIds.has(conv.id)).toBe(true);
   });
+}
 
-  it("subscribes every socket of an agent that has multiple connections", async () => {
-    const connections = new ConnectionManager();
-    const participants = new ParticipantService(db);
-    const service = new ConversationService(db, participants, connections);
-    const authService = new AuthService(db);
-
-    const alice = await seedAgent(authService, "alice");
-    const bob = await seedAgent(authService, "bob");
-
-    const aliceConn = makeConn("c-alice", alice);
+function subscribesEverySocketForAgent() {
+  return Effect.gen(function* () {
+    const fx = makeFixture();
+    const { alice, bob } = yield* seedAliceBob(fx);
     const bob1 = makeConn("c-bob-1", bob);
     const bob2 = makeConn("c-bob-2", bob);
-    connections.add(aliceConn);
-    connections.add(bob1);
-    connections.add(bob2);
+    fx.connections.add(makeConn("c-alice", alice));
+    fx.connections.add(bob1);
+    fx.connections.add(bob2);
 
-    const conv = await createConv(service, "dm", undefined, [bob], alice);
-
+    const conv = yield* createDm(fx.service, bob, alice);
     expect(bob1.conversationIds.has(conv.id)).toBe(true);
     expect(bob2.conversationIds.has(conv.id)).toBe(true);
   });
+}
 
-  it("is a no-op for agents without any open connection", async () => {
-    const connections = new ConnectionManager();
-    const participants = new ParticipantService(db);
-    const service = new ConversationService(db, participants, connections);
-    const authService = new AuthService(db);
-
-    const alice = await seedAgent(authService, "alice");
-    const bob = await seedAgent(authService, "bob");
-
-    // Only alice is connected. Creating the DM with bob as participant
-    // should succeed + subscribe alice; bob just has no connection to touch.
+function createNoOpsForUnconnectedAgents() {
+  return Effect.gen(function* () {
+    const fx = makeFixture();
+    const { alice, bob } = yield* seedAliceBob(fx);
     const aliceConn = makeConn("c-alice", alice);
-    connections.add(aliceConn);
+    fx.connections.add(aliceConn);
 
-    const conv = await createConv(service, "dm", undefined, [bob], alice);
-
+    const conv = yield* createDm(fx.service, bob, alice);
     expect(aliceConn.conversationIds.has(conv.id)).toBe(true);
   });
-});
+}
 
-describe("ConversationService.addParticipant auto-subscribes the new member", () => {
-  beforeEach(freshDb, dbHookTimeoutMs);
-  afterEach(async () => {
-    await pglite?.close();
-  });
+function addParticipantSubscribesNewMember() {
+  return Effect.gen(function* () {
+    const fx = makeFixture();
+    const { alice, bob, carol } = yield* seedAliceBobCarol(fx);
+    fx.connections.add(makeConn("c-alice", alice));
+    fx.connections.add(makeConn("c-bob", bob));
 
-  it("subscribes the new participant's open sockets to the existing conversation", async () => {
-    const connections = new ConnectionManager();
-    const participants = new ParticipantService(db);
-    const service = new ConversationService(db, participants, connections);
-    const authService = new AuthService(db);
-
-    const alice = await seedAgent(authService, "alice");
-    const bob = await seedAgent(authService, "bob");
-    const carol = await seedAgent(authService, "carol");
-
-    // Alice creates a group with Bob. Carol isn't connected yet at create
-    // time — she joins the conversation later via addParticipant.
-    const aliceConn = makeConn("c-alice", alice);
-    const bobConn = makeConn("c-bob", bob);
-    connections.add(aliceConn);
-    connections.add(bobConn);
-
-    const conv = await createConv(service, "group", "planning", [bob], alice);
-
-    // Carol connects AFTER conversation creation.
+    const conv = yield* createNamedGroup(
+      fx.service,
+      PLANNING_NAME,
+      [bob],
+      alice,
+    );
     const carolConn = makeConn("c-carol", carol);
-    connections.add(carolConn);
+    fx.connections.add(carolConn);
     expect(carolConn.conversationIds.has(conv.id)).toBe(false);
 
-    await Effect.runPromise(service.addParticipant(conv.id, carol, alice));
-
+    yield* fx.service.addParticipant(conv.id, carol, alice);
     expect(carolConn.conversationIds.has(conv.id)).toBe(true);
   });
+}
 
-  it("is idempotent — re-adding an already-member agent does not duplicate", async () => {
-    const connections = new ConnectionManager();
-    const participants = new ParticipantService(db);
-    const service = new ConversationService(db, participants, connections);
-    const authService = new AuthService(db);
-
-    const alice = await seedAgent(authService, "alice");
-    const bob = await seedAgent(authService, "bob");
-
-    const aliceConn = makeConn("c-alice", alice);
+function addParticipantIsIdempotent() {
+  return Effect.gen(function* () {
+    const fx = makeFixture();
+    const { alice, bob } = yield* seedAliceBob(fx);
     const bobConn = makeConn("c-bob", bob);
-    connections.add(aliceConn);
-    connections.add(bobConn);
+    fx.connections.add(makeConn("c-alice", alice));
+    fx.connections.add(bobConn);
 
-    const conv = await createConv(service, "group", "team", [bob], alice);
-
+    const conv = yield* createNamedGroup(fx.service, TEAM_NAME, [bob], alice);
     const bobConvCountBefore = bobConn.conversationIds.size;
-    await Effect.runPromise(service.addParticipant(conv.id, bob, alice));
-
-    // Set semantics — still one copy of the conversationId.
+    yield* fx.service.addParticipant(conv.id, bob, alice);
     expect(bobConn.conversationIds.size).toBe(bobConvCountBefore);
     expect(bobConn.conversationIds.has(conv.id)).toBe(true);
   });
-});
+}
 
-/**
- * Regression for arena#372: archived DMs must not be reused by
- * conversations/create. Before this fix, `findExistingDm` returned any DM
- * between the two agents — including archived ones. After closeSession
- * archives a DM, the next conversations/create would hand back the archived
- * conversation, but messages/send rejects writes to archived conversations,
- * so the agent ended up with a "live" DM id it could never write to.
- */
-describe("ConversationService.create — archived DM lookup (issue #372)", () => {
-  beforeEach(freshDb, dbHookTimeoutMs);
-  afterEach(async () => {
-    await pglite?.close();
-  });
+function archivedDmCreatesFreshConversation() {
+  return Effect.gen(function* () {
+    const fx = makeFixture();
+    const { alice, bob } = yield* seedAliceBob(fx);
+    const first = yield* createDm(fx.service, bob, alice);
 
-  it("does not reuse an archived DM — creates a fresh conversation instead", async () => {
-    const connections = new ConnectionManager();
-    const participants = new ParticipantService(db);
-    const service = new ConversationService(db, participants, connections);
-    const authService = new AuthService(db);
-
-    const alice = await seedAgent(authService, "alice");
-    const bob = await seedAgent(authService, "bob");
-
-    // 1. Create a DM between alice and bob.
-    const first = await createConv(service, "dm", undefined, [bob], alice);
-
-    // 2. Archive it (alice is the creator/owner, so archive is permitted).
-    await Effect.runPromise(service.archive(first.id, alice));
-
-    // 3. Create a DM again with the same participants.
-    const second = await createConv(service, "dm", undefined, [bob], alice);
-
-    // 4. The new DM must be a fresh row — not the archived one.
+    yield* fx.service.archive(first.id, alice);
+    const second = yield* createDm(fx.service, bob, alice);
     expect(second.id).not.toBe(first.id);
   });
+}
 
-  it("still dedupes live DMs — repeat create returns the existing live DM", async () => {
-    // Positive guard: the archived_at filter must not over-filter and break
-    // the dedupe contract for live DMs. Without this guard, a future tweak
-    // that turns the filter into `archived_at IS NOT NULL` (or removes the
-    // EXISTS subqueries) would silently regress dedupe.
-    const connections = new ConnectionManager();
-    const participants = new ParticipantService(db);
-    const service = new ConversationService(db, participants, connections);
-    const authService = new AuthService(db);
-
-    const alice = await seedAgent(authService, "alice");
-    const bob = await seedAgent(authService, "bob");
-
-    const first = await createConv(service, "dm", undefined, [bob], alice);
-    const second = await createConv(service, "dm", undefined, [bob], alice);
-
+function liveDmDedupes() {
+  return Effect.gen(function* () {
+    const fx = makeFixture();
+    const { alice, bob } = yield* seedAliceBob(fx);
+    const first = yield* createDm(fx.service, bob, alice);
+    const second = yield* createDm(fx.service, bob, alice);
     expect(second.id).toBe(first.id);
   });
-});
+}
 
-/**
- * Regression for moltzap#361: direct conversation creation must consult
- * the contact policy. When `ConversationService.create("dm", ...)` ran
- * without the gate, two agents whose owners had no contact edge could
- * still open a DM (and `messages/send { to }` would auto-create one
- * through `createDmByAgentName`).
- *
- * The contact policy is exposed as a lazy resolver because in production
- * it is registered on AppHost AFTER ConversationService has been
- * constructed (`app.setContactService(...)` in `standalone.ts`). These
- * tests inject the resolver directly to keep the contract pinned at the
- * service boundary.
- */
-describe("ConversationService.create enforces contact policy on DMs", () => {
-  beforeEach(freshDb, dbHookTimeoutMs);
-  afterEach(async () => {
-    await pglite?.close();
-  });
-
-  it("denies DM creation when owners are not in contact (NotInContacts)", async () => {
+function deniesDmWhenOwnersNotInContact() {
+  return Effect.gen(function* () {
     const calls: Array<[string, string]> = [];
-    const policy = (a: string, b: string) =>
-      Effect.sync(() => {
-        calls.push([a, b]);
-        return false;
-      });
+    const policy = recordingPolicy(calls, false);
+    const fx = makeFixtureWithPolicy(policy);
+    const { alice, bob } = yield* seedOwnedAliceBob(fx);
 
-    const connections = new ConnectionManager();
-    const participants = new ParticipantService(db);
-    const service = new ConversationService(
-      db,
-      participants,
-      connections,
-      () => policy,
-    );
-    const authService = new AuthService(db);
-
-    const alice = await seedAgent(
-      authService,
-      "alice",
-      "00000000-0000-0000-0000-0000000000a1",
-    );
-    const bob = await seedAgent(
-      authService,
-      "bob",
-      "00000000-0000-0000-0000-0000000000b2",
-    );
-
-    const exit = await createConvExit(service, "dm", undefined, [bob], alice);
+    const exit = yield* createDmExit(fx.service, bob, alice);
     const failure = expectRpcFailure(exit);
-
     expect(failure.code).toBe(NotInContactsError.code);
-    expect(failure.message).toMatch(/contact policy/i);
-    expect(calls).toEqual([
-      [
-        "00000000-0000-0000-0000-0000000000a1",
-        "00000000-0000-0000-0000-0000000000b2",
-      ],
-    ]);
+    expect(failure.message).toMatch(CONTACT_POLICY_MESSAGE);
+    expect(calls).toEqual([[OWNER_ALICE, OWNER_BOB]]);
   });
+}
 
-  it("creates the DM when owners are in contact", async () => {
-    const policy = () => Effect.succeed(true);
-
-    const connections = new ConnectionManager();
-    const participants = new ParticipantService(db);
-    const service = new ConversationService(
-      db,
-      participants,
-      connections,
-      () => policy,
-    );
-    const authService = new AuthService(db);
-
-    const alice = await seedAgent(
-      authService,
-      "alice",
-      "00000000-0000-0000-0000-0000000000a1",
-    );
-    const bob = await seedAgent(
-      authService,
-      "bob",
-      "00000000-0000-0000-0000-0000000000b2",
-    );
-
+function createsDmWhenOwnersAreInContact() {
+  return Effect.gen(function* () {
+    const fx = makeFixtureWithPolicy(() => Effect.succeed(true));
+    const { alice, bob } = yield* seedOwnedAliceBob(fx);
     const aliceConn = makeConn("c-alice", alice);
     const bobConn = makeConn("c-bob", bob);
-    connections.add(aliceConn);
-    connections.add(bobConn);
+    fx.connections.add(aliceConn);
+    fx.connections.add(bobConn);
 
-    const conv = await createConv(service, "dm", undefined, [bob], alice);
-
-    expect(conv.type).toBe("dm");
+    const conv = yield* createDm(fx.service, bob, alice);
+    expect(conv.type).toBe(CONV_TYPE_DM);
     expect(aliceConn.conversationIds.has(conv.id)).toBe(true);
     expect(bobConn.conversationIds.has(conv.id)).toBe(true);
   });
+}
 
-  it("denies the DM when either agent has no owner_user_id", async () => {
-    const policy = () => Effect.succeed(true); // would allow if reached
-    const connections = new ConnectionManager();
-    const participants = new ParticipantService(db);
-    const service = new ConversationService(
-      db,
-      participants,
-      connections,
-      () => policy,
-    );
-    const authService = new AuthService(db);
-
-    // Alice has an owner; Bob is owner-less. The policy can't evaluate
-    // the edge → fail closed with NotInContacts (matches AppHost's
-    // checkIdentity stance for app-session admission).
-    const alice = await seedAgent(
-      authService,
-      "alice",
-      "00000000-0000-0000-0000-0000000000a1",
-    );
-    const bob = await seedAgent(authService, "bob");
-
-    const exit = await createConvExit(service, "dm", undefined, [bob], alice);
-    const failure = expectRpcFailure(exit);
-    expect(failure.code).toBe(NotInContactsError.code);
+function deniesDmWhenParticipantOwnerMissing() {
+  return Effect.gen(function* () {
+    const fx = makeFixtureWithPolicy(() => Effect.succeed(true));
+    const alice = yield* seedOwnedAgent(fx.auth, "alice", OWNER_ALICE);
+    const bob = yield* seedAgent(fx.auth, "bob");
+    const exit = yield* createDmExit(fx.service, bob, alice);
+    expect(expectRpcFailure(exit).code).toBe(NotInContactsError.code);
   });
+}
 
-  it("permits DMs when no policy is configured (default behavior preserved)", async () => {
-    const connections = new ConnectionManager();
-    const participants = new ParticipantService(db);
-    const service = new ConversationService(db, participants, connections);
-    const authService = new AuthService(db);
-
-    const alice = await seedAgent(authService, "alice");
-    const bob = await seedAgent(authService, "bob");
-
-    const conv = await createConv(service, "dm", undefined, [bob], alice);
-    expect(conv.type).toBe("dm");
+function permitsDmWhenNoPolicyConfigured() {
+  return Effect.gen(function* () {
+    const fx = makeFixture();
+    const { alice, bob } = yield* seedAliceBob(fx);
+    const conv = yield* createDm(fx.service, bob, alice);
+    expect(conv.type).toBe(CONV_TYPE_DM);
   });
+}
 
-  it("returns the existing DM without re-checking policy (idempotent)", async () => {
+function existingDmSkipsPolicyRecheck() {
+  return Effect.gen(function* () {
     const calls: Array<[string, string]> = [];
-    const policy = (a: string, b: string) =>
-      Effect.sync(() => {
-        calls.push([a, b]);
-        return true;
-      });
+    const policy = recordingPolicy(calls, true);
+    const fx = makeFixtureWithPolicy(policy);
+    const { alice, bob } = yield* seedOwnedAliceBob(fx);
 
-    const connections = new ConnectionManager();
-    const participants = new ParticipantService(db);
-    const service = new ConversationService(
-      db,
-      participants,
-      connections,
-      () => policy,
-    );
-    const authService = new AuthService(db);
-
-    const alice = await seedAgent(
-      authService,
-      "alice",
-      "00000000-0000-0000-0000-0000000000a1",
-    );
-    const bob = await seedAgent(
-      authService,
-      "bob",
-      "00000000-0000-0000-0000-0000000000b2",
-    );
-
-    const first = await createConv(service, "dm", undefined, [bob], alice);
-    const second = await createConv(service, "dm", undefined, [bob], alice);
-
+    const first = yield* createDm(fx.service, bob, alice);
+    const second = yield* createDm(fx.service, bob, alice);
     expect(second.id).toBe(first.id);
-    // Policy invoked exactly once — for the create that actually inserted.
     expect(calls.length).toBe(1);
   });
+}
 
-  // `createDmByAgentName` is the path `messages/send { to: "agent:<name>" }`
-  // takes when the caller passes an `agent:<name>` target instead of a
-  // known conversationId. It funnels through `create("dm", ...)` so the
-  // gate fires once — but pinning that contract here means a future
-  // refactor that bypasses `create()` (e.g. inlining the insert) can't
-  // silently drop the gate. Senior review (PR #378) called this out as
-  // missing coverage.
-  it("denies messages/send auto-DM when policy denies the edge", async () => {
-    const policy = (_a: string, _b: string) => Effect.succeed(false);
+function deniesAutoDmWhenPolicyDenies() {
+  return Effect.gen(function* () {
+    const fx = makeFixtureWithPolicy(() => Effect.succeed(false));
+    const alice = yield* seedOwnedAgent(fx.auth, "alice", OWNER_ALICE);
+    yield* seedOwnedAgent(fx.auth, "bob", OWNER_BOB);
 
-    const connections = new ConnectionManager();
-    const participants = new ParticipantService(db);
-    const service = new ConversationService(
-      db,
-      participants,
-      connections,
-      () => policy,
-    );
-    const authService = new AuthService(db);
-
-    const alice = await seedAgent(
-      authService,
-      "alice",
-      "00000000-0000-0000-0000-0000000000a1",
-    );
-    await seedAgent(authService, "bob", "00000000-0000-0000-0000-0000000000b2");
-
-    const dmTaskId = await seedTask(alice);
-    const exit = await Effect.runPromiseExit(
-      service.createDmByAgentName(
+    const dmTaskId = yield* seedTask(alice);
+    const exit = yield* Effect.exit(
+      fx.service.createDmByAgentName(
         "bob",
         alice,
         Effect.succeed({ id: dmTaskId }),
       ),
     );
-    const failure = expectRpcFailure(exit);
-    expect(failure.code).toBe(NotInContactsError.code);
+    expect(expectRpcFailure(exit).code).toBe(NotInContactsError.code);
   });
-});
+}
 
-/**
- * Group-creation gate (#361 cleanup pass): a creator cannot drop an
- * out-of-contact agent into a group conversation. The policy runs
- * pairwise — every (creator, member) edge must be allowed. Group members
- * are NOT transitively trusted; the creator is the requester for every
- * edge.
- */
-describe("ConversationService.create enforces contact policy on groups", () => {
-  beforeEach(freshDb, dbHookTimeoutMs);
-  afterEach(async () => {
-    await pglite?.close();
-  });
-
-  it("denies group creation when ANY (creator, member) edge fails", async () => {
+function deniesGroupWhenAnyEdgeFails() {
+  return Effect.gen(function* () {
     const calls: Array<[string, string]> = [];
-    // Allow alice⇄bob, deny alice⇄carol.
-    const policy = (a: string, b: string) =>
+    const policy: ContactPolicyCheck = (left, right) =>
       Effect.sync(() => {
-        calls.push([a, b]);
-        return b !== "00000000-0000-0000-0000-0000000000c3";
+        calls.push([left, right]);
+        return right !== OWNER_CAROL;
       });
+    const fx = makeFixtureWithPolicy(policy);
+    const { alice, bob, carol } = yield* seedOwnedAliceBobCarol(fx);
 
-    const connections = new ConnectionManager();
-    const participants = new ParticipantService(db);
-    const service = new ConversationService(
-      db,
-      participants,
-      connections,
-      () => policy,
-    );
-    const authService = new AuthService(db);
-
-    const alice = await seedAgent(
-      authService,
-      "alice",
-      "00000000-0000-0000-0000-0000000000a1",
-    );
-    const bob = await seedAgent(
-      authService,
-      "bob",
-      "00000000-0000-0000-0000-0000000000b2",
-    );
-    const carol = await seedAgent(
-      authService,
-      "carol",
-      "00000000-0000-0000-0000-0000000000c3",
-    );
-
-    const exit = await createConvExit(
-      service,
-      "group",
-      "planning",
+    const exit = yield* createNamedGroupExit(
+      fx.service,
+      PLANNING_NAME,
       [bob, carol],
       alice,
     );
-    const failure = expectRpcFailure(exit);
-    expect(failure.code).toBe(NotInContactsError.code);
-    // Policy was checked for both edges before the carol denial fired
-    // (fail-fast on the first deny; bob's edge ran first).
+    expect(expectRpcFailure(exit).code).toBe(NotInContactsError.code);
     expect(calls).toEqual([
-      [
-        "00000000-0000-0000-0000-0000000000a1",
-        "00000000-0000-0000-0000-0000000000b2",
-      ],
-      [
-        "00000000-0000-0000-0000-0000000000a1",
-        "00000000-0000-0000-0000-0000000000c3",
-      ],
+      [OWNER_ALICE, OWNER_BOB],
+      [OWNER_ALICE, OWNER_CAROL],
     ]);
   });
+}
 
-  it("creates the group when every (creator, member) edge is allowed", async () => {
-    const policy = () => Effect.succeed(true);
-    const connections = new ConnectionManager();
-    const participants = new ParticipantService(db);
-    const service = new ConversationService(
-      db,
-      participants,
-      connections,
-      () => policy,
-    );
-    const authService = new AuthService(db);
-
-    const alice = await seedAgent(
-      authService,
-      "alice",
-      "00000000-0000-0000-0000-0000000000a1",
-    );
-    const bob = await seedAgent(
-      authService,
-      "bob",
-      "00000000-0000-0000-0000-0000000000b2",
-    );
-    const carol = await seedAgent(
-      authService,
-      "carol",
-      "00000000-0000-0000-0000-0000000000c3",
-    );
-
-    const conv = await createConv(
-      service,
-      "group",
-      "planning",
+function createsGroupWhenEveryEdgeIsAllowed() {
+  return Effect.gen(function* () {
+    const fx = makeFixtureWithPolicy(() => Effect.succeed(true));
+    const { alice, bob, carol } = yield* seedOwnedAliceBobCarol(fx);
+    const conv = yield* createNamedGroup(
+      fx.service,
+      PLANNING_NAME,
       [bob, carol],
       alice,
     );
-    expect(conv.type).toBe("group");
-    expect(conv.name).toBe("planning");
+    expect(conv.type).toBe(CONV_TYPE_GROUP);
+    expect(conv.name).toBe(PLANNING_NAME);
   });
+}
 
-  it("denies the group when any member is owner-less (fail-closed)", async () => {
-    const policy = () => Effect.succeed(true);
-    const connections = new ConnectionManager();
-    const participants = new ParticipantService(db);
-    const service = new ConversationService(
-      db,
-      participants,
-      connections,
-      () => policy,
-    );
-    const authService = new AuthService(db);
-
-    const alice = await seedAgent(
-      authService,
-      "alice",
-      "00000000-0000-0000-0000-0000000000a1",
-    );
-    const bob = await seedAgent(
-      authService,
-      "bob",
-      "00000000-0000-0000-0000-0000000000b2",
-    );
-    // Carol has no owner.
-    const carol = await seedAgent(authService, "carol");
-
-    const exit = await createConvExit(
-      service,
-      "group",
-      "planning",
+function deniesGroupWhenMemberOwnerMissing() {
+  return Effect.gen(function* () {
+    const fx = makeFixtureWithPolicy(() => Effect.succeed(true));
+    const alice = yield* seedOwnedAgent(fx.auth, "alice", OWNER_ALICE);
+    const bob = yield* seedOwnedAgent(fx.auth, "bob", OWNER_BOB);
+    const carol = yield* seedAgent(fx.auth, "carol");
+    const exit = yield* createNamedGroupExit(
+      fx.service,
+      PLANNING_NAME,
       [bob, carol],
       alice,
     );
-    const failure = expectRpcFailure(exit);
-    expect(failure.code).toBe(NotInContactsError.code);
+    expect(expectRpcFailure(exit).code).toBe(NotInContactsError.code);
   });
-});
+}
 
-/**
- * `addParticipant` gate (#361 cleanup pass): an owner/admin cannot use
- * `conversations/addParticipant` as a side-channel to drag an
- * out-of-contact agent into the conversation. Symmetric with `create`
- * — every (requester, member) edge must be allowed.
- */
-describe("ConversationService.addParticipant enforces contact policy", () => {
-  beforeEach(freshDb, dbHookTimeoutMs);
-  afterEach(async () => {
-    await pglite?.close();
-  });
-
-  it("denies adding a participant when (requester, target) edge is denied", async () => {
-    // Phase 1: open policy so the group can be created.
+function deniesAddParticipantWhenPolicyDenies() {
+  return Effect.gen(function* () {
     let denying = false;
-    const policy = (_a: string, b: string) =>
-      Effect.sync(
-        () => !denying || b !== "00000000-0000-0000-0000-0000000000c3",
-      );
-
-    const connections = new ConnectionManager();
-    const participants = new ParticipantService(db);
-    const service = new ConversationService(
-      db,
-      participants,
-      connections,
-      () => policy,
-    );
-    const authService = new AuthService(db);
-
-    const alice = await seedAgent(
-      authService,
-      "alice",
-      "00000000-0000-0000-0000-0000000000a1",
-    );
-    const bob = await seedAgent(
-      authService,
-      "bob",
-      "00000000-0000-0000-0000-0000000000b2",
-    );
-    const carol = await seedAgent(
-      authService,
-      "carol",
-      "00000000-0000-0000-0000-0000000000c3",
+    const policy: ContactPolicyCheck = (_left, right) =>
+      Effect.sync(() => !denying || right !== OWNER_CAROL);
+    const fx = makeFixtureWithPolicy(policy);
+    const { alice, bob, carol } = yield* seedOwnedAliceBobCarol(fx);
+    const conv = yield* createNamedGroup(
+      fx.service,
+      PLANNING_NAME,
+      [bob],
+      alice,
     );
 
-    const conv = await createConv(service, "group", "planning", [bob], alice);
-
-    // Phase 2: now policy denies alice⇄carol.
     denying = true;
-    const exit = await Effect.runPromiseExit(
-      service.addParticipant(conv.id, carol, alice),
+    const exit = yield* Effect.exit(
+      fx.service.addParticipant(conv.id, carol, alice),
     );
-    const failure = expectRpcFailure(exit);
-    expect(failure.code).toBe(NotInContactsError.code);
+    expect(expectRpcFailure(exit).code).toBe(NotInContactsError.code);
   });
+}
 
-  it("permits addParticipant when policy allows the edge", async () => {
-    const policy = () => Effect.succeed(true);
-    const connections = new ConnectionManager();
-    const participants = new ParticipantService(db);
-    const service = new ConversationService(
-      db,
-      participants,
-      connections,
-      () => policy,
+function permitsAddParticipantWhenPolicyAllows() {
+  return Effect.gen(function* () {
+    const fx = makeFixtureWithPolicy(() => Effect.succeed(true));
+    const { alice, bob, carol } = yield* seedOwnedAliceBobCarol(fx);
+    const conv = yield* createNamedGroup(
+      fx.service,
+      PLANNING_NAME,
+      [bob],
+      alice,
     );
-    const authService = new AuthService(db);
-
-    const alice = await seedAgent(
-      authService,
-      "alice",
-      "00000000-0000-0000-0000-0000000000a1",
-    );
-    const bob = await seedAgent(
-      authService,
-      "bob",
-      "00000000-0000-0000-0000-0000000000b2",
-    );
-    const carol = await seedAgent(
-      authService,
-      "carol",
-      "00000000-0000-0000-0000-0000000000c3",
-    );
-
-    const conv = await createConv(service, "group", "planning", [bob], alice);
     const carolConn = makeConn("c-carol", carol);
-    connections.add(carolConn);
+    fx.connections.add(carolConn);
 
-    const participant = await Effect.runPromise(
-      service.addParticipant(conv.id, carol, alice),
-    );
+    const participant = yield* fx.service.addParticipant(conv.id, carol, alice);
     expect(participant.participant.id).toBe(carol);
     expect(carolConn.conversationIds.has(conv.id)).toBe(true);
   });
+}
 
-  it("denies addParticipant when either side has no owner_user_id", async () => {
-    const policy = () => Effect.succeed(true);
-    const connections = new ConnectionManager();
-    const participants = new ParticipantService(db);
-    const service = new ConversationService(
-      db,
-      participants,
-      connections,
-      () => policy,
+function deniesAddParticipantWhenOwnerMissing() {
+  return Effect.gen(function* () {
+    const fx = makeFixtureWithPolicy(() => Effect.succeed(true));
+    const alice = yield* seedOwnedAgent(fx.auth, "alice", OWNER_ALICE);
+    const bob = yield* seedOwnedAgent(fx.auth, "bob", OWNER_BOB);
+    const carol = yield* seedAgent(fx.auth, "carol");
+    const conv = yield* createNamedGroup(
+      fx.service,
+      PLANNING_NAME,
+      [bob],
+      alice,
     );
-    const authService = new AuthService(db);
 
-    const alice = await seedAgent(
-      authService,
-      "alice",
-      "00000000-0000-0000-0000-0000000000a1",
+    const exit = yield* Effect.exit(
+      fx.service.addParticipant(conv.id, carol, alice),
     );
-    const bob = await seedAgent(
-      authService,
-      "bob",
-      "00000000-0000-0000-0000-0000000000b2",
-    );
-    // Carol has no owner.
-    const carol = await seedAgent(authService, "carol");
-
-    const conv = await createConv(service, "group", "planning", [bob], alice);
-
-    const exit = await Effect.runPromiseExit(
-      service.addParticipant(conv.id, carol, alice),
-    );
-    const failure = expectRpcFailure(exit);
-    expect(failure.code).toBe(NotInContactsError.code);
+    expect(expectRpcFailure(exit).code).toBe(NotInContactsError.code);
   });
+}
 
-  it("permits addParticipant when no policy is configured", async () => {
-    const connections = new ConnectionManager();
-    const participants = new ParticipantService(db);
-    const service = new ConversationService(db, participants, connections);
-    const authService = new AuthService(db);
-
-    const alice = await seedAgent(authService, "alice");
-    const bob = await seedAgent(authService, "bob");
-    const carol = await seedAgent(authService, "carol");
-
-    const conv = await createConv(service, "group", "planning", [bob], alice);
-    const participant = await Effect.runPromise(
-      service.addParticipant(conv.id, carol, alice),
+function permitsAddParticipantWhenNoPolicyConfigured() {
+  return Effect.gen(function* () {
+    const fx = makeFixture();
+    const { alice, bob, carol } = yield* seedAliceBobCarol(fx);
+    const conv = yield* createNamedGroup(
+      fx.service,
+      PLANNING_NAME,
+      [bob],
+      alice,
     );
+    const participant = yield* fx.service.addParticipant(conv.id, carol, alice);
     expect(participant.participant.id).toBe(carol);
   });
-});
+}
 
-/**
- * Regression for moltzap#380 §1: `addParticipant` must explicitly reject
- * type='dm' conversations. The contact-policy gate landed in PR #387
- * covers the (requester, target) edge — but a DM owner who already shares
- * a contact edge with a third agent could still call addParticipant on
- * the DM and silently turn it into a 3-party row with type='dm'. The
- * protocol invariant is that DMs hold exactly two participants, full
- * stop. This test pins the rejection at the service boundary so a
- * future tweak that drops the type check (or moves it behind a flag)
- * fails loudly.
- */
-describe("ConversationService.addParticipant rejects DM conversations", () => {
-  beforeEach(freshDb, dbHookTimeoutMs);
-  afterEach(async () => {
-    await pglite?.close();
-  });
+function rejectsAddParticipantOnDm() {
+  return Effect.gen(function* () {
+    const fx = makeFixtureWithPolicy(() => Effect.succeed(true));
+    const { alice, bob, carol } = yield* seedOwnedAliceBobCarol(fx);
+    const dm = yield* createDm(fx.service, bob, alice);
+    expect(dm.type).toBe(CONV_TYPE_DM);
 
-  it("rejects addParticipant on a DM with InvalidParams; participants table unchanged", async () => {
-    // Open policy: alice⇄bob and alice⇄carol are both allowed. The DM
-    // rejection must still fire — the gate is the conversation type, not
-    // the contact edge.
-    const policy = () => Effect.succeed(true);
-
-    const connections = new ConnectionManager();
-    const participants = new ParticipantService(db);
-    const service = new ConversationService(
-      db,
-      participants,
-      connections,
-      () => policy,
-    );
-    const authService = new AuthService(db);
-
-    const alice = await seedAgent(
-      authService,
-      "alice",
-      "00000000-0000-0000-0000-0000000000a1",
-    );
-    const bob = await seedAgent(
-      authService,
-      "bob",
-      "00000000-0000-0000-0000-0000000000b2",
-    );
-    const carol = await seedAgent(
-      authService,
-      "carol",
-      "00000000-0000-0000-0000-0000000000c3",
-    );
-
-    // Alice creates a DM with Bob. Both are in contacts; the DM lands.
-    const dm = await createConv(service, "dm", undefined, [bob], alice);
-    expect(dm.type).toBe("dm");
-
-    // Alice tries to drag Carol into the DM. Policy would allow the
-    // edge — but the type='dm' gate fires first.
-    const exit = await Effect.runPromiseExit(
-      service.addParticipant(dm.id, carol, alice),
+    const exit = yield* Effect.exit(
+      fx.service.addParticipant(dm.id, carol, alice),
     );
     const failure = expectRpcFailure(exit);
     expect(failure.code).toBe(JSON_RPC_RESERVED_CODES.InvalidParams);
-    expect(failure.message).toMatch(/dm/i);
+    expect(failure.message).toMatch(DM_MESSAGE);
 
-    // Belt-and-suspenders: the database row is unchanged. Only Alice +
-    // Bob remain, and Carol was never inserted.
-    const rows = await Effect.runPromise(
-      db
-        .selectFrom("conversation_participants")
-        .select("agent_id")
-        .where("conversation_id", "=", dm.id),
-    );
-    const agentIds = rows.map((r) => r.agent_id).sort();
+    const agentIds = yield* participantAgentIds(dm.id);
     expect(agentIds).toEqual([alice, bob].sort());
   });
-});
+}
 
-/**
- * Prereq 2 (#525): authority gate moved from
- * `conversation_participants.role` to a hybrid creator-or-TM helper
- * (`requireConversationAdminAuthority`). These tests pin the new
- * shape: creator can update/archive/unarchive/add/remove on default
- * (non-app-bound) conversations; non-creator with the same membership
- * row is rejected; missing conversation collapses to ForbiddenError
- * (matching the pre-helper wire-error code on missing rows).
- */
-describe("ConversationService admin authority (creator gate)", () => {
-  beforeEach(freshDb, dbHookTimeoutMs);
-  afterEach(async () => {
-    await pglite?.close();
-  });
+function creatorCanUpdateNonCreatorDenied() {
+  return Effect.gen(function* () {
+    const fx = makeFixture();
+    const { alice, bob } = yield* seedAliceBob(fx);
+    const conv = yield* createNamedGroup(fx.service, TEAM_NAME, [bob], alice);
 
-  it("creator can update; non-creator member is denied", async () => {
-    const connections = new ConnectionManager();
-    const participants = new ParticipantService(db);
-    const service = new ConversationService(db, participants, connections);
-    const authService = new AuthService(db);
-
-    const alice = await seedAgent(authService, "alice");
-    const bob = await seedAgent(authService, "bob");
-    const conv = await createConv(service, "group", "team", [bob], alice);
-
-    await Effect.runPromise(service.update(conv.id, "renamed", alice));
-
-    const exit = await Effect.runPromiseExit(
-      service.update(conv.id, "by-bob", bob),
+    yield* fx.service.update(conv.id, RENAMED_NAME, alice);
+    const exit = yield* Effect.exit(
+      fx.service.update(conv.id, BOB_RENAME, bob),
     );
-    const failure = expectRpcFailure(exit);
-    expect(failure.code).toBe(ForbiddenError.code);
+    expect(expectRpcFailure(exit).code).toBe(ForbiddenError.code);
   });
+}
 
-  it("creator can archive + unarchive; non-creator member is denied", async () => {
-    const connections = new ConnectionManager();
-    const participants = new ParticipantService(db);
-    const service = new ConversationService(db, participants, connections);
-    const authService = new AuthService(db);
+function creatorCanArchiveNonCreatorDenied() {
+  return Effect.gen(function* () {
+    const fx = makeFixture();
+    const { alice, bob } = yield* seedAliceBob(fx);
+    const conv = yield* createNamedGroup(fx.service, TEAM_NAME, [bob], alice);
 
-    const alice = await seedAgent(authService, "alice");
-    const bob = await seedAgent(authService, "bob");
-    const conv = await createConv(service, "group", "team", [bob], alice);
-
-    await Effect.runPromise(service.archive(conv.id, alice));
-    await Effect.runPromise(service.unarchive(conv.id, alice));
-
-    const denyArchive = await Effect.runPromiseExit(
-      service.archive(conv.id, bob),
-    );
+    yield* fx.service.archive(conv.id, alice);
+    yield* fx.service.unarchive(conv.id, alice);
+    const denyArchive = yield* Effect.exit(fx.service.archive(conv.id, bob));
     expect(expectRpcFailure(denyArchive).code).toBe(ForbiddenError.code);
-
-    const denyUnarchive = await Effect.runPromiseExit(
-      service.unarchive(conv.id, bob),
+    const denyUnarchive = yield* Effect.exit(
+      fx.service.unarchive(conv.id, bob),
     );
     expect(expectRpcFailure(denyUnarchive).code).toBe(ForbiddenError.code);
   });
+}
 
-  it("creator can remove a participant; non-creator is denied", async () => {
-    const connections = new ConnectionManager();
-    const participants = new ParticipantService(db);
-    const service = new ConversationService(db, participants, connections);
-    const authService = new AuthService(db);
-
-    const alice = await seedAgent(authService, "alice");
-    const bob = await seedAgent(authService, "bob");
-    const carol = await seedAgent(authService, "carol");
-    const conv = await createConv(
-      service,
-      "group",
-      "team",
+function creatorCanRemoveParticipantNonCreatorDenied() {
+  return Effect.gen(function* () {
+    const fx = makeFixture();
+    const { alice, bob, carol } = yield* seedAliceBobCarol(fx);
+    const conv = yield* createNamedGroup(
+      fx.service,
+      TEAM_NAME,
       [bob, carol],
       alice,
     );
 
-    const denyByBob = await Effect.runPromiseExit(
-      service.removeParticipant(conv.id, carol, bob),
+    const denyByBob = yield* Effect.exit(
+      fx.service.removeParticipant(conv.id, carol, bob),
     );
     expect(expectRpcFailure(denyByBob).code).toBe(ForbiddenError.code);
+    yield* fx.service.removeParticipant(conv.id, carol, alice);
 
-    await Effect.runPromise(service.removeParticipant(conv.id, carol, alice));
-
-    const rows = await Effect.runPromise(
-      db
-        .selectFrom("conversation_participants")
-        .select("agent_id")
-        .where("conversation_id", "=", conv.id),
-    );
-    expect(rows.map((r) => r.agent_id).sort()).toEqual([alice, bob].sort());
+    const rows = yield* participantAgentIds(conv.id);
+    expect(rows).toEqual([alice, bob].sort());
   });
+}
 
-  it("missing conversation collapses to ForbiddenError (not NotFoundError)", async () => {
-    const connections = new ConnectionManager();
-    const participants = new ParticipantService(db);
-    const service = new ConversationService(db, participants, connections);
-    const authService = new AuthService(db);
-    const alice = await seedAgent(authService, "alice");
-
-    const fakeConvId = makeConversationId(
-      "00000000-0000-4000-8000-00000000dead",
-    );
-
-    const exit = await Effect.runPromiseExit(
-      service.update(fakeConvId, "x", alice),
+function missingConversationCollapsesToForbidden() {
+  return Effect.gen(function* () {
+    const fx = makeFixture();
+    const alice = yield* seedAgent(fx.auth, "alice");
+    const exit = yield* Effect.exit(
+      fx.service.update(MISSING_CONVERSATION_ID, MISSING_UPDATE_NAME, alice),
     );
     expect(expectRpcFailure(exit).code).toBe(ForbiddenError.code);
   });
-});
+}
 
-/**
- * Prereq 2 (#525) §4b/§4c: addParticipant/removeParticipant fan out
- * `participants/added` and `participants/removed` notifications and
- * (on remove) clear the removed agent's per-connection conversation
- * subscription set.
- */
-describe("ConversationService participant fan-out", () => {
-  beforeEach(freshDb, dbHookTimeoutMs);
-  afterEach(async () => {
-    await pglite?.close();
-  });
-
-  function recordingConn(
-    connId: string,
-    agentId: AgentId,
-    sink: string[],
-  ): MoltZapConnection {
-    const auth: AuthenticatedContext = {
-      agentId,
-      agentStatus: "active",
-      ownerUserId: null,
-    };
-    return {
-      id: connId,
-      write: (raw) => Effect.sync(() => void sink.push(raw)),
-      shutdown: noopShutdown,
-      auth,
-      lastPong: Date.now(),
-      conversationIds: new Set<string>(),
-      mutedConversations: new Set<string>(),
-      jsonRpcClient: unusedJsonRpcClient(),
-    };
-  }
-
-  it("addParticipant fires participants/added to every post-insert participant", async () => {
-    const connections = new ConnectionManager();
-    const participants = new ParticipantService(db);
-    const service = new ConversationService(db, participants, connections);
-    const authService = new AuthService(db);
-
-    const alice = await seedAgent(authService, "alice");
-    const bob = await seedAgent(authService, "bob");
-    const carol = await seedAgent(authService, "carol");
-
+function addParticipantFansOutAddedNotification() {
+  return Effect.gen(function* () {
+    const fx = makeFixture();
+    const { alice, bob, carol } = yield* seedAliceBobCarol(fx);
     const aliceSink: string[] = [];
     const bobSink: string[] = [];
     const carolSink: string[] = [];
-    connections.add(recordingConn("c-alice", alice, aliceSink));
-    connections.add(recordingConn("c-bob", bob, bobSink));
+    fx.connections.add(recordingConn("c-alice", alice, aliceSink));
+    fx.connections.add(recordingConn("c-bob", bob, bobSink));
 
-    const conv = await createConv(service, "group", "team", [bob], alice);
+    const conv = yield* createNamedGroup(fx.service, TEAM_NAME, [bob], alice);
     aliceSink.length = 0;
     bobSink.length = 0;
-    connections.add(recordingConn("c-carol", carol, carolSink));
+    fx.connections.add(recordingConn("c-carol", carol, carolSink));
 
-    await Effect.runPromise(service.addParticipant(conv.id, carol, alice));
-    // Yield to the runFork-scheduled writes.
-    await new Promise((resolve) => setTimeout(resolve, BROADCAST_SETTLE_MS));
+    yield* fx.service.addParticipant(conv.id, carol, alice);
+    yield* settleBroadcasts();
 
-    const expectedFragment = '"method":"participants/added"';
-    expect(aliceSink.some((f) => f.includes(expectedFragment))).toBe(true);
-    expect(bobSink.some((f) => f.includes(expectedFragment))).toBe(true);
-    expect(carolSink.some((f) => f.includes(expectedFragment))).toBe(true);
+    expect(
+      aliceSink.some((frame) => frame.includes(PARTICIPANTS_ADDED_FRAGMENT)),
+    ).toBe(true);
+    expect(
+      bobSink.some((frame) => frame.includes(PARTICIPANTS_ADDED_FRAGMENT)),
+    ).toBe(true);
+    expect(
+      carolSink.some((frame) => frame.includes(PARTICIPANTS_ADDED_FRAGMENT)),
+    ).toBe(true);
   });
+}
 
-  it("removeParticipant fires participants/removed to the snapshot list AND clears the removed agent's conn.conversationIds", async () => {
-    const connections = new ConnectionManager();
-    const participants = new ParticipantService(db);
-    const service = new ConversationService(db, participants, connections);
-    const authService = new AuthService(db);
-
-    const alice = await seedAgent(authService, "alice");
-    const bob = await seedAgent(authService, "bob");
-    const carol = await seedAgent(authService, "carol");
-
+function removeParticipantFansOutAndClearsSubscription() {
+  return Effect.gen(function* () {
+    const fx = makeFixture();
+    const { alice, bob, carol } = yield* seedAliceBobCarol(fx);
     const aliceSink: string[] = [];
     const bobSink: string[] = [];
     const carolSink: string[] = [];
-    const aliceConn = recordingConn("c-alice", alice, aliceSink);
-    const bobConn = recordingConn("c-bob", bob, bobSink);
     const carolConn = recordingConn("c-carol", carol, carolSink);
-    connections.add(aliceConn);
-    connections.add(bobConn);
-    connections.add(carolConn);
+    fx.connections.add(recordingConn("c-alice", alice, aliceSink));
+    fx.connections.add(recordingConn("c-bob", bob, bobSink));
+    fx.connections.add(carolConn);
 
-    const conv = await createConv(
-      service,
-      "group",
-      "team",
+    const conv = yield* createNamedGroup(
+      fx.service,
+      TEAM_NAME,
       [bob, carol],
       alice,
     );
     expect(carolConn.conversationIds.has(conv.id)).toBe(true);
-
     aliceSink.length = 0;
     bobSink.length = 0;
     carolSink.length = 0;
 
-    await Effect.runPromise(service.removeParticipant(conv.id, carol, alice));
-    await new Promise((resolve) => setTimeout(resolve, BROADCAST_SETTLE_MS));
+    yield* fx.service.removeParticipant(conv.id, carol, alice);
+    yield* settleBroadcasts();
 
-    const expectedFragment = '"method":"participants/removed"';
-    expect(aliceSink.some((f) => f.includes(expectedFragment))).toBe(true);
-    expect(bobSink.some((f) => f.includes(expectedFragment))).toBe(true);
-    // Removed agent receives the notification too — broadcast happens
-    // BEFORE the conn.conversationIds cleanup.
-    expect(carolSink.some((f) => f.includes(expectedFragment))).toBe(true);
-    // Cleanup: the removed agent's connection no longer holds the
-    // conversation in its subscription set.
+    expect(
+      aliceSink.some((frame) => frame.includes(PARTICIPANTS_REMOVED_FRAGMENT)),
+    ).toBe(true);
+    expect(
+      bobSink.some((frame) => frame.includes(PARTICIPANTS_REMOVED_FRAGMENT)),
+    ).toBe(true);
+    expect(
+      carolSink.some((frame) => frame.includes(PARTICIPANTS_REMOVED_FRAGMENT)),
+    ).toBe(true);
     expect(carolConn.conversationIds.has(conv.id)).toBe(false);
   });
+}
+
+describe("ConversationService.create auto-subscribes participants", () => {
+  useHarnessLifecycle();
+
+  it(
+    "subscribes creator + every participant agent's open connections",
+    subscribeCreatorAndParticipants,
+  );
+  it(
+    "subscribes every socket of an agent that has multiple connections",
+    subscribesEverySocketForAgent,
+  );
+  it(
+    "is a no-op for agents without any open connection",
+    createNoOpsForUnconnectedAgents,
+  );
+});
+
+describe("ConversationService.addParticipant auto-subscribes the new member", () => {
+  useHarnessLifecycle();
+
+  it(
+    "subscribes the new participant's open sockets to the existing conversation",
+    addParticipantSubscribesNewMember,
+  );
+  it(
+    "is idempotent: re-adding an already-member agent does not duplicate",
+    addParticipantIsIdempotent,
+  );
+});
+
+describe("ConversationService.create archived DM lookup", () => {
+  useHarnessLifecycle();
+
+  it(
+    "does not reuse an archived DM; creates a fresh conversation instead",
+    archivedDmCreatesFreshConversation,
+  );
+  it("still dedupes live DMs", liveDmDedupes);
+});
+
+describe("ConversationService.create contact policy on DMs", () => {
+  useHarnessLifecycle();
+
+  it(
+    "denies DM creation when owners are not in contact",
+    deniesDmWhenOwnersNotInContact,
+  );
+  it(
+    "creates the DM when owners are in contact",
+    createsDmWhenOwnersAreInContact,
+  );
+  it(
+    "denies the DM when either agent has no owner_user_id",
+    deniesDmWhenParticipantOwnerMissing,
+  );
+  it(
+    "permits DMs when no policy is configured",
+    permitsDmWhenNoPolicyConfigured,
+  );
+  it(
+    "returns the existing DM without re-checking policy",
+    existingDmSkipsPolicyRecheck,
+  );
+  it(
+    "denies messages/send auto-DM when policy denies the edge",
+    deniesAutoDmWhenPolicyDenies,
+  );
+  it(
+    "invokes contact policy with the ordered owner pair",
+    policyInvocationProperty,
+  );
+});
+
+describe("ConversationService.create contact policy on groups", () => {
+  useHarnessLifecycle();
+
+  it(
+    "denies group creation when any creator/member edge fails",
+    deniesGroupWhenAnyEdgeFails,
+  );
+  it(
+    "creates the group when every creator/member edge is allowed",
+    createsGroupWhenEveryEdgeIsAllowed,
+  );
+  it(
+    "denies the group when any member is owner-less",
+    deniesGroupWhenMemberOwnerMissing,
+  );
+});
+
+describe("ConversationService.addParticipant contact policy", () => {
+  useHarnessLifecycle();
+
+  it(
+    "denies adding a participant when requester/target edge is denied",
+    deniesAddParticipantWhenPolicyDenies,
+  );
+  it(
+    "permits addParticipant when policy allows the edge",
+    permitsAddParticipantWhenPolicyAllows,
+  );
+  it(
+    "denies addParticipant when either side has no owner_user_id",
+    deniesAddParticipantWhenOwnerMissing,
+  );
+  it(
+    "permits addParticipant when no policy is configured",
+    permitsAddParticipantWhenNoPolicyConfigured,
+  );
+  it(
+    "invokes contact policy with the ordered owner pair",
+    policyInvocationProperty,
+  );
+});
+
+describe("ConversationService.addParticipant rejects DM conversations", () => {
+  useHarnessLifecycle();
+
+  it(
+    "rejects addParticipant on a DM with InvalidParams and leaves participants unchanged",
+    rejectsAddParticipantOnDm,
+  );
+});
+
+describe("ConversationService admin authority", () => {
+  useHarnessLifecycle();
+
+  it(
+    "creator can update; non-creator member is denied",
+    creatorCanUpdateNonCreatorDenied,
+  );
+  it(
+    "creator can archive + unarchive; non-creator member is denied",
+    creatorCanArchiveNonCreatorDenied,
+  );
+  it(
+    "creator can remove a participant; non-creator is denied",
+    creatorCanRemoveParticipantNonCreatorDenied,
+  );
+  it(
+    "missing conversation collapses to ForbiddenError",
+    missingConversationCollapsesToForbidden,
+  );
+  it(
+    "invokes contact policy with the ordered owner pair",
+    policyInvocationProperty,
+  );
+});
+
+describe("ConversationService participant fan-out", () => {
+  useHarnessLifecycle();
+
+  it(
+    "addParticipant fires participants/added to every post-insert participant",
+    addParticipantFansOutAddedNotification,
+    PGLITE_HOOK_TIMEOUT_MS,
+  );
+  it(
+    "removeParticipant fires participants/removed and clears removed agent subscriptions",
+    removeParticipantFansOutAndClearsSubscription,
+    PGLITE_HOOK_TIMEOUT_MS,
+  );
 });

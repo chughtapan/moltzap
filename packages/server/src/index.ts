@@ -5,7 +5,6 @@ export { createCoreApp } from "./app/server.js";
 export type { CoreConfig, CoreApp } from "./app/types.js";
 
 export type { AgentId, UserId, ConversationId } from "./app/types.js";
-export { AppId } from "./app/types.js";
 
 // AppHost
 export { AppHost } from "./app/app-host.js";
@@ -38,11 +37,7 @@ export type { WebhookError } from "./adapters/webhook.js";
 
 // Config
 export { loadConfigFromFile, ConfigLoadError } from "./config/loader.js";
-export {
-  validateConfig,
-  formatConfigErrors,
-  MoltZapConfigSchema,
-} from "./config/schema.js";
+export { validateConfig, formatConfigErrors } from "./config/schema.js";
 export type { MoltZapConfig, ConfigError } from "./config/schema.js";
 export {
   RuntimeConfigSurfaceError,
@@ -131,8 +126,6 @@ export {
   generateInviteToken,
   isValidApiKeyFormat,
 } from "./identity/services/agent-auth.js";
-export { logger } from "./logger.js";
-export type { Logger } from "./logger.js";
 export { nextSnowflakeId, snowflakeToTimestamp } from "./db/snowflake.js";
 export { generateDek, wrapKey, unwrapKey } from "./crypto/envelope.js";
 export {
