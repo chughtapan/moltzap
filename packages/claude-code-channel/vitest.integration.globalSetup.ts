@@ -11,182 +11,294 @@
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { randomInt } from "node:crypto";
+import { execPath } from "node:process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { performance } from "node:perf_hooks";
-import { setTimeout as delay } from "node:timers/promises";
+import {
+  FetchHttpClient,
+  FileSystem,
+  HttpClient,
+  HttpClientRequest,
+} from "@effect/platform";
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
+import {
+  registerAgent as registerClientAgent,
+  type RegisterResponse,
+} from "@moltzap/client";
+import { Config, ConfigProvider, Data, Duration, Effect } from "effect";
 import type { GlobalSetupContext } from "vitest/node";
 
 const DEFAULT_READY_TIMEOUT_MS = 180_000;
 const PROBE_TIMEOUT_MS = 1_000;
 const PROBE_DELAY_MS = 100;
+const STOP_TIMEOUT_MS = 5_000;
+const MIN_TEST_PORT = 41_990;
+const MAX_TEST_PORT_EXCLUSIVE = 42_240;
+const TEMP_DIR_PREFIX = "ccc-integration-";
+const READY_TIMEOUT_CONFIG = "CLAUDE_CODE_CHANNEL_INTEGRATION_READY_TIMEOUT_MS";
 
 let child: ChildProcess | null = null;
 let tempDir: string | null = null;
+
+class IntegrationSetupError extends Data.TaggedError(
+  "ClaudeCodeChannelIntegrationSetupError",
+)<{
+  readonly operation: string;
+  readonly cause: unknown;
+}> {}
 
 type ChildExit = {
   readonly code: number | null;
   readonly signal: NodeJS.Signals | null;
 };
 
-function pickPort(): number {
-  // 41990-42240 band per spike-182.
-  return 41990 + Math.floor(Math.random() * 250);
+type OutputCapture = {
+  stdout: string;
+  stderr: string;
+};
+
+type StandaloneProcess = {
+  readonly child: ChildProcess;
+  readonly output: OutputCapture;
+  readonly getExit: () => ChildExit | null;
+};
+
+export default function ({ provide }: GlobalSetupContext) {
+  return Effect.runPromise(setupIntegrationTests(provide));
 }
 
-function readReadyTimeoutMs(): number {
-  const parsed = Number(
-    process.env.CLAUDE_CODE_CHANNEL_INTEGRATION_READY_TIMEOUT_MS,
+function setupIntegrationTests(provide: GlobalSetupContext["provide"]) {
+  return Effect.gen(function* () {
+    const port = pickPort();
+    const paths = yield* makeStandalonePaths(port);
+    const standalone = yield* startStandalone(paths, port);
+    const baseUrl = `http://localhost:${port}`;
+    yield* waitForStandaloneReady(standalone, baseUrl);
+    const [agentA, agentB] = yield* Effect.all(
+      [
+        registerClientAgent(baseUrl, "channel-agent-a"),
+        registerClientAgent(baseUrl, "peer-agent-b"),
+      ],
+      { concurrency: 2 },
+    );
+    provideIntegrationValues(provide, port, agentA, agentB);
+    return () => Effect.runPromise(teardownIntegrationTests());
+  }).pipe(
+    Effect.provide(FetchHttpClient.layer),
+    Effect.provide(NodeFileSystem.layer),
   );
-  return Number.isFinite(parsed) && parsed > 0
-    ? parsed
-    : DEFAULT_READY_TIMEOUT_MS;
 }
+
+function pickPort(): number {
+  return randomInt(MIN_TEST_PORT, MAX_TEST_PORT_EXCLUSIVE);
+}
+
+function readReadyTimeoutMs(): Effect.Effect<number> {
+  return Config.integer(READY_TIMEOUT_CONFIG).pipe(
+    Effect.withConfigProvider(ConfigProvider.fromEnv()),
+    Effect.map((value) => (value > 0 ? value : DEFAULT_READY_TIMEOUT_MS)),
+    Effect.orElseSucceed(() => DEFAULT_READY_TIMEOUT_MS),
+  );
+}
+
+function makeStandalonePaths(port: number): Effect.Effect<
+  {
+    readonly moltzapRoot: string;
+    readonly standalone: string;
+    readonly configPath: string;
+  },
+  IntegrationSetupError,
+  FileSystem.FileSystem
+> {
+  return Effect.gen(function* () {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const moltzapRoot = resolve(here, "..", "..");
+    const standalone = join(
+      moltzapRoot,
+      "packages",
+      "server",
+      "dist",
+      "standalone.js",
+    );
+    const fileSystem = yield* FileSystem.FileSystem;
+    const dir = yield* fileSystem
+      .makeTempDirectory({ prefix: TEMP_DIR_PREFIX })
+      .pipe(
+        Effect.mapError((cause) =>
+          setupError("create temp config directory", cause),
+        ),
+      );
+    tempDir = dir;
+    const configPath = join(dir, "moltzap.yaml");
+    yield* fileSystem
+      .writeFileString(configPath, configBody(port))
+      .pipe(
+        Effect.mapError((cause) =>
+          setupError("write standalone config", cause),
+        ),
+      );
+    return { moltzapRoot, standalone, configPath };
+  });
+}
+
+function configBody(port: number): string {
+  return `server:\n  port: ${port}\n  cors_origins: ["*"]\nlog_level: warn\n`;
+}
+
+function startStandalone(
+  paths: {
+    readonly moltzapRoot: string;
+    readonly standalone: string;
+    readonly configPath: string;
+  },
+  port: number,
+): Effect.Effect<StandaloneProcess, IntegrationSetupError> {
+  return Effect.try({
+    try: () => {
+      const output: OutputCapture = { stdout: "", stderr: "" };
+      let childExit: ChildExit | null = null;
+      const spawned = spawn(execPath, [paths.standalone], {
+        cwd: paths.moltzapRoot,
+        env: standaloneEnv(paths.configPath, port),
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      child = spawned;
+      spawned.stdout?.on("data", (data: Buffer) => {
+        output.stdout += data.toString();
+      });
+      spawned.stderr?.on("data", (data: Buffer) => {
+        output.stderr += data.toString();
+      });
+      spawned.once("exit", (code, signal) => {
+        childExit = { code, signal };
+      });
+      return { child: spawned, output, getExit: () => childExit };
+    },
+    catch: (cause) =>
+      new IntegrationSetupError({ operation: "spawn standalone", cause }),
+  });
+}
+
+function standaloneEnv(configPath: string, port: number): NodeJS.ProcessEnv {
+  return {
+    MOLTZAP_CONFIG: configPath,
+    MOLTZAP_DEV_MODE: "true",
+    PORT: String(port),
+    ENCRYPTION_MASTER_SECRET: "a".repeat(44),
+  };
+}
+
+function waitForStandaloneReady(
+  standalone: StandaloneProcess,
+  baseUrl: string,
+): Effect.Effect<void, IntegrationSetupError> {
+  return Effect.gen(function* () {
+    const readyTimeoutMs = yield* readReadyTimeoutMs();
+    const deadline = performance.now() + readyTimeoutMs;
+    while (performance.now() < deadline) {
+      yield* failIfExited(standalone);
+      if (yield* probeReady(baseUrl)) return;
+      yield* Effect.sleep(`${PROBE_DELAY_MS} millis`);
+    }
+    standalone.child.kill("SIGKILL");
+    return yield* Effect.fail(
+      setupError(
+        "wait for standalone readiness",
+        `moltzap standalone did not become ready within ${readyTimeoutMs}ms. ${standaloneOutput(standalone.output)}`,
+      ),
+    );
+  });
+}
+
+function failIfExited(
+  standalone: StandaloneProcess,
+): Effect.Effect<void, IntegrationSetupError> {
+  const childExit = standalone.getExit();
+  return childExit === null
+    ? Effect.void
+    : Effect.fail(
+        setupError(
+          "wait for standalone readiness",
+          `moltzap standalone exited before readiness (code=${childExit.code}, signal=${childExit.signal}). ${standaloneOutput(standalone.output)}`,
+        ),
+      );
+}
+
+function probeReady(
+  baseUrl: string,
+): Effect.Effect<boolean, never, HttpClient.HttpClient> {
+  return HttpClient.HttpClient.pipe(
+    Effect.flatMap((client) =>
+      client.execute(
+        HttpClientRequest.options(`${baseUrl}/api/v1/auth/register`),
+      ),
+    ),
+    Effect.timeoutTo({
+      duration: Duration.millis(PROBE_TIMEOUT_MS),
+      onSuccess: (response) => response.status < 500,
+      onTimeout: () => false,
+    }),
+    Effect.catchAll(() => Effect.succeed(false)),
+  );
+}
+
+function provideIntegrationValues(
+  provide: GlobalSetupContext["provide"],
+  port: number,
+  agentA: RegisterResponse,
+  agentB: RegisterResponse,
+): void {
+  provide("moltzapBaseUrl", `http://localhost:${port}`);
+  provide("moltzapWsUrl", `ws://localhost:${port}`);
+  provide("agentAAgentId", agentA.agentId);
+  provide("agentAApiKey", agentA.apiKey);
+  provide("agentBAgentId", agentB.agentId);
+  provide("agentBApiKey", agentB.apiKey);
+}
+
+function teardownIntegrationTests(): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    const current = child;
+    child = null;
+    if (current !== null) yield* stopChild(current);
+    yield* removeTempDir;
+  }).pipe(Effect.provide(NodeFileSystem.layer), Effect.ignore);
+}
+
+function stopChild(process: ChildProcess): Effect.Effect<void> {
+  return Effect.async<void>((resume) => {
+    const timer = setTimeout(() => {
+      process.kill("SIGKILL");
+      resume(Effect.void);
+    }, STOP_TIMEOUT_MS);
+    process.once("exit", () => {
+      clearTimeout(timer);
+      resume(Effect.void);
+    });
+    process.kill("SIGTERM");
+  });
+}
+
+const removeTempDir: Effect.Effect<void, unknown, FileSystem.FileSystem> =
+  Effect.gen(function* () {
+    const current = tempDir;
+    tempDir = null;
+    if (current === null) return;
+    const fileSystem = yield* FileSystem.FileSystem;
+    yield* fileSystem.remove(current, { recursive: true, force: true });
+  });
 
 function tail(text: string): string {
   const lines = text.split("\n").filter((line) => line.length > 0);
   return lines.slice(-20).join("\n");
 }
 
-function standaloneOutput(stdout: string, stderr: string): string {
-  return `stdout tail:\n${tail(stdout)}\nstderr tail:\n${tail(stderr)}`;
+function standaloneOutput(output: OutputCapture): string {
+  return `stdout tail:\n${tail(output.stdout)}\nstderr tail:\n${tail(output.stderr)}`;
 }
 
-async function registerAgent(
-  baseUrl: string,
-  name: string,
-): Promise<{ agentId: string; apiKey: string }> {
-  const r = await fetch(`${baseUrl}/api/v1/auth/register`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ name }),
-  });
-  const text = await r.text();
-  if (!r.ok) {
-    throw new Error(`register ${name}: ${r.status} ${text}`);
-  }
-  const json = JSON.parse(text) as { agentId: string; apiKey: string };
-  if (!json.agentId || !json.apiKey) {
-    throw new Error(`register ${name}: missing agentId/apiKey in ${text}`);
-  }
-  return json;
-}
-
-export default async function ({ provide }: GlobalSetupContext) {
-  // Locate the built standalone.js relative to this package.
-  const here = dirname(fileURLToPath(import.meta.url));
-  const moltzapRoot = resolve(here, "..", "..");
-  const standalone = join(
-    moltzapRoot,
-    "packages",
-    "server",
-    "dist",
-    "standalone.js",
-  );
-
-  tempDir = mkdtempSync(join(tmpdir(), "ccc-integration-"));
-  const configPath = join(tempDir, "moltzap.yaml");
-  const port = pickPort();
-  writeFileSync(
-    configPath,
-    `server:\n  port: ${port}\n  cors_origins: ["*"]\nlog_level: warn\n`,
-    "utf8",
-  );
-
-  const baseUrl = `http://localhost:${port}`;
-  const wsUrl = `ws://localhost:${port}`;
-
-  let stdout = "";
-  let stderr = "";
-  let childExit: ChildExit | null = null;
-  child = spawn("node", [standalone], {
-    cwd: moltzapRoot,
-    env: {
-      ...process.env,
-      MOLTZAP_CONFIG: configPath,
-      // `MOLTZAP_DEV_MODE=true` makes `DATABASE_URL` optional; empty URL
-      // triggers embedded PGlite (standalone.ts:319). Required because
-      // DATABASE_URL is otherwise mandatory outside dev-mode and we have
-      // no external Postgres in CI.
-      MOLTZAP_DEV_MODE: "true",
-      PORT: String(port),
-      ENCRYPTION_MASTER_SECRET: "a".repeat(44),
-    },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  child.stdout?.on("data", (d: Buffer) => {
-    stdout += d.toString();
-  });
-  child.stderr?.on("data", (d: Buffer) => {
-    stderr += d.toString();
-  });
-  child.once("exit", (code, signal) => {
-    childExit = { code, signal };
-  });
-
-  // Poll `/api/v1/auth/register` with OPTIONS until ≥200 < 500 (server up).
-  const t0 = performance.now();
-  const readyTimeoutMs = readReadyTimeoutMs();
-  const deadline = t0 + readyTimeoutMs;
-  let ready = false;
-  while (performance.now() < deadline) {
-    if (childExit !== null) {
-      throw new Error(
-        `moltzap standalone exited before readiness (code=${childExit.code}, signal=${childExit.signal}). ${standaloneOutput(stdout, stderr)}`,
-      );
-    }
-    try {
-      const probe = await fetch(`${baseUrl}/api/v1/auth/register`, {
-        method: "OPTIONS",
-        signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
-      });
-      if (probe.status < 500) {
-        ready = true;
-        break;
-      }
-    } catch {
-      // not yet
-    }
-    await delay(PROBE_DELAY_MS);
-  }
-  if (!ready) {
-    child.kill("SIGKILL");
-    throw new Error(
-      `moltzap standalone did not become ready within ${readyTimeoutMs}ms. ${standaloneOutput(stdout, stderr)}`,
-    );
-  }
-
-  const agentA = await registerAgent(baseUrl, "channel-agent-a");
-  const agentB = await registerAgent(baseUrl, "peer-agent-b");
-
-  provide("moltzapBaseUrl", baseUrl);
-  provide("moltzapWsUrl", wsUrl);
-  provide("agentAAgentId", agentA.agentId);
-  provide("agentAApiKey", agentA.apiKey);
-  provide("agentBAgentId", agentB.agentId);
-  provide("agentBApiKey", agentB.apiKey);
-
-  return async () => {
-    const p = child;
-    if (p !== null) {
-      p.kill("SIGTERM");
-      await new Promise<void>((resolveStop) => {
-        const t = setTimeout(() => {
-          p.kill("SIGKILL");
-          resolveStop();
-        }, 5000);
-        p.on("exit", () => {
-          clearTimeout(t);
-          resolveStop();
-        });
-      });
-      child = null;
-    }
-    if (tempDir !== null) {
-      rmSync(tempDir, { recursive: true, force: true });
-      tempDir = null;
-    }
-  };
+function setupError(operation: string, cause: unknown): IntegrationSetupError {
+  return new IntegrationSetupError({ operation, cause });
 }

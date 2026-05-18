@@ -51,6 +51,12 @@ importers:
         specifier: ^3.21.2
         version: 3.21.2
     devDependencies:
+      '@effect/platform':
+        specifier: ^0.96.1
+        version: 0.96.1(effect@3.21.2)
+      '@effect/platform-node':
+        specifier: ^0.106.0
+        version: 0.106.0(@effect/cluster@0.58.0(@effect/platform@0.96.1(effect@3.21.2))(@effect/rpc@0.75.1(@effect/platform@0.96.1(effect@3.21.2))(effect@3.21.2))(@effect/sql@0.51.0(@effect/experimental@0.60.0(@effect/platform@0.96.1(effect@3.21.2))(effect@3.21.2))(@effect/platform@0.96.1(effect@3.21.2))(effect@3.21.2))(@effect/workflow@0.18.0(@effect/experimental@0.60.0(@effect/platform@0.96.1(effect@3.21.2))(effect@3.21.2))(@effect/platform@0.96.1(effect@3.21.2))(@effect/rpc@0.75.1(@effect/platform@0.96.1(effect@3.21.2))(effect@3.21.2))(effect@3.21.2))(effect@3.21.2))(@effect/platform@0.96.1(effect@3.21.2))(@effect/rpc@0.75.1(@effect/platform@0.96.1(effect@3.21.2))(effect@3.21.2))(@effect/sql@0.51.0(@effect/experimental@0.60.0(@effect/platform@0.96.1(effect@3.21.2))(effect@3.21.2))(@effect/platform@0.96.1(effect@3.21.2))(effect@3.21.2))(effect@3.21.2)
       '@effect/vitest':
         specifier: ^0.29.0
         version: 0.29.0(effect@3.21.2)(vitest@3.2.4(@types/debug@4.1.13)(@types/node@25.5.0)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))
@@ -103,12 +109,6 @@ importers:
       '@moltzap/server-core':
         specifier: workspace:*
         version: link:../server
-      '@testcontainers/postgresql':
-        specifier: ^10.18.0
-        version: 10.28.0
-      '@types/pg':
-        specifier: ^8.11.0
-        version: 8.20.0
       eslint:
         specifier: ^9
         version: 9.39.4(jiti@2.7.0)
@@ -118,9 +118,6 @@ importers:
       fast-check:
         specifier: ^4.6.0
         version: 4.6.0
-      pg:
-        specifier: ^8.13.0
-        version: 8.20.0
       typescript:
         specifier: ^5.7.0
         version: 5.9.3
@@ -200,7 +197,7 @@ importers:
         version: 4.6.0
       openai:
         specifier: ^6.26.0
-        version: 6.33.0(ws@8.20.1)(zod@4.4.3)
+        version: 6.33.0(ws@8.20.0)(zod@4.3.6)
       pg:
         specifier: ^8.13.0
         version: 8.20.0
@@ -14743,10 +14740,10 @@ snapshots:
       ws: 8.20.0
       zod: 4.3.6
 
-  openai@6.33.0(ws@8.20.1)(zod@4.4.3):
+  openai@6.33.0(ws@8.20.0)(zod@4.3.6):
     optionalDependencies:
-      ws: 8.20.1
-      zod: 4.4.3
+      ws: 8.20.0
+      zod: 4.3.6
 
   openapi-types@12.1.3: {}
 
