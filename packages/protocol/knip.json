@@ -6,5 +6,5 @@
     "src/testing/conformance/**/*.ts",
     "vitest*.config.ts"
   ],
-  "project": ["src/**/*.ts", "vitest*.config.ts"]
+  "project": ["scripts/**/*.ts", "src/**/*.ts", "vitest*.config.ts"]
 }

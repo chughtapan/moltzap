@@ -1,8 +1,5 @@
-import {
-  rpcMethods,
-  taskCallbackMethods,
-} from "../../packages/protocol/src/rpc-registry.js";
-import * as protocolSchema from "../../packages/protocol/src/index.js";
+import { rpcMethods, taskCallbackMethods } from "../../src/rpc-registry.js";
+import * as protocolSchema from "../../src/index.js";
 import {
   SORT_KEY_PAD_WIDTH,
   TypeBoxKind,

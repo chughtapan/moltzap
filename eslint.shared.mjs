@@ -81,7 +81,7 @@ export function packageEslintConfig(options = {}) {
   return [
     packageIgnores,
     {
-      files: ["src/**/*.ts", "*.ts"],
+      files: ["src/**/*.ts", "scripts/**/*.ts", "*.ts"],
       ignores: ["**/*.test.ts", "**/*.spec.ts"],
       languageOptions: tsLanguageOptions,
       plugins: guard.configs.strict.plugins,
@@ -100,7 +100,7 @@ export function rootEslintConfig() {
   return [
     packageIgnores,
     {
-      files: ["scripts/**/*.ts", "*.ts"],
+      files: ["*.ts"],
       languageOptions: tsLanguageOptions,
       plugins: guard.configs.strict.plugins,
       settings: guard.configs.strict.settings,
