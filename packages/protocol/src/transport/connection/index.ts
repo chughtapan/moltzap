@@ -30,6 +30,13 @@ export type {
   Subscription,
 } from "./handler.js";
 
+// F3 named-union aliases (`ConnectionCallError` /
+// `ConnectionWriteError` / `ConnectionRegisterError`) live in
+// `../errors.js` and are re-exported via the transport barrel
+// (`../index.js`). The Connection sub-package barrel doesn't re-route
+// them — consumers either import the constituent tagged classes here
+// or reach the aliases through the transport package barrel.
+
 // ── Backpressure utility (sibling, not part of Connection) ──────────
 export {
   queuedHandler,

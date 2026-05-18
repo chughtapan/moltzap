@@ -36,6 +36,12 @@ import type {
   ClientConnection,
   ConnectionRunError,
   RemoteTaggedError,
+  // F3 named-union aliases on the Connection public surface (r1 — r2
+  // propagated to stub). Each line below fails compile if the alias
+  // disappears from the barrel.
+  ConnectionCallError,
+  ConnectionWriteError,
+  ConnectionRegisterError,
 } from "./index.js";
 
 // Connection-native names that COLLIDE with legacy exports in the
@@ -48,6 +54,12 @@ import type {
 // explicitly so it gates the CONNECTION-NATIVE shape, not the legacy
 // shape that the unaliased names currently resolve to.
 import type { RpcHandlerV2, RpcCallErrorV2 } from "./index.js";
+// `Connect` — the auth-establishing bootstrap RPC. The F6 gate below
+// asserts that `register(Connect, …)` requires `RpcHandler` typed
+// against `CtxPreAuth`, NOT `CtxPostAuth` (codex P2-r2-1 — per-def
+// narrowing). Value (not type-only) import because the F6 gate calls
+// `register(Connect, …)` to exercise overload resolution.
+import { Connect } from "../network/methods.js";
 
 // Cutover-time forcing function. After impl-staff deletes the V2
 // aliases (or renames them), the import block above must update; if
@@ -69,6 +81,79 @@ type _ClientConnection = ClientConnection<unknown>;
 type _ConnectionRunError = ConnectionRunError;
 type _RemoteTaggedError = RemoteTaggedError;
 
+// ─── F3 gate (r2 — plan-eng P2-B) ────────────────────────────────────
+// Plan-eng caught that the previous canary instantiated only
+// `Connection<unknown>` etc., which compiles under BOTH the old
+// single-Ctx shape AND the new split-generic-with-aliased-errors
+// surface — so the canary didn't actually gate the F3 named aliases.
+// Each alias must resolve to its declared composition; if the barrel
+// drops an alias, the import block fails to resolve.
+type _ConnectionCallError = ConnectionCallError;
+type _ConnectionWriteError = ConnectionWriteError;
+type _ConnectionRegisterError = ConnectionRegisterError;
+
+// ─── F6 gate (r2 — plan-eng P2-B + codex P2-r2-1) ────────────────────
+// Gate the split-generic + per-definition register narrowing.
+//
+// (1) `Connection` MUST accept four generic positions with
+//     `CtxPostAuth extends CtxPreAuth`. The four-arg instantiation
+//     below fails compile if the second generic disappears or if the
+//     `extends`-constraint is dropped. `CtxPreAuth = { pre: 1 }` and
+//     `CtxPostAuth = { pre: 1; post: 2 }` deliberately differ so the
+//     split-generic is observable.
+type _ConnectionSplitGeneric = Connection<
+  { readonly pre: 1 },
+  { readonly pre: 1; readonly post: 2 }
+>;
+
+// (2) `register(Connect, h)` MUST accept an `RpcHandler` typed against
+//     `CtxPreAuth` (the first generic), NOT `CtxPostAuth`. Construct a
+//     fresh Connection where `CtxPreAuth ≠ CtxPostAuth` (the only case
+//     where the seam is observable) and assign the PreAuth-typed
+//     Connect handler to the register parameter. If impl-staff
+//     regresses to a single global cast (the F6-broken shape codex
+//     caught), the overload binds Connect to `CtxPostAuth` and the
+//     assignment fails compile.
+import type { Effect } from "effect";
+declare const splitConn: _ConnectionSplitGeneric;
+declare const connectHandlerPreAuth: RpcHandlerV2<
+  { readonly pre: 1 },
+  typeof Connect
+>;
+// Positive — Connect must be acceptable with a PreAuth-typed handler.
+const _f6RegisterAcceptsPreAuth: Effect.Effect<
+  Subscription,
+  ConnectionRegisterError,
+  never
+> = splitConn.register(Connect, connectHandlerPreAuth);
+
+// (3) The non-Connect ("default") overload MUST bind the handler's ctx
+//     to `CtxPostAuth`. `Parameters<typeof X>` returns the LAST
+//     overload's parameter list — by convention the default overload
+//     is declared second. If impl-staff regresses to a single-Ctx
+//     register signature OR if the default overload's `Ctx` is the
+//     same as the Connect overload's, the inferred `_DefaultHandlerCtx`
+//     fails the bidirectional assignability check below.
+type _DefaultHandlerParam = Parameters<typeof splitConn.register>[1];
+type _DefaultHandlerCtx =
+  _DefaultHandlerParam extends RpcHandlerV2<infer Ctx, infer _D> ? Ctx : never;
+type _PostAuthShape = { readonly pre: 1; readonly post: 2 };
+// Bidirectional assignability — `_DefaultHandlerCtx` must equal the
+// CtxPostAuth shape, not the CtxPreAuth shape. `declare const` keeps
+// the smoke type-only (no opaque double-cast — agent-code-guard
+// rejects those even in canary files).
+declare const _f6DefaultBindsPostAuth: _DefaultHandlerCtx;
+declare const _f6PostAuthBindsDefault: _PostAuthShape;
+const _f6DefaultIsPostAuth: _PostAuthShape = _f6DefaultBindsPostAuth;
+const _f6PostAuthIsDefault: _DefaultHandlerCtx = _f6PostAuthBindsDefault;
+
+// Touch the bindings so unused-var elision doesn't trim them.
+export const _f6GateAssert = [
+  _f6RegisterAcceptsPreAuth,
+  _f6DefaultIsPostAuth,
+  _f6PostAuthIsDefault,
+] as const;
+
 // Reference-only — silences unused-type warnings while preserving the
 // canary semantics. The intersection forces TS to flatten every member
 // type; any structural drift fails here.
@@ -85,4 +170,8 @@ export type _AC1Canary =
   | _ServerConnection
   | _ClientConnection
   | _ConnectionRunError
-  | _RemoteTaggedError;
+  | _RemoteTaggedError
+  | _ConnectionCallError
+  | _ConnectionWriteError
+  | _ConnectionRegisterError
+  | _ConnectionSplitGeneric;

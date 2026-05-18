@@ -135,3 +135,13 @@ export type {
   RemoteTaggedError,
   RpcCallError as RpcCallErrorV2,
 } from "./errors.js";
+
+// F3 named-union aliases on the Connection public surface. Each
+// composes the constituent tagged-error classes into the closed union
+// that the corresponding `Connection.*` signature uses. Plan §5.6
+// (r1 F3) — propagated to the stub branch in r2.
+export type {
+  ConnectionCallError,
+  ConnectionWriteError,
+  ConnectionRegisterError,
+} from "./errors.js";

@@ -182,3 +182,44 @@ export class DuplicateHandlerError extends Data.TaggedError(
 )<{
   readonly method: JsonRpcMethod;
 }> {}
+
+// ── F3 named-union aliases for the Connection public surface ────────
+//
+// Per PRINCIPLES.md §3 + `feedback_n2_cross_model_review_value`, every
+// public-interface signature uses NAMED union aliases (no inline
+// unions). These aliases close the wire-coded error sets so consumers
+// can `Effect.catchTag` against concrete arms without re-stating the
+// union at every callsite. r1 plan-tier F3 fix, propagated to the stub
+// branch in r2 per plan-eng peer review.
+//
+// Aliases compose `RpcCallError` / `ConnectionRunError` (above) with
+// the writer-side tagged classes (`SocketWriteError`,
+// `ConnectionClosedError`, `RequestTimeoutError`).
+
+/**
+ * Closed union of every error a `Connection.call()` can fail with via
+ * Effect's error channel — composed from the call-path tagged classes
+ * (`RpcCallError`) plus the writer-side classes that fire during the
+ * send half of the round-trip. Spec A "Goals" §3.
+ */
+export type ConnectionCallError =
+  | RpcCallError
+  | SocketWriteError
+  | ConnectionClosedError
+  | RequestTimeoutError;
+
+/**
+ * Closed union of every error a `Connection.notify()` /
+ * `sendError` / `sendParseError` / `sendInvalidRequest` /
+ * `sendUnauthorized` can fail with — the writer-side seam where the
+ * underlying socket either rejects the write or has already closed.
+ */
+export type ConnectionWriteError = SocketWriteError | ConnectionClosedError;
+
+/**
+ * Closed union of every error `Connection.register()` can fail with —
+ * presently just the duplicate-key rejection. Held as an alias for
+ * forward-compat: future register-side invariants (e.g. arity guards)
+ * can extend this without churning every consumer signature.
+ */
+export type ConnectionRegisterError = DuplicateHandlerError;

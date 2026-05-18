@@ -9,8 +9,9 @@
  *     which deletes during impl-staff cutover)
  *   - `Subscription` — handle for registration disposal
  *   - `DecodedRequest` — pre-dispatch decoded shape exposed to the
- *     `onRequestDecoded` hook (`params` is post-JSON-parse
- *     pre-`validateParams`; typed `JsonValue`, never `unknown`)
+ *     `onRequestDecoded` hook (`params` is post-JSON-parse AND
+ *     post-`validateParams` — F2 path (b); typed `JsonValue`, never
+ *     `unknown`)
  *   - `ConnectionContext&lt;Ctx>` — transport seam intersected with the
  *     caller's context type, so hooks read both `socket` AND the
  *     handler-thread `Ctx` (e.g. `connId`, `auth`) without out-of-band
@@ -61,8 +62,15 @@ export type JsonValue =
  * provide R via `Effect.provide(...)` at the registration site
  * (`Connection.register(def, queuedHandler(provideR(handler), opts))`).
  *
- * Error channel is `HookFailure | RpcServerError` (closed wire-coded
- * union) — replaces the legacy `unknown` from `json-rpc-server.ts`.
+ * Error channel is `HookFailure` (closed wire-coded union over the
+ * `RegisteredTaggedError` set — see below) — replaces the legacy
+ * `unknown` from `json-rpc-server.ts`. R2 narrowed `HookFailure` to
+ * `RegisteredTaggedError` only; `RpcServerError` was DROPPED from the
+ * union because its `data?: unknown` field would re-introduce
+ * `unknown` at the public boundary. `RpcServerError` remains an
+ * `RpcCallError` arm (call-side: "remote returned an unregistered
+ * code"), not a hook-side raise channel.
+ *
  * Handler-side defects (untagged crashes) surface via Effect's defect
  * channel (`Cause.die`), NOT the error channel; Connection's
  * dispatcher catches defects and emits an `InternalError` wire
@@ -93,10 +101,14 @@ export interface Subscription {
  * `onRequestDecoded` hook. Carries the resolved `definition` so the
  * hook can branch on method identity without re-decoding.
  *
- * `params: JsonValue` is post-`JSON.parse` AND post-`decodeFrame`
- * (the wire-shape pass), but PRE per-definition `validateParams`.
- * Connection's dispatcher runs `def.validateParams` AFTER the hook
- * chain succeeds; only then does the value narrow to `ParamsOf&lt;D>`.
+ * F2 path (b) — POST-`validateParams`. `params: JsonValue` is
+ * post-`JSON.parse` AND post-`decodeFrame` AND post per-definition
+ * `validateParams` (the dispatcher's `decode*Inbound` delegates to
+ * `decodeRpcRequest`, which validates params before returning — cite:
+ * `rpc-groups.ts → decodeRpcRequest`). The hook therefore sees a
+ * structurally-validated value; per-definition narrowing to
+ * `ParamsOf&lt;D>` happens at handler dispatch via the Match block, but
+ * no second decode pass is required.
  */
 export interface DecodedRequest {
   readonly id: JsonRpcId;
