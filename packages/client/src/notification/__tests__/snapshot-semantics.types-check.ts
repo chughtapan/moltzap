@@ -41,6 +41,23 @@ function assertCanary<_T extends true>(): void {
 // ── AD1 pinned contracts ────────────────────────────────────────────────
 
 // Canary #1 — `subscribe(def)` returns a value-typed Stream with R=never.
+//
+// **Architect note (codex r5 finding #4):** the type-guard overload form
+// of `subscribe` is pinned in plan §5.2 to return
+// `Stream.Stream<DecodedNotification<D, R>, ...>` (payload narrowed via
+// the type-guard predicate). That narrowing requires the optional `R`
+// parameter on `DecodedNotification<D>` landing in
+// `packages/protocol/src/transport/rpc-groups.ts` (plan §4.2 row 1) —
+// an impl-staff scope edit. Until that lands, this canary checks the
+// boolean-refinement overload only. Impl-staff adds Canary #1b once
+// the protocol type-parameter extension is wired:
+//
+//   type Canary1b_SubscribeNarrowed<D extends AnyNotificationDefinition,
+//                                    R extends NotificationParamsOf<D>> =
+//     Equal<
+//       ReturnType<typeof subscribe<D, R>>,
+//       Stream.Stream<DecodedNotification<D, R>, NotConnectedError, never>
+//     >;
 type Canary1_SubscribeStreamShape<D extends AnyNotificationDefinition> = Equal<
   ReturnType<typeof subscribe<D>>,
   Stream.Stream<DecodedNotification<D>, NotConnectedError, never>
