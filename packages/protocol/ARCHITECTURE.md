@@ -16,10 +16,17 @@ packages/protocol/src/
 │   ├── wire.ts                # Ajv, JSON-RPC frame schemas, encoders, decodeFrame
 │   ├── method.ts              # defineRpc, defineNotification, RpcDefinition
 │   ├── wire-errors.ts         # Tagged-error registry, JSON_RPC_RESERVED_CODES
-│   ├── rpc-errors.ts          # NotConnectedError, RpcServerError
+│   ├── rpc-errors.ts          # NotConnectedError, RpcServerError (legacy; deletes post-#595 cutover)
+│   ├── errors.ts              # Connection-facade tagged errors (#595)
 │   ├── rpc-groups.ts          # decodeRpcRequest, decodeNotification over a method group
-│   ├── json-rpc-server.ts     # makeJsonRpcServer, handler(), handleJsonRpcRequest
-│   └── json-rpc-client.ts     # makeJsonRpcClient, pending-call map, call/resolve
+│   ├── json-rpc-server.ts     # (legacy) makeJsonRpcServer, handler() — deletes post-#595 cutover
+│   ├── json-rpc-client.ts     # (legacy) makeJsonRpcClient — deletes post-#595 cutover
+│   └── connection/            # Connection<Ctx> facade (#595)
+│       ├── connection.ts         # Connection interface, makeServerConnection, makeClientConnection
+│       ├── socket-like.ts        # SocketLike transport seam
+│       ├── handler.ts            # RpcHandler<Ctx, D>, Subscription, DecodedRequest, ConnectionContext, HookFailure
+│       ├── queued-handler.ts     # queuedHandler<Ctx>(handler, opts) sibling utility
+│       └── index.ts              # Sub-barrel re-exported from transport/index.ts
 │
 ├── identity/               # Agents, users, sessions, attestation, contact policy
 ├── network/                # Ping, presence, connection liveness, actor-model types
@@ -48,7 +55,11 @@ Each domain layer (`identity`, `network`, `task`, `app`) has a self-contained
 | `taskCallbackMethods` | rpc-registry | Subset: methods the server calls *into* the client |
 | `decodeServerInbound` / `decodeClientInbound` | rpc-registry | Tagged-union frame decoders, fail-closed |
 | `defineRpc` / `defineNotification` | transport/method | Descriptor factories used by domain layers |
-| `makeJsonRpcServer` / `makeJsonRpcClient` | transport | Runtime endpoints |
+| `makeJsonRpcServer` / `makeJsonRpcClient` | transport (legacy) | Runtime endpoints — DEPRECATED, delete post-#595 cutover |
+| `Connection<Ctx>` + `makeServerConnection` / `makeClientConnection` | transport/connection | Typed transport facade (replaces the legacy pair) |
+| `queuedHandler` + `rejectWithBusy` / `dropOnFull` | transport/connection | Bounded-queue handler wrapper (opt-in backpressure) |
+| `SocketLike`, `Subscription`, `RpcHandler<Ctx, D>`, `DecodedRequest`, `ConnectionContext` | transport/connection | Connection seam types |
+| `SocketWriteError`, `SocketReadError`, `ConnectionClosedError`, `RequestTimeoutError`, `RpcCallError`, `ConnectionRunError`, `DuplicateHandlerError` | transport/errors | Connection-facade tagged-error classes |
 | `Agent*`, `User*`, `Session*` | identity | Identity primitives + auth flows |
 | `Conversation*`, `Message*`, `TmDecision*` | task | Task-layer state |
 | `Dispatch*`, `App*`, `Hook*` | app | AppHost surface |
@@ -92,6 +103,7 @@ method/notification pages. Run `pnpm docs:generate`; CI runs
 | Tagged error registry mechanics | [08 — Tagged error registry](docs/architecture/08-tagged-error-registry.md) |
 | Layer DAG enforcement | [09 — Layer DAG](docs/architecture/09-layer-dag.md) |
 | Conformance suite mechanics | [10 — Conformance suite](docs/architecture/10-conformance-suite.md) |
+| Connection facade (#595) — pipeline + handler registration + hook seam | [11 — Connection facade](docs/architecture/11-connection-facade.md) |
 
 ## 5. Dependencies
 
