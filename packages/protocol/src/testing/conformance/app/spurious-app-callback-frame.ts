@@ -83,7 +83,7 @@ function acquireSpuriousResponseClient(ctx: ConformanceRunContext) {
   return Effect.gen(function* () {
     const agent = yield* registerTestAgent({
       baseUrl: ctx.realServer.baseUrl,
-      name: "spurious-app-callback",
+      name: "sacf",
     });
     return yield* makeTestClient({
       serverUrl: ctx.realServer.wsUrl,

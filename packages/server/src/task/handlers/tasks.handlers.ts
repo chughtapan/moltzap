@@ -1,5 +1,7 @@
 import { Effect } from "effect";
 import {
+  ConversationArchivedNotificationDefinition,
+  TaskClosedNotificationDefinition,
   TasksAddParticipant,
   TasksClose,
   TasksCloseConversation,
@@ -24,6 +26,7 @@ import { defineTaskMethod } from "../../transport/define-layered-method.js";
 import type { RpcMethodRegistry } from "../../transport/context.js";
 import type { AgentId } from "../../app/types.js";
 import { TaskServiceTag } from "../../app/layers.js";
+import { broadcastNotificationToAgents } from "./notification-broadcast.js";
 
 /**
  * Phase 9b consumer-migration (sub-issue #460 round 4 R16, codex
@@ -113,8 +116,28 @@ export const taskHandlers: RpcMethodRegistry = [
     handler: (params, ctx) =>
       Effect.gen(function* () {
         const taskService = yield* TaskServiceTag;
-        const task = yield* taskService.close(params.taskId, ctx.agentId);
-        return { task };
+        const closed = yield* taskService.closeWithLifecycle(
+          params.taskId,
+          ctx.agentId,
+        );
+        for (const conversation of closed.archivedConversations) {
+          yield* broadcastNotificationToAgents(
+            conversation.participantAgentIds,
+            ConversationArchivedNotificationDefinition,
+            {
+              conversationId: conversation.conversationId,
+              archivedAt: conversation.archivedAt,
+              by: ctx.agentId,
+            },
+            { forConversation: conversation.conversationId },
+          );
+        }
+        yield* broadcastNotificationToAgents(
+          closed.participantAgentIds,
+          TaskClosedNotificationDefinition,
+          { task: closed.task },
+        );
+        return { task: closed.task };
       }).pipe(Effect.withSpan("tasks.close")),
   }),
 

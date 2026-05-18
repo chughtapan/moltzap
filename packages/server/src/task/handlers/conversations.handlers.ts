@@ -1,5 +1,4 @@
 import type { RpcMethodRegistry } from "../../transport/context.js";
-import { opaquePayload } from "../../network/network-send.js";
 import {
   ConversationsCreate,
   ConversationsList,
@@ -16,39 +15,20 @@ import {
   ConversationCreatedNotificationDefinition,
   ConversationUnarchivedNotificationDefinition,
   ConversationUpdatedNotificationDefinition,
-  type NotificationDefinition,
-  type NotificationParamsOf,
 } from "@moltzap/protocol";
 import type { AgentId } from "@moltzap/protocol/identity";
-import type { ConversationId } from "@moltzap/protocol/task";
 import { Effect } from "effect";
 import { defineTaskMethod } from "../../transport/define-layered-method.js";
 import {
   ConnIdTag,
   ConnectionManagerTag,
   ConversationServiceTag,
-  NetworkSendServiceTag,
   TaskServiceTag,
 } from "../../app/layers.js";
-
-const broadcastToConversation = <D extends NotificationDefinition<string, any>>(
-  conversationId: ConversationId,
-  definition: D,
-  params: NotificationParamsOf<D>,
-): Effect.Effect<void, never, ConversationServiceTag | NetworkSendServiceTag> =>
-  Effect.gen(function* () {
-    const conversationService = yield* ConversationServiceTag;
-    const networkSendService = yield* NetworkSendServiceTag;
-    const participants = yield* conversationService
-      .getParticipantAgentIds(conversationId)
-      .pipe(Effect.orElseSucceed(() => [] as readonly AgentId[]));
-    if (participants.length === 0) return;
-    const frame = definition.encode(params);
-    const payload = opaquePayload(JSON.stringify(frame));
-    yield* networkSendService.broadcast(participants, payload, {
-      forConversation: conversationId,
-    });
-  }).pipe(Effect.withSpan("conversations.broadcast"));
+import {
+  broadcastNotificationToAgents,
+  broadcastNotificationToConversation,
+} from "./notification-broadcast.js";
 
 export const conversationHandlers: RpcMethodRegistry = [
   defineTaskMethod(ConversationsCreate, {
@@ -57,7 +37,6 @@ export const conversationHandlers: RpcMethodRegistry = [
       Effect.gen(function* () {
         const conversationService = yield* ConversationServiceTag;
         const taskService = yield* TaskServiceTag;
-        const networkSendService = yield* NetworkSendServiceTag;
         const agentIds = params.participants.map((p) => p.id as AgentId);
         // Pass the task source as a lazy Effect so
         // `ConversationService.create` only mints when its DM dedup
@@ -76,11 +55,11 @@ export const conversationHandlers: RpcMethodRegistry = [
         // `ConversationService.create` subscribes every participant's
         // open sockets to the new conversation; this handler fans the
         // ConversationCreated event so clients update their lists.
-        const createdFrame = ConversationCreatedNotificationDefinition.encode({
-          conversation,
-        });
-        const createdPayload = opaquePayload(JSON.stringify(createdFrame));
-        yield* networkSendService.broadcast(agentIds, createdPayload);
+        yield* broadcastNotificationToAgents(
+          agentIds,
+          ConversationCreatedNotificationDefinition,
+          { conversation },
+        );
 
         return { conversation };
       }).pipe(Effect.withSpan("conversations.create")),
@@ -120,7 +99,7 @@ export const conversationHandlers: RpcMethodRegistry = [
           ctx.agentId,
         );
 
-        yield* broadcastToConversation(
+        yield* broadcastNotificationToConversation(
           params.conversationId,
           ConversationUpdatedNotificationDefinition,
           { conversation },
@@ -153,7 +132,7 @@ export const conversationHandlers: RpcMethodRegistry = [
           params.conversationId,
           ctx.agentId,
         );
-        yield* broadcastToConversation(
+        yield* broadcastNotificationToConversation(
           params.conversationId,
           ConversationArchivedNotificationDefinition,
           {
@@ -174,7 +153,7 @@ export const conversationHandlers: RpcMethodRegistry = [
           params.conversationId,
           ctx.agentId,
         );
-        yield* broadcastToConversation(
+        yield* broadcastNotificationToConversation(
           params.conversationId,
           ConversationUnarchivedNotificationDefinition,
           {
