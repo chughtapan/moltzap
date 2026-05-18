@@ -1,22 +1,24 @@
 /**
  * Generates Mintlify MDX documentation pages from TypeBox protocol schemas.
  *
- * Run: `pnpm --filter \@moltzap/protocol tsx ../../scripts/generate-protocol-docs.ts`.
+ * Run from the package or repository root with `pnpm docs:generate`.
  */
 import { readdirSync, unlinkSync, writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
-import { notificationDefinitions } from "../packages/protocol/src/rpc-registry.js";
-import { notificationDocs } from "./protocol-docs/metadata.js";
+import { fileURLToPath } from "node:url";
+import { notificationDefinitions } from "../src/rpc-registry.js";
+import { notificationDocs } from "./docs/metadata.js";
 import {
   generateMethodPage,
   generateNotificationPage,
   slugify,
-} from "./protocol-docs/render.js";
-import { protocolRpcDefinitions } from "./protocol-docs/schema.js";
-import { JSON_INDENT } from "./protocol-docs/types.js";
+} from "./docs/render.js";
+import { protocolRpcDefinitions } from "./docs/schema.js";
+import { JSON_INDENT } from "./docs/types.js";
 
 const orderedRpcDefinitions = protocolRpcDefinitions();
-const docsRoot = join(dirname(new URL(import.meta.url).pathname), "..", "docs");
+const scriptDir = dirname(fileURLToPath(import.meta.url));
+const docsRoot = join(scriptDir, "..", "..", "..", "docs");
 const methodsDir = join(docsRoot, "protocol", "methods");
 const notificationsDir = join(docsRoot, "protocol", "notifications");
 

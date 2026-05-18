@@ -13,10 +13,9 @@
     ".": {
       "entry": [
         "eslint.shared.mjs",
-        "scripts/generate-protocol-docs.ts",
         "vitest.workspace-aliases.ts"
       ],
-      "project": ["*.mjs", "*.ts", "scripts/**/*.ts"]
+      "project": ["*.mjs", "*.ts"]
     }
   }
 }

@@ -10,12 +10,25 @@ TypeBox schema definitions, descriptor-backed RPC/notification definitions, and 
 - `src/transport/` — Wire frames, JSON-RPC client/server runtime, codec, error registry, group decoders
 - `src/rpc-registry.ts` — Canonical aggregate `rpcMethods` + `notificationDefinitions` arrays and the `taskCallbackMethods` group
 - `src/testing/` — TestClient/TestServer primitives, conformance suite, arbitraries, models, toxics
+- `scripts/generate-docs.ts` — Package-owned Mintlify generator for protocol method/notification pages
+- `scripts/docs/` — Docs generation metadata, schema introspection, and MDX rendering helpers
+- `docs/architecture/` — Human architecture notes for protocol data flow and invariants
 - `src/schema-primitives.ts` — `stringEnum()`, branded schema helpers, `DateTimeString`
 - `src/version.ts` — `PROTOCOL_VERSION` constant
 
 ## Commands
 - `pnpm build` — `tsc` (MUST build before any other package)
+- `pnpm docs:generate` — regenerate root `docs/protocol/**` from protocol descriptors
 - `pnpm test` — vitest unit tests
+
+## Documentation Ownership
+
+Protocol has two documentation surfaces:
+
+- Package architecture docs live here, under `packages/protocol/ARCHITECTURE.md` and `packages/protocol/docs/architecture/`. Use these for implementation structure, layer invariants, and cold-start orientation.
+- Published protocol reference docs live under root `docs/protocol/**` because Mintlify reads from the repository docs tree. The generated method and notification pages are output, not source.
+
+The source of truth for generated reference pages is the descriptor graph in `src/**/methods.ts`, `src/rpc-registry.ts`, and prose-only metadata in `scripts/docs/metadata.ts`. Do not hand-edit generated method or notification MDX; update the schema/descriptor or metadata, then run `pnpm docs:generate` from the package or repository root. Root CI checks drift with `pnpm docs:check:drift`.
 
 ## Conventions
 - All `Type.Object()` calls use `{ additionalProperties: false }`

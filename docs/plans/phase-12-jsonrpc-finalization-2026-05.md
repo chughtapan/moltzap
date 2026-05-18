@@ -483,7 +483,8 @@ export interface RpcDefinition<Name, Params, Result, Errors = {}> {
 export function defineRpc<...>(spec: { name, paramsSchema, resultSchema, errors? }): RpcDefinition<...>;
 ```
 
-`errors` defaults to `{}`. Each error becomes a `Data.TaggedError(\`${methodName}.${tagName}\`)<{}>` class accessible at `MyMethod.errors.TagName`.
+`errors` defaults to an empty object. Each error becomes a `Data.TaggedError`
+class named from the method and tag, accessible at `MyMethod.errors.TagName`.
 
 **Add divergence-proof gate test:** `descriptor-error-consistency.proofs.test.ts` — for every (code) appearing across descriptors, assert (message) agrees.
 
@@ -866,10 +867,11 @@ Folded into §3 above:
   `IdentityRejected`, `AgentNoOwner`, `AgentNotFound`,
   `MaxParticipants`, `AppNotFound`, `RateLimited`, `ProtocolMismatch`).
 - Tooling: `scripts/generate-json-schema.ts` deleted (it referenced
-  paths that no longer exist); `scripts/generate-protocol-docs.ts`
-  updated to use `taskCallbackMethods` (the surviving registry export)
-  and reruns clean against the new method set (41 methods + 9
-  notifications + an overview page).
+  paths that no longer exist); protocol docs generation moved under
+  `packages/protocol/scripts/generate-docs.ts`, uses
+  `taskCallbackMethods` (the surviving registry export), and reruns
+  clean against the new method set (41 methods + 9 notifications + an
+  overview page).
 - Doc sweep: `docs/guides/app-hooks-rpc.mdx` and
   `docs/migration/webhook-to-rpc.mdx` retired (entirely about deleted
   hook RPCs / `@moltzap/app-sdk`); `docs/concepts/delivery.mdx`
