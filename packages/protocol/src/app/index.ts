@@ -3,7 +3,6 @@
  */
 export {
   AppsRegister,
-  AppManifestSchema,
   // dispatch/* admission descriptors
   DispatchId,
   LeaseId,
@@ -15,6 +14,7 @@ export {
   DispatchesGet,
   // #560 send-side fan-out gate
   MessagesAuthorize,
+  validateAppManifest,
 } from "./methods.js";
 
 export type { AppManifest } from "./methods.js";

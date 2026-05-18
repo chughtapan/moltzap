@@ -1,110 +1,168 @@
 /**
- * Task close lifecycle — `tasks/close` flips task status to `closed`,
- * after which `messages/send` to a conversation in that task fails
- * closed with `TaskClosedError` (wire code -32020).
+ * Task close lifecycle — close is observable as both conversation
+ * archival and task/closed, and the archived task conversation rejects
+ * later traffic.
  *
- * The pre-#546 acceptance criteria additionally named a `task/closed`
- * notification and cascade-archive of task conversations; neither
- * surface exists in the current TM-topology architecture (#460 R12
- * left `tm_endpoint_address` populated post-close and gates message
- * delivery on `task.status` directly, with no notification fan-out
- * and no per-conversation `archived_at` write). This property
- * encodes what `tasks/close` actually observably does today; the
- * shape extension for fan-out is tracked separately and is a
- * spec-tier change, not implementer-tier.
  */
-import { Effect, Either } from "effect";
-import { TaskClosedError } from "@moltzap/protocol/task";
+import { Effect } from "effect";
+import {
+  TaskClosedNotificationDefinition,
+  TasksAddParticipant,
+  TasksClose,
+  TasksCreate,
+  TasksCreateConversation,
+} from "../../../task/methods.js";
+import type { TaskId } from "../../../task/methods.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import { registerProperty } from "../_shared/registry.js";
 import { requireRight } from "../_shared/_helpers.js";
-import { RpcResponseError } from "../_shared/errors.js";
 import {
-  DELIVERY_CATEGORY,
-  acquireTaskBoundConversation,
-  closeTask,
+  DELIVERY_DEFAULT_TIMEOUT_MS,
+  acquireClient,
+  assertConversationRejectsMessages,
   deliveryViolation,
-  sendText,
+  waitForArchivedEvent,
+  type ConversationActor,
 } from "./_helpers.js";
 
+// Property ID stays at `delivery/task-close-lifecycle` to preserve the
+// pre/post conformance baseline (#546 §7). Architect §7: "registry
+// `category` derived from the call-site, not file path."
+const CATEGORY = "delivery" as const;
 const PROPERTY = "task-close-lifecycle";
 
 export function registerTaskCloseLifecycle(ctx: ConformanceRunContext): void {
   registerProperty(
     ctx,
-    DELIVERY_CATEGORY,
+    CATEGORY,
     PROPERTY,
-    "tasks/close flips task status; subsequent messages/send fails with TaskClosed",
-    Effect.scoped(
-      Effect.gen(function* () {
-        const fixture = yield* acquireTaskBoundConversation(ctx, "tcl").pipe(
-          Effect.mapError((reason) =>
-            deliveryViolation(PROPERTY, `fixture: ${reason}`),
-          ),
-        );
-        // Task is open: sender's first message round-trips. This arm
-        // proves the fixture actually plumbs the TM correctly — without
-        // it, the post-close failure could trivially pass against a
-        // server that rejects every send for the wrong reason.
-        const beforeClose = yield* sendText(
-          fixture.sender,
-          fixture.conversationId,
-          "before-close",
-        ).pipe(Effect.either);
-        yield* requireRight(beforeClose, (error) =>
-          deliveryViolation(
-            PROPERTY,
-            `messages/send before close failed: ${error._tag}`,
-          ),
-        );
-
-        // Owner is the registered TM (`tmType: "self"` resolves to
-        // `tm:agent:<owner>`), so `tasks/close` is authorized.
-        const closed = yield* closeTask(fixture.owner, fixture.taskId).pipe(
-          Effect.either,
-        );
-        yield* requireRight(closed, (error) =>
-          deliveryViolation(PROPERTY, `tasks/close failed: ${error._tag}`),
-        );
-
-        // Post-close: `messages/send` reads `task.status = "closed"`
-        // through the conversation join and fails with the typed
-        // `TaskClosed` wire error (`code = -32020`). A server that
-        // accepted the send would surface as a Right; a server that
-        // returned a different wire code would surface as a Left
-        // mismatching `TaskClosedError.code`.
-        const afterClose = yield* sendText(
-          fixture.sender,
-          fixture.conversationId,
-          "after-close",
-        ).pipe(Effect.either);
-        const violation = Either.match(afterClose, {
-          onRight: () =>
-            deliveryViolation(
-              PROPERTY,
-              "messages/send succeeded after tasks/close",
-            ),
-          onLeft: (error) => {
-            if (
-              error instanceof RpcResponseError &&
-              error.code === TaskClosedError.code
-            ) {
-              return null;
-            }
-            const errorLabel =
-              error instanceof RpcResponseError
-                ? `${error._tag}/${error.code}`
-                : error._tag;
-            return deliveryViolation(
-              PROPERTY,
-              `messages/send returned ${errorLabel}, expected TaskClosed`,
-            );
-          },
-        });
-        if (violation !== null) {
-          return yield* Effect.fail(violation);
-        }
-      }).pipe(Effect.withSpan("registerTaskCloseLifecycle")),
+    "tasks/close archives task conversations and broadcasts task/closed",
+    runTaskCloseLifecycle(ctx).pipe(
+      Effect.withSpan("registerTaskCloseLifecycle"),
     ),
   );
+}
+
+type TaskClosedEventData = {
+  readonly task?: {
+    readonly id?: unknown;
+    readonly status?: unknown;
+  };
+};
+
+function runTaskCloseLifecycle(ctx: ConformanceRunContext) {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const fixture = yield* acquireTaskCloseFixture(ctx);
+      const close = yield* fixture.owner.client
+        .sendRpc(TasksClose, { taskId: fixture.taskId })
+        .pipe(Effect.either);
+      const closed = yield* requireRight(close, (error) =>
+        deliveryViolation(PROPERTY, `tasks/close failed: ${error._tag}`),
+      );
+      if (closed.task.status !== "closed") {
+        return yield* Effect.fail(
+          deliveryViolation(
+            PROPERTY,
+            `tasks/close returned status ${closed.task.status}`,
+          ),
+        );
+      }
+      yield* waitForArchivedEvent(
+        fixture.participant,
+        fixture.conversationId,
+        fixture.owner.agent.agentId,
+        PROPERTY,
+      );
+      yield* waitForTaskClosedEvent(
+        fixture.participant,
+        fixture.taskId,
+        PROPERTY,
+      );
+      yield* assertConversationRejectsMessages(
+        fixture.participant,
+        fixture.conversationId,
+        PROPERTY,
+      );
+    }),
+  );
+}
+
+function acquireTaskCloseFixture(ctx: ConformanceRunContext) {
+  return Effect.gen(function* () {
+    const owner = yield* acquireClient(ctx, "tc-owner").pipe(
+      Effect.mapError((e) => deliveryViolation(PROPERTY, `owner: ${e}`)),
+    );
+    const participant = yield* acquireClient(ctx, "tc-participant").pipe(
+      Effect.mapError((e) => deliveryViolation(PROPERTY, `participant: ${e}`)),
+    );
+    const taskResult = yield* owner.client
+      .sendRpc(TasksCreate, {
+        appId: "task-close-lifecycle-app",
+        tmType: "self",
+      })
+      .pipe(Effect.either);
+    const task = yield* requireRight(taskResult, (error) =>
+      deliveryViolation(PROPERTY, `tasks/create failed: ${error._tag}`),
+    );
+    const addResult = yield* owner.client
+      .sendRpc(TasksAddParticipant, {
+        taskId: task.task.id,
+        agentId: participant.agent.agentId,
+      })
+      .pipe(Effect.either);
+    yield* requireRight(addResult, (error) =>
+      deliveryViolation(PROPERTY, `tasks/addParticipant failed: ${error._tag}`),
+    );
+    const conversationResult = yield* owner.client
+      .sendRpc(TasksCreateConversation, {
+        taskId: task.task.id,
+        type: "dm",
+        participants: [{ type: "agent", id: participant.agent.agentId }],
+      })
+      .pipe(Effect.either);
+    const conversation = yield* requireRight(conversationResult, (error) =>
+      deliveryViolation(
+        PROPERTY,
+        `tasks/createConversation failed: ${error._tag}`,
+      ),
+    );
+    return {
+      owner,
+      participant,
+      taskId: task.task.id,
+      conversationId: conversation.conversation.id,
+    };
+  });
+}
+
+function waitForTaskClosedEvent(
+  observer: ConversationActor,
+  taskId: TaskId,
+  propertyName: string,
+) {
+  return Effect.gen(function* () {
+    const event = yield* observer.client
+      .waitForNotification(
+        TaskClosedNotificationDefinition,
+        DELIVERY_DEFAULT_TIMEOUT_MS,
+      )
+      .pipe(
+        Effect.mapError((e) =>
+          deliveryViolation(
+            propertyName,
+            `task/closed event missing: ${e.message}`,
+          ),
+        ),
+      );
+    const data = event.params as TaskClosedEventData | undefined;
+    if (data?.task?.id !== taskId || data.task.status !== "closed") {
+      return yield* Effect.fail(
+        deliveryViolation(
+          propertyName,
+          `bad task/closed payload: ${JSON.stringify(event.params)}`,
+        ),
+      );
+    }
+  });
 }

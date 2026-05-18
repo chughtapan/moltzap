@@ -3,7 +3,6 @@ import { Effect, Layer } from "effect";
 import { expect } from "vitest";
 import type { Db } from "../db/client.js";
 import { NoopTraceCaptureLive } from "../runtime-surface/trace-capture.js";
-import { LoggerLive, getLogger } from "../logger.js";
 import { ConnectionManager } from "../transport/connection.js";
 import { AgentEndpointResolver } from "../network/agent-endpoint-resolver.js";
 import { NetworkSendService } from "../network/network-send.js";
@@ -35,10 +34,7 @@ const FUNCTION_TYPE = "function";
  */
 const fakeDb = {} as Db;
 
-/**
- * Base layer — feeds the ServicesLive requirements. LoggerLive provides
- * LoggerTag itself, so no separate `Layer.succeed(LoggerTag, …)` needed.
- */
+/** Base layer — feeds the ServicesLive requirements. */
 const BaseLive = Layer.mergeAll(
   Layer.succeed(DbTag, fakeDb),
   Layer.succeed(EncryptionTag, null),
@@ -46,7 +42,6 @@ const BaseLive = Layer.mergeAll(
   Layer.succeed(WebhookClientTag, new WebhookClient()),
   Layer.succeed(DeliveryWebhookTag, null),
   NoopTraceCaptureLive,
-  LoggerLive,
 );
 
 /** Full composition — Base provides inputs to ServicesLive's requirements. */
@@ -59,9 +54,6 @@ it("ServicesLive resolves every service via resolveServices", () =>
     // Identity-pass-throughs from BaseLive — sanity that the plumbing
     // doesn't clone or wrap them somewhere unexpected.
     expect(services.db).toBe(fakeDb);
-    // LoggerLive builds pino from Effect.Config — asserting identity against
-    // getLogger() confirms the shim and the Layer agree on one singleton.
-    expect(services.logger).toBe(getLogger());
     expect(services.encryption).toBeNull();
 
     // Services that ServicesLive constructs. Each must be a real instance

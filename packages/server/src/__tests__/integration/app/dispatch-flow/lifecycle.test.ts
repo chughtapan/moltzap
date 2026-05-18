@@ -15,36 +15,26 @@
  * dispatchLeaseId=X)` consumes the lease via `Effect.acquireUseRelease(
  * claim, sendInsert+commit, finalize|rollback)`.
  */
-import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { it } from "@effect/vitest";
-import { Effect } from "effect";
 import {
-  AppsRegister,
-  ConversationsArchive,
-  ConversationsCreate,
-  DispatchAuthorize,
-  DispatchRequest,
-  DispatchRelease,
-  DispatchesGet,
-  MessagesSend,
-  ParticipantsRemovedNotificationDefinition,
-  TasksCreate,
-  TasksCreateConversation,
-  type AppManifest,
-  type ConversationId,
-  type DispatchId,
-  type LeaseId,
-  type MessageId,
-} from "@moltzap/protocol";
-import { agentId as protocolAgentId } from "@moltzap/protocol/testing";
+  DISPATCH_STATE_ABANDONED,
+  DISPATCH_STATE_CONSUMED,
+  DISPATCH_STATE_EXPIRED,
+  DISPATCH_STATE_GRANTED,
+  DISPATCH_VERDICT_HOLD,
+  EITHER_LEFT_TAG,
+  MODERATOR_UNAVAILABLE_REASON,
+  createDispatchFlowFixture,
+  makeProbeMessageId,
+  startDispatchFlowServer,
+  stopDispatchFlowServer,
+} from "./fixture.js";
 import {
-  startTestServer,
-  stopTestServer,
-  resetTestDb,
   registerAndConnect,
   setupAgentPair,
   getTestCoreApp,
 } from "../../helpers.js";
+
+const it = effectIt.live;
 
 const TEST_APP_ID = "moderator-dispatch-test-app";
 
@@ -54,46 +44,13 @@ const TEST_APP_MANIFEST: AppManifest = {
   conversations: [{ key: "main", name: "Main", participantFilter: "all" }],
 };
 
-let hookCalls = 0;
-let nextHookVerdict:
-  | { decision: "grant"; leaseTimeoutMs?: number }
-  | { decision: "deny"; reason?: string }
-  | { decision: "hold"; reason?: string }
-  | { kind: "never-reply" } = { decision: "grant" };
+const fixture = createDispatchFlowFixture(TEST_APP_MANIFEST);
 
-beforeAll(async () => {
-  await startTestServer();
-}, 60_000);
+beforeAll(startDispatchFlowServer, 60_000);
 
-afterAll(async () => {
-  await stopTestServer();
-});
+afterAll(stopDispatchFlowServer);
 
-beforeEach(async () => {
-  await resetTestDb();
-  hookCalls = 0;
-  nextHookVerdict = { decision: "grant" };
-  const coreApp = getTestCoreApp();
-  coreApp.registerApp(TEST_APP_MANIFEST);
-  coreApp.onTaskAuthorizeDispatch(TEST_APP_ID, async () => {
-    hookCalls += 1;
-    const v = nextHookVerdict;
-    if ("kind" in v && v.kind === "never-reply") {
-      // Never resolves — server-side timeout fires.
-      await new Promise(() => {
-        /* never */
-      });
-    }
-    return v as
-      | { decision: "grant"; leaseTimeoutMs?: number }
-      | { decision: "deny"; reason?: string }
-      | { decision: "hold"; reason?: string };
-  });
-});
-
-function makeProbeMessageId(): MessageId {
-  return crypto.randomUUID() as MessageId;
-}
+beforeEach(() => Effect.runPromise(fixture.reset));
 
 describe("dispatch/* — lifecycle: TTL, close, reconnect (#529 reshape additive)", () => {
   // Scenario 17 — verdict-deny vs synthesized-infra-hold distinction
@@ -104,7 +61,7 @@ describe("dispatch/* — lifecycle: TTL, close, reconnect (#529 reshape additive
   // moderator restart would mass-evict every recipient that messaged
   // during the restart window. Asserts: hold verdict fires AND no
   // `participants/removed` is observed inside a generous wait.
-  it.live(
+  it(
     "verdict-deny vs synthesized-infra-hold distinction: synthesized infra-hold (no hook) does NOT call removeParticipant",
     () =>
       Effect.gen(function* () {
@@ -135,8 +92,8 @@ describe("dispatch/* — lifecycle: TTL, close, reconnect (#529 reshape additive
           verdict: { decision: string; reason?: string };
         };
         expect(params.leaseId).toBe(ack.leaseId);
-        expect(params.verdict.decision).toBe("hold");
-        expect(params.verdict.reason).toBe("moderator_unavailable");
+        expect(params.verdict.decision).toBe(DISPATCH_VERDICT_HOLD);
+        expect(params.verdict.reason).toBe(MODERATOR_UNAVAILABLE_REASON);
         // Negative assertion: NO participants/removed fires within
         // the wait window. waitForNotification returns
         // `null`-or-throws on timeout depending on the test client
@@ -147,7 +104,7 @@ describe("dispatch/* — lifecycle: TTL, close, reconnect (#529 reshape additive
             500,
           ),
         );
-        expect(removedExit._tag).toBe("Left");
+        expect(removedExit._tag).toBe(EITHER_LEFT_TAG);
       }),
     20_000,
   );
@@ -155,12 +112,12 @@ describe("dispatch/* — lifecycle: TTL, close, reconnect (#529 reshape additive
   // Scenario 6 — post-grant TTL expiry (verified via registry direct
   // read; the wire dispatches/get path requires the moderator
   // connection-id binding which only the row 13 cutover wires).
-  it.live(
+  it(
     "post-grant TTL: granted lease expires after leaseTimeoutMs",
     () =>
       Effect.gen(function* () {
         const { alice, bob } = yield* setupAgentPair();
-        nextHookVerdict = { decision: "grant", leaseTimeoutMs: 100 };
+        fixture.setNextHookVerdict({ decision: "grant", leaseTimeoutMs: 100 });
         const task = yield* alice.client.sendRpc(TasksCreate, {
           appId: TEST_APP_ID,
           tmType: "self",
@@ -185,7 +142,7 @@ describe("dispatch/* — lifecycle: TTL, close, reconnect (#529 reshape additive
           _tag: "dispatchId",
           value: ack.dispatchId as DispatchId,
         });
-        expect(record.state).toBe("EXPIRED");
+        expect(record.state).toBe(DISPATCH_STATE_EXPIRED);
       }),
     20_000,
   );
@@ -206,12 +163,12 @@ describe("dispatch/* — lifecycle: TTL, close, reconnect (#529 reshape additive
   // covered indirectly: a normal dispatch + send leaves the lease
   // CONSUMED (not rolled back) even when the recipient subsequently
   // disconnects.
-  it.live(
+  it(
     "connection close in PENDING: PENDING → ABANDONED (architect §8 #15)",
     () =>
       Effect.gen(function* () {
         const { alice, bob } = yield* setupAgentPair();
-        nextHookVerdict = { kind: "never-reply" };
+        fixture.setNextHookVerdict({ kind: "never-reply" });
         const task = yield* alice.client.sendRpc(TasksCreate, {
           appId: TEST_APP_ID,
           tmType: "self",
@@ -237,12 +194,12 @@ describe("dispatch/* — lifecycle: TTL, close, reconnect (#529 reshape additive
           value: ack.leaseId as LeaseId,
         });
         // Architect §3 + §8 #15: PENDING + recipient close → ABANDONED.
-        expect(record.state).toBe("ABANDONED");
+        expect(record.state).toBe(DISPATCH_STATE_ABANDONED);
       }),
     20_000,
   );
 
-  it.live(
+  it(
     "connection close in GRANTED: GRANTED → EXPIRED-on-disconnect (architect §8 #15)",
     () =>
       Effect.gen(function* () {
@@ -267,7 +224,7 @@ describe("dispatch/* — lifecycle: TTL, close, reconnect (#529 reshape additive
           _tag: "leaseId",
           value: ack.leaseId as LeaseId,
         });
-        expect(granted.state).toBe("GRANTED");
+        expect(granted.state).toBe(DISPATCH_STATE_GRANTED);
         yield* bob.client.close();
         yield* Effect.sleep("300 millis");
         const expired = yield* coreApp.leaseRegistry.read({
@@ -276,12 +233,12 @@ describe("dispatch/* — lifecycle: TTL, close, reconnect (#529 reshape additive
         });
         // Architect §3 + §8 #15: GRANTED + recipient close →
         // EXPIRED-on-disconnect (terminal).
-        expect(expired.state).toBe("EXPIRED");
+        expect(expired.state).toBe(DISPATCH_STATE_EXPIRED);
       }),
     20_000,
   );
 
-  it.live(
+  it(
     "connection close after CONSUMED: terminal state stays CONSUMED (architect §8 #15 CLAIMED→no-op corollary)",
     () =>
       Effect.gen(function* () {
@@ -314,26 +271,26 @@ describe("dispatch/* — lifecycle: TTL, close, reconnect (#529 reshape additive
           _tag: "leaseId",
           value: ack.leaseId as LeaseId,
         });
-        expect(consumed.state).toBe("CONSUMED");
+        expect(consumed.state).toBe(DISPATCH_STATE_CONSUMED);
         yield* bob.client.close();
         yield* Effect.sleep("300 millis");
         const after = yield* coreApp.leaseRegistry.read({
           _tag: "leaseId",
           value: ack.leaseId as LeaseId,
         });
-        expect(after.state).toBe("CONSUMED");
+        expect(after.state).toBe(DISPATCH_STATE_CONSUMED);
         expect(after.consumedMessageId).toBe(sent.message.id);
       }),
     20_000,
   );
 
   // ── Scenario 16 — reconnect after lease aged out (architect §8 #16) ─
-  it.live(
+  it(
     "reconnect: lease expired between grant and reconnect → re-issuing dispatch/request mints a NEW lease (no resume)",
     () =>
       Effect.gen(function* () {
         const { alice, bob } = yield* setupAgentPair();
-        nextHookVerdict = { decision: "grant", leaseTimeoutMs: 100 };
+        fixture.setNextHookVerdict({ decision: "grant", leaseTimeoutMs: 100 });
         const task = yield* alice.client.sendRpc(TasksCreate, {
           appId: TEST_APP_ID,
           tmType: "self",
@@ -357,12 +314,12 @@ describe("dispatch/* — lifecycle: TTL, close, reconnect (#529 reshape additive
           _tag: "leaseId",
           value: firstAck.leaseId as LeaseId,
         });
-        expect(expired.state).toBe("EXPIRED");
+        expect(expired.state).toBe(DISPATCH_STATE_EXPIRED);
         // Reconnect bob. Re-issue dispatch/request. Server mints a fresh
         // lease (different leaseId).
         yield* bob.client.close();
         const bob2 = yield* registerAndConnect("bob2");
-        nextHookVerdict = { decision: "grant" };
+        fixture.setNextHookVerdict({ decision: "grant" });
         // bob2 is a different agent — re-create conv with bob2 to isolate.
         const conv2 = yield* alice.client.sendRpc(TasksCreateConversation, {
           taskId: task.task.id,

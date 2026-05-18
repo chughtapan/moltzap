@@ -21,7 +21,6 @@ import {
   Scope,
 } from "effect";
 
-import { logger, LoggerLive } from "../logger.js";
 import { NoopTraceCaptureLive } from "../runtime-surface/trace-capture.js";
 import type {
   AuthenticatedContext,
@@ -92,14 +91,34 @@ const ERROR_INVALID_JSON = "Invalid JSON";
 const ERROR_INVALID_PARAMETERS = "Invalid parameters";
 const INVALID_JSON_BODY = Symbol("InvalidJsonBody");
 
+const logInfo = (
+  message: string,
+  annotations: Record<string, unknown> = {},
+): Effect.Effect<void> =>
+  Effect.logInfo(message).pipe(Effect.annotateLogs(annotations));
+
+const logWarning = (
+  message: string,
+  annotations: Record<string, unknown> = {},
+): Effect.Effect<void> =>
+  Effect.logWarning(message).pipe(Effect.annotateLogs(annotations));
+
+const logError = (
+  message: string,
+  annotations: Record<string, unknown> = {},
+): Effect.Effect<void> =>
+  Effect.logError(message).pipe(Effect.annotateLogs(annotations));
+
 class ServerCloseError extends Data.TaggedError("ServerCloseError")<{
   readonly cause: unknown;
 }> {}
 
 const UTF8_DECODER = new TextDecoder("utf-8");
 
-/** Per-connection malformed-frame log rate-limit. Mirrors the client-side
- * pattern so a buggy/hostile peer can't flood the server log. */
+/**
+ * Per-connection malformed-frame log rate-limit. Mirrors the client-side
+ * pattern so a buggy/hostile peer can't flood the server log.
+ */
 const MALFORMED_LOG_EVERY = 50;
 
 function safeEqual(a: string, b: string): boolean {
@@ -194,11 +213,7 @@ function runUserHook<TArgs>(
       duration: Duration.millis(USER_HOOK_TIMEOUT_MS),
       onTimeout: () => new Error(`${label} timed out`),
     }),
-    Effect.catchAll((err) =>
-      Effect.sync(() => {
-        logger.error({ err, ...logCtx }, `${label} error`);
-      }),
-    ),
+    Effect.catchAll((err) => logError(`${label} error`, { err, ...logCtx })),
   );
 }
 
@@ -206,7 +221,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
   const db = config.db;
 
   // ── Service construction via Effect Layers ──────────────────────────
-  // Declarative replacement for the previous `new XxxService(db, logger)`
+  // Declarative replacement for the previous hand-wired service chain.
   // chain. Dependency order is encoded in each Layer's `yield*` — not
   // hand-written here — so adding a new service only requires a new Tag
   // + Layer in layers.ts, no edits to this function.
@@ -227,14 +242,11 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     Layer.succeed(WebhookClientTag, webhookClient),
     Layer.succeed(DeliveryWebhookTag, config.deliveryWebhook ?? null),
     config.traceCaptureLayer ?? NoopTraceCaptureLive,
-    // Provides LoggerTag (pino built from Effect.Config) and replaces the
-    // default Effect logger so `Effect.log*` routes through the same stream.
-    LoggerLive,
   );
 
-  // provideMerge (vs provide): BaseLive satisfies ServicesLive's Db/Logger/
-  // Encryption requirements AND exposes them downstream, so resolveServices
-  // can also pull db/logger/encryption from Context without a separate Layer.
+  // provideMerge (vs provide): BaseLive satisfies ServicesLive's base
+  // requirements AND exposes them downstream, so resolveServices can also
+  // pull db/encryption from Context without a separate Layer.
   const ServicesWithBase = Layer.provideMerge(ServicesLive, BaseLive);
 
   // Post-construction wiring: #529 reshape additive wired
@@ -310,7 +322,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
   const jsonRpcServer = makeJsonRpcServer<
     DispatchContext,
     Exclude<AppTags, ConnIdTag>
-  >(methods, logger);
+  >(methods);
 
   // ── HTTP routes via @effect/platform HttpRouter ──────────────────────
 
@@ -363,7 +375,9 @@ export function createCoreApp(config: CoreConfig): CoreApp {
         );
       }
       // registerAgent's error channel is `never`; failures are defects.
-      logger.error({ cause: Cause.pretty(exit.cause) }, "Registration failed");
+      yield* logError("Registration failed", {
+        cause: Cause.pretty(exit.cause),
+      });
       return HttpServerResponse.unsafeJson(
         { error: "Registration failed" },
         { status: HTTP_INTERNAL_SERVER_ERROR },
@@ -399,7 +413,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
       );
       if (Exit.isFailure(exit)) {
         // claimAgent's error channel is `never`; failures are defects.
-        logger.error({ cause: Cause.pretty(exit.cause) }, "Claim failed");
+        yield* logError("Claim failed", { cause: Cause.pretty(exit.cause) });
         return HttpServerResponse.unsafeJson(
           { error: "Claim failed" },
           { status: HTTP_INTERNAL_SERVER_ERROR },
@@ -539,10 +553,9 @@ export function createCoreApp(config: CoreConfig): CoreApp {
         ),
       );
       if (Exit.isFailure(exit)) {
-        logger.error(
-          { cause: Cause.pretty(exit.cause) },
-          "Admin upsert failed",
-        );
+        yield* logError("Admin upsert failed", {
+          cause: Cause.pretty(exit.cause),
+        });
         return HttpServerResponse.unsafeJson(
           { error: "Registration failed" },
           { status: 500 },
@@ -567,12 +580,14 @@ export function createCoreApp(config: CoreConfig): CoreApp {
   const allowedOriginsPredicate = (origin: string): boolean => {
     if (config.corsOrigins.includes("*")) return true;
     if (config.corsOrigins.includes(origin)) return true;
-    logger.warn({ origin }, "CORS origin rejected");
+    Effect.runFork(logWarning("CORS origin rejected", { origin }));
     return false;
   };
 
-  /** Handle a freshly-upgraded socket: network/connect → RPC dispatch → close.
-   * Lives inside the per-request fiber; returning exits the connection. */
+  /**
+   * Handle a freshly-upgraded socket: network/connect → RPC dispatch → close.
+   * Lives inside the per-request fiber; returning exits the connection.
+   */
   const handleSocket = (
     socket: Socket.Socket,
   ): Effect.Effect<void, Socket.SocketError, Exclude<AppTags, ConnIdTag>> =>
@@ -588,9 +603,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
         const sendFrame = (obj: unknown) =>
           write(JSON.stringify(obj)).pipe(
             Effect.catchAll((err) =>
-              Effect.sync(() =>
-                logger.warn({ err, connId }, "socket write failed"),
-              ),
+              logWarning("socket write failed", { err, connId }),
             ),
           );
 
@@ -612,7 +625,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
           mutedConversations: new Set(),
           jsonRpcClient,
         });
-        logger.info({ connId }, "WebSocket connected");
+        yield* logInfo("WebSocket connected", { connId });
 
         const sendInvalidRequest = (id: JsonRpcId | null) =>
           sendFrame(
@@ -625,9 +638,12 @@ export function createCoreApp(config: CoreConfig): CoreApp {
         const handleParseFailure = (err: unknown) => {
           const n = ++malformedFrameCount;
           if (n === 1 || n % MALFORMED_LOG_EVERY === 0) {
-            logger.warn(
-              { err, connId, count: n },
-              "Failed to parse WebSocket frame",
+            Effect.runFork(
+              logWarning("Failed to parse WebSocket frame", {
+                err,
+                connId,
+                count: n,
+              }),
             );
           }
           return sendFrame(
@@ -644,9 +660,9 @@ export function createCoreApp(config: CoreConfig): CoreApp {
             if (!conn) return;
             const matched = yield* conn.jsonRpcClient.resolve(frame);
             if (!matched) {
-              logger.warn(
-                { connId, id: frame.id },
+              yield* logWarning(
                 "no pending appCallback request matched inbound response",
+                { connId, id: frame.id },
               );
             }
           });
@@ -795,12 +811,12 @@ export function createCoreApp(config: CoreConfig): CoreApp {
               presenceService.removeConnection(connId);
               connections.remove(connId);
               if (Exit.isFailure(exit)) {
-                logger.warn(
-                  { connId, cause: Cause.pretty(exit.cause) },
-                  "WebSocket error",
-                );
+                yield* logWarning("WebSocket error", {
+                  connId,
+                  cause: Cause.pretty(exit.cause),
+                });
               }
-              logger.info({ connId }, "WebSocket disconnected");
+              yield* logInfo("WebSocket disconnected", { connId });
             }),
           ),
         );
@@ -816,7 +832,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
       return HttpServerResponse.empty();
     }).pipe(
       Effect.catchAll((err) => {
-        logger.warn({ err }, "WS upgrade failed");
+        Effect.runFork(logWarning("WS upgrade failed", { err }));
         return HttpServerResponse.empty({ status: HTTP_BAD_REQUEST });
       }),
     ),
@@ -858,7 +874,7 @@ export function createCoreApp(config: CoreConfig): CoreApp {
   // RPC handler bodies that `yield* XServiceTag` resolve via the
   // managed runtime rather than via per-frame `Effect.provide`. The
   // `BaseLive`-wired services (Db, Encryption, SessionValidator,
-  // WebhookClient, DeliveryWebhook, TraceCapture, Logger) come along
+  // WebhookClient, DeliveryWebhook, TraceCapture) come along
   // for free since `FullLive` composes `ServicesLive` over `BaseLive`.
   const appScope = Effect.runSync(Scope.make());
 
@@ -871,11 +887,11 @@ export function createCoreApp(config: CoreConfig): CoreApp {
     yield* serverSvc.serve(httpApp);
     const addr = serverSvc.address;
     actualPort = addr._tag === "TcpAddress" ? addr.port : config.port;
-    logger.info({ port: actualPort }, "MoltZap core server listening");
+    yield* logInfo("MoltZap core server listening", { port: actualPort });
   }).pipe(Scope.extend(appScope));
 
   dispatchRuntime.runPromise(startup).catch((err) => {
-    logger.error({ err }, "Server startup failed");
+    Effect.runFork(logError("Server startup failed", { err }));
   });
 
   return {

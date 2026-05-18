@@ -97,7 +97,7 @@ import {
 } from "../../db/effect-kysely-toolkit.js";
 import { endpointAddressForAgent } from "./task.service.js";
 
-/** pg returns bytea as Buffer, PGlite returns Uint8Array. Normalize so .toString("utf-8") works. */
+/** Postgres returns bytea as Buffer, while PGlite returns Uint8Array. Normalize so .toString("utf-8") works. */
 function toBuf(v: Buffer | Uint8Array): Buffer {
   return Buffer.isBuffer(v) ? v : Buffer.from(v);
 }
@@ -130,6 +130,7 @@ export interface MessageServiceDeps {
   readonly db: Db;
   readonly conversations: ConversationService;
   readonly networkSend: NetworkSendService;
+
   /**
    * #463 v3: synchronous in-memory resolver used by {@link
    * MessageService.preflightRecipients} to fail-close BEFORE the
@@ -142,6 +143,7 @@ export interface MessageServiceDeps {
   readonly deliveryWebhook: DeliveryWebhookConfig | null;
   readonly webhookClient: WebhookClient | null;
   readonly traceCapture: TraceCapture | null;
+
   /**
    * #560: AppHost owns the `messages/authorize` registry and runner.
    * Optional only because legacy unit-test stubs construct
@@ -208,13 +210,14 @@ export class MessageService {
   }
 
   /**
-   * #463 v3 — synchronous resolver pre-check that runs BEFORE the
-   * durable INSERT in {@link send}. Resolves each conversation
-   * participant (excluding the sender) through {@link
-   * AgentEndpointResolver.resolveAll}; fails closed with {@link
-   * RecipientNotResolved} as soon as one required recipient has no
-   * live connection. On success returns the resolved recipient set so
-   * the caller does not have to re-walk the participant list.
+   * Synchronous resolver pre-check that runs before the durable INSERT in
+   * {@link send}.
+   *
+   * Issue #463 v3 resolves each conversation participant, excluding the sender,
+   * through {@link AgentEndpointResolver.resolveAll}; fails closed with {@link
+   * RecipientNotResolved} as soon as one required recipient has no live
+   * connection. On success returns the resolved recipient set so the caller does
+   * not have to re-walk the participant list.
    *
    * Architect plan §1 (v3): v2 attempted to catch broadcast-side
    * failures POST-INSERT via a `broadcast_attempted_at` column + CAS.
@@ -282,11 +285,13 @@ export class MessageService {
    * and may not have live recipients yet) opts out by not running
    * preflight on that path.
    */
+
   /**
-   * #560: CAS-guarded UPDATE of `messages.tm_decision` after the
-   * `messages/authorize` gate resolves. Caller-side state machine:
-   * row is inserted with `{tag: "pending"}` in {@link sendInsert};
-   * THIS method transitions to `{tag: "forward", recipients}` or
+   * CAS-guarded UPDATE of `messages.tm_decision` after the
+   * `messages/authorize` gate resolves.
+   *
+   * Issue #560 inserts each row with `{tag: "pending"}` in {@link sendInsert};
+   * this method transitions to `{tag: "forward", recipients}` or
    * `{tag: "block", reason}` exactly once.
    *
    * The CAS guard restricts the UPDATE to rows currently in the
@@ -446,9 +451,10 @@ export class MessageService {
   }
 
   /**
-   * #529 reshape additive — TM routing + broadcast + trace + delivery
-   * webhook tail. Sequencing preserves the pre-split order (architect
-   * plan §9 risk #9): TM route -> preview -> fan-out -> trace -> webhook.
+   * TM routing, broadcast, trace, and delivery webhook tail.
+   *
+   * Issue #529 sequencing preserves the pre-split order from architect plan §9
+   * risk #9: TM route -> preview -> fan-out -> trace -> webhook.
    *
    * #560 cutover — the unconditional broadcast is replaced by the
    * `messages/authorize` gate:
@@ -741,11 +747,17 @@ export class MessageService {
     inputParts: Part[],
     senderAgentId: AgentId,
     replyToId?: MessageId,
-    /** Sender's WS connection — skipped by the broadcast fan-out so
-     * the RPC reply is not echoed back as a notification. */
+
+    /**
+     * Sender's WS connection — skipped by the broadcast fan-out so
+     * the RPC reply is not echoed back as a notification.
+     */
     excludeConnectionId?: string,
-    /** Skip the TM-routing branch. `tasks/storeMessage` sets this to
-     * avoid a self-loop when the TM persists a message it admitted. */
+
+    /**
+     * Skip the TM-routing branch. `tasks/storeMessage` sets this to
+     * avoid a self-loop when the TM persists a message it admitted.
+     */
     bypassTmRouting = false,
   ): Effect.Effect<Message, MessageServiceError> {
     return Effect.gen(this, function* () {
@@ -925,12 +937,13 @@ export class MessageService {
   }
 
   /**
-   * #560 visibility helper: true iff the caller IS the registered TM
-   * for an app-bound task. The shape of the check (mirrors
-   * `requireConversationAdminAuthority`'s second branch):
+   * Visibility helper that returns true when the caller is the registered TM for
+   * an app-bound task.
+   *
+   * Issue #560 mirrors `requireConversationAdminAuthority`'s second branch:
    *
    *   task.app_id IS NOT NULL
-   *   AND task.tm_endpoint_address === `tm:agent:<callerAgentId>`
+   *   AND task.tm_endpoint_address === `tm:agent:&lt;callerAgentId>`
    *
    * For default-DM/group tasks (app_id IS NULL) returns false — there
    * is no external caller to authenticate; the default-DM/group
@@ -1078,7 +1091,6 @@ export class MessageService {
             );
             dekVersion = winnerRow.dek_version;
             kekVersion = winnerRow.kek_version;
-            keyRowOpt = Option.some(winnerRow);
           }
         } else {
           const keyRow = keyRowOpt.value;
@@ -1215,15 +1227,19 @@ function taskStatusAcceptsMessages(status: TaskStatus): boolean {
   }
 }
 
-/** Decode raw `tasks.tm_endpoint_address`. A malformed non-null row is
- * data corruption and dies as a defect rather than silently mis-routing. */
+/**
+ * Decode raw `tasks.tm_endpoint_address`. A malformed non-null row is
+ * data corruption and dies as a defect rather than silently mis-routing.
+ */
 function decodeTmEndpointAddress(raw: string): Effect.Effect<EndpointAddress> {
   if (isEndpointAddress(raw)) return Effect.succeed(raw);
   return Effect.die(`Malformed tm_endpoint_address in tasks row: ${raw}`);
 }
 
-/** Translate a `network.send` `DeliveryError` into `HookBlockedError`.
- * Both tags signal a caller-recoverable TM-offline / socket-fail. */
+/**
+ * Translate a `network.send` `DeliveryError` into `HookBlockedError`.
+ * Both tags signal a caller-recoverable TM-offline / socket-fail.
+ */
 function deliveryErrorToHookBlocked(
   err: RecipientNotResolved | WriteFailed,
 ): HookBlockedError {

@@ -95,7 +95,7 @@ const formatAppManifestError = (error: {
 }): string =>
   `${error.instancePath || "/"} ${error.message ?? "validation failed"}`;
 
-export class AppManifestInvalid extends Data.TaggedError("AppManifestInvalid")<{
+class AppManifestInvalid extends Data.TaggedError("AppManifestInvalid")<{
   readonly errors: readonly string[];
 }> {}
 
@@ -121,12 +121,6 @@ export function validateAppManifest(
 ): AppManifestValidationResult {
   return validateAppManifestValue(value);
 }
-
-export const isAppManifest = (value: unknown): value is AppManifest =>
-  Either.match(validateAppManifest(value), {
-    onLeft: () => false,
-    onRight: () => true,
-  });
 
 // ── apps/* RPCs ──────────────────────────────────────────────────────
 

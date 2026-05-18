@@ -20,7 +20,8 @@ import {
   PropertyUnavailable,
   registerProperty,
 } from "../_shared/registry.js";
-import { ConversationsCreate, ConversationId } from "@moltzap/protocol/task";
+import { ConversationsCreate } from "@moltzap/protocol/task";
+import type { ConversationId } from "@moltzap/protocol/task";
 import { conversationId } from "../_shared/test-fixtures.js";
 
 export const ADVERSITY_CATEGORY = "adversity" as const;

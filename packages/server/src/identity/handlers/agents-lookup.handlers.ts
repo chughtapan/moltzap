@@ -57,7 +57,7 @@ export const agentsLookupHandlers: RpcMethodRegistry = [
             ])
             .where("id", "in", params.agentIds as ServerAgentId[]);
           return { agents: rows.map(toAgentCard) };
-        }),
+        }).pipe(Effect.withSpan("agents.lookup")),
       ),
   }),
   defineNetworkMethod(AgentsLookupByName, {
@@ -94,7 +94,7 @@ export const agentsLookupHandlers: RpcMethodRegistry = [
               .filter((r) => visibleSet.has(r.id))
               .map(toAgentCard),
           };
-        }),
+        }).pipe(Effect.withSpan("agents.lookupByName")),
       ),
   }),
   defineNetworkMethod(AgentsList, {
@@ -126,7 +126,7 @@ export const agentsLookupHandlers: RpcMethodRegistry = [
             agents[row.id] = toAgentCard(row);
           }
           return { agents };
-        }),
+        }).pipe(Effect.withSpan("agents.list")),
       ),
   }),
 ];

@@ -45,7 +45,7 @@ export function seedInitialKek(db: Db, envelope: EnvelopeEncryption) {
   return Effect.runPromise(seedInitialKekEffect(db, envelope));
 }
 
-export function rotateKek(db: Db, envelope: EnvelopeEncryption) {
+function rotateKek(db: Db, envelope: EnvelopeEncryption) {
   return Effect.runPromise(rotateKekEffect(db, envelope));
 }
 

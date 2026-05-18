@@ -4,12 +4,15 @@
  */
 import { Clock, Effect, Either } from "effect";
 import { defaultToxicProfile } from "../../toxics/defaults.js";
-import { ConversationsList } from "@moltzap/protocol/task";
+import { RpcTimeoutError } from "../_shared/errors.js";
+import type { TestClient } from "../_shared/driver/test-client.js";
+import { ConversationsList } from "../../../task/methods.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import {
   acquireProxiedClient,
   adversityViolation,
   proxyName,
+  type ToxicBodyParams,
   withToxicProxy,
 } from "./_helpers.js";
 
@@ -24,60 +27,86 @@ export function registerTimeoutSurface(ctx: ConformanceRunContext): void {
     description: "timeout toxic surfaces typed RpcTimeoutError within budget",
     proxyName: proxyName("to", ctx.seed),
     profile: defaultToxicProfile.timeout,
-    body: ({ proxy, unavailable, attachToxic }) =>
-      Effect.gen(function* () {
-        // Client timeout must be LESS than the toxic's forwarding
-        // timeout so the RPC hits the client-side deadline first.
-        // defaultToxicProfile.timeout.timeoutMs = 5000. Set client to
-        // 1500ms for a fast, clear timeout surface.
-        const proxied = yield* acquireProxiedClient(
-          ctx,
-          proxy,
-          `to-${ctx.seed}-c`,
-          TIMEOUT_CLIENT_TIMEOUT_MS,
-          unavailable,
-        );
-        const { outcomeTag, elapsed } = yield* Effect.scoped(
-          Effect.gen(function* () {
-            yield* attachToxic;
-            const start = yield* Clock.currentTimeMillis;
-            const outcome = yield* proxied.client
-              .sendRpc(ConversationsList, {})
-              .pipe(Effect.either);
-            const elapsed = (yield* Clock.currentTimeMillis) - start;
-            return {
-              outcomeTag: Either.match(outcome, {
-                onLeft: (error) => error._tag,
-                onRight: () => "success",
-              }),
-              elapsed,
-            };
-          }),
-        );
-        if (outcomeTag === "success") {
-          return yield* Effect.fail(
-            adversityViolation(
-              TIMEOUT_SURFACE_PROPERTY,
-              "RPC through timeout toxic unexpectedly succeeded",
-            ),
-          );
-        }
-        if (outcomeTag !== "TestingRpcTimeoutError") {
-          return yield* Effect.fail(
-            adversityViolation(
-              TIMEOUT_SURFACE_PROPERTY,
-              `expected RpcTimeoutError, got ${outcomeTag}`,
-            ),
-          );
-        }
-        if (elapsed > TIMEOUT_EXPECTED_BUDGET_MS) {
-          return yield* Effect.fail(
-            adversityViolation(
-              TIMEOUT_SURFACE_PROPERTY,
-              `timeout fired at ${elapsed}ms, expected <${TIMEOUT_EXPECTED_BUDGET_MS}ms`,
-            ),
-          );
-        }
-      }).pipe(Effect.withSpan("registerTimeoutSurface")),
+    body: (params) =>
+      runTimeoutSurface(ctx, params).pipe(
+        Effect.withSpan("registerTimeoutSurface"),
+      ),
   });
+}
+
+function runTimeoutSurface(
+  ctx: ConformanceRunContext,
+  params: ToxicBodyParams,
+) {
+  return Effect.gen(function* () {
+    const proxied = yield* acquireProxiedClient({
+      ctx,
+      proxy: params.proxy,
+      name: `to-${ctx.seed}-c`,
+      defaultTimeoutMs: TIMEOUT_CLIENT_TIMEOUT_MS,
+      unavailable: params.unavailable,
+    });
+    const result = yield* measureTimeoutOutcome(
+      proxied.client,
+      params.attachToxic,
+    );
+    yield* assertTimeoutError(result.error);
+    yield* assertTimeoutBudget(result.elapsed);
+  });
+}
+
+type TimeoutResult = {
+  readonly error: unknown | null;
+  readonly elapsed: number;
+};
+
+function measureTimeoutOutcome(
+  client: TestClient,
+  attachToxic: ToxicBodyParams["attachToxic"],
+) {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      yield* attachToxic;
+      const start = yield* Clock.currentTimeMillis;
+      const outcome = yield* client
+        .sendRpc(ConversationsList, {})
+        .pipe(Effect.either);
+      const elapsed = (yield* Clock.currentTimeMillis) - start;
+      const error = Either.match(outcome, {
+        onLeft: (failure) => failure,
+        onRight: () => null,
+      });
+      return { error, elapsed } satisfies TimeoutResult;
+    }),
+  );
+}
+
+function assertTimeoutError(error: unknown | null) {
+  if (error === null) {
+    return Effect.fail(
+      adversityViolation(
+        TIMEOUT_SURFACE_PROPERTY,
+        "RPC through timeout toxic unexpectedly succeeded",
+      ),
+    );
+  }
+  return error instanceof RpcTimeoutError
+    ? Effect.void
+    : Effect.fail(
+        adversityViolation(
+          TIMEOUT_SURFACE_PROPERTY,
+          `expected RpcTimeoutError, got ${String(error)}`,
+        ),
+      );
+}
+
+function assertTimeoutBudget(elapsed: number) {
+  return elapsed <= TIMEOUT_EXPECTED_BUDGET_MS
+    ? Effect.void
+    : Effect.fail(
+        adversityViolation(
+          TIMEOUT_SURFACE_PROPERTY,
+          `timeout fired at ${elapsed}ms, expected <${TIMEOUT_EXPECTED_BUDGET_MS}ms`,
+        ),
+      );
 }

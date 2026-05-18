@@ -1,156 +1,165 @@
 import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { it } from "@effect/vitest";
+import { it as effectIt } from "@effect/vitest";
 import { Effect } from "effect";
-import { startTestServer, stopTestServer, resetTestDb } from "../helpers.js";
 import {
+  startTestServerEffect,
+  stopTestServerEffect,
+  resetTestDbEffect,
   registerAgent,
   connectTestClient,
   registerAndConnect,
   trackClient,
+  type ConnectedAgent,
 } from "../helpers.js";
 import { getBaseUrl } from "../../../test-utils/index.js";
-
 import {
   PresenceSubscribe,
   PresenceUpdate,
   PresenceChangedNotificationDefinition,
 } from "@moltzap/protocol";
 
-// Sibling-owner cohort so #481 contact-scoping doesn't filter agents
-// out — this file exercises broadcast lifecycle, not the visibility gate.
+const it = effectIt.live;
+
 const PRESENCE_DEV_OWNER = "00000000-0000-4000-8000-000000000470";
+const STATUS_ONLINE = "online";
+const STATUS_AWAY = "away";
+const STATUS_OFFLINE = "offline";
 
-beforeAll(async () => {
-  await startTestServer({ devModeUserId: PRESENCE_DEV_OWNER });
+beforeAll(() =>
+  Effect.runPromise(
+    startTestServerEffect({ devModeUserId: PRESENCE_DEV_OWNER }),
+  ),
+);
+afterAll(() => Effect.runPromise(stopTestServerEffect()));
+beforeEach(() => Effect.runPromise(resetTestDbEffect()));
+
+function presenceStatus(event: { params: unknown }): string {
+  return (event.params as { status: string }).status;
+}
+
+function presenceAgentId(event: { params: unknown }): string {
+  return (event.params as { agentId: string }).agentId;
+}
+
+function waitPresenceChanged(agent: ConnectedAgent) {
+  return agent.client.waitForNotification(
+    PresenceChangedNotificationDefinition,
+  );
+}
+
+function subscribe(watcher: ConnectedAgent, agentIds: string[]) {
+  return watcher.client.sendRpc(PresenceSubscribe, {
+    agentIds,
+  }) as Effect.Effect<{
+    statuses: Array<{ agentId: string; status: string }>;
+  }>;
+}
+
+function updatePresence(agent: ConnectedAgent, status: string) {
+  return agent.client.sendRpc(PresenceUpdate, { status });
+}
+
+function subscribeReturnsOnlineForConnectedAgent() {
+  return Effect.gen(function* () {
+    const alice = yield* registerAndConnect("alice-pres");
+    const bob = yield* registerAndConnect("bob-pres");
+    const result = yield* subscribe(alice, [bob.agentId]);
+    expect(result.statuses).toHaveLength(1);
+    expect(result.statuses[0]?.status).toBe(STATUS_ONLINE);
+  });
+}
+
+function updatePushesPresenceChanged() {
+  return Effect.gen(function* () {
+    const alice = yield* registerAndConnect("alice-away");
+    const bob = yield* registerAndConnect("bob-away");
+    yield* subscribe(alice, [bob.agentId]);
+
+    yield* updatePresence(bob, STATUS_AWAY);
+    const event = yield* waitPresenceChanged(alice);
+    expect(presenceAgentId(event)).toBe(bob.agentId);
+    expect(presenceStatus(event)).toBe(STATUS_AWAY);
+  });
+}
+
+function cyclesThroughPresenceStatuses() {
+  return Effect.gen(function* () {
+    const alice = yield* registerAndConnect("alice-cycle");
+    const bob = yield* registerAndConnect("bob-cycle");
+    yield* subscribe(alice, [bob.agentId]);
+
+    yield* updatePresence(bob, STATUS_AWAY);
+    expect(presenceStatus(yield* waitPresenceChanged(alice))).toBe(STATUS_AWAY);
+
+    yield* updatePresence(bob, STATUS_ONLINE);
+    expect(presenceStatus(yield* waitPresenceChanged(alice))).toBe(
+      STATUS_ONLINE,
+    );
+
+    yield* updatePresence(bob, STATUS_OFFLINE);
+    expect(presenceStatus(yield* waitPresenceChanged(alice))).toBe(
+      STATUS_OFFLINE,
+    );
+  });
+}
+
+function connectBroadcastsOnline() {
+  return Effect.gen(function* () {
+    const watcher = yield* registerAndConnect("watcher-connect");
+    const target = yield* registerAgent(getBaseUrl(), "target-connect");
+    const sub = yield* subscribe(watcher, [target.agentId]);
+    expect(sub.statuses[0]?.status).toBe(STATUS_OFFLINE);
+
+    const targetClient = yield* connectTestClient({
+      agentId: target.agentId,
+      apiKey: target.apiKey,
+    });
+    trackClient(targetClient);
+
+    const event = yield* waitPresenceChanged(watcher);
+    expect(presenceAgentId(event)).toBe(target.agentId);
+    expect(presenceStatus(event)).toBe(STATUS_ONLINE);
+  });
+}
+
+function disconnectBroadcastsOffline() {
+  return Effect.gen(function* () {
+    const watcher = yield* registerAndConnect("watcher-disconnect");
+    const target = yield* registerAndConnect("target-disconnect");
+    yield* subscribe(watcher, [target.agentId]);
+
+    yield* target.client.close();
+    const event = yield* waitPresenceChanged(watcher);
+    expect(presenceAgentId(event)).toBe(target.agentId);
+    expect(presenceStatus(event)).toBe(STATUS_OFFLINE);
+  });
+}
+
+describe("Presence lifecycle snapshots", () => {
+  it(
+    "subscribe returns online status for connected agent",
+    subscribeReturnsOnlineForConnectedAgent,
+  );
 });
 
-afterAll(async () => {
-  await stopTestServer();
+describe("Presence lifecycle updates", () => {
+  it(
+    "presence/update pushes PresenceChanged to subscribers",
+    updatePushesPresenceChanged,
+  );
+  it(
+    "presence cycles through online, away, offline",
+    cyclesThroughPresenceStatuses,
+  );
 });
 
-beforeEach(async () => {
-  await resetTestDb();
-});
-
-describe("Presence Lifecycle", () => {
-  it.live("subscribe returns online status for connected agent", () =>
-    Effect.gen(function* () {
-      const alice = yield* registerAndConnect("alice-pres");
-      const bob = yield* registerAndConnect("bob-pres");
-
-      const result = (yield* alice.client.sendRpc(PresenceSubscribe, {
-        agentIds: [bob.agentId],
-      })) as { statuses: Array<{ agentId: string; status: string }> };
-
-      expect(result.statuses).toHaveLength(1);
-      expect(result.statuses[0]!.status).toBe("online");
-    }),
-  );
-
-  it.live("presence/update pushes PresenceChanged to subscribers", () =>
-    Effect.gen(function* () {
-      const alice = yield* registerAndConnect("alice-away");
-      const bob = yield* registerAndConnect("bob-away");
-
-      yield* alice.client.sendRpc(PresenceSubscribe, {
-        agentIds: [bob.agentId],
-      });
-
-      yield* bob.client.sendRpc(PresenceUpdate, { status: "away" });
-
-      const event = yield* alice.client.waitForNotification(
-        PresenceChangedNotificationDefinition,
-      );
-      const data = event.params as {
-        agentId: string;
-        status: string;
-      };
-      expect(data.agentId).toBe(bob.agentId);
-      expect(data.status).toBe("away");
-    }),
-  );
-
-  it.live("presence cycles through online → away → offline", () =>
-    Effect.gen(function* () {
-      const alice = yield* registerAndConnect("alice-cycle");
-      const bob = yield* registerAndConnect("bob-cycle");
-
-      yield* alice.client.sendRpc(PresenceSubscribe, {
-        agentIds: [bob.agentId],
-      });
-
-      // away
-      yield* bob.client.sendRpc(PresenceUpdate, { status: "away" });
-      const awayEvent = yield* alice.client.waitForNotification(
-        PresenceChangedNotificationDefinition,
-      );
-      expect((awayEvent.params as { status: string }).status).toBe("away");
-
-      // back online
-      yield* bob.client.sendRpc(PresenceUpdate, { status: "online" });
-      const onlineEvent = yield* alice.client.waitForNotification(
-        PresenceChangedNotificationDefinition,
-      );
-      expect((onlineEvent.params as { status: string }).status).toBe("online");
-
-      // offline
-      yield* bob.client.sendRpc(PresenceUpdate, { status: "offline" });
-      const offlineEvent = yield* alice.client.waitForNotification(
-        PresenceChangedNotificationDefinition,
-      );
-      expect((offlineEvent.params as { status: string }).status).toBe(
-        "offline",
-      );
-    }),
-  );
-
-  // arena#252 — connect/disconnect transitions publish presence/changed.
-  it.live(
+describe("Presence lifecycle connection transitions", () => {
+  it(
     "network/connect broadcasts presence/changed online to subscribers",
-    () =>
-      Effect.gen(function* () {
-        const watcher = yield* registerAndConnect("watcher-connect");
-
-        // Subscribe BEFORE target connects so the snapshot reads offline.
-        const target = yield* registerAgent(getBaseUrl(), "target-connect");
-        const sub = (yield* watcher.client.sendRpc(PresenceSubscribe, {
-          agentIds: [target.agentId],
-        })) as { statuses: Array<{ agentId: string; status: string }> };
-        expect(sub.statuses[0]!.status).toBe("offline");
-
-        const targetClient = yield* connectTestClient({
-          agentId: target.agentId,
-          apiKey: target.apiKey,
-        });
-        trackClient(targetClient);
-
-        const event = yield* watcher.client.waitForNotification(
-          PresenceChangedNotificationDefinition,
-        );
-        const data = event.params as { agentId: string; status: string };
-        expect(data.agentId).toBe(target.agentId);
-        expect(data.status).toBe("online");
-      }),
+    connectBroadcastsOnline,
   );
-
-  it.live("disconnect broadcasts presence/changed offline to subscribers", () =>
-    Effect.gen(function* () {
-      const watcher = yield* registerAndConnect("watcher-disconnect");
-      const target = yield* registerAndConnect("target-disconnect");
-
-      // Subscribe AFTER target is online; close is the only offline trigger.
-      yield* watcher.client.sendRpc(PresenceSubscribe, {
-        agentIds: [target.agentId],
-      });
-
-      yield* target.client.close();
-
-      const event = yield* watcher.client.waitForNotification(
-        PresenceChangedNotificationDefinition,
-      );
-      const data = event.params as { agentId: string; status: string };
-      expect(data.agentId).toBe(target.agentId);
-      expect(data.status).toBe("offline");
-    }),
+  it(
+    "disconnect broadcasts presence/changed offline to subscribers",
+    disconnectBroadcastsOffline,
   );
 });

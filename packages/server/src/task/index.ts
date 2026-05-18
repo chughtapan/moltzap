@@ -1,12 +1,8 @@
 /**
- * `task/` — conversations, messages, tasks, contacts (handler-routing),
- * task-manager dispatch.
+ * @file Task layer public barrel.
  *
- * Layer rules:
- *   - May import: kernels, transport, identity, network.
- *   - May NOT import: app.
- *
- * Public surface (post-2A.2): `ConversationService`, `MessageService`,
- * `TaskService`, default-TM handlers, task handler registries.
+ * The task layer owns conversations, messages, tasks, contact handler routing,
+ * and task-manager dispatch. It may import kernels, transport, identity, and
+ * network, but not app.
  */
 export {};

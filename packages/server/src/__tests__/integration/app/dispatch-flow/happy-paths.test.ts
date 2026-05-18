@@ -15,36 +15,17 @@
  * dispatchLeaseId=X)` consumes the lease via `Effect.acquireUseRelease(
  * claim, sendInsert+commit, finalize|rollback)`.
  */
-import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { it } from "@effect/vitest";
-import { Effect } from "effect";
 import {
-  AppsRegister,
-  ConversationsArchive,
-  ConversationsCreate,
-  DispatchAuthorize,
-  DispatchRequest,
-  DispatchRelease,
-  DispatchesGet,
-  MessagesSend,
-  ParticipantsRemovedNotificationDefinition,
-  TasksCreate,
-  TasksCreateConversation,
-  type AppManifest,
-  type ConversationId,
-  type DispatchId,
-  type LeaseId,
-  type MessageId,
-} from "@moltzap/protocol";
-import { agentId as protocolAgentId } from "@moltzap/protocol/testing";
-import {
-  startTestServer,
-  stopTestServer,
-  resetTestDb,
-  registerAndConnect,
-  setupAgentPair,
-  getTestCoreApp,
-} from "../../helpers.js";
+  DISPATCH_VERDICT_GRANT,
+  EXPECTED_TYPE_STRING,
+  createDispatchFlowFixture,
+  makeProbeMessageId,
+  startDispatchFlowServer,
+  stopDispatchFlowServer,
+} from "./fixture.js";
+import { setupAgentPair } from "../../helpers.js";
+
+const it = effectIt.live;
 
 const TEST_APP_ID = "moderator-dispatch-test-app";
 
@@ -54,55 +35,22 @@ const TEST_APP_MANIFEST: AppManifest = {
   conversations: [{ key: "main", name: "Main", participantFilter: "all" }],
 };
 
-let hookCalls = 0;
-let nextHookVerdict:
-  | { decision: "grant"; leaseTimeoutMs?: number }
-  | { decision: "deny"; reason?: string }
-  | { decision: "hold"; reason?: string }
-  | { kind: "never-reply" } = { decision: "grant" };
+const fixture = createDispatchFlowFixture(TEST_APP_MANIFEST);
 
-beforeAll(async () => {
-  await startTestServer();
-}, 60_000);
+beforeAll(startDispatchFlowServer, 60_000);
 
-afterAll(async () => {
-  await stopTestServer();
-});
+afterAll(stopDispatchFlowServer);
 
-beforeEach(async () => {
-  await resetTestDb();
-  hookCalls = 0;
-  nextHookVerdict = { decision: "grant" };
-  const coreApp = getTestCoreApp();
-  coreApp.registerApp(TEST_APP_MANIFEST);
-  coreApp.onTaskAuthorizeDispatch(TEST_APP_ID, async () => {
-    hookCalls += 1;
-    const v = nextHookVerdict;
-    if ("kind" in v && v.kind === "never-reply") {
-      // Never resolves — server-side timeout fires.
-      await new Promise(() => {
-        /* never */
-      });
-    }
-    return v as
-      | { decision: "grant"; leaseTimeoutMs?: number }
-      | { decision: "deny"; reason?: string }
-      | { decision: "hold"; reason?: string };
-  });
-});
-
-function makeProbeMessageId(): MessageId {
-  return crypto.randomUUID() as MessageId;
-}
+beforeEach(() => Effect.runPromise(fixture.reset));
 
 describe("dispatch/* — happy paths (#529 reshape additive)", () => {
   // Scenario 1 — happy path moderated
-  it.live(
+  it(
     "happy path moderated: dispatch/request → moderator grant → dispatch/release{grant} → messages/send → dispatches/consumed",
     () =>
       Effect.gen(function* () {
         const { alice, bob } = yield* setupAgentPair();
-        nextHookVerdict = { decision: "grant" };
+        fixture.setNextHookVerdict({ decision: "grant" });
         const task = yield* alice.client.sendRpc(TasksCreate, {
           appId: TEST_APP_ID,
           tmType: "self",
@@ -120,8 +68,8 @@ describe("dispatch/* — happy paths (#529 reshape additive)", () => {
           parts: [{ type: "text", text: "probe" }],
         });
 
-        expect(typeof ack.leaseId).toBe("string");
-        expect(typeof ack.dispatchId).toBe("string");
+        expect(typeof ack.leaseId).toBe(EXPECTED_TYPE_STRING);
+        expect(typeof ack.dispatchId).toBe(EXPECTED_TYPE_STRING);
         expect(ack.leaseId).not.toBe(ack.dispatchId);
 
         // Wait for dispatch/release fire-and-forget notification.
@@ -134,14 +82,14 @@ describe("dispatch/* — happy paths (#529 reshape additive)", () => {
           verdict: { decision: string };
         };
         expect(params.leaseId).toBe(ack.leaseId);
-        expect(params.verdict.decision).toBe("grant");
-        expect(hookCalls).toBe(1);
+        expect(params.verdict.decision).toBe(DISPATCH_VERDICT_GRANT);
+        expect(fixture.hookCalls()).toBe(1);
       }),
     20_000,
   );
 
   // Scenario 2 — happy path default-grant (NoAppSession)
-  it.live(
+  it(
     "happy path default-grant: dispatch/request for unmoderated task → dispatch/release{grant} fires immediately",
     () =>
       Effect.gen(function* () {
@@ -166,9 +114,9 @@ describe("dispatch/* — happy paths (#529 reshape additive)", () => {
         expect(
           (release.params as { verdict: { decision: string } }).verdict
             .decision,
-        ).toBe("grant");
+        ).toBe(DISPATCH_VERDICT_GRANT);
         // No hook should have been consulted.
-        expect(hookCalls).toBe(0);
+        expect(fixture.hookCalls()).toBe(0);
       }),
     20_000,
   );
@@ -176,7 +124,7 @@ describe("dispatch/* — happy paths (#529 reshape additive)", () => {
   // Smoke test — assert leaseId is returned by ack and the wire
   // descriptor surface is wired through the rpc registry. Useful as a
   // canary; the other scenarios cover the substantive contract.
-  it.live(
+  it(
     "wire surface canary: dispatch/request descriptor is registered",
     () =>
       Effect.gen(function* () {
@@ -191,8 +139,8 @@ describe("dispatch/* — happy paths (#529 reshape additive)", () => {
           senderAgentId: protocolAgentId(alice.agentId),
           parts: [{ type: "text", text: "canary" }],
         });
-        expect(typeof ack.leaseId).toBe("string");
-        expect(typeof ack.dispatchId).toBe("string");
+        expect(typeof ack.leaseId).toBe(EXPECTED_TYPE_STRING);
+        expect(typeof ack.dispatchId).toBe(EXPECTED_TYPE_STRING);
         // Use of branded id types — pure compile-time test.
         const _leaseIdBrand: LeaseId = ack.leaseId;
         const _dispatchIdBrand: DispatchId = ack.dispatchId;

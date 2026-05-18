@@ -9,31 +9,19 @@ export const JSON_RPC_RESERVED_CODES = {
   InternalError: -32603,
 } as const;
 
-/** A `Data.TaggedError`-derived class with static wire metadata
+/**
+ * A `Data.TaggedError`-derived class with static wire metadata
  * (`code` + `message`). JsonRpcServer reads `err.constructor.code` to encode;
- * JsonRpcClient looks up by code via `errorClassFor` for inbound decode and
- * constructs an instance with the wire payload. The constructor parameter
- * is `RpcErrorPayload` so the decode site can pass `{ data }` without a
- * cast; every registered class's structural ctor accepts that shape because
- * its tagged-error type extends `RpcErrorPayload`. */
+ * JsonRpcClient looks up by code via `errorClassFor` for inbound decode.
+ */
 export type RpcErrorClass = (new (
-  payload: RpcErrorPayload,
+  ...args: never[]
 ) => {
   readonly _tag: string;
-  readonly data?: unknown;
 }) & {
   readonly code: number;
   readonly message: string;
 };
-
-/** Optional per-instance overrides for tagged-error classes. The static
- * `message` on the class is the default; instances may carry a more
- * specific message and/or supplemental `data` payload that JsonRpcServer
- * forwards to the wire response. */
-export interface RpcErrorPayload {
-  readonly message?: string;
-  readonly data?: unknown;
-}
 
 const codeToClass = new Map<number, RpcErrorClass>();
 const registeredClasses = new Set<RpcErrorClass>();
@@ -62,6 +50,17 @@ export function errorClassFor(code: number): RpcErrorClass | undefined {
 /** Returns true iff `value`'s constructor is in the registered class set. */
 export function isRegisteredErrorInstance(value: object): boolean {
   return registeredClasses.has(value.constructor as RpcErrorClass);
+}
+
+/**
+ * Optional per-instance overrides for tagged-error classes. The static
+ * `message` on the class is the default; instances may carry a more
+ * specific message and/or supplemental `data` payload that JsonRpcServer
+ * forwards to the wire response.
+ */
+export interface RpcErrorPayload {
+  readonly message?: string;
+  readonly data?: unknown;
 }
 
 // Transport-layer cross-cutting tagged errors. Domain errors live in their
@@ -102,17 +101,15 @@ export class ConflictError extends Data.TaggedError(
 }
 registerErrorClass(ConflictError);
 
-/** Boundary validation error — JSON-RPC reserved code -32602. Raised by
+/**
+ * Boundary validation error — JSON-RPC reserved code -32602. Raised by
  * protocol- and server-layer handlers when params fail schema validation;
  * registered with the wire-error registry so handler-raised instances map
  * to a `-32602 InvalidParams` wire response via `wireErrorFromInstance`.
- *
- * Shape is `RpcErrorPayload` (both `message` and `data` optional) to share
- * the registered-class constructor signature. Callers supply `message`;
- * the static class `message` provides the default when omitted. */
-export class InvalidParamsError extends Data.TaggedError(
-  "InvalidParamsError",
-)<RpcErrorPayload> {
+ */
+export class InvalidParamsError extends Data.TaggedError("InvalidParamsError")<{
+  readonly message: string;
+}> {
   static readonly code = JSON_RPC_RESERVED_CODES.InvalidParams;
   static readonly message = "Invalid params";
 }

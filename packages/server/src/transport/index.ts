@@ -1,21 +1,9 @@
 /**
- * `transport/` — wire-level dispatch.
+ * @file Transport layer public barrel.
  *
- * Owns: WebSocket connection lifecycle, JSON-RPC method binding,
- * per-layer Tag allowlist (type-only hierarchy).
- *
- * Layer rules:
- *   - May import: kernels (db, crypto, runtime, runtime-surface, adapters, config, test-utils, logger).
- *   - May NOT import: identity, network, task, app (those layers compose ON TOP of transport).
- *
- * Public surface:
- *   - `RpcMethodBinding`, `RpcMethodRegistry`, `defineMethod`,
- *     `defineNetworkMethod`, `defineTaskMethod`, `defineAppMethod`,
- *     `AuthenticatedContext`, `DispatchContext`.
- *   - `ConnectionManager`, `MoltZapConnection`, `acquireConnectionRpcClient`,
- *     `sendRpcToClient` (WS lifecycle primitives).
- *   - Type aliases `TransportTags`, `IdentityTags`, `NetworkTags`,
- *     `TaskTags`, `AppTags` (the Tag allowlist hierarchy).
+ * The transport layer owns WebSocket connection lifecycle, JSON-RPC method
+ * binding, and the type-only per-layer Tag allowlist hierarchy. It may import
+ * kernels only; identity, network, task, and app compose on top of transport.
  */
 
 export type {

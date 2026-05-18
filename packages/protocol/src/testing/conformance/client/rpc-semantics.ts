@@ -13,12 +13,14 @@
  * Typed-error precision (O6): B1 asserts `model-ok ⇒ client-ok`; B4
  * asserts set equality — no typed-error involvement.
  */
-import { Effect } from "effect";
-import { responseFrame } from "../../../transport/wire.js";
+import { Effect, type Scope } from "effect";
+import { responseFrame, type JsonRpcId } from "../../../transport/wire.js";
 import type { ClientConformanceRunContext } from "./runner.js";
 import { registerProperty } from "../_shared/registry.js";
-import { acquireFixture, invariant } from "./_fixtures.js";
+import type { PropertyFailure } from "../_shared/registry.js";
+import { acquireFixture, invariant, type ClientFixture } from "./_fixtures.js";
 import { isRequestFrame } from "../_shared/frame-mutator.js";
+import type { CapturedFrame } from "../_shared/captures.js";
 
 import { AgentsList } from "../../../identity/methods.js";
 
@@ -44,76 +46,37 @@ export function registerModelEquivalenceClient(
     CATEGORY,
     PROPERTY_MODEL_EQUIVALENCE_CLIENT,
     "scripted response to sampled RPC resolves the real client's pending call",
-    Effect.scoped(
-      Effect.gen(function* () {
-        const fx = yield* acquireFixture(
-          ctx,
+    Effect.scoped(runModelEquivalenceClient(ctx)),
+  );
+}
+
+function runModelEquivalenceClient(
+  ctx: ClientConformanceRunContext,
+): Effect.Effect<void, PropertyFailure, Scope.Scope> {
+  return Effect.gen(function* () {
+    const fx = yield* acquireFixture(
+      ctx,
+      CATEGORY,
+      PROPERTY_MODEL_EQUIVALENCE_CLIENT,
+    );
+    yield* forkAgentsListResponder(fx, emitTaggedAgentsListResponse);
+    const result = yield* callAgentsList(
+      fx,
+      PROPERTY_MODEL_EQUIVALENCE_CLIENT,
+      `agents/list call did not resolve within ${CALL_BUDGET_MS}ms`,
+      (error) =>
+        `agents/list rejected: ${error.kind} (${error.documentedErrorTag ?? "null"})`,
+    );
+    if (!("result" in result)) {
+      return yield* Effect.fail(
+        invariant(
           CATEGORY,
           PROPERTY_MODEL_EQUIVALENCE_CLIENT,
-        );
-        // Fork a background responder that watches inbound requests and
-        // replies with an empty-agents-list result as soon as the sampled
-        // call lands.
-        yield* Effect.forkScoped(
-          Effect.gen(function* () {
-            let responded = false;
-            while (!responded) {
-              yield* Effect.sleep("25 millis");
-              const snap = yield* fx.connection.inbound.snapshot;
-              for (const entry of snap) {
-                if (
-                  entry.kind === "inbound" &&
-                  entry.frame !== null &&
-                  isRequestFrame(entry.frame) &&
-                  entry.frame.method === AgentsList.name
-                ) {
-                  const response = responseFrame(entry.frame.id, {
-                    result: { agents: {} },
-                  });
-                  yield* fx.window.emitTaggedResponse({
-                    connection: fx.connection,
-                    base: response,
-                    emissionTag: entry.frame.id,
-                  });
-                  responded = true;
-                  break;
-                }
-              }
-            }
-          }),
-        );
-        const result = yield* fx.handle.call.call(AgentsList.name, {}).pipe(
-          Effect.timeoutFail({
-            duration: `${CALL_BUDGET_MS} millis`,
-            onTimeout: () =>
-              invariant(
-                CATEGORY,
-                PROPERTY_MODEL_EQUIVALENCE_CLIENT,
-                `agents/list call did not resolve within ${CALL_BUDGET_MS}ms`,
-              ),
-          }),
-          Effect.mapError((e) =>
-            "_tag" in e && e._tag === "RealClientRpcError"
-              ? invariant(
-                  CATEGORY,
-                  PROPERTY_MODEL_EQUIVALENCE_CLIENT,
-                  `agents/list rejected: ${e.kind} (${e.documentedErrorTag ?? "null"})`,
-                )
-              : e,
-          ),
-        );
-        if (!("result" in result)) {
-          return yield* Effect.fail(
-            invariant(
-              CATEGORY,
-              PROPERTY_MODEL_EQUIVALENCE_CLIENT,
-              "real client surfaced non-response frame",
-            ),
-          );
-        }
-      }).pipe(Effect.withSpan("registerModelEquivalenceClient")),
-    ),
-  );
+          "real client surfaced non-response frame",
+        ),
+      );
+    }
+  }).pipe(Effect.withSpan("registerModelEquivalenceClient"));
 }
 
 /**
@@ -129,80 +92,177 @@ export function registerRequestIdUniquenessClient(
     CATEGORY,
     PROPERTY_REQUEST_ID_UNIQUENESS_CLIENT,
     "spurious response ids don't resolve pending calls; matching ids do",
-    Effect.scoped(
-      Effect.gen(function* () {
-        const fx = yield* acquireFixture(
-          ctx,
+    Effect.scoped(runRequestIdUniquenessClient(ctx)),
+  );
+}
+
+function runRequestIdUniquenessClient(
+  ctx: ClientConformanceRunContext,
+): Effect.Effect<void, PropertyFailure, Scope.Scope> {
+  return Effect.gen(function* () {
+    const fx = yield* acquireFixture(
+      ctx,
+      CATEGORY,
+      PROPERTY_REQUEST_ID_UNIQUENESS_CLIENT,
+    );
+    yield* emitSpuriousAgentsListResponse(fx);
+    yield* forkAgentsListResponder(fx, emitPlainAgentsListResponse);
+    const frame = yield* callAgentsList(
+      fx,
+      PROPERTY_REQUEST_ID_UNIQUENESS_CLIENT,
+      `agents/list did not resolve within ${CALL_BUDGET_MS}ms despite matching response`,
+      (error) => `agents/list rejected: ${error.kind}`,
+    );
+    if (isSpuriousResult(frame)) {
+      return yield* Effect.fail(
+        invariant(
           CATEGORY,
           PROPERTY_REQUEST_ID_UNIQUENESS_CLIENT,
-        );
-        const spuriousId = "spurious-id-that-was-never-requested";
-        yield* fx.connection
-          .emitResponse(
-            responseFrame(spuriousId, { result: { __spurious: true } }),
-          )
-          .pipe(Effect.orElseSucceed(() => undefined));
-        yield* Effect.forkScoped(
-          Effect.gen(function* () {
-            let responded = false;
-            while (!responded) {
-              yield* Effect.sleep("25 millis");
-              const snap = yield* fx.connection.inbound.snapshot;
-              for (const entry of snap) {
-                if (
-                  entry.kind === "inbound" &&
-                  entry.frame !== null &&
-                  isRequestFrame(entry.frame) &&
-                  entry.frame.method === AgentsList.name
-                ) {
-                  yield* fx.connection
-                    .emitResponse(
-                      responseFrame(entry.frame.id, { result: { agents: {} } }),
-                    )
-                    .pipe(Effect.orElseSucceed(() => undefined));
-                  responded = true;
-                  break;
-                }
-              }
-            }
-          }),
-        );
-        const frame = yield* fx.handle.call.call(AgentsList.name, {}).pipe(
-          Effect.timeoutFail({
-            duration: `${CALL_BUDGET_MS} millis`,
-            onTimeout: () =>
-              invariant(
-                CATEGORY,
-                PROPERTY_REQUEST_ID_UNIQUENESS_CLIENT,
-                `agents/list did not resolve within ${CALL_BUDGET_MS}ms despite matching response`,
-              ),
-          }),
-          Effect.mapError((e) =>
-            "_tag" in e && e._tag === "RealClientRpcError"
-              ? invariant(
-                  CATEGORY,
-                  PROPERTY_REQUEST_ID_UNIQUENESS_CLIENT,
-                  `agents/list rejected: ${e.kind}`,
-                )
-              : e,
-          ),
-        );
-        if (
-          "result" in frame &&
-          frame.result !== null &&
-          typeof frame.result === "object" &&
-          "__spurious" in frame.result &&
-          (frame.result as { __spurious: unknown }).__spurious === true
-        ) {
-          return yield* Effect.fail(
-            invariant(
-              CATEGORY,
-              PROPERTY_REQUEST_ID_UNIQUENESS_CLIENT,
-              "pending call resolved via spurious response (cross-wire correlation bug)",
-            ),
-          );
-        }
-      }).pipe(Effect.withSpan("registerRequestIdUniquenessClient")),
+          "pending call resolved via spurious response (cross-wire correlation bug)",
+        ),
+      );
+    }
+  }).pipe(Effect.withSpan("registerRequestIdUniquenessClient"));
+}
+
+type AgentsListResponseEmitter = (
+  fx: ClientFixture,
+  id: JsonRpcId,
+) => Effect.Effect<void>;
+
+function forkAgentsListResponder(
+  fx: ClientFixture,
+  emit: AgentsListResponseEmitter,
+): Effect.Effect<void, never, Scope.Scope> {
+  return Effect.forkScoped(respondToNextAgentsListRequest(fx, emit)).pipe(
+    Effect.asVoid,
+  );
+}
+
+function respondToNextAgentsListRequest(
+  fx: ClientFixture,
+  emit: AgentsListResponseEmitter,
+): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    while (true) {
+      yield* Effect.sleep("25 millis");
+      const requestId = yield* findAgentsListRequestId(fx);
+      if (requestId !== null) {
+        yield* emit(fx, requestId);
+        return;
+      }
+    }
+  });
+}
+
+function findAgentsListRequestId(
+  fx: ClientFixture,
+): Effect.Effect<JsonRpcId | null> {
+  return Effect.map(fx.connection.inbound.snapshot, findAgentsListIdInSnapshot);
+}
+
+function findAgentsListIdInSnapshot(
+  snapshot: ReadonlyArray<CapturedFrame>,
+): JsonRpcId | null {
+  for (const entry of snapshot) {
+    if (
+      entry.kind === "inbound" &&
+      entry.frame !== null &&
+      isRequestFrame(entry.frame) &&
+      entry.frame.method === AgentsList.name
+    ) {
+      return entry.frame.id;
+    }
+  }
+  return null;
+}
+
+function emitTaggedAgentsListResponse(
+  fx: ClientFixture,
+  id: JsonRpcId,
+): Effect.Effect<void> {
+  const response = responseFrame(id, { result: { agents: {} } });
+  return fx.window
+    .emitTaggedResponse({
+      connection: fx.connection,
+      base: response,
+      emissionTag: id,
+    })
+    .pipe(Effect.asVoid);
+}
+
+function emitPlainAgentsListResponse(
+  fx: ClientFixture,
+  id: JsonRpcId,
+): Effect.Effect<void> {
+  return fx.connection
+    .emitResponse(responseFrame(id, { result: { agents: {} } }))
+    .pipe(Effect.orElseSucceed(() => undefined));
+}
+
+function emitSpuriousAgentsListResponse(
+  fx: ClientFixture,
+): Effect.Effect<void> {
+  return fx.connection
+    .emitResponse(
+      responseFrame("spurious-id-that-was-never-requested", {
+        result: { __spurious: true },
+      }),
+    )
+    .pipe(Effect.orElseSucceed(() => undefined));
+}
+
+function callAgentsList(
+  fx: ClientFixture,
+  propertyName: string,
+  timeoutMessage: string,
+  rejectionMessage: (error: {
+    readonly kind: string;
+    readonly documentedErrorTag?: string | null;
+  }) => string,
+) {
+  return fx.handle.call.call(AgentsList.name, {}).pipe(
+    Effect.timeoutFail({
+      duration: `${CALL_BUDGET_MS} millis`,
+      onTimeout: () => invariant(CATEGORY, propertyName, timeoutMessage),
+    }),
+    Effect.mapError((error) =>
+      isRealClientRpcError(error)
+        ? invariant(CATEGORY, propertyName, rejectionMessage(error))
+        : error,
     ),
   );
+}
+
+function isRealClientRpcError(error: unknown): error is {
+  readonly _tag: "RealClientRpcError";
+  readonly kind: string;
+  readonly documentedErrorTag?: string | null;
+} {
+  if (!isObject(error)) return false;
+  return hasRealClientRpcErrorTag(error) && hasStringKind(error);
+}
+
+function hasRealClientRpcErrorTag(
+  error: Readonly<Record<string, unknown>>,
+): boolean {
+  return error._tag === "RealClientRpcError";
+}
+
+function hasStringKind(error: Readonly<Record<string, unknown>>): boolean {
+  return typeof error.kind === "string";
+}
+
+function isSpuriousResult(frame: unknown): boolean {
+  if (!hasResult(frame)) return false;
+  const result = frame.result;
+  return isObject(result) && result.__spurious === true;
+}
+
+function hasResult(frame: unknown): frame is { readonly result: unknown } {
+  return frame !== null && typeof frame === "object" && "result" in frame;
+}
+
+function isObject(value: unknown): value is Readonly<Record<string, unknown>> {
+  return value !== null && typeof value === "object";
 }

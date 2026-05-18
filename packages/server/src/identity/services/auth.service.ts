@@ -17,7 +17,7 @@ import {
   takeFirstOrFail,
 } from "../../db/effect-kysely-toolkit.js";
 
-export const REGISTRATION_CONFLICT = "RegistrationConflict" as const;
+const REGISTRATION_CONFLICT = "RegistrationConflict" as const;
 
 export type UpsertAgentResult =
   | { agentId: AgentId; apiKey: string; rotated: boolean }

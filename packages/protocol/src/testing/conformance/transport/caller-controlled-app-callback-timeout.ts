@@ -12,8 +12,11 @@
  * scheduling noise).
  */
 import { Effect, Either } from "effect";
-import { DispatchAuthorize } from "@moltzap/protocol/app";
-import { makeTestClient } from "../_shared/driver/test-client.js";
+import { DispatchAuthorize } from "../../../app/methods.js";
+import {
+  makeTestClient,
+  type TestClient,
+} from "../_shared/driver/test-client.js";
 import { registerTestAgent } from "../_shared/test-fixtures.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import {
@@ -43,68 +46,80 @@ export function registerCallerControlledAppCallbackTimeout(
     CATEGORY,
     PROPERTY,
     "awaitServerRequest(_, _, timeoutMs) fires within the caller's window",
-    Effect.scoped(
-      Effect.gen(function* () {
-        const agent = yield* registerTestAgent({
-          baseUrl: ctx.realServer.baseUrl,
-          name: "ct",
-        }).pipe(Effect.mapError((e) => invariant(`register agent: ${e.body}`)));
-        const client = yield* makeTestClient({
-          serverUrl: ctx.realServer.wsUrl,
-          agentKey: agent.apiKey,
-          agentId: agent.agentId,
-          defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
-          captureCapacity: DEFAULT_CAPTURE_CAPACITY,
-        }).pipe(
-          Effect.mapError((e) => invariant(`client acquire: ${String(e)}`)),
-        );
-        // 250ms (rather than the architect plan's example 100ms) hardens
-        // against CI scheduler tails; loaded shared runners can absorb
-        // 200–500ms on a 100ms timer, while a 250ms timer with the same
-        // 4× upper bound stays well clear of the flake band.
-        const timeoutMs = 250;
-        const lowerBoundMs = timeoutMs - TIMEOUT_LOWER_MARGIN_MS;
-        const upperBoundMs = timeoutMs * TIMEOUT_UPPER_MULTIPLIER;
-        const before = Date.now();
-        const outcome = yield* client
-          .awaitServerRequest(DispatchAuthorize, undefined, timeoutMs)
-          .pipe(Effect.either);
-        const elapsed = Date.now() - before;
-        const timeoutError = yield* Either.match(outcome, {
-          onLeft: (error) => Effect.succeed(error),
-          onRight: () =>
-            Effect.fail(
-              new PropertyInvariantViolation({
-                category: CATEGORY,
-                name: PROPERTY,
-                reason: `expected Left (timeout); got Right (appCallback request fired)`,
-              }),
-            ),
-        });
-        if (!/Timeout/i.test(timeoutError.message)) {
-          return yield* Effect.fail(
-            new PropertyInvariantViolation({
-              category: CATEGORY,
-              name: PROPERTY,
-              reason: `expected timeout error; got ${timeoutError.message}`,
-            }),
-          );
-        }
-        // Window is the caller's. Floor rejects "timed out before the
-        // caller's deadline" — would mean a schema-level cap is shadowing
-        // the manifest timeout. Ceiling rejects "still timing out long
-        // after the caller's deadline" — would mean the manifest timeout
-        // does not actually drive the firing.
-        if (elapsed < lowerBoundMs || elapsed > upperBoundMs) {
-          return yield* Effect.fail(
-            new PropertyInvariantViolation({
-              category: CATEGORY,
-              name: PROPERTY,
-              reason: `timeout fired at ${elapsed}ms; caller asked for ${timeoutMs}ms (window: ${lowerBoundMs}–${upperBoundMs}ms)`,
-            }),
-          );
-        }
-      }).pipe(Effect.withSpan("registerCallerControlledAppCallbackTimeout")),
+    assertCallerControlledTimeout(ctx).pipe(
+      Effect.withSpan("registerCallerControlledAppCallbackTimeout"),
+    ),
+  );
+}
+
+function assertCallerControlledTimeout(ctx: ConformanceRunContext) {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const client = yield* acquireCallbackTimeoutClient(ctx);
+      const timeoutMs = 250;
+      const measurement = yield* measureAwaitServerRequestTimeout(
+        client,
+        timeoutMs,
+      );
+      yield* assertTimeoutErrorMessage(measurement.error);
+      yield* assertTimeoutWindow(measurement.elapsed, timeoutMs);
+    }),
+  );
+}
+
+function acquireCallbackTimeoutClient(ctx: ConformanceRunContext) {
+  return Effect.gen(function* () {
+    const agent = yield* registerTestAgent({
+      baseUrl: ctx.realServer.baseUrl,
+      name: "ct",
+    }).pipe(Effect.mapError((e) => invariant(`register agent: ${e.body}`)));
+    return yield* makeTestClient({
+      serverUrl: ctx.realServer.wsUrl,
+      agentKey: agent.apiKey,
+      agentId: agent.agentId,
+      defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
+      captureCapacity: DEFAULT_CAPTURE_CAPACITY,
+    }).pipe(Effect.mapError((e) => invariant(`client acquire: ${String(e)}`)));
+  });
+}
+
+type TimeoutMeasurement = {
+  readonly error: { readonly message: string };
+  readonly elapsed: number;
+};
+
+function measureAwaitServerRequestTimeout(
+  client: TestClient,
+  timeoutMs: number,
+) {
+  return Effect.gen(function* () {
+    const before = Date.now();
+    const outcome = yield* client
+      .awaitServerRequest(DispatchAuthorize, undefined, timeoutMs)
+      .pipe(Effect.either);
+    const elapsed = Date.now() - before;
+    const error = yield* Either.match(outcome, {
+      onLeft: (failure) => Effect.succeed(failure),
+      onRight: () =>
+        Effect.fail(invariant("expected Left (timeout); got Right request")),
+    });
+    return { error, elapsed } satisfies TimeoutMeasurement;
+  });
+}
+
+function assertTimeoutErrorMessage(error: { readonly message: string }) {
+  return /Timeout/i.test(error.message)
+    ? Effect.void
+    : Effect.fail(invariant(`expected timeout error; got ${error.message}`));
+}
+
+function assertTimeoutWindow(elapsed: number, timeoutMs: number) {
+  const lowerBoundMs = timeoutMs - TIMEOUT_LOWER_MARGIN_MS;
+  const upperBoundMs = timeoutMs * TIMEOUT_UPPER_MULTIPLIER;
+  if (elapsed >= lowerBoundMs && elapsed <= upperBoundMs) return Effect.void;
+  return Effect.fail(
+    invariant(
+      `timeout fired at ${elapsed}ms; caller asked for ${timeoutMs}ms (window: ${lowerBoundMs}-${upperBoundMs}ms)`,
     ),
   );
 }

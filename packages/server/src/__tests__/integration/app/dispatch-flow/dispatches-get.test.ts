@@ -15,36 +15,21 @@
  * dispatchLeaseId=X)` consumes the lease via `Effect.acquireUseRelease(
  * claim, sendInsert+commit, finalize|rollback)`.
  */
-import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { it } from "@effect/vitest";
-import { Effect } from "effect";
 import {
-  AppsRegister,
-  ConversationsArchive,
-  ConversationsCreate,
-  DispatchAuthorize,
-  DispatchRequest,
-  DispatchRelease,
-  DispatchesGet,
-  MessagesSend,
-  ParticipantsRemovedNotificationDefinition,
-  TasksCreate,
-  TasksCreateConversation,
-  type AppManifest,
-  type ConversationId,
-  type DispatchId,
-  type LeaseId,
-  type MessageId,
-} from "@moltzap/protocol";
-import { agentId as protocolAgentId } from "@moltzap/protocol/testing";
+  DISPATCH_STATE_GRANTED,
+  EITHER_LEFT_TAG,
+  createDispatchFlowFixture,
+  makeProbeMessageId,
+  startDispatchFlowServer,
+  stopDispatchFlowServer,
+} from "./fixture.js";
 import {
-  startTestServer,
-  stopTestServer,
-  resetTestDb,
   registerAndConnect,
   setupAgentPair,
   getTestCoreApp,
 } from "../../helpers.js";
+
+const it = effectIt.live;
 
 const TEST_APP_ID = "moderator-dispatch-test-app";
 
@@ -54,58 +39,25 @@ const TEST_APP_MANIFEST: AppManifest = {
   conversations: [{ key: "main", name: "Main", participantFilter: "all" }],
 };
 
-let hookCalls = 0;
-let nextHookVerdict:
-  | { decision: "grant"; leaseTimeoutMs?: number }
-  | { decision: "deny"; reason?: string }
-  | { decision: "hold"; reason?: string }
-  | { kind: "never-reply" } = { decision: "grant" };
+const fixture = createDispatchFlowFixture(TEST_APP_MANIFEST);
 
-beforeAll(async () => {
-  await startTestServer();
-}, 60_000);
+beforeAll(startDispatchFlowServer, 60_000);
 
-afterAll(async () => {
-  await stopTestServer();
-});
+afterAll(stopDispatchFlowServer);
 
-beforeEach(async () => {
-  await resetTestDb();
-  hookCalls = 0;
-  nextHookVerdict = { decision: "grant" };
-  const coreApp = getTestCoreApp();
-  coreApp.registerApp(TEST_APP_MANIFEST);
-  coreApp.onTaskAuthorizeDispatch(TEST_APP_ID, async () => {
-    hookCalls += 1;
-    const v = nextHookVerdict;
-    if ("kind" in v && v.kind === "never-reply") {
-      // Never resolves — server-side timeout fires.
-      await new Promise(() => {
-        /* never */
-      });
-    }
-    return v as
-      | { decision: "grant"; leaseTimeoutMs?: number }
-      | { decision: "deny"; reason?: string }
-      | { decision: "hold"; reason?: string };
-  });
-});
-
-function makeProbeMessageId(): MessageId {
-  return crypto.randomUUID() as MessageId;
-}
+beforeEach(() => Effect.runPromise(fixture.reset));
 
 describe("dispatch/* — dispatches/get reads (#529 reshape additive)", () => {
   // Scenario 13 — dispatches/get happy path (lease record via direct
   // registry read; the wire-rpc scope-enforcement requires the
   // moderator's connection id to match the binding tuple, which is
   // covered by scenario 14's negative branch + the unit test below).
-  it.live(
+  it(
     "dispatches/get happy path (registry direct): granted lease is readable with state=GRANTED",
     () =>
       Effect.gen(function* () {
         const { alice, bob } = yield* setupAgentPair();
-        nextHookVerdict = { decision: "grant" };
+        fixture.setNextHookVerdict({ decision: "grant" });
         const task = yield* alice.client.sendRpc(TasksCreate, {
           appId: TEST_APP_ID,
           tmType: "self",
@@ -135,13 +87,13 @@ describe("dispatch/* — dispatches/get reads (#529 reshape additive)", () => {
         });
         expect(record.dispatchId).toBe(ack.dispatchId);
         expect(record.leaseId).toBe(ack.leaseId);
-        expect(record.state).toBe("GRANTED");
+        expect(record.state).toBe(DISPATCH_STATE_GRANTED);
       }),
     20_000,
   );
 
   // Scenario 14 — dispatches/get scope enforcement
-  it.live(
+  it(
     "dispatches/get scope enforcement: non-governing app gets typed ForbiddenError",
     () =>
       Effect.gen(function* () {
@@ -163,7 +115,7 @@ describe("dispatch/* — dispatches/get reads (#529 reshape additive)", () => {
           }),
         );
         // Must be a Forbidden error (not a success).
-        expect(result._tag).toBe("Left");
+        expect(result._tag).toBe(EITHER_LEFT_TAG);
       }),
     20_000,
   );
@@ -183,7 +135,7 @@ describe("dispatch/* — dispatches/get reads (#529 reshape additive)", () => {
   //
   // Per the brief, this is test-client moderator wiring (test infra
   // only) — not the production adapter migration which lands in row 13.
-  it.live(
+  it(
     "dispatches/get wire happy path: moderator over WS reads its lease record at GRANTED stage",
     () =>
       Effect.gen(function* () {
@@ -246,7 +198,7 @@ describe("dispatch/* — dispatches/get reads (#529 reshape additive)", () => {
         });
         expect(view.lease.dispatchId).toBe(ack.dispatchId);
         expect(view.lease.leaseId).toBe(ack.leaseId);
-        expect(view.lease.state).toBe("GRANTED");
+        expect(view.lease.state).toBe(DISPATCH_STATE_GRANTED);
       }),
     25_000,
   );

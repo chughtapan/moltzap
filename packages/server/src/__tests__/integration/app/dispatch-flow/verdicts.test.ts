@@ -15,36 +15,18 @@
  * dispatchLeaseId=X)` consumes the lease via `Effect.acquireUseRelease(
  * claim, sendInsert+commit, finalize|rollback)`.
  */
-import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { it } from "@effect/vitest";
-import { Effect } from "effect";
 import {
-  AppsRegister,
-  ConversationsArchive,
-  ConversationsCreate,
-  DispatchAuthorize,
-  DispatchRequest,
-  DispatchRelease,
-  DispatchesGet,
-  MessagesSend,
-  ParticipantsRemovedNotificationDefinition,
-  TasksCreate,
-  TasksCreateConversation,
-  type AppManifest,
-  type ConversationId,
-  type DispatchId,
-  type LeaseId,
-  type MessageId,
-} from "@moltzap/protocol";
-import { agentId as protocolAgentId } from "@moltzap/protocol/testing";
-import {
-  startTestServer,
-  stopTestServer,
-  resetTestDb,
-  registerAndConnect,
-  setupAgentPair,
-  getTestCoreApp,
-} from "../../helpers.js";
+  DISPATCH_VERDICT_DENY,
+  DISPATCH_VERDICT_HOLD,
+  createDispatchFlowFixture,
+  makeProbeMessageId,
+  MODERATOR_TIMEOUT_REASON,
+  startDispatchFlowServer,
+  stopDispatchFlowServer,
+} from "./fixture.js";
+import { setupAgentPair } from "../../helpers.js";
+
+const it = effectIt.live;
 
 const TEST_APP_ID = "moderator-dispatch-test-app";
 
@@ -54,55 +36,26 @@ const TEST_APP_MANIFEST: AppManifest = {
   conversations: [{ key: "main", name: "Main", participantFilter: "all" }],
 };
 
-let hookCalls = 0;
-let nextHookVerdict:
-  | { decision: "grant"; leaseTimeoutMs?: number }
-  | { decision: "deny"; reason?: string }
-  | { decision: "hold"; reason?: string }
-  | { kind: "never-reply" } = { decision: "grant" };
+const fixture = createDispatchFlowFixture(TEST_APP_MANIFEST);
 
-beforeAll(async () => {
-  await startTestServer();
-}, 60_000);
+beforeAll(startDispatchFlowServer, 60_000);
 
-afterAll(async () => {
-  await stopTestServer();
-});
+afterAll(stopDispatchFlowServer);
 
-beforeEach(async () => {
-  await resetTestDb();
-  hookCalls = 0;
-  nextHookVerdict = { decision: "grant" };
-  const coreApp = getTestCoreApp();
-  coreApp.registerApp(TEST_APP_MANIFEST);
-  coreApp.onTaskAuthorizeDispatch(TEST_APP_ID, async () => {
-    hookCalls += 1;
-    const v = nextHookVerdict;
-    if ("kind" in v && v.kind === "never-reply") {
-      // Never resolves — server-side timeout fires.
-      await new Promise(() => {
-        /* never */
-      });
-    }
-    return v as
-      | { decision: "grant"; leaseTimeoutMs?: number }
-      | { decision: "deny"; reason?: string }
-      | { decision: "hold"; reason?: string };
-  });
-});
-
-function makeProbeMessageId(): MessageId {
-  return crypto.randomUUID() as MessageId;
-}
+beforeEach(() => Effect.runPromise(fixture.reset));
 
 describe("dispatch/* — verdict flows (#529 reshape additive)", () => {
   // Scenario 3 — deny path
-  it.live(
+  it(
     "deny path: moderator deny → dispatch/release{deny} fires",
     () =>
       Effect.gen(function* () {
         const { alice, bob } = yield* setupAgentPair();
-        nextHookVerdict = { decision: "deny", reason: "phase closed" };
+        const denialReason = "phase closed";
+        fixture.setNextHookVerdict({
+          decision: "deny",
+          reason: denialReason,
+        });
         const task = yield* alice.client.sendRpc(TasksCreate, {
           appId: TEST_APP_ID,
           tmType: "self",
@@ -127,19 +80,22 @@ describe("dispatch/* — verdict flows (#529 reshape additive)", () => {
           verdict: { decision: string; reason?: string };
         };
         expect(params.leaseId).toBe(ack.leaseId);
-        expect(params.verdict.decision).toBe("deny");
-        expect(params.verdict.reason).toBe("phase closed");
+        expect(params.verdict.decision).toBe(DISPATCH_VERDICT_DENY);
+        expect(params.verdict.reason).toBe(denialReason);
       }),
     20_000,
   );
 
   // Scenario 4 — hold path
-  it.live(
+  it(
     "hold path: moderator hold → dispatch/release{hold} fires",
     () =>
       Effect.gen(function* () {
         const { alice, bob } = yield* setupAgentPair();
-        nextHookVerdict = { decision: "hold", reason: "waiting for turn" };
+        fixture.setNextHookVerdict({
+          decision: "hold",
+          reason: "waiting for turn",
+        });
         const task = yield* alice.client.sendRpc(TasksCreate, {
           appId: TEST_APP_ID,
           tmType: "self",
@@ -164,7 +120,7 @@ describe("dispatch/* — verdict flows (#529 reshape additive)", () => {
           verdict: { decision: string };
         };
         expect(params.leaseId).toBe(ack.leaseId);
-        expect(params.verdict.decision).toBe("hold");
+        expect(params.verdict.decision).toBe(DISPATCH_VERDICT_HOLD);
       }),
     20_000,
   );
@@ -181,12 +137,12 @@ describe("dispatch/* — verdict flows (#529 reshape additive)", () => {
   // `requireConversationAdminAuthority` (prereq 2) accepts the
   // moderator's agentId because `task.app_id IS NOT NULL` and
   // `task.tm_endpoint_address === tm:agent:<moderatorAgentId>`.
-  it.live(
+  it(
     "moderator timeout: never-reply hook → dispatch/release{deny, reason: timeout} + participants/removed fires (architect §8 #5)",
     () =>
       Effect.gen(function* () {
         const { alice, bob } = yield* setupAgentPair();
-        nextHookVerdict = { kind: "never-reply" };
+        fixture.setNextHookVerdict({ kind: "never-reply" });
         // Default DEFAULT_APP_HOOK_TIMEOUT_MS is 5000ms; assert against
         // that. (Architect plan §3.4: timeout source is manifest
         // hooks.dispatch_authorize.timeout_ms ?? DEFAULT_APP_HOOK_TIMEOUT_MS.)
@@ -215,8 +171,8 @@ describe("dispatch/* — verdict flows (#529 reshape additive)", () => {
           verdict: { decision: string; reason?: string };
         };
         expect(params.leaseId).toBe(ack.leaseId);
-        expect(params.verdict.decision).toBe("deny");
-        expect(params.verdict.reason).toBe("timeout");
+        expect(params.verdict.decision).toBe(DISPATCH_VERDICT_DENY);
+        expect(params.verdict.reason).toBe(MODERATOR_TIMEOUT_REASON);
         // Architect §8 #5: participants/removed fires alongside
         // dispatch/release{deny}. The participants/removed broadcast
         // includes the about-to-be-removed agent (snapshot taken
@@ -241,12 +197,15 @@ describe("dispatch/* — verdict flows (#529 reshape additive)", () => {
   // Companion to scenario 5: explicit-deny (moderator returns {deny})
   // also triggers removeParticipant. Distinct from scenario 3 above
   // (which only asserts the dispatch/release arm).
-  it.live(
+  it(
     "verdict-deny: moderator deny → dispatch/release{deny} + participants/removed fires",
     () =>
       Effect.gen(function* () {
         const { alice, bob } = yield* setupAgentPair();
-        nextHookVerdict = { decision: "deny", reason: "phase closed" };
+        fixture.setNextHookVerdict({
+          decision: "deny",
+          reason: "phase closed",
+        });
         const task = yield* alice.client.sendRpc(TasksCreate, {
           appId: TEST_APP_ID,
           tmType: "self",
@@ -271,7 +230,7 @@ describe("dispatch/* — verdict flows (#529 reshape additive)", () => {
           verdict: { decision: string; reason?: string };
         };
         expect(params.leaseId).toBe(ack.leaseId);
-        expect(params.verdict.decision).toBe("deny");
+        expect(params.verdict.decision).toBe(DISPATCH_VERDICT_DENY);
         const removed = yield* bob.client.waitForNotification(
           ParticipantsRemovedNotificationDefinition,
           5000,

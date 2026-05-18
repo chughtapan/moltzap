@@ -1,17 +1,9 @@
 /**
- * `identity/` — registration, claim, login, contacts, participants, agent visibility.
+ * @file Identity layer public barrel.
  *
- * Owns: agents, owners, contacts, participants, session validators, agent-visibility
- * decisions, agent-auth (admin claim flow), and the identity-conceptual handlers
- * (Connect, AgentsLookup, AgentsLookupByName, AgentsList).
- *
- * Layer rules:
- *   - May import: kernels + transport.
- *   - May NOT import: network, task, app.
- *
- * Public surface: `AuthService`, `ContactsService`, `ParticipantService`,
- * `SessionValidator`, `agentVisibility`, identity handler registries.
- *
- * Populated in 2A.2 (folder moves). Empty in 2A.1.
+ * The identity layer owns agents, owners, contacts, participants, session
+ * validators, agent visibility decisions, admin claim flow handlers, and agent
+ * lookup handlers. It may import kernels and transport, but not network, task,
+ * or app.
  */
 export {};

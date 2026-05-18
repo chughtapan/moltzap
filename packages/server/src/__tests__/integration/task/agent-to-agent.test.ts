@@ -1,13 +1,13 @@
 import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { it } from "@effect/vitest";
+import { it as effectIt } from "@effect/vitest";
 import { Effect } from "effect";
 import {
-  startTestServer,
-  stopTestServer,
-  resetTestDb,
+  startTestServerEffect,
+  stopTestServerEffect,
+  resetTestDbEffect,
   registerAndConnect,
+  type ConnectedAgent,
 } from "../helpers.js";
-
 import {
   ConversationsCreate,
   MessagesList,
@@ -16,263 +16,222 @@ import {
   ConversationCreatedNotificationDefinition,
 } from "@moltzap/protocol";
 
-let _baseUrl: string;
-let _wsUrl: string;
+const it = effectIt.live;
 
-beforeAll(async () => {
-  const server = await startTestServer();
-  _baseUrl = server.baseUrl;
-  _wsUrl = server.wsUrl;
-});
+const CONV_TYPE_DM = "dm";
+const CONV_TYPE_GROUP = "group";
+const PARTICIPANT_TYPE_AGENT = "agent";
+const PART_TYPE_TEXT = "text";
+const GROUP_NAME = "Team Chat";
+const HELLO_BOB = "Hello Bob!";
+const HEY_ALICE = "Hey Alice!";
+const TEAM_STANDUP = "Team standup";
+const ALL_CLEAR = "All clear";
+const NO_RECONNECT_NEEDED = "No reconnect needed";
+const FIRST_MESSAGE = "First";
+const SECOND_MESSAGE = "Second";
+const NO_ECHO_MESSAGE = "Only Bob should see this event";
 
-afterAll(async () => {
-  await stopTestServer();
-});
+beforeAll(() => Effect.runPromise(startTestServerEffect()));
+afterAll(() => Effect.runPromise(stopTestServerEffect()));
+beforeEach(() => Effect.runPromise(resetTestDbEffect()));
 
-beforeEach(async () => {
-  await resetTestDb();
-});
+function agentParticipant(agent: ConnectedAgent) {
+  return { type: PARTICIPANT_TYPE_AGENT, id: agent.agentId };
+}
+
+function textPart(text: string) {
+  return { type: PART_TYPE_TEXT, text };
+}
+
+function createDm(creator: ConnectedAgent, participant: ConnectedAgent) {
+  return creator.client.sendRpc(ConversationsCreate, {
+    type: CONV_TYPE_DM,
+    participants: [agentParticipant(participant)],
+  }) as Effect.Effect<{ conversation: { id: string; type: string } }, unknown>;
+}
+
+function createGroup(
+  creator: ConnectedAgent,
+  participants: ReadonlyArray<ConnectedAgent>,
+) {
+  return creator.client.sendRpc(ConversationsCreate, {
+    type: CONV_TYPE_GROUP,
+    name: GROUP_NAME,
+    participants: participants.map(agentParticipant),
+  }) as Effect.Effect<{ conversation: { id: string } }, unknown>;
+}
+
+function sendText(
+  sender: ConnectedAgent,
+  conversationId: string,
+  text: string,
+) {
+  return sender.client.sendRpc(MessagesSend, {
+    conversationId,
+    parts: [textPart(text)],
+  });
+}
+
+function notificationText(notification: { params: unknown }): string {
+  return (
+    notification.params as { message: { parts: Array<{ text: string }> } }
+  ).message.parts[0]!.text;
+}
+
+function waitForMessageText(agent: ConnectedAgent) {
+  return agent.client
+    .waitForNotification(MessageReceivedNotificationDefinition)
+    .pipe(Effect.map(notificationText));
+}
+
+function messageTextsFor(agent: ConnectedAgent, conversationId: string) {
+  return agent.client.sendRpc(MessagesList, { conversationId }).pipe(
+    Effect.map(
+      (result) =>
+        (result as { messages: Array<{ parts: Array<{ text: string }> }> })
+          .messages,
+    ),
+    Effect.map((messages) => messages.map((message) => message.parts[0]!.text)),
+  );
+}
+
+function isMessageReceivedEvent(event: {
+  readonly definition?: unknown;
+}): boolean {
+  return event.definition === MessageReceivedNotificationDefinition;
+}
+
+function drainMessageReceivedEvents(agent: ConnectedAgent) {
+  return agent.client.drainNotifications().filter(isMessageReceivedEvent);
+}
+
+function closeAgents(agents: ReadonlyArray<ConnectedAgent>) {
+  return Effect.all(
+    agents.map((agent) => agent.client.close()),
+    { concurrency: 1 },
+  );
+}
+
+function fullDmFlow() {
+  return Effect.gen(function* () {
+    const alice = yield* registerAndConnect("alice-a2a");
+    const bob = yield* registerAndConnect("bob-a2a");
+
+    const conv = yield* createDm(alice, bob);
+    expect(conv.conversation.type).toBe(CONV_TYPE_DM);
+    const conversationId = conv.conversation.id;
+
+    yield* sendText(alice, conversationId, HELLO_BOB);
+    expect(yield* waitForMessageText(bob)).toBe(HELLO_BOB);
+
+    yield* sendText(bob, conversationId, HEY_ALICE);
+    expect(yield* waitForMessageText(alice)).toBe(HEY_ALICE);
+
+    expect(yield* messageTextsFor(alice, conversationId)).toEqual([
+      HELLO_BOB,
+      HEY_ALICE,
+    ]);
+    yield* closeAgents([alice, bob]);
+  });
+}
+
+function groupChatFansOut() {
+  return Effect.gen(function* () {
+    const alice = yield* registerAndConnect("alice-fan");
+    const bob = yield* registerAndConnect("bob-fan");
+    const eve = yield* registerAndConnect("eve-fan");
+    const conv = yield* createGroup(alice, [bob, eve]);
+    const conversationId = conv.conversation.id;
+
+    yield* sendText(alice, conversationId, TEAM_STANDUP);
+    expect(yield* waitForMessageText(bob)).toBe(TEAM_STANDUP);
+    expect(yield* waitForMessageText(eve)).toBe(TEAM_STANDUP);
+
+    yield* sendText(bob, conversationId, ALL_CLEAR);
+    expect(yield* waitForMessageText(alice)).toBe(ALL_CLEAR);
+    expect(yield* waitForMessageText(eve)).toBe(ALL_CLEAR);
+    yield* closeAgents([alice, bob, eve]);
+  });
+}
+
+function connectedParticipantReceivesWithoutReconnect() {
+  return Effect.gen(function* () {
+    const alice = yield* registerAndConnect("alice-sub");
+    const bob = yield* registerAndConnect("bob-sub");
+    const conv = yield* createDm(alice, bob);
+
+    const createdEvent = yield* bob.client.waitForNotification(
+      ConversationCreatedNotificationDefinition,
+    );
+    expect(createdEvent).toBeDefined();
+
+    yield* sendText(alice, conv.conversation.id, NO_RECONNECT_NEEDED);
+    expect(yield* waitForMessageText(bob)).toBe(NO_RECONNECT_NEEDED);
+    yield* closeAgents([alice, bob]);
+  });
+}
+
+function bufferedNotificationsAreConsumedOnce() {
+  return Effect.gen(function* () {
+    const alice = yield* registerAndConnect("alice-buf");
+    const bob = yield* registerAndConnect("bob-buf");
+    const conv = yield* createDm(alice, bob);
+
+    yield* sendText(alice, conv.conversation.id, FIRST_MESSAGE);
+    expect(yield* waitForMessageText(bob)).toBe(FIRST_MESSAGE);
+
+    yield* sendText(alice, conv.conversation.id, SECOND_MESSAGE);
+    expect(yield* waitForMessageText(bob)).toBe(SECOND_MESSAGE);
+    yield* closeAgents([alice, bob]);
+  });
+}
+
+function senderDoesNotReceiveOwnMessage() {
+  return Effect.gen(function* () {
+    const alice = yield* registerAndConnect("alice-noecho");
+    const bob = yield* registerAndConnect("bob-noecho");
+    const conv = yield* createDm(alice, bob);
+
+    yield* sendText(alice, conv.conversation.id, NO_ECHO_MESSAGE);
+    expect(
+      yield* bob.client.waitForNotification(
+        MessageReceivedNotificationDefinition,
+      ),
+    ).toBeDefined();
+    expect(drainMessageReceivedEvents(alice)).toHaveLength(0);
+    yield* closeAgents([alice, bob]);
+  });
+}
 
 describe("Scenario 1: Full Agent-to-Agent DM Flow", () => {
-  it.live(
+  it(
     "both agents connect first, then create DM and exchange messages",
-    () =>
-      Effect.gen(function* () {
-        const alice = yield* registerAndConnect("alice-a2a");
-        const bob = yield* registerAndConnect("bob-a2a");
-
-        // Alice creates DM — server subscribes Bob's already-open connection
-        const conv = (yield* alice.client.sendRpc(ConversationsCreate, {
-          type: "dm",
-          participants: [{ type: "agent", id: bob.agentId }],
-        })) as { conversation: { id: string; type: string } };
-        expect(conv.conversation.type).toBe("dm");
-        const conversationId = conv.conversation.id;
-
-        // Set up waiter before send
-        yield* alice.client.sendRpc(MessagesSend, {
-          conversationId,
-          parts: [{ type: "text", text: "Hello Bob!" }],
-        });
-        const bobEvent = yield* bob.client.waitForNotification(
-          MessageReceivedNotificationDefinition,
-        );
-        expect(
-          (bobEvent.params as { message: { parts: Array<{ text: string }> } })
-            .message.parts[0]!.text,
-        ).toBe("Hello Bob!");
-
-        yield* bob.client.sendRpc(MessagesSend, {
-          conversationId,
-          parts: [{ type: "text", text: "Hey Alice!" }],
-        });
-        const aliceEvent = yield* alice.client.waitForNotification(
-          MessageReceivedNotificationDefinition,
-        );
-        expect(
-          (aliceEvent.params as { message: { parts: Array<{ text: string }> } })
-            .message.parts[0]!.text,
-        ).toBe("Hey Alice!");
-
-        // Both list messages
-        const msgs = (yield* alice.client.sendRpc(MessagesList, {
-          conversationId,
-        })) as {
-          messages: Array<{ parts: Array<{ text: string }> }>;
-        };
-        expect(msgs.messages).toHaveLength(2);
-        expect(msgs.messages[0]!.parts[0]!.text).toBe("Hello Bob!");
-        expect(msgs.messages[1]!.parts[0]!.text).toBe("Hey Alice!");
-
-        yield* alice.client.close();
-        yield* bob.client.close();
-      }),
+    fullDmFlow,
   );
 });
 
 describe("Scenario 5: Group Chat Fan-Out", () => {
-  it.live("messages fan out to all group participants", () =>
-    Effect.gen(function* () {
-      const alice = yield* registerAndConnect("alice-fan");
-      const bob = yield* registerAndConnect("bob-fan");
-      const eve = yield* registerAndConnect("eve-fan");
-
-      const conv = (yield* alice.client.sendRpc(ConversationsCreate, {
-        type: "group",
-        name: "Team Chat",
-        participants: [
-          { type: "agent", id: bob.agentId },
-          { type: "agent", id: eve.agentId },
-        ],
-      })) as { conversation: { id: string } };
-      const conversationId = conv.conversation.id;
-
-      // Set up waiters before send
-      yield* alice.client.sendRpc(MessagesSend, {
-        conversationId,
-        parts: [{ type: "text", text: "Team standup" }],
-      });
-
-      const bobEvent = yield* bob.client.waitForNotification(
-        MessageReceivedNotificationDefinition,
-      );
-      const eveEvent = yield* eve.client.waitForNotification(
-        MessageReceivedNotificationDefinition,
-      );
-      expect(
-        (bobEvent.params as { message: { parts: Array<{ text: string }> } })
-          .message.parts[0]!.text,
-      ).toBe("Team standup");
-      expect(
-        (eveEvent.params as { message: { parts: Array<{ text: string }> } })
-          .message.parts[0]!.text,
-      ).toBe("Team standup");
-
-      // Set up waiters for Bob's reply
-      yield* bob.client.sendRpc(MessagesSend, {
-        conversationId,
-        parts: [{ type: "text", text: "All clear" }],
-      });
-
-      const aliceReply = yield* alice.client.waitForNotification(
-        MessageReceivedNotificationDefinition,
-      );
-      const eveReply = yield* eve.client.waitForNotification(
-        MessageReceivedNotificationDefinition,
-      );
-      expect(
-        (aliceReply.params as { message: { parts: Array<{ text: string }> } })
-          .message.parts[0]!.text,
-      ).toBe("All clear");
-      expect(
-        (eveReply.params as { message: { parts: Array<{ text: string }> } })
-          .message.parts[0]!.text,
-      ).toBe("All clear");
-
-      yield* alice.client.close();
-      yield* bob.client.close();
-      yield* eve.client.close();
-    }),
-  );
+  it("messages fan out to all group participants", groupChatFansOut);
 });
 
 describe("Regression: conversations/create subscribes connected participants", () => {
-  it.live(
+  it(
     "participant connected before conversation creation receives messages without reconnecting",
-    () =>
-      Effect.gen(function* () {
-        const alice = yield* registerAndConnect("alice-sub");
-        const bob = yield* registerAndConnect("bob-sub");
-
-        // Bob is already connected when Alice creates the DM
-        const conv = (yield* alice.client.sendRpc(ConversationsCreate, {
-          type: "dm",
-          participants: [{ type: "agent", id: bob.agentId }],
-        })) as { conversation: { id: string } };
-
-        // Bob should receive the ConversationCreated event
-        const createdEvent = yield* bob.client.waitForNotification(
-          ConversationCreatedNotificationDefinition,
-        );
-        expect(createdEvent).toBeDefined();
-
-        // Bob should also receive messages WITHOUT reconnecting
-        yield* alice.client.sendRpc(MessagesSend, {
-          conversationId: conv.conversation.id,
-          parts: [{ type: "text", text: "No reconnect needed" }],
-        });
-        const msgEvent = yield* bob.client.waitForNotification(
-          MessageReceivedNotificationDefinition,
-        );
-        expect(
-          (msgEvent.params as { message: { parts: Array<{ text: string }> } })
-            .message.parts[0]!.text,
-        ).toBe("No reconnect needed");
-
-        yield* alice.client.close();
-        yield* bob.client.close();
-      }),
+    connectedParticipantReceivesWithoutReconnect,
   );
 });
 
 describe("Regression: waitForNotification does not double-consume buffered events", () => {
-  it.live(
+  it(
     "sequential waitForNotification calls return distinct events, not duplicates",
-    () =>
-      Effect.gen(function* () {
-        const alice = yield* registerAndConnect("alice-buf");
-        const bob = yield* registerAndConnect("bob-buf");
-
-        const conv = (yield* alice.client.sendRpc(ConversationsCreate, {
-          type: "dm",
-          participants: [{ type: "agent", id: bob.agentId }],
-        })) as { conversation: { id: string } };
-
-        // Set up waiter for first message
-        yield* alice.client.sendRpc(MessagesSend, {
-          conversationId: conv.conversation.id,
-          parts: [{ type: "text", text: "First" }],
-        });
-        const msg1 = yield* bob.client.waitForNotification(
-          MessageReceivedNotificationDefinition,
-        );
-        expect(
-          (msg1.params as { message: { parts: Array<{ text: string }> } })
-            .message.parts[0]!.text,
-        ).toBe("First");
-
-        // Set up waiter for second message — must NOT return "First" again
-        yield* alice.client.sendRpc(MessagesSend, {
-          conversationId: conv.conversation.id,
-          parts: [{ type: "text", text: "Second" }],
-        });
-        const msg2 = yield* bob.client.waitForNotification(
-          MessageReceivedNotificationDefinition,
-        );
-        expect(
-          (msg2.params as { message: { parts: Array<{ text: string }> } })
-            .message.parts[0]!.text,
-        ).toBe("Second");
-
-        yield* alice.client.close();
-        yield* bob.client.close();
-      }),
+    bufferedNotificationsAreConsumedOnce,
   );
 });
 
 describe("Regression: messages/send excludes sender from broadcast", () => {
-  it.live("sender does not receive their own message as an event", () =>
-    Effect.gen(function* () {
-      const alice = yield* registerAndConnect("alice-noecho");
-      const bob = yield* registerAndConnect("bob-noecho");
-
-      const conv = (yield* alice.client.sendRpc(ConversationsCreate, {
-        type: "dm",
-        participants: [{ type: "agent", id: bob.agentId }],
-      })) as { conversation: { id: string } };
-
-      // Bob waits for the message
-
-      // Alice sends
-      yield* alice.client.sendRpc(MessagesSend, {
-        conversationId: conv.conversation.id,
-        parts: [{ type: "text", text: "Only Bob should see this event" }],
-      });
-
-      // Bob receives it
-      const bobMsg = yield* bob.client.waitForNotification(
-        MessageReceivedNotificationDefinition,
-      );
-      expect(bobMsg).toBeDefined();
-
-      // Alice should NOT have received an event — drain her buffer and verify
-      const aliceEvents = alice.client
-        .drainNotifications()
-        .filter((e) => e.definition === MessageReceivedNotificationDefinition);
-      expect(aliceEvents).toHaveLength(0);
-
-      yield* alice.client.close();
-      yield* bob.client.close();
-    }),
+  it(
+    "sender does not receive their own message as an event",
+    senderDoesNotReceiveOwnMessage,
   );
 });

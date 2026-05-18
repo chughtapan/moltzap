@@ -19,15 +19,13 @@ import {
 } from "./wire.js";
 
 type AnyRpcDefinition = RpcDefinition<string, TSchema, TSchema>;
+type HandlerMap<Ctx, R> = ReadonlyMap<JsonRpcMethod, RpcHandler<Ctx, R>>;
+type WireError = {
+  readonly code: number;
+  readonly message: string;
+  readonly data?: unknown;
+};
 
-/**
- * `R` is the handler's Effect requirement environment — the union of
- * service Tags the body pulls via `yield*`. Defaults to `never` so the
- * existing `RpcHandler<Ctx>` shape continues to compile against
- * pre-Phase-2A handlers (R=never). Phase 2A r2 §3 widens this so
- * downstream handlers can carry service Tags structurally; the
- * dispatcher's `ManagedRuntime` resolves R at request time.
- */
 export interface RpcHandler<Ctx = unknown, R = never> {
   readonly definition: AnyRpcDefinition;
   readonly handle: (
@@ -36,11 +34,11 @@ export interface RpcHandler<Ctx = unknown, R = never> {
   ) => Effect.Effect<unknown, unknown, R>;
 }
 
-/** Build an `RpcHandler<Ctx, R>` with definition-typed params/result. The
- * cast erases A and E to `unknown` for storage; `decodeRpcParams` produces
- * a `ParamsOf<D>`-shaped value at runtime, so the erasure is safe. R is
- * preserved through the storage type so the dispatcher's runtime can
- * resolve it. */
+/**
+ * Builds an `RpcHandler&lt;Ctx&gt;` with definition-typed params/result. The
+ * cast erases to `unknown` for storage; `decodeRpcParams` produces a
+ * `ParamsOf&lt;D&gt;`-shaped value at runtime, so the erasure is safe.
+ */
 export const handler = <D extends AnyRpcDefinition, Ctx, R = never>(
   definition: D,
   handle: (
@@ -52,19 +50,10 @@ export const handler = <D extends AnyRpcDefinition, Ctx, R = never>(
   handle: handle as RpcHandler<Ctx, R>["handle"],
 });
 
-/** Pino-shaped logger; pass `null` for silent dispatch. */
-export interface RpcLogger {
-  readonly info: (ctx: Record<string, unknown>, message: string) => void;
-  readonly warn: (ctx: Record<string, unknown>, message: string) => void;
-  readonly error: (ctx: Record<string, unknown>, message: string) => void;
-}
-
-/** Responder side of a JSON-RPC connection. `handle` validates params,
+/**
+ * Responder side of a JSON-RPC connection. `handle` validates params,
  * dispatches the handler, and maps the Effect to a wire `ResponseFrame`.
- *
- * `R` carries the union of all bound handlers' service Tag requirements
- * so the dispatch site (the WS frame loop) can resolve R via the
- * server's `ManagedRuntime`. Defaults to `never` for back-compat. */
+ */
 export interface JsonRpcServer<Ctx = unknown, R = never> {
   readonly handle: (
     frame: RequestFrame,
@@ -74,125 +63,176 @@ export interface JsonRpcServer<Ctx = unknown, R = never> {
 
 export const makeJsonRpcServer = <Ctx = unknown, R = never>(
   handlers: ReadonlyArray<RpcHandler<Ctx, R>>,
-  logger: RpcLogger | null = null,
 ): JsonRpcServer<Ctx, R> => {
+  const handlerByMethod = buildHandlerMap(handlers);
+
+  return {
+    handle: (frame, ctx) => handleJsonRpcRequest(handlerByMethod, frame, ctx),
+  };
+};
+
+const buildHandlerMap = <Ctx, R>(
+  handlers: ReadonlyArray<RpcHandler<Ctx, R>>,
+): HandlerMap<Ctx, R> => {
   const handlerByMethod = new Map<JsonRpcMethod, RpcHandler<Ctx, R>>();
   for (const h of handlers) {
     handlerByMethod.set(h.definition.name, h);
   }
+  return handlerByMethod;
+};
 
-  const handle = (
-    frame: RequestFrame,
-    ctx: Ctx,
-  ): Effect.Effect<ResponseFrame, never, R> =>
-    Effect.gen(function* () {
-      const handler = handlerByMethod.get(frame.method);
-      if (handler === undefined) {
-        return responseFrame(frame.id, {
-          error: {
-            code: JSON_RPC_RESERVED_CODES.MethodNotFound,
-            message: `Method not found: ${frame.method}`,
-          },
-        });
-      }
+const handleJsonRpcRequest = <Ctx, R>(
+  handlerByMethod: HandlerMap<Ctx, R>,
+  frame: RequestFrame,
+  ctx: Ctx,
+): Effect.Effect<ResponseFrame, never, R> =>
+  Effect.gen(function* () {
+    const rpcHandler = handlerByMethod.get(frame.method);
+    if (rpcHandler === undefined) {
+      return methodNotFoundResponse(frame);
+    }
 
-      const paramsResult = yield* Effect.exit(
-        decodeRpcParams(handler.definition, frame.params),
-      );
-      if (Exit.isFailure(paramsResult)) {
-        return responseFrame(frame.id, {
-          error: {
-            code: JSON_RPC_RESERVED_CODES.InvalidParams,
-            message: `Invalid params for method: ${frame.method}`,
-          },
-        });
-      }
+    const paramsResult = yield* Effect.exit(
+      decodeRpcParams(rpcHandler.definition, frame.params),
+    );
+    if (Exit.isFailure(paramsResult)) {
+      return invalidParamsResponse(frame);
+    }
 
-      const startMs = Date.now();
-      const handlerExit = yield* Effect.exit(
-        handler.handle(paramsResult.value, ctx),
-      );
-      const durationMs = Date.now() - startMs;
+    const startMs = Date.now();
+    const handlerExit = yield* Effect.exit(
+      rpcHandler.handle(paramsResult.value, ctx),
+    );
+    const durationMs = Date.now() - startMs;
 
-      if (Exit.isSuccess(handlerExit)) {
-        logger?.info(
-          {
-            requestId: frame.id,
-            method: frame.method,
-            durationMs,
-          },
-          "RPC request completed",
-        );
-        return responseFrame(frame.id, { result: handlerExit.value });
-      }
+    if (Exit.isSuccess(handlerExit)) {
+      return yield* successResponse(frame, durationMs, handlerExit.value);
+    }
 
-      const failure = Cause.failureOption(handlerExit.cause);
-      if (failure._tag === "Some") {
-        const wireError = wireErrorFromInstance(failure.value);
-        if (wireError !== null) {
-          logger?.warn(
-            {
-              requestId: frame.id,
-              method: frame.method,
-              errorCode: wireError.code,
-              durationMs,
-            },
-            wireError.message,
-          );
-          return responseFrame(frame.id, {
-            error: {
-              code: wireError.code,
-              message: wireError.message,
-              ...(wireError.data !== undefined ? { data: wireError.data } : {}),
-            },
-          });
-        }
-      }
+    return yield* failureResponse(frame, durationMs, handlerExit.cause);
+  }).pipe(Effect.withSpan("makeJsonRpcServer"));
 
-      logger?.error(
-        {
-          requestId: frame.id,
-          method: frame.method,
-          cause: Cause.pretty(handlerExit.cause),
-          durationMs,
-        },
-        "RPC handler error",
-      );
-      return responseFrame(frame.id, {
+const methodNotFoundResponse = (frame: RequestFrame): ResponseFrame =>
+  responseFrame(frame.id, {
+    error: {
+      code: JSON_RPC_RESERVED_CODES.MethodNotFound,
+      message: `Method not found: ${frame.method}`,
+    },
+  });
+
+const invalidParamsResponse = (frame: RequestFrame): ResponseFrame =>
+  responseFrame(frame.id, {
+    error: {
+      code: JSON_RPC_RESERVED_CODES.InvalidParams,
+      message: `Invalid params for method: ${frame.method}`,
+    },
+  });
+
+const successResponse = (
+  frame: RequestFrame,
+  durationMs: number,
+  result: unknown,
+): Effect.Effect<ResponseFrame> =>
+  Effect.logInfo("RPC request completed").pipe(
+    Effect.annotateLogs({
+      requestId: frame.id,
+      method: frame.method,
+      durationMs,
+    }),
+    Effect.as(responseFrame(frame.id, { result })),
+  );
+
+const failureResponse = (
+  frame: RequestFrame,
+  durationMs: number,
+  cause: Cause.Cause<unknown>,
+): Effect.Effect<ResponseFrame> => {
+  const failure = Cause.failureOption(cause);
+  if (failure._tag === "Some") {
+    const wireError = wireErrorFromInstance(failure.value);
+    if (wireError !== null) {
+      return knownWireErrorResponse(frame, durationMs, wireError);
+    }
+  }
+  return internalErrorResponse(frame, durationMs, cause);
+};
+
+const knownWireErrorResponse = (
+  frame: RequestFrame,
+  durationMs: number,
+  wireError: WireError,
+): Effect.Effect<ResponseFrame> =>
+  Effect.logWarning(wireError.message).pipe(
+    Effect.annotateLogs({
+      requestId: frame.id,
+      method: frame.method,
+      errorCode: wireError.code,
+      durationMs,
+    }),
+    Effect.as(responseFrame(frame.id, { error: wireError })),
+  );
+
+const internalErrorResponse = (
+  frame: RequestFrame,
+  durationMs: number,
+  cause: Cause.Cause<unknown>,
+): Effect.Effect<ResponseFrame> =>
+  Effect.logError("RPC handler error").pipe(
+    Effect.annotateLogs({
+      requestId: frame.id,
+      method: frame.method,
+      cause: Cause.pretty(cause),
+      durationMs,
+    }),
+    Effect.as(
+      responseFrame(frame.id, {
         error: {
           code: JSON_RPC_RESERVED_CODES.InternalError,
           message: "Internal error",
         },
-      });
-    }).pipe(Effect.withSpan("makeJsonRpcServer"));
+      }),
+    ),
+  );
 
-  return { handle };
+const isRecord = (value: unknown): value is Record<PropertyKey, unknown> =>
+  value !== null && typeof value === "object";
+
+const stringProperty = (
+  value: Record<PropertyKey, unknown>,
+  key: PropertyKey,
+): string | undefined => {
+  const property = value[key];
+  return typeof property === "string" ? property : undefined;
 };
 
-/** Reads wire metadata (code/message/data) off an `RpcErrorClass` instance.
- * Returns `null` when the failure isn't a registered wire-error class
- * (caller routes to InternalError). */
-export function wireErrorFromInstance(value: unknown): {
-  readonly code: number;
-  readonly message: string;
-  readonly data?: unknown;
-} | null {
-  if (value === null || typeof value !== "object") {
-    return null;
+const wireErrorPayload = (
+  cls: RpcErrorClass,
+  message: string,
+  data: unknown,
+): WireError => {
+  if (data === undefined) {
+    return {
+      code: cls.code,
+      message,
+    };
   }
-  if (!isRegisteredErrorInstance(value)) {
+  return {
+    code: cls.code,
+    message,
+    data,
+  };
+};
+
+/**
+ * Reads wire metadata (code/message/data) off an `RpcErrorClass` instance.
+ * Returns `null` when the failure isn't a registered wire-error class
+ * (caller routes to InternalError).
+ */
+export function wireErrorFromInstance(value: unknown): WireError | null {
+  if (!isRecord(value) || !isRegisteredErrorInstance(value)) {
     return null;
   }
   const cls = value.constructor as RpcErrorClass;
-  const instanceMessage =
-    "message" in value &&
-    typeof (value as { message: unknown }).message === "string"
-      ? (value as { message: string }).message
-      : undefined;
-  const data = "data" in value ? (value as { data?: unknown }).data : undefined;
-  return {
-    code: cls.code,
-    message: instanceMessage ?? cls.message,
-    ...(data !== undefined ? { data } : {}),
-  };
+  const message = stringProperty(value, "message") ?? cls.message;
+  return wireErrorPayload(cls, message, value.data);
 }

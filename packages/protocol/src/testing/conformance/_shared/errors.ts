@@ -17,6 +17,8 @@ import { Data } from "effect";
 import { FrameSchemaError } from "./frame-mutator.js";
 import { ToxicControlError } from "../../toxics/errors.js";
 
+export { FrameSchemaError, ToxicControlError };
+
 /** Peer closed the underlying WS before a response arrived. */
 export class TransportClosedError extends Data.TaggedError(
   "TestingTransportClosedError",

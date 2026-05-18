@@ -11,12 +11,22 @@
  * — spec B5 says "identical results", not "identical outcome kinds".
  */
 import { Effect, Either } from "effect";
-import { AgentsList } from "@moltzap/protocol/identity";
-import { ConversationsList } from "@moltzap/protocol/task";
+import { AgentsList } from "../../../identity/methods.js";
+import { ConversationsList } from "../../../task/methods.js";
 import { isIdempotent } from "../../models/dispatch.js";
 import { canonicalJson, sortJsonArray } from "../_shared/canonicalize.js";
-import { makeTestClient } from "../_shared/driver/test-client.js";
+import {
+  makeTestClient,
+  type TestClient,
+} from "../_shared/driver/test-client.js";
 import { registerTestAgent } from "../_shared/test-fixtures.js";
+import type {
+  FrameSchemaError,
+  RpcResponseError,
+  RpcTimeoutError,
+  TransportClosedError,
+  TransportIoError,
+} from "../_shared/errors.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
 import {
   PropertyInvariantViolation,
@@ -29,6 +39,19 @@ const CATEGORY = "rpc-semantics" as const;
 const PROPERTY = "idempotence";
 const DEFAULT_TIMEOUT_MS = 3000;
 const DEFAULT_CAPTURE_CAPACITY = 64;
+const EMPTY_PARAM_IDEMPOTENTS = [AgentsList, ConversationsList] as const;
+
+type EmptyParamIdempotentDefinition = (typeof EMPTY_PARAM_IDEMPOTENTS)[number];
+type ReplayError =
+  | RpcResponseError
+  | RpcTimeoutError
+  | TransportClosedError
+  | TransportIoError
+  | FrameSchemaError;
+type ReplayPair = {
+  readonly a: Either.Either<unknown, ReplayError>;
+  readonly b: Either.Either<unknown, ReplayError>;
+};
 
 export function registerIdempotence(ctx: ConformanceRunContext): void {
   registerProperty(
@@ -36,111 +59,139 @@ export function registerIdempotence(ctx: ConformanceRunContext): void {
     CATEGORY,
     PROPERTY,
     "isIdempotent methods: two sends yield identical response bodies",
-    Effect.gen(function* () {
-      const emptyParamIdempotents = [AgentsList, ConversationsList] as const;
-      for (const definition of emptyParamIdempotents) {
-        const method = definition.name;
-        if (!isIdempotent(method)) {
-          return yield* Effect.fail(
-            new PropertyInvariantViolation({
-              category: CATEGORY,
-              name: PROPERTY,
-              reason: `isIdempotent(${method}) is false — oracle disagreement`,
-            }),
-          );
-        }
-        const pair = yield* Effect.scoped(
-          Effect.gen(function* () {
-            const agent = yield* registerTestAgent({
-              baseUrl: ctx.realServer.baseUrl,
-              name: "id",
-            });
-            const client = yield* makeTestClient({
-              serverUrl: ctx.realServer.wsUrl,
-              agentKey: agent.apiKey,
-              agentId: agent.agentId,
-              defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
-              captureCapacity: DEFAULT_CAPTURE_CAPACITY,
-            });
-            const a = yield* client.sendRpc(definition, {}).pipe(Effect.either);
-            const b = yield* client.sendRpc(definition, {}).pipe(Effect.either);
-            return { a, b };
-          }),
-        ).pipe(
-          Effect.catchTags({
-            TestingAgentRegistrationError: (e) =>
-              Effect.fail(
-                new PropertyUnavailable({
-                  category: CATEGORY,
-                  name: PROPERTY,
-                  reason: `register: ${e.body}`,
-                }),
-              ),
-            TestingTransportIoError: (e) =>
-              Effect.fail(
-                new PropertyUnavailable({
-                  category: CATEGORY,
-                  name: PROPERTY,
-                  reason: `transport io: ${String(e.cause)}`,
-                }),
-              ),
-            TestingTransportClosedError: (e) =>
-              Effect.fail(
-                new PropertyUnavailable({
-                  category: CATEGORY,
-                  name: PROPERTY,
-                  reason: `transport closed: ${e.reason}`,
-                }),
-              ),
-            TestingRpcResponseError: (e) =>
-              Effect.fail(
-                new PropertyUnavailable({
-                  category: CATEGORY,
-                  name: PROPERTY,
-                  reason: `rpc response error: ${e.message}`,
-                }),
-              ),
-          }),
-        );
-        const aTag = eitherTag(pair.a);
-        const bTag = eitherTag(pair.b);
-        if (aTag !== bTag) {
-          return yield* Effect.fail(
-            new PropertyInvariantViolation({
-              category: CATEGORY,
-              name: PROPERTY,
-              reason: `${method}: replay outcome-tag mismatch ${aTag} → ${bTag}`,
-            }),
-          );
-        }
-        const successPair = Either.match(pair.a, {
-          onLeft: () => null,
-          onRight: (a) =>
-            Either.match(pair.b, {
-              onLeft: () => null,
-              onRight: (b) => ({ a, b }),
-            }),
-        });
-        if (successPair !== null) {
-          // Canonical-projection comparison per architect #197 §3.3.
-          // Direct JSON.stringify on wire-derived values is byte-
-          // equality, not semantic equality; a conforming server may
-          // return the list in a different row order across replays.
-          const aCanon = canonIdempotenceResult(method, successPair.a);
-          const bCanon = canonIdempotenceResult(method, successPair.b);
-          if (aCanon !== bCanon) {
-            return yield* Effect.fail(
-              new PropertyInvariantViolation({
-                category: CATEGORY,
-                name: PROPERTY,
-                reason: `${method}: replay bodies diverge under canonical projection`,
-              }),
-            );
-          }
-        }
-      }
-    }).pipe(Effect.withSpan("registerIdempotence")),
+    assertIdempotence(ctx).pipe(Effect.withSpan("registerIdempotence")),
   );
+}
+
+function assertIdempotence(ctx: ConformanceRunContext) {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const client = yield* acquireReplayClient(ctx);
+      for (const definition of EMPTY_PARAM_IDEMPOTENTS) {
+        yield* assertDefinitionIdempotent(client, definition);
+      }
+    }),
+  ).pipe(
+    Effect.catchTags({
+      TestingAgentRegistrationError: (e) =>
+        Effect.fail(unavailable(`register: ${e.body}`)),
+      TestingTransportIoError: (e) =>
+        Effect.fail(unavailable(`transport io: ${String(e.cause)}`)),
+      TestingTransportClosedError: (e) =>
+        Effect.fail(unavailable(`transport closed: ${e.reason}`)),
+      TestingRpcResponseError: (e) =>
+        Effect.fail(unavailable(`rpc response error: ${e.message}`)),
+    }),
+  );
+}
+
+function assertDefinitionIdempotent(
+  client: TestClient,
+  definition: EmptyParamIdempotentDefinition,
+) {
+  return Effect.gen(function* () {
+    const method = definition.name;
+    yield* assertOracleAgrees(method);
+    const pair = yield* sendReplayPair(client, definition);
+    yield* assertReplayOutcomeTags(method, pair);
+    yield* assertReplayBodies(method, pair);
+  });
+}
+
+function assertOracleAgrees(
+  method: typeof AgentsList.name | typeof ConversationsList.name,
+) {
+  return isIdempotent(method)
+    ? Effect.void
+    : Effect.fail(
+        new PropertyInvariantViolation({
+          category: CATEGORY,
+          name: PROPERTY,
+          reason: `isIdempotent(${method}) is false — oracle disagreement`,
+        }),
+      );
+}
+
+function acquireReplayClient(ctx: ConformanceRunContext) {
+  return Effect.gen(function* () {
+    const agent = yield* registerTestAgent({
+      baseUrl: ctx.realServer.baseUrl,
+      name: "id",
+    });
+    return yield* makeTestClient({
+      serverUrl: ctx.realServer.wsUrl,
+      agentKey: agent.apiKey,
+      agentId: agent.agentId,
+      defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
+      captureCapacity: DEFAULT_CAPTURE_CAPACITY,
+    });
+  });
+}
+
+function sendReplayPair(
+  client: TestClient,
+  definition: EmptyParamIdempotentDefinition,
+) {
+  return Effect.gen(function* () {
+    const a = yield* client.sendRpc(definition, {}).pipe(Effect.either);
+    const b = yield* client.sendRpc(definition, {}).pipe(Effect.either);
+    return { a, b } satisfies ReplayPair;
+  });
+}
+
+function unavailable(reason: string): PropertyUnavailable {
+  return new PropertyUnavailable({
+    category: CATEGORY,
+    name: PROPERTY,
+    reason,
+  });
+}
+
+function assertReplayOutcomeTags(
+  method: typeof AgentsList.name | typeof ConversationsList.name,
+  pair: ReplayPair,
+) {
+  const aTag = eitherTag(pair.a);
+  const bTag = eitherTag(pair.b);
+  return aTag === bTag
+    ? Effect.void
+    : Effect.fail(
+        new PropertyInvariantViolation({
+          category: CATEGORY,
+          name: PROPERTY,
+          reason: `${method}: replay outcome-tag mismatch ${aTag} → ${bTag}`,
+        }),
+      );
+}
+
+function assertReplayBodies(
+  method: typeof AgentsList.name | typeof ConversationsList.name,
+  pair: ReplayPair,
+) {
+  const successPair = successPairOrNull(pair);
+  if (successPair === null) return Effect.void;
+  const aCanon = canonIdempotenceResult(method, successPair.a);
+  const bCanon = canonIdempotenceResult(method, successPair.b);
+  return aCanon === bCanon
+    ? Effect.void
+    : Effect.fail(
+        new PropertyInvariantViolation({
+          category: CATEGORY,
+          name: PROPERTY,
+          reason: `${method}: replay bodies diverge under canonical projection`,
+        }),
+      );
+}
+
+function successPairOrNull(pair: ReplayPair) {
+  return Either.match(pair.a, {
+    onLeft: () => null,
+    onRight: (a) =>
+      Either.match(pair.b, {
+        onLeft: () => null,
+        onRight: (b) => ({ a, b }),
+      }),
+  });
 }
 
 /**

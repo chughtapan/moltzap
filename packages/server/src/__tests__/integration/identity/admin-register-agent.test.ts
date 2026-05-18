@@ -1,14 +1,13 @@
 import { describe, expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { it } from "@effect/vitest";
-import { Effect } from "effect";
-import type { Kysely } from "kysely";
-import { PROTOCOL_VERSION, type AppManifest } from "@moltzap/protocol";
-import type { Database } from "../../../db/database.js";
+import { it as effectIt } from "@effect/vitest";
+
+import { Effect, Exit } from "effect";
+import { Connect, PROTOCOL_VERSION, type AppManifest } from "@moltzap/protocol";
 import { parseApiKey } from "../../../identity/services/agent-auth.js";
 import {
-  startTestServer,
-  stopTestServer,
-  resetTestDb,
+  startTestServerEffect,
+  stopTestServerEffect,
+  resetTestDbEffect,
   getKyselyDb,
   getTestCoreApp,
   postJson,
@@ -22,14 +21,23 @@ import {
   HTTP_OK,
 } from "../helpers.js";
 
-import { Connect } from "@moltzap/protocol";
+const it = effectIt.live;
 
 const REGISTRATION_SECRET = "admin-test-secret-zxcv";
-// Arbitrary v4 UUID used as the "system user" identity in arena. moltzap's
-// schema has no users table; this UUID is just a label that satisfies the
-// AppHost null check on `agents.owner_user_id`.
 const SYSTEM_USER_ID = "00000000-0000-4000-8000-000000000001";
 const OTHER_USER_ID = "00000000-0000-4000-8000-000000000002";
+const ADMIN_OWNED_AGENT_NAME = "admin-owned-agent";
+const ROTATING_AGENT_NAME = "rotating-agent";
+const ROTATED_KEY_AGENT_NAME = "rotated-key-rejection";
+const OWNER_MISMATCH_AGENT_NAME = "owner-mismatch-agent";
+const DROP_OWNER_AGENT_NAME = "drop-owner-agent";
+const SUSPENDED_AGENT_NAME = "suspended-agent";
+const CONCURRENT_AGENT_NAME = "concurrent-rotate-agent";
+const PUBLIC_INSERT_ONLY_AGENT_NAME = "public-route-insert-only";
+const REGISTRATION_CONFLICT_CODE = "REGISTRATION_CONFLICT";
+const AGENT_STATUS_SUSPENDED = "suspended";
+const API_KEY_PATTERN = /^moltzap_agent_/;
+const CONCURRENT_ROTATION_CALLS = 2;
 
 const ADMIN_TEST_MANIFEST: AppManifest = {
   appId: "admin-register-test-app",
@@ -39,356 +47,383 @@ const ADMIN_TEST_MANIFEST: AppManifest = {
 
 let baseUrl: string;
 let wsUrl: string;
-let db: Kysely<Database>;
 
-beforeAll(async () => {
-  const server = await startTestServer({
-    registrationSecret: REGISTRATION_SECRET,
-  });
-  baseUrl = server.baseUrl;
-  wsUrl = server.wsUrl;
-  db = getKyselyDb();
-  getTestCoreApp().registerApp(ADMIN_TEST_MANIFEST);
-});
+beforeAll(() =>
+  Effect.runPromise(
+    startTestServerEffect({
+      registrationSecret: REGISTRATION_SECRET,
+    }).pipe(
+      Effect.tap((server) =>
+        Effect.sync(() => {
+          baseUrl = server.baseUrl;
+          wsUrl = server.wsUrl;
+          getTestCoreApp().registerApp(ADMIN_TEST_MANIFEST);
+        }),
+      ),
+    ),
+  ),
+);
 
-afterAll(async () => {
-  await stopTestServer();
-});
+afterAll(() => Effect.runPromise(stopTestServerEffect()));
 
-beforeEach(async () => {
-  await resetTestDb();
-  getTestCoreApp().registerApp(ADMIN_TEST_MANIFEST);
-});
+beforeEach(() =>
+  Effect.runPromise(
+    resetTestDbEffect().pipe(
+      Effect.tap(() =>
+        Effect.sync(() => {
+          getTestCoreApp().registerApp(ADMIN_TEST_MANIFEST);
+        }),
+      ),
+    ),
+  ),
+);
 
 interface AdminRegisterResponse {
   agentId: string;
   apiKey: string;
 }
 
-const postAdmin = (body: Record<string, unknown>) =>
-  postJson(baseUrl, "/api/v1/admin/register-agent", body);
+type ConnectedTestClient =
+  ReturnType<typeof connectTestClient> extends Effect.Effect<infer A, infer _E>
+    ? A
+    : never;
 
-/** Effect-lifted POST to the admin route with `inviteCode` pre-applied. */
+function postAdmin(body: Record<string, unknown>) {
+  return postJson(baseUrl, "/api/v1/admin/register-agent", body);
+}
+
 function adminRegister(body: Record<string, unknown>) {
   return postAdmin({ inviteCode: REGISTRATION_SECRET, ...body });
 }
 
-describe("/api/v1/admin/register-agent — secret-gated ownerUserId", () => {
-  it.live(
-    "registers an agent with explicit ownerUserId when invite code matches",
-    () =>
-      Effect.gen(function* () {
-        const result = yield* postAdmin({
-          name: "admin-owned-agent",
-          inviteCode: REGISTRATION_SECRET,
-          ownerUserId: SYSTEM_USER_ID,
-        });
-        expect(result.status).toBe(HTTP_CREATED);
-        const body = result.json as AdminRegisterResponse;
-        expect(body.agentId).toBeDefined();
-        expect(body.apiKey).toMatch(/^moltzap_agent_/);
+function adminRegisterOwned(
+  name: string,
+  ownerUserId: string = SYSTEM_USER_ID,
+) {
+  return adminRegister({ name, ownerUserId });
+}
 
-        // The agent's owner_user_id is set at insert time — no UPDATE needed.
-        const row = yield* Effect.tryPromise(() =>
-          db
-            .selectFrom("agents")
-            .select(["id", "owner_user_id", "name"])
-            .where("id", "=", body.agentId)
-            .executeTakeFirstOrThrow(),
-        );
-        expect(row.owner_user_id).toBe(SYSTEM_USER_ID);
-        expect(row.name).toBe("admin-owned-agent");
-      }),
+function adminResponse(json: unknown) {
+  return json as AdminRegisterResponse;
+}
+
+function selectAgentIdentity(agentId: string) {
+  return Effect.tryPromise(() =>
+    getKyselyDb()
+      .selectFrom("agents")
+      .select(["id", "owner_user_id", "name"])
+      .where("id", "=", agentId)
+      .executeTakeFirstOrThrow(),
   );
+}
 
-  // Phase 7 cutover removed `apps/create` and `AppHost.createSession`
-  // along with the owner_user_id admission check at the legacy
-  // `app-host.ts:753`. The equivalent task-bootstrap admission flow
-  // moves to Phase 9's TM topology; reactivate this test then.
-  it.todo(
-    "agent registered via admin endpoint passes task-bootstrap owner check (Phase 9 reactivation)",
-  );
+function selectAgentOwner(agentId: string) {
+  return Effect.tryPromise(() =>
+    getKyselyDb()
+      .selectFrom("agents")
+      .select(["owner_user_id"])
+      .where("id", "=", agentId)
+      .executeTakeFirstOrThrow(),
+  ).pipe(Effect.map((row) => row.owner_user_id));
+}
 
-  it.live("rejects when invite code is missing", () =>
-    Effect.gen(function* () {
-      const result = yield* postAdmin({
-        name: "no-invite-code",
-        ownerUserId: SYSTEM_USER_ID,
-      });
-      expect(result.status).toBe(HTTP_FORBIDDEN);
-    }),
-  );
+function selectAgentStatus(agentId: string) {
+  return Effect.tryPromise(() =>
+    getKyselyDb()
+      .selectFrom("agents")
+      .select(["status"])
+      .where("id", "=", agentId)
+      .executeTakeFirstOrThrow(),
+  ).pipe(Effect.map((row) => row.status));
+}
 
-  it.live("rejects when invite code does not match registrationSecret", () =>
-    Effect.gen(function* () {
-      const result = yield* postAdmin({
-        name: "wrong-invite-code",
-        inviteCode: "not-the-real-secret",
-        ownerUserId: SYSTEM_USER_ID,
-      });
-      expect(result.status).toBe(HTTP_FORBIDDEN);
-    }),
-  );
+function selectLiveApiKeyId(agentId: string) {
+  return Effect.tryPromise(() =>
+    getKyselyDb()
+      .selectFrom("agents")
+      .select(["api_key_id"])
+      .where("id", "=", agentId)
+      .executeTakeFirstOrThrow(),
+  ).pipe(Effect.map((row) => row.api_key_id));
+}
 
-  it.live("rejects ownerUserId that is not a UUID", () =>
-    Effect.gen(function* () {
-      const result = yield* postAdmin({
-        name: "bad-owner",
+function suspendAgent(agentId: string) {
+  return Effect.tryPromise(() =>
+    getKyselyDb()
+      .updateTable("agents")
+      .set({ status: AGENT_STATUS_SUSPENDED })
+      .where("id", "=", agentId)
+      .execute(),
+  ).pipe(Effect.asVoid);
+}
+
+function connectManually(agentId: string, apiKey: string) {
+  return Effect.gen(function* () {
+    const client = yield* connectTestClient({
+      wsUrl,
+      agentId,
+      apiKey,
+      autoConnect: false,
+    });
+    trackClient(client);
+    return client;
+  });
+}
+
+function sendConnect(client: ConnectedTestClient, key: string) {
+  return client.sendRpc(Connect, {
+    agentKey: key,
+    minProtocol: PROTOCOL_VERSION,
+    maxProtocol: PROTOCOL_VERSION,
+  }) as Effect.Effect<{ agentId: string }>;
+}
+
+function registersExplicitOwner() {
+  return Effect.gen(function* () {
+    const result = yield* postAdmin({
+      name: ADMIN_OWNED_AGENT_NAME,
+      inviteCode: REGISTRATION_SECRET,
+      ownerUserId: SYSTEM_USER_ID,
+    });
+    expect(result.status).toBe(HTTP_CREATED);
+    const body = adminResponse(result.json);
+    expect(body.agentId).toBeDefined();
+    expect(body.apiKey).toMatch(API_KEY_PATTERN);
+
+    const row = yield* selectAgentIdentity(body.agentId);
+    expect(row.owner_user_id).toBe(SYSTEM_USER_ID);
+    expect(row.name).toBe(ADMIN_OWNED_AGENT_NAME);
+  });
+}
+
+function registersWithoutOwner() {
+  return Effect.gen(function* () {
+    const result = yield* postAdmin({
+      name: "no-owner-agent",
+      inviteCode: REGISTRATION_SECRET,
+    });
+    expect(result.status).toBe(HTTP_CREATED);
+    const body = adminResponse(result.json);
+
+    const ownerUserId = yield* selectAgentOwner(body.agentId);
+    expect(ownerUserId).toBeNull();
+  });
+}
+
+function rejectsMissingInviteCode() {
+  return Effect.gen(function* () {
+    const result = yield* postAdmin({
+      name: "no-invite-code",
+      ownerUserId: SYSTEM_USER_ID,
+    });
+    expect(result.status).toBe(HTTP_FORBIDDEN);
+  });
+}
+
+function rejectsWrongInviteCode() {
+  return Effect.gen(function* () {
+    const result = yield* postAdmin({
+      name: "wrong-invite-code",
+      inviteCode: "not-the-real-secret",
+      ownerUserId: SYSTEM_USER_ID,
+    });
+    expect(result.status).toBe(HTTP_FORBIDDEN);
+  });
+}
+
+function rejectsInvalidOwnerUserId() {
+  return Effect.gen(function* () {
+    const result = yield* postAdmin({
+      name: "bad-owner",
+      inviteCode: REGISTRATION_SECRET,
+      ownerUserId: "not-a-uuid",
+    });
+    expect(result.status).toBe(HTTP_BAD_REQUEST);
+    const body = result.json as { error: string };
+    expect(body.error).toMatch(/UUID/);
+  });
+}
+
+function reregistersSameOwner() {
+  return Effect.gen(function* () {
+    const first = yield* adminRegisterOwned(ROTATING_AGENT_NAME);
+    expect(first.status).toBe(HTTP_CREATED);
+    const firstBody = adminResponse(first.json);
+
+    const second = yield* adminRegisterOwned(ROTATING_AGENT_NAME);
+    expect(second.status).toBe(HTTP_OK);
+    const secondBody = adminResponse(second.json);
+
+    expect(secondBody.agentId).toBe(firstBody.agentId);
+    expect(secondBody.apiKey).not.toBe(firstBody.apiKey);
+    expect(secondBody.apiKey).toMatch(API_KEY_PATTERN);
+  });
+}
+
+function rejectsOldApiKeyAfterReregister() {
+  return Effect.gen(function* () {
+    const first = yield* adminRegisterOwned(ROTATED_KEY_AGENT_NAME);
+    expect(first.status).toBe(HTTP_CREATED);
+    const oldKey = adminResponse(first.json).apiKey;
+
+    const second = yield* adminRegisterOwned(ROTATED_KEY_AGENT_NAME);
+    expect(second.status).toBe(HTTP_OK);
+    const rotated = adminResponse(second.json);
+    expect(rotated.apiKey).not.toBe(oldKey);
+
+    const staleClient = yield* connectManually(rotated.agentId, oldKey);
+    const staleResult = yield* Effect.exit(sendConnect(staleClient, oldKey));
+    expect(Exit.isFailure(staleResult)).toBe(true);
+
+    const freshClient = yield* connectManually(rotated.agentId, rotated.apiKey);
+    const hello = yield* sendConnect(freshClient, rotated.apiKey);
+    expect(hello.agentId).toBe(rotated.agentId);
+  });
+}
+
+function rejectsMismatchedOwnerOnReregister() {
+  return Effect.gen(function* () {
+    const first = yield* adminRegisterOwned(OWNER_MISMATCH_AGENT_NAME);
+    expect(first.status).toBe(HTTP_CREATED);
+
+    const second = yield* adminRegisterOwned(
+      OWNER_MISMATCH_AGENT_NAME,
+      OTHER_USER_ID,
+    );
+    expect(second.status).toBe(HTTP_CONFLICT);
+    expect((second.json as { code?: string }).code).toBe(
+      REGISTRATION_CONFLICT_CODE,
+    );
+  });
+}
+
+function rejectsDroppedOwnerOnReregister() {
+  return Effect.gen(function* () {
+    const first = yield* adminRegisterOwned(DROP_OWNER_AGENT_NAME);
+    expect(first.status).toBe(HTTP_CREATED);
+
+    const second = yield* adminRegister({ name: DROP_OWNER_AGENT_NAME });
+    expect(second.status).toBe(HTTP_CONFLICT);
+  });
+}
+
+function rejectsSuspendedAgentReregister() {
+  return Effect.gen(function* () {
+    const first = yield* adminRegisterOwned(SUSPENDED_AGENT_NAME);
+    expect(first.status).toBe(HTTP_CREATED);
+    const firstBody = adminResponse(first.json);
+
+    yield* suspendAgent(firstBody.agentId);
+
+    const second = yield* adminRegisterOwned(SUSPENDED_AGENT_NAME);
+    expect(second.status).toBe(HTTP_CONFLICT);
+
+    const status = yield* selectAgentStatus(firstBody.agentId);
+    expect(status).toBe(AGENT_STATUS_SUSPENDED);
+  });
+}
+
+function concurrentReregisterReturnsSameAgentId() {
+  return Effect.gen(function* () {
+    const seed = yield* adminRegisterOwned(CONCURRENT_AGENT_NAME);
+    expect(seed.status).toBe(HTTP_CREATED);
+    const seedBody = adminResponse(seed.json);
+
+    const [a, b] = yield* Effect.all(
+      [
+        adminRegisterOwned(CONCURRENT_AGENT_NAME),
+        adminRegisterOwned(CONCURRENT_AGENT_NAME),
+      ],
+      { concurrency: CONCURRENT_ROTATION_CALLS },
+    );
+    expect(a.status).toBe(HTTP_OK);
+    expect(b.status).toBe(HTTP_OK);
+    const aBody = adminResponse(a.json);
+    const bBody = adminResponse(b.json);
+
+    expect(aBody.agentId).toBe(seedBody.agentId);
+    expect(bBody.agentId).toBe(seedBody.agentId);
+    expect(aBody.apiKey).not.toBe(bBody.apiKey);
+    yield* expectLiveKeyIsOneOf(seedBody.agentId, [aBody.apiKey, bBody.apiKey]);
+  });
+}
+
+function expectLiveKeyIsOneOf(agentId: string, apiKeys: string[]) {
+  return Effect.gen(function* () {
+    const liveApiKeyId = yield* selectLiveApiKeyId(agentId);
+    const parsedKeyIds = apiKeys.map((apiKey) => parseApiKey(apiKey)?.keyId);
+    expect(parsedKeyIds).toContain(liveApiKeyId);
+  });
+}
+
+function publicRegisterStaysInsertOnly() {
+  return Effect.gen(function* () {
+    yield* registerAgent(baseUrl, PUBLIC_INSERT_ONLY_AGENT_NAME, {
+      inviteCode: REGISTRATION_SECRET,
+    });
+    const duplicate = yield* Effect.exit(
+      registerAgent(baseUrl, PUBLIC_INSERT_ONLY_AGENT_NAME, {
         inviteCode: REGISTRATION_SECRET,
-        ownerUserId: "not-a-uuid",
-      });
-      expect(result.status).toBe(HTTP_BAD_REQUEST);
-      const body = result.json as { error: string };
-      expect(body.error).toMatch(/UUID/);
-    }),
-  );
-
-  it.live(
-    "registers without ownerUserId — owner_user_id is null when omitted",
-    () =>
-      Effect.gen(function* () {
-        const result = yield* postAdmin({
-          name: "no-owner-agent",
-          inviteCode: REGISTRATION_SECRET,
-        });
-        expect(result.status).toBe(HTTP_CREATED);
-        const body = result.json as AdminRegisterResponse;
-
-        const row = yield* Effect.tryPromise(() =>
-          db
-            .selectFrom("agents")
-            .select(["owner_user_id"])
-            .where("id", "=", body.agentId)
-            .executeTakeFirstOrThrow(),
-        );
-        // devModeUserId is not configured in this test harness, so owner is null.
-        expect(row.owner_user_id).toBeNull();
       }),
+    );
+    expect(Exit.isFailure(duplicate)).toBe(true);
+  });
+}
+
+describe("/api/v1/admin/register-agent - registration", () => {
+  it(
+    "registers an agent with explicit ownerUserId when invite code matches",
+    registersExplicitOwner,
   );
 
-  // ───────────────────────── reentrant upsert (#373) ─────────────────────────
-
-  it.live(
-    "re-register same (name, ownerUserId): same agentId, fresh apiKey, status 200",
-    () =>
-      Effect.gen(function* () {
-        const first = yield* adminRegister({
-          name: "rotating-agent",
-          ownerUserId: SYSTEM_USER_ID,
-        });
-        expect(first.status).toBe(HTTP_CREATED);
-        const firstBody = first.json as AdminRegisterResponse;
-
-        const second = yield* adminRegister({
-          name: "rotating-agent",
-          ownerUserId: SYSTEM_USER_ID,
-        });
-        expect(second.status).toBe(HTTP_OK);
-        const secondBody = second.json as AdminRegisterResponse;
-
-        expect(secondBody.agentId).toBe(firstBody.agentId);
-        expect(secondBody.apiKey).not.toBe(firstBody.apiKey);
-        expect(secondBody.apiKey).toMatch(/^moltzap_agent_/);
-      }),
-  );
-
-  it.live("old apiKey is rejected by network/connect after re-register", () =>
-    Effect.gen(function* () {
-      const first = yield* adminRegister({
-        name: "rotated-key-rejection",
-        ownerUserId: SYSTEM_USER_ID,
-      });
-      expect(first.status).toBe(HTTP_CREATED);
-      const oldKey = (first.json as AdminRegisterResponse).apiKey;
-
-      const second = yield* adminRegister({
-        name: "rotated-key-rejection",
-        ownerUserId: SYSTEM_USER_ID,
-      });
-      expect(second.status).toBe(HTTP_OK);
-      const rotated = second.json as AdminRegisterResponse;
-      expect(rotated.apiKey).not.toBe(oldKey);
-
-      // Old key's api_key_id no longer matches any row → network/connect fails.
-      const staleClient = yield* connectTestClient({
-        wsUrl,
-        agentId: rotated.agentId,
-        apiKey: oldKey,
-        autoConnect: false,
-      });
-      trackClient(staleClient);
-      const staleResult = yield* Effect.exit(
-        staleClient.sendRpc(Connect, {
-          agentKey: oldKey,
-          minProtocol: PROTOCOL_VERSION,
-          maxProtocol: PROTOCOL_VERSION,
-        }),
-      );
-      expect(staleResult._tag).toBe("Failure");
-
-      const freshClient = yield* connectTestClient({
-        wsUrl,
-        agentId: rotated.agentId,
-        apiKey: rotated.apiKey,
-        autoConnect: false,
-      });
-      trackClient(freshClient);
-      const hello = (yield* freshClient.sendRpc(Connect, {
-        agentKey: rotated.apiKey,
-        minProtocol: PROTOCOL_VERSION,
-        maxProtocol: PROTOCOL_VERSION,
-      })) as { agentId: string };
-      expect(hello.agentId).toBe(rotated.agentId);
-    }),
-  );
-
-  it.live("re-register with mismatched ownerUserId returns 409", () =>
-    Effect.gen(function* () {
-      const first = yield* adminRegister({
-        name: "owner-mismatch-agent",
-        ownerUserId: SYSTEM_USER_ID,
-      });
-      expect(first.status).toBe(HTTP_CREATED);
-
-      const second = yield* adminRegister({
-        name: "owner-mismatch-agent",
-        ownerUserId: OTHER_USER_ID,
-      });
-      expect(second.status).toBe(HTTP_CONFLICT);
-      expect((second.json as { code?: string }).code).toBe(
-        "REGISTRATION_CONFLICT",
-      );
-    }),
-  );
-
-  it.live(
-    "re-register without ownerUserId on a row that has one returns 409",
-    () =>
-      Effect.gen(function* () {
-        const first = yield* adminRegister({
-          name: "drop-owner-agent",
-          ownerUserId: SYSTEM_USER_ID,
-        });
-        expect(first.status).toBe(HTTP_CREATED);
-
-        // IS NOT DISTINCT FROM treats NULL ≠ <uuid>; upsert is rejected.
-        const second = yield* adminRegister({ name: "drop-owner-agent" });
-        expect(second.status).toBe(HTTP_CONFLICT);
-      }),
-  );
-
-  it.live(
-    "re-register on a suspended agent returns 409 (does not silently re-arm)",
-    () =>
-      Effect.gen(function* () {
-        const first = yield* adminRegister({
-          name: "suspended-agent",
-          ownerUserId: SYSTEM_USER_ID,
-        });
-        expect(first.status).toBe(HTTP_CREATED);
-        const firstBody = first.json as AdminRegisterResponse;
-
-        yield* Effect.tryPromise(() =>
-          db
-            .updateTable("agents")
-            .set({ status: "suspended" })
-            .where("id", "=", firstBody.agentId)
-            .execute(),
-        );
-
-        const second = yield* adminRegister({
-          name: "suspended-agent",
-          ownerUserId: SYSTEM_USER_ID,
-        });
-        expect(second.status).toBe(HTTP_CONFLICT);
-
-        const row = yield* Effect.tryPromise(() =>
-          db
-            .selectFrom("agents")
-            .select(["status"])
-            .where("id", "=", firstBody.agentId)
-            .executeTakeFirstOrThrow(),
-        );
-        expect(row.status).toBe("suspended");
-      }),
-  );
-
-  it.live(
-    "concurrent re-register: both calls succeed, both return same agentId",
-    () =>
-      Effect.gen(function* () {
-        // Seed the row so both concurrent calls hit the UPDATE branch
-        // (where row-lock serialization matters). Two concurrent INSERTs
-        // with no prior row race on the unique constraint and one would
-        // fail — that race isn't the contract under test.
-        const seed = yield* adminRegister({
-          name: "concurrent-rotate-agent",
-          ownerUserId: SYSTEM_USER_ID,
-        });
-        expect(seed.status).toBe(HTTP_CREATED);
-        const seedBody = seed.json as AdminRegisterResponse;
-
-        const [a, b] = yield* Effect.all(
-          [
-            adminRegister({
-              name: "concurrent-rotate-agent",
-              ownerUserId: SYSTEM_USER_ID,
-            }),
-            adminRegister({
-              name: "concurrent-rotate-agent",
-              ownerUserId: SYSTEM_USER_ID,
-            }),
-          ],
-          { concurrency: "unbounded" },
-        );
-        expect(a.status).toBe(HTTP_OK);
-        expect(b.status).toBe(HTTP_OK);
-        const aBody = a.json as AdminRegisterResponse;
-        const bBody = b.json as AdminRegisterResponse;
-
-        expect(aBody.agentId).toBe(seedBody.agentId);
-        expect(bBody.agentId).toBe(seedBody.agentId);
-        expect(aBody.apiKey).not.toBe(bBody.apiKey);
-
-        // Whichever transaction committed last is the live key — Postgres
-        // row-lock ordering is non-deterministic, so we only assert that
-        // the live key matches one of the two callers (not which one).
-        const liveRow = yield* Effect.tryPromise(() =>
-          db
-            .selectFrom("agents")
-            .select(["api_key_id"])
-            .where("id", "=", seedBody.agentId)
-            .executeTakeFirstOrThrow(),
-        );
-        const aKeyId = parseApiKey(aBody.apiKey)?.keyId;
-        const bKeyId = parseApiKey(bBody.apiKey)?.keyId;
-        expect([aKeyId, bKeyId]).toContain(liveRow.api_key_id);
-      }),
-  );
-
-  it.live(
-    "regression: public /auth/register stays insert-only (duplicate name fails)",
-    () =>
-      // Architect spec #373 decision 5: reentrancy on the public route
-      // would let any REGISTRATION_SECRET holder rotate any existing
-      // agent's apiKey. The public route has no owner-match WHERE.
-      Effect.gen(function* () {
-        yield* registerAgent(baseUrl, "public-route-insert-only", {
-          inviteCode: REGISTRATION_SECRET,
-        });
-        const dup = yield* Effect.exit(
-          registerAgent(baseUrl, "public-route-insert-only", {
-            inviteCode: REGISTRATION_SECRET,
-          }),
-        );
-        expect(dup._tag).toBe("Failure");
-      }),
+  it(
+    "registers without ownerUserId with null owner_user_id",
+    registersWithoutOwner,
   );
 });
 
-// The "registrationSecret-not-configured → 404" branch is exercised
-// indirectly: the route's first action is to reject when the secret is
-// unset. Adding a second harness boot for that single line would 2x the
-// integration-test surface; the existing 32-registration-secret.integration.test.ts
-// already covers the open-server path, and a unit-level assertion belongs in a
-// follow-up if the surface grows.
+describe("/api/v1/admin/register-agent - secret validation", () => {
+  it("rejects when invite code is missing", rejectsMissingInviteCode);
+  it(
+    "rejects when invite code does not match registrationSecret",
+    rejectsWrongInviteCode,
+  );
+  it("rejects ownerUserId that is not a UUID", rejectsInvalidOwnerUserId);
+});
+
+describe("/api/v1/admin/register-agent - reentrant rotation", () => {
+  it(
+    "re-register same (name, ownerUserId): same agentId, fresh apiKey, status 200",
+    reregistersSameOwner,
+  );
+  it(
+    "old apiKey is rejected by network/connect after re-register",
+    rejectsOldApiKeyAfterReregister,
+  );
+  it(
+    "re-register with mismatched ownerUserId returns 409",
+    rejectsMismatchedOwnerOnReregister,
+  );
+});
+
+describe("/api/v1/admin/register-agent - reentrant conflicts", () => {
+  it(
+    "re-register without ownerUserId on a row that has one returns 409",
+    rejectsDroppedOwnerOnReregister,
+  );
+  it(
+    "re-register on a suspended agent returns 409 without re-arming it",
+    rejectsSuspendedAgentReregister,
+  );
+  it(
+    "concurrent re-register: both calls succeed, both return same agentId",
+    concurrentReregisterReturnsSameAgentId,
+  );
+});
+
+describe("/auth/register public route regression", () => {
+  it(
+    "public /auth/register stays insert-only for duplicate names",
+    publicRegisterStaysInsertOnly,
+  );
+});

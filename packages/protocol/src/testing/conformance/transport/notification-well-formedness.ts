@@ -18,10 +18,18 @@ import {
   decodeFrame,
   encodeFrame,
   isNotificationFrame,
+  type AnyFrame,
 } from "../_shared/frame-mutator.js";
-import { NotificationFrameSchema } from "@moltzap/protocol/transport";
+import {
+  NotificationFrameSchema,
+  type NotificationFrame,
+} from "@moltzap/protocol/transport";
 import type { ConformanceRunContext } from "../_shared/runner.js";
-import { assertProperty, registerProperty } from "../_shared/registry.js";
+import {
+  assertProperty,
+  type PropertyAssertionFailure,
+  registerProperty,
+} from "../_shared/registry.js";
 
 const CATEGORY = "schema-conformance" as const;
 const DEFAULT_NOTIFICATION_SCHEMA_RUNS = 20;
@@ -34,27 +42,45 @@ export function registerNotificationWellFormedness(
     CATEGORY,
     "notification-well-formedness",
     "valid notification frame decodes cleanly and re-encodes to match",
-    assertProperty(CATEGORY, "notification-well-formedness", () =>
+    assertProperty(CATEGORY, "notification-well-formedness", (onFailure) =>
+      assertNotificationWellFormedness(ctx, onFailure),
+    ).pipe(Effect.withSpan("registerNotificationWellFormedness")),
+  );
+}
+
+function assertNotificationWellFormedness(
+  ctx: ConformanceRunContext,
+  onFailure: (cause: unknown) => PropertyAssertionFailure,
+): Effect.Effect<void, PropertyAssertionFailure> {
+  return Effect.tryPromise({
+    try: () =>
       Promise.resolve(
         fc.assert(
-          fc.property(arbitraryNotificationFrame(), (frame) => {
-            const raw = encodeFrame(frame);
-            const decoded = Effect.runSync(
-              Effect.either(decodeFrame(raw, "inbound")),
-            );
-            return Either.match(decoded, {
-              onLeft: () => false,
-              onRight: (frame) =>
-                isNotificationFrame(frame) &&
-                Value.Check(NotificationFrameSchema, frame),
-            });
-          }),
+          fc.property(
+            arbitraryNotificationFrame(),
+            notificationFrameDecodesCleanly,
+          ),
           {
             seed: ctx.seed,
             numRuns: ctx.opts.numRuns ?? DEFAULT_NOTIFICATION_SCHEMA_RUNS,
           },
         ),
       ),
-    ).pipe(Effect.withSpan("registerNotificationWellFormedness")),
+    catch: onFailure,
+  });
+}
+
+function notificationFrameDecodesCleanly(frame: NotificationFrame): boolean {
+  const raw = encodeFrame(frame);
+  const decoded = Effect.runSync(Effect.either(decodeFrame(raw, "inbound")));
+  return Either.match(decoded, {
+    onLeft: () => false,
+    onRight: isWellFormedNotificationFrame,
+  });
+}
+
+function isWellFormedNotificationFrame(frame: AnyFrame): boolean {
+  return (
+    isNotificationFrame(frame) && Value.Check(NotificationFrameSchema(), frame)
   );
 }

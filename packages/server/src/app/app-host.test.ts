@@ -135,8 +135,6 @@ describe("AppHost.runMessageAuthorize", () => {
     const { host } = makeAppHost();
     host.setConversationService({
       removeParticipant: () => Effect.void,
-      getParticipantAgentIds: () =>
-        Effect.succeed([SENDER, RECIPIENT] as const),
     });
 
     const result = await Effect.runPromise(

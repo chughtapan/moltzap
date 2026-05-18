@@ -7,20 +7,21 @@
 import { Effect, Option, Stream, Duration, type Scope } from "effect";
 import type { Static } from "@sinclair/typebox";
 
-import { PresenceChangedNotificationDefinition } from "@moltzap/protocol/network";
+import { PresenceChangedNotificationDefinition } from "../../../network/methods.js";
 import { notificationDefinitions } from "../../../rpc-registry.js";
 import {
   decodeNotification,
   isDecodedNotification,
 } from "../../../transport/rpc-groups.js";
-import { PresenceSubscribe } from "@moltzap/protocol/network";
-import { AgentId } from "@moltzap/protocol/identity";
+import { PresenceSubscribe } from "../../../network/methods.js";
+import { AgentId } from "../../../identity/methods.js";
 import {
   makeCloseableTestClient,
   makeTestClient,
   type CloseableTestClient,
   type TestClient,
 } from "../_shared/driver/test-client.js";
+import type { CapturedFrame } from "../_shared/captures.js";
 import { registerTestAgent, type TestAgent } from "../_shared/test-fixtures.js";
 import { isNotificationFrame } from "../_shared/frame-mutator.js";
 import type { ConformanceRunContext } from "../_shared/runner.js";
@@ -199,26 +200,34 @@ export function presenceStatusesFor(
   return Effect.gen(function* () {
     const snap = yield* client.snapshot;
     const statuses: PresenceStatus[] = [];
-    for (const s of snap) {
-      if (s.kind !== "inbound") continue;
-      const frame = s.frame;
-      if (frame === null || !isNotificationFrame(frame)) continue;
-      const notification = yield* decodeNotification(
-        notificationDefinitions,
-        frame,
-      ).pipe(Effect.option);
-      const presenceNotification = Option.filter(notification, (decoded) =>
-        isDecodedNotification(PresenceChangedNotificationDefinition, decoded),
-      );
-      if (Option.isNone(presenceNotification)) {
-        continue;
+    for (const entry of snap) {
+      const status = yield* presenceStatusFromCapture(entry, agentId);
+      if (status !== null) {
+        statuses.push(status);
       }
-      const data = presenceNotification.value.params;
-      if (data.agentId !== agentId) continue;
-      statuses.push(data.status);
     }
     return statuses;
   }).pipe(Effect.withSpan("presenceStatusesFor"));
+}
+
+function presenceStatusFromCapture(
+  entry: CapturedFrame,
+  agentId: AgentIdValue,
+): Effect.Effect<PresenceStatus | null> {
+  return Effect.gen(function* () {
+    if (entry.kind !== "inbound") return null;
+    if (entry.frame === null || !isNotificationFrame(entry.frame)) return null;
+    const notification = yield* decodeNotification(
+      notificationDefinitions,
+      entry.frame,
+    ).pipe(Effect.option);
+    const presenceNotification = Option.filter(notification, (decoded) =>
+      isDecodedNotification(PresenceChangedNotificationDefinition, decoded),
+    );
+    if (Option.isNone(presenceNotification)) return null;
+    const data = presenceNotification.value.params;
+    return data.agentId === agentId ? data.status : null;
+  });
 }
 
 export function countPresenceChangedFor(

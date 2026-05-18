@@ -18,7 +18,6 @@
  * still has a single seam to extend.
  */
 import { Effect } from "effect";
-import { logger } from "../../logger.js";
 import type { AppTmHandler } from "../../network/app-tm-registry.js";
 
 export type DefaultTmKind = "dm" | "group";
@@ -31,13 +30,7 @@ export type DefaultTmKind = "dm" | "group";
 export function makeDefaultTmHandler(kind: DefaultTmKind): AppTmHandler {
   const tmLabel = `default-${kind}-tm`;
   return (payload) =>
-    Effect.sync(() => {
-      // Log at info (the lowest level the server logger emits today).
-      // Drops the payload bytes — the server's existing trace-capture
-      // surface owns full message persistence.
-      logger.info(
-        { payloadBytes: payload.length, tm: tmLabel },
-        `${tmLabel} observed inbound message frame`,
-      );
-    });
+    Effect.logInfo(`${tmLabel} observed inbound message frame`).pipe(
+      Effect.annotateLogs({ payloadBytes: payload.length, tm: tmLabel }),
+    );
 }

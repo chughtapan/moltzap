@@ -1,5 +1,5 @@
 import type { Kysely } from "kysely";
-import { Brand, type Layer } from "effect";
+import type { Layer } from "effect";
 import type { RpcMethodBinding } from "../transport/context.js";
 import type { AppManifest } from "@moltzap/protocol";
 import type { AgentId, UserId } from "@moltzap/protocol/identity";
@@ -22,9 +22,6 @@ import type {
 } from "../runtime-surface/trace-capture.js";
 
 export type { UserId, AgentId, ConversationId };
-
-export type AppId = string & Brand.Brand<"AppId">;
-export const AppId = Brand.nominal<AppId>();
 
 export interface CoreConfig {
   db: Kysely<Database>;
@@ -169,6 +166,7 @@ export interface CoreApp {
     address: EndpointAddress,
     handler: MessageAuthorizeHook,
   ) => void;
+
   /**
    * #529 reshape additive — server-local lease registry for the
    * `dispatch/{request, authorize, release}` admission surface.
