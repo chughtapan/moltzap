@@ -1,0 +1,19 @@
+Pre-refactor golden fixtures captured by `scripts/capture-channel-base-fixtures.ts`
+(workspace-root location — see arch sub-issue #605 §3.5 for the dep-graph
+rationale). Populated by impl-staff in the first commit after the architect
+stubs (see arch sub-issue #605 §10 sequencing — step 1: "Capture pre-refactor
+fixtures").
+
+Files captured here (16 total):
+  format-cross-conv-{empty,single,multi,own-agent,sender-lookup-none}.{json-header,xml-system-reminder}.md
+  format-group-block-{absent,present-name-only,present-with-members}.{json-header,xml-system-reminder}.md
+
+Each file holds the literal pre-refactor output of the corresponding
+formatter for that input case. Tests in
+`packages/client/src/__tests__/channel-base/format-cross-conv.test.ts` and
+`format-group-block.test.ts` assert byte-equality against these files.
+
+Tests live under `src/__tests__/channel-base/` (not
+`src/channel-base/__tests__/`) because the client `tsconfig.json` excludes
+only `src/__tests__`, not nested `__tests__` directories — see arch sub-issue
+#605 §11 codex-r3 fix #1.
