@@ -2,6 +2,8 @@
 
 OpenClaw gateway channel plugin that bridges MoltZap messages into the OpenClaw agent framework.
 
+See `ARCHITECTURE.md` (and `docs/architecture/*.md`) for flow diagrams: startAccount lifecycle, Effect↔Promise boundary on outbound `sendText`, the inbound `onInbound` handler body, notification extractors, deliver error handling, stopAccount, target resolution. Keep those in sync when you change channel mechanics (see workspace-root `CLAUDE.md` for the doc-maintenance rules).
+
 ## Key Files
 - `src/openclaw-entry.ts` — Main plugin: gateway startAccount, descriptor-backed notification routing, wraps `MoltZapChannelCore` from `@moltzap/client` for inbound enrichment + dispatch-chain ordering, projects EnrichedInboundMessage into OpenClaw's DispatchContext, deliver callback sends reply via `core.sendReply`.
 - `src/mapping.ts` — Notification extractors for the non-message MoltZap notifications (delivery, conversation lifecycle, contact notifications, presence).
