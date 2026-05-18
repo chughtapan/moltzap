@@ -88,6 +88,7 @@ export type {
   ConnectionContext,
   DecodedRequest,
   HookFailure,
+  JsonValue,
   OnFullPolicy,
   QueuedHandlerOptions,
   SocketLike,

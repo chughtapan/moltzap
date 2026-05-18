@@ -12,8 +12,10 @@
  * Cite by symbol (PRINCIPLES Part 4 + `feedback_no_line_number_doc_citations`).
  */
 import { Data } from "effect";
+import type * as Socket from "@effect/platform/Socket";
 import type { JsonRpcId, JsonRpcMethod } from "./wire.js";
 import type { RegisteredTaggedError } from "../rpc-registry.js";
+import type { JsonValue } from "./connection/handler.js";
 
 // ── Outbound (writer) error channel ──────────────────────────────────
 
@@ -26,7 +28,7 @@ import type { RegisteredTaggedError } from "../rpc-registry.js";
  * `ws-client.handleIncoming` and `socket-handler.handleSocketData`.
  */
 export class SocketWriteError extends Data.TaggedError("SocketWriteError")<{
-  readonly cause: unknown;
+  readonly cause: Socket.SocketError;
 }> {}
 
 /**
@@ -72,7 +74,7 @@ export class JsonRpcErrorResponse extends Data.TaggedError(
 )<{
   readonly code: number;
   readonly message: string;
-  readonly data?: unknown;
+  readonly data?: JsonValue;
 }> {}
 
 /**
@@ -83,21 +85,20 @@ export class JsonRpcErrorResponse extends Data.TaggedError(
  */
 export class DecodeFailure extends Data.TaggedError("DecodeFailure")<{
   readonly method: JsonRpcMethod;
-  readonly raw: unknown;
+  readonly raw: JsonValue;
 }> {}
 
 /**
- * Re-export alias for the closed union of every wire-coded tagged-error
+ * Type alias for the closed union of every wire-coded tagged-error
  * class. `RpcCallError`'s "remote returned a known tag" arm uses this
  * shape directly — caller code pattern-matches on the inner instance's
  * `_tag` (e.g. `Effect.catchTag("Forbidden", ...)`).
  *
- * Open clarification (flagged for impl-staff): the spec's AC1 lists
- * both `RegisteredTaggedError` (KEEP) and `RemoteTaggedError` (NEW). This
- * stub treats them as the same closed union under two names. If
- * impl-staff prefers a wrapper class (`RemoteTaggedError { inner: RegisteredTaggedError }`)
- * to namespace the failure as "from remote" vs "raised locally," replace
- * this alias accordingly and update `RpcCallError`'s union arm.
+ * Architect decision (resolves the §9 "RemoteTaggedError vs
+ * RegisteredTaggedError" clarification): final shape is an alias to
+ * `RegisteredTaggedError`. The spec's AC1 lists both names; this
+ * keeps the wire-decode path unchanged AND avoids introducing a
+ * wrapper class whose only contribution is namespacing.
  */
 export type RemoteTaggedError = RegisteredTaggedError;
 
@@ -139,7 +140,7 @@ export type RpcCallError =
  * is reserved for the writer side; runRaw is read-only).
  */
 export class SocketReadError extends Data.TaggedError("SocketReadError")<{
-  readonly cause: unknown;
+  readonly cause: Socket.SocketError;
 }> {}
 
 /**
@@ -149,9 +150,13 @@ export class SocketReadError extends Data.TaggedError("SocketReadError")<{
  * (decode errors, schema rejections, hook-rejected auth) are converted
  * to JSON-RPC error responses and consumed inside the pump; they do
  * NOT escape via this error channel.
+ *
+ * `cause` is typed as the Effect cause descriptor (string preview of
+ * the defect) instead of `unknown`; impl-staff narrows further if a
+ * structured cause type is needed.
  */
 export class DispatchPanic extends Data.TaggedError("DispatchPanic")<{
-  readonly cause: unknown;
+  readonly cause: string;
 }> {}
 
 /**

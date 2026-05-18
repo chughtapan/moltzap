@@ -45,6 +45,7 @@ import type {
   ConnectionContext,
   DecodedRequest,
   HookFailure,
+  JsonValue,
   RpcHandler,
   Subscription,
 } from "./handler.js";
@@ -110,16 +111,24 @@ export interface Connection<Ctx = unknown> {
    * short-circuits the chain. Disposal via `Subscription.unsubscribe`
    * is idempotent.
    *
-   * NOTE: This returns `Subscription` synchronously (per spec
-   * literal). Implementations may back it with a sync-accessible Ref;
-   * see "Handler registration contract" in the design doc.
+   * Architect decision (resolves the §9 sync-vs-Effect clarification):
+   * lifted to `Effect&lt;Subscription, never, never>` for symmetry with
+   * `register` and so impl-staff can back it with a `Ref.update` (no
+   * sync-mutation escape hatch). The Effect's error channel is `never`
+   * because installation can't fail — duplicate hooks compose; only
+   * `register` rejects on duplicate-method conflict.
+   *
+   * The hook's `ctx: ConnectionContext&lt;Ctx>` intersects the caller's
+   * `Ctx` with `{ socket: SocketLike }`, so server hooks read both
+   * `connId` / `auth` (from `DispatchContext`) AND `socket` without
+   * closure-only handwaving.
    */
   readonly onRequestDecoded: (
     hook: (
       req: DecodedRequest,
-      ctx: ConnectionContext,
+      ctx: ConnectionContext<Ctx>,
     ) => Effect.Effect<void, HookFailure, never>,
-  ) => Subscription;
+  ) => Effect.Effect<Subscription, never, never>;
 
   // ── Outbound — RPC + notification ──────────────────────────────────
 
@@ -167,7 +176,7 @@ export interface Connection<Ctx = unknown> {
     id: JsonRpcId | null,
     code: number,
     message: string,
-    data?: unknown,
+    data?: JsonValue,
   ) => Effect.Effect<void, SocketWriteError | ConnectionClosedError, never>;
 
   /**
@@ -192,10 +201,17 @@ export interface Connection<Ctx = unknown> {
   ) => Effect.Effect<void, SocketWriteError | ConnectionClosedError, never>;
 
   /**
-   * Reserved code -32001 (Unauthorized, per
-   * `JSON_RPC_RESERVED_CODES.Unauthorized`). Used by the auth gate
-   * wired via `onRequestDecoded`. Spec A "Golden frames" §8 fixes
-   * the wire shape.
+   * Derives the wire code + message from `UnauthorizedError`'s
+   * registered metadata via `wireErrorFromInstance(new UnauthorizedError(...))`.
+   * Current wire shape: `code: -32000`, `message: "Not authenticated.
+   * Send network/connect first."` (cite: `wire-errors.ts → UnauthorizedError`).
+   *
+   * NOTE: Spec A "Golden frames" §8 lists `code: -32001` for the
+   * unauthorized frame; that conflicts with the in-tree
+   * `UnauthorizedError.code = -32000` (and `ForbiddenError.code =
+   * -32001`). The golden fixture impl-staff captures must follow the
+   * in-tree class registry, NOT the spec's literal — i.e. emit
+   * `code: -32000`. Flagged for impl-staff fixture authoring.
    */
   readonly sendUnauthorized: (
     id: JsonRpcId | null,

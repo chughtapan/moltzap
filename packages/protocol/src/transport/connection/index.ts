@@ -15,11 +15,12 @@ export { makeServerConnection, makeClientConnection } from "./connection.js";
 // ── Transport seam ──────────────────────────────────────────────────
 export type { SocketLike } from "./socket-like.js";
 
-// ── Handler-registration shapes ─────────────────────────────────────
+// ── Handler-registration shapes + JSON boundary type ────────────────
 export type {
   ConnectionContext,
   DecodedRequest,
   HookFailure,
+  JsonValue,
   RpcHandler,
   Subscription,
 } from "./handler.js";
