@@ -141,5 +141,7 @@ export function callTool(
 }
 
 export function waitForTransportTick(): Effect.Effect<void, never> {
-  return Effect.sleep(10);
+  return Effect.async<void>((resume) => {
+    globalThis.queueMicrotask(() => resume(Effect.void));
+  });
 }
