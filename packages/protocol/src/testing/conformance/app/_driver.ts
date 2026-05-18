@@ -45,14 +45,12 @@ import {
 } from "@moltzap/protocol/task";
 import type { TaskId } from "../../../task/tasks.js";
 import {
-  AppsRegister,
   DispatchAuthorize,
   DispatchRelease,
   DispatchRequest,
   DispatchesConsumed,
   DispatchesExpired,
   DispatchesGet,
-  type AppManifest,
   type DispatchId,
   type LeaseId,
 } from "../../../app/index.js";
@@ -62,8 +60,15 @@ import {
   makeCloseableTestClient,
   makeTestClient,
   type CloseableTestClient,
+  type ServerRpcParams,
+  type ServerRpcResult,
   type TestClient,
 } from "../_shared/driver/test-client.js";
+import {
+  makeTestAppManifest,
+  registerTestApp,
+  type TestApp,
+} from "../_shared/test-app.js";
 
 // ── Verdict + state aliases (cross-impl driver re-exports) ────────────
 
@@ -367,12 +372,9 @@ function firstRpcResponseError<A>(
   return null;
 }
 
-function verdictToWire(verdict: DispatchVerdict): {
-  readonly admission:
-    | { decision: "grant"; leaseTimeoutMs?: number }
-    | { decision: "deny"; reason?: string }
-    | { decision: "hold"; reason?: string };
-} {
+function verdictToWire(
+  verdict: DispatchVerdict,
+): ServerRpcResult<typeof DispatchAuthorize> {
   switch (verdict._tag) {
     case "grant":
       return verdict.leaseTimeoutMs !== undefined
@@ -426,15 +428,6 @@ function reasonVerdictFromWire(
   reason: unknown,
 ): DispatchVerdict {
   return typeof reason === "string" ? { _tag: tag, reason } : { _tag: tag };
-}
-
-function buildManifest(appId: string, moderatorTimeoutMs: number): AppManifest {
-  return {
-    appId,
-    name: "Conformance Dispatch Test App",
-    conversations: [{ key: "main", name: "Main", participantFilter: "all" }],
-    hooks: { dispatch_authorize: { timeout_ms: moderatorTimeoutMs } },
-  };
 }
 
 type DispatchIdParamsView = { readonly dispatchId?: Static<typeof DispatchId> };
@@ -654,26 +647,17 @@ function rpcErrorState(error: RpcResponseError): string | undefined {
   return typeof state === "string" ? state : undefined;
 }
 
-interface HandlerEntry {
-  readonly cfg: {
-    readonly respondWith: DispatchVerdict;
-    readonly predicate?: (params: {
-      readonly taskId: Static<typeof TaskId>;
-      readonly conversationId: Static<typeof ConversationId>;
-      readonly messageId: Static<typeof MessageId>;
-    }) => boolean;
-    readonly holdResponseFor?: number;
-  };
-}
+type DispatchAuthorizePredicateInput = {
+  readonly taskId: Static<typeof TaskId>;
+  readonly conversationId: Static<typeof ConversationId>;
+  readonly messageId: Static<typeof MessageId>;
+};
 
 interface ModeratorHandleOptions {
   readonly agent: TestAgent;
   readonly client: TestClient;
   readonly appId: string;
-  readonly handlersRef: {
-    value: ReadonlyArray<HandlerEntry>;
-    silenced: boolean;
-  };
+  readonly app: TestApp | null;
 }
 
 interface ResolvedDriverConfig {
@@ -723,8 +707,8 @@ function buildModeratorHandle(opts: ModeratorHandleOptions): ModeratorHandle {
   return {
     agentId: opts.agent.agentId,
     appId: opts.appId,
-    handleAuthorize: (cfg) => handleAuthorize(opts.handlersRef, cfg),
-    silenceAuthorize: silenceAuthorize(opts.handlersRef),
+    handleAuthorize: (cfg) => handleAuthorize(opts.app, cfg),
+    silenceAuthorize: silenceAuthorize(opts.app),
     waitForObservability: (kind, waitOpts) =>
       waitForObservability(opts.client, kind, waitOpts),
     getLease: (dispatchId) => getLease(opts.client, dispatchId),
@@ -732,22 +716,52 @@ function buildModeratorHandle(opts: ModeratorHandleOptions): ModeratorHandle {
 }
 
 function handleAuthorize(
-  handlersRef: ModeratorHandleOptions["handlersRef"],
-  cfg: HandlerEntry["cfg"],
+  app: TestApp | null,
+  cfg: Parameters<ModeratorHandle["handleAuthorize"]>[0],
 ): Effect.Effect<void, PropertyFailure> {
-  return Effect.sync(() => {
-    handlersRef.value = [...handlersRef.value, { cfg }];
-    handlersRef.silenced = false;
-  });
+  return app === null
+    ? missingModeratorApp("handleAuthorize")
+    : app.dispatchAuthorize.handle({
+        respondWith: verdictToWire(cfg.respondWith),
+        ...(cfg.predicate === undefined
+          ? {}
+          : {
+              predicate: (params) =>
+                cfg.predicate?.(authorizePredicateInput(params)) ?? false,
+            }),
+        ...(cfg.holdResponseFor === undefined
+          ? {}
+          : { holdResponseFor: cfg.holdResponseFor }),
+      });
 }
 
 function silenceAuthorize(
-  handlersRef: ModeratorHandleOptions["handlersRef"],
+  app: TestApp | null,
 ): Effect.Effect<void, PropertyFailure> {
-  return Effect.sync(() => {
-    handlersRef.silenced = true;
-    handlersRef.value = [];
-  });
+  return app === null
+    ? missingModeratorApp("silenceAuthorize")
+    : app.dispatchAuthorize.silence;
+}
+
+function missingModeratorApp(
+  method: "handleAuthorize" | "silenceAuthorize",
+): Effect.Effect<never, PropertyFailure> {
+  return Effect.fail(
+    violation(
+      `moderator.${method}`,
+      "driver was configured without an app-bound dispatch_authorize hook",
+    ),
+  );
+}
+
+function authorizePredicateInput(
+  params: ServerRpcParams<typeof DispatchAuthorize>,
+): DispatchAuthorizePredicateInput {
+  return {
+    taskId: params.taskId,
+    conversationId: params.conversationId,
+    messageId: params.message.id,
+  };
 }
 
 function waitForObservability<K extends "consumed" | "expired">(
@@ -841,75 +855,6 @@ function leaseResultFromWire(result: unknown): {
 }
 
 /**
- * Install a single dispatcher on the moderator's TestClient that walks
- * `handlersRef` per inbound `dispatch/authorize` request. The dispatcher
- * is installed ONCE at driver construction time; subsequent
- * `handleAuthorize` calls just push entries onto the ref. This avoids
- * the race where last-wins overwrite of `handleServerRpc` could lose
- * a still-in-flight first-request hold (architect plan §7
- * `release-for-one-lease-does-not-wait-on-another` row).
- */
-function installModeratorAuthorizeDispatcher(
-  client: TestClient,
-  handlersRef: { value: ReadonlyArray<HandlerEntry>; silenced: boolean },
-): Effect.Effect<void> {
-  // Inbound `dispatch/authorize` params shape per `DispatchAuthorize`
-  // descriptor — narrowed locally so the handler can read `taskId` /
-  // `conversationId` / `message.id` via a single typed cast.
-  type AuthorizeParams = {
-    readonly taskId: Static<typeof TaskId>;
-    readonly conversationId: Static<typeof ConversationId>;
-    readonly message: { readonly id: Static<typeof MessageId> };
-  };
-  type AuthorizeResult = {
-    readonly admission:
-      | { decision: "grant"; leaseTimeoutMs?: number }
-      | { decision: "deny"; reason?: string }
-      | { decision: "hold"; reason?: string };
-  };
-  return client.handleServerRpc(
-    DispatchAuthorize,
-    (params): Effect.Effect<AuthorizeResult, RpcResponseError> => {
-      if (handlersRef.silenced) {
-        // Hold forever — server-side TTL fires, synthesizes deny.
-        // `Effect.never` widens to `Effect<never, never, never>`,
-        // which is assignable to any (Result, Error) pair without
-        // casting.
-        return Effect.never;
-      }
-      const ctx = params as AuthorizeParams;
-      const predicateInput = {
-        taskId: ctx.taskId,
-        conversationId: ctx.conversationId,
-        messageId: ctx.message.id,
-      };
-      // Walk in registration order; first matching predicate wins. An
-      // entry without a predicate matches everything (catch-all).
-      const entry = handlersRef.value.find((e) => {
-        const pred = e.cfg.predicate;
-        return pred === undefined || pred(predicateInput);
-      });
-      if (entry === undefined) {
-        // No registered handler for this inbound — hold forever
-        // (server synthesizes deny on its moderator-response TTL).
-        return Effect.never;
-      }
-      const wire = verdictToWire(entry.cfg.respondWith);
-      const reply = Effect.succeed(wire);
-      if (
-        entry.cfg.holdResponseFor !== undefined &&
-        entry.cfg.holdResponseFor > 0
-      ) {
-        return Effect.sleep(Duration.millis(entry.cfg.holdResponseFor)).pipe(
-          Effect.zipRight(reply),
-        );
-      }
-      return reply;
-    },
-  );
-}
-
-/**
  * Acquire a fully-wired driver under the surrounding `Scope`. Releases
  * close every TestClient + drop the `apps/register` registration.
  *
@@ -925,23 +870,18 @@ export function makeDispatchTestDriver(
   return Effect.gen(function* () {
     const agents = yield* acquireDriverAgents(ctx);
     const clients = yield* acquireDriverClients(ctx, agents);
-    yield* registerDriverApp(clients.moderatorClient, resolved);
+    const app = yield* registerDriverApp(clients.moderatorClient, resolved);
     const fixtures = yield* createDriverFixtures(
       clients.moderatorClient,
       resolved.appId,
       agents.recipientAgent,
     );
     const recipient = buildRecipientHandle(clients.recipientAcquired);
-    const handlersRef = makeHandlersRef();
-    yield* installModeratorAuthorizeDispatcher(
-      clients.moderatorClient,
-      handlersRef,
-    );
     const moderator = buildModeratorHandle({
       agent: agents.moderatorAgent,
       client: clients.moderatorClient,
       appId: resolved.appId ?? "",
-      handlersRef,
+      app,
     });
     return buildDispatchDriver({
       ctx,
@@ -996,19 +936,20 @@ function acquireDriverClients(
 function registerDriverApp(
   moderatorClient: TestClient,
   config: ResolvedDriverConfig,
-): Effect.Effect<void, PropertyFailure> {
-  if (config.appId === null) return Effect.void;
-  const manifest = buildManifest(config.appId, config.moderatorTimeoutMs);
-  return moderatorClient
-    .sendRpc(AppsRegister, { manifest })
-    .pipe(
-      Effect.mapError((e) =>
-        violation(
-          SETUP_FAILURE_PROPERTY,
-          `apps/register failed: ${unwrapError(e)}`,
-        ),
-      ),
-    );
+): Effect.Effect<TestApp | null, PropertyFailure> {
+  if (config.appId === null) return Effect.succeed(null);
+  return registerTestApp({
+    client: moderatorClient,
+    manifest: makeTestAppManifest({
+      appId: config.appId,
+      name: "Conformance Dispatch Test App",
+      dispatchAuthorizeTimeoutMs: config.moderatorTimeoutMs,
+    }),
+  }).pipe(
+    Effect.mapError((e) =>
+      violation(SETUP_FAILURE_PROPERTY, `apps/register failed: ${e.message}`),
+    ),
+  );
 }
 
 function createDriverFixtures(
@@ -1076,13 +1017,6 @@ function createDriverConversation(
         ),
       ),
     );
-}
-
-function makeHandlersRef(): ModeratorHandleOptions["handlersRef"] {
-  return {
-    value: [],
-    silenced: false,
-  };
 }
 
 function buildDispatchDriver(parts: DriverBuildParts): DispatchTestDriver {
