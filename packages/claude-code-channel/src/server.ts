@@ -1,23 +1,9 @@
 /**
- * server — MCP stdio server that fronts the Claude Code channel contract.
+ * MCP stdio server fronting the Claude Code channel contract.
  *
- * Transplanted from zapbot `src/claude-channel/server.ts` (verdict §(b) MOVE
- * row 2). Adapted:
- *   - Capability declaration is FIXED to
- *       `{ tools: {}, experimental: { "claude/channel": {} } }`
- *     (spec I3, A14). Zapbot's conditional `enableReplyTool` / permission-
- *     relay branches are removed — reply is mandatory, permission-relay
- *     does not ship (non-goal §3.2, A6).
- *   - Tool set reduced to `reply` only (spec A4, A7). `send_direct_message`
- *     DELETED (non-goal §3.1). `edit_message` OMITTED in v1 (OQ4 default B;
- *     `~/moltzap/packages/protocol/` has no edit-message RPC as of
- *     commit 025ba58 — verified via `grep -rn "edit|update" packages/protocol/src`).
- *   - `reply` tool resolves target conversation via `RoutingState` (OQ5). Tool's
- *     inputSchema is `{text, reply_to?, files?}` exactly per contract; NO
- *     `conversationId` required param.
- *
- * Reference: fakechat/server.ts:59-66 (capability), 67-92 (tool list),
- * 135-148 (notification shape).
+ * Capabilities: `{ tools: {}, experimental: { "claude/channel": {} } }`.
+ * Tools: `reply` only. `reply` resolves the target conversation via
+ * `RoutingState`; inputSchema is `{ text, reply_to?, files? }`.
  */
 
 import { Data, Effect, Either } from "effect";
@@ -59,13 +45,8 @@ function toMcpNotificationParams(
 }
 
 /**
- * Dependencies the server receives from `entry.ts`. The server does not
- * instantiate `MoltZapChannelCore`; the entry module does, and injects the
- * narrow capabilities the server actually uses.
- *
- * `transportFactory` is optional and internal — defaulting to a real
- * `StdioServerTransport`. Tests inject an in-memory transport to exercise
- * handshake and tool-call behavior without spawning subprocesses.
+ * Capabilities the server receives from `entry.ts`. `transportFactory` is an
+ * internal test seam; production defaults to `new StdioServerTransport()`.
  */
 export interface ServerDeps {
   readonly sendReply: (
@@ -110,10 +91,7 @@ interface PendingNotificationState {
   readonly pending: ClaudeChannelNotification[];
 }
 
-/**
- * Schema for the `reply` tool's inputSchema field. Matches contract verbatim
- * (fakechat/server.ts:75-86). Required: `text`. Optional: `reply_to`, `files`.
- */
+/** Schema for the `reply` tool's inputSchema field. Required: `text`. Optional: `reply_to`, `files`. */
 export const REPLY_TOOL_INPUT_SCHEMA = {
   type: "object" as const,
   properties: {
@@ -173,10 +151,6 @@ export type ReplyArgsDecodeResult = Either.Either<
   ReplyArgsInvalid
 >;
 
-/**
- * Decode and validate a raw `reply` tool-call `arguments` object at the MCP
- * boundary (Principle 2). No `as` casts across this seam.
- */
 function invalidReplyArgs(reason: string): ReplyArgsInvalid {
   return new ReplyArgsInvalid({ reason });
 }
@@ -495,13 +469,7 @@ function logMcpCloseFailure(err: unknown): Effect.Effect<void> {
   );
 }
 
-/**
- * Boot the Claude Code channel MCP stdio server.
- *
- * Advertises capabilities `{ tools: {}, experimental: { "claude/channel": {} } }`.
- * Registers exactly one tool: `reply`. No other notification methods, no
- * `send_direct_message`, no `edit_message`, no caller-injected tools.
- */
+/** Boot the Claude Code channel MCP stdio server. */
 export function bootChannelMcpServer(config: ServerConfig, deps: ServerDeps) {
   return Effect.runPromise(bootChannelMcpServerEffect(config, deps));
 }

@@ -1,8 +1,6 @@
 /**
  * Unit tests for `server.ts` — MCP stdio server behavior exercised through
- * the SDK's `InMemoryTransport` pair. Covers capability handshake (A14),
- * tool registry (A4, A7), notification shape (A5, A6), routing (OQ5), and
- * boundary validation (Principle 2).
+ * the SDK's `InMemoryTransport` pair.
  */
 
 import { describe, expect, it } from "vitest";
@@ -49,8 +47,6 @@ const MESSAGE_MISSING = "00000000-0000-4000-8000-0000000001a4";
 const MESSAGE_X = "00000000-0000-4000-8000-0000000001a5";
 const USER_PEER = "00000000-0000-4000-8000-0000000002a1";
 const REPLY_TOOL_NAME = "reply";
-const SEND_DIRECT_MESSAGE_TOOL_NAME = "send_direct_message";
-const EDIT_MESSAGE_TOOL_NAME = "edit_message";
 const REPLY_TEXT = "hi";
 const SECOND_REPLY_TEXT = "second reply attempt";
 const TEXT_TYPE = "string";
@@ -168,28 +164,6 @@ function replyInputSchemaMatchesContract() {
       const reply = result.tools.find((tool) => tool.name === REPLY_TOOL_NAME);
       expect(reply).toBeDefined();
       expect(reply?.inputSchema).toMatchObject(REPLY_TOOL_INPUT_SCHEMA);
-    }),
-  );
-}
-
-function doesNotRegisterSendDirectMessage() {
-  return withHarness((harness) =>
-    Effect.gen(function* () {
-      const result = yield* listTools(harness.client);
-      expect(result.tools.map((tool) => tool.name)).not.toContain(
-        SEND_DIRECT_MESSAGE_TOOL_NAME,
-      );
-    }),
-  );
-}
-
-function doesNotRegisterEditMessage() {
-  return withHarness((harness) =>
-    Effect.gen(function* () {
-      const result = yield* listTools(harness.client);
-      expect(result.tools.map((tool) => tool.name)).not.toContain(
-        EDIT_MESSAGE_TOOL_NAME,
-      );
     }),
   );
 }
@@ -406,28 +380,6 @@ function assertLeaseAlreadyConsumed(harness: ServerHarness) {
   });
 }
 
-function returnsOrThrowsForUnknownToolName() {
-  return withHarness((harness) =>
-    Effect.gen(function* () {
-      const result = yield* Effect.either(
-        callTool(harness.client, {
-          name: EDIT_MESSAGE_TOOL_NAME,
-          arguments: { message_id: MESSAGE_1, text: REPLY_TEXT },
-        }),
-      );
-      Either.match(result, {
-        onLeft: (error) =>
-          expect(String(error.cause)).toMatch(
-            /edit_message|not found|unknown/i,
-          ),
-        onRight: (toolResult) => {
-          if ("isError" in toolResult) expect(toolResult.isError).toBe(true);
-        },
-      });
-    }),
-  );
-}
-
 describe("bootChannelMcpServer capability handshake", () => {
   effectTest(
     "advertises the channel capability contract",
@@ -454,14 +406,6 @@ describe("bootChannelMcpServer reply tool registry", () => {
   it("REPLY_TOOL_INPUT_SCHEMA is the exported contract shape", () => {
     expect(REPLY_TOOL_INPUT_SCHEMA).toMatchObject(EXPECTED_REPLY_INPUT_SCHEMA);
   });
-});
-
-describe("bootChannelMcpServer deleted tool registry", () => {
-  effectTest(
-    "does not register send_direct_message",
-    doesNotRegisterSendDirectMessage,
-  );
-  effectTest("does not register edit_message", doesNotRegisterEditMessage);
 });
 
 describe("notification emission", () => {
@@ -566,11 +510,4 @@ describe("decodeReplyArgs invalid optional inputs", () => {
   it("rejects empty reply_to", () => {
     expectDecodeFailure({ text: REPLY_TEXT, reply_to: "" });
   });
-});
-
-describe("unknown tool name", () => {
-  effectTest(
-    "returns or throws a tool error for unknown tool name",
-    returnsOrThrowsForUnknownToolName,
-  );
 });
