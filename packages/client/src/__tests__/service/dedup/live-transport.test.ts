@@ -1,5 +1,5 @@
 /**
- * Conformance test for inbound messageId dedup: the server double-emits
+ * Live transport test for inbound messageId dedup: the server double-emits
  * the same `messageId` over a real WS transport, and the client's
  * `on("message", ...)` handler surfaces it exactly once.
  *
@@ -32,9 +32,9 @@ import {
   messageId,
   validateRequestFrame,
 } from "@moltzap/protocol/testing";
-import { MoltZapService } from "../../service.js";
+import { MoltZapService } from "../../../service.js";
 import type { Message } from "@moltzap/protocol";
-import { realSleep, waitFor } from "../../ws-client-test-support.js";
+import { realSleep, waitFor } from "../../../ws-client-test-support.js";
 
 const it = effectIt.scoped;
 const LOCALHOST_HOST = "127.0.0.1";
@@ -239,7 +239,7 @@ function dedupsDuplicateThenFresh() {
   });
 }
 
-describe("client conformance — server double-emit dedup", () => {
+describe("MoltZapService live transport — server double-emit dedup", () => {
   it(
     "surfaces the same messageId exactly once when the server emits it twice",
     dedupsDoubleEmit,

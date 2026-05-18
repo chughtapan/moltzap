@@ -1,11 +1,9 @@
 import { expect } from "vitest";
 import { live as it } from "@effect/vitest";
 import { Effect } from "effect";
-import * as H from "./service.integration-support.js";
+import * as H from "../../support/index.js";
 
 H.setupServiceIntegration();
-
-// ─── Group 1: Connection & Core API ──────────────────────────────────────────
 
 it("connect() returns HelloOk with agentId", () =>
   Effect.gen(function* () {
