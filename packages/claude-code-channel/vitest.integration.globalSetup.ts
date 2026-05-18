@@ -19,12 +19,39 @@ import { performance } from "node:perf_hooks";
 import { setTimeout as delay } from "node:timers/promises";
 import type { GlobalSetupContext } from "vitest/node";
 
+const DEFAULT_READY_TIMEOUT_MS = 180_000;
+const PROBE_TIMEOUT_MS = 1_000;
+const PROBE_DELAY_MS = 100;
+
 let child: ChildProcess | null = null;
 let tempDir: string | null = null;
+
+type ChildExit = {
+  readonly code: number | null;
+  readonly signal: NodeJS.Signals | null;
+};
 
 function pickPort(): number {
   // 41990-42240 band per spike-182.
   return 41990 + Math.floor(Math.random() * 250);
+}
+
+function readReadyTimeoutMs(): number {
+  const parsed = Number(
+    process.env.CLAUDE_CODE_CHANNEL_INTEGRATION_READY_TIMEOUT_MS,
+  );
+  return Number.isFinite(parsed) && parsed > 0
+    ? parsed
+    : DEFAULT_READY_TIMEOUT_MS;
+}
+
+function tail(text: string): string {
+  const lines = text.split("\n").filter((line) => line.length > 0);
+  return lines.slice(-20).join("\n");
+}
+
+function standaloneOutput(stdout: string, stderr: string): string {
+  return `stdout tail:\n${tail(stdout)}\nstderr tail:\n${tail(stderr)}`;
 }
 
 async function registerAgent(
@@ -71,7 +98,9 @@ export default async function ({ provide }: GlobalSetupContext) {
   const baseUrl = `http://localhost:${port}`;
   const wsUrl = `ws://localhost:${port}`;
 
+  let stdout = "";
   let stderr = "";
+  let childExit: ChildExit | null = null;
   child = spawn("node", [standalone], {
     cwd: moltzapRoot,
     env: {
@@ -87,19 +116,31 @@ export default async function ({ provide }: GlobalSetupContext) {
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
+  child.stdout?.on("data", (d: Buffer) => {
+    stdout += d.toString();
+  });
   child.stderr?.on("data", (d: Buffer) => {
     stderr += d.toString();
+  });
+  child.once("exit", (code, signal) => {
+    childExit = { code, signal };
   });
 
   // Poll `/api/v1/auth/register` with OPTIONS until ≥200 < 500 (server up).
   const t0 = performance.now();
-  const deadline = t0 + 60_000;
+  const readyTimeoutMs = readReadyTimeoutMs();
+  const deadline = t0 + readyTimeoutMs;
   let ready = false;
   while (performance.now() < deadline) {
+    if (childExit !== null) {
+      throw new Error(
+        `moltzap standalone exited before readiness (code=${childExit.code}, signal=${childExit.signal}). ${standaloneOutput(stdout, stderr)}`,
+      );
+    }
     try {
       const probe = await fetch(`${baseUrl}/api/v1/auth/register`, {
         method: "OPTIONS",
-        signal: AbortSignal.timeout(500),
+        signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
       });
       if (probe.status < 500) {
         ready = true;
@@ -108,12 +149,12 @@ export default async function ({ provide }: GlobalSetupContext) {
     } catch {
       // not yet
     }
-    await delay(50);
+    await delay(PROBE_DELAY_MS);
   }
   if (!ready) {
     child.kill("SIGKILL");
     throw new Error(
-      `moltzap standalone did not become ready within 60s. stderr tail:\n${stderr.split("\n").slice(-20).join("\n")}`,
+      `moltzap standalone did not become ready within ${readyTimeoutMs}ms. ${standaloneOutput(stdout, stderr)}`,
     );
   }
 
